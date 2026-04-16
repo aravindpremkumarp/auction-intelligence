@@ -1,0 +1,37 @@
+name: Resolve feedback
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+jobs:
+  resolve:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Parse feedback IDs from PR body and call API
+        env:
+          BODY: ${{ github.event.pull_request.body }}
+          TOKEN: ${{ secrets.FEEDBACK_RESOLVE_TOKEN }}
+          API: https://auction-api-w68b.onrender.com
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "FEEDBACK_RESOLVE_TOKEN secret not set — skipping."
+            exit 0
+          fi
+          ids=$(printf '%s\n' "$BODY" \
+            | grep -oE 'Resolves feedback:[[:space:]]*[a-f0-9-]+(,[[:space:]]*[a-f0-9-]+)*' \
+            | sed -E 's/Resolves feedback:[[:space:]]*//' \
+            | tr ',' '\n' \
+            | tr -d '[:space:]')
+          if [ -z "$ids" ]; then
+            echo "No 'Resolves feedback: <id>' markers in PR body — nothing to do."
+            exit 0
+          fi
+          for id in $ids; do
+            echo "Resolving feedback id=$id"
+            curl -sf -X PATCH "$API/feedback/$id/resolve" -H "X-Resolve-Token: $TOKEN" \
+              && echo " ok" \
+              || echo " failed (non-fatal)"
+          done
