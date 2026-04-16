@@ -60,6 +60,7 @@ def _install_stub_neo4j_client() -> None:
                 "question": params["question"],
                 "answer": params["answer"],
                 "artifacts_json": params["artifacts_json"],
+                "context_turns_json": params.get("context_turns_json", "[]"),
                 "user_agent": params.get("user_agent"),
                 "created_at": params["created_at"],
                 "resolved": False,
