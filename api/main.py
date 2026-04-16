@@ -122,6 +122,7 @@ class FeedbackRequest(BaseModel):
     question: str
     answer: str
     artifacts: list[dict[str, Any]] | None = None
+    context_turns: list[dict[str, Any]] | None = None
     user_agent: str | None = None
 
 
@@ -134,6 +135,7 @@ class FeedbackRecord(BaseModel):
     question: str
     answer: str
     artifacts: list[dict[str, Any]] | None = None
+    context_turns: list[dict[str, Any]] | None = None
     user_agent: str | None = None
     created_at: str
     resolved: bool = False
@@ -145,12 +147,32 @@ def _strip_artifacts(arts: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
     return [{"tool": a.get("tool"), "args": a.get("args")} for a in arts]
 
 
+def _strip_context_turns(turns: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    """Keep role, content, and tool_calls (tool+args only). Drop everything else."""
+    if not turns:
+        return []
+    out: list[dict[str, Any]] = []
+    for t in turns:
+        role = t.get("role")
+        if role not in ("user", "assistant"):
+            continue
+        entry: dict[str, Any] = {"role": role, "content": (t.get("content") or "")[:2000]}
+        if role == "assistant":
+            entry["tool_calls"] = _strip_artifacts(t.get("tool_calls"))
+        out.append(entry)
+    return out
+
+
 def _feedback_row_to_record(row: dict) -> FeedbackRecord:
     f = row["f"] if "f" in row else row
     try:
         artifacts = json.loads(f.get("artifacts_json") or "[]")
     except json.JSONDecodeError:
         artifacts = []
+    try:
+        context_turns = json.loads(f.get("context_turns_json") or "[]")
+    except json.JSONDecodeError:
+        context_turns = []
     created_at = f.get("created_at")
     # neo4j DateTime → ISO string
     created_at_str = created_at.iso_format() if hasattr(created_at, "iso_format") else str(created_at)
@@ -163,6 +185,7 @@ def _feedback_row_to_record(row: dict) -> FeedbackRecord:
         question=f["question"],
         answer=f["answer"],
         artifacts=artifacts,
+        context_turns=context_turns,
         user_agent=f.get("user_agent"),
         created_at=created_at_str,
         resolved=bool(f.get("resolved", False)),
@@ -174,13 +197,15 @@ async def submit_feedback(req: FeedbackRequest) -> dict:
     fid = str(uuid.uuid4())
     created_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     artifacts_json = json.dumps(_strip_artifacts(req.artifacts))
+    context_turns_json = json.dumps(_strip_context_turns(req.context_turns))
     answer_trimmed = (req.answer or "")[:4000]
     run_query(
         """
         CREATE (f:Feedback {
           id: $id, rating: $rating, text: $text, session_id: $session_id,
           message_index: $message_index, question: $question, answer: $answer,
-          artifacts_json: $artifacts_json, user_agent: $user_agent,
+          artifacts_json: $artifacts_json, context_turns_json: $context_turns_json,
+          user_agent: $user_agent,
           created_at: datetime($created_at), resolved: false
         })
         RETURN f.id AS id
@@ -194,6 +219,7 @@ async def submit_feedback(req: FeedbackRequest) -> dict:
             "question": req.question,
             "answer": answer_trimmed,
             "artifacts_json": artifacts_json,
+            "context_turns_json": context_turns_json,
             "user_agent": req.user_agent,
             "created_at": created_at,
         },

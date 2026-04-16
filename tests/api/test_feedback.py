@@ -20,6 +20,13 @@ def _payload(rating: str = "down", text: str | None = "wrong price") -> dict:
         "question": "price in Chennai?",
         "answer": "about 25 lakh",
         "artifacts": [{"tool": "search_auctions", "args": {"city": "Chennai"}, "result": [1, 2, 3]}],
+        "context_turns": [
+            {"role": "user", "content": "show me flats in Chennai"},
+            {"role": "assistant", "content": "Found 12...", "tool_calls": [
+                {"tool": "search_auctions", "args": {"city": "Chennai", "property_type": "flat"}, "result": "DROPME"},
+            ]},
+            {"role": "user", "content": "price in Chennai?"},
+        ],
         "user_agent": "pytest",
     }
 
@@ -41,6 +48,12 @@ def test_submit_and_list_feedback() -> None:
     assert items[0]["resolved"] is False
     # artifacts were stripped to tool + args only
     assert items[0]["artifacts"] == [{"tool": "search_auctions", "args": {"city": "Chennai"}}]
+    # context_turns round-trip, and assistant tool_calls stripped of `result`
+    ct = items[0]["context_turns"]
+    assert [t["role"] for t in ct] == ["user", "assistant", "user"]
+    assert ct[1]["tool_calls"] == [
+        {"tool": "search_auctions", "args": {"city": "Chennai", "property_type": "flat"}}
+    ]
 
 
 def test_resolve_requires_token() -> None:

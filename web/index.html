@@ -321,6 +321,14 @@ function app() {
       if (m.feedbackSending || m.feedbackSubmitted) return;
       const idx = this.messages.indexOf(m);
       const prevUser = [...this.messages.slice(0, idx)].reverse().find(x => x.role === 'user');
+      // Last 6 messages before the rated reply (~3 turn pairs) for diagnosis context.
+      const contextTurns = this.messages.slice(Math.max(0, idx - 6), idx).map(t => ({
+        role: t.role,
+        content: t.content || '',
+        tool_calls: t.role === 'assistant'
+          ? (t.artifacts || []).map(a => ({ tool: a.tool, args: a.args }))
+          : undefined,
+      }));
       const payload = {
         rating: m.rating,
         text: (m.feedbackText || '').trim() || null,
@@ -329,6 +337,7 @@ function app() {
         question: prevUser ? prevUser.content : '',
         answer: m.content || '',
         artifacts: (m.artifacts || []).map(a => ({ tool: a.tool, args: a.args })),
+        context_turns: contextTurns,
         user_agent: navigator.userAgent,
       };
       m.feedbackSending = true;
