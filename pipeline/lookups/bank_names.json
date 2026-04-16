@@ -1,0 +1,22 @@
+{
+  "aliases": {
+    "Asset  Reconstruction Company (India) Ltd. (Arcil)": "ARCIL",
+    "Asset Reconstruction Company (India) Ltd. (Arcil)": "ARCIL",
+    "TRUHOME FINANCE LIMITED": "TruHome Finance Limited",
+    "THE TAMILNADU INDUSTRIAL INVESTMENT CORPORATION LTD": "TIIC",
+    "PIRAMAL FINANCE LTD": "Piramal Finance Ltd",
+    "U GRO CAPITAL LIMITED": "U GRO Capital Limited",
+    "GRIHUM HOUSING FINANCE LIMITED": "Grihum Housing Finance Limited",
+    "Machinary": "Machinery"
+  },
+  "groups": {
+    "HDFC": ["HDFC Bank", "HDFC Limited"],
+    "ICICI": ["ICICI Bank", "ICICI Home Finance"],
+    "Tata Capital": ["Tata Capital Housing Finance Ltd", "Tata Capital Ltd"],
+    "Aditya Birla": ["Aditya Birla Housing", "Aditya Birla Capital"],
+    "Muthoot": ["Muthoot Fincorp Ltd", "Muthoot Microfin"],
+    "Manappuram": ["Manappuram", "Manappuram Asset"],
+    "APTUS": ["Aptus Value Housing", "APTUS Finance"],
+    "JM Financial": ["JM Financial Asset Reconstruction Company Ltd", "JM Financial Home Loans"]
+  }
+}

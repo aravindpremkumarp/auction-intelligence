@@ -1,0 +1,90 @@
+"""
+pipeline/run_pipeline.py
+------------------------
+Orchestrator: runs all pipeline stages sequentially.
+
+Usage:
+  python -m pipeline.run_pipeline                  # Full run
+  python -m pipeline.run_pipeline --pilot          # First PILOT_SIZE records only
+  python -m pipeline.run_pipeline --limit 50       # First 50 records (overrides --pilot)
+  python -m pipeline.run_pipeline --skip-ocr       # Skip Stage 1 (use existing cache)
+  python -m pipeline.run_pipeline --verify-only    # Only run Stage 1.5 + Stage 4 (verified path)
+  python -m pipeline.run_pipeline --legacy         # Run old Stage 2/3/4 path instead of verify path
+"""
+
+import argparse
+import time
+
+from pipeline.config import PILOT_SIZE
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Bank Auction Intelligence Pipeline")
+    parser.add_argument("--limit", type=int, default=None,
+                        help="Limit number of records (overrides --pilot)")
+    parser.add_argument("--pilot", action="store_true",
+                        help=f"Process first PILOT_SIZE ({PILOT_SIZE}) records only")
+    parser.add_argument("--skip-ocr", action="store_true",
+                        help="Skip OCR extraction (reuse existing cache)")
+    parser.add_argument("--verify-only", action="store_true",
+                        help="Only run verify + load-verified (no OCR, no legacy stages)")
+    parser.add_argument("--legacy", action="store_true",
+                        help="Run old lexical-graph → normalize → load path (instead of verify path)")
+    args = parser.parse_args()
+
+    effective_limit = args.limit if args.limit is not None else (PILOT_SIZE if args.pilot else None)
+
+    t_start = time.time()
+
+    # Stage 1: OCR + Entity Extraction (vision LLM per file, cached)
+    if not args.skip_ocr and not args.verify_only:
+        print("\n" + "="*60)
+        print("STAGE 1: OCR + Entity Extraction")
+        print("="*60)
+        import asyncio
+        from pipeline.ocr_extract import run_extraction
+        asyncio.run(run_extraction(limit=effective_limit))
+    else:
+        print("\n[SKIPPED] Stage 1: OCR Extraction")
+
+    if args.legacy:
+        # Legacy path: build lexical graph, normalize, load flat enrichment.
+        print("\n" + "="*60)
+        print("STAGE 2: Lexical Graph Construction (legacy)")
+        print("="*60)
+        from pipeline.lexical_graph import build_lexical_graph
+        build_lexical_graph()
+
+        print("\n" + "="*60)
+        print("STAGE 3: Entity Normalization (legacy)")
+        print("="*60)
+        from pipeline.normalize import normalize_entities
+        normalize_entities()
+
+        print("\n" + "="*60)
+        print("STAGE 4: Load Enriched Data to Neo4j (legacy)")
+        print("="*60)
+        from pipeline.load_enriched import load_to_neo4j
+        load_to_neo4j()
+    else:
+        # Verify path: compare scraped vs PDF, merge extras, load + Document nodes.
+        print("\n" + "="*60)
+        print("STAGE 1.5: Verify + Enrich (PDF is source of truth)")
+        print("="*60)
+        from pipeline.verify_and_enrich import run as run_verify
+        run_verify(limit=effective_limit, pilot=False)  # limit already resolved
+
+        print("\n" + "="*60)
+        print("STAGE 4: Load Verified + Enriched to Neo4j")
+        print("="*60)
+        from pipeline.load_enriched import load_verified_enriched
+        load_verified_enriched()
+
+    elapsed = time.time() - t_start
+    print(f"\n{'='*60}")
+    print(f"PIPELINE COMPLETE — Total time: {elapsed:.1f}s")
+    print(f"{'='*60}")
+
+
+if __name__ == "__main__":
+    main()

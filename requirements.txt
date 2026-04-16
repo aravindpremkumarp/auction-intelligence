@@ -1,0 +1,21 @@
+# Production requirements for Render deployment.
+# Excludes scraping (selenium, webdriver-manager) and PDF/image generation
+# (weasyprint, pdf2image, Pillow) which are local-only features.
+# For full local dev requirements see config/requirements.txt.
+
+# Core utilities
+python-dotenv
+aiohttp
+rapidfuzz
+pyyaml
+
+# Database
+neo4j
+
+# LLM clients
+openai
+
+# API + Agent layer
+fastapi
+uvicorn[standard]
+pydantic-ai

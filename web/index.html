@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Bank Auction Intelligence</title>
+  <script>
+    // Backend URL: empty = same-origin (local FastAPI dev).
+    // After deploying backend to Render, replace the production URL below.
+    window.API_BASE = (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
+      ? ''
+      : 'https://REPLACE-WITH-RENDER-URL.onrender.com';
+  </script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script defer src="https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <style>
+    body { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    .prose p { margin: 0.5rem 0; }
+    .prose ul { list-style: disc; padding-left: 1.25rem; }
+    .prose code { background: #f1f5f9; padding: 1px 4px; border-radius: 3px; font-size: 0.85em; }
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    .typing-dot { animation: blink 1.2s infinite; }
+    .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+    .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes blink { 0%, 80%, 100% { opacity: 0.2; } 40% { opacity: 1; } }
+  </style>
+</head>
+<body class="h-screen bg-slate-50 text-slate-800">
+
+<div x-data="app()" x-init="init()" class="h-full flex">
+
+  <!-- ── LEFT: CHAT ────────────────────────────────────────────────────── -->
+  <section class="flex-1 flex flex-col border-r border-slate-200 min-w-0">
+    <header class="px-6 py-3 border-b border-slate-200 bg-white flex items-center justify-between">
+      <div>
+        <h1 class="text-lg font-semibold">Bank Auction Intelligence</h1>
+        <p class="text-xs text-slate-500">3,391 Tamil Nadu auctions · Neo4j knowledge graph</p>
+      </div>
+      <button @click="reset()" class="text-xs px-3 py-1 rounded border border-slate-300 hover:bg-slate-100">New chat</button>
+    </header>
+
+    <div class="flex-1 overflow-y-auto px-6 py-4 space-y-4" x-ref="chatPane">
+      <template x-for="(m, idx) in messages" :key="idx">
+        <div>
+          <!-- user -->
+          <template x-if="m.role === 'user'">
+            <div class="flex justify-end">
+              <div class="max-w-[80%] bg-blue-600 text-white rounded-2xl rounded-tr-sm px-4 py-2.5 shadow-sm">
+                <p x-text="m.content" class="whitespace-pre-wrap text-sm"></p>
+              </div>
+            </div>
+          </template>
+          <!-- assistant -->
+          <template x-if="m.role === 'assistant'">
+            <div class="flex justify-start">
+              <div class="max-w-[85%] bg-white border border-slate-200 rounded-2xl rounded-tl-sm px-4 py-3 shadow-sm">
+                <div class="prose prose-sm text-sm" x-html="render(m.content)"></div>
+                <template x-if="m.artifacts && m.artifacts.length">
+                  <div class="mt-3 pt-3 border-t border-slate-100 flex flex-wrap gap-2">
+                    <template x-for="(a, i) in m.artifacts" :key="i">
+                      <button @click="showArtifact(m, i)"
+                              class="text-xs px-2 py-1 rounded bg-violet-50 text-violet-700 border border-violet-200 hover:bg-violet-100"
+                              :class="selectedMessageIdx === idx && selectedArtifactIdx === i ? 'ring-2 ring-violet-400' : ''">
+                        <span class="font-mono" x-text="a.tool"></span>
+                        <span class="text-slate-500 ml-1" x-text="`· ${resultSize(a.result)} result${resultSize(a.result) === 1 ? '' : 's'}`"></span>
+                      </button>
+                    </template>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </template>
+        </div>
+      </template>
+
+      <div x-show="loading" class="flex justify-start">
+        <div class="bg-white border border-slate-200 rounded-2xl rounded-tl-sm px-4 py-3 shadow-sm">
+          <div class="flex gap-1.5">
+            <div class="w-2 h-2 bg-slate-400 rounded-full typing-dot"></div>
+            <div class="w-2 h-2 bg-slate-400 rounded-full typing-dot"></div>
+            <div class="w-2 h-2 bg-slate-400 rounded-full typing-dot"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- input -->
+    <div class="border-t border-slate-200 bg-white p-4">
+      <form @submit.prevent="send()" class="flex gap-2">
+        <textarea x-model="input" x-ref="ta" rows="1" placeholder="Ask about auctions…"
+                  @keydown.enter.prevent="if (!$event.shiftKey) send()"
+                  @input="autosize($event.target)"
+                  class="flex-1 resize-none px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm min-h-[40px] max-h-[160px]"></textarea>
+        <button type="submit" :disabled="loading || !input.trim()"
+                class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">
+          Send
+        </button>
+      </form>
+      <div class="mt-2 flex flex-wrap gap-1.5">
+        <template x-for="s in suggestions" :key="s">
+          <button @click="input = s; send()"
+                  class="text-xs px-2 py-1 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600"
+                  x-text="s"></button>
+        </template>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── RIGHT: ARTIFACTS ─────────────────────────────────────────────── -->
+  <aside class="w-[42%] min-w-[380px] max-w-[720px] flex flex-col bg-white">
+    <header class="px-6 py-3 border-b border-slate-200 flex items-center justify-between">
+      <div>
+        <h2 class="text-sm font-semibold">Artifacts</h2>
+        <p class="text-xs text-slate-500" x-text="currentArtifact ? currentArtifact.tool : 'Click a tool call to inspect'"></p>
+      </div>
+      <div class="flex gap-1" x-show="currentArtifact">
+        <button @click="viewMode = 'table'" :class="viewMode === 'table' ? 'bg-slate-200' : ''"
+                class="text-xs px-2 py-1 rounded hover:bg-slate-100">Table</button>
+        <button @click="viewMode = 'json'" :class="viewMode === 'json' ? 'bg-slate-200' : ''"
+                class="text-xs px-2 py-1 rounded hover:bg-slate-100">JSON</button>
+      </div>
+    </header>
+
+    <div class="flex-1 overflow-auto">
+      <!-- empty state -->
+      <div x-show="!currentArtifact" class="h-full flex items-center justify-center text-slate-400 text-sm px-8 text-center">
+        Artifact preview will appear here when the agent uses a tool. Try asking about auctions in a city, a bank's portfolio, or upcoming deadlines.
+      </div>
+
+      <!-- artifact detail -->
+      <div x-show="currentArtifact" class="p-4 space-y-3">
+        <!-- args card -->
+        <div class="rounded-lg border border-slate-200 bg-slate-50 p-3">
+          <div class="text-xs font-medium text-slate-500 mb-1">Arguments</div>
+          <pre class="text-xs overflow-x-auto whitespace-pre-wrap" x-text="prettyJson(currentArtifact?.args)"></pre>
+        </div>
+
+        <!-- table view -->
+        <template x-if="viewMode === 'table' && Array.isArray(currentArtifact?.result)">
+          <div class="rounded-lg border border-slate-200 overflow-hidden">
+            <div class="px-3 py-2 bg-slate-50 border-b border-slate-200 text-xs">
+              <span class="font-medium" x-text="`${currentArtifact.result.length} row${currentArtifact.result.length === 1 ? '' : 's'}`"></span>
+            </div>
+            <div class="overflow-x-auto" x-show="currentArtifact.result.length">
+              <table class="w-full text-xs">
+                <thead class="bg-slate-50">
+                  <tr>
+                    <template x-for="col in tableColumns(currentArtifact.result)" :key="col">
+                      <th class="px-3 py-2 text-left font-medium text-slate-600 border-b border-slate-200" x-text="col"></th>
+                    </template>
+                  </tr>
+                </thead>
+                <tbody>
+                  <template x-for="(row, rIdx) in currentArtifact.result" :key="rIdx">
+                    <tr class="hover:bg-slate-50 border-b border-slate-100">
+                      <template x-for="col in tableColumns(currentArtifact.result)" :key="col">
+                        <td class="px-3 py-2 align-top" x-text="fmtCell(row[col])"></td>
+                      </template>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+            <div x-show="!currentArtifact.result.length" class="px-3 py-6 text-center text-slate-400 text-xs">
+              No rows returned.
+            </div>
+          </div>
+        </template>
+
+        <!-- JSON view (fallback for non-arrays + toggle) -->
+        <template x-if="viewMode === 'json' || (currentArtifact && !Array.isArray(currentArtifact.result))">
+          <div class="rounded-lg border border-slate-200 bg-slate-900 text-slate-100 p-3 overflow-auto">
+            <pre class="text-xs whitespace-pre-wrap" x-text="prettyJson(currentArtifact?.result)"></pre>
+          </div>
+        </template>
+      </div>
+    </div>
+  </aside>
+</div>
+
+<script>
+function app() {
+  return {
+    messages: [],
+    messageHistory: [],
+    input: '',
+    loading: false,
+    selectedMessageIdx: null,
+    selectedArtifactIdx: null,
+    viewMode: 'table',
+    suggestions: [
+      'Residential auctions in Chennai under 30 lakhs',
+      'What is the price range in Kanchipuram?',
+      'Show auctions with deadline in the next 7 days',
+      'Canara Bank portfolio summary',
+      'Find properties where the boundary mentions a channel or paddy field',
+      'CMDA approved plots near a main road in Sriperumbudur',
+    ],
+
+    init() {
+      this.messages.push({
+        role: 'assistant',
+        content: 'Hi — I can query the auction knowledge graph (3,391 Tamil Nadu properties). Ask about **prices, locations, banks, deadlines, or specific auctions**. I will show the structured results in the artifacts panel on the right.',
+        artifacts: [],
+      });
+    },
+
+    get currentArtifact() {
+      if (this.selectedMessageIdx === null) return null;
+      const m = this.messages[this.selectedMessageIdx];
+      return m?.artifacts?.[this.selectedArtifactIdx] ?? null;
+    },
+
+    showArtifact(msg, i) {
+      const idx = this.messages.indexOf(msg);
+      this.selectedMessageIdx = idx;
+      this.selectedArtifactIdx = i;
+    },
+
+    async send() {
+      const text = this.input.trim();
+      if (!text || this.loading) return;
+      this.messages.push({ role: 'user', content: text });
+      this.input = '';
+      this.autosize(this.$refs.ta);
+      this.loading = true;
+      this.scrollBottom();
+
+      try {
+        const r = await fetch(`${window.API_BASE || ''}/chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: text, message_history: this.messageHistory }),
+        });
+        const data = await r.json();
+        this.messageHistory = data.message_history || [];
+        this.messages.push({
+          role: 'assistant',
+          content: data.answer || '(no answer)',
+          artifacts: data.artifacts || [],
+        });
+        // Auto-select the first artifact if any were produced
+        if (data.artifacts && data.artifacts.length) {
+          this.selectedMessageIdx = this.messages.length - 1;
+          this.selectedArtifactIdx = 0;
+          this.viewMode = Array.isArray(data.artifacts[0].result) ? 'table' : 'json';
+        }
+      } catch (e) {
+        this.messages.push({
+          role: 'assistant',
+          content: `Error: ${e.message}`,
+          artifacts: [],
+        });
+      } finally {
+        this.loading = false;
+        this.scrollBottom();
+      }
+    },
+
+    reset() {
+      this.messages = [];
+      this.messageHistory = [];
+      this.selectedMessageIdx = null;
+      this.selectedArtifactIdx = null;
+      this.init();
+    },
+
+    scrollBottom() {
+      this.$nextTick(() => {
+        const p = this.$refs.chatPane;
+        if (p) p.scrollTop = p.scrollHeight;
+      });
+    },
+
+    autosize(el) {
+      if (!el) return;
+      el.style.height = 'auto';
+      el.style.height = Math.min(el.scrollHeight, 160) + 'px';
+    },
+
+    render(md) {
+      try { return marked.parse(md || ''); }
+      catch { return md; }
+    },
+
+    resultSize(r) {
+      if (Array.isArray(r)) return r.length;
+      if (r && typeof r === 'object') {
+        if (typeof r.total_count === 'number') return r.total_count;
+        if (Array.isArray(r.results)) return r.results.length;
+        return Object.keys(r).length;
+      }
+      return 1;
+    },
+
+    tableColumns(rows) {
+      if (!rows || !rows.length) return [];
+      const cols = new Set();
+      rows.forEach(r => r && typeof r === 'object' && Object.keys(r).forEach(k => cols.add(k)));
+      return [...cols];
+    },
+
+    fmtCell(v) {
+      if (v === null || v === undefined) return '—';
+      if (typeof v === 'number') {
+        if (v > 100000) return v.toLocaleString('en-IN');
+        return Math.round(v * 100) / 100;
+      }
+      if (typeof v === 'object') return JSON.stringify(v);
+      const s = String(v);
+      return s.length > 120 ? s.slice(0, 120) + '…' : s;
+    },
+
+    prettyJson(v) {
+      if (v === undefined || v === null) return '';
+      try { return JSON.stringify(v, null, 2); }
+      catch { return String(v); }
+    },
+  };
+}
+</script>
+</body>
+</html>

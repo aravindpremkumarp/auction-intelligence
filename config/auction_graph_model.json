@@ -1,0 +1,340 @@
+{
+  "style": {
+    "font-family": "Nunito Sans",
+    "background-color": "#F2F2F2",
+    "node-color": "#4C8EDA",
+    "border-width": 0,
+    "border-color": "#000000",
+    "radius": 75,
+    "node-padding": 5,
+    "node-margin": 2,
+    "outside-position": "auto",
+    "icon-position": "inside",
+    "icon-size": 64,
+    "caption-position": "inside",
+    "caption-max-width": 200,
+    "caption-color": "#ffffff",
+    "caption-font-size": 20,
+    "caption-font-weight": "normal",
+    "label-position": "inside",
+    "label-display": "bare",
+    "label-color": "#ffffff",
+    "label-background-color": "#848484",
+    "label-border-color": "#848484",
+    "label-border-width": 3,
+    "label-font-size": 20,
+    "label-padding": 5,
+    "label-margin": 4,
+    "directionality": "directed",
+    "detail-position": "above",
+    "detail-orientation": "parallel",
+    "arrow-width": 3,
+    "arrow-color": "#848484",
+    "margin-start": 5,
+    "margin-end": 5,
+    "margin-peer": 20,
+    "attachment-start": "normal",
+    "attachment-end": "normal",
+    "type-color": "#848484",
+    "type-background-color": "#F2F2F2",
+    "type-border-color": "#848484",
+    "type-border-width": 0,
+    "type-font-size": 21,
+    "type-padding": 5,
+    "property-position": "outside",
+    "property-alignment": "colon",
+    "property-color": "#848484",
+    "property-font-size": 20,
+    "property-font-weight": "normal"
+  },
+  "nodes": [
+    {
+      "id": "n0",
+      "position": { "x": 0, "y": 0 },
+      "caption": "Auction",
+      "labels": ["AuctionProperty"],
+      "properties": {
+        "auction_id": "Auction ID (unique)",
+        "title": "Title",
+        "url": "URL",
+        "description": "Description",
+        "reserve_price": "Reserve Price",
+        "emd": "EMD",
+        "auction_start_date": "Auction Start Date",
+        "auction_end_time": "Auction End Time",
+        "application_submission_date": "Application Submission Date",
+        "downloads": "Downloads",
+        "contact_details": "Contact Details",
+        "service_provider": "Service Provider"
+      },
+      "style": { "node-color": "#fcc400" }
+    },
+    {
+      "id": "n1",
+      "position": { "x": 0, "y": -250 },
+      "caption": "Bank",
+      "labels": ["Bank"],
+      "properties": {
+        "name": "Bank Name"
+      },
+      "style": { "node-color": "#4C8EDA" }
+    },
+    {
+      "id": "n2",
+      "position": { "x": 250, "y": 0 },
+      "caption": "City",
+      "labels": ["City"],
+      "properties": {
+        "name": "City/Town"
+      },
+      "style": { "node-color": "#ab149e" }
+    },
+    {
+      "id": "n3",
+      "position": { "x": 500, "y": 0 },
+      "caption": "State",
+      "labels": ["State"],
+      "properties": {
+        "name": "Province/State"
+      },
+      "style": { "node-color": "#ab149e" }
+    },
+    {
+      "id": "n4",
+      "position": { "x": -250, "y": 0 },
+      "caption": "AssetCategory",
+      "labels": ["AssetCategory"],
+      "properties": {
+        "name": "Asset Category"
+      },
+      "style": { "node-color": "#653294" }
+    },
+    {
+      "id": "n5",
+      "position": { "x": -500, "y": 0 },
+      "caption": "PropertyType",
+      "labels": ["PropertyType"],
+      "properties": {
+        "name": "Property Type"
+      },
+      "style": { "node-color": "#653294" }
+    },
+    {
+      "id": "n6",
+      "position": { "x": 0, "y": 250 },
+      "caption": "Borrower",
+      "labels": ["Borrower"],
+      "properties": {
+        "name": "Borrower Name"
+      },
+      "style": { "node-color": "#0062b1" }
+    },
+    {
+      "id": "n7",
+      "position": { "x": 250, "y": 250 },
+      "caption": "Area",
+      "labels": ["Area"],
+      "properties": {
+        "name": "Area/Town"
+      },
+      "style": { "node-color": "#848484" }
+    },
+    {
+      "id": "n8",
+      "position": { "x": 0, "y": -500 },
+      "caption": "Branch",
+      "labels": ["Branch"],
+      "properties": {
+        "name": "Branch Name"
+      },
+      "style": { "node-color": "#00a8e0" }
+    },
+    {
+      "id": "n9",
+      "position": { "x": -250, "y": -250 },
+      "caption": "AuctionType",
+      "labels": ["AuctionType"],
+      "properties": {
+        "name": "Auction Type"
+      },
+      "style": { "node-color": "#e05c00" }
+    },
+    {
+      "id": "n10",
+      "position": { "x": 500, "y": 250 },
+      "caption": "InvestmentTracker",
+      "labels": ["InvestmentTracker"],
+      "properties": {
+        "auction_id": "Auction ID (unique)",
+        "state": "Pipeline State (DISCOVERED..COMPLETED)",
+        "composite_score": "Composite Investment Score (0-100)",
+        "grade": "Letter Grade (A+..F)",
+        "dimension_scores": "Per-dimension scores (JSON)",
+        "notes": "User Notes",
+        "created_at": "Created At",
+        "updated_at": "Updated At"
+      },
+      "style": { "node-color": "#2aa198" }
+    },
+    {
+      "id": "n11",
+      "position": { "x": 500, "y": 500 },
+      "caption": "InvestorProfile",
+      "labels": ["InvestorProfile"],
+      "properties": {
+        "name": "Profile Name (unique)",
+        "budget_min": "Minimum Budget",
+        "budget_max": "Maximum Budget",
+        "preferred_cities": "Preferred Cities",
+        "preferred_property_types": "Preferred Property Types",
+        "risk_tolerance": "Risk Tolerance"
+      },
+      "style": { "node-color": "#b58900" }
+    },
+    {
+      "id": "n12",
+      "position": { "x": 250, "y": 500 },
+      "caption": "DecisionTrace",
+      "labels": ["DecisionTrace"],
+      "properties": {
+        "trace_id": "Trace ID (unique)",
+        "query": "User Query",
+        "reasoning": "Agent Reasoning Chain",
+        "recommendation": "Recommendation",
+        "confidence": "Confidence Score",
+        "created_at": "Created At"
+      },
+      "style": { "node-color": "#6c71c4" }
+    }
+  ],
+  "relationships": [
+    {
+      "id": "r1",
+      "fromId": "n0",
+      "toId": "n1",
+      "type": "CONDUCTED_BY",
+      "properties": {},
+      "style": {}
+    },
+    {
+      "id": "r2",
+      "fromId": "n0",
+      "toId": "n2",
+      "type": "LOCATED_IN_CITY",
+      "properties": {},
+      "style": {}
+    },
+    {
+      "id": "r3",
+      "fromId": "n2",
+      "toId": "n3",
+      "type": "IN_STATE",
+      "properties": {},
+      "style": {}
+    },
+    {
+      "id": "r4",
+      "fromId": "n0",
+      "toId": "n3",
+      "type": "LOCATED_IN_STATE",
+      "properties": {},
+      "style": {}
+    },
+    {
+      "id": "r5",
+      "fromId": "n0",
+      "toId": "n4",
+      "type": "HAS_ASSET_CATEGORY",
+      "properties": {},
+      "style": {}
+    },
+    {
+      "id": "r6",
+      "fromId": "n4",
+      "toId": "n5",
+      "type": "HAS_TYPE",
+      "properties": {},
+      "style": {}
+    },
+    {
+      "id": "r7",
+      "fromId": "n0",
+      "toId": "n6",
+      "type": "HAS_BORROWER",
+      "properties": {},
+      "style": {}
+    },
+    {
+      "id": "r8",
+      "fromId": "n0",
+      "toId": "n7",
+      "type": "LOCATED_IN_AREA",
+      "properties": {},
+      "style": {}
+    },
+    {
+      "id": "r9",
+      "fromId": "n7",
+      "toId": "n2",
+      "type": "PART_OF_CITY",
+      "properties": {},
+      "style": {}
+    },
+    {
+      "id": "r10",
+      "fromId": "n1",
+      "toId": "n8",
+      "type": "HAS_BRANCH",
+      "properties": {},
+      "style": {}
+    },
+    {
+      "id": "r11",
+      "fromId": "n0",
+      "toId": "n8",
+      "type": "LISTED_BY_BRANCH",
+      "properties": {},
+      "style": {}
+    },
+    {
+      "id": "r12",
+      "fromId": "n0",
+      "toId": "n9",
+      "type": "IS_AUCTION_TYPE",
+      "properties": {},
+      "style": {}
+    },
+    {
+      "id": "r13",
+      "fromId": "n0",
+      "toId": "n10",
+      "type": "TRACKED_BY",
+      "properties": {},
+      "style": {}
+    },
+    {
+      "id": "r14",
+      "fromId": "n11",
+      "toId": "n0",
+      "type": "INTERESTED_IN",
+      "properties": {},
+      "style": {}
+    },
+    {
+      "id": "r15",
+      "fromId": "n12",
+      "toId": "n0",
+      "type": "ABOUT",
+      "properties": {},
+      "style": {}
+    },
+    {
+      "id": "r16",
+      "fromId": "n12",
+      "toId": "n11",
+      "type": "REQUESTED_BY",
+      "properties": {},
+      "style": {}
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+selenium
+webdriver-manager
+python-dotenv
+tqdm
+openai
+pdf2image
+rapidfuzz
+Pillow
+aiohttp
+neo4j
+
+# API + Agent layer (Phase 1)
+fastapi
+uvicorn[standard]
+pydantic-ai
+pyyaml
+
+# Report generation (Phase 4)
+weasyprint
+jinja2

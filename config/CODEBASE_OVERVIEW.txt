@@ -1,0 +1,160 @@
+# Bank Auction Intelligence — Codebase Overview
+
+AI-powered intelligence system for Indian SARFAESI Act bank property auctions.
+Starts with a scraper for `eauctionsindia.com`, builds a Neo4j knowledge graph
+of Tamil Nadu auctions, enriches it via OCR + LLM extraction, and serves a
+PydanticAI agent (FastAPI + web UI) that scores and tracks investment
+opportunities.
+
+## High-Level Flow
+
+    scrape → clean/filter TN → load Neo4j → OCR+extract →
+    lexical graph → normalize → load enriched → score/track → serve via API
+
+## Top-Level Layout
+
+- `domain_ontology.yaml` — Canonical entity/relationship/property schema for
+  the whole system (AuctionProperty, Bank, Branch, City/State/Area,
+  AssetCategory, PropertyType, Borrower, AuctionType, + enriched fields:
+  possession_type, survey numbers, village/taluk/district, etc.).
+- `auction_graph_model.json` — Arrows.app visual graph model (mirrors ontology).
+- `Neo4j-cc513ea9-Created-2026-03-11.txt` — Aura connection credentials.
+- `requirements.txt` — Python dependencies.
+- `CODEBASE_OVERVIEW.txt` — This document.
+
+## 1. Scraping Layer (root scripts)
+
+- `fast_eauctions_scraper.py` — Primary multi-threaded scraper. Crawls
+  pagination, dedupes against existing data, parses detail pages with
+  BeautifulSoup, downloads linked PDFs to `downloads/live_properties/`, and
+  appends to JSONL.
+- `eauctions_scraper.py` / `scraper.py` — Earlier single-threaded versions.
+- `scraper_controls.py`, `utils.py` — Shared scraper helpers.
+- Diagnostic/utility scripts: `check_*.py`, `debug_*.py`, `explore_*.py`,
+  `fuzz_pagination.py`, `test_*.py`, `find_count_selector.py`,
+  `verify_download_fix.py`, `fix_extensions.py`, `compare_urls.py`,
+  `remove_duplicates.py`, `dump_text.py`, `diagnose_stuck.py`,
+  `get_keys.py`, `convert_to_excel.py`.
+- `live_eauction_data.jsonl` / `.csv` — Raw all-India dataset (~44K records).
+- `scrape_errors.log` — Scraper error log.
+- `downloads/` — Downloaded auction documents (PDFs, images).
+
+## 2. TN Data Preparation
+
+- `prepare_tn_data.py` — Filters raw JSONL to Tamil Nadu, normalizes prices
+  (₹/commas → float), dates (DD-MM-YYYY HHMM AM/PM → ISO 8601), and
+  downloads list. Validates file existence → `downloads_complete` flag.
+- `tn_auction_data.jsonl` — Cleaned TN-only dataset (3,391 records). Primary
+  input for Neo4j ingestion.
+- `tn_download_report.txt` — Download coverage report.
+- `load_tn_to_neo4j.py` — Creates constraints/indexes and batch-MERGEs nodes
+  and relationships into Neo4j Aura.
+
+## 3. Enrichment Pipeline (`pipeline/`)
+
+Four-stage pipeline that turns downloaded auction PDFs into enriched graph data.
+
+- `config.py` — Central config: OpenRouter keys/model, Neo4j creds, scoring
+  weights, decision thresholds, path constants, tracking TSV location.
+- `run_pipeline.py` — Orchestrator. Runs stages 1–4 sequentially. Flags:
+  `--limit N` (OCR subset), `--skip-ocr`.
+- `ocr_extract.py` — Stage 1: OCRs PDFs and calls an LLM (OpenRouter / Gemini
+  2.0 Flash) with `prompts/extract_auction.txt` to extract structured
+  auction fields. Writes `output/extracted.jsonl`.
+- `lexical_graph.py` — Stage 2: Builds a lexical graph over extracted text
+  (chunks + entity mentions). Writes `output/lexical.jsonl`.
+- `normalize.py` — Stage 3: Normalizes entity names (banks, locations,
+  property types) against `lookups/bank_names.json`, `locations.json`,
+  `property_types.json`. Writes `output/normalized.jsonl` +
+  `output/normalization_report.txt`.
+- `load_enriched.py` — Stage 4: Merges enriched properties, survey details,
+  possession info, and geographic hierarchy into Neo4j.
+- `cache/` — Per-document cache for OCR/LLM calls (expensive to recompute).
+- `prompts/extract_auction.txt` — Prompt template for LLM extraction.
+
+## 4. Scoring (`scoring/`)
+
+- `auction_scorer.py` — Ten-dimensional investment scoring. Each dimension
+  returns 0–100; composite is weighted avg per `SCORING_WEIGHTS`. Persists
+  `Score` nodes on properties in Neo4j.
+
+Dimensions (weights in `modes/_shared.md`):
+  A Price Attractiveness 20% · B Location Quality 15% ·
+  C Legal Clarity 15% · D Bank Reliability 10% ·
+  E Property Condition 10% · F Timeline Urgency 10% ·
+  G Due Diligence Ease 5% · H Area Price Trend 5% ·
+  I Competition Risk 5% · J Yield Potential 5%
+
+## 5. Tracking (`tracking/`)
+
+- `auction_tracker.py` — Eight-state investment pipeline:
+  DISCOVERED → SCORED → SHORTLISTED → RESEARCHING → BID_READY →
+  BID_SUBMITTED → WON/LOST → COMPLETED.
+  Transitions past SCORED require human-in-the-loop confirmation.
+  Persists `InvestmentTracker` nodes in Neo4j + TSV mirror.
+
+## 6. Agent API (`api/`)
+
+- `main.py` — FastAPI app. Serves `/web` static UI and agent endpoints.
+  Run: `uvicorn api.main:app --reload`.
+- `agent.py` — PydanticAI agent wired to OpenRouter (Gemini 2.0 Flash).
+  System prompt encodes schema hints (asset_category vs property_type
+  vocabularies, ~3,391 TN records) and usage rules (ground every answer in
+  tool results, cite auction_id, confirm state changes).
+- `neo4j_client.py` — Shared Neo4j driver / `run_query` helper.
+- `tools/cypher_tools.py` — Agent tools: parameterized Cypher queries,
+  scoring invocations, tracker state transitions.
+
+## 7. Modes (`modes/*.md`)
+
+Markdown "mode" prompts the agent can switch into:
+- `_shared.md` — Shared 10-dim scoring framework.
+- `scan.md` — Broad search of opportunities.
+- `shortlist.md` — Narrow to candidates.
+- `evaluate.md` — Deep score one property.
+- `compare.md` — Side-by-side comparison.
+- `deep-research.md` — Document-level due diligence.
+- `report.md` — Portfolio / pipeline reporting.
+- `track.md` — Move items through the 8-state pipeline.
+- `refresh.md` — Re-score after new data.
+
+## 8. Web UI (`web/`)
+
+- `index.html` — Single-page chat UI served by FastAPI, talking to the
+  agent endpoint.
+
+## 9. Reports (`reports/output/`)
+
+Generated artifacts from `report` / `scan` modes.
+
+## Neo4j Graph Model
+
+Nodes: `AuctionProperty`, `Bank`, `Branch`, `City`, `State`, `Area`,
+`AssetCategory`, `PropertyType`, `Borrower`, `AuctionType`, plus enrichment
+nodes (`Score`, `InvestmentTracker`, and possession/survey detail nodes
+added by `load_enriched.py`).
+
+Key relationships:
+  (AuctionProperty)-[:CONDUCTED_BY]->(Bank)
+  (Bank)-[:HAS_BRANCH]->(Branch)
+  (AuctionProperty)-[:LISTED_BY_BRANCH]->(Branch)
+  (AuctionProperty)-[:LOCATED_IN_CITY|LOCATED_IN_STATE|LOCATED_IN_AREA]->(...)
+  (Area)-[:PART_OF_CITY]->(City)-[:IN_STATE]->(State)
+  (AuctionProperty)-[:HAS_ASSET_CATEGORY]->(AssetCategory)-[:HAS_TYPE]->(PropertyType)
+  (AuctionProperty)-[:HAS_BORROWER]->(Borrower)
+  (AuctionProperty)-[:IS_AUCTION_TYPE]->(AuctionType)
+
+See `domain_ontology.yaml` for the full property-level schema.
+
+## Typical End-to-End Run
+
+    python fast_eauctions_scraper.py           # 1. Scrape
+    python prepare_tn_data.py                  # 2. Clean TN subset
+    python load_tn_to_neo4j.py                 # 3. Load base graph
+    python -m pipeline.run_pipeline            # 4. Enrich (OCR→normalize→load)
+    uvicorn api.main:app --reload              # 5. Serve agent + web UI
+
+## Last Execution Status
+
+- Scraper (`fast_eauctions_scraper.py`) was run and verified to be fully up-to-date as of the latest session. No new un-scraped items were found in the recent runs, meaning `live_eauction_data.jsonl` contains the most current data.
+- The `prepare_tn_data.py` script was executed to sync `tn_auction_data.jsonl` with `live_eauction_data.jsonl`, resulting in 4,788 clean Tamil Nadu records.

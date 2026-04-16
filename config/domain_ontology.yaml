@@ -1,0 +1,236 @@
+id: bank_auction_intelligence
+name: Bank Auction Intelligence
+description: >
+  AI-powered intelligence system for Indian SARFAESI Act bank property auctions.
+  Users query a Neo4j knowledge graph of auction properties to find investment
+  opportunities, compare prices across locations, analyze bank portfolios, perform
+  due diligence, and track their investment pipeline.
+
+version: "0.1.0"
+
+entity_types:
+  AuctionProperty:
+    description: A single bank auction listing
+    key: auction_id
+    properties:
+      auction_id: {type: string, unique: true}
+      title: {type: string}
+      url: {type: string}
+      description: {type: text}
+      reserve_price_num: {type: float}
+      emd_num: {type: float}
+      auction_start_dt: {type: datetime}
+      auction_end_dt: {type: datetime}
+      application_deadline_dt: {type: datetime}
+      possession_type: {type: string, enum: [Physical, Symbolic, Constructive, Unknown]}
+      total_area: {type: string}
+      village: {type: string}
+      taluk: {type: string}
+      district: {type: string}
+      registration_district: {type: string}
+      registration_sub_district: {type: string}
+      description_completeness: {type: float}
+      extraction_date: {type: datetime}
+
+  Bank:
+    description: Bank conducting the auction
+    key: name
+    properties:
+      name: {type: string, unique: true}
+
+  Branch:
+    description: Specific bank branch listing the auction
+    key: name
+    properties:
+      name: {type: string, unique: true}
+
+  City:
+    key: name
+    properties:
+      name: {type: string, unique: true}
+
+  State:
+    key: name
+    properties:
+      name: {type: string, unique: true}
+
+  Area:
+    description: Sub-area or locality within a city
+    key: name
+    properties:
+      name: {type: string, unique: true}
+
+  AssetCategory:
+    description: Top-level asset classification (Immovable, Movable, etc.)
+    key: name
+    properties:
+      name: {type: string, unique: true}
+
+  PropertyType:
+    description: Property classification (Residential, Commercial, Plot, etc.)
+    key: name
+    properties:
+      name: {type: string, unique: true}
+
+  Borrower:
+    description: Original borrower whose property is being auctioned
+    key: name
+    properties:
+      name: {type: string, unique: true}
+
+  AuctionType:
+    description: Auction legal classification (SARFAESI, DRT, etc.)
+    key: name
+    properties:
+      name: {type: string, unique: true}
+
+  SurveyNumber:
+    description: Land survey identifier (old or new system)
+    key: [survey_no, subdivision, survey_type]
+    properties:
+      survey_no: {type: string}
+      subdivision: {type: string}
+      survey_type: {type: string, enum: [old, new]}
+
+  # ── New entities added for agent intelligence ──────────────────────────────
+  InvestmentTracker:
+    description: User's pipeline state and scoring for an auction
+    key: auction_id
+    properties:
+      auction_id: {type: string, unique: true}
+      state: {type: string, enum: [DISCOVERED, SCORED, SHORTLISTED, RESEARCHING, BID_READY, BID_SUBMITTED, WON, LOST, COMPLETED]}
+      composite_score: {type: float}
+      grade: {type: string, enum: ["A+", A, B, C, D, F]}
+      dimension_scores: {type: string, description: "JSON-serialized per-dimension scores"}
+      notes: {type: text}
+      created_at: {type: datetime}
+      updated_at: {type: datetime}
+
+  InvestorProfile:
+    description: User preferences driving shortlisting and alerts
+    key: name
+    properties:
+      name: {type: string, unique: true}
+      budget_min: {type: float}
+      budget_max: {type: float}
+      preferred_cities: {type: list}
+      preferred_property_types: {type: list}
+      risk_tolerance: {type: string, enum: [conservative, moderate, aggressive]}
+
+  DecisionTrace:
+    description: Agent reasoning provenance for auditability
+    key: trace_id
+    properties:
+      trace_id: {type: string, unique: true}
+      query: {type: text}
+      reasoning: {type: text}
+      recommendation: {type: text}
+      confidence: {type: float}
+      created_at: {type: datetime}
+
+relationships:
+  - {type: CONDUCTED_BY,        from: AuctionProperty, to: Bank}
+  - {type: HAS_BRANCH,          from: Bank,            to: Branch}
+  - {type: LISTED_BY_BRANCH,    from: AuctionProperty, to: Branch}
+  - {type: LOCATED_IN_CITY,     from: AuctionProperty, to: City}
+  - {type: LOCATED_IN_STATE,    from: AuctionProperty, to: State}
+  - {type: LOCATED_IN_AREA,     from: AuctionProperty, to: Area}
+  - {type: PART_OF_CITY,        from: Area,            to: City}
+  - {type: IN_STATE,            from: City,            to: State}
+  - {type: HAS_ASSET_CATEGORY,  from: AuctionProperty, to: AssetCategory}
+  - {type: HAS_TYPE,            from: AssetCategory,   to: PropertyType}
+  - {type: HAS_BORROWER,        from: AuctionProperty, to: Borrower}
+  - {type: IS_AUCTION_TYPE,     from: AuctionProperty, to: AuctionType}
+  - {type: HAS_SURVEY_NUMBER,   from: AuctionProperty, to: SurveyNumber}
+  - {type: TRACKED_BY,          from: AuctionProperty, to: InvestmentTracker}
+  - {type: INTERESTED_IN,       from: InvestorProfile, to: AuctionProperty}
+  - {type: ABOUT,               from: DecisionTrace,   to: AuctionProperty}
+  - {type: REQUESTED_BY,        from: DecisionTrace,   to: InvestorProfile}
+
+agent_tools:
+  - name: search_auctions
+    description: Filter auctions by price range, city, property type, asset category, date window
+    parameters:
+      min_price: {type: float, optional: true}
+      max_price: {type: float, optional: true}
+      city: {type: string, optional: true}
+      property_type: {type: string, optional: true}
+      asset_category: {type: string, optional: true}
+      starts_after: {type: datetime, optional: true}
+      starts_before: {type: datetime, optional: true}
+      limit: {type: int, default: 20}
+
+  - name: find_similar_properties
+    description: Given an auction_id, find comparable properties in same area with similar price
+    parameters:
+      auction_id: {type: string}
+      price_tolerance_pct: {type: float, default: 25.0}
+      limit: {type: int, default: 10}
+
+  - name: bank_portfolio
+    description: All auctions by a given bank with aggregated statistics
+    parameters:
+      bank_name: {type: string}
+
+  - name: location_analysis
+    description: Price distribution and auction density for a city or area
+    parameters:
+      location: {type: string}
+      location_type: {type: string, enum: [city, area, state], default: city}
+
+  - name: upcoming_auctions
+    description: Auctions with application deadline within N days
+    parameters:
+      days: {type: int, default: 14}
+      limit: {type: int, default: 20}
+
+  - name: price_comparison
+    description: Compare reserve prices for similar properties in the same area
+    parameters:
+      city: {type: string}
+      property_type: {type: string}
+
+  - name: borrower_lookup
+    description: All properties tied to a borrower name (fuzzy match)
+    parameters:
+      borrower_name: {type: string}
+
+  - name: survey_search
+    description: Find properties by survey number
+    parameters:
+      survey_no: {type: string}
+      subdivision: {type: string, optional: true}
+
+  # ── Scoring & tracking tools (Phase 2-3) ──
+  - name: score_auction
+    description: Compute 10-dimensional investment score for an auction
+    parameters:
+      auction_id: {type: string}
+
+  - name: batch_score
+    description: Score all auctions matching a filter criteria
+    parameters:
+      criteria: {type: object, description: "Same filter shape as search_auctions"}
+
+  - name: update_tracker_state
+    description: Transition an auction to a new pipeline state (requires user confirmation for states past SCORED)
+    parameters:
+      auction_id: {type: string}
+      new_state: {type: string}
+      notes: {type: string, optional: true}
+
+decision_thresholds:
+  strong_buy: 85       # A / A+ — bid immediately
+  worth_pursuing: 70   # B — complete due diligence
+  selective: 55        # C — only if matches specific criteria
+  skip: 0              # D / F
+
+data_source:
+  type: neo4j
+  uri_env: NEO4J_URI
+  username_env: NEO4J_USERNAME
+  password_env: NEO4J_PASSWORD
+  database_env: NEO4J_DATABASE
+  existing_records:
+    total_scraped: 53813
+    tamil_nadu_filtered: 3391
