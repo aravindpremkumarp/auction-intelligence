@@ -2,65 +2,93 @@
 
 AI-powered intelligence system for Indian SARFAESI Act bank property auctions.
 Starts with a scraper for `eauctionsindia.com`, builds a Neo4j knowledge graph
-of Tamil Nadu auctions, enriches it via OCR + LLM extraction, and serves a
-PydanticAI agent (FastAPI + web UI) that scores and tracks investment
-opportunities.
+of Tamil Nadu auctions, enriches it via OCR + vision-LLM extraction, and
+serves a PydanticAI agent (FastAPI + single-page web UI) that scores, tracks,
+and captures user feedback on investment opportunities.
 
 ## High-Level Flow
 
     scrape → clean/filter TN → load Neo4j → OCR+extract →
-    lexical graph → normalize → load enriched → score/track → serve via API
+    verify/enrich → lexical graph → normalize → load enriched →
+    embed descriptions → score/track → serve via API → feedback loop
 
 ## Top-Level Layout
+
+- `README.md` — Quick-start, deployment, project map.
+- `requirements.txt` — Runtime deps for Render web service (slim).
+- `render.yaml` — Render deployment config (FastAPI backend).
+- `vercel.json` — Vercel deployment config (static `web/` frontend).
+- `.env.example` — Template for local secrets (OpenRouter, Neo4j Aura,
+  FindAuction scraping creds). Never commit the filled-in `.env`.
+- `.github/workflows/` — CI/CD:
+    - `ci.yml` — Runs `pytest tests/api` on every PR / push to main.
+    - `resolve-feedback.yml` — On merged PRs, parses
+      `Resolves feedback: <uuid>` markers from the PR body and PATCHes
+      `/feedback/<id>/resolve` on the live API.
+- `config/` — Schema + connection + full dev requirements + this document.
+- `api/`, `pipeline/`, `scrapers/`, `scripts/`, `scoring/`, `tracking/`,
+  `modes/`, `web/`, `tests/`, `walkthrough/` — see below.
+
+## config/
 
 - `domain_ontology.yaml` — Canonical entity/relationship/property schema for
   the whole system (AuctionProperty, Bank, Branch, City/State/Area,
   AssetCategory, PropertyType, Borrower, AuctionType, + enriched fields:
   possession_type, survey numbers, village/taluk/district, etc.).
 - `auction_graph_model.json` — Arrows.app visual graph model (mirrors ontology).
-- `Neo4j-cc513ea9-Created-2026-03-11.txt` — Aura connection credentials.
-- `requirements.txt` — Python dependencies.
+- `requirements.txt` — Full development dependencies (scraping, OCR, tests).
 - `CODEBASE_OVERVIEW.txt` — This document.
+- Neo4j Aura credential files are kept locally and `.gitignore`d.
 
-## 1. Scraping Layer (root scripts)
+## 1. Scraping Layer (`scrapers/`)
 
 - `fast_eauctions_scraper.py` — Primary multi-threaded scraper. Crawls
   pagination, dedupes against existing data, parses detail pages with
   BeautifulSoup, downloads linked PDFs to `downloads/live_properties/`, and
   appends to JSONL.
 - `eauctions_scraper.py` / `scraper.py` — Earlier single-threaded versions.
+- `explore_eauctions.py` — Site exploration helper.
 - `scraper_controls.py`, `utils.py` — Shared scraper helpers.
-- Diagnostic/utility scripts: `check_*.py`, `debug_*.py`, `explore_*.py`,
-  `fuzz_pagination.py`, `test_*.py`, `find_count_selector.py`,
-  `verify_download_fix.py`, `fix_extensions.py`, `compare_urls.py`,
-  `remove_duplicates.py`, `dump_text.py`, `diagnose_stuck.py`,
-  `get_keys.py`, `convert_to_excel.py`.
-- `live_eauction_data.jsonl` / `.csv` — Raw all-India dataset (~44K records).
+- `live_eauction_data.jsonl` / `.csv` — Raw all-India dataset (~49K records
+  at last run).
 - `scrape_errors.log` — Scraper error log.
 - `downloads/` — Downloaded auction documents (PDFs, images).
 
-## 2. TN Data Preparation
+## 2. Diagnostic & Data-Prep Scripts (`scripts/`)
+
+Mixed bag of one-off utilities and the TN data-prep pipeline.
 
 - `prepare_tn_data.py` — Filters raw JSONL to Tamil Nadu, normalizes prices
   (₹/commas → float), dates (DD-MM-YYYY HHMM AM/PM → ISO 8601), and
   downloads list. Validates file existence → `downloads_complete` flag.
-- `tn_auction_data.jsonl` — Cleaned TN-only dataset (3,391 records). Primary
-  input for Neo4j ingestion.
-- `tn_download_report.txt` — Download coverage report.
+  Produces `tn_auction_data.jsonl` (~4,788 cleaned TN records at last run,
+  primary input for Neo4j ingestion) and `tn_download_report.txt`.
 - `load_tn_to_neo4j.py` — Creates constraints/indexes and batch-MERGEs nodes
   and relationships into Neo4j Aura.
+- Diagnostic/utility scripts: `check_*.py`, `debug_*.py`,
+  `fuzz_pagination.py`, `find_count_selector.py`, `verify_download_fix.py`,
+  `fix_extensions.py`, `compare_urls.py`, `remove_duplicates.py`,
+  `dump_text.py`, `diagnose_stuck.py`, `get_keys.py`,
+  `convert_to_excel.py`.
 
 ## 3. Enrichment Pipeline (`pipeline/`)
 
-Four-stage pipeline that turns downloaded auction PDFs into enriched graph data.
+Multi-stage pipeline that turns downloaded auction PDFs into enriched graph
+data.
 
 - `config.py` — Central config: OpenRouter keys/model, Neo4j creds, scoring
   weights, decision thresholds, path constants, tracking TSV location.
-- `run_pipeline.py` — Orchestrator. Runs stages 1–4 sequentially. Flags:
+- `run_pipeline.py` — Orchestrator. Runs the stages sequentially. Flags:
   `--limit N` (OCR subset), `--skip-ocr`.
-- `ocr_extract.py` — Stage 1: OCRs PDFs and calls an LLM (OpenRouter / Gemini
-  2.0 Flash) with `prompts/extract_auction.txt` to extract structured
-  auction fields. Writes `output/extracted.jsonl`.
+- `ocr_extract.py` — Stage 1: OCRs PDFs and calls a vision LLM
+  (OpenRouter / Gemini 2.0 Flash) with `prompts/extract_auction.txt` to
+  extract structured auction fields. Caches per-file results under
+  `cache/ocr_results/` and writes `output/extracted.jsonl`.
+- `verify_and_enrich.py` — Stage 1.5: Verifies scraped fields against PDF
+  extractions per auction. PDF wins on conflicts (original preserved as
+  `<field>_scraped`, name added to `field_conflicts`); `enrichment.*` is
+  merged, open-ended `extras` is shallow-merged. Outputs
+  `output/verified_enriched.jsonl` + `output/extras_key_frequency.json`.
 - `lexical_graph.py` — Stage 2: Builds a lexical graph over extracted text
   (chunks + entity mentions). Writes `output/lexical.jsonl`.
 - `normalize.py` — Stage 3: Normalizes entity names (banks, locations,
@@ -69,6 +97,12 @@ Four-stage pipeline that turns downloaded auction PDFs into enriched graph data.
   `output/normalization_report.txt`.
 - `load_enriched.py` — Stage 4: Merges enriched properties, survey details,
   possession info, and geographic hierarchy into Neo4j.
+- `embeddings.py` — Shared text-embedding helper (batched OpenAI embeddings,
+  exports `EMBED_DIM`).
+- `embed_descriptions.py` — One-shot backfill: embeds
+  `AuctionProperty.description` for every property, writes the vector back
+  as `p.embedding`, and creates the `property_desc_idx` vector index. Safe
+  to re-run; skips existing unless `--force`.
 - `cache/` — Per-document cache for OCR/LLM calls (expensive to recompute).
 - `prompts/extract_auction.txt` — Prompt template for LLM extraction.
 
@@ -95,15 +129,32 @@ Dimensions (weights in `modes/_shared.md`):
 
 ## 6. Agent API (`api/`)
 
-- `main.py` — FastAPI app. Serves `/web` static UI and agent endpoints.
-  Run: `uvicorn api.main:app --reload`.
+- `main.py` — FastAPI app. Serves `/web` static UI and agent + feedback
+  endpoints. Run: `uvicorn api.main:app --reload`.
+  Endpoints:
+    - `GET  /health` — Liveness probe.
+    - `POST /chat` — Agent turn; returns answer, tool artifacts, and full
+      `message_history` for the client to replay on the next turn.
+    - `POST /feedback` — Persist a thumbs up/down on an assistant reply.
+      Captures the question, answer, tool artifacts, user-agent, and a
+      trimmed window of prior `context_turns` (role + content + tool
+      calls, content capped at 2000 chars). Written as `:Feedback` nodes
+      in Neo4j.
+    - `GET  /feedback/recent` — List recent feedback; filters by
+      `unresolved_only` and `rating`.
+    - `PATCH /feedback/{id}/resolve` — Mark feedback resolved. Guarded by
+      the `X-Resolve-Token` header matching `FEEDBACK_RESOLVE_TOKEN`;
+      called automatically by the `resolve-feedback.yml` workflow when a
+      fix PR is merged.
 - `agent.py` — PydanticAI agent wired to OpenRouter (Gemini 2.0 Flash).
   System prompt encodes schema hints (asset_category vs property_type
-  vocabularies, ~3,391 TN records) and usage rules (ground every answer in
+  vocabularies, TN record count) and usage rules (ground every answer in
   tool results, cite auction_id, confirm state changes).
-- `neo4j_client.py` — Shared Neo4j driver / `run_query` helper.
-- `tools/cypher_tools.py` — Agent tools: parameterized Cypher queries,
-  scoring invocations, tracker state transitions.
+- `neo4j_client.py` — Shared Neo4j driver / `run_query` / `session`
+  helpers.
+- `tools/cypher_tools.py` — Agent tools: parameterized Cypher queries
+  (including semantic `semantic_property_search` over the embedding
+  index), scoring invocations, tracker state transitions.
 
 ## 7. Modes (`modes/*.md`)
 
@@ -120,19 +171,39 @@ Markdown "mode" prompts the agent can switch into:
 
 ## 8. Web UI (`web/`)
 
-- `index.html` — Single-page chat UI served by FastAPI, talking to the
-  agent endpoint.
+- `index.html` — Single-page chat UI (Alpine.js + Tailwind via CDN, no
+  build step) served by FastAPI and deployed statically to Vercel. Sends
+  each assistant reply through a thumbs up/down feedback widget that
+  POSTs to `/feedback` with the prior conversation context.
 
-## 9. Reports (`reports/output/`)
+## 9. Tests (`tests/`)
+
+- `tests/api/` — FastAPI endpoint tests (run in CI).
+    - `conftest.py` — In-memory stub for `run_query` so tests don't need
+      Neo4j.
+    - `test_feedback.py` — End-to-end `/feedback`, `/feedback/recent`, and
+      `/feedback/{id}/resolve` coverage.
+    - `test_import.py` — Import smoke test.
+- Top-level `test_*.py` — Scraper / networking probes (`test_cf.py`,
+  `test_cloudscraper.py`, `test_curl_cffi.py`, `test_httpx.py`,
+  `test_nonheadless.py`, `test_pattern.py`, `test_pw.py`,
+  `test_selectors.py`, `test_uc.py`). Local-only; not run in CI.
+
+## 10. Reports (`reports/output/`)
 
 Generated artifacts from `report` / `scan` modes.
+
+## 11. Walkthrough (`walkthrough/`)
+
+- `walkthrough.md` — Log of scraper execution sessions and dataset-sync
+  verification steps.
 
 ## Neo4j Graph Model
 
 Nodes: `AuctionProperty`, `Bank`, `Branch`, `City`, `State`, `Area`,
-`AssetCategory`, `PropertyType`, `Borrower`, `AuctionType`, plus enrichment
-nodes (`Score`, `InvestmentTracker`, and possession/survey detail nodes
-added by `load_enriched.py`).
+`AssetCategory`, `PropertyType`, `Borrower`, `AuctionType`, plus
+enrichment nodes (`Score`, `InvestmentTracker`, `Feedback`, and
+possession/survey detail nodes added by `load_enriched.py`).
 
 Key relationships:
   (AuctionProperty)-[:CONDUCTED_BY]->(Bank)
@@ -144,17 +215,51 @@ Key relationships:
   (AuctionProperty)-[:HAS_BORROWER]->(Borrower)
   (AuctionProperty)-[:IS_AUCTION_TYPE]->(AuctionType)
 
+`AuctionProperty.embedding` is indexed as the `property_desc_idx` vector
+index (built by `pipeline/embed_descriptions.py`) for semantic search.
+
 See `domain_ontology.yaml` for the full property-level schema.
+
+## Deployment
+
+- **Frontend** → Vercel (serves `web/` as a static site; config in
+  `vercel.json`). The production API base URL is hard-coded in
+  `web/index.html`.
+- **Backend** → Render Python web service (config in `render.yaml`,
+  installs the slim root `requirements.txt`).
+- **Database** → Neo4j Aura (hosted).
 
 ## Typical End-to-End Run
 
-    python fast_eauctions_scraper.py           # 1. Scrape
-    python prepare_tn_data.py                  # 2. Clean TN subset
-    python load_tn_to_neo4j.py                 # 3. Load base graph
-    python -m pipeline.run_pipeline            # 4. Enrich (OCR→normalize→load)
-    uvicorn api.main:app --reload              # 5. Serve agent + web UI
+    python -m scrapers.fast_eauctions_scraper    # 1. Scrape
+    python -m scripts.prepare_tn_data            # 2. Clean TN subset
+    python -m scripts.load_tn_to_neo4j           # 3. Load base graph
+    python -m pipeline.run_pipeline              # 4. Enrich (OCR→verify→
+                                                 #    lexical→normalize→load)
+    python -m pipeline.embed_descriptions        # 5. Backfill embeddings
+    uvicorn api.main:app --reload                # 6. Serve agent + web UI
+
+## Feedback Loop (CI/CD)
+
+1. User clicks thumbs down on a reply in the web UI.
+2. Frontend POSTs to `/feedback` with question + answer + tool artifacts
+   + trimmed prior `context_turns`.
+3. A `:Feedback` node is stored in Neo4j (`resolved: false`).
+4. Maintainers review via `GET /feedback/recent?unresolved_only=true`.
+5. Fix PRs include `Resolves feedback: <uuid>` in the body.
+6. On merge, `.github/workflows/resolve-feedback.yml` PATCHes
+   `/feedback/<uuid>/resolve` (guarded by `FEEDBACK_RESOLVE_TOKEN`) so
+   the item drops off the unresolved queue.
 
 ## Last Execution Status
 
-- Scraper (`fast_eauctions_scraper.py`) was run and verified to be fully up-to-date as of the latest session. No new un-scraped items were found in the recent runs, meaning `live_eauction_data.jsonl` contains the most current data.
-- The `prepare_tn_data.py` script was executed to sync `tn_auction_data.jsonl` with `live_eauction_data.jsonl`, resulting in 4,788 clean Tamil Nadu records.
+- Scraper (`scrapers/fast_eauctions_scraper.py`) was run and verified to
+  be fully up-to-date: 0 new URLs were found against the existing 49,342
+  extracted entries, meaning `live_eauction_data.jsonl` contains the most
+  current data.
+- `scripts/prepare_tn_data.py` was executed to sync
+  `tn_auction_data.jsonl` with `live_eauction_data.jsonl`, resulting in
+  4,788 cleaned Tamil Nadu records.
+- Feedback loop (`/feedback` endpoints + `resolve-feedback.yml` workflow)
+  is live; context-turn capture is enabled so feedback records include
+  the surrounding conversation.
