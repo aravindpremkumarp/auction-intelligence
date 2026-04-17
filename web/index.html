@@ -11,9 +11,9 @@
       ? ''
       : 'https://auction-api-w68b.onrender.com';
   </script>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/@tailwindcss/browser@4"></script>
   <script defer src="https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked@15.0.7/marked.min.js"></script>
   <style>
     body { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
     .prose p { margin: 0.5rem 0; }
@@ -30,7 +30,7 @@
 </head>
 <body class="h-screen bg-slate-50 text-slate-800">
 
-<div x-data="app()" x-init="init()" class="h-full flex">
+<div x-data="app()" class="h-full flex">
 
   <!-- ── LEFT: CHAT ────────────────────────────────────────────────────── -->
   <section class="flex-1 flex flex-col border-r border-slate-200 min-w-0">
