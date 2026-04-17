@@ -1,6 +1,151 @@
 [
   {
+    "id": "2499e292-80a5-49f0-934c-359727a7cf22",
+    "kind": "general",
+    "rating": null,
+    "text": "1. add dark mode",
+    "session_id": "ba835f15-9472-4f37-b647-a7996b185c23",
+    "message_index": -1,
+    "question": "",
+    "answer": "",
+    "artifacts": [],
+    "context_turns": [
+      {
+        "role": "assistant",
+        "content": "Hi — I can query the auction knowledge graph (3,391 Tamil Nadu properties). Ask about **prices, locations, banks, deadlines, or specific auctions**. I will show the structured results in the artifacts panel on the right.",
+        "tool_calls": []
+      }
+    ],
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
+    "page_url": "https://auction-intelligence-alpha.vercel.app/",
+    "created_at": "2026-04-17T19:16:47.876662000+00:00",
+    "resolved": false
+  },
+  {
+    "id": "5fcd2638-5a9b-43c9-89b7-c7f865a6ae3c",
+    "kind": "message",
+    "rating": "down",
+    "text": "how come no flats in chennai",
+    "session_id": "4c5b7a55-385c-47ee-8ace-e3a62b3eedc9",
+    "message_index": 5,
+    "question": "how many flats in chennai",
+    "answer": "There are currently no flats listed for auction in Chennai. Should I broaden the search to include other property types or a wider geographic area?\n",
+    "artifacts": [
+      {
+        "tool": "search_auctions",
+        "args": {
+          "property_type": "Flat",
+          "city": "Chennai"
+        }
+      }
+    ],
+    "context_turns": [
+      {
+        "role": "assistant",
+        "content": "Hi — I can query the auction knowledge graph (3,391 Tamil Nadu properties). Ask about **prices, locations, banks, deadlines, or specific auctions**. I will show the structured results in the artifacts panel on the right.",
+        "tool_calls": []
+      },
+      {
+        "role": "assistant",
+        "content": "Hi — I can query the auction knowledge graph (3,391 Tamil Nadu properties). Ask about **prices, locations, banks, deadlines, or specific auctions**. I will show the structured results in the artifacts panel on the right.",
+        "tool_calls": []
+      },
+      {
+        "role": "user",
+        "content": "hello"
+      },
+      {
+        "role": "assistant",
+        "content": "Hello! How can I help you with bank auction properties today? Are you looking to search for properties, analyze a specific auction, or something else?\n",
+        "tool_calls": []
+      },
+      {
+        "role": "user",
+        "content": "how many flats in chennai"
+      }
+    ],
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
+    "page_url": null,
+    "created_at": "2026-04-17T18:59:48.424818000+00:00",
+    "resolved": false
+  },
+  {
+    "id": "19224426-b86d-4c93-887b-c2ad9ec84fe9",
+    "kind": "message",
+    "rating": "down",
+    "text": "I am only able to filter by city where area/village i am not able to",
+    "session_id": "4c5b7a55-385c-47ee-8ace-e3a62b3eedc9",
+    "message_index": 11,
+    "question": "show properties from Ambattur",
+    "answer": "I am very sorry. I cannot filter by area. However, I can search for properties in Chennai and include \"Ambattur\" in the title. Would you like me to do that?\n",
+    "artifacts": [],
+    "context_turns": [
+      {
+        "role": "assistant",
+        "content": "There are currently no flats listed for auction in Chennai. Should I broaden the search to include other property types or a wider geographic area?\n",
+        "tool_calls": [
+          {
+            "tool": "search_auctions",
+            "args": {
+              "property_type": "Flat",
+              "city": "Chennai"
+            }
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": "how many in chennai"
+      },
+      {
+        "role": "assistant",
+        "content": "There are 481 properties listed for auction in Chennai. The list above shows the first 20.\n\nDo you want to narrow the search by specifying a property type (e.g., \"Flat\", \"House\", \"Plot\") or a price range? I can also show you the next 20 properties on the list.",
+        "tool_calls": [
+          {
+            "tool": "search_auctions",
+            "args": {
+              "city": "Chennai"
+            }
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": "show me flat"
+      },
+      {
+        "role": "assistant",
+        "content": "I found 422 residential properties in Chennai. The first 20 are displayed above. Some are listed as \"Flat\".\n\nTo refine the search, would you like to specify a price range? I can also show you the next 20 properties on the list.",
+        "tool_calls": [
+          {
+            "tool": "search_auctions",
+            "args": {
+              "property_type": "Flat",
+              "city": "Chennai"
+            }
+          },
+          {
+            "tool": "search_auctions",
+            "args": {
+              "city": "Chennai",
+              "asset_category": "Residential"
+            }
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": "show properties from Ambattur"
+      }
+    ],
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
+    "page_url": null,
+    "created_at": "2026-04-17T18:59:31.713681000+00:00",
+    "resolved": false
+  },
+  {
     "id": "3ba48edd-776f-492e-ae12-c8c1a004be19",
+    "kind": "message",
     "rating": "down",
     "text": "we need to check and understand why we are having multiple property type and need to check if we have similar situation for other properties too",
     "session_id": "be141e01-c912-4e2b-9496-a0e5078e1860",
@@ -68,11 +213,13 @@
       }
     ],
     "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
+    "page_url": null,
     "created_at": "2026-04-17T11:29:07.494742000+00:00",
     "resolved": false
   },
   {
     "id": "72a75404-42c3-4209-8b91-8b88c7bdafd4",
+    "kind": "message",
     "rating": "down",
     "text": "this is not flat my initial question was about flat \nresult which i got here is related to plot",
     "session_id": "82e5bfe2-77c3-4c7e-8dd5-6e6fe0024e03",
@@ -149,6 +296,7 @@
       }
     ],
     "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
+    "page_url": null,
     "created_at": "2026-04-16T22:35:43.193046000+00:00",
     "resolved": false
   }
