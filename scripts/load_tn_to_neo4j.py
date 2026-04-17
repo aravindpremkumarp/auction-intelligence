@@ -13,7 +13,7 @@ Follows the auction_graph_model.json schema:
   (Area)-[:PART_OF_CITY]->(City)
   (City)-[:IN_STATE]->(State)
   (AuctionProperty)-[:HAS_ASSET_CATEGORY]->(AssetCategory)
-  (AssetCategory)-[:HAS_TYPE]->(PropertyType)
+  (AuctionProperty)-[:HAS_PROPERTY_TYPE]->(PropertyType)
   (AuctionProperty)-[:HAS_BORROWER]->(Borrower)
   (AuctionProperty)-[:IS_AUCTION_TYPE]->(AuctionType)
 
@@ -109,10 +109,16 @@ MERGE (ac:AssetCategory {name: r.asset_category})
 MERGE (a)-[:HAS_ASSET_CATEGORY]->(ac)
 
 // ── PropertyType ──────────────────────────────────────────────────────────
-WITH a, ac, r
-WHERE r.property_type IS NOT NULL AND r.property_type <> ''
-MERGE (pt:PropertyType {name: r.property_type})
-MERGE (ac)-[:HAS_TYPE]->(pt)
+// Auctions can have multiple property types (comma-separated in source).
+// Link each directly from the auction, NOT through AssetCategory — the
+// AssetCategory node is shared across auctions, so routing PropertyType
+// through it leaked types across unrelated auctions.
+WITH a, r
+UNWIND coalesce(r.property_types, []) AS pt_name
+WITH a, pt_name
+WHERE pt_name IS NOT NULL AND pt_name <> ''
+MERGE (pt:PropertyType {name: pt_name})
+MERGE (a)-[:HAS_PROPERTY_TYPE]->(pt)
 
 // ── AuctionType ───────────────────────────────────────────────────────────
 WITH a, r
@@ -179,7 +185,9 @@ def sanitise(r: dict) -> dict:
         "city"                     : _str(r.get("city")),
         "area"                     : _str(r.get("area")),
         "asset_category"           : _str(r.get("asset_category")),
-        "property_type"            : _str(r.get("property_type")),
+        "property_types"           : [
+            p for p in (r.get("property_types") or []) if p and str(p).strip()
+        ],
         "auction_type"             : _str(r.get("auction_type")),
         "borrower_name"            : _str(r.get("borrower_name")),
     }

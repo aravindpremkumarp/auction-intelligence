@@ -35,17 +35,31 @@ properties. Always:
 
 ## Schema notes — pick the right filter
 
-- `asset_category` is the BROAD class. Values: "Residential" (3,202),
-  "Commercial" (32), "Industrials" (31), "Vehicle Auctions" (30),
-  "Scrap, Plant & Machinery" (40), "Others" (24).
+- `asset_category` is the BROAD class. The 7 exact values are:
+  "Residential", "Commercial", "Industrials", "Scrap, Plant & Machinery"
+  (single value — the comma is part of the name, do not split it),
+  "Vehicle Auctions", "Gold Auctions", "Others".
   **When a user says "residential", "commercial", "industrial" — use asset_category.**
 
-- `property_type` is GRANULAR. Values include: Flat, House, Villa, Plot,
-  Residential Unit, Land, Land And Building, Commercial Shop, Commercial Property,
-  Commercial Building, Godown, Factory land and Building, Industrial Land,
-  Industrial Land & Building, Agricultural Land, Non-Agricultural Land,
-  Machinary, Plant & Machinery, Car, Bike, Vehicle, Scrap, Shed, Others.
-  **Use property_type only when the user specifies a concrete type like "flat" or "plot".**
+- `property_type` is GRANULAR and is constrained by asset_category. An
+  auction can have multiple property types, so `search_auctions` returns
+  a `property_types` list per row — do not split a single value on
+  commas when presenting it to the user. Pass only ONE value at a time
+  to the `property_type` filter. Allowed values per category:
+    - Residential: Plot, Land And Building, Land, Agricultural Land, Flat,
+      House, Non-Agricultural Land, Residential Unit, Bungalow, Villa
+    - Commercial: Commercial Office, Commercial Property, Commercial Shop,
+      Commercial Building, Cold Storage Land And Building
+    - Industrials: Factory land and Building, Shed, Industrial Land,
+      Industrial Land & Building, Godown, Land
+    - Scrap, Plant & Machinery: Plant & Machinery, Machinary, Scrap
+    - Vehicle Auctions: Car, Vehicle, Bus, Bike
+    - Gold Auctions: (none)
+    - Others: Others
+  Values are stored verbatim, so use the exact casing and spelling above
+  (including the source typo "Machinary" and mixed-case
+  "Factory land and Building"). **Use property_type only when the user
+  specifies a concrete type like "flat" or "plot".**
 
 - Prices are in INR. "30 lakhs" = 3,000,000. "1 crore" = 10,000,000.
 
@@ -73,9 +87,10 @@ question about ONE specific auction that goes beyond those row fields —
 whatever the user's phrasing — should be answered by calling
 `get_auction_detail(auction_id)`, which returns the full stored record
 (all node properties + related city/area/state/bank/borrower/category/
-type/survey numbers). Before saying a field is unavailable, call this
-tool. Summarize what's relevant to the user's question rather than
-dumping the raw dict.
+property_types list/survey numbers). Before saying a field is
+unavailable, call this tool. Summarize what's relevant to the user's
+question rather than dumping the raw dict. Note that `property_types`
+is a list — present each value as-is without re-splitting on commas.
 """
 
 _provider = OpenAIProvider(api_key=OPENROUTER_API_KEY, base_url=OPENROUTER_BASE_URL)

@@ -167,7 +167,12 @@ def main():
                 "state"                     : state,
                 # Classification
                 "asset_category"            : r.get('Asset Category', ''),
-                "property_type"             : r.get('Property Type', ''),
+                "property_type_raw"         : r.get('Property Type', '') or '',
+                "property_types"            : [
+                    p.strip()
+                    for p in (r.get('Property Type', '') or '').split(',')
+                    if p.strip()
+                ],
                 "auction_type"              : r.get('Auction Type', ''),
                 # Parties
                 "bank_name"                 : r.get('Bank Name', ''),
