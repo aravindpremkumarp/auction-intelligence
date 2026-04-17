@@ -1,16 +1,3 @@
 {
-  "aliases": {
-    "Land And Building": "Land & Building",
-    "Land and Building": "Land & Building",
-    "Land and building": "Land & Building",
-    "Factory land and Building": "Factory Land & Building",
-    "Machinary": "Machinery",
-    "Plant & Machinery": "Plant & Machinery",
-    "Non- Agricultural Land": "Non-Agricultural Land",
-    "Commercial Property": "Commercial",
-    "Commercial Building": "Commercial",
-    "Commercial Shop": "Commercial",
-    "Industrial Land & Building": "Industrial Land & Building",
-    "Residential Unit": "Flat"
-  }
+  "aliases": {}
 }

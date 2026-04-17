@@ -250,9 +250,9 @@
     },
     {
       "id": "r6",
-      "fromId": "n4",
+      "fromId": "n0",
       "toId": "n5",
-      "type": "HAS_TYPE",
+      "type": "HAS_PROPERTY_TYPE",
       "properties": {},
       "style": {}
     },
