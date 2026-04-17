@@ -1,0 +1,40 @@
+name: Sync feedback
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: sync-feedback
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      API: https://auction-api-w68b.onrender.com
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch feedback from API
+        run: |
+          mkdir -p feedback
+          curl -fsS "$API/feedback/recent?limit=200&unresolved_only=false" \
+            | jq 'sort_by(.created_at) | reverse' > feedback/all.json
+          curl -fsS "$API/feedback/recent?limit=200&unresolved_only=true" \
+            | jq 'sort_by(.created_at) | reverse' > feedback/unresolved.json
+
+      - name: Commit if changed
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add feedback/all.json feedback/unresolved.json
+          if git diff --cached --quiet; then
+            echo "No feedback changes."
+            exit 0
+          fi
+          git commit -m "Sync feedback snapshot [skip ci]"
+          git push
