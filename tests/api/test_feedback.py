@@ -85,3 +85,37 @@ def test_rating_filter() -> None:
     client.post("/feedback", json=_payload(rating="down", text="bad"))
     ups = client.get("/feedback/recent?rating=up").json()
     assert all(i["rating"] == "up" for i in ups)
+
+
+def test_general_feedback_without_rating() -> None:
+    client = _client()
+    r = client.post("/feedback", json={
+        "kind": "general",
+        "text": "the suggestions row could use more variety",
+        "session_id": "sess-g1",
+        "user_agent": "pytest",
+        "page_url": "https://example.com/",
+    })
+    assert r.status_code == 200
+    fid = r.json()["id"]
+
+    items = client.get("/feedback/recent?kind=general").json()
+    assert any(i["id"] == fid for i in items)
+    rec = next(i for i in items if i["id"] == fid)
+    assert rec["kind"] == "general"
+    assert rec["rating"] is None
+    assert rec["message_index"] == -1
+    assert rec["page_url"] == "https://example.com/"
+
+    # kind=message filter excludes it
+    msgs = client.get("/feedback/recent?kind=message").json()
+    assert all(i["id"] != fid for i in msgs)
+
+
+def test_general_feedback_requires_rating_or_text() -> None:
+    client = _client()
+    r = client.post("/feedback", json={
+        "kind": "general",
+        "session_id": "sess-g2",
+    })
+    assert r.status_code == 400

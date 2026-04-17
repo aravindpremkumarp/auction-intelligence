@@ -53,15 +53,17 @@ def _install_stub_neo4j_client() -> None:
         if c.startswith("CREATE (f:Feedback"):
             store.append({
                 "id": params["id"],
-                "rating": params["rating"],
+                "kind": params.get("kind") or "message",
+                "rating": params.get("rating"),
                 "text": params.get("text"),
                 "session_id": params["session_id"],
                 "message_index": params["message_index"],
-                "question": params["question"],
-                "answer": params["answer"],
+                "question": params.get("question") or "",
+                "answer": params.get("answer") or "",
                 "artifacts_json": params["artifacts_json"],
                 "context_turns_json": params.get("context_turns_json", "[]"),
                 "user_agent": params.get("user_agent"),
+                "page_url": params.get("page_url"),
                 "created_at": params["created_at"],
                 "resolved": False,
             })
@@ -69,10 +71,12 @@ def _install_stub_neo4j_client() -> None:
         if c.startswith("MATCH (f:Feedback)\n        WHERE"):
             unresolved = params.get("unresolved", True)
             rating = params.get("rating")
+            kind = params.get("kind")
             limit = params.get("limit", 50)
             rows = [r for r in store
                     if (not unresolved or not r["resolved"])
-                    and (rating is None or r["rating"] == rating)]
+                    and (rating is None or r["rating"] == rating)
+                    and (kind is None or (r.get("kind") or "message") == kind)]
             rows.sort(key=lambda r: r["created_at"], reverse=True)
             return [{"f": dict(r)} for r in rows[:limit]]
         if c.startswith("MATCH (f:Feedback {id: $id})"):
