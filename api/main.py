@@ -115,20 +115,23 @@ def _extract_artifacts(messages) -> list[ToolArtifact]:
 
 
 class FeedbackRequest(BaseModel):
-    rating: Literal["up", "down"]
+    kind: Literal["message", "general"] = "message"
+    rating: Literal["up", "down"] | None = None
     text: str | None = None
     session_id: str
-    message_index: int
-    question: str
-    answer: str
+    message_index: int = -1
+    question: str = ""
+    answer: str = ""
     artifacts: list[dict[str, Any]] | None = None
     context_turns: list[dict[str, Any]] | None = None
     user_agent: str | None = None
+    page_url: str | None = None
 
 
 class FeedbackRecord(BaseModel):
     id: str
-    rating: Literal["up", "down"]
+    kind: Literal["message", "general"] = "message"
+    rating: Literal["up", "down"] | None = None
     text: str | None = None
     session_id: str
     message_index: int
@@ -137,6 +140,7 @@ class FeedbackRecord(BaseModel):
     artifacts: list[dict[str, Any]] | None = None
     context_turns: list[dict[str, Any]] | None = None
     user_agent: str | None = None
+    page_url: str | None = None
     created_at: str
     resolved: bool = False
 
@@ -178,15 +182,17 @@ def _feedback_row_to_record(row: dict) -> FeedbackRecord:
     created_at_str = created_at.iso_format() if hasattr(created_at, "iso_format") else str(created_at)
     return FeedbackRecord(
         id=f["id"],
-        rating=f["rating"],
+        kind=f.get("kind") or "message",
+        rating=f.get("rating"),
         text=f.get("text"),
         session_id=f["session_id"],
         message_index=f["message_index"],
-        question=f["question"],
-        answer=f["answer"],
+        question=f.get("question") or "",
+        answer=f.get("answer") or "",
         artifacts=artifacts,
         context_turns=context_turns,
         user_agent=f.get("user_agent"),
+        page_url=f.get("page_url"),
         created_at=created_at_str,
         resolved=bool(f.get("resolved", False)),
     )
@@ -194,6 +200,8 @@ def _feedback_row_to_record(row: dict) -> FeedbackRecord:
 
 @app.post("/feedback")
 async def submit_feedback(req: FeedbackRequest) -> dict:
+    if req.kind == "general" and not (req.text and req.text.strip()) and req.rating is None:
+        raise HTTPException(status_code=400, detail="General feedback requires a rating or text.")
     fid = str(uuid.uuid4())
     created_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     artifacts_json = json.dumps(_strip_artifacts(req.artifacts))
@@ -202,16 +210,17 @@ async def submit_feedback(req: FeedbackRequest) -> dict:
     run_query(
         """
         CREATE (f:Feedback {
-          id: $id, rating: $rating, text: $text, session_id: $session_id,
+          id: $id, kind: $kind, rating: $rating, text: $text, session_id: $session_id,
           message_index: $message_index, question: $question, answer: $answer,
           artifacts_json: $artifacts_json, context_turns_json: $context_turns_json,
-          user_agent: $user_agent,
+          user_agent: $user_agent, page_url: $page_url,
           created_at: datetime($created_at), resolved: false
         })
         RETURN f.id AS id
         """,
         {
             "id": fid,
+            "kind": req.kind,
             "rating": req.rating,
             "text": req.text,
             "session_id": req.session_id,
@@ -221,6 +230,7 @@ async def submit_feedback(req: FeedbackRequest) -> dict:
             "artifacts_json": artifacts_json,
             "context_turns_json": context_turns_json,
             "user_agent": req.user_agent,
+            "page_url": req.page_url,
             "created_at": created_at,
         },
     )
@@ -232,17 +242,19 @@ async def list_feedback(
     limit: int = 50,
     unresolved_only: bool = True,
     rating: Literal["up", "down"] | None = None,
+    kind: Literal["message", "general"] | None = None,
 ) -> list[FeedbackRecord]:
     rows = run_query(
         """
         MATCH (f:Feedback)
         WHERE ($unresolved = false OR f.resolved = false)
           AND ($rating IS NULL OR f.rating = $rating)
+          AND ($kind IS NULL OR coalesce(f.kind, 'message') = $kind)
         RETURN f { .* } AS f
         ORDER BY f.created_at DESC
         LIMIT $limit
         """,
-        {"unresolved": unresolved_only, "rating": rating, "limit": limit},
+        {"unresolved": unresolved_only, "rating": rating, "kind": kind, "limit": limit},
     )
     return [_feedback_row_to_record(r) for r in rows]
 
