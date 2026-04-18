@@ -45,6 +45,50 @@ app.add_middleware(
 class ChatRequest(BaseModel):
     message: str
     message_history: list[dict[str, Any]] | None = None
+    mode: str | None = None
+
+
+# Whitelist of modes the agent will overlay. Each maps to a modes/<id>.md file.
+# Keeping this explicit prevents arbitrary file reads from the modes/ dir.
+_AVAILABLE_MODES: list[dict[str, Any]] = [
+    {
+        "id": "ask",
+        "label": "Ask",
+        "description": "Free-form Q&A over the Neo4j graph (default).",
+        "examples": [
+            "Residential auctions in Chennai under 30 lakhs",
+            "What is the price range in Kanchipuram?",
+            "Show auctions with deadline in the next 7 days",
+            "How many banks have auctions in Chennai?",
+            "Which borrowers have more than 3 properties?",
+            "List all cities in the database",
+        ],
+    },
+    {
+        "id": "deep-research",
+        "label": "Deep research",
+        "description": "7-step due-diligence workflow on one auction_id.",
+        "examples": [
+            "Deep research on auction AUC-12345",
+        ],
+    },
+    {
+        "id": "compare",
+        "label": "Compare",
+        "description": "Side-by-side comparison of 2–5 auctions.",
+        "examples": [
+            "Compare AUC-12345 and AUC-67890",
+        ],
+    },
+    {
+        "id": "report",
+        "label": "Personalized report",
+        "description": "Investment report tuned to an investor profile.",
+        "examples": [
+            "Report on AUC-12345 for a conservative investor under 50 lakhs",
+        ],
+    },
+]
 
 
 class ToolArtifact(BaseModel):
@@ -62,6 +106,38 @@ class ChatResponse(BaseModel):
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok"}
+
+
+@app.get("/health/deep")
+def health_deep() -> dict:
+    """Extended health check: verifies Neo4j connectivity, counts the main
+    node label, and confirms the vector index exists. Used by monitoring
+    and during PR reviews to catch environment drift."""
+    checks: dict[str, Any] = {"status": "ok", "errors": []}
+    try:
+        rows = run_query("MATCH (a:AuctionProperty) RETURN count(a) AS n")
+        checks["auction_count"] = rows[0]["n"] if rows else 0
+    except Exception as e:
+        checks["errors"].append(f"neo4j: {e!r}")
+    try:
+        idx = run_query(
+            "SHOW INDEXES YIELD name, type WHERE name = 'property_desc_idx' "
+            "RETURN name, type"
+        )
+        checks["vector_index"] = idx[0] if idx else None
+    except Exception as e:
+        checks["errors"].append(f"vector_index: {e!r}")
+    if checks["errors"]:
+        checks["status"] = "degraded"
+    return checks
+
+
+@app.get("/modes")
+def list_modes() -> dict:
+    """Mode registry consumed by the web UI to render the mode selector and
+    suggestion chips. Mirrors the career-ops pattern of surfacing each
+    markdown mode file as a user-facing entry point."""
+    return {"modes": _AVAILABLE_MODES}
 
 
 def _extract_last_search(messages) -> dict | None:
@@ -287,7 +363,16 @@ async def chat(req: ChatRequest) -> ChatResponse:
         if req.message_history
         else None
     )
-    deps = ChatDeps(last_search=_extract_last_search(history) if history else None)
+    mode = req.mode
+    if mode:
+        valid_ids = {m["id"] for m in _AVAILABLE_MODES}
+        if mode not in valid_ids or mode == "ask":
+            # Unknown mode or the default "ask" sentinel — don't overlay anything.
+            mode = None
+    deps = ChatDeps(
+        last_search=_extract_last_search(history) if history else None,
+        mode=mode,
+    )
     result = await agent.run(req.message, message_history=history, deps=deps)
     return ChatResponse(
         answer=result.output,

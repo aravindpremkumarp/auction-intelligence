@@ -1,17 +1,84 @@
 """
 api/tools/cypher_tools.py
 -------------------------
-Eight Cypher-backed agent tools that expose the auction knowledge graph to
-the PydanticAI agent. Each tool is a parameterized query returning list[dict].
+Cypher-backed agent tools that expose the auction knowledge graph to the
+PydanticAI agent. Specialized tools for common queries plus a read-only
+`run_cypher` escape hatch for novel questions.
 """
 from __future__ import annotations
 
 import json
+import re
+import time
 from datetime import datetime, timedelta
-from api.neo4j_client import run_query
+from api.neo4j_client import run_query, run_read_query
 from pipeline.embeddings import embed_text
 
 VECTOR_INDEX_NAME = "property_desc_idx"
+
+# ── run_cypher guardrails ──────────────────────────────────────────────────
+
+# Word-boundary regex matching any mutating clause. Case-insensitive.
+# `CALL db.index.*` is allowed because the vector index tool uses it; writes
+# via APOC or procedure calls are rejected by explicit match.
+_WRITE_KEYWORD_RE = re.compile(
+    r"\b(?:CREATE|MERGE|DELETE|DETACH\s+DELETE|SET|REMOVE|DROP|LOAD\s+CSV|FOREACH)\b",
+    re.IGNORECASE,
+)
+_WRITE_PROCEDURE_RE = re.compile(
+    r"\bCALL\s+(?:apoc\.(?:create|merge|refactor|cypher\.runWrite)|db\.create)",
+    re.IGNORECASE,
+)
+
+_MAX_CYPHER_LENGTH = 4000
+_ALLOWED_PARAM_TYPES = (str, int, float, bool, type(None))
+
+
+def _validate_read_only_cypher(cypher: str) -> None:
+    """Raise ValueError if the query text contains write clauses.
+
+    Defense-in-depth: run_read_query also forces READ access at the server,
+    but rejecting early gives the agent a clean error to retry against."""
+    if not isinstance(cypher, str):
+        raise ValueError("cypher must be a string")
+    if len(cypher) > _MAX_CYPHER_LENGTH:
+        raise ValueError(f"cypher exceeds {_MAX_CYPHER_LENGTH} chars")
+    stripped = cypher.strip()
+    if not stripped:
+        raise ValueError("cypher is empty")
+    # Check procedure regex first: `apoc.create.node` contains the bare word
+    # "create" which the keyword regex would otherwise flag with a generic
+    # message. The procedure-specific error is more actionable for the agent.
+    if _WRITE_PROCEDURE_RE.search(stripped):
+        raise ValueError("run_cypher rejects write procedures (apoc.create/merge/refactor, db.create).")
+    if _WRITE_KEYWORD_RE.search(stripped):
+        raise ValueError(
+            "run_cypher rejects writes (CREATE/MERGE/DELETE/SET/REMOVE/DROP/LOAD CSV/FOREACH). "
+            "Use specialized tools for writes."
+        )
+
+
+def _coerce_params(params: dict | None) -> dict:
+    if params is None:
+        return {}
+    if not isinstance(params, dict):
+        raise ValueError("params must be a dict")
+    coerced: dict = {}
+    for k, v in params.items():
+        if not isinstance(k, str):
+            raise ValueError(f"param keys must be strings, got {type(k).__name__}")
+        if isinstance(v, _ALLOWED_PARAM_TYPES):
+            coerced[k] = v
+        elif isinstance(v, list):
+            if not all(isinstance(x, _ALLOWED_PARAM_TYPES) for x in v):
+                raise ValueError(f"param {k!r} list contains non-primitive values")
+            coerced[k] = v
+        else:
+            raise ValueError(
+                f"param {k!r} has unsupported type {type(v).__name__}; "
+                "allowed: str, int, float, bool, None, or list of those"
+            )
+    return coerced
 
 _AGG_FIELDS = {"reserve_price_num", "emd_num"}
 _AGG_FUNCS = {
@@ -298,3 +365,228 @@ def survey_search(survey_no: str, subdivision: str | None = None) -> list[dict]:
                s.survey_no AS survey_no, s.subdivision AS subdivision, s.survey_type AS survey_type
     """
     return run_query(cypher, {"survey_no": survey_no, "subdivision": subdivision})
+
+
+# ── Phase 1: schema introspection + escape-hatch tools ─────────────────────
+
+# Map a logical field name the agent might use to the (label, relationship)
+# pair needed to count AuctionProperty references.
+_DISTINCT_FIELDS: dict[str, tuple[str, str]] = {
+    "city":           ("City",          "LOCATED_IN_CITY"),
+    "area":           ("Area",          "LOCATED_IN_AREA"),
+    "state":          ("State",         "LOCATED_IN_STATE"),
+    "bank":           ("Bank",          "CONDUCTED_BY"),
+    "borrower":       ("Borrower",      "HAS_BORROWER"),
+    "asset_category": ("AssetCategory", "HAS_ASSET_CATEGORY"),
+    "property_type":  ("PropertyType",  "HAS_PROPERTY_TYPE"),
+}
+
+_SCHEMA_CACHE: dict[str, tuple[float, dict]] = {}
+_SCHEMA_TTL_SECONDS = 3600.0
+
+
+def list_distinct(field: str, limit: int = 100, city: str | None = None) -> dict:
+    """List distinct values of a reference field with counts.
+
+    `field` must be one of the keys in _DISTINCT_FIELDS. `city` is an
+    optional filter that restricts the count to auctions inside that city —
+    only meaningful when `field` is one of area / bank / borrower /
+    asset_category / property_type.
+    """
+    if field not in _DISTINCT_FIELDS:
+        raise ValueError(
+            f"field must be one of {sorted(_DISTINCT_FIELDS)}, got {field!r}"
+        )
+    label, rel = _DISTINCT_FIELDS[field]
+    params: dict = {"limit": int(limit)}
+    if city and field != "city":
+        cypher = f"""
+            MATCH (a:AuctionProperty)-[:LOCATED_IN_CITY]->(:City {{name: $city}}),
+                  (a)-[:{rel}]->(n:{label})
+            RETURN n.name AS value, count(DISTINCT a) AS auction_count
+            ORDER BY auction_count DESC
+            LIMIT $limit
+        """
+        params["city"] = city
+    else:
+        cypher = f"""
+            MATCH (a:AuctionProperty)-[:{rel}]->(n:{label})
+            RETURN n.name AS value, count(DISTINCT a) AS auction_count
+            ORDER BY auction_count DESC
+            LIMIT $limit
+        """
+    results = run_read_query(cypher, params, max_rows=max(int(limit), 1))
+    return {"field": field, "filter_city": city, "results": results}
+
+
+def describe_schema(refresh: bool = False) -> dict:
+    """Return a compact description of the graph schema and cardinalities.
+
+    Results are cached in-process for `_SCHEMA_TTL_SECONDS`. Pass
+    `refresh=True` to bypass the cache. Fields returned:
+
+    - node_labels: [{label, count, sample_properties}, ...]
+    - relationships: [{type, from, to, count}, ...]
+    - enums: {asset_category, property_type, possession_type, ...}
+    - numeric_ranges: {reserve_price_num: {...}, emd_num: {...}}
+    - date_ranges:    {auction_start_dt: {...}, application_deadline_dt: {...}}
+    """
+    now = time.time()
+    cached = _SCHEMA_CACHE.get("default")
+    if cached and not refresh and (now - cached[0]) < _SCHEMA_TTL_SECONDS:
+        return cached[1]
+
+    labels = run_read_query(
+        "CALL db.labels() YIELD label RETURN label ORDER BY label",
+        max_rows=50,
+    )
+    label_info: list[dict] = []
+    for row in labels:
+        label = row["label"]
+        count_rows = run_read_query(
+            f"MATCH (n:`{label}`) RETURN count(n) AS n",
+            max_rows=1,
+        )
+        count = count_rows[0]["n"] if count_rows else 0
+        prop_rows = run_read_query(
+            f"MATCH (n:`{label}`) WITH n LIMIT 1 RETURN keys(n) AS props",
+            max_rows=1,
+        )
+        props = prop_rows[0]["props"] if prop_rows else []
+        label_info.append({"label": label, "count": count, "sample_properties": props})
+
+    rel_rows = run_read_query(
+        "CALL db.relationshipTypes() YIELD relationshipType RETURN relationshipType AS t ORDER BY t",
+        max_rows=50,
+    )
+    rel_info: list[dict] = []
+    for row in rel_rows:
+        rtype = row["t"]
+        c = run_read_query(
+            f"MATCH ()-[r:`{rtype}`]->() RETURN count(r) AS n",
+            max_rows=1,
+        )
+        rel_info.append({"type": rtype, "count": c[0]["n"] if c else 0})
+
+    enums: dict[str, list[str]] = {}
+    for field in ("asset_category", "property_type"):
+        label, rel = _DISTINCT_FIELDS[field]
+        rows = run_read_query(
+            f"MATCH (n:{label}) RETURN n.name AS v ORDER BY v",
+            max_rows=50,
+        )
+        enums[field] = [r["v"] for r in rows if r.get("v")]
+
+    poss_rows = run_read_query(
+        """
+        MATCH (a:AuctionProperty)
+        WHERE a.possession_type IS NOT NULL
+        RETURN DISTINCT a.possession_type AS v
+        ORDER BY v
+        """,
+        max_rows=20,
+    )
+    enums["possession_type"] = [r["v"] for r in poss_rows if r.get("v")]
+
+    stat_rows = run_read_query(
+        """
+        MATCH (a:AuctionProperty)
+        RETURN
+          min(a.reserve_price_num)        AS rp_min,
+          max(a.reserve_price_num)        AS rp_max,
+          percentileCont(a.reserve_price_num, 0.5)  AS rp_p50,
+          percentileCont(a.reserve_price_num, 0.95) AS rp_p95,
+          min(a.emd_num)                  AS emd_min,
+          max(a.emd_num)                  AS emd_max,
+          percentileCont(a.emd_num, 0.5)  AS emd_p50,
+          min(a.auction_start_dt)         AS start_min,
+          max(a.auction_start_dt)         AS start_max,
+          min(a.application_deadline_dt)  AS dl_min,
+          max(a.application_deadline_dt)  AS dl_max
+        """,
+        max_rows=1,
+    )
+    stats = stat_rows[0] if stat_rows else {}
+    numeric_ranges = {
+        "reserve_price_num": {
+            "min": stats.get("rp_min"),
+            "p50": stats.get("rp_p50"),
+            "p95": stats.get("rp_p95"),
+            "max": stats.get("rp_max"),
+        },
+        "emd_num": {
+            "min": stats.get("emd_min"),
+            "p50": stats.get("emd_p50"),
+            "max": stats.get("emd_max"),
+        },
+    }
+    date_ranges = {
+        "auction_start_dt":        {"min": stats.get("start_min"), "max": stats.get("start_max")},
+        "application_deadline_dt": {"min": stats.get("dl_min"),    "max": stats.get("dl_max")},
+    }
+
+    out = {
+        "node_labels": label_info,
+        "relationships": rel_info,
+        "enums": enums,
+        "numeric_ranges": numeric_ranges,
+        "date_ranges": date_ranges,
+    }
+    _SCHEMA_CACHE["default"] = (now, out)
+    return out
+
+
+def run_cypher(
+    cypher: str,
+    params: dict | None = None,
+    description: str = "",
+    max_rows: int = 200,
+    timeout: float = 10.0,
+) -> dict:
+    """Execute a READ-ONLY Cypher query with multiple guardrails.
+
+    Guardrails:
+    1. Regex rejects CREATE / MERGE / DELETE / SET / REMOVE / DROP /
+       LOAD CSV / FOREACH, plus write-side apoc and db procedures.
+    2. Session forces READ access mode, so anything that slips past (1)
+       still fails at the Neo4j server.
+    3. Params are validated: keys must be strings, values must be primitive
+       types (str / int / float / bool / None) or lists of primitives.
+    4. Execution is bounded by `timeout` seconds and the result list is
+       trimmed to `max_rows`.
+
+    Returns:
+        {
+          "description": description passed in,
+          "cypher": the query executed,
+          "params": coerced params dict,
+          "rows": list[dict] (capped at max_rows),
+          "returned": len(rows),
+          "duration_ms": wall-clock time,
+        }
+
+    Raises:
+        ValueError on any guardrail violation.
+        RuntimeError wrapping a Neo4jError with the server message (so the
+        agent can self-correct via ModelRetry).
+    """
+    _validate_read_only_cypher(cypher)
+    coerced = _coerce_params(params)
+    max_rows = max(1, min(int(max_rows), 500))
+
+    from neo4j.exceptions import Neo4jError
+    start = time.perf_counter()
+    try:
+        rows = run_read_query(cypher, coerced, timeout=timeout, max_rows=max_rows)
+    except Neo4jError as e:
+        raise RuntimeError(f"Neo4j error: {e.message}") from e
+    duration_ms = int((time.perf_counter() - start) * 1000)
+
+    return {
+        "description": description,
+        "cypher": cypher,
+        "params": coerced,
+        "rows": rows,
+        "returned": len(rows),
+        "duration_ms": duration_ms,
+    }

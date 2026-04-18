@@ -87,7 +87,14 @@ def _install_stub_neo4j_client() -> None:
             return []
         return []
 
+    def run_read_query(cypher: str, params: dict | None = None,
+                       timeout: float = 10.0, max_rows: int = 200) -> list[dict]:
+        """Default stub — tests that exercise read-only tools should
+        monkeypatch api.tools.cypher_tools.run_read_query directly."""
+        return []
+
     mod.run_query = run_query
+    mod.run_read_query = run_read_query
     sys.modules["api.neo4j_client"] = mod
 
 

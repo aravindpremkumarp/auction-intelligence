@@ -1,0 +1,118 @@
+"""Tests for describe_schema — verifies the composite shape returned from
+the multi-query schema introspector. Each underlying Cypher call is
+stubbed and matched by prefix so the test is robust to whitespace."""
+from __future__ import annotations
+
+
+def _install_schema_stub(monkeypatch):
+    import api.tools.cypher_tools as ct
+
+    def fake_run_read_query(cypher, params=None, timeout=10.0, max_rows=200):
+        c = " ".join(cypher.split())  # normalize whitespace
+        if c.startswith("CALL db.labels()"):
+            return [{"label": "AuctionProperty"}, {"label": "City"}]
+        if c.startswith("CALL db.relationshipTypes()"):
+            return [{"t": "LOCATED_IN_CITY"}, {"t": "CONDUCTED_BY"}]
+        if "count(n)" in c and ":`AuctionProperty`" in c:
+            return [{"n": 3391}]
+        if "count(n)" in c and ":`City`" in c:
+            return [{"n": 180}]
+        if "count(r)" in c and ":`LOCATED_IN_CITY`" in c:
+            return [{"n": 3391}]
+        if "count(r)" in c and ":`CONDUCTED_BY`" in c:
+            return [{"n": 3391}]
+        if "keys(n)" in c and ":`AuctionProperty`" in c:
+            return [{"props": ["auction_id", "title", "reserve_price_num"]}]
+        if "keys(n)" in c and ":`City`" in c:
+            return [{"props": ["name"]}]
+        if "(n:AssetCategory)" in c:
+            return [{"v": "Residential"}, {"v": "Commercial"}]
+        if "(n:PropertyType)" in c:
+            return [{"v": "Flat"}, {"v": "Plot"}]
+        if "possession_type" in c:
+            return [{"v": "Physical"}, {"v": "Symbolic"}]
+        if "min(a.reserve_price_num)" in c:
+            return [{
+                "rp_min": 10000.0, "rp_max": 500000000.0,
+                "rp_p50": 3000000.0, "rp_p95": 20000000.0,
+                "emd_min": 1000.0, "emd_max": 50000000.0, "emd_p50": 300000.0,
+                "start_min": "2025-01-01T00:00:00",
+                "start_max": "2026-12-31T00:00:00",
+                "dl_min": "2025-01-01T00:00:00",
+                "dl_max": "2026-12-31T00:00:00",
+            }]
+        return []
+
+    monkeypatch.setattr(ct, "run_read_query", fake_run_read_query)
+
+
+def test_describe_schema_shape(monkeypatch):
+    # Clear the in-process cache first — other tests may have populated it.
+    import api.tools.cypher_tools as ct
+    ct._SCHEMA_CACHE.clear()
+
+    _install_schema_stub(monkeypatch)
+    from api.tools.cypher_tools import describe_schema
+
+    out = describe_schema(refresh=True)
+
+    labels = {n["label"]: n for n in out["node_labels"]}
+    assert "AuctionProperty" in labels
+    assert labels["AuctionProperty"]["count"] == 3391
+    assert "auction_id" in labels["AuctionProperty"]["sample_properties"]
+
+    rel_types = {r["type"] for r in out["relationships"]}
+    assert {"LOCATED_IN_CITY", "CONDUCTED_BY"}.issubset(rel_types)
+
+    assert "Residential" in out["enums"]["asset_category"]
+    assert "Flat" in out["enums"]["property_type"]
+    assert "Physical" in out["enums"]["possession_type"]
+
+    assert out["numeric_ranges"]["reserve_price_num"]["min"] == 10000.0
+    assert out["numeric_ranges"]["reserve_price_num"]["p95"] == 20000000.0
+    assert out["date_ranges"]["auction_start_dt"]["min"] == "2025-01-01T00:00:00"
+
+
+def test_describe_schema_cached(monkeypatch):
+    import api.tools.cypher_tools as ct
+    ct._SCHEMA_CACHE.clear()
+
+    call_count = {"n": 0}
+
+    def tracking_run_read_query(cypher, params=None, timeout=10.0, max_rows=200):
+        call_count["n"] += 1
+        # Minimal valid schema to populate the cache.
+        c = " ".join(cypher.split())
+        if c.startswith("CALL db.labels()"):
+            return [{"label": "AuctionProperty"}]
+        if c.startswith("CALL db.relationshipTypes()"):
+            return [{"t": "LOCATED_IN_CITY"}]
+        if "count(n)" in c:
+            return [{"n": 3391}]
+        if "count(r)" in c:
+            return [{"n": 3391}]
+        if "keys(n)" in c:
+            return [{"props": ["auction_id"]}]
+        if "(n:AssetCategory)" in c or "(n:PropertyType)" in c:
+            return []
+        if "possession_type" in c:
+            return []
+        if "min(a.reserve_price_num)" in c:
+            return [{}]
+        return []
+
+    monkeypatch.setattr(ct, "run_read_query", tracking_run_read_query)
+
+    from api.tools.cypher_tools import describe_schema
+
+    describe_schema()
+    first_calls = call_count["n"]
+    assert first_calls > 0
+
+    # Second call within TTL hits the cache — no new Cypher queries.
+    describe_schema()
+    assert call_count["n"] == first_calls
+
+    # refresh=True bypasses the cache.
+    describe_schema(refresh=True)
+    assert call_count["n"] > first_calls
