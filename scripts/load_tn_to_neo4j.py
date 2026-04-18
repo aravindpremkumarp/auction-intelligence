@@ -13,7 +13,7 @@ Follows the auction_graph_model.json schema:
   (Area)-[:PART_OF_CITY]->(City)
   (City)-[:IN_STATE]->(State)
   (AuctionProperty)-[:HAS_ASSET_CATEGORY]->(AssetCategory)
-  (AssetCategory)-[:HAS_TYPE]->(PropertyType)
+  (AuctionProperty)-[:OF_PROPERTY_TYPE]->(PropertyType)
   (AuctionProperty)-[:HAS_BORROWER]->(Borrower)
   (AuctionProperty)-[:IS_AUCTION_TYPE]->(AuctionType)
 
@@ -108,11 +108,11 @@ WHERE r.asset_category IS NOT NULL AND r.asset_category <> ''
 MERGE (ac:AssetCategory {name: r.asset_category})
 MERGE (a)-[:HAS_ASSET_CATEGORY]->(ac)
 
-// ── PropertyType ──────────────────────────────────────────────────────────
-WITH a, ac, r
+// ── PropertyType (per-auction edge, not via shared AssetCategory) ─────────
+WITH a, r
 WHERE r.property_type IS NOT NULL AND r.property_type <> ''
 MERGE (pt:PropertyType {name: r.property_type})
-MERGE (ac)-[:HAS_TYPE]->(pt)
+MERGE (a)-[:OF_PROPERTY_TYPE]->(pt)
 
 // ── AuctionType ───────────────────────────────────────────────────────────
 WITH a, r

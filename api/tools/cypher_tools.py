@@ -28,6 +28,7 @@ def search_auctions(
     min_price: float | None = None,
     max_price: float | None = None,
     city: str | None = None,
+    area: str | None = None,
     property_type: str | None = None,
     asset_category: str | None = None,
     starts_after: datetime | None = None,
@@ -61,8 +62,12 @@ def search_auctions(
     matches = ["(a:AuctionProperty)"]
     if city:
         matches.append("(a)-[:LOCATED_IN_CITY]->(c:City {name: $city})"); params["city"] = city
+    if area:
+        matches.append("(a)-[:LOCATED_IN_AREA]->(ar:Area)")
+        where.append("toLower(ar.name) CONTAINS toLower($area)")
+        params["area"] = area
     if property_type:
-        matches.append("(a)-[:HAS_ASSET_CATEGORY]->(:AssetCategory)-[:HAS_TYPE]->(pt:PropertyType {name: $property_type})")
+        matches.append("(a)-[:OF_PROPERTY_TYPE]->(pt:PropertyType {name: $property_type})")
         params["property_type"] = property_type
     if asset_category:
         matches.append("(a)-[:HAS_ASSET_CATEGORY]->(ac:AssetCategory {name: $asset_category})")
@@ -88,7 +93,7 @@ def search_auctions(
             OPTIONAL MATCH (a)-[:LOCATED_IN_CITY]->(city:City)
             OPTIONAL MATCH (a)-[:LOCATED_IN_AREA]->(area:Area)
             OPTIONAL MATCH (a)-[:HAS_ASSET_CATEGORY]->(ac:AssetCategory)
-            OPTIONAL MATCH (ac)-[:HAS_TYPE]->(pt:PropertyType)
+            OPTIONAL MATCH (a)-[:OF_PROPERTY_TYPE]->(pt:PropertyType)
             RETURN a.auction_id AS auction_id, a.title AS title, a.url AS url,
                    a.reserve_price_num AS reserve_price, a.emd_num AS emd,
                    a.auction_start_dt AS auction_start,
@@ -168,7 +173,7 @@ def upcoming_auctions(days: int = 14, limit: int = 20) -> list[dict]:
 def price_comparison(city: str, property_type: str) -> list[dict]:
     cypher = """
         MATCH (a:AuctionProperty)-[:LOCATED_IN_CITY]->(:City {name: $city})
-        MATCH (a)-[:HAS_ASSET_CATEGORY]->(:AssetCategory)-[:HAS_TYPE]->(:PropertyType {name: $property_type})
+        MATCH (a)-[:OF_PROPERTY_TYPE]->(:PropertyType {name: $property_type})
         RETURN a.auction_id AS auction_id, a.title AS title,
                a.reserve_price_num AS reserve_price
         ORDER BY a.reserve_price_num ASC
@@ -249,7 +254,7 @@ def get_auction_detail(auction_id: str) -> dict | None:
         OPTIONAL MATCH (a)-[:CONDUCTED_BY]->(bank:Bank)
         OPTIONAL MATCH (a)-[:HAS_BORROWER]->(borrower:Borrower)
         OPTIONAL MATCH (a)-[:HAS_ASSET_CATEGORY]->(ac:AssetCategory)
-        OPTIONAL MATCH (ac)-[:HAS_TYPE]->(pt:PropertyType)
+        OPTIONAL MATCH (a)-[:OF_PROPERTY_TYPE]->(pt:PropertyType)
         OPTIONAL MATCH (a)-[:HAS_SURVEY_NUMBER]->(s:SurveyNumber)
         WITH a, city, area, state, bank, borrower, ac, pt,
              collect(DISTINCT properties(s)) AS survey_numbers
