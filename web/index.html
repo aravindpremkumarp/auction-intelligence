@@ -133,6 +133,13 @@
     <!-- input -->
     <div class="border-t border-slate-200 bg-white p-4">
       <form @submit.prevent="send()" class="flex gap-2">
+        <select x-model="mode"
+                class="px-2 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                title="Mode — controls how the agent frames the answer">
+          <template x-for="m in modes" :key="m.id">
+            <option :value="m.id" x-text="m.label"></option>
+          </template>
+        </select>
         <textarea x-model="input" x-ref="ta" rows="1" placeholder="Ask about auctions…"
                   @keydown.enter.prevent="if (!$event.shiftKey) send()"
                   @input="autosize($event.target)"
@@ -143,7 +150,7 @@
         </button>
       </form>
       <div class="mt-2 flex flex-wrap gap-1.5">
-        <template x-for="s in suggestions" :key="s">
+        <template x-for="s in currentSuggestions" :key="s">
           <button @click="input = s; send()"
                   class="text-xs px-2 py-1 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600"
                   x-text="s"></button>
@@ -298,14 +305,27 @@ function app() {
       submitted: false,
       error: '',
     },
-    suggestions: [
-      'Residential auctions in Chennai under 30 lakhs',
-      'What is the price range in Kanchipuram?',
-      'Show auctions with deadline in the next 7 days',
-      'Canara Bank portfolio summary',
-      'Find properties where the boundary mentions a channel or paddy field',
-      'CMDA approved plots near a main road in Sriperumbudur',
+    // Modes (filled from GET /modes on init); fallback suggestions stay local.
+    mode: 'ask',
+    modes: [
+      {
+        id: 'ask',
+        label: 'Ask',
+        examples: [
+          'Residential auctions in Chennai under 30 lakhs',
+          'What is the price range in Kanchipuram?',
+          'Show auctions with deadline in the next 7 days',
+          'Canara Bank portfolio summary',
+          'Find properties where the boundary mentions a channel or paddy field',
+          'CMDA approved plots near a main road in Sriperumbudur',
+        ],
+      },
     ],
+
+    get currentSuggestions() {
+      const m = this.modes.find((x) => x.id === this.mode);
+      return (m && m.examples) || [];
+    },
 
     init() {
       this.messages.push({
@@ -313,6 +333,20 @@ function app() {
         content: 'Hi — I can query the auction knowledge graph (3,391 Tamil Nadu properties). Ask about **prices, locations, banks, deadlines, or specific auctions**. I will show the structured results in the artifacts panel on the right.',
         artifacts: [],
       });
+      // Hydrate modes from the backend so the dropdown and suggestion chips
+      // stay aligned with server-side config. Keep the local fallback if the
+      // request fails (e.g. backend not yet deployed with /modes).
+      fetch(`${window.API_BASE || ''}/modes`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => {
+          if (data && Array.isArray(data.modes) && data.modes.length) {
+            this.modes = data.modes;
+            if (!this.modes.find((m) => m.id === this.mode)) {
+              this.mode = this.modes[0].id;
+            }
+          }
+        })
+        .catch(() => {});
     },
 
     get currentArtifact() {
@@ -340,7 +374,11 @@ function app() {
         const r = await fetch(`${window.API_BASE || ''}/chat`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: text, message_history: this.messageHistory }),
+          body: JSON.stringify({
+            message: text,
+            message_history: this.messageHistory,
+            mode: this.mode && this.mode !== 'ask' ? this.mode : null,
+          }),
         });
         const data = await r.json();
         this.messageHistory = data.message_history || [];

@@ -3,11 +3,18 @@ api/agent.py
 ------------
 PydanticAI agent wired to OpenRouter (Gemini 2.0 Flash) with Cypher tools.
 Keeps the existing OpenRouter config from pipeline/config.py.
+
+The system prompt is assembled from two parts:
+1. A short role statement defined here.
+2. `modes/_shared.md` — schema, enum lists, tool-choice rules, Cypher
+   cheat-sheet. Keeping the schema in markdown lets us edit it without
+   touching Python and makes the prompt reviewable in PRs.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.models.openai import OpenAIModel
@@ -20,83 +27,47 @@ from api.tools import cypher_tools as T
 @dataclass
 class ChatDeps:
     last_search: dict | None = None
+    mode: str | None = None
 
-SYSTEM_PROMPT = """\
+
+_ROLE_PROMPT = """\
 You are an AI assistant for the Bank Auction Intelligence Platform. You help
 users find, analyze, score, and track Indian bank auction properties (primarily
-SARFAESI Act auctions).
+SARFAESI Act auctions) over a Neo4j knowledge graph of 3,391 Tamil Nadu
+properties.
 
-You have tools to query a Neo4j knowledge graph of 3,391 Tamil Nadu auction
-properties. Always:
-1. Use tools to ground answers — never fabricate auction_ids or prices.
-2. Cite auction_id values when recommending.
+Operating principles:
+1. Always ground answers with tools — never fabricate auction_ids, prices,
+   counts, or enum values.
+2. Cite auction_id values when recommending specific properties.
 3. Explain trade-offs (price vs. location, urgency vs. diligence).
-4. For scoring/tracking actions that change state, ask for user confirmation.
-
-## Schema notes — pick the right filter
-
-- `asset_category` is the BROAD class. The 7 exact values are:
-  "Residential", "Commercial", "Industrials", "Scrap, Plant & Machinery"
-  (single value — the comma is part of the name, do not split it),
-  "Vehicle Auctions", "Gold Auctions", "Others".
-  **When a user says "residential", "commercial", "industrial" — use asset_category.**
-
-- `property_type` is GRANULAR and is constrained by asset_category. An
-  auction can have multiple property types, so `search_auctions` returns
-  a `property_types` list per row — do not split a single value on
-  commas when presenting it to the user. Pass only ONE value at a time
-  to the `property_type` filter. Allowed values per category:
-    - Residential: Plot, Land And Building, Land, Agricultural Land, Flat,
-      House, Non-Agricultural Land, Residential Unit, Bungalow, Villa
-    - Commercial: Commercial Office, Commercial Property, Commercial Shop,
-      Commercial Building, Cold Storage Land And Building
-    - Industrials: Factory land and Building, Shed, Industrial Land,
-      Industrial Land & Building, Godown, Land
-    - Scrap, Plant & Machinery: Plant & Machinery, Machinary, Scrap
-    - Vehicle Auctions: Car, Vehicle, Bus, Bike
-    - Gold Auctions: (none)
-    - Others: Others
-  Values are stored verbatim, so use the exact casing and spelling above
-  (including the source typo "Machinary" and mixed-case
-  "Factory land and Building"). **Use property_type only when the user
-  specifies a concrete type like "flat" or "plot".**
-
-- Prices are in INR. "30 lakhs" = 3,000,000. "1 crore" = 10,000,000.
-
-- Cities are already in title case (e.g. "Chennai", "Kanchipuram").
-
-- `area` narrows within a city (suburb / taluk / locality, e.g. "Ambattur"
-  inside Chennai, "Sriperumbudur" inside Kanchipuram). Pass `area=...` to
-  `search_auctions` whenever the user names a place that is not a full city.
-  Case-insensitive, so "ambattur" and "Ambattur" both match.
-
-If a search returns zero, try loosening (drop property_type, broaden price,
-check city/area spelling) before telling the user there are no matches.
-
-## Choosing between search_auctions and semantic_property_search
-
-- Use `search_auctions` (Cypher) for structured filters: price ranges,
-  cities, asset_category / property_type, date windows, or any combination
-  of these. This is the default for most user queries.
-- Use `semantic_property_search` only when the user asks about qualitative
-  traits buried in free-text descriptions — boundaries ("next to a channel",
-  "faces main road"), neighborhood features, legal caveats, or property
-  condition language that the structured schema does not capture. You may
-  still pass city / price / asset_category as post-filters on the semantic
-  result set.
-
-## Single-property detail vs. list rows
-
-`search_auctions` rows are thin projections meant for browsing. Any
-question about ONE specific auction that goes beyond those row fields —
-whatever the user's phrasing — should be answered by calling
-`get_auction_detail(auction_id)`, which returns the full stored record
-(all node properties + related city/area/state/bank/borrower/category/
-property_types list/survey numbers). Before saying a field is
-unavailable, call this tool. Summarize what's relevant to the user's
-question rather than dumping the raw dict. Note that `property_types`
-is a list — present each value as-is without re-splitting on commas.
+4. For state-changing actions (scoring commits, tracker transitions), ask
+   the user to confirm before proceeding.
+5. If a specialized tool matches the question, prefer it. Fall back to
+   `run_cypher` only for genuinely novel queries the specialized tools
+   cannot express. When in doubt about labels or property names, call
+   `describe_schema()` first.
+6. When a filter returns zero, try loosening (drop property_type, broaden
+   price, verify city/area spelling) before telling the user there are no
+   matches.
 """
+
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+_MODES_DIR = _REPO_ROOT / "modes"
+
+
+def _load_mode_file(name: str) -> str:
+    """Read a modes/<name>.md file if it exists; otherwise return ''."""
+    path = _MODES_DIR / f"{name}.md"
+    if path.is_file():
+        return path.read_text(encoding="utf-8")
+    return ""
+
+
+_SHARED_CONTEXT = _load_mode_file("_shared")
+
+SYSTEM_PROMPT = f"{_ROLE_PROMPT}\n\n---\n\n{_SHARED_CONTEXT}" if _SHARED_CONTEXT else _ROLE_PROMPT
+
 
 _provider = OpenAIProvider(api_key=OPENROUTER_API_KEY, base_url=OPENROUTER_BASE_URL)
 _model = OpenAIModel(OPENROUTER_MODEL, provider=_provider)
@@ -115,6 +86,19 @@ def inject_prior_search(ctx: RunContext[ChatDeps]) -> str:
         f"- filters: {ls['filters']}\n"
         f"- total_count: {ls['total_count']}"
     )
+
+
+@agent.system_prompt(dynamic=True)
+def inject_mode_overlay(ctx: RunContext[ChatDeps]) -> str:
+    """If the caller requested a mode (deep-research / compare / report),
+    append the mode's markdown spec to the system prompt."""
+    mode = ctx.deps.mode if ctx.deps else None
+    if not mode:
+        return ""
+    text = _load_mode_file(mode)
+    if not text:
+        return ""
+    return f"---\n\n# Active mode: {mode}\n\n{text}"
 
 
 @agent.tool_plain
@@ -233,3 +217,52 @@ def get_auction_detail(auction_id: str) -> dict | None:
     concluding a field is unavailable, call this. Returns None if the
     auction_id does not exist."""
     return T.get_auction_detail(auction_id)
+
+
+@agent.tool_plain
+def list_distinct(field: str, limit: int = 100, city: str | None = None) -> dict:
+    """List distinct values of a reference field with per-value auction counts.
+
+    `field` must be one of: "city", "area", "state", "bank", "borrower",
+    "asset_category", "property_type". When `city` is supplied and `field`
+    is not "city", counts are scoped to auctions in that city.
+
+    Use for enum-discovery questions ("what cities do we cover", "list all
+    banks", "which property types appear in Chennai")."""
+    return T.list_distinct(field, limit, city)
+
+
+@agent.tool_plain
+def describe_schema(refresh: bool = False) -> dict:
+    """Describe the graph's labels, relationship types, enum values, and the
+    numeric/date ranges of key AuctionProperty fields. Cached for 1 hour.
+
+    Call this BEFORE using `run_cypher` on a novel question when you are
+    unsure about label names, relationship names, property names, or what
+    enum values exist."""
+    return T.describe_schema(refresh)
+
+
+@agent.tool_plain
+def run_cypher(
+    cypher: str,
+    params: dict | None = None,
+    description: str = "",
+    max_rows: int = 200,
+) -> dict:
+    """Execute a READ-ONLY Cypher query for questions the specialized tools
+    cannot express. Server-side guardrails reject CREATE/MERGE/DELETE/SET/
+    REMOVE/DROP/LOAD CSV/FOREACH and write-side procedures; the session
+    also forces READ access mode. Query text is capped at 4000 chars,
+    execution at 10 seconds, and results at `max_rows` (default 200,
+    hard-capped at 500).
+
+    ALWAYS prefer the specialized tools when one fits. Before composing a
+    `run_cypher` query for a novel question, call `describe_schema()` if
+    you're unsure about labels, relationships, or property names.
+
+    `description` is a one-sentence human-readable summary of intent — it
+    surfaces in the artifact chip and helps users understand what ran.
+
+    Returns {description, cypher, params, rows, returned, duration_ms}."""
+    return T.run_cypher(cypher, params, description, max_rows)
