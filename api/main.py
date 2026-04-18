@@ -26,6 +26,7 @@ from pydantic_ai.messages import (
 
 from api.agent import ChatDeps, agent
 from api.neo4j_client import run_query
+from api.tools.cypher_tools import get_auction_detail
 
 _SEARCH_TOOLS = {"search_auctions", "semantic_property_search"}
 
@@ -354,6 +355,14 @@ async def resolve_feedback(
     if not rows:
         raise HTTPException(status_code=404, detail="Feedback not found")
     return {"id": feedback_id, "resolved": True}
+
+
+@app.get("/auction/{auction_id}")
+def auction_detail(auction_id: str) -> dict:
+    detail = get_auction_detail(auction_id)
+    if detail is None:
+        raise HTTPException(status_code=404, detail="Auction not found")
+    return detail
 
 
 @app.post("/chat", response_model=ChatResponse)

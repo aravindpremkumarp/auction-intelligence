@@ -159,14 +159,16 @@ def search_auctions(
             {where_clause}
             OPTIONAL MATCH (a)-[:LOCATED_IN_CITY]->(city:City)
             OPTIONAL MATCH (a)-[:LOCATED_IN_AREA]->(area:Area)
+            OPTIONAL MATCH (a)-[:CONDUCTED_BY]->(bank:Bank)
             OPTIONAL MATCH (a)-[:HAS_ASSET_CATEGORY]->(ac:AssetCategory)
             OPTIONAL MATCH (a)-[:HAS_PROPERTY_TYPE]->(ptx:PropertyType)
-            WITH a, city, area, ac,
+            WITH a, city, area, bank, ac,
                  collect(DISTINCT ptx.name) AS property_types
             RETURN a.auction_id AS auction_id, a.title AS title, a.url AS url,
                    a.reserve_price_num AS reserve_price, a.emd_num AS emd,
                    a.auction_start_dt AS auction_start,
                    city.name AS city, area.name AS area,
+                   bank.name AS bank,
                    ac.name AS asset_category,
                    property_types
             ORDER BY a.auction_start_dt ASC
