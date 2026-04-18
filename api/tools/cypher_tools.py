@@ -28,6 +28,7 @@ def search_auctions(
     min_price: float | None = None,
     max_price: float | None = None,
     city: str | None = None,
+    area: str | None = None,
     property_type: str | None = None,
     asset_category: str | None = None,
     starts_after: datetime | None = None,
@@ -61,6 +62,10 @@ def search_auctions(
     matches = ["(a:AuctionProperty)"]
     if city:
         matches.append("(a)-[:LOCATED_IN_CITY]->(c:City {name: $city})"); params["city"] = city
+    if area:
+        matches.append("(a)-[:LOCATED_IN_AREA]->(ar:Area)")
+        where.append("toLower(ar.name) CONTAINS toLower($area)")
+        params["area"] = area
     if property_type:
         matches.append("(a)-[:HAS_PROPERTY_TYPE]->(pt:PropertyType {name: $property_type})")
         params["property_type"] = property_type

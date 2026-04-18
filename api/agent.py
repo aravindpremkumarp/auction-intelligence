@@ -65,8 +65,13 @@ properties. Always:
 
 - Cities are already in title case (e.g. "Chennai", "Kanchipuram").
 
+- `area` narrows within a city (suburb / taluk / locality, e.g. "Ambattur"
+  inside Chennai, "Sriperumbudur" inside Kanchipuram). Pass `area=...` to
+  `search_auctions` whenever the user names a place that is not a full city.
+  Case-insensitive, so "ambattur" and "Ambattur" both match.
+
 If a search returns zero, try loosening (drop property_type, broaden price,
-check city spelling) before telling the user there are no matches.
+check city/area spelling) before telling the user there are no matches.
 
 ## Choosing between search_auctions and semantic_property_search
 
@@ -115,20 +120,29 @@ def inject_prior_search(ctx: RunContext[ChatDeps]) -> str:
 @agent.tool_plain
 def search_auctions(
     min_price: float | None = None, max_price: float | None = None,
-    city: str | None = None, property_type: str | None = None,
+    city: str | None = None, area: str | None = None,
+    property_type: str | None = None,
     asset_category: str | None = None,
     starts_after: datetime | None = None, starts_before: datetime | None = None,
     limit: int = 20,
     aggregate_field: str | None = None,
     aggregations: list[str] | None = None,
 ) -> dict:
-    """Filter auctions by price, city, type, asset category, and date window.
+    """Filter auctions by price, city, area, type, asset category, and date window.
 
     Returns {total_count, returned, limit, results}. `total_count` is the true
     number of matches in the graph (ignoring limit); `results` is capped at
     `limit`. Use `total_count` whenever the user asks about quantity, totals,
     availability, or any aggregate question — do not infer counts from
     `len(results)`, which only reflects the page size.
+
+    Location filters:
+      - `city` matches a City node by exact name (e.g. "Chennai", "Kanchipuram").
+      - `area` matches an Area node inside a city (suburb / taluk / locality,
+        e.g. "Ambattur", "Sriperumbudur"). Case-insensitive substring match,
+        so "ambattur" and "Ambattur" both work. Use this for
+        "show me properties in <area>" style queries — combine with `city`
+        when the user also names the city.
 
     For aggregate/quantitative questions — "price range", "median price",
     "average EMD", "distribution", etc. — ALSO set:
@@ -143,7 +157,7 @@ def search_auctions(
                       aggregate_field="reserve_price_num",
                       aggregations=["min","max"], limit=0)
     """
-    return T.search_auctions(min_price, max_price, city, property_type,
+    return T.search_auctions(min_price, max_price, city, area, property_type,
                              asset_category, starts_after, starts_before, limit,
                              aggregate_field, aggregations)
 
