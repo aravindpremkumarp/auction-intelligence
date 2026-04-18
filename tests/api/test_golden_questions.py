@@ -131,6 +131,24 @@ GOLDEN: list[GoldenCase] = [
                ["survey_search"]),
     GoldenCase("borrower", "Auctions tied to borrower XYZ Industries",
                ["borrower_lookup"]),
+
+    # ─── Phase 2: scoring + mode workflows ──────────────────────────────
+    GoldenCase("scoring", "Score auction AUC-12345",
+               ["score_auction"]),
+    GoldenCase("scoring", "What is the investment grade for AUC-12345?",
+               ["score_auction"]),
+    # Mode workflows kick off multi-tool trajectories. The catalogue only
+    # requires that at least ONE of the expected tools is invoked; the live
+    # eval still validates the full chain produces a sensible answer.
+    GoldenCase("deep_research", "Deep research on auction AUC-12345",
+               ["get_auction_detail", "score_auction",
+                "find_similar_properties", "borrower_lookup",
+                "bank_portfolio", "location_analysis"]),
+    GoldenCase("compare", "Compare AUC-12345 and AUC-67890",
+               ["get_auction_detail", "score_auction"]),
+    GoldenCase("report", "Report on AUC-12345 for a conservative investor under 50 lakhs",
+               ["get_auction_detail", "score_auction",
+                "find_similar_properties"]),
 ]
 
 
@@ -153,7 +171,7 @@ def test_catalogue_well_formed() -> None:
                 "location_analysis", "upcoming_auctions", "price_comparison",
                 "borrower_lookup", "semantic_property_search", "survey_search",
                 "get_auction_detail", "list_distinct", "describe_schema",
-                "run_cypher",
+                "run_cypher", "score_auction",
             }, f"unknown tool {t!r} on {c.question!r}"
 
 

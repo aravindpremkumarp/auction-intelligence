@@ -266,3 +266,32 @@ def run_cypher(
 
     Returns {description, cypher, params, rows, returned, duration_ms}."""
     return T.run_cypher(cypher, params, description, max_rows)
+
+
+@agent.tool_plain
+def score_auction(auction_id: str) -> dict | None:
+    """Score a single auction across the 10 weighted dimensions.
+
+    Returns a dict shaped like:
+        {
+          "auction_id": str,
+          "composite_score": float,  # 0-100
+          "grade": "A+" | "A" | "B" | "C" | "D" | "F",
+          "dimensions": [
+            {"name": ..., "score": 0-100, "weight": 0..1, "rationale": "..."},
+            ...
+          ],
+        }
+
+    The scorer is non-persisting — it does NOT write an InvestmentTracker
+    node. Persistence is a state-changing action; if the user asks to
+    commit the score, tell them that feature requires explicit confirmation
+    and is not yet wired in this build.
+
+    Returns None if `auction_id` does not exist. Dimension weights and
+    rationales live in scoring.auction_scorer; use the rationale fields
+    verbatim when summarizing for the user."""
+    from scoring.auction_scorer import score_auction as _score
+
+    result = _score(auction_id)
+    return result.to_dict() if result else None
