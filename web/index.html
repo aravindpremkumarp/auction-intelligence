@@ -12,6 +12,13 @@
     ? ''
     : 'https://auction-api-w68b.onrender.com';
 </script>
+<script>
+  (function () {
+    var saved = localStorage.getItem('theme');
+    var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    document.documentElement.setAttribute('data-theme', saved || (prefersDark ? 'dark' : 'light'));
+  })();
+</script>
 <style>
 :root {
   --ink: #1a1a1a;
@@ -29,6 +36,24 @@
   --font-body: 'Kalam', cursive;
   --font-mono: 'IBM Plex Mono', monospace;
 }
+[data-theme="dark"] {
+  --ink: #f0e6d2;
+  --ink-soft: #c9bfa8;
+  --muted: #8a8378;
+  --paper: #1a1a1a;
+  --paper-2: #242424;
+  --card: #2a2a2a;
+  --accent: #ffd84d;
+  --danger: #ff6a4a;
+  --good: #6ec77a;
+  --shadow: 2px 3px 0 rgba(255,216,77,0.35);
+}
+[data-theme="dark"] body {
+  background-image:
+    linear-gradient(to right, rgba(255,255,255,0.04) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255,255,255,0.04) 1px, transparent 1px);
+}
+[data-theme="dark"] .top-nav button.on { color: var(--ink); background: var(--accent); }
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; height: 100%; }
 body {
@@ -588,13 +613,25 @@ body {
 }
 .feedback-btn:hover { background: var(--accent); }
 
-.mode-select {
-  background: var(--card); border: 1.5px solid var(--ink);
-  padding: 4px 8px; font-family: var(--font-mono); font-size: 11px;
+.mode-select-inline {
+  background: var(--accent); border: 1.5px solid var(--ink);
+  padding: 4px 10px; font-family: var(--font-mono); font-size: 11px;
   text-transform: lowercase; letter-spacing: 0.04em;
   cursor: pointer; outline: 0;
+  appearance: none; -webkit-appearance: none;
+  flex-shrink: 0; max-width: 140px;
+  color: var(--ink);
 }
-.mode-select:hover { background: var(--accent); }
+.mode-select-inline:hover { filter: brightness(0.96); }
+
+.theme-toggle {
+  background: var(--card); border: 1.5px solid var(--ink);
+  width: 34px; height: 34px; padding: 0; cursor: pointer;
+  display: grid; place-items: center; font-size: 16px;
+  font-family: var(--font-mono);
+  color: var(--ink);
+}
+.theme-toggle:hover { background: var(--accent); }
 
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-thumb { background: var(--ink); opacity: 0.2; }
@@ -606,6 +643,41 @@ body {
   .detail { grid-template-columns: 1fr; }
   .fact-grid { grid-template-columns: repeat(2, 1fr); }
   .landing-hero h1 { font-size: 38px; }
+}
+
+@media (max-width: 640px) {
+  body { font-size: 14px; overflow: auto; }
+  .app { border: 0; height: auto; min-height: 100vh; }
+  .topbar { padding: 8px 12px; flex-wrap: wrap; gap: 8px; }
+  .brand { font-size: 20px; }
+  .top-nav {
+    order: 3; flex-basis: 100%;
+    justify-content: space-between;
+    overflow-x: auto;
+  }
+  .top-nav button { padding: 4px 8px; font-size: 11px; }
+  .top-right { gap: 6px; margin-left: auto; }
+  .feedback-btn { font-size: 0; padding: 4px 8px; line-height: 1; }
+  .feedback-btn::before { content: '💬'; font-size: 14px; }
+  .save-btn { font-size: 0; padding: 4px 8px; line-height: 1; }
+  .save-btn #save-count { font-size: 12px; font-family: var(--font-mono); }
+  .avatar { width: 28px; height: 28px; font-size: 14px; }
+  .theme-toggle { width: 28px; height: 28px; font-size: 14px; }
+
+  .screen-host { overflow: visible; }
+  .screen { position: relative; inset: auto; padding: 16px 14px 24px; overflow: visible; }
+  .landing-hero { padding-top: 16px; gap: 14px; }
+  .landing-hero h1 { font-size: 32px; }
+  .landing-sub { font-size: 11px; }
+
+  .chat-input { padding: 10px; gap: 8px; }
+  .chat-input input,
+  .chat-input input::placeholder { font-size: 18px; }
+  .chat-input .send { width: 44px; height: 44px; font-size: 20px; }
+  .mode-select-inline { font-size: 10px; padding: 6px 8px; max-width: 96px; }
+
+  .fact-grid { grid-template-columns: 1fr; }
+  .modal { width: 96vw; padding: 16px; }
 }
 </style>
 </head>
@@ -621,9 +693,7 @@ body {
       <button data-nav="watchlist">watchlist</button>
     </div>
     <div class="top-right">
-      <select id="mode-select" class="mode-select" title="Answer mode">
-        <option value="ask">ask</option>
-      </select>
+      <button class="theme-toggle" id="theme-toggle" title="Toggle theme" aria-label="Toggle dark mode">🌙</button>
       <button class="feedback-btn" onclick="openGeneralFeedback()" title="Send feedback about the app">💬 feedback</button>
       <button class="save-btn" onclick="go('watchlist')"><span id="save-count">0</span> saved</button>
       <div class="avatar">R</div>
@@ -637,7 +707,9 @@ body {
         <div class="landing-sub" id="landing-sub">bank auctions · neo4j knowledge graph</div>
         <h1>What property are you <em>looking for?</em></h1>
         <div class="chat-input">
-          <span class="ico">?</span>
+          <select class="mode-select-inline" aria-label="Answer mode">
+            <option value="ask">ask ▾</option>
+          </select>
           <input id="landing-input" type="text" placeholder="3BHK in Chennai under 1 Cr, ready possession…" autocomplete="off">
           <button class="send" id="landing-send">→</button>
         </div>
@@ -672,7 +744,9 @@ body {
           </div>
           <div class="chat-log" id="chat-log"></div>
           <div class="chat-input" style="box-shadow:none; padding:8px 10px;">
-            <span class="ico" style="width:20px;height:20px;font-size:11px;">?</span>
+            <select class="mode-select-inline" aria-label="Answer mode" style="font-size:10px; padding:3px 6px; max-width:110px;">
+              <option value="ask">ask ▾</option>
+            </select>
             <input id="results-input" type="text" placeholder="refine…" autocomplete="off">
             <button class="send" id="results-send" style="width:24px;height:24px;font-size:14px;">→</button>
           </div>
@@ -945,10 +1019,35 @@ document.querySelectorAll('.top-nav button').forEach(b => {
   b.addEventListener('click', () => go(b.dataset.nav));
 });
 
+/* ====== mode sync (inline dropdowns in chatboxes) ====== */
+window.currentMode = 'ask';
+document.addEventListener('change', (e) => {
+  if (!e.target.matches || !e.target.matches('.mode-select-inline')) return;
+  window.currentMode = e.target.value;
+  document.querySelectorAll('.mode-select-inline').forEach(s => {
+    if (s !== e.target) s.value = e.target.value;
+  });
+});
+
+/* ====== theme toggle ====== */
+(function () {
+  const btn = document.getElementById('theme-toggle');
+  if (!btn) return;
+  const sync = () => {
+    btn.textContent = document.documentElement.getAttribute('data-theme') === 'dark' ? '☀' : '🌙';
+  };
+  sync();
+  btn.addEventListener('click', () => {
+    const next = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', next);
+    localStorage.setItem('theme', next);
+    sync();
+  });
+})();
+
 /* ====== API ====== */
 async function apiChat(message) {
-  const modeEl = document.getElementById('mode-select');
-  const mode = modeEl ? modeEl.value : 'ask';
+  const mode = window.currentMode || 'ask';
   const res = await fetch(`${API_BASE}/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -964,10 +1063,10 @@ async function hydrateModes() {
     const data = await res.json();
     const modes = Array.isArray(data?.modes) ? data.modes : [];
     if (!modes.length) return;
-    const sel = document.getElementById('mode-select');
-    if (!sel) return;
-    sel.innerHTML = modes.map(m => `<option value="${escapeHtml(m.id)}">${escapeHtml(m.label || m.id)}</option>`).join('');
-    sel.value = 'ask';
+    const sels = document.querySelectorAll('.mode-select-inline');
+    if (!sels.length) return;
+    const optHtml = modes.map(m => `<option value="${escapeHtml(m.id)}">${escapeHtml(m.label || m.id)} ▾</option>`).join('');
+    sels.forEach(s => { s.innerHTML = optHtml; s.value = window.currentMode || 'ask'; });
   } catch(e) { /* keep the default "ask" option */ }
 }
 async function apiAuctionDetail(auctionId) {
