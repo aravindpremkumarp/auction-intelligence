@@ -14,6 +14,10 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 R2_ACCOUNT_ID        = os.getenv("R2_ACCOUNT_ID", "")
 R2_ACCESS_KEY_ID     = os.getenv("R2_ACCESS_KEY_ID", "")
 R2_SECRET_ACCESS_KEY = os.getenv("R2_SECRET_ACCESS_KEY", "")
@@ -78,7 +82,7 @@ def guess_content_type(filename: str) -> str:
     ext = Path(filename).suffix.lower()
     if ext == ".pdf":
         return "application/pdf"
-    if ext in (".jpg", ".jpeg"):
+    if ext in (".jpg", ".jpeg", ".jfif"):
         return "image/jpeg"
     if ext == ".png":
         return "image/png"

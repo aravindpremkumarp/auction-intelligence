@@ -37,11 +37,11 @@ from pipeline import storage
 from pipeline.config import DOWNLOADS_DIR
 from api.neo4j_client import run_query
 
-# The scraper writes files to downloads/live_properties/; older one-off runs
-# used the top-level downloads/ directly. Search both so the script can
-# backfill either layout.
+# The scraper has written files to a few layouts over time. Search each
+# known location so the script works against any historical dataset.
 _DOWNLOAD_SEARCH_DIRS = [
     DOWNLOADS_DIR / "live_properties",
+    DOWNLOADS_DIR / "tn_properties",
     DOWNLOADS_DIR,
 ]
 
