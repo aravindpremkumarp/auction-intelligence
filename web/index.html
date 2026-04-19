@@ -12,6 +12,13 @@
     ? ''
     : 'https://auction-api-w68b.onrender.com';
 </script>
+<script>
+  (function () {
+    var saved = localStorage.getItem('theme');
+    var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    document.documentElement.setAttribute('data-theme', saved || (prefersDark ? 'dark' : 'light'));
+  })();
+</script>
 <style>
 :root {
   --ink: #1a1a1a;
@@ -28,6 +35,47 @@
   --font-hand: 'Caveat', cursive;
   --font-body: 'Kalam', cursive;
   --font-mono: 'IBM Plex Mono', monospace;
+}
+[data-theme="dark"] {
+  --ink: #f0e6d2;
+  --ink-soft: #c9bfa8;
+  --muted: #8a8378;
+  --paper: #1a1a1a;
+  --paper-2: #242424;
+  --card: #2a2a2a;
+  --accent: #ffd84d;
+  --danger: #ff6a4a;
+  --good: #6ec77a;
+  --shadow: 2px 3px 0 rgba(255,216,77,0.35);
+}
+[data-theme="dark"] body {
+  background-image:
+    linear-gradient(to right, rgba(255,255,255,0.04) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255,255,255,0.04) 1px, transparent 1px);
+}
+/* Force dark text on accent-yellow surfaces in dark mode so they stay legible */
+[data-theme="dark"] .brand em,
+[data-theme="dark"] .landing-hero h1 em,
+[data-theme="dark"] .top-nav button.on,
+[data-theme="dark"] .avatar,
+[data-theme="dark"] .chip:hover,
+[data-theme="dark"] .chip.filled,
+[data-theme="dark"] .mode-select-inline,
+[data-theme="dark"] .mode-select-inline option,
+[data-theme="dark"] .chat-input .send:hover,
+[data-theme="dark"] .sb-new,
+[data-theme="dark"] .sb-toggle:hover,
+[data-theme="dark"] .sb-item.active,
+[data-theme="dark"] .modal-rating button.on,
+[data-theme="dark"] .bubble.user,
+[data-theme="dark"] .b-act:hover,
+[data-theme="dark"] .b-act.flash,
+[data-theme="dark"] .fact.accent,
+[data-theme="dark"] .save-btn.saved,
+[data-theme="dark"] .save-btn:hover,
+[data-theme="dark"] .feedback-btn:hover,
+[data-theme="dark"] .theme-toggle:hover {
+  color: #1a1a1a;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; height: 100%; }
@@ -136,7 +184,8 @@ body {
   max-width: 640px;
   position: relative;
 }
-.chat-input input {
+.chat-input input,
+.chat-input textarea {
   flex: 1;
   background: transparent; border: 0; outline: 0;
   font-family: var(--font-hand);
@@ -144,7 +193,17 @@ body {
   color: var(--ink);
   padding: 0;
 }
-.chat-input input::placeholder { color: var(--muted); font-family: var(--font-hand); font-size: 22px; }
+.chat-input textarea {
+  resize: none;
+  overflow-y: auto;
+  line-height: 1.25;
+  max-height: 160px;
+  min-height: 28px;
+  width: 100%;
+  display: block;
+}
+.chat-input input::placeholder,
+.chat-input textarea::placeholder { color: var(--muted); font-family: var(--font-hand); font-size: 22px; }
 .chat-input .ico {
   width: 26px; height: 26px; border: 1.5px solid var(--ink); border-radius: 50%;
   display: grid; place-items: center; font-family: var(--font-mono); font-size: 14px;
@@ -588,13 +647,25 @@ body {
 }
 .feedback-btn:hover { background: var(--accent); }
 
-.mode-select {
-  background: var(--card); border: 1.5px solid var(--ink);
-  padding: 4px 8px; font-family: var(--font-mono); font-size: 11px;
+.mode-select-inline {
+  background: var(--accent); border: 1.5px solid var(--ink);
+  padding: 4px 10px; font-family: var(--font-mono); font-size: 11px;
   text-transform: lowercase; letter-spacing: 0.04em;
   cursor: pointer; outline: 0;
+  appearance: none; -webkit-appearance: none;
+  flex-shrink: 0; max-width: 140px;
+  color: var(--ink);
 }
-.mode-select:hover { background: var(--accent); }
+.mode-select-inline:hover { filter: brightness(0.96); }
+
+.theme-toggle {
+  background: var(--card); border: 1.5px solid var(--ink);
+  width: 34px; height: 34px; padding: 0; cursor: pointer;
+  display: grid; place-items: center; font-size: 16px;
+  font-family: var(--font-mono);
+  color: var(--ink);
+}
+.theme-toggle:hover { background: var(--accent); }
 
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-thumb { background: var(--ink); opacity: 0.2; }
@@ -606,6 +677,41 @@ body {
   .detail { grid-template-columns: 1fr; }
   .fact-grid { grid-template-columns: repeat(2, 1fr); }
   .landing-hero h1 { font-size: 38px; }
+}
+
+@media (max-width: 640px) {
+  body { font-size: 14px; overflow: auto; }
+  .app { border: 0; height: auto; min-height: 100vh; }
+  .topbar { padding: 8px 12px; flex-wrap: wrap; gap: 8px; }
+  .brand { font-size: 20px; }
+  .top-nav {
+    order: 3; flex-basis: 100%;
+    justify-content: space-between;
+    overflow-x: auto;
+  }
+  .top-nav button { padding: 4px 8px; font-size: 11px; }
+  .top-right { gap: 6px; margin-left: auto; }
+  .feedback-btn { font-size: 0; padding: 4px 8px; line-height: 1; }
+  .feedback-btn::before { content: '💬'; font-size: 14px; }
+  .save-btn { font-size: 0; padding: 4px 8px; line-height: 1; }
+  .save-btn #save-count { font-size: 12px; font-family: var(--font-mono); }
+  .avatar { width: 28px; height: 28px; font-size: 14px; }
+  .theme-toggle { width: 28px; height: 28px; font-size: 14px; }
+
+  .screen-host { overflow: visible; }
+  .screen { position: relative; inset: auto; padding: 16px 14px 24px; overflow: visible; }
+  .landing-hero { padding-top: 16px; gap: 14px; }
+  .landing-hero h1 { font-size: 32px; }
+  .landing-sub { font-size: 11px; }
+
+  .chat-input { padding: 10px; gap: 8px; }
+  .chat-input input,
+  .chat-input input::placeholder { font-size: 18px; }
+  .chat-input .send { width: 44px; height: 44px; font-size: 20px; }
+  .mode-select-inline { font-size: 10px; padding: 6px 8px; max-width: 96px; }
+
+  .fact-grid { grid-template-columns: 1fr; }
+  .modal { width: 96vw; padding: 16px; }
 }
 </style>
 </head>
@@ -621,9 +727,7 @@ body {
       <button data-nav="watchlist">watchlist</button>
     </div>
     <div class="top-right">
-      <select id="mode-select" class="mode-select" title="Answer mode">
-        <option value="ask">ask</option>
-      </select>
+      <button class="theme-toggle" id="theme-toggle" title="Toggle theme" aria-label="Toggle dark mode">🌙</button>
       <button class="feedback-btn" onclick="openGeneralFeedback()" title="Send feedback about the app">💬 feedback</button>
       <button class="save-btn" onclick="go('watchlist')"><span id="save-count">0</span> saved</button>
       <div class="avatar">R</div>
@@ -637,8 +741,10 @@ body {
         <div class="landing-sub" id="landing-sub">bank auctions · neo4j knowledge graph</div>
         <h1>What property are you <em>looking for?</em></h1>
         <div class="chat-input">
-          <span class="ico">?</span>
-          <input id="landing-input" type="text" placeholder="3BHK in Chennai under 1 Cr, ready possession…" autocomplete="off">
+          <select class="mode-select-inline" aria-label="Answer mode">
+            <option value="ask">ask ▾</option>
+          </select>
+          <textarea id="landing-input" rows="1" placeholder="3BHK in Chennai under 1 Cr, ready possession…" autocomplete="off"></textarea>
           <button class="send" id="landing-send">→</button>
         </div>
         <div class="lbl">try asking</div>
@@ -672,8 +778,10 @@ body {
           </div>
           <div class="chat-log" id="chat-log"></div>
           <div class="chat-input" style="box-shadow:none; padding:8px 10px;">
-            <span class="ico" style="width:20px;height:20px;font-size:11px;">?</span>
-            <input id="results-input" type="text" placeholder="refine…" autocomplete="off">
+            <select class="mode-select-inline" aria-label="Answer mode" style="font-size:10px; padding:3px 6px; max-width:110px;">
+              <option value="ask">ask ▾</option>
+            </select>
+            <textarea id="results-input" rows="1" placeholder="refine…" autocomplete="off" style="font-size:18px;"></textarea>
             <button class="send" id="results-send" style="width:24px;height:24px;font-size:14px;">→</button>
           </div>
         </div>
@@ -717,7 +825,7 @@ body {
             <div class="lbl" style="margin-bottom:6px;">ask about this property</div>
             <div id="detail-chat-log" style="display:flex; flex-direction:column; gap:6px; max-height:240px; overflow-y:auto; margin-bottom:8px; min-height:60px;"></div>
             <div class="chat-input" style="box-shadow:none; padding:6px 8px;">
-              <input id="detail-input" type="text" placeholder="e.g. what's the EMD?" autocomplete="off" style="font-size:16px;">
+              <textarea id="detail-input" rows="1" placeholder="e.g. what's the EMD?" autocomplete="off" style="font-size:16px;"></textarea>
               <button class="send" id="detail-send" style="width:24px;height:24px;font-size:14px;">→</button>
             </div>
           </div>
@@ -945,10 +1053,35 @@ document.querySelectorAll('.top-nav button').forEach(b => {
   b.addEventListener('click', () => go(b.dataset.nav));
 });
 
+/* ====== mode sync (inline dropdowns in chatboxes) ====== */
+window.currentMode = 'ask';
+document.addEventListener('change', (e) => {
+  if (!e.target.matches || !e.target.matches('.mode-select-inline')) return;
+  window.currentMode = e.target.value;
+  document.querySelectorAll('.mode-select-inline').forEach(s => {
+    if (s !== e.target) s.value = e.target.value;
+  });
+});
+
+/* ====== theme toggle ====== */
+(function () {
+  const btn = document.getElementById('theme-toggle');
+  if (!btn) return;
+  const sync = () => {
+    btn.textContent = document.documentElement.getAttribute('data-theme') === 'dark' ? '☀' : '🌙';
+  };
+  sync();
+  btn.addEventListener('click', () => {
+    const next = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', next);
+    localStorage.setItem('theme', next);
+    sync();
+  });
+})();
+
 /* ====== API ====== */
 async function apiChat(message) {
-  const modeEl = document.getElementById('mode-select');
-  const mode = modeEl ? modeEl.value : 'ask';
+  const mode = window.currentMode || 'ask';
   const res = await fetch(`${API_BASE}/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -964,10 +1097,10 @@ async function hydrateModes() {
     const data = await res.json();
     const modes = Array.isArray(data?.modes) ? data.modes : [];
     if (!modes.length) return;
-    const sel = document.getElementById('mode-select');
-    if (!sel) return;
-    sel.innerHTML = modes.map(m => `<option value="${escapeHtml(m.id)}">${escapeHtml(m.label || m.id)}</option>`).join('');
-    sel.value = 'ask';
+    const sels = document.querySelectorAll('.mode-select-inline');
+    if (!sels.length) return;
+    const optHtml = modes.map(m => `<option value="${escapeHtml(m.id)}">${escapeHtml(m.label || m.id)} ▾</option>`).join('');
+    sels.forEach(s => { s.innerHTML = optHtml; s.value = window.currentMode || 'ask'; });
   } catch(e) { /* keep the default "ask" option */ }
 }
 async function apiAuctionDetail(auctionId) {
@@ -1606,9 +1739,30 @@ document.getElementById('fb-modal').addEventListener('click', (e) => {
 function bindInput(inputId, sendId, handler) {
   const inp = document.getElementById(inputId);
   const send = document.getElementById(sendId);
-  const trigger = () => { const v = inp.value; inp.value = ''; handler(v); };
+  const isTextarea = inp.tagName === 'TEXTAREA';
+  const autoGrow = () => {
+    if (!isTextarea) return;
+    inp.style.height = 'auto';
+    inp.style.height = Math.min(inp.scrollHeight, 160) + 'px';
+  };
+  const trigger = () => {
+    const v = inp.value.trim();
+    if (!v) return;
+    inp.value = '';
+    autoGrow();
+    handler(v);
+  };
   send.addEventListener('click', trigger);
-  inp.addEventListener('keydown', e => { if (e.key === 'Enter') trigger(); });
+  inp.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      trigger();
+    }
+  });
+  if (isTextarea) {
+    inp.addEventListener('input', autoGrow);
+    autoGrow();
+  }
 }
 bindInput('landing-input', 'landing-send', (v) => askAI(v, { fromLanding: true }));
 bindInput('results-input', 'results-send', (v) => askAI(v));
