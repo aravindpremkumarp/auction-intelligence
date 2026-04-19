@@ -25,7 +25,15 @@ and captures user feedback on investment opportunities.
     - `resolve-feedback.yml` — On merged PRs, parses
       `Resolves feedback: <uuid>` markers from the PR body and PATCHes
       `/feedback/<id>/resolve` on the live API.
+    - `sync-feedback.yml` — Every 15 min (and on manual dispatch)
+      snapshots `/feedback/recent` into `feedback/all.json` +
+      `feedback/unresolved.json` and commits the diff.
+    - `golden.yml` — Nightly (02:00 UTC) live eval that runs
+      `tests/api/test_golden_questions.py` against the real
+      OpenRouter + Neo4j Aura stack. Requires the `OPENROUTER_*`,
+      `NEO4J_*`, and `OPENAI_API_KEY` secrets.
 - `config/` — Schema + connection + full dev requirements + this document.
+- `feedback/` — Auto-synced snapshots of live feedback (see below).
 - `api/`, `pipeline/`, `scrapers/`, `scripts/`, `scoring/`, `tracking/`,
   `modes/`, `web/`, `tests/`, `walkthrough/` — see below.
 
@@ -65,6 +73,20 @@ Mixed bag of one-off utilities and the TN data-prep pipeline.
   primary input for Neo4j ingestion) and `tn_download_report.txt`.
 - `load_tn_to_neo4j.py` — Creates constraints/indexes and batch-MERGEs nodes
   and relationships into Neo4j Aura.
+- Property-type schema repair (one-shots from PR #9):
+    - `inspect_property_type_edges.py` — Diagnose edge-direction bugs
+      by counting `HAS_PROPERTY_TYPE`, `OF_PROPERTY_TYPE`, and
+      `HAS_TYPE` edges in the live graph.
+    - `migrate_property_types.py` — Delete stale comma-joined
+      `PropertyType` nodes and the legacy `AssetCategory-[:HAS_TYPE]->`
+      edges; rebuild per-auction type attribution.
+    - `restore_has_property_type.py` — Replay
+      `tn_auction_data.jsonl` into prod to rebuild missing
+      `(AuctionProperty)-[:HAS_PROPERTY_TYPE]->(PropertyType)` edges
+      and clean up stray `OF_PROPERTY_TYPE` edges.
+    - `smoke_check.py` — Post-repair sanity: verifies
+      "Chennai Flats" / "Kanchipuram Flats" return the expected
+      cardinality.
 - Diagnostic/utility scripts: `check_*.py`, `debug_*.py`,
   `fuzz_pagination.py`, `find_count_selector.py`, `verify_download_fix.py`,
   `fix_extensions.py`, `compare_urls.py`, `remove_duplicates.py`,
@@ -133,8 +155,16 @@ Dimensions (weights in `modes/_shared.md`):
   endpoints. Run: `uvicorn api.main:app --reload`.
   Endpoints:
     - `GET  /health` — Liveness probe.
-    - `POST /chat` — Agent turn; returns answer, tool artifacts, and full
+    - `GET  /health/deep` — Extended health: verifies Neo4j
+      connectivity, `AuctionProperty` count, and presence of the
+      `property_desc_idx` vector index.
+    - `GET  /modes` — Mode registry consumed by the UI mode selector
+      (id, label, description, example prompts per mode).
+    - `POST /chat` — Agent turn; accepts optional `mode` for mode
+      overlay. Returns answer, tool artifacts, and full
       `message_history` for the client to replay on the next turn.
+    - `GET  /auction/{auction_id}` — Full auction detail for the
+      detail screen in the UI (wraps `cypher_tools.get_auction_detail`).
     - `POST /feedback` — Persist a thumbs up/down on an assistant reply.
       Captures the question, answer, tool artifacts, user-agent, and a
       trimmed window of prior `context_turns` (role + content + tool
@@ -147,19 +177,54 @@ Dimensions (weights in `modes/_shared.md`):
       called automatically by the `resolve-feedback.yml` workflow when a
       fix PR is merged.
 - `agent.py` — PydanticAI agent wired to OpenRouter (Gemini 2.0 Flash).
-  System prompt encodes schema hints (asset_category vs property_type
-  vocabularies, TN record count) and usage rules (ground every answer in
-  tool results, cite auction_id, confirm state changes).
-- `neo4j_client.py` — Shared Neo4j driver / `run_query` / `session`
-  helpers.
-- `tools/cypher_tools.py` — Agent tools: parameterized Cypher queries
-  (including semantic `semantic_property_search` over the embedding
-  index), scoring invocations, tracker state transitions.
+  System prompt is assembled at boot from a short `_ROLE_PROMPT` plus
+  the full `modes/_shared.md` (schema, enum lists, tool-choice rules,
+  Cypher cheat-sheet). Two dynamic system prompts augment each turn:
+  `inject_prior_search` (surfaces the last tool's filters + total
+  count for conversational continuity) and `inject_mode_overlay`
+  (appends `modes/<mode>.md` when the client passes a `mode`).
+- `neo4j_client.py` — Shared Neo4j driver. `session()` / `run_query()`
+  for writes/reads, plus `read_session()` and `run_read_query()`
+  which force `READ_ACCESS` mode, accept a server-side `timeout`
+  (default 10 s), and trim results to `max_rows` — the safety net
+  behind the `run_cypher` escape hatch.
+- `tools/cypher_tools.py` — Agent tools (each registered via
+  `@agent.tool_plain` in `api/agent.py`):
+    - `search_auctions` — Filter by price / city / area / property
+      type / asset category / date window; supports aggregate
+      statistics (min/max/avg/median/p25/p75) over the full filtered
+      set and returns a true `total_count`.
+    - `find_similar_properties`, `bank_portfolio`, `location_analysis`,
+      `upcoming_auctions`, `price_comparison`, `borrower_lookup`,
+      `survey_search`, `get_auction_detail` — Specialized parameterized
+      Cypher queries.
+    - `semantic_property_search` — Vector search over
+      `AuctionProperty.embedding` via the `property_desc_idx` index,
+      with optional city / price / asset-category post-filters.
+    - `list_distinct(field, limit, city=None)` — Enum discovery
+      ("what cities do we cover", "which property types appear in
+      Chennai"). `field` ∈ {city, area, state, bank, borrower,
+      asset_category, property_type}.
+    - `describe_schema(refresh=False)` — Introspect the live graph
+      (labels + counts, relationship types, enum values, numeric /
+      date ranges of key fields). 1-hour in-memory cache. Called
+      before composing a `run_cypher` query for a novel question.
+    - `run_cypher(cypher, params, description, max_rows)` —
+      Read-only escape hatch for questions the specialized tools
+      cannot express. Regex guards reject `CREATE`, `MERGE`,
+      `DELETE`, `SET`, `REMOVE`, `DROP`, `LOAD CSV`, `FOREACH`, and
+      write-side procedures; query text capped at 4000 chars,
+      server-side execution capped at 10 s, and rows capped at
+      `max_rows` (default 200, hard max 500). Backed by
+      `neo4j_client.run_read_query`.
 
 ## 7. Modes (`modes/*.md`)
 
 Markdown "mode" prompts the agent can switch into:
-- `_shared.md` — Shared 10-dim scoring framework.
+- `_shared.md` — Loaded into the system prompt at boot. Defines the
+  full Neo4j schema (node labels + key properties, relationships,
+  enum constraints), tool-choice rules, a Cypher cheat-sheet for
+  `run_cypher`, and the shared 10-dim scoring framework.
 - `scan.md` — Broad search of opportunities.
 - `shortlist.md` — Narrow to candidates.
 - `evaluate.md` — Deep score one property.
@@ -171,19 +236,50 @@ Markdown "mode" prompts the agent can switch into:
 
 ## 8. Web UI (`web/`)
 
-- `index.html` — Single-page chat UI (Alpine.js + Tailwind via CDN, no
-  build step) served by FastAPI and deployed statically to Vercel. Sends
-  each assistant reply through a thumbs up/down feedback widget that
-  POSTs to `/feedback` with the prior conversation context.
+- `index.html` — Single-page "mid-fi sketch" UI served by FastAPI and
+  deployed statically to Vercel. No build step, no frameworks: vanilla
+  JS with hand-rolled CSS variables and hand/mono fonts (Caveat,
+  Kalam, IBM Plex Mono via Google Fonts). Four-screen flow:
+    1. **Landing / search** — Hero prompt input, mode dropdown
+       (populated from `GET /modes`), suggestion chips.
+    2. **Results** — Sidebar (chat history) + transcript pane
+       (per-bubble thumbs-up/down feedback) + results pane
+       (property rows from `search_auctions` /
+       `semantic_property_search`).
+    3. **Detail** — Back link, title, photos, fact grid,
+       description, documents, save-to-watchlist button, and a
+       per-property chat box. Loads from `GET /auction/{id}`.
+    4. **Watchlist** — Saved properties grouped by timeline
+       urgency (red for imminent auctions with a countdown).
+  Header carries the brand logo, mode selector, a general-purpose
+  feedback button (`kind="general"` POST to `/feedback`), saved-count
+  badge, and avatar. The `API_BASE` is resolved at runtime — empty on
+  `localhost`, otherwise the hosted Render URL.
 
 ## 9. Tests (`tests/`)
 
 - `tests/api/` — FastAPI endpoint tests (run in CI).
-    - `conftest.py` — In-memory stub for `run_query` so tests don't need
-      Neo4j.
-    - `test_feedback.py` — End-to-end `/feedback`, `/feedback/recent`, and
-      `/feedback/{id}/resolve` coverage.
+    - `conftest.py` — In-memory stub for `run_query` /
+      `run_read_query` so tests don't need a live Neo4j.
+    - `test_feedback.py` — End-to-end `/feedback`, `/feedback/recent`,
+      and `/feedback/{id}/resolve` coverage (including `context_turns`
+      capture and resolve-token guard).
     - `test_import.py` — Import smoke test.
+    - `test_cypher_tools_area.py` — Verifies the `area` filter in
+      `search_auctions` (case-insensitive substring on `Area.name`).
+    - `test_describe_schema.py` — Validates `describe_schema()`
+      output shape (labels + counts, relationships, enums,
+      numeric/date ranges) against the stubbed queries.
+    - `test_list_distinct.py` — Verifies the Cypher shape + param
+      wiring for enum discovery, including city-scoped variants.
+    - `test_run_cypher_guardrails.py` — Rejects write clauses /
+      overlong queries / unsupported params; confirms safe read
+      queries pass through and are row-capped.
+    - `test_golden_questions.py` — Catalogue of realistic end-user
+      questions grouped by intent. Under `RUN_LIVE_EVAL=1` it calls
+      the real OpenRouter + Neo4j stack and asserts the agent picks
+      an acceptable tool per question; nightly via `golden.yml`
+      (skipped in the regular PR CI).
 - Top-level `test_*.py` — Scraper / networking probes (`test_cf.py`,
   `test_cloudscraper.py`, `test_curl_cffi.py`, `test_httpx.py`,
   `test_nonheadless.py`, `test_pattern.py`, `test_pw.py`,
@@ -198,12 +294,22 @@ Generated artifacts from `report` / `scan` modes.
 - `walkthrough.md` — Log of scraper execution sessions and dataset-sync
   verification steps.
 
+## 12. Feedback Snapshots (`feedback/`)
+
+Read-only snapshots of the live `/feedback/recent` feed, committed
+back into the repo by `.github/workflows/sync-feedback.yml` every
+15 minutes so maintainers can browse and diff feedback in-repo.
+
+- `all.json` — Last 200 feedback records (all statuses), sorted by
+  `created_at` descending.
+- `unresolved.json` — Same query with `unresolved_only=true`.
+
 ## Neo4j Graph Model
 
 Nodes: `AuctionProperty`, `Bank`, `Branch`, `City`, `State`, `Area`,
-`AssetCategory`, `PropertyType`, `Borrower`, `AuctionType`, plus
-enrichment nodes (`Score`, `InvestmentTracker`, `Feedback`, and
-possession/survey detail nodes added by `load_enriched.py`).
+`AssetCategory`, `PropertyType`, `Borrower`, `AuctionType`,
+`SurveyNumber`, plus enrichment nodes (`Score`, `InvestmentTracker`,
+`Feedback`, and possession detail nodes added by `load_enriched.py`).
 
 Key relationships:
   (AuctionProperty)-[:CONDUCTED_BY]->(Bank)
@@ -211,8 +317,10 @@ Key relationships:
   (AuctionProperty)-[:LISTED_BY_BRANCH]->(Branch)
   (AuctionProperty)-[:LOCATED_IN_CITY|LOCATED_IN_STATE|LOCATED_IN_AREA]->(...)
   (Area)-[:PART_OF_CITY]->(City)-[:IN_STATE]->(State)
-  (AuctionProperty)-[:HAS_ASSET_CATEGORY]->(AssetCategory)-[:HAS_TYPE]->(PropertyType)
+  (AuctionProperty)-[:HAS_ASSET_CATEGORY]->(AssetCategory)
+  (AuctionProperty)-[:HAS_PROPERTY_TYPE]->(PropertyType)   # one-to-many
   (AuctionProperty)-[:HAS_BORROWER]->(Borrower)
+  (AuctionProperty)-[:HAS_SURVEY_NUMBER]->(SurveyNumber)   # one-to-many
   (AuctionProperty)-[:IS_AUCTION_TYPE]->(AuctionType)
 
 `AuctionProperty.embedding` is indexed as the `property_desc_idx` vector
@@ -257,9 +365,25 @@ See `domain_ontology.yaml` for the full property-level schema.
   be fully up-to-date: 0 new URLs were found against the existing 49,342
   extracted entries, meaning `live_eauction_data.jsonl` contains the most
   current data.
-- `scripts/prepare_tn_data.py` was executed to sync
-  `tn_auction_data.jsonl` with `live_eauction_data.jsonl`, resulting in
-  4,788 cleaned Tamil Nadu records.
-- Feedback loop (`/feedback` endpoints + `resolve-feedback.yml` workflow)
-  is live; context-turn capture is enabled so feedback records include
-  the surrounding conversation.
+- Tamil Nadu subset currently sits at **3,391** records in Neo4j
+  (the figure the agent cites in its system prompt); the earlier
+  4,788 figure was pre-deduplication / pre-`HAS_PROPERTY_TYPE`
+  schema repair.
+- PR #9 (`feature/area-filter-and-cleanup`) restored the
+  `(AuctionProperty)-[:HAS_PROPERTY_TYPE]->(PropertyType)` edges and
+  added `area` as a first-class filter in `search_auctions`; the
+  four `scripts/*property_type*` / `smoke_check.py` utilities ran
+  against prod to complete the migration.
+- PR #10 (`claude/analyze-career-ops-project-1T3uR`) landed
+  "bulletproof Neo4j Q&A": `modes/_shared.md` is now loaded into the
+  system prompt, and the agent has `describe_schema`, `list_distinct`,
+  and the guarded `run_cypher` escape hatch.
+- PR #11 (`feature/mid-fi-ui`) replaced the Alpine.js / Tailwind UI
+  with the vanilla-JS mid-fi 4-screen flow (landing / results /
+  detail / watchlist) and moved the feedback control into the
+  header alongside per-bubble thumbs.
+- Feedback loop (`/feedback` endpoints + `resolve-feedback.yml`
+  workflow) is live with context-turn capture. `sync-feedback.yml`
+  now snapshots the live feed into `feedback/all.json` +
+  `feedback/unresolved.json` every 15 minutes; `golden.yml` runs the
+  golden-question eval nightly.
