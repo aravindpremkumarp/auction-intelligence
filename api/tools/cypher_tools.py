@@ -91,6 +91,19 @@ _AGG_FUNCS = {
 }
 
 
+# Upper bound on how many rows the UI receives for a single search. Matches
+# `run_cypher`'s max_rows ceiling so the blast radius is bounded. When the
+# model-visible `limit` is smaller than this, the extra rows ride on the
+# `_ui_results` side-channel — they never enter the LLM's context.
+_UI_ROWS_HARD_CAP = 500
+
+_ORDER_BY_CLAUSES = {
+    "deadline_asc": "a.auction_start_dt ASC",
+    "price_asc":    "a.reserve_price_num ASC",
+    "price_desc":   "a.reserve_price_num DESC",
+}
+
+
 def search_auctions(
     min_price: float | None = None,
     max_price: float | None = None,
@@ -98,9 +111,11 @@ def search_auctions(
     area: str | None = None,
     property_type: str | None = None,
     asset_category: str | None = None,
+    bank: str | None = None,
     starts_after: datetime | None = None,
     starts_before: datetime | None = None,
     limit: int = 20,
+    order_by: str = "deadline_asc",
     aggregate_field: str | None = None,
     aggregations: list[str] | None = None,
 ) -> dict:
@@ -115,8 +130,16 @@ def search_auctions(
                 f"aggregations must be a subset of {sorted(_AGG_FUNCS)}, unknown: {unknown}"
             )
 
+    if order_by not in _ORDER_BY_CLAUSES:
+        raise ValueError(
+            f"order_by must be one of {sorted(_ORDER_BY_CLAUSES)}, got {order_by!r}"
+        )
+
     where = []
-    params: dict = {"limit": limit}
+    # ui_limit caps the UI-only row count; fetch enough to cover the full
+    # result set up to the hard cap, but never smaller than `limit`.
+    ui_limit = max(limit, _UI_ROWS_HARD_CAP)
+    params: dict = {"limit": ui_limit}
     if min_price is not None:
         where.append("a.reserve_price_num >= $min_price"); params["min_price"] = min_price
     if max_price is not None:
@@ -139,6 +162,9 @@ def search_auctions(
     if asset_category:
         matches.append("(a)-[:HAS_ASSET_CATEGORY]->(ac:AssetCategory {name: $asset_category})")
         params["asset_category"] = asset_category
+    if bank:
+        matches.append("(a)-[:CONDUCTED_BY]->(b:Bank {name: $bank})")
+        params["bank"] = bank
 
     where_clause = 'WHERE ' + ' AND '.join(where) if where else ''
     match_clause = ', '.join(matches)
@@ -152,7 +178,7 @@ def search_auctions(
     agg_row = agg_rows[0] if agg_rows else {}
     total_count = agg_row.get("total_count", 0)
 
-    results: list[dict] = []
+    ui_results: list[dict] = []
     if limit > 0:
         cypher = f"""
             MATCH {match_clause}
@@ -171,10 +197,14 @@ def search_auctions(
                    bank.name AS bank,
                    ac.name AS asset_category,
                    property_types
-            ORDER BY a.auction_start_dt ASC
+            ORDER BY {_ORDER_BY_CLAUSES[order_by]}
             LIMIT $limit
         """
-        results = run_query(cypher, params)
+        ui_results = run_query(cypher, params)
+
+    # LLM-visible slice is capped at the user-requested `limit`; full rows
+    # (up to ui_limit) ride on `_ui_results` for the UI side-channel.
+    results = ui_results[:limit] if limit > 0 else []
 
     out: dict = {
         "total_count": total_count,
@@ -182,6 +212,8 @@ def search_auctions(
         "limit": limit,
         "results": results,
     }
+    if len(ui_results) > len(results):
+        out["_ui_results"] = ui_results
     if aggregations:
         out["aggregations"] = {name: agg_row.get(name) for name in aggregations}
     return out

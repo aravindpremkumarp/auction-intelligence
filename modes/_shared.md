@@ -107,6 +107,39 @@ when presenting it.
 If a filter returns zero, try loosening (drop `property_type`, broaden
 price, re-check city/area spelling) before declaring no matches.
 
+## Filter carry-over and superlatives
+
+Conversations narrow over time. Once the user has scoped to a bank, city,
+area, property_type, or asset_category in an earlier turn, keep passing
+that filter on every follow-up `search_auctions` call until the user
+explicitly changes or drops it. The dynamic system-prompt block titled
+"Active search scope narrowed across prior turns" tracks the scope you
+must carry.
+
+Worked example — the conversation goes:
+
+1. "full list of property types in Canara Bank"
+2. "let us explore land in chennai"
+3. "show me 5 cheap ones"
+
+Turn 3 must call:
+
+```
+search_auctions(bank="Canara Bank", property_type="Land",
+                city="Chennai", order_by="price_asc", limit=5)
+```
+
+Do NOT drop `bank="Canara Bank"`. Do NOT invent `max_price=3000000`.
+
+**Superlatives → ordering + limit, never invented thresholds.**
+- "cheap" / "cheapest N" / "5 cheap ones" / "lowest priced" →
+  `order_by="price_asc"`, `limit=N`
+- "most expensive N" / "top priced" → `order_by="price_desc"`
+- "soonest N" / "next N deadlines" → `order_by="deadline_asc"`
+
+Never introduce a `min_price`, `max_price`, `starts_after`, or
+`starts_before` the user did not state.
+
 ## Cypher cheat-sheet for `run_cypher`
 
 Common patterns the agent will need:

@@ -1139,12 +1139,16 @@ function extractResultsFromArtifacts(artifacts) {
   const r = primary.result;
   let rows = [];
   let total = null;
-  if (Array.isArray(r)) {
+  // Prefer ui_rows when the backend attached it — this carries the full
+  // match set (up to the UI cap) even when the LLM only saw a 20-row sample.
+  if (Array.isArray(primary.ui_rows) && primary.ui_rows.length) {
+    rows = primary.ui_rows;
+  } else if (Array.isArray(r)) {
     rows = r;
   } else if (r && Array.isArray(r.results)) {
     rows = r.results;
-    if (typeof r.total_count === 'number') total = r.total_count;
   }
+  if (r && typeof r.total_count === 'number') total = r.total_count;
   return { rows, total, tool: primary.tool };
 }
 

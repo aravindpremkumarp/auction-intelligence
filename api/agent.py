@@ -26,7 +26,12 @@ from api.tools import cypher_tools as T
 
 @dataclass
 class ChatDeps:
-    last_search: dict | None = None
+    # `active_filters` is the rolling scope narrowed across prior turns —
+    # every non-aggregate, non-limit arg the user stuck with so far. Injected
+    # into the system prompt so the model carries them forward on the next
+    # search_auctions call unless the user explicitly changes or drops one.
+    active_filters: dict | None = None
+    last_total_count: int | None = None
     mode: str | None = None
 
 
@@ -62,6 +67,17 @@ Operating principles:
    independently from the AuctionProperty node and join with commas;
    never chain `(Bank)-[:HAS_PROPERTY_TYPE]` or
    `(Bank)-[:HAS_ASSET_CATEGORY]` — those relationships do not exist.
+9. Never fabricate numeric thresholds. Do not invent `min_price`,
+   `max_price`, `starts_after`, or `starts_before` values the user did
+   not state. For superlatives — "cheap", "cheapest N", "top N
+   cheap", "most expensive", "soonest deadlines" — use `order_by` +
+   `limit` on the already-narrowed scope, not a made-up threshold.
+10. Carry forward scope filters across turns. If the user narrowed to a
+    bank, city, area, property_type, or asset_category in any prior
+    turn, keep passing that filter on every follow-up search_auctions
+    call until the user explicitly changes or drops it. The "Active
+    search scope" block in the system prompt lists the scope you must
+    keep.
 """
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -89,15 +105,28 @@ agent = Agent(_model, deps_type=ChatDeps, system_prompt=SYSTEM_PROMPT)
 
 @agent.system_prompt(dynamic=True)
 def inject_prior_search(ctx: RunContext[ChatDeps]) -> str:
-    ls = ctx.deps.last_search if ctx.deps else None
-    if not ls:
+    filters = ctx.deps.active_filters if ctx.deps else None
+    total = ctx.deps.last_total_count if ctx.deps else None
+    if not filters and total is None:
         return ""
-    return (
-        "Prior tool result in this conversation:\n"
-        f"- tool: {ls['tool']}\n"
-        f"- filters: {ls['filters']}\n"
-        f"- total_count: {ls['total_count']}"
+    lines = ["Active search scope narrowed across prior turns:"]
+    if filters:
+        for k, v in filters.items():
+            lines.append(f"- {k}: {v!r}")
+    else:
+        lines.append("- (no scope filters active yet)")
+    if total is not None:
+        lines.append(f"- last total_count: {total}")
+    lines.append(
+        "Rule: unless the user explicitly changes or removes one of these "
+        "scopes in the current turn, include ALL of them in your next "
+        "search_auctions call. Never introduce a filter the user never "
+        "mentioned — especially min_price / max_price / starts_after / "
+        "starts_before. For 'cheapest N' / 'top N' / 'soonest N' use "
+        "order_by + limit on top of the carried scope; do not fabricate a "
+        "price or date threshold."
     )
+    return "\n".join(lines)
 
 
 @agent.system_prompt(dynamic=True)
@@ -119,12 +148,15 @@ def search_auctions(
     city: str | None = None, area: str | None = None,
     property_type: str | None = None,
     asset_category: str | None = None,
+    bank: str | None = None,
     starts_after: datetime | None = None, starts_before: datetime | None = None,
     limit: int = 20,
+    order_by: str = "deadline_asc",
     aggregate_field: str | None = None,
     aggregations: list[str] | None = None,
 ) -> dict:
-    """Filter auctions by price, city, area, type, asset category, and date window.
+    """Filter auctions by price, city, area, type, asset category, bank, and
+    date window. Optional `order_by` and `limit` control row ordering.
 
     Returns {total_count, returned, limit, results}. `total_count` is the true
     number of matches in the graph (ignoring limit); `results` is capped at
@@ -140,6 +172,23 @@ def search_auctions(
         "show me properties in <area>" style queries — combine with `city`
         when the user also names the city.
 
+    Scope filters:
+      - `bank` matches a Bank node by exact name (e.g. "Canara Bank",
+        "State Bank of India"). Use this when the user narrowed the
+        conversation to a specific bank — once they say "in Canara Bank",
+        keep passing bank="Canara Bank" on every follow-up search until
+        they clearly change scope.
+
+    Ordering / superlatives:
+      - `order_by` selects row order: "deadline_asc" (default — soonest
+        auction first), "price_asc" (cheapest first), "price_desc"
+        (most expensive first).
+      - For "cheapest N", "5 cheap ones", "top cheap", "lowest priced":
+        pass order_by="price_asc" and set `limit` to N. DO NOT invent a
+        `max_price` threshold the user did not state.
+      - For "most expensive N" / "top priced": order_by="price_desc".
+      - For "soonest N" / "next N deadlines": order_by="deadline_asc".
+
     For aggregate/quantitative questions — "price range", "median price",
     "average EMD", "distribution", etc. — ALSO set:
       - aggregate_field: one of "reserve_price_num" or "emd_num"
@@ -152,10 +201,20 @@ def search_auctions(
       search_auctions(city="Chennai", property_type="Flat",
                       aggregate_field="reserve_price_num",
                       aggregations=["min","max"], limit=0)
+
+    Example for "5 cheapest Canara Bank lands in Chennai":
+      search_auctions(bank="Canara Bank", property_type="Land",
+                      city="Chennai", order_by="price_asc", limit=5)
     """
-    return T.search_auctions(min_price, max_price, city, area, property_type,
-                             asset_category, starts_after, starts_before, limit,
-                             aggregate_field, aggregations)
+    return T.search_auctions(
+        min_price=min_price, max_price=max_price,
+        city=city, area=area,
+        property_type=property_type, asset_category=asset_category,
+        bank=bank,
+        starts_after=starts_after, starts_before=starts_before,
+        limit=limit, order_by=order_by,
+        aggregate_field=aggregate_field, aggregations=aggregations,
+    )
 
 
 @agent.tool_plain
