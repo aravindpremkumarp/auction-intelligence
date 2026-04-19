@@ -91,6 +91,12 @@ when presenting it.
    /property_types/survey_numbers.
 4. **Enum discovery** ("what cities", "list all banks") →
    `list_distinct(field)`.
+4a. **Distribution / breakdown / "spread" questions** ("property-type
+   mix for SBI", "asset categories in Chennai", "which banks dominate
+   residential auctions") → `list_distinct` with the appropriate
+   scope. Scopes: `city`, `bank`, `borrower`, `asset_category`. Never
+   iterate `get_auction_detail` across many auctions to compute a
+   count, sum, or distribution — that's what aggregations are for.
 5. **Schema introspection** (unsure about labels / properties) →
    `describe_schema()`.
 6. **Genuinely novel question** that none of the specialized tools can
@@ -134,7 +140,28 @@ WHERE a.reserve_price_num > 0 AND a.emd_num > 0
 WITH ar, avg(a.emd_num / a.reserve_price_num) AS emd_ratio, count(a) AS n
 WHERE n >= 5
 RETURN ar.name AS area, emd_ratio, n ORDER BY emd_ratio DESC LIMIT 20
+
+// Property-type breakdown filtered by bank.
+// IMPORTANT: HAS_ASSET_CATEGORY / HAS_PROPERTY_TYPE / CONDUCTED_BY /
+// HAS_BORROWER / LOCATED_IN_* all start on AuctionProperty. MATCH each
+// relationship independently from `a` and join with commas. Do NOT
+// chain (Bank)-[:HAS_PROPERTY_TYPE] or (Bank)-[:HAS_ASSET_CATEGORY] —
+// those relationships do not exist.
+MATCH (a:AuctionProperty)-[:CONDUCTED_BY]->(:Bank {name: $bank}),
+      (a)-[:HAS_PROPERTY_TYPE]->(pt:PropertyType)
+RETURN pt.name AS property_type, count(DISTINCT a) AS n
+ORDER BY n DESC
+
+// Asset-category breakdown in a city
+MATCH (a:AuctionProperty)-[:LOCATED_IN_CITY]->(:City {name: $city}),
+      (a)-[:HAS_ASSET_CATEGORY]->(ac:AssetCategory)
+RETURN ac.name AS asset_category, count(DISTINCT a) AS n
+ORDER BY n DESC
 ```
+
+For scoped breakdowns, prefer the `list_distinct` tool (with `city`,
+`bank`, `borrower`, or `asset_category` scope) before writing a
+`run_cypher` — the tool already composes the correct Cypher shape.
 
 ## Human-in-the-loop principle
 

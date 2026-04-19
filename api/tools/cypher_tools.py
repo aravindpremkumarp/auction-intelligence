@@ -387,38 +387,71 @@ _SCHEMA_CACHE: dict[str, tuple[float, dict]] = {}
 _SCHEMA_TTL_SECONDS = 3600.0
 
 
-def list_distinct(field: str, limit: int = 100, city: str | None = None) -> dict:
+def list_distinct(
+    field: str,
+    limit: int = 100,
+    city: str | None = None,
+    bank: str | None = None,
+    borrower: str | None = None,
+    asset_category: str | None = None,
+) -> dict:
     """List distinct values of a reference field with counts.
 
-    `field` must be one of the keys in _DISTINCT_FIELDS. `city` is an
-    optional filter that restricts the count to auctions inside that city —
-    only meaningful when `field` is one of area / bank / borrower /
-    asset_category / property_type.
+    `field` must be one of the keys in _DISTINCT_FIELDS. Scope filters
+    (`city`, `bank`, `borrower`, `asset_category`) narrow the count to
+    auctions that match every provided scope. A scope must differ from
+    `field` — you can't group by bank while filtering by bank.
+
+    Use this for distribution / breakdown / "spread" questions
+    ("property-type mix for SBI", "asset categories in Chennai"). Never
+    iterate `get_auction_detail` to compute a count.
     """
     if field not in _DISTINCT_FIELDS:
         raise ValueError(
             f"field must be one of {sorted(_DISTINCT_FIELDS)}, got {field!r}"
         )
+
+    raw_scopes: dict[str, str | None] = {
+        "city":           city,
+        "bank":           bank,
+        "borrower":       borrower,
+        "asset_category": asset_category,
+    }
+    # Filtering by the same dimension you're grouping on is a no-op; drop
+    # silently so agents can pass redundant scopes without an error.
+    active_scopes = {k: v for k, v in raw_scopes.items() if v and k != field}
+
     label, rel = _DISTINCT_FIELDS[field]
     params: dict = {"limit": int(limit)}
-    if city and field != "city":
-        cypher = f"""
-            MATCH (a:AuctionProperty)-[:LOCATED_IN_CITY]->(:City {{name: $city}}),
-                  (a)-[:{rel}]->(n:{label})
-            RETURN n.name AS value, count(DISTINCT a) AS auction_count
-            ORDER BY auction_count DESC
-            LIMIT $limit
-        """
-        params["city"] = city
-    else:
-        cypher = f"""
-            MATCH (a:AuctionProperty)-[:{rel}]->(n:{label})
+
+    scope_matches: list[str] = []
+    for scope_field, value in active_scopes.items():
+        scope_label, scope_rel = _DISTINCT_FIELDS[scope_field]
+        scope_matches.append(
+            f"(a)-[:{scope_rel}]->(:{scope_label} {{name: ${scope_field}}})"
+        )
+        params[scope_field] = value
+
+    match_clauses = ["(a:AuctionProperty)"]
+    match_clauses.extend(scope_matches)
+    match_clauses.append(f"(a)-[:{rel}]->(n:{label})")
+    match_clause = ",\n                  ".join(match_clauses)
+
+    cypher = f"""
+            MATCH {match_clause}
             RETURN n.name AS value, count(DISTINCT a) AS auction_count
             ORDER BY auction_count DESC
             LIMIT $limit
         """
     results = run_read_query(cypher, params, max_rows=max(int(limit), 1))
-    return {"field": field, "filter_city": city, "results": results}
+    return {
+        "field": field,
+        "filter_city": city,
+        "filter_bank": bank,
+        "filter_borrower": borrower,
+        "filter_asset_category": asset_category,
+        "results": results,
+    }
 
 
 def describe_schema(refresh: bool = False) -> dict:
