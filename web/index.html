@@ -84,7 +84,13 @@
   color: var(--ink);
 }
 * { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; -webkit-tap-highlight-color: transparent; }
 html, body { margin: 0; padding: 0; height: 100%; }
+@media (hover: none) {
+  .bubble-actions { opacity: 1; }
+  .card-save { opacity: 1; }
+  .prop:hover { transform: none; box-shadow: none; }
+}
 body {
   background: var(--paper);
   color: var(--ink);
@@ -357,6 +363,9 @@ body {
   .chat-sidebar, .transcript-pane { max-height: 220px; }
   .tp-resize { display: none; }
   .results-pane, .chat-sidebar { margin: 0 0 10px; }
+  .results-pane { order: 1; margin-left: 0; }
+  .transcript-pane { order: 2; }
+  .chat-sidebar { order: 3; max-height: 180px; margin-right: 0; }
 }
 .transcript-pane {
   display: flex; flex-direction: column;
@@ -712,9 +721,12 @@ body {
 @media (max-width: 900px) {
   .results { grid-template-columns: 1fr; }
   .transcript-pane { max-height: 240px; }
-  .detail { grid-template-columns: 1fr; }
+  .detail { grid-template-columns: 1fr; gap: 16px; }
+  .detail-aside { order: 0; }
+  .detail-main { order: 1; }
   .fact-grid { grid-template-columns: repeat(2, 1fr); }
   .landing-hero h1 { font-size: 38px; }
+  .doc-preview iframe { height: min(520px, 65vh); }
 }
 
 @media (max-width: 640px) {
@@ -727,29 +739,69 @@ body {
     justify-content: space-between;
     overflow-x: auto;
   }
-  .top-nav button { padding: 4px 8px; font-size: 11px; }
+  .top-nav button { padding: 6px 10px; font-size: 11px; min-height: 32px; }
   .top-right { gap: 6px; margin-left: auto; }
-  .feedback-btn { font-size: 0; padding: 4px 8px; line-height: 1; }
-  .feedback-btn::before { content: '💬'; font-size: 14px; }
-  .save-btn { font-size: 0; padding: 4px 8px; line-height: 1; }
+  .feedback-btn { font-size: 0; padding: 0; line-height: 1; width: 36px; height: 36px; justify-content: center; }
+  .feedback-btn::before { content: '💬'; font-size: 15px; }
+  .save-btn { font-size: 0; padding: 0 8px; line-height: 1; min-width: 36px; height: 36px; justify-content: center; }
   .save-btn #save-count { font-size: 12px; font-family: var(--font-mono); }
-  .avatar { width: 28px; height: 28px; font-size: 14px; }
-  .theme-toggle { width: 28px; height: 28px; font-size: 14px; }
+  .avatar { width: 36px; height: 36px; font-size: 15px; }
+  .theme-toggle { width: 36px; height: 36px; font-size: 16px; }
+  .sb-toggle { width: 36px; height: 36px; }
 
   .screen-host { overflow: visible; }
   .screen { position: relative; inset: auto; padding: 16px 14px 24px; overflow: visible; }
-  .landing-hero { padding-top: 16px; gap: 14px; }
+  .landing-hero { padding-top: 12px; gap: 14px; }
   .landing-hero h1 { font-size: 32px; }
   .landing-sub { font-size: 11px; }
+  .landing-suggest { gap: 6px; }
 
   .chat-input { padding: 10px; gap: 8px; }
   .chat-input input,
-  .chat-input input::placeholder { font-size: 18px; }
+  .chat-input input::placeholder,
+  .chat-input textarea,
+  .chat-input textarea::placeholder { font-size: 18px; }
   .chat-input .send { width: 44px; height: 44px; font-size: 20px; }
-  .mode-select-inline { font-size: 10px; padding: 6px 8px; max-width: 96px; }
+  .mode-select-inline { font-size: 11px; padding: 8px 10px; max-width: 108px; min-height: 36px; }
 
   .fact-grid { grid-template-columns: 1fr; }
+  .fact .val { font-size: 14px; }
+  .fact.big .val { font-size: 18px; }
   .modal { width: 96vw; padding: 16px; }
+
+  .hero-photo { height: 180px; }
+  .detail-title { font-size: 32px; }
+  .detail-section-title { font-size: 20px; }
+  .watchlist-head h2 { font-size: 30px; }
+
+  .prop { padding: 10px; gap: 10px; }
+  .prop .thumb { width: 96px; height: 76px; }
+  .prop .title { font-size: 20px; white-space: normal; line-height: 1.1; }
+  .prop .price { font-size: 13px; }
+  .prop .why { font-size: 14px; }
+  .prop.urgent { background: linear-gradient(90deg, var(--accent) 0 4px, var(--card) 4px); }
+
+  .bubble { max-width: 94%; font-size: 14px; }
+  .b-act { padding: 5px 7px; }
+  .chip { padding: 6px 12px; font-size: 13px; }
+}
+
+@media (max-width: 480px) {
+  .prop .thumb { width: 84px; height: 68px; }
+  .prop .title { font-size: 18px; }
+  .landing-hero h1 { font-size: 28px; }
+  .detail-title { font-size: 28px; }
+  .hero-photo { height: 160px; }
+  .screen { padding: 14px 12px 20px; }
+  .modal-actions { flex-wrap: wrap; }
+  .modal-actions .btn { flex: 1; }
+}
+
+@media (max-width: 380px) {
+  .brand { font-size: 18px; }
+  .top-right { gap: 4px; }
+  .topbar { padding: 8px 10px; }
+  .landing-hero h1 { font-size: 24px; }
 }
 </style>
 </head>
