@@ -580,9 +580,35 @@ body {
   text-decoration: none;
   color: var(--ink);
 }
-.doc > span:first-child { flex: 1; min-width: 0; }
+.doc > span:first-child { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .doc:hover { background: var(--paper-2); }
 .doc .mono { color: var(--muted); }
+.doc-badge {
+  font-family: var(--font-body); font-size: 11px; font-weight: 600;
+  padding: 2px 6px; border: 1.5px solid var(--ink); background: var(--paper-2);
+  text-transform: uppercase; letter-spacing: 0.5px;
+}
+.doc-toggle {
+  border: 1.5px solid var(--ink); background: var(--accent);
+  padding: 4px 10px; font-size: 12px; cursor: pointer;
+  font-family: var(--font-body);
+}
+.doc-toggle:hover { filter: brightness(0.95); }
+.doc-group { display: flex; flex-direction: column; }
+.doc-group.open .doc { border-bottom: 0; }
+.doc-preview {
+  border: 1.5px solid var(--ink);
+  background: var(--card);
+  padding: 10px;
+}
+.doc-preview[hidden] { display: none; }
+.doc-preview iframe {
+  width: 100%; height: 600px; border: 0; background: #fff;
+  display: block;
+}
+.doc-preview img {
+  max-width: 100%; height: auto; display: block; margin: 0 auto;
+}
 
 .btn {
   border: 2px solid var(--ink);
@@ -1408,23 +1434,75 @@ function renderDetail(detail) {
     document.getElementById('detail-desc-wrap').style.display = '';
   }
 
-  const docs = [];
-  if (f.url) docs.push({ label: 'Sale notice / source page', href: f.url, meta: 'external ↗' });
+  const linkDocs = [];
+  if (f.url) linkDocs.push({ label: 'Sale notice / source page', href: f.url, meta: 'external ↗' });
   const extras = f.extras;
   if (extras && typeof extras === 'object' && !Array.isArray(extras)) {
     Object.entries(extras).forEach(([k, v]) => {
       if (typeof v === 'string' && /^https?:\/\//.test(v)) {
-        docs.push({ label: k, href: v, meta: 'link ↗' });
+        linkDocs.push({ label: k, href: v, meta: 'link ↗' });
       }
     });
   }
-  if (docs.length) {
-    document.getElementById('detail-docs').innerHTML = docs.map(d => `
+
+  const previewDocs = Array.isArray(detail.documents) ? detail.documents : [];
+
+  if (linkDocs.length || previewDocs.length) {
+    const linkHtml = linkDocs.map(d => `
       <a class="doc" href="${escapeHtml(d.href)}" target="_blank" rel="noopener">
         <span>${escapeHtml(d.label)}</span>
         <span class="mono">${escapeHtml(d.meta)}</span>
       </a>`).join('');
+
+    const previewHtml = previewDocs.map((d, i) => {
+      const kind = (d.doc_type === 'pdf' || d.doc_type === 'image') ? d.doc_type : 'other';
+      const badge = kind === 'pdf' ? 'PDF' : kind === 'image' ? 'IMG' : 'FILE';
+      const canPreview = kind === 'pdf' || kind === 'image';
+      return `
+        <div class="doc-group" data-doc-index="${i}">
+          <div class="doc">
+            <span>${escapeHtml(d.filename || 'download')}</span>
+            <span class="doc-badge">${badge}</span>
+            ${canPreview ? `<button type="button" class="doc-toggle" data-action="toggle-preview">Preview</button>` : ''}
+            <a class="mono" href="${escapeHtml(d.public_url)}" target="_blank" rel="noopener">open ↗</a>
+          </div>
+          <div class="doc-preview" hidden
+               data-kind="${escapeHtml(kind)}"
+               data-url="${escapeHtml(d.public_url)}"
+               data-loaded="0"></div>
+        </div>`;
+    }).join('');
+
+    const container = document.getElementById('detail-docs');
+    container.innerHTML = linkHtml + previewHtml;
     document.getElementById('detail-docs-wrap').style.display = '';
+
+    container.querySelectorAll('.doc-toggle[data-action="toggle-preview"]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const group = e.currentTarget.closest('.doc-group');
+        const panel = group.querySelector('.doc-preview');
+        if (panel.dataset.loaded !== '1') {
+          const kind = panel.dataset.kind;
+          const url = panel.dataset.url;
+          if (kind === 'pdf') {
+            panel.innerHTML = `<iframe src="${escapeHtml(url)}#toolbar=1" title="${escapeHtml('PDF preview')}" loading="lazy"></iframe>`;
+          } else if (kind === 'image') {
+            panel.innerHTML = `<img src="${escapeHtml(url)}" alt="sales notice image" loading="lazy">`;
+          }
+          panel.dataset.loaded = '1';
+        }
+        const isHidden = panel.hasAttribute('hidden');
+        if (isHidden) {
+          panel.removeAttribute('hidden');
+          group.classList.add('open');
+          e.currentTarget.textContent = 'Hide';
+        } else {
+          panel.setAttribute('hidden', '');
+          group.classList.remove('open');
+          e.currentTarget.textContent = 'Preview';
+        }
+      });
+    });
   }
 
   const saleBtn = document.getElementById('detail-sale-notice');

@@ -8,6 +8,7 @@ rapidfuzz
 Pillow
 aiohttp
 neo4j
+boto3
 
 # API + Agent layer (Phase 1)
 fastapi

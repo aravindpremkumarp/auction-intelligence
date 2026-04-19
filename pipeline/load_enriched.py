@@ -26,6 +26,7 @@ VERIFIED_JSONL   = OUTPUT_DIR / "verified_enriched.jsonl"
 NEW_CONSTRAINTS = [
     "CREATE CONSTRAINT survey_number_unique IF NOT EXISTS FOR (n:SurveyNumber) REQUIRE (n.survey_no, n.subdivision, n.survey_type) IS UNIQUE",
     "CREATE CONSTRAINT doc_path IF NOT EXISTS FOR (n:Document) REQUIRE n.file_path IS UNIQUE",
+    "CREATE CONSTRAINT doc_storage_key IF NOT EXISTS FOR (n:Document) REQUIRE n.storage_key IS UNIQUE",
 ]
 
 # ── Verified + enriched upsert (reads verified_enriched.jsonl) ───────────────
