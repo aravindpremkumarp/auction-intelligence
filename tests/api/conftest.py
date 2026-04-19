@@ -114,6 +114,10 @@ def _install_stub_neo4j_client() -> None:
             for r in feedback:
                 if r["id"] == params["id"]:
                     r["resolved"] = True
+                    # Mirror the Neo4j SET f.resolved_at = datetime() so
+                    # FeedbackRecord.resolved_at is testable end-to-end.
+                    from datetime import datetime, timezone
+                    r["resolved_at"] = datetime.now(timezone.utc).isoformat()
                     return [{"id": r["id"]}]
             return []
 

@@ -119,3 +119,27 @@ def test_general_feedback_requires_rating_or_text() -> None:
         "session_id": "sess-g2",
     })
     assert r.status_code == 400
+
+
+def test_resolved_at_populated_after_resolve() -> None:
+    """Fix 3 (minimal): FeedbackRecord surfaces `resolved_at` so the
+    15-min sync writes it into feedback/all.json and we can see when
+    each item was closed."""
+    client = _client()
+    fid = client.post("/feedback", json=_payload()).json()["id"]
+
+    # Before resolve, resolved_at is None.
+    items = client.get("/feedback/recent?unresolved_only=false").json()
+    rec = next(i for i in items if i["id"] == fid)
+    assert rec["resolved"] is False
+    assert rec["resolved_at"] is None
+
+    # After resolve, resolved_at is a non-empty string.
+    os.environ["FEEDBACK_RESOLVE_TOKEN"] = "correct-token-2"
+    r = client.patch(f"/feedback/{fid}/resolve", headers={"X-Resolve-Token": "correct-token-2"})
+    assert r.status_code == 200
+
+    items = client.get("/feedback/recent?unresolved_only=false").json()
+    rec = next(i for i in items if i["id"] == fid)
+    assert rec["resolved"] is True
+    assert isinstance(rec["resolved_at"], str) and rec["resolved_at"]
