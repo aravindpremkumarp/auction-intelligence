@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Verify email · Bank Auction Intelligence</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@600&family=Kalam:wght@400&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script>
+  window.API_BASE = (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
+    ? ''
+    : 'https://auction-api-w68b.onrender.com';
+</script>
+<style>
+  :root { --ink: #1a1a1a; --paper: #faf7f0; --accent: #ffd84d; --danger: #d64a2e; --good: #2e8b57; }
+  body { margin: 0; background: var(--paper); color: var(--ink); font-family: 'Kalam', cursive; display: grid; place-items: center; min-height: 100vh; }
+  .card { background: #fff; border: 2px solid var(--ink); box-shadow: 2px 3px 0 rgba(0,0,0,0.9); padding: 28px 32px; max-width: 480px; width: 92%; }
+  h1 { font-family: 'Caveat', cursive; font-size: 34px; margin: 0 0 8px; }
+  h1 em { background: var(--accent); padding: 0 6px; font-style: normal; }
+  p { font-family: 'IBM Plex Mono', monospace; font-size: 13px; line-height: 1.6; }
+  .ok { color: var(--good); font-weight: 600; }
+  .err { color: var(--danger); font-weight: 600; }
+  a.btn { display: inline-block; margin-top: 12px; padding: 8px 14px; background: var(--accent); border: 2px solid var(--ink); color: var(--ink); text-decoration: none; font-family: 'IBM Plex Mono', monospace; font-size: 13px; box-shadow: 2px 3px 0 rgba(0,0,0,0.9); }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1><em>Verify</em> email</h1>
+  <p id="status">Checking your verification link…</p>
+  <p><a class="btn" href="/">← Back to app</a></p>
+</div>
+<script>
+  (async () => {
+    const qs = new URLSearchParams(location.search);
+    const token = qs.get('token');
+    const el = document.getElementById('status');
+    if (!token) { el.innerHTML = '<span class="err">No token provided.</span>'; return; }
+    try {
+      const r = await fetch(window.API_BASE + '/auth/verify-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token }),
+      });
+      if (r.ok) {
+        el.innerHTML = '<span class="ok">Email verified.</span> You can now sign in.';
+      } else {
+        const j = await r.json().catch(() => ({}));
+        el.innerHTML = '<span class="err">Verification failed.</span> ' + (j.detail || 'Try requesting a new link.');
+      }
+    } catch (e) {
+      el.innerHTML = '<span class="err">Network error.</span> Please try again.';
+    }
+  })();
+</script>
+</body>
+</html>

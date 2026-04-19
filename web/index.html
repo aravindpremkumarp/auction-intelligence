@@ -742,7 +742,7 @@ body {
       <button class="theme-toggle" id="theme-toggle" title="Toggle theme" aria-label="Toggle dark mode">🌙</button>
       <button class="feedback-btn" onclick="openGeneralFeedback()" title="Send feedback about the app">💬 feedback</button>
       <button class="save-btn" onclick="go('watchlist')"><span id="save-count">0</span> saved</button>
-      <div class="avatar">R</div>
+      <div id="auth-slot" class="auth-slot"></div>
     </div>
   </div>
 
@@ -943,9 +943,19 @@ body {
   </symbol>
 </svg>
 
+<script src="/static/auth.js"></script>
 <script>
 /* ====== CONFIG ====== */
 const API_BASE = window.API_BASE || '';
+const authFetch = (url, opts) => (window.Auth && window.Auth.fetchWithAuth ? window.Auth.fetchWithAuth(url, opts) : fetch(url, opts));
+const GATED_MODES = new Set(['deep-research', 'report']);
+function _requireAuthForMode(mode) {
+  if (!GATED_MODES.has(mode)) return true;
+  const u = window.Auth && window.Auth.getUser && window.Auth.getUser();
+  if (u && u.email_verified) return true;
+  if (window.Auth && window.Auth.openLoginModal) window.Auth.openLoginModal();
+  return false;
+}
 const SEARCH_TOOLS = ['search_auctions', 'semantic_property_search'];
 const LIST_TOOLS = [...SEARCH_TOOLS, 'upcoming_auctions', 'price_comparison', 'find_similar_properties', 'borrower_lookup', 'survey_search'];
 const WATCHLIST_KEY = 'bankauction.watchlist.v1';
@@ -1094,11 +1104,14 @@ document.addEventListener('change', (e) => {
 /* ====== API ====== */
 async function apiChat(message) {
   const mode = window.currentMode || 'ask';
-  const res = await fetch(`${API_BASE}/chat`, {
+  if (!_requireAuthForMode(mode)) throw new Error('login required for this mode');
+  const res = await authFetch(`${API_BASE}/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ message, message_history: apiMessageHistory, mode }),
   });
+  if (res.status === 401) { if (window.Auth) window.Auth.openLoginModal(); throw new Error('login required'); }
+  if (res.status === 429) throw new Error('rate limit reached — please sign in or try again later');
   if (!res.ok) throw new Error(`chat ${res.status}`);
   return res.json();
 }
@@ -1116,12 +1129,12 @@ async function hydrateModes() {
   } catch(e) { /* keep the default "ask" option */ }
 }
 async function apiAuctionDetail(auctionId) {
-  const res = await fetch(`${API_BASE}/auction/${encodeURIComponent(auctionId)}`);
+  const res = await authFetch(`${API_BASE}/auction/${encodeURIComponent(auctionId)}`);
   if (!res.ok) throw new Error(`detail ${res.status}`);
   return res.json();
 }
 async function apiFeedback(payload) {
-  const res = await fetch(`${API_BASE}/feedback`, {
+  const res = await authFetch(`${API_BASE}/feedback`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -1463,7 +1476,7 @@ async function askAboutProperty(text) {
   log.scrollTop = log.scrollHeight;
   const preamble = `Regarding auction ${auctionId} (${currentDetailTitle} in ${currentDetailLoc}): ${text}`;
   try {
-    const res = await fetch(`${API_BASE}/chat`, {
+    const res = await authFetch(`${API_BASE}/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message: preamble, message_history: null }),

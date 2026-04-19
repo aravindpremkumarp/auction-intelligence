@@ -26,3 +26,21 @@ services:
         sync: false
       - key: FEEDBACK_RESOLVE_TOKEN
         sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: JWT_ACCESS_TTL_MIN
+        value: "15"
+      - key: JWT_REFRESH_TTL_DAYS
+        value: "7"
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_FROM
+        sync: false
+      - key: APP_BASE_URL
+        sync: false
+      - key: APP_ENV
+        value: prod
+      - key: ADMIN_BOOTSTRAP_EMAIL
+        sync: false
+      - key: AUTH_ENABLED
+        value: "true"

@@ -13,9 +13,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from pydantic_ai.messages import (
@@ -23,8 +23,12 @@ from pydantic_ai.messages import (
     ToolCallPart,
     ToolReturnPart,
 )
+from slowapi.errors import RateLimitExceeded
 
 from api.agent import ChatDeps, agent
+from api.auth import get_optional_user, router as auth_router
+from api.auth.rate_limit import limiter
+from api.auth.schemas import UserOut
 from api.neo4j_client import run_query
 from api.tools.cypher_tools import get_auction_detail
 
@@ -35,12 +39,60 @@ WEB_DIR = ROOT / "web"
 
 app = FastAPI(title="Bank Auction Intelligence API", version="0.1.0")
 
+
+def _cors_allow_list() -> list[str]:
+    base = os.environ.get("APP_BASE_URL", "").strip()
+    env = os.environ.get("APP_ENV", "prod").lower()
+    if env in {"dev", "test"}:
+        return ["*"]
+    origins = {"http://localhost:5173", "http://localhost:3000"}
+    if base:
+        origins.add(base.rstrip("/"))
+    return sorted(origins)
+
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_allow_list(),
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_methods=["*"],
-    allow_headers=["*"],
+    allow_headers=["Authorization", "Content-Type"],
+    allow_credentials=False,
 )
+
+# Rate limiter (slowapi) — shared across auth + anonymous chat throttles.
+app.state.limiter = limiter
+
+
+@app.exception_handler(RateLimitExceeded)
+async def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
+    return JSONResponse(status_code=429, content={"detail": "rate limit exceeded"})
+
+
+if os.environ.get("AUTH_ENABLED", "true").lower() != "false":
+    app.include_router(auth_router)
+
+
+_GATED_MODES = {"deep-research", "report"}
+
+# Simple in-memory hourly counter for anonymous /chat. slowapi's decorator can't
+# see Depends-provided state, so we enforce this manually only when user=None.
+_ANON_CHAT_MAX_PER_HOUR = 10
+_anon_chat_hits: dict[str, list[float]] = {}
+
+
+def _enforce_anon_chat_limit(request: Request) -> None:
+    if os.environ.get("RATELIMIT_DISABLED", "").lower() in {"1", "true", "yes"}:
+        return
+    import time
+    now = time.time()
+    window = 3600.0
+    ip = request.client.host if request.client else "unknown"
+    hits = [t for t in _anon_chat_hits.get(ip, []) if now - t < window]
+    if len(hits) >= _ANON_CHAT_MAX_PER_HOUR:
+        raise HTTPException(status_code=429, detail="rate limit exceeded")
+    hits.append(now)
+    _anon_chat_hits[ip] = hits
 
 
 class ChatRequest(BaseModel):
@@ -276,7 +328,10 @@ def _feedback_row_to_record(row: dict) -> FeedbackRecord:
 
 
 @app.post("/feedback")
-async def submit_feedback(req: FeedbackRequest) -> dict:
+async def submit_feedback(
+    req: FeedbackRequest,
+    user: UserOut | None = Depends(get_optional_user),
+) -> dict:
     if req.kind == "general" and not (req.text and req.text.strip()) and req.rating is None:
         raise HTTPException(status_code=400, detail="General feedback requires a rating or text.")
     fid = str(uuid.uuid4())
@@ -290,7 +345,7 @@ async def submit_feedback(req: FeedbackRequest) -> dict:
           id: $id, kind: $kind, rating: $rating, text: $text, session_id: $session_id,
           message_index: $message_index, question: $question, answer: $answer,
           artifacts_json: $artifacts_json, context_turns_json: $context_turns_json,
-          user_agent: $user_agent, page_url: $page_url,
+          user_agent: $user_agent, page_url: $page_url, user_id: $user_id,
           created_at: datetime($created_at), resolved: false
         })
         RETURN f.id AS id
@@ -308,6 +363,7 @@ async def submit_feedback(req: FeedbackRequest) -> dict:
             "context_turns_json": context_turns_json,
             "user_agent": req.user_agent,
             "page_url": req.page_url,
+            "user_id": user.id if user else None,
             "created_at": created_at,
         },
     )
@@ -366,13 +422,21 @@ def auction_detail(auction_id: str) -> dict:
 
 
 @app.post("/chat", response_model=ChatResponse)
-async def chat(req: ChatRequest) -> ChatResponse:
+async def chat(
+    request: Request,
+    req: ChatRequest,
+    user: UserOut | None = Depends(get_optional_user),
+) -> ChatResponse:
+    mode = req.mode
+    if mode in _GATED_MODES and (user is None or not user.email_verified):
+        raise HTTPException(status_code=401, detail="login required for this mode")
+    if user is None:
+        _enforce_anon_chat_limit(request)
     history = (
         ModelMessagesTypeAdapter.validate_python(req.message_history)
         if req.message_history
         else None
     )
-    mode = req.mode
     if mode:
         valid_ids = {m["id"] for m in _AVAILABLE_MODES}
         if mode not in valid_ids or mode == "ask":
@@ -397,3 +461,15 @@ if WEB_DIR.exists():
     @app.get("/")
     def root() -> FileResponse:
         return FileResponse(str(WEB_DIR / "index.html"))
+
+    @app.get("/verify")
+    def verify_page() -> FileResponse:
+        return FileResponse(str(WEB_DIR / "verify.html"))
+
+    @app.get("/reset")
+    def reset_page() -> FileResponse:
+        return FileResponse(str(WEB_DIR / "reset.html"))
+
+    @app.get("/admin")
+    def admin_page() -> FileResponse:
+        return FileResponse(str(WEB_DIR / "admin.html"))
