@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Admin · Bank Auction Intelligence</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@600&family=Kalam:wght@400&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script>
+  window.API_BASE = (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
+    ? ''
+    : 'https://auction-api-w68b.onrender.com';
+</script>
+<style>
+  :root { --ink: #1a1a1a; --paper: #faf7f0; --accent: #ffd84d; --danger: #d64a2e; --good: #2e8b57; --muted: #8a8a8a; }
+  body { margin: 0; background: var(--paper); color: var(--ink); font-family: 'Kalam', cursive; padding: 24px; }
+  h1 { font-family: 'Caveat', cursive; font-size: 32px; margin: 0 0 12px; }
+  h1 em { background: var(--accent); padding: 0 6px; font-style: normal; }
+  .wrap { max-width: 1100px; margin: 0 auto; }
+  .actions { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; }
+  a, button { font-family: 'IBM Plex Mono', monospace; font-size: 12px; }
+  .link { color: var(--ink); text-decoration: underline; }
+  table { width: 100%; border-collapse: collapse; background: #fff; border: 2px solid var(--ink); box-shadow: 2px 3px 0 rgba(0,0,0,0.9); font-family: 'IBM Plex Mono', monospace; font-size: 13px; }
+  th, td { border-bottom: 1px dashed rgba(0,0,0,0.15); padding: 8px 10px; text-align: left; }
+  th { background: var(--accent); font-weight: 600; }
+  select, button { padding: 4px 8px; border: 1.5px solid var(--ink); background: #fff; color: var(--ink); cursor: pointer; }
+  button.primary { background: var(--accent); font-weight: 600; }
+  .pill { display: inline-block; padding: 1px 6px; border: 1px solid var(--ink); font-size: 11px; }
+  .pill.admin { background: var(--accent); }
+  .pill.off { background: #eee; color: var(--muted); }
+  #msg { font-family: 'IBM Plex Mono', monospace; font-size: 12px; margin: 10px 0; min-height: 1em; }
+  .err { color: var(--danger); font-weight: 600; }
+  .ok { color: var(--good); font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1><em>Admin</em> · users</h1>
+  <div class="actions">
+    <a class="link" href="/">← Back to app</a>
+    <span style="flex:1"></span>
+    <button id="reload" class="primary">Reload</button>
+  </div>
+  <div id="msg"></div>
+  <table>
+    <thead>
+      <tr><th>Email</th><th>Name</th><th>Role</th><th>Verified</th><th>Enabled</th><th>Actions</th></tr>
+    </thead>
+    <tbody id="rows"></tbody>
+  </table>
+</div>
+<script>
+  const API = window.API_BASE;
+  const KEY_A = 'ai_access';
+  function token() { return localStorage.getItem(KEY_A) || ''; }
+  function hdrs() { return { 'Authorization': 'Bearer ' + token(), 'Content-Type': 'application/json' }; }
+
+  async function load() {
+    const msg = document.getElementById('msg');
+    msg.textContent = '';
+    const r = await fetch(API + '/admin/users', { headers: hdrs() });
+    if (r.status === 401 || r.status === 403) {
+      msg.innerHTML = '<span class="err">Not authorised.</span> Sign in as an admin from the main app, then return.';
+      return;
+    }
+    if (!r.ok) { msg.innerHTML = '<span class="err">Error ' + r.status + '</span>'; return; }
+    const users = await r.json();
+    renderRows(users);
+  }
+
+  function renderRows(users) {
+    const tbody = document.getElementById('rows');
+    tbody.innerHTML = '';
+    for (const u of users) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${escapeHtml(u.email)}</td>
+        <td>${escapeHtml(u.name || '')}</td>
+        <td>
+          <select data-id="${u.id}" data-field="role">
+            <option value="user" ${u.role === 'user' ? 'selected' : ''}>user</option>
+            <option value="admin" ${u.role === 'admin' ? 'selected' : ''}>admin</option>
+          </select>
+        </td>
+        <td>${u.email_verified ? '<span class="pill">yes</span>' : '<span class="pill off">no</span>'}</td>
+        <td>
+          <select data-id="${u.id}" data-field="enabled">
+            <option value="true" ${u.enabled ? 'selected' : ''}>enabled</option>
+            <option value="false" ${!u.enabled ? 'selected' : ''}>disabled</option>
+          </select>
+        </td>
+        <td><button class="primary" data-save="${u.id}">Save</button></td>
+      `;
+      tbody.appendChild(tr);
+    }
+  }
+
+  function escapeHtml(s) { return (s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+
+  document.addEventListener('click', async (e) => {
+    const id = e.target.getAttribute && e.target.getAttribute('data-save');
+    if (!id) return;
+    const row = e.target.closest('tr');
+    const role = row.querySelector('select[data-field="role"]').value;
+    const enabled = row.querySelector('select[data-field="enabled"]').value === 'true';
+    const r = await fetch(API + '/admin/users/' + id, {
+      method: 'PATCH', headers: hdrs(),
+      body: JSON.stringify({ role, enabled }),
+    });
+    const msg = document.getElementById('msg');
+    msg.innerHTML = r.ok ? '<span class="ok">Saved.</span>' : '<span class="err">Save failed.</span>';
+    if (r.ok) setTimeout(() => { msg.textContent = ''; }, 1500);
+  });
+
+  document.getElementById('reload').addEventListener('click', load);
+  load();
+</script>
+</body>
+</html>

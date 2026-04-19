@@ -19,3 +19,10 @@ openai
 fastapi
 uvicorn[standard]
 pydantic-ai
+
+# Auth + email
+bcrypt
+PyJWT
+httpx
+slowapi
+email-validator

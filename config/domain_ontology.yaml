@@ -128,6 +128,43 @@ entity_types:
       confidence: {type: float}
       created_at: {type: datetime}
 
+  # ── User management (internal; excluded from LLM-facing schema) ────────────
+  User:
+    description: Authenticated end-user of the system (doc-only; not exposed to agent tools)
+    key: id
+    properties:
+      id: {type: string, unique: true}
+      email: {type: string, unique: true}
+      password_hash: {type: string}
+      name: {type: string}
+      role: {type: string, enum: [user, admin]}
+      email_verified: {type: boolean}
+      enabled: {type: boolean}
+      created_at: {type: datetime}
+      last_login_at: {type: datetime}
+
+  RefreshToken:
+    description: Persisted refresh-token jti for revocation
+    key: jti
+    properties:
+      jti: {type: string, unique: true}
+      user_id: {type: string}
+      issued_at: {type: datetime}
+      expires_at: {type: datetime}
+      revoked_at: {type: datetime}
+      user_agent: {type: string}
+      ip: {type: string}
+
+  VerificationToken:
+    description: One-time token for email verification and password reset
+    key: token
+    properties:
+      token: {type: string, unique: true}
+      user_id: {type: string}
+      purpose: {type: string, enum: [verify_email, reset_password]}
+      expires_at: {type: datetime}
+      used_at: {type: datetime}
+
 relationships:
   - {type: CONDUCTED_BY,        from: AuctionProperty, to: Bank}
   - {type: HAS_BRANCH,          from: Bank,            to: Branch}
