@@ -74,7 +74,8 @@
     "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
     "page_url": "https://auction-intelligence-alpha.vercel.app/",
     "created_at": "2026-04-19T19:45:49.883801000+00:00",
-    "resolved": false
+    "resolved": false,
+    "resolved_at": null
   },
   {
     "id": "137e1558-7276-48df-ab9b-6ab9ca3b438e",
@@ -139,7 +140,8 @@
     "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
     "page_url": "https://auction-intelligence-alpha.vercel.app/",
     "created_at": "2026-04-19T19:42:50.522103000+00:00",
-    "resolved": false
+    "resolved": false,
+    "resolved_at": null
   },
   {
     "id": "17f3dcb8-5fe1-40fc-9715-1aaa5d40f18c",
@@ -155,7 +157,8 @@
     "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
     "page_url": "https://auction-intelligence-alpha.vercel.app/",
     "created_at": "2026-04-19T18:37:32.251084000+00:00",
-    "resolved": false
+    "resolved": false,
+    "resolved_at": null
   },
   {
     "id": "df329942-4bbe-4458-b42f-2b8fa1958d43",
@@ -251,7 +254,8 @@
     "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
     "page_url": "https://auction-intelligence-alpha.vercel.app/",
     "created_at": "2026-04-19T18:30:32.255437000+00:00",
-    "resolved": false
+    "resolved": false,
+    "resolved_at": null
   },
   {
     "id": "2499e292-80a5-49f0-934c-359727a7cf22",
@@ -273,7 +277,8 @@
     "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
     "page_url": "https://auction-intelligence-alpha.vercel.app/",
     "created_at": "2026-04-17T19:16:47.876662000+00:00",
-    "resolved": false
+    "resolved": false,
+    "resolved_at": null
   },
   {
     "id": "5fcd2638-5a9b-43c9-89b7-c7f865a6ae3c",
@@ -321,7 +326,8 @@
     "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
     "page_url": null,
     "created_at": "2026-04-17T18:59:48.424818000+00:00",
-    "resolved": false
+    "resolved": false,
+    "resolved_at": null
   },
   {
     "id": "19224426-b86d-4c93-887b-c2ad9ec84fe9",
@@ -395,7 +401,8 @@
     "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
     "page_url": null,
     "created_at": "2026-04-17T18:59:31.713681000+00:00",
-    "resolved": false
+    "resolved": false,
+    "resolved_at": null
   },
   {
     "id": "3ba48edd-776f-492e-ae12-c8c1a004be19",
@@ -469,7 +476,8 @@
     "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
     "page_url": null,
     "created_at": "2026-04-17T11:29:07.494742000+00:00",
-    "resolved": false
+    "resolved": false,
+    "resolved_at": null
   },
   {
     "id": "72a75404-42c3-4209-8b91-8b88c7bdafd4",
@@ -552,6 +560,7 @@
     "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
     "page_url": null,
     "created_at": "2026-04-16T22:35:43.193046000+00:00",
-    "resolved": false
+    "resolved": false,
+    "resolved_at": null
   }
 ]
