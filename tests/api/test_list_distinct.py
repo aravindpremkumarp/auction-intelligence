@@ -73,3 +73,60 @@ def test_list_distinct_accepts_all_whitelisted_fields(monkeypatch, field):
 
     out = list_distinct(field)
     assert out["field"] == field
+
+
+def test_list_distinct_property_type_scoped_by_bank(monkeypatch):
+    """Regression for feedback df329942: 'spread of property types for SBI'
+    must produce a bank-scoped breakdown in a single call, not iterate
+    auctions one by one."""
+    calls = _patch_read_query(
+        monkeypatch,
+        response=[
+            {"value": "Land", "auction_count": 40},
+            {"value": "Flat", "auction_count": 30},
+        ],
+    )
+    from api.tools.cypher_tools import list_distinct
+
+    out = list_distinct("property_type", bank="State Bank of India", limit=50)
+
+    cypher, params, _ = calls[0]
+    # The scope-match lives on AuctionProperty, NOT on Bank — guards
+    # against the agent's previous mistake of chaining
+    # (Bank)-[:HAS_PROPERTY_TYPE].
+    assert "(a)-[:CONDUCTED_BY]->(:Bank {name: $bank})" in cypher
+    assert "(a)-[:HAS_PROPERTY_TYPE]->(n:PropertyType)" in cypher
+    assert params == {"limit": 50, "bank": "State Bank of India"}
+    assert out["filter_bank"] == "State Bank of India"
+    assert out["results"][0]["auction_count"] == 40
+
+
+def test_list_distinct_combines_multiple_scopes(monkeypatch):
+    """Residential property types in Kanchipuram — city + asset_category
+    filters must both appear in the MATCH clause."""
+    calls = _patch_read_query(monkeypatch)
+    from api.tools.cypher_tools import list_distinct
+
+    list_distinct(
+        "property_type",
+        city="Kanchipuram",
+        asset_category="Residential",
+    )
+
+    cypher, params, _ = calls[0]
+    assert "LOCATED_IN_CITY" in cypher
+    assert "HAS_ASSET_CATEGORY" in cypher
+    assert "HAS_PROPERTY_TYPE" in cypher
+    assert params["city"] == "Kanchipuram"
+    assert params["asset_category"] == "Residential"
+
+
+def test_list_distinct_drops_self_scope(monkeypatch):
+    """Filtering by the same dimension you're grouping on is a no-op;
+    the tool drops it silently rather than raising."""
+    calls = _patch_read_query(monkeypatch)
+    from api.tools.cypher_tools import list_distinct
+
+    list_distinct("bank", bank="State Bank of India")
+    _, params, _ = calls[0]
+    assert "bank" not in params

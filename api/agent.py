@@ -50,6 +50,18 @@ Operating principles:
 6. When a filter returns zero, try loosening (drop property_type, broaden
    price, verify city/area spelling) before telling the user there are no
    matches.
+7. Never compute a count, sum, or distribution by iterating
+   `get_auction_detail` across many auctions. For distribution / breakdown
+   / "spread" questions, use `list_distinct` with the appropriate scope
+   (`city`, `bank`, `borrower`, `asset_category`). If a `run_cypher`
+   aggregate returns zero or a wrong-shape result, rewrite the query or
+   call `describe_schema()` — do not fall back to per-row fetches.
+8. `HAS_ASSET_CATEGORY`, `HAS_PROPERTY_TYPE`, `CONDUCTED_BY`,
+   `HAS_BORROWER`, and `LOCATED_IN_*` all start on `AuctionProperty`.
+   When composing multi-hop Cyphers, MATCH each relationship
+   independently from the AuctionProperty node and join with commas;
+   never chain `(Bank)-[:HAS_PROPERTY_TYPE]` or
+   `(Bank)-[:HAS_ASSET_CATEGORY]` — those relationships do not exist.
 """
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -220,16 +232,37 @@ def get_auction_detail(auction_id: str) -> dict | None:
 
 
 @agent.tool_plain
-def list_distinct(field: str, limit: int = 100, city: str | None = None) -> dict:
+def list_distinct(
+    field: str,
+    limit: int = 100,
+    city: str | None = None,
+    bank: str | None = None,
+    borrower: str | None = None,
+    asset_category: str | None = None,
+) -> dict:
     """List distinct values of a reference field with per-value auction counts.
 
     `field` must be one of: "city", "area", "state", "bank", "borrower",
-    "asset_category", "property_type". When `city` is supplied and `field`
-    is not "city", counts are scoped to auctions in that city.
+    "asset_category", "property_type".
 
-    Use for enum-discovery questions ("what cities do we cover", "list all
-    banks", "which property types appear in Chennai")."""
-    return T.list_distinct(field, limit, city)
+    Scope filters narrow the count. Supply any combination of `city`,
+    `bank`, `borrower`, `asset_category`; a scope must differ from
+    `field`. Examples:
+      - property-type mix for SBI: field="property_type", bank="State Bank of India"
+      - asset categories in Chennai: field="asset_category", city="Chennai"
+      - residential property types in Kanchipuram: field="property_type",
+        city="Kanchipuram", asset_category="Residential"
+
+    Use this for distribution / breakdown / "spread" questions. Do NOT
+    compute distributions by iterating `get_auction_detail`."""
+    return T.list_distinct(
+        field,
+        limit,
+        city=city,
+        bank=bank,
+        borrower=borrower,
+        asset_category=asset_category,
+    )
 
 
 @agent.tool_plain
