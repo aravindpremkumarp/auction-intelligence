@@ -30,6 +30,17 @@ from api.tools.cypher_tools import get_auction_detail
 
 _SEARCH_TOOLS = {"search_auctions", "semantic_property_search"}
 
+# Args that describe scope we want to carry across turns. Excludes output
+# controls (limit, order_by) and aggregate knobs — those don't narrow the
+# user's target set, they just shape the current call.
+_CARRY_FORWARD_FILTER_KEYS = {
+    "min_price", "max_price",
+    "city", "area",
+    "property_type", "asset_category",
+    "bank",
+    "starts_after", "starts_before",
+}
+
 ROOT = Path(__file__).resolve().parent.parent
 WEB_DIR = ROOT / "web"
 
@@ -96,6 +107,12 @@ class ToolArtifact(BaseModel):
     tool: str
     args: dict[str, Any] | str | None = None
     result: Any = None
+    # UI-only row overflow from search tools. Populated when a search's
+    # `total_count` exceeds the model-visible `limit` — lets the right-side
+    # artifacts panel render every match without inflating the LLM's
+    # context. Never included in `result` (which is what the model sees on
+    # follow-up turns).
+    ui_rows: list[dict[str, Any]] | None = None
 
 
 class ChatResponse(BaseModel):
@@ -141,10 +158,26 @@ def list_modes() -> dict:
     return {"modes": _AVAILABLE_MODES}
 
 
-def _extract_last_search(messages) -> dict | None:
-    """Find the most recent search tool result and summarize its filters + total_count."""
+def _extract_active_filters(messages) -> tuple[dict, int | None]:
+    """Walk the message history and merge every prior search tool's scope
+    filters into a single rolling dict — the "active scope" of the
+    conversation so far.
+
+    Rules:
+      * Later calls overwrite earlier ones for the same key, so the latest
+        user narrowing wins.
+      * Keys not in `_CARRY_FORWARD_FILTER_KEYS` (e.g. `limit`, `order_by`,
+        `aggregations`) are ignored — they're per-call, not scope.
+      * A call that passes an explicit `None` for a key clears that key —
+        the model is effectively telling us it dropped that scope.
+      * Non-search tool calls don't affect the scope.
+
+    Returns (filters, last_total_count). `last_total_count` is the
+    total_count of the most recent search for context.
+    """
     calls: dict[str, ToolCallPart] = {}
-    latest: dict | None = None
+    filters: dict = {}
+    last_total: int | None = None
     for msg in messages:
         for part in getattr(msg, "parts", []):
             if isinstance(part, ToolCallPart):
@@ -154,22 +187,52 @@ def _extract_last_search(messages) -> dict | None:
                 if call is None:
                     continue
                 try:
-                    filters = call.args_as_dict()
+                    args = call.args_as_dict()
                 except Exception:
-                    filters = {}
+                    args = {}
+                for key in _CARRY_FORWARD_FILTER_KEYS:
+                    if key not in args:
+                        continue
+                    val = args[key]
+                    if val is None:
+                        filters.pop(key, None)
+                    else:
+                        filters[key] = val
                 result = part.content
                 if isinstance(result, dict) and "total_count" in result:
-                    total = result["total_count"]
+                    last_total = result["total_count"]
                 elif isinstance(result, list):
-                    total = len(result)
-                else:
-                    total = None
-                latest = {"tool": part.tool_name, "filters": filters, "total_count": total}
-    return latest
+                    last_total = len(result)
+    return filters, last_total
+
+
+def _split_ui_rows(result: Any) -> tuple[Any, list[dict[str, Any]] | None]:
+    """Pop the UI-only overflow from a search-tool result.
+
+    `search_auctions` returns `_ui_results` when total_count exceeds the
+    model-visible `limit`. That list belongs in the HTTP response so the
+    right-side panel can render every match — but it must NOT flow back
+    into the LLM's message history on the next turn, or we defeat the
+    whole point of the split. We copy the dict (so we don't mutate the
+    in-memory ToolReturnPart content), pop `_ui_results`, and return the
+    trimmed copy for the LLM + the raw list for the UI.
+    """
+    if not isinstance(result, dict) or "_ui_results" not in result:
+        return result, None
+    trimmed = {k: v for k, v in result.items() if k != "_ui_results"}
+    ui_rows = result.get("_ui_results")
+    if not isinstance(ui_rows, list):
+        ui_rows = None
+    return trimmed, ui_rows
 
 
 def _extract_artifacts(messages) -> list[ToolArtifact]:
-    """Pair ToolCallPart with its matching ToolReturnPart by tool_call_id."""
+    """Pair ToolCallPart with its matching ToolReturnPart by tool_call_id.
+
+    When a search tool returns `_ui_results`, move those rows onto the
+    artifact's `ui_rows` field and strip them from `result`. This keeps
+    the UI payload rich while the LLM-facing `result` stays lean.
+    """
     calls: dict[str, ToolCallPart] = {}
     artifacts: list[ToolArtifact] = []
     for msg in messages:
@@ -183,12 +246,29 @@ def _extract_artifacts(messages) -> list[ToolArtifact]:
                         args = call.args_as_dict()
                     except Exception:
                         args = call.args if isinstance(call.args, (dict, str)) else str(call.args)
+                    result, ui_rows = _split_ui_rows(part.content)
                     artifacts.append(ToolArtifact(
                         tool=part.tool_name,
                         args=args,
-                        result=part.content,
+                        result=result,
+                        ui_rows=ui_rows,
                     ))
     return artifacts
+
+
+def _strip_ui_rows_from_history(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Remove `_ui_results` from any ToolReturnPart content in a dumped
+    message history. Prevents the UI overflow from ballooning the LLM's
+    context on the next turn when the client echoes history back.
+    """
+    for msg in history:
+        for part in msg.get("parts", []):
+            if part.get("part_kind") != "tool-return":
+                continue
+            content = part.get("content")
+            if isinstance(content, dict) and "_ui_results" in content:
+                content.pop("_ui_results", None)
+    return history
 
 
 class FeedbackRequest(BaseModel):
@@ -220,6 +300,7 @@ class FeedbackRecord(BaseModel):
     page_url: str | None = None
     created_at: str
     resolved: bool = False
+    resolved_at: str | None = None
 
 
 def _strip_artifacts(arts: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
@@ -257,6 +338,12 @@ def _feedback_row_to_record(row: dict) -> FeedbackRecord:
     created_at = f.get("created_at")
     # neo4j DateTime → ISO string
     created_at_str = created_at.iso_format() if hasattr(created_at, "iso_format") else str(created_at)
+    resolved_at = f.get("resolved_at")
+    resolved_at_str: str | None
+    if resolved_at is None:
+        resolved_at_str = None
+    else:
+        resolved_at_str = resolved_at.iso_format() if hasattr(resolved_at, "iso_format") else str(resolved_at)
     return FeedbackRecord(
         id=f["id"],
         kind=f.get("kind") or "message",
@@ -272,6 +359,7 @@ def _feedback_row_to_record(row: dict) -> FeedbackRecord:
         page_url=f.get("page_url"),
         created_at=created_at_str,
         resolved=bool(f.get("resolved", False)),
+        resolved_at=resolved_at_str,
     )
 
 
@@ -378,15 +466,24 @@ async def chat(req: ChatRequest) -> ChatResponse:
         if mode not in valid_ids or mode == "ask":
             # Unknown mode or the default "ask" sentinel — don't overlay anything.
             mode = None
+    if history:
+        active_filters, last_total = _extract_active_filters(history)
+    else:
+        active_filters, last_total = {}, None
     deps = ChatDeps(
-        last_search=_extract_last_search(history) if history else None,
+        active_filters=active_filters or None,
+        last_total_count=last_total,
         mode=mode,
     )
     result = await agent.run(req.message, message_history=history, deps=deps)
+    dumped_history = ModelMessagesTypeAdapter.dump_python(result.all_messages(), mode="json")
     return ChatResponse(
         answer=result.output,
         artifacts=_extract_artifacts(result.new_messages()),
-        message_history=ModelMessagesTypeAdapter.dump_python(result.all_messages(), mode="json"),
+        # Strip `_ui_results` from the history echoed back to the client —
+        # otherwise the client ships it back on the next /chat turn and it
+        # re-enters the LLM's context, defeating the UI/LLM split.
+        message_history=_strip_ui_rows_from_history(dumped_history),
     )
 
 
