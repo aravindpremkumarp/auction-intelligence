@@ -82,7 +82,7 @@ def guess_content_type(filename: str) -> str:
     ext = Path(filename).suffix.lower()
     if ext == ".pdf":
         return "application/pdf"
-    if ext in (".jpg", ".jpeg"):
+    if ext in (".jpg", ".jpeg", ".jfif"):
         return "image/jpeg"
     if ext == ".png":
         return "image/png"
