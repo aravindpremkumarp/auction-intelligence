@@ -18,12 +18,14 @@ DOWNLOADS_DIR = ROOT_DIR / "downloads"
 
 PIPELINE_DIR  = ROOT_DIR / "pipeline"
 CACHE_DIR     = PIPELINE_DIR / "cache" / "ocr_results"
+NOTICE_CLASS_CACHE_DIR = PIPELINE_DIR / "cache" / "notice_classification"
 OUTPUT_DIR    = PIPELINE_DIR / "output"
 LOOKUPS_DIR   = PIPELINE_DIR / "lookups"
 PROMPTS_DIR   = PIPELINE_DIR / "prompts"
 
 # Ensure output/cache dirs exist
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
+NOTICE_CLASS_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # ── OpenRouter ───────────────────────────────────────────────────────────────
