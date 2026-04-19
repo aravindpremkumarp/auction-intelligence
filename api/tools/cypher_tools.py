@@ -328,9 +328,17 @@ def get_auction_detail(auction_id: str) -> dict | None:
         OPTIONAL MATCH (a)-[:HAS_ASSET_CATEGORY]->(ac:AssetCategory)
         OPTIONAL MATCH (a)-[:HAS_PROPERTY_TYPE]->(pt:PropertyType)
         OPTIONAL MATCH (a)-[:HAS_SURVEY_NUMBER]->(s:SurveyNumber)
+        OPTIONAL MATCH (a)-[:HAS_DOCUMENT]->(doc:Document)
+            WHERE doc.public_url IS NOT NULL
         WITH a, city, area, state, bank, borrower, ac,
              collect(DISTINCT pt.name) AS property_types,
-             collect(DISTINCT properties(s)) AS survey_numbers
+             collect(DISTINCT properties(s)) AS survey_numbers,
+             collect(DISTINCT {
+               filename:     doc.filename,
+               public_url:   doc.public_url,
+               content_type: doc.content_type,
+               doc_type:     doc.doc_type
+             }) AS documents
         RETURN properties(a) AS fields,
                {
                  city:           CASE WHEN city     IS NULL THEN NULL ELSE properties(city)     END,
@@ -341,7 +349,8 @@ def get_auction_detail(auction_id: str) -> dict | None:
                  asset_category: CASE WHEN ac       IS NULL THEN NULL ELSE properties(ac)       END,
                  property_types: property_types,
                  survey_numbers: survey_numbers
-               } AS relationships
+               } AS relationships,
+               documents AS documents
     """
     rows = run_query(cypher, {"auction_id": auction_id})
     if not rows:
@@ -355,7 +364,19 @@ def get_auction_detail(auction_id: str) -> dict | None:
         except json.JSONDecodeError:
             pass
 
-    return {"auction_id": auction_id, "fields": fields, "relationships": rows[0]["relationships"]}
+    # collect() with OPTIONAL MATCH returns a list containing a single empty-
+    # valued dict when there are no matches — strip those.
+    documents = [
+        d for d in (rows[0].get("documents") or [])
+        if d and d.get("public_url")
+    ]
+
+    return {
+        "auction_id":    auction_id,
+        "fields":        fields,
+        "relationships": rows[0]["relationships"],
+        "documents":     documents,
+    }
 
 
 def survey_search(survey_no: str, subdivision: str | None = None) -> list[dict]:
