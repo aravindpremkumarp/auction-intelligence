@@ -11,7 +11,12 @@
   window.API_BASE = (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
     ? ''
     : 'https://auction-api-w68b.onrender.com';
+  // Supabase project credentials. ANON key is safe to expose; service-role
+  // key stays server-side. Replace these at deploy time if they move.
+  window.SUPABASE_URL = window.SUPABASE_URL || '';
+  window.SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY || '';
 </script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script>
   (function () {
     var saved = localStorage.getItem('theme');

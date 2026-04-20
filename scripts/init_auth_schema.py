@@ -1,8 +1,8 @@
 """
 scripts/init_auth_schema.py
 ---------------------------
-Idempotent creation of Neo4j constraints + indexes for the user-management
-graph (User, RefreshToken, VerificationToken).
+Idempotent creation of Neo4j constraints + indexes for the `:User` profile
+mirror (identity itself lives in Supabase).
 
 Run once per environment:
     python -m scripts.init_auth_schema
@@ -20,12 +20,9 @@ from api.neo4j_client import run_query
 
 
 STATEMENTS = [
-    "CREATE CONSTRAINT user_id_unique IF NOT EXISTS FOR (u:User) REQUIRE u.id IS UNIQUE",
+    "CREATE CONSTRAINT user_supabase_id_unique IF NOT EXISTS FOR (u:User) REQUIRE u.supabase_id IS UNIQUE",
     "CREATE CONSTRAINT user_email_unique IF NOT EXISTS FOR (u:User) REQUIRE u.email IS UNIQUE",
-    "CREATE CONSTRAINT refresh_jti_unique IF NOT EXISTS FOR (r:RefreshToken) REQUIRE r.jti IS UNIQUE",
-    "CREATE CONSTRAINT verif_token_unique IF NOT EXISTS FOR (v:VerificationToken) REQUIRE v.token IS UNIQUE",
     "CREATE INDEX user_role_idx IF NOT EXISTS FOR (u:User) ON (u.role)",
-    "CREATE INDEX refresh_user_idx IF NOT EXISTS FOR (r:RefreshToken) ON (r.user_id)",
 ]
 
 

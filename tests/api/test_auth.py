@@ -1,14 +1,10 @@
-"""End-to-end tests for /auth/* endpoints using the in-memory Neo4j stub."""
+"""End-to-end tests for /auth/me + /admin/users* using the in-memory Neo4j
+stub and the fake Supabase JWT verifier from conftest."""
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-from api.auth.security import (
-    create_access_token,
-    create_refresh_token,
-    hash_password,
-    verify_password,
-)
+from tests.api.conftest import auth_header
 
 
 def _client() -> TestClient:
@@ -18,177 +14,133 @@ def _client() -> TestClient:
 
 def _reset_store() -> None:
     from api import neo4j_client
-    neo4j_client._users.clear()          # type: ignore[attr-defined]
-    neo4j_client._users_by_email.clear() # type: ignore[attr-defined]
-    neo4j_client._refresh.clear()        # type: ignore[attr-defined]
-    neo4j_client._verify.clear()         # type: ignore[attr-defined]
-    neo4j_client._feedback.clear()       # type: ignore[attr-defined]
+    neo4j_client._users.clear()       # type: ignore[attr-defined]
+    neo4j_client._feedback.clear()    # type: ignore[attr-defined]
 
 
-def _register(client: TestClient, email: str = "a@b.com",
-              password: str = "Passw0rd", name: str = "A") -> dict:
-    r = client.post("/auth/register", json={"email": email, "password": password, "name": name})
-    assert r.status_code == 201, r.text
-    return r.json()
+def test_me_requires_auth() -> None:
+    _reset_store()
+    r = _client().get("/auth/me")
+    assert r.status_code == 401
 
 
-def _latest_verify_token(purpose: str = "verify_email") -> str:
+def test_me_upserts_profile_on_first_call() -> None:
+    _reset_store()
+    c = _client()
     from api import neo4j_client
-    tokens = [t for t, v in neo4j_client._verify.items()  # type: ignore[attr-defined]
-              if v["purpose"] == purpose]
-    assert tokens, f"no {purpose} token in stub store"
-    return tokens[-1]
+    assert "sub-new" not in neo4j_client._users  # type: ignore[attr-defined]
 
-
-def _register_and_verify(client: TestClient) -> dict:
-    body = _register(client)
-    token = _latest_verify_token()
-    r = client.post("/auth/verify-email", json={"token": token})
+    r = c.get("/auth/me", headers=auth_header(sub="sub-new", email="x@y.com", name="Xy"))
     assert r.status_code == 200, r.text
-    return body
+    body = r.json()
+    assert body["id"] == "sub-new"
+    assert body["email"] == "x@y.com"
+    assert body["name"] == "Xy"
+    assert body["role"] == "user"
+    assert body["enabled"] is True
+    assert body["email_verified"] is True
+    assert "sub-new" in neo4j_client._users  # type: ignore[attr-defined]
 
 
-def test_password_hash_round_trip() -> None:
-    h = hash_password("Passw0rd")
-    assert h != "Passw0rd"
-    assert verify_password("Passw0rd", h)
-    assert not verify_password("wrong", h)
-
-
-def test_jwt_access_round_trip() -> None:
-    from api.auth.security import decode_token
-    t = create_access_token("u-1", "user")
-    payload = decode_token(t, "access")
-    assert payload["sub"] == "u-1"
-    assert payload["role"] == "user"
-
-
-def test_jwt_refresh_has_jti() -> None:
-    from api.auth.security import decode_token
-    t, jti, _ = create_refresh_token("u-1")
-    payload = decode_token(t, "refresh")
-    assert payload["jti"] == jti
-
-
-def test_register_and_duplicate() -> None:
+def test_me_is_idempotent() -> None:
     _reset_store()
-    client = _client()
-    body = _register(client)
-    assert body["email"] == "a@b.com"
-    assert body["email_verified"] is False
-    # duplicate → 409
-    r = client.post("/auth/register", json={"email": "a@b.com", "password": "Passw0rd", "name": "A"})
-    assert r.status_code == 409
-
-
-def test_login_requires_verified_email() -> None:
-    _reset_store()
-    client = _client()
-    _register(client)
-    r = client.post("/auth/login", json={"email": "a@b.com", "password": "Passw0rd"})
-    assert r.status_code == 403  # email not verified
-
-
-def test_full_flow_register_verify_login_me_refresh_logout() -> None:
-    _reset_store()
-    client = _client()
-    _register_and_verify(client)
-
-    r = client.post("/auth/login", json={"email": "a@b.com", "password": "Passw0rd"})
-    assert r.status_code == 200, r.text
-    pair = r.json()
-    access = pair["access"]
-    refresh = pair["refresh"]
-    assert pair["user"]["email_verified"] is True
-
-    # /auth/me
-    r = client.get("/auth/me", headers={"Authorization": f"Bearer {access}"})
-    assert r.status_code == 200
-    assert r.json()["email"] == "a@b.com"
-
-    # /auth/me without token → 401
-    r = client.get("/auth/me")
-    assert r.status_code == 401
-
-    # /auth/refresh rotates (old jti is revoked)
-    r = client.post("/auth/refresh", headers={"Authorization": f"Bearer {refresh}"})
-    assert r.status_code == 200
-    new = r.json()
-    assert new["access"] and new["refresh"]
-    assert new["refresh"] != refresh
-
-    # old refresh no longer works
-    r = client.post("/auth/refresh", headers={"Authorization": f"Bearer {refresh}"})
-    assert r.status_code == 401
-
-    # /auth/logout revokes the (new) refresh
-    r = client.post("/auth/logout", headers={"Authorization": f"Bearer {new['refresh']}"})
-    assert r.status_code == 204
-    r = client.post("/auth/refresh", headers={"Authorization": f"Bearer {new['refresh']}"})
-    assert r.status_code == 401
-
-
-def test_login_wrong_password() -> None:
-    _reset_store()
-    client = _client()
-    _register_and_verify(client)
-    r = client.post("/auth/login", json={"email": "a@b.com", "password": "WrongPass1"})
-    assert r.status_code == 401
-
-
-def test_forgot_and_reset_password() -> None:
-    _reset_store()
-    client = _client()
-    _register_and_verify(client)
-
-    r = client.post("/auth/forgot-password", json={"email": "a@b.com"})
-    assert r.status_code == 204
-
-    # grab the reset token directly from the stub store
+    c = _client()
+    h = auth_header(sub="sub-dup", email="d@d.com", name="D")
+    r1 = c.get("/auth/me", headers=h)
+    r2 = c.get("/auth/me", headers=h)
+    assert r1.status_code == 200 and r2.status_code == 200
+    assert r1.json() == r2.json()
     from api import neo4j_client
-    reset_tokens = [t for t, v in neo4j_client._verify.items()     # type: ignore[attr-defined]
-                    if v["purpose"] == "reset_password"]
-    assert len(reset_tokens) == 1
-    reset_token = reset_tokens[0]
+    assert len(neo4j_client._users) == 1  # type: ignore[attr-defined]
 
-    r = client.post("/auth/reset-password",
-                    json={"token": reset_token, "new_password": "NewPass123"})
-    assert r.status_code == 204
 
-    # old password no longer works; new one does
-    r = client.post("/auth/login", json={"email": "a@b.com", "password": "Passw0rd"})
-    assert r.status_code == 401
-    r = client.post("/auth/login", json={"email": "a@b.com", "password": "NewPass123"})
+def test_me_disabled_user_returns_401() -> None:
+    _reset_store()
+    c = _client()
+    h = auth_header(sub="sub-dis", email="d@d.com")
+    assert c.get("/auth/me", headers=h).status_code == 200
+
+    from api import neo4j_client
+    neo4j_client._users["sub-dis"]["enabled"] = False  # type: ignore[attr-defined]
+    assert c.get("/auth/me", headers=h).status_code == 401
+
+
+def test_patch_me_updates_name() -> None:
+    _reset_store()
+    c = _client()
+    h = auth_header(sub="sub-p", email="p@p.com", name="Old")
+    c.get("/auth/me", headers=h)
+    r = c.patch("/auth/me", headers=h, json={"name": "New"})
+    assert r.status_code == 200, r.text
+    assert r.json()["name"] == "New"
+
+
+def test_admin_endpoints_require_admin_role() -> None:
+    _reset_store()
+    c = _client()
+    h = auth_header(sub="sub-u", email="u@u.com")
+    # materialise the profile then try admin
+    c.get("/auth/me", headers=h)
+    assert c.get("/admin/users", headers=h).status_code == 403
+
+
+def test_admin_can_list_and_patch_users() -> None:
+    _reset_store()
+    c = _client()
+    # Seed two plain users via /auth/me.
+    c.get("/auth/me", headers=auth_header(sub="sub-a", email="a@a.com", name="A"))
+    c.get("/auth/me", headers=auth_header(sub="sub-b", email="b@b.com", name="B"))
+
+    # Promote sub-a to admin directly in the stub store.
+    from api import neo4j_client
+    neo4j_client._users["sub-a"]["role"] = "admin"  # type: ignore[attr-defined]
+
+    h_admin = auth_header(sub="sub-a", email="a@a.com")
+    r = c.get("/admin/users", headers=h_admin)
     assert r.status_code == 200
+    emails = {u["email"] for u in r.json()}
+    assert {"a@a.com", "b@b.com"} <= emails
+
+    r = c.patch("/admin/users/sub-b", headers=h_admin, json={"enabled": False})
+    assert r.status_code == 200, r.text
+    assert r.json()["enabled"] is False
+
+    # sub-b can no longer authenticate.
+    assert c.get("/auth/me", headers=auth_header(sub="sub-b", email="b@b.com")).status_code == 401
 
 
-def test_forgot_for_unknown_email_is_204() -> None:
+def test_admin_bootstrap_email_auto_promotes(monkeypatch) -> None:
     _reset_store()
-    client = _client()
-    r = client.post("/auth/forgot-password", json={"email": "nobody@nowhere.com"})
-    assert r.status_code == 204  # don't leak existence
+    monkeypatch.setenv("ADMIN_BOOTSTRAP_EMAIL", "boss@example.com")
+    c = _client()
+    r = c.get("/auth/me", headers=auth_header(sub="sub-boss", email="boss@example.com", name="Boss"))
+    assert r.status_code == 200
+    assert r.json()["role"] == "admin"
 
 
-def test_verify_with_bad_token() -> None:
+def test_invalid_token_returns_401() -> None:
     _reset_store()
-    client = _client()
-    r = client.post("/auth/verify-email", json={"token": "not-a-real-token"})
-    assert r.status_code == 400
+    c = _client()
+    r = c.get("/auth/me", headers={"Authorization": "Bearer not-a-real-token"})
+    assert r.status_code == 401
 
 
-def test_password_policy_rejects_weak() -> None:
+def test_expired_token_returns_401() -> None:
+    import base64 as _b64
+    import json as _json
     _reset_store()
-    client = _client()
-    r = client.post("/auth/register", json={"email": "w@w.com", "password": "short", "name": "W"})
-    assert r.status_code == 422
+    claims = {"sub": "s", "email": "e@e.com", "_expired": True}
+    body = _b64.urlsafe_b64encode(_json.dumps(claims).encode()).rstrip(b"=").decode()
+    r = _client().get("/auth/me", headers={"Authorization": f"Bearer test-{body}"})
+    assert r.status_code == 401
 
 
 def test_chat_gated_modes_require_login() -> None:
     """Deep Research and Report require a verified account."""
     _reset_store()
-    client = _client()
+    c = _client()
     # Anonymous → 401 for gated mode
-    r = client.post("/chat", json={"message": "hi", "mode": "deep-research"})
+    r = c.post("/chat", json={"message": "hi", "mode": "deep-research"})
     assert r.status_code == 401
-    r = client.post("/chat", json={"message": "hi", "mode": "report"})
+    r = c.post("/chat", json={"message": "hi", "mode": "report"})
     assert r.status_code == 401
