@@ -1,57 +1,65 @@
 /*
  * web/auth.js
  * -----------
- * Self-contained auth module for the static Vercel-hosted frontend.
- * Exposes `window.Auth` with: fetchWithAuth, login, signup, logout, me,
- * forgot, openLoginModal, openSignupModal, openForgotModal, onAuthChange,
- * getUser, getRole.
+ * Supabase-backed auth module for the static Vercel-hosted frontend.
+ * Exposes `window.Auth` with the original surface (fetchWithAuth, login,
+ * signup, logout, me, forgot, openLoginModal, openSignupModal,
+ * openForgotModal, onAuthChange, getUser, getRole) plus loginMagicLink and
+ * loginGoogle so index.html can stay untouched.
  *
- * Tokens live in localStorage (`ai_access` + `ai_refresh`). We trade the
- * slight XSS exposure for simpler static hosting vs httpOnly cookies — the
- * existing chat UI renders text via textContent only, so no HTML-injection
- * surface exists today. Keep it that way.
+ * The Supabase JS SDK (loaded from CDN in index.html) owns session storage
+ * and silent refresh; `me()` still hits FastAPI /auth/me so Neo4j-mirrored
+ * role/enabled/name flow through.
  */
 (function () {
   'use strict';
+
   var API = (typeof window !== 'undefined' && window.API_BASE) || '';
-  var KEY_A = 'ai_access';
-  var KEY_R = 'ai_refresh';
+  var SB_URL = (typeof window !== 'undefined' && window.SUPABASE_URL) || '';
+  var SB_ANON = (typeof window !== 'undefined' && window.SUPABASE_ANON_KEY) || '';
+
+  if (!window.supabase || !SB_URL || !SB_ANON) {
+    console.error('[auth] Supabase client or env vars missing; auth disabled');
+    return;
+  }
+
+  var sb = window.supabase.createClient(SB_URL, SB_ANON, {
+    auth: {
+      flowType: 'pkce',
+      detectSessionInUrl: true,
+      persistSession: true,
+      autoRefreshToken: true,
+    },
+  });
 
   var listeners = [];
   var currentUser = null;
 
-  function storedAccess() { return localStorage.getItem(KEY_A) || ''; }
-  function storedRefresh() { return localStorage.getItem(KEY_R) || ''; }
-  function setTokens(access, refresh) {
-    if (access) localStorage.setItem(KEY_A, access); else localStorage.removeItem(KEY_A);
-    if (refresh) localStorage.setItem(KEY_R, refresh); else localStorage.removeItem(KEY_R);
-  }
-
   function emit() { listeners.forEach(function (cb) { try { cb(currentUser); } catch (_) {} }); }
   function onAuthChange(cb) { listeners.push(cb); try { cb(currentUser); } catch (_) {} }
+
+  async function _accessToken() {
+    var res = await sb.auth.getSession();
+    return res && res.data && res.data.session ? res.data.session.access_token : '';
+  }
 
   async function fetchWithAuth(url, opts) {
     opts = opts || {};
     opts.headers = Object.assign({}, opts.headers || {});
-    var a = storedAccess();
-    if (a) opts.headers['Authorization'] = 'Bearer ' + a;
+    var token = await _accessToken();
+    if (token) opts.headers['Authorization'] = 'Bearer ' + token;
     var res = await fetch(url, opts);
     if (res.status !== 401) return res;
-    var r = storedRefresh();
-    if (!r) return res;
-    var rr = await fetch(API + '/auth/refresh', {
-      method: 'POST', headers: { 'Authorization': 'Bearer ' + r },
-    });
-    if (!rr.ok) { setTokens('', ''); currentUser = null; emit(); return res; }
-    var j = await rr.json();
-    setTokens(j.access, j.refresh || r);
-    opts.headers['Authorization'] = 'Bearer ' + j.access;
+    // One retry after forcing a refresh — SDK normally handles this silently.
+    var r = await sb.auth.refreshSession();
+    if (r.error || !r.data || !r.data.session) return res;
+    opts.headers['Authorization'] = 'Bearer ' + r.data.session.access_token;
     return fetch(url, opts);
   }
 
   async function me() {
-    var a = storedAccess();
-    if (!a) { currentUser = null; emit(); return null; }
+    var token = await _accessToken();
+    if (!token) { currentUser = null; emit(); return null; }
     var r = await fetchWithAuth(API + '/auth/me');
     if (!r.ok) { currentUser = null; emit(); return null; }
     currentUser = await r.json();
@@ -60,51 +68,61 @@
   }
 
   async function login(email, password) {
-    var r = await fetch(API + '/auth/login', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: email, password: password }),
-    });
-    if (!r.ok) {
-      var j = await r.json().catch(function () { return {}; });
-      throw new Error(j.detail || 'login failed');
-    }
-    var body = await r.json();
-    setTokens(body.access, body.refresh);
-    currentUser = body.user;
-    emit();
-    return currentUser;
+    var r = await sb.auth.signInWithPassword({ email: email, password: password });
+    if (r.error) throw new Error(r.error.message || 'login failed');
+    return await me();
   }
 
   async function signup(email, password, name) {
-    var r = await fetch(API + '/auth/register', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: email, password: password, name: name }),
+    var r = await sb.auth.signUp({
+      email: email,
+      password: password,
+      options: {
+        data: { name: name || '' },
+        emailRedirectTo: window.location.origin,
+      },
     });
-    if (!r.ok) {
-      var j = await r.json().catch(function () { return {}; });
-      throw new Error(j.detail || 'signup failed');
-    }
-    return r.json();
+    if (r.error) throw new Error(r.error.message || 'signup failed');
+    return r.data;
+  }
+
+  async function loginMagicLink(email) {
+    var r = await sb.auth.signInWithOtp({
+      email: email,
+      options: { emailRedirectTo: window.location.origin },
+    });
+    if (r.error) throw new Error(r.error.message || 'magic link failed');
+    return r.data;
+  }
+
+  async function loginGoogle() {
+    var r = await sb.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: window.location.origin },
+    });
+    if (r.error) throw new Error(r.error.message || 'google sign-in failed');
+    return r.data;
   }
 
   async function forgot(email) {
-    await fetch(API + '/auth/forgot-password', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: email }),
-    });
+    await sb.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin });
   }
 
   async function logout() {
-    var r = storedRefresh();
-    if (r) {
-      try { await fetch(API + '/auth/logout', {
-        method: 'POST', headers: { 'Authorization': 'Bearer ' + r },
-      }); } catch (_) {}
-    }
-    setTokens('', '');
+    try { await sb.auth.signOut(); } catch (_) {}
     currentUser = null;
     emit();
   }
+
+  // React to Supabase session changes (PKCE redirects, silent refresh, logout).
+  sb.auth.onAuthStateChange(function (_event, session) {
+    if (session) {
+      me();
+    } else {
+      currentUser = null;
+      emit();
+    }
+  });
 
   // ── Modals ────────────────────────────────────────────────────────────
   function ensureStyles() {
@@ -123,6 +141,12 @@
       'color:#1a1a1a;font-family:\'IBM Plex Mono\',monospace;font-size:13px;font-weight:600;' +
       'box-shadow:2px 3px 0 rgba(0,0,0,0.9);cursor:pointer;}' +
       '.auth-modal .sec{margin-left:8px;background:#fff;}' +
+      '.auth-modal .alt{display:flex;flex-direction:column;gap:8px;margin:12px 0;}' +
+      '.auth-modal .alt button{margin:0;width:100%;background:#fff;}' +
+      '.auth-modal .alt button.g{background:#fff;}' +
+      '.auth-modal .sep{display:flex;align-items:center;gap:8px;margin:10px 0;' +
+      'font-family:\'IBM Plex Mono\',monospace;font-size:11px;color:#666;}' +
+      '.auth-modal .sep::before,.auth-modal .sep::after{content:"";flex:1;height:1px;background:#ddd;}' +
       '.auth-modal .msg{font-family:\'IBM Plex Mono\',monospace;font-size:12px;margin:10px 0 0;min-height:1em;}' +
       '.auth-modal .msg.err{color:#d64a2e;font-weight:600;}' +
       '.auth-modal .msg.ok{color:#2e8b57;font-weight:600;}' +
@@ -137,7 +161,7 @@
       '.auth-slot details .dropdown{position:absolute;right:0;top:38px;background:#fff;border:2px solid #1a1a1a;' +
       'box-shadow:2px 3px 0 rgba(0,0,0,0.9);min-width:160px;z-index:50;}' +
       '.auth-slot details .dropdown a{display:block;padding:8px 12px;color:#1a1a1a;text-decoration:none;' +
-      'font-family:\'IBM Plex Mono\',monospace;font-size:12px;border-bottom:1px dashed rgba(0,0,0,0.15);}' +
+      'font-family:\'IBM Plex Mono\',monospace;font-size:12px;border-bottom:1px dashed rgba(0,0,0,0.15);cursor:pointer;}' +
       '.auth-slot details .dropdown a:hover{background:#faf7f0;}' +
       '.auth-slot .sign-in{background:#ffd84d;border:2px solid #1a1a1a;padding:6px 12px;' +
       'font-family:\'IBM Plex Mono\',monospace;font-size:12px;font-weight:600;cursor:pointer;' +
@@ -171,6 +195,11 @@
     openModal(function (box) {
       box.innerHTML = '' +
         '<h2><em>Sign in</em></h2>' +
+        '<div class="alt">' +
+          '<button class="g" id="m-google">Continue with Google</button>' +
+          '<button class="g" id="m-magic">Email me a magic link</button>' +
+        '</div>' +
+        '<div class="sep">or with password</div>' +
         '<label>Email<input id="m-email" type="email" autocomplete="email" required></label>' +
         '<label>Password<input id="m-pw" type="password" autocomplete="current-password" required></label>' +
         '<div><button id="m-submit">Sign in</button><button class="sec" id="m-cancel">Cancel</button></div>' +
@@ -185,6 +214,22 @@
           closeModal();
         } catch (e) { msg.textContent = e.message; msg.className = 'msg err'; }
       };
+      box.querySelector('#m-google').onclick = async function () {
+        var msg = box.querySelector('#m-msg');
+        msg.textContent = ''; msg.className = 'msg';
+        try { await loginGoogle(); } catch (e) { msg.textContent = e.message; msg.className = 'msg err'; }
+      };
+      box.querySelector('#m-magic').onclick = async function () {
+        var msg = box.querySelector('#m-msg');
+        msg.textContent = ''; msg.className = 'msg';
+        var email = box.querySelector('#m-email').value;
+        if (!email) { msg.textContent = 'Enter your email first'; msg.className = 'msg err'; return; }
+        try {
+          await loginMagicLink(email);
+          msg.textContent = 'Check your email for a sign-in link.';
+          msg.className = 'msg ok';
+        } catch (e) { msg.textContent = e.message; msg.className = 'msg err'; }
+      };
       box.querySelector('#to-signup').onclick = openSignupModal;
       box.querySelector('#to-forgot').onclick = openForgotModal;
     });
@@ -194,13 +239,22 @@
     openModal(function (box) {
       box.innerHTML = '' +
         '<h2><em>Create</em> account</h2>' +
+        '<div class="alt">' +
+          '<button class="g" id="m-google">Continue with Google</button>' +
+        '</div>' +
+        '<div class="sep">or with email + password</div>' +
         '<label>Name<input id="m-name" required></label>' +
         '<label>Email<input id="m-email" type="email" required></label>' +
-        '<label>Password (8+ chars, letter + digit)<input id="m-pw" type="password" required minlength="8"></label>' +
+        '<label>Password (8+ chars)<input id="m-pw" type="password" required minlength="8"></label>' +
         '<div><button id="m-submit">Sign up</button><button class="sec" id="m-cancel">Cancel</button></div>' +
         '<p class="msg" id="m-msg"></p>' +
         '<p><span class="link" id="to-login">Have an account? Sign in</span></p>';
       box.querySelector('#m-cancel').onclick = closeModal;
+      box.querySelector('#m-google').onclick = async function () {
+        var msg = box.querySelector('#m-msg');
+        msg.textContent = ''; msg.className = 'msg';
+        try { await loginGoogle(); } catch (e) { msg.textContent = e.message; msg.className = 'msg err'; }
+      };
       box.querySelector('#m-submit').onclick = async function () {
         var msg = box.querySelector('#m-msg');
         msg.textContent = ''; msg.className = 'msg';
@@ -210,7 +264,7 @@
             box.querySelector('#m-pw').value,
             box.querySelector('#m-name').value,
           );
-          msg.textContent = 'Check your email for a verification link.';
+          msg.textContent = 'Check your email to confirm your account.';
           msg.className = 'msg ok';
         } catch (e) { msg.textContent = e.message; msg.className = 'msg err'; }
       };
@@ -280,6 +334,8 @@
     fetchWithAuth: fetchWithAuth,
     login: login,
     signup: signup,
+    loginMagicLink: loginMagicLink,
+    loginGoogle: loginGoogle,
     logout: logout,
     me: me,
     forgot: forgot,
@@ -289,9 +345,13 @@
     onAuthChange: onAuthChange,
     getUser: function () { return currentUser; },
     getRole: function () { return currentUser ? currentUser.role : null; },
+    _supabase: sb,
   };
 
-  // Auto-hydrate on load.
+  // Auto-hydrate on load. The onAuthStateChange subscription above will fire
+  // for any existing persisted session and call me() on our behalf, but we
+  // still kick an initial me() here for pages that open without a session
+  // event (e.g. nothing in storage, anon).
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', function () { me(); });
   } else {

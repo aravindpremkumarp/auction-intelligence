@@ -20,7 +20,8 @@ jobs:
           pip install pytest httpx
       - name: Run API tests
         env:
-          JWT_SECRET: test-secret
+          SUPABASE_URL: https://fake.supabase.co
+          SUPABASE_ANON_KEY: fake-anon
           APP_ENV: test
           RATELIMIT_DISABLED: "1"
           AUTH_ENABLED: "true"

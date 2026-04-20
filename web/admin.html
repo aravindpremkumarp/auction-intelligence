@@ -9,7 +9,11 @@
   window.API_BASE = (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
     ? ''
     : 'https://auction-api-w68b.onrender.com';
+  window.SUPABASE_URL = window.SUPABASE_URL || '';
+  window.SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY || '';
 </script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="/auth.js"></script>
 <style>
   :root { --ink: #1a1a1a; --paper: #faf7f0; --accent: #ffd84d; --danger: #d64a2e; --good: #2e8b57; --muted: #8a8a8a; }
   body { margin: 0; background: var(--paper); color: var(--ink); font-family: 'Kalam', cursive; padding: 24px; }
@@ -59,14 +63,16 @@
 </div>
 <script>
   const API = window.API_BASE;
-  const KEY_A = 'ai_access';
-  function token() { return localStorage.getItem(KEY_A) || ''; }
-  function hdrs() { return { 'Authorization': 'Bearer ' + token(), 'Content-Type': 'application/json' }; }
+  function authFetch(url, opts) {
+    return window.Auth && window.Auth.fetchWithAuth
+      ? window.Auth.fetchWithAuth(url, opts)
+      : fetch(url, opts);
+  }
 
   async function load() {
     const msg = document.getElementById('msg');
     msg.textContent = '';
-    const r = await fetch(API + '/admin/users', { headers: hdrs() });
+    const r = await authFetch(API + '/admin/users', { headers: { 'Content-Type': 'application/json' } });
     if (r.status === 401 || r.status === 403) {
       msg.innerHTML = '<span class="err">Not authorised.</span> Sign in as an admin from the main app, then return.';
       return;
@@ -111,8 +117,8 @@
     const row = e.target.closest('tr');
     const role = row.querySelector('select[data-field="role"]').value;
     const enabled = row.querySelector('select[data-field="enabled"]').value === 'true';
-    const r = await fetch(API + '/admin/users/' + id, {
-      method: 'PATCH', headers: hdrs(),
+    const r = await authFetch(API + '/admin/users/' + id, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ role, enabled }),
     });
     const msg = document.getElementById('msg');
