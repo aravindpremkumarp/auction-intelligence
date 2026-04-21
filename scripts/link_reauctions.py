@@ -14,6 +14,11 @@ Rules:
      within ±10% (normalised to sq ft). Missing description on either
      side ⇒ no match (conservative default).
 
+Both rules additionally require the two auctions to fall on DIFFERENT
+calendar days. Same-day matches are batch sales (sibling parcels
+auctioned together), not re-auctions, no matter how identical the
+descriptions look.
+
 Clusters are transitive: if A matches B and B matches C, all three are
 linked. Each pair in a cluster is connected with a bidirectional MERGE.
 
@@ -214,6 +219,20 @@ def _norm(s: str | None) -> str | None:
     return s.lower() if s else None
 
 
+def _is_same_auction_day(dt_a: str | None, dt_b: str | None) -> bool:
+    """True iff both ISO-8601 datetimes fall on the same calendar day.
+
+    Re-auctions happen on different dates. Two auctions sharing the same
+    start day are a batch sale (two distinct parcels sold together), not
+    a re-auction — even if every other field matches.
+    """
+    if not dt_a or not dt_b:
+        return False
+    if not isinstance(dt_a, str) or not isinstance(dt_b, str):
+        return False
+    return dt_a[:10] == dt_b[:10] and len(dt_a) >= 10 and len(dt_b) >= 10
+
+
 # Threshold above which description Jaccard similarity counts as a match.
 # Above DESC_SIM_HIGH, bump confidence to "high"; between threshold and
 # DESC_SIM_HIGH, "medium".
@@ -265,6 +284,10 @@ def find_reauction_pairs(
         for i in range(len(bucket)):
             for j in range(i + 1, len(bucket)):
                 a, b = bucket[i], bucket[j]
+                # Batch sale on the same day ≠ re-auction.
+                if _is_same_auction_day(a.get("auction_start_dt"),
+                                        b.get("auction_start_dt")):
+                    continue
                 # Survey match alone is not enough — require borrower OR
                 # (city + area) to also align.
                 ba, bb = _norm(a.get("borrower")), _norm(b.get("borrower"))
@@ -296,6 +319,11 @@ def find_reauction_pairs(
         for i in range(len(bucket)):
             for j in range(i + 1, len(bucket)):
                 a, b = bucket[i], bucket[j]
+                # Two auctions on the same calendar day are a batch sale
+                # (sibling parcels), not a re-auction of one property.
+                if _is_same_auction_day(a.get("auction_start_dt"),
+                                        b.get("auction_start_dt")):
+                    continue
                 tokens_a = desc_tokens.get(a["auction_id"])
                 tokens_b = desc_tokens.get(b["auction_id"])
                 if not tokens_a or not tokens_b:
@@ -378,6 +406,7 @@ WITH a, br, bk, c, ar,
 RETURN a.auction_id       AS auction_id,
        a.total_area        AS total_area,
        coalesce(a.enriched_description, a.description) AS description,
+       toString(a.auction_start_dt) AS auction_start_dt,
        br.name             AS borrower,
        bk.name             AS bank,
        c.name              AS city,
