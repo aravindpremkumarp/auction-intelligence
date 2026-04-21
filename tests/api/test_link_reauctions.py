@@ -467,6 +467,127 @@ def test_expand_clusters_is_transitive() -> None:
     assert expanded_pairs == {("A", "B"), ("A", "C"), ("B", "C")}
 
 
+def test_group_boilerplate_tokens_demotes_shared_scaffolding() -> None:
+    """For a 4+ member group, tokens appearing in >=75% of members are
+    boilerplate. Rare tokens survive."""
+    from scripts.link_reauctions import tokenize_description, group_boilerplate_tokens
+
+    # 5 descriptions, all with "coimbatore registration district taluk"
+    # (boilerplate). Each has a unique village identifier.
+    common = "coimbatore registration district vadavalli taluk commercial building"
+    sets = [
+        tokenize_description(f"{common} kaliannanpudur village residential"),
+        tokenize_description(f"{common} kaliannanpudur village residential"),
+        tokenize_description(f"{common} vadavalli village land"),
+        tokenize_description(f"{common} thirumurgan nagar commercial"),
+        tokenize_description(f"{common} vedapatti village agricultural"),
+    ]
+    bp = group_boilerplate_tokens(sets)
+    # Scaffolding present in all 5 (and therefore >=75%) gets marked.
+    assert "coimbatore" in bp
+    assert "registration" in bp
+    assert "district" in bp
+    assert "vadavalli" in bp  # even the sub-registration district is scaffolding here
+    # Village-specific tokens (in only 1-2 of 5) survive.
+    assert "kaliannanpudur" not in bp
+    assert "thirumurgan" not in bp
+    assert "vedapatti" not in bp
+
+
+def test_group_boilerplate_not_applied_to_small_groups() -> None:
+    """In a 2 or 3-auction group we can't tell boilerplate from signal,
+    so the subtraction set must be empty."""
+    from scripts.link_reauctions import tokenize_description, group_boilerplate_tokens
+
+    sets2 = [
+        tokenize_description("coimbatore registration vadavalli door 42"),
+        tokenize_description("coimbatore registration vadavalli door 42"),
+    ]
+    assert group_boilerplate_tokens(sets2) == set()
+
+    sets3 = [
+        tokenize_description("coimbatore registration vadavalli door 42"),
+        tokenize_description("coimbatore registration vadavalli door 43"),
+        tokenize_description("coimbatore registration vadavalli door 44"),
+    ]
+    assert group_boilerplate_tokens(sets3) == set()
+
+
+def test_batch_sale_parcels_do_not_cross_link_via_boilerplate() -> None:
+    """The Sri Venkateshwar regression: 4 distinct parcels by one borrower,
+    each auctioned on two different days. Boilerplate is heavy (shared
+    registration district language). Without boilerplate demotion the
+    matcher merges Lot 1 with Lot 5 because their descriptions share the
+    scaffolding. After the fix, only same-lot re-auctions link."""
+    from scripts.link_reauctions import find_reauction_pairs, expand_clusters
+
+    scaffold = (
+        "Coimbatore Registration District Vadavalli Sub-Registration "
+        "District Coimbatore Taluk property"
+    )
+    lots = [
+        # Lot 1 — Kaliannanpudur
+        ("L1_jan", "2026-01-30T15:00:00",
+         f"{scaffold} Kaliannanpudur residential land"),
+        ("L1_mar", "2026-03-17T15:00:00",
+         f"Property Lot 1 {scaffold} Kaliannanpudur residential land"),
+        # Lot 5 — Vadavalli Village
+        ("L5_jan", "2026-01-30T15:00:00",
+         f"{scaffold} Vadavalli Village residential land"),
+        ("L5_mar", "2026-03-17T15:00:00",
+         f"Property Lot 5 {scaffold} Vadavalli Village residential land"),
+    ]
+    auctions = [
+        {
+            "auction_id": aid, "borrower": "Ventures Co", "bank": "ARC",
+            "city": "Coimbatore", "area": "Vadavalli", "total_area": None,
+            "description": desc, "auction_start_dt": date,
+            "survey_numbers": [],
+        }
+        for aid, date, desc in lots
+    ]
+    pairs = find_reauction_pairs(auctions)
+    clusters, expanded = expand_clusters(auctions, pairs)
+
+    # Expect two separate clusters, one per Lot, each of size 2.
+    cluster_sets = [frozenset(c) for c in clusters]
+    assert frozenset({"L1_jan", "L1_mar"}) in cluster_sets
+    assert frozenset({"L5_jan", "L5_mar"}) in cluster_sets
+    # Critically: Lot 1 auctions must NOT cluster with Lot 5 auctions.
+    linked_pairs = {(a, b) for a, b, _, _ in expanded}
+    assert ("L1_jan", "L5_mar") not in linked_pairs
+    assert ("L1_mar", "L5_jan") not in linked_pairs
+    assert ("L1_jan", "L5_jan") not in linked_pairs
+    assert ("L1_mar", "L5_mar") not in linked_pairs
+
+
+def test_expand_clusters_drops_same_day_pairs_emitted_transitively() -> None:
+    """Union-find merges A-B-C when A↔B (diff day) and B↔C (diff day)
+    both match. But if A and C happen to fall on the same calendar day
+    they're batch siblings, not re-auctions, and must be filtered from
+    the emitted pair list even though they share a cluster."""
+    from scripts.link_reauctions import expand_clusters
+
+    auctions = [
+        {"auction_id": "A", "auction_start_dt": "2026-01-30T10:00:00"},
+        {"auction_id": "B", "auction_start_dt": "2026-03-17T10:00:00"},
+        {"auction_id": "C", "auction_start_dt": "2026-01-30T14:00:00"},
+    ]
+    # Pretend the matcher produced these two direct pairs.
+    direct_pairs = [
+        ("A", "B", "borrower_location_desc", "medium"),
+        ("B", "C", "borrower_location_desc", "medium"),
+    ]
+    clusters, expanded = expand_clusters(auctions, direct_pairs)
+    assert len(clusters) == 1
+    assert set(clusters[0]) == {"A", "B", "C"}
+    emitted = {(a, b) for a, b, _, _ in expanded}
+    # A-B and B-C must survive; A-C must be dropped (same day).
+    assert ("A", "B") in emitted
+    assert ("B", "C") in emitted
+    assert ("A", "C") not in emitted
+
+
 def test_expand_clusters_lone_auction_produces_no_pairs() -> None:
     from scripts.link_reauctions import find_reauction_pairs, expand_clusters
 
