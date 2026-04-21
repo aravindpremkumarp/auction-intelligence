@@ -299,6 +299,95 @@ def fetch_auctions(session) -> list[dict]:
     return [dict(r) for r in session.run(FETCH_CANDIDATES)]
 
 
+def debug_diagnostics(auctions: list[dict]) -> None:
+    """Print coverage stats + near-miss groups so we can see why matching
+    isn't firing on real data. Meant for the --debug flag."""
+    n = len(auctions)
+    print(f"\n=== Field coverage ({n} auctions) ===")
+    has_borrower = sum(1 for a in auctions if _norm(a.get("borrower")))
+    has_bank     = sum(1 for a in auctions if _norm(a.get("bank")))
+    has_area     = sum(1 for a in auctions if _norm(a.get("area")))
+    has_city     = sum(1 for a in auctions if _norm(a.get("city")))
+    has_total    = sum(1 for a in auctions if a.get("total_area"))
+    has_parsed   = sum(1 for a in auctions if parse_total_area_sqft(a.get("total_area")))
+    has_surveys  = sum(1 for a in auctions if a.get("survey_numbers"))
+
+    def _pct(x: int) -> str:
+        return f"{x} ({100*x/n:.1f}%)" if n else f"{x}"
+
+    print(f"  borrower set:          {_pct(has_borrower)}")
+    print(f"  bank set:              {_pct(has_bank)}")
+    print(f"  area set:              {_pct(has_area)}")
+    print(f"  city set:              {_pct(has_city)}")
+    print(f"  total_area populated:  {_pct(has_total)}")
+    print(f"  total_area parseable:  {_pct(has_parsed)}")
+    print(f"  survey_numbers:        {_pct(has_surveys)}")
+
+    # Borrower duplicates (normalised).
+    by_borrower: dict[str, list[dict]] = defaultdict(list)
+    for a in auctions:
+        b = _norm(a.get("borrower"))
+        if b:
+            by_borrower[b].append(a)
+    repeats = [(b, aucts) for b, aucts in by_borrower.items() if len(aucts) > 1]
+    repeats.sort(key=lambda x: -len(x[1]))
+    print(f"\n=== Borrowers with >1 auction: {len(repeats)} ===")
+    for b, aucts in repeats[:10]:
+        print(f"  '{b}' — {len(aucts)} auctions")
+
+    # Survey-number duplicates.
+    by_survey: dict[tuple[str, str], list[dict]] = defaultdict(list)
+    for a in auctions:
+        for sn in a.get("survey_numbers") or []:
+            sno = _norm(sn.get("survey_no"))
+            if not sno:
+                continue
+            sub = _norm(sn.get("subdivision")) or ""
+            by_survey[(sno, sub)].append(a)
+    sv_repeats = [(k, v) for k, v in by_survey.items() if len(v) > 1]
+    sv_repeats.sort(key=lambda x: -len(x[1]))
+    print(f"\n=== Survey numbers on >1 auction: {len(sv_repeats)} ===")
+    for (sno, sub), aucts in sv_repeats[:10]:
+        print(f"  survey_no={sno!r} subdivision={sub!r} — {len(aucts)} auctions")
+
+    # Near-misses: same (borrower, bank, area) tuples — show the data so we
+    # can see WHY borrower_location didn't fire (usually total_area mismatch
+    # or one side unparseable).
+    by_bba: dict[tuple[str, str, str], list[dict]] = defaultdict(list)
+    for a in auctions:
+        br, bk, ar = _norm(a.get("borrower")), _norm(a.get("bank")), _norm(a.get("area"))
+        if br and bk and ar:
+            by_bba[(br, bk, ar)].append(a)
+    bba_repeats = [(k, v) for k, v in by_bba.items() if len(v) > 1]
+    bba_repeats.sort(key=lambda x: -len(x[1]))
+    print(f"\n=== (borrower, bank, area) candidates with >1 auction: {len(bba_repeats)} ===")
+    for (br, bk, ar), aucts in bba_repeats[:5]:
+        print(f"\n  borrower={br!r}  bank={bk!r}  area={ar!r}  ({len(aucts)} auctions)")
+        for a in aucts:
+            parsed = parse_total_area_sqft(a.get("total_area"))
+            surveys = [f"{_norm(s.get('survey_no'))}/{_norm(s.get('subdivision')) or ''}"
+                       for s in (a.get("survey_numbers") or [])]
+            print(f"    {a['auction_id']}  total_area={a.get('total_area')!r} → "
+                  f"{parsed if parsed else 'unparseable'}  surveys={surveys or '(none)'}")
+
+    # Same (borrower, bank) ignoring area — catches area-name drift.
+    by_bb: dict[tuple[str, str], set[str]] = defaultdict(set)
+    areas_per_bb: dict[tuple[str, str], set[str]] = defaultdict(set)
+    for a in auctions:
+        br, bk, ar = _norm(a.get("borrower")), _norm(a.get("bank")), _norm(a.get("area"))
+        if br and bk:
+            by_bb[(br, bk)].add(a["auction_id"])
+            if ar:
+                areas_per_bb[(br, bk)].add(ar)
+    area_drift = [(k, v, areas_per_bb[k])
+                  for k, v in by_bb.items()
+                  if len(v) > 1 and len(areas_per_bb[k]) > 1]
+    area_drift.sort(key=lambda x: -len(x[1]))
+    print(f"\n=== (borrower, bank) pairs with >1 auction AND differing areas: {len(area_drift)} ===")
+    for (br, bk), ids, areas in area_drift[:5]:
+        print(f"  borrower={br!r}  bank={bk!r}  → areas seen: {sorted(areas)}")
+
+
 def write_pairs(session, pairs: list[tuple[str, str, str, str]]) -> int:
     written = 0
     for i in range(0, len(pairs), NEO4J_BATCH_SIZE):
@@ -315,7 +404,7 @@ def write_pairs(session, pairs: list[tuple[str, str, str, str]]) -> int:
 
 # ── CLI ──────────────────────────────────────────────────────────────────────
 
-def run(dry_run: bool = False, rebuild: bool = False) -> None:
+def run(dry_run: bool = False, rebuild: bool = False, debug: bool = False) -> None:
     if not (NEO4J_URI and NEO4J_USERNAME and NEO4J_PASSWORD):
         print("[ERROR] Neo4j credentials missing (NEO4J_URI / USERNAME / PASSWORD).")
         return
@@ -327,6 +416,10 @@ def run(dry_run: bool = False, rebuild: bool = False) -> None:
             print("Fetching candidate auctions from Neo4j...")
             auctions = fetch_auctions(session)
             print(f"  {len(auctions)} auctions loaded.")
+
+            if debug:
+                debug_diagnostics(auctions)
+                return
 
             print("Matching re-auctions...")
             pairs = find_reauction_pairs(auctions)
@@ -377,8 +470,11 @@ def main() -> None:
                         help="Detect clusters and print stats; no writes.")
     parser.add_argument("--rebuild", action="store_true",
                         help="Delete existing :SAME_PROPERTY_AS edges first.")
+    parser.add_argument("--debug", action="store_true",
+                        help="Print data-coverage stats and near-miss groups "
+                             "so we can see why matching isn't firing.")
     args = parser.parse_args()
-    run(dry_run=args.dry_run, rebuild=args.rebuild)
+    run(dry_run=args.dry_run, rebuild=args.rebuild, debug=args.debug)
 
 
 if __name__ == "__main__":
