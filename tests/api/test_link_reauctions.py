@@ -414,13 +414,13 @@ def test_sim_threshold_is_configurable() -> None:
         {
             "auction_id": "A", "borrower": "Alice Co", "bank": "SBI",
             "city": "Chennai", "area": "Adyar", "total_area": None,
-            "description": "flat at door 42 adyar",
+            "description": "flat at door no 42 adyar",
             "survey_numbers": [],
         },
         {
             "auction_id": "B", "borrower": "Alice Co", "bank": "SBI",
             "city": "Chennai", "area": "Adyar", "total_area": None,
-            "description": "flat door 42 adyar chennai",
+            "description": "flat door no 42 adyar chennai",
             "survey_numbers": [],
         },
     ]
