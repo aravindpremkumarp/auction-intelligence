@@ -1,5 +1,46 @@
 [
   {
+    "id": "22e9db13-aa6f-4eec-a77c-a3d934dc0d57",
+    "kind": "message",
+    "rating": "down",
+    "text": "when i ask for details of single property i am getting details on property details in chat panel where as property itself is not show in artifacts panel where i can view property",
+    "session_id": "b906c96f-bafa-4023-aa00-525c9c0f1bd8",
+    "message_index": 1,
+    "question": "show me 712492",
+    "answer": "Auction `712492` is a residential land auction in Vilavancode, Kanyakumari by State Bank of India, with a reserve price of 1,700,000 INR and an EMD of 170,000 INR. The application deadline is 2026-04-04 and the auction starts on 2026-04-06. The property consists of 6.666 Cents of land in Re. Sy No. 271-2A of Kollamcode Village, Vilavancodu Taluk, Kanyakumari District registered in the name of Shri. Subrahmanion. It also includes 1.01 Ares of land in Resurvey No. 271/2 of Kollemcode Village, Vilavancode Taluk, Kanyakuman District, registered in the name of Shri. Subramonian.\n\nDo you have any other questions about this auction?",
+    "artifacts": [
+      {
+        "tool": "get_auction_detail",
+        "args": {
+          "auction_id": "712492"
+        }
+      }
+    ],
+    "context_turns": [
+      {
+        "role": "user",
+        "content": "show me 712492"
+      },
+      {
+        "role": "assistant",
+        "content": "Auction `712492` is a residential land auction in Vilavancode, Kanyakumari by State Bank of India, with a reserve price of 1,700,000 INR and an EMD of 170,000 INR. The application deadline is 2026-04-04 and the auction starts on 2026-04-06. The property consists of 6.666 Cents of land in Re. Sy No. 271-2A of Kollamcode Village, Vilavancodu Taluk, Kanyakumari District registered in the name of Shri. Subrahmanion. It also includes 1.01 Ares of land in Resurvey No. 271/2 of Kollemcode Village, Vilavancode Taluk, Kanyakuman District, registered in the name of Shri. Subramonian.\n\nDo you have any other questions about this auction?",
+        "tool_calls": [
+          {
+            "tool": "get_auction_detail",
+            "args": {
+              "auction_id": "712492"
+            }
+          }
+        ]
+      }
+    ],
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
+    "page_url": "https://auction-intelligence-alpha.vercel.app/",
+    "created_at": "2026-04-21T20:32:37.136703000+00:00",
+    "resolved": false,
+    "resolved_at": null
+  },
+  {
     "id": "d32d18ce-9d94-4873-87f7-49dd48362811",
     "kind": "message",
     "rating": "down",
