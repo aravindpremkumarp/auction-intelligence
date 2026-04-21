@@ -193,6 +193,119 @@ def jaccard(a: set[str] | None, b: set[str] | None) -> float:
     return inter / len(a | b)
 
 
+# ── Parcel-identifier extraction ─────────────────────────────────────────────
+
+# Strict: number tokens immediately following a standard parcel-prefix
+# ("Re Sy No", "Survey No", "Sf No", "T.S. No", "Plot No", "Door No", "D No",
+# "Site No"). These are the most reliable per-parcel identifiers in Tamil
+# Nadu sale notices.
+#
+# `\b` at the start of each prefix prevents matching inside a larger word
+# (e.g. without it, `d\s*no` would match `d No` inside `"...an[d No]rth
+# by..."` and capture `rth`). The `[\.\s]+` after `no` requires a real
+# separator before the captured token, so `NorthXYZ` can't contribute.
+_STRICT_PARCEL_RE = re.compile(
+    r"\b(?:re\.?\s*sy\.?\s*no|sy\.?\s*no|survey\s*no|s\.\s*no|sf\s*no"
+    r"|t\.?\s*s\.?\s*no|plot\s*no|door\s*no|d\.?\s*no|site\s*no)"
+    r"[\.\s]+"
+    r"([A-Za-z0-9][\w/\-\.]*)",
+    re.IGNORECASE,
+)
+
+# Loose: any slash/dash-separated alphanumeric token that looks like
+# "N/M" or "N/M-X" — catches survey-number-shaped tokens even when the
+# prefix is mangled or missing.
+_LOOSE_PARCEL_RE = re.compile(
+    r"\b(\d{1,5}[/\-][\w\-]{1,8}(?:[/\-][\w\-]{1,8})?)\b"
+)
+
+# Looks like a DD/MM/YYYY or similar date — exclude from parcel IDs.
+_DATE_LIKE_RE = re.compile(r"(?:^|[/\-])(19|20)\d{2}$")
+
+
+def _normalize_parcel_id(raw: str) -> str | None:
+    t = re.sub(r"[^\w/\-]", "", raw.lower()).strip("./- ")
+    if not t or len(t) < 2:
+        return None
+    if _DATE_LIKE_RE.search(t):
+        return None
+    return t
+
+
+def strict_parcel_ids(desc: str | None) -> set[str]:
+    if not desc or not isinstance(desc, str):
+        return set()
+    out: set[str] = set()
+    for raw in _STRICT_PARCEL_RE.findall(desc):
+        t = _normalize_parcel_id(raw)
+        if t:
+            out.add(t)
+    return out
+
+
+def loose_parcel_ids(desc: str | None) -> set[str]:
+    if not desc or not isinstance(desc, str):
+        return set()
+    out: set[str] = set()
+    for raw in _LOOSE_PARCEL_RE.findall(desc):
+        t = _normalize_parcel_id(raw)
+        if t:
+            out.add(t)
+    return out
+
+
+# ── Description-embedded area parsing ───────────────────────────────────────
+
+# Matches "1295 sq ft", "20.50 cents", "13.36 ares", "0.5 acre", etc.
+_DESC_AREA_RE = re.compile(
+    r"([0-9][0-9,]*\.?[0-9]*)\s*"
+    r"(square\s*feet|square\s*foot|sq\.?\s*ft|sqft|sft|ft2"
+    r"|square\s*meters?|square\s*metres?|sq\.?\s*m|sqm|m2"
+    r"|square\s*yards?|sq\.?\s*yd|sqyd|yd2"
+    r"|cents?|ares?|acres?|hectares?|grounds?)",
+    re.IGNORECASE,
+)
+
+
+def parse_desc_areas(desc: str | None) -> set[float]:
+    """Extract every `<number> <unit>` area mention from a description
+    and normalise to sq ft. Useful when `total_area` is null on the node
+    but the description itself lists parcel sizes ("20.50 cents", etc.).
+    """
+    if not desc or not isinstance(desc, str):
+        return set()
+    out: set[float] = set()
+    for num_s, unit_raw in _DESC_AREA_RE.findall(desc):
+        try:
+            num = float(num_s.replace(",", ""))
+        except ValueError:
+            continue
+        if num <= 0:
+            continue
+        unit = re.sub(r"[\s\.]", "", unit_raw.lower())
+        mult = {
+            "squarefeet": 1.0, "squarefoot": 1.0, "sqft": 1.0, "sft": 1.0, "ft2": 1.0,
+            "squaremeter": 10.7639, "squaremeters": 10.7639,
+            "squaremetre": 10.7639, "squaremetres": 10.7639,
+            "sqm": 10.7639, "m2": 10.7639,
+            "squareyard": 9.0, "squareyards": 9.0, "sqyd": 9.0, "yd2": 9.0,
+            "cent": 435.6, "cents": 435.6,
+            "are": 1076.39, "ares": 1076.39,
+            "acre": 43560.0, "acres": 43560.0,
+            "hectare": 107639.0, "hectares": 107639.0,
+            "ground": 2400.0, "grounds": 2400.0,
+        }.get(unit)
+        if mult is not None:
+            out.add(round(num * mult, 1))
+    return out
+
+
+def desc_areas_agree(a: set[float], b: set[float], tolerance: float = 0.10) -> bool:
+    if not a or not b:
+        return False
+    return any(areas_agree(pa, pb, tolerance) for pa in a for pb in b)
+
+
 # ── Union-find for transitive clustering ─────────────────────────────────────
 
 class _UnionFind:
@@ -305,11 +418,18 @@ def find_reauction_pairs(
         seen_pairs.add(key)
         pairs.append((*key, reason, confidence))
 
-    # Pre-compute description token sets once per auction.
-    desc_tokens: dict[str, set[str] | None] = {
-        row["auction_id"]: tokenize_description(row.get("description"))
-        for row in auctions
-    }
+    # Pre-compute description-derived token/ID sets once per auction.
+    desc_tokens: dict[str, set[str] | None] = {}
+    strict_ids: dict[str, set[str]] = {}
+    loose_ids: dict[str, set[str]] = {}
+    desc_areas: dict[str, set[float]] = {}
+    for row in auctions:
+        aid = row["auction_id"]
+        desc = row.get("description")
+        desc_tokens[aid] = tokenize_description(desc)
+        strict_ids[aid] = strict_parcel_ids(desc)
+        loose_ids[aid] = loose_parcel_ids(desc)
+        desc_areas[aid] = parse_desc_areas(desc)
 
     # Rule 1: survey-number buckets.
     by_survey: dict[tuple[str, str], list[dict]] = defaultdict(list)
@@ -374,8 +494,9 @@ def find_reauction_pairs(
                 if _is_same_auction_day(a.get("auction_start_dt"),
                                         b.get("auction_start_dt")):
                     continue
-                tokens_a = desc_tokens.get(a["auction_id"])
-                tokens_b = desc_tokens.get(b["auction_id"])
+                a_id, b_id = a["auction_id"], b["auction_id"]
+                tokens_a = desc_tokens.get(a_id)
+                tokens_b = desc_tokens.get(b_id)
                 if not tokens_a or not tokens_b:
                     # Conservative: missing description on either side → skip.
                     continue
@@ -392,11 +513,29 @@ def find_reauction_pairs(
                 area_b = parse_total_area_sqft(b.get("total_area"))
                 if area_a is not None and area_b is not None and not areas_agree(area_a, area_b):
                     continue
+                # Tiered parcel-identifier gate: sale-notice boilerplate
+                # from the same borrower passes Jaccard easily, so require
+                # an explicit same-parcel signal before declaring a match.
+                sa, sb = strict_ids[a_id], strict_ids[b_id]
+                if sa and sb:
+                    if not (sa & sb):
+                        continue
+                else:
+                    la, lb = loose_ids[a_id], loose_ids[b_id]
+                    if la and lb:
+                        if not (la & lb):
+                            continue
+                    else:
+                        # Tier 3: neither side exposed a parcel ID. Only
+                        # accept if both descriptions are very similar AND
+                        # advertise the same parcel size.
+                        if sim < DESC_SIM_HIGH:
+                            continue
+                        da, db = desc_areas[a_id], desc_areas[b_id]
+                        if not desc_areas_agree(da, db):
+                            continue
                 confidence = "high" if sim >= DESC_SIM_HIGH else "medium"
-                _add(
-                    a["auction_id"], b["auction_id"],
-                    "borrower_location_desc", confidence,
-                )
+                _add(a_id, b_id, "borrower_location_desc", confidence)
 
     return pairs
 

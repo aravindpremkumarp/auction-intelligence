@@ -414,13 +414,13 @@ def test_sim_threshold_is_configurable() -> None:
         {
             "auction_id": "A", "borrower": "Alice Co", "bank": "SBI",
             "city": "Chennai", "area": "Adyar", "total_area": None,
-            "description": "flat at door 42 adyar",
+            "description": "flat at door no 42 adyar",
             "survey_numbers": [],
         },
         {
             "auction_id": "B", "borrower": "Alice Co", "bank": "SBI",
             "city": "Chennai", "area": "Adyar", "total_area": None,
-            "description": "flat door 42 adyar chennai",
+            "description": "flat door no 42 adyar chennai",
             "survey_numbers": [],
         },
     ]
@@ -526,16 +526,16 @@ def test_batch_sale_parcels_do_not_cross_link_via_boilerplate() -> None:
         "District Coimbatore Taluk property"
     )
     lots = [
-        # Lot 1 — Kaliannanpudur
+        # Lot 1 — Kaliannanpudur, Survey No 123/4A
         ("L1_jan", "2026-01-30T15:00:00",
-         f"{scaffold} Kaliannanpudur residential land"),
+         f"{scaffold} Kaliannanpudur residential land Survey No 123/4A"),
         ("L1_mar", "2026-03-17T15:00:00",
-         f"Property Lot 1 {scaffold} Kaliannanpudur residential land"),
-        # Lot 5 — Vadavalli Village
+         f"Property Lot 1 {scaffold} Kaliannanpudur residential land Survey No 123/4A"),
+        # Lot 5 — Vadavalli Village, Survey No 567/8B
         ("L5_jan", "2026-01-30T15:00:00",
-         f"{scaffold} Vadavalli Village residential land"),
+         f"{scaffold} Vadavalli Village residential land Survey No 567/8B"),
         ("L5_mar", "2026-03-17T15:00:00",
-         f"Property Lot 5 {scaffold} Vadavalli Village residential land"),
+         f"Property Lot 5 {scaffold} Vadavalli Village residential land Survey No 567/8B"),
     ]
     auctions = [
         {
