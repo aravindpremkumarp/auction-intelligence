@@ -17,7 +17,15 @@ Rules:
 Both rules additionally require the two auctions to fall on DIFFERENT
 calendar days. Same-day matches are batch sales (sibling parcels
 auctioned together), not re-auctions, no matter how identical the
-descriptions look.
+descriptions look. This same-day filter is also re-applied to the
+transitive cluster-expansion output so sibling parcels don't leak in
+via a different-day neighbour.
+
+Before computing description Jaccard the matcher subtracts tokens that
+appear in >=50% of a candidate group's descriptions — registration
+district / taluk / sub-registration boilerplate that inflates Jaccard
+between genuinely distinct parcels owned by the same borrower in the
+same administrative area.
 
 Clusters are transitive: if A matches B and B matches C, all three are
 linked. Each pair in a cluster is connected with a bidirectional MERGE.
@@ -239,6 +247,41 @@ def _is_same_auction_day(dt_a: str | None, dt_b: str | None) -> bool:
 DEFAULT_SIM_THRESHOLD = 0.4
 DESC_SIM_HIGH = 0.6
 
+# Fraction of a candidate group's descriptions a token must appear in for it
+# to be treated as boilerplate and subtracted before computing Jaccard.
+# Applied only when the group is large enough to tell boilerplate from
+# distinctive content — in a 2-auction group every shared token is "100%
+# common" but obviously carries signal.
+BOILERPLATE_GROUP_FRACTION = 0.75
+# Only subtract boilerplate for groups big enough that "token appearing
+# in 75% of members" genuinely distinguishes shared scaffolding from
+# shared signal. 4 is the smallest group where the cutoff is meaningful.
+BOILERPLATE_MIN_GROUP_SIZE = 4
+
+
+def group_boilerplate_tokens(
+    token_sets: list[set[str] | None],
+    fraction: float = BOILERPLATE_GROUP_FRACTION,
+    min_group_size: int = BOILERPLATE_MIN_GROUP_SIZE,
+) -> set[str]:
+    """Tokens appearing in `fraction` or more of the non-empty members of a
+    candidate group, but only for groups of at least `min_group_size`.
+
+    These are the shared scaffolding (Registration District, Taluk, etc.)
+    that inflates Jaccard for unrelated parcels from the same administrative
+    area. For small groups (2 members) we can't tell boilerplate from
+    signal, so we return an empty set and let the raw Jaccard decide.
+    """
+    usable = [t for t in token_sets if t]
+    if len(usable) < min_group_size:
+        return set()
+    counts: dict[str, int] = defaultdict(int)
+    for s in usable:
+        for tok in s:
+            counts[tok] += 1
+    cutoff = max(2, int(round(len(usable) * fraction)))
+    return {tok for tok, n in counts.items() if n >= cutoff}
+
 
 def find_reauction_pairs(
     auctions: list[dict],
@@ -248,7 +291,7 @@ def find_reauction_pairs(
 
     `auctions` is a list of dicts with keys:
         auction_id, borrower, bank, city, area, total_area, description,
-        survey_numbers (list of {survey_no, subdivision})
+        auction_start_dt, survey_numbers (list of {survey_no, subdivision})
     """
     pairs: list[tuple[str, str, str, str]] = []
     seen_pairs: set[tuple[str, str]] = set()
@@ -316,6 +359,13 @@ def find_reauction_pairs(
     for bucket in by_bba.values():
         if len(bucket) < 2:
             continue
+        # Identify boilerplate tokens local to this candidate group so
+        # generic registration-district / taluk scaffolding doesn't inflate
+        # Jaccard between genuinely distinct parcels owned by the same
+        # borrower in the same area.
+        bucket_tokens = [desc_tokens.get(a["auction_id"]) for a in bucket]
+        boilerplate = group_boilerplate_tokens(bucket_tokens)
+
         for i in range(len(bucket)):
             for j in range(i + 1, len(bucket)):
                 a, b = bucket[i], bucket[j]
@@ -329,7 +379,10 @@ def find_reauction_pairs(
                 if not tokens_a or not tokens_b:
                     # Conservative: missing description on either side → skip.
                     continue
-                sim = jaccard(tokens_a, tokens_b)
+                # Subtract group boilerplate before measuring similarity.
+                discr_a = tokens_a - boilerplate
+                discr_b = tokens_b - boilerplate
+                sim = jaccard(discr_a, discr_b)
                 if sim < sim_threshold:
                     continue
                 # If both sides have parseable total_area, they must agree
@@ -353,7 +406,14 @@ def expand_clusters(
     pairs: list[tuple[str, str, str, str]],
 ) -> tuple[list[list[str]], list[tuple[str, str, str, str]]]:
     """Apply union-find to make clustering transitive, then emit every
-    pair within each cluster with the best reason/confidence seen."""
+    pair within each cluster with the best reason/confidence seen.
+
+    Same-day pairs are dropped from the emission even when union-find
+    merges their components via different-day neighbours — they're still
+    batch-sale siblings, not re-auctions.
+    """
+    date_by_id = {a["auction_id"]: a.get("auction_start_dt") for a in auctions}
+
     uf = _UnionFind(a["auction_id"] for a in auctions)
     pair_meta: dict[tuple[str, str], tuple[str, str]] = {}
     for a, b, reason, conf in pairs:
@@ -380,6 +440,11 @@ def expand_clusters(
         for i in range(len(group)):
             for j in range(i + 1, len(group)):
                 a, b = group[i], group[j]
+                # Drop transitive same-day pairs — they're batch siblings,
+                # not re-auctions, even if they share a cluster with
+                # legitimate different-day pairs.
+                if _is_same_auction_day(date_by_id.get(a), date_by_id.get(b)):
+                    continue
                 key = (a, b) if a < b else (b, a)
                 reason, conf = pair_meta.get(key, (best_reason, best_conf))
                 expanded.append((*key, reason, conf))
