@@ -341,9 +341,27 @@ def semantic_property_search(
         YIELD node AS p, score
         {optional_matches}
         {where_clause}
+        OPTIONAL MATCH (p)-[:LOCATED_IN_CITY]->(city:City)
+        OPTIONAL MATCH (p)-[:LOCATED_IN_AREA]->(area:Area)
+        OPTIONAL MATCH (p)-[:CONDUCTED_BY]->(bank:Bank)
+        OPTIONAL MATCH (p)-[:HAS_ASSET_CATEGORY]->(ac:AssetCategory)
+        OPTIONAL MATCH (p)-[:HAS_PROPERTY_TYPE]->(ptx:PropertyType)
+        OPTIONAL MATCH (p)-[:SAME_PROPERTY_AS]->(prev:AuctionProperty)
+            WHERE prev.auction_start_dt IS NOT NULL
+              AND p.auction_start_dt IS NOT NULL
+              AND prev.auction_start_dt < p.auction_start_dt
+              AND prev.reserve_price_num IS NOT NULL
+        WITH p, score, city, area, bank, ac,
+             collect(DISTINCT ptx.name) AS property_types,
+             max(prev.reserve_price_num) AS previous_reserve_price
         RETURN p.auction_id AS auction_id, p.title AS title, p.url AS url,
-               p.reserve_price_num AS reserve_price,
+               p.reserve_price_num AS reserve_price, p.emd_num AS emd,
                p.auction_start_dt AS auction_start,
+               city.name AS city, area.name AS area,
+               bank.name AS bank,
+               ac.name AS asset_category,
+               property_types,
+               previous_reserve_price,
                substring(p.description, 0, 300) AS description_excerpt,
                score
         ORDER BY score DESC
