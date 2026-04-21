@@ -1,10 +1,32 @@
 """Tests for scripts/link_reauctions — the re-auction matcher. These cover
-the pure Python pieces (total-area parser, pair finder, union-find
-expansion) without hitting Neo4j."""
+the pure Python pieces (total-area parser, area normaliser, description
+tokenisation + Jaccard, pair finder, union-find expansion) without hitting
+Neo4j."""
 from __future__ import annotations
 
 import pytest
 
+
+# Realistic descriptions — re-auction rounds share the distinctive tokens
+# (address, measurements, borrower, property type) and differ only in
+# round-specific details like dates and reserve prices.
+DESC_A1 = (
+    "All that piece of flat bearing door number 42/1 situated at "
+    "Varadharajapuram Adyar Chennai admeasuring 1295 sq ft with boundaries "
+    "north by road east by plot 43 south by drain west by plot 41"
+)
+DESC_A2 = (
+    "All the piece of flat door no 42/1 situated at Varadharajapuram Adyar "
+    "Chennai admeasuring 1295 square feet bounded north by road east plot 43 "
+    "south by drain west plot 41 property owned by Alice Co"
+)
+DESC_UNRELATED = (
+    "Industrial shed door number 17 located at Ambattur Chennai "
+    "admeasuring 4000 sq ft used for manufacturing garments"
+)
+
+
+# ── Area parsing / normalisation ─────────────────────────────────────────────
 
 def test_parse_total_area_sqft_basic_units() -> None:
     from scripts.link_reauctions import parse_total_area_sqft
@@ -21,8 +43,6 @@ def test_parse_total_area_sqft_basic_units() -> None:
 def test_parse_total_area_rejects_unparseable_small_bare_numbers() -> None:
     from scripts.link_reauctions import parse_total_area_sqft
 
-    # "5" with no unit could be 5 cents, 5 sq m, 5 sq ft — too ambiguous to
-    # match against. Better to skip than guess.
     assert parse_total_area_sqft("5") is None
     assert parse_total_area_sqft("") is None
     assert parse_total_area_sqft(None) is None
@@ -32,27 +52,84 @@ def test_parse_total_area_rejects_unparseable_small_bare_numbers() -> None:
 def test_areas_agree_within_tolerance() -> None:
     from scripts.link_reauctions import areas_agree
 
-    assert areas_agree(1000.0, 1050.0) is True   # 5% diff
-    assert areas_agree(1000.0, 1099.0) is True   # 9.9% diff
-    assert areas_agree(1000.0, 1200.0) is False  # 20% diff
+    assert areas_agree(1000.0, 1050.0) is True
+    assert areas_agree(1000.0, 1099.0) is True
+    assert areas_agree(1000.0, 1200.0) is False
     assert areas_agree(None, 1000.0) is False
     assert areas_agree(1000.0, 0.0) is False
 
 
+def test_normalize_area_strips_trailing_dots_and_taluk_suffix() -> None:
+    from scripts.link_reauctions import normalize_area
+
+    assert normalize_area("Vedasandur.") == "vedasandur"
+    assert normalize_area("Vedasandur") == "vedasandur"
+    assert normalize_area("Poonamallee Taluk") == "poonamallee"
+    assert normalize_area("Sriperumbudur Taluk.") == "sriperumbudur"
+    assert normalize_area("  Chennai  ") == "chennai"
+    assert normalize_area(None) is None
+    assert normalize_area("") is None
+
+
+# ── Description tokenisation + Jaccard ───────────────────────────────────────
+
+def test_tokenize_description_drops_stopwords_and_short_tokens() -> None:
+    from scripts.link_reauctions import tokenize_description
+
+    tokens = tokenize_description("The property at door no 42 in Adyar.")
+    # "the", "at", "no", "in" are filtered out (stopwords or <3 chars).
+    # "property" is also a sale-notice stopword.
+    assert "adyar" in tokens
+    assert "door" in tokens
+    assert "42" in tokens
+    assert "the" not in tokens
+    assert "at" not in tokens
+    assert "property" not in tokens
+
+
+def test_tokenize_description_returns_none_when_empty() -> None:
+    from scripts.link_reauctions import tokenize_description
+
+    assert tokenize_description(None) is None
+    assert tokenize_description("") is None
+    assert tokenize_description("the and for") is None  # all stopwords
+
+
+def test_jaccard_similar_descriptions_score_high() -> None:
+    from scripts.link_reauctions import tokenize_description, jaccard
+
+    a = tokenize_description(DESC_A1)
+    b = tokenize_description(DESC_A2)
+    sim = jaccard(a, b)
+    assert sim >= 0.5, f"expected high similarity, got {sim:.3f}"
+
+
+def test_jaccard_unrelated_descriptions_score_low() -> None:
+    from scripts.link_reauctions import tokenize_description, jaccard
+
+    a = tokenize_description(DESC_A1)
+    c = tokenize_description(DESC_UNRELATED)
+    sim = jaccard(a, c)
+    assert sim < 0.3, f"expected low similarity, got {sim:.3f}"
+
+
+# ── Rule 1: survey number ────────────────────────────────────────────────────
+
 def test_survey_number_rule_requires_borrower_or_location() -> None:
     from scripts.link_reauctions import find_reauction_pairs
 
-    # Shared survey number but neither borrower nor city+area align —
-    # ignore (survey numbers alone are not unique across districts).
     auctions = [
         {
             "auction_id": "A", "borrower": "Alice", "bank": "SBI",
             "city": "Chennai", "area": "Adyar", "total_area": "1000 sqft",
+            "description": DESC_A1,
             "survey_numbers": [{"survey_no": "10", "subdivision": "1"}],
         },
         {
             "auction_id": "B", "borrower": "Bob", "bank": "SBI",
-            "city": "Kanchipuram", "area": "Kancheepuram", "total_area": "1000 sqft",
+            "city": "Kanchipuram", "area": "Kancheepuram",
+            "total_area": "1000 sqft",
+            "description": DESC_UNRELATED,
             "survey_numbers": [{"survey_no": "10", "subdivision": "1"}],
         },
     ]
@@ -66,11 +143,14 @@ def test_survey_number_rule_fires_on_borrower_match() -> None:
         {
             "auction_id": "A", "borrower": "Alice", "bank": "SBI",
             "city": "Chennai", "area": "Adyar", "total_area": "1000 sqft",
+            "description": DESC_A1,
             "survey_numbers": [{"survey_no": "10", "subdivision": "1"}],
         },
         {
             "auction_id": "B", "borrower": "Alice", "bank": "Canara",
-            "city": "Chennai", "area": "Other Area", "total_area": "1100 sqft",
+            "city": "Chennai", "area": "Other Area",
+            "total_area": "1100 sqft",
+            "description": DESC_A2,
             "survey_numbers": [{"survey_no": "10", "subdivision": "1"}],
         },
     ]
@@ -89,11 +169,13 @@ def test_survey_number_rule_fires_on_city_and_area_match() -> None:
         {
             "auction_id": "A", "borrower": "Alice", "bank": "SBI",
             "city": "Chennai", "area": "Adyar", "total_area": "1000 sqft",
+            "description": DESC_A1,
             "survey_numbers": [{"survey_no": "42", "subdivision": "A"}],
         },
         {
             "auction_id": "B", "borrower": "Bob", "bank": "SBI",
             "city": "Chennai", "area": "Adyar", "total_area": "1000 sqft",
+            "description": DESC_A2,
             "survey_numbers": [{"survey_no": "42", "subdivision": "A"}],
         },
     ]
@@ -102,18 +184,22 @@ def test_survey_number_rule_fires_on_city_and_area_match() -> None:
     assert pairs[0][2] == "survey_number"
 
 
-def test_borrower_location_rule() -> None:
+# ── Rule 2: borrower + location + description ────────────────────────────────
+
+def test_borrower_location_desc_rule_fires_on_similar_description() -> None:
     from scripts.link_reauctions import find_reauction_pairs
 
     auctions = [
         {
             "auction_id": "A", "borrower": "Alice Co", "bank": "SBI",
-            "city": "Chennai", "area": "Adyar", "total_area": "1000 sqft",
+            "city": "Chennai", "area": "Adyar", "total_area": None,
+            "description": DESC_A1,
             "survey_numbers": [],
         },
         {
             "auction_id": "B", "borrower": "Alice Co", "bank": "SBI",
-            "city": "Chennai", "area": "Adyar", "total_area": "1050 sqft",
+            "city": "Chennai", "area": "Adyar", "total_area": None,
+            "description": DESC_A2,
             "survey_numbers": [],
         },
     ]
@@ -121,48 +207,145 @@ def test_borrower_location_rule() -> None:
     assert len(pairs) == 1
     a, b, reason, conf = pairs[0]
     assert {a, b} == {"A", "B"}
-    assert reason == "borrower_location"
-    assert conf == "medium"
+    assert reason == "borrower_location_desc"
+    assert conf in ("medium", "high")
 
 
-def test_borrower_location_rule_rejects_differing_area() -> None:
+def test_borrower_location_desc_rule_rejects_dissimilar_descriptions() -> None:
+    """Same borrower + bank + area but distinct parcels (unrelated
+    descriptions) — must NOT merge."""
     from scripts.link_reauctions import find_reauction_pairs
 
-    # Borrower/bank/area match, but total_area differs by 30% — reject.
     auctions = [
         {
             "auction_id": "A", "borrower": "Alice Co", "bank": "SBI",
-            "city": "Chennai", "area": "Adyar", "total_area": "1000 sqft",
+            "city": "Chennai", "area": "Adyar", "total_area": None,
+            "description": DESC_A1,
             "survey_numbers": [],
         },
         {
             "auction_id": "B", "borrower": "Alice Co", "bank": "SBI",
-            "city": "Chennai", "area": "Adyar", "total_area": "1400 sqft",
+            "city": "Chennai", "area": "Adyar", "total_area": None,
+            "description": DESC_UNRELATED,
             "survey_numbers": [],
         },
     ]
     assert find_reauction_pairs(auctions) == []
 
 
+def test_borrower_location_desc_rule_skips_when_description_missing() -> None:
+    """Missing description on either side → don't match. Conservative."""
+    from scripts.link_reauctions import find_reauction_pairs
+
+    auctions = [
+        {
+            "auction_id": "A", "borrower": "Alice Co", "bank": "SBI",
+            "city": "Chennai", "area": "Adyar", "total_area": None,
+            "description": None,
+            "survey_numbers": [],
+        },
+        {
+            "auction_id": "B", "borrower": "Alice Co", "bank": "SBI",
+            "city": "Chennai", "area": "Adyar", "total_area": None,
+            "description": DESC_A2,
+            "survey_numbers": [],
+        },
+    ]
+    assert find_reauction_pairs(auctions) == []
+
+
+def test_borrower_location_desc_rule_rejects_disagreeing_total_area() -> None:
+    """If total_area is parseable on both sides, a big mismatch kills
+    the link even when description overlap is high."""
+    from scripts.link_reauctions import find_reauction_pairs
+
+    auctions = [
+        {
+            "auction_id": "A", "borrower": "Alice Co", "bank": "SBI",
+            "city": "Chennai", "area": "Adyar", "total_area": "1000 sqft",
+            "description": DESC_A1,
+            "survey_numbers": [],
+        },
+        {
+            "auction_id": "B", "borrower": "Alice Co", "bank": "SBI",
+            "city": "Chennai", "area": "Adyar", "total_area": "1400 sqft",
+            "description": DESC_A2,
+            "survey_numbers": [],
+        },
+    ]
+    assert find_reauction_pairs(auctions) == []
+
+
+def test_borrower_location_desc_respects_area_normalisation() -> None:
+    """'Vedasandur.' and 'Vedasandur' should end up in the same candidate
+    group after area normalisation."""
+    from scripts.link_reauctions import find_reauction_pairs
+
+    auctions = [
+        {
+            "auction_id": "A", "borrower": "Alice Co", "bank": "SBI",
+            "city": "Chennai", "area": "Vedasandur.", "total_area": None,
+            "description": DESC_A1,
+            "survey_numbers": [],
+        },
+        {
+            "auction_id": "B", "borrower": "Alice Co", "bank": "SBI",
+            "city": "Chennai", "area": "Vedasandur", "total_area": None,
+            "description": DESC_A2,
+            "survey_numbers": [],
+        },
+    ]
+    pairs = find_reauction_pairs(auctions)
+    assert len(pairs) == 1
+
+
+def test_sim_threshold_is_configurable() -> None:
+    from scripts.link_reauctions import find_reauction_pairs
+
+    auctions = [
+        {
+            "auction_id": "A", "borrower": "Alice Co", "bank": "SBI",
+            "city": "Chennai", "area": "Adyar", "total_area": None,
+            "description": "flat at door 42 adyar",
+            "survey_numbers": [],
+        },
+        {
+            "auction_id": "B", "borrower": "Alice Co", "bank": "SBI",
+            "city": "Chennai", "area": "Adyar", "total_area": None,
+            "description": "flat door 42 adyar chennai",
+            "survey_numbers": [],
+        },
+    ]
+    # Loose threshold → matches.
+    assert find_reauction_pairs(auctions, sim_threshold=0.3)
+    # Extremely strict threshold → rejects.
+    assert find_reauction_pairs(auctions, sim_threshold=0.99) == []
+
+
+# ── Transitive clustering ────────────────────────────────────────────────────
+
 def test_expand_clusters_is_transitive() -> None:
-    """A↔B via survey and B↔C via borrower+location should produce an
-    A↔C pair too (same property, three auction rounds)."""
+    """A↔B via survey and B↔C via borrower+location+desc should produce
+    an A↔C pair too (same property, three auction rounds)."""
     from scripts.link_reauctions import find_reauction_pairs, expand_clusters
 
     auctions = [
         {
             "auction_id": "A", "borrower": "Alice Co", "bank": "SBI",
             "city": "Chennai", "area": "Adyar", "total_area": "1000 sqft",
+            "description": DESC_A1,
             "survey_numbers": [{"survey_no": "10", "subdivision": "1"}],
         },
         {
             "auction_id": "B", "borrower": "Alice Co", "bank": "SBI",
             "city": "Chennai", "area": "Adyar", "total_area": "1000 sqft",
+            "description": DESC_A1,
             "survey_numbers": [{"survey_no": "10", "subdivision": "1"}],
         },
         {
             "auction_id": "C", "borrower": "Alice Co", "bank": "SBI",
             "city": "Chennai", "area": "Adyar", "total_area": "1020 sqft",
+            "description": DESC_A2,
             "survey_numbers": [],
         },
     ]
@@ -171,7 +354,6 @@ def test_expand_clusters_is_transitive() -> None:
 
     assert len(clusters) == 1
     assert set(clusters[0]) == {"A", "B", "C"}
-    # 3 nodes → C(3,2) = 3 pairs.
     assert len(expanded) == 3
     expanded_pairs = {(a, b) for a, b, _, _ in expanded}
     assert expanded_pairs == {("A", "B"), ("A", "C"), ("B", "C")}
@@ -184,6 +366,7 @@ def test_expand_clusters_lone_auction_produces_no_pairs() -> None:
         {
             "auction_id": "A", "borrower": "Alice", "bank": "SBI",
             "city": "Chennai", "area": "Adyar", "total_area": "1000 sqft",
+            "description": DESC_A1,
             "survey_numbers": [],
         },
     ]
