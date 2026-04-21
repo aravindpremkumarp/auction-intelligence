@@ -4,12 +4,15 @@ scripts/link_reauctions.py
 Detect re-auctions (same property auctioned more than once) and materialise
 them as `:SAME_PROPERTY_AS` relationships in Neo4j.
 
-Rules (strong signals only; see /root/.claude/plans/... or the team plan doc):
+Rules:
 
   1. Survey-number rule  — two auctions share a SurveyNumber (survey_no +
      subdivision) AND either same Borrower OR same City+Area.
-  2. Borrower+location rule — same Borrower, Bank, and Area, with total_area
-     agreeing within ±10% (normalised to sq ft).
+  2. Borrower+location+description rule — same Borrower, Bank, and
+     (normalised) Area, AND description Jaccard similarity ≥ threshold.
+     If total_area is available on both sides it must also agree
+     within ±10% (normalised to sq ft). Missing description on either
+     side ⇒ no match (conservative default).
 
 Clusters are transitive: if A matches B and B matches C, all three are
 linked. Each pair in a cluster is connected with a bidirectional MERGE.
@@ -18,6 +21,8 @@ Run:
     python -m scripts.link_reauctions            # detect + write
     python -m scripts.link_reauctions --dry-run  # detect only, print stats
     python -m scripts.link_reauctions --rebuild  # drop existing edges first
+    python -m scripts.link_reauctions --debug    # diagnostic coverage view
+    python -m scripts.link_reauctions --sim-threshold 0.5  # tune matcher
 """
 from __future__ import annotations
 
@@ -98,6 +103,83 @@ def areas_agree(a: float | None, b: float | None, tolerance: float = 0.10) -> bo
     return abs(a - b) / max(a, b) <= tolerance
 
 
+# ── Area-name normalisation ──────────────────────────────────────────────────
+
+_AREA_SUFFIXES = (" taluk", " district", " village", " town", " panchayat")
+
+
+def normalize_area(raw: str | None) -> str | None:
+    """Normalise an area name so OCR/casing variants collide on one key.
+
+    Handles "Vedasandur.", "vedasandur", "Poonamallee Taluk", etc.
+    """
+    if raw is None:
+        return None
+    s = raw.strip().lower()
+    # Strip trailing punctuation (dot, comma, semicolon).
+    s = re.sub(r"[.,;:\s]+$", "", s)
+    # Drop administrative suffixes; apply once, longest first.
+    for suffix in sorted(_AREA_SUFFIXES, key=len, reverse=True):
+        if s.endswith(suffix):
+            s = s[: -len(suffix)].rstrip()
+            break
+    # Collapse internal whitespace runs.
+    s = re.sub(r"\s+", " ", s)
+    return s or None
+
+
+# ── Description token Jaccard similarity ─────────────────────────────────────
+
+# Short, high-frequency English + sale-notice boilerplate that appears in
+# almost every description and so carries no discriminating signal.
+_DESC_STOPWORDS = frozenset({
+    "the", "and", "for", "with", "from", "that", "this", "into", "upon",
+    "are", "was", "were", "has", "have", "had", "will", "shall", "been",
+    "but", "not", "any", "all", "its", "his", "her", "their", "there",
+    "also", "may", "per", "out", "who", "whom", "which", "where", "when",
+    "sale", "auction", "notice", "property", "properties", "bank",
+    "bidder", "bidders", "bid", "bids", "borrower", "borrowers", "said",
+    "schedule", "scheduled", "lot", "item", "number", "rupees", "rs",
+    "inr", "crore", "lakh", "lakhs", "crores", "thousand", "only",
+    "limited", "ltd", "pvt", "private", "mortgage", "mortgaged",
+    "secured", "creditor", "reserve", "price", "emd",
+})
+
+_WORD_RE = re.compile(r"[a-z0-9]+")
+
+
+def tokenize_description(raw: str | None) -> set[str] | None:
+    """Return a set of discriminative tokens for Jaccard comparison, or
+    None if the description is empty/unusable.
+
+    Drops short alphabetic tokens (noise like 'of', 'at', 'by'), stopwords,
+    but keeps purely numeric tokens regardless of length — short numbers
+    are door/survey/lot identifiers that carry most of the signal.
+    """
+    if not raw or not isinstance(raw, str):
+        return None
+    tokens = set()
+    for tok in _WORD_RE.findall(raw.lower()):
+        if tok in _DESC_STOPWORDS:
+            continue
+        if tok.isdigit():
+            tokens.add(tok)
+            continue
+        if len(tok) < 3:
+            continue
+        tokens.add(tok)
+    return tokens or None
+
+
+def jaccard(a: set[str] | None, b: set[str] | None) -> float:
+    if not a or not b:
+        return 0.0
+    inter = len(a & b)
+    if inter == 0:
+        return 0.0
+    return inter / len(a | b)
+
+
 # ── Union-find for transitive clustering ─────────────────────────────────────
 
 class _UnionFind:
@@ -132,11 +214,21 @@ def _norm(s: str | None) -> str | None:
     return s.lower() if s else None
 
 
-def find_reauction_pairs(auctions: list[dict]) -> list[tuple[str, str, str, str]]:
+# Threshold above which description Jaccard similarity counts as a match.
+# Above DESC_SIM_HIGH, bump confidence to "high"; between threshold and
+# DESC_SIM_HIGH, "medium".
+DEFAULT_SIM_THRESHOLD = 0.4
+DESC_SIM_HIGH = 0.6
+
+
+def find_reauction_pairs(
+    auctions: list[dict],
+    sim_threshold: float = DEFAULT_SIM_THRESHOLD,
+) -> list[tuple[str, str, str, str]]:
     """Return (a_id, b_id, match_reason, confidence) pairs.
 
     `auctions` is a list of dicts with keys:
-        auction_id, borrower, bank, city, area, total_area,
+        auction_id, borrower, bank, city, area, total_area, description,
         survey_numbers (list of {survey_no, subdivision})
     """
     pairs: list[tuple[str, str, str, str]] = []
@@ -150,6 +242,12 @@ def find_reauction_pairs(auctions: list[dict]) -> list[tuple[str, str, str, str]
             return
         seen_pairs.add(key)
         pairs.append((*key, reason, confidence))
+
+    # Pre-compute description token sets once per auction.
+    desc_tokens: dict[str, set[str] | None] = {
+        row["auction_id"]: tokenize_description(row.get("description"))
+        for row in auctions
+    }
 
     # Rule 1: survey-number buckets.
     by_survey: dict[tuple[str, str], list[dict]] = defaultdict(list)
@@ -171,7 +269,7 @@ def find_reauction_pairs(auctions: list[dict]) -> list[tuple[str, str, str, str]
                 # (city + area) to also align.
                 ba, bb = _norm(a.get("borrower")), _norm(b.get("borrower"))
                 ca, cb = _norm(a.get("city")), _norm(b.get("city"))
-                aa, ab = _norm(a.get("area")), _norm(b.get("area"))
+                aa, ab = normalize_area(a.get("area")), normalize_area(b.get("area"))
                 borrower_match = ba and bb and ba == bb
                 location_match = ca and cb and ca == cb and aa and ab and aa == ab
                 if borrower_match or location_match:
@@ -180,10 +278,14 @@ def find_reauction_pairs(auctions: list[dict]) -> list[tuple[str, str, str, str]
                         "survey_number", "high",
                     )
 
-    # Rule 2: borrower + bank + area + total_area agreement.
+    # Rule 2: borrower + bank + normalised-area, validated by description
+    # Jaccard similarity. Candidates grouped first; every within-group pair
+    # is then checked for description overlap and total_area agreement.
     by_bba: dict[tuple[str, str, str], list[dict]] = defaultdict(list)
     for row in auctions:
-        br, bk, ar = _norm(row.get("borrower")), _norm(row.get("bank")), _norm(row.get("area"))
+        br = _norm(row.get("borrower"))
+        bk = _norm(row.get("bank"))
+        ar = normalize_area(row.get("area"))
         if not (br and bk and ar):
             continue
         by_bba[(br, bk, ar)].append(row)
@@ -194,13 +296,25 @@ def find_reauction_pairs(auctions: list[dict]) -> list[tuple[str, str, str, str]
         for i in range(len(bucket)):
             for j in range(i + 1, len(bucket)):
                 a, b = bucket[i], bucket[j]
+                tokens_a = desc_tokens.get(a["auction_id"])
+                tokens_b = desc_tokens.get(b["auction_id"])
+                if not tokens_a or not tokens_b:
+                    # Conservative: missing description on either side → skip.
+                    continue
+                sim = jaccard(tokens_a, tokens_b)
+                if sim < sim_threshold:
+                    continue
+                # If both sides have parseable total_area, they must agree
+                # within tolerance — catches same-borrower neighbouring
+                # parcels that happen to share description boilerplate.
                 area_a = parse_total_area_sqft(a.get("total_area"))
                 area_b = parse_total_area_sqft(b.get("total_area"))
-                if not areas_agree(area_a, area_b):
+                if area_a is not None and area_b is not None and not areas_agree(area_a, area_b):
                     continue
+                confidence = "high" if sim >= DESC_SIM_HIGH else "medium"
                 _add(
                     a["auction_id"], b["auction_id"],
-                    "borrower_location", "medium",
+                    "borrower_location_desc", confidence,
                 )
 
     return pairs
@@ -263,6 +377,7 @@ WITH a, br, bk, c, ar,
      END) AS raw_surveys
 RETURN a.auction_id       AS auction_id,
        a.total_area        AS total_area,
+       coalesce(a.enriched_description, a.description) AS description,
        br.name             AS borrower,
        bk.name             AS bank,
        c.name              AS city,
@@ -311,6 +426,7 @@ def debug_diagnostics(auctions: list[dict]) -> None:
     has_total    = sum(1 for a in auctions if a.get("total_area"))
     has_parsed   = sum(1 for a in auctions if parse_total_area_sqft(a.get("total_area")))
     has_surveys  = sum(1 for a in auctions if a.get("survey_numbers"))
+    has_desc     = sum(1 for a in auctions if tokenize_description(a.get("description")))
 
     def _pct(x: int) -> str:
         return f"{x} ({100*x/n:.1f}%)" if n else f"{x}"
@@ -322,6 +438,7 @@ def debug_diagnostics(auctions: list[dict]) -> None:
     print(f"  total_area populated:  {_pct(has_total)}")
     print(f"  total_area parseable:  {_pct(has_parsed)}")
     print(f"  survey_numbers:        {_pct(has_surveys)}")
+    print(f"  description usable:    {_pct(has_desc)}")
 
     # Borrower duplicates (normalised).
     by_borrower: dict[str, list[dict]] = defaultdict(list)
@@ -350,25 +467,62 @@ def debug_diagnostics(auctions: list[dict]) -> None:
     for (sno, sub), aucts in sv_repeats[:10]:
         print(f"  survey_no={sno!r} subdivision={sub!r} — {len(aucts)} auctions")
 
-    # Near-misses: same (borrower, bank, area) tuples — show the data so we
-    # can see WHY borrower_location didn't fire (usually total_area mismatch
-    # or one side unparseable).
+    # Near-misses: same (borrower, bank, normalised-area) tuples — show the
+    # within-group description Jaccard distribution so we can see whether
+    # the threshold is well-calibrated.
     by_bba: dict[tuple[str, str, str], list[dict]] = defaultdict(list)
     for a in auctions:
-        br, bk, ar = _norm(a.get("borrower")), _norm(a.get("bank")), _norm(a.get("area"))
+        br = _norm(a.get("borrower"))
+        bk = _norm(a.get("bank"))
+        ar = normalize_area(a.get("area"))
         if br and bk and ar:
             by_bba[(br, bk, ar)].append(a)
     bba_repeats = [(k, v) for k, v in by_bba.items() if len(v) > 1]
     bba_repeats.sort(key=lambda x: -len(x[1]))
-    print(f"\n=== (borrower, bank, area) candidates with >1 auction: {len(bba_repeats)} ===")
+    print(f"\n=== (borrower, bank, norm-area) candidates with >1 auction: {len(bba_repeats)} ===")
+    sim_bins = [0, 0, 0, 0, 0]  # [0, .2, .4, .6, .8, 1]
+    sim_total = 0
     for (br, bk, ar), aucts in bba_repeats[:5]:
         print(f"\n  borrower={br!r}  bank={bk!r}  area={ar!r}  ({len(aucts)} auctions)")
-        for a in aucts:
+        toks = {a["auction_id"]: tokenize_description(a.get("description")) for a in aucts}
+        for a in aucts[:6]:
             parsed = parse_total_area_sqft(a.get("total_area"))
-            surveys = [f"{_norm(s.get('survey_no'))}/{_norm(s.get('subdivision')) or ''}"
-                       for s in (a.get("survey_numbers") or [])]
+            tok_count = len(toks[a["auction_id"]] or ())
             print(f"    {a['auction_id']}  total_area={a.get('total_area')!r} → "
-                  f"{parsed if parsed else 'unparseable'}  surveys={surveys or '(none)'}")
+                  f"{parsed if parsed else 'unparseable'}  desc_tokens={tok_count}")
+        # Jaccard matrix for the first ~4 rows.
+        sample = aucts[:4]
+        for i in range(len(sample)):
+            for j in range(i + 1, len(sample)):
+                sa = toks[sample[i]["auction_id"]]
+                sb = toks[sample[j]["auction_id"]]
+                sim = jaccard(sa, sb)
+                print(f"      sim({sample[i]['auction_id']}, {sample[j]['auction_id']}) = {sim:.2f}")
+
+    # Full-population Jaccard histogram across ALL candidate within-group pairs.
+    for _, aucts in bba_repeats:
+        toks = {a["auction_id"]: tokenize_description(a.get("description")) for a in aucts}
+        for i in range(len(aucts)):
+            for j in range(i + 1, len(aucts)):
+                sa = toks[aucts[i]["auction_id"]]
+                sb = toks[aucts[j]["auction_id"]]
+                if not sa or not sb:
+                    continue
+                sim = jaccard(sa, sb)
+                sim_total += 1
+                if sim < 0.2:   sim_bins[0] += 1
+                elif sim < 0.4: sim_bins[1] += 1
+                elif sim < 0.6: sim_bins[2] += 1
+                elif sim < 0.8: sim_bins[3] += 1
+                else:           sim_bins[4] += 1
+    if sim_total:
+        print(f"\n=== Description-Jaccard distribution across ALL "
+              f"{sim_total} within-candidate pairs ===")
+        labels = ["[0.0, 0.2)", "[0.2, 0.4)", "[0.4, 0.6)", "[0.6, 0.8)", "[0.8, 1.0]"]
+        for label, count in zip(labels, sim_bins):
+            pct = 100 * count / sim_total
+            bar = "▓" * int(pct / 2)
+            print(f"  {label}: {count:6d}  {pct:5.1f}%  {bar}")
 
     # Same (borrower, bank) ignoring area — catches area-name drift.
     by_bb: dict[tuple[str, str], set[str]] = defaultdict(set)
@@ -404,7 +558,12 @@ def write_pairs(session, pairs: list[tuple[str, str, str, str]]) -> int:
 
 # ── CLI ──────────────────────────────────────────────────────────────────────
 
-def run(dry_run: bool = False, rebuild: bool = False, debug: bool = False) -> None:
+def run(
+    dry_run: bool = False,
+    rebuild: bool = False,
+    debug: bool = False,
+    sim_threshold: float = DEFAULT_SIM_THRESHOLD,
+) -> None:
     if not (NEO4J_URI and NEO4J_USERNAME and NEO4J_PASSWORD):
         print("[ERROR] Neo4j credentials missing (NEO4J_URI / USERNAME / PASSWORD).")
         return
@@ -421,8 +580,8 @@ def run(dry_run: bool = False, rebuild: bool = False, debug: bool = False) -> No
                 debug_diagnostics(auctions)
                 return
 
-            print("Matching re-auctions...")
-            pairs = find_reauction_pairs(auctions)
+            print(f"Matching re-auctions (sim_threshold={sim_threshold})...")
+            pairs = find_reauction_pairs(auctions, sim_threshold=sim_threshold)
             clusters, expanded = expand_clusters(auctions, pairs)
             print(f"  {len(pairs)} direct pairs, "
                   f"{len(clusters)} transitive clusters, "
@@ -473,8 +632,18 @@ def main() -> None:
     parser.add_argument("--debug", action="store_true",
                         help="Print data-coverage stats and near-miss groups "
                              "so we can see why matching isn't firing.")
+    parser.add_argument("--sim-threshold", type=float,
+                        default=DEFAULT_SIM_THRESHOLD,
+                        help=f"Description Jaccard similarity cutoff for the "
+                             f"borrower_location_desc rule (default: "
+                             f"{DEFAULT_SIM_THRESHOLD}).")
     args = parser.parse_args()
-    run(dry_run=args.dry_run, rebuild=args.rebuild, debug=args.debug)
+    run(
+        dry_run=args.dry_run,
+        rebuild=args.rebuild,
+        debug=args.debug,
+        sim_threshold=args.sim_threshold,
+    )
 
 
 if __name__ == "__main__":
