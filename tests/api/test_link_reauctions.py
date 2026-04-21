@@ -276,6 +276,114 @@ def test_borrower_location_desc_rule_rejects_disagreeing_total_area() -> None:
     assert find_reauction_pairs(auctions) == []
 
 
+def test_same_day_auctions_are_treated_as_batch_sale_not_reauction() -> None:
+    """Two auctions on the same calendar day with identical borrower,
+    bank, area, and description are a batch sale (sibling parcels), not
+    a re-auction."""
+    from scripts.link_reauctions import find_reauction_pairs
+
+    auctions = [
+        {
+            "auction_id": "A", "borrower": "Alice Co", "bank": "SBI",
+            "city": "Chennai", "area": "Adyar", "total_area": None,
+            "description": DESC_A1,
+            "auction_start_dt": "2026-05-07T10:00:00",
+            "survey_numbers": [],
+        },
+        {
+            "auction_id": "B", "borrower": "Alice Co", "bank": "SBI",
+            "city": "Chennai", "area": "Adyar", "total_area": None,
+            "description": DESC_A2,
+            "auction_start_dt": "2026-05-07T14:30:00",  # same day, later slot
+            "survey_numbers": [],
+        },
+    ]
+    assert find_reauction_pairs(auctions) == []
+
+
+def test_different_day_auctions_can_still_match() -> None:
+    """Sanity: the date gate must let through genuine re-auction pairs
+    that happen on different days."""
+    from scripts.link_reauctions import find_reauction_pairs
+
+    auctions = [
+        {
+            "auction_id": "A", "borrower": "Alice Co", "bank": "SBI",
+            "city": "Chennai", "area": "Adyar", "total_area": None,
+            "description": DESC_A1,
+            "auction_start_dt": "2026-01-15T10:00:00",
+            "survey_numbers": [],
+        },
+        {
+            "auction_id": "B", "borrower": "Alice Co", "bank": "SBI",
+            "city": "Chennai", "area": "Adyar", "total_area": None,
+            "description": DESC_A2,
+            "auction_start_dt": "2026-05-07T10:00:00",
+            "survey_numbers": [],
+        },
+    ]
+    pairs = find_reauction_pairs(auctions)
+    assert len(pairs) == 1
+
+
+def test_missing_date_does_not_block_match() -> None:
+    """If either date is missing we can't PROVE same-day; fall back to
+    the description-similarity verdict so we don't lose real re-auctions
+    to date gaps."""
+    from scripts.link_reauctions import find_reauction_pairs
+
+    auctions = [
+        {
+            "auction_id": "A", "borrower": "Alice Co", "bank": "SBI",
+            "city": "Chennai", "area": "Adyar", "total_area": None,
+            "description": DESC_A1,
+            "auction_start_dt": None,
+            "survey_numbers": [],
+        },
+        {
+            "auction_id": "B", "borrower": "Alice Co", "bank": "SBI",
+            "city": "Chennai", "area": "Adyar", "total_area": None,
+            "description": DESC_A2,
+            "auction_start_dt": "2026-05-07T10:00:00",
+            "survey_numbers": [],
+        },
+    ]
+    assert len(find_reauction_pairs(auctions)) == 1
+
+
+def test_survey_number_rule_also_honours_same_day_rejection() -> None:
+    """Same survey, same borrower, SAME day → batch sale, skip."""
+    from scripts.link_reauctions import find_reauction_pairs
+
+    auctions = [
+        {
+            "auction_id": "A", "borrower": "Alice", "bank": "SBI",
+            "city": "Chennai", "area": "Adyar", "total_area": None,
+            "description": DESC_A1,
+            "auction_start_dt": "2026-05-07T10:00:00",
+            "survey_numbers": [{"survey_no": "10", "subdivision": "1"}],
+        },
+        {
+            "auction_id": "B", "borrower": "Alice", "bank": "Canara",
+            "city": "Chennai", "area": "Other Area", "total_area": None,
+            "description": DESC_A2,
+            "auction_start_dt": "2026-05-07T14:00:00",
+            "survey_numbers": [{"survey_no": "10", "subdivision": "1"}],
+        },
+    ]
+    assert find_reauction_pairs(auctions) == []
+
+
+def test_is_same_auction_day_helper() -> None:
+    from scripts.link_reauctions import _is_same_auction_day
+
+    assert _is_same_auction_day("2026-05-07T10:00:00", "2026-05-07T14:30:00") is True
+    assert _is_same_auction_day("2026-05-07T10:00:00", "2026-05-08T10:00:00") is False
+    assert _is_same_auction_day(None, "2026-05-07T10:00:00") is False
+    assert _is_same_auction_day("2026-05-07T10:00:00", None) is False
+    assert _is_same_auction_day("", "2026-05-07T10:00:00") is False
+
+
 def test_borrower_location_desc_respects_area_normalisation() -> None:
     """'Vedasandur.' and 'Vedasandur' should end up in the same candidate
     group after area normalisation."""
