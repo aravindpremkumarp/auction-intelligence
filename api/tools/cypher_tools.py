@@ -366,10 +366,12 @@ def get_auction_detail(auction_id: str) -> dict | None:
              collect(DISTINCT pt.name) AS property_types,
              collect(DISTINCT properties(s)) AS survey_numbers,
              collect(DISTINCT {
-               filename:     doc.filename,
-               public_url:   doc.public_url,
-               content_type: doc.content_type,
-               doc_type:     doc.doc_type
+               filename:          doc.filename,
+               public_url:        doc.public_url,
+               content_type:      doc.content_type,
+               doc_type:          doc.doc_type,
+               is_multi_property: doc.is_multi_property,
+               item_count:        doc.item_count
              }) AS documents
         RETURN properties(a) AS fields,
                {
