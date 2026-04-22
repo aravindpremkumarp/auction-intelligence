@@ -559,13 +559,9 @@ if WEB_DIR.exists():
     def root() -> FileResponse:
         return FileResponse(str(WEB_DIR / "index.html"))
 
-    @app.get("/verify")
-    def verify_page() -> FileResponse:
-        return FileResponse(str(WEB_DIR / "verify.html"))
-
-    @app.get("/reset")
-    def reset_page() -> FileResponse:
-        return FileResponse(str(WEB_DIR / "reset.html"))
+    @app.get("/auth.js")
+    def auth_js() -> FileResponse:
+        return FileResponse(str(WEB_DIR / "auth.js"), media_type="application/javascript")
 
     @app.get("/admin")
     def admin_page() -> FileResponse:

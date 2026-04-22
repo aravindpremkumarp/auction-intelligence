@@ -1,8 +1,9 @@
 """
 api/auth
 --------
-User-management subpackage: JWT auth, bcrypt passwords, email verification
-and password reset via Resend, plus a minimal admin surface.
+User-management subpackage: Supabase-issued JWT verification + a minimal
+Neo4j `:User` profile mirror so auction graph edges (stars, feedback,
+uploaded documents) can attach to a stable node.
 
 Public re-exports keep `from api.auth import router, get_current_user` terse.
 """

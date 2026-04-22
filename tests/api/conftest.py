@@ -2,7 +2,8 @@
 tests/api/conftest.py
 ---------------------
 Shared fixtures. Stubs Neo4j + agent imports so api.main can be imported
-without live credentials or external dependencies.
+without live credentials, and stubs Supabase JWT verification so tests can
+mint fake bearer tokens without contacting a real Supabase project.
 """
 from __future__ import annotations
 
@@ -24,7 +25,8 @@ os.environ.setdefault("NEO4J_DATABASE", "neo4j")
 os.environ.setdefault("OPENROUTER_API_KEY", "fake")
 os.environ.setdefault("OPENROUTER_MODEL", "fake/model")
 os.environ.setdefault("OPENAI_API_KEY", "fake")
-os.environ.setdefault("JWT_SECRET", "test-secret")
+os.environ.setdefault("SUPABASE_URL", "https://fake.supabase.co")
+os.environ.setdefault("SUPABASE_ANON_KEY", "fake-anon")
 os.environ.setdefault("APP_ENV", "test")
 os.environ.setdefault("RATELIMIT_DISABLED", "1")
 os.environ.setdefault("AUTH_ENABLED", "true")
@@ -50,15 +52,9 @@ def _install_stub_neo4j_client() -> None:
     """Replace api.neo4j_client.run_query with an in-memory fake store."""
     mod = types.ModuleType("api.neo4j_client")
     feedback: list[dict] = []
-    users: dict[str, dict] = {}              # keyed by id
-    users_by_email: dict[str, str] = {}       # email → id
-    refresh: dict[str, dict] = {}             # keyed by jti
-    verify: dict[str, dict] = {}              # keyed by token
+    users: dict[str, dict] = {}              # keyed by supabase_id
     mod._store = feedback  # back-compat for feedback tests
     mod._users = users
-    mod._users_by_email = users_by_email
-    mod._refresh = refresh
-    mod._verify = verify
     mod._feedback = feedback
 
     def _now() -> datetime:
@@ -79,7 +75,7 @@ def _install_stub_neo4j_client() -> None:
         params = params or {}
         c = cypher.strip()
 
-        # ── Feedback (unchanged) ────────────────────────────────────────
+        # ── Feedback ────────────────────────────────────────────────────
         if c.startswith("CREATE (f:Feedback"):
             feedback.append({
                 "id": params["id"],
@@ -114,57 +110,42 @@ def _install_stub_neo4j_client() -> None:
             for r in feedback:
                 if r["id"] == params["id"]:
                     r["resolved"] = True
-                    # Mirror the Neo4j SET f.resolved_at = datetime() so
-                    # FeedbackRecord.resolved_at is testable end-to-end.
-                    from datetime import datetime, timezone
                     r["resolved_at"] = datetime.now(timezone.utc).isoformat()
                     return [{"id": r["id"]}]
             return []
 
         # ── Users ───────────────────────────────────────────────────────
-        if c.startswith("CREATE (u:User {"):
-            email = params["email"].lower()
-            if email in users_by_email:
-                raise RuntimeError("user email already exists")
-            uid = params["id"]
-            users[uid] = {
-                "id": uid,
-                "email": email,
-                "password_hash": params["hash"],
-                "name": params["name"],
-                "role": "user",
-                "email_verified": False,
-                "enabled": True,
-                "created_at": _as_dt(params["now"]),
-                "last_login_at": None,
-            }
-            users_by_email[email] = uid
-            return [{"u": dict(users[uid])}]
-        if c.startswith("MATCH (u:User {email: toLower($email)}) RETURN"):
-            uid = users_by_email.get(params["email"].lower())
-            if not uid:
-                return []
-            return [{"u": dict(users[uid])}]
-        if c.startswith("MATCH (u:User {id: $id}) RETURN"):
-            u = users.get(params["id"])
+        if c.startswith("MERGE (u:User {supabase_id: $sub})"):
+            sub = params["sub"]
+            existing = users.get(sub)
+            email = (params.get("email") or "").lower()
+            now = _as_dt(params["now"])
+            if not existing:
+                users[sub] = {
+                    "supabase_id": sub,
+                    "email": email,
+                    "name": params.get("name") or "",
+                    "role": params.get("role") or "user",
+                    "enabled": True,
+                    "created_at": now,
+                    "last_login_at": now,
+                }
+            else:
+                existing["email"] = email
+                if not existing.get("name"):
+                    existing["name"] = params.get("name") or ""
+                existing["last_login_at"] = now
+                # Admin promotion via create_admin.py takes an explicit role.
+                if params.get("role") == "admin":
+                    existing["role"] = "admin"
+                if "enabled" in params and params.get("enabled") is not None:
+                    existing["enabled"] = params["enabled"]
+            return [{"u": dict(users[sub])}]
+        if c.startswith("MATCH (u:User {supabase_id: $sub}) RETURN"):
+            u = users.get(params["sub"])
             return [{"u": dict(u)}] if u else []
-        if c.startswith("MATCH (u:User {id: $id}) SET u.last_login_at"):
-            u = users.get(params["id"])
-            if u:
-                u["last_login_at"] = _now()
-            return []
-        if c.startswith("MATCH (u:User {id: $id}) SET u.email_verified"):
-            u = users.get(params["id"])
-            if u:
-                u["email_verified"] = True
-            return []
-        if c.startswith("MATCH (u:User {id: $id}) SET u.password_hash"):
-            u = users.get(params["id"])
-            if u:
-                u["password_hash"] = params["hash"]
-            return []
-        if c.startswith("MATCH (u:User {id: $id}) SET u.name"):
-            u = users.get(params["id"])
+        if c.startswith("MATCH (u:User {supabase_id: $sub}) SET u.name"):
+            u = users.get(params["sub"])
             if u:
                 u["name"] = params["name"]
                 return [{"u": dict(u)}]
@@ -175,8 +156,8 @@ def _install_stub_neo4j_client() -> None:
                           key=lambda r: r.get("created_at") or _now(),
                           reverse=True)
             return [{"u": dict(r)} for r in rows[:limit]]
-        if c.startswith("MATCH (u:User {id: $id})\n        SET u.role"):
-            u = users.get(params["id"])
+        if c.startswith("MATCH (u:User {supabase_id: $sub})\n        SET u.role"):
+            u = users.get(params["sub"])
             if not u:
                 return []
             if params.get("role") is not None:
@@ -184,75 +165,6 @@ def _install_stub_neo4j_client() -> None:
             if params.get("enabled") is not None:
                 u["enabled"] = params["enabled"]
             return [{"u": dict(u)}]
-        # Admin bootstrap MERGE (used by scripts.create_admin)
-        if c.startswith("MERGE (u:User {email:"):
-            email = params["email"].lower()
-            uid = users_by_email.get(email) or params["id"]
-            existing = users.get(uid)
-            if not existing:
-                users[uid] = {
-                    "id": uid, "email": email,
-                    "created_at": _as_dt(params["now"]),
-                    "last_login_at": None,
-                }
-                users_by_email[email] = uid
-            u = users[uid]
-            u["password_hash"] = params["hash"]
-            u["name"] = params["name"]
-            u["role"] = "admin"
-            u["email_verified"] = True
-            u["enabled"] = True
-            return [{"id": uid}]
-
-        # ── Refresh tokens ──────────────────────────────────────────────
-        if c.startswith("CREATE (r:RefreshToken"):
-            refresh[params["jti"]] = {
-                "jti": params["jti"],
-                "user_id": params["uid"],
-                "issued_at": _now(),
-                "expires_at": _as_dt(params["exp"]),
-                "revoked_at": None,
-                "user_agent": params.get("ua"),
-                "ip": params.get("ip"),
-            }
-            return []
-        if c.startswith("MATCH (r:RefreshToken {jti: $jti})\n        WHERE"):
-            r = refresh.get(params["jti"])
-            if not r:
-                return []
-            if r["revoked_at"] is not None:
-                return []
-            if r["expires_at"] <= _now():
-                return []
-            return [{"user_id": r["user_id"]}]
-        if c.startswith("MATCH (r:RefreshToken {jti: $jti}) SET r.revoked_at"):
-            r = refresh.get(params["jti"])
-            if r:
-                r["revoked_at"] = _now()
-            return []
-
-        # ── Verification tokens ─────────────────────────────────────────
-        if c.startswith("CREATE (v:VerificationToken"):
-            verify[params["t"]] = {
-                "token": params["t"],
-                "user_id": params["uid"],
-                "purpose": params["p"],
-                "expires_at": _as_dt(params["exp"]),
-                "used_at": None,
-            }
-            return []
-        if c.startswith("MATCH (v:VerificationToken {token: $t, purpose: $p})"):
-            v = verify.get(params["t"])
-            if not v:
-                return []
-            if v["purpose"] != params["p"]:
-                return []
-            if v["used_at"] is not None:
-                return []
-            if v["expires_at"] <= _now():
-                return []
-            v["used_at"] = _now()
-            return [{"user_id": v["user_id"]}]
 
         # ── Schema init (idempotent constraints/indexes) ────────────────
         if c.startswith("CREATE CONSTRAINT") or c.startswith("CREATE INDEX"):
@@ -271,5 +183,60 @@ def _install_stub_neo4j_client() -> None:
     sys.modules["api.neo4j_client"] = mod
 
 
+def _install_stub_supabase_jwt() -> None:
+    """Replace api.auth.supabase_jwt.verify_access_token with a fake that
+    decodes `Bearer test-<json>` tokens, so tests don't need a real Supabase
+    project. Tests use the `auth_header` helper below to mint tokens."""
+    import json as _json
+    import base64 as _b64
+
+    mod = types.ModuleType("api.auth.supabase_jwt")
+
+    def verify_access_token(token: str) -> dict:
+        import jwt as _jwt
+        if not token.startswith("test-"):
+            raise _jwt.InvalidTokenError("unknown test token")
+        raw = token[len("test-"):]
+        # Pad base64 as needed.
+        pad = "=" * (-len(raw) % 4)
+        claims = _json.loads(_b64.urlsafe_b64decode(raw + pad).decode("utf-8"))
+        if claims.get("_expired"):
+            raise _jwt.ExpiredSignatureError("test token expired")
+        if claims.get("_invalid"):
+            raise _jwt.InvalidTokenError("test token invalid")
+        return claims
+
+    mod.verify_access_token = verify_access_token
+    sys.modules["api.auth.supabase_jwt"] = mod
+
+
+def auth_header(
+    sub: str = "sub-1",
+    email: str = "a@b.com",
+    name: str = "A",
+    verified: bool = True,
+    role_claim: str = "authenticated",
+) -> dict[str, str]:
+    """Return an Authorization header carrying a fake Supabase-style token.
+
+    The conftest stub decodes `Bearer test-<base64url(json)>` and returns the
+    JSON payload as claims. `role_claim` controls the Supabase JWT `role`
+    claim (not the app-level :User.role — that comes from Neo4j).
+    """
+    import json as _json
+    import base64 as _b64
+    claims = {
+        "sub": sub,
+        "email": email,
+        "aud": "authenticated",
+        "role": role_claim,
+        "user_metadata": {"name": name},
+        "email_confirmed_at": "2026-01-01T00:00:00Z" if verified else None,
+    }
+    body = _b64.urlsafe_b64encode(_json.dumps(claims).encode("utf-8")).rstrip(b"=").decode()
+    return {"Authorization": f"Bearer test-{body}"}
+
+
 _install_stub_agent()
 _install_stub_neo4j_client()
+_install_stub_supabase_jwt()

@@ -80,6 +80,12 @@ def main():
         from pipeline.load_enriched import load_verified_enriched
         load_verified_enriched()
 
+    print("\n" + "="*60)
+    print("STAGE 5: Link Re-auctioned Properties (:SAME_PROPERTY_AS)")
+    print("="*60)
+    from scripts.link_reauctions import run as link_reauctions
+    link_reauctions()
+
     elapsed = time.time() - t_start
     print(f"\n{'='*60}")
     print(f"PIPELINE COMPLETE — Total time: {elapsed:.1f}s")

@@ -188,15 +188,22 @@ def search_auctions(
             OPTIONAL MATCH (a)-[:CONDUCTED_BY]->(bank:Bank)
             OPTIONAL MATCH (a)-[:HAS_ASSET_CATEGORY]->(ac:AssetCategory)
             OPTIONAL MATCH (a)-[:HAS_PROPERTY_TYPE]->(ptx:PropertyType)
+            OPTIONAL MATCH (a)-[:SAME_PROPERTY_AS]->(prev:AuctionProperty)
+                WHERE prev.auction_start_dt IS NOT NULL
+                  AND a.auction_start_dt IS NOT NULL
+                  AND prev.auction_start_dt < a.auction_start_dt
+                  AND prev.reserve_price_num IS NOT NULL
             WITH a, city, area, bank, ac,
-                 collect(DISTINCT ptx.name) AS property_types
+                 collect(DISTINCT ptx.name) AS property_types,
+                 max(prev.reserve_price_num) AS previous_reserve_price
             RETURN a.auction_id AS auction_id, a.title AS title, a.url AS url,
                    a.reserve_price_num AS reserve_price, a.emd_num AS emd,
                    a.auction_start_dt AS auction_start,
                    city.name AS city, area.name AS area,
                    bank.name AS bank,
                    ac.name AS asset_category,
-                   property_types
+                   property_types,
+                   previous_reserve_price
             ORDER BY {_ORDER_BY_CLAUSES[order_by]}
             LIMIT $limit
         """
@@ -334,9 +341,27 @@ def semantic_property_search(
         YIELD node AS p, score
         {optional_matches}
         {where_clause}
+        OPTIONAL MATCH (p)-[:LOCATED_IN_CITY]->(city:City)
+        OPTIONAL MATCH (p)-[:LOCATED_IN_AREA]->(area:Area)
+        OPTIONAL MATCH (p)-[:CONDUCTED_BY]->(bank:Bank)
+        OPTIONAL MATCH (p)-[:HAS_ASSET_CATEGORY]->(ac:AssetCategory)
+        OPTIONAL MATCH (p)-[:HAS_PROPERTY_TYPE]->(ptx:PropertyType)
+        OPTIONAL MATCH (p)-[:SAME_PROPERTY_AS]->(prev:AuctionProperty)
+            WHERE prev.auction_start_dt IS NOT NULL
+              AND p.auction_start_dt IS NOT NULL
+              AND prev.auction_start_dt < p.auction_start_dt
+              AND prev.reserve_price_num IS NOT NULL
+        WITH p, score, city, area, bank, ac,
+             collect(DISTINCT ptx.name) AS property_types,
+             max(prev.reserve_price_num) AS previous_reserve_price
         RETURN p.auction_id AS auction_id, p.title AS title, p.url AS url,
-               p.reserve_price_num AS reserve_price,
+               p.reserve_price_num AS reserve_price, p.emd_num AS emd,
                p.auction_start_dt AS auction_start,
+               city.name AS city, area.name AS area,
+               bank.name AS bank,
+               ac.name AS asset_category,
+               property_types,
+               previous_reserve_price,
                substring(p.description, 0, 300) AS description_excerpt,
                score
         ORDER BY score DESC
@@ -362,9 +387,11 @@ def get_auction_detail(auction_id: str) -> dict | None:
         OPTIONAL MATCH (a)-[:HAS_SURVEY_NUMBER]->(s:SurveyNumber)
         OPTIONAL MATCH (a)-[:HAS_DOCUMENT]->(doc:Document)
             WHERE doc.public_url IS NOT NULL
+        OPTIONAL MATCH (a)-[link:SAME_PROPERTY_AS]->(sibling:AuctionProperty)
         WITH a, city, area, state, bank, borrower, ac,
              collect(DISTINCT pt.name) AS property_types,
              collect(DISTINCT properties(s)) AS survey_numbers,
+             collect(DISTINCT {
              collect(DISTINCT {
                filename:          doc.filename,
                public_url:        doc.public_url,
@@ -372,7 +399,16 @@ def get_auction_detail(auction_id: str) -> dict | None:
                doc_type:          doc.doc_type,
                is_multi_property: doc.is_multi_property,
                item_count:        doc.item_count
-             }) AS documents
+             }) AS documents,
+             collect(DISTINCT CASE WHEN sibling IS NULL THEN NULL ELSE {
+               auction_id:        sibling.auction_id,
+               title:             sibling.title,
+               url:               sibling.url,
+               reserve_price_num: sibling.reserve_price_num,
+               auction_start_dt:  sibling.auction_start_dt,
+               match_reason:      link.match_reason,
+               confidence:        link.confidence
+             } END) AS siblings
         RETURN properties(a) AS fields,
                {
                  city:           CASE WHEN city     IS NULL THEN NULL ELSE properties(city)     END,
@@ -384,7 +420,8 @@ def get_auction_detail(auction_id: str) -> dict | None:
                  property_types: property_types,
                  survey_numbers: survey_numbers
                } AS relationships,
-               documents AS documents
+               documents AS documents,
+               siblings  AS siblings
     """
     rows = run_query(cypher, {"auction_id": auction_id})
     if not rows:
@@ -405,11 +442,47 @@ def get_auction_detail(auction_id: str) -> dict | None:
         if d and d.get("public_url")
     ]
 
+    siblings = [
+        s for s in (rows[0].get("siblings") or [])
+        if s and s.get("auction_id")
+    ]
+    price_history: list[dict] = []
+    if siblings:
+        timeline = [
+            {
+                "auction_id":        s["auction_id"],
+                "title":             s.get("title"),
+                "url":               s.get("url"),
+                "reserve_price_num": s.get("reserve_price_num"),
+                "auction_start_dt":  s.get("auction_start_dt"),
+                "match_reason":      s.get("match_reason"),
+                "confidence":        s.get("confidence"),
+                "is_current":        False,
+            }
+            for s in siblings
+        ]
+        timeline.append({
+            "auction_id":        auction_id,
+            "title":             fields.get("title"),
+            "url":               fields.get("url"),
+            "reserve_price_num": fields.get("reserve_price_num"),
+            "auction_start_dt":  fields.get("auction_start_dt"),
+            "match_reason":      None,
+            "confidence":        None,
+            "is_current":        True,
+        })
+        timeline.sort(key=lambda r: (
+            r["auction_start_dt"] is None,
+            r["auction_start_dt"] or "",
+        ))
+        price_history = timeline
+
     return {
         "auction_id":    auction_id,
         "fields":        fields,
         "relationships": rows[0]["relationships"],
         "documents":     documents,
+        "price_history": price_history,
     }
 
 

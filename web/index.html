@@ -11,7 +11,12 @@
   window.API_BASE = (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
     ? ''
     : 'https://auction-api-w68b.onrender.com';
+  // Supabase project credentials. ANON key is safe to expose; service-role
+  // key stays server-side. Replace these at deploy time if they move.
+  window.SUPABASE_URL = window.SUPABASE_URL || 'https://yrcrxpwoqddfcengkryw.supabase.co';
+  window.SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY || 'sb_publishable_IT4CBVWS1a37sduWApOdFw_1UCR0kyJ';
 </script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script>
   (function () {
     var saved = localStorage.getItem('theme');
@@ -482,6 +487,22 @@ body {
   font-family: var(--font-mono); font-size: 15px; font-weight: 600;
   margin-top: auto;
 }
+.prop .price-drop {
+  display: inline-block;
+  align-self: flex-start;
+  font-family: var(--font-mono); font-size: 11px; font-weight: 600;
+  color: #137a3b;
+  background: #d6f0de;
+  padding: 2px 8px;
+  border: 1.5px solid #137a3b;
+  margin-top: 2px;
+  letter-spacing: 0.02em;
+}
+[data-theme="dark"] .prop .price-drop {
+  color: #a8efc0;
+  background: rgba(19, 122, 59, 0.18);
+  border-color: #3cb371;
+}
 .prop .bank-tag {
   display: inline-block;
   font-family: var(--font-mono); font-size: 10px;
@@ -566,6 +587,54 @@ body {
 
 .detail-section-title {
   font-family: var(--font-hand); font-size: 24px; margin: 10px 0 6px;
+}
+.price-history {
+  display: flex; flex-direction: column; gap: 6px;
+  border: 1.5px solid var(--ink);
+  background: var(--card);
+  padding: 10px 12px;
+}
+.history-row {
+  display: grid;
+  grid-template-columns: 120px 1fr 120px;
+  gap: 10px;
+  align-items: baseline;
+  padding: 6px 8px;
+  border-left: 3px solid transparent;
+}
+.history-row[data-jump-id] { cursor: pointer; }
+.history-row[data-jump-id]:hover {
+  background: var(--paper-2);
+  border-left-color: var(--ink-soft);
+}
+.history-row.current {
+  background: var(--accent);
+  border-left-color: var(--ink);
+  font-weight: 600;
+}
+.history-row .history-when {
+  font-family: var(--font-mono); font-size: 12px;
+  color: var(--muted); letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.history-row.current .history-when { color: var(--ink); }
+.history-row .history-price {
+  font-family: var(--font-mono); font-size: 15px; font-weight: 600;
+}
+.history-row .history-delta {
+  font-size: 12px; margin-left: 6px;
+}
+.history-row .history-delta.down { color: #137a3b; }
+.history-row .history-delta.up   { color: #a83232; }
+.history-row .history-tag {
+  font-family: var(--font-mono); font-size: 11px;
+  color: var(--muted); text-align: right;
+  text-transform: uppercase; letter-spacing: 0.04em;
+}
+.history-row.current .history-tag { color: var(--ink); }
+@media (max-width: 640px) {
+  .history-row { grid-template-columns: 1fr 1fr; }
+  .history-row .history-tag { grid-column: 1 / -1; text-align: left; }
 }
 .detail-desc {
   border: 1.5px solid var(--ink);
@@ -926,6 +995,10 @@ body {
           </div>
           <div class="hero-photo" id="detail-photo"></div>
           <div class="fact-grid" id="detail-facts"></div>
+          <div id="detail-history-wrap" style="display:none;">
+            <div class="detail-section-title">Price history (re-auctions)</div>
+            <div class="price-history" id="detail-history"></div>
+          </div>
           <div id="detail-desc-wrap" style="display:none;">
             <div class="detail-section-title">Description</div>
             <div class="detail-desc" id="detail-desc"></div>
@@ -1048,7 +1121,7 @@ body {
   </symbol>
 </svg>
 
-<script src="/static/auth.js"></script>
+<script src="/auth.js"></script>
 <script>
 /* ====== CONFIG ====== */
 const API_BASE = window.API_BASE || '';
@@ -1153,6 +1226,16 @@ function joinLoc(area, city) {
   return parts.length ? parts.join(', ') : '—';
 }
 function toCard(row) {
+  const current = Number(row.reserve_price);
+  const previous = row.previous_reserve_price != null ? Number(row.previous_reserve_price) : null;
+  let drop = null;
+  if (previous != null && !isNaN(previous) && !isNaN(current) && previous > current && previous > 0) {
+    drop = {
+      pct: Math.round(((previous - current) / previous) * 100),
+      previousRaw: previous,
+      previous: formatINR(previous),
+    };
+  }
   return {
     id: row.auction_id,
     type: inferType(row),
@@ -1164,6 +1247,7 @@ function toCard(row) {
     date: formatAuctionDate(row.auction_start || row.deadline),
     dateRaw: row.auction_start || row.deadline || null,
     url: row.url || null,
+    drop,
   };
 }
 
@@ -1418,6 +1502,9 @@ function renderResultsList() {
 }
 function propCardHtml(c, urgent, countdown) {
   const isSaved = saved.has(c.id);
+  const dropBadge = c.drop
+    ? `<div class="price-drop" title="Reserve price previously ${escapeHtml(c.drop.previous)}">${c.drop.pct}% Drop from ${escapeHtml(c.drop.previous)}</div>`
+    : '';
   return `
     <div class="prop${urgent ? ' urgent' : ''}" data-id="${escapeHtml(c.id)}">
       <div class="thumb">${thumbSvg(c.type)}</div>
@@ -1429,6 +1516,7 @@ function propCardHtml(c, urgent, countdown) {
           <span class="mono" style="color:var(--muted);">${escapeHtml(c.date)}</span>
         </div>
         <div class="price">${escapeHtml(c.price)}</div>
+        ${dropBadge}
         ${urgent && countdown ? `<div class="countdown">⏱ auction ${escapeHtml(countdown)}</div>` : ''}
       </div>
       <button class="card-save ${isSaved ? 'saved' : ''}" data-save-id="${escapeHtml(c.id)}" title="${isSaved ? 'saved' : 'save to watchlist'}" aria-label="save">
@@ -1472,6 +1560,8 @@ async function loadAndRenderDetail(id) {
   document.getElementById('detail-sub').textContent = '';
   document.getElementById('detail-photo').innerHTML = '';
   document.getElementById('detail-facts').innerHTML = '';
+  document.getElementById('detail-history-wrap').style.display = 'none';
+  document.getElementById('detail-history').innerHTML = '';
   document.getElementById('detail-desc-wrap').style.display = 'none';
   document.getElementById('detail-docs-wrap').style.display = 'none';
   document.getElementById('detail-sale-notice').style.display = 'none';
@@ -1485,6 +1575,53 @@ async function loadAndRenderDetail(id) {
     document.getElementById('detail-sub').textContent = e.message;
   }
 }
+function renderPriceHistory(history) {
+  const wrap = document.getElementById('detail-history-wrap');
+  const host = document.getElementById('detail-history');
+  if (!Array.isArray(history) || history.length < 2) {
+    wrap.style.display = 'none';
+    host.innerHTML = '';
+    return;
+  }
+  const rows = history.map((h, i) => {
+    const price = h.reserve_price_num != null ? formatINR(h.reserve_price_num) : '—';
+    const when = formatAuctionDate(h.auction_start_dt);
+    const prev = i > 0 ? history[i - 1] : null;
+    let deltaHtml = '';
+    if (prev && prev.reserve_price_num && h.reserve_price_num) {
+      const diff = prev.reserve_price_num - h.reserve_price_num;
+      if (diff > 0) {
+        const pct = Math.round((diff / prev.reserve_price_num) * 100);
+        deltaHtml = `<span class="history-delta down">▼ ${pct}%</span>`;
+      } else if (diff < 0) {
+        const pct = Math.round((-diff / prev.reserve_price_num) * 100);
+        deltaHtml = `<span class="history-delta up">▲ ${pct}%</span>`;
+      }
+    }
+    const isCurrent = h.is_current ? ' current' : '';
+    const label = h.is_current ? 'this auction' : 'previous round';
+    const linkAttrs = h.is_current ? '' : `data-jump-id="${escapeHtml(h.auction_id)}" role="link" tabindex="0"`;
+    return `
+      <div class="history-row${isCurrent}" ${linkAttrs}>
+        <div class="history-when">${escapeHtml(when)}</div>
+        <div class="history-price">${escapeHtml(price)} ${deltaHtml}</div>
+        <div class="history-tag">${escapeHtml(label)}</div>
+      </div>`;
+  }).join('');
+  host.innerHTML = rows;
+  wrap.style.display = '';
+  host.querySelectorAll('[data-jump-id]').forEach(el => {
+    const jump = () => {
+      currentDetailId = el.dataset.jumpId;
+      loadAndRenderDetail(currentDetailId);
+    };
+    el.addEventListener('click', jump);
+    el.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); jump(); }
+    });
+  });
+}
+
 function renderDetail(detail) {
   const f = detail.fields || {};
   const r = detail.relationships || {};
@@ -1519,6 +1656,8 @@ function renderDetail(detail) {
       <span class="lbl">${escapeHtml(x.lbl)}</span>
       <span class="val">${escapeHtml(x.val)}</span>
     </div>`).join('');
+
+  renderPriceHistory(detail.price_history);
 
   const desc = f.description;
   if (desc && String(desc).trim()) {
