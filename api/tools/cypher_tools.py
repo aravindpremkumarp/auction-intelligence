@@ -192,10 +192,11 @@ def search_auctions(
                 WHERE prev.auction_start_dt IS NOT NULL
                   AND a.auction_start_dt IS NOT NULL
                   AND prev.auction_start_dt < a.auction_start_dt
-                  AND prev.reserve_price_num IS NOT NULL
             WITH a, city, area, bank, ac,
                  collect(DISTINCT ptx.name) AS property_types,
-                 max(prev.reserve_price_num) AS previous_reserve_price
+                 max(CASE WHEN prev.reserve_price_num IS NOT NULL
+                          THEN prev.reserve_price_num END) AS previous_reserve_price,
+                 count(DISTINCT prev) AS reauction_count
             RETURN a.auction_id AS auction_id, a.title AS title, a.url AS url,
                    a.reserve_price_num AS reserve_price, a.emd_num AS emd,
                    a.auction_start_dt AS auction_start,
@@ -203,11 +204,16 @@ def search_auctions(
                    bank.name AS bank,
                    ac.name AS asset_category,
                    property_types,
-                   previous_reserve_price
+                   previous_reserve_price,
+                   reauction_count
             ORDER BY {_ORDER_BY_CLAUSES[order_by]}
             LIMIT $limit
         """
         ui_results = run_query(cypher, params)
+        for row in ui_results:
+            rc = row.get("reauction_count") or 0
+            row["reauction_count"] = rc
+            row["is_reauction"] = rc > 0
 
     # LLM-visible slice is capped at the user-requested `limit`; full rows
     # (up to ui_limit) ride on `_ui_results` for the UI side-channel.

@@ -440,6 +440,13 @@ body {
   flex-wrap: wrap; gap: 10px;
 }
 .results-head .count { font-family: var(--font-hand); font-size: 22px; }
+.results-sort {
+  font-family: var(--font-mono); font-size: 12px;
+  padding: 4px 8px;
+  border: 1.5px solid var(--ink);
+  background: var(--card); color: var(--ink);
+  cursor: pointer;
+}
 .results-list {
   flex: 1; overflow-y: auto;
   display: flex; flex-direction: column; gap: 10px;
@@ -950,6 +957,11 @@ body {
               <div class="count" id="results-count">—</div>
               <div class="lbl" id="results-subcount">waiting for query</div>
             </div>
+            <select id="results-sort" class="results-sort" aria-label="sort properties">
+              <option value="date_asc">Date ↑</option>
+              <option value="price_asc">Price ↑</option>
+              <option value="price_desc">Price ↓</option>
+            </select>
           </div>
           <div class="results-list" id="results-list"></div>
         </div>
@@ -1109,6 +1121,7 @@ function _requireAuthForMode(mode) {
 }
 const SEARCH_TOOLS = ['search_auctions', 'semantic_property_search'];
 const LIST_TOOLS = [...SEARCH_TOOLS, 'upcoming_auctions', 'price_comparison', 'find_similar_properties', 'borrower_lookup', 'survey_search'];
+const DETAIL_TOOLS = ['get_auction_detail'];
 const WATCHLIST_KEY = 'bankauction.watchlist.v1';
 const SESSION_KEY = 'bankauction.session_id';
 const ICON = { flat:'icon-flat', house:'icon-house', land:'icon-land', commercial:'icon-commercial' };
@@ -1125,6 +1138,7 @@ let apiMessageHistory = null;
 let lastQuery = null;
 let currentResults = [];
 let currentTotalCount = null;
+let currentSort = 'date_asc';
 let detailChatHistory = [];
 
 function sessionId() {
@@ -1306,11 +1320,46 @@ async function apiFeedback(payload) {
 }
 
 /* ====== CHAT ====== */
+function detailArtifactToRow(art) {
+  const res = art && art.result;
+  if (!res || !res.auction_id) return null;
+  const f = res.fields || {};
+  const rel = res.relationships || {};
+  const prior = (res.price_history || [])
+    .filter(p => !p.is_current && p.reserve_price_num != null)
+    .map(p => Number(p.reserve_price_num))
+    .filter(n => !Number.isNaN(n));
+  const previous = prior.length ? Math.max.apply(null, prior) : null;
+  return {
+    auction_id: res.auction_id,
+    title: f.title,
+    url: f.url,
+    reserve_price: f.reserve_price_num,
+    emd: f.emd_num,
+    auction_start: f.auction_start_dt,
+    city: rel.city && rel.city.name,
+    area: rel.area && rel.area.name,
+    bank: rel.bank && rel.bank.name,
+    asset_category: rel.asset_category && rel.asset_category.name,
+    property_types: rel.property_types || [],
+    previous_reserve_price: previous,
+  };
+}
 function extractResultsFromArtifacts(artifacts) {
   if (!Array.isArray(artifacts)) return { rows: [], total: null, tool: null };
   const pick = (names) => artifacts.filter(a => names.includes(a.tool)).pop();
-  const primary = pick(SEARCH_TOOLS) || pick(LIST_TOOLS);
+  // Prefer list-shaped results when present; a follow-up detail call should
+  // still swap the panel to the single card the user just asked about.
+  const listArt = pick(SEARCH_TOOLS) || pick(LIST_TOOLS);
+  const detailArt = pick(DETAIL_TOOLS);
+  const listIdx = listArt ? artifacts.indexOf(listArt) : -1;
+  const detailIdx = detailArt ? artifacts.indexOf(detailArt) : -1;
+  const primary = detailIdx > listIdx ? detailArt : (listArt || detailArt);
   if (!primary) return { rows: [], total: null, tool: null };
+  if (DETAIL_TOOLS.includes(primary.tool)) {
+    const row = detailArtifactToRow(primary);
+    return { rows: row ? [row] : [], total: row ? 1 : 0, tool: primary.tool };
+  }
   const r = primary.result;
   let rows = [];
   let total = null;
@@ -1445,6 +1494,38 @@ function flashBtn(btn) {
 }
 
 /* ====== RESULTS ====== */
+const SORT_LABEL = {
+  date_asc:   'sorted by auction date',
+  price_asc:  'sorted by price (low → high)',
+  price_desc: 'sorted by price (high → low)',
+};
+function sortResults(rows, mode) {
+  const copy = rows.slice();
+  const endIfMissing = (v) => v == null || v === '' || Number.isNaN(v);
+  if (mode === 'price_asc' || mode === 'price_desc') {
+    const dir = mode === 'price_asc' ? 1 : -1;
+    copy.sort((a, b) => {
+      const av = Number(a.reserve_price);
+      const bv = Number(b.reserve_price);
+      const am = endIfMissing(av), bm = endIfMissing(bv);
+      if (am && bm) return 0;
+      if (am) return 1;
+      if (bm) return -1;
+      return (av - bv) * dir;
+    });
+  } else {
+    copy.sort((a, b) => {
+      const av = a.auction_start || a.deadline || '';
+      const bv = b.auction_start || b.deadline || '';
+      const am = endIfMissing(av), bm = endIfMissing(bv);
+      if (am && bm) return 0;
+      if (am) return 1;
+      if (bm) return -1;
+      return av < bv ? -1 : av > bv ? 1 : 0;
+    });
+  }
+  return copy;
+}
 function renderResults() {
   renderChat();
   renderResultsList();
@@ -1453,6 +1534,8 @@ function renderResultsList() {
   const list = document.getElementById('results-list');
   const countEl = document.getElementById('results-count');
   const subEl = document.getElementById('results-subcount');
+  const sortEl = document.getElementById('results-sort');
+  if (sortEl) sortEl.style.display = (currentResults && currentResults.length > 1) ? '' : 'none';
   if (!currentResults || currentResults.length === 0) {
     if (chatHistory.length === 0) {
       list.innerHTML = `<div class="results-empty">ask a question on the left to see properties here.</div>`;
@@ -1465,14 +1548,25 @@ function renderResultsList() {
     }
     return;
   }
-  const cards = currentResults.map(row => toCard(row)).filter(c => c.id);
+  const sorted = sortResults(currentResults, currentSort);
+  const cards = sorted.map(row => toCard(row)).filter(c => c.id);
   const shown = cards.length;
   const total = (currentTotalCount != null) ? currentTotalCount : shown;
   countEl.textContent = `${total.toLocaleString('en-IN')} match${total === 1 ? '' : 'es'}`;
-  subEl.textContent = total > shown ? `showing ${shown}` : 'sorted by auction date';
+  const sortLabel = SORT_LABEL[currentSort] || SORT_LABEL.date_asc;
+  subEl.textContent = total > shown ? `showing ${shown} · ${sortLabel}` : sortLabel;
   list.innerHTML = cards.map(c => propCardHtml(c, false)).join('');
   wireCardClicks();
 }
+(function wireSortControl() {
+  const sel = document.getElementById('results-sort');
+  if (!sel) return;
+  sel.value = currentSort;
+  sel.addEventListener('change', () => {
+    currentSort = sel.value;
+    renderResultsList();
+  });
+})();
 function propCardHtml(c, urgent, countdown) {
   const isSaved = saved.has(c.id);
   const dropBadge = c.drop

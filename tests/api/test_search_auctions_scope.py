@@ -115,3 +115,36 @@ def test_no_ui_results_key_when_matches_fit_in_limit(monkeypatch) -> None:
     assert len(out["results"]) == 5
     # No overflow — `_ui_results` key is omitted so the LLM sees a clean shape.
     assert "_ui_results" not in out
+
+
+def test_search_auctions_includes_reauction_count_in_cypher(monkeypatch) -> None:
+    """The row query joins SAME_PROPERTY_AS and returns a reauction_count."""
+    calls = _patch_run_query(monkeypatch, total_count=1, rows=[{"auction_id": "a"}])
+    from api.tools.cypher_tools import search_auctions
+
+    search_auctions(city="Chennai", limit=5)
+
+    row_cypher, _ = calls[1]
+    assert "SAME_PROPERTY_AS" in row_cypher
+    assert "reauction_count" in row_cypher
+
+
+def test_search_auctions_derives_is_reauction_flag(monkeypatch) -> None:
+    """The tool post-processes rows so each one has `is_reauction` derived
+    from `reauction_count`, and rows missing the field still get False."""
+    rows = [
+        {"auction_id": "A", "reauction_count": 2},
+        {"auction_id": "B", "reauction_count": 0},
+        {"auction_id": "C"},  # simulate older row shape without the field
+    ]
+    _patch_run_query(monkeypatch, total_count=3, rows=rows)
+    from api.tools.cypher_tools import search_auctions
+
+    out = search_auctions(city="Chennai", limit=10)
+    by_id = {r["auction_id"]: r for r in out["results"]}
+    assert by_id["A"]["is_reauction"] is True
+    assert by_id["A"]["reauction_count"] == 2
+    assert by_id["B"]["is_reauction"] is False
+    assert by_id["B"]["reauction_count"] == 0
+    assert by_id["C"]["is_reauction"] is False
+    assert by_id["C"]["reauction_count"] == 0

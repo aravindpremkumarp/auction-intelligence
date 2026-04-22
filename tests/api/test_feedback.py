@@ -56,20 +56,20 @@ def test_submit_and_list_feedback() -> None:
     ]
 
 
-def test_resolve_requires_token() -> None:
+def test_resolve_requires_token_or_admin() -> None:
     client = _client()
     fid = client.post("/feedback", json=_payload()).json()["id"]
 
-    # missing header
+    # No token and no JWT → 401 (was 422 before we made the header optional).
     r = client.patch(f"/feedback/{fid}/resolve")
-    assert r.status_code == 422  # FastAPI validation error for required header
+    assert r.status_code == 401
 
-    # wrong token
+    # Wrong token, no JWT → 401
     os.environ["FEEDBACK_RESOLVE_TOKEN"] = "correct-token"
     r = client.patch(f"/feedback/{fid}/resolve", headers={"X-Resolve-Token": "nope"})
     assert r.status_code == 401
 
-    # right token resolves
+    # Right token resolves
     r = client.patch(f"/feedback/{fid}/resolve", headers={"X-Resolve-Token": "correct-token"})
     assert r.status_code == 200
     assert r.json()["resolved"] is True
@@ -77,6 +77,55 @@ def test_resolve_requires_token() -> None:
     # unresolved_only now excludes it
     remaining = client.get("/feedback/recent?unresolved_only=true").json()
     assert all(item["id"] != fid for item in remaining)
+
+
+def test_resolve_with_admin_jwt() -> None:
+    from api import neo4j_client
+    from tests.api.conftest import auth_header
+    # Clean slate so the only feedback row is the one we seed here.
+    neo4j_client._users.clear()       # type: ignore[attr-defined]
+    neo4j_client._feedback.clear()    # type: ignore[attr-defined]
+
+    client = _client()
+    fid = client.post("/feedback", json=_payload()).json()["id"]
+
+    # Sign in as a non-admin user and try to resolve → 401 (admin role
+    # required since no token is supplied).
+    h_user = auth_header(sub="sub-user", email="user@x.com")
+    client.get("/auth/me", headers=h_user)  # materialise profile
+    r = client.patch(f"/feedback/{fid}/resolve", headers=h_user)
+    assert r.status_code == 401
+
+    # Promote the user to admin and retry → 200.
+    neo4j_client._users["sub-user"]["role"] = "admin"  # type: ignore[attr-defined]
+    r = client.patch(f"/feedback/{fid}/resolve", headers=h_user)
+    assert r.status_code == 200
+    assert r.json()["resolved"] is True
+
+
+def test_admin_feedback_list_requires_admin() -> None:
+    from api import neo4j_client
+    from tests.api.conftest import auth_header
+    neo4j_client._users.clear()       # type: ignore[attr-defined]
+    neo4j_client._feedback.clear()    # type: ignore[attr-defined]
+
+    client = _client()
+    fid = client.post("/feedback", json=_payload()).json()["id"]
+
+    # Anonymous → 401
+    assert client.get("/admin/feedback").status_code == 401
+
+    # Authenticated non-admin → 403
+    h_user = auth_header(sub="sub-u2", email="u2@x.com")
+    client.get("/auth/me", headers=h_user)
+    assert client.get("/admin/feedback", headers=h_user).status_code == 403
+
+    # Admin → 200 and sees the feedback item
+    neo4j_client._users["sub-u2"]["role"] = "admin"  # type: ignore[attr-defined]
+    r = client.get("/admin/feedback", headers=h_user)
+    assert r.status_code == 200
+    items = r.json()
+    assert any(i["id"] == fid for i in items)
 
 
 def test_rating_filter() -> None:
