@@ -684,6 +684,33 @@ body {
   width: 100%; height: 600px; border: 0; background: #fff;
   display: block;
 }
+.item-highlight {
+  border: 1.5px solid var(--ink);
+  background: var(--accent);
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  font-family: var(--font-body); font-size: 13px;
+  line-height: 1.5;
+}
+.item-highlight-head {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.item-highlight-title {
+  font-family: var(--font-hand); font-size: 18px; margin: 0;
+}
+.item-highlight-badge {
+  font-size: 10px; font-weight: 600;
+  padding: 2px 6px; border: 1.5px solid var(--ink); background: var(--paper-2);
+  text-transform: uppercase; letter-spacing: 0.5px;
+}
+.item-highlight-text {
+  border: 1.5px solid var(--ink);
+  background: var(--card);
+  padding: 10px 12px;
+  white-space: pre-wrap;
+  max-height: 220px; overflow-y: auto;
+}
 .doc-preview img {
   max-width: 100%; height: auto; display: block; margin: 0 auto;
 }
@@ -1651,6 +1678,13 @@ function renderDetail(detail) {
 
   const previewDocs = Array.isArray(detail.documents) ? detail.documents : [];
 
+  const matchedText = f.matched_item_text;
+  const matchedPage = Number(f.matched_item_page) || null;
+  const matchedMarker = f.matched_item_marker || (f.matched_item_no ? `Item No. ${f.matched_item_no}` : null);
+  const matchedConfidence = f.matched_item_confidence;
+  const matchedDoc = f.matched_item_document;
+  const showHighlight = matchedText && matchedConfidence && matchedConfidence !== 'none';
+
   if (linkDocs.length || previewDocs.length) {
     const linkHtml = linkDocs.map(d => `
       <a class="doc" href="${escapeHtml(d.href)}" target="_blank" rel="noopener">
@@ -1658,27 +1692,41 @@ function renderDetail(detail) {
         <span class="mono">${escapeHtml(d.meta)}</span>
       </a>`).join('');
 
+    const highlightHtml = showHighlight ? `
+      <div class="item-highlight">
+        <div class="item-highlight-head">
+          <div class="item-highlight-title">This property = ${escapeHtml(matchedMarker || 'item')} in the notice</div>
+          <span class="item-highlight-badge">match ${escapeHtml(matchedConfidence)}</span>
+          ${matchedPage ? `<span class="item-highlight-badge">page ${matchedPage}</span>` : ''}
+        </div>
+        <div class="item-highlight-text">${escapeHtml(matchedText)}</div>
+      </div>` : '';
+
     const previewHtml = previewDocs.map((d, i) => {
       const kind = (d.doc_type === 'pdf' || d.doc_type === 'image') ? d.doc_type : 'other';
-      const badge = kind === 'pdf' ? 'PDF' : kind === 'image' ? 'IMG' : 'FILE';
+      const isMatchedDoc = matchedDoc && d.filename === matchedDoc;
+      const pageForThisDoc = isMatchedDoc ? matchedPage : null;
+      const badgeParts = [kind === 'pdf' ? 'PDF' : kind === 'image' ? 'IMG' : 'FILE'];
+      if (d.is_multi_property) badgeParts.push('MULTI');
       const canPreview = kind === 'pdf' || kind === 'image';
       return `
         <div class="doc-group" data-doc-index="${i}">
           <div class="doc">
             <span>${escapeHtml(d.filename || 'download')}</span>
-            <span class="doc-badge">${badge}</span>
+            <span class="doc-badge">${badgeParts.join(' · ')}</span>
             ${canPreview ? `<button type="button" class="doc-toggle" data-action="toggle-preview">Preview</button>` : ''}
             <a class="mono" href="${escapeHtml(d.public_url)}" target="_blank" rel="noopener">open ↗</a>
           </div>
           <div class="doc-preview" hidden
                data-kind="${escapeHtml(kind)}"
                data-url="${escapeHtml(d.public_url)}"
+               ${pageForThisDoc ? `data-page="${pageForThisDoc}"` : ''}
                data-loaded="0"></div>
         </div>`;
     }).join('');
 
     const container = document.getElementById('detail-docs');
-    container.innerHTML = linkHtml + previewHtml;
+    container.innerHTML = linkHtml + highlightHtml + previewHtml;
     document.getElementById('detail-docs-wrap').style.display = '';
 
     container.querySelectorAll('.doc-toggle[data-action="toggle-preview"]').forEach(btn => {
@@ -1688,8 +1736,10 @@ function renderDetail(detail) {
         if (panel.dataset.loaded !== '1') {
           const kind = panel.dataset.kind;
           const url = panel.dataset.url;
+          const page = panel.dataset.page ? Number(panel.dataset.page) : null;
           if (kind === 'pdf') {
-            panel.innerHTML = `<iframe src="${escapeHtml(url)}#toolbar=1" title="${escapeHtml('PDF preview')}" loading="lazy"></iframe>`;
+            const hash = page ? `#page=${page}&toolbar=1` : '#toolbar=1';
+            panel.innerHTML = `<iframe src="${escapeHtml(url)}${hash}" title="${escapeHtml('PDF preview')}" loading="lazy"></iframe>`;
           } else if (kind === 'image') {
             panel.innerHTML = `<img src="${escapeHtml(url)}" alt="sales notice image" loading="lazy">`;
           }
