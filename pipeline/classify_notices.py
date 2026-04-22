@@ -61,7 +61,7 @@ REPORT_JSONL = OUTPUT_DIR / "notice_classification.jsonl"
 
 # ── Signal A: file sharing across auctions ──────────────────────────────────
 
-def build_sharing_map_from_cache() -> dict[str, list[str]]:
+def build_sharing_map() -> dict[str, list[str]]:
     """Walk the OCR cache and map each notice filename to the auction_ids that reference it.
 
     Cache filenames are shaped `{auction_id}__{notice_filename}.json`
@@ -77,65 +77,6 @@ def build_sharing_map_from_cache() -> dict[str, list[str]]:
         filename = stem[sep + 2:]
         sharing[filename].add(auction_id)
     return {fn: sorted(ids) for fn, ids in sharing.items()}
-
-
-SHARING_MAP_CYPHER = """
-MATCH (a:AuctionProperty)-[:HAS_DOCUMENT]->(d:Document)
-WHERE d.filename IS NOT NULL
-WITH d.filename AS filename,
-     collect(DISTINCT a.auction_id) AS auction_ids,
-     collect(DISTINCT d.public_url)[0] AS public_url
-RETURN filename, auction_ids, public_url
-"""
-
-
-# public_url cache: filename -> R2 URL, populated by the Neo4j sharing-map lookup
-# so the Signal-B pass can download notices missing from local downloads/.
-_PUBLIC_URLS: dict[str, str] = {}
-
-
-def build_sharing_map_from_neo4j() -> dict[str, list[str]]:
-    """Query Neo4j Documents + AuctionProperty edges to build the filename -> auction_ids map.
-
-    Also captures each file's public_url so Signal B can fall back to R2 fetch.
-    """
-    if not (NEO4J_URI and NEO4J_USERNAME and NEO4J_PASSWORD):
-        return {}
-    from neo4j import GraphDatabase
-
-    driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USERNAME, NEO4J_PASSWORD))
-    try:
-        with driver.session(database=NEO4J_DATABASE) as s:
-            rows = list(s.run(SHARING_MAP_CYPHER))
-    finally:
-        driver.close()
-    out: dict[str, list[str]] = {}
-    for r in rows:
-        fn = r["filename"]
-        if not fn:
-            continue
-        out[fn] = sorted(r["auction_ids"])
-        if r["public_url"]:
-            _PUBLIC_URLS[fn] = r["public_url"]
-    return out
-
-
-def build_sharing_map() -> dict[str, list[str]]:
-    """Prefer the local OCR cache; fall back to Neo4j when the cache is empty.
-
-    The cache is present after a local OCR run; on a fresh CI runner it will be
-    empty, so we read the same sharing relation directly from the graph.
-    """
-    from_cache = build_sharing_map_from_cache()
-    if from_cache:
-        print(f"  Sharing map source: OCR cache ({len(from_cache)} files)")
-        return from_cache
-    from_neo4j = build_sharing_map_from_neo4j()
-    if from_neo4j:
-        print(f"  Sharing map source: Neo4j ({len(from_neo4j)} files)")
-    else:
-        print("  [WARN] OCR cache empty and Neo4j unreachable; sharing map is empty.")
-    return from_neo4j
 
 
 def resolve_notice_path(filename: str) -> Path | None:
@@ -170,25 +111,6 @@ def write_class_cache(filename: str, result: dict) -> None:
     )
 
 
-async def _fetch_from_r2(session: aiohttp.ClientSession, url: str, suffix: str) -> Path | None:
-    import os
-    import tempfile
-
-    try:
-        async with session.get(url, timeout=aiohttp.ClientTimeout(total=60)) as resp:
-            if resp.status != 200:
-                print(f"  [WARN] fetch {url} -> HTTP {resp.status}")
-                return None
-            data = await resp.read()
-    except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-        print(f"  [WARN] fetch {url}: {e}")
-        return None
-    fd, tmp_path = tempfile.mkstemp(suffix=suffix)
-    os.close(fd)
-    Path(tmp_path).write_bytes(data)
-    return Path(tmp_path)
-
-
 async def classify_one(
     filename: str,
     session: aiohttp.ClientSession,
@@ -200,50 +122,35 @@ async def classify_one(
         return cached
 
     file_path = resolve_notice_path(filename)
-    tmp_path: Path | None = None
     if file_path is None:
-        url = _PUBLIC_URLS.get(filename)
-        if not url:
-            return None
-        suffix = Path(filename).suffix or ".bin"
-        file_path = await _fetch_from_r2(session, url, suffix)
-        if file_path is None:
-            return None
-        tmp_path = file_path
+        return None
 
-    try:
-        ext = file_path.suffix.lower()
-        b64_images: list[tuple[str, str]] = []
-        if ext in IMAGE_EXTS:
-            b64 = encode_image_to_base64(file_path)
-            if b64:
-                b64_images.append((b64, get_mime_type(ext)))
-        elif ext in PDF_EXTS:
-            b64_images = pdf_to_images(file_path)
-        else:
-            return None
+    ext = file_path.suffix.lower()
+    b64_images: list[tuple[str, str]] = []
+    if ext in IMAGE_EXTS:
+        b64 = encode_image_to_base64(file_path)
+        if b64:
+            b64_images.append((b64, get_mime_type(ext)))
+    elif ext in PDF_EXTS:
+        b64_images = pdf_to_images(file_path)
+    else:
+        return None
 
-        if not b64_images:
-            return None
+    if not b64_images:
+        return None
 
-        result = await call_vision_api(session, b64_images, CLASSIFY_PROMPT, semaphore)
-        if result is None:
-            return None
+    result = await call_vision_api(session, b64_images, CLASSIFY_PROMPT, semaphore)
+    if result is None:
+        return None
 
-        normalized = {
-            "item_count":   int(result.get("item_count") or 0),
-            "item_markers": list(result.get("item_markers") or []),
-            "confidence":   result.get("confidence") or "low",
-            "reasoning":    result.get("reasoning") or "",
-        }
-        write_class_cache(filename, normalized)
-        return normalized
-    finally:
-        if tmp_path is not None:
-            try:
-                tmp_path.unlink()
-            except OSError:
-                pass
+    normalized = {
+        "item_count":   int(result.get("item_count") or 0),
+        "item_markers": list(result.get("item_markers") or []),
+        "confidence":   result.get("confidence") or "low",
+        "reasoning":    result.get("reasoning") or "",
+    }
+    write_class_cache(filename, normalized)
+    return normalized
 
 
 # ── Combine signals, write report ───────────────────────────────────────────
@@ -359,14 +266,11 @@ def run(limit: int | None, use_llm: bool, use_neo4j: bool) -> None:
 
     llm_results: dict[str, dict] = {}
     if use_llm:
-        resolvable = [
-            fn for fn in filenames
-            if resolve_notice_path(fn) is not None or _PUBLIC_URLS.get(fn)
-        ]
+        resolvable = [fn for fn in filenames if resolve_notice_path(fn) is not None]
         missing = total - len(resolvable)
         if missing:
-            print(f"  [WARN] {missing} notice file(s) not found locally and have no public_url; skipping LLM for those.")
-        print(f"  Running LLM item-count on {len(resolvable)} file(s) (local + R2 fetch)...")
+            print(f"  [WARN] {missing} notice file(s) not found under {DOWNLOADS_DIR}; skipping LLM for those.")
+        print(f"  Running LLM item-count on {len(resolvable)} file(s)...")
         llm_results = asyncio.run(run_llm_pass(resolvable))
     else:
         print("  Skipping LLM pass (--no-llm).")
