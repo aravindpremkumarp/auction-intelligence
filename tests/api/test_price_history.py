@@ -33,7 +33,11 @@ def test_search_auctions_row_cypher_requests_previous_price(monkeypatch) -> None
     row_cypher, _ = calls[1]
     assert "SAME_PROPERTY_AS" in row_cypher
     assert "previous_reserve_price" in row_cypher
-    assert "max(prev.reserve_price_num)" in row_cypher
+    # The aggregate over prev.reserve_price_num is computed with a
+    # NULL-safe CASE so siblings without a price still count toward
+    # reauction_count but don't corrupt the max.
+    assert "prev.reserve_price_num" in row_cypher
+    assert "max(" in row_cypher
     assert out["results"][0]["previous_reserve_price"] == 5500000
 
 

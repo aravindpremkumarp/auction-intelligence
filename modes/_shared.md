@@ -107,6 +107,20 @@ when presenting it.
 If a filter returns zero, try loosening (drop `property_type`, broaden
 price, re-check city/area spelling) before declaring no matches.
 
+## Re-auction status
+
+Every row returned by `search_auctions` carries two extra fields derived
+from the `:SAME_PROPERTY_AS` graph edges:
+
+- `is_reauction` (bool) — true when this auction has at least one prior
+  listing for the same property.
+- `reauction_count` (int) — how many prior listings exist.
+
+When the user asks "which of these are re-auctions", filter the rows from
+the most recent `search_auctions` call by `is_reauction`. Do **not** call
+`get_auction_detail` in a loop to compute this — the information is
+already on every row.
+
 ## Filter carry-over and superlatives
 
 Conversations narrow over time. Once the user has scoped to a bank, city,
