@@ -105,17 +105,32 @@
   }
 
   async function forgot(email) {
-    await sb.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin });
+    var r = await sb.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin });
+    if (r && r.error) throw new Error(r.error.message || 'reset failed');
+    return r && r.data;
   }
 
   async function logout() {
     try { await sb.auth.signOut(); } catch (_) {}
+    try { localStorage.removeItem('bankauction.watchlist.v1'); } catch (_) {}
     currentUser = null;
     emit();
   }
 
-  // React to Supabase session changes (PKCE redirects, silent refresh, logout).
-  sb.auth.onAuthStateChange(function (_event, session) {
+  // Useful for debugging magic-link / recovery redirects — see whether the
+  // SDK consumed the URL fragment and which event fired.
+  console.debug('[auth] init URL', typeof window !== 'undefined' ? window.location.href : '');
+
+  // React to Supabase session changes (PKCE redirects, silent refresh, logout,
+  // password recovery).
+  sb.auth.onAuthStateChange(function (event, session) {
+    console.debug('[auth] state change', event, { hasSession: !!session });
+    if (event === 'PASSWORD_RECOVERY') {
+      // User clicked the reset-password email link. Supabase has applied a
+      // short-lived recovery session; prompt for the new password.
+      openSetPasswordModal();
+      return;
+    }
     if (session) {
       me();
     } else {
@@ -131,7 +146,12 @@
       '.auth-modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,0.45);' +
       'display:grid;place-items:center;z-index:9999;}' +
       '.auth-modal{background:#fff;border:2px solid #1a1a1a;box-shadow:2px 3px 0 rgba(0,0,0,0.9);' +
-      'padding:22px 24px;max-width:380px;width:92%;font-family:\'Kalam\',cursive;color:#1a1a1a;}' +
+      'padding:22px 24px;max-width:380px;width:92%;font-family:\'Kalam\',cursive;color:#1a1a1a;' +
+      'position:relative;}' +
+      '.auth-modal .x-close{position:absolute;top:6px;right:8px;background:transparent;' +
+      'border:none;box-shadow:none;font-size:22px;line-height:1;cursor:pointer;padding:4px 8px;' +
+      'margin:0;color:#1a1a1a;font-weight:700;}' +
+      '.auth-modal .x-close:hover{color:#d64a2e;}' +
       '.auth-modal h2{font-family:\'Caveat\',cursive;font-size:28px;margin:0 0 10px;}' +
       '.auth-modal h2 em{background:#ffd84d;padding:0 6px;font-style:normal;}' +
       '.auth-modal label{display:block;font-family:\'IBM Plex Mono\',monospace;font-size:12px;margin-top:10px;}' +
@@ -172,9 +192,15 @@
     document.head.appendChild(style);
   }
 
+  var _escHandler = null;
+
   function closeModal() {
     var b = document.getElementById('auth-modal-backdrop');
     if (b) b.remove();
+    if (_escHandler) {
+      document.removeEventListener('keydown', _escHandler);
+      _escHandler = null;
+    }
   }
 
   function openModal(builder) {
@@ -183,28 +209,40 @@
     var bd = document.createElement('div');
     bd.id = 'auth-modal-backdrop';
     bd.className = 'auth-modal-backdrop';
-    bd.addEventListener('click', function (e) { if (e.target === bd) closeModal(); });
+    // Outside-click dismiss intentionally disabled — only ✕ button, Cancel
+    // button, or Escape key closes a modal, so an accidental background
+    // click does not wipe a half-typed credential form.
     var box = document.createElement('div');
     box.className = 'auth-modal';
     bd.appendChild(box);
     builder(box);
     document.body.appendChild(bd);
+    _escHandler = function (e) { if (e.key === 'Escape') closeModal(); };
+    document.addEventListener('keydown', _escHandler);
   }
+
+  var X_CLOSE = '<button class="x-close" aria-label="Close" title="Close">\u00d7</button>';
 
   function openLoginModal() {
     openModal(function (box) {
-      box.innerHTML = '' +
+      box.innerHTML = '' + X_CLOSE +
         '<h2><em>Sign in</em></h2>' +
         '<div class="alt">' +
           '<button class="g" id="m-google">Continue with Google</button>' +
           '<button class="g" id="m-magic">Email me a magic link</button>' +
         '</div>' +
         '<div class="sep">or with password</div>' +
-        '<label>Email<input id="m-email" type="email" autocomplete="email" required></label>' +
-        '<label>Password<input id="m-pw" type="password" autocomplete="current-password" required></label>' +
+        '<form autocomplete="off" onsubmit="return false">' +
+          '<label>Email<input id="m-email" type="email" autocomplete="off" required></label>' +
+          '<label>Password<input id="m-pw" type="password" autocomplete="off" required></label>' +
+        '</form>' +
         '<div><button id="m-submit">Sign in</button><button class="sec" id="m-cancel">Cancel</button></div>' +
         '<p class="msg" id="m-msg"></p>' +
         '<p><span class="link" id="to-signup">Create account</span> · <span class="link" id="to-forgot">Forgot password?</span></p>';
+      // Explicitly clear — browser autofill ignores autocomplete="off" on login-shaped forms.
+      box.querySelector('#m-email').value = '';
+      box.querySelector('#m-pw').value = '';
+      box.querySelector('.x-close').onclick = closeModal;
       box.querySelector('#m-cancel').onclick = closeModal;
       box.querySelector('#m-submit').onclick = async function () {
         var msg = box.querySelector('#m-msg');
@@ -212,12 +250,22 @@
         try {
           await login(box.querySelector('#m-email').value, box.querySelector('#m-pw').value);
           closeModal();
-        } catch (e) { msg.textContent = e.message; msg.className = 'msg err'; }
+        } catch (e) {
+          console.error('[auth] login', e);
+          var txt = e.message || '';
+          if (/invalid login credentials/i.test(txt)) {
+            txt = "No password is set for this email. If you signed up with Google, click 'Continue with Google' above. Otherwise, use 'Forgot password?' to set one.";
+          }
+          msg.textContent = txt; msg.className = 'msg err';
+        }
       };
       box.querySelector('#m-google').onclick = async function () {
         var msg = box.querySelector('#m-msg');
         msg.textContent = ''; msg.className = 'msg';
-        try { await loginGoogle(); } catch (e) { msg.textContent = e.message; msg.className = 'msg err'; }
+        try { await loginGoogle(); } catch (e) {
+          console.error('[auth] google', e);
+          msg.textContent = e.message; msg.className = 'msg err';
+        }
       };
       box.querySelector('#m-magic').onclick = async function () {
         var msg = box.querySelector('#m-msg');
@@ -228,7 +276,10 @@
           await loginMagicLink(email);
           msg.textContent = 'Check your email for a sign-in link.';
           msg.className = 'msg ok';
-        } catch (e) { msg.textContent = e.message; msg.className = 'msg err'; }
+        } catch (e) {
+          console.error('[auth] magic', e);
+          msg.textContent = e.message; msg.className = 'msg err';
+        }
       };
       box.querySelector('#to-signup').onclick = openSignupModal;
       box.querySelector('#to-forgot').onclick = openForgotModal;
@@ -237,23 +288,32 @@
 
   function openSignupModal() {
     openModal(function (box) {
-      box.innerHTML = '' +
+      box.innerHTML = '' + X_CLOSE +
         '<h2><em>Create</em> account</h2>' +
         '<div class="alt">' +
           '<button class="g" id="m-google">Continue with Google</button>' +
         '</div>' +
         '<div class="sep">or with email + password</div>' +
-        '<label>Name<input id="m-name" required></label>' +
-        '<label>Email<input id="m-email" type="email" required></label>' +
-        '<label>Password (8+ chars)<input id="m-pw" type="password" required minlength="8"></label>' +
+        '<form autocomplete="off" onsubmit="return false">' +
+          '<label>Name<input id="m-name" autocomplete="off" required></label>' +
+          '<label>Email<input id="m-email" type="email" autocomplete="off" required></label>' +
+          '<label>Password (8+ chars)<input id="m-pw" type="password" autocomplete="new-password" required minlength="8"></label>' +
+        '</form>' +
         '<div><button id="m-submit">Sign up</button><button class="sec" id="m-cancel">Cancel</button></div>' +
         '<p class="msg" id="m-msg"></p>' +
         '<p><span class="link" id="to-login">Have an account? Sign in</span></p>';
+      box.querySelector('#m-name').value = '';
+      box.querySelector('#m-email').value = '';
+      box.querySelector('#m-pw').value = '';
+      box.querySelector('.x-close').onclick = closeModal;
       box.querySelector('#m-cancel').onclick = closeModal;
       box.querySelector('#m-google').onclick = async function () {
         var msg = box.querySelector('#m-msg');
         msg.textContent = ''; msg.className = 'msg';
-        try { await loginGoogle(); } catch (e) { msg.textContent = e.message; msg.className = 'msg err'; }
+        try { await loginGoogle(); } catch (e) {
+          console.error('[auth] google', e);
+          msg.textContent = e.message; msg.className = 'msg err';
+        }
       };
       box.querySelector('#m-submit').onclick = async function () {
         var msg = box.querySelector('#m-msg');
@@ -266,7 +326,10 @@
           );
           msg.textContent = 'Check your email to confirm your account.';
           msg.className = 'msg ok';
-        } catch (e) { msg.textContent = e.message; msg.className = 'msg err'; }
+        } catch (e) {
+          console.error('[auth] signup', e);
+          msg.textContent = e.message; msg.className = 'msg err';
+        }
       };
       box.querySelector('#to-login').onclick = openLoginModal;
     });
@@ -274,17 +337,63 @@
 
   function openForgotModal() {
     openModal(function (box) {
-      box.innerHTML = '' +
+      box.innerHTML = '' + X_CLOSE +
         '<h2><em>Reset</em> password</h2>' +
-        '<label>Email<input id="m-email" type="email" required></label>' +
+        '<form autocomplete="off" onsubmit="return false">' +
+          '<label>Email<input id="m-email" type="email" autocomplete="off" required></label>' +
+        '</form>' +
         '<div><button id="m-submit">Send reset link</button><button class="sec" id="m-cancel">Cancel</button></div>' +
         '<p class="msg" id="m-msg"></p>';
+      box.querySelector('#m-email').value = '';
+      box.querySelector('.x-close').onclick = closeModal;
       box.querySelector('#m-cancel').onclick = closeModal;
       box.querySelector('#m-submit').onclick = async function () {
         var msg = box.querySelector('#m-msg');
-        await forgot(box.querySelector('#m-email').value);
-        msg.textContent = 'If that email exists, a reset link has been sent.';
-        msg.className = 'msg ok';
+        msg.textContent = ''; msg.className = 'msg';
+        try {
+          await forgot(box.querySelector('#m-email').value);
+          msg.textContent = 'If that email exists, a reset link has been sent.';
+          msg.className = 'msg ok';
+        } catch (e) {
+          console.error('[auth] forgot', e);
+          msg.textContent = e.message; msg.className = 'msg err';
+        }
+      };
+    });
+  }
+
+  function openSetPasswordModal() {
+    openModal(function (box) {
+      box.innerHTML = '' + X_CLOSE +
+        '<h2><em>Set</em> new password</h2>' +
+        '<form autocomplete="off" onsubmit="return false">' +
+          '<label>New password (8+ chars)<input id="m-pw" type="password" autocomplete="new-password" required minlength="8"></label>' +
+          '<label>Confirm password<input id="m-pw2" type="password" autocomplete="new-password" required minlength="8"></label>' +
+        '</form>' +
+        '<div><button id="m-submit">Save password</button><button class="sec" id="m-cancel">Cancel</button></div>' +
+        '<p class="msg" id="m-msg"></p>';
+      box.querySelector('#m-pw').value = '';
+      box.querySelector('#m-pw2').value = '';
+      box.querySelector('.x-close').onclick = closeModal;
+      box.querySelector('#m-cancel').onclick = closeModal;
+      box.querySelector('#m-submit').onclick = async function () {
+        var msg = box.querySelector('#m-msg');
+        msg.textContent = ''; msg.className = 'msg';
+        var pw = box.querySelector('#m-pw').value;
+        var pw2 = box.querySelector('#m-pw2').value;
+        if (pw.length < 8) { msg.textContent = 'Password must be at least 8 characters.'; msg.className = 'msg err'; return; }
+        if (pw !== pw2) { msg.textContent = 'Passwords do not match.'; msg.className = 'msg err'; return; }
+        try {
+          var r = await sb.auth.updateUser({ password: pw });
+          if (r && r.error) throw new Error(r.error.message || 'update failed');
+          msg.textContent = 'Password updated. You are now signed in.';
+          msg.className = 'msg ok';
+          await me();
+          setTimeout(closeModal, 1200);
+        } catch (e) {
+          console.error('[auth] updateUser', e);
+          msg.textContent = e.message; msg.className = 'msg err';
+        }
       };
     });
   }
