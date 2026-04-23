@@ -1145,8 +1145,46 @@ function loadWatchlist() {
   } catch(e) { return new Set(); }
 }
 function persistWatchlist() {
+  // Signed-in users' watchlist lives on the server (see syncWatchlistFromServer /
+  // toggleSaved). Only anonymous guests use localStorage as a scratchpad.
+  if (window.Auth && window.Auth.getUser && window.Auth.getUser()) return;
   try { localStorage.setItem(WATCHLIST_KEY, JSON.stringify([...saved])); } catch(e) {}
 }
+
+async function syncWatchlistFromServer() {
+  try {
+    const r = await authFetch(`${API_BASE}/watchlist`);
+    if (!r.ok) return;
+    const data = await r.json();
+    saved = new Set(Array.isArray(data.ids) ? data.ids : []);
+    watchlistCache = {};
+    updateSavedCount();
+    if (currentScreen === 'watchlist') renderWatchlist();
+    else if (currentScreen === 'results') renderResultsList();
+    else if (currentScreen === 'detail') updateDetailSaveButton();
+  } catch(e) { console.error('[watchlist] load failed', e); }
+}
+
+(function wireWatchlistToAuth() {
+  if (!(window.Auth && window.Auth.onAuthChange)) return;
+  let prevUser = null;
+  window.Auth.onAuthChange((user) => {
+    const wasSignedIn = !!prevUser;
+    const isSignedIn = !!user;
+    prevUser = user;
+    if (isSignedIn && !wasSignedIn) {
+      syncWatchlistFromServer();
+    } else if (!isSignedIn && wasSignedIn) {
+      saved = new Set();
+      watchlistCache = {};
+      try { localStorage.removeItem(WATCHLIST_KEY); } catch(e) {}
+      updateSavedCount();
+      if (currentScreen === 'watchlist') renderWatchlist();
+      else if (currentScreen === 'results') renderResultsList();
+      else if (currentScreen === 'detail') updateDetailSaveButton();
+    }
+  });
+})();
 
 /* ====== HELPERS ====== */
 function escapeHtml(s) {
@@ -1514,17 +1552,33 @@ function wireCardClicks() {
   });
 }
 function toggleSaved(id) {
-  if (saved.has(id)) saved.delete(id); else {
+  const willSave = !saved.has(id);
+  if (willSave) {
     saved.add(id);
-    // cache card info for the watchlist view
     const row = currentResults.find(r => r.auction_id === id);
     if (row) watchlistCache[id] = toCard(row);
+  } else {
+    saved.delete(id);
   }
   persistWatchlist();
   updateSavedCount();
   if (currentScreen === 'results') renderResultsList();
   else if (currentScreen === 'watchlist') renderWatchlist();
   else if (currentScreen === 'detail') updateDetailSaveButton();
+
+  const user = window.Auth && window.Auth.getUser && window.Auth.getUser();
+  if (!user) return;
+  const method = willSave ? 'POST' : 'DELETE';
+  authFetch(`${API_BASE}/watchlist/${encodeURIComponent(id)}`, { method })
+    .then(r => { if (!r.ok) throw new Error(`${method} ${r.status}`); })
+    .catch(e => {
+      console.error('[watchlist] sync failed', e);
+      if (willSave) saved.delete(id); else saved.add(id);
+      updateSavedCount();
+      if (currentScreen === 'results') renderResultsList();
+      else if (currentScreen === 'watchlist') renderWatchlist();
+      else if (currentScreen === 'detail') updateDetailSaveButton();
+    });
 }
 
 /* ====== DETAIL ====== */
