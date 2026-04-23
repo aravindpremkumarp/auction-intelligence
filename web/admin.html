@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Admin · Bank Auction Intelligence</title>
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@600&family=Kalam:wght@400&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script>
   window.API_BASE = (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
@@ -42,10 +42,23 @@
   .fb-empty { padding: 12px; font-family: 'Kalam', cursive; color: var(--muted); }
   td.fb-actions button { background: var(--danger); color: #fff; border-color: var(--ink); }
   @media (max-width: 640px) {
-    body { padding: 14px; }
+    body {
+      padding: 14px;
+      padding-left: max(14px, env(safe-area-inset-left));
+      padding-right: max(14px, env(safe-area-inset-right));
+    }
     h1 { font-size: 26px; }
     .actions { flex-wrap: wrap; gap: 8px; }
     th, td { padding: 6px 8px; }
+    table { min-width: 560px; font-size: 12px; }
+    .table-scroll { position: relative; }
+    .table-scroll::after {
+      content: ''; position: absolute; top: 0; right: 0; width: 18px; height: 100%;
+      background: linear-gradient(to right, transparent, rgba(0,0,0,0.08));
+      pointer-events: none;
+    }
+    select, button { min-height: 36px; font-size: 13px; }
+    .fb-meta { word-break: break-all; }
   }
 </style>
 </head>

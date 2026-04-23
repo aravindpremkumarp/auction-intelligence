@@ -185,7 +185,19 @@
       '.auth-slot details .dropdown a:hover{background:#faf7f0;}' +
       '.auth-slot .sign-in{background:#ffd84d;border:2px solid #1a1a1a;padding:6px 12px;' +
       'font-family:\'IBM Plex Mono\',monospace;font-size:12px;font-weight:600;cursor:pointer;' +
-      'box-shadow:2px 3px 0 rgba(0,0,0,0.9);color:#1a1a1a;}';
+      'box-shadow:2px 3px 0 rgba(0,0,0,0.9);color:#1a1a1a;}' +
+      '@media (max-width:480px){' +
+      '.auth-modal{padding:16px 18px;max-width:calc(100vw - 24px);width:calc(100vw - 24px);}' +
+      '.auth-modal h2{font-size:24px;}' +
+      '.auth-modal label{font-size:13px;}' +
+      '.auth-modal input{font-size:16px;padding:10px;}' +
+      '.auth-modal button{font-size:15px;min-height:44px;width:100%;margin-top:10px;}' +
+      '.auth-modal .sec{margin-left:0;background:#fff;}' +
+      '.auth-modal .alt button{min-height:44px;}' +
+      '.auth-modal .x-close{font-size:26px;padding:8px 12px;}' +
+      '.auth-slot details .dropdown{right:0;min-width:200px;max-width:calc(100vw - 24px);}' +
+      '.auth-slot details .dropdown a{padding:12px 14px;font-size:13px;}' +
+      '}';
     var style = document.createElement('style');
     style.id = 'auth-modal-styles';
     style.textContent = css;
