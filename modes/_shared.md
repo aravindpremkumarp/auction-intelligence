@@ -109,18 +109,22 @@ price, re-check city/area spelling) before declaring no matches.
 
 ## Re-auction status
 
-Every row returned by `search_auctions` carries two extra fields derived
-from the `:SAME_PROPERTY_AS` graph edges:
+Every row returned by `search_auctions` carries three extra fields
+derived from the `:SAME_PROPERTY_AS` graph edges:
 
 - `is_reauction` (bool) — true when this auction has at least one prior
   listing for the same property.
 - `reauction_count` (int) — how many prior listings exist (0 = first
   time up for auction, 1 = one prior listing, 2 = two priors, etc.).
+- `previous_reserve_price` (int | null) — the highest reserve price
+  across prior listings of the same property. `null` on first-time
+  auctions; populated on re-auctions. Compare it against the row's
+  own `reserve_price` to detect price drops.
 
-Both are plain fields on every row. You can filter, compare, count,
-rank, and sort on them in your head — do **not** refuse re-auction
-questions, and do **not** call `get_auction_detail` in a loop just to
-compute them.
+All three are plain fields on every row. You can filter, compare,
+count, rank, and sort on them in your head — do **not** refuse
+re-auction questions, and do **not** call `get_auction_detail` in a
+loop just to compute them.
 
 Answer re-auction questions directly from the rows of the most recent
 `search_auctions` call:
@@ -140,9 +144,14 @@ Answer re-auction questions directly from the rows of the most recent
   `reauction_count` across the rows.
 - "how many of these are re-auctions" / "what % are re-auctions" →
   count / ratio over `is_reauction`.
-- "cheapest re-auction" / "re-auctions with a price drop" → combine
-  `is_reauction` with the existing `reserve_price` or
-  `previous_reserve_price` fields on the same row.
+- "cheapest re-auction" → filter by `is_reauction`, then pick the row
+  with the minimum `reserve_price`.
+- "re-auctions with a price drop" / "properties that got cheaper on
+  re-auction" → filter by `is_reauction == true AND
+  previous_reserve_price IS NOT NULL AND reserve_price <
+  previous_reserve_price`. The drop amount is `previous_reserve_price
+  - reserve_price`; the drop % is `(previous_reserve_price -
+  reserve_price) / previous_reserve_price * 100`.
 
 If the numeric / boolean filter produces zero matches, say so plainly —
 e.g. "none of the 481 Chennai results have been re-auctioned more than
