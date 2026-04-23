@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Bank Auction Intelligence</title>
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;600;700&family=Kalam:wght@300;400;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -236,6 +236,14 @@ body {
 }
 .chat-input .send:hover { background: var(--accent); color: var(--ink); }
 .chat-input .send:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.chat-input.compact { padding: 8px 10px; box-shadow: none; font-size: 15px; }
+.chat-input.compact input,
+.chat-input.compact textarea,
+.chat-input.compact input::placeholder,
+.chat-input.compact textarea::placeholder { font-size: 16px; }
+.chat-input.compact .send { width: 24px; height: 24px; font-size: 14px; }
+.chat-input.compact .mode-select-inline { font-size: 11px; padding: 3px 6px; max-width: 110px; }
 
 .chip {
   border: 1.5px solid var(--ink);
@@ -810,7 +818,13 @@ body {
 @media (max-width: 640px) {
   body { font-size: 14px; overflow: auto; }
   .app { border: 0; height: auto; min-height: 100vh; }
-  .topbar { padding: 8px 12px; flex-wrap: wrap; gap: 8px; }
+  .topbar {
+    padding: 8px 12px;
+    padding-left: max(12px, env(safe-area-inset-left));
+    padding-right: max(12px, env(safe-area-inset-right));
+    padding-top: max(8px, env(safe-area-inset-top));
+    flex-wrap: wrap; gap: 8px;
+  }
   .brand { font-size: 20px; }
   .top-nav {
     order: 3; flex-basis: 100%;
@@ -828,7 +842,14 @@ body {
   .sb-toggle { width: 36px; height: 36px; }
 
   .screen-host { overflow: visible; }
-  .screen { position: relative; inset: auto; padding: 16px 14px 24px; overflow: visible; }
+  .screen {
+    position: relative; inset: auto;
+    padding: 16px 14px 24px;
+    padding-left: max(14px, env(safe-area-inset-left));
+    padding-right: max(14px, env(safe-area-inset-right));
+    padding-bottom: max(24px, env(safe-area-inset-bottom));
+    overflow: visible;
+  }
   .landing-hero { padding-top: 12px; gap: 14px; }
   .landing-hero h1 { font-size: 32px; }
   .landing-sub { font-size: 11px; }
@@ -840,7 +861,14 @@ body {
   .chat-input textarea,
   .chat-input textarea::placeholder { font-size: 18px; }
   .chat-input .send { width: 44px; height: 44px; font-size: 20px; }
-  .mode-select-inline { font-size: 11px; padding: 8px 10px; max-width: 108px; min-height: 36px; }
+  .chat-input.compact { padding: 10px; box-shadow: var(--shadow); }
+  .chat-input.compact input,
+  .chat-input.compact textarea,
+  .chat-input.compact input::placeholder,
+  .chat-input.compact textarea::placeholder { font-size: 18px; }
+  .chat-input.compact .send { width: 44px; height: 44px; font-size: 20px; }
+  .mode-select-inline { font-size: 16px; padding: 8px 10px; max-width: min(140px, 42vw); min-height: 36px; }
+  .chat-input.compact .mode-select-inline { font-size: 16px; padding: 8px 10px; max-width: min(140px, 42vw); min-height: 36px; }
 
   .fact-grid { grid-template-columns: 1fr; }
   .fact .val { font-size: 14px; }
@@ -860,7 +888,7 @@ body {
   .prop.urgent { background: linear-gradient(90deg, var(--accent) 0 4px, var(--card) 4px); }
 
   .bubble { max-width: 94%; font-size: 14px; }
-  .b-act { padding: 5px 7px; }
+  .b-act { padding: 7px 9px; min-width: 32px; min-height: 32px; }
   .chip { padding: 6px 12px; font-size: 13px; }
 }
 
@@ -945,12 +973,12 @@ body {
             <button class="chip" onclick="newThread()">+ new</button>
           </div>
           <div class="chat-log" id="chat-log"></div>
-          <div class="chat-input" style="box-shadow:none; padding:8px 10px;">
-            <select class="mode-select-inline" aria-label="Answer mode" style="font-size:10px; padding:3px 6px; max-width:110px;">
+          <div class="chat-input compact">
+            <select class="mode-select-inline" aria-label="Answer mode">
               <option value="ask">ask ▾</option>
             </select>
-            <textarea id="results-input" rows="1" placeholder="refine…" autocomplete="off" style="font-size:18px;"></textarea>
-            <button class="send" id="results-send" style="width:24px;height:24px;font-size:14px;">→</button>
+            <textarea id="results-input" rows="1" placeholder="refine…" autocomplete="off"></textarea>
+            <button class="send" id="results-send">→</button>
           </div>
         </div>
         <div class="results-pane">
@@ -1001,9 +1029,9 @@ body {
           <div style="border:1.5px dashed var(--ink); padding:10px; background:var(--card);">
             <div class="lbl" style="margin-bottom:6px;">ask about this property</div>
             <div id="detail-chat-log" style="display:flex; flex-direction:column; gap:6px; max-height:240px; overflow-y:auto; margin-bottom:8px; min-height:60px;"></div>
-            <div class="chat-input" style="box-shadow:none; padding:6px 8px;">
-              <textarea id="detail-input" rows="1" placeholder="e.g. what's the EMD?" autocomplete="off" style="font-size:16px;"></textarea>
-              <button class="send" id="detail-send" style="width:24px;height:24px;font-size:14px;">→</button>
+            <div class="chat-input compact">
+              <textarea id="detail-input" rows="1" placeholder="e.g. what's the EMD?" autocomplete="off"></textarea>
+              <button class="send" id="detail-send">→</button>
             </div>
           </div>
         </aside>
