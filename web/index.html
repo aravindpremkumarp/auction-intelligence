@@ -315,11 +315,22 @@ body {
 .sb-item {
   padding: 6px 8px; font-family: var(--font-body); font-size: 12px;
   border: 1.5px solid transparent; cursor: pointer;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   line-height: 1.3;
+  display: flex; align-items: center; gap: 6px;
 }
 .sb-item:hover { background: var(--paper-2); border-color: var(--ink); }
 .sb-item.active { background: var(--accent); border-color: var(--ink); }
+.sb-item-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sb-item-del {
+  flex-shrink: 0; width: 16px; height: 16px; padding: 0;
+  border: none; background: transparent; color: var(--muted);
+  font-size: 14px; line-height: 1; cursor: pointer;
+  opacity: 0; transition: opacity 0.15s;
+  font-family: var(--font-body);
+}
+.sb-item:hover .sb-item-del,
+.sb-item.active .sb-item-del { opacity: 1; }
+.sb-item-del:hover { color: var(--ink); }
 
 .transcript-pane { position: relative; }
 .tp-resize {
@@ -1109,6 +1120,7 @@ function _requireAuthForMode(mode) {
 }
 const SEARCH_TOOLS = ['search_auctions', 'semantic_property_search'];
 const LIST_TOOLS = [...SEARCH_TOOLS, 'upcoming_auctions', 'price_comparison', 'find_similar_properties', 'borrower_lookup', 'survey_search'];
+const DETAIL_TOOL = 'get_auction_detail';
 const WATCHLIST_KEY = 'bankauction.watchlist.v1';
 const SESSION_KEY = 'bankauction.session_id';
 const ICON = { flat:'icon-flat', house:'icon-house', land:'icon-land', commercial:'icon-commercial' };
@@ -1344,11 +1356,43 @@ async function apiFeedback(payload) {
 }
 
 /* ====== CHAT ====== */
+function flattenDetailRow(r) {
+  // get_auction_detail returns {auction_id, fields, relationships, ...}.
+  // toCard wants flat search_auctions-style fields.
+  if (!r || !r.auction_id) return null;
+  const f = r.fields || {};
+  const rel = r.relationships || {};
+  return {
+    auction_id: r.auction_id,
+    title: f.title,
+    url: f.url,
+    reserve_price: f.reserve_price_num ?? f.reserve_price,
+    previous_reserve_price: f.previous_reserve_price_num ?? f.previous_reserve_price ?? null,
+    emd: f.emd_num ?? f.emd,
+    auction_start: f.auction_start_dt ?? f.auction_start,
+    deadline: f.application_deadline_dt ?? f.deadline,
+    city: rel.city?.name,
+    area: rel.area?.name,
+    bank: rel.bank?.name,
+    asset_category: rel.asset_category?.name,
+    property_types: Array.isArray(rel.property_types) ? rel.property_types : [],
+  };
+}
+
 function extractResultsFromArtifacts(artifacts) {
   if (!Array.isArray(artifacts)) return { rows: [], total: null, tool: null };
   const pick = (names) => artifacts.filter(a => names.includes(a.tool)).pop();
   const primary = pick(SEARCH_TOOLS) || pick(LIST_TOOLS);
-  if (!primary) return { rows: [], total: null, tool: null };
+  if (!primary) {
+    // Multiple get_auction_detail calls (e.g. "show me 708365 & 701641")
+    // each return one dict — flatten them into a card list.
+    const details = artifacts.filter(a => a.tool === DETAIL_TOOL);
+    if (details.length) {
+      const rows = details.map(a => flattenDetailRow(a.result)).filter(Boolean);
+      return { rows, total: rows.length, tool: DETAIL_TOOL };
+    }
+    return { rows: [], total: null, tool: null };
+  }
   const r = primary.result;
   let rows = [];
   let total = null;
@@ -1373,6 +1417,7 @@ async function askAI(userText, opts = {}) {
     apiMessageHistory = null;
     currentResults = [];
     currentTotalCount = null;
+    activeChatId = null;
     go('results');
   }
   chatHistory.push({ role: 'user', text: userText });
@@ -1397,6 +1442,12 @@ async function askAI(userText, opts = {}) {
   }
   renderChat();
   renderResultsList();
+  // Mint a conversation id on the first turn so subsequent saves PUT to a
+  // stable key. Saving is a no-op for anonymous users.
+  if (isSignedIn() && !activeChatId) {
+    activeChatId = (crypto.randomUUID && crypto.randomUUID()) || ('c-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10));
+  }
+  saveActiveConversation();
 }
 
 function renderChat() {
@@ -1414,6 +1465,9 @@ function renderChat() {
           </button>
           <button class="b-act" data-act="edit" data-i="${i}" title="edit & re-run" aria-label="edit">
             <svg viewBox="0 0 16 16" width="12" height="12"><path d="M2 14 L2 11 L11 2 L14 5 L5 14 Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><line x1="9" y1="4" x2="12" y2="7" stroke="currentColor" stroke-width="1.5"/></svg>
+          </button>
+          <button class="b-act" data-act="delete" data-i="${i}" title="delete" aria-label="delete">
+            <svg viewBox="0 0 16 16" width="12" height="12"><path d="M3 5 L13 5 M5 5 L5 14 Q5 15 6 15 L10 15 Q11 15 11 14 L11 5 M6 5 L6 3 Q6 2 7 2 L9 2 Q10 2 10 3 L10 5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/></svg>
           </button>
         </div>
       </div>`;
@@ -1456,7 +1510,20 @@ function renderChat() {
         inp.focus();
         inp.setSelectionRange(msg.text.length, msg.text.length);
         chatHistory = chatHistory.slice(0, i);
+        apiMessageHistory = null;
         renderChat();
+        saveActiveConversation();
+      } else if (act === 'delete') {
+        // Drop this user message and its immediate AI reply (if any) so we
+        // don't leave an orphan response. apiMessageHistory is cleared
+        // because Pydantic AI's history can't be cleanly partial-edited;
+        // the next turn just starts context-light.
+        const next = chatHistory[i + 1];
+        const removeCount = (next && (next.role === 'ai' || next.role === 'ai thinking')) ? 2 : 1;
+        chatHistory.splice(i, removeCount);
+        apiMessageHistory = null;
+        renderChat();
+        saveActiveConversation();
       } else if (act === 'up') {
         btn.classList.add('active');
         sendMessageFeedback(i, 'up');
@@ -1898,18 +1965,103 @@ function renderWatchlist() {
 }
 
 /* ====== CHATS SIDEBAR ====== */
+// Persisted per-user via /conversations (api/conversations). Anonymous
+// users see only the in-memory thread they're currently typing — no
+// sidebar history, no save attempts, no 401s.
 let recentChats = [];
 let activeChatId = null;
 let sbFilter = '';
 
-function newThread() {
-  if (chatHistory.length) {
-    const firstUser = chatHistory.find(m => m.role === 'user');
-    if (firstUser) {
-      recentChats.unshift({ id: 'c' + Date.now(), title: firstUser.text.slice(0, 80), ts: Date.now(), history: [...chatHistory], apiHistory: apiMessageHistory, results: currentResults, total: currentTotalCount });
-      if (recentChats.length > 20) recentChats.pop();
-    }
+function isSignedIn() {
+  return !!(window.Auth && window.Auth.getUser && window.Auth.getUser());
+}
+
+function _conversationTitle() {
+  const firstUser = chatHistory.find(m => m.role === 'user');
+  const t = (firstUser ? firstUser.text : '').trim().slice(0, 80);
+  return t || 'untitled';
+}
+
+async function syncConversationsFromServer() {
+  if (!isSignedIn()) return;
+  try {
+    const r = await authFetch(`${API_BASE}/conversations`);
+    if (!r.ok) return;
+    const data = await r.json();
+    const list = Array.isArray(data.conversations) ? data.conversations : [];
+    recentChats = list.map(c => ({
+      id: c.id,
+      title: c.title || 'untitled',
+      ts: c.updated_at ? (Date.parse(c.updated_at) || Date.now()) : Date.now(),
+    }));
+    renderSidebar();
+  } catch (e) { console.error('[chats] sync failed', e); }
+}
+
+async function loadConversation(id) {
+  if (!isSignedIn()) return;
+  try {
+    const r = await authFetch(`${API_BASE}/conversations/${encodeURIComponent(id)}`);
+    if (!r.ok) return;
+    const data = await r.json();
+    activeChatId = data.id;
+    chatHistory = Array.isArray(data.messages) ? data.messages : [];
+    apiMessageHistory = data.api_history || null;
+    currentResults = Array.isArray(data.results) ? data.results : [];
+    currentTotalCount = (typeof data.total_count === 'number') ? data.total_count : null;
+    if (currentScreen !== 'results') go('results');
+    renderSidebar();
+    renderChat();
+    renderResultsList();
+  } catch (e) { console.error('[chats] load failed', e); }
+}
+
+async function saveActiveConversation() {
+  if (!isSignedIn() || !activeChatId) return;
+  // Snapshot id + payload now — caller's state may change before fetch resolves.
+  const id = activeChatId;
+  const payload = {
+    title: _conversationTitle(),
+    messages: chatHistory.filter(m => m.role !== 'ai thinking'),
+    api_history: apiMessageHistory,
+    results: currentResults || [],
+    total_count: currentTotalCount,
+  };
+  try {
+    const r = await authFetch(`${API_BASE}/conversations/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!r.ok) return;
+    const idx = recentChats.findIndex(c => c.id === id);
+    const entry = { id, title: payload.title, ts: Date.now() };
+    if (idx >= 0) recentChats.splice(idx, 1);
+    recentChats.unshift(entry);
+    renderSidebar();
+  } catch (e) { console.error('[chats] save failed', e); }
+}
+
+async function deleteConversation(id) {
+  if (!isSignedIn()) return;
+  if (!confirm('delete this chat?')) return;
+  try {
+    await authFetch(`${API_BASE}/conversations/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  } catch (e) { console.error('[chats] delete failed', e); }
+  recentChats = recentChats.filter(c => c.id !== id);
+  if (activeChatId === id) {
+    chatHistory = [];
+    apiMessageHistory = null;
+    currentResults = [];
+    currentTotalCount = null;
+    activeChatId = null;
+    renderChat();
+    renderResultsList();
   }
+  renderSidebar();
+}
+
+function newThread() {
   chatHistory = [];
   apiMessageHistory = null;
   currentResults = [];
@@ -1924,28 +2076,52 @@ function newThread() {
 function renderSidebar() {
   const body = document.getElementById('sb-body');
   if (!body) return;
+  if (!isSignedIn()) {
+    body.innerHTML = `<div class="lbl" style="padding:10px 4px;">sign in to save chats</div>`;
+    return;
+  }
   const q = sbFilter.toLowerCase();
   const now = Date.now();
-  const filtered = recentChats.filter(c => c.title.toLowerCase().includes(q));
+  const filtered = recentChats.filter(c => (c.title || '').toLowerCase().includes(q));
   const today = filtered.filter(c => now - c.ts < 86400e3);
   const week = filtered.filter(c => now - c.ts >= 86400e3 && now - c.ts < 7*86400e3);
   const older = filtered.filter(c => now - c.ts >= 7*86400e3);
-  const grp = (label, items) => items.length ? `<div class="sb-group-label">${label}</div>` + items.map(c =>
-    `<div class="sb-item ${c.id === activeChatId ? 'active' : ''}" data-chat-id="${c.id}" title="${escapeHtml(c.title)}">${escapeHtml(c.title)}</div>`).join('') : '';
+  const itemHtml = c =>
+    `<div class="sb-item ${c.id === activeChatId ? 'active' : ''}" data-chat-id="${c.id}" title="${escapeHtml(c.title)}">
+       <span class="sb-item-title">${escapeHtml(c.title)}</span>
+       <button class="sb-item-del" data-del-id="${c.id}" title="delete" aria-label="delete">×</button>
+     </div>`;
+  const grp = (label, items) => items.length ? `<div class="sb-group-label">${label}</div>` + items.map(itemHtml).join('') : '';
   body.innerHTML = grp('today', today) + grp('this week', week) + grp('earlier', older) || `<div class="lbl" style="padding:10px 4px;">no past chats yet</div>`;
-  body.querySelectorAll('.sb-item').forEach(el => el.addEventListener('click', () => {
-    const c = recentChats.find(x => x.id === el.dataset.chatId);
-    if (!c) return;
-    activeChatId = c.id;
-    chatHistory = [...c.history];
-    apiMessageHistory = c.apiHistory || null;
-    currentResults = c.results || [];
-    currentTotalCount = c.total ?? null;
-    renderSidebar();
-    renderChat();
-    renderResultsList();
+  body.querySelectorAll('.sb-item').forEach(el => el.addEventListener('click', (e) => {
+    if (e.target.closest('.sb-item-del')) return;
+    loadConversation(el.dataset.chatId);
+  }));
+  body.querySelectorAll('.sb-item-del').forEach(btn => btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    deleteConversation(btn.dataset.delId);
   }));
 }
+
+(function wireConversationsToAuth() {
+  if (!(window.Auth && window.Auth.onAuthChange)) return;
+  let prevUser = null;
+  let didInitialSync = false;
+  window.Auth.onAuthChange((user) => {
+    const wasSignedIn = !!prevUser;
+    const nowSignedIn = !!user;
+    prevUser = user;
+    if (nowSignedIn && (!wasSignedIn || !didInitialSync)) {
+      didInitialSync = true;
+      syncConversationsFromServer();
+    } else if (!nowSignedIn && wasSignedIn) {
+      recentChats = [];
+      activeChatId = null;
+      didInitialSync = false;
+      renderSidebar();
+    }
+  });
+})();
 
 document.getElementById('sb-toggle').addEventListener('click', () => {
   document.getElementById('results-grid').classList.toggle('sb-collapsed');
