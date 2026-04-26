@@ -441,6 +441,34 @@ body {
 }
 @keyframes dots { 0% {content:'';} 25%{content:'.';} 50%{content:'..';} 75%{content:'...';} }
 
+.sources-row {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  margin: 6px 0 0 0; align-items: center;
+  max-width: 100%;
+}
+.sources-label {
+  font-family: var(--font-hand);
+  font-size: 14px;
+  color: var(--ink-soft);
+  margin-right: 4px;
+}
+.source-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 8px;
+  border: 1.5px solid var(--ink);
+  border-radius: 12px;
+  background: var(--paper-2);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-decoration: none;
+  transition: transform 80ms ease, background 120ms ease;
+}
+.source-chip:hover { background: var(--accent); transform: translateY(-1px); }
+.source-favicon { width: 14px; height: 14px; border-radius: 2px; }
+.source-num { font-weight: 600; opacity: 0.7; }
+.source-domain { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 .results-pane {
   display: flex; flex-direction: column;
   min-height: 0;
@@ -1396,6 +1424,21 @@ function detailArtifactToRow(art) {
     previous_reserve_price: previous,
   };
 }
+function extractWebSources(artifacts) {
+  if (!Array.isArray(artifacts)) return [];
+  const seen = new Set();
+  const out = [];
+  for (const a of artifacts) {
+    if (!a || a.tool !== 'internet_search') continue;
+    const srcs = (a.result && Array.isArray(a.result.sources)) ? a.result.sources : [];
+    for (const s of srcs) {
+      if (!s || !s.url || seen.has(s.url)) continue;
+      seen.add(s.url);
+      out.push(s);
+    }
+  }
+  return out;
+}
 function extractResultsFromArtifacts(artifacts) {
   if (!Array.isArray(artifacts)) return { rows: [], total: null, tool: null };
   const pick = (names) => artifacts.filter(a => names.includes(a.tool)).pop();
@@ -1494,8 +1537,20 @@ function renderChat() {
       </div>`;
     }
     if (m.role === 'ai') {
+      const sources = extractWebSources(m.artifacts);
+      const sourcesHtml = sources.length ? `
+        <div class="sources-row">
+          <span class="sources-label">sources</span>
+          ${sources.map((s, n) => `
+            <a class="source-chip" href="${escapeHtml(s.url)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(s.title || s.url)}">
+              <img class="source-favicon" src="https://www.google.com/s2/favicons?domain=${encodeURIComponent(s.domain || '')}&sz=32" alt="" loading="lazy" onerror="this.style.display='none'">
+              <span class="source-num">[${n + 1}]</span>
+              <span class="source-domain">${escapeHtml(s.domain || '')}</span>
+            </a>`).join('')}
+        </div>` : '';
       return `<div class="bubble-wrap ai">
         <div class="bubble ai">${escapeHtml(m.text)}</div>
+        ${sourcesHtml}
         <div class="bubble-actions">
           <button class="b-act" data-act="copy-ai" data-i="${i}" title="copy" aria-label="copy">
             <svg viewBox="0 0 16 16" width="12" height="12"><rect x="4" y="4" width="9" height="10" fill="none" stroke="currentColor" stroke-width="1.5"/><rect x="2" y="2" width="9" height="10" fill="currentColor" opacity="0.15" stroke="currentColor" stroke-width="1.5"/></svg>
