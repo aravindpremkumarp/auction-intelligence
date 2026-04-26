@@ -29,6 +29,7 @@ from api.agent import ChatDeps, agent
 from api.auth import get_current_admin, get_optional_user, router as auth_router
 from api.auth.rate_limit import limiter
 from api.auth.schemas import UserOut
+from api.conversations import router as conversations_router
 from api.neo4j_client import run_query
 from api.tools.cypher_tools import get_auction_detail
 from api.watchlist import router as watchlist_router
@@ -84,6 +85,7 @@ async def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONR
 if os.environ.get("AUTH_ENABLED", "true").lower() != "false":
     app.include_router(auth_router)
     app.include_router(watchlist_router)
+    app.include_router(conversations_router)
 
 
 _GATED_MODES = {"deep-research", "report"}
