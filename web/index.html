@@ -13,8 +13,8 @@
     : 'https://auction-api-w68b.onrender.com';
   // Supabase project credentials. ANON key is safe to expose; service-role
   // key stays server-side. Replace these at deploy time if they move.
-  window.SUPABASE_URL = window.SUPABASE_URL || '';
-  window.SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY || '';
+  window.SUPABASE_URL = window.SUPABASE_URL || 'https://yrcrxpwoqddfcengkryw.supabase.co';
+  window.SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY || 'sb_publishable_IT4CBVWS1a37sduWApOdFw_1UCR0kyJ';
 </script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script>
@@ -444,6 +444,7 @@ body {
 .results-pane {
   display: flex; flex-direction: column;
   min-height: 0;
+  min-width: 0;
   gap: 10px;
 }
 .results-head {
@@ -451,10 +452,18 @@ body {
   flex-wrap: wrap; gap: 10px;
 }
 .results-head .count { font-family: var(--font-hand); font-size: 22px; }
+.results-sort {
+  font-family: var(--font-mono); font-size: 12px;
+  padding: 4px 8px;
+  border: 1.5px solid var(--ink);
+  background: var(--card); color: var(--ink);
+  cursor: pointer;
+}
 .results-list {
   flex: 1; overflow-y: auto;
   display: flex; flex-direction: column; gap: 10px;
   padding-right: 4px;
+  min-width: 0;
 }
 .results-empty {
   padding: 40px 20px; text-align: center;
@@ -961,6 +970,11 @@ body {
               <div class="count" id="results-count">—</div>
               <div class="lbl" id="results-subcount">waiting for query</div>
             </div>
+            <select id="results-sort" class="results-sort" aria-label="sort properties">
+              <option value="date_asc">Date ↑</option>
+              <option value="price_asc">Price ↑</option>
+              <option value="price_desc">Price ↓</option>
+            </select>
           </div>
           <div class="results-list" id="results-list"></div>
         </div>
@@ -1120,7 +1134,7 @@ function _requireAuthForMode(mode) {
 }
 const SEARCH_TOOLS = ['search_auctions', 'semantic_property_search'];
 const LIST_TOOLS = [...SEARCH_TOOLS, 'upcoming_auctions', 'price_comparison', 'find_similar_properties', 'borrower_lookup', 'survey_search'];
-const DETAIL_TOOL = 'get_auction_detail';
+const DETAIL_TOOLS = ['get_auction_detail'];
 const WATCHLIST_KEY = 'bankauction.watchlist.v1';
 const SESSION_KEY = 'bankauction.session_id';
 const ICON = { flat:'icon-flat', house:'icon-house', land:'icon-land', commercial:'icon-commercial' };
@@ -1137,6 +1151,7 @@ let apiMessageHistory = null;
 let lastQuery = null;
 let currentResults = [];
 let currentTotalCount = null;
+let currentSort = 'date_asc';
 let detailChatHistory = [];
 
 function sessionId() {
@@ -1356,43 +1371,49 @@ async function apiFeedback(payload) {
 }
 
 /* ====== CHAT ====== */
-function flattenDetailRow(r) {
-  // get_auction_detail returns {auction_id, fields, relationships, ...}.
-  // toCard wants flat search_auctions-style fields.
-  if (!r || !r.auction_id) return null;
-  const f = r.fields || {};
-  const rel = r.relationships || {};
+function detailArtifactToRow(art) {
+  const res = art && art.result;
+  if (!res || !res.auction_id) return null;
+  const f = res.fields || {};
+  const rel = res.relationships || {};
+  const prior = (res.price_history || [])
+    .filter(p => !p.is_current && p.reserve_price_num != null)
+    .map(p => Number(p.reserve_price_num))
+    .filter(n => !Number.isNaN(n));
+  const previous = prior.length ? Math.max.apply(null, prior) : null;
   return {
-    auction_id: r.auction_id,
+    auction_id: res.auction_id,
     title: f.title,
     url: f.url,
-    reserve_price: f.reserve_price_num ?? f.reserve_price,
-    previous_reserve_price: f.previous_reserve_price_num ?? f.previous_reserve_price ?? null,
-    emd: f.emd_num ?? f.emd,
-    auction_start: f.auction_start_dt ?? f.auction_start,
-    deadline: f.application_deadline_dt ?? f.deadline,
-    city: rel.city?.name,
-    area: rel.area?.name,
-    bank: rel.bank?.name,
-    asset_category: rel.asset_category?.name,
-    property_types: Array.isArray(rel.property_types) ? rel.property_types : [],
+    reserve_price: f.reserve_price_num,
+    emd: f.emd_num,
+    auction_start: f.auction_start_dt,
+    city: rel.city && rel.city.name,
+    area: rel.area && rel.area.name,
+    bank: rel.bank && rel.bank.name,
+    asset_category: rel.asset_category && rel.asset_category.name,
+    property_types: rel.property_types || [],
+    previous_reserve_price: previous,
   };
 }
-
 function extractResultsFromArtifacts(artifacts) {
   if (!Array.isArray(artifacts)) return { rows: [], total: null, tool: null };
   const pick = (names) => artifacts.filter(a => names.includes(a.tool)).pop();
-  const primary = pick(SEARCH_TOOLS) || pick(LIST_TOOLS);
-  if (!primary) {
-    // Multiple get_auction_detail calls (e.g. "show me 708365 & 701641")
-    // each return one dict — flatten them into a card list.
-    const details = artifacts.filter(a => a.tool === DETAIL_TOOL);
-    if (details.length) {
-      const rows = details.map(a => flattenDetailRow(a.result)).filter(Boolean);
-      return { rows, total: rows.length, tool: DETAIL_TOOL };
-    }
-    return { rows: [], total: null, tool: null };
+  // Prefer list-shaped results when present; a follow-up detail call should
+  // still swap the panel to the cards the user just asked about. When the
+  // user gives multiple parcel ids ("show me 708365 & 701641") the agent
+  // calls get_auction_detail once per id — render every detail artifact,
+  // not just the last one.
+  const listArt = pick(SEARCH_TOOLS) || pick(LIST_TOOLS);
+  const detailArts = artifacts.filter(a => DETAIL_TOOLS.includes(a.tool));
+  const listIdx = listArt ? artifacts.indexOf(listArt) : -1;
+  const lastDetailIdx = detailArts.length ? artifacts.indexOf(detailArts[detailArts.length - 1]) : -1;
+  if (detailArts.length && lastDetailIdx > listIdx) {
+    const rows = detailArts.map(detailArtifactToRow).filter(Boolean);
+    return { rows, total: rows.length, tool: detailArts[0].tool };
   }
+  if (!listArt) return { rows: [], total: null, tool: null };
+  const primary = listArt;
   const r = primary.result;
   let rows = [];
   let total = null;
@@ -1550,6 +1571,38 @@ function flashBtn(btn) {
 }
 
 /* ====== RESULTS ====== */
+const SORT_LABEL = {
+  date_asc:   'sorted by auction date',
+  price_asc:  'sorted by price (low → high)',
+  price_desc: 'sorted by price (high → low)',
+};
+function sortResults(rows, mode) {
+  const copy = rows.slice();
+  const endIfMissing = (v) => v == null || v === '' || Number.isNaN(v);
+  if (mode === 'price_asc' || mode === 'price_desc') {
+    const dir = mode === 'price_asc' ? 1 : -1;
+    copy.sort((a, b) => {
+      const av = Number(a.reserve_price);
+      const bv = Number(b.reserve_price);
+      const am = endIfMissing(av), bm = endIfMissing(bv);
+      if (am && bm) return 0;
+      if (am) return 1;
+      if (bm) return -1;
+      return (av - bv) * dir;
+    });
+  } else {
+    copy.sort((a, b) => {
+      const av = a.auction_start || a.deadline || '';
+      const bv = b.auction_start || b.deadline || '';
+      const am = endIfMissing(av), bm = endIfMissing(bv);
+      if (am && bm) return 0;
+      if (am) return 1;
+      if (bm) return -1;
+      return av < bv ? -1 : av > bv ? 1 : 0;
+    });
+  }
+  return copy;
+}
 function renderResults() {
   renderChat();
   renderResultsList();
@@ -1558,6 +1611,8 @@ function renderResultsList() {
   const list = document.getElementById('results-list');
   const countEl = document.getElementById('results-count');
   const subEl = document.getElementById('results-subcount');
+  const sortEl = document.getElementById('results-sort');
+  if (sortEl) sortEl.style.display = (currentResults && currentResults.length > 1) ? '' : 'none';
   if (!currentResults || currentResults.length === 0) {
     if (chatHistory.length === 0) {
       list.innerHTML = `<div class="results-empty">ask a question on the left to see properties here.</div>`;
@@ -1570,14 +1625,25 @@ function renderResultsList() {
     }
     return;
   }
-  const cards = currentResults.map(row => toCard(row)).filter(c => c.id);
+  const sorted = sortResults(currentResults, currentSort);
+  const cards = sorted.map(row => toCard(row)).filter(c => c.id);
   const shown = cards.length;
   const total = (currentTotalCount != null) ? currentTotalCount : shown;
   countEl.textContent = `${total.toLocaleString('en-IN')} match${total === 1 ? '' : 'es'}`;
-  subEl.textContent = total > shown ? `showing ${shown}` : 'sorted by auction date';
+  const sortLabel = SORT_LABEL[currentSort] || SORT_LABEL.date_asc;
+  subEl.textContent = total > shown ? `showing ${shown} · ${sortLabel}` : sortLabel;
   list.innerHTML = cards.map(c => propCardHtml(c, false)).join('');
   wireCardClicks();
 }
+(function wireSortControl() {
+  const sel = document.getElementById('results-sort');
+  if (!sel) return;
+  sel.value = currentSort;
+  sel.addEventListener('change', () => {
+    currentSort = sel.value;
+    renderResultsList();
+  });
+})();
 function propCardHtml(c, urgent, countdown) {
   const isSaved = saved.has(c.id);
   const dropBadge = c.drop

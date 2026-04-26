@@ -107,6 +107,62 @@ when presenting it.
 If a filter returns zero, try loosening (drop `property_type`, broaden
 price, re-check city/area spelling) before declaring no matches.
 
+## Re-auction status
+
+Every row returned by `search_auctions` carries three extra fields
+derived from the `:SAME_PROPERTY_AS` graph edges:
+
+- `is_reauction` (bool) — true when this auction has at least one prior
+  listing for the same property.
+- `reauction_count` (int) — how many prior listings exist (0 = first
+  time up for auction, 1 = one prior listing, 2 = two priors, etc.).
+- `previous_reserve_price` (int | null) — the highest reserve price
+  across prior listings of the same property. `null` on first-time
+  auctions; populated on re-auctions. Compare it against the row's
+  own `reserve_price` to detect price drops.
+
+All three are plain fields on every row. You can filter, compare,
+count, rank, and sort on them in your head — do **not** refuse
+re-auction questions, and do **not** call `get_auction_detail` in a
+loop just to compute them.
+
+Answer re-auction questions directly from the rows of the most recent
+`search_auctions` call:
+
+- "which are re-auctions" / "only show repeats" → filter by
+  `is_reauction == true`.
+- "fresh listings only" / "first-time auctions" / "ignore anything
+  listed before" → filter by `is_reauction == false`.
+- "re-auctioned more than N times" → filter by `reauction_count > N`.
+- "re-auctioned at least N times" → filter by `reauction_count >= N`.
+- "re-auctioned exactly N times" → filter by `reauction_count == N`.
+- "at most N times" / "skip anything re-auctioned more than N" →
+  filter by `reauction_count <= N`.
+- "most re-auctioned first" / "top 5 re-auctioned" → sort rows by
+  `reauction_count` descending and slice.
+- "which property has been re-auctioned the most" → argmax on
+  `reauction_count` across the rows.
+- "how many of these are re-auctions" / "what % are re-auctions" →
+  count / ratio over `is_reauction`.
+- "cheapest re-auction" → filter by `is_reauction`, then pick the row
+  with the minimum `reserve_price`.
+- "re-auctions with a price drop" / "properties that got cheaper on
+  re-auction" → filter by `is_reauction == true AND
+  previous_reserve_price IS NOT NULL AND reserve_price <
+  previous_reserve_price`. The drop amount is `previous_reserve_price
+  - reserve_price`; the drop % is `(previous_reserve_price -
+  reserve_price) / previous_reserve_price * 100`.
+
+If the numeric / boolean filter produces zero matches, say so plainly —
+e.g. "none of the 481 Chennai results have been re-auctioned more than
+2 times". **Never** respond with "I cannot fulfill this request" or
+"the search does not provide this functionality" — those answers are
+wrong; the fields are right there on every row.
+
+For single-property re-auction questions ("is auction 712492 a
+re-auction?", "when was this first auctioned?"), call
+`get_auction_detail(auction_id)` and read its `price_history` timeline.
+
 ## Filter carry-over and superlatives
 
 Conversations narrow over time. Once the user has scoped to a bank, city,

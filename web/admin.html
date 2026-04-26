@@ -9,8 +9,8 @@
   window.API_BASE = (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
     ? ''
     : 'https://auction-api-w68b.onrender.com';
-  window.SUPABASE_URL = window.SUPABASE_URL || '';
-  window.SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY || '';
+  window.SUPABASE_URL = window.SUPABASE_URL || 'https://yrcrxpwoqddfcengkryw.supabase.co';
+  window.SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY || 'sb_publishable_IT4CBVWS1a37sduWApOdFw_1UCR0kyJ';
 </script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="/auth.js"></script>
@@ -35,6 +35,12 @@
   #msg { font-family: 'IBM Plex Mono', monospace; font-size: 12px; margin: 10px 0; min-height: 1em; }
   .err { color: var(--danger); font-weight: 600; }
   .ok { color: var(--good); font-weight: 600; }
+  h2 { font-family: 'Caveat', cursive; font-size: 26px; margin: 32px 0 10px; }
+  .fb-q { font-weight: 600; }
+  .fb-text { color: var(--ink); white-space: pre-wrap; word-break: break-word; }
+  .fb-meta { font-size: 11px; color: var(--muted); }
+  .fb-empty { padding: 12px; font-family: 'Kalam', cursive; color: var(--muted); }
+  td.fb-actions button { background: var(--danger); color: #fff; border-color: var(--ink); }
   @media (max-width: 640px) {
     body { padding: 14px; }
     h1 { font-size: 26px; }
@@ -58,6 +64,17 @@
         <tr><th>Email</th><th>Name</th><th>Role</th><th>Verified</th><th>Enabled</th><th>Actions</th></tr>
       </thead>
       <tbody id="rows"></tbody>
+    </table>
+  </div>
+
+  <h2><em>Feedback</em> · unresolved</h2>
+  <div id="fb-msg"></div>
+  <div class="table-scroll">
+    <table>
+      <thead>
+        <tr><th style="width: 140px;">Created</th><th style="width: 80px;">Rating</th><th>Question / text</th><th style="width: 110px;">Actions</th></tr>
+      </thead>
+      <tbody id="fb-rows"></tbody>
     </table>
   </div>
 </div>
@@ -126,8 +143,72 @@
     if (r.ok) setTimeout(() => { msg.textContent = ''; }, 1500);
   });
 
-  document.getElementById('reload').addEventListener('click', load);
+  async function loadFeedback() {
+    const fbMsg = document.getElementById('fb-msg');
+    fbMsg.textContent = '';
+    const r = await authFetch(API + '/admin/feedback?unresolved_only=true&limit=100', {
+      headers: { 'Content-Type': 'application/json' },
+    });
+    if (r.status === 401 || r.status === 403) {
+      fbMsg.innerHTML = '<span class="err">Not authorised.</span>';
+      return;
+    }
+    if (!r.ok) { fbMsg.innerHTML = '<span class="err">Error ' + r.status + '</span>'; return; }
+    const items = await r.json();
+    renderFeedback(items);
+  }
+
+  function fmtWhen(iso) {
+    if (!iso) return '';
+    try { return new Date(iso).toLocaleString(); } catch (e) { return iso; }
+  }
+
+  function renderFeedback(items) {
+    const tbody = document.getElementById('fb-rows');
+    tbody.innerHTML = '';
+    if (!items || !items.length) {
+      tbody.innerHTML = '<tr><td colspan="4"><div class="fb-empty">no unresolved feedback — nicely done.</div></td></tr>';
+      return;
+    }
+    for (const f of items) {
+      const tr = document.createElement('tr');
+      const rating = f.rating ? f.rating : (f.kind === 'general' ? 'general' : '');
+      const qline = f.question ? `<div class="fb-q">${escapeHtml(f.question)}</div>` : '';
+      const tline = f.text ? `<div class="fb-text">${escapeHtml(f.text)}</div>` : '';
+      const meta = `<div class="fb-meta">id: ${escapeHtml(f.id)} · session: ${escapeHtml(f.session_id)}</div>`;
+      tr.innerHTML = `
+        <td>${escapeHtml(fmtWhen(f.created_at))}</td>
+        <td>${escapeHtml(rating)}</td>
+        <td>${qline}${tline}${meta}</td>
+        <td class="fb-actions"><button data-close="${escapeHtml(f.id)}">Close</button></td>
+      `;
+      tbody.appendChild(tr);
+    }
+  }
+
+  document.addEventListener('click', async (e) => {
+    const id = e.target.getAttribute && e.target.getAttribute('data-close');
+    if (!id) return;
+    e.target.disabled = true;
+    const r = await authFetch(API + '/feedback/' + encodeURIComponent(id) + '/resolve', {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    });
+    const fbMsg = document.getElementById('fb-msg');
+    if (r.ok) {
+      fbMsg.innerHTML = '<span class="ok">Closed.</span>';
+      const tr = e.target.closest('tr');
+      if (tr) tr.remove();
+      if (!document.querySelectorAll('#fb-rows tr').length) renderFeedback([]);
+      setTimeout(() => { fbMsg.textContent = ''; }, 1500);
+    } else {
+      e.target.disabled = false;
+      fbMsg.innerHTML = '<span class="err">Close failed (' + r.status + ').</span>';
+    }
+  });
+
+  document.getElementById('reload').addEventListener('click', () => { load(); loadFeedback(); });
   load();
+  loadFeedback();
 </script>
 </body>
 </html>

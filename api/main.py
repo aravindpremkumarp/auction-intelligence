@@ -26,7 +26,7 @@ from pydantic_ai.messages import (
 from slowapi.errors import RateLimitExceeded
 
 from api.agent import ChatDeps, agent
-from api.auth import get_optional_user, router as auth_router
+from api.auth import get_current_admin, get_optional_user, router as auth_router
 from api.auth.rate_limit import limiter
 from api.auth.schemas import UserOut
 from api.conversations import router as conversations_router
@@ -487,22 +487,59 @@ async def list_feedback(
 @app.patch("/feedback/{feedback_id}/resolve")
 async def resolve_feedback(
     feedback_id: str,
-    x_resolve_token: str = Header(...),
+    x_resolve_token: str | None = Header(default=None),
+    user: UserOut | None = Depends(get_optional_user),
 ) -> dict:
+    """Mark a feedback item as resolved.
+
+    Accepts either a shared `X-Resolve-Token` (used by the GitHub
+    `resolve-feedback` workflow) or a Supabase JWT from an admin user. When
+    an admin closes the item we also persist `resolved_by` / `resolved_by_email`
+    for audit.
+    """
     expected = os.environ.get("FEEDBACK_RESOLVE_TOKEN")
-    if not expected or x_resolve_token != expected:
-        raise HTTPException(status_code=401, detail="Invalid resolve token")
+    token_ok = bool(expected) and x_resolve_token == expected
+    admin_ok = user is not None and user.role == "admin"
+    if not (token_ok or admin_ok):
+        raise HTTPException(status_code=401, detail="Invalid resolve credentials")
+
+    params: dict[str, Any] = {"id": feedback_id}
+    set_clause = "SET f.resolved = true, f.resolved_at = datetime()"
+    if admin_ok and user is not None:
+        set_clause += ", f.resolved_by = $resolved_by, f.resolved_by_email = $resolved_by_email"
+        params["resolved_by"] = user.id
+        params["resolved_by_email"] = user.email
+
     rows = run_query(
-        """
-        MATCH (f:Feedback {id: $id})
-        SET f.resolved = true, f.resolved_at = datetime()
+        f"""
+        MATCH (f:Feedback {{id: $id}})
+        {set_clause}
         RETURN f.id AS id
         """,
-        {"id": feedback_id},
+        params,
     )
     if not rows:
         raise HTTPException(status_code=404, detail="Feedback not found")
     return {"id": feedback_id, "resolved": True}
+
+
+@app.get("/admin/feedback", response_model=list[FeedbackRecord])
+async def list_admin_feedback(
+    limit: int = 100,
+    unresolved_only: bool = True,
+    _admin: UserOut = Depends(get_current_admin),
+) -> list[FeedbackRecord]:
+    rows = run_query(
+        """
+        MATCH (f:Feedback)
+        WHERE ($unresolved = false OR f.resolved = false)
+        RETURN f { .* } AS f
+        ORDER BY f.created_at DESC
+        LIMIT $limit
+        """,
+        {"unresolved": unresolved_only, "limit": limit},
+    )
+    return [_feedback_row_to_record(r) for r in rows]
 
 
 @app.get("/auction/{auction_id}")
