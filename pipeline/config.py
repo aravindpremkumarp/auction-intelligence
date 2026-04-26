@@ -35,6 +35,9 @@ OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 #   anthropic/claude-sonnet-4.5   (strongest tool use; paid)
 OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "google/gemini-2.0-flash-001")
 
+# ── Web search (Tavily) ──────────────────────────────────────────────────────
+TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")
+
 # ── Neo4j ────────────────────────────────────────────────────────────────────
 # Credentials are stored in .env under CLIENT_ID / CLIENT_SECRET / CLIENT_NAME
 # (Neo4j Aura instance ID doubles as username and database name).

@@ -26,3 +26,6 @@ PyJWT
 httpx
 slowapi
 email-validator
+
+# Web search
+tavily-python

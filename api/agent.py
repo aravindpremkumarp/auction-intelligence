@@ -22,6 +22,7 @@ from pydantic_ai.providers.openai import OpenAIProvider
 
 from pipeline.config import OPENROUTER_API_KEY, OPENROUTER_BASE_URL, OPENROUTER_MODEL
 from api.tools import cypher_tools as T
+from api.tools import web_tools as W
 
 
 @dataclass
@@ -78,6 +79,22 @@ Operating principles:
     call until the user explicitly changes or drops it. The "Active
     search scope" block in the system prompt lists the scope you must
     keep.
+11. Use `internet_search` ONLY for questions that cannot be answered from
+    the Neo4j auction graph: SARFAESI / legal procedure explanations,
+    current bank or RBI news, locality background not stored in the
+    graph, definitions of auction terms, recent regulatory changes.
+    NEVER use it to look up specific properties, prices, deadlines,
+    auction_ids, or counts — those live in the graph and the specialized
+    tools are the source of truth. For hybrid questions (part graph,
+    part web), call the graph tools FIRST, then `internet_search` for
+    the explanatory part. Do not retry `internet_search` more than once
+    per turn; if it returns `{error}`, tell the user web search is
+    unavailable and answer from your training knowledge with a caveat.
+12. When you use `internet_search`, weave the information into your prose
+    answer and cite sources inline as bracketed numbers like [1], [2].
+    The numbers must correspond 1-to-1 with the order of sources in the
+    tool result. Do NOT print a separate "Sources:" list at the end —
+    the UI renders source chips below your message automatically.
 """
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -358,3 +375,20 @@ def run_cypher(
 
     Returns {description, cypher, params, rows, returned, duration_ms}."""
     return T.run_cypher(cypher, params, description, max_rows)
+
+
+@agent.tool_plain
+async def internet_search(query: str, max_results: int = 5) -> dict:
+    """Search the public web (Tavily) for general information OUTSIDE the
+    Tamil Nadu auction graph: SARFAESI / legal explanations, market or RBI
+    news, locality background, term definitions. NOT for property listings,
+    prices, auction_ids, or counts — those live in the graph and the
+    specialized tools are the source of truth.
+
+    Cite each source you use in your prose as [1], [2], ... matching the
+    order of the returned `sources`. The UI renders source chips below the
+    message automatically — do not add a trailing "Sources:" list.
+
+    Returns {sources: [{title, url, snippet, domain, score}], query} on
+    success or empty results, or {error: str} on failure / when disabled."""
+    return await W.internet_search(query, max_results=max_results)
