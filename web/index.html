@@ -440,6 +440,8 @@ body {
   content: '...'; animation: dots 1.2s steps(4) infinite;
 }
 @keyframes dots { 0% {content:'';} 25%{content:'.';} 50%{content:'..';} 75%{content:'...';} }
+.detail-chat .bubble { font-size: 13px; padding: 6px 10px; }
+.detail-chat .bubble.ai.thinking { font-size: 14px; }
 
 .sources-row {
   display: flex; flex-wrap: wrap; gap: 6px;
@@ -1039,7 +1041,7 @@ body {
           <a class="btn ghost" id="detail-sale-notice" href="#" target="_blank" rel="noopener" style="display:none;">Open sale notice ↗</a>
           <div style="border:1.5px dashed var(--ink); padding:10px; background:var(--card);">
             <div class="lbl" style="margin-bottom:6px;">ask about this property</div>
-            <div id="detail-chat-log" style="display:flex; flex-direction:column; gap:6px; max-height:240px; overflow-y:auto; margin-bottom:8px; min-height:60px;"></div>
+            <div id="detail-chat-log" class="detail-chat" style="display:flex; flex-direction:column; gap:6px; max-height:240px; overflow-y:auto; margin-bottom:8px; min-height:60px;"></div>
             <div class="chat-input" style="box-shadow:none; padding:6px 8px;">
               <textarea id="detail-input" rows="1" placeholder="e.g. what's the EMD?" autocomplete="off" style="font-size:16px;"></textarea>
               <button class="send" id="detail-send" style="width:24px;height:24px;font-size:14px;">→</button>
@@ -1514,11 +1516,19 @@ async function askAI(userText, opts = {}) {
   saveActiveConversation();
 }
 
-function renderChat() {
-  if (currentScreen !== 'results') return;
-  const log = document.getElementById('chat-log');
-  if (!log) return;
-  log.innerHTML = chatHistory.map((m, i) => {
+function renderChat(history, logEl, opts) {
+  history = history || chatHistory;
+  logEl   = logEl   || document.getElementById('chat-log');
+  opts    = opts    || {};
+  if (!logEl) return;
+  const inputId  = opts.inputId  || 'results-input';
+  // Default callbacks preserve the main-chat behavior: clear pydantic-ai
+  // history (can't be cleanly partial-edited) and persist the conversation.
+  const onChange = opts.onChange || (() => { apiMessageHistory = null; saveActiveConversation(); });
+  const onRetry  = opts.onRetry  || ((q) => askAI(q));
+  const scope    = opts.scope || null;
+
+  logEl.innerHTML = history.map((m, i) => {
     if (m.role === 'ai thinking') return `<div class="bubble ai thinking">thinking</div>`;
     if (m.role === 'user') {
       return `<div class="bubble-wrap user">
@@ -1569,51 +1579,47 @@ function renderChat() {
     }
     return `<div class="bubble ${m.role}">${escapeHtml(m.text)}</div>`;
   }).join('');
-  log.scrollTop = log.scrollHeight;
-  log.querySelectorAll('.b-act').forEach(btn => {
+  logEl.scrollTop = logEl.scrollHeight;
+  logEl.querySelectorAll('.b-act').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       const i = +btn.dataset.i;
-      const msg = chatHistory[i];
+      const msg = history[i];
       if (!msg) return;
       const act = btn.dataset.act;
       if (act === 'copy' || act === 'copy-ai') {
         navigator.clipboard?.writeText(msg.text);
         flashBtn(btn);
       } else if (act === 'edit') {
-        const inp = document.getElementById('results-input');
+        const inp = document.getElementById(inputId);
         inp.value = msg.text;
         inp.focus();
         inp.setSelectionRange(msg.text.length, msg.text.length);
-        chatHistory = chatHistory.slice(0, i);
-        apiMessageHistory = null;
-        renderChat();
-        saveActiveConversation();
+        history.length = i;
+        onChange();
+        renderChat(history, logEl, opts);
       } else if (act === 'delete') {
         // Drop this user message and its immediate AI reply (if any) so we
-        // don't leave an orphan response. apiMessageHistory is cleared
-        // because Pydantic AI's history can't be cleanly partial-edited;
-        // the next turn just starts context-light.
-        const next = chatHistory[i + 1];
+        // don't leave an orphan response.
+        const next = history[i + 1];
         const removeCount = (next && (next.role === 'ai' || next.role === 'ai thinking')) ? 2 : 1;
-        chatHistory.splice(i, removeCount);
-        apiMessageHistory = null;
-        renderChat();
-        saveActiveConversation();
+        history.splice(i, removeCount);
+        onChange();
+        renderChat(history, logEl, opts);
       } else if (act === 'up') {
         btn.classList.add('active');
-        sendMessageFeedback(i, 'up');
+        sendMessageFeedback(i, 'up', { history, propertyId: scope && scope.propertyId });
         flashBtn(btn, true);
       } else if (act === 'down') {
         btn.classList.add('active');
-        openMessageFeedback(i);
+        openMessageFeedback(i, { history, propertyId: scope && scope.propertyId });
       } else if (act === 'retry') {
         let j = i - 1;
-        while (j >= 0 && chatHistory[j].role !== 'user') j--;
+        while (j >= 0 && history[j].role !== 'user') j--;
         if (j >= 0) {
-          const q = chatHistory[j].text;
-          chatHistory = chatHistory.slice(0, j);
-          askAI(q);
+          const q = history[j].text;
+          history.length = j;
+          onRetry(q);
         }
       }
     });
@@ -1781,7 +1787,7 @@ async function loadAndRenderDetail(id) {
   document.getElementById('detail-docs-wrap').style.display = 'none';
   document.getElementById('detail-sale-notice').style.display = 'none';
   document.getElementById('detail-chat-log').innerHTML = '';
-  detailChatHistory = [];
+  loadDetailChat(id);
   try {
     const detail = await apiAuctionDetail(id);
     renderDetail(detail);
@@ -1982,13 +1988,61 @@ function updateDetailSaveButton() {
   sb.onclick = () => toggleSaved(currentDetailId);
 }
 
+function renderDetailChat() {
+  renderChat(
+    detailChatHistory,
+    document.getElementById('detail-chat-log'),
+    {
+      inputId: 'detail-input',
+      onChange: () => saveDetailChat(),
+      onRetry:  (q) => askAboutProperty(q),
+      scope:    { propertyId: currentDetailId },
+    },
+  );
+}
+
+async function loadDetailChat(propertyId) {
+  detailChatHistory = [];
+  try {
+    const res = await authFetch(`${API_BASE}/property-chats/${encodeURIComponent(propertyId)}`);
+    if (res && res.ok) {
+      const j = await res.json();
+      detailChatHistory = Array.isArray(j.messages) ? j.messages : [];
+    }
+  } catch(_) { /* anon / 401 / 404 — stay empty */ }
+  renderDetailChat();
+}
+
+let _detailSaveTimer = null;
+function saveDetailChat() {
+  if (!currentDetailId) return;
+  const pid = currentDetailId;
+  clearTimeout(_detailSaveTimer);
+  _detailSaveTimer = setTimeout(async () => {
+    try {
+      await authFetch(`${API_BASE}/property-chats/${encodeURIComponent(pid)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: detailChatHistory.filter(m => m.role !== 'ai thinking'),
+        }),
+      });
+    } catch(_) { /* anon — silently no-op */ }
+  }, 400);
+}
+
+function _removeDetailThinking() {
+  for (let k = detailChatHistory.length - 1; k >= 0; k--) {
+    if (detailChatHistory[k].role === 'ai thinking') detailChatHistory.splice(k, 1);
+  }
+}
+
 async function askAboutProperty(text) {
   text = (text || '').trim(); if (!text) return;
-  const log = document.getElementById('detail-chat-log');
   const auctionId = currentDetailId;
-  log.innerHTML += `<div class="bubble user" style="font-size:13px;">${escapeHtml(text)}</div>`;
-  log.innerHTML += `<div class="bubble ai thinking" style="font-size:13px;">thinking</div>`;
-  log.scrollTop = log.scrollHeight;
+  detailChatHistory.push({ role: 'user', text });
+  detailChatHistory.push({ role: 'ai thinking', text: '' });
+  renderDetailChat();
   const preamble = `Regarding auction ${auctionId} (${currentDetailTitle} in ${currentDetailLoc}): ${text}`;
   try {
     const res = await authFetch(`${API_BASE}/chat`, {
@@ -1997,14 +2051,18 @@ async function askAboutProperty(text) {
       body: JSON.stringify({ message: preamble, message_history: null }),
     });
     const resp = await res.json();
-    log.querySelectorAll('.bubble.ai.thinking').forEach(n => n.remove());
-    log.innerHTML += `<div class="bubble ai" style="font-size:13px;">${escapeHtml((resp.answer || '').trim())}</div>`;
-    detailChatHistory.push({ q: text, a: resp.answer });
+    _removeDetailThinking();
+    detailChatHistory.push({
+      role: 'ai',
+      text: (resp.answer || '').trim(),
+      artifacts: resp.artifacts || [],
+    });
   } catch(e) {
-    log.querySelectorAll('.bubble.ai.thinking').forEach(n => n.remove());
-    log.innerHTML += `<div class="bubble ai" style="font-size:13px;">Server unavailable: ${escapeHtml(e.message)}</div>`;
+    _removeDetailThinking();
+    detailChatHistory.push({ role: 'ai', text: `Server unavailable: ${e.message}` });
   }
-  log.scrollTop = log.scrollHeight;
+  renderDetailChat();
+  saveDetailChat();
 }
 
 /* ====== WATCHLIST ====== */
@@ -2272,6 +2330,10 @@ let fbKind = 'message';
 let fbRating = null;
 let fbTargetIndex = null;
 let fbTags = new Set();
+// Scope set when opening message feedback: which history array to read and
+// (optionally) which property the feedback is about. Resets on close.
+let fbHistory = null;
+let fbPropertyId = null;
 
 function openModal() {
   fbTags.clear();
@@ -2281,10 +2343,12 @@ function openModal() {
   document.querySelectorAll('#fb-rating button').forEach(b => b.classList.remove('on'));
   document.getElementById('fb-modal').classList.add('on');
 }
-function openMessageFeedback(i) {
+function openMessageFeedback(i, scope) {
   fbKind = 'message';
   fbTargetIndex = i;
   fbRating = 'down';
+  fbHistory = (scope && scope.history) || chatHistory;
+  fbPropertyId = (scope && scope.propertyId) || null;
   document.getElementById('fb-title').textContent = 'What went wrong?';
   document.getElementById('fb-subtitle').textContent = 'help us improve the answers';
   document.getElementById('fb-rating').style.display = 'none';
@@ -2303,16 +2367,20 @@ function openGeneralFeedback() {
 }
 function closeFeedback() {
   document.getElementById('fb-modal').classList.remove('on');
+  fbHistory = null;
+  fbPropertyId = null;
 }
-async function sendMessageFeedback(msgIndex, rating) {
-  const ai = chatHistory[msgIndex];
+async function sendMessageFeedback(msgIndex, rating, scope) {
+  const history = (scope && scope.history) || chatHistory;
+  const propertyId = (scope && scope.propertyId) || null;
+  const ai = history[msgIndex];
   if (!ai || ai.role !== 'ai') return;
   let userQ = '';
   for (let k = msgIndex - 1; k >= 0; k--) {
-    if (chatHistory[k].role === 'user') { userQ = chatHistory[k].text; break; }
+    if (history[k].role === 'user') { userQ = history[k].text; break; }
   }
   const artifacts = (ai.artifacts || []).map(a => ({ tool: a.tool, args: a.args }));
-  const contextTurns = chatHistory.slice(Math.max(0, msgIndex - 6), msgIndex + 1).map(m => {
+  const contextTurns = history.slice(Math.max(0, msgIndex - 6), msgIndex + 1).map(m => {
     if (m.role === 'user') return { role: 'user', content: m.text };
     if (m.role === 'ai') return { role: 'assistant', content: m.text, tool_calls: (m.artifacts || []).map(a => ({ tool: a.tool, args: a.args })) };
     return null;
@@ -2325,6 +2393,7 @@ async function sendMessageFeedback(msgIndex, rating) {
       question: userQ, answer: ai.text || '',
       artifacts, context_turns: contextTurns,
       user_agent: navigator.userAgent, page_url: location.href,
+      property_id: propertyId,
     });
   } catch(e) { console.warn('feedback failed', e); }
 }
@@ -2335,13 +2404,14 @@ async function submitFeedback() {
   try {
     if (fbKind === 'message') {
       const i = fbTargetIndex;
-      const ai = chatHistory[i];
+      const history = fbHistory || chatHistory;
+      const ai = history[i];
       let userQ = '';
       for (let k = i - 1; k >= 0; k--) {
-        if (chatHistory[k].role === 'user') { userQ = chatHistory[k].text; break; }
+        if (history[k].role === 'user') { userQ = history[k].text; break; }
       }
       const artifacts = (ai?.artifacts || []).map(a => ({ tool: a.tool, args: a.args }));
-      const contextTurns = chatHistory.slice(Math.max(0, i - 6), i + 1).map(m => {
+      const contextTurns = history.slice(Math.max(0, i - 6), i + 1).map(m => {
         if (m.role === 'user') return { role: 'user', content: m.text };
         if (m.role === 'ai') return { role: 'assistant', content: m.text, tool_calls: (m.artifacts || []).map(a => ({ tool: a.tool, args: a.args })) };
         return null;
@@ -2353,6 +2423,7 @@ async function submitFeedback() {
         question: userQ, answer: ai?.text || '',
         artifacts, context_turns: contextTurns,
         user_agent: navigator.userAgent, page_url: location.href,
+        property_id: fbPropertyId,
       });
     } else {
       await apiFeedback({
