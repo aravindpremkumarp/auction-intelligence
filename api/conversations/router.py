@@ -26,13 +26,19 @@ class ConversationUpsertIn(BaseModel):
     api_history: list[Any] | None = None
     results: list[Any] = Field(default_factory=list)
     total_count: int | None = None
+    property_id: str | None = None
 
 
 @router.get("/conversations")
 async def list_conversations(
+    property_id: str | None = None,
     user: UserOut = Depends(get_current_user),
 ) -> dict:
-    return {"conversations": repo.list_conversations(user.id)}
+    if property_id:
+        rows = repo.list_conversations_for_property(user.id, property_id)
+    else:
+        rows = repo.list_conversations(user.id)
+    return {"conversations": rows}
 
 
 @router.get("/conversations/{conv_id}")
@@ -55,6 +61,7 @@ async def get_conversation(
     return {
         "id": row["id"],
         "title": row["title"],
+        "property_id": row.get("property_id"),
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
         "messages": _parse(row.get("messages_json"), []),
@@ -78,6 +85,7 @@ async def upsert_conversation(
         api_history_json=json.dumps(body.api_history) if body.api_history is not None else "",
         results_json=json.dumps(body.results),
         total_count=body.total_count,
+        property_id=body.property_id,
     )
     return Response(status_code=204)
 
