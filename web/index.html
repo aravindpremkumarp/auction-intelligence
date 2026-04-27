@@ -2017,33 +2017,22 @@ async function loadDetailChat(propertyId) {
   renderDetailChat();
 }
 
-let _detailSaveTimer = null;
-function saveDetailChat() {
+async function saveDetailChat() {
   if (!currentDetailId) return;
+  // Snapshot id + payload now — caller's state may change before fetch resolves.
   const pid = currentDetailId;
-  // Snapshot at schedule time, not fire time. If the user navigates to another
-  // property within the 400ms debounce, detailChatHistory will be cleared by
-  // loadDetailChat — the timer must save what existed when the save was
-  // requested, not whatever happens to be in the array when the timer fires.
-  const snapshot = detailChatHistory.filter(m => m.role !== 'ai thinking');
-  clearTimeout(_detailSaveTimer);
-  _detailSaveTimer = setTimeout(async () => {
-    _detailSaveTimer = null;
-    try {
-      await authFetch(`${API_BASE}/property-chats/${encodeURIComponent(pid)}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: snapshot }),
-      });
-    } catch(_) { /* anon — silently no-op */ }
-  }, 400);
+  const messages = detailChatHistory.filter(m => m.role !== 'ai thinking');
+  try {
+    await authFetch(`${API_BASE}/property-chats/${encodeURIComponent(pid)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages }),
+    });
+  } catch(e) { console.warn('[property-chat] save failed', e); }
 }
 
 async function clearDetailChat() {
   if (!currentDetailId) return;
-  // Cancel any pending save so it doesn't re-create the chat we're deleting.
-  clearTimeout(_detailSaveTimer);
-  _detailSaveTimer = null;
   const pid = currentDetailId;
   detailChatHistory = [];
   renderDetailChat();
@@ -2051,7 +2040,7 @@ async function clearDetailChat() {
     await authFetch(`${API_BASE}/property-chats/${encodeURIComponent(pid)}`, {
       method: 'DELETE',
     });
-  } catch(_) { /* anon / 401 — ignore */ }
+  } catch(e) { console.warn('[property-chat] clear failed', e); }
 }
 
 function _removeDetailThinking() {
@@ -2063,10 +2052,12 @@ function _removeDetailThinking() {
 async function askAboutProperty(text) {
   text = (text || '').trim(); if (!text) return;
   const auctionId = currentDetailId;
+  if (!auctionId) return;
   detailChatHistory.push({ role: 'user', text });
   detailChatHistory.push({ role: 'ai thinking', text: '' });
   renderDetailChat();
   const preamble = `Regarding auction ${auctionId} (${currentDetailTitle} in ${currentDetailLoc}): ${text}`;
+  let aiEntry;
   try {
     const res = await authFetch(`${API_BASE}/chat`, {
       method: 'POST',
@@ -2074,16 +2065,16 @@ async function askAboutProperty(text) {
       body: JSON.stringify({ message: preamble, message_history: null }),
     });
     const resp = await res.json();
-    _removeDetailThinking();
-    detailChatHistory.push({
-      role: 'ai',
-      text: (resp.answer || '').trim(),
-      artifacts: resp.artifacts || [],
-    });
+    aiEntry = { role: 'ai', text: (resp.answer || '').trim(), artifacts: resp.artifacts || [] };
   } catch(e) {
-    _removeDetailThinking();
-    detailChatHistory.push({ role: 'ai', text: `Server unavailable: ${e.message}` });
+    aiEntry = { role: 'ai', text: `Server unavailable: ${e.message}` };
   }
+  // If the user navigated to a different property while /chat was in flight,
+  // the response no longer applies to what's on screen — drop it silently
+  // rather than corrupt the new property's chat.
+  if (currentDetailId !== auctionId) return;
+  _removeDetailThinking();
+  detailChatHistory.push(aiEntry);
   renderDetailChat();
   saveDetailChat();
 }
