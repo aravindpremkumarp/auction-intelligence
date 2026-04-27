@@ -1040,7 +1040,11 @@ body {
           <button class="btn" id="detail-save">☆ Save to watchlist</button>
           <a class="btn ghost" id="detail-sale-notice" href="#" target="_blank" rel="noopener" style="display:none;">Open sale notice ↗</a>
           <div style="border:1.5px dashed var(--ink); padding:10px; background:var(--card);">
-            <div class="lbl" style="margin-bottom:6px;">ask about this property</div>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+              <div class="lbl">ask about this property</div>
+              <button id="detail-chat-new" type="button" title="start a new chat about this property"
+                      style="background:none; border:1.5px solid var(--ink); padding:2px 8px; font-family:var(--font-mono); font-size:10px; letter-spacing:0.08em; text-transform:uppercase; color:var(--ink); cursor:pointer; line-height:1.4;">+ new</button>
+            </div>
             <div id="detail-chat-log" class="detail-chat" style="display:flex; flex-direction:column; gap:6px; max-height:240px; overflow-y:auto; margin-bottom:8px; min-height:60px;"></div>
             <div class="chat-input" style="box-shadow:none; padding:6px 8px;">
               <textarea id="detail-input" rows="1" placeholder="e.g. what's the EMD?" autocomplete="off" style="font-size:16px;"></textarea>
@@ -2017,18 +2021,37 @@ let _detailSaveTimer = null;
 function saveDetailChat() {
   if (!currentDetailId) return;
   const pid = currentDetailId;
+  // Snapshot at schedule time, not fire time. If the user navigates to another
+  // property within the 400ms debounce, detailChatHistory will be cleared by
+  // loadDetailChat — the timer must save what existed when the save was
+  // requested, not whatever happens to be in the array when the timer fires.
+  const snapshot = detailChatHistory.filter(m => m.role !== 'ai thinking');
   clearTimeout(_detailSaveTimer);
   _detailSaveTimer = setTimeout(async () => {
+    _detailSaveTimer = null;
     try {
       await authFetch(`${API_BASE}/property-chats/${encodeURIComponent(pid)}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messages: detailChatHistory.filter(m => m.role !== 'ai thinking'),
-        }),
+        body: JSON.stringify({ messages: snapshot }),
       });
     } catch(_) { /* anon — silently no-op */ }
   }, 400);
+}
+
+async function clearDetailChat() {
+  if (!currentDetailId) return;
+  // Cancel any pending save so it doesn't re-create the chat we're deleting.
+  clearTimeout(_detailSaveTimer);
+  _detailSaveTimer = null;
+  const pid = currentDetailId;
+  detailChatHistory = [];
+  renderDetailChat();
+  try {
+    await authFetch(`${API_BASE}/property-chats/${encodeURIComponent(pid)}`, {
+      method: 'DELETE',
+    });
+  } catch(_) { /* anon / 401 — ignore */ }
 }
 
 function _removeDetailThinking() {
@@ -2487,6 +2510,7 @@ function bindInput(inputId, sendId, handler) {
 bindInput('landing-input', 'landing-send', (v) => askAI(v, { fromLanding: true }));
 bindInput('results-input', 'results-send', (v) => askAI(v));
 bindInput('detail-input', 'detail-send', (v) => askAboutProperty(v));
+document.getElementById('detail-chat-new').addEventListener('click', () => clearDetailChat());
 
 document.querySelectorAll('.chip[data-q]').forEach(c => {
   c.addEventListener('click', () => askAI(c.dataset.q, { fromLanding: true }));
