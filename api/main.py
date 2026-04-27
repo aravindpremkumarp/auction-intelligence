@@ -31,6 +31,7 @@ from api.auth.rate_limit import limiter
 from api.auth.schemas import UserOut
 from api.conversations import router as conversations_router
 from api.neo4j_client import run_query
+from api.property_chats import router as property_chats_router
 from api.tools.cypher_tools import get_auction_detail
 from api.watchlist import router as watchlist_router
 
@@ -86,6 +87,7 @@ if os.environ.get("AUTH_ENABLED", "true").lower() != "false":
     app.include_router(auth_router)
     app.include_router(watchlist_router)
     app.include_router(conversations_router)
+    app.include_router(property_chats_router)
 
 
 _GATED_MODES = {"deep-research", "report"}
@@ -339,6 +341,7 @@ class FeedbackRequest(BaseModel):
     context_turns: list[dict[str, Any]] | None = None
     user_agent: str | None = None
     page_url: str | None = None
+    property_id: str | None = None
 
 
 class FeedbackRecord(BaseModel):
@@ -354,6 +357,7 @@ class FeedbackRecord(BaseModel):
     context_turns: list[dict[str, Any]] | None = None
     user_agent: str | None = None
     page_url: str | None = None
+    property_id: str | None = None
     created_at: str
     resolved: bool = False
     resolved_at: str | None = None
@@ -413,6 +417,7 @@ def _feedback_row_to_record(row: dict) -> FeedbackRecord:
         context_turns=context_turns,
         user_agent=f.get("user_agent"),
         page_url=f.get("page_url"),
+        property_id=f.get("property_id"),
         created_at=created_at_str,
         resolved=bool(f.get("resolved", False)),
         resolved_at=resolved_at_str,
@@ -438,6 +443,7 @@ async def submit_feedback(
           message_index: $message_index, question: $question, answer: $answer,
           artifacts_json: $artifacts_json, context_turns_json: $context_turns_json,
           user_agent: $user_agent, page_url: $page_url, user_id: $user_id,
+          property_id: $property_id,
           created_at: datetime($created_at), resolved: false
         })
         RETURN f.id AS id
@@ -456,6 +462,7 @@ async def submit_feedback(
             "user_agent": req.user_agent,
             "page_url": req.page_url,
             "user_id": user.id if user else None,
+            "property_id": req.property_id,
             "created_at": created_at,
         },
     )
