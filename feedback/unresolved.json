@@ -12,6 +12,7 @@
     "context_turns": [],
     "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
     "page_url": "https://auction-intelligence-alpha.vercel.app/",
+    "property_id": null,
     "created_at": "2026-04-21T22:52:46.101460000+00:00",
     "resolved": false,
     "resolved_at": null
@@ -57,6 +58,7 @@
     ],
     "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
     "page_url": "https://auction-intelligence-alpha.vercel.app/",
+    "property_id": null,
     "created_at": "2026-04-21T22:50:51.390371000+00:00",
     "resolved": false,
     "resolved_at": null
@@ -102,6 +104,7 @@
     ],
     "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
     "page_url": "https://auction-intelligence-alpha.vercel.app/",
+    "property_id": null,
     "created_at": "2026-04-21T22:50:51.277930000+00:00",
     "resolved": false,
     "resolved_at": null
@@ -180,6 +183,7 @@
     ],
     "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
     "page_url": "https://auction-intelligence-alpha.vercel.app/",
+    "property_id": null,
     "created_at": "2026-04-19T19:45:49.883801000+00:00",
     "resolved": false,
     "resolved_at": null
