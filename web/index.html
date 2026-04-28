@@ -331,6 +331,28 @@ body {
 .sb-item:hover .sb-item-del,
 .sb-item.active .sb-item-del { opacity: 1; }
 .sb-item-del:hover { color: var(--ink); }
+.sb-item-pin {
+  display: inline-block; margin-right: 6px; font-family: var(--font-mono);
+  font-size: 11px; color: var(--muted);
+}
+.sb-item.active .sb-item-pin { color: var(--ink); }
+
+#detail-chat-history .pch-item {
+  display: flex; gap: 8px; align-items: baseline;
+  padding: 6px 8px; cursor: pointer;
+  border: 1.5px solid transparent;
+  font-family: var(--font-body); font-size: 12px; line-height: 1.3;
+}
+#detail-chat-history .pch-item:hover { background: var(--paper-2); border-color: var(--ink); }
+#detail-chat-history .pch-item.active { background: var(--accent); border-color: var(--ink); }
+#detail-chat-history .pch-title {
+  flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+#detail-chat-history .pch-ts {
+  flex-shrink: 0; font-family: var(--font-mono); font-size: 10px;
+  color: var(--muted); letter-spacing: 0.04em;
+}
+#detail-chat-history .pch-item.active .pch-ts { color: var(--ink); }
 
 .transcript-pane { position: relative; }
 .tp-resize {
@@ -1051,6 +1073,7 @@ body {
               <button class="send" id="detail-send" style="width:24px;height:24px;font-size:14px;">→</button>
             </div>
           </div>
+          <div id="detail-chat-history" style="display:none; border:1.5px dashed var(--ink); padding:10px; background:var(--card);"></div>
         </aside>
       </div>
     </div>
@@ -1187,6 +1210,9 @@ let currentResults = [];
 let currentTotalCount = null;
 let currentSort = 'date_asc';
 let detailChatHistory = [];
+let currentPropertyChatId = null;     // UUID of the active chat in the right-side property panel
+let propertyChatList = [];            // [{id, title, property_id, updated_at}] for the panel history list
+let _pendingPropertyChatId = null;    // one-shot: when a sidebar click routes to a specific chat id, honored on the next loadDetailChat
 
 function sessionId() {
   let s = sessionStorage.getItem(SESSION_KEY);
@@ -2005,42 +2031,149 @@ function renderDetailChat() {
   );
 }
 
+function _mintChatId() {
+  return (crypto.randomUUID && crypto.randomUUID()) || ('c-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10));
+}
+
+function _propertyChatTitle() {
+  const firstUser = detailChatHistory.find(m => m.role === 'user');
+  const msg = (firstUser ? firstUser.text : '').trim().slice(0, 80);
+  const propPart = (currentDetailTitle || '').trim().slice(0, 60);
+  if (!propPart && !msg) return 'property chat';
+  if (!propPart) return msg;
+  if (!msg) return propPart;
+  return `${propPart} — ${msg}`;
+}
+
+function _relTime(iso) {
+  const t = Date.parse(iso);
+  if (!isFinite(t)) return '';
+  const diff = Date.now() - t;
+  if (diff < 60e3) return 'just now';
+  if (diff < 3600e3) return `${Math.floor(diff/60e3)}m ago`;
+  if (diff < 86400e3) return `${Math.floor(diff/3600e3)}h ago`;
+  if (diff < 7*86400e3) return `${Math.floor(diff/86400e3)}d ago`;
+  return new Date(t).toLocaleDateString();
+}
+
 async function loadDetailChat(propertyId) {
   detailChatHistory = [];
+  propertyChatList = [];
+  // Honor a one-shot pending chat id from the sidebar; otherwise pick the most
+  // recent chat for this property.
+  const explicitChatId = _pendingPropertyChatId;
+  _pendingPropertyChatId = null;
   try {
-    const res = await authFetch(`${API_BASE}/property-chats/${encodeURIComponent(propertyId)}`);
-    if (res && res.ok) {
-      const j = await res.json();
-      detailChatHistory = Array.isArray(j.messages) ? j.messages : [];
+    const r = await authFetch(`${API_BASE}/conversations?property_id=${encodeURIComponent(propertyId)}`);
+    if (r && r.ok) {
+      const j = await r.json();
+      propertyChatList = Array.isArray(j.conversations) ? j.conversations : [];
     }
-  } catch(_) { /* anon / 401 / 404 — stay empty */ }
+  } catch(_) { /* anon / 401 — stay empty */ }
+  let targetId = explicitChatId || (propertyChatList[0] && propertyChatList[0].id);
+  if (targetId) {
+    try {
+      const r2 = await authFetch(`${API_BASE}/conversations/${encodeURIComponent(targetId)}`);
+      if (r2 && r2.ok) {
+        const data = await r2.json();
+        detailChatHistory = Array.isArray(data.messages) ? data.messages : [];
+        currentPropertyChatId = data.id;
+      } else {
+        currentPropertyChatId = _mintChatId();
+      }
+    } catch(_) { currentPropertyChatId = _mintChatId(); }
+  } else {
+    currentPropertyChatId = _mintChatId();
+  }
   renderDetailChat();
+  renderPropertyChatHistory();
 }
 
 async function saveDetailChat() {
-  if (!currentDetailId) return;
-  // Snapshot id + payload now — caller's state may change before fetch resolves.
-  const pid = currentDetailId;
+  if (!currentDetailId || !currentPropertyChatId) return;
+  // Skip empty drafts so the panel + sidebar history don't fill with blanks.
   const messages = detailChatHistory.filter(m => m.role !== 'ai thinking');
+  if (!messages.length) return;
+  const pid = currentDetailId;
+  const cid = currentPropertyChatId;
+  const payload = {
+    title: _propertyChatTitle(),
+    messages,
+    api_history: null,
+    results: [],
+    total_count: null,
+    property_id: pid,
+  };
   try {
-    await authFetch(`${API_BASE}/property-chats/${encodeURIComponent(pid)}`, {
+    const r = await authFetch(`${API_BASE}/conversations/${encodeURIComponent(cid)}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages }),
+      body: JSON.stringify(payload),
     });
+    if (!r || !r.ok) return;
+    // Mirror the new state into both lists so the panel history + main sidebar
+    // re-render without a round-trip. updated_at is approximate (server clock
+    // wins on next sync) but good enough for ordering.
+    const nowIso = new Date().toISOString();
+    const pIdx = propertyChatList.findIndex(c => c.id === cid);
+    const pEntry = { id: cid, title: payload.title, property_id: pid, updated_at: nowIso };
+    if (pIdx >= 0) propertyChatList.splice(pIdx, 1);
+    propertyChatList.unshift(pEntry);
+    renderPropertyChatHistory();
+    const sIdx = recentChats.findIndex(c => c.id === cid);
+    const sEntry = { id: cid, title: payload.title, ts: Date.now(), property_id: pid };
+    if (sIdx >= 0) recentChats.splice(sIdx, 1);
+    recentChats.unshift(sEntry);
+    renderSidebar();
   } catch(e) { console.warn('[property-chat] save failed', e); }
 }
 
-async function clearDetailChat() {
+function clearDetailChat() {
   if (!currentDetailId) return;
-  const pid = currentDetailId;
+  // Mint a fresh chat id; the previous chat stays on the server because
+  // saveDetailChat already persisted each turn.
+  currentPropertyChatId = _mintChatId();
   detailChatHistory = [];
   renderDetailChat();
+  renderPropertyChatHistory();
+}
+
+async function loadPropertyChat(chatId) {
+  if (!chatId || !isSignedIn()) return;
   try {
-    await authFetch(`${API_BASE}/property-chats/${encodeURIComponent(pid)}`, {
-      method: 'DELETE',
-    });
-  } catch(e) { console.warn('[property-chat] clear failed', e); }
+    const r = await authFetch(`${API_BASE}/conversations/${encodeURIComponent(chatId)}`);
+    if (!r || !r.ok) return;
+    const data = await r.json();
+    currentPropertyChatId = data.id;
+    detailChatHistory = Array.isArray(data.messages) ? data.messages : [];
+    renderDetailChat();
+    renderPropertyChatHistory();
+  } catch(e) { console.warn('[property-chat] load failed', e); }
+}
+
+function renderPropertyChatHistory() {
+  const host = document.getElementById('detail-chat-history');
+  if (!host) return;
+  if (!isSignedIn() || !propertyChatList.length) {
+    host.style.display = 'none';
+    host.innerHTML = '';
+    return;
+  }
+  const items = propertyChatList.slice(0, 20);
+  const itemRows = items.map(c => {
+    const active = c.id === currentPropertyChatId ? ' active' : '';
+    const ts = c.updated_at ? _relTime(c.updated_at) : '';
+    const title = c.title || 'untitled';
+    return `<div class="pch-item${active}" data-chat-id="${escapeHtml(c.id)}" title="${escapeHtml(title)}">
+      <span class="pch-title">${escapeHtml(title)}</span>
+      <span class="pch-ts">${escapeHtml(ts)}</span>
+    </div>`;
+  }).join('');
+  host.style.display = '';
+  host.innerHTML = `<div class="lbl" style="margin-bottom:6px;">past chats about this property</div>${itemRows}`;
+  host.querySelectorAll('.pch-item').forEach(el => {
+    el.addEventListener('click', () => loadPropertyChat(el.dataset.chatId));
+  });
 }
 
 function _removeDetailThinking() {
@@ -2186,6 +2319,7 @@ async function syncConversationsFromServer() {
       id: c.id,
       title: c.title || 'untitled',
       ts: c.updated_at ? (Date.parse(c.updated_at) || Date.now()) : Date.now(),
+      property_id: c.property_id || null,
     }));
     renderSidebar();
   } catch (e) { console.error('[chats] sync failed', e); }
@@ -2279,16 +2413,29 @@ function renderSidebar() {
   const today = filtered.filter(c => now - c.ts < 86400e3);
   const week = filtered.filter(c => now - c.ts >= 86400e3 && now - c.ts < 7*86400e3);
   const older = filtered.filter(c => now - c.ts >= 7*86400e3);
-  const itemHtml = c =>
-    `<div class="sb-item ${c.id === activeChatId ? 'active' : ''}" data-chat-id="${c.id}" title="${escapeHtml(c.title)}">
-       <span class="sb-item-title">${escapeHtml(c.title)}</span>
+  const itemHtml = c => {
+    const isActive = (c.id === activeChatId) || (c.id === currentPropertyChatId && currentScreen === 'detail');
+    const propAttr = c.property_id ? ` data-property-id="${escapeHtml(c.property_id)}"` : '';
+    const prefix = c.property_id ? '<span class="sb-item-pin" aria-hidden="true">⌂</span>' : '';
+    return `<div class="sb-item ${isActive ? 'active' : ''}" data-chat-id="${c.id}"${propAttr} title="${escapeHtml(c.title)}">
+       <span class="sb-item-title">${prefix}${escapeHtml(c.title)}</span>
        <button class="sb-item-del" data-del-id="${c.id}" title="delete" aria-label="delete">×</button>
      </div>`;
+  };
   const grp = (label, items) => items.length ? `<div class="sb-group-label">${label}</div>` + items.map(itemHtml).join('') : '';
   body.innerHTML = grp('today', today) + grp('this week', week) + grp('earlier', older) || `<div class="lbl" style="padding:10px 4px;">no past chats yet</div>`;
   body.querySelectorAll('.sb-item').forEach(el => el.addEventListener('click', (e) => {
     if (e.target.closest('.sb-item-del')) return;
-    loadConversation(el.dataset.chatId);
+    const propertyId = el.dataset.propertyId;
+    const chatId = el.dataset.chatId;
+    if (propertyId) {
+      // Route to the property detail page with this specific chat preselected.
+      currentDetailId = propertyId;
+      _pendingPropertyChatId = chatId;
+      go('detail');
+    } else {
+      loadConversation(chatId);
+    }
   }));
   body.querySelectorAll('.sb-item-del').forEach(btn => btn.addEventListener('click', (e) => {
     e.stopPropagation();

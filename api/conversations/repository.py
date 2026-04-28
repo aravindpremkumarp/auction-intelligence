@@ -23,6 +23,7 @@ def list_conversations(supabase_id: str) -> list[dict]:
         MATCH (u:User {supabase_id: $sub})-[:OWNS]->(c:Conversation)
         RETURN c.id           AS id,
                c.title        AS title,
+               c.property_id  AS property_id,
                toString(c.updated_at) AS updated_at
         ORDER BY c.updated_at DESC
         LIMIT 50
@@ -30,7 +31,37 @@ def list_conversations(supabase_id: str) -> list[dict]:
         {"sub": supabase_id},
     )
     return [
-        {"id": r["id"], "title": r["title"], "updated_at": r["updated_at"]}
+        {
+            "id": r["id"],
+            "title": r["title"],
+            "property_id": r.get("property_id"),
+            "updated_at": r["updated_at"],
+        }
+        for r in rows
+        if r.get("id")
+    ]
+
+
+def list_conversations_for_property(supabase_id: str, property_id: str) -> list[dict]:
+    rows = run_query(
+        """
+        MATCH (u:User {supabase_id: $sub})-[:OWNS]->(c:Conversation {property_id: $pid})
+        RETURN c.id           AS id,
+               c.title        AS title,
+               c.property_id  AS property_id,
+               toString(c.updated_at) AS updated_at
+        ORDER BY c.updated_at DESC
+        LIMIT 50
+        """,
+        {"sub": supabase_id, "pid": property_id},
+    )
+    return [
+        {
+            "id": r["id"],
+            "title": r["title"],
+            "property_id": r.get("property_id"),
+            "updated_at": r["updated_at"],
+        }
         for r in rows
         if r.get("id")
     ]
@@ -42,6 +73,7 @@ def get_conversation(supabase_id: str, conv_id: str) -> dict | None:
         MATCH (u:User {supabase_id: $sub})-[:OWNS]->(c:Conversation {id: $cid})
         RETURN c.id              AS id,
                c.title           AS title,
+               c.property_id     AS property_id,
                toString(c.created_at) AS created_at,
                toString(c.updated_at) AS updated_at,
                c.messages_json   AS messages_json,
@@ -64,12 +96,16 @@ def upsert_conversation(
     api_history_json: str,
     results_json: str,
     total_count: int | None,
+    property_id: str | None = None,
 ) -> None:
+    # property_id is set ON CREATE only — once a chat is bound to a property
+    # (or is unbound, for search chats), that linkage is permanent.
     run_query(
         """
         MATCH (u:User {supabase_id: $sub})
         MERGE (u)-[:OWNS]->(c:Conversation {id: $cid})
-          ON CREATE SET c.created_at = datetime()
+          ON CREATE SET c.created_at = datetime(),
+                        c.property_id = $property_id
         SET c.title             = $title,
             c.messages_json     = $messages,
             c.api_history_json  = $api_history,
@@ -85,6 +121,7 @@ def upsert_conversation(
             "api_history": api_history_json,
             "results": results_json,
             "total": total_count,
+            "property_id": property_id,
         },
     )
 
