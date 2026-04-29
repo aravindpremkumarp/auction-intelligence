@@ -1,0 +1,80 @@
+name: Cleanup duplicate documents
+
+# One-shot maintenance workflow for issue #45. Triggered manually from the
+# Actions tab. By default it only runs the diagnostic report + dedupe
+# dry-run (no mutation). Setting `execute=true` performs the real cleanup
+# and then re-runs the report so the result is visible in the same run.
+
+on:
+  workflow_dispatch:
+    inputs:
+      execute:
+        description: "Run the real cleanup (DETACH DELETEs duplicates). Leave unchecked for report + dry-run only."
+        type: boolean
+        required: true
+        default: false
+      auction_id:
+        description: "Optional: limit cleanup to a single auction_id."
+        type: string
+        required: false
+        default: ""
+
+# Two simultaneous cleanup runs would race on the same Neo4j data — block.
+concurrency:
+  group: cleanup-duplicate-docs
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NEO4J_URI:      ${{ secrets.NEO4J_URI }}
+      NEO4J_USERNAME: ${{ secrets.NEO4J_USERNAME }}
+      NEO4J_PASSWORD: ${{ secrets.NEO4J_PASSWORD }}
+      NEO4J_DATABASE: ${{ secrets.NEO4J_DATABASE }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Step 1 — baseline report
+        run: |
+          if [ -n "${{ inputs.auction_id }}" ]; then
+            python -m scripts.report_duplicate_documents --auction-id "${{ inputs.auction_id }}"
+          else
+            python -m scripts.report_duplicate_documents
+          fi
+
+      - name: Step 2 — dedupe dry-run
+        run: |
+          if [ -n "${{ inputs.auction_id }}" ]; then
+            python -m scripts.dedupe_documents --dry-run --auction-id "${{ inputs.auction_id }}"
+          else
+            python -m scripts.dedupe_documents --dry-run
+          fi
+
+      - name: Step 3 — real cleanup (only if execute=true)
+        if: ${{ inputs.execute }}
+        run: |
+          if [ -n "${{ inputs.auction_id }}" ]; then
+            python -m scripts.dedupe_documents --auction-id "${{ inputs.auction_id }}"
+          else
+            python -m scripts.dedupe_documents
+          fi
+
+      - name: Step 4 — verify (only if execute=true)
+        if: ${{ inputs.execute }}
+        run: |
+          if [ -n "${{ inputs.auction_id }}" ]; then
+            python -m scripts.report_duplicate_documents --auction-id "${{ inputs.auction_id }}"
+          else
+            python -m scripts.report_duplicate_documents
+          fi
