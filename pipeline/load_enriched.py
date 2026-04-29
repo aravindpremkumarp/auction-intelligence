@@ -23,9 +23,17 @@ NORMALIZED_JSONL = OUTPUT_DIR / "normalized.jsonl"
 VERIFIED_JSONL   = OUTPUT_DIR / "verified_enriched.jsonl"
 
 # ── New constraint for SurveyNumber ──────────────────────────────────────────
+# The legacy ``doc_path`` uniqueness constraint is intentionally dropped:
+# ``file_path`` carried mixed values (absolute filesystem path vs bare
+# filename vs R2 storage_key) which produced duplicate :Document nodes
+# under the same property (issue #45). The stable identity is now
+# (auction_id, filename) enforced via the relationship-anchored MERGE in
+# VERIFIED_DOC_QUERY below.
+DROP_CONSTRAINTS = [
+    "DROP CONSTRAINT doc_path IF EXISTS",
+]
 NEW_CONSTRAINTS = [
     "CREATE CONSTRAINT survey_number_unique IF NOT EXISTS FOR (n:SurveyNumber) REQUIRE (n.survey_no, n.subdivision, n.survey_type) IS UNIQUE",
-    "CREATE CONSTRAINT doc_path IF NOT EXISTS FOR (n:Document) REQUIRE n.file_path IS UNIQUE",
     "CREATE CONSTRAINT doc_storage_key IF NOT EXISTS FOR (n:Document) REQUIRE n.storage_key IS UNIQUE",
 ]
 
@@ -48,13 +56,12 @@ VERIFIED_DOC_QUERY = """
 UNWIND $rows AS r
 MATCH (a:AuctionProperty {auction_id: r.auction_id})
 UNWIND r.documents AS d
-MERGE (doc:Document {file_path: d.file_path})
-SET doc.filename       = d.filename,
+MERGE (a)-[:HAS_DOCUMENT]->(doc:Document {filename: d.filename})
+SET doc.file_path      = d.file_path,
     doc.doc_type       = d.doc_type,
     doc.extracted_json = d.extracted_fields_json,
     doc.extracted_at   = d.extracted_at,
     doc.model          = d.model
-MERGE (a)-[:HAS_DOCUMENT]->(doc)
 """
 
 # ── Batch Cypher: update AuctionProperty + create SurveyNumber nodes ─────────
@@ -170,6 +177,14 @@ def prepare_survey_row(record: dict) -> dict:
 
 def create_constraints(session):
     """Create new constraints for enriched data."""
+    print("Dropping legacy constraints (issue #45)...")
+    for stmt in DROP_CONSTRAINTS:
+        try:
+            session.run(stmt)
+            print(f"  OK: {stmt}")
+        except Exception as e:
+            print(f"  [WARN] {e}")
+
     print("Creating new constraints...")
     for stmt in NEW_CONSTRAINTS:
         try:

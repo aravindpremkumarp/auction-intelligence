@@ -439,11 +439,19 @@ def get_auction_detail(auction_id: str) -> dict | None:
             pass
 
     # collect() with OPTIONAL MATCH returns a list containing a single empty-
-    # valued dict when there are no matches — strip those.
-    documents = [
-        d for d in (rows[0].get("documents") or [])
-        if d and d.get("public_url")
-    ]
+    # valued dict when there are no matches — strip those. Also dedupe by
+    # public_url so a property never surfaces the same file twice even if
+    # the graph briefly holds duplicate :Document nodes (issue #45).
+    documents = []
+    seen_doc_keys: set[str] = set()
+    for d in (rows[0].get("documents") or []):
+        if not d or not d.get("public_url"):
+            continue
+        key = d.get("public_url") or d.get("filename") or ""
+        if key in seen_doc_keys:
+            continue
+        seen_doc_keys.add(key)
+        documents.append(d)
 
     siblings = [
         s for s in (rows[0].get("siblings") or [])

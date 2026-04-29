@@ -52,27 +52,20 @@ WHERE a.downloads_list IS NOT NULL AND size(a.downloads_list) > 0
 RETURN a.auction_id AS auction_id, a.downloads_list AS downloads_list
 """
 
-UPDATE_EXISTING_CYPHER = """
-MATCH (a:AuctionProperty {auction_id: $auction_id})-[:HAS_DOCUMENT]->(doc:Document)
-WHERE doc.filename = $filename
-SET doc.storage_key  = $storage_key,
-    doc.public_url   = $public_url,
-    doc.content_type = $content_type,
-    doc.doc_type     = $doc_type,
-    doc.uploaded_at  = datetime()
-RETURN count(doc) AS updated
-"""
-
-CREATE_NEW_CYPHER = """
+# Single MERGE on the relationship + filename: stable across machines and
+# pipeline re-runs, so we never create a duplicate :Document node for the
+# same (auction_id, filename) pair (issue #45). file_path is preserved if
+# the enrichment pipeline already populated it; otherwise we fall back to
+# the R2 storage_key so the field is never null.
+UPSERT_DOC_CYPHER = """
 MATCH (a:AuctionProperty {auction_id: $auction_id})
-MERGE (doc:Document {file_path: $storage_key})
-ON CREATE SET doc.filename = $filename
+MERGE (a)-[:HAS_DOCUMENT]->(doc:Document {filename: $filename})
 SET doc.storage_key  = $storage_key,
     doc.public_url   = $public_url,
     doc.content_type = $content_type,
     doc.doc_type     = $doc_type,
+    doc.file_path    = coalesce(doc.file_path, $storage_key),
     doc.uploaded_at  = datetime()
-MERGE (a)-[:HAS_DOCUMENT]->(doc)
 """
 
 
@@ -102,19 +95,15 @@ def upsert_document(
     content_type: str,
     doc_type: str,
 ) -> None:
-    """Update pipeline-created Document in place, else create a new one."""
-    params = {
+    """Idempotently upsert a :Document node keyed by (auction_id, filename)."""
+    run_query(UPSERT_DOC_CYPHER, {
         "auction_id":   auction_id,
         "filename":     filename,
         "storage_key":  storage_key,
         "public_url":   public_url,
         "content_type": content_type,
         "doc_type":     doc_type,
-    }
-    rows = run_query(UPDATE_EXISTING_CYPHER, params)
-    updated = rows[0]["updated"] if rows else 0
-    if updated == 0:
-        run_query(CREATE_NEW_CYPHER, params)
+    })
 
 
 def process_auction(
