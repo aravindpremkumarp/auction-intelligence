@@ -1,0 +1,177 @@
+"""
+scripts/dedupe_documents.py
+---------------------------
+One-time cleanup for issue #45: collapse duplicate :Document nodes that
+share the same filename under one :AuctionProperty into a single canonical
+node.
+
+For every (auction_id, filename) group with more than one :Document:
+
+1. Pick the canonical node, preferring:
+     - has public_url
+     - has storage_key
+     - most recent uploaded_at
+     - most recent extracted_at
+     - lowest internal id (stable tiebreak)
+2. Copy any non-null property from the duplicates onto the canonical node
+   only when the canonical's value is missing — never lose extracted_json
+   or other audit fields.
+3. Re-point any [:HAS_DOCUMENT] relationships from the duplicates onto the
+   canonical node (skipping ones that already exist).
+4. DETACH DELETE the duplicates.
+
+Idempotent: safe to re-run. With ``--dry-run`` the script prints planned
+actions without mutating the graph.
+
+Run standalone:
+    python -m scripts.dedupe_documents --dry-run
+    python -m scripts.dedupe_documents
+    python -m scripts.dedupe_documents --auction-id AUC123
+"""
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from api.neo4j_client import run_query
+
+
+# Group duplicates and pre-rank candidates inside Cypher so the Python side
+# only has to drive the merge. The ranking key mirrors the docstring:
+# ``public_url`` first, then ``storage_key``, then timestamps, then id.
+FIND_DUPLICATES_CYPHER = """
+MATCH (a:AuctionProperty)-[:HAS_DOCUMENT]->(d:Document)
+WHERE ($auction_id IS NULL OR a.auction_id = $auction_id)
+  AND d.filename IS NOT NULL
+WITH a, d.filename AS filename, collect(d) AS docs
+WHERE size(docs) > 1
+WITH a, filename, [x IN docs |
+  {
+    id:           elementId(x),
+    has_url:      CASE WHEN x.public_url  IS NULL THEN 0 ELSE 1 END,
+    has_key:      CASE WHEN x.storage_key IS NULL THEN 0 ELSE 1 END,
+    uploaded_at:  toString(x.uploaded_at),
+    extracted_at: toString(x.extracted_at)
+  }
+] AS ranked
+RETURN a.auction_id AS auction_id,
+       filename     AS filename,
+       ranked       AS candidates
+ORDER BY a.auction_id, filename
+"""
+
+
+# The canonical node receives any non-null property from a duplicate that it
+# doesn't already have. Then we re-point every [:HAS_DOCUMENT] from the
+# duplicates onto the canonical node (using MERGE so we don't introduce a
+# parallel relationship). Finally the duplicates are DETACH DELETEd.
+MERGE_DUPLICATES_CYPHER = """
+MATCH (canonical:Document) WHERE elementId(canonical) = $canonical_id
+WITH canonical
+UNWIND $duplicate_ids AS dup_id
+MATCH (dup:Document) WHERE elementId(dup) = dup_id
+
+// Copy missing properties forward (canonical wins where it already has a value).
+SET canonical.file_path      = coalesce(canonical.file_path,      dup.file_path),
+    canonical.storage_key    = coalesce(canonical.storage_key,    dup.storage_key),
+    canonical.public_url     = coalesce(canonical.public_url,     dup.public_url),
+    canonical.content_type   = coalesce(canonical.content_type,   dup.content_type),
+    canonical.doc_type       = coalesce(canonical.doc_type,       dup.doc_type),
+    canonical.extracted_json = coalesce(canonical.extracted_json, dup.extracted_json),
+    canonical.extracted_at   = coalesce(canonical.extracted_at,   dup.extracted_at),
+    canonical.model          = coalesce(canonical.model,          dup.model),
+    canonical.uploaded_at    = coalesce(canonical.uploaded_at,    dup.uploaded_at)
+
+// Re-point any HAS_DOCUMENT relationship pointing at the duplicate.
+WITH canonical, dup
+OPTIONAL MATCH (a:AuctionProperty)-[r:HAS_DOCUMENT]->(dup)
+WITH canonical, dup, collect(DISTINCT a) AS owners
+FOREACH (a IN owners | MERGE (a)-[:HAS_DOCUMENT]->(canonical))
+
+WITH dup
+DETACH DELETE dup
+"""
+
+
+def _pick_canonical(candidates: list[dict]) -> tuple[str, list[str]]:
+    """Return (canonical_id, [duplicate_ids]).
+
+    Sort descending so the best candidate ends up at index 0:
+    has_url and has_key are 1/0 ints (a node with public_url wins over one
+    without); uploaded_at and extracted_at are ISO strings so plain string
+    comparison gives newest-first under reverse=True.
+    """
+    def score(c: dict) -> tuple:
+        return (
+            int(c.get("has_url") or 0),
+            int(c.get("has_key") or 0),
+            c.get("uploaded_at") or "",
+            c.get("extracted_at") or "",
+        )
+
+    ordered = sorted(candidates, key=score, reverse=True)
+    canonical = ordered[0]
+    duplicates = [c["id"] for c in ordered[1:]]
+    return canonical["id"], duplicates
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--dry-run", action="store_true",
+                        help="List planned merges without modifying Neo4j.")
+    parser.add_argument("--auction-id", default=None,
+                        help="Limit cleanup to a single auction_id.")
+    args = parser.parse_args()
+
+    groups = run_query(FIND_DUPLICATES_CYPHER, {"auction_id": args.auction_id})
+    if not groups:
+        print("No duplicate documents found — nothing to do.")
+        return 0
+
+    print(f"Found {len(groups)} (auction_id, filename) groups with duplicates.")
+    merged_groups = 0
+    deleted_nodes = 0
+    errors = 0
+
+    for g in groups:
+        canonical_id, duplicate_ids = _pick_canonical(g["candidates"])
+        action = "[dry-run] would merge" if args.dry_run else "[merge]"
+        print(
+            f"  {action} {g['auction_id']} :: {g['filename']} "
+            f"keep={canonical_id[:24]}… drop={len(duplicate_ids)}"
+        )
+
+        if args.dry_run:
+            continue
+
+        try:
+            run_query(MERGE_DUPLICATES_CYPHER, {
+                "canonical_id":  canonical_id,
+                "duplicate_ids": duplicate_ids,
+            })
+            merged_groups += 1
+            deleted_nodes += len(duplicate_ids)
+        except Exception as e:
+            errors += 1
+            print(f"    [error] {e}")
+
+    print()
+    print("=" * 50)
+    if args.dry_run:
+        print(f"  Dry-run only — graph not modified.")
+        print(f"  Groups that would be merged: {len(groups)}")
+    else:
+        print(f"  Groups merged   : {merged_groups}")
+        print(f"  Nodes deleted   : {deleted_nodes}")
+        print(f"  Errors          : {errors}")
+    print("=" * 50)
+    return 0 if errors == 0 else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
