@@ -1266,7 +1266,7 @@ body {
 
     <div class="screen" data-screen="detail">
       <div style="display:flex; flex-direction:column; gap:4px; margin-bottom:14px;">
-        <button class="back-link" onclick="go('results')">← back to results</button>
+        <button class="back-link" id="detail-back" onclick="go(detailReturnScreen)">← back to results</button>
       </div>
       <div class="detail">
         <div class="detail-main">
@@ -1429,6 +1429,7 @@ const ICON = { flat:'icon-flat', house:'icon-house', land:'icon-land', commercia
 
 /* ====== STATE ====== */
 let currentScreen = 'landing';
+let detailReturnScreen = 'results';
 let currentDetailId = null;
 let currentDetailTitle = '';
 let currentDetailLoc = '';
@@ -1582,6 +1583,12 @@ function toCard(row) {
 
 /* ====== NAV ====== */
 function go(screen) {
+  if (screen === 'detail' && currentScreen && currentScreen !== 'detail') {
+    detailReturnScreen = currentScreen;
+    const labels = { landing: '← back to all properties', results: '← back to results', watchlist: '← back to watchlist' };
+    const btn = document.getElementById('detail-back');
+    if (btn) btn.textContent = labels[detailReturnScreen] || '← back';
+  }
   currentScreen = screen;
   document.querySelectorAll('.screen').forEach(s => s.classList.toggle('on', s.dataset.screen === screen));
   document.querySelectorAll('.top-nav button').forEach(b => b.classList.toggle('on', b.dataset.nav === screen));
