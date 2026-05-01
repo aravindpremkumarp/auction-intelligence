@@ -4,5 +4,10 @@
   "outputDirectory": "web",
   "framework": null,
   "cleanUrls": true,
-  "trailingSlash": false
+  "trailingSlash": false,
+  "rewrites": [
+    { "source": "/property/:id", "destination": "/index.html" },
+    { "source": "/results", "destination": "/index.html" },
+    { "source": "/watchlist", "destination": "/index.html" }
+  ]
 }
