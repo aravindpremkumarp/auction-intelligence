@@ -1582,7 +1582,22 @@ function toCard(row) {
 }
 
 /* ====== NAV ====== */
-function go(screen) {
+function urlForScreen(screen, propertyId) {
+  if (screen === 'detail' && propertyId) return `/property/${encodeURIComponent(propertyId)}`;
+  if (screen === 'results') return '/results';
+  if (screen === 'watchlist') return '/watchlist';
+  return '/';
+}
+function parseUrl(pathname) {
+  if (!pathname || pathname === '/' || pathname === '/index.html') return { screen: 'landing' };
+  if (pathname === '/results') return { screen: 'results' };
+  if (pathname === '/watchlist') return { screen: 'watchlist' };
+  const m = pathname.match(/^\/property\/(.+)$/);
+  if (m) return { screen: 'detail', propertyId: decodeURIComponent(m[1]) };
+  return { screen: 'landing' };
+}
+function go(screen, opts) {
+  opts = opts || {};
   if (screen === 'detail' && currentScreen && currentScreen !== 'detail') {
     detailReturnScreen = currentScreen;
     const labels = { landing: '← back to all properties', results: '← back to results', watchlist: '← back to watchlist' };
@@ -1592,13 +1607,31 @@ function go(screen) {
   currentScreen = screen;
   document.querySelectorAll('.screen').forEach(s => s.classList.toggle('on', s.dataset.screen === screen));
   document.querySelectorAll('.top-nav button').forEach(b => b.classList.toggle('on', b.dataset.nav === screen));
+  if (!opts.fromHistory) {
+    const propertyId = screen === 'detail' ? currentDetailId : null;
+    const url = urlForScreen(screen, propertyId);
+    const state = { screen, propertyId };
+    if (location.pathname !== url) history.pushState(state, '', url);
+    else history.replaceState(state, '', url);
+  }
   if (screen === 'results') renderResults();
   if (screen === 'watchlist') renderWatchlist();
   if (screen === 'detail' && currentDetailId) loadAndRenderDetail(currentDetailId);
 }
+window.addEventListener('popstate', (e) => {
+  const parsed = (e.state && e.state.screen) ? e.state : parseUrl(location.pathname);
+  if (parsed.screen === 'detail' && parsed.propertyId) currentDetailId = parsed.propertyId;
+  go(parsed.screen, { fromHistory: true });
+});
 document.querySelectorAll('.top-nav button').forEach(b => {
   b.addEventListener('click', () => go(b.dataset.nav));
 });
+(function bootRouter() {
+  const parsed = parseUrl(location.pathname);
+  if (parsed.screen === 'detail' && parsed.propertyId) currentDetailId = parsed.propertyId;
+  history.replaceState({ screen: parsed.screen, propertyId: parsed.propertyId || null }, '', urlForScreen(parsed.screen, parsed.propertyId));
+  if (parsed.screen !== 'landing') go(parsed.screen, { fromHistory: true });
+})();
 
 /* ====== mode sync (inline dropdowns in chatboxes) ====== */
 window.currentMode = 'ask';
@@ -2102,7 +2135,7 @@ function renderPriceHistory(history) {
   host.querySelectorAll('[data-jump-id]').forEach(el => {
     const jump = () => {
       currentDetailId = el.dataset.jumpId;
-      loadAndRenderDetail(currentDetailId);
+      go('detail');
     };
     el.addEventListener('click', jump);
     el.addEventListener('keydown', (e) => {
