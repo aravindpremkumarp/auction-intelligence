@@ -171,6 +171,7 @@ def search_auctions(
     order_by: str = "deadline_asc",
     aggregate_field: str | None = None,
     aggregations: list[str] | None = None,
+    include_past: bool = False,
 ) -> dict:
     """Filter auctions by price, city, area, type, asset category, bank, and
     date window. Optional `order_by` and `limit` control row ordering.
@@ -180,6 +181,12 @@ def search_auctions(
     `limit`. Use `total_count` whenever the user asks about quantity, totals,
     availability, or any aggregate question — do not infer counts from
     `len(results)`, which only reflects the page size.
+
+    By default this tool excludes past auctions (auction_start_dt < now()).
+    Pass `include_past=True` ONLY for genuine retrospective questions
+    ("how many auctions happened last year", "average price across the
+    full 2025 catalog"). For all forward-looking buyer questions, leave
+    it false.
 
     Location filters:
       - `city` matches a City node by exact name (e.g. "Chennai", "Kanchipuram").
@@ -231,6 +238,7 @@ def search_auctions(
         starts_after=starts_after, starts_before=starts_before,
         limit=limit, order_by=order_by,
         aggregate_field=aggregate_field, aggregations=aggregations,
+        include_past=include_past,
     )
 
 
@@ -274,26 +282,74 @@ def borrower_lookup(borrower_name: str) -> list[dict]:
 def semantic_property_search(
     query: str,
     city: str | None = None,
+    area: str | None = None,
     min_price: float | None = None,
     max_price: float | None = None,
     asset_category: str | None = None,
+    starts_after: datetime | None = None,
+    starts_before: datetime | None = None,
     limit: int = 20,
+    include_past: bool = False,
 ) -> dict:
     """Vector search over property descriptions for qualitative traits.
 
     Use this when the user asks about features that live in free-text
     descriptions (boundaries, neighborhood character, legal language,
     property condition) rather than structured fields. Optional city /
-    price / asset_category act as post-filters on the semantic hits.
-    Results include a `score` (higher = more similar).
-    """
-    return T.semantic_property_search(query, city, min_price, max_price, asset_category, limit)
+    area / price / asset_category / date window act as post-filters on
+    the semantic hits. Results include a `score` (higher = more similar).
+
+    Defaults to future-only auctions; pass include_past=True for
+    retrospective queries. For "find me this exact pasted property"
+    use `match_pasted_listing` instead — semantic search alone has no
+    way to disambiguate between similar listings."""
+    return T.semantic_property_search(
+        query, city=city, area=area,
+        min_price=min_price, max_price=max_price,
+        asset_category=asset_category,
+        starts_after=starts_after, starts_before=starts_before,
+        limit=limit, include_past=include_past,
+    )
 
 
 @agent.tool_plain
 def survey_search(survey_no: str, subdivision: str | None = None) -> list[dict]:
     """Find properties by survey number (with optional subdivision)."""
     return T.survey_search(survey_no, subdivision)
+
+
+@agent.tool_plain
+def match_pasted_listing(pasted_text: str) -> dict:
+    """Find the auction that matches a pasted property listing (WhatsApp
+    forward, broker note, bank circular). Use this WHENEVER the user
+    pastes a blurb that includes any of: a price, an EMD/auction date,
+    a building name, a plot number, an area, or a PIN — even if the
+    paste is messy with emojis or line noise. Always preferred over
+    `semantic_property_search` for this task.
+
+    Returns {match, confidence, candidates, alternates, widening_reason,
+    extracted, note?}:
+      - `match`: top auction row when the strict price+date+area+city
+        filter hits, else None.
+      - `confidence`: 0.0–1.0. When `match` is None, confidence is 0.
+      - `candidates`: ALWAYS populated when the graph has anything close
+        — even if `match` is None. Up to 5 rows.
+      - `widening_reason`: None on a strict hit; on a widened result, a
+        short string ("dropped auction-date constraint", "widened price
+        band to ±10% and dropped date", etc.) explaining which constraint
+        was relaxed to find these candidates.
+      - `extracted`: the structured fields parsed from the paste, so
+        you can show the user what we understood.
+
+    How to present the result to the user:
+      - `match` set & confidence ≥ 0.6 → "Found it: <match>".
+      - `match` is None & `candidates` non-empty → "I couldn't find
+        this exact property in the graph. Here are the closest matches
+        (<widening_reason>): ...". List the candidates. Quote the
+        widening_reason verbatim so the user sees what was relaxed.
+      - `match` is None & `candidates` empty → tell the user we have
+        nothing close; ask for the auction_id or clearer location/price."""
+    return T.match_pasted_listing(pasted_text)
 
 
 @agent.tool_plain

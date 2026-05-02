@@ -10,7 +10,9 @@ from __future__ import annotations
 import json
 import re
 import time
-from datetime import datetime, timedelta
+from dataclasses import dataclass
+from datetime import date, datetime, timedelta
+from functools import lru_cache
 from api.neo4j_client import run_query, run_read_query
 from pipeline.embeddings import embed_text
 
@@ -118,6 +120,7 @@ def search_auctions(
     order_by: str = "deadline_asc",
     aggregate_field: str | None = None,
     aggregations: list[str] | None = None,
+    include_past: bool = False,
 ) -> dict:
     if aggregations:
         if aggregate_field not in _AGG_FIELDS:
@@ -144,6 +147,8 @@ def search_auctions(
         where.append("a.reserve_price_num >= $min_price"); params["min_price"] = min_price
     if max_price is not None:
         where.append("a.reserve_price_num <= $max_price"); params["max_price"] = max_price
+    if starts_after is None and not include_past:
+        starts_after = datetime.now()
     if starts_after is not None:
         where.append("a.auction_start_dt >= $starts_after"); params["starts_after"] = starts_after.isoformat()
     if starts_before is not None:
@@ -311,16 +316,25 @@ def borrower_lookup(borrower_name: str) -> list[dict]:
 def semantic_property_search(
     query: str,
     city: str | None = None,
+    area: str | None = None,
     min_price: float | None = None,
     max_price: float | None = None,
     asset_category: str | None = None,
+    starts_after: datetime | None = None,
+    starts_before: datetime | None = None,
     limit: int = 20,
+    include_past: bool = False,
 ) -> dict:
     """Vector search over AuctionProperty.description with optional structured post-filters.
 
     Runs a kNN over the `property_desc_idx` vector index, then filters by
-    city / price / asset_category. Returns {returned, limit, results} where
-    each result carries a `score` (cosine similarity, higher is better).
+    city / area / price / asset_category / date window. Returns
+    {returned, limit, results} where each result carries a `score` (cosine
+    similarity, higher is better).
+
+    Defaults to future-only (auction_start_dt >= now()) so past auctions
+    don't surface as semantic "matches". Pass include_past=True to disable
+    that floor for retrospective queries.
     """
     qvec = embed_text(query)
     k = max(limit * 5, 50)
@@ -331,6 +345,12 @@ def semantic_property_search(
         where.append("p.reserve_price_num >= $min_price"); params["min_price"] = min_price
     if max_price is not None:
         where.append("p.reserve_price_num <= $max_price"); params["max_price"] = max_price
+    if starts_after is None and not include_past:
+        starts_after = datetime.now()
+    if starts_after is not None:
+        where.append("p.auction_start_dt >= $starts_after"); params["starts_after"] = starts_after.isoformat()
+    if starts_before is not None:
+        where.append("p.auction_start_dt <= $starts_before"); params["starts_before"] = starts_before.isoformat()
 
     optional_matches = ""
     if city:
@@ -339,6 +359,10 @@ def semantic_property_search(
     if asset_category:
         optional_matches += "\nMATCH (p)-[:HAS_ASSET_CATEGORY]->(:AssetCategory {name: $asset_category})"
         params["asset_category"] = asset_category
+    if area:
+        optional_matches += "\nMATCH (p)-[:LOCATED_IN_AREA]->(ar:Area)"
+        where.append("toLower(ar.name) CONTAINS toLower($area)")
+        params["area"] = area
 
     where_clause = ("WHERE " + " AND ".join(where)) if where else ""
 
@@ -375,6 +399,358 @@ def semantic_property_search(
     """
     results = run_query(cypher, params)
     return {"returned": len(results), "limit": limit, "results": results}
+
+
+# ── match_pasted_listing: find an auction from pasted property text ────────
+
+@dataclass
+class _ExtractedListing:
+    reserve_price: float | None = None
+    auction_date: date | None = None
+    emd_date: date | None = None
+    pin: str | None = None
+    city: str | None = None
+    area: str | None = None
+    built_up_sqft: int | None = None
+    uds_sqft: int | None = None
+    raw_text: str = ""
+
+
+_PRICE_LAKH_CRORE_RE = re.compile(
+    r"(\d+(?:\.\d+)?)\s*(lakhs?|crores?|cr|l)\b", re.IGNORECASE
+)
+_PRICE_RUPEE_RE = re.compile(
+    r"(?:rs\.?|₹|inr)\s*([\d,]+(?:\.\d+)?)", re.IGNORECASE
+)
+_DATE_DDMMYYYY_RE = re.compile(r"\b(\d{1,2})/(\d{1,2})/(\d{2,4})\b")
+_AUCTION_DATE_RE = re.compile(
+    r"\bauction\b[^\d/]{0,30}(\d{1,2}/\d{1,2}/\d{2,4})", re.IGNORECASE
+)
+_EMD_DATE_RE = re.compile(
+    r"\bemd\b[^\d/]{0,30}(\d{1,2}/\d{1,2}/\d{2,4})", re.IGNORECASE
+)
+_PIN_RE = re.compile(r"\b(\d{6})\b")
+_BUILT_UP_RE = re.compile(
+    r"built[\s_-]?up[^\d]{0,30}(\d+(?:\.\d+)?)\s*sq", re.IGNORECASE
+)
+_UDS_RE = re.compile(r"\buds\b[^\d]{0,15}(\d+(?:\.\d+)?)\s*sq", re.IGNORECASE)
+
+
+@lru_cache(maxsize=1)
+def _load_known_locations() -> tuple[frozenset[str], frozenset[str]]:
+    """Cached set of all (City, Area) names in the graph. Used to disambiguate
+    location tokens in pasted text — we never want to mistake a building
+    name ('Sai Nila') for an area."""
+    city_rows = run_query("MATCH (c:City) RETURN c.name AS n", {})
+    area_rows = run_query("MATCH (a:Area) RETURN a.name AS n", {})
+    cities = frozenset(r["n"] for r in city_rows if r.get("n"))
+    areas = frozenset(r["n"] for r in area_rows if r.get("n"))
+    return cities, areas
+
+
+def _parse_price_to_inr(text: str) -> float | None:
+    m = _PRICE_LAKH_CRORE_RE.search(text)
+    if m:
+        n = float(m.group(1))
+        unit = m.group(2).lower()
+        if unit.startswith("c"):
+            return n * 10_000_000
+        return n * 100_000  # lakhs / L
+    m = _PRICE_RUPEE_RE.search(text)
+    if m:
+        return float(m.group(1).replace(",", ""))
+    return None
+
+
+def _parse_ddmmyyyy(s: str) -> date | None:
+    m = _DATE_DDMMYYYY_RE.search(s)
+    if not m:
+        return None
+    d, mo, y = int(m.group(1)), int(m.group(2)), int(m.group(3))
+    if y < 100:
+        y += 2000
+    try:
+        return date(y, mo, d)
+    except ValueError:
+        return None
+
+
+def _extract_listing_fields(text: str) -> _ExtractedListing:
+    out = _ExtractedListing(raw_text=text)
+    out.reserve_price = _parse_price_to_inr(text)
+
+    auction_m = _AUCTION_DATE_RE.search(text)
+    if auction_m:
+        out.auction_date = _parse_ddmmyyyy(auction_m.group(1))
+    emd_m = _EMD_DATE_RE.search(text)
+    if emd_m:
+        out.emd_date = _parse_ddmmyyyy(emd_m.group(1))
+    if out.auction_date is None:
+        all_dates = _DATE_DDMMYYYY_RE.findall(text)
+        if all_dates:
+            d, mo, y = all_dates[-1]
+            out.auction_date = _parse_ddmmyyyy(f"{d}/{mo}/{y}")
+
+    pin_m = _PIN_RE.search(text)
+    if pin_m:
+        out.pin = pin_m.group(1)
+    bu_m = _BUILT_UP_RE.search(text)
+    if bu_m:
+        out.built_up_sqft = int(float(bu_m.group(1)))
+    uds_m = _UDS_RE.search(text)
+    if uds_m:
+        out.uds_sqft = int(float(uds_m.group(1)))
+
+    try:
+        cities, areas = _load_known_locations()
+    except Exception:
+        cities, areas = frozenset(), frozenset()
+    text_lower = text.lower()
+    # Longest names first so "New Delhi" beats "Delhi" and "Greater Noida" beats "Noida".
+    for name in sorted(cities, key=len, reverse=True):
+        if re.search(rf"\b{re.escape(name.lower())}\b", text_lower):
+            out.city = name
+            break
+    for name in sorted(areas, key=len, reverse=True):
+        if re.search(rf"\b{re.escape(name.lower())}\b", text_lower):
+            out.area = name
+            break
+    return out
+
+
+_TIE_BREAK_STOPWORDS = frozenset({
+    "the", "a", "an", "of", "and", "in", "on", "at", "to", "for", "with",
+    "flat", "no", "plot", "road", "street", "nagar", "chennai", "tamil",
+    "nadu", "second", "first", "third", "fourth", "ground", "floor", "sqft",
+    "sq", "ft", "uds", "built", "up", "area", "reserve", "price", "auction",
+    "emd", "date", "lakhs", "lakh", "crore", "crores", "rs", "inr", "bank",
+    "property", "residential", "commercial",
+})
+
+
+def _tie_break_tokens(text: str) -> set[str]:
+    return {
+        t for t in re.findall(r"[a-z0-9]+", text.lower())
+        if t not in _TIE_BREAK_STOPWORDS and len(t) > 1
+    }
+
+
+def _tie_break_score(extracted: _ExtractedListing, candidate: dict) -> float:
+    """Jaccard overlap between paste and candidate description — used to
+    rank when multiple structured candidates survive the price/date/area
+    filter."""
+    desc = candidate.get("description") or candidate.get("title") or ""
+    p_tok = _tie_break_tokens(extracted.raw_text)
+    c_tok = _tie_break_tokens(desc)
+    if not p_tok or not c_tok:
+        return 0.0
+    return len(p_tok & c_tok) / len(p_tok | c_tok)
+
+
+def match_pasted_listing(pasted_text: str) -> dict:
+    """Find the auction in the graph that matches a pasted property listing.
+
+    Extracts reserve price, auction/EMD date, area, city, PIN, built-up area,
+    UDS from the pasted text, then runs a structured Cypher narrowed by
+    price (±2%), auction date (±2 days), city, and area. Tie-breaks any
+    remaining candidates by Jaccard token overlap on the description.
+
+    Returns {match, confidence, alternates, extracted}. `match` is None and
+    `confidence` is 0 when no structured candidate is found — the caller
+    must NOT present alternates as a 'best match' in that case.
+    """
+    extracted = _extract_listing_fields(pasted_text)
+
+    where: list[str] = []
+    params: dict = {}
+    matches = ["(a:AuctionProperty)"]
+
+    if extracted.reserve_price is not None:
+        params["min_price"] = extracted.reserve_price * 0.98
+        params["max_price"] = extracted.reserve_price * 1.02
+        where.append("a.reserve_price_num >= $min_price")
+        where.append("a.reserve_price_num <= $max_price")
+
+    if extracted.auction_date is not None:
+        starts_after = datetime.combine(
+            extracted.auction_date - timedelta(days=2), datetime.min.time()
+        )
+        starts_before = datetime.combine(
+            extracted.auction_date + timedelta(days=2), datetime.max.time()
+        )
+        params["starts_after"] = starts_after.isoformat()
+        params["starts_before"] = starts_before.isoformat()
+        where.append("a.auction_start_dt >= $starts_after")
+        where.append("a.auction_start_dt <= $starts_before")
+
+    if extracted.city:
+        matches.append("(a)-[:LOCATED_IN_CITY]->(c:City {name: $city})")
+        params["city"] = extracted.city
+
+    if extracted.area:
+        matches.append("(a)-[:LOCATED_IN_AREA]->(ar:Area)")
+        where.append("toLower(ar.name) CONTAINS toLower($area)")
+        params["area"] = extracted.area
+
+    extracted_dict = {
+        "reserve_price": extracted.reserve_price,
+        "auction_date": extracted.auction_date.isoformat() if extracted.auction_date else None,
+        "emd_date": extracted.emd_date.isoformat() if extracted.emd_date else None,
+        "pin": extracted.pin,
+        "city": extracted.city,
+        "area": extracted.area,
+        "built_up_sqft": extracted.built_up_sqft,
+        "uds_sqft": extracted.uds_sqft,
+    }
+
+    rows: list[dict] = []
+    if where:
+        rows = _run_match_cypher(where, matches, params)
+
+    if rows:
+        scored = sorted(
+            rows, key=lambda r: _tie_break_score(extracted, r), reverse=True
+        )
+        strong_signals = sum(
+            1 for v in (
+                extracted.reserve_price,
+                extracted.auction_date,
+                extracted.area,
+                extracted.pin,
+            ) if v is not None
+        )
+        confidence = min(1.0, 0.4 + 0.2 * strong_signals)
+        if len(rows) > 1:
+            confidence = min(confidence, 0.8)
+        return {
+            "match": scored[0],
+            "confidence": confidence,
+            "alternates": scored[1:5],
+            "candidates": scored[:5],
+            "widening_reason": None,
+            "extracted": extracted_dict,
+        }
+
+    # ── Progressive widening fallback ─────────────────────────────────────
+    # Strict price+date+area+city returned nothing. Don't bail — try wider
+    # filters so the user always sees CLOSE candidates instead of "no
+    # match". Each tier explains itself via `widening_reason` so the LLM
+    # surfaces it verbatim ("we couldn't find this exact property — here
+    # are the closest matches in <city/area> at ±10% price").
+    widened, reason = _widen_until_hits(extracted)
+    return {
+        "match": None,
+        "confidence": 0.0,
+        "alternates": widened[:5],
+        "candidates": widened[:5],
+        "widening_reason": reason,
+        "extracted": extracted_dict,
+        "note": (
+            "No exact structured match. Tell the user we did NOT find their "
+            "exact property; present `candidates` as 'closest matches we "
+            "found' and quote `widening_reason` so they understand which "
+            "constraint was relaxed. Ask for the auction_id or a clearer "
+            "location/price/date if these candidates look wrong."
+        ),
+    }
+
+
+def _run_match_cypher(where: list[str], matches: list[str], params: dict) -> list[dict]:
+    """Execute the candidate-fetch Cypher used by both the strict path and
+    the widening tiers. Kept separate so the WHERE/MATCH clauses can be
+    rebuilt per tier without duplicating the RETURN body."""
+    where_clause = "WHERE " + " AND ".join(where)
+    match_clause = ", ".join(matches)
+    cypher = f"""
+        MATCH {match_clause}
+        {where_clause}
+        OPTIONAL MATCH (a)-[:LOCATED_IN_CITY]->(city:City)
+        OPTIONAL MATCH (a)-[:LOCATED_IN_AREA]->(area:Area)
+        OPTIONAL MATCH (a)-[:CONDUCTED_BY]->(bank:Bank)
+        RETURN a.auction_id AS auction_id, a.title AS title, a.url AS url,
+               a.reserve_price_num AS reserve_price,
+               a.emd_num AS emd,
+               a.auction_start_dt AS auction_start,
+               city.name AS city, area.name AS area,
+               bank.name AS bank,
+               substring(a.description, 0, 400) AS description
+        LIMIT 20
+    """
+    return run_query(cypher, params)
+
+
+def _widen_until_hits(extracted: _ExtractedListing) -> tuple[list[dict], str | None]:
+    """Try progressively looser filters until something hits. Returns
+    (rows, widening_reason). The order — drop date, then widen price, then
+    drop area, then drop city — matches what a human would do: the date is
+    the most volatile constraint (re-auctions slide by weeks), price is
+    next (banks adjust reserves), and city is the strongest geographic
+    anchor so we hold it longest. Empty (rows, reason) means even the
+    loosest tier found nothing — only happens for paste with zero usable
+    fields or a city not in the graph."""
+    tiers: list[tuple[str, callable]] = [
+        ("dropped auction-date constraint", lambda: _build_filter(
+            extracted, drop_date=True,
+        )),
+        ("widened price band to ±10% and dropped date", lambda: _build_filter(
+            extracted, drop_date=True, price_pct=0.10,
+        )),
+        ("dropped area, kept city + ±10% price", lambda: _build_filter(
+            extracted, drop_date=True, drop_area=True, price_pct=0.10,
+        )),
+        ("kept city only", lambda: _build_filter(
+            extracted, drop_date=True, drop_area=True, drop_price=True,
+        )),
+    ]
+    for reason, builder in tiers:
+        where, matches, params = builder()
+        if not where and len(matches) == 1:
+            # Nothing left to filter on — skip this tier.
+            continue
+        rows = _run_match_cypher(where, matches, params)
+        if rows:
+            return rows, reason
+    return [], None
+
+
+def _build_filter(
+    extracted: _ExtractedListing,
+    *,
+    drop_date: bool = False,
+    drop_area: bool = False,
+    drop_price: bool = False,
+    price_pct: float = 0.02,
+) -> tuple[list[str], list[str], dict]:
+    """Rebuild the (where, matches, params) triple with selected
+    constraints relaxed. Used by `_widen_until_hits` to construct each
+    fallback tier without copy-pasting the assembly logic."""
+    where: list[str] = []
+    matches = ["(a:AuctionProperty)"]
+    params: dict = {}
+    if extracted.reserve_price is not None and not drop_price:
+        params["min_price"] = extracted.reserve_price * (1 - price_pct)
+        params["max_price"] = extracted.reserve_price * (1 + price_pct)
+        where.append("a.reserve_price_num >= $min_price")
+        where.append("a.reserve_price_num <= $max_price")
+    if extracted.auction_date is not None and not drop_date:
+        starts_after = datetime.combine(
+            extracted.auction_date - timedelta(days=2), datetime.min.time()
+        )
+        starts_before = datetime.combine(
+            extracted.auction_date + timedelta(days=2), datetime.max.time()
+        )
+        params["starts_after"] = starts_after.isoformat()
+        params["starts_before"] = starts_before.isoformat()
+        where.append("a.auction_start_dt >= $starts_after")
+        where.append("a.auction_start_dt <= $starts_before")
+    if extracted.city:
+        matches.append("(a)-[:LOCATED_IN_CITY]->(c:City {name: $city})")
+        params["city"] = extracted.city
+    if extracted.area and not drop_area:
+        matches.append("(a)-[:LOCATED_IN_AREA]->(ar:Area)")
+        where.append("toLower(ar.name) CONTAINS toLower($area)")
+        params["area"] = extracted.area
+    return where, matches, params
 
 
 def get_auction_detail(auction_id: str) -> dict | None:
