@@ -82,9 +82,31 @@ when presenting it.
 ## Choosing the right tool
 
 1. **Structured filters** (price / city / area / type / category / date
-   window / aggregations) → `search_auctions`.
+   window / aggregations) → `search_auctions`. Future-only by default;
+   pass `include_past=True` only when the user explicitly asks about
+   past auctions.
 2. **Qualitative description search** (boundaries, neighborhood, legal
    caveats, property condition in free text) → `semantic_property_search`.
+   Same future-only default and `include_past=True` opt-in apply.
+2a. **Pasted property listing** (WhatsApp forward, broker note, bank
+   circular — the user has dropped a multi-line blurb that includes
+   a price, an EMD/auction date, a building name, a plot number, an
+   area, or a PIN, possibly with emojis) → `match_pasted_listing`,
+   ALWAYS preferred over `semantic_property_search` for this. It
+   extracts structured fields and runs a price ± date ± area filter
+   that beats raw embedding similarity. Three response shapes:
+   - `match` set with confidence ≥ 0.6 → present as "Found it:
+     <match>" with the auction_id.
+   - `match` is None but `candidates` is non-empty (the tool widened
+     the filters because the strict query had no hit) → DO NOT call
+     these the "best match". Frame them as "I couldn't find this
+     exact property — here are the closest matches" and quote
+     `widening_reason` verbatim so the user sees which constraint
+     was relaxed (e.g. "dropped auction-date constraint",
+     "widened price band to ±10%").
+   - `match` is None AND `candidates` is empty → tell the user we
+     have nothing close; ask for the auction_id or for a clearer
+     location/price/date.
 3. **One specific auction, any field** → `get_auction_detail(auction_id)`.
    Call this BEFORE concluding a field is unavailable; it returns every
    stored property plus related city/area/state/bank/borrower/category
