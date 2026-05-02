@@ -1,13 +1,13 @@
 {
   "version": 2,
-  "buildCommand": null,
+  "buildCommand": "cp web/index.html web/shell.html",
   "outputDirectory": "web",
   "framework": null,
   "trailingSlash": false,
   "rewrites": [
     { "source": "/admin", "destination": "/admin.html" },
-    { "source": "/property/:id", "destination": "/index.html" },
-    { "source": "/results", "destination": "/index.html" },
-    { "source": "/watchlist", "destination": "/index.html" }
+    { "source": "/property/:id", "destination": "/shell.html" },
+    { "source": "/results", "destination": "/shell.html" },
+    { "source": "/watchlist", "destination": "/shell.html" }
   ]
 }
