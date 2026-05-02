@@ -1581,21 +1581,27 @@ function toCard(row) {
   };
 }
 
-/* ====== NAV ====== */
-function urlForScreen(screen, propertyId) {
-  if (screen === 'detail' && propertyId) return `/property/${encodeURIComponent(propertyId)}`;
-  if (screen === 'results') return '/results';
-  if (screen === 'watchlist') return '/watchlist';
-  return '/';
+/* ====== NAV (hash-based routing) ======
+   Hash routing because Vercel rewrites kept clobbering location.pathname
+   in ways I couldn't pin down across PRs #50/#51/#52/#53. The fragment is
+   client-side only — never sent to the server — so refresh, share, and
+   bookmark all work without any vercel.json rewrites. */
+function hashForScreen(screen, propertyId) {
+  if (screen === 'detail' && propertyId) return '#/property/' + encodeURIComponent(propertyId);
+  if (screen === 'results') return '#/results';
+  if (screen === 'watchlist') return '#/watchlist';
+  return '';
 }
-function parseUrl(pathname) {
-  if (!pathname || pathname === '/' || pathname === '/index.html') return { screen: 'landing' };
-  if (pathname === '/results') return { screen: 'results' };
-  if (pathname === '/watchlist') return { screen: 'watchlist' };
-  const m = pathname.match(/^\/property\/(.+)$/);
+function parseHash(rawHash) {
+  const path = (rawHash || '').replace(/^#/, '');
+  if (!path || path === '/') return { screen: 'landing' };
+  if (path === '/results') return { screen: 'results' };
+  if (path === '/watchlist') return { screen: 'watchlist' };
+  const m = path.match(/^\/property\/(.+)$/);
   if (m) return { screen: 'detail', propertyId: decodeURIComponent(m[1]) };
   return { screen: 'landing' };
 }
+let _suppressNextHashChange = false;
 function go(screen, opts) {
   opts = opts || {};
   if (screen === 'detail' && currentScreen && currentScreen !== 'detail') {
@@ -1609,17 +1615,20 @@ function go(screen, opts) {
   document.querySelectorAll('.top-nav button').forEach(b => b.classList.toggle('on', b.dataset.nav === screen));
   if (!opts.fromHistory) {
     const propertyId = screen === 'detail' ? currentDetailId : null;
-    const url = urlForScreen(screen, propertyId);
-    const state = { screen, propertyId };
-    if (location.pathname !== url) history.pushState(state, '', url);
-    else history.replaceState(state, '', url);
+    const newHash = hashForScreen(screen, propertyId);
+    if (location.hash !== newHash) {
+      _suppressNextHashChange = true;
+      if (newHash) location.hash = newHash;
+      else history.replaceState(null, '', location.pathname + location.search);
+    }
   }
   if (screen === 'results') renderResults();
   if (screen === 'watchlist') renderWatchlist();
   if (screen === 'detail' && currentDetailId) loadAndRenderDetail(currentDetailId);
 }
-window.addEventListener('popstate', (e) => {
-  const parsed = (e.state && e.state.screen) ? e.state : parseUrl(location.pathname);
+window.addEventListener('hashchange', () => {
+  if (_suppressNextHashChange) { _suppressNextHashChange = false; return; }
+  const parsed = parseHash(location.hash);
   if (parsed.screen === 'detail' && parsed.propertyId) currentDetailId = parsed.propertyId;
   go(parsed.screen, { fromHistory: true });
 });
@@ -1627,9 +1636,8 @@ document.querySelectorAll('.top-nav button').forEach(b => {
   b.addEventListener('click', () => go(b.dataset.nav));
 });
 (function bootRouter() {
-  const parsed = parseUrl(location.pathname);
+  const parsed = parseHash(location.hash);
   if (parsed.screen === 'detail' && parsed.propertyId) currentDetailId = parsed.propertyId;
-  history.replaceState({ screen: parsed.screen, propertyId: parsed.propertyId || null }, '', urlForScreen(parsed.screen, parsed.propertyId));
   if (parsed.screen !== 'landing') go(parsed.screen, { fromHistory: true });
 })();
 
