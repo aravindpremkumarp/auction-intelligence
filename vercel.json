@@ -1,13 +1,8 @@
 {
   "version": 2,
-  "buildCommand": "cp web/index.html web/shell.html",
+  "buildCommand": null,
   "outputDirectory": "web",
   "framework": null,
-  "trailingSlash": false,
-  "rewrites": [
-    { "source": "/admin", "destination": "/admin.html" },
-    { "source": "/property/:id", "destination": "/shell.html" },
-    { "source": "/results", "destination": "/shell.html" },
-    { "source": "/watchlist", "destination": "/shell.html" }
-  ]
+  "cleanUrls": true,
+  "trailingSlash": false
 }
