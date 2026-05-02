@@ -6,8 +6,8 @@
   "cleanUrls": true,
   "trailingSlash": false,
   "rewrites": [
-    { "source": "/property/:id", "destination": "/index.html" },
-    { "source": "/results", "destination": "/index.html" },
-    { "source": "/watchlist", "destination": "/index.html" }
+    { "source": "/property/:id", "destination": "/" },
+    { "source": "/results", "destination": "/" },
+    { "source": "/watchlist", "destination": "/" }
   ]
 }
