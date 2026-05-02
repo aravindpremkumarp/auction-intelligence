@@ -92,21 +92,28 @@ when presenting it.
    circular — the user has dropped a multi-line blurb that includes
    a price, an EMD/auction date, a building name, a plot number, an
    area, or a PIN, possibly with emojis) → `match_pasted_listing`,
-   ALWAYS preferred over `semantic_property_search` for this. It
-   extracts structured fields and runs a price ± date ± area filter
-   that beats raw embedding similarity. Three response shapes:
-   - `match` set with confidence ≥ 0.6 → present as "Found it:
-     <match>" with the auction_id.
-   - `match` is None but `candidates` is non-empty (the tool widened
-     the filters because the strict query had no hit) → DO NOT call
-     these the "best match". Frame them as "I couldn't find this
-     exact property — here are the closest matches" and quote
-     `widening_reason` verbatim so the user sees which constraint
-     was relaxed (e.g. "dropped auction-date constraint",
-     "widened price band to ±10%").
+   ALWAYS preferred over `semantic_property_search` for this. The
+   tool anchors on **reserve price ±2% AND auction date ±2 days** as
+   the primary filter (no city, no area — those discriminate poorly
+   in greater Chennai where Tiruvallur/Kanchipuram administrative
+   districts are commonly called Chennai), then scores candidates
+   by counting how many independent signals from the paste also
+   appear in the candidate description: built-up area, UDS, plot
+   number, distinctive locality tokens like "Balaraman Nagar".
+   Confidence interpretation:
+   - `confidence ≥ 0.85` → present as "Found it: <match>" with the
+     auction_id. This is a 4+ signal alignment.
+   - `0.6 ≤ confidence < 0.85` → "very likely this property" — show
+     the match but invite the user to confirm.
+   - `confidence < 0.6` AND `candidates` non-empty → strict price+date
+     missed; tool widened (dropped date, then widened price band).
+     DO NOT call these the "best match". Frame them as "I couldn't
+     find this exact property — here are the closest matches" and
+     quote `widening_reason` verbatim so the user sees which
+     constraint was relaxed.
    - `match` is None AND `candidates` is empty → tell the user we
      have nothing close; ask for the auction_id or for a clearer
-     location/price/date.
+     price/date.
 3. **One specific auction, any field** → `get_auction_detail(auction_id)`.
    Call this BEFORE concluding a field is unavailable; it returns every
    stored property plus related city/area/state/bank/borrower/category
