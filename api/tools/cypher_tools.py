@@ -413,7 +413,13 @@ class _ExtractedListing:
     area: str | None = None
     built_up_sqft: int | None = None
     uds_sqft: int | None = None
+    plot_no: str | None = None
+    locality_tokens: list[str] = None  # type: ignore[assignment]
     raw_text: str = ""
+
+    def __post_init__(self) -> None:
+        if self.locality_tokens is None:
+            self.locality_tokens = []
 
 
 _PRICE_LAKH_CRORE_RE = re.compile(
@@ -434,6 +440,31 @@ _BUILT_UP_RE = re.compile(
     r"built[\s_-]?up[^\d]{0,30}(\d+(?:\.\d+)?)\s*sq", re.IGNORECASE
 )
 _UDS_RE = re.compile(r"\buds\b[^\d]{0,15}(\d+(?:\.\d+)?)\s*sq", re.IGNORECASE)
+# `Plot No.46`, `Plot No 46`, `Plot No: 46`, `Plot Number 46`.
+_PLOT_NO_RE = re.compile(
+    r"\bplot\s*(?:no\.?|number|#)?\s*[:\-]?\s*([A-Za-z]?\d+[A-Za-z]?)\b",
+    re.IGNORECASE,
+)
+# Distinctive locality / building names. Two patterns:
+#   1. `<Capitalized Word(s)> Nagar/Street/Colony/Layout/Garden/Avenue/...`
+#      — neighborhood / sub-locality names, almost unique within a city.
+#   2. `<Capitalized Word(s)> Flats/Apartments/Towers/Heights/Residency`
+#      — building names. Less unique but high-signal when paired with price+date.
+# Both run on the original-case text, then we lower the captures.
+_LOCALITY_SUFFIXES = (
+    r"Nagar|Nagara|Nagaram|Street|Colony|Layout|Garden|Gardens|"
+    r"Avenue|Road|Lane|Block|Phase|Sector"
+)
+_BUILDING_SUFFIXES = (
+    r"Flats?|Apartments?|Towers?|Heights?|Residency|Residences?|"
+    r"Enclave|Mansions?|Court|Plaza"
+)
+_LOCALITY_RE = re.compile(
+    rf"\b((?:[A-Z][A-Za-z]+\s+){{1,3}}(?:{_LOCALITY_SUFFIXES}))\b"
+)
+_BUILDING_RE = re.compile(
+    rf"\b((?:[A-Z][A-Za-z]+\s+){{1,3}}(?:{_BUILDING_SUFFIXES}))\b"
+)
 
 
 @lru_cache(maxsize=1)
@@ -500,6 +531,23 @@ def _extract_listing_fields(text: str) -> _ExtractedListing:
     uds_m = _UDS_RE.search(text)
     if uds_m:
         out.uds_sqft = int(float(uds_m.group(1)))
+    plot_m = _PLOT_NO_RE.search(text)
+    if plot_m:
+        out.plot_no = plot_m.group(1)
+
+    # Distinctive locality / building tokens. Paste-side capture is on the
+    # original case (the regexes require a leading capital), then we lower
+    # the captures so the eventual `description CONTAINS toLower(token)`
+    # check is case-insensitive.
+    seen: set[str] = set()
+    tokens: list[str] = []
+    for regex in (_LOCALITY_RE, _BUILDING_RE):
+        for m in regex.finditer(text):
+            tok = " ".join(m.group(1).split()).lower()
+            if tok not in seen:
+                seen.add(tok)
+                tokens.append(tok)
+    out.locality_tokens = tokens
 
     try:
         cities, areas = _load_known_locations()
@@ -536,9 +584,8 @@ def _tie_break_tokens(text: str) -> set[str]:
 
 
 def _tie_break_score(extracted: _ExtractedListing, candidate: dict) -> float:
-    """Jaccard overlap between paste and candidate description — used to
-    rank when multiple structured candidates survive the price/date/area
-    filter."""
+    """Jaccard overlap — kept only as a fallback ranking signal when the
+    weighted multi-signal score below produces a tie."""
     desc = candidate.get("description") or candidate.get("title") or ""
     p_tok = _tie_break_tokens(extracted.raw_text)
     c_tok = _tie_break_tokens(desc)
@@ -547,83 +594,109 @@ def _tie_break_score(extracted: _ExtractedListing, candidate: dict) -> float:
     return len(p_tok & c_tok) / len(p_tok | c_tok)
 
 
+# Per-signal weights for confidence scoring. Sum is 1.0 only when every
+# signal is present in the paste AND matches the candidate's description.
+# Price + date together = 0.60 (the primary filter already enforces both),
+# so any candidate returned by the strict Cypher starts at 0.60. The
+# remaining 0.40 comes from description-text matches that confirm the
+# candidate is the SAME property as the paste describes.
+_SCORE_WEIGHT_PRICE = 0.30
+_SCORE_WEIGHT_DATE = 0.30
+_SCORE_WEIGHT_BUILT_UP = 0.15
+_SCORE_WEIGHT_UDS = 0.10
+_SCORE_WEIGHT_LOCALITY = 0.10
+_SCORE_WEIGHT_PLOT = 0.05
+
+
+def _score_candidate(
+    extracted: _ExtractedListing,
+    candidate: dict,
+    *,
+    price_matches: bool,
+    date_matches: bool,
+) -> float:
+    """Confidence in [0.0, 1.0]. `price_matches` / `date_matches` are
+    passed in because the caller knows which tier of widening produced
+    this candidate — at a wider tier the price/date "match" is partial,
+    so the corresponding weight is dropped."""
+    score = 0.0
+    if price_matches:
+        score += _SCORE_WEIGHT_PRICE
+    if date_matches:
+        score += _SCORE_WEIGHT_DATE
+
+    # Description-text confirmations. Lowercased substring search so
+    # variations like "741 Sqft" / "741 sq.ft" / "741 sq ft" all hit.
+    desc = (candidate.get("description") or "").lower()
+    if extracted.built_up_sqft and f"{extracted.built_up_sqft} sq" in desc:
+        score += _SCORE_WEIGHT_BUILT_UP
+    if extracted.uds_sqft and f"{extracted.uds_sqft} sq" in desc:
+        score += _SCORE_WEIGHT_UDS
+    if extracted.locality_tokens and any(
+        tok in desc for tok in extracted.locality_tokens
+    ):
+        score += _SCORE_WEIGHT_LOCALITY
+    if extracted.plot_no:
+        # Match `plot no 46`, `plot no. 46`, `plot 46`, `plot-46`.
+        plot_re = re.compile(
+            rf"\bplot\s*(?:no\.?|number|#)?\s*[:\-]?\s*{re.escape(extracted.plot_no)}\b",
+            re.IGNORECASE,
+        )
+        if plot_re.search(desc):
+            score += _SCORE_WEIGHT_PLOT
+
+    return min(1.0, score)
+
+
 def match_pasted_listing(pasted_text: str) -> dict:
     """Find the auction in the graph that matches a pasted property listing.
 
-    Extracts reserve price, auction/EMD date, area, city, PIN, built-up area,
-    UDS from the pasted text, then runs a structured Cypher narrowed by
-    price (±2%), auction date (±2 days), city, and area. Tie-breaks any
-    remaining candidates by Jaccard token overlap on the description.
+    Strategy:
+      1. Extract reserve_price, auction_date, built_up_sqft, uds_sqft,
+         plot_no, locality tokens (e.g. "Balaraman Nagar"), PIN.
+      2. Primary Cypher: filter on `reserve_price ±2% AND auction_date
+         ±2 days` ONLY. **No city, no area in the filter** — Tamil Nadu
+         auctions in greater Chennai are filed under Tiruvallur or
+         Kanchipuram administrative districts but locals always say
+         "Chennai", so a strict city match misses the right property.
+      3. Score each candidate by counting independent signals from the
+         paste that ALSO appear in the candidate's description text:
+         built-up area number, UDS number, distinctive locality tokens,
+         plot number. Each adds weight (see `_score_candidate`).
+      4. If the strict price+date filter returns nothing, widen
+         (drop date → widen price ±10% → drop both) and surface the
+         closest hits with a `widening_reason` so the LLM never says
+         "no match" — always at least "closest matches we found".
 
-    Returns {match, confidence, alternates, extracted}. `match` is None and
-    `confidence` is 0 when no structured candidate is found — the caller
-    must NOT present alternates as a 'best match' in that case.
+    Returns {match, confidence, alternates, candidates, widening_reason,
+    extracted}. `match` is None when no candidate hits the strict tier
+    or a useful widening tier; the caller must NOT present alternates
+    as a "best match" in that case.
     """
     extracted = _extract_listing_fields(pasted_text)
+    extracted_dict = _extracted_to_dict(extracted)
 
-    where: list[str] = []
-    params: dict = {}
-    matches = ["(a:AuctionProperty)"]
-
-    if extracted.reserve_price is not None:
-        params["min_price"] = extracted.reserve_price * 0.98
-        params["max_price"] = extracted.reserve_price * 1.02
-        where.append("a.reserve_price_num >= $min_price")
-        where.append("a.reserve_price_num <= $max_price")
-
-    if extracted.auction_date is not None:
-        starts_after = datetime.combine(
-            extracted.auction_date - timedelta(days=2), datetime.min.time()
-        )
-        starts_before = datetime.combine(
-            extracted.auction_date + timedelta(days=2), datetime.max.time()
-        )
-        params["starts_after"] = starts_after.isoformat()
-        params["starts_before"] = starts_before.isoformat()
-        where.append("a.auction_start_dt >= $starts_after")
-        where.append("a.auction_start_dt <= $starts_before")
-
-    if extracted.city:
-        matches.append("(a)-[:LOCATED_IN_CITY]->(c:City {name: $city})")
-        params["city"] = extracted.city
-
-    if extracted.area:
-        matches.append("(a)-[:LOCATED_IN_AREA]->(ar:Area)")
-        where.append("toLower(ar.name) CONTAINS toLower($area)")
-        params["area"] = extracted.area
-
-    extracted_dict = {
-        "reserve_price": extracted.reserve_price,
-        "auction_date": extracted.auction_date.isoformat() if extracted.auction_date else None,
-        "emd_date": extracted.emd_date.isoformat() if extracted.emd_date else None,
-        "pin": extracted.pin,
-        "city": extracted.city,
-        "area": extracted.area,
-        "built_up_sqft": extracted.built_up_sqft,
-        "uds_sqft": extracted.uds_sqft,
-    }
-
+    where, matches, params = _build_filter(extracted)
     rows: list[dict] = []
     if where:
         rows = _run_match_cypher(where, matches, params)
 
     if rows:
+        # Strict tier: price+date both matched by definition.
         scored = sorted(
-            rows, key=lambda r: _tie_break_score(extracted, r), reverse=True
+            rows,
+            key=lambda r: (
+                _score_candidate(extracted, r, price_matches=True, date_matches=True),
+                _tie_break_score(extracted, r),
+            ),
+            reverse=True,
         )
-        strong_signals = sum(
-            1 for v in (
-                extracted.reserve_price,
-                extracted.auction_date,
-                extracted.area,
-                extracted.pin,
-            ) if v is not None
+        top = scored[0]
+        confidence = _score_candidate(
+            extracted, top, price_matches=True, date_matches=True
         )
-        confidence = min(1.0, 0.4 + 0.2 * strong_signals)
-        if len(rows) > 1:
-            confidence = min(confidence, 0.8)
         return {
-            "match": scored[0],
+            "match": top,
             "confidence": confidence,
             "alternates": scored[1:5],
             "candidates": scored[:5],
@@ -632,17 +705,23 @@ def match_pasted_listing(pasted_text: str) -> dict:
         }
 
     # ── Progressive widening fallback ─────────────────────────────────────
-    # Strict price+date+area+city returned nothing. Don't bail — try wider
-    # filters so the user always sees CLOSE candidates instead of "no
-    # match". Each tier explains itself via `widening_reason` so the LLM
-    # surfaces it verbatim ("we couldn't find this exact property — here
-    # are the closest matches in <city/area> at ±10% price").
-    widened, reason = _widen_until_hits(extracted)
+    widened, reason, price_ok, date_ok = _widen_until_hits(extracted)
+    if widened:
+        scored = sorted(
+            widened,
+            key=lambda r: (
+                _score_candidate(extracted, r, price_matches=price_ok, date_matches=date_ok),
+                _tie_break_score(extracted, r),
+            ),
+            reverse=True,
+        )
+    else:
+        scored = []
     return {
         "match": None,
         "confidence": 0.0,
-        "alternates": widened[:5],
-        "candidates": widened[:5],
+        "alternates": scored[:5],
+        "candidates": scored[:5],
         "widening_reason": reason,
         "extracted": extracted_dict,
         "note": (
@@ -652,6 +731,21 @@ def match_pasted_listing(pasted_text: str) -> dict:
             "constraint was relaxed. Ask for the auction_id or a clearer "
             "location/price/date if these candidates look wrong."
         ),
+    }
+
+
+def _extracted_to_dict(extracted: _ExtractedListing) -> dict:
+    return {
+        "reserve_price": extracted.reserve_price,
+        "auction_date": extracted.auction_date.isoformat() if extracted.auction_date else None,
+        "emd_date": extracted.emd_date.isoformat() if extracted.emd_date else None,
+        "pin": extracted.pin,
+        "city": extracted.city,
+        "area": extracted.area,
+        "built_up_sqft": extracted.built_up_sqft,
+        "uds_sqft": extracted.uds_sqft,
+        "plot_no": extracted.plot_no,
+        "locality_tokens": list(extracted.locality_tokens),
     }
 
 
@@ -679,51 +773,51 @@ def _run_match_cypher(where: list[str], matches: list[str], params: dict) -> lis
     return run_query(cypher, params)
 
 
-def _widen_until_hits(extracted: _ExtractedListing) -> tuple[list[dict], str | None]:
+def _widen_until_hits(
+    extracted: _ExtractedListing,
+) -> tuple[list[dict], str | None, bool, bool]:
     """Try progressively looser filters until something hits. Returns
-    (rows, widening_reason). The order — drop date, then widen price, then
-    drop area, then drop city — matches what a human would do: the date is
-    the most volatile constraint (re-auctions slide by weeks), price is
-    next (banks adjust reserves), and city is the strongest geographic
-    anchor so we hold it longest. Empty (rows, reason) means even the
-    loosest tier found nothing — only happens for paste with zero usable
-    fields or a city not in the graph."""
-    tiers: list[tuple[str, callable]] = [
-        ("dropped auction-date constraint", lambda: _build_filter(
-            extracted, drop_date=True,
-        )),
-        ("widened price band to ±10% and dropped date", lambda: _build_filter(
-            extracted, drop_date=True, price_pct=0.10,
-        )),
-        ("dropped area, kept city + ±10% price", lambda: _build_filter(
-            extracted, drop_date=True, drop_area=True, price_pct=0.10,
-        )),
-        ("kept city only", lambda: _build_filter(
-            extracted, drop_date=True, drop_area=True, drop_price=True,
-        )),
+    (rows, widening_reason, price_still_strict, date_still_strict).
+    The trailing booleans tell the caller whether to count price/date
+    as a confidence-boosting match: at a wider tier the constraint is
+    only approximate, so the corresponding scoring weight is suppressed.
+
+    Tier order — drop date first, then widen price, then drop both —
+    matches what a human would do: dates are volatile (re-auctions slide
+    by weeks), then price (banks adjust reserves). City and area are
+    NEVER part of the filter (greater Chennai is filed as Tiruvallur /
+    Kanchipuram administratively but referenced as Chennai in listings),
+    so there's no "drop city" tier."""
+    tiers: list[tuple[str, dict, bool, bool]] = [
+        # (reason, build_kwargs, price_still_strict, date_still_strict)
+        ("dropped auction-date constraint",
+            {"drop_date": True}, True, False),
+        ("dropped date and widened price band to ±10%",
+            {"drop_date": True, "price_pct": 0.10}, False, False),
+        ("dropped both date and price constraints",
+            {"drop_date": True, "drop_price": True}, False, False),
     ]
-    for reason, builder in tiers:
-        where, matches, params = builder()
-        if not where and len(matches) == 1:
+    for reason, kwargs, price_ok, date_ok in tiers:
+        where, matches, params = _build_filter(extracted, **kwargs)
+        if not where:
             # Nothing left to filter on — skip this tier.
             continue
         rows = _run_match_cypher(where, matches, params)
         if rows:
-            return rows, reason
-    return [], None
+            return rows, reason, price_ok, date_ok
+    return [], None, False, False
 
 
 def _build_filter(
     extracted: _ExtractedListing,
     *,
     drop_date: bool = False,
-    drop_area: bool = False,
     drop_price: bool = False,
     price_pct: float = 0.02,
 ) -> tuple[list[str], list[str], dict]:
     """Rebuild the (where, matches, params) triple with selected
-    constraints relaxed. Used by `_widen_until_hits` to construct each
-    fallback tier without copy-pasting the assembly logic."""
+    constraints relaxed. v2 NEVER includes city or area — those are
+    handled entirely via description-text scoring."""
     where: list[str] = []
     matches = ["(a:AuctionProperty)"]
     params: dict = {}
@@ -743,13 +837,6 @@ def _build_filter(
         params["starts_before"] = starts_before.isoformat()
         where.append("a.auction_start_dt >= $starts_after")
         where.append("a.auction_start_dt <= $starts_before")
-    if extracted.city:
-        matches.append("(a)-[:LOCATED_IN_CITY]->(c:City {name: $city})")
-        params["city"] = extracted.city
-    if extracted.area and not drop_area:
-        matches.append("(a)-[:LOCATED_IN_AREA]->(ar:Area)")
-        where.append("toLower(ar.name) CONTAINS toLower($area)")
-        params["area"] = extracted.area
     return where, matches, params
 
 

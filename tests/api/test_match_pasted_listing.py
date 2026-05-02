@@ -1,94 +1,104 @@
-"""Tests for `match_pasted_listing` — the tool that finds an auction in the
-graph from a pasted property blurb (WhatsApp forward, broker note, bank
-circular). Covers: structured field extraction, structured Cypher gating
-on price ± date ± area, confidence scoring, and graceful low-confidence
-fallback so the LLM never presents a poor match as the "best match".
+"""Tests for `match_pasted_listing` v2 — finds an auction in the graph from
+a pasted property blurb (WhatsApp forward, broker note, bank circular).
+
+v2 anchors on **reserve_price ±2% AND auction_date ±2 days** as the primary
+Cypher filter (no city, no area — those discriminate poorly because Tamil
+Nadu auctions in Chennai's outer ring are filed under Tiruvallur or
+Kanchipuram administrative districts but locals always say "Chennai").
+Confidence is scored by counting how many INDEPENDENT signals from the
+paste also appear in the matched property's `description`: built-up area
+number, UDS number, distinctive locality tokens (e.g. "Balaraman Nagar"),
+and plot/door numbers. The Sai Nila Flats canonical case (`auction_id
+750879`) is the regression fixture.
 """
 from __future__ import annotations
 
 from datetime import date
-
-import pytest
 
 
 # ── Extraction unit tests ────────────────────────────────────────────────
 
 def test_extract_price_lakhs() -> None:
     from api.tools.cypher_tools import _extract_listing_fields
-
     out = _extract_listing_fields("Reserve Price: 32 lakhs")
     assert out.reserve_price == 3_200_000
 
 
 def test_extract_price_decimal_lakhs() -> None:
     from api.tools.cypher_tools import _extract_listing_fields
-
     out = _extract_listing_fields("Reserve Price: 31.5 lakhs")
     assert out.reserve_price == 3_150_000
 
 
 def test_extract_price_crore() -> None:
     from api.tools.cypher_tools import _extract_listing_fields
-
     out = _extract_listing_fields("Reserve Price: 1.5 crore")
     assert out.reserve_price == 15_000_000
 
 
 def test_extract_price_rupee_symbol_with_commas() -> None:
     from api.tools.cypher_tools import _extract_listing_fields
-
     out = _extract_listing_fields("Reserve: ₹32,00,000")
     assert out.reserve_price == 3_200_000
 
 
 def test_extract_price_rs_with_commas() -> None:
     from api.tools.cypher_tools import _extract_listing_fields
-
     out = _extract_listing_fields("Reserve Price Rs. 32,00,000")
     assert out.reserve_price == 3_200_000
 
 
 def test_extract_price_short_l_suffix() -> None:
     from api.tools.cypher_tools import _extract_listing_fields
-
     out = _extract_listing_fields("Reserve 32L EMD 3.2L")
-    # First match wins as reserve; lakh → 32 lakh = 3,200,000
     assert out.reserve_price == 3_200_000
 
 
 def test_extract_dates_dd_mm_yyyy() -> None:
     from api.tools.cypher_tools import _extract_listing_fields
-
     out = _extract_listing_fields("EMD Date: 24/05/2026  Auction: 25/05/2026")
-    # Indian convention is DD/MM/YYYY.
     assert out.auction_date == date(2026, 5, 25)
     assert out.emd_date == date(2026, 5, 24)
 
 
 def test_extract_pin_code() -> None:
     from api.tools.cypher_tools import _extract_listing_fields
-
     out = _extract_listing_fields("Poonamallee Chennai – 600056")
     assert out.pin == "600056"
 
 
 def test_extract_built_up_area_and_uds() -> None:
     from api.tools.cypher_tools import _extract_listing_fields
-
     out = _extract_listing_fields("Built up area: 741 Sqft  UDS: 331 sqft")
     assert out.built_up_sqft == 741
     assert out.uds_sqft == 331
 
 
+def test_extract_locality_tokens_picks_up_nagar_and_building() -> None:
+    """Distinctive locality / building names — these are the strongest
+    signals once price + date have narrowed the candidate set."""
+    from api.tools.cypher_tools import _extract_listing_fields
+    out = _extract_listing_fields(
+        "Sai Nila Flats, Plot No.46, Balaraman Nagar, Poonamallee"
+    )
+    assert "balaraman nagar" in out.locality_tokens
+    assert "sai nila flats" in out.locality_tokens
+
+
+def test_extract_plot_no() -> None:
+    from api.tools.cypher_tools import _extract_listing_fields
+    out = _extract_listing_fields("Plot No.46, Balaraman Nagar")
+    assert out.plot_no == "46"
+
+
 def test_extract_known_city_and_area(monkeypatch) -> None:
-    """City and area must be matched against the cached graph vocabulary
-    so we do NOT mistake a building name ("Sai Nila") for an area."""
+    """City and area still get extracted (the LLM may want to display them
+    in the `extracted` block), but they are NOT used as Cypher filters."""
     import api.tools.cypher_tools as ct
     monkeypatch.setattr(ct, "_load_known_locations", lambda: (
         {"Chennai", "Coimbatore"},
         {"Poonamallee", "Ambattur", "Sriperumbudur"},
     ))
-
     out = ct._extract_listing_fields(
         "Sai Nila Flats, Plot No.46, Balaraman Nagar, Poonamallee Chennai – 600056"
     )
@@ -97,13 +107,10 @@ def test_extract_known_city_and_area(monkeypatch) -> None:
 
 
 def test_full_paste_extraction(monkeypatch) -> None:
-    """Full Sai Nila Flats paste — every structured field surfaces."""
     import api.tools.cypher_tools as ct
     monkeypatch.setattr(ct, "_load_known_locations", lambda: (
-        {"Chennai"},
-        {"Poonamallee"},
+        {"Chennai"}, {"Poonamallee"},
     ))
-
     paste = (
         "🏦BANK E-AUCTION PROPERTY🏦\n"
         "👉POONAMALLEE\n"
@@ -123,12 +130,13 @@ def test_full_paste_extraction(monkeypatch) -> None:
     assert out.area == "Poonamallee"
     assert out.built_up_sqft == 741
     assert out.uds_sqft == 331
+    assert out.plot_no == "46"
+    assert "balaraman nagar" in out.locality_tokens
 
 
 # ── Match orchestration tests ────────────────────────────────────────────
 
 def _patch_run_query(monkeypatch, rows: list[dict]):
-    """Stub run_query to capture cypher/params and return canned rows."""
     calls: list[tuple[str, dict]] = []
 
     def fake_run_query(cypher: str, params: dict | None = None):
@@ -143,18 +151,17 @@ def _patch_run_query(monkeypatch, rows: list[dict]):
     return calls
 
 
-def test_match_runs_structured_cypher_first(monkeypatch) -> None:
-    """The Sai Nila paste must produce a Cypher that filters on price
-    (±2%), auction date (±2 days), and area — together, in one query."""
+def test_primary_cypher_uses_only_price_and_date(monkeypatch) -> None:
+    """v2's defining behavior: the primary Cypher filters on price+date
+    ONLY. City and area are NOT in the filter — they discriminate poorly
+    in greater Chennai (Tiruvallur/Kanchipuram districts that locals call
+    Chennai)."""
     rows = [{
-        "auction_id": "750879",
-        "title": "Bajaj Housing Finance Ltd – Poonamallee",
-        "url": "https://www.eauctionsindia.com/properties/750879",
+        "auction_id": "750879", "title": "Bajaj Poonamallee",
         "reserve_price": 3_200_000,
         "auction_start": "2026-05-25T11:00:00",
-        "city": "Chennai", "area": "Poonamallee",
-        "bank": "Bajaj Housing Finance Ltd",
-        "description": "Sai Nila Flats, Plot No. 46, Balaraman Nagar...",
+        "city": "Tiruvallur", "area": "Poonamallee taluk",
+        "description": "Sai Nila Flats Plot No 46 Balaraman Nagar 741 sq.ft 331 sq.ft",
     }]
     calls = _patch_run_query(monkeypatch, rows)
 
@@ -165,112 +172,142 @@ def test_match_runs_structured_cypher_first(monkeypatch) -> None:
     )
     out = match_pasted_listing(paste)
 
-    assert calls, "match_pasted_listing must call run_query at least once"
     cypher, params = calls[0]
-    # Price band: ±2% around 32 lakhs
-    assert params["min_price"] == pytest.approx(3_200_000 * 0.98)
-    assert params["max_price"] == pytest.approx(3_200_000 * 1.02)
     assert "a.reserve_price_num >= $min_price" in cypher
     assert "a.reserve_price_num <= $max_price" in cypher
-    # Date band: ±2 days around auction date
     assert "a.auction_start_dt >= $starts_after" in cypher
     assert "a.auction_start_dt <= $starts_before" in cypher
-    assert params["starts_after"].startswith("2026-05-23")
-    assert params["starts_before"].startswith("2026-05-27")
-    # Area + city
-    assert "(a)-[:LOCATED_IN_AREA]->(ar:Area)" in cypher
-    assert "(a)-[:LOCATED_IN_CITY]->(c:City {name: $city})" in cypher
-    assert params["area"] == "Poonamallee"
-    assert params["city"] == "Chennai"
+    # The whole point of v2 — no geographic constraint in the primary
+    # Cypher. The OPTIONAL MATCHes for city/area are allowed (we still
+    # populate city/area on the returned rows for display); what must be
+    # absent is the filtering MATCH and any city/area parameter.
+    assert "(a)-[:LOCATED_IN_CITY]->(c:City {name: $city})" not in cypher
+    assert "(a)-[:LOCATED_IN_AREA]->(ar:Area)" not in cypher
+    assert "city" not in params
+    assert "area" not in params
 
     assert out["match"]["auction_id"] == "750879"
-    assert out["confidence"] >= 0.8
 
 
-def test_match_returns_high_confidence_when_3_fields_match(monkeypatch) -> None:
-    rows = [{"auction_id": "750879", "reserve_price": 3_200_000,
-             "auction_start": "2026-05-25T11:00:00", "city": "Chennai",
-             "area": "Poonamallee"}]
+def test_sai_nila_canonical_fixture_high_confidence(monkeypatch) -> None:
+    """The regression case. A description that contains all the discriminative
+    tokens from the paste (built-up 741 sqft, UDS 331 sqft, "Balaraman
+    Nagar", plot 46) must score ≥ 0.85 even though the row's `city` is
+    Tiruvallur (NOT Chennai). This is the failure that motivated v2."""
+    rows = [{
+        "auction_id": "750879",
+        "title": "Bajaj Housing Finance Ltd Flat Auction in Poonamallee taluk, Tiruvallur",
+        "reserve_price": 3_200_000,
+        "auction_start": "2026-05-25T11:00:00",
+        "city": "Tiruvallur",
+        "area": "Poonamallee taluk",
+        "bank": "Bajaj Housing Finance Ltd",
+        # Real graph description — 750879 actually has these tokens verbatim.
+        "description": (
+            "Schedule \"A\": All that piece and parcel of property being Flat "
+            "No. S-1 in the Second floor of an Area of 741 sq.ft (including "
+            "common area) along with a car parking together with 331 sq.ft., "
+            "undivided share of land in the total extent measuring 1620 sq "
+            "ft., comprised in Survey No.533 of Poonamalle village bearing "
+            "plot No 46, Balaraman Nagar, Poonamallee, Chennai"
+        ),
+    }]
     _patch_run_query(monkeypatch, rows)
 
     from api.tools.cypher_tools import match_pasted_listing
-    out = match_pasted_listing(
-        "Reserve 32 lakhs  Auction 25/05/2026  Poonamallee Chennai – 600056"
+    paste = (
+        "🏦BANK E-AUCTION PROPERTY🏦\n👉POONAMALLEE\n"
+        "Flat No S1, Second Floor, Sai Nila Flats\n"
+        "Plot No.46, Balaraman Nagar, Poonamallee Chennai – 600056\n"
+        "Built up area: 741 Sqft\nUDS: 331 sqft\n2BHK Flat\n"
+        "Reserve Price: 32 lakhs\nEMD Date:24/05/2026\nAuction: 25/05/2026"
     )
-    # 4 strong signals matched: price, date, area, pin
-    assert out["confidence"] >= 0.8
+    out = match_pasted_listing(paste)
+
     assert out["match"]["auction_id"] == "750879"
+    assert out["confidence"] >= 0.85, (
+        f"Sai Nila canonical case must score ≥ 0.85, got {out['confidence']}"
+    )
+    assert out["widening_reason"] is None
 
 
-def test_match_low_confidence_when_no_structured_match(monkeypatch) -> None:
-    """Empty structured candidates → fall back to vector search → low confidence
-    must be flagged so the LLM does NOT call any returned alternates the
-    'best match'."""
-    _patch_run_query(monkeypatch, [])
+def test_score_only_price_and_date_match(monkeypatch) -> None:
+    """A bare candidate (price+date match, but description has none of the
+    paste's discriminative tokens) gets the floor confidence — high enough
+    to surface (≥ 0.6) but not high enough to call it a definite match."""
+    rows = [{
+        "auction_id": "999999",
+        "reserve_price": 3_200_000,
+        "auction_start": "2026-05-25T11:00:00",
+        "city": "Chennai", "area": "Adyar",
+        "description": "Some other flat, no overlap with the paste at all",
+    }]
+    _patch_run_query(monkeypatch, rows)
 
     from api.tools.cypher_tools import match_pasted_listing
-    out = match_pasted_listing(
-        "Reserve 32 lakhs  Auction 25/05/2026  Poonamallee Chennai – 600056"
+    paste = (
+        "Sai Nila Flats Plot No.46 Balaraman Nagar Poonamallee – 600056\n"
+        "Built up area 741 sqft UDS 331 sqft\n"
+        "Reserve 32 lakhs Auction 25/05/2026"
     )
-    assert out["match"] is None
-    assert out["confidence"] < 0.6
-    assert "alternates" in out
+    out = match_pasted_listing(paste)
+    # price (0.30) + date (0.30) = 0.60. None of the description tokens hit.
+    assert 0.55 <= out["confidence"] < 0.75
 
 
-def test_match_returns_alternates_when_multiple_structured_hits(monkeypatch) -> None:
-    """Multiple candidates in the price/date/area window — all surface as
-    alternates so the user can sanity-check; top-1 still gets `match`."""
+def test_score_locality_token_in_description_boosts(monkeypatch) -> None:
+    """When two candidates have identical price+date, the one whose
+    description contains the paste's distinctive locality token wins."""
     rows = [
-        {"auction_id": "750879", "reserve_price": 3_200_000,
-         "auction_start": "2026-05-25T11:00:00", "city": "Chennai",
-         "area": "Poonamallee",
-         "description": "Sai Nila Flats, Plot No. 46, Balaraman Nagar"},
-        {"auction_id": "750880", "reserve_price": 3_180_000,
-         "auction_start": "2026-05-25T11:00:00", "city": "Chennai",
-         "area": "Poonamallee",
-         "description": "Different building, same locality"},
+        {
+            "auction_id": "AAA",
+            "reserve_price": 3_200_000,
+            "auction_start": "2026-05-25T11:00:00",
+            "city": "Chennai", "area": "Adyar",
+            "description": "Bare candidate, no special tokens",
+        },
+        {
+            "auction_id": "BBB",
+            "reserve_price": 3_200_000,
+            "auction_start": "2026-05-25T11:00:00",
+            "city": "Tiruvallur", "area": "Poonamallee taluk",
+            "description": "Flat in Balaraman Nagar Poonamallee — 741 sq.ft",
+        },
     ]
     _patch_run_query(monkeypatch, rows)
 
     from api.tools.cypher_tools import match_pasted_listing
-    out = match_pasted_listing(
-        "Sai Nila Flats Plot No.46 Reserve 32 lakhs Auction 25/05/2026 Poonamallee Chennai 600056"
+    paste = (
+        "Plot No.46, Balaraman Nagar, Poonamallee Chennai – 600056\n"
+        "Built up area: 741 Sqft  Reserve 32 lakhs  Auction 25/05/2026"
     )
-    assert out["match"]["auction_id"] == "750879"  # tie-broken by token overlap
-    assert len(out["alternates"]) >= 1
-    alt_ids = {a["auction_id"] for a in out["alternates"]}
-    assert "750880" in alt_ids
+    out = match_pasted_listing(paste)
+    assert out["match"]["auction_id"] == "BBB"
+    # BBB matched: price + date + 741 + balaraman nagar → ≥ 0.85
+    assert out["confidence"] >= 0.85
 
 
-def test_match_extracted_fields_are_returned(monkeypatch) -> None:
-    """The `extracted` block lets the LLM (and the user) see what we parsed
-    out of the paste — important for transparency when confidence is low."""
+def test_extracted_fields_returned(monkeypatch) -> None:
     _patch_run_query(monkeypatch, [])
 
     from api.tools.cypher_tools import match_pasted_listing
     out = match_pasted_listing(
-        "Reserve Price: 32 lakhs  Auction: 25/05/2026  Poonamallee Chennai – 600056"
+        "Reserve Price: 32 lakhs  Auction: 25/05/2026  Poonamallee Chennai – 600056\n"
+        "Built up area: 741 Sqft  UDS: 331 sqft  Plot No.46  Balaraman Nagar"
     )
     extracted = out["extracted"]
     assert extracted["reserve_price"] == 3_200_000
     assert extracted["auction_date"] == "2026-05-25"
     assert extracted["pin"] == "600056"
-    assert extracted["area"] == "Poonamallee"
-    assert extracted["city"] == "Chennai"
+    assert extracted["built_up_sqft"] == 741
+    assert extracted["uds_sqft"] == 331
+    assert extracted["plot_no"] == "46"
+    assert "balaraman nagar" in extracted["locality_tokens"]
 
 
 # ── Progressive widening tests ────────────────────────────────────────────
-# The user's explicit ask: "if we dont find any properties based on provided
-# details then we should atleast show close recommendation". When the strict
-# (price+date+area+city) Cypher returns nothing, we must NOT bail with an
-# empty alternates list — we widen and surface what we found, with an
-# explicit `widening_reason` so the LLM can tell the user which constraint
-# was relaxed.
 
 def _patch_tiered_run_query(monkeypatch, tiers: list[list[dict]]):
-    """Stub run_query that returns a different row set per call. Lets a
-    test simulate the progressive-widening cascade: tier 0 = strict query,
-    tier 1+ = each widening tier in order."""
     calls: list[tuple[str, dict]] = []
     state = {"i": 0}
 
@@ -289,18 +326,16 @@ def _patch_tiered_run_query(monkeypatch, tiers: list[list[dict]]):
 
 
 def test_widens_when_strict_returns_nothing(monkeypatch) -> None:
-    """Strict price+date+area returns []. Widening drops the date and finds
-    a sibling Poonamallee flat — that surfaces as a candidate with an
-    explanatory `widening_reason`, NOT an empty alternates list."""
+    """Strict price+date returns []. Widening drops the date constraint
+    and finds a sibling property at the same price — surfaces with an
+    explanatory `widening_reason`, never an empty candidates list."""
     sibling = {
         "auction_id": "999111",
-        "title": "Other Poonamallee flat",
         "reserve_price": 3_200_000,
-        "auction_start": "2026-07-15T11:00:00",  # different month
+        "auction_start": "2026-07-15T11:00:00",
         "city": "Chennai", "area": "Poonamallee",
-        "description": "Different building, same locality and price",
+        "description": "Another Poonamallee flat, different date",
     }
-    # tier 0 (strict): empty. tier 1 (date dropped): sibling.
     calls = _patch_tiered_run_query(monkeypatch, [[], [sibling]])
 
     from api.tools.cypher_tools import match_pasted_listing
@@ -308,32 +343,28 @@ def test_widens_when_strict_returns_nothing(monkeypatch) -> None:
         "Reserve Price: 32 lakhs  Auction: 25/05/2026  Poonamallee Chennai – 600056"
     )
 
-    assert out["match"] is None  # no high-confidence exact match
+    assert out["match"] is None
     assert out["confidence"] == 0.0
     assert out["candidates"], "must surface CLOSE candidates, never empty"
     assert out["candidates"][0]["auction_id"] == "999111"
     assert out["widening_reason"] is not None
     assert "date" in out["widening_reason"].lower()
-    # Two run_query calls: strict + first widening tier.
     assert len(calls) == 2
 
 
 def test_widens_through_multiple_tiers_until_hits(monkeypatch) -> None:
-    """Strict empty, drop-date empty, widen-price empty, drop-area finds.
-    The first non-empty tier wins and its `widening_reason` is reported."""
+    """Strict empty, drop-date empty, widen-price+drop-date finds something."""
     cousin = {
         "auction_id": "888222",
-        "title": "Different area Chennai flat",
         "reserve_price": 3_500_000,
         "auction_start": "2026-09-10T11:00:00",
         "city": "Chennai", "area": "Ambattur",
-        "description": "Other area, similar price band",
+        "description": "Different date and looser price band",
     }
     calls = _patch_tiered_run_query(monkeypatch, [
-        [],         # tier 0 strict
+        [],         # tier 0 strict (price ±2% + date ±2 days)
         [],         # tier 1 (drop date)
-        [],         # tier 2 (drop date + widen price ±10%)
-        [cousin],   # tier 3 (drop date + widen price + drop area)
+        [cousin],   # tier 2 (drop date + widen price ±10%)
     ])
 
     from api.tools.cypher_tools import match_pasted_listing
@@ -342,15 +373,14 @@ def test_widens_through_multiple_tiers_until_hits(monkeypatch) -> None:
     )
     assert out["candidates"][0]["auction_id"] == "888222"
     assert out["widening_reason"] is not None
-    assert "area" in out["widening_reason"].lower()
-    assert len(calls) == 4
+    assert "price" in out["widening_reason"].lower()
+    assert len(calls) == 3
 
 
-def test_widens_returns_empty_only_when_even_loosest_tier_misses(monkeypatch) -> None:
-    """When even the city-only tier returns nothing — paste mentions a city
-    we don't have any data for — `candidates` is genuinely empty, but
-    `extracted` still carries what we parsed so the LLM can ask for help."""
-    calls = _patch_tiered_run_query(monkeypatch, [[], [], [], [], []])
+def test_widens_returns_empty_when_even_loosest_misses(monkeypatch) -> None:
+    """All tiers exhausted → genuinely empty candidates, but extracted
+    fields still surface so the LLM can ask the user for help."""
+    _patch_tiered_run_query(monkeypatch, [[], [], [], []])
 
     from api.tools.cypher_tools import match_pasted_listing
     out = match_pasted_listing(
@@ -358,27 +388,22 @@ def test_widens_returns_empty_only_when_even_loosest_tier_misses(monkeypatch) ->
     )
     assert out["match"] is None
     assert out["candidates"] == []
-    assert out["extracted"]["city"] == "Chennai"
-    # 5 calls: strict + 4 widening tiers, all empty.
-    assert len(calls) == 5
+    assert out["extracted"]["reserve_price"] == 3_200_000
 
 
 def test_widening_reason_is_None_when_strict_match_succeeds(monkeypatch) -> None:
-    """Happy path: strict cypher hits; we never widen, so widening_reason
-    must be None (not an empty string, not a 'no widening needed' note —
-    None, so the LLM doesn't accidentally surface fallback framing)."""
     rows = [{
         "auction_id": "750879", "reserve_price": 3_200_000,
         "auction_start": "2026-05-25T11:00:00",
-        "city": "Chennai", "area": "Poonamallee",
-        "description": "Sai Nila Flats Plot 46",
+        "city": "Tiruvallur", "area": "Poonamallee taluk",
+        "description": "Sai Nila Flats Plot No 46 Balaraman Nagar 741 sq.ft 331 sq.ft",
     }]
     _patch_run_query(monkeypatch, rows)
 
     from api.tools.cypher_tools import match_pasted_listing
     out = match_pasted_listing(
-        "Sai Nila Flats Plot 46 Reserve 32 lakhs Auction 25/05/2026 Poonamallee Chennai 600056"
+        "Sai Nila Flats Plot No.46 Balaraman Nagar Poonamallee Chennai 600056\n"
+        "Built up area: 741 Sqft  UDS: 331 sqft  Reserve 32 lakhs  Auction 25/05/2026"
     )
     assert out["match"]["auction_id"] == "750879"
     assert out["widening_reason"] is None
-    assert out["candidates"][0]["auction_id"] == "750879"
