@@ -211,6 +211,9 @@ def _properties_filter_cypher(filters: dict[str, Any]) -> tuple[str, str, dict[s
     if filters.get("type"):
         matches.append("(a)-[:HAS_ASSET_CATEGORY]->(:AssetCategory {name: $f_type})")
         params["f_type"] = filters["type"]
+    if filters.get("property_type"):
+        matches.append("(a)-[:HAS_PROPERTY_TYPE]->(:PropertyType {name: $f_property_type})")
+        params["f_property_type"] = filters["property_type"]
     if filters.get("min_price") is not None:
         where.append("a.reserve_price_num >= $f_min_price")
         params["f_min_price"] = float(filters["min_price"])
@@ -232,7 +235,8 @@ def _properties_filter_cypher(filters: dict[str, Any]) -> tuple[str, str, dict[s
             " OR EXISTS { MATCH (a)-[:LOCATED_IN_CITY]->(c:City) WHERE toLower(c.name) CONTAINS $f_q } "
             " OR EXISTS { MATCH (a)-[:LOCATED_IN_AREA]->(ar:Area) WHERE toLower(ar.name) CONTAINS $f_q } "
             " OR EXISTS { MATCH (a)-[:CONDUCTED_BY]->(b:Bank) WHERE toLower(b.name) CONTAINS $f_q } "
-            " OR EXISTS { MATCH (a)-[:HAS_ASSET_CATEGORY]->(acq:AssetCategory) WHERE toLower(acq.name) CONTAINS $f_q })"
+            " OR EXISTS { MATCH (a)-[:HAS_ASSET_CATEGORY]->(acq:AssetCategory) WHERE toLower(acq.name) CONTAINS $f_q } "
+            " OR EXISTS { MATCH (a)-[:HAS_PROPERTY_TYPE]->(ptq:PropertyType) WHERE toLower(ptq.name) CONTAINS $f_q })"
         )
         params["f_q"] = filters["q"].strip().lower()
 
@@ -266,6 +270,7 @@ def _properties_facet(match_clause: str, where_clause: str, params: dict[str, An
 def list_properties(
     q: str | None = None,
     type: str | None = None,
+    property_type: str | None = None,
     bank: str | None = None,
     state: str | None = None,
     district: str | None = None,
@@ -291,7 +296,7 @@ def list_properties(
     offset = max(0, int(offset))
 
     filters = {
-        "q": q, "type": type, "bank": bank,
+        "q": q, "type": type, "property_type": property_type, "bank": bank,
         "state": state, "district": district, "village": village,
         "min_price": min_price, "max_price": max_price,
         "date_from": date_from, "date_to": date_to,
@@ -343,11 +348,12 @@ def list_properties(
         row["is_reauction"] = rc > 0
 
     facets = {
-        "type":     _properties_facet(match_clause, where_clause, params, "AssetCategory", "HAS_ASSET_CATEGORY", "ac"),
-        "bank":     _properties_facet(match_clause, where_clause, params, "Bank",          "CONDUCTED_BY",       "bk"),
-        "state":    _properties_facet(match_clause, where_clause, params, "State",         "LOCATED_IN_STATE",   "st"),
-        "district": _properties_facet(match_clause, where_clause, params, "City",          "LOCATED_IN_CITY",    "ct"),
-        "village":  _properties_facet(match_clause, where_clause, params, "Area",          "LOCATED_IN_AREA",    "ar"),
+        "type":          _properties_facet(match_clause, where_clause, params, "AssetCategory", "HAS_ASSET_CATEGORY", "ac"),
+        "property_type": _properties_facet(match_clause, where_clause, params, "PropertyType",  "HAS_PROPERTY_TYPE",  "pt"),
+        "bank":          _properties_facet(match_clause, where_clause, params, "Bank",          "CONDUCTED_BY",       "bk"),
+        "state":         _properties_facet(match_clause, where_clause, params, "State",         "LOCATED_IN_STATE",   "st"),
+        "district":      _properties_facet(match_clause, where_clause, params, "City",          "LOCATED_IN_CITY",    "ct"),
+        "village":       _properties_facet(match_clause, where_clause, params, "Area",          "LOCATED_IN_AREA",    "ar"),
     }
 
     return {

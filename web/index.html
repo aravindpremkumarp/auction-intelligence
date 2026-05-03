@@ -481,6 +481,8 @@ body {
   font-size: 11px; color: var(--muted);
 }
 .sb-item.active .sb-item-pin { color: var(--ink); }
+/* Card-only details — hidden on desktop's compact list, shown on mobile drawer */
+.sb-item-preview, .sb-item-meta { display: none; }
 
 #detail-chat-history .pch-item {
   display: flex; gap: 8px; align-items: baseline;
@@ -1015,6 +1017,120 @@ body {
   .doc-preview iframe { height: min(520px, 65vh); }
 }
 
+/* ====== CHAT SIDEBAR DRAWER — mobile-only slide-in ====== */
+.sb-backdrop { display: none; }
+@media (max-width: 640px) {
+  .sb-backdrop {
+    display: block;
+    position: fixed;
+    top: 56px; left: 0; right: 0; bottom: 64px;
+    background: rgba(0, 0, 0, 0);
+    z-index: 95;
+    pointer-events: none;
+    transition: background 0.25s ease;
+  }
+  .sb-backdrop.on {
+    background: rgba(0, 0, 0, 0.4);
+    pointer-events: auto;
+  }
+  /* Override the desktop+tablet collapse-to-icon behaviour with a real
+     slide-in drawer. Position fixed so it floats over the panes; transform
+     drives the open/close animation. */
+  .results .chat-sidebar {
+    position: fixed;
+    top: 56px; bottom: 64px; left: 0;
+    width: min(86vw, 320px);
+    max-height: none; min-height: 0; margin: 0;
+    z-index: 100;
+    transform: translateX(-102%);
+    transition: transform 0.25s ease;
+    box-shadow: 4px 0 12px rgba(0, 0, 0, 0.15);
+    overflow-y: auto;
+  }
+  .results .chat-sidebar.mobile-on {
+    transform: translateX(0);
+  }
+  /* When drawer is open, hide the desktop sb-toggle (drawer closes via backdrop) */
+  .results .chat-sidebar.mobile-on .sb-toggle { display: none; }
+
+  /* Card-style chat history items inside the mobile drawer */
+  .results .chat-sidebar .sb-item {
+    flex-direction: column; align-items: stretch; gap: 4px;
+    padding: 12px; margin-bottom: 8px;
+    background: var(--card); border: 1.5px solid var(--ink);
+    border-radius: var(--radius);
+    box-shadow: 1px 2px 0 rgba(0, 0, 0, 0.6);
+    position: relative;
+  }
+  .results .chat-sidebar .sb-item:hover { transform: translate(-1px, -1px); box-shadow: 2px 3px 0 rgba(0, 0, 0, 0.7); }
+  .results .chat-sidebar .sb-item-title {
+    font-family: var(--font-hand); font-size: 18px; font-weight: 600;
+    white-space: normal; line-height: 1.15;
+  }
+  .results .chat-sidebar .sb-item-preview {
+    display: block;
+    font-family: var(--font-body); font-size: 12px;
+    color: var(--ink-soft);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .results .chat-sidebar .sb-item-meta {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 6px; margin-top: 2px;
+    font-family: var(--font-mono); font-size: 10px;
+    text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--muted);
+  }
+  .results .chat-sidebar .sb-item-meta .matches-count {
+    background: var(--ink); color: var(--paper);
+    padding: 2px 6px; border-radius: 10px;
+    font-size: 9px;
+  }
+  .results .chat-sidebar .sb-item.active .sb-item-meta .matches-count {
+    background: #1a1a1a; color: var(--accent);
+  }
+  .results .chat-sidebar .sb-item-del {
+    position: absolute; top: 6px; right: 8px; opacity: 1;
+  }
+}
+
+/* ====== MOBILE TABS — switch panels inside results screen (mobile-only) ====== */
+.mobile-tabs { display: none; }
+@media (max-width: 640px) {
+  .mobile-tabs {
+    display: flex;
+    gap: 0;
+    border: 1.5px solid var(--ink);
+    background: var(--card);
+    margin-bottom: 10px;
+    box-shadow: var(--shadow);
+    position: sticky; top: 0;
+    z-index: 80;
+  }
+  .mobile-tabs button {
+    flex: 1;
+    background: transparent; border: 0;
+    padding: 10px 8px;
+    font-family: var(--font-mono); font-size: 11px;
+    text-transform: uppercase; letter-spacing: 0.06em;
+    cursor: pointer; color: var(--ink);
+    border-right: 1.5px solid var(--ink);
+    display: flex; align-items: center; justify-content: center; gap: 4px;
+    min-height: 40px;
+  }
+  .mobile-tabs button[data-mtab="history"] { flex: 0 0 48px; }
+  .mobile-tabs button:last-child { border-right: 0; }
+  .mobile-tabs button.on { background: var(--accent); color: #1a1a1a; }
+  .mobile-tabs .badge {
+    display: inline-block; min-width: 18px; padding: 1px 5px;
+    margin-left: 4px; background: var(--ink); color: var(--paper);
+    border-radius: 10px; font-size: 10px; line-height: 1.4;
+  }
+  .mobile-tabs button.on .badge { background: #1a1a1a; color: var(--accent); }
+  /* When mobile-tabs are active, only one pane shows at a time. */
+  .results .transcript-pane.mobile-hidden,
+  .results .results-pane.mobile-hidden { display: none; }
+}
+
 /* ====== BOTTOM TAB BAR (mobile-only) ====== */
 .bottom-tabs { display: none; }
 @media (max-width: 640px) {
@@ -1063,7 +1179,10 @@ body {
 
 @media (max-width: 640px) {
   body { font-size: 14px; overflow: auto; }
-  .app { border: 0; height: auto; min-height: 100vh; padding-bottom: 72px; }
+  .app { border: 0; height: auto; min-height: 100vh; padding-bottom: 80px; }
+  /* Each screen also gets bottom clearance so the inner inputs (e.g. results
+     refine textarea, detail ask-about-property) sit above the bottom tabs. */
+  .screen { padding-bottom: 80px !important; }
   .topbar { padding: 8px 12px; flex-wrap: wrap; gap: 8px; }
   .brand { font-size: 20px; }
   /* Top-nav is replaced by the bottom tab bar on mobile */
@@ -1189,22 +1308,6 @@ body {
               <svg class="ico-s" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" stroke-width="1.5"/><line x1="10.5" y1="10.5" x2="14" y2="14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
               <input id="browse-q" type="text" placeholder="search by location, bank, type…" autocomplete="off" aria-label="search properties">
             </div>
-            <div class="filter-group">
-              <span class="lbl-inline">asset category</span>
-              <select class="filter-select" id="f-type" aria-label="asset category"><option value="">all</option></select>
-            </div>
-            <div class="filter-group">
-              <span class="lbl-inline">bank</span>
-              <select class="filter-select" id="f-bank" aria-label="bank"><option value="">all</option></select>
-            </div>
-            <div class="filter-group" style="margin-left:auto;">
-              <span class="lbl-inline">sort</span>
-              <select class="filter-select" id="f-sort" aria-label="sort">
-                <option value="date">auction date ↑</option>
-                <option value="price_asc">price ↑</option>
-                <option value="price_desc">price ↓</option>
-              </select>
-            </div>
             <button class="filter-clear" id="f-clear" disabled>clear all</button>
           </div>
 
@@ -1221,6 +1324,24 @@ body {
               <span class="lbl-inline">village/area</span>
               <select class="filter-select" id="f-village" aria-label="village"><option value="">all</option></select>
             </div>
+          </div>
+
+          <div class="bf-row">
+            <div class="filter-group">
+              <span class="lbl-inline">asset category</span>
+              <select class="filter-select" id="f-category" aria-label="asset category"><option value="">all</option></select>
+            </div>
+            <div class="filter-group">
+              <span class="lbl-inline">property type</span>
+              <select class="filter-select" id="f-type" aria-label="property type"><option value="">all</option></select>
+            </div>
+            <div class="filter-group">
+              <span class="lbl-inline">bank</span>
+              <select class="filter-select" id="f-bank" aria-label="bank"><option value="">all</option></select>
+            </div>
+          </div>
+
+          <div class="bf-row">
             <div class="filter-group">
               <span class="lbl-inline">price</span>
               <select class="filter-select" id="f-price" aria-label="price range">
@@ -1247,6 +1368,17 @@ body {
               <span class="dash">→</span>
               <input class="filter-date" id="f-date-to" type="date" aria-label="auction start to">
             </div>
+            <div class="filter-group" style="margin-left:auto;">
+              <span class="lbl-inline">sort</span>
+              <select class="filter-select" id="f-sort" aria-label="sort">
+                <option value="date">auction date ↑</option>
+                <option value="price_asc">price ↑</option>
+                <option value="price_desc">price ↓</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="bf-row">
             <div class="active-chips" id="active-chips" aria-live="polite"></div>
           </div>
         </div>
@@ -1263,6 +1395,13 @@ body {
     </div>
 
     <div class="screen" data-screen="results">
+      <div class="mobile-tabs" id="results-mobile-tabs" role="tablist" aria-label="results panels">
+        <button data-mtab="history" aria-label="chat history" title="past chats">
+          <svg viewBox="0 0 18 18" width="14" height="14" style="vertical-align:-2px;"><circle cx="9" cy="9" r="6.2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M9 5.5 L9 9 L11.5 10.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        </button>
+        <button data-mtab="chat" class="on">conversation</button>
+        <button data-mtab="results">matches <span class="badge" id="mtab-count">0</span></button>
+      </div>
       <div class="results" id="results-grid">
         <aside class="chat-sidebar" id="chat-sidebar">
           <div class="sb-head">
@@ -1387,6 +1526,8 @@ body {
     </div>
 
   </div>
+
+  <div class="sb-backdrop" id="sb-backdrop" aria-hidden="true"></div>
 
   <nav class="bottom-tabs" aria-label="primary navigation">
     <button class="bt on" data-nav="landing" aria-label="home">
@@ -1833,6 +1974,51 @@ document.querySelectorAll('.bottom-tabs .bt').forEach(b => {
   b.addEventListener('click', () => go(b.dataset.nav));
 });
 
+/* ====== Chat sidebar drawer (mobile slide-in) ====== */
+function openSidebar() {
+  const sb = document.getElementById('chat-sidebar');
+  const bd = document.getElementById('sb-backdrop');
+  if (sb) sb.classList.add('mobile-on');
+  if (bd) bd.classList.add('on');
+}
+function closeSidebar() {
+  const sb = document.getElementById('chat-sidebar');
+  const bd = document.getElementById('sb-backdrop');
+  if (sb) sb.classList.remove('mobile-on');
+  if (bd) bd.classList.remove('on');
+}
+{
+  const bd = document.getElementById('sb-backdrop');
+  if (bd) bd.addEventListener('click', closeSidebar);
+}
+
+/* ====== Mobile tabs (results screen panels) ====== */
+function setMobileTab(panel) {
+  // panel: 'history' | 'chat' | 'results'
+  const tabs = document.querySelectorAll('#results-mobile-tabs button');
+  if (!tabs.length) return;
+  const transcript = document.querySelector('.results .transcript-pane');
+  const resultsPane = document.querySelector('.results .results-pane');
+  if (panel === 'history') {
+    // History opens the chat-sidebar drawer; the underlying panel state
+    // doesn't change so the user sees the same tab highlighted when they
+    // close the drawer.
+    openSidebar();
+    return;
+  }
+  tabs.forEach(b => b.classList.toggle('on', b.dataset.mtab === panel));
+  if (panel === 'chat') {
+    transcript && transcript.classList.remove('mobile-hidden');
+    resultsPane && resultsPane.classList.add('mobile-hidden');
+  } else if (panel === 'results') {
+    transcript && transcript.classList.add('mobile-hidden');
+    resultsPane && resultsPane.classList.remove('mobile-hidden');
+  }
+}
+document.querySelectorAll('#results-mobile-tabs button').forEach(b => {
+  b.addEventListener('click', () => setMobileTab(b.dataset.mtab));
+});
+
 /* ====== mode sync (inline dropdowns in chatboxes) ====== */
 window.currentMode = 'ask';
 document.addEventListener('change', (e) => {
@@ -2185,6 +2371,7 @@ function renderResultsList() {
       countEl.textContent = '0 matches';
       subEl.textContent = 'try a broader query';
     }
+    _setMtabCount(0);
     return;
   }
   const sorted = sortResults(currentResults, currentSort);
@@ -2196,6 +2383,11 @@ function renderResultsList() {
   subEl.textContent = total > shown ? `showing ${shown} · ${sortLabel}` : sortLabel;
   list.innerHTML = cards.map(c => propCardHtml(c, false)).join('');
   wireCardClicks();
+  _setMtabCount(total);
+}
+function _setMtabCount(n) {
+  const el = document.getElementById('mtab-count');
+  if (el) el.textContent = String(n || 0);
 }
 (function wireSortControl() {
   const sel = document.getElementById('results-sort');
@@ -2838,7 +3030,7 @@ async function saveActiveConversation() {
     });
     if (!r.ok) return;
     const idx = recentChats.findIndex(c => c.id === id);
-    const entry = { id, title: payload.title, ts: Date.now() };
+    const entry = { id, title: payload.title, ts: Date.now(), total_count: currentTotalCount };
     if (idx >= 0) recentChats.splice(idx, 1);
     recentChats.unshift(entry);
     renderSidebar();
@@ -2876,6 +3068,16 @@ function newThread() {
   go('landing');
 }
 
+function relTime(ts) {
+  if (!ts) return '';
+  const d = Math.max(0, Date.now() - ts);
+  if (d < 60e3) return 'just now';
+  if (d < 3.6e6) return `${Math.floor(d / 60e3)}m ago`;
+  if (d < 86.4e6) return `${Math.floor(d / 3.6e6)}h ago`;
+  if (d < 6.05e8) return `${Math.floor(d / 86.4e6)}d ago`;
+  return `${Math.floor(d / 6.05e8)}w ago`;
+}
+
 function renderSidebar() {
   const body = document.getElementById('sb-body');
   if (!body) return;
@@ -2893,8 +3095,17 @@ function renderSidebar() {
     const isActive = (c.id === activeChatId) || (c.id === currentPropertyChatId && currentScreen === 'detail');
     const propAttr = c.property_id ? ` data-property-id="${escapeHtml(c.property_id)}"` : '';
     const prefix = c.property_id ? '<span class="sb-item-pin" aria-hidden="true">⌂</span>' : '';
+    const preview = c.property_id ? 'tap to reopen this property thread' : 'tap to resume this search';
+    const matches = (typeof c.total_count === 'number' && c.total_count > 0)
+      ? `<span class="matches-count">${c.total_count.toLocaleString('en-IN')} match${c.total_count === 1 ? '' : 'es'}</span>`
+      : '';
     return `<div class="sb-item ${isActive ? 'active' : ''}" data-chat-id="${c.id}"${propAttr} title="${escapeHtml(c.title)}">
        <span class="sb-item-title">${prefix}${escapeHtml(c.title)}</span>
+       <span class="sb-item-preview">${preview}</span>
+       <div class="sb-item-meta">
+         <span class="sb-item-ts">${relTime(c.ts)}</span>
+         ${matches}
+       </div>
        <button class="sb-item-del" data-del-id="${c.id}" title="delete" aria-label="delete">×</button>
      </div>`;
   };
@@ -2904,6 +3115,7 @@ function renderSidebar() {
     if (e.target.closest('.sb-item-del')) return;
     const propertyId = el.dataset.propertyId;
     const chatId = el.dataset.chatId;
+    closeSidebar();
     if (propertyId) {
       // Route to the property detail page with this specific chat preselected.
       currentDetailId = propertyId;
@@ -2911,6 +3123,11 @@ function renderSidebar() {
       go('detail');
     } else {
       loadConversation(chatId);
+      // On mobile, switching to a chat means the user wants the conversation
+      // pane visible — not the matches pane that may have been on screen.
+      if (window.matchMedia && window.matchMedia('(max-width: 640px)').matches) {
+        setMobileTab('chat');
+      }
     }
   }));
   body.querySelectorAll('.sb-item-del').forEach(btn => btn.addEventListener('click', (e) => {
@@ -3093,8 +3310,11 @@ document.getElementById('fb-modal').addEventListener('click', (e) => {
 });
 
 /* ====== BROWSE-ALL-PROPERTIES (landing) ====== */
+// `category` -> backend `type` (AssetCategory: Residential / Commercial / Land...)
+// `propertyType` -> backend `property_type` (PropertyType: Apartment / Plot / Villa...)
+// Two real, non-overlapping filter dimensions backed by separate graph edges.
 const browseState = {
-  q: '', type: '', bank: '',
+  q: '', category: '', propertyType: '', bank: '',
   state: '', district: '', village: '',
   price: '', priceMin: '', priceMax: '',
   dateFrom: '', dateTo: '',
@@ -3111,7 +3331,8 @@ function _priceLabel(key) {
 function _browseQueryParams() {
   const p = new URLSearchParams();
   if (browseState.q) p.set('q', browseState.q);
-  if (browseState.type) p.set('type', browseState.type);
+  if (browseState.category) p.set('type', browseState.category);
+  if (browseState.propertyType) p.set('property_type', browseState.propertyType);
   if (browseState.bank) p.set('bank', browseState.bank);
   if (browseState.state) p.set('state', browseState.state);
   if (browseState.district) p.set('district', browseState.district);
@@ -3137,7 +3358,7 @@ function _browseQueryParams() {
 }
 
 function _hasAnyBrowseFilter() {
-  return !!(browseState.q || browseState.type || browseState.bank
+  return !!(browseState.q || browseState.category || browseState.propertyType || browseState.bank
     || browseState.state || browseState.district || browseState.village
     || browseState.price || browseState.priceMin || browseState.priceMax
     || browseState.dateFrom || browseState.dateTo);
@@ -3168,12 +3389,13 @@ function renderActiveChips() {
   const wrap = document.getElementById('active-chips');
   if (!wrap) return;
   const chips = [];
-  if (browseState.q)        chips.push({ k: 'q',        label: `"${browseState.q}"` });
-  if (browseState.type)     chips.push({ k: 'type',     label: browseState.type });
-  if (browseState.bank)     chips.push({ k: 'bank',     label: browseState.bank });
-  if (browseState.state)    chips.push({ k: 'state',    label: browseState.state });
-  if (browseState.district) chips.push({ k: 'district', label: browseState.district });
-  if (browseState.village)  chips.push({ k: 'village',  label: browseState.village });
+  if (browseState.q)            chips.push({ k: 'q',            label: `"${browseState.q}"` });
+  if (browseState.category)     chips.push({ k: 'category',     label: browseState.category });
+  if (browseState.propertyType) chips.push({ k: 'propertyType', label: browseState.propertyType });
+  if (browseState.bank)         chips.push({ k: 'bank',         label: browseState.bank });
+  if (browseState.state)        chips.push({ k: 'state',        label: browseState.state });
+  if (browseState.district)     chips.push({ k: 'district',     label: browseState.district });
+  if (browseState.village)      chips.push({ k: 'village',      label: browseState.village });
   if (browseState.price === 'custom' && (browseState.priceMin !== '' || browseState.priceMax !== '')) {
     const lo = browseState.priceMin === '' ? '0' : browseState.priceMin;
     const hi = browseState.priceMax === '' ? '∞' : browseState.priceMax;
@@ -3190,25 +3412,26 @@ function renderActiveChips() {
 }
 
 const _BROWSE_CLEARERS = {
-  q:        () => { browseState.q = ''; document.getElementById('browse-q').value = ''; },
-  type:     () => { browseState.type = ''; },
-  bank:     () => { browseState.bank = ''; },
-  state:    () => { browseState.state = ''; browseState.district = ''; browseState.village = ''; },
-  district: () => { browseState.district = ''; browseState.village = ''; },
-  village:  () => { browseState.village = ''; },
-  price:    () => { browseState.price = ''; browseState.priceMin = ''; browseState.priceMax = '';
-                    document.getElementById('f-price').value = '';
-                    document.getElementById('f-price-min').value = '';
-                    document.getElementById('f-price-max').value = '';
-                    document.getElementById('price-custom').style.display = 'none'; },
-  date:     () => { browseState.dateFrom = ''; browseState.dateTo = '';
-                    document.getElementById('f-date-from').value = '';
-                    document.getElementById('f-date-to').value = ''; },
+  q:            () => { browseState.q = ''; document.getElementById('browse-q').value = ''; },
+  category:     () => { browseState.category = ''; },
+  propertyType: () => { browseState.propertyType = ''; },
+  bank:         () => { browseState.bank = ''; },
+  state:        () => { browseState.state = ''; browseState.district = ''; browseState.village = ''; },
+  district:     () => { browseState.district = ''; browseState.village = ''; },
+  village:      () => { browseState.village = ''; },
+  price:        () => { browseState.price = ''; browseState.priceMin = ''; browseState.priceMax = '';
+                        document.getElementById('f-price').value = '';
+                        document.getElementById('f-price-min').value = '';
+                        document.getElementById('f-price-max').value = '';
+                        document.getElementById('price-custom').style.display = 'none'; },
+  date:         () => { browseState.dateFrom = ''; browseState.dateTo = '';
+                        document.getElementById('f-date-from').value = '';
+                        document.getElementById('f-date-to').value = ''; },
 };
 
 function clearAllBrowseFilters() {
   Object.assign(browseState, {
-    q: '', type: '', bank: '',
+    q: '', category: '', propertyType: '', bank: '',
     state: '', district: '', village: '',
     price: '', priceMin: '', priceMax: '',
     dateFrom: '', dateTo: '',
@@ -3252,11 +3475,15 @@ async function applyBrowse() {
   }
 
   const facets = payload.facets || {};
-  _populateFacetSelect('f-type',     facets.type,     browseState.type);
-  _populateFacetSelect('f-bank',     facets.bank,     browseState.bank);
-  _populateFacetSelect('f-state',    facets.state,    browseState.state);
-  _populateFacetSelect('f-district', facets.district, browseState.district);
-  _populateFacetSelect('f-village',  facets.village,  browseState.village);
+  // f-category populates from facets.type (the AssetCategory facet — the
+  // backend's `type` query param has historically meant AssetCategory).
+  // f-type populates from the new facets.property_type (PropertyType node).
+  _populateFacetSelect('f-category', facets.type,          browseState.category);
+  _populateFacetSelect('f-type',     facets.property_type, browseState.propertyType);
+  _populateFacetSelect('f-bank',     facets.bank,          browseState.bank);
+  _populateFacetSelect('f-state',    facets.state,         browseState.state);
+  _populateFacetSelect('f-district', facets.district,      browseState.district);
+  _populateFacetSelect('f-village',  facets.village,       browseState.village);
 
   const total = payload.total || 0;
   const shown = (payload.results || []).length;
@@ -3293,7 +3520,8 @@ function _scheduleBrowse(delay = 250) {
   if (!$('browse-grid')) return;
 
   $('browse-q').addEventListener('input', e => { browseState.q = e.target.value; _scheduleBrowse(); });
-  $('f-type').addEventListener('change', e => { browseState.type = e.target.value; applyBrowse(); });
+  $('f-category').addEventListener('change', e => { browseState.category = e.target.value; applyBrowse(); });
+  $('f-type').addEventListener('change', e => { browseState.propertyType = e.target.value; applyBrowse(); });
   $('f-bank').addEventListener('change', e => { browseState.bank = e.target.value; applyBrowse(); });
   $('f-sort').addEventListener('change', e => { browseState.sort = e.target.value; applyBrowse(); });
   $('f-state').addEventListener('change', e => {
