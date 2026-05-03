@@ -313,6 +313,47 @@ def semantic_property_search(
 
 
 @agent.tool_plain
+def semantic_notice_search(
+    query: str,
+    city: str | None = None,
+    area: str | None = None,
+    min_price: float | None = None,
+    max_price: float | None = None,
+    asset_category: str | None = None,
+    starts_after: datetime | None = None,
+    starts_before: datetime | None = None,
+    limit: int = 20,
+    include_past: bool = False,
+) -> dict:
+    """Multimodal vector search across the full sale notices.
+
+    Backed by Google `gemini-embedding-2` over `:Document.image_embedding`
+    (the notice file embedded directly — image / PDF). Captures broader
+    notice context than `semantic_property_search` (which only embeds the
+    short property description): bank / branch framing, multiple-borrower
+    rows, table layout, multi-page structure, seals.
+
+    Use this for queries that touch notice-level signal:
+    - "Canara Bank notices issued from Coimbatore branch with multiple
+       borrowers"
+    - "auctions where the notice explicitly mentions physical possession
+       and DRT recovery"
+    - layout-style queries ("tabular SFC notices in Villupuram")
+
+    Prefer `semantic_property_search` for tight property descriptions
+    ("3-BR flat in Adyar with elevator"). Both tools accept the same
+    structured post-filters and return the same shape.
+    """
+    return T.semantic_notice_search(
+        query, city=city, area=area,
+        min_price=min_price, max_price=max_price,
+        asset_category=asset_category,
+        starts_after=starts_after, starts_before=starts_before,
+        limit=limit, include_past=include_past,
+    )
+
+
+@agent.tool_plain
 def survey_search(survey_no: str, subdivision: str | None = None) -> list[dict]:
     """Find properties by survey number (with optional subdivision)."""
     return T.survey_search(survey_no, subdivision)

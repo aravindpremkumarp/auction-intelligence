@@ -14,6 +14,7 @@ neo4j
 
 # LLM clients
 openai
+google-genai
 
 # API + Agent layer
 fastapi
