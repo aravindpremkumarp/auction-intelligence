@@ -3,6 +3,7 @@ webdriver-manager
 python-dotenv
 tqdm
 openai
+google-genai
 pdf2image
 rapidfuzz
 Pillow

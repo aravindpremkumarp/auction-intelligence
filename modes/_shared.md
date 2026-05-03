@@ -88,6 +88,14 @@ when presenting it.
 2. **Qualitative description search** (boundaries, neighborhood, legal
    caveats, property condition in free text) → `semantic_property_search`.
    Same future-only default and `include_past=True` opt-in apply.
+2b. **Notice-level / multimodal search** (broader notice context: bank /
+   branch framing, multiple borrowers, layout style, multi-page structure,
+   things visible in the *notice document* but absent from the property
+   description) → `semantic_notice_search`. Backed by Google
+   `gemini-embedding-2` over the notice file itself. Use when
+   `semantic_property_search` is too narrow — it only embeds the property
+   description, while this embeds the full notice. Same post-filter shape;
+   same future-only default.
 2a. **Pasted property listing** (WhatsApp forward, broker note, bank
    circular — the user has dropped a multi-line blurb that includes
    a price, an EMD/auction date, a building name, a plot number, an

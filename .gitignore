@@ -12,6 +12,7 @@ __pycache__/
 *.so
 .Python
 .venv/
+.venv-*/
 venv/
 env/
 .pytest_cache/
@@ -47,3 +48,4 @@ Thumbs.db
 node_modules/
 .vercel/
 .next/
+.gstack/
