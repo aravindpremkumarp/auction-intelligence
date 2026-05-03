@@ -1015,22 +1015,65 @@ body {
   .doc-preview iframe { height: min(520px, 65vh); }
 }
 
+/* ====== BOTTOM TAB BAR (mobile-only) ====== */
+.bottom-tabs { display: none; }
+@media (max-width: 640px) {
+  .bottom-tabs {
+    display: flex;
+    position: fixed;
+    left: 0; right: 0; bottom: 0;
+    z-index: 90;
+    padding: 8px 10px calc(8px + env(safe-area-inset-bottom, 0px));
+    gap: 6px;
+    background: var(--paper);
+    border-top: 2px solid var(--ink);
+    box-shadow: 0 -2px 0 rgba(0,0,0,0.08);
+  }
+  .bottom-tabs .bt {
+    flex: 1;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 2px;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--radius);
+    color: var(--ink-soft);
+    font-family: var(--font-hand); font-size: 13px;
+    padding: 6px 4px; min-height: 48px;
+    cursor: pointer;
+    position: relative;
+  }
+  .bottom-tabs .bt:hover { color: var(--ink); }
+  .bottom-tabs .bt.on { background: var(--accent); color: var(--ink); border-color: var(--ink); }
+  .bottom-tabs .bt-lbl { letter-spacing: 0.02em; line-height: 1; }
+  .bottom-tabs .bt-badge {
+    position: absolute; top: 2px; right: 8px;
+    min-width: 16px; height: 16px; padding: 0 4px;
+    background: var(--ink); color: var(--paper);
+    border-radius: 999px;
+    font-family: var(--font-mono); font-size: 10px; font-weight: 600;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .bottom-tabs .bt-badge:empty,
+  .bottom-tabs .bt-badge[data-empty="1"] { display: none; }
+  .bottom-tabs .bt.on .bt-badge { background: var(--ink); color: var(--accent); }
+  body[data-theme="dark"] .bottom-tabs { background: var(--paper-2); }
+  body[data-theme="dark"] .bottom-tabs .bt.on,
+  body[data-theme="dark"] .bottom-tabs .bt.on svg { color: #1a1a1a !important; }
+}
+
 @media (max-width: 640px) {
   body { font-size: 14px; overflow: auto; }
-  .app { border: 0; height: auto; min-height: 100vh; }
+  .app { border: 0; height: auto; min-height: 100vh; padding-bottom: 72px; }
   .topbar { padding: 8px 12px; flex-wrap: wrap; gap: 8px; }
   .brand { font-size: 20px; }
-  .top-nav {
-    order: 3; flex-basis: 100%;
-    justify-content: space-between;
-    overflow-x: auto;
-  }
+  /* Top-nav is replaced by the bottom tab bar on mobile */
+  .top-nav { display: none; }
   .top-nav button { padding: 6px 10px; font-size: 11px; min-height: 32px; }
   .top-right { gap: 6px; margin-left: auto; }
   .feedback-btn { font-size: 0; padding: 0; line-height: 1; width: 36px; height: 36px; justify-content: center; }
   .feedback-btn::before { content: '💬'; font-size: 15px; }
-  .save-btn { font-size: 0; padding: 0 8px; line-height: 1; min-width: 36px; height: 36px; justify-content: center; }
-  .save-btn #save-count { font-size: 12px; font-family: var(--font-mono); }
+  /* Saved-count moved to the bottom-tabs watchlist badge on mobile */
+  .save-btn { display: none; }
   .avatar { width: 36px; height: 36px; font-size: 15px; }
   .theme-toggle { width: 36px; height: 36px; font-size: 16px; }
   .sb-toggle { width: 36px; height: 36px; }
@@ -1147,8 +1190,8 @@ body {
               <input id="browse-q" type="text" placeholder="search by location, bank, type…" autocomplete="off" aria-label="search properties">
             </div>
             <div class="filter-group">
-              <span class="lbl-inline">type</span>
-              <select class="filter-select" id="f-type" aria-label="property type"><option value="">all</option></select>
+              <span class="lbl-inline">asset category</span>
+              <select class="filter-select" id="f-type" aria-label="asset category"><option value="">all</option></select>
             </div>
             <div class="filter-group">
               <span class="lbl-inline">bank</span>
@@ -1344,6 +1387,26 @@ body {
     </div>
 
   </div>
+
+  <nav class="bottom-tabs" aria-label="primary navigation">
+    <button class="bt on" data-nav="landing" aria-label="home">
+      <svg viewBox="0 0 22 22" width="20" height="20" aria-hidden="true"><path d="M3 11 L11 4 L19 11 V18 a1 1 0 0 1 -1 1 H14 V13 H8 V19 H4 a1 1 0 0 1 -1 -1 Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+      <span class="bt-lbl">home</span>
+    </button>
+    <button class="bt" data-nav="results" aria-label="chat">
+      <svg viewBox="0 0 22 22" width="20" height="20" aria-hidden="true"><path d="M4 5 h14 a1 1 0 0 1 1 1 v9 a1 1 0 0 1 -1 1 H9 l-4 3 V6 a1 1 0 0 1 1 -1 Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+      <span class="bt-lbl">chat</span>
+    </button>
+    <button class="bt" data-nav="detail" aria-label="property">
+      <svg viewBox="0 0 22 22" width="20" height="20" aria-hidden="true"><path d="M3 10 L11 4 L19 10 V18 a1 1 0 0 1 -1 1 H4 a1 1 0 0 1 -1 -1 Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><rect x="9" y="12" width="4" height="7" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>
+      <span class="bt-lbl">property</span>
+    </button>
+    <button class="bt" data-nav="watchlist" aria-label="watchlist">
+      <svg viewBox="0 0 22 22" width="20" height="20" aria-hidden="true"><path d="M11 18 L4.5 12.5 a4 4 0 0 1 5.5 -5.8 L11 7.5 L12 6.7 a4 4 0 0 1 5.5 5.8 Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+      <span class="bt-lbl">watchlist</span>
+      <span class="bt-badge" id="bt-save-count" data-empty="1"></span>
+    </button>
+  </nav>
 </div>
 
 <svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
@@ -1405,6 +1468,156 @@ body {
       <rect x="116" y="95" width="7" height="7"/><rect x="128" y="95" width="7" height="7"/>
     </g>
   </symbol>
+  <symbol id="icon-plot" viewBox="0 0 160 120">
+    <rect x="4" y="4" width="152" height="112" fill="#f2ede0" stroke="#1a1a1a" stroke-width="2"/>
+    <path d="M 8 96 Q 80 100 152 96" stroke="#1a1a1a" stroke-width="1.4" fill="none"/>
+    <g stroke="#1a1a1a" stroke-width="1" fill="none" stroke-linecap="round">
+      <path d="M 22 96 l -2 -5 M 22 96 l 0 -6 M 22 96 l 2 -5"/>
+      <path d="M 60 97 l -2 -5 M 60 97 l 0 -6 M 60 97 l 2 -5"/>
+      <path d="M 104 96 l -2 -5 M 104 96 l 0 -6 M 104 96 l 2 -5"/>
+      <path d="M 138 97 l -2 -5 M 138 97 l 0 -6 M 138 97 l 2 -5"/>
+    </g>
+    <rect x="20" y="40" width="120" height="50" fill="#faf7f0" stroke="#1a1a1a" stroke-width="2" stroke-dasharray="5 4"/>
+    <g stroke="#1a1a1a" stroke-width="2" fill="#ffd84d">
+      <polygon points="20,40 26,34 20,28 14,34"/>
+      <polygon points="140,40 146,34 140,28 134,34"/>
+      <polygon points="20,90 26,84 20,78 14,84"/>
+      <polygon points="140,90 146,84 140,78 134,84"/>
+    </g>
+    <g stroke="#1a1a1a" stroke-width="1" fill="none">
+      <line x1="32" y1="58" x2="128" y2="58"/>
+      <polyline points="36,55 32,58 36,61"/>
+      <polyline points="124,55 128,58 124,61"/>
+      <line x1="80" y1="68" x2="80" y2="84"/>
+      <polyline points="77,72 80,68 83,72"/>
+      <polyline points="77,80 80,84 83,80"/>
+    </g>
+    <g transform="translate(80,52)">
+      <polygon points="0,-7 3,0 0,7 -3,0" fill="#1a1a1a"/>
+      <text x="0" y="-9" text-anchor="middle" font-family="ui-monospace, monospace" font-size="6" fill="#1a1a1a" font-weight="700">N</text>
+    </g>
+  </symbol>
+  <symbol id="icon-land-building" viewBox="0 0 160 120">
+    <rect x="4" y="4" width="152" height="112" fill="#f2ede0" stroke="#1a1a1a" stroke-width="2"/>
+    <rect x="14" y="38" width="132" height="60" fill="#faf7f0" stroke="#1a1a1a" stroke-width="2" stroke-dasharray="4 3"/>
+    <polygon points="58,42 58,28 92,16 126,28 126,42" fill="#ffd84d" stroke="#1a1a1a" stroke-width="2"/>
+    <rect x="58" y="42" width="68" height="46" fill="#faf7f0" stroke="#1a1a1a" stroke-width="2"/>
+    <rect x="84" y="60" width="16" height="28" fill="#1a1a1a"/>
+    <rect x="66" y="50" width="12" height="10" fill="none" stroke="#1a1a1a" stroke-width="1.2"/>
+    <rect x="106" y="50" width="12" height="10" fill="none" stroke="#1a1a1a" stroke-width="1.2"/>
+    <circle cx="28" cy="80" r="3" fill="#1a1a1a"/>
+    <circle cx="138" cy="78" r="3" fill="#1a1a1a"/>
+  </symbol>
+  <symbol id="icon-commercial-building" viewBox="0 0 160 120">
+    <rect x="4" y="4" width="152" height="112" fill="#f2ede0" stroke="#1a1a1a" stroke-width="2"/>
+    <rect x="42" y="14" width="76" height="96" fill="#faf7f0" stroke="#1a1a1a" stroke-width="2"/>
+    <g fill="#ffd84d" stroke="#1a1a1a" stroke-width="1">
+      <rect x="50" y="22" width="12" height="10"/><rect x="68" y="22" width="12" height="10"/><rect x="86" y="22" width="12" height="10"/><rect x="104" y="22" width="8" height="10"/>
+      <rect x="50" y="38" width="12" height="10"/><rect x="68" y="38" width="12" height="10"/><rect x="86" y="38" width="12" height="10"/><rect x="104" y="38" width="8" height="10"/>
+      <rect x="50" y="54" width="12" height="10"/><rect x="68" y="54" width="12" height="10"/><rect x="86" y="54" width="12" height="10"/><rect x="104" y="54" width="8" height="10"/>
+      <rect x="50" y="70" width="12" height="10"/><rect x="68" y="70" width="12" height="10"/><rect x="86" y="70" width="12" height="10"/><rect x="104" y="70" width="8" height="10"/>
+    </g>
+    <rect x="74" y="88" width="14" height="22" fill="#1a1a1a"/>
+    <rect x="42" y="14" width="76" height="6" fill="#1a1a1a"/>
+  </symbol>
+  <symbol id="icon-industrial-lb" viewBox="0 0 160 120">
+    <rect x="4" y="4" width="152" height="112" fill="#f2ede0" stroke="#1a1a1a" stroke-width="2"/>
+    <rect x="12" y="36" width="136" height="62" fill="#faf7f0" stroke="#1a1a1a" stroke-width="2" stroke-dasharray="4 3"/>
+    <polyline points="34,70 34,52 46,40 58,52 58,40 70,52 82,40 94,52 106,40 118,52 118,70" fill="#ffd84d" stroke="#1a1a1a" stroke-width="2" stroke-linejoin="round"/>
+    <rect x="34" y="70" width="84" height="24" fill="#faf7f0" stroke="#1a1a1a" stroke-width="2"/>
+    <g fill="#1a1a1a">
+      <rect x="42" y="76" width="6" height="10"/><rect x="54" y="76" width="6" height="10"/><rect x="66" y="76" width="6" height="10"/><rect x="78" y="76" width="6" height="10"/><rect x="90" y="76" width="6" height="10"/><rect x="102" y="76" width="6" height="10"/>
+    </g>
+    <rect x="124" y="44" width="6" height="50" fill="#1a1a1a"/>
+    <path d="M 124 44 q -8 -6 0 -12" fill="none" stroke="#1a1a1a" stroke-width="1.5"/>
+  </symbol>
+  <symbol id="icon-factory" viewBox="0 0 160 120">
+    <rect x="4" y="4" width="152" height="112" fill="#f2ede0" stroke="#1a1a1a" stroke-width="2"/>
+    <rect x="20" y="50" width="120" height="56" fill="#faf7f0" stroke="#1a1a1a" stroke-width="2"/>
+    <polyline points="20,50 36,34 52,50 68,34 84,50 100,34 116,50" fill="#ffd84d" stroke="#1a1a1a" stroke-width="2" stroke-linejoin="round"/>
+    <rect x="124" y="22" width="14" height="58" fill="#1a1a1a"/>
+    <path d="M 131 22 q -6 -8 2 -16 q 4 6 -2 12" fill="#faf7f0" stroke="#1a1a1a" stroke-width="1.2"/>
+    <g fill="#1a1a1a">
+      <rect x="28" y="68" width="10" height="14"/><rect x="46" y="68" width="10" height="14"/><rect x="64" y="68" width="10" height="14"/><rect x="82" y="68" width="10" height="14"/><rect x="100" y="68" width="10" height="14"/>
+    </g>
+    <rect x="60" y="88" width="20" height="18" fill="#1a1a1a"/>
+  </symbol>
+  <symbol id="icon-cold-storage" viewBox="0 0 160 120">
+    <rect x="4" y="4" width="152" height="112" fill="#f2ede0" stroke="#1a1a1a" stroke-width="2"/>
+    <rect x="22" y="26" width="116" height="74" fill="#faf7f0" stroke="#1a1a1a" stroke-width="2"/>
+    <line x1="22" y1="40" x2="138" y2="40" stroke="#1a1a1a" stroke-width="1.2"/>
+    <g stroke="#1a1a1a" stroke-width="1" fill="none">
+      <line x1="34" y1="40" x2="34" y2="100"/><line x1="50" y1="40" x2="50" y2="100"/>
+      <line x1="110" y1="40" x2="110" y2="100"/><line x1="126" y1="40" x2="126" y2="100"/>
+    </g>
+    <rect x="62" y="50" width="36" height="50" fill="#1a1a1a"/>
+    <g stroke="#ffd84d" stroke-width="2" stroke-linecap="round">
+      <line x1="80" y1="62" x2="80" y2="88"/>
+      <line x1="68" y1="75" x2="92" y2="75"/>
+      <line x1="71" y1="66" x2="89" y2="84"/>
+      <line x1="89" y1="66" x2="71" y2="84"/>
+    </g>
+    <text x="80" y="36" text-anchor="middle" font-family="ui-monospace, monospace" font-size="9" fill="#1a1a1a" font-weight="700">COLD STORAGE</text>
+  </symbol>
+  <symbol id="icon-commercial-property" viewBox="0 0 160 120">
+    <rect x="4" y="4" width="152" height="112" fill="#f2ede0" stroke="#1a1a1a" stroke-width="2"/>
+    <rect x="22" y="32" width="116" height="74" fill="#faf7f0" stroke="#1a1a1a" stroke-width="2"/>
+    <polygon points="18,32 142,32 134,46 26,46" fill="#ffd84d" stroke="#1a1a1a" stroke-width="2"/>
+    <g stroke="#1a1a1a" stroke-width="1">
+      <line x1="36" y1="32" x2="32" y2="46"/><line x1="58" y1="32" x2="56" y2="46"/>
+      <line x1="80" y1="32" x2="80" y2="46"/><line x1="102" y1="32" x2="104" y2="46"/>
+      <line x1="124" y1="32" x2="128" y2="46"/>
+    </g>
+    <rect x="34" y="54" width="40" height="34" fill="none" stroke="#1a1a1a" stroke-width="1.5"/>
+    <line x1="54" y1="54" x2="54" y2="88" stroke="#1a1a1a" stroke-width="1"/>
+    <line x1="34" y1="71" x2="74" y2="71" stroke="#1a1a1a" stroke-width="1"/>
+    <rect x="92" y="54" width="32" height="52" fill="#1a1a1a"/>
+    <circle cx="118" cy="80" r="2" fill="#ffd84d"/>
+    <text x="80" y="42" text-anchor="middle" font-family="ui-monospace, monospace" font-size="8" fill="#1a1a1a" font-weight="700">SHOP</text>
+  </symbol>
+  <symbol id="icon-industrial-land" viewBox="0 0 160 120">
+    <rect x="4" y="4" width="152" height="112" fill="#f2ede0" stroke="#1a1a1a" stroke-width="2"/>
+    <rect x="14" y="28" width="132" height="74" fill="#faf7f0" stroke="#1a1a1a" stroke-width="2" stroke-dasharray="5 4"/>
+    <g fill="#1a1a1a">
+      <circle cx="14" cy="28" r="3.5"/><circle cx="146" cy="28" r="3.5"/>
+      <circle cx="14" cy="102" r="3.5"/><circle cx="146" cy="102" r="3.5"/>
+    </g>
+    <g stroke="#1a1a1a" stroke-width="1.2" fill="none">
+      <line x1="40" y1="50" x2="40" y2="86"/><line x1="46" y1="50" x2="46" y2="86"/>
+      <path d="M 34 50 l 6 -6 l 6 6 l 6 -6 l 6 6"/>
+    </g>
+    <polygon points="92,82 108,46 124,82" fill="#ffd84d" stroke="#1a1a1a" stroke-width="2"/>
+    <rect x="100" y="76" width="16" height="10" fill="#1a1a1a"/>
+    <text x="80" y="100" text-anchor="middle" font-family="ui-monospace, monospace" font-size="8" fill="#1a1a1a" font-weight="700">INDUSTRIAL LAND</text>
+  </symbol>
+  <symbol id="icon-godown" viewBox="0 0 160 120">
+    <rect x="4" y="4" width="152" height="112" fill="#f2ede0" stroke="#1a1a1a" stroke-width="2"/>
+    <polygon points="16,46 80,22 144,46" fill="#ffd84d" stroke="#1a1a1a" stroke-width="2" stroke-linejoin="round"/>
+    <rect x="20" y="46" width="120" height="60" fill="#faf7f0" stroke="#1a1a1a" stroke-width="2"/>
+    <rect x="58" y="58" width="44" height="48" fill="#1a1a1a"/>
+    <g stroke="#ffd84d" stroke-width="1">
+      <line x1="58" y1="66" x2="102" y2="66"/><line x1="58" y1="74" x2="102" y2="74"/>
+      <line x1="58" y1="82" x2="102" y2="82"/><line x1="58" y1="90" x2="102" y2="90"/>
+      <line x1="58" y1="98" x2="102" y2="98"/>
+    </g>
+    <rect x="28" y="60" width="22" height="30" fill="none" stroke="#1a1a1a" stroke-width="1.5"/>
+    <rect x="110" y="60" width="22" height="30" fill="none" stroke="#1a1a1a" stroke-width="1.5"/>
+  </symbol>
+  <symbol id="icon-villa" viewBox="0 0 160 120">
+    <rect x="4" y="4" width="152" height="112" fill="#f2ede0" stroke="#1a1a1a" stroke-width="2"/>
+    <polygon points="80,16 24,46 136,46" fill="#ffd84d" stroke="#1a1a1a" stroke-width="2"/>
+    <rect x="24" y="46" width="112" height="60" fill="#faf7f0" stroke="#1a1a1a" stroke-width="2"/>
+    <rect x="60" y="58" width="40" height="48" fill="#faf7f0" stroke="#1a1a1a" stroke-width="2"/>
+    <polygon points="58,58 80,46 102,58" fill="#ffd84d" stroke="#1a1a1a" stroke-width="2"/>
+    <rect x="72" y="74" width="16" height="32" fill="#1a1a1a"/>
+    <g stroke="#1a1a1a" stroke-width="1.2" fill="none">
+      <rect x="32" y="60" width="14" height="14"/><line x1="32" y1="67" x2="46" y2="67"/><line x1="39" y1="60" x2="39" y2="74"/>
+      <rect x="32" y="84" width="14" height="14"/><line x1="32" y1="91" x2="46" y2="91"/><line x1="39" y1="84" x2="39" y2="98"/>
+      <rect x="114" y="60" width="14" height="14"/><line x1="114" y1="67" x2="128" y2="67"/><line x1="121" y1="60" x2="121" y2="74"/>
+      <rect x="114" y="84" width="14" height="14"/><line x1="114" y1="91" x2="128" y2="91"/><line x1="121" y1="84" x2="121" y2="98"/>
+    </g>
+    <line x1="60" y1="106" x2="100" y2="106" stroke="#1a1a1a" stroke-width="2"/>
+  </symbol>
 </svg>
 
 <script src="/auth.js"></script>
@@ -1425,7 +1638,13 @@ const LIST_TOOLS = [...SEARCH_TOOLS, 'upcoming_auctions', 'price_comparison', 'f
 const DETAIL_TOOLS = ['get_auction_detail'];
 const WATCHLIST_KEY = 'bankauction.watchlist.v1';
 const SESSION_KEY = 'bankauction.session_id';
-const ICON = { flat:'icon-flat', house:'icon-house', land:'icon-land', commercial:'icon-commercial' };
+const ICON = {
+  flat:'icon-flat', house:'icon-house', land:'icon-land', commercial:'icon-commercial',
+  plot:'icon-plot', 'land-building':'icon-land-building', 'commercial-building':'icon-commercial-building',
+  'industrial-land-building':'icon-industrial-lb', factory:'icon-factory',
+  'cold-storage':'icon-cold-storage', 'commercial-property':'icon-commercial-property',
+  'industrial-land':'icon-industrial-land', godown:'icon-godown', villa:'icon-villa'
+};
 
 /* ====== STATE ====== */
 let currentScreen = 'landing';
@@ -1514,9 +1733,19 @@ function thumbSvg(type) {
 }
 function inferType(row) {
   const hay = [row.asset_category, ...(Array.isArray(row.property_types) ? row.property_types : []), row.title].filter(Boolean).join(' ').toLowerCase();
-  if (/plot|land|agri|vacant\s+land/.test(hay)) return 'land';
-  if (/commerc|shop|office|industrial|godown|warehouse/.test(hay)) return 'commercial';
-  if (/house|villa|bungalow|independent/.test(hay)) return 'house';
+  if (/villa|bungalow/.test(hay)) return 'villa';
+  if (/godown|warehouse/.test(hay)) return 'godown';
+  if (/cold\s*storage/.test(hay)) return 'cold-storage';
+  if (/factory/.test(hay)) return 'factory';
+  if (/industrial\s+land\s+(?:and|&)\s+building|industrial\s+(?:land\s+)?(?:and\s+)?building/.test(hay)) return 'industrial-land-building';
+  if (/industrial\s+land/.test(hay)) return 'industrial-land';
+  if (/commercial\s+building|office/.test(hay)) return 'commercial-building';
+  if (/commercial\s+property|shop|retail/.test(hay)) return 'commercial-property';
+  if (/commerc/.test(hay)) return 'commercial';
+  if (/land\s+(?:and|&)\s+building/.test(hay)) return 'land-building';
+  if (/plot/.test(hay)) return 'plot';
+  if (/land|agri|vacant/.test(hay)) return 'land';
+  if (/house|independent/.test(hay)) return 'house';
   if (/flat|apartment|bhk|residential/.test(hay)) return 'flat';
   return 'flat';
 }
@@ -1592,11 +1821,15 @@ function go(screen) {
   currentScreen = screen;
   document.querySelectorAll('.screen').forEach(s => s.classList.toggle('on', s.dataset.screen === screen));
   document.querySelectorAll('.top-nav button').forEach(b => b.classList.toggle('on', b.dataset.nav === screen));
+  document.querySelectorAll('.bottom-tabs .bt').forEach(b => b.classList.toggle('on', b.dataset.nav === screen));
   if (screen === 'results') renderResults();
   if (screen === 'watchlist') renderWatchlist();
   if (screen === 'detail' && currentDetailId) loadAndRenderDetail(currentDetailId);
 }
 document.querySelectorAll('.top-nav button').forEach(b => {
+  b.addEventListener('click', () => go(b.dataset.nav));
+});
+document.querySelectorAll('.bottom-tabs .bt').forEach(b => {
   b.addEventListener('click', () => go(b.dataset.nav));
 });
 
@@ -2453,6 +2686,11 @@ async function askAboutProperty(text) {
 /* ====== WATCHLIST ====== */
 function updateSavedCount() {
   document.getElementById('save-count').textContent = saved.size;
+  const btBadge = document.getElementById('bt-save-count');
+  if (btBadge) {
+    btBadge.textContent = saved.size > 0 ? String(saved.size) : '';
+    btBadge.dataset.empty = saved.size > 0 ? '0' : '1';
+  }
 }
 function renderWatchlist() {
   const body = document.getElementById('watchlist-body');
