@@ -391,6 +391,106 @@ def test_widens_returns_empty_when_even_loosest_misses(monkeypatch) -> None:
     assert out["extracted"]["reserve_price"] == 3_200_000
 
 
+def test_locality_tokens_added_to_strict_cypher(monkeypatch) -> None:
+    """When the paste yields locality tokens (e.g. 'balaraman nagar'), the
+    strict Cypher must filter on them as `OR`-joined description CONTAINS
+    clauses — otherwise a wide price-only filter (especially with no date)
+    returns dozens of irrelevant candidates and scoring picks the wrong one."""
+    rows = [{"auction_id": "750879", "reserve_price": 3_200_000,
+             "auction_start": "2026-05-25T11:00:00",
+             "city": "Tiruvallur", "area": "Poonamallee taluk",
+             "description": "Sai Nila Flats Plot No 46 Balaraman Nagar 741 sq.ft"}]
+    calls = _patch_run_query(monkeypatch, rows)
+
+    from api.tools.cypher_tools import match_pasted_listing
+    match_pasted_listing(
+        "Sai Nila Flats Plot No.46 Balaraman Nagar Poonamallee Chennai 600056\n"
+        "Reserve 32 lakhs"
+    )
+    cypher, params = calls[0]
+    # Locality tokens become description-CONTAINS clauses, OR-joined,
+    # case-insensitive.
+    assert "toLower(a.description) CONTAINS" in cypher
+    # Both extracted locality tokens are bound as params.
+    assert any("balaraman nagar" in str(v).lower() for v in params.values())
+
+
+def test_dateless_paste_still_finds_property_via_locality(monkeypatch) -> None:
+    """The Sai Nila paste WITHOUT EMD/auction date still finds 750879. This
+    is the regression case from the live test — without locality narrowing,
+    a price-only filter returned ~30 candidates and scoring picked an
+    unrelated Kanyakumari property."""
+    rows = [{
+        "auction_id": "750879",
+        "reserve_price": 3_200_000,
+        "auction_start": "2026-05-25T11:00:00",
+        "city": "Tiruvallur", "area": "Poonamallee taluk",
+        "description": (
+            "Schedule A: Flat No. S-1, Second floor of an Area of 741 sq.ft "
+            "with 331 sq.ft undivided share of land, plot No 46, Balaraman "
+            "Nagar, Poonamallee village"
+        ),
+    }]
+    _patch_run_query(monkeypatch, rows)
+
+    from api.tools.cypher_tools import match_pasted_listing
+    paste = (
+        "🏦BANK E-AUCTION PROPERTY🏦\n👉POONAMALLEE\n"
+        "Flat No S1, Second Floor, Sai Nila Flats\n"
+        "Plot No.46, Balaraman Nagar, Poonamallee Chennai – 600056\n"
+        "Built up area: 741 Sqft\nUDS: 331 sqft\n2BHK Flat\n"
+        "Reserve Price: 32 lakhs"
+    )
+    out = match_pasted_listing(paste)
+
+    assert out["match"]["auction_id"] == "750879"
+    # No date in paste, so date weight (0.30) is dropped. With price (0.30) +
+    # 741 (0.15) + 331 (0.10) + balaraman nagar (0.10) + plot 46 (0.05),
+    # confidence should be ≥ 0.65.
+    assert out["confidence"] >= 0.65
+
+
+def test_widening_drops_locality_first(monkeypatch) -> None:
+    """If the strict Cypher with locality+price+date returns nothing, the
+    first widening tier must drop LOCALITY (often a typo / OCR error /
+    abbreviation), not price or date. This keeps the high-signal price+date
+    constraint in place while loosening the most volatile signal."""
+    sibling = {
+        "auction_id": "999333",
+        "reserve_price": 3_200_000,
+        "auction_start": "2026-05-25T11:00:00",
+        "city": "Chennai", "area": "Poonamallee",
+        "description": "Different building, same price and date",
+    }
+    # Tier 0 (price+date+locality) empty; tier 1 (drop locality) finds sibling.
+    calls = _patch_tiered_run_query(monkeypatch, [[], [sibling]])
+
+    from api.tools.cypher_tools import match_pasted_listing
+    out = match_pasted_listing(
+        "Sai Nila Flats Plot No.46 Balaraman Nagar Poonamallee – 600056\n"
+        "Reserve Price: 32 lakhs  Auction: 25/05/2026"
+    )
+    assert out["candidates"][0]["auction_id"] == "999333"
+    assert out["widening_reason"] is not None
+    assert "locality" in out["widening_reason"].lower() or "description" in out["widening_reason"].lower()
+    assert len(calls) == 2  # strict + drop-locality
+
+
+def test_strict_cypher_uses_limit_50(monkeypatch) -> None:
+    """v2's LIMIT 20 chopped real candidates when the price band was wide.
+    v3 raises it to 50 so a price-only filter doesn't arbitrarily exclude
+    rows beyond the cutoff."""
+    calls = _patch_run_query(monkeypatch, [])
+
+    from api.tools.cypher_tools import match_pasted_listing
+    match_pasted_listing(
+        "Reserve Price: 32 lakhs  Auction: 25/05/2026  Poonamallee – 600056"
+    )
+    cypher, _ = calls[0]
+    assert "LIMIT 50" in cypher
+    assert "LIMIT 20" not in cypher
+
+
 def test_widening_reason_is_None_when_strict_match_succeeds(monkeypatch) -> None:
     rows = [{
         "auction_id": "750879", "reserve_price": 3_200_000,

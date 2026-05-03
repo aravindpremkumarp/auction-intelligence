@@ -768,7 +768,7 @@ def _run_match_cypher(where: list[str], matches: list[str], params: dict) -> lis
                city.name AS city, area.name AS area,
                bank.name AS bank,
                substring(a.description, 0, 400) AS description
-        LIMIT 20
+        LIMIT 50
     """
     return run_query(cypher, params)
 
@@ -779,29 +779,46 @@ def _widen_until_hits(
     """Try progressively looser filters until something hits. Returns
     (rows, widening_reason, price_still_strict, date_still_strict).
     The trailing booleans tell the caller whether to count price/date
-    as a confidence-boosting match: at a wider tier the constraint is
+    as a confidence-boosting match — at a wider tier the constraint is
     only approximate, so the corresponding scoring weight is suppressed.
 
-    Tier order — drop date first, then widen price, then drop both —
-    matches what a human would do: dates are volatile (re-auctions slide
-    by weeks), then price (banks adjust reserves). City and area are
-    NEVER part of the filter (greater Chennai is filed as Tiruvallur /
-    Kanchipuram administratively but referenced as Chennai in listings),
-    so there's no "drop city" tier."""
+    Tier order, most-volatile-first:
+      1. drop locality (typos / OCR errors / abbreviated names)
+      2. drop date (re-auctions slide by weeks)
+      3. drop date + widen price ±10% (banks adjust reserves)
+      4. drop everything (description-only fallback)
+
+    City and area are NEVER part of the filter — see `_build_filter`."""
     tiers: list[tuple[str, dict, bool, bool]] = [
         # (reason, build_kwargs, price_still_strict, date_still_strict)
-        ("dropped auction-date constraint",
-            {"drop_date": True}, True, False),
-        ("dropped date and widened price band to ±10%",
-            {"drop_date": True, "price_pct": 0.10}, False, False),
-        ("dropped both date and price constraints",
-            {"drop_date": True, "drop_price": True}, False, False),
+        ("dropped locality / building token constraint",
+            {"drop_locality": True}, True, True),
+        ("dropped locality and auction-date constraints",
+            {"drop_locality": True, "drop_date": True}, True, False),
+        ("dropped locality + date and widened price band to ±10%",
+            {"drop_locality": True, "drop_date": True, "price_pct": 0.10}, False, False),
+        ("dropped all structured constraints",
+            {"drop_locality": True, "drop_date": True, "drop_price": True}, False, False),
     ]
+    # Seed with the strict tier's filter so we don't re-run it as a "widening"
+    # tier when one of the relaxations is a no-op (e.g. drop_locality when
+    # the paste yielded no locality tokens). Key by both WHERE-text and
+    # param values — a price-widen tier reuses the same WHERE clauses but
+    # bumps min_price/max_price, so clauses-alone dedup would skip it.
+    def _filter_key(where: list[str], params: dict) -> tuple:
+        return (tuple(sorted(where)),
+                tuple(sorted((k, str(v)) for k, v in params.items())))
+
+    strict_where, _, strict_params = _build_filter(extracted)
+    tried: set[tuple] = {_filter_key(strict_where, strict_params)}
     for reason, kwargs, price_ok, date_ok in tiers:
         where, matches, params = _build_filter(extracted, **kwargs)
         if not where:
-            # Nothing left to filter on — skip this tier.
             continue
+        key = _filter_key(where, params)
+        if key in tried:
+            continue
+        tried.add(key)
         rows = _run_match_cypher(where, matches, params)
         if rows:
             return rows, reason, price_ok, date_ok
@@ -813,11 +830,19 @@ def _build_filter(
     *,
     drop_date: bool = False,
     drop_price: bool = False,
+    drop_locality: bool = False,
     price_pct: float = 0.02,
 ) -> tuple[list[str], list[str], dict]:
     """Rebuild the (where, matches, params) triple with selected
-    constraints relaxed. v2 NEVER includes city or area — those are
-    handled entirely via description-text scoring."""
+    constraints relaxed.
+
+    Note on `locality_tokens`: when the paste yields distinctive
+    locality tokens (e.g. "balaraman nagar"), they're added to the
+    Cypher WHERE as OR-joined `toLower(a.description) CONTAINS`
+    clauses. This is the killer narrowing signal — locality names
+    are nearly unique within a city, so a single token usually
+    pinpoints the exact property. v3 promoted this from a scoring
+    weight (v2) to a primary filter."""
     where: list[str] = []
     matches = ["(a:AuctionProperty)"]
     params: dict = {}
@@ -837,6 +862,16 @@ def _build_filter(
         params["starts_before"] = starts_before.isoformat()
         where.append("a.auction_start_dt >= $starts_after")
         where.append("a.auction_start_dt <= $starts_before")
+    if extracted.locality_tokens and not drop_locality:
+        # OR-joined CONTAINS over each locality / building token.
+        # Bind each token as $loc_0, $loc_1, ... so we keep parameterised
+        # queries and don't string-format user-derived text into Cypher.
+        clauses: list[str] = []
+        for i, tok in enumerate(extracted.locality_tokens):
+            key = f"loc_{i}"
+            clauses.append(f"toLower(a.description) CONTAINS toLower(${key})")
+            params[key] = tok
+        where.append("(" + " OR ".join(clauses) + ")")
     return where, matches, params
 
 
