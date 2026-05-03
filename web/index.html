@@ -1198,7 +1198,13 @@ body {
   .sb-toggle { width: 36px; height: 36px; }
 
   .screen-host { overflow: visible; }
+  /* Desktop stacks every .screen at position:absolute and uses opacity to show
+     the active one. On mobile they flow normally — hide the inactive ones with
+     display:none, otherwise they all claim vertical space and push the active
+     screen thousands of pixels below the topbar. */
   .screen { position: relative; inset: auto; padding: 16px 14px 24px; overflow: visible; }
+  .screen:not(.on) { display: none; }
+  .screen.on { display: flex; }
   .landing-hero { padding-top: 12px; gap: 14px; }
   .landing-hero h1 { font-size: 32px; }
   .landing-sub { font-size: 11px; }
