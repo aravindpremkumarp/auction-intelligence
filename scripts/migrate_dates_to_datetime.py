@@ -59,15 +59,20 @@ def _malformed(session, field: str) -> int:
 
 
 def _string_count(session, field: str) -> int:
+    # IS :: STRING matches NULL too (nullable type predicate); add IS NOT NULL
+    # to count only populated string values.
     return session.run(
-        f"MATCH (a:AuctionProperty) WHERE a.{field} IS :: STRING RETURN count(*) AS n"
+        f"MATCH (a:AuctionProperty) "
+        f"WHERE a.{field} IS NOT NULL AND a.{field} IS :: STRING "
+        "RETURN count(*) AS n"
     ).single()["n"]
 
 
 def _datetime_count(session, field: str) -> int:
     return session.run(
         "MATCH (a:AuctionProperty) "
-        f"WHERE a.{field} IS :: ZONED DATETIME OR a.{field} IS :: LOCAL DATETIME "
+        f"WHERE a.{field} IS NOT NULL "
+        f"AND (a.{field} IS :: ZONED DATETIME OR a.{field} IS :: LOCAL DATETIME) "
         "RETURN count(*) AS n"
     ).single()["n"]
 
@@ -75,7 +80,7 @@ def _datetime_count(session, field: str) -> int:
 def _convert(session, field: str) -> int:
     cypher = f"""
         MATCH (a:AuctionProperty)
-        WHERE a.{field} IS :: STRING
+        WHERE a.{field} IS NOT NULL AND a.{field} IS :: STRING
         SET a.{field} = datetime(a.{field})
         RETURN count(*) AS n
     """
@@ -111,7 +116,7 @@ def main() -> None:
         for f in ALL_DATE_FIELDS:
             print(f"  {f:<40} STRING={_string_count(session, f):<6} DATETIME={_datetime_count(session, f)}")
 
-        print("\nConverting STRING → DATETIME ...")
+        print("\nConverting STRING -> DATETIME ...")
         for f in ALL_DATE_FIELDS:
             n = _convert(session, f)
             print(f"  {f:<40} converted={n}")

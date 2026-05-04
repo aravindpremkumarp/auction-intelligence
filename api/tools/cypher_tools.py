@@ -11,7 +11,7 @@ import json
 import re
 import time
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from functools import lru_cache
 from api.neo4j_client import run_query, run_read_query
 from pipeline.embeddings import embed_query_gemini
@@ -55,6 +55,17 @@ def _iso(v):
     """Coerce a neo4j.time.DateTime to its ISO string. Pass through anything
     else (str, None, numbers) untouched."""
     return v.iso_format() if hasattr(v, "iso_format") else v
+
+
+def _aware(dt: datetime | None) -> datetime | None:
+    """Stored AuctionProperty dates are ZONED DATETIME. Cypher comparison
+    between ZONED and LOCAL DATETIME silently yields zero matches, so any
+    naive datetime arriving from the agent or API layer must be promoted
+    to tz-aware. We assume UTC for naive inputs — the underlying data was
+    written with timezone-naive ISO strings, so UTC is the correct anchor."""
+    if dt is None or dt.tzinfo is not None:
+        return dt
+    return dt.replace(tzinfo=timezone.utc)
 
 
 def _validate_read_only_cypher(cypher: str) -> None:
@@ -169,11 +180,11 @@ def search_auctions(
     if max_price is not None:
         where.append("a.reserve_price_num <= $max_price"); params["max_price"] = max_price
     if starts_after is None and not include_past:
-        starts_after = datetime.now()
+        starts_after = datetime.now(timezone.utc)
     if starts_after is not None:
-        where.append("a.auction_start_dt >= $starts_after"); params["starts_after"] = starts_after
+        where.append("a.auction_start_dt >= $starts_after"); params["starts_after"] = _aware(starts_after)
     if starts_before is not None:
-        where.append("a.auction_start_dt <= $starts_before"); params["starts_before"] = starts_before
+        where.append("a.auction_start_dt <= $starts_before"); params["starts_before"] = _aware(starts_before)
 
     matches = ["(a:AuctionProperty)"]
     if city:
@@ -299,7 +310,7 @@ def location_analysis(location: str, location_type: str = "city") -> list[dict]:
 
 
 def upcoming_auctions(days: int = 14, limit: int = 20) -> list[dict]:
-    now = datetime.now()
+    now = datetime.now(timezone.utc)
     cutoff = now + timedelta(days=days)
     cypher = """
         MATCH (a:AuctionProperty)
@@ -382,11 +393,11 @@ def semantic_search(
     if max_price is not None:
         where.append("p.reserve_price_num <= $max_price"); params["max_price"] = max_price
     if starts_after is None and not include_past:
-        starts_after = datetime.now()
+        starts_after = datetime.now(timezone.utc)
     if starts_after is not None:
-        where.append("p.auction_start_dt >= $starts_after"); params["starts_after"] = starts_after
+        where.append("p.auction_start_dt >= $starts_after"); params["starts_after"] = _aware(starts_after)
     if starts_before is not None:
-        where.append("p.auction_start_dt <= $starts_before"); params["starts_before"] = starts_before
+        where.append("p.auction_start_dt <= $starts_before"); params["starts_before"] = _aware(starts_before)
 
     optional_matches = ""
     if city:
@@ -914,8 +925,8 @@ def _build_filter(
         starts_before = datetime.combine(
             extracted.auction_date + timedelta(days=2), datetime.max.time()
         )
-        params["starts_after"] = starts_after
-        params["starts_before"] = starts_before
+        params["starts_after"] = _aware(starts_after)
+        params["starts_before"] = _aware(starts_before)
         where.append("a.auction_start_dt >= $starts_after")
         where.append("a.auction_start_dt <= $starts_before")
     if extracted.locality_tokens and not drop_locality:
