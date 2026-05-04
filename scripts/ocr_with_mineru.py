@@ -160,15 +160,29 @@ def mineru_poll(batch_id: str, timeout_s: int = 600) -> list[dict]:
 def download_and_cache_md(file_path: str, full_zip_url: str) -> Path | None:
     MINERU_MD_DIR.mkdir(parents=True, exist_ok=True)
     md_path = MINERU_MD_DIR / f"{safe_cache_name(file_path)}.md"
-    r = requests.get(full_zip_url, timeout=120)
-    if not r.ok:
-        return None
-    z = zipfile.ZipFile(io.BytesIO(r.content))
-    if "full.md" not in z.namelist():
-        return None
-    md = z.read("full.md").decode("utf-8")
-    md_path.write_text(md, encoding="utf-8")
-    return md_path
+    # Retry on transient network errors (ConnectionResetError, timeouts) —
+    # the OSS download URL is short-lived but stable for the few minutes after
+    # MinerU returns it, so a few retries with backoff usually clear blips.
+    for attempt in range(4):
+        try:
+            r = requests.get(full_zip_url, timeout=120)
+            if not r.ok:
+                return None
+            z = zipfile.ZipFile(io.BytesIO(r.content))
+            if "full.md" not in z.namelist():
+                return None
+            md = z.read("full.md").decode("utf-8")
+            md_path.write_text(md, encoding="utf-8")
+            return md_path
+        except (requests.exceptions.RequestException, zipfile.BadZipFile) as e:
+            if attempt < 3:
+                wait = 2 ** attempt * 5  # 5, 10, 20s
+                print(f"    [zip-dl retry {attempt + 1}] {type(e).__name__}: {e}; waiting {wait}s")
+                time.sleep(wait)
+            else:
+                print(f"    [zip-dl GAVE UP] {file_path}: {e}")
+                return None
+    return None
 
 
 def stage1_mineru(work: list[dict]) -> dict[str, str]:

@@ -85,22 +85,24 @@ when presenting it.
    window / aggregations) → `search_auctions`. Future-only by default;
    pass `include_past=True` only when the user explicitly asks about
    past auctions.
-2. **Qualitative description search** (boundaries, neighborhood, legal
-   caveats, property condition in free text) → `semantic_property_search`.
-   Same future-only default and `include_past=True` opt-in apply.
-2b. **Notice-level / multimodal search** (broader notice context: bank /
-   branch framing, multiple borrowers, layout style, multi-page structure,
-   things visible in the *notice document* but absent from the property
-   description) → `semantic_notice_search`. Backed by Google
-   `gemini-embedding-2` over the notice file itself. Use when
-   `semantic_property_search` is too narrow — it only embeds the property
-   description, while this embeds the full notice. Same post-filter shape;
-   same future-only default.
+2. **Qualitative / semantic search** (anything that lives in free text
+   or the notice document — boundaries, neighborhood, legal caveats,
+   property condition, bank framing, multiple borrowers, layout style,
+   table structure, anything visible in the notice but absent from
+   structured fields) → `semantic_search`. One unified tool backed by
+   Google `gemini-embedding-2` (3072-dim) ranking across three indexes
+   in the same vector space:
+   - **description** — tight property text post-extraction
+   - **markdown** — structured notice text from MinerU OCR
+   - **image** — multimodal notice file (image / PDF bytes)
+
+   Each result carries `hit_sources` showing which lenses matched. Same
+   future-only default and `include_past=True` opt-in as `search_auctions`.
 2a. **Pasted property listing** (WhatsApp forward, broker note, bank
    circular — the user has dropped a multi-line blurb that includes
    a price, an EMD/auction date, a building name, a plot number, an
    area, or a PIN, possibly with emojis) → `match_pasted_listing`,
-   ALWAYS preferred over `semantic_property_search` for this. The
+   ALWAYS preferred over `semantic_search` for this. The
    tool anchors on **reserve price ±2% AND auction date ±2 days** as
    the primary filter (no city, no area — those discriminate poorly
    in greater Chennai where Tiruvallur/Kanchipuram administrative

@@ -10,6 +10,16 @@ import json
 import os
 import uuid
 from datetime import datetime, timezone
+
+
+def _parse_to_utc(s: str) -> datetime:
+    """Parse an ISO-8601 query-string date and force tz-aware UTC.
+    Stored AuctionProperty dates are ZONED DATETIME — comparing against a
+    naive Python datetime yields zero matches in Cypher."""
+    dt = datetime.fromisoformat(s)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
 from pathlib import Path
 from typing import Any, Literal
 
@@ -222,10 +232,10 @@ def _properties_filter_cypher(filters: dict[str, Any]) -> tuple[str, str, dict[s
         params["f_max_price"] = float(filters["max_price"])
     if filters.get("date_from"):
         where.append("a.auction_start_dt >= $f_date_from")
-        params["f_date_from"] = filters["date_from"]
+        params["f_date_from"] = _parse_to_utc(filters["date_from"])
     if filters.get("date_to"):
         where.append("a.auction_start_dt <= $f_date_to")
-        params["f_date_to"] = filters["date_to"]
+        params["f_date_to"] = _parse_to_utc(filters["date_to"])
     if filters.get("q"):
         # Match free-text against title and the names of the most useful linked
         # nodes — that's what the design's "search by location, bank, type"
@@ -330,7 +340,7 @@ def list_properties(
              count(DISTINCT prv) AS reauction_count
         RETURN a.auction_id AS auction_id, a.title AS title, a.url AS url,
                a.reserve_price_num AS reserve_price, a.emd_num AS emd,
-               a.auction_start_dt AS auction_start,
+               toString(a.auction_start_dt) AS auction_start,
                stt.name AS state, cty.name AS city, ara.name AS area,
                bnk.name AS bank,
                asc.name AS asset_category,

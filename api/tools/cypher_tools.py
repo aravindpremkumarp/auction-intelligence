@@ -11,13 +11,17 @@ import json
 import re
 import time
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from functools import lru_cache
 from api.neo4j_client import run_query, run_read_query
-from pipeline.embeddings import embed_text, embed_query_gemini
+from pipeline.embeddings import embed_query_gemini
 
-VECTOR_INDEX_NAME = "property_desc_idx"
-NOTICE_IMAGE_INDEX_NAME = "notice_image_idx"
+# Three Gemini vector indexes, all 3072-dim, all over gemini-embedding-2.
+# Scores are directly comparable across indexes, so `semantic_search` ranks
+# by max cosine.
+PROPERTY_DESC_INDEX = "property_desc_idx"        # AuctionProperty.description_embedding (text)
+NOTICE_MARKDOWN_INDEX = "notice_markdown_idx"    # Document.markdown_embedding (structured text)
+NOTICE_IMAGE_INDEX = "notice_image_idx"          # Document.image_embedding (image / PDF bytes)
 
 # ── run_cypher guardrails ──────────────────────────────────────────────────
 
@@ -35,6 +39,33 @@ _WRITE_PROCEDURE_RE = re.compile(
 
 _MAX_CYPHER_LENGTH = 4000
 _ALLOWED_PARAM_TYPES = (str, int, float, bool, type(None))
+
+# Property keys that are stored as Neo4j DATETIME and must be serialized
+# to ISO strings before leaving the API boundary (FastAPI's default JSON
+# encoder can't handle neo4j.time.DateTime).
+_AUCTION_DATETIME_KEYS = (
+    "auction_start_dt", "auction_end_dt", "application_deadline_dt",
+    "auction_start_dt_scraped", "auction_end_dt_scraped",
+    "application_deadline_dt_scraped",
+    "verified_at",
+)
+
+
+def _iso(v):
+    """Coerce a neo4j.time.DateTime to its ISO string. Pass through anything
+    else (str, None, numbers) untouched."""
+    return v.iso_format() if hasattr(v, "iso_format") else v
+
+
+def _aware(dt: datetime | None) -> datetime | None:
+    """Stored AuctionProperty dates are ZONED DATETIME. Cypher comparison
+    between ZONED and LOCAL DATETIME silently yields zero matches, so any
+    naive datetime arriving from the agent or API layer must be promoted
+    to tz-aware. We assume UTC for naive inputs — the underlying data was
+    written with timezone-naive ISO strings, so UTC is the correct anchor."""
+    if dt is None or dt.tzinfo is not None:
+        return dt
+    return dt.replace(tzinfo=timezone.utc)
 
 
 def _validate_read_only_cypher(cypher: str) -> None:
@@ -149,11 +180,11 @@ def search_auctions(
     if max_price is not None:
         where.append("a.reserve_price_num <= $max_price"); params["max_price"] = max_price
     if starts_after is None and not include_past:
-        starts_after = datetime.now()
+        starts_after = datetime.now(timezone.utc)
     if starts_after is not None:
-        where.append("a.auction_start_dt >= $starts_after"); params["starts_after"] = starts_after.isoformat()
+        where.append("a.auction_start_dt >= $starts_after"); params["starts_after"] = _aware(starts_after)
     if starts_before is not None:
-        where.append("a.auction_start_dt <= $starts_before"); params["starts_before"] = starts_before.isoformat()
+        where.append("a.auction_start_dt <= $starts_before"); params["starts_before"] = _aware(starts_before)
 
     matches = ["(a:AuctionProperty)"]
     if city:
@@ -205,7 +236,7 @@ def search_auctions(
                  count(DISTINCT prev) AS reauction_count
             RETURN a.auction_id AS auction_id, a.title AS title, a.url AS url,
                    a.reserve_price_num AS reserve_price, a.emd_num AS emd,
-                   a.auction_start_dt AS auction_start,
+                   toString(a.auction_start_dt) AS auction_start,
                    city.name AS city, area.name AS area,
                    bank.name AS bank,
                    ac.name AS asset_category,
@@ -279,18 +310,19 @@ def location_analysis(location: str, location_type: str = "city") -> list[dict]:
 
 
 def upcoming_auctions(days: int = 14, limit: int = 20) -> list[dict]:
-    cutoff = (datetime.now() + timedelta(days=days)).isoformat()
+    now = datetime.now(timezone.utc)
+    cutoff = now + timedelta(days=days)
     cypher = """
         MATCH (a:AuctionProperty)
         WHERE a.application_deadline_dt <= $cutoff
           AND a.application_deadline_dt >= $now
         RETURN a.auction_id AS auction_id, a.title AS title,
-               a.application_deadline_dt AS deadline,
+               toString(a.application_deadline_dt) AS deadline,
                a.reserve_price_num AS reserve_price
         ORDER BY a.application_deadline_dt ASC
         LIMIT $limit
     """
-    return run_query(cypher, {"cutoff": cutoff, "now": datetime.now().isoformat(), "limit": limit})
+    return run_query(cypher, {"cutoff": cutoff, "now": now, "limit": limit})
 
 
 def price_comparison(city: str, property_type: str) -> list[dict]:
@@ -314,7 +346,7 @@ def borrower_lookup(borrower_name: str) -> list[dict]:
     return run_query(cypher, {"name": borrower_name})
 
 
-def semantic_property_search(
+def semantic_search(
     query: str,
     city: str | None = None,
     area: str | None = None,
@@ -326,122 +358,30 @@ def semantic_property_search(
     limit: int = 20,
     include_past: bool = False,
 ) -> dict:
-    """Vector search over AuctionProperty.description with optional structured post-filters.
+    """Unified semantic search across descriptions, notice markdown, and notice files.
 
-    Runs a kNN over the `property_desc_idx` vector index, then filters by
-    city / area / price / asset_category / date window. Returns
-    {returned, limit, results} where each result carries a `score` (cosine
-    similarity, higher is better).
+    Embeds the query once via gemini-embedding-2 (3072-dim) and ranks
+    AuctionProperty results across three indexes that share the same vector
+    space, so cosine scores are directly comparable:
 
-    Defaults to future-only (auction_start_dt >= now()) so past auctions
-    don't surface as semantic "matches". Pass include_past=True to disable
-    that floor for retrospective queries.
-    """
-    qvec = embed_text(query)
-    k = max(limit * 5, 50)
+      - property_desc_idx     (AuctionProperty.description_embedding) —
+        tight property text, post-extraction. Best for narrow queries
+        like "3-BR flat in Adyar with elevator".
+      - notice_markdown_idx   (Document.markdown_embedding) — structured
+        notice text from MinerU. Best for queries that touch the formal
+        notice content (bank framing, parties, schedule, terms).
+      - notice_image_idx      (Document.image_embedding) — multimodal
+        notice file (image / PDF bytes). Best for layout / visual signal
+        ("tabular SFC notices in Villupuram") and as a fallback when the
+        text-side description is sparse.
 
-    where = []
-    params: dict = {"qvec": qvec, "k": k, "limit": limit}
-    if min_price is not None:
-        where.append("p.reserve_price_num >= $min_price"); params["min_price"] = min_price
-    if max_price is not None:
-        where.append("p.reserve_price_num <= $max_price"); params["max_price"] = max_price
-    if starts_after is None and not include_past:
-        starts_after = datetime.now()
-    if starts_after is not None:
-        where.append("p.auction_start_dt >= $starts_after"); params["starts_after"] = starts_after.isoformat()
-    if starts_before is not None:
-        where.append("p.auction_start_dt <= $starts_before"); params["starts_before"] = starts_before.isoformat()
+    For each property the best score from any index wins, and `hit_sources`
+    indicates which lenses matched. Defaults to future-only auctions; pass
+    include_past=True for retrospective queries.
 
-    optional_matches = ""
-    if city:
-        optional_matches += "\nMATCH (p)-[:LOCATED_IN_CITY]->(:City {name: $city})"
-        params["city"] = city
-    if asset_category:
-        optional_matches += "\nMATCH (p)-[:HAS_ASSET_CATEGORY]->(:AssetCategory {name: $asset_category})"
-        params["asset_category"] = asset_category
-    if area:
-        optional_matches += "\nMATCH (p)-[:LOCATED_IN_AREA]->(ar:Area)"
-        where.append("toLower(ar.name) CONTAINS toLower($area)")
-        params["area"] = area
-
-    where_clause = ("WHERE " + " AND ".join(where)) if where else ""
-
-    cypher = f"""
-        CALL db.index.vector.queryNodes('{VECTOR_INDEX_NAME}', $k, $qvec)
-        YIELD node AS p, score
-        {optional_matches}
-        {where_clause}
-        OPTIONAL MATCH (p)-[:LOCATED_IN_CITY]->(city:City)
-        OPTIONAL MATCH (p)-[:LOCATED_IN_AREA]->(area:Area)
-        OPTIONAL MATCH (p)-[:CONDUCTED_BY]->(bank:Bank)
-        OPTIONAL MATCH (p)-[:HAS_ASSET_CATEGORY]->(ac:AssetCategory)
-        OPTIONAL MATCH (p)-[:HAS_PROPERTY_TYPE]->(ptx:PropertyType)
-        OPTIONAL MATCH (p)-[:SAME_PROPERTY_AS]->(prev:AuctionProperty)
-            WHERE prev.auction_start_dt IS NOT NULL
-              AND p.auction_start_dt IS NOT NULL
-              AND prev.auction_start_dt < p.auction_start_dt
-              AND prev.reserve_price_num IS NOT NULL
-        WITH p, score, city, area, bank, ac,
-             collect(DISTINCT ptx.name) AS property_types,
-             max(prev.reserve_price_num) AS previous_reserve_price
-        RETURN p.auction_id AS auction_id, p.title AS title, p.url AS url,
-               p.reserve_price_num AS reserve_price, p.emd_num AS emd,
-               p.auction_start_dt AS auction_start,
-               city.name AS city, area.name AS area,
-               bank.name AS bank,
-               ac.name AS asset_category,
-               property_types,
-               previous_reserve_price,
-               substring(p.description, 0, 300) AS description_excerpt,
-               score
-        ORDER BY score DESC
-        LIMIT $limit
-    """
-    results = run_query(cypher, params)
-    return {"returned": len(results), "limit": limit, "results": results}
-
-
-def semantic_notice_search(
-    query: str,
-    city: str | None = None,
-    area: str | None = None,
-    min_price: float | None = None,
-    max_price: float | None = None,
-    asset_category: str | None = None,
-    starts_after: datetime | None = None,
-    starts_before: datetime | None = None,
-    limit: int = 20,
-    include_past: bool = False,
-) -> dict:
-    """Multimodal vector search across the full sale notices.
-
-    Uses Google's `gemini-embedding-2` (3072 dims) to embed the user's text
-    query and searches the `notice_image_idx` over `:Document.image_embedding`
-    — where each Document is the original notice file (image / PDF) embedded
-    directly via the same multimodal model. This captures broader context
-    than the focused `semantic_property_search` (header / parties / schedule /
-    layout / multi-page structure).
-
-    For each matching Document, traverses `[:HAS_DOCUMENT]` back to the
-    AuctionProperty listings and applies the same structured post-filters as
-    `semantic_property_search`.
-
-    Use this when:
-      - Query touches notice-level context (bank, branch, multiple
-        borrowers, layout — "Canara Bank notices with multiple borrowers in
-        Coimbatore").
-      - Property-description embeddings are too narrow ("notices with
-        explicit physical possession on Schedule A residential land").
-      - Cross-modal — agent passes a query string but the match is over a
-        multimodal embedding that includes visual layout.
-
-    Prefer `semantic_property_search` for tight property descriptions
-    ("3-BR flat in Adyar with elevator").
-
-    Returns {returned, limit, results} where each result carries a `score`
-    (cosine similarity) plus the same listing fields as
-    `semantic_property_search`.
+    Returns {returned, limit, results} where each result carries `score`
+    (cosine, higher is better) and `hit_sources` (list of 'desc' /
+    'markdown' / 'image').
     """
     qvec = embed_query_gemini(query)
     k = max(limit * 5, 50)
@@ -453,11 +393,11 @@ def semantic_notice_search(
     if max_price is not None:
         where.append("p.reserve_price_num <= $max_price"); params["max_price"] = max_price
     if starts_after is None and not include_past:
-        starts_after = datetime.now()
+        starts_after = datetime.now(timezone.utc)
     if starts_after is not None:
-        where.append("p.auction_start_dt >= $starts_after"); params["starts_after"] = starts_after.isoformat()
+        where.append("p.auction_start_dt >= $starts_after"); params["starts_after"] = _aware(starts_after)
     if starts_before is not None:
-        where.append("p.auction_start_dt <= $starts_before"); params["starts_before"] = starts_before.isoformat()
+        where.append("p.auction_start_dt <= $starts_before"); params["starts_before"] = _aware(starts_before)
 
     optional_matches = ""
     if city:
@@ -473,31 +413,54 @@ def semantic_notice_search(
 
     where_clause = ("WHERE " + " AND ".join(where)) if where else ""
 
-    # Each matched Document may be linked to N listings (multi-property).
-    # We fan out, dedupe by auction_id keeping the best score, then return.
+    # Fan out across all three Gemini indexes. The CALL () { … UNION … }
+    # form (Neo4j 5.7+) declares an empty variable-scope import — parameters
+    # ($k, $qvec) are visible inside the subquery without explicit import. The
+    # block returns (p, score, source) rows; the outer query dedupes by p
+    # (max score) before applying structured post-filters.
     cypher = f"""
-        CALL db.index.vector.queryNodes('{NOTICE_IMAGE_INDEX_NAME}', $k, $qvec)
-        YIELD node AS d, score
-        MATCH (d)<-[:HAS_DOCUMENT]-(p:AuctionProperty)
+        CALL () {{
+            CALL db.index.vector.queryNodes('{PROPERTY_DESC_INDEX}', $k, $qvec)
+            YIELD node AS p, score
+            RETURN p, score, 'desc' AS source
+            UNION
+            CALL db.index.vector.queryNodes('{NOTICE_MARKDOWN_INDEX}', $k, $qvec)
+            YIELD node AS d, score
+            MATCH (d)<-[:HAS_DOCUMENT]-(p:AuctionProperty)
+            RETURN p, score, 'markdown' AS source
+            UNION
+            CALL db.index.vector.queryNodes('{NOTICE_IMAGE_INDEX}', $k, $qvec)
+            YIELD node AS d, score
+            MATCH (d)<-[:HAS_DOCUMENT]-(p:AuctionProperty)
+            RETURN p, score, 'image' AS source
+        }}
+        WITH p, score, source
         {optional_matches}
         {where_clause}
-        WITH p, max(score) AS score
+        WITH p, max(score) AS score, collect(DISTINCT source) AS hit_sources
         OPTIONAL MATCH (p)-[:LOCATED_IN_CITY]->(city:City)
         OPTIONAL MATCH (p)-[:LOCATED_IN_AREA]->(area:Area)
         OPTIONAL MATCH (p)-[:CONDUCTED_BY]->(bank:Bank)
         OPTIONAL MATCH (p)-[:HAS_ASSET_CATEGORY]->(ac:AssetCategory)
         OPTIONAL MATCH (p)-[:HAS_PROPERTY_TYPE]->(ptx:PropertyType)
-        WITH p, score, city, area, bank, ac,
-             collect(DISTINCT ptx.name) AS property_types
+        OPTIONAL MATCH (p)-[:SAME_PROPERTY_AS]->(prev:AuctionProperty)
+            WHERE prev.auction_start_dt IS NOT NULL
+              AND p.auction_start_dt IS NOT NULL
+              AND prev.auction_start_dt < p.auction_start_dt
+              AND prev.reserve_price_num IS NOT NULL
+        WITH p, score, hit_sources, city, area, bank, ac,
+             collect(DISTINCT ptx.name) AS property_types,
+             max(prev.reserve_price_num) AS previous_reserve_price
         RETURN p.auction_id AS auction_id, p.title AS title, p.url AS url,
                p.reserve_price_num AS reserve_price, p.emd_num AS emd,
-               p.auction_start_dt AS auction_start,
+               toString(p.auction_start_dt) AS auction_start,
                city.name AS city, area.name AS area,
                bank.name AS bank,
                ac.name AS asset_category,
                property_types,
+               previous_reserve_price,
                substring(p.description, 0, 300) AS description_excerpt,
-               score
+               score, hit_sources
         ORDER BY score DESC
         LIMIT $limit
     """
@@ -962,8 +925,8 @@ def _build_filter(
         starts_before = datetime.combine(
             extracted.auction_date + timedelta(days=2), datetime.max.time()
         )
-        params["starts_after"] = starts_after.isoformat()
-        params["starts_before"] = starts_before.isoformat()
+        params["starts_after"] = _aware(starts_after)
+        params["starts_before"] = _aware(starts_before)
         where.append("a.auction_start_dt >= $starts_after")
         where.append("a.auction_start_dt <= $starts_before")
     if extracted.locality_tokens and not drop_locality:
@@ -1032,6 +995,9 @@ def get_auction_detail(auction_id: str) -> dict | None:
     if not rows:
         return None
     fields = dict(rows[0]["fields"])
+    for k in _AUCTION_DATETIME_KEYS:
+        if k in fields:
+            fields[k] = _iso(fields[k])
 
     extras_raw = fields.get("extras")
     if isinstance(extras_raw, str) and extras_raw.strip().startswith(("{", "[")):
@@ -1067,7 +1033,7 @@ def get_auction_detail(auction_id: str) -> dict | None:
                 "title":             s.get("title"),
                 "url":               s.get("url"),
                 "reserve_price_num": s.get("reserve_price_num"),
-                "auction_start_dt":  s.get("auction_start_dt"),
+                "auction_start_dt":  _iso(s.get("auction_start_dt")),
                 "match_reason":      s.get("match_reason"),
                 "confidence":        s.get("confidence"),
                 "is_current":        False,
@@ -1275,10 +1241,10 @@ def describe_schema(refresh: bool = False) -> dict:
           min(a.emd_num)                  AS emd_min,
           max(a.emd_num)                  AS emd_max,
           percentileCont(a.emd_num, 0.5)  AS emd_p50,
-          min(a.auction_start_dt)         AS start_min,
-          max(a.auction_start_dt)         AS start_max,
-          min(a.application_deadline_dt)  AS dl_min,
-          max(a.application_deadline_dt)  AS dl_max
+          toString(min(a.auction_start_dt))         AS start_min,
+          toString(max(a.auction_start_dt))         AS start_max,
+          toString(min(a.application_deadline_dt))  AS dl_min,
+          toString(max(a.application_deadline_dt))  AS dl_max
         """,
         max_rows=1,
     )

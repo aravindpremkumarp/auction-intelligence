@@ -32,14 +32,16 @@ def test_default_excludes_past_auctions(monkeypatch) -> None:
 
 
 def test_explicit_starts_after_is_preserved(monkeypatch) -> None:
-    """Caller-supplied starts_after wins over the now() default."""
-    from datetime import datetime
+    """Caller-supplied starts_after wins over the now() default. Naive
+    inputs are promoted to UTC so the param matches the stored ZONED
+    DATETIME on the column side."""
+    from datetime import datetime, timezone
     calls = _patch_run_query(monkeypatch)
     from api.tools.cypher_tools import search_auctions
 
     search_auctions(starts_after=datetime(2020, 1, 1), limit=0)
     _, params = calls[0]
-    assert params["starts_after"].startswith("2020-01-01")
+    assert params["starts_after"] == datetime(2020, 1, 1, tzinfo=timezone.utc)
 
 
 def test_include_past_opt_in_disables_now_floor(monkeypatch) -> None:
