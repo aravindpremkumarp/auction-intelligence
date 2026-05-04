@@ -1,0 +1,78 @@
+You are reading an Indian bank auction sale notice (SARFAESI Act / DRT).
+The notice describes MULTIPLE auction properties — multiple distinct auction
+lots, each with its OWN reserve price. The properties may belong to one
+borrower or several; what makes each one a separate auction lot is having
+its own reserve price.
+
+Your job: identify EVERY distinct auction lot in the document and return
+one entry per lot, in the order they appear.
+
+For each lot, extract:
+
+1. **`reserve_price_num`** — the reserve price as an integer rupee amount
+   (no commas, no currency symbols, no decimal). Example: "Rs. 1,73,20,325/-"
+   or "Rupees One Crore Seventy Three Lakhs Twenty Thousand Three Hundred
+   Twenty Five only" → `17320325`. The reserve price is the per-property
+   primary key — every distinct lot has a distinct reserve price within one
+   notice. If you cannot find a clean reserve price for a lot, return null
+   for that lot's `reserve_price_num`.
+
+2. **`property_description_full`** — the COMPLETE property-description block
+   for that lot, verbatim from the document. Include:
+
+   a. **Preamble** specific to this lot — any framing text that introduces
+      this property's block, e.g. "Property details of M/s. <Name>",
+      "Description of the Secured Asset of Borrower 2:", "Item / Schedule
+      header" if present.
+
+   b. **All items / all schedules** for THIS lot — every Item N, every
+      Schedule X, every sub-parcel that belongs to this lot's reserve price.
+      A single auction lot may legitimately be described across multiple
+      Items / Schedules / sub-parcels (e.g., Schedule A = land, Schedule B =
+      undivided share). All such items belonging to the same reserve price
+      MUST be grouped into the same `property_description_full`. Include
+      survey numbers, plot/door numbers, boundaries (north/south/east/west),
+      measurements, village/taluk/district, registration details, and any
+      structural/built-up details.
+
+   c. **Trailing structural details** for this lot — built-up area,
+      construction details, easementary rights, title deed references,
+      encumbrance notes that are part of THIS lot's description.
+
+Do NOT extract for any lot:
+- Page headers, page numbers, footers, newspaper masthead, legal
+  boilerplate unrelated to property (auction terms, bidder eligibility,
+  EMD instructions, contact details for the bank officer).
+- The notice-level preamble (header, parties' addresses, recovery amount,
+  auction platform info) — that belongs to the whole notice, not any one
+  lot. Skip it.
+- EMD amounts, auction dates, bid increments — those are separate fields,
+  not part of the property description.
+
+**Disambiguation rules:**
+- Two properties with different reserve prices → two separate entries in
+  the output array.
+- Two items / schedules under the SAME reserve price → ONE entry, with
+  both items concatenated into the same `property_description_full`.
+- If a notice has only ONE reserve price (entire notice is one lot), return
+  an array of length 1.
+- If you cannot determine the lot count cleanly — return your best
+  reasonable split rather than returning null. Errors here are
+  human-reviewable; missing splits are not.
+
+Return ONLY a JSON object with one key:
+{
+  "schedules": [
+    {
+      "reserve_price_num": <int or null>,
+      "property_description_full": "verbatim text for this lot, joined with single spaces"
+    },
+    ...
+  ]
+}
+
+Rules:
+- Do NOT summarize. Reproduce the document text faithfully, including
+  punctuation and capitalization.
+- The `schedules` array is ordered as the lots appear in the document.
+- Return ONLY the JSON object, no markdown, no commentary.
