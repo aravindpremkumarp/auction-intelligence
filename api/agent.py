@@ -279,7 +279,7 @@ def borrower_lookup(borrower_name: str) -> list[dict]:
 
 
 @agent.tool_plain
-def semantic_property_search(
+def semantic_search(
     query: str,
     city: str | None = None,
     area: str | None = None,
@@ -291,60 +291,33 @@ def semantic_property_search(
     limit: int = 20,
     include_past: bool = False,
 ) -> dict:
-    """Vector search over property descriptions for qualitative traits.
+    """Unified semantic search across descriptions, notice markdown, and notice files.
 
-    Use this when the user asks about features that live in free-text
-    descriptions (boundaries, neighborhood character, legal language,
-    property condition) rather than structured fields. Optional city /
-    area / price / asset_category / date window act as post-filters on
-    the semantic hits. Results include a `score` (higher = more similar).
+    Single embedding call (Google `gemini-embedding-2`, 3072-dim) ranked
+    against three vector indexes that share the same space:
 
-    Defaults to future-only auctions; pass include_past=True for
-    retrospective queries. For "find me this exact pasted property"
-    use `match_pasted_listing` instead — semantic search alone has no
-    way to disambiguate between similar listings."""
-    return T.semantic_property_search(
-        query, city=city, area=area,
-        min_price=min_price, max_price=max_price,
-        asset_category=asset_category,
-        starts_after=starts_after, starts_before=starts_before,
-        limit=limit, include_past=include_past,
-    )
+      - property_desc_idx     (AuctionProperty.description_embedding) —
+        tight property text. Best for narrow queries like "3-BR flat in
+        Adyar with elevator".
+      - notice_markdown_idx   (Document.markdown_embedding) — structured
+        notice text from MinerU OCR. Best for queries that touch the
+        formal notice content (bank framing, parties, schedule, terms).
+      - notice_image_idx      (Document.image_embedding) — multimodal
+        notice file (image / PDF bytes). Best for layout / visual signal
+        and as a fallback when text-side coverage is sparse.
 
+    For each property the best score from any index wins, and `hit_sources`
+    indicates which lenses matched (any of 'desc' / 'markdown' / 'image').
 
-@agent.tool_plain
-def semantic_notice_search(
-    query: str,
-    city: str | None = None,
-    area: str | None = None,
-    min_price: float | None = None,
-    max_price: float | None = None,
-    asset_category: str | None = None,
-    starts_after: datetime | None = None,
-    starts_before: datetime | None = None,
-    limit: int = 20,
-    include_past: bool = False,
-) -> dict:
-    """Multimodal vector search across the full sale notices.
+    Optional city / area / price / asset_category / date window are
+    structured post-filters on the semantic hits. Defaults to future-only
+    auctions; pass include_past=True for retrospective queries.
 
-    Backed by Google `gemini-embedding-2` over `:Document.image_embedding`
-    (the notice file embedded directly — image / PDF). Captures broader
-    notice context than `semantic_property_search` (which only embeds the
-    short property description): bank / branch framing, multiple-borrower
-    rows, table layout, multi-page structure, seals.
-
-    Use this for queries that touch notice-level signal:
-    - "Canara Bank notices issued from Coimbatore branch with multiple
-       borrowers"
-    - "auctions where the notice explicitly mentions physical possession
-       and DRT recovery"
-    - layout-style queries ("tabular SFC notices in Villupuram")
-
-    Prefer `semantic_property_search` for tight property descriptions
-    ("3-BR flat in Adyar with elevator"). Both tools accept the same
-    structured post-filters and return the same shape.
+    For "find me this exact pasted property" use `match_pasted_listing`
+    — semantic search alone has no way to disambiguate between similar
+    listings.
     """
-    return T.semantic_notice_search(
+    return T.semantic_search(
         query, city=city, area=area,
         min_price=min_price, max_price=max_price,
         asset_category=asset_category,
