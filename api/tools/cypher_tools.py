@@ -40,6 +40,22 @@ _WRITE_PROCEDURE_RE = re.compile(
 _MAX_CYPHER_LENGTH = 4000
 _ALLOWED_PARAM_TYPES = (str, int, float, bool, type(None))
 
+# Property keys that are stored as Neo4j DATETIME and must be serialized
+# to ISO strings before leaving the API boundary (FastAPI's default JSON
+# encoder can't handle neo4j.time.DateTime).
+_AUCTION_DATETIME_KEYS = (
+    "auction_start_dt", "auction_end_dt", "application_deadline_dt",
+    "auction_start_dt_scraped", "auction_end_dt_scraped",
+    "application_deadline_dt_scraped",
+    "verified_at",
+)
+
+
+def _iso(v):
+    """Coerce a neo4j.time.DateTime to its ISO string. Pass through anything
+    else (str, None, numbers) untouched."""
+    return v.iso_format() if hasattr(v, "iso_format") else v
+
 
 def _validate_read_only_cypher(cypher: str) -> None:
     """Raise ValueError if the query text contains write clauses.
@@ -155,9 +171,9 @@ def search_auctions(
     if starts_after is None and not include_past:
         starts_after = datetime.now()
     if starts_after is not None:
-        where.append("a.auction_start_dt >= $starts_after"); params["starts_after"] = starts_after.isoformat()
+        where.append("a.auction_start_dt >= $starts_after"); params["starts_after"] = starts_after
     if starts_before is not None:
-        where.append("a.auction_start_dt <= $starts_before"); params["starts_before"] = starts_before.isoformat()
+        where.append("a.auction_start_dt <= $starts_before"); params["starts_before"] = starts_before
 
     matches = ["(a:AuctionProperty)"]
     if city:
@@ -209,7 +225,7 @@ def search_auctions(
                  count(DISTINCT prev) AS reauction_count
             RETURN a.auction_id AS auction_id, a.title AS title, a.url AS url,
                    a.reserve_price_num AS reserve_price, a.emd_num AS emd,
-                   a.auction_start_dt AS auction_start,
+                   toString(a.auction_start_dt) AS auction_start,
                    city.name AS city, area.name AS area,
                    bank.name AS bank,
                    ac.name AS asset_category,
@@ -283,18 +299,19 @@ def location_analysis(location: str, location_type: str = "city") -> list[dict]:
 
 
 def upcoming_auctions(days: int = 14, limit: int = 20) -> list[dict]:
-    cutoff = (datetime.now() + timedelta(days=days)).isoformat()
+    now = datetime.now()
+    cutoff = now + timedelta(days=days)
     cypher = """
         MATCH (a:AuctionProperty)
         WHERE a.application_deadline_dt <= $cutoff
           AND a.application_deadline_dt >= $now
         RETURN a.auction_id AS auction_id, a.title AS title,
-               a.application_deadline_dt AS deadline,
+               toString(a.application_deadline_dt) AS deadline,
                a.reserve_price_num AS reserve_price
         ORDER BY a.application_deadline_dt ASC
         LIMIT $limit
     """
-    return run_query(cypher, {"cutoff": cutoff, "now": datetime.now().isoformat(), "limit": limit})
+    return run_query(cypher, {"cutoff": cutoff, "now": now, "limit": limit})
 
 
 def price_comparison(city: str, property_type: str) -> list[dict]:
@@ -367,9 +384,9 @@ def semantic_search(
     if starts_after is None and not include_past:
         starts_after = datetime.now()
     if starts_after is not None:
-        where.append("p.auction_start_dt >= $starts_after"); params["starts_after"] = starts_after.isoformat()
+        where.append("p.auction_start_dt >= $starts_after"); params["starts_after"] = starts_after
     if starts_before is not None:
-        where.append("p.auction_start_dt <= $starts_before"); params["starts_before"] = starts_before.isoformat()
+        where.append("p.auction_start_dt <= $starts_before"); params["starts_before"] = starts_before
 
     optional_matches = ""
     if city:
@@ -425,7 +442,7 @@ def semantic_search(
              max(prev.reserve_price_num) AS previous_reserve_price
         RETURN p.auction_id AS auction_id, p.title AS title, p.url AS url,
                p.reserve_price_num AS reserve_price, p.emd_num AS emd,
-               p.auction_start_dt AS auction_start,
+               toString(p.auction_start_dt) AS auction_start,
                city.name AS city, area.name AS area,
                bank.name AS bank,
                ac.name AS asset_category,
@@ -897,8 +914,8 @@ def _build_filter(
         starts_before = datetime.combine(
             extracted.auction_date + timedelta(days=2), datetime.max.time()
         )
-        params["starts_after"] = starts_after.isoformat()
-        params["starts_before"] = starts_before.isoformat()
+        params["starts_after"] = starts_after
+        params["starts_before"] = starts_before
         where.append("a.auction_start_dt >= $starts_after")
         where.append("a.auction_start_dt <= $starts_before")
     if extracted.locality_tokens and not drop_locality:
@@ -967,6 +984,9 @@ def get_auction_detail(auction_id: str) -> dict | None:
     if not rows:
         return None
     fields = dict(rows[0]["fields"])
+    for k in _AUCTION_DATETIME_KEYS:
+        if k in fields:
+            fields[k] = _iso(fields[k])
 
     extras_raw = fields.get("extras")
     if isinstance(extras_raw, str) and extras_raw.strip().startswith(("{", "[")):
@@ -1002,7 +1022,7 @@ def get_auction_detail(auction_id: str) -> dict | None:
                 "title":             s.get("title"),
                 "url":               s.get("url"),
                 "reserve_price_num": s.get("reserve_price_num"),
-                "auction_start_dt":  s.get("auction_start_dt"),
+                "auction_start_dt":  _iso(s.get("auction_start_dt")),
                 "match_reason":      s.get("match_reason"),
                 "confidence":        s.get("confidence"),
                 "is_current":        False,
@@ -1210,10 +1230,10 @@ def describe_schema(refresh: bool = False) -> dict:
           min(a.emd_num)                  AS emd_min,
           max(a.emd_num)                  AS emd_max,
           percentileCont(a.emd_num, 0.5)  AS emd_p50,
-          min(a.auction_start_dt)         AS start_min,
-          max(a.auction_start_dt)         AS start_max,
-          min(a.application_deadline_dt)  AS dl_min,
-          max(a.application_deadline_dt)  AS dl_max
+          toString(min(a.auction_start_dt))         AS start_min,
+          toString(max(a.auction_start_dt))         AS start_max,
+          toString(min(a.application_deadline_dt))  AS dl_min,
+          toString(max(a.application_deadline_dt))  AS dl_max
         """,
         max_rows=1,
     )

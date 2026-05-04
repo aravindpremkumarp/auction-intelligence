@@ -22,6 +22,27 @@ from pipeline.config import (
 NORMALIZED_JSONL = OUTPUT_DIR / "normalized.jsonl"
 VERIFIED_JSONL   = OUTPUT_DIR / "verified_enriched.jsonl"
 
+# AuctionProperty date properties stored as Neo4j DATETIME. The driver
+# auto-coerces Python datetime to Neo4j DATETIME, but verified_fields and
+# scraped_originals flow into Cypher via SET a += map — there's no spot
+# for a per-key datetime() cast. Convert ISO strings to datetime here.
+_DATE_KEYS = {
+    "auction_start_dt", "auction_end_dt", "application_deadline_dt",
+    "auction_start_dt_scraped", "auction_end_dt_scraped",
+    "application_deadline_dt_scraped",
+}
+
+
+def _coerce_date_keys(d: dict | None) -> dict | None:
+    if not d:
+        return d
+    out = dict(d)
+    for k in _DATE_KEYS:
+        v = out.get(k)
+        if isinstance(v, str) and v:
+            out[k] = datetime.fromisoformat(v)
+    return out
+
 # ── New constraint for SurveyNumber ──────────────────────────────────────────
 # The legacy ``doc_path`` uniqueness constraint is intentionally dropped:
 # ``file_path`` carried mixed values (absolute filesystem path vs bare
@@ -288,6 +309,10 @@ def load_verified_enriched() -> None:
                 rows.append(json.loads(line))
             except json.JSONDecodeError:
                 pass
+
+    for r in rows:
+        r["verified_fields"]   = _coerce_date_keys(r.get("verified_fields"))
+        r["scraped_originals"] = _coerce_date_keys(r.get("scraped_originals"))
 
     total = len(rows)
     print(f"Loading {total} verified+enriched records into Neo4j...")

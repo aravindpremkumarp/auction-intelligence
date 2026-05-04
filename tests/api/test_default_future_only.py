@@ -39,7 +39,7 @@ def test_explicit_starts_after_is_preserved(monkeypatch) -> None:
 
     search_auctions(starts_after=datetime(2020, 1, 1), limit=0)
     _, params = calls[0]
-    assert params["starts_after"].startswith("2020-01-01")
+    assert params["starts_after"] == datetime(2020, 1, 1)
 
 
 def test_include_past_opt_in_disables_now_floor(monkeypatch) -> None:
