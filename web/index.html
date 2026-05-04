@@ -2403,7 +2403,7 @@ function renderResultsList() {
   if (sortEl) sortEl.style.display = (currentResults && currentResults.length > 1) ? '' : 'none';
   if (!currentResults || currentResults.length === 0) {
     if (chatHistory.length === 0) {
-      list.innerHTML = `<div class="results-empty">ask a question on the left to see properties here.</div>`;
+      list.innerHTML = `<div class="results-empty">ask a question to see matching properties here.</div>`;
       countEl.textContent = '—';
       subEl.textContent = 'waiting for query';
     } else {
