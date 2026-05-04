@@ -1487,10 +1487,15 @@ body {
     </div>
 
     <div class="screen" data-screen="detail">
-      <div style="display:flex; flex-direction:column; gap:4px; margin-bottom:14px;">
+      <div id="detail-back-wrap" style="display:flex; flex-direction:column; gap:4px; margin-bottom:14px;">
         <button class="back-link" id="detail-back" onclick="go(detailReturnScreen)">← back to results</button>
       </div>
-      <div class="detail">
+      <div id="detail-empty" style="display:none; text-align:center; padding:60px 20px;">
+        <div class="hand" style="font-size:26px; color:var(--muted);">no property selected.</div>
+        <div class="lbl" style="margin-top:10px;">tap a property card to view its details</div>
+        <button class="btn" onclick="go('landing')" style="margin-top:24px;">browse all properties</button>
+      </div>
+      <div class="detail" id="detail-content">
         <div class="detail-main">
           <div>
             <h2 class="detail-title" id="detail-title">—</h2>
@@ -2005,7 +2010,21 @@ function go(screen) {
   document.querySelectorAll('.bottom-tabs .bt').forEach(b => b.classList.toggle('on', b.dataset.nav === screen));
   if (screen === 'results') renderResults();
   if (screen === 'watchlist') renderWatchlist();
-  if (screen === 'detail' && currentDetailId) loadAndRenderDetail(currentDetailId);
+  if (screen === 'detail') {
+    const empty = document.getElementById('detail-empty');
+    const content = document.getElementById('detail-content');
+    const backWrap = document.getElementById('detail-back-wrap');
+    if (currentDetailId) {
+      if (empty) empty.style.display = 'none';
+      if (content) content.style.display = '';
+      if (backWrap) backWrap.style.display = '';
+      loadAndRenderDetail(currentDetailId);
+    } else {
+      if (empty) empty.style.display = '';
+      if (content) content.style.display = 'none';
+      if (backWrap) backWrap.style.display = 'none';
+    }
+  }
 }
 document.querySelectorAll('.top-nav button').forEach(b => {
   b.addEventListener('click', () => go(b.dataset.nav));
