@@ -692,11 +692,23 @@ body {
 /* Numeric-looking cells get monospace treatment for clean alignment. */
 .bubble.ai.md .md-table td { font-variant-numeric: tabular-nums; }
 
+/* Section dividers — model emits `---` between major sections. */
+.bubble.ai.md .md-hr {
+  border: 0; height: 0;
+  border-top: 1px solid var(--ink);
+  opacity: 0.35;
+  margin: 14px 0;
+}
+
+/* Pull paragraph breaks (double <br>) further apart so sections breathe. */
+.bubble.ai.md br + br { line-height: 2.2; }
+
 /* Tighter table sizing inside the smaller property-detail chat */
 .detail-chat .bubble.ai.md .md-table { font-size: 12px; }
 .detail-chat .bubble.ai.md .md-h1 { font-size: 16px; }
 .detail-chat .bubble.ai.md .md-h2 { font-size: 14px; }
 .detail-chat .bubble.ai.md .md-h3 { font-size: 13px; }
+.detail-chat .bubble.ai.md .md-hr { margin: 10px 0; }
 
 .sources-row {
   display: flex; flex-wrap: wrap; gap: 6px;
@@ -2077,6 +2089,13 @@ function renderMarkdown(text) {
       continue;
     }
 
+    // Horizontal rule: a line of 3+ dashes / asterisks / underscores.
+    if (/^\s*(?:-\s*){3,}$|^\s*(?:\*\s*){3,}$|^\s*(?:_\s*){3,}$/.test(line)) {
+      out.push('<hr class="md-hr">');
+      i++;
+      continue;
+    }
+
     // Unordered list block
     if (/^\s*[-*+]\s+\S/.test(line)) {
       const items = [];
@@ -2117,7 +2136,7 @@ function renderMarkdown(text) {
 
   // 6. Newlines: drop those adjacent to block-level tags, then preserve
   // paragraph breaks (blank lines) as a double <br> and single newlines as <br>.
-  s = s.replace(/\n*(<\/?(?:div|table|thead|tbody|tr|th|td|ul|ol|li|pre|blockquote)\b[^>]*>)\n*/g, '$1');
+  s = s.replace(/\n*(<\/?(?:div|table|thead|tbody|tr|th|td|ul|ol|li|pre|blockquote|hr)\b[^>]*>)\n*/g, '$1');
   s = s.replace(/\n{2,}/g, '<br><br>');
   s = s.replace(/\n/g, '<br>');
 

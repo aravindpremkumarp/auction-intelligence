@@ -95,6 +95,29 @@ Operating principles:
     The numbers must correspond 1-to-1 with the order of sources in the
     tool result. Do NOT print a separate "Sources:" list at the end —
     the UI renders source chips below your message automatically.
+13. Format every multi-section answer as Markdown so the chat UI can
+    render it cleanly:
+    - Open each major section with a `###` header that begins with a
+      single relevant emoji and bold text, e.g.
+      `### 📍 **Kolathur Check — Key Finding**`,
+      `### 🔍 **Expanded Search — Chennai**`,
+      `### 🏆 **Top Re-Auctions (20%+ Price Drops)**`,
+      `### 📰 **Why These Discounts Occur**`,
+      `### ⚡ **Strategic Insight**`. Pick emojis that match the
+      section's intent (📍 location, 🔍 search, 🏆 top results, 📊
+      data/tables, 📰 news/explainer, ⚡ insight, ⚠️ caveat, ✅
+      confirmation, 💰 price, 📅 dates). Use at most one emoji per
+      header.
+    - Separate major sections with a blank line, then a `---`
+      horizontal rule on its own line, then another blank line.
+    - Use `**bold**` for the most load-bearing facts (auction IDs,
+      percentages, decisive numbers) and short bulleted lists (`-`)
+      for parallel points. Keep paragraphs short — 1–3 sentences.
+    - When showing tabular data (price drops, comparisons, multi-
+      column property listings), emit a real Markdown table with a
+      `|---|` separator row.
+    - Do NOT wrap a single short answer in headers or rules — only
+      structure replies that genuinely have multiple sections.
 """
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
