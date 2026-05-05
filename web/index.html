@@ -613,6 +613,91 @@ body {
 .detail-chat .bubble { font-size: 13px; padding: 6px 10px; }
 .detail-chat .bubble.ai.thinking { font-size: 14px; }
 
+/* ====== MARKDOWN-RENDERED AI BUBBLES ====== */
+/* AI replies are parsed as markdown so headers, tables, bold, lists, code, and
+   links render properly instead of showing raw **/###/| syntax. */
+.bubble.ai.md { white-space: normal; line-height: 1.5; }
+.bubble.ai.md > *:first-child { margin-top: 0; }
+.bubble.ai.md > *:last-child  { margin-bottom: 0; }
+
+.bubble.ai.md strong { font-weight: 700; color: var(--ink); }
+.bubble.ai.md em     { font-style: italic; }
+.bubble.ai.md a {
+  color: var(--ink); text-decoration: underline;
+  text-decoration-thickness: 1.5px; text-underline-offset: 2px;
+}
+.bubble.ai.md a:hover { background: var(--accent); }
+
+/* Headers — chunky underlined "ink" feel matching the rest of the UI. */
+.bubble.ai.md .md-h {
+  font-family: var(--font-body); font-weight: 700; color: var(--ink);
+  margin: 10px 0 6px; line-height: 1.25;
+}
+.bubble.ai.md .md-h1 { font-size: 18px; border-bottom: 1.5px solid var(--ink); padding-bottom: 3px; }
+.bubble.ai.md .md-h2 { font-size: 16px; border-bottom: 1px dashed var(--ink); padding-bottom: 2px; }
+.bubble.ai.md .md-h3 { font-size: 15px; }
+.bubble.ai.md .md-h4 { font-size: 14px; color: var(--ink-soft); }
+.bubble.ai.md .md-h5,
+.bubble.ai.md .md-h6 { font-size: 13px; color: var(--ink-soft); }
+
+/* Lists */
+.bubble.ai.md .md-list {
+  margin: 6px 0; padding-left: 22px;
+  display: flex; flex-direction: column; gap: 3px;
+}
+.bubble.ai.md .md-list li { line-height: 1.45; }
+
+/* Inline + fenced code */
+.bubble.ai.md .md-code {
+  font-family: var(--font-mono); font-size: 0.92em;
+  background: var(--paper-2); border: 1px solid var(--ink);
+  padding: 1px 5px; border-radius: 2px;
+  white-space: pre-wrap; word-break: break-word;
+}
+.bubble.ai.md .md-pre {
+  font-family: var(--font-mono); font-size: 12px;
+  background: var(--paper-2); border: 1.5px solid var(--ink);
+  padding: 8px 10px; margin: 8px 0;
+  overflow-x: auto; white-space: pre;
+}
+.bubble.ai.md .md-pre code { background: none; border: 0; padding: 0; font-size: inherit; }
+
+/* Tables — boxed, monospace numbers, header strip */
+.bubble.ai.md .md-table-wrap { margin: 8px 0; overflow-x: auto; }
+.bubble.ai.md .md-table {
+  border-collapse: collapse;
+  width: 100%; min-width: 100%;
+  font-size: 13px;
+  background: var(--card);
+  border: 1.5px solid var(--ink);
+}
+.bubble.ai.md .md-table th,
+.bubble.ai.md .md-table td {
+  border: 1px solid var(--ink);
+  padding: 5px 8px;
+  text-align: left;
+  vertical-align: top;
+  white-space: normal;
+  word-break: break-word;
+}
+.bubble.ai.md .md-table thead th {
+  background: var(--accent);
+  color: var(--ink);
+  font-weight: 700;
+  font-family: var(--font-body);
+  white-space: nowrap;
+}
+[data-theme="dark"] .bubble.ai.md .md-table thead th { color: #1a1a1a; }
+.bubble.ai.md .md-table tbody tr:nth-child(even) td { background: var(--paper-2); }
+/* Numeric-looking cells get monospace treatment for clean alignment. */
+.bubble.ai.md .md-table td { font-variant-numeric: tabular-nums; }
+
+/* Tighter table sizing inside the smaller property-detail chat */
+.detail-chat .bubble.ai.md .md-table { font-size: 12px; }
+.detail-chat .bubble.ai.md .md-h1 { font-size: 16px; }
+.detail-chat .bubble.ai.md .md-h2 { font-size: 14px; }
+.detail-chat .bubble.ai.md .md-h3 { font-size: 13px; }
+
 .sources-row {
   display: flex; flex-wrap: wrap; gap: 6px;
   margin: 6px 0 0 0; align-items: center;
@@ -1916,6 +2001,135 @@ async function syncWatchlistFromServer() {
 function escapeHtml(s) {
   return (s == null ? '' : String(s)).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
+
+// Render a small, safe subset of Markdown to HTML for AI chat bubbles.
+// Supports: fenced + inline code, tables, headers (#..######), bold (** **),
+// italic (* *), links [text](http(s)://…), and unordered/ordered lists.
+// All raw input is HTML-escaped before any tags are introduced, so user-
+// supplied text can never inject markup.
+function renderMarkdown(text) {
+  if (text == null || text === '') return '';
+  const escapeChars = (str) => String(str).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+  let s = String(text).replace(/\r\n?/g, '\n');
+
+  // 1. Stash fenced code blocks so their contents survive every transform.
+  const fences = [];
+  s = s.replace(/```([\w-]*)\n?([\s\S]*?)```/g, (_, lang, code) => {
+    const idx = fences.push({ lang: (lang || '').trim(), code: code.replace(/\n$/, '') }) - 1;
+    return ` F${idx} `;
+  });
+
+  // 2. Stash inline code so * / _ inside it isn't treated as emphasis.
+  const inlines = [];
+  s = s.replace(/`([^`\n]+)`/g, (_, code) => {
+    const idx = inlines.push(code) - 1;
+    return ` I${idx} `;
+  });
+
+  // 3. Escape HTML in everything that's left.
+  s = escapeChars(s);
+
+  // 4. Block-level parsing (line oriented): tables, headers, lists.
+  const splitRow = (line) => {
+    let row = line.trim();
+    if (row.startsWith('|')) row = row.slice(1);
+    if (row.endsWith('|')) row = row.slice(0, -1);
+    return row.split('|').map(c => c.trim());
+  };
+  const isTableSeparator = (line) =>
+    line.includes('|') && /^\s*\|?\s*:?-{2,}:?(\s*\|\s*:?-{2,}:?)*\s*\|?\s*$/.test(line);
+
+  const lines = s.split('\n');
+  const out = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+
+    // Tables: header row followed by a |---|---| separator row.
+    if (line.includes('|') && i + 1 < lines.length && isTableSeparator(lines[i + 1])) {
+      const header = splitRow(line);
+      const rows = [];
+      i += 2;
+      while (i < lines.length && lines[i].includes('|') && lines[i].trim() !== '') {
+        rows.push(splitRow(lines[i]));
+        i++;
+      }
+      let html = '<div class="md-table-wrap"><table class="md-table"><thead><tr>';
+      for (const h of header) html += `<th>${h}</th>`;
+      html += '</tr></thead><tbody>';
+      for (const r of rows) {
+        html += '<tr>';
+        for (let j = 0; j < header.length; j++) html += `<td>${r[j] != null ? r[j] : ''}</td>`;
+        html += '</tr>';
+      }
+      html += '</tbody></table></div>';
+      out.push(html);
+      continue;
+    }
+
+    // Headers (#, ##, ..., ######)
+    const hMatch = line.match(/^(#{1,6})\s+(.+?)\s*#*\s*$/);
+    if (hMatch) {
+      const level = hMatch[1].length;
+      out.push(`<div class="md-h md-h${level}">${hMatch[2]}</div>`);
+      i++;
+      continue;
+    }
+
+    // Unordered list block
+    if (/^\s*[-*+]\s+\S/.test(line)) {
+      const items = [];
+      while (i < lines.length && /^\s*[-*+]\s+\S/.test(lines[i])) {
+        items.push(lines[i].replace(/^\s*[-*+]\s+/, ''));
+        i++;
+      }
+      out.push('<ul class="md-list">' + items.map(x => `<li>${x}</li>`).join('') + '</ul>');
+      continue;
+    }
+
+    // Ordered list block
+    if (/^\s*\d+\.\s+\S/.test(line)) {
+      const items = [];
+      while (i < lines.length && /^\s*\d+\.\s+\S/.test(lines[i])) {
+        items.push(lines[i].replace(/^\s*\d+\.\s+/, ''));
+        i++;
+      }
+      out.push('<ol class="md-list">' + items.map(x => `<li>${x}</li>`).join('') + '</ol>');
+      continue;
+    }
+
+    out.push(line);
+    i++;
+  }
+  s = out.join('\n');
+
+  // 5. Inline formatting on what's left.
+  // Bold (**text**) — non-greedy, no surrounding whitespace, no embedded *.
+  s = s.replace(/\*\*(?!\s)([^*\n]+?)(?<!\s)\*\*/g, '<strong>$1</strong>');
+  // Italic (*text*) — single asterisks, not part of **.
+  s = s.replace(/(^|[^*])\*(?!\s)([^*\n]+?)(?<!\s)\*(?!\*)/g, '$1<em>$2</em>');
+  // Underscore bold (__text__).
+  s = s.replace(/__(?!\s)([^_\n]+?)(?<!\s)__/g, '<strong>$1</strong>');
+  // Links [text](http(s)://...) — only http(s) URLs are linkified.
+  s = s.replace(/\[([^\]\n]+?)\]\((https?:\/\/[^\s)]+?)\)/g,
+    '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+
+  // 6. Newlines: drop those adjacent to block-level tags, then preserve
+  // paragraph breaks (blank lines) as a double <br> and single newlines as <br>.
+  s = s.replace(/\n*(<\/?(?:div|table|thead|tbody|tr|th|td|ul|ol|li|pre|blockquote)\b[^>]*>)\n*/g, '$1');
+  s = s.replace(/\n{2,}/g, '<br><br>');
+  s = s.replace(/\n/g, '<br>');
+
+  // 7. Restore inline + fenced code with proper escaping.
+  s = s.replace(/ I(\d+) /g, (_, n) => `<code class="md-code">${escapeChars(inlines[+n])}</code>`);
+  s = s.replace(/ F(\d+) /g, (_, n) => {
+    const f = fences[+n];
+    return `<pre class="md-pre"><code>${escapeChars(f.code)}</code></pre>`;
+  });
+
+  return s;
+}
 function thumbSvg(type) {
   return `<svg viewBox="0 0 160 120" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg"><use href="#${ICON[type]||'icon-flat'}"/></svg>`;
 }
@@ -2307,7 +2521,7 @@ function renderChat(history, logEl, opts) {
             </a>`).join('')}
         </div>` : '';
       return `<div class="bubble-wrap ai">
-        <div class="bubble ai">${escapeHtml(m.text)}</div>
+        <div class="bubble ai md">${renderMarkdown(m.text)}</div>
         ${sourcesHtml}
         <div class="bubble-actions">
           <button class="b-act" data-act="copy-ai" data-i="${i}" title="copy" aria-label="copy">
