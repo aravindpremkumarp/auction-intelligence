@@ -116,6 +116,20 @@ body {
   border-radius: 2px;
 }
 
+/* Touch-target minimums (WCAG 2.5.5: 44×44 px) on key interactive controls.
+   Excludes inline message-action icons (.b-act) and filter-rail selects,
+   which have separate sizing constraints. */
+.top-nav button,
+.theme-toggle,
+.feedback-btn,
+.save-btn,
+.sb-toggle,
+.bt,
+.card-save {
+  min-width: 44px;
+  min-height: 44px;
+}
+
 .app {
   display: flex; flex-direction: column;
   height: 100vh; max-width: 1600px; margin: 0 auto;
@@ -379,7 +393,7 @@ body {
   flex-shrink: 0;
 }
 .chat-input .send {
-  width: 30px; height: 30px; border: 1.5px solid var(--ink);
+  width: 44px; height: 44px; border: 1.5px solid var(--ink);
   background: var(--ink); color: var(--paper);
   display: grid; place-items: center;
   cursor: pointer; flex-shrink: 0;
@@ -1473,7 +1487,7 @@ body {
               <option value="ask">ask ▾</option>
             </select>
             <textarea id="results-input" rows="1" placeholder="refine…" autocomplete="off" style="font-size:18px;"></textarea>
-            <button class="send" id="results-send" style="width:24px;height:24px;font-size:14px;">→</button>
+            <button class="send" id="results-send">→</button>
           </div>
         </div>
         <div class="results-pane">
@@ -1535,7 +1549,7 @@ body {
             <div id="detail-chat-log" class="detail-chat" style="display:flex; flex-direction:column; gap:6px; max-height:240px; overflow-y:auto; margin-bottom:8px; min-height:60px;"></div>
             <div class="chat-input" style="box-shadow:none; padding:6px 8px;">
               <textarea id="detail-input" rows="1" placeholder="e.g. what's the EMD?" autocomplete="off" style="font-size:16px;"></textarea>
-              <button class="send" id="detail-send" style="width:24px;height:24px;font-size:14px;">→</button>
+              <button class="send" id="detail-send">→</button>
             </div>
           </div>
           <div id="detail-chat-history" style="display:none; border:1.5px dashed var(--ink); padding:10px; background:var(--card);"></div>
