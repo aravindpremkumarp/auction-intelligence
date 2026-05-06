@@ -2900,7 +2900,12 @@ function renderDetail(detail) {
 
   const desc = f.description;
   if (desc && String(desc).trim()) {
-    document.getElementById('detail-desc').textContent = String(desc).trim();
+    const cleaned = String(desc).trim()
+      .replace(/^#{1,6}\s*description of propert(?:y\/ies|ies|y)\s*:?\s*/i, '')
+      .replace(/^#{1,6}\s+/gm, '')
+      .replace(/\*\*([^*]+)\*\*/g, '$1')
+      .trim();
+    document.getElementById('detail-desc').textContent = cleaned;
     document.getElementById('detail-desc-wrap').style.display = '';
   }
 
