@@ -1416,8 +1416,8 @@ body {
 <div class="app">
   <div class="topbar">
     <div class="brand" onclick="go('landing')">bank<em>auction</em>.ai</div>
-    <div class="top-nav">
-      <button data-nav="landing" class="on">search</button>
+    <div class="top-nav" role="navigation" aria-label="primary">
+      <button data-nav="landing" class="on" aria-current="page">search</button>
       <button data-nav="results">results</button>
       <button data-nav="detail">property</button>
       <button data-nav="watchlist">watchlist</button>
@@ -1441,7 +1441,7 @@ body {
             <option value="ask">ask ▾</option>
           </select>
           <textarea id="landing-input" rows="1" placeholder="3BHK in Chennai under 1 Cr, ready possession…" autocomplete="off"></textarea>
-          <button class="send" id="landing-send">→</button>
+          <button class="send" id="landing-send" aria-label="send query">→</button>
         </div>
         <div class="lbl">try asking</div>
         <div class="landing-suggest">
@@ -1554,11 +1554,11 @@ body {
 
     <div class="screen" data-screen="results">
       <div class="mobile-tabs" id="results-mobile-tabs" role="tablist" aria-label="results panels">
-        <button data-mtab="history" aria-label="chat history" title="past chats">
-          <svg viewBox="0 0 18 18" width="14" height="14" style="vertical-align:-2px;"><circle cx="9" cy="9" r="6.2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M9 5.5 L9 9 L11.5 10.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        <button data-mtab="history" role="tab" aria-label="chat history" title="past chats">
+          <svg viewBox="0 0 18 18" width="14" height="14" style="vertical-align:-2px;" aria-hidden="true"><circle cx="9" cy="9" r="6.2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M9 5.5 L9 9 L11.5 10.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
         </button>
-        <button data-mtab="chat" class="on">conversation</button>
-        <button data-mtab="results">matches <span class="badge" id="mtab-count">0</span></button>
+        <button data-mtab="chat" class="on" role="tab" aria-selected="true">conversation</button>
+        <button data-mtab="results" role="tab" aria-selected="false">matches <span class="badge" id="mtab-count">0</span></button>
       </div>
       <div class="results" id="results-grid">
         <aside class="chat-sidebar" id="chat-sidebar">
@@ -1584,7 +1584,7 @@ body {
               <option value="ask">ask ▾</option>
             </select>
             <textarea id="results-input" rows="1" placeholder="refine…" autocomplete="off" style="font-size:18px;"></textarea>
-            <button class="send" id="results-send">→</button>
+            <button class="send" id="results-send" aria-label="send refined query">→</button>
           </div>
         </div>
         <div class="results-pane">
@@ -1646,7 +1646,7 @@ body {
             <div id="detail-chat-log" class="detail-chat" style="display:flex; flex-direction:column; gap:6px; max-height:240px; overflow-y:auto; margin-bottom:8px; min-height:60px;"></div>
             <div class="chat-input" style="box-shadow:none; padding:6px 8px;">
               <textarea id="detail-input" rows="1" placeholder="e.g. what's the EMD?" autocomplete="off" style="font-size:16px;"></textarea>
-              <button class="send" id="detail-send">→</button>
+              <button class="send" id="detail-send" aria-label="ask about this property">→</button>
             </div>
           </div>
           <div id="detail-chat-history" style="display:none; border:1.5px dashed var(--ink); padding:10px; background:var(--card);"></div>
@@ -2260,8 +2260,16 @@ function go(screen) {
   }
   currentScreen = screen;
   document.querySelectorAll('.screen').forEach(s => s.classList.toggle('on', s.dataset.screen === screen));
-  document.querySelectorAll('.top-nav button').forEach(b => b.classList.toggle('on', b.dataset.nav === screen));
-  document.querySelectorAll('.bottom-tabs .bt').forEach(b => b.classList.toggle('on', b.dataset.nav === screen));
+  document.querySelectorAll('.top-nav button').forEach(b => {
+    const active = b.dataset.nav === screen;
+    b.classList.toggle('on', active);
+    if (active) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
+  });
+  document.querySelectorAll('.bottom-tabs .bt').forEach(b => {
+    const active = b.dataset.nav === screen;
+    b.classList.toggle('on', active);
+    if (active) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
+  });
   if (screen === 'results') renderResults();
   if (screen === 'watchlist') renderWatchlist();
   if (screen === 'detail') {
@@ -2319,7 +2327,11 @@ function setMobileTab(panel) {
     openSidebar();
     return;
   }
-  tabs.forEach(b => b.classList.toggle('on', b.dataset.mtab === panel));
+  tabs.forEach(b => {
+    const active = b.dataset.mtab === panel;
+    b.classList.toggle('on', active);
+    if (b.dataset.mtab !== 'history') b.setAttribute('aria-selected', active ? 'true' : 'false');
+  });
   if (panel === 'chat') {
     transcript && transcript.classList.remove('mobile-hidden');
     resultsPane && resultsPane.classList.add('mobile-hidden');
