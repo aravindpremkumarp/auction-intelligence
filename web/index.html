@@ -2929,14 +2929,25 @@ function renderDetail(detail) {
         <span class="mono">${escapeHtml(d.meta)}</span>
       </a>`).join('');
 
+    const friendlyDocLabel = (filename, kind, ordinal) => {
+      const fname = String(filename || '');
+      const stem = fname.replace(/\.[a-z0-9]+$/i, '');
+      const looksLikeHash = stem.length >= 16 && /^[0-9a-f][0-9a-f-]+$/i.test(stem);
+      if (fname && !looksLikeHash) return fname;
+      const noun = kind === 'image' ? 'Property image' : kind === 'pdf' ? 'Document' : 'File';
+      return `${noun} ${ordinal}`;
+    };
+    const kindCounts = {};
     const previewHtml = previewDocs.map((d, i) => {
       const kind = (d.doc_type === 'pdf' || d.doc_type === 'image') ? d.doc_type : 'other';
+      kindCounts[kind] = (kindCounts[kind] || 0) + 1;
+      const label = friendlyDocLabel(d.filename, kind, kindCounts[kind]);
       const badge = kind === 'pdf' ? 'PDF' : kind === 'image' ? 'IMG' : 'FILE';
       const canPreview = kind === 'pdf' || kind === 'image';
       return `
         <div class="doc-group" data-doc-index="${i}">
           <div class="doc">
-            <span>${escapeHtml(d.filename || 'download')}</span>
+            <span>${escapeHtml(label)}</span>
             <span class="doc-badge">${badge}</span>
             ${canPreview ? `<button type="button" class="doc-toggle" data-action="toggle-preview">Preview</button>` : ''}
             <a class="mono" href="${escapeHtml(d.public_url)}" target="_blank" rel="noopener">open ↗</a>
