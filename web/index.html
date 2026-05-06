@@ -100,13 +100,34 @@ body {
   background: var(--paper);
   color: var(--ink);
   font-family: var(--font-body);
-  font-size: 15px;
+  font-size: 16px;
   line-height: 1.4;
   background-image:
     linear-gradient(to right, rgba(0,0,0,0.03) 1px, transparent 1px),
     linear-gradient(to bottom, rgba(0,0,0,0.03) 1px, transparent 1px);
   background-size: 28px 28px;
   overflow: hidden;
+}
+
+:focus { outline: 0; }
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* Touch-target minimums (WCAG 2.5.5: 44×44 px) on key interactive controls.
+   Excludes inline message-action icons (.b-act) and filter-rail selects,
+   which have separate sizing constraints. */
+.top-nav button,
+.theme-toggle,
+.feedback-btn,
+.save-btn,
+.sb-toggle,
+.bt,
+.card-save {
+  min-width: 44px;
+  min-height: 44px;
 }
 
 .app {
@@ -167,8 +188,7 @@ body {
   max-width: 720px;
   margin: 0 auto;
   width: 100%;
-  padding: 60px 0 56px;
-  min-height: calc(100vh - 220px);
+  padding: clamp(24px, 6vh, 64px) 0 56px;
 }
 .landing-hero h1 {
   font-family: var(--font-hand);
@@ -234,7 +254,7 @@ body {
   padding: 6px 10px;
 }
 .browse-search input {
-  flex: 1; border: 0; outline: 0; background: transparent;
+  flex: 1; border: 0; background: transparent;
   font-family: var(--font-body); font-size: 14px;
   color: var(--ink);
 }
@@ -257,7 +277,6 @@ body {
   font-family: var(--font-body); font-size: 13px;
   color: var(--ink);
   cursor: pointer;
-  outline: 0;
   max-width: 220px;
 }
 .filter-select:hover { background: var(--accent); color: #1a1a1a; }
@@ -266,7 +285,7 @@ body {
   background: var(--card);
   padding: 5px 8px;
   font-family: var(--font-body); font-size: 13px;
-  color: var(--ink); outline: 0;
+  color: var(--ink);
   width: 80px;
 }
 .filter-date { width: 140px; font-family: var(--font-mono); font-size: 12px; }
@@ -350,7 +369,7 @@ body {
 .chat-input input,
 .chat-input textarea {
   flex: 1;
-  background: transparent; border: 0; outline: 0;
+  background: transparent; border: 0;
   font-family: var(--font-hand);
   font-size: 22px;
   color: var(--ink);
@@ -374,7 +393,7 @@ body {
   flex-shrink: 0;
 }
 .chat-input .send {
-  width: 30px; height: 30px; border: 1.5px solid var(--ink);
+  width: 44px; height: 44px; border: 1.5px solid var(--ink);
   background: var(--ink); color: var(--paper);
   display: grid; place-items: center;
   cursor: pointer; flex-shrink: 0;
@@ -454,7 +473,7 @@ body {
   border: 1.5px solid var(--ink); background: var(--paper);
   padding: 5px 8px;
   font-family: var(--font-body); font-size: 12px;
-  outline: 0; width: 100%;
+  width: 100%;
 }
 .sb-body { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
 .sb-group-label { font-family: var(--font-mono); font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin: 8px 4px 2px; }
@@ -531,7 +550,7 @@ body {
 .modal textarea {
   width: 100%; border: 1.5px solid var(--ink); background: var(--paper);
   padding: 8px 10px; font-family: var(--font-body); font-size: 13px;
-  outline: 0; min-height: 72px; resize: vertical;
+  min-height: 72px; resize: vertical;
   color: var(--ink);
 }
 .modal textarea::placeholder { color: var(--muted); font-family: var(--font-body); }
@@ -1086,7 +1105,7 @@ body {
   background: var(--accent); border: 1.5px solid var(--ink);
   padding: 4px 10px; font-family: var(--font-mono); font-size: 11px;
   text-transform: lowercase; letter-spacing: 0.04em;
-  cursor: pointer; outline: 0;
+  cursor: pointer;
   appearance: none; -webkit-appearance: none;
   flex-shrink: 0; max-width: 140px;
   color: var(--ink);
@@ -1415,7 +1434,7 @@ body {
 
     <div class="screen on" data-screen="landing">
       <div class="landing-hero">
-        <div class="landing-sub" id="landing-sub">bank auctions · neo4j knowledge graph</div>
+        <div class="landing-sub" id="landing-sub">bank auctions · ai-powered search</div>
         <h1>What property are you <em>looking for?</em></h1>
         <div class="chat-input">
           <select class="mode-select-inline" aria-label="Answer mode">
@@ -1565,7 +1584,7 @@ body {
               <option value="ask">ask ▾</option>
             </select>
             <textarea id="results-input" rows="1" placeholder="refine…" autocomplete="off" style="font-size:18px;"></textarea>
-            <button class="send" id="results-send" style="width:24px;height:24px;font-size:14px;">→</button>
+            <button class="send" id="results-send">→</button>
           </div>
         </div>
         <div class="results-pane">
@@ -1591,8 +1610,8 @@ body {
       </div>
       <div id="detail-empty" style="display:none; text-align:center; padding:60px 20px;">
         <div class="hand" style="font-size:26px; color:var(--muted);">no property selected.</div>
-        <div class="lbl" style="margin-top:10px;">tap a property card to view its details</div>
-        <button class="btn" onclick="go('landing')" style="margin-top:24px;">browse all properties</button>
+        <div class="lbl" style="margin-top:10px;">select a property card to view its details</div>
+        <button class="btn" onclick="go('landing')" style="margin: 24px auto 0; max-width: 320px;">browse all properties</button>
       </div>
       <div class="detail" id="detail-content">
         <div class="detail-main">
@@ -1627,7 +1646,7 @@ body {
             <div id="detail-chat-log" class="detail-chat" style="display:flex; flex-direction:column; gap:6px; max-height:240px; overflow-y:auto; margin-bottom:8px; min-height:60px;"></div>
             <div class="chat-input" style="box-shadow:none; padding:6px 8px;">
               <textarea id="detail-input" rows="1" placeholder="e.g. what's the EMD?" autocomplete="off" style="font-size:16px;"></textarea>
-              <button class="send" id="detail-send" style="width:24px;height:24px;font-size:14px;">→</button>
+              <button class="send" id="detail-send">→</button>
             </div>
           </div>
           <div id="detail-chat-history" style="display:none; border:1.5px dashed var(--ink); padding:10px; background:var(--card);"></div>
@@ -3185,7 +3204,7 @@ function renderWatchlist() {
   if (ids.length === 0) {
     body.innerHTML = `<div style="text-align:center; padding:60px 20px;">
       <div class="hand" style="font-size:26px; color:var(--muted);">nothing saved yet.</div>
-      <div class="lbl" style="margin-top:10px;">tap ☆ on any property to save it here</div>
+      <div class="lbl" style="margin-top:10px;">save properties with ☆ to see them here</div>
     </div>`;
     return;
   }
@@ -3389,7 +3408,7 @@ function renderSidebar() {
     const isActive = (c.id === activeChatId) || (c.id === currentPropertyChatId && currentScreen === 'detail');
     const propAttr = c.property_id ? ` data-property-id="${escapeHtml(c.property_id)}"` : '';
     const prefix = c.property_id ? '<span class="sb-item-pin" aria-hidden="true">⌂</span>' : '';
-    const preview = c.property_id ? 'tap to reopen this property thread' : 'tap to resume this search';
+    const preview = c.property_id ? 'reopen this property thread' : 'resume this search';
     const matches = (typeof c.total_count === 'number' && c.total_count > 0)
       ? `<span class="matches-count">${c.total_count.toLocaleString('en-IN')} match${c.total_count === 1 ? '' : 'es'}</span>`
       : '';

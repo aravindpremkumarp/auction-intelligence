@@ -74,8 +74,24 @@ when presenting it.
 ### Price and date conventions
 
 - Prices are INR. Interpret "30 lakhs" = 3,000,000; "1 crore" = 10,000,000.
-- Dates are ISO-8601 strings stored on `auction_start_dt`,
-  `auction_end_dt`, `application_deadline_dt`.
+- Dates are native Neo4j `ZONED DATETIME` (UTC) on `auction_start_dt`,
+  `auction_end_dt`, `application_deadline_dt`. They are NOT strings.
+  Cypher patterns that work directly on them:
+  - **Components:** `a.auction_start_dt.year`, `.month`, `.day`,
+    `.hour`, `.dayOfWeek` (1 = Mon … 7 = Sun), `.quarter`.
+  - **Now / arithmetic:** `datetime()` for now;
+    `datetime() + duration({days: 7})` for "now + 7 days".
+  - **Gaps:** `duration.between(a.application_deadline_dt, a.auction_start_dt)`
+    returns a Duration with `.days`, `.hours`, etc. For numeric hours,
+    use `duration.inSeconds(a, b).seconds / 3600`.
+  - **Calendar-day equality:** `date(a.auction_start_dt) = date($other)`
+    strips time-of-day so two timestamps on the same day match.
+  - **NEVER** compare a DATETIME column against a raw ISO string
+    parameter — Cypher silently returns zero matches across
+    ZONED-vs-LOCAL DATETIME. If you must pass an ISO string, wrap it
+    on the WHERE side: `WHERE a.auction_start_dt >= datetime($iso)`.
+    The structured tools (search_auctions, etc.) already pass real
+    Python `datetime` objects so this only matters in run_cypher.
 - Cities are already title-case. Areas match case-insensitively via
   `toLower(...) CONTAINS toLower($area)`.
 
@@ -230,7 +246,8 @@ Do NOT drop `bank="Canara Bank"`. Do NOT invent `max_price=3000000`.
 - "cheap" / "cheapest N" / "5 cheap ones" / "lowest priced" →
   `order_by="price_asc"`, `limit=N`
 - "most expensive N" / "top priced" → `order_by="price_desc"`
-- "soonest N" / "next N deadlines" → `order_by="deadline_asc"`
+- "soonest N" / "next N deadlines" / "earliest N" → `order_by="deadline_asc"`
+- "latest N" / "most recent N" / "last N starts" → `order_by="deadline_desc"`
 
 Never introduce a `min_price`, `max_price`, `starts_after`, or
 `starts_before` the user did not state.
@@ -252,10 +269,13 @@ RETURN b.name AS bank, count(a) AS n
 ORDER BY n DESC
 
 // Monthly auction volume
+// auction_start_dt is DATETIME — group by component accessors, never substring().
 MATCH (a:AuctionProperty)
 WHERE a.auction_start_dt IS NOT NULL
-RETURN substring(a.auction_start_dt, 0, 7) AS month, count(a) AS n
-ORDER BY month
+RETURN a.auction_start_dt.year  AS year,
+       a.auction_start_dt.month AS month,
+       count(a) AS n
+ORDER BY year, month
 
 // Borrowers with multiple properties
 MATCH (a:AuctionProperty)-[:HAS_BORROWER]->(b:Borrower)
@@ -285,6 +305,69 @@ MATCH (a:AuctionProperty)-[:LOCATED_IN_CITY]->(:City {name: $city}),
       (a)-[:HAS_ASSET_CATEGORY]->(ac:AssetCategory)
 RETURN ac.name AS asset_category, count(DISTINCT a) AS n
 ORDER BY n DESC
+```
+
+### Temporal patterns
+
+These all rely on `auction_start_dt` / `auction_end_dt` /
+`application_deadline_dt` being native DATETIME (post-conversion).
+Reach for these BEFORE refusing a time-based question — there is no
+"the tools don't support this"; `run_cypher` does.
+
+```cypher
+// Auctions ending in the next 7 days (uses auction_end_dt range index)
+MATCH (a:AuctionProperty)
+WHERE a.auction_end_dt >= datetime()
+  AND a.auction_end_dt <  datetime() + duration({days: 7})
+RETURN count(a) AS n
+
+// Distribution by weekday (1 = Monday … 7 = Sunday)
+MATCH (a:AuctionProperty) WHERE a.auction_start_dt IS NOT NULL
+RETURN a.auction_start_dt.dayOfWeek AS dow, count(a) AS n
+ORDER BY dow
+
+// Auctions starting during business hours (9–17, server-local clock)
+MATCH (a:AuctionProperty) WHERE a.auction_start_dt IS NOT NULL
+WITH a.auction_start_dt.hour AS h
+WHERE h >= 9 AND h <= 17
+RETURN count(*) AS n
+
+// Quarter bucket
+MATCH (a:AuctionProperty) WHERE a.auction_start_dt IS NOT NULL
+RETURN a.auction_start_dt.year    AS year,
+       a.auction_start_dt.quarter AS q,
+       count(a) AS n
+ORDER BY year, q
+
+// Deadline-to-start gap, in hours
+MATCH (a:AuctionProperty)
+WHERE a.application_deadline_dt IS NOT NULL
+  AND a.auction_start_dt        IS NOT NULL
+RETURN a.auction_id AS id,
+       duration.inSeconds(a.application_deadline_dt,
+                          a.auction_start_dt).seconds / 3600.0 AS gap_hours
+ORDER BY gap_hours
+
+// Deadline within 24 hours of the auction start
+MATCH (a:AuctionProperty)
+WHERE a.application_deadline_dt IS NOT NULL
+  AND a.auction_start_dt        IS NOT NULL
+WITH a, duration.inSeconds(a.application_deadline_dt,
+                           a.auction_start_dt).seconds / 3600.0 AS gap_hours
+WHERE abs(gap_hours) <= 24
+RETURN count(a) AS n
+
+// Same-calendar-day siblings (batch-sale detection)
+MATCH (a:AuctionProperty {auction_id: $id})-[:SAME_PROPERTY_AS]->(s)
+WHERE date(s.auction_start_dt) = date(a.auction_start_dt)
+RETURN s.auction_id AS sibling_id,
+       toString(s.auction_start_dt) AS starts
+
+// Re-auction velocity: avg days between a property's listings
+MATCH (a:AuctionProperty)-[:SAME_PROPERTY_AS]->(prev:AuctionProperty)
+WHERE a.auction_start_dt IS NOT NULL AND prev.auction_start_dt IS NOT NULL
+WITH duration.inSeconds(prev.auction_start_dt, a.auction_start_dt).seconds / 86400.0 AS gap_days
+RETURN avg(gap_days) AS avg_gap_days, count(*) AS pairs
 ```
 
 For scoped breakdowns, prefer the `list_distinct` tool (with `city`,
@@ -321,7 +404,7 @@ user approval.
 
 ## Data sources
 
-- Primary: Neo4j knowledge graph (`cc513ea9` Aura database) — 3,391 Tamil Nadu records.
+- Primary: Neo4j knowledge graph (`cc513ea9` Aura database) — Tamil Nadu auctions (~5K+ records, count drifts on every load — call `describe_schema()` if you need the live total).
 - Vector index: `property_desc_idx` on `AuctionProperty.description`.
 - Enrichment: Vision-LLM OCR output in `pipeline/output/normalized.jsonl`.
 - Portals (future): eauctionsindia.com, ibapi.in, bankauctions.in.
