@@ -1,0 +1,188 @@
+{
+  "tag": "baseline",
+  "base_url": "http://127.0.0.1:8000",
+  "summary": {
+    "PASS": 12,
+    "PARTIAL": 0,
+    "FAIL": 0,
+    "ERROR": 3
+  },
+  "results": [
+    {
+      "id": "Q01_ending_next_7d",
+      "prompt": "How many auctions are ending in the next 7 days?",
+      "verdict": "PASS",
+      "why": "answered via upcoming_auctions",
+      "primary_tool": "upcoming_auctions",
+      "all_tools": [
+        "upcoming_auctions",
+        "upcoming_auctions"
+      ],
+      "max_rows": 20,
+      "answer_excerpt": "There are 20 auctions ending in the next 7 days.",
+      "latency_s": 5.2
+    },
+    {
+      "id": "Q02_between_dates",
+      "prompt": "Show me auctions starting between May 15 2026 and June 1 2026.",
+      "verdict": "PASS",
+      "why": "answered via search_auctions",
+      "primary_tool": "search_auctions",
+      "all_tools": [
+        "search_auctions"
+      ],
+      "max_rows": 20,
+      "answer_excerpt": "Here are the auctions starting between May 15 2026 and June 1 2026. The first 20 are: Indian Bank Land Auction in Kundrathur., Kanchipuram (auction_id 753004), Indian Bank Land Auction in Thirukazhukundram, Kanchipuram (auction_id 753005), Indian Bank Land And Building Auction in Avadi, Chennai (auction_id 753009), Indian Bank Flat Auction in Madhavaram, Tiruvallur (auction_id 753006), Indian Bank",
+      "latency_s": 5.19
+    },
+    {
+      "id": "Q03_deadline_gap",
+      "prompt": "For each auction, what's the gap in hours between the application deadline and the auction start? Give me the distribution.",
+      "verdict": "PASS",
+      "why": "answered via no tool",
+      "primary_tool": null,
+      "all_tools": [],
+      "max_rows": 0,
+      "answer_excerpt": "I cannot calculate the gap in hours between the application deadline and the auction start directly and provide a distribution for all auctions. I can provide a list of application deadlines and auction start dates. Would you like that?",
+      "latency_s": 1.08
+    },
+    {
+      "id": "Q04_per_month",
+      "prompt": "How many auctions per month do we have in the dataset?",
+      "verdict": "ERROR",
+      "why": "HTTP 500: Internal Server Error",
+      "primary_tool": null,
+      "all_tools": [],
+      "max_rows": 0,
+      "answer_excerpt": ""
+    },
+    {
+      "id": "Q05_weekday",
+      "prompt": "Which weekday do most auctions happen on?",
+      "verdict": "PASS",
+      "why": "answered via no tool",
+      "primary_tool": null,
+      "all_tools": [],
+      "max_rows": 0,
+      "answer_excerpt": "I cannot determine the day of the week on which most auctions happen. The available tools do not provide the functionality to extract the day of the week from the auction start date.",
+      "latency_s": 1.16
+    },
+    {
+      "id": "Q06_business_hours",
+      "prompt": "How many auctions start during business hours (9 AM to 5 PM)?",
+      "verdict": "PASS",
+      "why": "answered via no tool",
+      "primary_tool": null,
+      "all_tools": [],
+      "max_rows": 0,
+      "answer_excerpt": "I cannot directly filter by time. However, I can provide the total number of auctions. Would you like that?",
+      "latency_s": 0.97
+    },
+    {
+      "id": "Q07_q2_2026",
+      "prompt": "How many auctions are scheduled in Q2 2026 (April through June)?",
+      "verdict": "PASS",
+      "why": "answered via search_auctions",
+      "primary_tool": "search_auctions",
+      "all_tools": [
+        "search_auctions"
+      ],
+      "max_rows": 20,
+      "answer_excerpt": "There are 2,175 auctions scheduled in Q2 2026 (April through June).",
+      "latency_s": 6.46
+    },
+    {
+      "id": "Q08_last_30d",
+      "prompt": "How many auctions happened in the last 30 days?",
+      "verdict": "PASS",
+      "why": "answered via no tool",
+      "primary_tool": null,
+      "all_tools": [],
+      "max_rows": 0,
+      "answer_excerpt": "I am sorry. I cannot fulfill this request because the date is not in the correct format. Can you provide the date?",
+      "latency_s": 2.23
+    },
+    {
+      "id": "Q09_deadline_within_24h",
+      "prompt": "How many auctions have an application deadline within 24 hours of the auction start?",
+      "verdict": "PASS",
+      "why": "answered via run_cypher",
+      "primary_tool": "run_cypher",
+      "all_tools": [
+        "run_cypher"
+      ],
+      "max_rows": 1,
+      "answer_excerpt": "There are 4372 auctions where the application deadline is within 24 hours of the auction start.",
+      "latency_s": 2.61
+    },
+    {
+      "id": "Q10_reauction_velocity",
+      "prompt": "What's the average number of days between a failed auction and its re-list, across all re-auction chains?",
+      "verdict": "PASS",
+      "why": "answered via no tool",
+      "primary_tool": null,
+      "all_tools": [],
+      "max_rows": 0,
+      "answer_excerpt": "I cannot directly calculate the average number of days between a failed auction and its re-list across all re-auction chains. However, I can provide you with the individual auction details and their timelines using `get_auction_detail` if you provide me with the auction IDs. Alternatively, I can show you all the re-auctioned properties and their previous reserve prices. Would you like me to procee",
+      "latency_s": 1.32
+    },
+    {
+      "id": "Q11_next_50_by_date",
+      "prompt": "Show me the next 50 auctions ordered by start date.",
+      "verdict": "ERROR",
+      "why": "HTTP 500: Internal Server Error",
+      "primary_tool": null,
+      "all_tools": [],
+      "max_rows": 0,
+      "answer_excerpt": ""
+    },
+    {
+      "id": "Q12_earliest_this_week",
+      "prompt": "What's the earliest auction starting this week?",
+      "verdict": "ERROR",
+      "why": "HTTP 500: Internal Server Error",
+      "primary_tool": null,
+      "all_tools": [],
+      "max_rows": 0,
+      "answer_excerpt": ""
+    },
+    {
+      "id": "Q13_combined_filters",
+      "prompt": "SBI auctions in Chennai under 30 lakhs starting next week.",
+      "verdict": "PASS",
+      "why": "answered via no tool",
+      "primary_tool": null,
+      "all_tools": [],
+      "max_rows": 0,
+      "answer_excerpt": "I encountered an error related to the date. Can you please provide the date in \"YYYY-MM-DD\" format?",
+      "latency_s": 2.24
+    },
+    {
+      "id": "Q14_same_calendar_day",
+      "prompt": "For auction 738522, which other auctions are happening on the same calendar day?",
+      "verdict": "PASS",
+      "why": "answered via get_auction_detail",
+      "primary_tool": "get_auction_detail",
+      "all_tools": [
+        "get_auction_detail",
+        "search_auctions"
+      ],
+      "max_rows": 20,
+      "answer_excerpt": "Here are the auctions starting on 2026-05-05: 738522, 739019, 749602, 744972, 744097, 744098, 744096, 748475, 744948, 746770, 745639, 741113, 741014, 739513, 739225, 739224, 739023, 738893, 738933, 738939. There are 62 auctions in total on that day. I am showing the first 20. Would you like to see the next 20?",
+      "latency_s": 4.87
+    },
+    {
+      "id": "Q15_earliest_latest",
+      "prompt": "What's the earliest and latest auction date in the dataset?",
+      "verdict": "PASS",
+      "why": "answered via describe_schema",
+      "primary_tool": "describe_schema",
+      "all_tools": [
+        "describe_schema"
+      ],
+      "max_rows": 1,
+      "answer_excerpt": "The earliest auction start date is 2026-01-28T10:00:00Z and the latest is 2026-06-05T11:00:00Z.",
+      "latency_s": 5.88
+    }
+  ]
+}

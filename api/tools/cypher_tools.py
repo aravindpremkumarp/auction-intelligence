@@ -132,9 +132,10 @@ _AGG_FUNCS = {
 _UI_ROWS_HARD_CAP = 500
 
 _ORDER_BY_CLAUSES = {
-    "deadline_asc": "a.auction_start_dt ASC",
-    "price_asc":    "a.reserve_price_num ASC",
-    "price_desc":   "a.reserve_price_num DESC",
+    "deadline_asc":  "a.auction_start_dt ASC",
+    "deadline_desc": "a.auction_start_dt DESC",
+    "price_asc":     "a.reserve_price_num ASC",
+    "price_desc":    "a.reserve_price_num DESC",
 }
 
 
@@ -1266,6 +1267,24 @@ def describe_schema(refresh: bool = False) -> dict:
         "auction_start_dt":        {"min": stats.get("start_min"), "max": stats.get("start_max")},
         "application_deadline_dt": {"min": stats.get("dl_min"),    "max": stats.get("dl_max")},
     }
+    date_capabilities = {
+        "type": "ZONED DATETIME (UTC)",
+        "fields": ["auction_start_dt", "auction_end_dt", "application_deadline_dt"],
+        "supports": [
+            "component accessors: .year .month .day .hour .dayOfWeek .quarter",
+            "now: datetime()",
+            "arithmetic: datetime() + duration({days: 7})",
+            "gaps: duration.between(a, b), duration.inSeconds(a, b).seconds",
+            "calendar equality: date(dt_a) = date(dt_b)",
+            "range indexes exist on all three fields",
+        ],
+        "warning": (
+            "Comparing a DATETIME column against a raw ISO string parameter "
+            "silently returns zero matches. In run_cypher, either pass a "
+            "real datetime via the structured tools, or wrap the parameter "
+            "on the WHERE side: WHERE a.auction_start_dt >= datetime($iso)."
+        ),
+    }
 
     out = {
         "node_labels": label_info,
@@ -1273,6 +1292,7 @@ def describe_schema(refresh: bool = False) -> dict:
         "enums": enums,
         "numeric_ranges": numeric_ranges,
         "date_ranges": date_ranges,
+        "date_capabilities": date_capabilities,
     }
     _SCHEMA_CACHE["default"] = (now, out)
     return out
@@ -1324,6 +1344,12 @@ def run_cypher(
         raise RuntimeError(f"Neo4j error: {e.message}") from e
     duration_ms = int((time.perf_counter() - start) * 1000)
 
+    # Defensive serialization: when the agent's Cypher returns DATETIME
+    # columns directly (without toString()), neo4j.time.DateTime objects
+    # land in the rows. Pydantic-AI's serializer can't handle them and the
+    # whole /chat response 500s. Walk every row and coerce DateTime → ISO.
+    rows = [_serialize_row(r) for r in rows]
+
     return {
         "description": description,
         "cypher": cypher,
@@ -1332,3 +1358,22 @@ def run_cypher(
         "returned": len(rows),
         "duration_ms": duration_ms,
     }
+
+
+def _serialize_row(row: dict) -> dict:
+    """Recursively replace neo4j.time.DateTime / Date / Time / Duration
+    values in a row dict with their string forms, so JSON / Pydantic
+    serialization downstream can't choke on them. No-op for primitives."""
+    return {k: _serialize_value(v) for k, v in row.items()}
+
+
+def _serialize_value(v):
+    if hasattr(v, "iso_format"):  # neo4j.time.DateTime / Date / Time
+        return v.iso_format()
+    if hasattr(v, "iso_format") or v.__class__.__name__ == "Duration":
+        return str(v)
+    if isinstance(v, dict):
+        return {k: _serialize_value(x) for k, x in v.items()}
+    if isinstance(v, list):
+        return [_serialize_value(x) for x in v]
+    return v
