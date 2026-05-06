@@ -1494,7 +1494,7 @@ body {
       </div>
       <div id="detail-empty" style="display:none; text-align:center; padding:60px 20px;">
         <div class="hand" style="font-size:26px; color:var(--muted);">no property selected.</div>
-        <div class="lbl" style="margin-top:10px;">tap a property card to view its details</div>
+        <div class="lbl" style="margin-top:10px;">select a property card to view its details</div>
         <button class="btn" onclick="go('landing')" style="margin-top:24px;">browse all properties</button>
       </div>
       <div class="detail" id="detail-content">
@@ -2952,7 +2952,7 @@ function renderWatchlist() {
   if (ids.length === 0) {
     body.innerHTML = `<div style="text-align:center; padding:60px 20px;">
       <div class="hand" style="font-size:26px; color:var(--muted);">nothing saved yet.</div>
-      <div class="lbl" style="margin-top:10px;">tap ☆ on any property to save it here</div>
+      <div class="lbl" style="margin-top:10px;">save properties with ☆ to see them here</div>
     </div>`;
     return;
   }
@@ -3156,7 +3156,7 @@ function renderSidebar() {
     const isActive = (c.id === activeChatId) || (c.id === currentPropertyChatId && currentScreen === 'detail');
     const propAttr = c.property_id ? ` data-property-id="${escapeHtml(c.property_id)}"` : '';
     const prefix = c.property_id ? '<span class="sb-item-pin" aria-hidden="true">⌂</span>' : '';
-    const preview = c.property_id ? 'tap to reopen this property thread' : 'tap to resume this search';
+    const preview = c.property_id ? 'reopen this property thread' : 'resume this search';
     const matches = (typeof c.total_count === 'number' && c.total_count > 0)
       ? `<span class="matches-count">${c.total_count.toLocaleString('en-IN')} match${c.total_count === 1 ? '' : 'es'}</span>`
       : '';
