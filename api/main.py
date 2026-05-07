@@ -7,9 +7,12 @@ Run with: uvicorn api.main:app --reload
 from __future__ import annotations
 
 import json
+import logging
 import os
 import uuid
 from datetime import datetime, timezone
+
+logger = logging.getLogger(__name__)
 
 
 def _parse_to_utc(s: str) -> datetime:
@@ -90,6 +93,16 @@ app.state.limiter = limiter
 @app.exception_handler(RateLimitExceeded)
 async def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
     return JSONResponse(status_code=429, content={"detail": "rate limit exceeded"})
+
+
+@app.exception_handler(Exception)
+async def _unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    # Routed through the FastAPI exception handler chain (inside CORSMiddleware)
+    # so the response carries Access-Control-Allow-Origin. Without this, browsers
+    # see Starlette's bare 500 from ServerErrorMiddleware, strip it for missing
+    # CORS, and report "Failed to fetch" instead of the real status.
+    logger.exception("Unhandled exception on %s %s", request.method, request.url.path)
+    return JSONResponse(status_code=500, content={"detail": "internal server error"})
 
 
 if os.environ.get("AUTH_ENABLED", "true").lower() != "false":
@@ -783,7 +796,14 @@ async def chat(
         last_total_count=last_total,
         mode=mode,
     )
-    result = await agent.run(req.message, message_history=history, deps=deps)
+    try:
+        result = await agent.run(req.message, message_history=history, deps=deps)
+    except Exception:
+        # Most often pydantic-ai's UnexpectedModelBehavior or a transient
+        # OpenRouter error. Log with the user message so the failing input is
+        # recoverable from Render logs, then surface a friendly 500.
+        logger.exception("agent.run failed for message=%r mode=%r", req.message, mode)
+        raise HTTPException(status_code=500, detail="chat agent failed — please retry")
     dumped_history = ModelMessagesTypeAdapter.dump_python(result.all_messages(), mode="json")
     return ChatResponse(
         answer=result.output,
