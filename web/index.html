@@ -1636,6 +1636,13 @@ body {
         </div>
         <aside class="detail-aside">
           <button class="btn" id="detail-save">☆ Save to watchlist</button>
+          <button class="btn ghost" id="detail-share" type="button" title="copy link to this property">
+            <svg viewBox="0 0 18 18" width="14" height="14" aria-hidden="true" style="vertical-align:-2px; margin-right:4px;">
+              <path d="M11 2 H16 V7 M16 2 L9 9 M14 11 V15 a1 1 0 0 1 -1 1 H3 a1 1 0 0 1 -1 -1 V5 a1 1 0 0 1 1 -1 H7"
+                    fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            Copy link
+          </button>
           <a class="btn ghost" id="detail-sale-notice" href="#" target="_blank" rel="noopener" style="display:none;">Open sale notice ↗</a>
           <div style="border:1.5px dashed var(--ink); padding:10px; background:var(--card);">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
@@ -2251,6 +2258,26 @@ function toCard(row) {
 }
 
 /* ====== NAV ====== */
+const URL_ID_PARAM = 'id';
+function propertyShareURL(id) {
+  const u = new URL(window.location.href);
+  u.search = '';
+  u.hash = '';
+  u.searchParams.set(URL_ID_PARAM, id);
+  return u.toString();
+}
+function syncURLForScreen(screen, replace) {
+  const url = new URL(window.location.href);
+  if (screen === 'detail' && currentDetailId) {
+    if (url.searchParams.get(URL_ID_PARAM) === currentDetailId) return;
+    url.searchParams.set(URL_ID_PARAM, currentDetailId);
+  } else {
+    if (!url.searchParams.has(URL_ID_PARAM)) return;
+    url.searchParams.delete(URL_ID_PARAM);
+  }
+  const method = replace ? 'replaceState' : 'pushState';
+  history[method]({ screen, id: currentDetailId }, '', url.toString());
+}
 function go(screen) {
   if (screen === 'detail' && currentScreen && currentScreen !== 'detail') {
     detailReturnScreen = currentScreen;
@@ -2287,6 +2314,7 @@ function go(screen) {
       if (backWrap) backWrap.style.display = 'none';
     }
   }
+  syncURLForScreen(screen, false);
 }
 document.querySelectorAll('.top-nav button').forEach(b => {
   b.addEventListener('click', () => go(b.dataset.nav));
@@ -2853,6 +2881,7 @@ function renderPriceHistory(history) {
     const jump = () => {
       currentDetailId = el.dataset.jumpId;
       loadAndRenderDetail(currentDetailId);
+      syncURLForScreen('detail', false);
     };
     el.addEventListener('click', jump);
     el.addEventListener('keydown', (e) => {
@@ -3935,6 +3964,24 @@ bindInput('results-input', 'results-send', (v) => askAI(v));
 bindInput('detail-input', 'detail-send', (v) => askAboutProperty(v));
 document.getElementById('detail-chat-new').addEventListener('click', () => clearDetailChat());
 
+document.getElementById('detail-share').addEventListener('click', async (e) => {
+  const btn = e.currentTarget;
+  if (!currentDetailId) return;
+  const url = propertyShareURL(currentDetailId);
+  const title = currentDetailTitle || 'Bank Auction Property';
+  try {
+    if (navigator.share && /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent)) {
+      await navigator.share({ title, url });
+    } else {
+      await navigator.clipboard.writeText(url);
+    }
+    flashBtn(btn);
+  } catch (err) {
+    if (err && err.name === 'AbortError') return;
+    try { await navigator.clipboard.writeText(url); flashBtn(btn); } catch {}
+  }
+});
+
 document.querySelectorAll('.chip[data-q]').forEach(c => {
   c.addEventListener('click', () => askAI(c.dataset.q, { fromLanding: true }));
 });
@@ -3946,7 +3993,36 @@ renderSidebar();
 renderResultsList();
 hydrateModes();
 applyBrowse();
-go('landing');
+
+function applyURLState(replace) {
+  const params = new URLSearchParams(window.location.search);
+  const id = params.get(URL_ID_PARAM);
+  if (id) {
+    currentDetailId = id;
+    detailReturnScreen = 'landing';
+    go('detail');
+    if (replace) syncURLForScreen('detail', true);
+  } else {
+    go('landing');
+  }
+}
+applyURLState(true);
+window.addEventListener('popstate', () => {
+  const params = new URLSearchParams(window.location.search);
+  const id = params.get(URL_ID_PARAM);
+  if (id) {
+    currentDetailId = id;
+    if (currentScreen !== 'detail') {
+      detailReturnScreen = currentScreen || 'landing';
+      go('detail');
+    } else {
+      loadAndRenderDetail(id);
+    }
+  } else if (currentScreen === 'detail') {
+    currentDetailId = null;
+    go(detailReturnScreen || 'landing');
+  }
+});
 </script>
 
 </body>
