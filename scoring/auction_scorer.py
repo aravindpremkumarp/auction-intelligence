@@ -114,12 +114,12 @@ def score_location_quality(a: dict) -> DimensionScore:
 
 
 def score_legal_clarity(a: dict) -> DimensionScore:
-    possession = (a.get("possession_type") or "Unknown").lower()
     completeness = a.get("description_completeness") or 0.5
-    base = {"physical": 90, "symbolic": 70, "constructive": 55, "unknown": 40}.get(possession, 40)
-    score = base * 0.7 + completeness * 100 * 0.3
+    field_conflicts = a.get("field_conflicts") or []
+    conflict_penalty = min(40.0, 8.0 * len(field_conflicts))
+    score = max(20.0, completeness * 100 - conflict_penalty)
     return DimensionScore("legal_clarity", score, SCORING_WEIGHTS["legal_clarity"],
-                          f"possession={possession}, completeness={completeness:.2f}")
+                          f"completeness={completeness:.2f}, conflicts={len(field_conflicts)}")
 
 
 def score_bank_reliability(a: dict) -> DimensionScore:

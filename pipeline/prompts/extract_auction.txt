@@ -28,10 +28,7 @@ Return ONE JSON object with EXACTLY this top-level shape. Use null for any field
   }},
 
   "enrichment": {{
-    "possession_type": "Physical" or "Symbolic" or "Constructive" or null,
     "undivided_share": "string with unit, e.g. '700 sq.ft undivided share' or '1/4 share'" or null,
-    "old_survey_numbers": [ {{"survey_no": "33", "subdivision": "52"}} ] or [],
-    "new_survey_numbers": [ {{"survey_no": "113", "subdivision": "18/3"}} ] or [],
     "total_area": "string with unit, e.g. '1200 sq.ft' or '5 cents'" or null,
     "boundaries": {{
       "north": "description" or null,
@@ -61,9 +58,8 @@ Return ONE JSON object with EXACTLY this top-level shape. Use null for any field
 }}
 
 RULES:
-1. For survey numbers like "S.No. 33/52", extract survey_no="33" and subdivision="52". If no subdivision (e.g., "S.No. 189"), use subdivision=null.
-2. For `verifiable.reserve_price_num` and `verifiable.emd_num`: return the numeric value in rupees (e.g., 4500000 for "Rs. 45,00,000" or "Rs. 45 lakh"). If only a raw string is legible, return null.
-3. Return the EXACT text / values from the image. Do not interpret, normalize, or guess.
-4. If a field is not present in THIS image, set it to null (or [] / {{}} as appropriate). Do not carry values over from the website description.
-5. If the image is illegible or not an auction notice, set `verifiable` and `enrichment` fields to null and put an explanation under `extras.parse_error`.
-6. Return ONLY the JSON object, no markdown formatting, no commentary.
+1. For `verifiable.reserve_price_num` and `verifiable.emd_num`: return the numeric value in rupees (e.g., 4500000 for "Rs. 45,00,000" or "Rs. 45 lakh"). If only a raw string is legible, return null.
+2. Return the EXACT text / values from the image. Do not interpret, normalize, or guess.
+3. If a field is not present in THIS image, set it to null (or [] / {{}} as appropriate). Do not carry values over from the website description.
+4. If the image is illegible or not an auction notice, set `verifiable` and `enrichment` fields to null and put an explanation under `extras.parse_error`.
+5. Return ONLY the JSON object, no markdown formatting, no commentary.

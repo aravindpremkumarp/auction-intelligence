@@ -10,7 +10,7 @@ sourced interview prep.
 ## Process (7 steps)
 
 1. **Legal framework check** — SARFAESI compliance indicators, DRT status from `auction_type`.
-2. **Encumbrance risk** — assess from `possession_type`, borrower history (other auctions tied to same borrower).
+2. **Encumbrance risk** — assess from borrower history (other auctions tied to same borrower) and notice-document content surfaced via `semantic_search`.
 3. **Market comparables** — Neo4j: same area, same property_type, last 6 months of auctions.
 4. **Location intelligence** — web-sourced area development signals (cite sources).
 5. **Document completeness audit** — list downloaded files, identify gaps.

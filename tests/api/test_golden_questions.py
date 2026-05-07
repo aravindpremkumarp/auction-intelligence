@@ -126,9 +126,7 @@ GOLDEN: list[GoldenCase] = [
     GoldenCase("temporal", "Auctions closing this week",
                ["upcoming_auctions"]),
 
-    # ─── Survey / borrower lookup ───────────────────────────────────────
-    GoldenCase("survey", "Properties with survey number 123/4",
-               ["survey_search"]),
+    # ─── Borrower lookup ────────────────────────────────────────────────
     GoldenCase("borrower", "Auctions tied to borrower XYZ Industries",
                ["borrower_lookup"]),
 ]
@@ -140,7 +138,7 @@ def test_catalogue_well_formed() -> None:
     intents = {c.intent for c in GOLDEN}
     expected_intents = {
         "basic_filter", "aggregation", "multi_hop", "schema",
-        "specific_auction", "semantic", "temporal", "survey", "borrower",
+        "specific_auction", "semantic", "temporal", "borrower",
     }
     assert expected_intents.issubset(intents)
 
@@ -151,7 +149,7 @@ def test_catalogue_well_formed() -> None:
             assert t in {
                 "search_auctions", "find_similar_properties", "bank_portfolio",
                 "location_analysis", "upcoming_auctions", "price_comparison",
-                "borrower_lookup", "semantic_property_search", "survey_search",
+                "borrower_lookup", "semantic_property_search",
                 "get_auction_detail", "list_distinct", "describe_schema",
                 "run_cypher",
             }, f"unknown tool {t!r} on {c.question!r}"

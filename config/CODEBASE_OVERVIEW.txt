@@ -42,7 +42,7 @@ and captures user feedback on investment opportunities.
 - `domain_ontology.yaml` — Canonical entity/relationship/property schema for
   the whole system (AuctionProperty, Bank, Branch, City/State/Area,
   AssetCategory, PropertyType, Borrower, AuctionType, + enriched fields:
-  possession_type, survey numbers, village/taluk/district, etc.).
+  village/taluk/district, total_area, undivided_share, boundaries, etc.).
 - `auction_graph_model.json` — Arrows.app visual graph model (mirrors ontology).
 - `requirements.txt` — Full development dependencies (scraping, OCR, tests).
 - `CODEBASE_OVERVIEW.txt` — This document.
@@ -196,7 +196,7 @@ Dimensions (weights in `modes/_shared.md`):
       set and returns a true `total_count`.
     - `find_similar_properties`, `bank_portfolio`, `location_analysis`,
       `upcoming_auctions`, `price_comparison`, `borrower_lookup`,
-      `survey_search`, `get_auction_detail` — Specialized parameterized
+      `get_auction_detail` — Specialized parameterized
       Cypher queries.
     - `semantic_property_search` — Vector search over
       `AuctionProperty.embedding` via the `property_desc_idx` index,
@@ -308,8 +308,7 @@ back into the repo by `.github/workflows/sync-feedback.yml` every
 
 Nodes: `AuctionProperty`, `Bank`, `Branch`, `City`, `State`, `Area`,
 `AssetCategory`, `PropertyType`, `Borrower`, `AuctionType`,
-`SurveyNumber`, plus enrichment nodes (`Score`, `InvestmentTracker`,
-`Feedback`, and possession detail nodes added by `load_enriched.py`).
+plus enrichment nodes (`Score`, `InvestmentTracker`, `Feedback`).
 
 Key relationships:
   (AuctionProperty)-[:CONDUCTED_BY]->(Bank)
@@ -320,7 +319,6 @@ Key relationships:
   (AuctionProperty)-[:HAS_ASSET_CATEGORY]->(AssetCategory)
   (AuctionProperty)-[:HAS_PROPERTY_TYPE]->(PropertyType)   # one-to-many
   (AuctionProperty)-[:HAS_BORROWER]->(Borrower)
-  (AuctionProperty)-[:HAS_SURVEY_NUMBER]->(SurveyNumber)   # one-to-many
   (AuctionProperty)-[:IS_AUCTION_TYPE]->(AuctionType)
 
 `AuctionProperty.embedding` is indexed as the `property_desc_idx` vector

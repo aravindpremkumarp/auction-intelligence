@@ -4,7 +4,7 @@ pipeline/load_enriched.py
 Stage 4: Load enriched data into Neo4j (PRD 5.9).
 
 Reads normalized.jsonl and extends existing AuctionProperty nodes with
-new properties and creates SurveyNumber nodes + relationships.
+new properties.
 
 Run standalone:  python -m pipeline.load_enriched
 """
@@ -43,7 +43,6 @@ def _coerce_date_keys(d: dict | None) -> dict | None:
             out[k] = datetime.fromisoformat(v)
     return out
 
-# ── New constraint for SurveyNumber ──────────────────────────────────────────
 # The legacy ``doc_path`` uniqueness constraint is intentionally dropped:
 # ``file_path`` carried mixed values (absolute filesystem path vs bare
 # filename vs R2 storage_key) which produced duplicate :Document nodes
@@ -54,7 +53,6 @@ DROP_CONSTRAINTS = [
     "DROP CONSTRAINT doc_path IF EXISTS",
 ]
 NEW_CONSTRAINTS = [
-    "CREATE CONSTRAINT survey_number_unique IF NOT EXISTS FOR (n:SurveyNumber) REQUIRE (n.survey_no, n.subdivision, n.survey_type) IS UNIQUE",
     "CREATE CONSTRAINT doc_storage_key IF NOT EXISTS FOR (n:Document) REQUIRE n.storage_key IS UNIQUE",
 ]
 
@@ -64,7 +62,7 @@ UNWIND $rows AS r
 
 MATCH (a:AuctionProperty {auction_id: r.auction_id})
 SET a += r.verified_fields          // PDF values overwrite scraped scalars
-SET a += r.enrichment_flat          // flat enrichment props (boundary_*, possession_type, ...)
+SET a += r.enrichment_flat          // flat enrichment props (boundary_*, undivided_share, ...)
 SET a += r.scraped_originals        // *_scraped mirrors for audit
 SET a.extras_json           = r.extras_json,
     a.enriched_description  = r.enriched_description,
@@ -85,7 +83,7 @@ SET doc.file_path      = d.file_path,
     doc.model          = d.model
 """
 
-# ── Batch Cypher: update AuctionProperty + create SurveyNumber nodes ─────────
+# ── Batch Cypher: update AuctionProperty ─────────────────────────────────────
 ENRICHMENT_QUERY = """
 UNWIND $rows AS r
 
@@ -94,7 +92,6 @@ MATCH (a:AuctionProperty {auction_id: r.auction_id})
 
 // ── Set enriched properties (only if non-null) ───────────────────────────
 SET
-  a.possession_type             = COALESCE(r.possession_type, a.possession_type),
   a.undivided_share             = COALESCE(r.undivided_share, a.undivided_share),
   a.total_area                  = COALESCE(r.total_area, a.total_area),
   a.village                     = COALESCE(r.village, a.village),
@@ -112,21 +109,6 @@ SET
   a.description_completeness    = COALESCE(r.description_completeness, a.description_completeness),
   a.extraction_date             = r.extraction_date
 """
-
-# Separate query for survey numbers (uses FOREACH to handle variable-length lists)
-SURVEY_QUERY = """
-UNWIND $rows AS r
-MATCH (a:AuctionProperty {auction_id: r.auction_id})
-WITH a, r
-UNWIND r.survey_numbers AS sn
-MERGE (s:SurveyNumber {
-  survey_no: sn.survey_no,
-  subdivision: COALESCE(sn.subdivision, ''),
-  survey_type: sn.survey_type
-})
-MERGE (a)-[:HAS_SURVEY_NUMBER]->(s)
-"""
-
 
 def load_records() -> list[dict]:
     """Load normalized records."""
@@ -149,7 +131,6 @@ def prepare_row(record: dict) -> dict:
 
     return {
         "auction_id": record["auction_id"],
-        "possession_type": enriched.get("possession_type"),
         "undivided_share": enriched.get("undivided_share"),
         "total_area": enriched.get("total_area"),
         "village": enriched.get("village"),
@@ -169,33 +150,6 @@ def prepare_row(record: dict) -> dict:
     }
 
 
-def prepare_survey_row(record: dict) -> dict:
-    """Prepare survey number data for the Cypher query."""
-    enriched = record.get("enriched_fields", {})
-    survey_numbers = []
-
-    for sn in (enriched.get("old_survey_numbers") or []):
-        if isinstance(sn, dict) and sn.get("survey_no"):
-            survey_numbers.append({
-                "survey_no": sn["survey_no"],
-                "subdivision": sn.get("subdivision") or "",
-                "survey_type": "old",
-            })
-
-    for sn in (enriched.get("new_survey_numbers") or []):
-        if isinstance(sn, dict) and sn.get("survey_no"):
-            survey_numbers.append({
-                "survey_no": sn["survey_no"],
-                "subdivision": sn.get("subdivision") or "",
-                "survey_type": "new",
-            })
-
-    return {
-        "auction_id": record["auction_id"],
-        "survey_numbers": survey_numbers,
-    }
-
-
 def create_constraints(session):
     """Create new constraints for enriched data."""
     print("Dropping legacy constraints (issue #45)...")
@@ -212,15 +166,7 @@ def create_constraints(session):
             session.run(stmt)
             print(f"  OK: {stmt[:80]}...")
         except Exception as e:
-            # Composite uniqueness constraints may not be supported on all Neo4j versions
-            # Fall back to a node key constraint or skip
             print(f"  [WARN] {e}")
-            # Try alternative constraint
-            try:
-                alt = "CREATE CONSTRAINT survey_number_key IF NOT EXISTS FOR (n:SurveyNumber) REQUIRE n.survey_no IS NOT NULL"
-                session.run(alt)
-            except Exception:
-                pass
 
 
 def load_to_neo4j():
@@ -241,9 +187,6 @@ def load_to_neo4j():
 
     # Prepare data
     rows = [prepare_row(r) for r in records]
-    survey_rows = [prepare_survey_row(r) for r in records]
-    # Filter survey rows to only those with actual survey numbers
-    survey_rows = [sr for sr in survey_rows if sr["survey_numbers"]]
 
     # Load enriched properties in batches
     ingested = 0
@@ -263,31 +206,16 @@ def load_to_neo4j():
                 errors += 1
                 print(f"\n  [ERROR] batch {i}: {e}")
 
-    # Load survey numbers
-    survey_ingested = 0
-    with driver.session(database=NEO4J_DATABASE) as session:
-        for i in range(0, len(survey_rows), NEO4J_BATCH_SIZE):
-            batch = survey_rows[i : i + NEO4J_BATCH_SIZE]
-            try:
-                session.run(SURVEY_QUERY, rows=batch)
-                survey_ingested += len(batch)
-                print(f"  Surveys: [{survey_ingested}/{len(survey_rows)}]", end="\r")
-            except Exception as e:
-                errors += 1
-                print(f"\n  [ERROR] survey batch {i}: {e}")
-
     driver.close()
 
     elapsed = time.time() - t_start
     print(f"\n\n{'='*50}")
     print(f"  Properties updated : {ingested}")
-    print(f"  Survey records     : {survey_ingested}")
     print(f"  Errors             : {errors}")
     print(f"  Time               : {elapsed:.1f}s")
     print(f"{'='*50}")
     print("\nVerify:")
-    print("  MATCH (a:AuctionProperty) WHERE a.possession_type IS NOT NULL RETURN count(a)")
-    print("  MATCH (a)-[:HAS_SURVEY_NUMBER]->(s:SurveyNumber) RETURN count(s)")
+    print("  MATCH (a:AuctionProperty) WHERE a.undivided_share IS NOT NULL RETURN count(a)")
 
 
 def load_verified_enriched() -> None:

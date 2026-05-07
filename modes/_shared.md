@@ -11,7 +11,7 @@ the Neo4j schema, domain rules, and scoring taxonomy that every mode shares.
 
 | Label | Key | Notable properties |
 |-------|-----|--------------------|
-| `AuctionProperty` | `auction_id` | `title`, `url`, `description`, `reserve_price_num` (float, INR), `emd_num` (float, INR), `auction_start_dt`, `auction_end_dt`, `application_deadline_dt`, `possession_type` (enum: Physical/Symbolic/Constructive/Unknown), `total_area`, `village`, `taluk`, `district` |
+| `AuctionProperty` | `auction_id` | `title`, `url`, `description`, `reserve_price_num` (float, INR), `emd_num` (float, INR), `auction_start_dt`, `auction_end_dt`, `application_deadline_dt`, `total_area`, `village`, `taluk`, `district` |
 | `City` | `name` | Title case, e.g. `Chennai`, `Kanchipuram` |
 | `Area` | `name` | Suburb / locality / taluk, e.g. `Ambattur`, `Sriperumbudur` |
 | `State` | `name` | e.g. `Tamil Nadu` |
@@ -20,7 +20,6 @@ the Neo4j schema, domain rules, and scoring taxonomy that every mode shares.
 | `AssetCategory` | `name` | Exactly 7 values — see enum list below |
 | `PropertyType` | `name` | Granular type, constrained by category — see list below |
 | `Borrower` | `name` | Original borrower whose property is auctioned |
-| `SurveyNumber` | `(survey_no, subdivision, survey_type)` | `survey_type` ∈ {old, new} |
 | `Feedback` | `id` | User feedback records (not normally surfaced to end users) |
 
 **Relationships** (always `AuctionProperty` → target unless noted):
@@ -34,7 +33,6 @@ the Neo4j schema, domain rules, and scoring taxonomy that every mode shares.
 (a)-[:HAS_ASSET_CATEGORY]->(:AssetCategory)
 (a)-[:HAS_PROPERTY_TYPE]->(:PropertyType)     # one-to-many
 (a)-[:HAS_BORROWER]->(:Borrower)
-(a)-[:HAS_SURVEY_NUMBER]->(:SurveyNumber)      # one-to-many
 (:Area)-[:PART_OF_CITY]->(:City)
 (:City)-[:IN_STATE]->(:State)
 ```
@@ -143,7 +141,7 @@ when presenting it.
 3. **One specific auction, any field** → `get_auction_detail(auction_id)`.
    Call this BEFORE concluding a field is unavailable; it returns every
    stored property plus related city/area/state/bank/borrower/category
-   /property_types/survey_numbers.
+   /property_types.
 4. **Enum discovery** ("what cities", "list all banks") →
    `list_distinct(field)`.
 4a. **Distribution / breakdown / "spread" questions** ("property-type
@@ -386,7 +384,7 @@ user approval.
 |-----|------|--------|----------------|
 | A | Price Attractiveness | 20% | Reserve price vs. comparables in same area |
 | B | Location Quality | 15% | City tier, area desirability, auction density |
-| C | Legal Clarity | 15% | Possession type (Physical > Symbolic > Constructive), document completeness, clean survey numbers |
+| C | Legal Clarity | 15% | Document completeness and field-conflict count |
 | D | Bank Reliability | 10% | Bank's historical auction volume and success |
 | E | Property Condition | 10% | Asset category, property type, description quality |
 | F | Timeline Urgency | 10% | Days until application deadline |

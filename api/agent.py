@@ -357,12 +357,6 @@ def semantic_search(
 
 
 @agent.tool_plain
-def survey_search(survey_no: str, subdivision: str | None = None) -> list[dict]:
-    """Find properties by survey number (with optional subdivision)."""
-    return T.survey_search(survey_no, subdivision)
-
-
-@agent.tool_plain
 def match_pasted_listing(pasted_text: str) -> dict:
     """Find the auction that matches a pasted property listing (WhatsApp
     forward, broker note, bank circular). Use this WHENEVER the user

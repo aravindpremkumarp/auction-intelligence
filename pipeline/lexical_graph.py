@@ -20,14 +20,6 @@ def build_mentions(extracted: dict) -> list[dict]:
     """Convert extracted fields into mention triples."""
     mentions = []
 
-    # Possession type
-    if extracted.get("possession_type"):
-        mentions.append({
-            "entity_type": "PossessionType",
-            "value": extracted["possession_type"],
-            "source": "image",
-        })
-
     # Undivided share
     if extracted.get("undivided_share"):
         mentions.append({
@@ -35,29 +27,6 @@ def build_mentions(extracted: dict) -> list[dict]:
             "value": extracted["undivided_share"],
             "source": "image",
         })
-
-    # Survey numbers
-    for sn in (extracted.get("old_survey_numbers") or []):
-        if isinstance(sn, dict) and sn.get("survey_no"):
-            mentions.append({
-                "entity_type": "SurveyNumber",
-                "value": f"{sn['survey_no']}/{sn.get('subdivision', '')}" if sn.get("subdivision") else sn["survey_no"],
-                "survey_no": sn["survey_no"],
-                "subdivision": sn.get("subdivision"),
-                "survey_type": "old",
-                "source": "image",
-            })
-
-    for sn in (extracted.get("new_survey_numbers") or []):
-        if isinstance(sn, dict) and sn.get("survey_no"):
-            mentions.append({
-                "entity_type": "SurveyNumber",
-                "value": f"{sn['survey_no']}/{sn.get('subdivision', '')}" if sn.get("subdivision") else sn["survey_no"],
-                "survey_no": sn["survey_no"],
-                "subdivision": sn.get("subdivision"),
-                "survey_type": "new",
-                "source": "image",
-            })
 
     # Total area
     if extracted.get("total_area"):
@@ -105,7 +74,7 @@ def build_mentions(extracted: dict) -> list[dict]:
 def build_enriched_fields(extracted: dict) -> dict:
     """Extract key enrichment fields for easy access."""
     fields = {}
-    for key in ("possession_type", "undivided_share", "total_area",
+    for key in ("undivided_share", "total_area",
                 "village", "taluk", "district",
                 "registration_district", "registration_sub_district"):
         if extracted.get(key):
@@ -125,14 +94,6 @@ def build_enriched_fields(extracted: dict) -> dict:
         fields["door_numbers_old"] = old_nums
     if new_nums:
         fields["door_numbers_new"] = new_nums
-
-    # Survey numbers
-    old_surveys = extracted.get("old_survey_numbers") or []
-    new_surveys = extracted.get("new_survey_numbers") or []
-    if old_surveys:
-        fields["old_survey_numbers"] = old_surveys
-    if new_surveys:
-        fields["new_survey_numbers"] = new_surveys
 
     return fields
 

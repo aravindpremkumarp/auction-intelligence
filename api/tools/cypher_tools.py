@@ -956,13 +956,11 @@ def get_auction_detail(auction_id: str) -> dict | None:
         OPTIONAL MATCH (a)-[:HAS_BORROWER]->(borrower:Borrower)
         OPTIONAL MATCH (a)-[:HAS_ASSET_CATEGORY]->(ac:AssetCategory)
         OPTIONAL MATCH (a)-[:HAS_PROPERTY_TYPE]->(pt:PropertyType)
-        OPTIONAL MATCH (a)-[:HAS_SURVEY_NUMBER]->(s:SurveyNumber)
         OPTIONAL MATCH (a)-[:HAS_DOCUMENT]->(doc:Document)
             WHERE doc.public_url IS NOT NULL
         OPTIONAL MATCH (a)-[link:SAME_PROPERTY_AS]->(sibling:AuctionProperty)
         WITH a, city, area, state, bank, borrower, ac,
              collect(DISTINCT pt.name) AS property_types,
-             collect(DISTINCT properties(s)) AS survey_numbers,
              collect(DISTINCT {
                filename:     doc.filename,
                public_url:   doc.public_url,
@@ -986,8 +984,7 @@ def get_auction_detail(auction_id: str) -> dict | None:
                  bank:           CASE WHEN bank     IS NULL THEN NULL ELSE properties(bank)     END,
                  borrower:       CASE WHEN borrower IS NULL THEN NULL ELSE properties(borrower) END,
                  asset_category: CASE WHEN ac       IS NULL THEN NULL ELSE properties(ac)       END,
-                 property_types: property_types,
-                 survey_numbers: survey_numbers
+                 property_types: property_types
                } AS relationships,
                documents AS documents,
                siblings  AS siblings
@@ -1064,17 +1061,6 @@ def get_auction_detail(auction_id: str) -> dict | None:
         "documents":     documents,
         "price_history": price_history,
     }
-
-
-def survey_search(survey_no: str, subdivision: str | None = None) -> list[dict]:
-    cypher = """
-        MATCH (a:AuctionProperty)-[:HAS_SURVEY_NUMBER]->(s:SurveyNumber)
-        WHERE s.survey_no = $survey_no
-          AND ($subdivision IS NULL OR s.subdivision = $subdivision)
-        RETURN a.auction_id AS auction_id, a.title AS title,
-               s.survey_no AS survey_no, s.subdivision AS subdivision, s.survey_type AS survey_type
-    """
-    return run_query(cypher, {"survey_no": survey_no, "subdivision": subdivision})
 
 
 # ── Phase 1: schema introspection + escape-hatch tools ─────────────────────
@@ -1170,7 +1156,7 @@ def describe_schema(refresh: bool = False) -> dict:
 
     - node_labels: [{label, count, sample_properties}, ...]
     - relationships: [{type, from, to, count}, ...]
-    - enums: {asset_category, property_type, possession_type, ...}
+    - enums: {asset_category, property_type, ...}
     - numeric_ranges: {reserve_price_num: {...}, emd_num: {...}}
     - date_ranges:    {auction_start_dt: {...}, application_deadline_dt: {...}}
     """
@@ -1219,17 +1205,6 @@ def describe_schema(refresh: bool = False) -> dict:
             max_rows=50,
         )
         enums[field] = [r["v"] for r in rows if r.get("v")]
-
-    poss_rows = run_read_query(
-        """
-        MATCH (a:AuctionProperty)
-        WHERE a.possession_type IS NOT NULL
-        RETURN DISTINCT a.possession_type AS v
-        ORDER BY v
-        """,
-        max_rows=20,
-    )
-    enums["possession_type"] = [r["v"] for r in poss_rows if r.get("v")]
 
     stat_rows = run_read_query(
         """
