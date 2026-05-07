@@ -65,14 +65,50 @@ def test_list_distinct_rejects_unknown_field(monkeypatch):
         list_distinct("random_field")
 
 
-@pytest.mark.parametrize("field", ["city", "area", "state", "bank", "borrower",
-                                   "asset_category", "property_type"])
+@pytest.mark.parametrize("field", ["city", "area", "state", "bank", "branch",
+                                   "borrower", "asset_category", "property_type",
+                                   "auction_type"])
 def test_list_distinct_accepts_all_whitelisted_fields(monkeypatch, field):
     _patch_read_query(monkeypatch)
     from api.tools.cypher_tools import list_distinct
 
     out = list_distinct(field)
     assert out["field"] == field
+
+
+def test_list_distinct_auction_type_scoped_by_bank(monkeypatch):
+    """auction_type breakdown for a specific bank — Cypher must hang the
+    auction_type rel off AuctionProperty, not Bank."""
+    calls = _patch_read_query(
+        monkeypatch,
+        response=[
+            {"value": "SARFAESI Auction", "auction_count": 200},
+            {"value": "DRT Auction", "auction_count": 30},
+        ],
+    )
+    from api.tools.cypher_tools import list_distinct
+
+    out = list_distinct("auction_type", bank="Canara Bank", limit=20)
+
+    cypher, params, _ = calls[0]
+    assert "(a)-[:CONDUCTED_BY]->(:Bank {name: $bank})" in cypher
+    assert "(a)-[:IS_AUCTION_TYPE]->(n:AuctionType)" in cypher
+    assert params == {"limit": 20, "bank": "Canara Bank"}
+    assert out["filter_bank"] == "Canara Bank"
+    assert out["filter_auction_type"] is None
+
+
+def test_list_distinct_branch_scoped_by_city(monkeypatch):
+    """branch breakdown for a city — Branch rel is LISTED_BY_BRANCH on
+    AuctionProperty (not HAS_BRANCH from Bank)."""
+    calls = _patch_read_query(monkeypatch)
+    from api.tools.cypher_tools import list_distinct
+
+    list_distinct("branch", city="Chennai", limit=10)
+    cypher, params, _ = calls[0]
+    assert "(a)-[:LOCATED_IN_CITY]->(:City {name: $city})" in cypher
+    assert "(a)-[:LISTED_BY_BRANCH]->(n:Branch)" in cypher
+    assert params == {"limit": 10, "city": "Chennai"}
 
 
 def test_list_distinct_property_type_scoped_by_bank(monkeypatch):

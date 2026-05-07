@@ -189,6 +189,8 @@ def search_auctions(
     property_type: str | None = None,
     asset_category: str | None = None,
     bank: str | None = None,
+    auction_type: str | None = None,
+    branch_name: str | None = None,
     starts_after: datetime | None = None, starts_before: datetime | None = None,
     limit: int = 20,
     order_by: str = "deadline_asc",
@@ -196,8 +198,9 @@ def search_auctions(
     aggregations: list[str] | None = None,
     include_past: bool = False,
 ) -> dict:
-    """Filter auctions by price, city, area, type, asset category, bank, and
-    date window. Optional `order_by` and `limit` control row ordering.
+    """Filter auctions by price, city, area, type, asset category, bank,
+    auction type, branch, and date window. Optional `order_by` and `limit`
+    control row ordering.
 
     Returns {total_count, returned, limit, results}. `total_count` is the true
     number of matches in the graph (ignoring limit); `results` is capped at
@@ -225,6 +228,13 @@ def search_auctions(
         conversation to a specific bank — once they say "in Canara Bank",
         keep passing bank="Canara Bank" on every follow-up search until
         they clearly change scope.
+      - `auction_type` matches an AuctionType node by exact name. Values:
+        "SARFAESI Auction", "DRT Auction", "Liquidation Auction",
+        "Private Property". Use when the user filters by legal track
+        ("SARFAESI only", "skip DRT").
+      - `branch_name` matches a Branch node by exact name (e.g. a
+        specific bank-branch listing the auction). Use when the user
+        names a specific branch.
 
     Ordering / superlatives:
       - `order_by` selects row order: "deadline_asc" (default — soonest
@@ -258,6 +268,7 @@ def search_auctions(
         city=city, area=area,
         property_type=property_type, asset_category=asset_category,
         bank=bank,
+        auction_type=auction_type, branch_name=branch_name,
         starts_after=starts_after, starts_before=starts_before,
         limit=limit, order_by=order_by,
         aggregate_field=aggregate_field, aggregations=aggregations,
@@ -409,19 +420,24 @@ def list_distinct(
     bank: str | None = None,
     borrower: str | None = None,
     asset_category: str | None = None,
+    auction_type: str | None = None,
+    branch: str | None = None,
 ) -> dict:
     """List distinct values of a reference field with per-value auction counts.
 
-    `field` must be one of: "city", "area", "state", "bank", "borrower",
-    "asset_category", "property_type".
+    `field` must be one of: "city", "area", "state", "bank", "branch",
+    "borrower", "asset_category", "property_type", "auction_type".
 
     Scope filters narrow the count. Supply any combination of `city`,
-    `bank`, `borrower`, `asset_category`; a scope must differ from
-    `field`. Examples:
+    `bank`, `borrower`, `asset_category`, `auction_type`, `branch`; a
+    scope must differ from `field`. Examples:
       - property-type mix for SBI: field="property_type", bank="State Bank of India"
       - asset categories in Chennai: field="asset_category", city="Chennai"
       - residential property types in Kanchipuram: field="property_type",
         city="Kanchipuram", asset_category="Residential"
+      - auction-type breakdown for Canara Bank: field="auction_type",
+        bank="Canara Bank"
+      - branches active in Chennai: field="branch", city="Chennai"
 
     Use this for distribution / breakdown / "spread" questions. Do NOT
     compute distributions by iterating `get_auction_detail`."""
@@ -432,6 +448,8 @@ def list_distinct(
         bank=bank,
         borrower=borrower,
         asset_category=asset_category,
+        auction_type=auction_type,
+        branch=branch,
     )
 
 

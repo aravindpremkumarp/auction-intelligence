@@ -147,6 +147,8 @@ def search_auctions(
     property_type: str | None = None,
     asset_category: str | None = None,
     bank: str | None = None,
+    auction_type: str | None = None,
+    branch_name: str | None = None,
     starts_after: datetime | None = None,
     starts_before: datetime | None = None,
     limit: int = 20,
@@ -203,6 +205,12 @@ def search_auctions(
     if bank:
         matches.append("(a)-[:CONDUCTED_BY]->(b:Bank {name: $bank})")
         params["bank"] = bank
+    if auction_type:
+        matches.append("(a)-[:IS_AUCTION_TYPE]->(:AuctionType {name: $auction_type})")
+        params["auction_type"] = auction_type
+    if branch_name:
+        matches.append("(a)-[:LISTED_BY_BRANCH]->(:Branch {name: $branch_name})")
+        params["branch_name"] = branch_name
 
     where_clause = 'WHERE ' + ' AND '.join(where) if where else ''
     match_clause = ', '.join(matches)
@@ -1072,9 +1080,11 @@ _DISTINCT_FIELDS: dict[str, tuple[str, str]] = {
     "area":           ("Area",          "LOCATED_IN_AREA"),
     "state":          ("State",         "LOCATED_IN_STATE"),
     "bank":           ("Bank",          "CONDUCTED_BY"),
+    "branch":         ("Branch",        "LISTED_BY_BRANCH"),
     "borrower":       ("Borrower",      "HAS_BORROWER"),
     "asset_category": ("AssetCategory", "HAS_ASSET_CATEGORY"),
     "property_type":  ("PropertyType",  "HAS_PROPERTY_TYPE"),
+    "auction_type":   ("AuctionType",   "IS_AUCTION_TYPE"),
 }
 
 _SCHEMA_CACHE: dict[str, tuple[float, dict]] = {}
@@ -1088,17 +1098,21 @@ def list_distinct(
     bank: str | None = None,
     borrower: str | None = None,
     asset_category: str | None = None,
+    auction_type: str | None = None,
+    branch: str | None = None,
 ) -> dict:
     """List distinct values of a reference field with counts.
 
     `field` must be one of the keys in _DISTINCT_FIELDS. Scope filters
-    (`city`, `bank`, `borrower`, `asset_category`) narrow the count to
-    auctions that match every provided scope. A scope must differ from
-    `field` — you can't group by bank while filtering by bank.
+    (`city`, `bank`, `borrower`, `asset_category`, `auction_type`,
+    `branch`) narrow the count to auctions that match every provided
+    scope. A scope must differ from `field` — you can't group by bank
+    while filtering by bank.
 
     Use this for distribution / breakdown / "spread" questions
-    ("property-type mix for SBI", "asset categories in Chennai"). Never
-    iterate `get_auction_detail` to compute a count.
+    ("property-type mix for SBI", "asset categories in Chennai",
+    "auction-type breakdown for Canara Bank"). Never iterate
+    `get_auction_detail` to compute a count.
     """
     if field not in _DISTINCT_FIELDS:
         raise ValueError(
@@ -1110,6 +1124,8 @@ def list_distinct(
         "bank":           bank,
         "borrower":       borrower,
         "asset_category": asset_category,
+        "auction_type":   auction_type,
+        "branch":         branch,
     }
     # Filtering by the same dimension you're grouping on is a no-op; drop
     # silently so agents can pass redundant scopes without an error.
@@ -1144,6 +1160,8 @@ def list_distinct(
         "filter_bank": bank,
         "filter_borrower": borrower,
         "filter_asset_category": asset_category,
+        "filter_auction_type": auction_type,
+        "filter_branch": branch,
         "results": results,
     }
 

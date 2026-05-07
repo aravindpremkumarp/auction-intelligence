@@ -201,10 +201,12 @@ Dimensions (weights in `modes/_shared.md`):
     - `semantic_property_search` — Vector search over
       `AuctionProperty.embedding` via the `property_desc_idx` index,
       with optional city / price / asset-category post-filters.
-    - `list_distinct(field, limit, city=None)` — Enum discovery
+    - `list_distinct(field, limit, city=None, ...)` — Enum discovery
       ("what cities do we cover", "which property types appear in
-      Chennai"). `field` ∈ {city, area, state, bank, borrower,
-      asset_category, property_type}.
+      Chennai", "what auction types do we have"). `field` ∈ {city,
+      area, state, bank, branch, borrower, asset_category,
+      property_type, auction_type}. Scope filters: city, bank,
+      borrower, asset_category, auction_type, branch.
     - `describe_schema(refresh=False)` — Introspect the live graph
       (labels + counts, relationship types, enum values, numeric /
       date ranges of key fields). 1-hour in-memory cache. Called

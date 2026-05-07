@@ -20,6 +20,7 @@ the Neo4j schema, domain rules, and scoring taxonomy that every mode shares.
 | `AssetCategory` | `name` | Exactly 7 values — see enum list below |
 | `PropertyType` | `name` | Granular type, constrained by category — see list below |
 | `Borrower` | `name` | Original borrower whose property is auctioned |
+| `AuctionType` | `name` | Legal track — exactly 4 values, see enum list below |
 | `Feedback` | `id` | User feedback records (not normally surfaced to end users) |
 
 **Relationships** (always `AuctionProperty` → target unless noted):
@@ -33,6 +34,8 @@ the Neo4j schema, domain rules, and scoring taxonomy that every mode shares.
 (a)-[:HAS_ASSET_CATEGORY]->(:AssetCategory)
 (a)-[:HAS_PROPERTY_TYPE]->(:PropertyType)     # one-to-many
 (a)-[:HAS_BORROWER]->(:Borrower)
+(a)-[:IS_AUCTION_TYPE]->(:AuctionType)
+(:Bank)-[:HAS_BRANCH]->(:Branch)
 (:Area)-[:PART_OF_CITY]->(:City)
 (:City)-[:IN_STATE]->(:State)
 ```
@@ -51,6 +54,21 @@ the Neo4j schema, domain rules, and scoring taxonomy that every mode shares.
 
 When a user says "residential", "commercial", or "industrial", filter on
 **`asset_category`**, not `property_type`.
+
+### AuctionType (4 exact values)
+
+- `"SARFAESI Auction"` — bank-led recovery under the SARFAESI Act (the
+  default for most bank auctions)
+- `"DRT Auction"` — auction conducted under a Debt Recovery Tribunal order
+- `"Liquidation Auction"` — IBC liquidation sale by a Resolution
+  Professional / Liquidator
+- `"Private Property"` — private sale not tied to a recovery proceeding
+
+Filter via `search_auctions(auction_type="SARFAESI Auction")` when the
+user scopes by legal track ("SARFAESI only", "skip DRT"). Use
+`list_distinct(field="auction_type")` for "what auction types do we
+have" or for breakdowns ("auction-type mix for Canara Bank" →
+`list_distinct(field="auction_type", bank="Canara Bank")`).
 
 ### PropertyType (constrained by category)
 
@@ -147,9 +165,12 @@ when presenting it.
 4a. **Distribution / breakdown / "spread" questions** ("property-type
    mix for SBI", "asset categories in Chennai", "which banks dominate
    residential auctions") → `list_distinct` with the appropriate
-   scope. Scopes: `city`, `bank`, `borrower`, `asset_category`. Never
-   iterate `get_auction_detail` across many auctions to compute a
-   count, sum, or distribution — that's what aggregations are for.
+   scope. Scopes: `city`, `bank`, `borrower`, `asset_category`,
+   `auction_type`, `branch`. Groupable fields (`field=...`):
+   `city`, `area`, `state`, `bank`, `branch`, `borrower`,
+   `asset_category`, `property_type`, `auction_type`. Never iterate
+   `get_auction_detail` across many auctions to compute a count, sum,
+   or distribution — that's what aggregations are for.
 5. **Schema introspection** (unsure about labels / properties) →
    `describe_schema()`.
 6. **Genuinely novel question** that none of the specialized tools can
@@ -369,8 +390,9 @@ RETURN avg(gap_days) AS avg_gap_days, count(*) AS pairs
 ```
 
 For scoped breakdowns, prefer the `list_distinct` tool (with `city`,
-`bank`, `borrower`, or `asset_category` scope) before writing a
-`run_cypher` — the tool already composes the correct Cypher shape.
+`bank`, `borrower`, `asset_category`, `auction_type`, or `branch`
+scope) before writing a `run_cypher` — the tool already composes the
+correct Cypher shape.
 
 ## Human-in-the-loop principle
 
