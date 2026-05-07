@@ -344,6 +344,38 @@ body {
 }
 .browse-empty .lbl { display: block; margin-top: 8px; }
 
+.browse-pager {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  margin: 24px 0 8px;
+}
+.browse-pager[hidden] { display: none; }
+.browse-pager .lm-btn {
+  border: 1.5px solid var(--ink);
+  background: var(--card);
+  color: var(--ink);
+  padding: 10px 28px;
+  font-family: var(--font-mono); font-size: 12px;
+  cursor: pointer;
+  text-transform: uppercase; letter-spacing: 0.05em;
+  box-shadow: var(--shadow);
+  transition: transform 80ms ease, background 80ms ease, color 80ms ease;
+}
+.browse-pager .lm-btn:hover:not(:disabled) {
+  background: var(--accent); color: #1a1a1a;
+  transform: translate(-1px, -1px);
+}
+.browse-pager .lm-btn:disabled {
+  opacity: 0.5; cursor: wait;
+}
+.browse-pager .lm-progress {
+  font-family: var(--font-mono); font-size: 11px;
+  color: var(--muted);
+}
+.browse-pager .lm-end {
+  font-family: var(--font-hand); font-size: 18px;
+  color: var(--muted);
+}
+
 @media (max-width: 720px) {
   .browse { padding-top: 20px; }
   .browse-head h2 { font-size: 26px; }
@@ -352,6 +384,7 @@ body {
   .filter-group { width: 100%; }
   .filter-select { flex: 1; min-width: 0; max-width: 100%; }
   .browse-search { width: 100%; }
+  .browse-pager .lm-btn { width: 100%; padding: 12px 16px; }
 }
 
 .chat-input {
@@ -1549,6 +1582,11 @@ body {
         </div>
 
         <div class="browse-grid" id="browse-grid" aria-busy="false"></div>
+
+        <div class="browse-pager" id="browse-pager" hidden>
+          <button class="lm-btn" id="browse-loadmore" type="button" aria-label="load more properties">load more</button>
+          <span class="lm-progress" id="browse-pager-progress" aria-live="polite"></span>
+        </div>
       </section>
     </div>
 
@@ -2776,14 +2814,16 @@ function propCardHtml(c, urgent, countdown) {
     </div>`;
 }
 function wireCardClicks() {
-  document.querySelectorAll('.prop[data-id]').forEach(el => {
+  document.querySelectorAll('.prop[data-id]:not([data-wired])').forEach(el => {
+    el.dataset.wired = '1';
     el.addEventListener('click', (e) => {
       if (e.target.closest('.card-save')) return;
       currentDetailId = el.dataset.id;
       go('detail');
     });
   });
-  document.querySelectorAll('.card-save').forEach(btn => {
+  document.querySelectorAll('.card-save:not([data-wired])').forEach(btn => {
+    btn.dataset.wired = '1';
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       const id = btn.dataset.saveId;
@@ -3690,6 +3730,7 @@ const browseState = {
   price: '', priceMin: '', priceMax: '',
   dateFrom: '', dateTo: '',
   sort: 'date',
+  offset: 0,
 };
 const BROWSE_LIMIT = 60;
 let browseAbort = null;
@@ -3725,6 +3766,7 @@ function _browseQueryParams() {
   if (browseState.dateTo) p.set('date_to', new Date(browseState.dateTo + 'T23:59:59').toISOString());
   p.set('sort', browseState.sort || 'date');
   p.set('limit', String(BROWSE_LIMIT));
+  p.set('offset', String(browseState.offset || 0));
   return p;
 }
 
@@ -3817,15 +3859,23 @@ function clearAllBrowseFilters() {
   applyBrowse();
 }
 
-async function applyBrowse() {
+async function applyBrowse({ append = false } = {}) {
   const grid = document.getElementById('browse-grid');
   const countEl = document.getElementById('browse-count');
   const subEl = document.getElementById('browse-sublabel');
   const clearBtn = document.getElementById('f-clear');
+  const pagerEl = document.getElementById('browse-pager');
+  const loadMoreBtn = document.getElementById('browse-loadmore');
+  const pagerProgress = document.getElementById('browse-pager-progress');
   if (!grid) return;
 
   if (browseAbort) browseAbort.abort();
   browseAbort = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+
+  if (!append) browseState.offset = 0;
+
+  if (loadMoreBtn) loadMoreBtn.disabled = true;
+  if (pagerProgress && append) pagerProgress.textContent = 'loading…';
 
   grid.setAttribute('aria-busy', 'true');
   clearBtn.disabled = !_hasAnyBrowseFilter();
@@ -3839,9 +3889,15 @@ async function applyBrowse() {
   } catch (e) {
     if (e && e.name === 'AbortError') return;
     grid.setAttribute('aria-busy', 'false');
-    grid.innerHTML = `<div class="browse-empty">couldn't load properties<span class="lbl">${escapeHtml(String(e.message || e))}</span></div>`;
-    countEl.textContent = '— properties';
-    subEl.textContent = 'try again';
+    if (!append) {
+      grid.innerHTML = `<div class="browse-empty">couldn't load properties<span class="lbl">${escapeHtml(String(e.message || e))}</span></div>`;
+      countEl.textContent = '— properties';
+      subEl.textContent = 'try again';
+      if (pagerEl) pagerEl.hidden = true;
+    } else if (loadMoreBtn) {
+      loadMoreBtn.disabled = false;
+      if (pagerProgress) pagerProgress.textContent = `couldn't load more — try again`;
+    }
     return;
   }
 
@@ -3849,34 +3905,69 @@ async function applyBrowse() {
   // f-category populates from facets.type (the AssetCategory facet — the
   // backend's `type` query param has historically meant AssetCategory).
   // f-type populates from the new facets.property_type (PropertyType node).
-  _populateFacetSelect('f-category', facets.type,          browseState.category);
-  _populateFacetSelect('f-type',     facets.property_type, browseState.propertyType);
-  _populateFacetSelect('f-bank',     facets.bank,          browseState.bank);
-  _populateFacetSelect('f-state',    facets.state,         browseState.state);
-  _populateFacetSelect('f-district', facets.district,      browseState.district);
-  _populateFacetSelect('f-village',  facets.village,       browseState.village);
+  // Don't repopulate on append — it would clobber the user's current selection
+  // with options keyed off the same filters they're already viewing.
+  if (!append) {
+    _populateFacetSelect('f-category', facets.type,          browseState.category);
+    _populateFacetSelect('f-type',     facets.property_type, browseState.propertyType);
+    _populateFacetSelect('f-bank',     facets.bank,          browseState.bank);
+    _populateFacetSelect('f-state',    facets.state,         browseState.state);
+    _populateFacetSelect('f-district', facets.district,      browseState.district);
+    _populateFacetSelect('f-village',  facets.village,       browseState.village);
+  }
 
   const total = payload.total || 0;
-  const shown = (payload.results || []).length;
+  const newRows = payload.results || [];
+  const newCount = newRows.length;
+  const shownAll = (browseState.offset || 0) + newCount;
+
+  const newCards = newRows.map(toCard).filter(c => c.id);
+  // Cache rows so toggling save (which reads currentResults to fill the
+  // watchlist preview) still works for cards not in the chat-driven list.
+  for (const row of newRows) {
+    if (row && row.auction_id) watchlistCache[row.auction_id] = toCard(row);
+  }
+  const newHtml = newCards.map(c => propCardHtml(c, false)).join('');
+
+  if (!append) {
+    if (!newCount) {
+      grid.innerHTML = `<div class="browse-empty">no properties match these filters<span class="lbl">try clearing one or two</span></div>`;
+    } else {
+      grid.innerHTML = newHtml;
+    }
+  } else if (newCount) {
+    grid.insertAdjacentHTML('beforeend', newHtml);
+  }
+  if (newCount) wireCardClicks();
+
   countEl.textContent = `${total.toLocaleString('en-IN')} propert${total === 1 ? 'y' : 'ies'}`;
   if (browseState.bank) {
     subEl.textContent = `from ${browseState.bank}`;
+  } else if (total > shownAll) {
+    subEl.textContent = `showing ${shownAll.toLocaleString('en-IN')} · across all banks`;
   } else {
-    subEl.textContent = total > shown ? `showing ${shown.toLocaleString('en-IN')} · across all banks` : 'across all banks';
+    subEl.textContent = 'across all banks';
   }
 
-  if (!shown) {
-    grid.innerHTML = `<div class="browse-empty">no properties match these filters<span class="lbl">try clearing one or two</span></div>`;
-  } else {
-    const cards = (payload.results || []).map(toCard).filter(c => c.id);
-    // Cache rows so toggling save (which reads currentResults to fill the
-    // watchlist preview) still works for cards not in the chat-driven list.
-    for (const row of payload.results || []) {
-      if (row && row.auction_id) watchlistCache[row.auction_id] = toCard(row);
+  if (pagerEl) {
+    const hasMore = shownAll < total;
+    pagerEl.hidden = total === 0;
+    if (loadMoreBtn) {
+      loadMoreBtn.hidden = !hasMore;
+      loadMoreBtn.disabled = false;
+      loadMoreBtn.textContent = 'load more';
     }
-    grid.innerHTML = cards.map(c => propCardHtml(c, false)).join('');
-    wireCardClicks();
+    if (pagerProgress) {
+      if (total === 0) {
+        pagerProgress.textContent = '';
+      } else if (hasMore) {
+        pagerProgress.textContent = `${shownAll.toLocaleString('en-IN')} of ${total.toLocaleString('en-IN')} shown`;
+      } else {
+        pagerProgress.textContent = `all ${total.toLocaleString('en-IN')} shown — that's everything`;
+      }
+    }
   }
+
   grid.setAttribute('aria-busy', 'false');
   renderActiveChips();
 }
@@ -3928,6 +4019,13 @@ function _scheduleBrowse(delay = 250) {
     const fn = _BROWSE_CLEARERS[k];
     if (fn) { fn(); applyBrowse(); }
   });
+  const loadMore = $('browse-loadmore');
+  if (loadMore) {
+    loadMore.addEventListener('click', () => {
+      browseState.offset = (browseState.offset || 0) + BROWSE_LIMIT;
+      applyBrowse({ append: true });
+    });
+  }
 })();
 
 /* ====== INPUT WIRING ====== */
