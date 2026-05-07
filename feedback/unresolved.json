@@ -1,5 +1,23 @@
 [
   {
+    "id": "29e7e165-9958-4092-8a7f-6fe20ddab2c7",
+    "kind": "general",
+    "rating": null,
+    "text": "HI",
+    "session_id": "aeb4c988-2ddd-4235-9d6b-c732dcdef270",
+    "message_index": -1,
+    "question": "",
+    "answer": "",
+    "artifacts": [],
+    "context_turns": [],
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
+    "page_url": "https://auction-intelligence-alpha.vercel.app/",
+    "property_id": null,
+    "created_at": "2026-05-07T08:24:05.969685000+00:00",
+    "resolved": false,
+    "resolved_at": null
+  },
+  {
     "id": "51520e7c-a38e-4dd4-ac33-022d9d30de9b",
     "kind": "general",
     "rating": null,
