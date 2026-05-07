@@ -113,78 +113,7 @@ def test_jaccard_unrelated_descriptions_score_low() -> None:
     assert sim < 0.3, f"expected low similarity, got {sim:.3f}"
 
 
-# ── Rule 1: survey number ────────────────────────────────────────────────────
-
-def test_survey_number_rule_requires_borrower_or_location() -> None:
-    from scripts.link_reauctions import find_reauction_pairs
-
-    auctions = [
-        {
-            "auction_id": "A", "borrower": "Alice", "bank": "SBI",
-            "city": "Chennai", "area": "Adyar", "total_area": "1000 sqft",
-            "description": DESC_A1,
-            "survey_numbers": [{"survey_no": "10", "subdivision": "1"}],
-        },
-        {
-            "auction_id": "B", "borrower": "Bob", "bank": "SBI",
-            "city": "Kanchipuram", "area": "Kancheepuram",
-            "total_area": "1000 sqft",
-            "description": DESC_UNRELATED,
-            "survey_numbers": [{"survey_no": "10", "subdivision": "1"}],
-        },
-    ]
-    assert find_reauction_pairs(auctions) == []
-
-
-def test_survey_number_rule_fires_on_borrower_match() -> None:
-    from scripts.link_reauctions import find_reauction_pairs
-
-    auctions = [
-        {
-            "auction_id": "A", "borrower": "Alice", "bank": "SBI",
-            "city": "Chennai", "area": "Adyar", "total_area": "1000 sqft",
-            "description": DESC_A1,
-            "survey_numbers": [{"survey_no": "10", "subdivision": "1"}],
-        },
-        {
-            "auction_id": "B", "borrower": "Alice", "bank": "Canara",
-            "city": "Chennai", "area": "Other Area",
-            "total_area": "1100 sqft",
-            "description": DESC_A2,
-            "survey_numbers": [{"survey_no": "10", "subdivision": "1"}],
-        },
-    ]
-    pairs = find_reauction_pairs(auctions)
-    assert len(pairs) == 1
-    a, b, reason, conf = pairs[0]
-    assert {a, b} == {"A", "B"}
-    assert reason == "survey_number"
-    assert conf == "high"
-
-
-def test_survey_number_rule_fires_on_city_and_area_match() -> None:
-    from scripts.link_reauctions import find_reauction_pairs
-
-    auctions = [
-        {
-            "auction_id": "A", "borrower": "Alice", "bank": "SBI",
-            "city": "Chennai", "area": "Adyar", "total_area": "1000 sqft",
-            "description": DESC_A1,
-            "survey_numbers": [{"survey_no": "42", "subdivision": "A"}],
-        },
-        {
-            "auction_id": "B", "borrower": "Bob", "bank": "SBI",
-            "city": "Chennai", "area": "Adyar", "total_area": "1000 sqft",
-            "description": DESC_A2,
-            "survey_numbers": [{"survey_no": "42", "subdivision": "A"}],
-        },
-    ]
-    pairs = find_reauction_pairs(auctions)
-    assert len(pairs) == 1
-    assert pairs[0][2] == "survey_number"
-
-
-# ── Rule 2: borrower + location + description ────────────────────────────────
+# ── Rule: borrower + location + description ─────────────────────────────────
 
 def test_borrower_location_desc_rule_fires_on_similar_description() -> None:
     from scripts.link_reauctions import find_reauction_pairs
@@ -194,13 +123,11 @@ def test_borrower_location_desc_rule_fires_on_similar_description() -> None:
             "auction_id": "A", "borrower": "Alice Co", "bank": "SBI",
             "city": "Chennai", "area": "Adyar", "total_area": None,
             "description": DESC_A1,
-            "survey_numbers": [],
         },
         {
             "auction_id": "B", "borrower": "Alice Co", "bank": "SBI",
             "city": "Chennai", "area": "Adyar", "total_area": None,
             "description": DESC_A2,
-            "survey_numbers": [],
         },
     ]
     pairs = find_reauction_pairs(auctions)
@@ -221,13 +148,11 @@ def test_borrower_location_desc_rule_rejects_dissimilar_descriptions() -> None:
             "auction_id": "A", "borrower": "Alice Co", "bank": "SBI",
             "city": "Chennai", "area": "Adyar", "total_area": None,
             "description": DESC_A1,
-            "survey_numbers": [],
         },
         {
             "auction_id": "B", "borrower": "Alice Co", "bank": "SBI",
             "city": "Chennai", "area": "Adyar", "total_area": None,
             "description": DESC_UNRELATED,
-            "survey_numbers": [],
         },
     ]
     assert find_reauction_pairs(auctions) == []
@@ -242,13 +167,11 @@ def test_borrower_location_desc_rule_skips_when_description_missing() -> None:
             "auction_id": "A", "borrower": "Alice Co", "bank": "SBI",
             "city": "Chennai", "area": "Adyar", "total_area": None,
             "description": None,
-            "survey_numbers": [],
         },
         {
             "auction_id": "B", "borrower": "Alice Co", "bank": "SBI",
             "city": "Chennai", "area": "Adyar", "total_area": None,
             "description": DESC_A2,
-            "survey_numbers": [],
         },
     ]
     assert find_reauction_pairs(auctions) == []
@@ -264,13 +187,11 @@ def test_borrower_location_desc_rule_rejects_disagreeing_total_area() -> None:
             "auction_id": "A", "borrower": "Alice Co", "bank": "SBI",
             "city": "Chennai", "area": "Adyar", "total_area": "1000 sqft",
             "description": DESC_A1,
-            "survey_numbers": [],
         },
         {
             "auction_id": "B", "borrower": "Alice Co", "bank": "SBI",
             "city": "Chennai", "area": "Adyar", "total_area": "1400 sqft",
             "description": DESC_A2,
-            "survey_numbers": [],
         },
     ]
     assert find_reauction_pairs(auctions) == []
@@ -288,14 +209,12 @@ def test_same_day_auctions_are_treated_as_batch_sale_not_reauction() -> None:
             "city": "Chennai", "area": "Adyar", "total_area": None,
             "description": DESC_A1,
             "auction_start_dt": "2026-05-07T10:00:00",
-            "survey_numbers": [],
         },
         {
             "auction_id": "B", "borrower": "Alice Co", "bank": "SBI",
             "city": "Chennai", "area": "Adyar", "total_area": None,
             "description": DESC_A2,
             "auction_start_dt": "2026-05-07T14:30:00",  # same day, later slot
-            "survey_numbers": [],
         },
     ]
     assert find_reauction_pairs(auctions) == []
@@ -312,14 +231,12 @@ def test_different_day_auctions_can_still_match() -> None:
             "city": "Chennai", "area": "Adyar", "total_area": None,
             "description": DESC_A1,
             "auction_start_dt": "2026-01-15T10:00:00",
-            "survey_numbers": [],
         },
         {
             "auction_id": "B", "borrower": "Alice Co", "bank": "SBI",
             "city": "Chennai", "area": "Adyar", "total_area": None,
             "description": DESC_A2,
             "auction_start_dt": "2026-05-07T10:00:00",
-            "survey_numbers": [],
         },
     ]
     pairs = find_reauction_pairs(auctions)
@@ -338,40 +255,15 @@ def test_missing_date_does_not_block_match() -> None:
             "city": "Chennai", "area": "Adyar", "total_area": None,
             "description": DESC_A1,
             "auction_start_dt": None,
-            "survey_numbers": [],
         },
         {
             "auction_id": "B", "borrower": "Alice Co", "bank": "SBI",
             "city": "Chennai", "area": "Adyar", "total_area": None,
             "description": DESC_A2,
             "auction_start_dt": "2026-05-07T10:00:00",
-            "survey_numbers": [],
         },
     ]
     assert len(find_reauction_pairs(auctions)) == 1
-
-
-def test_survey_number_rule_also_honours_same_day_rejection() -> None:
-    """Same survey, same borrower, SAME day → batch sale, skip."""
-    from scripts.link_reauctions import find_reauction_pairs
-
-    auctions = [
-        {
-            "auction_id": "A", "borrower": "Alice", "bank": "SBI",
-            "city": "Chennai", "area": "Adyar", "total_area": None,
-            "description": DESC_A1,
-            "auction_start_dt": "2026-05-07T10:00:00",
-            "survey_numbers": [{"survey_no": "10", "subdivision": "1"}],
-        },
-        {
-            "auction_id": "B", "borrower": "Alice", "bank": "Canara",
-            "city": "Chennai", "area": "Other Area", "total_area": None,
-            "description": DESC_A2,
-            "auction_start_dt": "2026-05-07T14:00:00",
-            "survey_numbers": [{"survey_no": "10", "subdivision": "1"}],
-        },
-    ]
-    assert find_reauction_pairs(auctions) == []
 
 
 def test_is_same_auction_day_helper() -> None:
@@ -394,13 +286,11 @@ def test_borrower_location_desc_respects_area_normalisation() -> None:
             "auction_id": "A", "borrower": "Alice Co", "bank": "SBI",
             "city": "Chennai", "area": "Vedasandur.", "total_area": None,
             "description": DESC_A1,
-            "survey_numbers": [],
         },
         {
             "auction_id": "B", "borrower": "Alice Co", "bank": "SBI",
             "city": "Chennai", "area": "Vedasandur", "total_area": None,
             "description": DESC_A2,
-            "survey_numbers": [],
         },
     ]
     pairs = find_reauction_pairs(auctions)
@@ -415,13 +305,11 @@ def test_sim_threshold_is_configurable() -> None:
             "auction_id": "A", "borrower": "Alice Co", "bank": "SBI",
             "city": "Chennai", "area": "Adyar", "total_area": None,
             "description": "flat at door no 42 adyar",
-            "survey_numbers": [],
         },
         {
             "auction_id": "B", "borrower": "Alice Co", "bank": "SBI",
             "city": "Chennai", "area": "Adyar", "total_area": None,
             "description": "flat door no 42 adyar chennai",
-            "survey_numbers": [],
         },
     ]
     # Loose threshold → matches.
@@ -433,8 +321,8 @@ def test_sim_threshold_is_configurable() -> None:
 # ── Transitive clustering ────────────────────────────────────────────────────
 
 def test_expand_clusters_is_transitive() -> None:
-    """A↔B via survey and B↔C via borrower+location+desc should produce
-    an A↔C pair too (same property, three auction rounds)."""
+    """Three auctions of the same parcel — pairwise rule-2 matches should
+    produce one cluster with all three pairs."""
     from scripts.link_reauctions import find_reauction_pairs, expand_clusters
 
     auctions = [
@@ -442,19 +330,16 @@ def test_expand_clusters_is_transitive() -> None:
             "auction_id": "A", "borrower": "Alice Co", "bank": "SBI",
             "city": "Chennai", "area": "Adyar", "total_area": "1000 sqft",
             "description": DESC_A1,
-            "survey_numbers": [{"survey_no": "10", "subdivision": "1"}],
         },
         {
             "auction_id": "B", "borrower": "Alice Co", "bank": "SBI",
             "city": "Chennai", "area": "Adyar", "total_area": "1000 sqft",
             "description": DESC_A1,
-            "survey_numbers": [{"survey_no": "10", "subdivision": "1"}],
         },
         {
             "auction_id": "C", "borrower": "Alice Co", "bank": "SBI",
             "city": "Chennai", "area": "Adyar", "total_area": "1020 sqft",
             "description": DESC_A2,
-            "survey_numbers": [],
         },
     ]
     pairs = find_reauction_pairs(auctions)
@@ -542,7 +427,6 @@ def test_batch_sale_parcels_do_not_cross_link_via_boilerplate() -> None:
             "auction_id": aid, "borrower": "Ventures Co", "bank": "ARC",
             "city": "Coimbatore", "area": "Vadavalli", "total_area": None,
             "description": desc, "auction_start_dt": date,
-            "survey_numbers": [],
         }
         for aid, date, desc in lots
     ]
@@ -596,7 +480,6 @@ def test_expand_clusters_lone_auction_produces_no_pairs() -> None:
             "auction_id": "A", "borrower": "Alice", "bank": "SBI",
             "city": "Chennai", "area": "Adyar", "total_area": "1000 sqft",
             "description": DESC_A1,
-            "survey_numbers": [],
         },
     ]
     pairs = find_reauction_pairs(auctions)
