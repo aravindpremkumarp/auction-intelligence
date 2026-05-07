@@ -339,14 +339,21 @@ def semantic_search(
     For "find me this exact pasted property" use `match_pasted_listing`
     — semantic search alone has no way to disambiguate between similar
     listings.
+
+    Failure handling: returns `{"error": "<message>", "results": []}` if the
+    embedding backend is unavailable (e.g. Gemini key not set). The LLM
+    should fall back to `search_auctions` rather than retry.
     """
-    return T.semantic_search(
-        query, city=city, area=area,
-        min_price=min_price, max_price=max_price,
-        asset_category=asset_category,
-        starts_after=starts_after, starts_before=starts_before,
-        limit=limit, include_past=include_past,
-    )
+    try:
+        return T.semantic_search(
+            query, city=city, area=area,
+            min_price=min_price, max_price=max_price,
+            asset_category=asset_category,
+            starts_after=starts_after, starts_before=starts_before,
+            limit=limit, include_past=include_past,
+        )
+    except RuntimeError as e:
+        return {"error": str(e), "results": [], "returned": 0, "limit": limit}
 
 
 @agent.tool_plain
