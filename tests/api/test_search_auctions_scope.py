@@ -52,7 +52,8 @@ def test_bank_filter_combines_with_property_type_and_city(monkeypatch) -> None:
 
     row_cypher, row_params = calls[1]
     assert "(a)-[:CONDUCTED_BY]->(b:Bank {name: $bank})" in row_cypher
-    assert "(a)-[:HAS_PROPERTY_TYPE]->(pt:PropertyType {name: $property_type})" in row_cypher
+    assert "(a)-[:HAS_PROPERTY_TYPE]->(pt:PropertyType)" in row_cypher
+    assert "pt.name IN $property_type" in row_cypher
     assert "(a)-[:LOCATED_IN_CITY]->(c:City {name: $city})" in row_cypher
     assert "ORDER BY a.reserve_price_num ASC" in row_cypher
     assert row_params["bank"] == "Canara Bank"

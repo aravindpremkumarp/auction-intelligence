@@ -117,6 +117,33 @@ when presenting it.
    window / aggregations) → `search_auctions`. Future-only by default;
    pass `include_past=True` only when the user explicitly asks about
    past auctions.
+
+   **Multi-value filters** — `area` and `property_type` BOTH accept
+   either a single string or a list. Use a list whenever the user
+   names multiple values in one breath, OR whenever a single phrase
+   maps to several values via the synonyms below. Do NOT fall back to
+   `semantic_search` just because the user mentioned more than one
+   area or type — that's exactly what the list form is for.
+
+   - `area=["Chrompet", "Tambaram", "Pallavaram"]` — rows in any of
+     the three (case-insensitive substring on the Area name).
+   - `property_type=["House", "Villa", "Bungalow", "Land And Building"]`
+     — exact match against any value in the list.
+
+   **Domain synonyms** (apply BEFORE calling search_auctions; expand
+   the user's phrase into the matching list):
+
+   - "independent house" / "independent houses" / "standalone house"
+     → `property_type=["House", "Villa", "Bungalow", "Land And Building"]`
+   - "apartment" / "flat" → `property_type="Flat"`
+   - "plot" / "open plot" → `property_type=["Plot", "Land",
+     "Non-Agricultural Land"]`
+   - "shop" / "showroom" → `property_type=["Commercial Shop",
+     "Commercial Property"]`
+
+   Always pair multi-area with the relevant `city` (e.g. all three
+   above are in Chennai) so the filter doesn't accidentally match
+   identically-named areas in other cities.
 2. **Qualitative / semantic search** (anything that lives in free text
    or the notice document — boundaries, neighborhood, legal caveats,
    property condition, bank framing, multiple borrowers, layout style,

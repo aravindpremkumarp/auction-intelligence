@@ -143,8 +143,8 @@ def search_auctions(
     min_price: float | None = None,
     max_price: float | None = None,
     city: str | None = None,
-    area: str | None = None,
-    property_type: str | None = None,
+    area: str | list[str] | None = None,
+    property_type: str | list[str] | None = None,
     asset_category: str | None = None,
     bank: str | None = None,
     auction_type: str | None = None,
@@ -193,12 +193,15 @@ def search_auctions(
     if city:
         matches.append("(a)-[:LOCATED_IN_CITY]->(c:City {name: $city})"); params["city"] = city
     if area:
+        area_list = [area] if isinstance(area, str) else list(area)
         matches.append("(a)-[:LOCATED_IN_AREA]->(ar:Area)")
-        where.append("toLower(ar.name) CONTAINS toLower($area)")
-        params["area"] = area
+        where.append("any(x IN $area WHERE toLower(ar.name) CONTAINS toLower(x))")
+        params["area"] = area_list
     if property_type:
-        matches.append("(a)-[:HAS_PROPERTY_TYPE]->(pt:PropertyType {name: $property_type})")
-        params["property_type"] = property_type
+        pt_list = [property_type] if isinstance(property_type, str) else list(property_type)
+        matches.append("(a)-[:HAS_PROPERTY_TYPE]->(pt:PropertyType)")
+        where.append("pt.name IN $property_type")
+        params["property_type"] = pt_list
     if asset_category:
         matches.append("(a)-[:HAS_ASSET_CATEGORY]->(ac:AssetCategory {name: $asset_category})")
         params["asset_category"] = asset_category

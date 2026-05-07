@@ -26,8 +26,8 @@ def test_area_filter_produces_case_insensitive_contains(monkeypatch) -> None:
 
     cypher, params = calls[0]
     assert "(a)-[:LOCATED_IN_AREA]->(ar:Area)" in cypher
-    assert "toLower(ar.name) CONTAINS toLower($area)" in cypher
-    assert params["area"] == "ambattur"
+    assert "any(x IN $area WHERE toLower(ar.name) CONTAINS toLower(x))" in cypher
+    assert params["area"] == ["ambattur"]
     assert params["city"] == "Chennai"
 
 
@@ -39,9 +39,32 @@ def test_area_filter_combines_with_property_type(monkeypatch) -> None:
 
     search_auctions(area="Sriperumbudur", property_type="Flat", limit=0)
 
-    cypher, _ = calls[0]
+    cypher, params = calls[0]
     assert "(a)-[:LOCATED_IN_AREA]->(ar:Area)" in cypher
-    assert "(a)-[:HAS_PROPERTY_TYPE]->(pt:PropertyType {name: $property_type})" in cypher
+    assert "(a)-[:HAS_PROPERTY_TYPE]->(pt:PropertyType)" in cypher
+    assert "pt.name IN $property_type" in cypher
+    assert params["property_type"] == ["Flat"]
+
+
+def test_multi_area_and_multi_property_type(monkeypatch) -> None:
+    """List inputs must produce list params and any-match Cypher (area)
+    plus IN-list Cypher (property_type) — the 'independent houses in
+    Chrompet/Tambaram/Pallavaram' shape."""
+    calls = _patch_run_query(monkeypatch)
+    from api.tools.cypher_tools import search_auctions
+
+    search_auctions(
+        city="Chennai",
+        area=["Chrompet", "Tambaram", "Pallavaram"],
+        property_type=["House", "Villa", "Bungalow", "Land And Building"],
+        limit=0,
+    )
+
+    cypher, params = calls[0]
+    assert "any(x IN $area WHERE toLower(ar.name) CONTAINS toLower(x))" in cypher
+    assert "pt.name IN $property_type" in cypher
+    assert params["area"] == ["Chrompet", "Tambaram", "Pallavaram"]
+    assert params["property_type"] == ["House", "Villa", "Bungalow", "Land And Building"]
 
 
 def test_no_area_means_no_area_clause(monkeypatch) -> None:

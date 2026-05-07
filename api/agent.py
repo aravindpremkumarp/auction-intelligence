@@ -185,8 +185,9 @@ def inject_mode_overlay(ctx: RunContext[ChatDeps]) -> str:
 @agent.tool_plain
 def search_auctions(
     min_price: float | None = None, max_price: float | None = None,
-    city: str | None = None, area: str | None = None,
-    property_type: str | None = None,
+    city: str | None = None,
+    area: str | list[str] | None = None,
+    property_type: str | list[str] | None = None,
     asset_category: str | None = None,
     bank: str | None = None,
     auction_type: str | None = None,
@@ -220,7 +221,17 @@ def search_auctions(
         e.g. "Ambattur", "Sriperumbudur"). Case-insensitive substring match,
         so "ambattur" and "Ambattur" both work. Use this for
         "show me properties in <area>" style queries — combine with `city`
-        when the user also names the city.
+        when the user also names the city. Pass a LIST when the user names
+        multiple areas in one breath ("Chrompet, Tambaram, Pallavaram") —
+        any-match semantics: rows whose Area name contains ANY of the
+        provided strings (case-insensitive) are returned.
+
+    Type filters:
+      - `property_type` matches a PropertyType node by exact name. Pass a
+        LIST when the user's intent maps to several types — e.g.
+        "independent house" → ["House", "Villa", "Bungalow",
+        "Land And Building"]. Single string still works for one-type
+        queries.
 
     Scope filters:
       - `bank` matches a Bank node by exact name (e.g. "Canara Bank",
@@ -262,6 +273,11 @@ def search_auctions(
     Example for "5 cheapest Canara Bank lands in Chennai":
       search_auctions(bank="Canara Bank", property_type="Land",
                       city="Chennai", order_by="price_asc", limit=5)
+
+    Example for "independent houses in Chrompet, Tambaram, Pallavaram":
+      search_auctions(area=["Chrompet", "Tambaram", "Pallavaram"],
+                      property_type=["House", "Villa", "Bungalow",
+                                     "Land And Building"])
     """
     return T.search_auctions(
         min_price=min_price, max_price=max_price,
