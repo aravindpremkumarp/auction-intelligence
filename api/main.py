@@ -137,6 +137,10 @@ class ChatRequest(BaseModel):
     message: str
     message_history: list[dict[str, Any]] | None = None
     mode: str | None = None
+    # Filters the client wants the agent to scope to on the next turn — e.g.
+    # the browse panel's current selection. History-extracted filters layer
+    # on top so the rolling-scope behavior across turns still works.
+    active_filters: dict[str, Any] | None = None
 
 
 # Whitelist of modes the agent will overlay. Each maps to a modes/<id>.md file.
@@ -834,9 +838,14 @@ async def chat(
             # Unknown mode or the default "ask" sentinel — don't overlay anything.
             mode = None
     if history:
-        active_filters, last_total = _extract_active_filters(history)
+        history_filters, last_total = _extract_active_filters(history)
     else:
-        active_filters, last_total = {}, None
+        history_filters, last_total = {}, None
+    # Client-supplied filters (e.g. from the browse panel "chat about these"
+    # button) seed the scope; whatever the agent has narrowed across prior
+    # turns layers on top so explicit refinements still win.
+    client_filters = req.active_filters or {}
+    active_filters = {**client_filters, **history_filters}
     deps = ChatDeps(
         active_filters=active_filters or None,
         last_total_count=last_total,

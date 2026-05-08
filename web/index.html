@@ -375,6 +375,21 @@ body {
   opacity: 0.3; cursor: not-allowed;
   background: var(--card); color: var(--muted);
 }
+.filter-chat {
+  border: 1.5px solid var(--ink);
+  background: var(--accent); color: #1a1a1a;
+  padding: 5px 10px;
+  font-family: var(--font-mono); font-size: 11px;
+  cursor: pointer;
+  text-transform: uppercase; letter-spacing: 0.05em;
+  box-shadow: var(--shadow);
+}
+.filter-chat:hover:not(:disabled) { background: var(--ink); color: var(--paper); }
+.filter-chat:disabled {
+  opacity: 0.3; cursor: not-allowed;
+  background: var(--card); color: var(--muted);
+  box-shadow: none;
+}
 .active-chips {
   display: flex; flex-wrap: wrap; gap: 6px;
   margin-left: auto;
@@ -1573,6 +1588,7 @@ body {
               <svg class="ico-s" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" stroke-width="1.5"/><line x1="10.5" y1="10.5" x2="14" y2="14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
               <input id="browse-q" type="text" placeholder="search by location, bank, type…" autocomplete="off" aria-label="search properties">
             </div>
+            <button class="filter-chat" id="f-chat" disabled hidden>chat about these</button>
             <button class="filter-clear" id="f-clear" disabled>clear all</button>
           </div>
 
@@ -2532,10 +2548,17 @@ document.addEventListener('change', (e) => {
 async function apiChat(message) {
   const mode = window.currentMode || 'ask';
   if (!_requireAuthForMode(mode)) throw new Error('login required for this mode');
+  // pendingChatScope is set by the "chat about these" button on the browse
+  // panel — passed once on the next turn, then cleared so it doesn't cling
+  // to follow-up questions outside the original filter context.
+  const activeFilters = window.pendingChatScope || null;
+  window.pendingChatScope = null;
+  const body = { message, message_history: apiMessageHistory, mode };
+  if (activeFilters) body.active_filters = activeFilters;
   const res = await authFetch(`${API_BASE}/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message, message_history: apiMessageHistory, mode }),
+    body: JSON.stringify(body),
   });
   if (res.status === 401) { if (window.Auth) window.Auth.openLoginModal(); throw new Error('login required'); }
   if (res.status === 429) throw new Error('rate limit reached — please sign in or try again later');
@@ -3879,6 +3902,30 @@ function _hasAnyBrowseFilter() {
   return MULTI_FILTER_KEYS.some(k => (browseState[k] || []).length > 0);
 }
 
+function _browseFiltersToScope() {
+  // Translate browseState into the agent's search_auctions arg names so the
+  // model carries them on its first tool call. Lists with one item are sent
+  // as a scalar to match the tool's str | list[str] union exactly.
+  const f = {};
+  const oneOrMany = (vals) => (vals && vals.length === 1 ? vals[0] : vals.slice());
+  if (browseState.category?.length)     f.asset_category = oneOrMany(browseState.category);
+  if (browseState.propertyType?.length) f.property_type  = oneOrMany(browseState.propertyType);
+  if (browseState.bank?.length)         f.bank           = oneOrMany(browseState.bank);
+  if (browseState.district?.length)     f.city           = oneOrMany(browseState.district);
+  if (browseState.village?.length)      f.area           = oneOrMany(browseState.village);
+  if (browseState.price === 'custom') {
+    if (browseState.priceMin !== '') f.min_price = +browseState.priceMin * 1e5;
+    if (browseState.priceMax !== '') f.max_price = +browseState.priceMax * 1e5;
+  } else if (browseState.price) {
+    const [a, b] = browseState.price.split('-');
+    if (a !== '') f.min_price = +a * 1e5;
+    if (b !== '' && b !== undefined) f.max_price = +b * 1e5;
+  }
+  if (browseState.dateFrom) f.starts_after  = browseState.dateFrom;
+  if (browseState.dateTo)   f.starts_before = new Date(browseState.dateTo + 'T23:59:59').toISOString();
+  return f;
+}
+
 function _updateFilterMultiLabel(wrapId) {
   const wrap = document.getElementById(wrapId);
   if (!wrap) return;
@@ -4060,7 +4107,13 @@ async function applyBrowse({ append = false } = {}) {
   if (pagerProgress && append) pagerProgress.textContent = 'loading…';
 
   grid.setAttribute('aria-busy', 'true');
-  clearBtn.disabled = !_hasAnyBrowseFilter();
+  const anyFilter = _hasAnyBrowseFilter();
+  clearBtn.disabled = !anyFilter;
+  const chatBtn = document.getElementById('f-chat');
+  if (chatBtn) {
+    chatBtn.disabled = !anyFilter;
+    chatBtn.hidden = !anyFilter;
+  }
 
   const url = `${API_BASE}/properties?${_browseQueryParams().toString()}`;
   let payload;
@@ -4240,6 +4293,18 @@ function _wireFilterMulti(wrapId) {
   $('f-date-from').addEventListener('change', e => { browseState.dateFrom = e.target.value; applyBrowse(); });
   $('f-date-to').addEventListener('change', e => { browseState.dateTo = e.target.value; applyBrowse(); });
   $('f-clear').addEventListener('click', clearAllBrowseFilters);
+  $('f-chat').addEventListener('click', () => {
+    if (!_hasAnyBrowseFilter()) return;
+    window.pendingChatScope = _browseFiltersToScope();
+    // Mirror the browse search box into the chat input so the model sees
+    // the user's free-text intent alongside the structured scope.
+    const inp = document.getElementById('landing-input');
+    if (inp) {
+      if (browseState.q) inp.value = browseState.q;
+      inp.focus();
+      inp.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  });
   $('active-chips').addEventListener('click', e => {
     const chip = e.target.closest('.active-chip');
     if (!chip) return;
