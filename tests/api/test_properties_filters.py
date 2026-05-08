@@ -80,3 +80,54 @@ def test_property_type_compose_with_geographic_filters() -> None:
         "f_village": "Adyar",
         "f_property_type": "Apartment",
     }
+
+
+def test_multi_value_filter_emits_in_clause() -> None:
+    """When a categorical filter is given a list with >1 values, the cypher
+    switches to an aliased node + `IN` WHERE clause so the dimension is OR'd
+    within while still AND-ing across other dimensions."""
+    match, where, params = _properties_filter_cypher(
+        {"property_type": ["Apartment", "Villa"]},
+    )
+
+    assert "HAS_PROPERTY_TYPE" in match
+    assert "(s_property_type:PropertyType)" in match
+    assert "s_property_type.name IN $f_property_type_list" in where
+    assert params == {"f_property_type_list": ["Apartment", "Villa"]}
+
+
+def test_single_element_list_keeps_inline_pattern() -> None:
+    """A one-element list must produce the same cheap inline-equals pattern
+    as the scalar form — the IN-list form is reserved for true multi-select."""
+    match, _, params = _properties_filter_cypher({"bank": ["ICICI"]})
+
+    assert "(a)-[:CONDUCTED_BY]->(:Bank {name: $f_bank})" in match
+    assert params == {"f_bank": "ICICI"}
+
+
+def test_multi_value_across_dimensions_compose_with_AND() -> None:
+    """Multi-value filters across separate dimensions still AND together —
+    each adds its own MATCH/WHERE without colliding on params or aliases."""
+    match, where, params = _properties_filter_cypher(
+        {"state": ["Tamil Nadu", "Karnataka"], "bank": ["ICICI", "HDFC"]},
+    )
+
+    assert "(s_state:State)" in match
+    assert "(s_bank:Bank)" in match
+    assert "s_state.name IN $f_state_list" in where
+    assert "s_bank.name IN $f_bank_list" in where
+    assert params == {
+        "f_state_list": ["Tamil Nadu", "Karnataka"],
+        "f_bank_list": ["ICICI", "HDFC"],
+    }
+
+
+def test_empty_list_filter_is_ignored() -> None:
+    """An empty list (no values selected) must not add any MATCH/WHERE/param
+    — same as if the filter weren't passed at all."""
+    match, where, params = _properties_filter_cypher({"state": [], "bank": []})
+
+    assert "LOCATED_IN_STATE" not in match
+    assert "CONDUCTED_BY" not in match
+    assert where == ""
+    assert params == {}

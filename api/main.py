@@ -26,7 +26,7 @@ def _parse_to_utc(s: str) -> datetime:
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -219,24 +219,34 @@ def _properties_filter_cypher(filters: dict[str, Any]) -> tuple[str, str, dict[s
     matches = ["(a:AuctionProperty)"]
     where: list[str] = []
     params: dict[str, Any] = {}
-    if filters.get("state"):
-        matches.append("(a)-[:LOCATED_IN_STATE]->(:State {name: $f_state})")
-        params["f_state"] = filters["state"]
-    if filters.get("district"):
-        matches.append("(a)-[:LOCATED_IN_CITY]->(:City {name: $f_district})")
-        params["f_district"] = filters["district"]
-    if filters.get("village"):
-        matches.append("(a)-[:LOCATED_IN_AREA]->(:Area {name: $f_village})")
-        params["f_village"] = filters["village"]
-    if filters.get("bank"):
-        matches.append("(a)-[:CONDUCTED_BY]->(:Bank {name: $f_bank})")
-        params["f_bank"] = filters["bank"]
-    if filters.get("type"):
-        matches.append("(a)-[:HAS_ASSET_CATEGORY]->(:AssetCategory {name: $f_type})")
-        params["f_type"] = filters["type"]
-    if filters.get("property_type"):
-        matches.append("(a)-[:HAS_PROPERTY_TYPE]->(:PropertyType {name: $f_property_type})")
-        params["f_property_type"] = filters["property_type"]
+
+    # Categorical filters that support multi-select. With a single value the
+    # inline pattern stays (cheap, indexed lookup); with multiple values an
+    # aliased node + IN-list WHERE makes the dimension act as OR-within while
+    # still AND-ing across dimensions.
+    _categorical = (
+        ("state",         "LOCATED_IN_STATE",   "State",         "f_state",         "s_state"),
+        ("district",      "LOCATED_IN_CITY",    "City",          "f_district",      "s_district"),
+        ("village",       "LOCATED_IN_AREA",    "Area",          "f_village",       "s_village"),
+        ("bank",          "CONDUCTED_BY",       "Bank",          "f_bank",          "s_bank"),
+        ("type",          "HAS_ASSET_CATEGORY", "AssetCategory", "f_type",          "s_type"),
+        ("property_type", "HAS_PROPERTY_TYPE",  "PropertyType",  "f_property_type", "s_property_type"),
+    )
+    for key, rel, label, param_key, alias in _categorical:
+        raw = filters.get(key)
+        if raw in (None, "", []):
+            continue
+        vals = raw if isinstance(raw, list) else [raw]
+        vals = [v for v in vals if v]
+        if not vals:
+            continue
+        if len(vals) == 1:
+            matches.append(f"(a)-[:{rel}]->(:{label} {{name: ${param_key}}})")
+            params[param_key] = vals[0]
+        else:
+            matches.append(f"(a)-[:{rel}]->({alias}:{label})")
+            where.append(f"{alias}.name IN ${param_key}_list")
+            params[f"{param_key}_list"] = vals
     if filters.get("min_price") is not None:
         where.append("a.reserve_price_num >= $f_min_price")
         params["f_min_price"] = float(filters["min_price"])
@@ -292,12 +302,12 @@ def _properties_facet(match_clause: str, where_clause: str, params: dict[str, An
 @app.get("/properties")
 def list_properties(
     q: str | None = None,
-    type: str | None = None,
-    property_type: str | None = None,
-    bank: str | None = None,
-    state: str | None = None,
-    district: str | None = None,
-    village: str | None = None,
+    type: list[str] | None = Query(default=None),
+    property_type: list[str] | None = Query(default=None),
+    bank: list[str] | None = Query(default=None),
+    state: list[str] | None = Query(default=None),
+    district: list[str] | None = Query(default=None),
+    village: list[str] | None = Query(default=None),
     min_price: float | None = None,
     max_price: float | None = None,
     date_from: str | None = None,
