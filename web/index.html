@@ -280,6 +280,58 @@ body {
   max-width: 220px;
 }
 .filter-select:hover { background: var(--accent); color: #1a1a1a; }
+.filter-multi {
+  position: relative;
+  display: inline-block;
+}
+.filter-multi-btn {
+  border: 1.5px solid var(--ink);
+  background: var(--card);
+  padding: 5px 8px;
+  font-family: var(--font-body); font-size: 13px;
+  color: var(--ink);
+  cursor: pointer;
+  max-width: 220px;
+  min-width: 110px;
+  display: inline-flex; align-items: center; gap: 6px;
+  text-align: left;
+}
+.filter-multi-btn:hover,
+.filter-multi.open .filter-multi-btn { background: var(--accent); color: #1a1a1a; }
+.filter-multi-label {
+  flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.filter-multi-caret {
+  font-size: 10px; opacity: 0.7;
+}
+.filter-multi-panel {
+  position: absolute; top: calc(100% + 4px); left: 0; z-index: 20;
+  min-width: 220px; max-width: 320px; max-height: 280px;
+  overflow-y: auto;
+  border: 1.5px solid var(--ink);
+  background: var(--card);
+  box-shadow: var(--shadow);
+  padding: 6px 0;
+  font-family: var(--font-body); font-size: 13px;
+}
+.filter-multi-empty {
+  padding: 8px 12px; color: var(--muted); font-size: 12px;
+}
+.filter-multi-opt {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 12px;
+  cursor: pointer;
+  user-select: none;
+}
+.filter-multi-opt:hover { background: var(--paper-2); }
+.filter-multi-opt input { margin: 0; cursor: pointer; flex-shrink: 0; }
+.filter-multi-opt .name {
+  flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.filter-multi-opt .count {
+  color: var(--muted); font-family: var(--font-mono); font-size: 11px;
+  flex-shrink: 0;
+}
 .filter-num, .filter-date {
   border: 1.5px solid var(--ink);
   background: var(--card);
@@ -383,6 +435,9 @@ body {
   .browse-grid { grid-template-columns: 1fr; }
   .filter-group { width: 100%; }
   .filter-select { flex: 1; min-width: 0; max-width: 100%; }
+  .filter-multi { flex: 1; min-width: 0; }
+  .filter-multi-btn { width: 100%; max-width: 100%; }
+  .filter-multi-panel { width: 100%; max-width: 100%; }
   .browse-search { width: 100%; }
   .browse-pager .lm-btn { width: 100%; padding: 12px 16px; }
 }
@@ -1505,30 +1560,48 @@ body {
           <div class="bf-row">
             <div class="filter-group">
               <span class="lbl-inline">state</span>
-              <select class="filter-select" id="f-state" aria-label="state"><option value="">all</option></select>
+              <div class="filter-multi" id="f-state" data-key="state" data-label="state">
+                <button class="filter-multi-btn" type="button" aria-haspopup="listbox" aria-expanded="false" aria-label="state"><span class="filter-multi-label">all</span><span class="filter-multi-caret">▾</span></button>
+                <div class="filter-multi-panel" hidden role="listbox" aria-multiselectable="true"></div>
+              </div>
             </div>
             <div class="filter-group">
               <span class="lbl-inline">district</span>
-              <select class="filter-select" id="f-district" aria-label="district"><option value="">all</option></select>
+              <div class="filter-multi" id="f-district" data-key="district" data-label="district">
+                <button class="filter-multi-btn" type="button" aria-haspopup="listbox" aria-expanded="false" aria-label="district"><span class="filter-multi-label">all</span><span class="filter-multi-caret">▾</span></button>
+                <div class="filter-multi-panel" hidden role="listbox" aria-multiselectable="true"></div>
+              </div>
             </div>
             <div class="filter-group">
               <span class="lbl-inline">village/area</span>
-              <select class="filter-select" id="f-village" aria-label="village"><option value="">all</option></select>
+              <div class="filter-multi" id="f-village" data-key="village" data-label="village/area">
+                <button class="filter-multi-btn" type="button" aria-haspopup="listbox" aria-expanded="false" aria-label="village"><span class="filter-multi-label">all</span><span class="filter-multi-caret">▾</span></button>
+                <div class="filter-multi-panel" hidden role="listbox" aria-multiselectable="true"></div>
+              </div>
             </div>
           </div>
 
           <div class="bf-row">
             <div class="filter-group">
               <span class="lbl-inline">asset category</span>
-              <select class="filter-select" id="f-category" aria-label="asset category"><option value="">all</option></select>
+              <div class="filter-multi" id="f-category" data-key="category" data-label="asset category">
+                <button class="filter-multi-btn" type="button" aria-haspopup="listbox" aria-expanded="false" aria-label="asset category"><span class="filter-multi-label">all</span><span class="filter-multi-caret">▾</span></button>
+                <div class="filter-multi-panel" hidden role="listbox" aria-multiselectable="true"></div>
+              </div>
             </div>
             <div class="filter-group">
               <span class="lbl-inline">property type</span>
-              <select class="filter-select" id="f-type" aria-label="property type"><option value="">all</option></select>
+              <div class="filter-multi" id="f-type" data-key="propertyType" data-label="property type">
+                <button class="filter-multi-btn" type="button" aria-haspopup="listbox" aria-expanded="false" aria-label="property type"><span class="filter-multi-label">all</span><span class="filter-multi-caret">▾</span></button>
+                <div class="filter-multi-panel" hidden role="listbox" aria-multiselectable="true"></div>
+              </div>
             </div>
             <div class="filter-group">
               <span class="lbl-inline">bank</span>
-              <select class="filter-select" id="f-bank" aria-label="bank"><option value="">all</option></select>
+              <div class="filter-multi" id="f-bank" data-key="bank" data-label="bank">
+                <button class="filter-multi-btn" type="button" aria-haspopup="listbox" aria-expanded="false" aria-label="bank"><span class="filter-multi-label">all</span><span class="filter-multi-caret">▾</span></button>
+                <div class="filter-multi-panel" hidden role="listbox" aria-multiselectable="true"></div>
+              </div>
             </div>
           </div>
 
@@ -3724,14 +3797,20 @@ document.getElementById('fb-modal').addEventListener('click', (e) => {
 // `category` -> backend `type` (AssetCategory: Residential / Commercial / Land...)
 // `propertyType` -> backend `property_type` (PropertyType: Apartment / Plot / Villa...)
 // Two real, non-overlapping filter dimensions backed by separate graph edges.
+// `category`, `propertyType`, `bank`, `state`, `district`, `village` are
+// arrays — each filter can hold multiple selected values, sent to the API
+// as repeated query params (e.g., `?bank=A&bank=B`) and OR'd within that
+// dimension server-side.
 const browseState = {
-  q: '', category: '', propertyType: '', bank: '',
-  state: '', district: '', village: '',
+  q: '',
+  category: [], propertyType: [], bank: [],
+  state: [], district: [], village: [],
   price: '', priceMin: '', priceMax: '',
   dateFrom: '', dateTo: '',
   sort: 'date',
   offset: 0,
 };
+const MULTI_FILTER_KEYS = ['category', 'propertyType', 'bank', 'state', 'district', 'village'];
 const BROWSE_LIMIT = 60;
 let browseAbort = null;
 let browseDebounce = null;
@@ -3743,12 +3822,17 @@ function _priceLabel(key) {
 function _browseQueryParams() {
   const p = new URLSearchParams();
   if (browseState.q) p.set('q', browseState.q);
-  if (browseState.category) p.set('type', browseState.category);
-  if (browseState.propertyType) p.set('property_type', browseState.propertyType);
-  if (browseState.bank) p.set('bank', browseState.bank);
-  if (browseState.state) p.set('state', browseState.state);
-  if (browseState.district) p.set('district', browseState.district);
-  if (browseState.village) p.set('village', browseState.village);
+  // Multi-value filters: append once per selected value. FastAPI parses
+  // repeated params into a list[str], the cypher helper OR's within-dim.
+  const _appendAll = (key, values) => {
+    for (const v of (values || [])) if (v) p.append(key, v);
+  };
+  _appendAll('type',          browseState.category);
+  _appendAll('property_type', browseState.propertyType);
+  _appendAll('bank',          browseState.bank);
+  _appendAll('state',         browseState.state);
+  _appendAll('district',      browseState.district);
+  _appendAll('village',       browseState.village);
   // Price comes in as either a preset bucket (e.g. "50-100", in lakhs) or
   // custom min/max (also lakhs from the UI). Convert to rupees for the API.
   let lo = null, hi = null;
@@ -3771,44 +3855,69 @@ function _browseQueryParams() {
 }
 
 function _hasAnyBrowseFilter() {
-  return !!(browseState.q || browseState.category || browseState.propertyType || browseState.bank
-    || browseState.state || browseState.district || browseState.village
-    || browseState.price || browseState.priceMin || browseState.priceMax
-    || browseState.dateFrom || browseState.dateTo);
+  if (browseState.q || browseState.price || browseState.priceMin || browseState.priceMax
+    || browseState.dateFrom || browseState.dateTo) return true;
+  return MULTI_FILTER_KEYS.some(k => (browseState[k] || []).length > 0);
 }
 
-function _populateFacetSelect(selectId, facetRows, currentValue, allLabel) {
-  const sel = document.getElementById(selectId);
-  if (!sel) return;
-  const total = (facetRows || []).reduce((acc, r) => acc + (r.count || 0), 0);
-  const opts = [`<option value="">${allLabel || 'all'} (${total})</option>`];
-  let hasCurrent = false;
+function _updateFilterMultiLabel(wrapId) {
+  const wrap = document.getElementById(wrapId);
+  if (!wrap) return;
+  const key = wrap.dataset.key;
+  const selected = browseState[key] || [];
+  const labelEl = wrap.querySelector('.filter-multi-label');
+  if (!labelEl) return;
+  if (selected.length === 0) {
+    labelEl.textContent = 'all';
+  } else if (selected.length === 1) {
+    labelEl.textContent = selected[0];
+  } else {
+    labelEl.textContent = `${selected.length} selected`;
+  }
+}
+
+function _populateFacetMulti(wrapId, facetRows, selectedValues) {
+  const wrap = document.getElementById(wrapId);
+  if (!wrap) return;
+  const panel = wrap.querySelector('.filter-multi-panel');
+  if (!panel) return;
+  const selected = new Set((selectedValues || []).filter(Boolean));
+  const seen = new Set();
+  const rows = [];
   for (const r of (facetRows || [])) {
     if (!r.value) continue;
-    if (r.value === currentValue) hasCurrent = true;
-    opts.push(`<option value="${escapeHtml(r.value)}">${escapeHtml(r.value)} (${r.count})</option>`);
+    seen.add(r.value);
+    rows.push({ value: r.value, count: r.count || 0 });
   }
-  // Preserve the current selection even if it's filtered out of the facet
-  // counts — otherwise the dropdown silently snaps back to "all" when the
-  // user picks a value that combines incompatibly with another filter.
-  if (currentValue && !hasCurrent) {
-    opts.push(`<option value="${escapeHtml(currentValue)}">${escapeHtml(currentValue)} (0)</option>`);
+  // Preserve any selected values missing from the current facet so the
+  // user's choice doesn't silently disappear when filters combine.
+  for (const v of selected) {
+    if (!seen.has(v)) rows.push({ value: v, count: 0 });
   }
-  sel.innerHTML = opts.join('');
-  sel.value = currentValue || '';
+  if (!rows.length) {
+    panel.innerHTML = `<div class="filter-multi-empty">no options</div>`;
+  } else {
+    panel.innerHTML = rows.map(r => {
+      const checked = selected.has(r.value) ? 'checked' : '';
+      return `<label class="filter-multi-opt"><input type="checkbox" value="${escapeHtml(r.value)}" ${checked}><span class="name">${escapeHtml(r.value)}</span><span class="count">(${r.count})</span></label>`;
+    }).join('');
+  }
+  _updateFilterMultiLabel(wrapId);
 }
 
 function renderActiveChips() {
   const wrap = document.getElementById('active-chips');
   if (!wrap) return;
   const chips = [];
-  if (browseState.q)            chips.push({ k: 'q',            label: `"${browseState.q}"` });
-  if (browseState.category)     chips.push({ k: 'category',     label: browseState.category });
-  if (browseState.propertyType) chips.push({ k: 'propertyType', label: browseState.propertyType });
-  if (browseState.bank)         chips.push({ k: 'bank',         label: browseState.bank });
-  if (browseState.state)        chips.push({ k: 'state',        label: browseState.state });
-  if (browseState.district)     chips.push({ k: 'district',     label: browseState.district });
-  if (browseState.village)      chips.push({ k: 'village',      label: browseState.village });
+  if (browseState.q) chips.push({ k: 'q', label: `"${browseState.q}"` });
+  // One chip per selected value in each multi-select dimension. The chip's
+  // `data-clear="key"` plus `data-value` lets the click handler remove just
+  // that single value from browseState[key].
+  for (const key of MULTI_FILTER_KEYS) {
+    for (const v of (browseState[key] || [])) {
+      if (v) chips.push({ k: key, value: v, label: v });
+    }
+  }
   if (browseState.price === 'custom' && (browseState.priceMin !== '' || browseState.priceMax !== '')) {
     const lo = browseState.priceMin === '' ? '0' : browseState.priceMin;
     const hi = browseState.priceMax === '' ? '∞' : browseState.priceMax;
@@ -3819,19 +3928,26 @@ function renderActiveChips() {
   if (browseState.dateFrom || browseState.dateTo) {
     chips.push({ k: 'date', label: `${browseState.dateFrom || 'any'} → ${browseState.dateTo || 'any'}` });
   }
-  wrap.innerHTML = chips.map(c =>
-    `<span class="active-chip" data-clear="${c.k}" title="remove filter">${escapeHtml(c.label)} <span class="x">×</span></span>`
-  ).join('');
+  wrap.innerHTML = chips.map(c => {
+    const valAttr = c.value != null ? ` data-value="${escapeHtml(c.value)}"` : '';
+    return `<span class="active-chip" data-clear="${c.k}"${valAttr} title="remove filter">${escapeHtml(c.label)} <span class="x">×</span></span>`;
+  }).join('');
 }
 
+// Multi-filter clearers receive the specific value to remove from the
+// dimension's array (one chip = one value); cascading dimensions
+// (state→district→village) reset downstream selections to avoid stale
+// combinations the user can't see.
 const _BROWSE_CLEARERS = {
   q:            () => { browseState.q = ''; document.getElementById('browse-q').value = ''; },
-  category:     () => { browseState.category = ''; },
-  propertyType: () => { browseState.propertyType = ''; },
-  bank:         () => { browseState.bank = ''; },
-  state:        () => { browseState.state = ''; browseState.district = ''; browseState.village = ''; },
-  district:     () => { browseState.district = ''; browseState.village = ''; },
-  village:      () => { browseState.village = ''; },
+  category:     (v) => { browseState.category     = (browseState.category     || []).filter(x => x !== v); },
+  propertyType: (v) => { browseState.propertyType = (browseState.propertyType || []).filter(x => x !== v); },
+  bank:         (v) => { browseState.bank         = (browseState.bank         || []).filter(x => x !== v); },
+  state:        (v) => { browseState.state        = (browseState.state        || []).filter(x => x !== v);
+                         browseState.district = []; browseState.village = []; },
+  district:     (v) => { browseState.district     = (browseState.district     || []).filter(x => x !== v);
+                         browseState.village = []; },
+  village:      (v) => { browseState.village      = (browseState.village      || []).filter(x => x !== v); },
   price:        () => { browseState.price = ''; browseState.priceMin = ''; browseState.priceMax = '';
                         document.getElementById('f-price').value = '';
                         document.getElementById('f-price-min').value = '';
@@ -3844,8 +3960,9 @@ const _BROWSE_CLEARERS = {
 
 function clearAllBrowseFilters() {
   Object.assign(browseState, {
-    q: '', category: '', propertyType: '', bank: '',
-    state: '', district: '', village: '',
+    q: '',
+    category: [], propertyType: [], bank: [],
+    state: [], district: [], village: [],
     price: '', priceMin: '', priceMax: '',
     dateFrom: '', dateTo: '',
   });
@@ -3908,12 +4025,12 @@ async function applyBrowse({ append = false } = {}) {
   // Don't repopulate on append — it would clobber the user's current selection
   // with options keyed off the same filters they're already viewing.
   if (!append) {
-    _populateFacetSelect('f-category', facets.type,          browseState.category);
-    _populateFacetSelect('f-type',     facets.property_type, browseState.propertyType);
-    _populateFacetSelect('f-bank',     facets.bank,          browseState.bank);
-    _populateFacetSelect('f-state',    facets.state,         browseState.state);
-    _populateFacetSelect('f-district', facets.district,      browseState.district);
-    _populateFacetSelect('f-village',  facets.village,       browseState.village);
+    _populateFacetMulti('f-category', facets.type,          browseState.category);
+    _populateFacetMulti('f-type',     facets.property_type, browseState.propertyType);
+    _populateFacetMulti('f-bank',     facets.bank,          browseState.bank);
+    _populateFacetMulti('f-state',    facets.state,         browseState.state);
+    _populateFacetMulti('f-district', facets.district,      browseState.district);
+    _populateFacetMulti('f-village',  facets.village,       browseState.village);
   }
 
   const total = payload.total || 0;
@@ -3941,8 +4058,11 @@ async function applyBrowse({ append = false } = {}) {
   if (newCount) wireCardClicks();
 
   countEl.textContent = `${total.toLocaleString('en-IN')} propert${total === 1 ? 'y' : 'ies'}`;
-  if (browseState.bank) {
-    subEl.textContent = `from ${browseState.bank}`;
+  const banks = browseState.bank || [];
+  if (banks.length === 1) {
+    subEl.textContent = `from ${banks[0]}`;
+  } else if (banks.length > 1) {
+    subEl.textContent = `from ${banks.length} banks`;
   } else if (total > shownAll) {
     subEl.textContent = `showing ${shownAll.toLocaleString('en-IN')} · across all banks`;
   } else {
@@ -3977,26 +4097,69 @@ function _scheduleBrowse(delay = 250) {
   browseDebounce = setTimeout(applyBrowse, delay);
 }
 
+function _closeAllFilterMultis(except) {
+  document.querySelectorAll('.filter-multi.open').forEach(w => {
+    if (w === except) return;
+    w.classList.remove('open');
+    const p = w.querySelector('.filter-multi-panel');
+    const b = w.querySelector('.filter-multi-btn');
+    if (p) p.hidden = true;
+    if (b) b.setAttribute('aria-expanded', 'false');
+  });
+}
+
+function _wireFilterMulti(wrapId) {
+  const wrap = document.getElementById(wrapId);
+  if (!wrap) return;
+  const key = wrap.dataset.key;
+  const btn = wrap.querySelector('.filter-multi-btn');
+  const panel = wrap.querySelector('.filter-multi-panel');
+  if (!btn || !panel) return;
+
+  btn.addEventListener('click', e => {
+    e.stopPropagation();
+    const willOpen = panel.hidden;
+    _closeAllFilterMultis(willOpen ? wrap : null);
+    panel.hidden = !willOpen;
+    wrap.classList.toggle('open', willOpen);
+    btn.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+  });
+
+  panel.addEventListener('click', e => { e.stopPropagation(); });
+
+  panel.addEventListener('change', e => {
+    const cb = e.target;
+    if (!cb || cb.type !== 'checkbox') return;
+    const value = cb.value;
+    const arr = Array.isArray(browseState[key]) ? browseState[key].slice() : [];
+    const idx = arr.indexOf(value);
+    if (cb.checked) {
+      if (idx < 0) arr.push(value);
+    } else if (idx >= 0) {
+      arr.splice(idx, 1);
+    }
+    browseState[key] = arr;
+    if (key === 'state') { browseState.district = []; browseState.village = []; }
+    else if (key === 'district') { browseState.village = []; }
+    _updateFilterMultiLabel(wrapId);
+    applyBrowse();
+  });
+}
+
 (function wireBrowseControls() {
   const $ = (id) => document.getElementById(id);
   if (!$('browse-grid')) return;
 
   $('browse-q').addEventListener('input', e => { browseState.q = e.target.value; _scheduleBrowse(); });
-  $('f-category').addEventListener('change', e => { browseState.category = e.target.value; applyBrowse(); });
-  $('f-type').addEventListener('change', e => { browseState.propertyType = e.target.value; applyBrowse(); });
-  $('f-bank').addEventListener('change', e => { browseState.bank = e.target.value; applyBrowse(); });
+  ['f-category', 'f-type', 'f-bank', 'f-state', 'f-district', 'f-village'].forEach(_wireFilterMulti);
+  document.addEventListener('click', e => {
+    if (e.target.closest('.filter-multi')) return;
+    _closeAllFilterMultis();
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') _closeAllFilterMultis();
+  });
   $('f-sort').addEventListener('change', e => { browseState.sort = e.target.value; applyBrowse(); });
-  $('f-state').addEventListener('change', e => {
-    browseState.state = e.target.value;
-    browseState.district = ''; browseState.village = '';
-    applyBrowse();
-  });
-  $('f-district').addEventListener('change', e => {
-    browseState.district = e.target.value;
-    browseState.village = '';
-    applyBrowse();
-  });
-  $('f-village').addEventListener('change', e => { browseState.village = e.target.value; applyBrowse(); });
   $('f-price').addEventListener('change', e => {
     browseState.price = e.target.value;
     const isCustom = e.target.value === 'custom';
@@ -4016,8 +4179,9 @@ function _scheduleBrowse(delay = 250) {
     const chip = e.target.closest('.active-chip');
     if (!chip) return;
     const k = chip.dataset.clear;
+    const v = chip.dataset.value;
     const fn = _BROWSE_CLEARERS[k];
-    if (fn) { fn(); applyBrowse(); }
+    if (fn) { fn(v); applyBrowse(); }
   });
   const loadMore = $('browse-loadmore');
   if (loadMore) {
