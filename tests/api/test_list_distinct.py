@@ -42,9 +42,22 @@ def test_list_distinct_bank_with_city_filter(monkeypatch):
 
     cypher, params, _ = calls[0]
     assert "(n:Bank)" in cypher
-    assert "LOCATED_IN_CITY" in cypher
+    assert "(n_city:City)" in cypher
+    assert "n_city.name IN $city" in cypher
     assert "CONDUCTED_BY" in cypher
-    assert params == {"limit": 20, "city": "Chennai"}
+    assert params == {"limit": 20, "city": ["Chennai"]}
+
+
+def test_list_distinct_bank_with_multi_city_filter(monkeypatch):
+    """Scope filter accepts a list — count should run over auctions in
+    any of the listed cities."""
+    calls = _patch_read_query(monkeypatch)
+    from api.tools.cypher_tools import list_distinct
+
+    list_distinct("bank", city=["Chennai", "Coimbatore"], limit=20)
+
+    _, params, _ = calls[0]
+    assert params["city"] == ["Chennai", "Coimbatore"]
 
 
 def test_list_distinct_city_ignores_city_filter(monkeypatch):
@@ -91,9 +104,10 @@ def test_list_distinct_auction_type_scoped_by_bank(monkeypatch):
     out = list_distinct("auction_type", bank="Canara Bank", limit=20)
 
     cypher, params, _ = calls[0]
-    assert "(a)-[:CONDUCTED_BY]->(:Bank {name: $bank})" in cypher
+    assert "(a)-[:CONDUCTED_BY]->(n_bank:Bank)" in cypher
+    assert "n_bank.name IN $bank" in cypher
     assert "(a)-[:IS_AUCTION_TYPE]->(n:AuctionType)" in cypher
-    assert params == {"limit": 20, "bank": "Canara Bank"}
+    assert params == {"limit": 20, "bank": ["Canara Bank"]}
     assert out["filter_bank"] == "Canara Bank"
     assert out["filter_auction_type"] is None
 
@@ -106,9 +120,10 @@ def test_list_distinct_branch_scoped_by_city(monkeypatch):
 
     list_distinct("branch", city="Chennai", limit=10)
     cypher, params, _ = calls[0]
-    assert "(a)-[:LOCATED_IN_CITY]->(:City {name: $city})" in cypher
+    assert "(a)-[:LOCATED_IN_CITY]->(n_city:City)" in cypher
+    assert "n_city.name IN $city" in cypher
     assert "(a)-[:LISTED_BY_BRANCH]->(n:Branch)" in cypher
-    assert params == {"limit": 10, "city": "Chennai"}
+    assert params == {"limit": 10, "city": ["Chennai"]}
 
 
 def test_list_distinct_property_type_scoped_by_bank(monkeypatch):
@@ -130,9 +145,10 @@ def test_list_distinct_property_type_scoped_by_bank(monkeypatch):
     # The scope-match lives on AuctionProperty, NOT on Bank — guards
     # against the agent's previous mistake of chaining
     # (Bank)-[:HAS_PROPERTY_TYPE].
-    assert "(a)-[:CONDUCTED_BY]->(:Bank {name: $bank})" in cypher
+    assert "(a)-[:CONDUCTED_BY]->(n_bank:Bank)" in cypher
+    assert "n_bank.name IN $bank" in cypher
     assert "(a)-[:HAS_PROPERTY_TYPE]->(n:PropertyType)" in cypher
-    assert params == {"limit": 50, "bank": "State Bank of India"}
+    assert params == {"limit": 50, "bank": ["State Bank of India"]}
     assert out["filter_bank"] == "State Bank of India"
     assert out["results"][0]["auction_count"] == 40
 
@@ -153,8 +169,8 @@ def test_list_distinct_combines_multiple_scopes(monkeypatch):
     assert "LOCATED_IN_CITY" in cypher
     assert "HAS_ASSET_CATEGORY" in cypher
     assert "HAS_PROPERTY_TYPE" in cypher
-    assert params["city"] == "Kanchipuram"
-    assert params["asset_category"] == "Residential"
+    assert params["city"] == ["Kanchipuram"]
+    assert params["asset_category"] == ["Residential"]
 
 
 def test_list_distinct_drops_self_scope(monkeypatch):

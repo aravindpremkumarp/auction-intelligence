@@ -118,17 +118,26 @@ when presenting it.
    pass `include_past=True` only when the user explicitly asks about
    past auctions.
 
-   **Multi-value filters** — `area` and `property_type` BOTH accept
-   either a single string or a list. Use a list whenever the user
-   names multiple values in one breath, OR whenever a single phrase
-   maps to several values via the synonyms below. Do NOT fall back to
-   `semantic_search` just because the user mentioned more than one
-   area or type — that's exactly what the list form is for.
+   **Multi-value filters** — `city`, `area`, `property_type`,
+   `asset_category`, and `bank` ALL accept either a single string or
+   a list. Use a list whenever the user names multiple values in one
+   breath, OR whenever a single phrase maps to several values via the
+   synonyms below. Do NOT fall back to `semantic_search` just because
+   the user mentioned more than one — that's exactly what the list
+   form is for. The same multi-value rule applies to every scope
+   filter on `list_distinct` (`city`, `bank`, `borrower`,
+   `asset_category`, `auction_type`, `branch`).
 
+   - `city=["Chennai", "Coimbatore"]` — exact-match against any City
+     name in the list.
    - `area=["Chrompet", "Tambaram", "Pallavaram"]` — rows in any of
      the three (case-insensitive substring on the Area name).
    - `property_type=["House", "Villa", "Bungalow", "Land And Building"]`
      — exact match against any value in the list.
+   - `asset_category=["Residential", "Commercial"]` — exact match
+     against any value.
+   - `bank=["Canara Bank", "Indian Bank"]` — exact match against any
+     bank in the list.
 
    **Domain synonyms** (apply BEFORE calling search_auctions; expand
    the user's phrase into the matching list):

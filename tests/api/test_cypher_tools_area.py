@@ -28,7 +28,7 @@ def test_area_filter_produces_case_insensitive_contains(monkeypatch) -> None:
     assert "(a)-[:LOCATED_IN_AREA]->(ar:Area)" in cypher
     assert "any(x IN $area WHERE toLower(ar.name) CONTAINS toLower(x))" in cypher
     assert params["area"] == ["ambattur"]
-    assert params["city"] == "Chennai"
+    assert params["city"] == ["Chennai"]
 
 
 def test_area_filter_combines_with_property_type(monkeypatch) -> None:

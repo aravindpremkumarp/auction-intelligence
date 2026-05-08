@@ -142,11 +142,11 @@ _ORDER_BY_CLAUSES = {
 def search_auctions(
     min_price: float | None = None,
     max_price: float | None = None,
-    city: str | None = None,
+    city: str | list[str] | None = None,
     area: str | list[str] | None = None,
     property_type: str | list[str] | None = None,
-    asset_category: str | None = None,
-    bank: str | None = None,
+    asset_category: str | list[str] | None = None,
+    bank: str | list[str] | None = None,
     auction_type: str | None = None,
     branch_name: str | None = None,
     starts_after: datetime | None = None,
@@ -191,7 +191,10 @@ def search_auctions(
 
     matches = ["(a:AuctionProperty)"]
     if city:
-        matches.append("(a)-[:LOCATED_IN_CITY]->(c:City {name: $city})"); params["city"] = city
+        city_list = [city] if isinstance(city, str) else list(city)
+        matches.append("(a)-[:LOCATED_IN_CITY]->(c:City)")
+        where.append("c.name IN $city")
+        params["city"] = city_list
     if area:
         area_list = [area] if isinstance(area, str) else list(area)
         matches.append("(a)-[:LOCATED_IN_AREA]->(ar:Area)")
@@ -203,11 +206,15 @@ def search_auctions(
         where.append("pt.name IN $property_type")
         params["property_type"] = pt_list
     if asset_category:
-        matches.append("(a)-[:HAS_ASSET_CATEGORY]->(ac:AssetCategory {name: $asset_category})")
-        params["asset_category"] = asset_category
+        ac_list = [asset_category] if isinstance(asset_category, str) else list(asset_category)
+        matches.append("(a)-[:HAS_ASSET_CATEGORY]->(ac:AssetCategory)")
+        where.append("ac.name IN $asset_category")
+        params["asset_category"] = ac_list
     if bank:
-        matches.append("(a)-[:CONDUCTED_BY]->(b:Bank {name: $bank})")
-        params["bank"] = bank
+        bank_list = [bank] if isinstance(bank, str) else list(bank)
+        matches.append("(a)-[:CONDUCTED_BY]->(b:Bank)")
+        where.append("b.name IN $bank")
+        params["bank"] = bank_list
     if auction_type:
         matches.append("(a)-[:IS_AUCTION_TYPE]->(:AuctionType {name: $auction_type})")
         params["auction_type"] = auction_type
@@ -1097,20 +1104,21 @@ _SCHEMA_TTL_SECONDS = 3600.0
 def list_distinct(
     field: str,
     limit: int = 100,
-    city: str | None = None,
-    bank: str | None = None,
-    borrower: str | None = None,
-    asset_category: str | None = None,
-    auction_type: str | None = None,
-    branch: str | None = None,
+    city: str | list[str] | None = None,
+    bank: str | list[str] | None = None,
+    borrower: str | list[str] | None = None,
+    asset_category: str | list[str] | None = None,
+    auction_type: str | list[str] | None = None,
+    branch: str | list[str] | None = None,
 ) -> dict:
     """List distinct values of a reference field with counts.
 
     `field` must be one of the keys in _DISTINCT_FIELDS. Scope filters
     (`city`, `bank`, `borrower`, `asset_category`, `auction_type`,
     `branch`) narrow the count to auctions that match every provided
-    scope. A scope must differ from `field` — you can't group by bank
-    while filtering by bank.
+    scope. Each scope accepts either a single string or a list of
+    strings (any-match within the list). A scope must differ from
+    `field` — you can't group by bank while filtering by bank.
 
     Use this for distribution / breakdown / "spread" questions
     ("property-type mix for SBI", "asset categories in Chennai",
@@ -1122,7 +1130,7 @@ def list_distinct(
             f"field must be one of {sorted(_DISTINCT_FIELDS)}, got {field!r}"
         )
 
-    raw_scopes: dict[str, str | None] = {
+    raw_scopes: dict[str, str | list[str] | None] = {
         "city":           city,
         "bank":           bank,
         "borrower":       borrower,
@@ -1138,20 +1146,24 @@ def list_distinct(
     params: dict = {"limit": int(limit)}
 
     scope_matches: list[str] = []
+    where_clauses: list[str] = []
     for scope_field, value in active_scopes.items():
         scope_label, scope_rel = _DISTINCT_FIELDS[scope_field]
-        scope_matches.append(
-            f"(a)-[:{scope_rel}]->(:{scope_label} {{name: ${scope_field}}})"
-        )
-        params[scope_field] = value
+        value_list = [value] if isinstance(value, str) else list(value)
+        var = f"n_{scope_field}"
+        scope_matches.append(f"(a)-[:{scope_rel}]->({var}:{scope_label})")
+        where_clauses.append(f"{var}.name IN ${scope_field}")
+        params[scope_field] = value_list
 
     match_clauses = ["(a:AuctionProperty)"]
     match_clauses.extend(scope_matches)
     match_clauses.append(f"(a)-[:{rel}]->(n:{label})")
     match_clause = ",\n                  ".join(match_clauses)
+    where_clause = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
 
     cypher = f"""
             MATCH {match_clause}
+            {where_clause}
             RETURN n.name AS value, count(DISTINCT a) AS auction_count
             ORDER BY auction_count DESC
             LIMIT $limit

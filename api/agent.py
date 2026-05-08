@@ -185,11 +185,11 @@ def inject_mode_overlay(ctx: RunContext[ChatDeps]) -> str:
 @agent.tool_plain
 def search_auctions(
     min_price: float | None = None, max_price: float | None = None,
-    city: str | None = None,
+    city: str | list[str] | None = None,
     area: str | list[str] | None = None,
     property_type: str | list[str] | None = None,
-    asset_category: str | None = None,
-    bank: str | None = None,
+    asset_category: str | list[str] | None = None,
+    bank: str | list[str] | None = None,
     auction_type: str | None = None,
     branch_name: str | None = None,
     starts_after: datetime | None = None, starts_before: datetime | None = None,
@@ -217,6 +217,7 @@ def search_auctions(
 
     Location filters:
       - `city` matches a City node by exact name (e.g. "Chennai", "Kanchipuram").
+        Pass a LIST when the user names multiple cities ("Chennai or Coimbatore").
       - `area` matches an Area node inside a city (suburb / taluk / locality,
         e.g. "Ambattur", "Sriperumbudur"). Case-insensitive substring match,
         so "ambattur" and "Ambattur" both work. Use this for
@@ -232,13 +233,18 @@ def search_auctions(
         "independent house" → ["House", "Villa", "Bungalow",
         "Land And Building"]. Single string still works for one-type
         queries.
+      - `asset_category` matches an AssetCategory node by exact name
+        (e.g. "Residential"). Pass a LIST when the user wants more than
+        one category ("residential or commercial" → ["Residential",
+        "Commercial"]).
 
     Scope filters:
       - `bank` matches a Bank node by exact name (e.g. "Canara Bank",
         "State Bank of India"). Use this when the user narrowed the
         conversation to a specific bank — once they say "in Canara Bank",
         keep passing bank="Canara Bank" on every follow-up search until
-        they clearly change scope.
+        they clearly change scope. Pass a LIST when comparing banks
+        ("Canara Bank or Indian Bank").
       - `auction_type` matches an AuctionType node by exact name. Values:
         "SARFAESI Auction", "DRT Auction", "Liquidation Auction",
         "Private Property". Use when the user filters by legal track
@@ -432,19 +438,20 @@ def get_auction_detail(auction_id: str) -> dict | None:
 def list_distinct(
     field: str,
     limit: int = 100,
-    city: str | None = None,
-    bank: str | None = None,
-    borrower: str | None = None,
-    asset_category: str | None = None,
-    auction_type: str | None = None,
-    branch: str | None = None,
+    city: str | list[str] | None = None,
+    bank: str | list[str] | None = None,
+    borrower: str | list[str] | None = None,
+    asset_category: str | list[str] | None = None,
+    auction_type: str | list[str] | None = None,
+    branch: str | list[str] | None = None,
 ) -> dict:
     """List distinct values of a reference field with per-value auction counts.
 
     `field` must be one of: "city", "area", "state", "bank", "branch",
     "borrower", "asset_category", "property_type", "auction_type".
 
-    Scope filters narrow the count. Supply any combination of `city`,
+    Scope filters narrow the count. Each scope accepts either a single
+    string or a list (any-match). Supply any combination of `city`,
     `bank`, `borrower`, `asset_category`, `auction_type`, `branch`; a
     scope must differ from `field`. Examples:
       - property-type mix for SBI: field="property_type", bank="State Bank of India"
