@@ -9,7 +9,7 @@ params dict is built — Neo4j execution is downstream and out of scope.
 """
 from __future__ import annotations
 
-from api.main import _properties_filter_cypher
+from api.main import _facet_filters_for, _properties_filter_cypher
 
 
 def test_property_type_filter_adds_match_and_param() -> None:
@@ -131,3 +131,55 @@ def test_empty_list_filter_is_ignored() -> None:
     assert "CONDUCTED_BY" not in match
     assert where == ""
     assert params == {}
+
+
+def test_facet_filters_for_drops_own_dimension() -> None:
+    """A non-cascade facet must drop its own filter so the panel keeps
+    showing all values the user could add — without this, picking one bank
+    would shrink the bank dropdown to just that bank."""
+    filters = {"bank": ["ICICI"], "state": ["Tamil Nadu"]}
+
+    assert _facet_filters_for(filters, "bank") == {"state": ["Tamil Nadu"]}
+    # Other dimensions still narrow the bank facet so counts reflect the
+    # user's other selections — only the bank dim itself is removed.
+
+
+def test_facet_filters_for_state_drops_cascade_descendants() -> None:
+    """The state facet must drop state, district, and village so picking a
+    district doesn't strand the user with only that district's state in the
+    state dropdown."""
+    filters = {
+        "state":    ["Tamil Nadu"],
+        "district": ["Chennai"],
+        "village":  ["Adyar"],
+        "bank":     ["ICICI"],
+    }
+
+    assert _facet_filters_for(filters, "state") == {"bank": ["ICICI"]}
+
+
+def test_facet_filters_for_district_drops_self_and_village_only() -> None:
+    """The district facet keeps state (so districts still narrow to the
+    chosen state) but drops district and village."""
+    filters = {
+        "state":    ["Tamil Nadu"],
+        "district": ["Chennai"],
+        "village":  ["Adyar"],
+    }
+
+    assert _facet_filters_for(filters, "district") == {"state": ["Tamil Nadu"]}
+
+
+def test_facet_filters_for_village_drops_only_self() -> None:
+    """Village is the leaf of the geographic cascade — dropping just its own
+    filter is enough."""
+    filters = {
+        "state":    ["Tamil Nadu"],
+        "district": ["Chennai"],
+        "village":  ["Adyar"],
+    }
+
+    assert _facet_filters_for(filters, "village") == {
+        "state":    ["Tamil Nadu"],
+        "district": ["Chennai"],
+    }

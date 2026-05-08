@@ -299,6 +299,42 @@ def _properties_facet(match_clause: str, where_clause: str, params: dict[str, An
     return run_query(cypher, params)
 
 
+# When computing a facet for one dimension, drop that dimension's own filter
+# from the WHERE clause — and for cascading geographic filters, also drop
+# downstream dimensions. Without this, selecting state="Tamil Nadu" would
+# narrow the state facet to only Tamil Nadu, leaving the user no way to add
+# a second state from the same dropdown panel.
+_FACET_FILTER_EXCLUDE: dict[str, tuple[str, ...]] = {
+    "type":          ("type",),
+    "property_type": ("property_type",),
+    "bank":          ("bank",),
+    "state":         ("state", "district", "village"),
+    "district":      ("district", "village"),
+    "village":       ("village",),
+}
+
+
+def _facet_filters_for(filters: dict[str, Any], dim_key: str) -> dict[str, Any]:
+    """Filters with `dim_key`'s own filter (and any downstream cascade dim's
+    filters) removed — used so a dimension's facet keeps showing options the
+    user could still add, instead of narrowing to what's already selected."""
+    drop = _FACET_FILTER_EXCLUDE.get(dim_key, (dim_key,))
+    return {k: v for k, v in filters.items() if k not in drop}
+
+
+def _facet_for(
+    filters: dict[str, Any],
+    dim_key: str,
+    label: str,
+    rel: str,
+    alias: str,
+) -> list[dict]:
+    """Run the facet query for `dim_key` against the cascade-aware filter set."""
+    facet_filters = _facet_filters_for(filters, dim_key)
+    f_match, f_where, f_params = _properties_filter_cypher(facet_filters)
+    return _properties_facet(f_match, f_where, f_params, label, rel, alias)
+
+
 @app.get("/properties")
 def list_properties(
     q: str | None = None,
@@ -381,12 +417,12 @@ def list_properties(
         row["is_reauction"] = rc > 0
 
     facets = {
-        "type":          _properties_facet(match_clause, where_clause, params, "AssetCategory", "HAS_ASSET_CATEGORY", "ac"),
-        "property_type": _properties_facet(match_clause, where_clause, params, "PropertyType",  "HAS_PROPERTY_TYPE",  "pt"),
-        "bank":          _properties_facet(match_clause, where_clause, params, "Bank",          "CONDUCTED_BY",       "bk"),
-        "state":         _properties_facet(match_clause, where_clause, params, "State",         "LOCATED_IN_STATE",   "st"),
-        "district":      _properties_facet(match_clause, where_clause, params, "City",          "LOCATED_IN_CITY",    "ct"),
-        "village":       _properties_facet(match_clause, where_clause, params, "Area",          "LOCATED_IN_AREA",    "ar"),
+        "type":          _facet_for(filters, "type",          "AssetCategory", "HAS_ASSET_CATEGORY", "ac"),
+        "property_type": _facet_for(filters, "property_type", "PropertyType",  "HAS_PROPERTY_TYPE",  "pt"),
+        "bank":          _facet_for(filters, "bank",          "Bank",          "CONDUCTED_BY",       "bk"),
+        "state":         _facet_for(filters, "state",         "State",         "LOCATED_IN_STATE",   "st"),
+        "district":      _facet_for(filters, "district",      "City",          "LOCATED_IN_CITY",    "ct"),
+        "village":       _facet_for(filters, "village",       "Area",          "LOCATED_IN_AREA",    "ar"),
     }
 
     return {
