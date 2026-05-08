@@ -122,7 +122,7 @@ def consolidate(per_file: list[tuple[str, dict]]) -> dict:
     provenance: dict[str, str]  = {}
 
     # Enrichment list/dict fields we union instead of overwriting.
-    list_fields_enr = {"old_survey_numbers", "new_survey_numbers"}
+    list_fields_enr: set[str] = set()
     dict_fields_enr = {"boundaries", "door_numbers"}
 
     for filename, ext in per_file:
@@ -292,7 +292,6 @@ def flatten_enrichment(enr: dict) -> dict:
     boundaries = enr.get("boundaries") or {}
     doors      = enr.get("door_numbers") or {}
     out = {
-        "possession_type":           enr.get("possession_type"),
         "undivided_share":           enr.get("undivided_share"),
         "total_area":                enr.get("total_area"),
         "village":                   enr.get("village"),
@@ -306,8 +305,6 @@ def flatten_enrichment(enr: dict) -> dict:
         "boundary_west":             boundaries.get("west"),
         "door_numbers_old":          doors.get("old") or None,
         "door_numbers_new":          doors.get("new") or None,
-        "old_survey_numbers_json":   json.dumps(enr.get("old_survey_numbers") or []),
-        "new_survey_numbers_json":   json.dumps(enr.get("new_survey_numbers") or []),
     }
     return {k: v for k, v in out.items() if v is not None}
 

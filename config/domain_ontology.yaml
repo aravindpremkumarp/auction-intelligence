@@ -22,7 +22,6 @@ entity_types:
       auction_start_dt: {type: datetime}
       auction_end_dt: {type: datetime}
       application_deadline_dt: {type: datetime}
-      possession_type: {type: string, enum: [Physical, Symbolic, Constructive, Unknown]}
       total_area: {type: string}
       village: {type: string}
       taluk: {type: string}
@@ -83,14 +82,6 @@ entity_types:
     key: name
     properties:
       name: {type: string, unique: true}
-
-  SurveyNumber:
-    description: Land survey identifier (old or new system)
-    key: [survey_no, subdivision, survey_type]
-    properties:
-      survey_no: {type: string}
-      subdivision: {type: string}
-      survey_type: {type: string, enum: [old, new]}
 
   # ── New entities added for agent intelligence ──────────────────────────────
   InvestmentTracker:
@@ -178,7 +169,6 @@ relationships:
   - {type: HAS_TYPE,            from: AssetCategory,   to: PropertyType}
   - {type: HAS_BORROWER,        from: AuctionProperty, to: Borrower}
   - {type: IS_AUCTION_TYPE,     from: AuctionProperty, to: AuctionType}
-  - {type: HAS_SURVEY_NUMBER,   from: AuctionProperty, to: SurveyNumber}
   - {type: TRACKED_BY,          from: AuctionProperty, to: InvestmentTracker}
   - {type: INTERESTED_IN,       from: InvestorProfile, to: AuctionProperty}
   - {type: ABOUT,               from: DecisionTrace,   to: AuctionProperty}
@@ -231,12 +221,6 @@ agent_tools:
     description: All properties tied to a borrower name (fuzzy match)
     parameters:
       borrower_name: {type: string}
-
-  - name: survey_search
-    description: Find properties by survey number
-    parameters:
-      survey_no: {type: string}
-      subdivision: {type: string, optional: true}
 
   # ── Scoring & tracking tools (Phase 2-3) ──
   - name: score_auction

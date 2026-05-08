@@ -11,7 +11,7 @@ the Neo4j schema, domain rules, and scoring taxonomy that every mode shares.
 
 | Label | Key | Notable properties |
 |-------|-----|--------------------|
-| `AuctionProperty` | `auction_id` | `title`, `url`, `description`, `reserve_price_num` (float, INR), `emd_num` (float, INR), `auction_start_dt`, `auction_end_dt`, `application_deadline_dt`, `possession_type` (enum: Physical/Symbolic/Constructive/Unknown), `total_area`, `village`, `taluk`, `district` |
+| `AuctionProperty` | `auction_id` | `title`, `url`, `description`, `reserve_price_num` (float, INR), `emd_num` (float, INR), `auction_start_dt`, `auction_end_dt`, `application_deadline_dt`, `total_area`, `village`, `taluk`, `district` |
 | `City` | `name` | Title case, e.g. `Chennai`, `Kanchipuram` |
 | `Area` | `name` | Suburb / locality / taluk, e.g. `Ambattur`, `Sriperumbudur` |
 | `State` | `name` | e.g. `Tamil Nadu` |
@@ -20,7 +20,7 @@ the Neo4j schema, domain rules, and scoring taxonomy that every mode shares.
 | `AssetCategory` | `name` | Exactly 7 values — see enum list below |
 | `PropertyType` | `name` | Granular type, constrained by category — see list below |
 | `Borrower` | `name` | Original borrower whose property is auctioned |
-| `SurveyNumber` | `(survey_no, subdivision, survey_type)` | `survey_type` ∈ {old, new} |
+| `AuctionType` | `name` | Legal track — exactly 4 values, see enum list below |
 | `Feedback` | `id` | User feedback records (not normally surfaced to end users) |
 
 **Relationships** (always `AuctionProperty` → target unless noted):
@@ -34,7 +34,8 @@ the Neo4j schema, domain rules, and scoring taxonomy that every mode shares.
 (a)-[:HAS_ASSET_CATEGORY]->(:AssetCategory)
 (a)-[:HAS_PROPERTY_TYPE]->(:PropertyType)     # one-to-many
 (a)-[:HAS_BORROWER]->(:Borrower)
-(a)-[:HAS_SURVEY_NUMBER]->(:SurveyNumber)      # one-to-many
+(a)-[:IS_AUCTION_TYPE]->(:AuctionType)
+(:Bank)-[:HAS_BRANCH]->(:Branch)
 (:Area)-[:PART_OF_CITY]->(:City)
 (:City)-[:IN_STATE]->(:State)
 ```
@@ -53,6 +54,21 @@ the Neo4j schema, domain rules, and scoring taxonomy that every mode shares.
 
 When a user says "residential", "commercial", or "industrial", filter on
 **`asset_category`**, not `property_type`.
+
+### AuctionType (4 exact values)
+
+- `"SARFAESI Auction"` — bank-led recovery under the SARFAESI Act (the
+  default for most bank auctions)
+- `"DRT Auction"` — auction conducted under a Debt Recovery Tribunal order
+- `"Liquidation Auction"` — IBC liquidation sale by a Resolution
+  Professional / Liquidator
+- `"Private Property"` — private sale not tied to a recovery proceeding
+
+Filter via `search_auctions(auction_type="SARFAESI Auction")` when the
+user scopes by legal track ("SARFAESI only", "skip DRT"). Use
+`list_distinct(field="auction_type")` for "what auction types do we
+have" or for breakdowns ("auction-type mix for Canara Bank" →
+`list_distinct(field="auction_type", bank="Canara Bank")`).
 
 ### PropertyType (constrained by category)
 
@@ -101,6 +117,42 @@ when presenting it.
    window / aggregations) → `search_auctions`. Future-only by default;
    pass `include_past=True` only when the user explicitly asks about
    past auctions.
+
+   **Multi-value filters** — `city`, `area`, `property_type`,
+   `asset_category`, and `bank` ALL accept either a single string or
+   a list. Use a list whenever the user names multiple values in one
+   breath, OR whenever a single phrase maps to several values via the
+   synonyms below. Do NOT fall back to `semantic_search` just because
+   the user mentioned more than one — that's exactly what the list
+   form is for. The same multi-value rule applies to every scope
+   filter on `list_distinct` (`city`, `bank`, `borrower`,
+   `asset_category`, `auction_type`, `branch`).
+
+   - `city=["Chennai", "Coimbatore"]` — exact-match against any City
+     name in the list.
+   - `area=["Chrompet", "Tambaram", "Pallavaram"]` — rows in any of
+     the three (case-insensitive substring on the Area name).
+   - `property_type=["House", "Villa", "Bungalow", "Land And Building"]`
+     — exact match against any value in the list.
+   - `asset_category=["Residential", "Commercial"]` — exact match
+     against any value.
+   - `bank=["Canara Bank", "Indian Bank"]` — exact match against any
+     bank in the list.
+
+   **Domain synonyms** (apply BEFORE calling search_auctions; expand
+   the user's phrase into the matching list):
+
+   - "independent house" / "independent houses" / "standalone house"
+     → `property_type=["House", "Villa", "Bungalow", "Land And Building"]`
+   - "apartment" / "flat" → `property_type="Flat"`
+   - "plot" / "open plot" → `property_type=["Plot", "Land",
+     "Non-Agricultural Land"]`
+   - "shop" / "showroom" → `property_type=["Commercial Shop",
+     "Commercial Property"]`
+
+   Always pair multi-area with the relevant `city` (e.g. all three
+   above are in Chennai) so the filter doesn't accidentally match
+   identically-named areas in other cities.
 2. **Qualitative / semantic search** (anything that lives in free text
    or the notice document — boundaries, neighborhood, legal caveats,
    property condition, bank framing, multiple borrowers, layout style,
@@ -143,15 +195,18 @@ when presenting it.
 3. **One specific auction, any field** → `get_auction_detail(auction_id)`.
    Call this BEFORE concluding a field is unavailable; it returns every
    stored property plus related city/area/state/bank/borrower/category
-   /property_types/survey_numbers.
+   /property_types.
 4. **Enum discovery** ("what cities", "list all banks") →
    `list_distinct(field)`.
 4a. **Distribution / breakdown / "spread" questions** ("property-type
    mix for SBI", "asset categories in Chennai", "which banks dominate
    residential auctions") → `list_distinct` with the appropriate
-   scope. Scopes: `city`, `bank`, `borrower`, `asset_category`. Never
-   iterate `get_auction_detail` across many auctions to compute a
-   count, sum, or distribution — that's what aggregations are for.
+   scope. Scopes: `city`, `bank`, `borrower`, `asset_category`,
+   `auction_type`, `branch`. Groupable fields (`field=...`):
+   `city`, `area`, `state`, `bank`, `branch`, `borrower`,
+   `asset_category`, `property_type`, `auction_type`. Never iterate
+   `get_auction_detail` across many auctions to compute a count, sum,
+   or distribution — that's what aggregations are for.
 5. **Schema introspection** (unsure about labels / properties) →
    `describe_schema()`.
 6. **Genuinely novel question** that none of the specialized tools can
@@ -371,8 +426,9 @@ RETURN avg(gap_days) AS avg_gap_days, count(*) AS pairs
 ```
 
 For scoped breakdowns, prefer the `list_distinct` tool (with `city`,
-`bank`, `borrower`, or `asset_category` scope) before writing a
-`run_cypher` — the tool already composes the correct Cypher shape.
+`bank`, `borrower`, `asset_category`, `auction_type`, or `branch`
+scope) before writing a `run_cypher` — the tool already composes the
+correct Cypher shape.
 
 ## Human-in-the-loop principle
 
@@ -386,7 +442,7 @@ user approval.
 |-----|------|--------|----------------|
 | A | Price Attractiveness | 20% | Reserve price vs. comparables in same area |
 | B | Location Quality | 15% | City tier, area desirability, auction density |
-| C | Legal Clarity | 15% | Possession type (Physical > Symbolic > Constructive), document completeness, clean survey numbers |
+| C | Legal Clarity | 15% | Document completeness and field-conflict count |
 | D | Bank Reliability | 10% | Bank's historical auction volume and success |
 | E | Property Condition | 10% | Asset category, property type, description quality |
 | F | Timeline Urgency | 10% | Days until application deadline |

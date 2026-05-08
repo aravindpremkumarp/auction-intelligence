@@ -32,8 +32,31 @@ def test_bank_filter_adds_conducted_by_edge(monkeypatch) -> None:
     search_auctions(bank="Canara Bank", limit=0)
 
     cypher, params = calls[0]
-    assert "(a)-[:CONDUCTED_BY]->(b:Bank {name: $bank})" in cypher
-    assert params["bank"] == "Canara Bank"
+    assert "(a)-[:CONDUCTED_BY]->(b:Bank)" in cypher
+    assert "b.name IN $bank" in cypher
+    assert params["bank"] == ["Canara Bank"]
+
+
+def test_multi_bank_and_multi_city(monkeypatch) -> None:
+    """List inputs for bank + city must produce IN-list Cypher and list
+    params — covers 'Canara Bank or Indian Bank in Chennai or Coimbatore'."""
+    calls = _patch_run_query(monkeypatch, total_count=0)
+    from api.tools.cypher_tools import search_auctions
+
+    search_auctions(
+        bank=["Canara Bank", "Indian Bank"],
+        city=["Chennai", "Coimbatore"],
+        asset_category=["Residential", "Commercial"],
+        limit=0,
+    )
+
+    cypher, params = calls[0]
+    assert "b.name IN $bank" in cypher
+    assert "c.name IN $city" in cypher
+    assert "ac.name IN $asset_category" in cypher
+    assert params["bank"] == ["Canara Bank", "Indian Bank"]
+    assert params["city"] == ["Chennai", "Coimbatore"]
+    assert params["asset_category"] == ["Residential", "Commercial"]
 
 
 def test_bank_filter_combines_with_property_type_and_city(monkeypatch) -> None:
@@ -51,11 +74,14 @@ def test_bank_filter_combines_with_property_type_and_city(monkeypatch) -> None:
     )
 
     row_cypher, row_params = calls[1]
-    assert "(a)-[:CONDUCTED_BY]->(b:Bank {name: $bank})" in row_cypher
-    assert "(a)-[:HAS_PROPERTY_TYPE]->(pt:PropertyType {name: $property_type})" in row_cypher
-    assert "(a)-[:LOCATED_IN_CITY]->(c:City {name: $city})" in row_cypher
+    assert "(a)-[:CONDUCTED_BY]->(b:Bank)" in row_cypher
+    assert "b.name IN $bank" in row_cypher
+    assert "(a)-[:HAS_PROPERTY_TYPE]->(pt:PropertyType)" in row_cypher
+    assert "pt.name IN $property_type" in row_cypher
+    assert "(a)-[:LOCATED_IN_CITY]->(c:City)" in row_cypher
+    assert "c.name IN $city" in row_cypher
     assert "ORDER BY a.reserve_price_num ASC" in row_cypher
-    assert row_params["bank"] == "Canara Bank"
+    assert row_params["bank"] == ["Canara Bank"]
     assert "min_price" not in row_params and "max_price" not in row_params
     assert out["limit"] == 5
     assert out["total_count"] == 5

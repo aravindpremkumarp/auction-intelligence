@@ -29,8 +29,6 @@ def _install_schema_stub(monkeypatch):
             return [{"v": "Residential"}, {"v": "Commercial"}]
         if "(n:PropertyType)" in c:
             return [{"v": "Flat"}, {"v": "Plot"}]
-        if "possession_type" in c:
-            return [{"v": "Physical"}, {"v": "Symbolic"}]
         if "min(a.reserve_price_num)" in c:
             return [{
                 "rp_min": 10000.0, "rp_max": 500000000.0,
@@ -66,7 +64,6 @@ def test_describe_schema_shape(monkeypatch):
 
     assert "Residential" in out["enums"]["asset_category"]
     assert "Flat" in out["enums"]["property_type"]
-    assert "Physical" in out["enums"]["possession_type"]
 
     assert out["numeric_ranges"]["reserve_price_num"]["min"] == 10000.0
     assert out["numeric_ranges"]["reserve_price_num"]["p95"] == 20000000.0
@@ -94,8 +91,6 @@ def test_describe_schema_cached(monkeypatch):
         if "keys(n)" in c:
             return [{"props": ["auction_id"]}]
         if "(n:AssetCategory)" in c or "(n:PropertyType)" in c:
-            return []
-        if "possession_type" in c:
             return []
         if "min(a.reserve_price_num)" in c:
             return [{}]

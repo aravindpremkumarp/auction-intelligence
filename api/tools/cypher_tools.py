@@ -142,11 +142,13 @@ _ORDER_BY_CLAUSES = {
 def search_auctions(
     min_price: float | None = None,
     max_price: float | None = None,
-    city: str | None = None,
-    area: str | None = None,
-    property_type: str | None = None,
-    asset_category: str | None = None,
-    bank: str | None = None,
+    city: str | list[str] | None = None,
+    area: str | list[str] | None = None,
+    property_type: str | list[str] | None = None,
+    asset_category: str | list[str] | None = None,
+    bank: str | list[str] | None = None,
+    auction_type: str | None = None,
+    branch_name: str | None = None,
     starts_after: datetime | None = None,
     starts_before: datetime | None = None,
     limit: int = 20,
@@ -189,20 +191,36 @@ def search_auctions(
 
     matches = ["(a:AuctionProperty)"]
     if city:
-        matches.append("(a)-[:LOCATED_IN_CITY]->(c:City {name: $city})"); params["city"] = city
+        city_list = [city] if isinstance(city, str) else list(city)
+        matches.append("(a)-[:LOCATED_IN_CITY]->(c:City)")
+        where.append("c.name IN $city")
+        params["city"] = city_list
     if area:
+        area_list = [area] if isinstance(area, str) else list(area)
         matches.append("(a)-[:LOCATED_IN_AREA]->(ar:Area)")
-        where.append("toLower(ar.name) CONTAINS toLower($area)")
-        params["area"] = area
+        where.append("any(x IN $area WHERE toLower(ar.name) CONTAINS toLower(x))")
+        params["area"] = area_list
     if property_type:
-        matches.append("(a)-[:HAS_PROPERTY_TYPE]->(pt:PropertyType {name: $property_type})")
-        params["property_type"] = property_type
+        pt_list = [property_type] if isinstance(property_type, str) else list(property_type)
+        matches.append("(a)-[:HAS_PROPERTY_TYPE]->(pt:PropertyType)")
+        where.append("pt.name IN $property_type")
+        params["property_type"] = pt_list
     if asset_category:
-        matches.append("(a)-[:HAS_ASSET_CATEGORY]->(ac:AssetCategory {name: $asset_category})")
-        params["asset_category"] = asset_category
+        ac_list = [asset_category] if isinstance(asset_category, str) else list(asset_category)
+        matches.append("(a)-[:HAS_ASSET_CATEGORY]->(ac:AssetCategory)")
+        where.append("ac.name IN $asset_category")
+        params["asset_category"] = ac_list
     if bank:
-        matches.append("(a)-[:CONDUCTED_BY]->(b:Bank {name: $bank})")
-        params["bank"] = bank
+        bank_list = [bank] if isinstance(bank, str) else list(bank)
+        matches.append("(a)-[:CONDUCTED_BY]->(b:Bank)")
+        where.append("b.name IN $bank")
+        params["bank"] = bank_list
+    if auction_type:
+        matches.append("(a)-[:IS_AUCTION_TYPE]->(:AuctionType {name: $auction_type})")
+        params["auction_type"] = auction_type
+    if branch_name:
+        matches.append("(a)-[:LISTED_BY_BRANCH]->(:Branch {name: $branch_name})")
+        params["branch_name"] = branch_name
 
     where_clause = 'WHERE ' + ' AND '.join(where) if where else ''
     match_clause = ', '.join(matches)
@@ -956,13 +974,11 @@ def get_auction_detail(auction_id: str) -> dict | None:
         OPTIONAL MATCH (a)-[:HAS_BORROWER]->(borrower:Borrower)
         OPTIONAL MATCH (a)-[:HAS_ASSET_CATEGORY]->(ac:AssetCategory)
         OPTIONAL MATCH (a)-[:HAS_PROPERTY_TYPE]->(pt:PropertyType)
-        OPTIONAL MATCH (a)-[:HAS_SURVEY_NUMBER]->(s:SurveyNumber)
         OPTIONAL MATCH (a)-[:HAS_DOCUMENT]->(doc:Document)
             WHERE doc.public_url IS NOT NULL
         OPTIONAL MATCH (a)-[link:SAME_PROPERTY_AS]->(sibling:AuctionProperty)
         WITH a, city, area, state, bank, borrower, ac,
              collect(DISTINCT pt.name) AS property_types,
-             collect(DISTINCT properties(s)) AS survey_numbers,
              collect(DISTINCT {
                filename:     doc.filename,
                public_url:   doc.public_url,
@@ -986,8 +1002,7 @@ def get_auction_detail(auction_id: str) -> dict | None:
                  bank:           CASE WHEN bank     IS NULL THEN NULL ELSE properties(bank)     END,
                  borrower:       CASE WHEN borrower IS NULL THEN NULL ELSE properties(borrower) END,
                  asset_category: CASE WHEN ac       IS NULL THEN NULL ELSE properties(ac)       END,
-                 property_types: property_types,
-                 survey_numbers: survey_numbers
+                 property_types: property_types
                } AS relationships,
                documents AS documents,
                siblings  AS siblings
@@ -1066,17 +1081,6 @@ def get_auction_detail(auction_id: str) -> dict | None:
     }
 
 
-def survey_search(survey_no: str, subdivision: str | None = None) -> list[dict]:
-    cypher = """
-        MATCH (a:AuctionProperty)-[:HAS_SURVEY_NUMBER]->(s:SurveyNumber)
-        WHERE s.survey_no = $survey_no
-          AND ($subdivision IS NULL OR s.subdivision = $subdivision)
-        RETURN a.auction_id AS auction_id, a.title AS title,
-               s.survey_no AS survey_no, s.subdivision AS subdivision, s.survey_type AS survey_type
-    """
-    return run_query(cypher, {"survey_no": survey_no, "subdivision": subdivision})
-
-
 # ── Phase 1: schema introspection + escape-hatch tools ─────────────────────
 
 # Map a logical field name the agent might use to the (label, relationship)
@@ -1086,9 +1090,11 @@ _DISTINCT_FIELDS: dict[str, tuple[str, str]] = {
     "area":           ("Area",          "LOCATED_IN_AREA"),
     "state":          ("State",         "LOCATED_IN_STATE"),
     "bank":           ("Bank",          "CONDUCTED_BY"),
+    "branch":         ("Branch",        "LISTED_BY_BRANCH"),
     "borrower":       ("Borrower",      "HAS_BORROWER"),
     "asset_category": ("AssetCategory", "HAS_ASSET_CATEGORY"),
     "property_type":  ("PropertyType",  "HAS_PROPERTY_TYPE"),
+    "auction_type":   ("AuctionType",   "IS_AUCTION_TYPE"),
 }
 
 _SCHEMA_CACHE: dict[str, tuple[float, dict]] = {}
@@ -1098,32 +1104,39 @@ _SCHEMA_TTL_SECONDS = 3600.0
 def list_distinct(
     field: str,
     limit: int = 100,
-    city: str | None = None,
-    bank: str | None = None,
-    borrower: str | None = None,
-    asset_category: str | None = None,
+    city: str | list[str] | None = None,
+    bank: str | list[str] | None = None,
+    borrower: str | list[str] | None = None,
+    asset_category: str | list[str] | None = None,
+    auction_type: str | list[str] | None = None,
+    branch: str | list[str] | None = None,
 ) -> dict:
     """List distinct values of a reference field with counts.
 
     `field` must be one of the keys in _DISTINCT_FIELDS. Scope filters
-    (`city`, `bank`, `borrower`, `asset_category`) narrow the count to
-    auctions that match every provided scope. A scope must differ from
+    (`city`, `bank`, `borrower`, `asset_category`, `auction_type`,
+    `branch`) narrow the count to auctions that match every provided
+    scope. Each scope accepts either a single string or a list of
+    strings (any-match within the list). A scope must differ from
     `field` — you can't group by bank while filtering by bank.
 
     Use this for distribution / breakdown / "spread" questions
-    ("property-type mix for SBI", "asset categories in Chennai"). Never
-    iterate `get_auction_detail` to compute a count.
+    ("property-type mix for SBI", "asset categories in Chennai",
+    "auction-type breakdown for Canara Bank"). Never iterate
+    `get_auction_detail` to compute a count.
     """
     if field not in _DISTINCT_FIELDS:
         raise ValueError(
             f"field must be one of {sorted(_DISTINCT_FIELDS)}, got {field!r}"
         )
 
-    raw_scopes: dict[str, str | None] = {
+    raw_scopes: dict[str, str | list[str] | None] = {
         "city":           city,
         "bank":           bank,
         "borrower":       borrower,
         "asset_category": asset_category,
+        "auction_type":   auction_type,
+        "branch":         branch,
     }
     # Filtering by the same dimension you're grouping on is a no-op; drop
     # silently so agents can pass redundant scopes without an error.
@@ -1133,20 +1146,24 @@ def list_distinct(
     params: dict = {"limit": int(limit)}
 
     scope_matches: list[str] = []
+    where_clauses: list[str] = []
     for scope_field, value in active_scopes.items():
         scope_label, scope_rel = _DISTINCT_FIELDS[scope_field]
-        scope_matches.append(
-            f"(a)-[:{scope_rel}]->(:{scope_label} {{name: ${scope_field}}})"
-        )
-        params[scope_field] = value
+        value_list = [value] if isinstance(value, str) else list(value)
+        var = f"n_{scope_field}"
+        scope_matches.append(f"(a)-[:{scope_rel}]->({var}:{scope_label})")
+        where_clauses.append(f"{var}.name IN ${scope_field}")
+        params[scope_field] = value_list
 
     match_clauses = ["(a:AuctionProperty)"]
     match_clauses.extend(scope_matches)
     match_clauses.append(f"(a)-[:{rel}]->(n:{label})")
     match_clause = ",\n                  ".join(match_clauses)
+    where_clause = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
 
     cypher = f"""
             MATCH {match_clause}
+            {where_clause}
             RETURN n.name AS value, count(DISTINCT a) AS auction_count
             ORDER BY auction_count DESC
             LIMIT $limit
@@ -1158,6 +1175,8 @@ def list_distinct(
         "filter_bank": bank,
         "filter_borrower": borrower,
         "filter_asset_category": asset_category,
+        "filter_auction_type": auction_type,
+        "filter_branch": branch,
         "results": results,
     }
 
@@ -1170,7 +1189,7 @@ def describe_schema(refresh: bool = False) -> dict:
 
     - node_labels: [{label, count, sample_properties}, ...]
     - relationships: [{type, from, to, count}, ...]
-    - enums: {asset_category, property_type, possession_type, ...}
+    - enums: {asset_category, property_type, ...}
     - numeric_ranges: {reserve_price_num: {...}, emd_num: {...}}
     - date_ranges:    {auction_start_dt: {...}, application_deadline_dt: {...}}
     """
@@ -1219,17 +1238,6 @@ def describe_schema(refresh: bool = False) -> dict:
             max_rows=50,
         )
         enums[field] = [r["v"] for r in rows if r.get("v")]
-
-    poss_rows = run_read_query(
-        """
-        MATCH (a:AuctionProperty)
-        WHERE a.possession_type IS NOT NULL
-        RETURN DISTINCT a.possession_type AS v
-        ORDER BY v
-        """,
-        max_rows=20,
-    )
-    enums["possession_type"] = [r["v"] for r in poss_rows if r.get("v")]
 
     stat_rows = run_read_query(
         """

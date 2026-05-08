@@ -6,9 +6,7 @@ them as `:SAME_PROPERTY_AS` relationships in Neo4j.
 
 Rules:
 
-  1. Survey-number rule  — two auctions share a SurveyNumber (survey_no +
-     subdivision) AND either same Borrower OR same City+Area.
-  2. Borrower+location+description rule — same Borrower, Bank, and
+  1. Borrower+location+description rule — same Borrower, Bank, and
      (normalised) Area, AND description Jaccard similarity ≥ threshold.
      If total_area is available on both sides it must also agree
      within ±10% (normalised to sq ft). Missing description on either
@@ -404,7 +402,7 @@ def find_reauction_pairs(
 
     `auctions` is a list of dicts with keys:
         auction_id, borrower, bank, city, area, total_area, description,
-        auction_start_dt, survey_numbers (list of {survey_no, subdivision})
+        auction_start_dt
     """
     pairs: list[tuple[str, str, str, str]] = []
     seen_pairs: set[tuple[str, str]] = set()
@@ -431,40 +429,7 @@ def find_reauction_pairs(
         loose_ids[aid] = loose_parcel_ids(desc)
         desc_areas[aid] = parse_desc_areas(desc)
 
-    # Rule 1: survey-number buckets.
-    by_survey: dict[tuple[str, str], list[dict]] = defaultdict(list)
-    for row in auctions:
-        for sn in row.get("survey_numbers") or []:
-            sn_no = _norm(sn.get("survey_no"))
-            if not sn_no:
-                continue
-            sn_sub = _norm(sn.get("subdivision")) or ""
-            by_survey[(sn_no, sn_sub)].append(row)
-
-    for bucket in by_survey.values():
-        if len(bucket) < 2:
-            continue
-        for i in range(len(bucket)):
-            for j in range(i + 1, len(bucket)):
-                a, b = bucket[i], bucket[j]
-                # Batch sale on the same day ≠ re-auction.
-                if _is_same_auction_day(a.get("auction_start_dt"),
-                                        b.get("auction_start_dt")):
-                    continue
-                # Survey match alone is not enough — require borrower OR
-                # (city + area) to also align.
-                ba, bb = _norm(a.get("borrower")), _norm(b.get("borrower"))
-                ca, cb = _norm(a.get("city")), _norm(b.get("city"))
-                aa, ab = normalize_area(a.get("area")), normalize_area(b.get("area"))
-                borrower_match = ba and bb and ba == bb
-                location_match = ca and cb and ca == cb and aa and ab and aa == ab
-                if borrower_match or location_match:
-                    _add(
-                        a["auction_id"], b["auction_id"],
-                        "survey_number", "high",
-                    )
-
-    # Rule 2: borrower + bank + normalised-area, validated by description
+    # Rule: borrower + bank + normalised-area, validated by description
     # Jaccard similarity. Candidates grouped first; every within-group pair
     # is then checked for description overlap and total_area agreement.
     by_bba: dict[tuple[str, str, str], list[dict]] = defaultdict(list)
@@ -602,11 +567,6 @@ OPTIONAL MATCH (a)-[:HAS_BORROWER]->(br:Borrower)
 OPTIONAL MATCH (a)-[:CONDUCTED_BY]->(bk:Bank)
 OPTIONAL MATCH (a)-[:LOCATED_IN_CITY]->(c:City)
 OPTIONAL MATCH (a)-[:LOCATED_IN_AREA]->(ar:Area)
-OPTIONAL MATCH (a)-[:HAS_SURVEY_NUMBER]->(s:SurveyNumber)
-WITH a, br, bk, c, ar,
-     collect(DISTINCT CASE WHEN s IS NULL THEN NULL ELSE
-        {survey_no: s.survey_no, subdivision: coalesce(s.subdivision, '')}
-     END) AS raw_surveys
 RETURN a.auction_id       AS auction_id,
        a.total_area        AS total_area,
        coalesce(a.enriched_description, a.description) AS description,
@@ -614,8 +574,7 @@ RETURN a.auction_id       AS auction_id,
        br.name             AS borrower,
        bk.name             AS bank,
        c.name              AS city,
-       ar.name             AS area,
-       [x IN raw_surveys WHERE x IS NOT NULL]  AS survey_numbers
+       ar.name             AS area
 """
 
 DROP_EXISTING = """
@@ -658,7 +617,6 @@ def debug_diagnostics(auctions: list[dict]) -> None:
     has_city     = sum(1 for a in auctions if _norm(a.get("city")))
     has_total    = sum(1 for a in auctions if a.get("total_area"))
     has_parsed   = sum(1 for a in auctions if parse_total_area_sqft(a.get("total_area")))
-    has_surveys  = sum(1 for a in auctions if a.get("survey_numbers"))
     has_desc     = sum(1 for a in auctions if tokenize_description(a.get("description")))
 
     def _pct(x: int) -> str:
@@ -670,7 +628,6 @@ def debug_diagnostics(auctions: list[dict]) -> None:
     print(f"  city set:              {_pct(has_city)}")
     print(f"  total_area populated:  {_pct(has_total)}")
     print(f"  total_area parseable:  {_pct(has_parsed)}")
-    print(f"  survey_numbers:        {_pct(has_surveys)}")
     print(f"  description usable:    {_pct(has_desc)}")
 
     # Borrower duplicates (normalised).
@@ -684,21 +641,6 @@ def debug_diagnostics(auctions: list[dict]) -> None:
     print(f"\n=== Borrowers with >1 auction: {len(repeats)} ===")
     for b, aucts in repeats[:10]:
         print(f"  '{b}' — {len(aucts)} auctions")
-
-    # Survey-number duplicates.
-    by_survey: dict[tuple[str, str], list[dict]] = defaultdict(list)
-    for a in auctions:
-        for sn in a.get("survey_numbers") or []:
-            sno = _norm(sn.get("survey_no"))
-            if not sno:
-                continue
-            sub = _norm(sn.get("subdivision")) or ""
-            by_survey[(sno, sub)].append(a)
-    sv_repeats = [(k, v) for k, v in by_survey.items() if len(v) > 1]
-    sv_repeats.sort(key=lambda x: -len(x[1]))
-    print(f"\n=== Survey numbers on >1 auction: {len(sv_repeats)} ===")
-    for (sno, sub), aucts in sv_repeats[:10]:
-        print(f"  survey_no={sno!r} subdivision={sub!r} — {len(aucts)} auctions")
 
     # Near-misses: same (borrower, bank, normalised-area) tuples — show the
     # within-group description Jaccard distribution so we can see whether

@@ -185,10 +185,13 @@ def inject_mode_overlay(ctx: RunContext[ChatDeps]) -> str:
 @agent.tool_plain
 def search_auctions(
     min_price: float | None = None, max_price: float | None = None,
-    city: str | None = None, area: str | None = None,
-    property_type: str | None = None,
-    asset_category: str | None = None,
-    bank: str | None = None,
+    city: str | list[str] | None = None,
+    area: str | list[str] | None = None,
+    property_type: str | list[str] | None = None,
+    asset_category: str | list[str] | None = None,
+    bank: str | list[str] | None = None,
+    auction_type: str | None = None,
+    branch_name: str | None = None,
     starts_after: datetime | None = None, starts_before: datetime | None = None,
     limit: int = 20,
     order_by: str = "deadline_asc",
@@ -196,8 +199,9 @@ def search_auctions(
     aggregations: list[str] | None = None,
     include_past: bool = False,
 ) -> dict:
-    """Filter auctions by price, city, area, type, asset category, bank, and
-    date window. Optional `order_by` and `limit` control row ordering.
+    """Filter auctions by price, city, area, type, asset category, bank,
+    auction type, branch, and date window. Optional `order_by` and `limit`
+    control row ordering.
 
     Returns {total_count, returned, limit, results}. `total_count` is the true
     number of matches in the graph (ignoring limit); `results` is capped at
@@ -213,18 +217,41 @@ def search_auctions(
 
     Location filters:
       - `city` matches a City node by exact name (e.g. "Chennai", "Kanchipuram").
+        Pass a LIST when the user names multiple cities ("Chennai or Coimbatore").
       - `area` matches an Area node inside a city (suburb / taluk / locality,
         e.g. "Ambattur", "Sriperumbudur"). Case-insensitive substring match,
         so "ambattur" and "Ambattur" both work. Use this for
         "show me properties in <area>" style queries — combine with `city`
-        when the user also names the city.
+        when the user also names the city. Pass a LIST when the user names
+        multiple areas in one breath ("Chrompet, Tambaram, Pallavaram") —
+        any-match semantics: rows whose Area name contains ANY of the
+        provided strings (case-insensitive) are returned.
+
+    Type filters:
+      - `property_type` matches a PropertyType node by exact name. Pass a
+        LIST when the user's intent maps to several types — e.g.
+        "independent house" → ["House", "Villa", "Bungalow",
+        "Land And Building"]. Single string still works for one-type
+        queries.
+      - `asset_category` matches an AssetCategory node by exact name
+        (e.g. "Residential"). Pass a LIST when the user wants more than
+        one category ("residential or commercial" → ["Residential",
+        "Commercial"]).
 
     Scope filters:
       - `bank` matches a Bank node by exact name (e.g. "Canara Bank",
         "State Bank of India"). Use this when the user narrowed the
         conversation to a specific bank — once they say "in Canara Bank",
         keep passing bank="Canara Bank" on every follow-up search until
-        they clearly change scope.
+        they clearly change scope. Pass a LIST when comparing banks
+        ("Canara Bank or Indian Bank").
+      - `auction_type` matches an AuctionType node by exact name. Values:
+        "SARFAESI Auction", "DRT Auction", "Liquidation Auction",
+        "Private Property". Use when the user filters by legal track
+        ("SARFAESI only", "skip DRT").
+      - `branch_name` matches a Branch node by exact name (e.g. a
+        specific bank-branch listing the auction). Use when the user
+        names a specific branch.
 
     Ordering / superlatives:
       - `order_by` selects row order: "deadline_asc" (default — soonest
@@ -252,12 +279,18 @@ def search_auctions(
     Example for "5 cheapest Canara Bank lands in Chennai":
       search_auctions(bank="Canara Bank", property_type="Land",
                       city="Chennai", order_by="price_asc", limit=5)
+
+    Example for "independent houses in Chrompet, Tambaram, Pallavaram":
+      search_auctions(area=["Chrompet", "Tambaram", "Pallavaram"],
+                      property_type=["House", "Villa", "Bungalow",
+                                     "Land And Building"])
     """
     return T.search_auctions(
         min_price=min_price, max_price=max_price,
         city=city, area=area,
         property_type=property_type, asset_category=asset_category,
         bank=bank,
+        auction_type=auction_type, branch_name=branch_name,
         starts_after=starts_after, starts_before=starts_before,
         limit=limit, order_by=order_by,
         aggregate_field=aggregate_field, aggregations=aggregations,
@@ -339,20 +372,21 @@ def semantic_search(
     For "find me this exact pasted property" use `match_pasted_listing`
     — semantic search alone has no way to disambiguate between similar
     listings.
+
+    Failure handling: returns `{"error": "<message>", "results": []}` if the
+    embedding backend is unavailable (e.g. Gemini key not set). The LLM
+    should fall back to `search_auctions` rather than retry.
     """
-    return T.semantic_search(
-        query, city=city, area=area,
-        min_price=min_price, max_price=max_price,
-        asset_category=asset_category,
-        starts_after=starts_after, starts_before=starts_before,
-        limit=limit, include_past=include_past,
-    )
-
-
-@agent.tool_plain
-def survey_search(survey_no: str, subdivision: str | None = None) -> list[dict]:
-    """Find properties by survey number (with optional subdivision)."""
-    return T.survey_search(survey_no, subdivision)
+    try:
+        return T.semantic_search(
+            query, city=city, area=area,
+            min_price=min_price, max_price=max_price,
+            asset_category=asset_category,
+            starts_after=starts_after, starts_before=starts_before,
+            limit=limit, include_past=include_past,
+        )
+    except RuntimeError as e:
+        return {"error": str(e), "results": [], "returned": 0, "limit": limit}
 
 
 @agent.tool_plain
@@ -404,23 +438,29 @@ def get_auction_detail(auction_id: str) -> dict | None:
 def list_distinct(
     field: str,
     limit: int = 100,
-    city: str | None = None,
-    bank: str | None = None,
-    borrower: str | None = None,
-    asset_category: str | None = None,
+    city: str | list[str] | None = None,
+    bank: str | list[str] | None = None,
+    borrower: str | list[str] | None = None,
+    asset_category: str | list[str] | None = None,
+    auction_type: str | list[str] | None = None,
+    branch: str | list[str] | None = None,
 ) -> dict:
     """List distinct values of a reference field with per-value auction counts.
 
-    `field` must be one of: "city", "area", "state", "bank", "borrower",
-    "asset_category", "property_type".
+    `field` must be one of: "city", "area", "state", "bank", "branch",
+    "borrower", "asset_category", "property_type", "auction_type".
 
-    Scope filters narrow the count. Supply any combination of `city`,
-    `bank`, `borrower`, `asset_category`; a scope must differ from
-    `field`. Examples:
+    Scope filters narrow the count. Each scope accepts either a single
+    string or a list (any-match). Supply any combination of `city`,
+    `bank`, `borrower`, `asset_category`, `auction_type`, `branch`; a
+    scope must differ from `field`. Examples:
       - property-type mix for SBI: field="property_type", bank="State Bank of India"
       - asset categories in Chennai: field="asset_category", city="Chennai"
       - residential property types in Kanchipuram: field="property_type",
         city="Kanchipuram", asset_category="Residential"
+      - auction-type breakdown for Canara Bank: field="auction_type",
+        bank="Canara Bank"
+      - branches active in Chennai: field="branch", city="Chennai"
 
     Use this for distribution / breakdown / "spread" questions. Do NOT
     compute distributions by iterating `get_auction_detail`."""
@@ -431,6 +471,8 @@ def list_distinct(
         bank=bank,
         borrower=borrower,
         asset_category=asset_category,
+        auction_type=auction_type,
+        branch=branch,
     )
 
 

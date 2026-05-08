@@ -413,7 +413,7 @@ Listed for awareness. Each needs a checkout + order-tracking flow if integrated;
 
 2. **Hit upstream gov portals directly, not Landeed.** Landeed has no public API. The free Bucket A lookups all map to `tnreginet.gov.in` or `eservices.tn.gov.in` (TN-AGRIS) — both have form-based search. Use the existing scrapers/ pattern (Selenium for captcha/JS pages, requests for static pulls) as proven by `scrapers/worker.py`.
 
-3. **Cache aggressively in Neo4j.** EC, patta, guideline value rarely change between auction notices. Store records as `LandRecord` nodes attached to `AuctionProperty` (or `SurveyNumber`) so re-lookups are free. Schema lives alongside the existing definitions in `modes/_shared.md`.
+3. **Cache aggressively in Neo4j.** EC, patta, guideline value rarely change between auction notices. Store records as `LandRecord` nodes attached to `AuctionProperty` (or `SurveyNumber`) so re-lookups are free. Schema lives alongside the existing definitions in `modes/_shared.md`. (Note: the `SurveyNumber` graph node was removed 2026-05; this section assumes it would be reintroduced alongside Landeed enrichment.)
 
 4. **OTP relay for FMB (item 11).** Either ask the user to enter the OTP in the chat (relay it through to the upstream), or skip FMB in v1 and surface "FMB requires OTP — open the upstream portal" as a link.
 

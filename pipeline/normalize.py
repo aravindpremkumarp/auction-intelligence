@@ -263,19 +263,9 @@ def normalize_record(record: dict) -> tuple[dict, list[str]]:
                 changes.append(f"{field}: '{enriched[field]}' -> '{new_val}'")
                 enriched[field] = new_val
 
-    # Normalize survey numbers
-    for sn_field in ("old_survey_numbers", "new_survey_numbers"):
-        if sn_field in enriched:
-            enriched[sn_field] = [normalize_survey_number(sn) for sn in enriched[sn_field]]
-
     # Normalize mentions
     for mention in record.get("mentions", []):
-        if mention["entity_type"] == "SurveyNumber":
-            mention["survey_no"] = normalize_survey_number(
-                {"survey_no": mention.get("survey_no"), "subdivision": mention.get("subdivision")}
-            ).get("survey_no", mention.get("survey_no"))
-
-        elif mention["entity_type"] in ("Village",):
+        if mention["entity_type"] in ("Village",):
             new_val, changed = normalize_village(mention["value"])
             if changed:
                 changes.append(f"mention {mention['entity_type']}: '{mention['value']}' -> '{new_val}'")

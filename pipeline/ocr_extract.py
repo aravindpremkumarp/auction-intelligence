@@ -212,17 +212,8 @@ def cross_reference(record: dict, extracted: dict) -> dict:
     new_info = []
     website_desc = (record.get("description") or "").lower()
 
-    if extracted.get("possession_type") and "possession" not in website_desc:
-        new_info.append("possession_type")
-
     if extracted.get("undivided_share"):
         new_info.append("undivided_share")
-
-    if extracted.get("old_survey_numbers"):
-        new_info.append("old_survey_numbers")
-
-    if extracted.get("new_survey_numbers"):
-        new_info.append("new_survey_numbers")
 
     if extracted.get("village") and extracted["village"].lower() not in website_desc:
         new_info.append("village")
