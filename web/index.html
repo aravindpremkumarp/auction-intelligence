@@ -311,12 +311,31 @@ body {
   border: 1.5px solid var(--ink);
   background: var(--card);
   box-shadow: var(--shadow);
-  padding: 6px 0;
+  padding: 0;
   font-family: var(--font-body); font-size: 13px;
 }
-.filter-multi-empty {
+.filter-multi-search {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--ink);
+  background: var(--card);
+  position: sticky; top: 0; z-index: 1;
+}
+.filter-multi-search-input {
+  width: 100%;
+  border: 1px solid var(--ink);
+  background: var(--paper);
+  padding: 4px 8px;
+  font-family: var(--font-body); font-size: 12px;
+  color: var(--ink);
+  box-sizing: border-box;
+}
+.filter-multi-search-input::placeholder { color: var(--muted); }
+.filter-multi-options { padding: 6px 0; }
+.filter-multi-empty,
+.filter-multi-no-match {
   padding: 8px 12px; color: var(--muted); font-size: 12px;
 }
+.filter-multi-no-match { font-style: italic; }
 .filter-multi-opt {
   display: flex; align-items: center; gap: 8px;
   padding: 5px 12px;
@@ -3876,11 +3895,53 @@ function _updateFilterMultiLabel(wrapId) {
   }
 }
 
+function _filterMultiOptions(panel) {
+  const input = panel.querySelector('.filter-multi-search-input');
+  const optsWrap = panel.querySelector('.filter-multi-options');
+  if (!input || !optsWrap) return;
+  const q = input.value.trim().toLowerCase();
+  const opts = optsWrap.querySelectorAll('.filter-multi-opt');
+  let visible = 0;
+  for (const opt of opts) {
+    const name = (opt.dataset.name || '').toLowerCase();
+    const matches = !q || name.includes(q);
+    opt.style.display = matches ? '' : 'none';
+    if (matches) visible++;
+  }
+  let noMatch = optsWrap.querySelector('.filter-multi-no-match');
+  if (q && !visible && opts.length) {
+    if (!noMatch) {
+      noMatch = document.createElement('div');
+      noMatch.className = 'filter-multi-no-match';
+      noMatch.textContent = 'no matches';
+      optsWrap.appendChild(noMatch);
+    }
+  } else if (noMatch) {
+    noMatch.remove();
+  }
+}
+
 function _populateFacetMulti(wrapId, facetRows, selectedValues) {
   const wrap = document.getElementById(wrapId);
   if (!wrap) return;
   const panel = wrap.querySelector('.filter-multi-panel');
   if (!panel) return;
+
+  // Build the search + options scaffold once; subsequent calls only refresh
+  // the options list, so the user's typed search query and input focus
+  // survive across applyBrowse re-renders.
+  let optsWrap = panel.querySelector('.filter-multi-options');
+  if (!optsWrap) {
+    panel.innerHTML = ''
+      + '<div class="filter-multi-search">'
+      +   '<input type="text" class="filter-multi-search-input" placeholder="search…" aria-label="search options" autocomplete="off">'
+      + '</div>'
+      + '<div class="filter-multi-options"></div>';
+    optsWrap = panel.querySelector('.filter-multi-options');
+    const search = panel.querySelector('.filter-multi-search-input');
+    search.addEventListener('input', () => _filterMultiOptions(panel));
+  }
+
   const selected = new Set((selectedValues || []).filter(Boolean));
   const seen = new Set();
   const rows = [];
@@ -3894,14 +3955,17 @@ function _populateFacetMulti(wrapId, facetRows, selectedValues) {
   for (const v of selected) {
     if (!seen.has(v)) rows.push({ value: v, count: 0 });
   }
+  rows.sort((a, b) => a.value.toLowerCase().localeCompare(b.value.toLowerCase()));
+
   if (!rows.length) {
-    panel.innerHTML = `<div class="filter-multi-empty">no options</div>`;
+    optsWrap.innerHTML = `<div class="filter-multi-empty">no options</div>`;
   } else {
-    panel.innerHTML = rows.map(r => {
+    optsWrap.innerHTML = rows.map(r => {
       const checked = selected.has(r.value) ? 'checked' : '';
-      return `<label class="filter-multi-opt"><input type="checkbox" value="${escapeHtml(r.value)}" ${checked}><span class="name">${escapeHtml(r.value)}</span><span class="count">(${r.count})</span></label>`;
+      return `<label class="filter-multi-opt" data-name="${escapeHtml(r.value)}"><input type="checkbox" value="${escapeHtml(r.value)}" ${checked}><span class="name">${escapeHtml(r.value)}</span><span class="count">(${r.count})</span></label>`;
     }).join('');
   }
+  _filterMultiOptions(panel);
   _updateFilterMultiLabel(wrapId);
 }
 
@@ -3973,6 +4037,7 @@ function clearAllBrowseFilters() {
   document.getElementById('f-date-from').value = '';
   document.getElementById('f-date-to').value = '';
   document.getElementById('price-custom').style.display = 'none';
+  document.querySelectorAll('.filter-multi-search-input').forEach(i => { i.value = ''; });
   applyBrowse();
 }
 
