@@ -1104,6 +1104,33 @@ body {
   line-height: 1.5;
   white-space: pre-wrap;
 }
+.detail-desc.formatted { white-space: normal; }
+.detail-desc.formatted > *:first-child { margin-top: 0; }
+.detail-desc.formatted > *:last-child  { margin-bottom: 0; }
+.detail-desc.formatted strong { font-weight: 700; color: var(--ink); }
+.detail-desc.formatted em { font-style: italic; }
+.detail-desc.formatted .md-h {
+  font-family: var(--font-body); font-weight: 700; color: var(--ink);
+  margin: 12px 0 6px; line-height: 1.25;
+}
+.detail-desc.formatted .md-h1 { font-size: 18px; border-bottom: 1.5px solid var(--ink); padding-bottom: 3px; }
+.detail-desc.formatted .md-h2 { font-size: 16px; border-bottom: 1px dashed var(--ink); padding-bottom: 2px; }
+.detail-desc.formatted .md-h3 { font-size: 16px; border-bottom: 1px dashed var(--ink); padding-bottom: 2px; }
+.detail-desc.formatted .md-h4 { font-size: 14px; color: var(--ink-soft); }
+.detail-desc.formatted .md-h5,
+.detail-desc.formatted .md-h6 { font-size: 13px; color: var(--ink-soft); }
+.detail-desc.formatted .md-list {
+  margin: 6px 0; padding-left: 22px;
+  display: flex; flex-direction: column; gap: 3px;
+}
+.detail-desc.formatted .md-list li { line-height: 1.45; }
+.detail-desc.formatted br + br { line-height: 2.2; }
+.detail-desc.formatted .md-hr {
+  border: 0; height: 0;
+  border-top: 1px solid var(--ink);
+  opacity: 0.35;
+  margin: 14px 0;
+}
 
 .docs { display: flex; flex-direction: column; gap: 6px; }
 .doc {
@@ -2186,6 +2213,145 @@ function escapeHtml(s) {
   return (s == null ? '' : String(s)).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
+// Convert a raw legal-style "Property Description" paragraph into structured
+// markdown (headers, bullets, bold labels, direction emojis) so the existing
+// renderMarkdown pipeline can format it the same way it formats AI chat.
+// Returns the input untouched when it already looks structured (has blank
+// lines, headers, or list bullets).
+function formatDescription(text) {
+  if (text == null) return '';
+  let s = String(text).trim();
+  if (!s) return '';
+
+  const alreadyStructured =
+    /\n\s*\n/.test(s) ||
+    /^\s*#{1,6}\s+/m.test(s) ||
+    /^\s*[-*+]\s+/m.test(s);
+  if (alreadyStructured) return s;
+
+  s = s.replace(/^\s*(?:property\s+)?description(?:\s+of\s+propert(?:y\/ies|ies|y))?\s*[:\-–]\s*/i, '');
+  s = s.replace(/\s+/g, ' ').trim();
+
+  const itemRegex = /\bItem\s+No\.?\s*[:\-]?\s*(\d+)\b/gi;
+  const segments = [];
+  let lastIdx = 0;
+  let lastNum = null;
+  let m;
+  while ((m = itemRegex.exec(s)) !== null) {
+    segments.push({ num: lastNum, body: s.slice(lastIdx, m.index).trim() });
+    lastNum = m[1];
+    lastIdx = m.index + m[0].length;
+  }
+  segments.push({ num: lastNum, body: s.slice(lastIdx).trim() });
+
+  const dirEmoji = { north: '⬆️', south: '⬇️', east: '➡️', west: '⬅️' };
+
+  const formatBody = (body) => {
+    if (!body) return '';
+    const lines = [];
+
+    // Pull out a "Bounded On The North By X, South By Y, East By Z, West By W"
+    // clause and rebuild it as a labelled bullet list.
+    let boundaryLines = [];
+    const bm = body.match(
+      /\bBounded\s+(?:on\s+the\s+)?(?:plot\s+no\.?[^,]*,?\s*)?(.+?)(?=(?:\s+And\s+Situated\b|\s+And\s+Within\b|\s+Within\s+The\b|\s*$))/i,
+    );
+    if (bm) {
+      const inner = bm[1];
+      // Walk every direction keyword and slice the value as everything up
+      // to the next direction. This preserves commas inside a single value
+      // (e.g. "Plot No. 156/2,3 And 155/4").
+      const dirRe = /\b(north|south|east|west)\b/gi;
+      const positions = [];
+      let dm;
+      while ((dm = dirRe.exec(inner)) !== null) {
+        positions.push({ idx: dm.index, end: dm.index + dm[0].length, dir: dm[1].toLowerCase() });
+      }
+      const seen = {};
+      const parts = [];
+      for (let k = 0; k < positions.length; k++) {
+        const start = positions[k].end;
+        const finish = (k + 1 < positions.length) ? positions[k + 1].idx : inner.length;
+        let val = inner.slice(start, finish);
+        val = val.replace(/^\s*(?:by|:)\s*/i, '').trim().replace(/[,;.\s]+$/, '');
+        const dir = positions[k].dir;
+        if (val && !seen[dir]) { seen[dir] = true; parts.push({ dir, val }); }
+      }
+      if (parts.length >= 2) {
+        const order = ['north', 'south', 'east', 'west'];
+        parts.sort((a, b) => order.indexOf(a.dir) - order.indexOf(b.dir));
+        boundaryLines = parts.map(p =>
+          `- ${dirEmoji[p.dir] || '•'} **${p.dir.charAt(0).toUpperCase() + p.dir.slice(1)}:** ${p.val}`
+        );
+        body = body.replace(bm[0], '').trim();
+      }
+    }
+
+    // Bold a few well-known field labels in whatever text remains so the eye
+    // can scan for the data points fast. Use a single alternation regex with
+    // longest labels first so overlapping phrases (e.g. "Measuring An Extent
+    // Of" vs "Measuring") get bolded once at the longest match.
+    const labels = [
+      'Together With An Undivided Share Of',
+      'As Per Patta New Survey No',
+      'Comprised In Old Survey No',
+      'Measuring An Extent Of',
+      'Measuring About',
+      'Building Called',
+      'Old Survey No', 'New Survey No',
+      'Comprised In', 'Situated Within',
+      'As Per Patta',
+      'Plot Nos', 'Plot No', 'Survey No', 'Flat No', 'Door No', 'Bearing No',
+      'Measuring', 'Patta',
+    ];
+    const labelRe = new RegExp(
+      '\\b(' + labels.map(l => l.replace(/\s+/g, '\\s+')).join('|') + ')\\b',
+      'gi',
+    );
+    body = body.replace(labelRe, '**$1**');
+
+    // Tidy up leftover scaffolding from where the boundary clause was cut out.
+    body = body
+      .replace(/\bAnd\s+And\b/gi, 'And')
+      .replace(/,\s*And\s*(?=[.,])/gi, '')
+      .replace(/\bAnd\s*$/i, '')
+      .replace(/\bSchedule\s+([A-Z])\s+Schedule\s+\1\b/gi, 'Schedule $1')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+
+    // Break body at sentence boundaries (period followed by capital letter or
+    // open-paren) and emit each as its own paragraph.
+    const sentences = body
+      .split(/(?<=\.)\s+(?=[A-Z(])/)
+      .map(t => t.replace(/\s+/g, ' ').replace(/^[\s,;.]+|[\s,;.]+$/g, '').trim())
+      .filter(Boolean);
+
+    if (sentences.length) lines.push(sentences.join('\n\n'));
+    if (boundaryLines.length) {
+      lines.push('');
+      lines.push('**🧭 Boundaries**');
+      lines.push(boundaryLines.join('\n'));
+    }
+    return lines.join('\n');
+  };
+
+  const blocks = [];
+  segments.forEach((seg, i) => {
+    if (!seg.body && seg.num == null) return;
+    if (seg.num == null) {
+      const formatted = formatBody(seg.body);
+      if (formatted) blocks.push(formatted);
+    } else {
+      const header = `### 🏠 Item ${seg.num}`;
+      const formatted = formatBody(seg.body);
+      blocks.push(formatted ? `${header}\n\n${formatted}` : header);
+    }
+  });
+
+  const result = blocks.join('\n\n').trim();
+  return result || s;
+}
+
 // Render a small, safe subset of Markdown to HTML for AI chat bubbles.
 // Supports: fenced + inline code, tables, headers (#..######), bold (** **),
 // italic (* *), links [text](http(s)://…), and unordered/ordered lists.
@@ -3086,10 +3252,10 @@ function renderDetail(detail) {
   if (desc && String(desc).trim()) {
     const cleaned = String(desc).trim()
       .replace(/^#{1,6}\s*description of propert(?:y\/ies|ies|y)\s*:?\s*/i, '')
-      .replace(/^#{1,6}\s+/gm, '')
-      .replace(/\*\*([^*]+)\*\*/g, '$1')
       .trim();
-    document.getElementById('detail-desc').textContent = cleaned;
+    const descEl = document.getElementById('detail-desc');
+    descEl.classList.add('formatted');
+    descEl.innerHTML = renderMarkdown(formatDescription(cleaned));
     document.getElementById('detail-desc-wrap').style.display = '';
   }
 
