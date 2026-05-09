@@ -34,7 +34,8 @@ screenshots/
 ~$*                   # Windows Office temp files
 
 # Claude Code per-project / per-user settings
-.claude/
+.claude/*
+!.claude/skills/
 
 # OS / editor
 .DS_Store
