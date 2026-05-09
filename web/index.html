@@ -2145,6 +2145,7 @@ let currentResults = [];
 let currentTotalCount = null;
 let currentSort = 'date_asc';
 let detailChatHistory = [];
+let detailApiMessageHistory = null;   // server-format message_history for the active property chat — must thread across turns or follow-ups lose context
 let currentPropertyChatId = null;     // UUID of the active chat in the right-side property panel
 let propertyChatList = [];            // [{id, title, property_id, updated_at}] for the panel history list
 let _pendingPropertyChatId = null;    // one-shot: when a sidebar click routes to a specific chat id, honored on the next loadDetailChat
@@ -3412,6 +3413,7 @@ function _relTime(iso) {
 
 async function loadDetailChat(propertyId) {
   detailChatHistory = [];
+  detailApiMessageHistory = null;
   propertyChatList = [];
   // Honor a one-shot pending chat id from the sidebar; otherwise pick the most
   // recent chat for this property.
@@ -3431,6 +3433,7 @@ async function loadDetailChat(propertyId) {
       if (r2 && r2.ok) {
         const data = await r2.json();
         detailChatHistory = Array.isArray(data.messages) ? data.messages : [];
+        detailApiMessageHistory = data.api_history || null;
         currentPropertyChatId = data.id;
       } else {
         currentPropertyChatId = _mintChatId();
@@ -3453,7 +3456,7 @@ async function saveDetailChat() {
   const payload = {
     title: _propertyChatTitle(),
     messages,
-    api_history: null,
+    api_history: detailApiMessageHistory,
     results: [],
     total_count: null,
     property_id: pid,
@@ -3488,6 +3491,7 @@ function clearDetailChat() {
   // saveDetailChat already persisted each turn.
   currentPropertyChatId = _mintChatId();
   detailChatHistory = [];
+  detailApiMessageHistory = null;
   renderDetailChat();
   renderPropertyChatHistory();
 }
@@ -3500,6 +3504,7 @@ async function loadPropertyChat(chatId) {
     const data = await r.json();
     currentPropertyChatId = data.id;
     detailChatHistory = Array.isArray(data.messages) ? data.messages : [];
+    detailApiMessageHistory = data.api_history || null;
     renderDetailChat();
     renderPropertyChatHistory();
   } catch(e) { console.warn('[property-chat] load failed', e); }
@@ -3543,16 +3548,24 @@ async function askAboutProperty(text) {
   detailChatHistory.push({ role: 'user', text });
   detailChatHistory.push({ role: 'ai thinking', text: '' });
   renderDetailChat();
+  // Snapshot the api history we send with this turn — if the user switches
+  // property mid-flight, the response is for the snapshot, not the new state.
+  const apiHistorySnapshot = detailApiMessageHistory;
   const preamble = `Regarding auction ${auctionId} (${currentDetailTitle} in ${currentDetailLoc}): ${text}`;
   let aiEntry;
+  let nextApiHistory = apiHistorySnapshot;
   try {
     const res = await authFetch(`${API_BASE}/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: preamble, message_history: null }),
+      body: JSON.stringify({ message: preamble, message_history: apiHistorySnapshot }),
     });
     const resp = await res.json();
-    aiEntry = { role: 'ai', text: (resp.answer || '').trim(), artifacts: resp.artifacts || [] };
+    nextApiHistory = resp.message_history || apiHistorySnapshot;
+    const answer = (resp.answer || '').trim();
+    aiEntry = answer
+      ? { role: 'ai', text: answer, artifacts: resp.artifacts || [] }
+      : { role: 'ai', text: "_The agent didn't return an answer. Try rephrasing — e.g. ask about the EMD, schedule, reserve price, or borrower._", artifacts: resp.artifacts || [] };
   } catch(e) {
     aiEntry = { role: 'ai', text: `Server unavailable: ${e.message}` };
   }
@@ -3560,6 +3573,7 @@ async function askAboutProperty(text) {
   // the response no longer applies to what's on screen — drop it silently
   // rather than corrupt the new property's chat.
   if (currentDetailId !== auctionId) return;
+  detailApiMessageHistory = nextApiHistory;
   _removeDetailThinking();
   detailChatHistory.push(aiEntry);
   renderDetailChat();
