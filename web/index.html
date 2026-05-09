@@ -1048,6 +1048,11 @@ body {
 .detail-section-title {
   font-family: var(--font-hand); font-size: 24px; margin: 10px 0 6px;
 }
+.detail-section-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 12px; margin-bottom: 6px;
+}
+.detail-section-head .detail-section-title { margin-bottom: 0; }
 .price-history {
   display: flex; flex-direction: column; gap: 6px;
   border: 1.5px solid var(--ink);
@@ -1130,6 +1135,11 @@ body {
   border-top: 1px solid var(--ink);
   opacity: 0.35;
   margin: 14px 0;
+}
+.detail-desc-raw {
+  white-space: pre-wrap;
+  font-family: var(--font-body); font-size: 14px;
+  line-height: 1.5;
 }
 
 .docs { display: flex; flex-direction: column; gap: 6px; }
@@ -1799,7 +1809,11 @@ body {
             <div class="price-history" id="detail-history"></div>
           </div>
           <div id="detail-desc-wrap" style="display:none;">
-            <div class="detail-section-title">Description</div>
+            <div class="detail-section-head">
+              <div class="detail-section-title">Description</div>
+              <button type="button" class="doc-toggle" id="detail-desc-toggle"
+                      data-mode="formatted" aria-pressed="false">View original</button>
+            </div>
             <div class="detail-desc" id="detail-desc"></div>
           </div>
           <div id="detail-docs-wrap" style="display:none;">
@@ -2245,7 +2259,7 @@ function formatDescription(text) {
   }
   segments.push({ num: lastNum, body: s.slice(lastIdx).trim() });
 
-  const dirEmoji = { north: '⬆️', south: '⬇️', east: '➡️', west: '⬅️' };
+  const dirEmoji = { north: '↑', south: '↓', east: '→', west: '←' };
 
   const formatBody = (body) => {
     if (!body) return '';
@@ -2274,7 +2288,13 @@ function formatDescription(text) {
         const start = positions[k].end;
         const finish = (k + 1 < positions.length) ? positions[k + 1].idx : inner.length;
         let val = inner.slice(start, finish);
-        val = val.replace(/^\s*(?:by|:)\s*/i, '').trim().replace(/[,;.\s]+$/, '');
+        val = val.replace(/^\s*(?:by|:)\s*/i, '');
+        // Stop at a sentence terminator or any next-field keyword that bled
+        // in from the source paragraph, otherwise the value can read
+        // "Plot No. 12. Measuring: …".
+        val = val.split(/\.\s+(?=[A-Z])/)[0];
+        val = val.split(/\b(?:Measuring|Comprised\s+In|Situated\s+Within|As\s+Per\s+Patta|Together\s+With)\b/i)[0];
+        val = val.trim().replace(/[,;.\s]+$/, '');
         const dir = positions[k].dir;
         if (val && !seen[dir]) { seen[dir] = true; parts.push({ dir, val }); }
       }
@@ -2320,17 +2340,22 @@ function formatDescription(text) {
       .replace(/\s{2,}/g, ' ')
       .trim();
 
-    // Break body at sentence boundaries (period followed by capital letter or
-    // open-paren) and emit each as its own paragraph.
+    // Put each bolded label at the start of its own paragraph so the body
+    // reads as one fact per line. Anchored on a preceding non-space char so
+    // we never insert a break at the very start of the block.
+    body = body.replace(/(\S)\s+(\*\*(?:[^*]|\*(?!\*))+\*\*)/g, '$1\n\n$2');
+
+    // Split body into facts on the inserted paragraph breaks AND on natural
+    // sentence boundaries (period followed by capital letter or open-paren).
     const sentences = body
-      .split(/(?<=\.)\s+(?=[A-Z(])/)
-      .map(t => t.replace(/\s+/g, ' ').replace(/^[\s,;.]+|[\s,;.]+$/g, '').trim())
+      .split(/\n{2,}|(?<=\.)\s+(?=[A-Z(])/)
+      .map(t => t.replace(/[ \t]+/g, ' ').replace(/^[\s,;.]+|[\s,;.]+$/g, '').trim())
       .filter(Boolean);
 
     if (sentences.length) lines.push(sentences.join('\n\n'));
     if (boundaryLines.length) {
       lines.push('');
-      lines.push('**🧭 Boundaries**');
+      lines.push('**Boundaries**');
       lines.push(boundaryLines.join('\n'));
     }
     return lines.join('\n');
@@ -3255,8 +3280,16 @@ function renderDetail(detail) {
       .replace(/^#{1,6}\s*description of propert(?:y\/ies|ies|y)\s*:?\s*/i, '')
       .trim();
     const descEl = document.getElementById('detail-desc');
+    const descToggle = document.getElementById('detail-desc-toggle');
+    const formattedHtml = renderMarkdown(formatDescription(cleaned));
+    const originalHtml = `<div class="detail-desc-raw">${escapeHtml(cleaned)}</div>`;
+    descEl.dataset.formatted = formattedHtml;
+    descEl.dataset.original = originalHtml;
     descEl.classList.add('formatted');
-    descEl.innerHTML = renderMarkdown(formatDescription(cleaned));
+    descEl.innerHTML = formattedHtml;
+    descToggle.dataset.mode = 'formatted';
+    descToggle.textContent = 'View original';
+    descToggle.setAttribute('aria-pressed', 'false');
     document.getElementById('detail-desc-wrap').style.display = '';
   }
 
@@ -4535,6 +4568,17 @@ bindInput('landing-input', 'landing-send', (v) => askAI(v, { fromLanding: true }
 bindInput('results-input', 'results-send', (v) => askAI(v));
 bindInput('detail-input', 'detail-send', (v) => askAboutProperty(v));
 document.getElementById('detail-chat-new').addEventListener('click', () => clearDetailChat());
+
+document.getElementById('detail-desc-toggle').addEventListener('click', (e) => {
+  const btn = e.currentTarget;
+  const descEl = document.getElementById('detail-desc');
+  const next = btn.dataset.mode === 'formatted' ? 'original' : 'formatted';
+  descEl.classList.toggle('formatted', next === 'formatted');
+  descEl.innerHTML = descEl.dataset[next] || '';
+  btn.dataset.mode = next;
+  btn.textContent = next === 'formatted' ? 'View original' : 'View formatted';
+  btn.setAttribute('aria-pressed', next === 'original' ? 'true' : 'false');
+});
 
 document.getElementById('detail-share').addEventListener('click', async (e) => {
   const btn = e.currentTarget;
