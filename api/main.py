@@ -205,9 +205,12 @@ class ChatResponse(BaseModel):
 
 
 _PROPERTIES_SORT_CLAUSES = {
-    "date":       "a.auction_start_dt ASC",
+    "date_asc":   "a.auction_start_dt ASC",
+    "date_desc":  "a.auction_start_dt DESC",
     "price_asc":  "a.reserve_price_num ASC",
     "price_desc": "a.reserve_price_num DESC",
+    # Legacy alias: clients running cached HTML still send `sort=date`.
+    "date":       "a.auction_start_dt ASC",
 }
 _PROPERTIES_MAX_LIMIT = 200
 
