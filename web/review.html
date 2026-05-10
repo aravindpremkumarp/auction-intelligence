@@ -1,0 +1,498 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review · Bank Auction Intelligence</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@600&family=Kalam:wght@400&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script>
+  window.API_BASE = (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
+    ? ''
+    : 'https://auction-api-w68b.onrender.com';
+  window.SUPABASE_URL = window.SUPABASE_URL || 'https://yrcrxpwoqddfcengkryw.supabase.co';
+  window.SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY || 'sb_publishable_IT4CBVWS1a37sduWApOdFw_1UCR0kyJ';
+</script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="/auth.js"></script>
+<style>
+  :root { --ink: #1a1a1a; --paper: #faf7f0; --accent: #ffd84d; --danger: #d64a2e; --good: #2e8b57; --muted: #8a8a8a; }
+  body { margin: 0; background: var(--paper); color: var(--ink); font-family: 'Kalam', cursive; padding: 18px; }
+  h1 { font-family: 'Caveat', cursive; font-size: 32px; margin: 0 0 12px; }
+  h1 em { background: var(--accent); padding: 0 6px; font-style: normal; }
+  h2 { font-family: 'Caveat', cursive; font-size: 24px; margin: 4px 0 8px; }
+  .wrap { max-width: 1600px; margin: 0 auto; }
+  a, button, select, input, textarea { font-family: 'IBM Plex Mono', monospace; font-size: 13px; }
+  .link { color: var(--ink); text-decoration: underline; }
+  .actions { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+  .actions input[type="search"] { padding: 6px 10px; border: 1.5px solid var(--ink); background: #fff; min-width: 220px; }
+  .pill { display: inline-block; padding: 1px 6px; border: 1px solid var(--ink); font-size: 11px; font-family: 'IBM Plex Mono', monospace; }
+  .pill.on { background: var(--accent); font-weight: 600; }
+  .pill.off { background: #eee; color: var(--muted); }
+  .pill.good { background: #d8f0d8; }
+  .pill.warn { background: #ffe1c2; }
+  .pill.danger { background: #ffd4cc; }
+  button { padding: 6px 12px; border: 1.5px solid var(--ink); background: #fff; cursor: pointer; min-height: 32px; }
+  button.primary { background: var(--accent); font-weight: 600; }
+  button.danger { background: var(--danger); color: #fff; }
+  button.ghost { background: transparent; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  #msg { font-family: 'IBM Plex Mono', monospace; font-size: 12px; margin: 8px 0; min-height: 1em; }
+  .err { color: var(--danger); font-weight: 600; }
+  .ok { color: var(--good); font-weight: 600; }
+  /* Queue */
+  .table-scroll { overflow-x: auto; border: 2px solid var(--ink); box-shadow: 2px 3px 0 rgba(0,0,0,0.9); background: #fff; }
+  table { width: 100%; border-collapse: collapse; background: #fff; font-family: 'IBM Plex Mono', monospace; font-size: 13px; min-width: 900px; }
+  th, td { border-bottom: 1px dashed rgba(0,0,0,0.15); padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: var(--accent); font-weight: 600; }
+  td.row-actions { white-space: nowrap; }
+  tr.pending td { background: #fff; }
+  tr.verified td { background: #f6fbf6; }
+  tr.edited td { background: #fffbf0; }
+  /* Detail */
+  .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 1100px) { .detail-grid { grid-template-columns: 1fr; } }
+  .pane { border: 2px solid var(--ink); background: #fff; box-shadow: 2px 3px 0 rgba(0,0,0,0.9); padding: 12px; }
+  .pane h2 { margin-top: 0; }
+  .pane.left { padding: 0; overflow: hidden; min-height: 70vh; display: flex; flex-direction: column; }
+  .pane.left .pane-header { padding: 10px 12px; border-bottom: 2px solid var(--ink); display: flex; gap: 10px; align-items: center; flex-wrap: wrap; background: var(--paper); }
+  .pane.left .pane-body { flex: 1; min-height: 60vh; }
+  .pane.left iframe { width: 100%; height: 100%; min-height: 60vh; border: 0; }
+  .markdown-body { padding: 12px 16px; white-space: pre-wrap; font-family: 'IBM Plex Mono', monospace; font-size: 12px; line-height: 1.45; overflow: auto; max-height: 75vh; }
+  .image-body { display: flex; justify-content: center; align-items: flex-start; overflow: auto; max-height: 75vh; padding: 8px; background: #2a2a2a; }
+  .image-body img { max-width: 100%; height: auto; background: #fff; }
+  .src-toggle { display: inline-flex; gap: 4px; }
+  .src-toggle button { padding: 2px 8px; min-height: 24px; font-size: 11px; }
+  .src-toggle button.on { background: var(--accent); font-weight: 600; }
+  .meta { font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--ink); }
+  .meta dt { color: var(--muted); font-weight: 400; display: inline-block; min-width: 100px; }
+  .meta dd { margin: 0 0 4px 0; display: inline; }
+  .meta .row { margin-bottom: 4px; }
+  .desc-textarea { width: 100%; box-sizing: border-box; min-height: 360px; padding: 10px; border: 1.5px solid var(--ink); font-family: 'IBM Plex Mono', monospace; font-size: 13px; line-height: 1.45; resize: vertical; background: #fff; color: var(--ink); }
+  .notes-input { width: 100%; box-sizing: border-box; padding: 6px 10px; border: 1.5px solid var(--ink); margin-top: 4px; }
+  .button-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  .button-row .spacer { flex: 1; }
+  .audit { margin-top: 14px; font-size: 11px; color: var(--muted); font-family: 'IBM Plex Mono', monospace; }
+  .audit code { background: #f3f0e7; padding: 1px 4px; }
+  details.diff { margin-top: 8px; font-size: 12px; }
+  details.diff pre { background: #f3f0e7; padding: 8px; overflow: auto; max-height: 200px; }
+  .hidden { display: none !important; }
+  .stats { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-family: 'IBM Plex Mono', monospace; font-size: 12px; }
+  .empty { padding: 16px; color: var(--muted); font-family: 'Kalam', cursive; text-align: center; }
+  @media (max-width: 640px) {
+    body { padding: 10px; }
+    h1 { font-size: 26px; }
+    th, td { padding: 6px 8px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1><em>Review</em> · enrichment</h1>
+  <div class="actions">
+    <a class="link" href="/">← Back to app</a>
+    <a class="link" href="/admin">Admin</a>
+    <span style="flex:1"></span>
+    <span class="stats" id="stats"></span>
+  </div>
+  <div id="msg"></div>
+
+  <!-- Queue screen -->
+  <section id="screen-queue">
+    <div class="actions">
+      <span>Status:</span>
+      <button class="pill" data-status="pending">pending</button>
+      <button class="pill" data-status="verified">verified</button>
+      <button class="pill" data-status="edited">edited</button>
+      <button class="pill" data-status="all">all</button>
+      <input type="search" id="q" placeholder="search title or borrower">
+      <button id="reload" class="primary">Reload</button>
+    </div>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Title</th>
+            <th>Borrower</th>
+            <th>Reserve (₹)</th>
+            <th>Completeness</th>
+            <th>Notice</th>
+            <th>Source</th>
+            <th>Status</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="queue-rows"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- Detail screen -->
+  <section id="screen-detail" class="hidden">
+    <div class="actions">
+      <a class="link" href="#">← Back to queue</a>
+      <span style="flex:1"></span>
+      <span id="detail-id" class="meta"></span>
+    </div>
+    <div class="detail-grid">
+      <div class="pane left">
+        <div class="pane-header">
+          <strong id="src-filename">notice</strong>
+          <span class="pill" id="src-notice-type"></span>
+          <span class="spacer" style="flex:1"></span>
+          <span class="src-toggle" id="src-toggle">
+            <button data-view="doc">document</button>
+            <button data-view="markdown">markdown</button>
+          </span>
+          <a class="link" id="src-open" target="_blank" rel="noopener">open ↗</a>
+        </div>
+        <div class="pane-body" id="src-body">
+          <div class="empty">loading…</div>
+        </div>
+      </div>
+      <div class="pane">
+        <h2 id="d-title"></h2>
+        <dl class="meta">
+          <div class="row"><dt>Auction id</dt><dd id="d-aid"></dd></div>
+          <div class="row"><dt>Borrower</dt><dd id="d-borrower"></dd></div>
+          <div class="row"><dt>Reserve</dt><dd id="d-reserve"></dd></div>
+          <div class="row"><dt>Location</dt><dd id="d-location"></dd></div>
+          <div class="row"><dt>Completeness</dt><dd id="d-completeness"></dd></div>
+          <div class="row"><dt>Source</dt><dd id="d-source"></dd></div>
+          <div class="row"><dt>Status</dt><dd id="d-status"></dd></div>
+        </dl>
+
+        <h2 style="margin-top:14px">Description</h2>
+        <textarea id="desc" class="desc-textarea" spellcheck="true"></textarea>
+
+        <label for="notes" style="display:block; margin-top:10px; font-family:'IBM Plex Mono', monospace; font-size:12px;">Notes (optional)</label>
+        <input id="notes" class="notes-input" type="text" placeholder="why you verified or what you changed">
+
+        <div class="button-row">
+          <button id="btn-verify" class="primary" title="V">Verify (V)</button>
+          <button id="btn-save" class="primary" title="Ctrl+S">Save edit (Ctrl+S)</button>
+          <span class="spacer"></span>
+          <button id="btn-unverify" class="ghost">Unverify</button>
+        </div>
+
+        <details class="diff" id="diff-block" style="display:none;">
+          <summary>Original LLM extraction (before edits)</summary>
+          <pre id="diff-pre"></pre>
+        </details>
+
+        <div class="audit" id="audit"></div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script>
+  const API = window.API_BASE;
+  const $ = (id) => document.getElementById(id);
+  const $$ = (sel, root) => Array.from((root || document).querySelectorAll(sel));
+
+  function authFetch(url, opts) {
+    return window.Auth && window.Auth.fetchWithAuth
+      ? window.Auth.fetchWithAuth(url, opts)
+      : fetch(url, opts);
+  }
+
+  function escapeHtml(s) {
+    return (s == null ? '' : String(s)).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  function fmtPrice(n) {
+    if (n == null) return '—';
+    try { return Number(n).toLocaleString('en-IN'); } catch { return String(n); }
+  }
+  function fmtPct(x) { return x == null ? '—' : Math.round(Number(x) * 100) + '%'; }
+  function fmtWhen(iso) { if (!iso) return ''; try { return new Date(iso).toLocaleString(); } catch { return iso; } }
+
+  function statusPill(row) {
+    if (!row.verified) return '<span class="pill warn">pending</span>';
+    if (row.source === 'human') return '<span class="pill good">edited</span>';
+    return '<span class="pill good">verified</span>';
+  }
+
+  // ─── Routing ────────────────────────────────────────────────────────────
+  function parseHash() {
+    const h = (location.hash || '').replace(/^#/, '');
+    if (h.startsWith('property/')) return { screen: 'detail', id: decodeURIComponent(h.slice('property/'.length)) };
+    return { screen: 'queue' };
+  }
+
+  function show(screen) {
+    $('screen-queue').classList.toggle('hidden', screen !== 'queue');
+    $('screen-detail').classList.toggle('hidden', screen !== 'detail');
+  }
+
+  async function route() {
+    const r = parseHash();
+    show(r.screen);
+    if (r.screen === 'queue') { await loadStats(); await loadQueue(); }
+    else { await loadDetail(r.id); }
+  }
+
+  window.addEventListener('hashchange', route);
+
+  // ─── Stats ──────────────────────────────────────────────────────────────
+  async function loadStats() {
+    const r = await authFetch(API + '/review/stats');
+    if (!r.ok) { $('stats').textContent = ''; return; }
+    const s = await r.json();
+    $('stats').innerHTML = `
+      <span class="pill warn">${s.pending} pending</span>
+      <span class="pill good">${s.verified} verified</span>
+      <span class="pill good">${s.edited} edited</span>
+      <span class="pill off">${s.total} total</span>
+    `;
+  }
+
+  // ─── Queue ──────────────────────────────────────────────────────────────
+  let queueState = { status: 'pending', q: '' };
+
+  function syncStatusButtons() {
+    $$('button.pill[data-status]').forEach(b => {
+      b.classList.toggle('on', b.getAttribute('data-status') === queueState.status);
+    });
+  }
+
+  async function loadQueue() {
+    syncStatusButtons();
+    const tbody = $('queue-rows');
+    tbody.innerHTML = '<tr><td colspan="8"><div class="empty">loading…</div></td></tr>';
+    const params = new URLSearchParams({ status: queueState.status, page: '1', size: '100' });
+    if (queueState.q) params.set('q', queueState.q);
+    const r = await authFetch(API + '/review/queue?' + params.toString());
+    if (r.status === 401 || r.status === 403) {
+      tbody.innerHTML = '<tr><td colspan="8"><div class="empty"><span class="err">not authorised — sign in as admin from the main app</span></div></td></tr>';
+      return;
+    }
+    if (!r.ok) {
+      tbody.innerHTML = `<tr><td colspan="8"><div class="empty"><span class="err">error ${r.status}</span></div></td></tr>`;
+      return;
+    }
+    const data = await r.json();
+    if (!data.rows.length) {
+      tbody.innerHTML = '<tr><td colspan="8"><div class="empty">no rows match this filter — nice.</div></td></tr>';
+      return;
+    }
+    tbody.innerHTML = '';
+    for (const row of data.rows) {
+      const tr = document.createElement('tr');
+      tr.className = row.verified ? (row.source === 'human' ? 'edited' : 'verified') : 'pending';
+      const borrower = (row.borrowers || []).filter(Boolean).join(', ') || '—';
+      const noticeBadge = row.notice_type
+        ? `<span class="pill">${escapeHtml(row.notice_type)}</span>${row.has_pdf ? '' : ' <span class="pill off">no pdf</span>'}`
+        : '<span class="pill off">none</span>';
+      tr.innerHTML = `
+        <td>${escapeHtml(row.title || '—')}</td>
+        <td>${escapeHtml(borrower)}</td>
+        <td>${fmtPrice(row.reserve_price)}</td>
+        <td>${fmtPct(row.completeness)}</td>
+        <td>${noticeBadge}</td>
+        <td><span class="pill ${row.source === 'human' ? 'good' : ''}">${escapeHtml(row.source || '—')}</span></td>
+        <td>${statusPill(row)}</td>
+        <td class="row-actions"><a class="link" href="#property/${encodeURIComponent(row.auction_id)}">open →</a></td>
+      `;
+      tbody.appendChild(tr);
+    }
+  }
+
+  $$('button.pill[data-status]').forEach(b => {
+    b.addEventListener('click', () => {
+      queueState.status = b.getAttribute('data-status');
+      loadQueue();
+    });
+  });
+  $('reload').addEventListener('click', () => { loadStats(); loadQueue(); });
+  $('q').addEventListener('input', (e) => {
+    queueState.q = e.target.value.trim();
+    clearTimeout(window.__qTimer);
+    window.__qTimer = setTimeout(loadQueue, 250);
+  });
+
+  // ─── Detail ─────────────────────────────────────────────────────────────
+  let currentDetail = null;
+
+  async function loadDetail(aid) {
+    $('msg').textContent = '';
+    $('detail-id').textContent = aid;
+    $('src-body').innerHTML = '<div class="empty">loading…</div>';
+    const r = await authFetch(API + '/review/property/' + encodeURIComponent(aid));
+    if (r.status === 401 || r.status === 403) {
+      $('src-body').innerHTML = '<div class="empty"><span class="err">not authorised</span></div>';
+      return;
+    }
+    if (r.status === 404) {
+      $('src-body').innerHTML = '<div class="empty"><span class="err">not found</span></div>';
+      return;
+    }
+    if (!r.ok) {
+      $('src-body').innerHTML = `<div class="empty"><span class="err">error ${r.status}</span></div>`;
+      return;
+    }
+    const p = await r.json();
+    currentDetail = p;
+    renderDetail(p);
+  }
+
+  function renderDetail(p) {
+    $('d-title').textContent = p.title || '(no title)';
+    $('d-aid').textContent = p.auction_id;
+    $('d-borrower').textContent = (p.borrowers || []).filter(Boolean).join(', ') || '—';
+    $('d-reserve').textContent = '₹ ' + fmtPrice(p.reserve_price);
+    $('d-location').textContent = [p.area, p.city].filter(Boolean).join(' · ') || '—';
+    $('d-completeness').innerHTML = fmtPct(p.completeness);
+    $('d-source').innerHTML = `<span class="pill ${p.description_source === 'human' ? 'good' : ''}">${escapeHtml(p.description_source || '—')}</span>`;
+    $('d-status').innerHTML = statusPill({ verified: p.verified, source: p.description_source });
+
+    $('desc').value = p.description || '';
+    $('notes').value = p.review_notes || '';
+
+    // Audit footer
+    if (p.verified) {
+      $('audit').innerHTML = `verified by <code>${escapeHtml(p.verified_by || '?')}</code> at <code>${escapeHtml(fmtWhen(p.verified_at))}</code>`;
+    } else {
+      $('audit').textContent = 'not yet verified';
+    }
+
+    // Original-extraction diff (only when a human edit replaced the LLM output)
+    if (p.description_extracted_original) {
+      $('diff-block').style.display = '';
+      $('diff-pre').textContent = p.description_extracted_original;
+    } else {
+      $('diff-block').style.display = 'none';
+    }
+
+    // Source pane
+    renderSourcePane(p);
+  }
+
+  function classifyDocUrl(url) {
+    if (!url) return 'none';
+    if (/\.pdf(\?|$)/i.test(url)) return 'pdf';
+    if (/\.(jpe?g|png|webp|gif)(\?|$)/i.test(url)) return 'image';
+    return 'other';
+  }
+
+  function renderSourcePane(p) {
+    const doc = (p.documents || []).find(Boolean);
+    const toggle = $('src-toggle');
+    if (!doc) {
+      $('src-filename').textContent = 'no notice linked';
+      $('src-notice-type').textContent = '';
+      $('src-open').style.display = 'none';
+      toggle.style.display = 'none';
+      $('src-body').innerHTML = '<div class="empty">this property has no linked Document.</div>';
+      return;
+    }
+    $('src-filename').textContent = doc.filename || doc.file_path || 'notice';
+    $('src-notice-type').textContent = doc.notice_type || '';
+    const url = doc.public_url || '';
+    const kind = classifyDocUrl(url);
+    const hasDoc = kind !== 'none';
+    const hasMd = !!doc.markdown;
+    if (url) { $('src-open').style.display = ''; $('src-open').href = url; }
+    else { $('src-open').style.display = 'none'; }
+
+    // Toggle visibility — show only if both doc and markdown exist
+    toggle.style.display = (hasDoc && hasMd) ? '' : 'none';
+
+    // Pick default view: document if available, else markdown
+    const view = hasDoc ? 'doc' : 'markdown';
+    paintSourceView(doc, kind, view);
+    syncSourceToggle(view);
+  }
+
+  function paintSourceView(doc, kind, view) {
+    const body = $('src-body');
+    if (view === 'markdown') {
+      if (!doc.markdown) { body.innerHTML = '<div class="empty">no OCR markdown available.</div>'; return; }
+      body.innerHTML = `<div class="markdown-body">${escapeHtml(doc.markdown)}</div>`;
+      return;
+    }
+    const url = doc.public_url || '';
+    if (kind === 'pdf') {
+      body.innerHTML = `<iframe src="${escapeHtml(url)}" title="notice pdf"></iframe>`;
+    } else if (kind === 'image') {
+      body.innerHTML = `<div class="image-body"><img src="${escapeHtml(url)}" alt="notice image"></div>`;
+    } else if (kind === 'other') {
+      body.innerHTML = `<iframe src="${escapeHtml(url)}" title="notice"></iframe>`;
+    } else if (doc.markdown) {
+      body.innerHTML = `<div class="markdown-body">${escapeHtml(doc.markdown)}</div>`;
+    } else {
+      body.innerHTML = '<div class="empty">no public_url and no markdown available.</div>';
+    }
+  }
+
+  function syncSourceToggle(view) {
+    $$('#src-toggle button').forEach(b => {
+      b.classList.toggle('on', b.getAttribute('data-view') === view);
+    });
+  }
+
+  $$('#src-toggle button').forEach(b => {
+    b.addEventListener('click', () => {
+      if (!currentDetail) return;
+      const doc = (currentDetail.documents || []).find(Boolean);
+      if (!doc) return;
+      const view = b.getAttribute('data-view');
+      paintSourceView(doc, classifyDocUrl(doc.public_url || ''), view);
+      syncSourceToggle(view);
+    });
+  });
+
+  function setMsg(html, ms) {
+    $('msg').innerHTML = html;
+    if (ms) setTimeout(() => { $('msg').textContent = ''; }, ms);
+  }
+
+  async function postAction(path, body) {
+    if (!currentDetail) return;
+    const aid = currentDetail.auction_id;
+    const r = await authFetch(API + '/review/property/' + encodeURIComponent(aid) + path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body || {}),
+    });
+    if (r.status === 401 || r.status === 403) { setMsg('<span class="err">not authorised</span>'); return; }
+    if (!r.ok) { setMsg(`<span class="err">${path} failed (${r.status})</span>`); return; }
+    const p = await r.json();
+    currentDetail = p;
+    renderDetail(p);
+    setMsg(`<span class="ok">saved.</span>`, 1500);
+    loadStats();
+  }
+
+  $('btn-verify').addEventListener('click', () => postAction('/verify', { notes: $('notes').value || null }));
+  $('btn-save').addEventListener('click', () => {
+    const desc = $('desc').value.trim();
+    if (!desc) { setMsg('<span class="err">description cannot be empty</span>', 2000); return; }
+    postAction('/edit', { description: desc, notes: $('notes').value || null });
+  });
+  $('btn-unverify').addEventListener('click', () => {
+    if (!confirm('Clear the verified flag on this property?')) return;
+    postAction('/unverify', {});
+  });
+
+  // Keyboard: Ctrl/Cmd+S → save, V → verify (when not typing)
+  document.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) {
+      if ($('screen-detail').classList.contains('hidden')) return;
+      e.preventDefault();
+      $('btn-save').click();
+    } else if ((e.key === 'v' || e.key === 'V') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      const t = e.target;
+      const tag = (t && t.tagName) || '';
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if ($('screen-detail').classList.contains('hidden')) return;
+      e.preventDefault();
+      $('btn-verify').click();
+    }
+  });
+
+  // Boot
+  route();
+</script>
+</body>
+</html>
