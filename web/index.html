@@ -1707,9 +1707,10 @@ body {
             <div class="filter-group" style="margin-left:auto;">
               <span class="lbl-inline">sort</span>
               <select class="filter-select" id="f-sort" aria-label="sort">
-                <option value="date">auction date ↑</option>
-                <option value="price_asc">price ↑</option>
-                <option value="price_desc">price ↓</option>
+                <option value="date_asc">Auction date: oldest first</option>
+                <option value="date_desc">Auction date: newest first</option>
+                <option value="price_asc">Price: low → high</option>
+                <option value="price_desc">Price: high → low</option>
               </select>
             </div>
           </div>
@@ -1777,9 +1778,10 @@ body {
               <div class="lbl" id="results-subcount">waiting for query</div>
             </div>
             <select id="results-sort" class="results-sort" aria-label="sort properties">
-              <option value="date_asc">Date ↑</option>
-              <option value="price_asc">Price ↑</option>
-              <option value="price_desc">Price ↓</option>
+              <option value="date_asc">Auction date: oldest first</option>
+              <option value="date_desc">Auction date: newest first</option>
+              <option value="price_asc">Price: low → high</option>
+              <option value="price_desc">Price: high → low</option>
             </select>
           </div>
           <div class="results-list" id="results-list"></div>
@@ -3018,7 +3020,8 @@ function flashBtn(btn) {
 
 /* ====== RESULTS ====== */
 const SORT_LABEL = {
-  date_asc:   'sorted by auction date',
+  date_asc:   'sorted by auction date (oldest first)',
+  date_desc:  'sorted by auction date (newest first)',
   price_asc:  'sorted by price (low → high)',
   price_desc: 'sorted by price (high → low)',
 };
@@ -3037,6 +3040,7 @@ function sortResults(rows, mode) {
       return (av - bv) * dir;
     });
   } else {
+    const dir = mode === 'date_desc' ? -1 : 1;
     copy.sort((a, b) => {
       const av = a.auction_start || a.deadline || '';
       const bv = b.auction_start || b.deadline || '';
@@ -3044,7 +3048,7 @@ function sortResults(rows, mode) {
       if (am && bm) return 0;
       if (am) return 1;
       if (bm) return -1;
-      return av < bv ? -1 : av > bv ? 1 : 0;
+      return (av < bv ? -1 : av > bv ? 1 : 0) * dir;
     });
   }
   return copy;
@@ -4062,7 +4066,7 @@ const browseState = {
   state: [], district: [], village: [],
   price: '', priceMin: '', priceMax: '',
   dateFrom: '', dateTo: '',
-  sort: 'date',
+  sort: 'date_asc',
   offset: 0,
 };
 const MULTI_FILTER_KEYS = ['category', 'propertyType', 'bank', 'state', 'district', 'village'];
@@ -4103,7 +4107,7 @@ function _browseQueryParams() {
   if (hi != null && !isNaN(hi)) p.set('max_price', String(hi * 1e5));
   if (browseState.dateFrom) p.set('date_from', browseState.dateFrom);
   if (browseState.dateTo) p.set('date_to', new Date(browseState.dateTo + 'T23:59:59').toISOString());
-  p.set('sort', browseState.sort || 'date');
+  p.set('sort', browseState.sort || 'date_asc');
   p.set('limit', String(BROWSE_LIMIT));
   p.set('offset', String(browseState.offset || 0));
   return p;
