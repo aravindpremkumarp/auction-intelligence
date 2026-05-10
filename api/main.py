@@ -44,6 +44,7 @@ from api.auth.rate_limit import limiter
 from api.auth.schemas import UserOut
 from api.conversations import router as conversations_router
 from api.neo4j_client import run_query
+from api.review import router as review_router
 from api.tools.cypher_tools import get_auction_detail
 from api.watchlist import router as watchlist_router
 
@@ -109,6 +110,7 @@ if os.environ.get("AUTH_ENABLED", "true").lower() != "false":
     app.include_router(auth_router)
     app.include_router(watchlist_router)
     app.include_router(conversations_router)
+    app.include_router(review_router)
 
 
 _GATED_MODES = {"deep-research", "report"}
@@ -888,3 +890,7 @@ if WEB_DIR.exists():
     @app.get("/admin")
     def admin_page() -> FileResponse:
         return FileResponse(str(WEB_DIR / "admin.html"))
+
+    @app.get("/review")
+    def review_page() -> FileResponse:
+        return FileResponse(str(WEB_DIR / "review.html"))
