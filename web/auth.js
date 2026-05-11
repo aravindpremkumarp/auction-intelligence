@@ -421,6 +421,7 @@
         '<div class="dropdown">' +
           '<a data-act="who">' + escapeHtml(currentUser.email) + '</a>' +
           (isAdmin ? '<a href="/admin">Admin</a>' : '') +
+          (isAdmin ? '<a href="/review">Review</a>' : '') +
           '<a data-act="logout">Sign out</a>' +
         '</div>' +
       '</details>';
