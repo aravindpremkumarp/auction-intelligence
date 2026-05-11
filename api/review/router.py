@@ -39,6 +39,38 @@ class ReviewQueueOut(BaseModel):
     rows: list[ReviewQueueRow]
 
 
+class ReviewNoticeProperty(BaseModel):
+    auction_id: str
+    title: str | None = None
+    borrowers: list[str] = []
+    reserve_price: float | None = None
+    completeness: float | None = None
+    source: str | None = None
+    verified: bool = False
+    verified_at: str | None = None
+    verified_by: str | None = None
+
+
+class ReviewNoticeRow(BaseModel):
+    filename: str | None = None
+    file_path: str | None = None
+    public_url: str | None = None
+    notice_type: str | None = None
+    doc_property_count: int | None = None
+    total_count: int = 0
+    pending_count: int = 0
+    verified_count: int = 0
+    edited_count: int = 0
+    properties: list[ReviewNoticeProperty] = []
+
+
+class ReviewNoticeQueueOut(BaseModel):
+    page: int
+    size: int
+    total: int
+    rows: list[ReviewNoticeRow]
+
+
 class ReviewDocument(BaseModel):
     filename: str | None = None
     file_path: str | None = None
@@ -111,6 +143,19 @@ async def review_queue(
     result = q.list_queue(status=status, q=q_search, page=page, size=size)
     rows = [ReviewQueueRow(**_row_to_str(r)) for r in result["rows"]]
     return ReviewQueueOut(page=result["page"], size=result["size"], total=result["total"], rows=rows)
+
+
+@router.get("/notices", response_model=ReviewNoticeQueueOut)
+async def review_notices(
+    status: Literal["pending", "verified", "edited", "all"] = "pending",
+    q_search: str | None = Query(default=None, alias="q", max_length=200),
+    page: int = Query(default=1, ge=1),
+    size: int = Query(default=50, ge=1, le=200),
+    _admin: UserOut = Depends(get_current_admin),
+) -> ReviewNoticeQueueOut:
+    result = q.list_notice_queue(status=status, q=q_search, page=page, size=size)
+    rows = [ReviewNoticeRow(**r) for r in result["rows"]]
+    return ReviewNoticeQueueOut(page=result["page"], size=result["size"], total=result["total"], rows=rows)
 
 
 @router.get("/property/{auction_id}", response_model=ReviewPropertyOut)

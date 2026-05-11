@@ -78,6 +78,23 @@
   .hidden { display: none !important; }
   .stats { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-family: 'IBM Plex Mono', monospace; font-size: 12px; }
   .empty { padding: 16px; color: var(--muted); font-family: 'Kalam', cursive; text-align: center; }
+  /* Notice grouping */
+  .group-toggle { display: inline-flex; gap: 4px; }
+  .notice-list { display: flex; flex-direction: column; gap: 12px; }
+  .notice-card { border: 2px solid var(--ink); background: #fff; box-shadow: 2px 3px 0 rgba(0,0,0,0.9); }
+  .notice-card > summary { list-style: none; padding: 10px 14px; cursor: pointer; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; background: var(--paper); border-bottom: 2px solid var(--ink); }
+  .notice-card > summary::-webkit-details-marker { display: none; }
+  .notice-card > summary::before { content: '▸'; font-family: 'IBM Plex Mono', monospace; font-size: 11px; width: 12px; display: inline-block; transition: transform 0.15s; }
+  .notice-card[open] > summary::before { transform: rotate(90deg); }
+  .notice-card > summary .nfile { font-family: 'IBM Plex Mono', monospace; font-size: 13px; font-weight: 600; }
+  .notice-card > summary .nspacer { flex: 1; }
+  .notice-card > summary .nlinks { display: inline-flex; gap: 10px; }
+  .notice-card .ntable { width: 100%; border-collapse: collapse; }
+  .notice-card .ntable th, .notice-card .ntable td { border-bottom: 1px dashed rgba(0,0,0,0.15); padding: 6px 12px; text-align: left; vertical-align: top; font-family: 'IBM Plex Mono', monospace; font-size: 12px; }
+  .notice-card .ntable th { background: #f3f0e7; font-weight: 600; }
+  .notice-card .ntable tr.pending td { background: #fff; }
+  .notice-card .ntable tr.verified td { background: #f6fbf6; }
+  .notice-card .ntable tr.edited td { background: #fffbf0; }
   @media (max-width: 640px) {
     body { padding: 10px; }
     h1 { font-size: 26px; }
@@ -99,6 +116,12 @@
   <!-- Queue screen -->
   <section id="screen-queue">
     <div class="actions">
+      <span>Group by:</span>
+      <span class="group-toggle">
+        <button class="pill" data-group="property">property</button>
+        <button class="pill" data-group="notice">sales notice</button>
+      </span>
+      <span style="width:14px"></span>
       <span>Status:</span>
       <button class="pill" data-status="pending">pending</button>
       <button class="pill" data-status="verified">verified</button>
@@ -107,7 +130,7 @@
       <input type="search" id="q" placeholder="search title or borrower">
       <button id="reload" class="primary">Reload</button>
     </div>
-    <div class="table-scroll">
+    <div id="queue-by-property" class="table-scroll">
       <table>
         <thead>
           <tr>
@@ -124,6 +147,7 @@
         <tbody id="queue-rows"></tbody>
       </table>
     </div>
+    <div id="queue-by-notice" class="notice-list hidden"></div>
   </section>
 
   <!-- Detail screen -->
@@ -248,16 +272,29 @@
   }
 
   // ─── Queue ──────────────────────────────────────────────────────────────
-  let queueState = { status: 'pending', q: '' };
+  let queueState = { status: 'pending', q: '', group: 'property' };
 
   function syncStatusButtons() {
     $$('button.pill[data-status]').forEach(b => {
       b.classList.toggle('on', b.getAttribute('data-status') === queueState.status);
     });
+    $$('button.pill[data-group]').forEach(b => {
+      b.classList.toggle('on', b.getAttribute('data-group') === queueState.group);
+    });
+    $('queue-by-property').classList.toggle('hidden', queueState.group !== 'property');
+    $('queue-by-notice').classList.toggle('hidden', queueState.group !== 'notice');
   }
 
   async function loadQueue() {
     syncStatusButtons();
+    if (queueState.group === 'notice') {
+      await loadNoticeQueue();
+    } else {
+      await loadPropertyQueue();
+    }
+  }
+
+  async function loadPropertyQueue() {
     const tbody = $('queue-rows');
     tbody.innerHTML = '<tr><td colspan="8"><div class="empty">loading…</div></td></tr>';
     const params = new URLSearchParams({ status: queueState.status, page: '1', size: '100' });
@@ -298,9 +335,109 @@
     }
   }
 
+  async function loadNoticeQueue() {
+    const list = $('queue-by-notice');
+    list.innerHTML = '<div class="empty">loading…</div>';
+    const params = new URLSearchParams({ status: queueState.status, page: '1', size: '50' });
+    if (queueState.q) params.set('q', queueState.q);
+    const r = await authFetch(API + '/review/notices?' + params.toString());
+    if (r.status === 401 || r.status === 403) {
+      list.innerHTML = '<div class="empty"><span class="err">not authorised — sign in as admin from the main app</span></div>';
+      return;
+    }
+    if (!r.ok) {
+      list.innerHTML = `<div class="empty"><span class="err">error ${r.status}</span></div>`;
+      return;
+    }
+    const data = await r.json();
+    if (!data.rows.length) {
+      list.innerHTML = '<div class="empty">no sales notices match this filter — nice.</div>';
+      return;
+    }
+    list.innerHTML = '';
+    for (const notice of data.rows) {
+      list.appendChild(renderNoticeCard(notice));
+    }
+  }
+
+  function renderNoticeCard(notice) {
+    const card = document.createElement('details');
+    card.className = 'notice-card';
+    if ((notice.pending_count || 0) > 0) card.open = true;
+
+    const filename = notice.filename || notice.file_path || '(unnamed notice)';
+    const typeBadge = notice.notice_type
+      ? `<span class="pill">${escapeHtml(notice.notice_type)}</span>`
+      : '<span class="pill off">unclassified</span>';
+    const counts = [
+      notice.pending_count ? `<span class="pill warn">${notice.pending_count} pending</span>` : '',
+      notice.verified_count ? `<span class="pill good">${notice.verified_count} verified</span>` : '',
+      notice.edited_count ? `<span class="pill good">${notice.edited_count} edited</span>` : '',
+    ].filter(Boolean).join(' ');
+    const totalBadge = `<span class="pill off">${notice.total_count} total</span>`;
+    const openLink = notice.public_url
+      ? `<a class="link" href="${escapeHtml(notice.public_url)}" target="_blank" rel="noopener">open notice ↗</a>`
+      : '';
+
+    const summary = document.createElement('summary');
+    summary.innerHTML = `
+      <span class="nfile">${escapeHtml(filename)}</span>
+      ${typeBadge}
+      ${counts} ${totalBadge}
+      <span class="nspacer"></span>
+      <span class="nlinks">${openLink}</span>
+    `;
+    card.appendChild(summary);
+
+    const table = document.createElement('table');
+    table.className = 'ntable';
+    table.innerHTML = `
+      <thead>
+        <tr>
+          <th>Title</th>
+          <th>Borrower</th>
+          <th>Reserve (₹)</th>
+          <th>Completeness</th>
+          <th>Source</th>
+          <th>Status</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    `;
+    const tbody = table.querySelector('tbody');
+    const props = (notice.properties || []).slice().sort((a, b) => {
+      if (a.verified !== b.verified) return a.verified ? 1 : -1;
+      return (a.title || '').localeCompare(b.title || '');
+    });
+    for (const p of props) {
+      const tr = document.createElement('tr');
+      tr.className = p.verified ? (p.source === 'human' ? 'edited' : 'verified') : 'pending';
+      const borrower = (p.borrowers || []).filter(Boolean).join(', ') || '—';
+      tr.innerHTML = `
+        <td>${escapeHtml(p.title || '—')}</td>
+        <td>${escapeHtml(borrower)}</td>
+        <td>${fmtPrice(p.reserve_price)}</td>
+        <td>${fmtPct(p.completeness)}</td>
+        <td><span class="pill ${p.source === 'human' ? 'good' : ''}">${escapeHtml(p.source || '—')}</span></td>
+        <td>${statusPill(p)}</td>
+        <td class="row-actions"><a class="link" href="#property/${encodeURIComponent(p.auction_id)}">open →</a></td>
+      `;
+      tbody.appendChild(tr);
+    }
+    card.appendChild(table);
+    return card;
+  }
+
   $$('button.pill[data-status]').forEach(b => {
     b.addEventListener('click', () => {
       queueState.status = b.getAttribute('data-status');
+      loadQueue();
+    });
+  });
+  $$('button.pill[data-group]').forEach(b => {
+    b.addEventListener('click', () => {
+      queueState.group = b.getAttribute('data-group');
       loadQueue();
     });
   });

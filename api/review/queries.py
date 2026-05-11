@@ -93,6 +93,121 @@ def list_queue(
     return {"page": page, "size": size, "total": total, "rows": rows}
 
 
+def list_notice_queue(
+    status: ReviewStatus = "pending",
+    q: str | None = None,
+    page: int = 1,
+    size: int = 50,
+) -> dict:
+    """Return a page of sales notices (Documents), each carrying the list of
+    AuctionProperty rows extracted from it.
+
+    Lets reviewers close 5–7 listings of a multi-property notice in one sitting
+    instead of jumping back to the queue after every verify.
+
+    Status semantics at the notice level:
+    - pending: notice has at least one property still pending review
+    - verified: every property under the notice has been verified
+    - edited: at least one property under the notice was human-edited
+    - all: every notice that backs any reviewable property
+    """
+    page = max(1, int(page))
+    size = max(1, min(200, int(size)))
+    skip = (page - 1) * size
+
+    if status == "pending":
+        notice_filter = "pending_count > 0"
+    elif status == "verified":
+        notice_filter = "pending_count = 0"
+    elif status == "edited":
+        notice_filter = "edited_count > 0"
+    else:
+        notice_filter = "true"
+
+    params: dict = {"skip": skip, "size": size}
+    search_filter = "true"
+    if q:
+        params["q"] = q
+        search_filter = (
+            "(toLower(coalesce(d.filename, '')) CONTAINS toLower($q) "
+            "OR ANY(p IN properties WHERE "
+            "  toLower(coalesce(p.title, '')) CONTAINS toLower($q) "
+            "  OR ANY(bb IN p.borrowers WHERE toLower(coalesce(bb, '')) CONTAINS toLower($q))))"
+        )
+
+    cypher = f"""
+        MATCH (d:Document)<-[:HAS_DOCUMENT]-(a:AuctionProperty)
+        WHERE a.description_source IN ['notice', 'human']
+          AND a.description IS NOT NULL
+        OPTIONAL MATCH (a)-[:HAS_BORROWER]->(b:Borrower)
+        WITH d, a, collect(DISTINCT b.name) AS borrowers
+        WITH d, collect({{
+                auction_id:    a.auction_id,
+                title:         a.title,
+                borrowers:     borrowers,
+                reserve_price: a.reserve_price_num,
+                completeness:  a.description_completeness,
+                source:        a.description_source,
+                verified:      coalesce(a.description_verified, false),
+                verified_at:   a.description_verified_at,
+                verified_by:   a.description_verified_by
+             }}) AS properties
+        WITH d, properties,
+             size(properties) AS total_count,
+             size([p IN properties WHERE p.verified = false]) AS pending_count,
+             size([p IN properties WHERE p.verified = true AND p.source = 'notice']) AS verified_count,
+             size([p IN properties WHERE p.verified = true AND p.source = 'human']) AS edited_count
+        WHERE {notice_filter} AND {search_filter}
+        RETURN d.filename                       AS filename,
+               d.file_path                      AS file_path,
+               d.public_url                     AS public_url,
+               d.notice_type                    AS notice_type,
+               coalesce(d.property_count, total_count) AS doc_property_count,
+               total_count                      AS total_count,
+               pending_count                    AS pending_count,
+               verified_count                   AS verified_count,
+               edited_count                     AS edited_count,
+               properties                       AS properties
+        ORDER BY pending_count DESC,
+                 total_count DESC,
+                 filename ASC
+        SKIP $skip LIMIT $size
+    """
+    rows = run_read_query(cypher, params, max_rows=size, timeout=30.0)
+
+    count_cypher = f"""
+        MATCH (d:Document)<-[:HAS_DOCUMENT]-(a:AuctionProperty)
+        WHERE a.description_source IN ['notice', 'human']
+          AND a.description IS NOT NULL
+        OPTIONAL MATCH (a)-[:HAS_BORROWER]->(b:Borrower)
+        WITH d, a, collect(DISTINCT b.name) AS borrowers
+        WITH d, collect({{
+                auction_id:    a.auction_id,
+                title:         a.title,
+                borrowers:     borrowers,
+                reserve_price: a.reserve_price_num,
+                completeness:  a.description_completeness,
+                source:        a.description_source,
+                verified:      coalesce(a.description_verified, false)
+             }}) AS properties
+        WITH d, properties,
+             size([p IN properties WHERE p.verified = false]) AS pending_count,
+             size([p IN properties WHERE p.verified = true AND p.source = 'human']) AS edited_count
+        WHERE {notice_filter} AND {search_filter}
+        RETURN count(d) AS total
+    """
+    count_rows = run_read_query(count_cypher, params, max_rows=1, timeout=30.0)
+    total = count_rows[0]["total"] if count_rows else 0
+
+    for r in rows:
+        for p in r.get("properties") or []:
+            v = p.get("verified_at")
+            if v is not None and not isinstance(v, str):
+                p["verified_at"] = str(v)
+
+    return {"page": page, "size": size, "total": total, "rows": rows}
+
+
 def get_property(auction_id: str) -> dict | None:
     """Full review payload for one property: descriptions + linked Document."""
     rows = run_read_query(
