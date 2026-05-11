@@ -5,12 +5,151 @@ Cypher gateway for the enrichment review queue.
 """
 from __future__ import annotations
 
+import re
 from typing import Literal
 
 from api.neo4j_client import run_query, run_read_query
 
 
 ReviewStatus = Literal["pending", "verified", "edited", "all"]
+
+
+# ── Notice-order helpers (used by list_notice_queue) ────────────────────────
+# A multi-property sales notice lists its lots in a specific order on the
+# page. The reviewer wants the in-card property list to match that order so
+# they can scroll the PDF top-to-bottom and tick lots in sequence.
+#
+# We locate each property inside the notice's OCR markdown (d.markdown) by
+# the property's reserve_price, then disambiguate duplicate-price lots by
+# proximity to the property's borrower name. Sort by the resulting offset.
+
+_BORROWER_PREFIXES = re.compile(
+    r"^\s*(?:m/s\.?|mr\.?|mrs\.?|ms\.?|miss\.?|dr\.?|dr\(mr\)|dr\(mrs\)|smt\.?|shri\.?|sri\.?|tmt\.?|thiru\.?)\b",
+    re.IGNORECASE,
+)
+
+
+def _format_indian_lakh(n: int) -> str:
+    """Format an int in the Indian numbering system, e.g. 3000000 → '30,00,000'."""
+    s = str(abs(int(n)))
+    if len(s) <= 3:
+        return ("-" if n < 0 else "") + s
+    head, tail = s[:-3], s[-3:]
+    groups = []
+    while len(head) > 2:
+        groups.append(head[-2:])
+        head = head[:-2]
+    if head:
+        groups.append(head)
+    formatted = ",".join(reversed(groups)) + "," + tail
+    return ("-" if n < 0 else "") + formatted
+
+
+def _price_patterns(price) -> list[str]:
+    """Candidate strings a reserve price might appear as in the notice markdown."""
+    if price is None:
+        return []
+    try:
+        n = int(round(float(price)))
+    except (TypeError, ValueError):
+        return []
+    if n <= 0:
+        return []
+    raw = str(n)
+    intl = f"{n:,}"
+    indian = _format_indian_lakh(n)
+    seen: set[str] = set()
+    out: list[str] = []
+    for p in (indian, intl, raw):
+        if p and p not in seen:
+            seen.add(p)
+            out.append(p)
+    return out
+
+
+def _borrower_token(name: str | None) -> str | None:
+    """Strip honorific prefixes and return the first remaining word ≥ 4 chars.
+
+    'Mr Dineshkumar M'              → 'Dineshkumar'
+    'Dr(Mr) Vedhasalam U'           → 'Vedhasalam'
+    'M/s. Subbukshmi Enterprises'   → 'Subbukshmi'
+    'Mr A'                          → None  (no word ≥ 4 chars)
+    """
+    if not name:
+        return None
+    stripped = _BORROWER_PREFIXES.sub("", str(name)).strip()
+    for tok in re.split(r"[\s,./()&-]+", stripped):
+        if len(tok) >= 4:
+            return tok
+    return None
+
+
+def _all_offsets(haystack: str, needle: str, case_insensitive: bool = False) -> list[int]:
+    """Every (non-overlapping) offset of needle inside haystack."""
+    if not haystack or not needle:
+        return []
+    hay = haystack.lower() if case_insensitive else haystack
+    pin = needle.lower() if case_insensitive else needle
+    offsets: list[int] = []
+    start = 0
+    while True:
+        i = hay.find(pin, start)
+        if i < 0:
+            break
+        offsets.append(i)
+        start = i + len(pin)
+    return offsets
+
+
+def _property_offset_in_notice(prop: dict, markdown: str) -> int | None:
+    """The notice-order offset for one property.
+
+    Returns the markdown character index of the reserve-price occurrence that
+    sits closest to one of the property's borrower-name mentions. Falls back
+    to the first reserve-price occurrence when no borrower is mentioned, and
+    None when the price isn't in the markdown at all.
+    """
+    if not markdown:
+        return None
+    price_offsets: list[int] = []
+    for pat in _price_patterns(prop.get("reserve_price")):
+        price_offsets.extend(_all_offsets(markdown, pat))
+    if not price_offsets:
+        return None
+
+    borrower_offsets: list[int] = []
+    for b in prop.get("borrowers") or []:
+        tok = _borrower_token(b)
+        if not tok:
+            continue
+        borrower_offsets.extend(_all_offsets(markdown, tok, case_insensitive=True))
+
+    if not borrower_offsets:
+        return min(price_offsets)
+
+    def dist_to_borrower(p: int) -> int:
+        return min(abs(p - b) for b in borrower_offsets)
+
+    return min(price_offsets, key=lambda p: (dist_to_borrower(p), p))
+
+
+def _sort_properties_by_markdown(row: dict) -> None:
+    """Sort row['properties'] in place by their position in row['markdown'].
+
+    Pops 'markdown' off the row afterwards so it doesn't bloat the response.
+    """
+    md = row.pop("markdown", None) or ""
+    props = row.get("properties") or []
+
+    def sort_key(p: dict):
+        off = _property_offset_in_notice(p, md)
+        if off is not None:
+            return (0, off, p.get("auction_id") or "")
+        # No price hit (or no markdown): fall back to reserve_price ASC, then aid.
+        rp = p.get("reserve_price") or 0
+        return (1, rp, p.get("auction_id") or "")
+
+    props.sort(key=sort_key)
 
 
 def list_queue(
@@ -167,7 +306,8 @@ def list_notice_queue(
                pending_count                    AS pending_count,
                verified_count                   AS verified_count,
                edited_count                     AS edited_count,
-               properties                       AS properties
+               properties                       AS properties,
+               d.markdown                       AS markdown
         ORDER BY pending_count DESC,
                  total_count DESC,
                  filename ASC
@@ -204,6 +344,7 @@ def list_notice_queue(
             v = p.get("verified_at")
             if v is not None and not isinstance(v, str):
                 p["verified_at"] = str(v)
+        _sort_properties_by_markdown(r)
 
     return {"page": page, "size": size, "total": total, "rows": rows}
 
