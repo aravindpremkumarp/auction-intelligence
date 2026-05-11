@@ -406,10 +406,7 @@
       <tbody></tbody>
     `;
     const tbody = table.querySelector('tbody');
-    const props = (notice.properties || []).slice().sort((a, b) => {
-      if (a.verified !== b.verified) return a.verified ? 1 : -1;
-      return (a.title || '').localeCompare(b.title || '');
-    });
+    const props = notice.properties || [];
     for (const p of props) {
       const tr = document.createElement('tr');
       tr.className = p.verified ? (p.source === 'human' ? 'edited' : 'verified') : 'pending';
