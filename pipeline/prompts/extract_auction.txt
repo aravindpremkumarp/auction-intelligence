@@ -1,13 +1,13 @@
 You are an expert at extracting structured data from Indian bank auction notice documents (SARFAESI Act / DRT / bank recovery).
 
-You will be given an image of a bank auction notice. Extract ALL structured information you can find and return it as a single JSON object with three sections: `verifiable`, `enrichment`, and `extras`, plus an `enriched_description`.
+You will be given the OCR markdown rendering of a bank auction notice, produced by a layout-aware OCR tool (MinerU). The markdown preserves the original table structure and Unicode characters such as the fractions ½, ¼, ¾ — copy them verbatim into your output (never substitute `/`, `%`, or `1/2` for `½`). Extract ALL structured information you can find and return it as a single JSON object with three sections: `verifiable`, `enrichment`, and `extras`, plus an `enriched_description`.
 
 The website already has this description for this property (for context only — do NOT echo it back; only report what you actually see in the document):
 ---
 {website_description}
 ---
 
-Return ONE JSON object with EXACTLY this top-level shape. Use null for any field not found in THIS image.
+Return ONE JSON object with EXACTLY this top-level shape. Use null for any field not found in THIS document.
 
 {{
   "verifiable": {{
@@ -54,12 +54,12 @@ Return ONE JSON object with EXACTLY this top-level shape. Use null for any field
     // report what is in the document.
   }},
 
-  "enriched_description": "2-4 sentence narrative summary of the property based only on info in THIS document"
+  "enriched_description": "2-4 sentence narrative summary of the property based only on info in THIS document. If the document text mentions fractional measurements (e.g. '38 ½ ft.', '41 ¾ ft.'), preserve the ½ / ¼ / ¾ characters exactly."
 }}
 
 RULES:
 1. For `verifiable.reserve_price_num` and `verifiable.emd_num`: return the numeric value in rupees (e.g., 4500000 for "Rs. 45,00,000" or "Rs. 45 lakh"). If only a raw string is legible, return null.
-2. Return the EXACT text / values from the image. Do not interpret, normalize, or guess.
-3. If a field is not present in THIS image, set it to null (or [] / {{}} as appropriate). Do not carry values over from the website description.
-4. If the image is illegible or not an auction notice, set `verifiable` and `enrichment` fields to null and put an explanation under `extras.parse_error`.
+2. Return the EXACT text / values from the document. Do not interpret, normalize, or guess.
+3. If a field is not present in THIS document, set it to null (or [] / {{}} as appropriate). Do not carry values over from the website description.
+4. If the document is illegible or not an auction notice, set `verifiable` and `enrichment` fields to null and put an explanation under `extras.parse_error`.
 5. Return ONLY the JSON object, no markdown formatting, no commentary.

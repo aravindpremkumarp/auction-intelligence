@@ -46,6 +46,13 @@ from pipeline.config import (
     OPENROUTER_API_KEY, OPENROUTER_BASE_URL, OPENROUTER_MODEL,
     PROMPTS_DIR, MAX_RETRIES,
 )
+from pipeline.mineru import (
+    MINERU_EXT_REMAP,
+    MINERU_MARKDOWN_DIR as MINERU_MD_DIR,
+    MINERU_SUPPORTED_EXTS,
+    find_disk_path,
+    safe_cache_name,
+)
 
 
 load_dotenv()
@@ -57,34 +64,12 @@ MINERU_HEADERS = {
 }
 
 REPO_ROOT          = Path(__file__).resolve().parent.parent
-MINERU_MD_DIR      = REPO_ROOT / "pipeline" / "cache" / "mineru_markdown"
 NOTICE_DESC_V3_DIR = REPO_ROOT / "pipeline" / "cache" / "notice_descriptions_v3"
 PROMPT_PATH        = PROMPTS_DIR / "extract_description.txt"
 
 MINERU_BATCH_SIZE = 20      # files per MinerU batch request
 LLM_CONCURRENCY   = 6       # concurrent OpenRouter calls
 WRITE_CHUNK       = 200     # rows per UNWIND Cypher write
-
-# MinerU accepts: pdf, jpg, jpeg, png. .jfif IS jpeg under the hood but the
-# API rejects it on extension. We remap .jfif -> .jpg in the request `name`
-# field; the bytes are unchanged.
-MINERU_SUPPORTED_EXTS = {".pdf", ".jpg", ".jpeg", ".png", ".jfif"}
-MINERU_EXT_REMAP = {".jfif": ".jpg"}  # extension -> what to claim it is in the API call
-
-
-# ── helpers ──────────────────────────────────────────────────────────────────
-
-def safe_cache_name(file_path: str) -> str:
-    return file_path.replace('/', '_').replace('\\', '_').replace(':', '_')
-
-
-def find_disk_path(filename: str) -> Path | None:
-    for base in (REPO_ROOT / "downloads" / "tn_properties",
-                 REPO_ROOT / "downloads"):
-        p = base / filename
-        if p.exists():
-            return p
-    return None
 
 
 def chunked(seq, n):
