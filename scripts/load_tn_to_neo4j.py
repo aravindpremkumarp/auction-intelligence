@@ -57,6 +57,7 @@ SET
   a.url                      = r.url,
   a.title                    = r.title,
   a.description              = r.description,
+  a.website_description      = r.description,
   a.reserve_price_raw        = r.reserve_price_raw,
   a.reserve_price_num        = r.reserve_price_num,
   a.emd_raw                  = r.emd_raw,
