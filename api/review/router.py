@@ -90,6 +90,8 @@ class ReviewPropertyOut(BaseModel):
     area: str | None = None
     borrowers: list[str] = []
     description: str | None = None
+    description_scraped: str | None = None
+    enriched_description: str | None = None
     website_description: str | None = None
     description_source: str | None = None
     description_extracted_original: str | None = None
