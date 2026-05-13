@@ -370,6 +370,8 @@ def get_property(auction_id: str) -> dict | None:
                area.name                   AS area,
                borrowers                   AS borrowers,
                a.description               AS description,
+               a.description_scraped       AS description_scraped,
+               a.enriched_description      AS enriched_description,
                a.website_description       AS website_description,
                a.description_source        AS description_source,
                a.description_extracted     AS description_extracted_original,

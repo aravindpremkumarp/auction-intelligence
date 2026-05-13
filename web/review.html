@@ -493,8 +493,11 @@
     $('d-source').innerHTML = `<span class="pill ${p.description_source === 'human' ? 'good' : ''}">${escapeHtml(p.description_source || '—')}</span>`;
     $('d-status').innerHTML = statusPill({ verified: p.verified, source: p.description_source });
 
-    $('desc').value = p.description || '';
-    $('website-desc').value = p.website_description || '';
+    const isHumanEdited = p.description_source === 'human';
+    $('desc').value = isHumanEdited
+      ? (p.description || '')
+      : (p.enriched_description || p.description || '');
+    $('website-desc').value = p.description_scraped || p.website_description || '';
     $('notes').value = p.review_notes || '';
 
     // Audit footer
