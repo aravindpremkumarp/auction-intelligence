@@ -13,6 +13,8 @@
   window.SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY || 'sb_publishable_IT4CBVWS1a37sduWApOdFw_1UCR0kyJ';
 </script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.11/dist/purify.min.js"></script>
 <script src="/auth.js"></script>
 <style>
   :root { --ink: #1a1a1a; --paper: #faf7f0; --accent: #ffd84d; --danger: #d64a2e; --good: #2e8b57; --muted: #8a8a8a; }
@@ -67,8 +69,22 @@
   .desc-textarea { width: 100%; box-sizing: border-box; min-height: 360px; padding: 10px; border: 1.5px solid var(--ink); font-family: 'IBM Plex Mono', monospace; font-size: 13px; line-height: 1.45; resize: vertical; background: #fff; color: var(--ink); }
   .desc-textarea[readonly] { background: #f3f0e7; color: var(--ink); }
   .md-section { margin-bottom: 14px; border: 1.5px solid var(--ink); background: var(--paper); }
-  .md-section .md-header { padding: 6px 10px; border-bottom: 1.5px solid var(--ink); font-family: 'Caveat', cursive; font-size: 20px; }
+  .md-section .md-header { padding: 6px 10px; border-bottom: 1.5px solid var(--ink); font-family: 'Caveat', cursive; font-size: 20px; display: flex; align-items: center; gap: 8px; }
+  .md-section .md-header .md-title { flex: 1; }
+  .md-section .md-header .md-toggle { display: inline-flex; gap: 4px; }
+  .md-section .md-header .md-toggle button { padding: 1px 8px; font-size: 11px; min-height: 0; }
   .md-section .markdown-body { max-height: 40vh; }
+  .markdown-body.rendered { white-space: normal; font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; line-height: 1.5; }
+  .markdown-body.rendered table { width: 100%; min-width: 0; border-collapse: collapse; margin: 8px 0; background: #fff; font-size: 12px; }
+  .markdown-body.rendered th, .markdown-body.rendered td { border: 1px solid var(--ink); padding: 6px 8px; vertical-align: top; text-align: left; }
+  .markdown-body.rendered th { background: var(--accent); font-weight: 600; }
+  .markdown-body.rendered p { margin: 6px 0; }
+  .markdown-body.rendered h1, .markdown-body.rendered h2, .markdown-body.rendered h3 { font-family: 'Caveat', cursive; margin: 10px 0 4px; }
+  .markdown-body.rendered ul, .markdown-body.rendered ol { margin: 6px 0 6px 20px; padding: 0; }
+  .markdown-body.rendered code { background: #f3f0e7; padding: 1px 4px; }
+  .markdown-body.rendered pre { background: #f3f0e7; padding: 8px; overflow-x: auto; }
+  .markdown-body.rendered blockquote { border-left: 3px solid var(--muted); margin: 6px 0; padding: 2px 10px; color: #555; }
+  .markdown-body.rendered img { max-width: 100%; height: auto; }
   .desc-compare { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
   .desc-compare h2 { margin-bottom: 4px; }
   @media (max-width: 1100px) { .desc-compare { grid-template-columns: 1fr; } }
@@ -175,7 +191,13 @@
       </div>
       <div class="pane">
         <section class="md-section">
-          <div class="md-header">Overall markdown (OCR)</div>
+          <div class="md-header">
+            <span class="md-title">Overall markdown (OCR)</span>
+            <span class="md-toggle">
+              <button class="pill" data-md-mode="rendered">rendered</button>
+              <button class="pill" data-md-mode="raw">raw</button>
+            </span>
+          </div>
           <div id="md-body" class="markdown-body"></div>
         </section>
 
@@ -526,18 +548,50 @@
     return 'other';
   }
 
+  // ─── Markdown rendering ─────────────────────────────────────────────────
+  let currentMarkdown = '';
+  let mdMode = localStorage.getItem('mdMode') || 'rendered';
+
+  function syncMdToggleButtons() {
+    $$('button.pill[data-md-mode]').forEach(b => {
+      b.classList.toggle('on', b.getAttribute('data-md-mode') === mdMode);
+    });
+  }
+
+  function paintMarkdown() {
+    const mdBody = $('md-body');
+    syncMdToggleButtons();
+    if (!currentMarkdown) {
+      mdBody.classList.remove('rendered');
+      mdBody.innerHTML = '<div class="empty">no OCR markdown available.</div>';
+      return;
+    }
+    if (mdMode === 'rendered' && window.marked && window.DOMPurify) {
+      const html = window.marked.parse(currentMarkdown, { gfm: true, breaks: false });
+      mdBody.classList.add('rendered');
+      mdBody.innerHTML = window.DOMPurify.sanitize(html);
+    } else {
+      mdBody.classList.remove('rendered');
+      mdBody.textContent = currentMarkdown;
+    }
+  }
+
+  $$('button.pill[data-md-mode]').forEach(b => {
+    b.addEventListener('click', () => {
+      mdMode = b.getAttribute('data-md-mode');
+      try { localStorage.setItem('mdMode', mdMode); } catch {}
+      paintMarkdown();
+    });
+  });
+
   function renderSourcePane(p) {
     const docs = (p.documents || []).filter(Boolean);
     const doc = docs.find(d => d && d.public_url) || docs[0];
     const mdDoc = docs.find(d => d && d.markdown) || doc;
 
     // Right-pane markdown box (always populated from any doc with markdown)
-    const mdBody = $('md-body');
-    if (mdDoc && mdDoc.markdown) {
-      mdBody.textContent = mdDoc.markdown;
-    } else {
-      mdBody.innerHTML = '<div class="empty">no OCR markdown available.</div>';
-    }
+    currentMarkdown = (mdDoc && mdDoc.markdown) ? mdDoc.markdown : '';
+    paintMarkdown();
 
     // Left pane: PDF or image
     if (!doc) {
