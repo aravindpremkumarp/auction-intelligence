@@ -2616,6 +2616,11 @@ function pathForScreen(screen) {
 }
 function syncURLForScreen(screen, replace) {
   const target = pathForScreen(screen);
+  // Supabase OAuth/magic-link callback markers — leave the URL alone until the
+  // SDK has consumed them, otherwise pushState strips the code and the user
+  // round-trips through Google but stays signed out.
+  const search = new URLSearchParams(window.location.search);
+  if (search.has('code') || search.has('error_code') || window.location.hash.includes('access_token')) return;
   if (window.location.pathname === target && !window.location.search) return;
   const method = replace ? 'replaceState' : 'pushState';
   history[method]({ screen, id: currentDetailId }, '', target);
