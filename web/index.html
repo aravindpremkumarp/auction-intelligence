@@ -2603,20 +2603,22 @@ function propertyShareURL(id) {
   const u = new URL(window.location.href);
   u.search = '';
   u.hash = '';
-  u.searchParams.set(URL_ID_PARAM, id);
+  u.pathname = '/property/' + encodeURIComponent(id);
   return u.toString();
 }
-function syncURLForScreen(screen, replace) {
-  const url = new URL(window.location.href);
+function pathForScreen(screen) {
   if (screen === 'detail' && currentDetailId) {
-    if (url.searchParams.get(URL_ID_PARAM) === currentDetailId) return;
-    url.searchParams.set(URL_ID_PARAM, currentDetailId);
-  } else {
-    if (!url.searchParams.has(URL_ID_PARAM)) return;
-    url.searchParams.delete(URL_ID_PARAM);
+    return '/property/' + encodeURIComponent(currentDetailId);
   }
+  if (screen === 'results') return '/chat';
+  if (screen === 'watchlist') return '/watchlist';
+  return '/';
+}
+function syncURLForScreen(screen, replace) {
+  const target = pathForScreen(screen);
+  if (window.location.pathname === target && !window.location.search) return;
   const method = replace ? 'replaceState' : 'pushState';
-  history[method]({ screen, id: currentDetailId }, '', url.toString());
+  history[method]({ screen, id: currentDetailId }, '', target);
 }
 function go(screen) {
   if (screen === 'detail' && currentScreen && currentScreen !== 'detail') {
@@ -4615,22 +4617,35 @@ hydrateModes();
 applyBrowse();
 
 function applyURLState(replace) {
-  const params = new URLSearchParams(window.location.search);
-  const id = params.get(URL_ID_PARAM);
-  if (id) {
-    currentDetailId = id;
+  const path = window.location.pathname;
+  const propMatch = path.match(/^\/property\/([^/]+)\/?$/);
+  const legacyId = new URLSearchParams(window.location.search).get(URL_ID_PARAM);
+
+  if (propMatch) {
+    currentDetailId = decodeURIComponent(propMatch[1]);
     detailReturnScreen = 'landing';
     go('detail');
     if (replace) syncURLForScreen('detail', true);
+  } else if (legacyId) {
+    currentDetailId = legacyId;
+    detailReturnScreen = 'landing';
+    go('detail');
+    syncURLForScreen('detail', true);
+  } else if (path === '/chat') {
+    go('results');
+  } else if (path === '/watchlist') {
+    go('watchlist');
   } else {
     go('landing');
   }
 }
 applyURLState(true);
 window.addEventListener('popstate', () => {
-  const params = new URLSearchParams(window.location.search);
-  const id = params.get(URL_ID_PARAM);
-  if (id) {
+  const path = window.location.pathname;
+  const propMatch = path.match(/^\/property\/([^/]+)\/?$/);
+
+  if (propMatch) {
+    const id = decodeURIComponent(propMatch[1]);
     currentDetailId = id;
     if (currentScreen !== 'detail') {
       detailReturnScreen = currentScreen || 'landing';
@@ -4638,9 +4653,13 @@ window.addEventListener('popstate', () => {
     } else {
       loadAndRenderDetail(id);
     }
-  } else if (currentScreen === 'detail') {
-    currentDetailId = null;
-    go(detailReturnScreen || 'landing');
+  } else if (path === '/chat') {
+    if (currentScreen !== 'results') go('results');
+  } else if (path === '/watchlist') {
+    if (currentScreen !== 'watchlist') go('watchlist');
+  } else {
+    if (currentScreen === 'detail') currentDetailId = null;
+    if (currentScreen !== 'landing') go('landing');
   }
 });
 </script>
