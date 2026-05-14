@@ -131,8 +131,12 @@ def _row_to_str(row: dict) -> dict:
 
 
 @router.get("/stats", response_model=ReviewStats)
-async def review_stats(_admin: UserOut = Depends(get_current_admin)) -> ReviewStats:
-    return ReviewStats(**q.stats())
+async def review_stats(
+    date_from: str | None = Query(default=None, max_length=20),
+    date_to: str | None = Query(default=None, max_length=20),
+    _admin: UserOut = Depends(get_current_admin),
+) -> ReviewStats:
+    return ReviewStats(**q.stats(date_from=date_from, date_to=date_to))
 
 
 @router.get("/queue", response_model=ReviewQueueOut)
@@ -141,9 +145,14 @@ async def review_queue(
     q_search: str | None = Query(default=None, alias="q", max_length=200),
     page: int = Query(default=1, ge=1),
     size: int = Query(default=50, ge=1, le=200),
+    date_from: str | None = Query(default=None, max_length=20),
+    date_to: str | None = Query(default=None, max_length=20),
     _admin: UserOut = Depends(get_current_admin),
 ) -> ReviewQueueOut:
-    result = q.list_queue(status=status, q=q_search, page=page, size=size)
+    result = q.list_queue(
+        status=status, q=q_search, page=page, size=size,
+        date_from=date_from, date_to=date_to,
+    )
     rows = [ReviewQueueRow(**_row_to_str(r)) for r in result["rows"]]
     return ReviewQueueOut(page=result["page"], size=result["size"], total=result["total"], rows=rows)
 
@@ -154,9 +163,14 @@ async def review_notices(
     q_search: str | None = Query(default=None, alias="q", max_length=200),
     page: int = Query(default=1, ge=1),
     size: int = Query(default=50, ge=1, le=200),
+    date_from: str | None = Query(default=None, max_length=20),
+    date_to: str | None = Query(default=None, max_length=20),
     _admin: UserOut = Depends(get_current_admin),
 ) -> ReviewNoticeQueueOut:
-    result = q.list_notice_queue(status=status, q=q_search, page=page, size=size)
+    result = q.list_notice_queue(
+        status=status, q=q_search, page=page, size=size,
+        date_from=date_from, date_to=date_to,
+    )
     rows = [ReviewNoticeRow(**r) for r in result["rows"]]
     return ReviewNoticeQueueOut(page=result["page"], size=result["size"], total=result["total"], rows=rows)
 

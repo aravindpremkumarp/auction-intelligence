@@ -157,6 +157,8 @@ def list_queue(
     q: str | None = None,
     page: int = 1,
     size: int = 50,
+    date_from: str | None = None,
+    date_to: str | None = None,
 ) -> dict:
     """Return a page of properties whose description came from a notice
     extraction (or a human edit), filtered by review status.
@@ -164,6 +166,11 @@ def list_queue(
     Pending = description_source IN ['notice','human'] AND NOT description_verified.
     Verified = description_verified = true AND description_source = 'notice'.
     Edited = description_verified = true AND description_source = 'human'.
+
+    Optional date_from / date_to filter on auction_start_dt (ISO date strings,
+    YYYY-MM-DD). Property is included if its auction_start_dt falls in the
+    [date_from, date_to] window (inclusive). Properties with a null
+    auction_start_dt are excluded when either bound is set.
     """
     page = max(1, int(page))
     size = max(1, min(200, int(size)))
@@ -187,6 +194,12 @@ def list_queue(
             "OR toLower(coalesce(b.name, '')) CONTAINS toLower($q))"
         )
         params["q"] = q
+    if date_from:
+        where.append("a.auction_start_dt IS NOT NULL AND date(a.auction_start_dt) >= date($date_from)")
+        params["date_from"] = date_from
+    if date_to:
+        where.append("a.auction_start_dt IS NOT NULL AND date(a.auction_start_dt) <= date($date_to)")
+        params["date_to"] = date_to
 
     where_clause = " AND ".join(where)
 
@@ -237,6 +250,8 @@ def list_notice_queue(
     q: str | None = None,
     page: int = 1,
     size: int = 50,
+    date_from: str | None = None,
+    date_to: str | None = None,
 ) -> dict:
     """Return a page of sales notices (Documents), each carrying the list of
     AuctionProperty rows extracted from it.
@@ -249,6 +264,11 @@ def list_notice_queue(
     - verified: every property under the notice has been verified
     - edited: at least one property under the notice was human-edited
     - all: every notice that backs any reviewable property
+
+    date_from / date_to filter linked properties by auction_start_dt. A notice
+    is surfaced if any property survives the date filter; aggregate counts
+    (total/pending/verified/edited) are computed over surviving properties only,
+    so filtered totals reflect what the reviewer can actually act on.
     """
     page = max(1, int(page))
     size = max(1, min(200, int(size)))
@@ -274,10 +294,19 @@ def list_notice_queue(
             "  OR ANY(bb IN p.borrowers WHERE toLower(coalesce(bb, '')) CONTAINS toLower($q))))"
         )
 
+    date_predicate = ""
+    if date_from:
+        date_predicate += " AND a.auction_start_dt IS NOT NULL AND date(a.auction_start_dt) >= date($date_from)"
+        params["date_from"] = date_from
+    if date_to:
+        date_predicate += " AND a.auction_start_dt IS NOT NULL AND date(a.auction_start_dt) <= date($date_to)"
+        params["date_to"] = date_to
+
     cypher = f"""
         MATCH (d:Document)<-[:HAS_DOCUMENT]-(a:AuctionProperty)
         WHERE a.description_source IN ['notice', 'human']
           AND a.description IS NOT NULL
+          {date_predicate}
         OPTIONAL MATCH (a)-[:HAS_BORROWER]->(b:Borrower)
         WITH d, a, collect(DISTINCT b.name) AS borrowers
         WITH d, collect({{
@@ -319,6 +348,7 @@ def list_notice_queue(
         MATCH (d:Document)<-[:HAS_DOCUMENT]-(a:AuctionProperty)
         WHERE a.description_source IN ['notice', 'human']
           AND a.description IS NOT NULL
+          {date_predicate}
         OPTIONAL MATCH (a)-[:HAS_BORROWER]->(b:Borrower)
         WITH d, a, collect(DISTINCT b.name) AS borrowers
         WITH d, collect({{
@@ -454,12 +484,27 @@ def unverify(auction_id: str) -> bool:
     return bool(rows)
 
 
-def stats() -> dict:
-    """Counts for the queue header — pending / verified / edited / total."""
-    rows = run_read_query(
-        """
+def stats(
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> dict:
+    """Counts for the queue header — pending / verified / edited / total.
+
+    Optional date_from / date_to filter properties by auction_start_dt so the
+    pills reflect the current date filter the reviewer has applied.
+    """
+    where = ["a.description_source IN ['notice', 'human']", "a.description IS NOT NULL"]
+    params: dict = {}
+    if date_from:
+        where.append("a.auction_start_dt IS NOT NULL AND date(a.auction_start_dt) >= date($date_from)")
+        params["date_from"] = date_from
+    if date_to:
+        where.append("a.auction_start_dt IS NOT NULL AND date(a.auction_start_dt) <= date($date_to)")
+        params["date_to"] = date_to
+
+    cypher = f"""
         MATCH (a:AuctionProperty)
-        WHERE a.description_source IN ['notice', 'human'] AND a.description IS NOT NULL
+        WHERE {' AND '.join(where)}
         RETURN
           count(*) AS total,
           sum(CASE WHEN coalesce(a.description_verified, false) = false THEN 1 ELSE 0 END) AS pending,
@@ -467,9 +512,8 @@ def stats() -> dict:
                     AND a.description_source = 'notice' THEN 1 ELSE 0 END) AS verified,
           sum(CASE WHEN coalesce(a.description_verified, false) = true
                     AND a.description_source = 'human' THEN 1 ELSE 0 END) AS edited
-        """,
-        max_rows=1,
-    )
+    """
+    rows = run_read_query(cypher, params, max_rows=1)
     if not rows:
         return {"total": 0, "pending": 0, "verified": 0, "edited": 0}
     r = rows[0]
