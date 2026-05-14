@@ -6,8 +6,6 @@
   "cleanUrls": true,
   "trailingSlash": false,
   "rewrites": [
-    { "source": "/chat", "destination": "/index.html" },
-    { "source": "/watchlist", "destination": "/index.html" },
-    { "source": "/property/:id", "destination": "/index.html" }
+    { "source": "/((?!admin$|review$|.*\\..*).*)", "destination": "/index.html" }
   ]
 }
