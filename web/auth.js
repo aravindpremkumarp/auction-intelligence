@@ -233,15 +233,16 @@
         '</div>' +
         '<div class="sep">or with password</div>' +
         '<form autocomplete="off" onsubmit="return false">' +
-          '<label>Email<input id="m-email" type="email" autocomplete="off" required></label>' +
-          '<label>Password<input id="m-pw" type="password" autocomplete="off" required></label>' +
+          // readonly + onfocus is the reliable cross-browser way to suppress
+          // saved-credential autofill — Chrome ignores autocomplete="off" on
+          // login-shaped forms, which misleads Google/magic-link users into
+          // submitting stale saved passwords from other sites.
+          '<label>Email<input id="m-email" type="email" autocomplete="off" required readonly onfocus="this.removeAttribute(\'readonly\')"></label>' +
+          '<label>Password<input id="m-pw" type="password" autocomplete="off" required readonly onfocus="this.removeAttribute(\'readonly\')"></label>' +
         '</form>' +
         '<div><button id="m-submit">Sign in</button><button class="sec" id="m-cancel">Cancel</button></div>' +
         '<p class="msg" id="m-msg"></p>' +
         '<p><span class="link" id="to-signup">Create account</span> · <span class="link" id="to-forgot">Forgot password?</span></p>';
-      // Explicitly clear — browser autofill ignores autocomplete="off" on login-shaped forms.
-      box.querySelector('#m-email').value = '';
-      box.querySelector('#m-pw').value = '';
       box.querySelector('.x-close').onclick = closeModal;
       box.querySelector('#m-cancel').onclick = closeModal;
       box.querySelector('#m-submit').onclick = async function () {
