@@ -153,6 +153,17 @@
       <input type="search" id="q" placeholder="search title or borrower">
       <button id="reload" class="primary">Reload</button>
     </div>
+    <div class="actions">
+      <span>Auction date:</span>
+      <label class="meta" style="display:flex; gap:6px; align-items:center;">
+        from <input type="date" id="date-from" style="padding:4px 6px; border:1.5px solid var(--ink);">
+      </label>
+      <label class="meta" style="display:flex; gap:6px; align-items:center;">
+        to <input type="date" id="date-to" style="padding:4px 6px; border:1.5px solid var(--ink);">
+      </label>
+      <button id="date-clear" class="ghost" title="show all dates">clear dates</button>
+      <span class="meta" id="date-hint" style="color: var(--muted);"></span>
+    </div>
     <div id="queue-by-property" class="table-scroll">
       <table>
         <thead>
@@ -275,6 +286,18 @@
     return '<span class="pill good">verified</span>';
   }
 
+  function todayISO() {
+    const d = new Date();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${d.getFullYear()}-${m}-${day}`;
+  }
+
+  function appendDateParams(params) {
+    if (queueState.dateFrom) params.set('date_from', queueState.dateFrom);
+    if (queueState.dateTo)   params.set('date_to', queueState.dateTo);
+  }
+
   // ─── Routing ────────────────────────────────────────────────────────────
   function parseHash() {
     const h = (location.hash || '').replace(/^#/, '');
@@ -298,7 +321,10 @@
 
   // ─── Stats ──────────────────────────────────────────────────────────────
   async function loadStats() {
-    const r = await authFetch(API + '/review/stats');
+    const params = new URLSearchParams();
+    appendDateParams(params);
+    const url = API + '/review/stats' + (params.toString() ? '?' + params.toString() : '');
+    const r = await authFetch(url);
     if (!r.ok) { $('stats').textContent = ''; return; }
     const s = await r.json();
     $('stats').innerHTML = `
@@ -310,7 +336,8 @@
   }
 
   // ─── Queue ──────────────────────────────────────────────────────────────
-  let queueState = { status: 'pending', q: '', group: 'property' };
+  // Default to "upcoming auctions" — past auctions are mostly archival.
+  let queueState = { status: 'pending', q: '', group: 'property', dateFrom: todayISO(), dateTo: '' };
 
   function syncStatusButtons() {
     $$('button.pill[data-status]').forEach(b => {
@@ -323,8 +350,20 @@
     $('queue-by-notice').classList.toggle('hidden', queueState.group !== 'notice');
   }
 
+  function syncDateInputs() {
+    $('date-from').value = queueState.dateFrom || '';
+    $('date-to').value = queueState.dateTo || '';
+    const hint = !queueState.dateFrom && !queueState.dateTo
+      ? '(showing all dates)'
+      : (queueState.dateFrom === todayISO() && !queueState.dateTo
+          ? '(upcoming only)'
+          : '');
+    $('date-hint').textContent = hint;
+  }
+
   async function loadQueue() {
     syncStatusButtons();
+    syncDateInputs();
     if (queueState.group === 'notice') {
       await loadNoticeQueue();
     } else {
@@ -337,6 +376,7 @@
     tbody.innerHTML = '<tr><td colspan="8"><div class="empty">loading…</div></td></tr>';
     const params = new URLSearchParams({ status: queueState.status, page: '1', size: '100' });
     if (queueState.q) params.set('q', queueState.q);
+    appendDateParams(params);
     const r = await authFetch(API + '/review/queue?' + params.toString());
     if (r.status === 401 || r.status === 403) {
       tbody.innerHTML = '<tr><td colspan="8"><div class="empty"><span class="err">not authorised — sign in as admin from the main app</span></div></td></tr>';
@@ -378,6 +418,7 @@
     list.innerHTML = '<div class="empty">loading…</div>';
     const params = new URLSearchParams({ status: queueState.status, page: '1', size: '50' });
     if (queueState.q) params.set('q', queueState.q);
+    appendDateParams(params);
     const r = await authFetch(API + '/review/notices?' + params.toString());
     if (r.status === 401 || r.status === 403) {
       list.innerHTML = '<div class="empty"><span class="err">not authorised — sign in as admin from the main app</span></div>';
@@ -481,6 +522,19 @@
     queueState.q = e.target.value.trim();
     clearTimeout(window.__qTimer);
     window.__qTimer = setTimeout(loadQueue, 250);
+  });
+  $('date-from').addEventListener('change', (e) => {
+    queueState.dateFrom = e.target.value || '';
+    loadStats(); loadQueue();
+  });
+  $('date-to').addEventListener('change', (e) => {
+    queueState.dateTo = e.target.value || '';
+    loadStats(); loadQueue();
+  });
+  $('date-clear').addEventListener('click', () => {
+    queueState.dateFrom = '';
+    queueState.dateTo = '';
+    loadStats(); loadQueue();
   });
 
   // ─── Detail ─────────────────────────────────────────────────────────────
