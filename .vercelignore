@@ -1,0 +1,13 @@
+api/
+pipeline/
+scrapers/
+scoring/
+tracking/
+feedback/
+modes/
+scripts/
+tests/
+config/
+*.py
+requirements.txt
+render.yaml
