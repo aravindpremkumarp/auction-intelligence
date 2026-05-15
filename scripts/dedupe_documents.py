@@ -20,6 +20,11 @@ For every (auction_id, filename) group with more than one :Document:
    canonical node (skipping ones that already exist).
 4. DETACH DELETE the duplicates.
 
+With ``--global`` the grouping drops auction_id and a single canonical
+absorbs every duplicate of the same filename across all auctions. This
+collapses cross-auction copies of the same multi-property notice file
+(e.g. a bank PDF announcing 48 lots) into one Document with N back-links.
+
 Idempotent: safe to re-run. With ``--dry-run`` the script prints planned
 actions without mutating the graph.
 
@@ -27,6 +32,8 @@ Run standalone:
     python -m scripts.dedupe_documents --dry-run
     python -m scripts.dedupe_documents
     python -m scripts.dedupe_documents --auction-id AUC123
+    python -m scripts.dedupe_documents --global --dry-run
+    python -m scripts.dedupe_documents --global
 """
 from __future__ import annotations
 
@@ -66,6 +73,30 @@ ORDER BY a.auction_id, filename
 """
 
 
+# Cross-auction grouping for ``--global`` mode: collapse copies of the same
+# filename across all auctions into a single canonical node. The ranking
+# fields are identical to the per-auction query so _pick_canonical works
+# unchanged.
+FIND_DUPLICATES_GLOBAL_CYPHER = """
+MATCH (d:Document)
+WHERE d.filename IS NOT NULL
+WITH d.filename AS filename, collect(d) AS docs
+WHERE size(docs) > 1
+WITH filename, [x IN docs |
+  {
+    id:           elementId(x),
+    has_url:      CASE WHEN x.public_url  IS NULL THEN 0 ELSE 1 END,
+    has_key:      CASE WHEN x.storage_key IS NULL THEN 0 ELSE 1 END,
+    uploaded_at:  toString(x.uploaded_at),
+    extracted_at: toString(x.extracted_at)
+  }
+] AS ranked
+RETURN filename AS filename,
+       ranked   AS candidates
+ORDER BY filename
+"""
+
+
 # The canonical node receives any non-null property from a duplicate that it
 # doesn't already have. Then we re-point every [:HAS_DOCUMENT] from the
 # duplicates onto the canonical node (using MERGE so we don't introduce a
@@ -77,15 +108,25 @@ UNWIND $duplicate_ids AS dup_id
 MATCH (dup:Document) WHERE elementId(dup) = dup_id
 
 // Copy missing properties forward (canonical wins where it already has a value).
-SET canonical.file_path      = coalesce(canonical.file_path,      dup.file_path),
-    canonical.storage_key    = coalesce(canonical.storage_key,    dup.storage_key),
-    canonical.public_url     = coalesce(canonical.public_url,     dup.public_url),
-    canonical.content_type   = coalesce(canonical.content_type,   dup.content_type),
-    canonical.doc_type       = coalesce(canonical.doc_type,       dup.doc_type),
-    canonical.extracted_json = coalesce(canonical.extracted_json, dup.extracted_json),
-    canonical.extracted_at   = coalesce(canonical.extracted_at,   dup.extracted_at),
-    canonical.model          = coalesce(canonical.model,          dup.model),
-    canonical.uploaded_at    = coalesce(canonical.uploaded_at,    dup.uploaded_at)
+SET canonical.file_path                  = coalesce(canonical.file_path,                  dup.file_path),
+    canonical.storage_key                = coalesce(canonical.storage_key,                dup.storage_key),
+    canonical.public_url                 = coalesce(canonical.public_url,                 dup.public_url),
+    canonical.content_type               = coalesce(canonical.content_type,               dup.content_type),
+    canonical.doc_type                   = coalesce(canonical.doc_type,                   dup.doc_type),
+    canonical.extracted_json             = coalesce(canonical.extracted_json,             dup.extracted_json),
+    canonical.extracted_at               = coalesce(canonical.extracted_at,               dup.extracted_at),
+    canonical.model                      = coalesce(canonical.model,                      dup.model),
+    canonical.uploaded_at                = coalesce(canonical.uploaded_at,                dup.uploaded_at),
+    canonical.markdown                   = coalesce(canonical.markdown,                   dup.markdown),
+    canonical.notice_type                = coalesce(canonical.notice_type,                dup.notice_type),
+    canonical.notice_type_classifier_pred = coalesce(canonical.notice_type_classifier_pred, dup.notice_type_classifier_pred),
+    canonical.notice_type_confidence     = coalesce(canonical.notice_type_confidence,     dup.notice_type_confidence),
+    canonical.notice_type_reasoning      = coalesce(canonical.notice_type_reasoning,      dup.notice_type_reasoning),
+    canonical.notice_type_model          = coalesce(canonical.notice_type_model,          dup.notice_type_model),
+    canonical.notice_type_classified_at  = coalesce(canonical.notice_type_classified_at,  dup.notice_type_classified_at),
+    canonical.notice_type_verified_at    = coalesce(canonical.notice_type_verified_at,    dup.notice_type_verified_at),
+    canonical.notice_type_overridden     = coalesce(canonical.notice_type_overridden,     dup.notice_type_overridden),
+    canonical.property_count             = coalesce(canonical.property_count,             dup.property_count)
 
 // Re-point any HAS_DOCUMENT relationship pointing at the duplicate.
 WITH canonical, dup
@@ -125,15 +166,26 @@ def main() -> int:
     parser.add_argument("--dry-run", action="store_true",
                         help="List planned merges without modifying Neo4j.")
     parser.add_argument("--auction-id", default=None,
-                        help="Limit cleanup to a single auction_id.")
+                        help="Limit cleanup to a single auction_id "
+                             "(ignored with --global).")
+    parser.add_argument("--global", dest="cross_auction", action="store_true",
+                        help="Group by filename across all auctions; one "
+                             "canonical Document absorbs every duplicate "
+                             "of the same filename regardless of auction.")
     args = parser.parse_args()
 
-    groups = run_query(FIND_DUPLICATES_CYPHER, {"auction_id": args.auction_id})
+    if args.cross_auction:
+        groups = run_query(FIND_DUPLICATES_GLOBAL_CYPHER)
+        group_label = "filename"
+    else:
+        groups = run_query(FIND_DUPLICATES_CYPHER, {"auction_id": args.auction_id})
+        group_label = "(auction_id, filename)"
+
     if not groups:
         print("No duplicate documents found — nothing to do.")
         return 0
 
-    print(f"Found {len(groups)} (auction_id, filename) groups with duplicates.")
+    print(f"Found {len(groups)} {group_label} groups with duplicates.")
     merged_groups = 0
     deleted_nodes = 0
     errors = 0
@@ -141,8 +193,12 @@ def main() -> int:
     for g in groups:
         canonical_id, duplicate_ids = _pick_canonical(g["candidates"])
         action = "[dry-run] would merge" if args.dry_run else "[merge]"
+        if args.cross_auction:
+            label = g["filename"]
+        else:
+            label = f"{g['auction_id']} :: {g['filename']}"
         print(
-            f"  {action} {g['auction_id']} :: {g['filename']} "
+            f"  {action} {label} "
             f"keep={canonical_id[:24]}… drop={len(duplicate_ids)}"
         )
 
