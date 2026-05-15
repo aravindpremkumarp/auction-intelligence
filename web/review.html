@@ -182,6 +182,10 @@
       </table>
     </div>
     <div id="queue-by-notice" class="notice-list hidden"></div>
+    <div id="load-more-wrap" class="hidden" style="text-align:center; margin-top:14px;">
+      <button id="load-more" class="ghost">Load more</button>
+      <span class="meta" id="load-more-hint" style="margin-left:10px; color: var(--muted);"></span>
+    </div>
   </section>
 
   <!-- Detail screen -->
@@ -337,7 +341,11 @@
 
   // ─── Queue ──────────────────────────────────────────────────────────────
   // Default to "upcoming auctions" — past auctions are mostly archival.
-  let queueState = { status: 'pending', q: '', group: 'property', dateFrom: todayISO(), dateTo: '' };
+  const PAGE_SIZE_PROPERTY = 100;
+  const PAGE_SIZE_NOTICE = 50;
+  let queueState = { status: 'pending', q: '', group: 'property', dateFrom: todayISO(), dateTo: '', page: 1 };
+  let queueLoadedCount = 0;
+  let queueTotal = 0;
 
   function syncStatusButtons() {
     $$('button.pill[data-status]').forEach(b => {
@@ -361,20 +369,42 @@
     $('date-hint').textContent = hint;
   }
 
-  async function loadQueue() {
+  async function loadQueue(append = false) {
+    if (!append) {
+      queueState.page = 1;
+      queueLoadedCount = 0;
+      queueTotal = 0;
+    }
     syncStatusButtons();
     syncDateInputs();
     if (queueState.group === 'notice') {
-      await loadNoticeQueue();
+      await loadNoticeQueue(append);
     } else {
-      await loadPropertyQueue();
+      await loadPropertyQueue(append);
+    }
+    updateLoadMore();
+  }
+
+  function updateLoadMore() {
+    const more = queueLoadedCount > 0 && queueLoadedCount < queueTotal;
+    $('load-more-wrap').classList.toggle('hidden', !more);
+    if (more) {
+      $('load-more-hint').textContent = `showing ${queueLoadedCount} of ${queueTotal}`;
+    } else if (queueTotal > 0) {
+      $('load-more-hint').textContent = '';
     }
   }
 
-  async function loadPropertyQueue() {
+  async function loadPropertyQueue(append) {
     const tbody = $('queue-rows');
-    tbody.innerHTML = '<tr><td colspan="8"><div class="empty">loading…</div></td></tr>';
-    const params = new URLSearchParams({ status: queueState.status, page: '1', size: '100' });
+    if (!append) {
+      tbody.innerHTML = '<tr><td colspan="8"><div class="empty">loading…</div></td></tr>';
+    }
+    const params = new URLSearchParams({
+      status: queueState.status,
+      page: String(queueState.page),
+      size: String(PAGE_SIZE_PROPERTY),
+    });
     if (queueState.q) params.set('q', queueState.q);
     appendDateParams(params);
     const r = await authFetch(API + '/review/queue?' + params.toString());
@@ -387,11 +417,13 @@
       return;
     }
     const data = await r.json();
-    if (!data.rows.length) {
+    if (!append && !data.rows.length) {
       tbody.innerHTML = '<tr><td colspan="8"><div class="empty">no rows match this filter — nice.</div></td></tr>';
+      queueTotal = data.total || 0;
+      queueLoadedCount = 0;
       return;
     }
-    tbody.innerHTML = '';
+    if (!append) tbody.innerHTML = '';
     for (const row of data.rows) {
       const tr = document.createElement('tr');
       tr.className = row.verified ? (row.source === 'human' ? 'edited' : 'verified') : 'pending';
@@ -411,12 +443,20 @@
       `;
       tbody.appendChild(tr);
     }
+    queueTotal = data.total || 0;
+    queueLoadedCount = (append ? queueLoadedCount : 0) + data.rows.length;
   }
 
-  async function loadNoticeQueue() {
+  async function loadNoticeQueue(append) {
     const list = $('queue-by-notice');
-    list.innerHTML = '<div class="empty">loading…</div>';
-    const params = new URLSearchParams({ status: queueState.status, page: '1', size: '50' });
+    if (!append) {
+      list.innerHTML = '<div class="empty">loading…</div>';
+    }
+    const params = new URLSearchParams({
+      status: queueState.status,
+      page: String(queueState.page),
+      size: String(PAGE_SIZE_NOTICE),
+    });
     if (queueState.q) params.set('q', queueState.q);
     appendDateParams(params);
     const r = await authFetch(API + '/review/notices?' + params.toString());
@@ -429,14 +469,18 @@
       return;
     }
     const data = await r.json();
-    if (!data.rows.length) {
+    if (!append && !data.rows.length) {
       list.innerHTML = '<div class="empty">no sales notices match this filter — nice.</div>';
+      queueTotal = data.total || 0;
+      queueLoadedCount = 0;
       return;
     }
-    list.innerHTML = '';
+    if (!append) list.innerHTML = '';
     for (const notice of data.rows) {
       list.appendChild(renderNoticeCard(notice));
     }
+    queueTotal = data.total || 0;
+    queueLoadedCount = (append ? queueLoadedCount : 0) + data.rows.length;
   }
 
   function renderNoticeCard(notice) {
@@ -535,6 +579,18 @@
     queueState.dateFrom = '';
     queueState.dateTo = '';
     loadStats(); loadQueue();
+  });
+  $('load-more').addEventListener('click', async () => {
+    if (queueLoadedCount >= queueTotal) return;
+    queueState.page += 1;
+    $('load-more').disabled = true;
+    $('load-more').textContent = 'Loading…';
+    try {
+      await loadQueue(true);
+    } finally {
+      $('load-more').disabled = false;
+      $('load-more').textContent = 'Load more';
+    }
   });
 
   // ─── Detail ─────────────────────────────────────────────────────────────
