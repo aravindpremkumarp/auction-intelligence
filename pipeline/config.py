@@ -18,6 +18,9 @@ DOWNLOADS_DIR = ROOT_DIR / "downloads"
 
 PIPELINE_DIR  = ROOT_DIR / "pipeline"
 CACHE_DIR     = PIPELINE_DIR / "cache" / "ocr_results"
+CLASSIFY_CACHE_DIR = PIPELINE_DIR / "cache" / "classifications"
+NOTICE_DESC_SINGLE_DIR = PIPELINE_DIR / "cache" / "notice_descriptions_v3"
+NOTICE_DESC_MULTI_DIR  = PIPELINE_DIR / "cache" / "notice_descriptions_v3_multi"
 OUTPUT_DIR    = PIPELINE_DIR / "output"
 LOOKUPS_DIR   = PIPELINE_DIR / "lookups"
 PROMPTS_DIR   = PIPELINE_DIR / "prompts"
@@ -25,6 +28,7 @@ PROMPTS_DIR   = PIPELINE_DIR / "prompts"
 # Ensure output/cache dirs exist
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+CLASSIFY_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 # ── OpenRouter ───────────────────────────────────────────────────────────────
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
@@ -34,6 +38,22 @@ OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 #   minimax/minimax-m2.5:free     (free tier; slower but decent grounding)
 #   anthropic/claude-sonnet-4.5   (strongest tool use; paid)
 OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "google/gemini-2.0-flash-001")
+
+# Per-stage model overrides so the chat agent and the description pipeline
+# can pin different models. Each defaults to a value that has been pilot-
+# validated for that stage:
+#   - SINGLE: gemini-2.0-flash (cheap, accurate on one-property notices)
+#   - MULTI:  deepseek-v4-flash (non-reasoning sibling; clean per-lot splits)
+#   - CLASSIFY: deepseek-v4-flash (single-shot single/multi judgment)
+OPENROUTER_MODEL_DESCRIPTION_SINGLE = os.getenv(
+    "OPENROUTER_MODEL_DESCRIPTION_SINGLE", OPENROUTER_MODEL,
+)
+OPENROUTER_MODEL_DESCRIPTION_MULTI = os.getenv(
+    "OPENROUTER_MODEL_DESCRIPTION_MULTI", "deepseek/deepseek-v4-flash",
+)
+OPENROUTER_MODEL_CLASSIFY = os.getenv(
+    "OPENROUTER_MODEL_CLASSIFY", "deepseek/deepseek-v4-flash",
+)
 
 # ── Web search (Tavily) ──────────────────────────────────────────────────────
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")

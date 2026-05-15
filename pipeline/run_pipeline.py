@@ -8,6 +8,7 @@ Usage:
   python -m pipeline.run_pipeline --pilot          # First PILOT_SIZE records only
   python -m pipeline.run_pipeline --limit 50       # First 50 records (overrides --pilot)
   python -m pipeline.run_pipeline --skip-ocr       # Skip Stage 1 (use existing cache)
+  python -m pipeline.run_pipeline --skip-descriptions  # Skip classify/extract/apply description stages
   python -m pipeline.run_pipeline --verify-only    # Only run Stage 1.5 + Stage 4 (verified path)
   python -m pipeline.run_pipeline --legacy         # Run old Stage 2/3/4 path instead of verify path
 """
@@ -26,6 +27,8 @@ def main():
                         help=f"Process first PILOT_SIZE ({PILOT_SIZE}) records only")
     parser.add_argument("--skip-ocr", action="store_true",
                         help="Skip OCR extraction (reuse existing cache)")
+    parser.add_argument("--skip-descriptions", action="store_true",
+                        help="Skip classify/extract/apply description stages")
     parser.add_argument("--verify-only", action="store_true",
                         help="Only run verify + load-verified (no OCR, no legacy stages)")
     parser.add_argument("--legacy", action="store_true",
@@ -46,6 +49,32 @@ def main():
         asyncio.run(run_extraction(limit=effective_limit))
     else:
         print("\n[SKIPPED] Stage 1: OCR Extraction")
+
+    # Stages 1.3/1.4/1.45: classify -> extract per-type -> apply (description pipeline)
+    # These run against the Neo4j :Document nodes (which the verify+load stages
+    # populate), so they make sense as a post-load step in re-runs, AND as a
+    # pre-verify step on first run. We place them here so they can be skipped
+    # independently and so the verify-only path also picks them up.
+    if not args.skip_descriptions:
+        print("\n" + "="*60)
+        print("STAGE 1.3: Classify notices (single / multi)")
+        print("="*60)
+        from pipeline.classify_notice import run as run_classify
+        run_classify(limit=effective_limit)
+
+        print("\n" + "="*60)
+        print("STAGE 1.4: Extract per-property descriptions")
+        print("="*60)
+        from pipeline.extract_descriptions import run as run_extract_descs
+        run_extract_descs(limit=effective_limit)
+
+        print("\n" + "="*60)
+        print("STAGE 1.45: Apply descriptions to AuctionProperty")
+        print("="*60)
+        from pipeline.apply_descriptions import run as run_apply_descs
+        run_apply_descs()
+    else:
+        print("\n[SKIPPED] Stages 1.3/1.4/1.45: Description pipeline")
 
     if args.legacy:
         # Legacy path: build lexical graph, normalize, load flat enrichment.

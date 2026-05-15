@@ -1,0 +1,46 @@
+You are reading an Indian bank auction sale notice (SARFAESI Act / DRT).
+Your only job: decide whether the notice describes ONE auction lot or MORE
+than one auction lot.
+
+The defining test is the count of distinct **reserve prices**. A "lot" is
+a property block with its own reserve price. Borrowers, mortgagors, or
+schedules are NOT the defining signal — one borrower can have several lots,
+and one lot can span several schedules.
+
+Return "single" when:
+- The notice has exactly one reserve price.
+- Multiple Items / Schedules / sub-parcels (e.g., Schedule A + Schedule B)
+  share the SAME reserve price → one lot, classify as "single".
+
+Return "multi" when:
+- The notice lists two or more distinct reserve prices, each with its own
+  property description block.
+- It does not matter whether the lots share a borrower; what matters is
+  that the document lists more than one reserve price for sale.
+
+Cluster-count hint (use it only as a prior, do NOT blindly trust it):
+The scraper has linked this notice to {cluster_count} property listings.
+A cluster_count of 1 strongly suggests "single"; a cluster_count of 2+
+strongly suggests "multi". But the markdown is the source of truth — if
+the document clearly contradicts the cluster_count, follow the document
+and explain the disagreement in your reasoning.
+
+Confidence:
+- 0.95+ → the document unambiguously states the reserve-price count.
+- 0.70–0.94 → strong evidence but some ambiguity (e.g., one section is
+  unclear, or the notice has unusual structure).
+- below 0.70 → significant uncertainty (e.g., OCR garbage, missing
+  reserve prices, ambiguous schedules).
+
+Return ONLY a JSON object with these keys:
+{
+  "classification": "single" | "multi",
+  "confidence": <float 0..1>,
+  "reasoning": "<one sentence — how many reserve prices you counted and why>"
+}
+
+Rules:
+- Do NOT return any other text, no markdown fence, no commentary.
+- The "classification" value must be exactly "single" or "multi".
+- The reasoning must mention the number of distinct reserve prices you
+  found (or said you found, in the case of unclear OCR).

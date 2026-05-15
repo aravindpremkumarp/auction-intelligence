@@ -118,6 +118,19 @@
   .notice-card .ntable tr.pending td { background: #fff; }
   .notice-card .ntable tr.verified td { background: #f6fbf6; }
   .notice-card .ntable tr.edited td { background: #fffbf0; }
+  /* Classification cards */
+  .class-card { border: 2px solid var(--ink); background: #fff; box-shadow: 2px 3px 0 rgba(0,0,0,0.9); padding: 12px 14px; display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 1100px) { .class-card { grid-template-columns: 1fr; } }
+  .class-card.disagree { border-color: var(--danger); }
+  .class-card .cfile { font-family: 'IBM Plex Mono', monospace; font-size: 13px; font-weight: 600; margin-bottom: 6px; word-break: break-all; }
+  .class-card .crow { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 6px; }
+  .class-card .creason { font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--ink); background: #f3f0e7; padding: 6px 8px; border: 1px dashed rgba(0,0,0,0.2); margin-top: 6px; }
+  .class-card .cdisagree-banner { background: #ffe1c2; border: 1px solid var(--danger); padding: 6px 8px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; margin-bottom: 8px; }
+  .class-card .cactions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+  .class-card .cnotes { flex: 1; min-width: 160px; padding: 6px 10px; border: 1.5px solid var(--ink); font-family: 'IBM Plex Mono', monospace; font-size: 12px; }
+  .class-card .ctitles { font-family: 'Kalam', cursive; font-size: 13px; color: var(--muted); margin-top: 4px; }
+  .class-card .cconfidence { display: inline-block; width: 60px; height: 8px; background: #eee; border: 1px solid var(--ink); position: relative; vertical-align: middle; }
+  .class-card .cconfidence > span { display: block; height: 100%; background: var(--accent); }
   @media (max-width: 640px) {
     body { padding: 10px; }
     h1 { font-size: 26px; }
@@ -143,13 +156,22 @@
       <span class="group-toggle">
         <button class="pill" data-group="property">property</button>
         <button class="pill" data-group="notice">sales notice</button>
+        <button class="pill" data-group="classification">classification</button>
       </span>
       <span style="width:14px"></span>
       <span>Status:</span>
-      <button class="pill" data-status="pending">pending</button>
-      <button class="pill" data-status="verified">verified</button>
-      <button class="pill" data-status="edited">edited</button>
-      <button class="pill" data-status="all">all</button>
+      <span id="status-buttons-desc" class="group-toggle">
+        <button class="pill" data-status="pending">pending</button>
+        <button class="pill" data-status="verified">verified</button>
+        <button class="pill" data-status="edited">edited</button>
+        <button class="pill" data-status="all">all</button>
+      </span>
+      <span id="status-buttons-class" class="group-toggle hidden">
+        <button class="pill" data-cstatus="pending">pending</button>
+        <button class="pill" data-cstatus="disagreement">disagreement</button>
+        <button class="pill" data-cstatus="verified">verified</button>
+        <button class="pill" data-cstatus="all">all</button>
+      </span>
       <input type="search" id="q" placeholder="search title or borrower">
       <button id="reload" class="primary">Reload</button>
     </div>
@@ -182,6 +204,7 @@
       </table>
     </div>
     <div id="queue-by-notice" class="notice-list hidden"></div>
+    <div id="queue-by-classification" class="notice-list hidden"></div>
     <div id="load-more-wrap" class="hidden" style="text-align:center; margin-top:14px;">
       <button id="load-more" class="ghost">Load more</button>
       <span class="meta" id="load-more-hint" style="margin-left:10px; color: var(--muted);"></span>
@@ -343,7 +366,8 @@
   // Default to "upcoming auctions" — past auctions are mostly archival.
   const PAGE_SIZE_PROPERTY = 100;
   const PAGE_SIZE_NOTICE = 50;
-  let queueState = { status: 'pending', q: '', group: 'property', dateFrom: todayISO(), dateTo: '', page: 1 };
+  const PAGE_SIZE_CLASSIFICATION = 50;
+  let queueState = { status: 'pending', cstatus: 'pending', q: '', group: 'property', dateFrom: todayISO(), dateTo: '', page: 1 };
   let queueLoadedCount = 0;
   let queueTotal = 0;
 
@@ -351,11 +375,19 @@
     $$('button.pill[data-status]').forEach(b => {
       b.classList.toggle('on', b.getAttribute('data-status') === queueState.status);
     });
+    $$('button.pill[data-cstatus]').forEach(b => {
+      b.classList.toggle('on', b.getAttribute('data-cstatus') === queueState.cstatus);
+    });
     $$('button.pill[data-group]').forEach(b => {
       b.classList.toggle('on', b.getAttribute('data-group') === queueState.group);
     });
+    const isClass = queueState.group === 'classification';
     $('queue-by-property').classList.toggle('hidden', queueState.group !== 'property');
     $('queue-by-notice').classList.toggle('hidden', queueState.group !== 'notice');
+    $('queue-by-classification').classList.toggle('hidden', !isClass);
+    // Swap the status-button row: description-review statuses vs classification statuses
+    $('status-buttons-desc').classList.toggle('hidden', isClass);
+    $('status-buttons-class').classList.toggle('hidden', !isClass);
   }
 
   function syncDateInputs() {
@@ -377,7 +409,9 @@
     }
     syncStatusButtons();
     syncDateInputs();
-    if (queueState.group === 'notice') {
+    if (queueState.group === 'classification') {
+      await loadClassificationQueue(append);
+    } else if (queueState.group === 'notice') {
       await loadNoticeQueue(append);
     } else {
       await loadPropertyQueue(append);
@@ -549,9 +583,144 @@
     return card;
   }
 
+  // ─── Classification queue ───────────────────────────────────────────────
+  async function loadClassificationQueue(append) {
+    const list = $('queue-by-classification');
+    if (!append) {
+      list.innerHTML = '<div class="empty">loading…</div>';
+    }
+    const params = new URLSearchParams({
+      status: queueState.cstatus,
+      page: String(queueState.page),
+      size: String(PAGE_SIZE_CLASSIFICATION),
+    });
+    if (queueState.q) params.set('q', queueState.q);
+    const r = await authFetch(API + '/review/classifications?' + params.toString());
+    if (r.status === 401 || r.status === 403) {
+      list.innerHTML = '<div class="empty"><span class="err">not authorised — sign in as admin from the main app</span></div>';
+      return;
+    }
+    if (!r.ok) {
+      list.innerHTML = `<div class="empty"><span class="err">error ${r.status}</span></div>`;
+      return;
+    }
+    const data = await r.json();
+    if (!append && !data.rows.length) {
+      list.innerHTML = '<div class="empty">no classifications match this filter — nice.</div>';
+      queueTotal = data.total || 0;
+      queueLoadedCount = 0;
+      return;
+    }
+    if (!append) list.innerHTML = '';
+    for (const notice of data.rows) {
+      list.appendChild(renderClassificationCard(notice));
+    }
+    queueTotal = data.total || 0;
+    queueLoadedCount = (append ? queueLoadedCount : 0) + data.rows.length;
+  }
+
+  function renderClassificationCard(n) {
+    const card = document.createElement('div');
+    card.className = 'class-card' + (n.disagreement ? ' disagree' : '');
+
+    const left = document.createElement('div');
+    const right = document.createElement('div');
+
+    const filename = n.filename || n.file_path || '(unnamed notice)';
+    const openLink = n.public_url
+      ? `<a class="link" href="${escapeHtml(n.public_url)}" target="_blank" rel="noopener">open notice ↗</a>`
+      : '';
+    const currentBadge = n.notice_type
+      ? `<span class="pill on">current: ${escapeHtml(n.notice_type)}</span>`
+      : '<span class="pill off">no classification</span>';
+    const predBadge = n.classifier_pred
+      ? `<span class="pill">classifier: ${escapeHtml(n.classifier_pred)}</span>`
+      : '<span class="pill off">classifier: —</span>';
+    const conf = (typeof n.classifier_confidence === 'number')
+      ? Math.round(n.classifier_confidence * 100)
+      : null;
+    const confBar = (conf != null)
+      ? `<span class="cconfidence" title="${conf}% confident"><span style="width:${conf}%"></span></span> <span class="meta" style="font-size:11px;">${conf}%</span>`
+      : '';
+    const statusBadge = n.verified
+      ? `<span class="pill good">verified</span>`
+      : (n.disagreement ? `<span class="pill warn">disagreement</span>` : `<span class="pill warn">pending</span>`);
+    const overriddenBadge = n.overridden
+      ? `<span class="pill good">human-set</span>`
+      : '';
+    const propCountBadge = `<span class="pill off">${n.property_count} prop${n.property_count === 1 ? '' : 's'}</span>`;
+    const extractBadge = n.extraction_status
+      ? `<span class="pill ${n.extraction_status === 'applied' ? 'good' : (n.extraction_status === 'needs_reextract' ? 'warn' : '')}">extract: ${escapeHtml(n.extraction_status)}</span>`
+      : '';
+
+    left.innerHTML = `
+      <div class="cfile">${escapeHtml(filename)}</div>
+      <div class="crow">${currentBadge} ${overriddenBadge} ${propCountBadge} ${statusBadge}</div>
+      <div class="crow">${predBadge} ${confBar} ${extractBadge}</div>
+      ${n.disagreement ? `<div class="cdisagree-banner">⚠ classifier disagrees with cluster-count — pick one</div>` : ''}
+      ${(n.sample_titles && n.sample_titles.length) ? `<div class="ctitles">${escapeHtml(n.sample_titles.filter(Boolean).join(' · '))}${(n.auction_id_count > n.sample_titles.length) ? ' · +' + (n.auction_id_count - n.sample_titles.length) + ' more' : ''}</div>` : ''}
+      ${openLink ? `<div style="margin-top:8px;">${openLink}</div>` : ''}
+    `;
+
+    const altType = n.notice_type === 'single' ? 'multi' : 'single';
+    const reasoning = n.classifier_reasoning
+      ? `<div class="creason">${escapeHtml(n.classifier_reasoning)}</div>`
+      : '';
+    const verifiedFooter = n.verified
+      ? `<div class="audit">verified by <code>${escapeHtml(n.verified_by || '?')}</code> at <code>${escapeHtml(fmtWhen(n.verified_at))}</code></div>`
+      : '<div class="audit">not yet verified</div>';
+    right.innerHTML = `
+      ${reasoning}
+      <div class="cactions">
+        <input type="text" class="cnotes" placeholder="notes (optional)">
+        <button class="primary" data-act="confirm">Confirm as ${escapeHtml(n.notice_type || 'single')}</button>
+        <button class="" data-act="flip">Flip to ${escapeHtml(altType)}</button>
+      </div>
+      ${verifiedFooter}
+    `;
+
+    card.appendChild(left);
+    card.appendChild(right);
+
+    const filenameForApi = n.filename || '';
+    right.querySelector('button[data-act="confirm"]').addEventListener('click', () =>
+      submitClassification(card, filenameForApi, n.notice_type, right.querySelector('.cnotes').value || null));
+    right.querySelector('button[data-act="flip"]').addEventListener('click', () =>
+      submitClassification(card, filenameForApi, altType, right.querySelector('.cnotes').value || null));
+
+    return card;
+  }
+
+  async function submitClassification(card, filename, noticeType, notes) {
+    if (!filename) { setMsg('<span class="err">notice has no filename — cannot save</span>', 3000); return; }
+    const buttons = $$('button', card);
+    buttons.forEach(b => b.disabled = true);
+    try {
+      const r = await authFetch(API + '/review/notice/' + encodeURIComponent(filename) + '/classify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notice_type: noticeType, notes: notes }),
+      });
+      if (r.status === 401 || r.status === 403) { setMsg('<span class="err">not authorised</span>', 3000); return; }
+      if (r.status === 404) { setMsg('<span class="err">notice not found</span>', 3000); return; }
+      if (!r.ok) { setMsg(`<span class="err">classify failed (${r.status})</span>`, 3000); return; }
+      setMsg(`<span class="ok">saved.</span>`, 1500);
+      // Reload the whole classification queue so the card moves to verified
+      loadQueue();
+    } finally {
+      buttons.forEach(b => b.disabled = false);
+    }
+  }
+
   $$('button.pill[data-status]').forEach(b => {
     b.addEventListener('click', () => {
       queueState.status = b.getAttribute('data-status');
+      loadQueue();
+    });
+  });
+  $$('button.pill[data-cstatus]').forEach(b => {
+    b.addEventListener('click', () => {
+      queueState.cstatus = b.getAttribute('data-cstatus');
       loadQueue();
     });
   });
