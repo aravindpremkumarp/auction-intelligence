@@ -131,6 +131,38 @@
   .class-card .ctitles { font-family: 'Kalam', cursive; font-size: 13px; color: var(--muted); margin-top: 4px; }
   .class-card .cconfidence { display: inline-block; width: 60px; height: 8px; background: #eee; border: 1px solid var(--ink); position: relative; vertical-align: middle; }
   .class-card .cconfidence > span { display: block; height: 100%; background: var(--accent); }
+  /* Classification gallery view */
+  .gallery-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 14px; align-items: start; }
+  @media (max-width: 1100px) { .gallery-grid { grid-template-columns: 1fr; } }
+  .gallery-left { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; align-content: start; }
+  .gallery-right { position: sticky; top: 12px; border: 2px solid var(--ink); background: #fff; box-shadow: 2px 3px 0 rgba(0,0,0,0.9); display: flex; flex-direction: column; max-height: calc(100vh - 24px); overflow: hidden; }
+  .gallery-right .gr-header { padding: 10px 12px; border-bottom: 2px solid var(--ink); background: var(--paper); flex-shrink: 0; }
+  .gallery-right .gr-title { font-family: 'IBM Plex Mono', monospace; font-size: 13px; font-weight: 600; word-break: break-all; margin-bottom: 6px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .gallery-right .gr-title .gr-fname { flex: 1; min-width: 0; }
+  .gallery-right .gr-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-bottom: 4px; }
+  .gallery-right .gr-reason { font-family: 'IBM Plex Mono', monospace; font-size: 12px; background: #f3f0e7; padding: 6px 8px; border: 1px dashed rgba(0,0,0,0.2); margin: 6px 0; }
+  .gallery-right .gr-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
+  .gallery-right .gr-actions .cnotes { flex: 1; min-width: 120px; padding: 6px 10px; border: 1.5px solid var(--ink); font-family: 'IBM Plex Mono', monospace; font-size: 12px; }
+  .gallery-right .gr-body { flex: 1; min-height: 50vh; display: flex; }
+  .gallery-right .gr-body iframe { width: 100%; height: 100%; min-height: 50vh; border: 0; }
+  .gallery-right .gr-body .image-body { flex: 1; display: flex; justify-content: center; align-items: flex-start; overflow: auto; padding: 8px; background: #2a2a2a; }
+  .gallery-right .gr-body .image-body img { max-width: 100%; height: auto; background: #fff; }
+  .gallery-right .gr-empty { padding: 16px; color: var(--muted); font-family: 'Kalam', cursive; text-align: center; flex: 1; display: flex; align-items: center; justify-content: center; }
+  .gallery-right .kbd { font-family: 'IBM Plex Mono', monospace; font-size: 10px; padding: 1px 4px; border: 1px solid var(--ink); background: #fff; color: var(--ink); margin-left: 4px; }
+  .gallery-right .gr-audit { font-size: 11px; color: var(--muted); font-family: 'IBM Plex Mono', monospace; margin-top: 6px; }
+  .gallery-right .gr-audit code { background: #f3f0e7; padding: 1px 4px; }
+  .thumb { border: 2px solid var(--ink); background: #fff; box-shadow: 2px 3px 0 rgba(0,0,0,0.9); cursor: pointer; display: flex; flex-direction: column; height: 220px; overflow: hidden; position: relative; }
+  .thumb:hover { transform: translate(-1px, -1px); box-shadow: 3px 4px 0 rgba(0,0,0,0.9); }
+  .thumb.selected { border-color: var(--accent); border-width: 3px; height: 218px; }
+  .thumb.disagree { border-color: var(--danger); }
+  .thumb.disagree.selected { border-color: var(--accent); box-shadow: 0 0 0 2px var(--danger), 3px 4px 0 rgba(0,0,0,0.9); }
+  .thumb-body { flex: 1; display: flex; justify-content: center; align-items: center; overflow: hidden; background: #f3f0e7; position: relative; }
+  .thumb-body img { width: 100%; height: 100%; object-fit: cover; }
+  .thumb-body .pdf-icon { font-family: 'Caveat', cursive; font-size: 42px; color: var(--muted); font-weight: 700; }
+  .thumb-badges { position: absolute; top: 4px; left: 4px; display: flex; gap: 4px; flex-wrap: wrap; }
+  .thumb-badges .pill { font-size: 10px; padding: 1px 5px; box-shadow: 1px 1px 0 rgba(0,0,0,0.4); }
+  .thumb-footer { padding: 4px 6px; border-top: 1.5px solid var(--ink); font-family: 'IBM Plex Mono', monospace; font-size: 11px; background: var(--paper); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0; }
+  .thumb-footer .meta-small { color: var(--muted); font-size: 10px; }
   @media (max-width: 640px) {
     body { padding: 10px; }
     h1 { font-size: 26px; }
@@ -172,6 +204,12 @@
         <button class="pill" data-cstatus="verified">verified</button>
         <button class="pill" data-cstatus="all">all</button>
       </span>
+      <span id="cview-toggle" class="group-toggle hidden">
+        <span style="margin:0 4px; color: var(--muted);">·</span>
+        <span>View:</span>
+        <button class="pill" data-cview="gallery">gallery</button>
+        <button class="pill" data-cview="cards">cards</button>
+      </span>
       <input type="search" id="q" placeholder="search title or borrower">
       <button id="reload" class="primary">Reload</button>
     </div>
@@ -205,6 +243,7 @@
     </div>
     <div id="queue-by-notice" class="notice-list hidden"></div>
     <div id="queue-by-classification" class="notice-list hidden"></div>
+    <div id="queue-by-classification-gallery" class="gallery-grid hidden"></div>
     <div id="load-more-wrap" class="hidden" style="text-align:center; margin-top:14px;">
       <button id="load-more" class="ghost">Load more</button>
       <span class="meta" id="load-more-hint" style="margin-left:10px; color: var(--muted);"></span>
@@ -329,6 +368,7 @@
   function parseHash() {
     const h = (location.hash || '').replace(/^#/, '');
     if (h.startsWith('property/')) return { screen: 'detail', id: decodeURIComponent(h.slice('property/'.length)) };
+    if (h.startsWith('gallery/')) return { screen: 'queue', gallery: decodeURIComponent(h.slice('gallery/'.length)) };
     return { screen: 'queue' };
   }
 
@@ -340,8 +380,17 @@
   async function route() {
     const r = parseHash();
     show(r.screen);
-    if (r.screen === 'queue') { await loadStats(); await loadQueue(); }
-    else { await loadDetail(r.id); }
+    if (r.screen === 'queue') {
+      if (r.gallery) {
+        // Deep-link to a specific notice in the gallery: force the right view.
+        queueState.group = 'classification';
+        queueState.cview = 'gallery';
+        try { localStorage.setItem('cView', 'gallery'); } catch {}
+      }
+      await loadStats(); await loadQueue();
+    } else {
+      await loadDetail(r.id);
+    }
   }
 
   window.addEventListener('hashchange', route);
@@ -367,9 +416,16 @@
   const PAGE_SIZE_PROPERTY = 100;
   const PAGE_SIZE_NOTICE = 50;
   const PAGE_SIZE_CLASSIFICATION = 50;
-  let queueState = { status: 'pending', cstatus: 'pending', q: '', group: 'property', dateFrom: todayISO(), dateTo: '', page: 1 };
+  const PAGE_SIZE_GALLERY = 100;
+  const savedCView = (() => { try { return localStorage.getItem('cView'); } catch { return null; } })();
+  let queueState = {
+    status: 'pending', cstatus: 'pending', q: '', group: 'property',
+    cview: (savedCView === 'cards' ? 'cards' : 'gallery'),
+    dateFrom: todayISO(), dateTo: '', page: 1,
+  };
   let queueLoadedCount = 0;
   let queueTotal = 0;
+  let gallery = { notices: [], selectedIndex: -1, selectedFilename: null };
 
   function syncStatusButtons() {
     $$('button.pill[data-status]').forEach(b => {
@@ -378,16 +434,23 @@
     $$('button.pill[data-cstatus]').forEach(b => {
       b.classList.toggle('on', b.getAttribute('data-cstatus') === queueState.cstatus);
     });
+    $$('button.pill[data-cview]').forEach(b => {
+      b.classList.toggle('on', b.getAttribute('data-cview') === queueState.cview);
+    });
     $$('button.pill[data-group]').forEach(b => {
       b.classList.toggle('on', b.getAttribute('data-group') === queueState.group);
     });
     const isClass = queueState.group === 'classification';
+    const showCards = isClass && queueState.cview === 'cards';
+    const showGallery = isClass && queueState.cview === 'gallery';
     $('queue-by-property').classList.toggle('hidden', queueState.group !== 'property');
     $('queue-by-notice').classList.toggle('hidden', queueState.group !== 'notice');
-    $('queue-by-classification').classList.toggle('hidden', !isClass);
+    $('queue-by-classification').classList.toggle('hidden', !showCards);
+    $('queue-by-classification-gallery').classList.toggle('hidden', !showGallery);
     // Swap the status-button row: description-review statuses vs classification statuses
     $('status-buttons-desc').classList.toggle('hidden', isClass);
     $('status-buttons-class').classList.toggle('hidden', !isClass);
+    $('cview-toggle').classList.toggle('hidden', !isClass);
   }
 
   function syncDateInputs() {
@@ -410,7 +473,11 @@
     syncStatusButtons();
     syncDateInputs();
     if (queueState.group === 'classification') {
-      await loadClassificationQueue(append);
+      if (queueState.cview === 'gallery') {
+        await loadGalleryQueue(append);
+      } else {
+        await loadClassificationQueue(append);
+      }
     } else if (queueState.group === 'notice') {
       await loadNoticeQueue(append);
     } else {
@@ -712,6 +779,279 @@
     }
   }
 
+  // ─── Classification gallery ─────────────────────────────────────────────
+  async function loadGalleryQueue(append) {
+    const container = $('queue-by-classification-gallery');
+    if (!append) {
+      container.innerHTML = '<div class="gr-empty">loading…</div>';
+      gallery.notices = [];
+      gallery.selectedIndex = -1;
+    }
+    const params = new URLSearchParams({
+      status: queueState.cstatus,
+      page: String(queueState.page),
+      size: String(PAGE_SIZE_GALLERY),
+    });
+    if (queueState.q) params.set('q', queueState.q);
+    const r = await authFetch(API + '/review/classifications?' + params.toString());
+    if (r.status === 401 || r.status === 403) {
+      container.innerHTML = '<div class="gr-empty"><span class="err">not authorised — sign in as admin from the main app</span></div>';
+      return;
+    }
+    if (!r.ok) {
+      container.innerHTML = `<div class="gr-empty"><span class="err">error ${r.status}</span></div>`;
+      return;
+    }
+    const data = await r.json();
+    queueTotal = data.total || 0;
+    if (!append && !data.rows.length) {
+      container.innerHTML = '<div class="gr-empty">no classifications match this filter — nice.</div>';
+      queueLoadedCount = 0;
+      return;
+    }
+    gallery.notices = append ? gallery.notices.concat(data.rows) : data.rows;
+    queueLoadedCount = (append ? queueLoadedCount : 0) + data.rows.length;
+    renderGallery();
+    // Initial selection: prefer the hash-targeted notice, else first
+    let initial = 0;
+    const hashTarget = (location.hash || '').startsWith('#gallery/')
+      ? decodeURIComponent(location.hash.slice('#gallery/'.length))
+      : null;
+    if (hashTarget) {
+      const idx = gallery.notices.findIndex(n => n.filename === hashTarget);
+      if (idx >= 0) initial = idx;
+    }
+    if (gallery.notices.length > 0) selectGalleryItem(initial);
+  }
+
+  function renderGallery() {
+    const container = $('queue-by-classification-gallery');
+    container.innerHTML = '';
+    const left = document.createElement('div');
+    left.className = 'gallery-left';
+    for (let i = 0; i < gallery.notices.length; i++) {
+      left.appendChild(renderThumb(gallery.notices[i], i));
+    }
+    const right = document.createElement('div');
+    right.className = 'gallery-right';
+    right.id = 'gallery-right';
+    right.innerHTML = '<div class="gr-empty">click a thumbnail to preview</div>';
+    container.appendChild(left);
+    container.appendChild(right);
+  }
+
+  function renderThumb(n, idx) {
+    const t = document.createElement('div');
+    t.className = 'thumb' + (n.disagreement ? ' disagree' : '');
+    t.dataset.index = String(idx);
+    if (idx === gallery.selectedIndex) t.classList.add('selected');
+
+    const body = document.createElement('div');
+    body.className = 'thumb-body';
+    const url = n.public_url || '';
+    const kind = classifyDocUrl(url);
+    if (kind === 'image' && url) {
+      const img = document.createElement('img');
+      img.src = url;
+      img.loading = 'lazy';
+      img.alt = '';
+      body.appendChild(img);
+    } else {
+      const icon = document.createElement('div');
+      icon.className = 'pdf-icon';
+      icon.textContent = (kind === 'pdf') ? 'PDF' : 'doc';
+      body.appendChild(icon);
+    }
+
+    const badges = document.createElement('div');
+    badges.className = 'thumb-badges';
+    const currentBadge = n.notice_type
+      ? `<span class="pill on">${escapeHtml(n.notice_type)}</span>` : '';
+    const disBadge = n.disagreement ? `<span class="pill danger">⚠</span>` : '';
+    const verifiedBadge = n.verified ? `<span class="pill good">✓</span>` : '';
+    badges.innerHTML = currentBadge + disBadge + verifiedBadge;
+    body.appendChild(badges);
+
+    const footer = document.createElement('div');
+    footer.className = 'thumb-footer';
+    const sample = (n.sample_titles && n.sample_titles[0]) || n.filename || '(no name)';
+    footer.textContent = sample;
+    footer.title = `${n.filename || ''}\n${(n.sample_titles || []).join(' · ')}`;
+
+    t.appendChild(body);
+    t.appendChild(footer);
+    t.addEventListener('click', () => selectGalleryItem(idx));
+    return t;
+  }
+
+  function selectGalleryItem(idx) {
+    if (!gallery.notices.length) return;
+    idx = Math.max(0, Math.min(idx, gallery.notices.length - 1));
+    gallery.selectedIndex = idx;
+    const n = gallery.notices[idx];
+    gallery.selectedFilename = n.filename || null;
+
+    $$('#queue-by-classification-gallery .thumb').forEach((el, i) => {
+      const sel = i === idx;
+      el.classList.toggle('selected', sel);
+      if (sel) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    });
+    renderGalleryPreview(n);
+
+    if (gallery.selectedFilename) {
+      history.replaceState(null, '', '#gallery/' + encodeURIComponent(gallery.selectedFilename));
+    }
+  }
+
+  function renderGalleryPreview(n) {
+    const right = $('gallery-right');
+    if (!right) return;
+
+    const filename = n.filename || n.file_path || '(unnamed notice)';
+    const openLink = n.public_url
+      ? `<a class="link" href="${escapeHtml(n.public_url)}" target="_blank" rel="noopener">open ↗</a>` : '';
+    const currentBadge = n.notice_type
+      ? `<span class="pill on">current: ${escapeHtml(n.notice_type)}</span>`
+      : '<span class="pill off">no classification</span>';
+    const predBadge = n.classifier_pred
+      ? `<span class="pill">classifier: ${escapeHtml(n.classifier_pred)}</span>`
+      : '<span class="pill off">classifier: —</span>';
+    const conf = (typeof n.classifier_confidence === 'number') ? Math.round(n.classifier_confidence * 100) : null;
+    const confBar = (conf != null)
+      ? `<span class="cconfidence" title="${conf}% confident"><span style="width:${conf}%"></span></span> <span class="meta" style="font-size:11px;">${conf}%</span>`
+      : '';
+    const statusBadge = n.verified
+      ? `<span class="pill good">verified</span>`
+      : (n.disagreement ? `<span class="pill warn">disagreement</span>` : `<span class="pill warn">pending</span>`);
+    const overriddenBadge = n.overridden ? `<span class="pill good">human-set</span>` : '';
+    const propCountBadge = `<span class="pill off">${n.property_count} prop${n.property_count === 1 ? '' : 's'}</span>`;
+    const reasoning = n.classifier_reasoning
+      ? `<div class="gr-reason">${escapeHtml(n.classifier_reasoning)}</div>` : '';
+    const disagreeBanner = n.disagreement
+      ? `<div class="cdisagree-banner">⚠ classifier disagrees with cluster-count — pick one</div>` : '';
+    const altType = n.notice_type === 'single' ? 'multi' : 'single';
+    const auditFooter = n.verified
+      ? `<div class="gr-audit">verified by <code>${escapeHtml(n.verified_by || '?')}</code> at <code>${escapeHtml(fmtWhen(n.verified_at))}</code></div>`
+      : '<div class="gr-audit">not yet verified</div>';
+
+    const header = document.createElement('div');
+    header.className = 'gr-header';
+    header.innerHTML = `
+      <div class="gr-title"><span class="gr-fname">${escapeHtml(filename)}</span>${openLink}</div>
+      <div class="gr-row">${currentBadge} ${overriddenBadge} ${propCountBadge} ${statusBadge}</div>
+      <div class="gr-row">${predBadge} ${confBar}</div>
+      ${reasoning}
+      ${disagreeBanner}
+      <div class="gr-actions">
+        <input type="text" class="cnotes" placeholder="notes (optional)">
+        <button class="primary" data-act="confirm">Confirm as ${escapeHtml(n.notice_type || 'single')} <span class="kbd">V</span></button>
+        <button data-act="flip">Flip to ${escapeHtml(altType)} <span class="kbd">F</span></button>
+      </div>
+      ${auditFooter}
+    `;
+
+    const body = document.createElement('div');
+    body.className = 'gr-body';
+    const kind = classifyDocUrl(n.public_url || '');
+    if (kind === 'pdf') {
+      body.innerHTML = `<iframe src="${escapeHtml(n.public_url)}" title="notice pdf"></iframe>`;
+    } else if (kind === 'image') {
+      body.innerHTML = `<div class="image-body"><img src="${escapeHtml(n.public_url)}" alt="notice image"></div>`;
+    } else if (kind === 'other') {
+      body.innerHTML = `<iframe src="${escapeHtml(n.public_url)}" title="notice"></iframe>`;
+    } else {
+      body.innerHTML = '<div class="gr-empty">no public_url available for this notice.</div>';
+    }
+
+    right.innerHTML = '';
+    right.appendChild(header);
+    right.appendChild(body);
+
+    const filenameForApi = n.filename || '';
+    header.querySelector('button[data-act="confirm"]').addEventListener('click', () =>
+      submitClassificationFromGallery(filenameForApi, n.notice_type || 'single',
+                                       header.querySelector('.cnotes').value || null));
+    header.querySelector('button[data-act="flip"]').addEventListener('click', () =>
+      submitClassificationFromGallery(filenameForApi, altType,
+                                       header.querySelector('.cnotes').value || null));
+  }
+
+  async function submitClassificationFromGallery(filename, noticeType, notes) {
+    if (!filename) { setMsg('<span class="err">notice has no filename — cannot save</span>', 3000); return; }
+    const right = $('gallery-right');
+    const buttons = right ? $$('button', right) : [];
+    buttons.forEach(b => b.disabled = true);
+    try {
+      const r = await authFetch(API + '/review/notice/' + encodeURIComponent(filename) + '/classify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notice_type: noticeType, notes: notes }),
+      });
+      if (r.status === 401 || r.status === 403) { setMsg('<span class="err">not authorised</span>', 3000); return; }
+      if (r.status === 404) { setMsg('<span class="err">notice not found</span>', 3000); return; }
+      if (!r.ok) { setMsg(`<span class="err">classify failed (${r.status})</span>`, 3000); return; }
+      setMsg(`<span class="ok">saved.</span>`, 1200);
+
+      // Refresh stats in the header (counts may have shifted)
+      loadStats();
+
+      // Pending / disagreement: the item leaves the queue — advance to next.
+      // Verified / all: update in place and re-render.
+      const removedIdx = gallery.selectedIndex;
+      if (queueState.cstatus === 'pending' || queueState.cstatus === 'disagreement') {
+        gallery.notices.splice(removedIdx, 1);
+        if (gallery.notices.length === 0) {
+          // Try loading the next page; if nothing comes back the empty state shows.
+          queueState.page = 1;
+          await loadQueue();
+          return;
+        }
+        renderGallery();
+        selectGalleryItem(Math.min(removedIdx, gallery.notices.length - 1));
+      } else {
+        const updated = gallery.notices[removedIdx];
+        updated.notice_type = noticeType;
+        updated.verified = true;
+        updated.overridden = true;
+        renderGallery();
+        selectGalleryItem(removedIdx);
+      }
+    } finally {
+      // No-op if we already re-rendered; buttons will be fresh.
+    }
+  }
+
+  function currentGalleryColumns() {
+    const thumbs = $$('#queue-by-classification-gallery .thumb');
+    if (thumbs.length < 2) return 1;
+    const firstTop = thumbs[0].offsetTop;
+    let cols = 0;
+    for (const t of thumbs) {
+      if (t.offsetTop !== firstTop) break;
+      cols++;
+    }
+    return Math.max(cols, 1);
+  }
+
+  function inGalleryView() {
+    return queueState.group === 'classification'
+        && queueState.cview === 'gallery'
+        && !$('screen-queue').classList.contains('hidden');
+  }
+
+  function galleryNotesValue() {
+    const right = $('gallery-right');
+    const input = right && right.querySelector('.cnotes');
+    return (input && input.value) || null;
+  }
+
+  function triggerGalleryAction(targetType) {
+    if (gallery.selectedIndex < 0) return;
+    const n = gallery.notices[gallery.selectedIndex];
+    if (!n) return;
+    submitClassificationFromGallery(n.filename || '', targetType, galleryNotesValue());
+  }
+
   $$('button.pill[data-status]').forEach(b => {
     b.addEventListener('click', () => {
       queueState.status = b.getAttribute('data-status');
@@ -721,6 +1061,13 @@
   $$('button.pill[data-cstatus]').forEach(b => {
     b.addEventListener('click', () => {
       queueState.cstatus = b.getAttribute('data-cstatus');
+      loadQueue();
+    });
+  });
+  $$('button.pill[data-cview]').forEach(b => {
+    b.addEventListener('click', () => {
+      queueState.cview = b.getAttribute('data-cview');
+      try { localStorage.setItem('cView', queueState.cview); } catch {}
       loadQueue();
     });
   });
@@ -956,16 +1303,78 @@
     postAction('/unverify', {});
   });
 
-  // Keyboard: Ctrl/Cmd+S → save, V → verify (when not typing)
+  // Keyboard: gallery navigation/actions (queue screen, classification, gallery view)
+  //           + Ctrl/Cmd+S → save, V → verify (detail screen)
   document.addEventListener('keydown', (e) => {
+    const t = e.target;
+    const tag = (t && t.tagName) || '';
+    const typing = (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT');
+    // Treat a focused button as "interactive" so Space/Enter don't double-fire
+    // (the button's default click + our gallery shortcut).
+    const onButton = (tag === 'BUTTON');
+
+    // Gallery shortcuts (only when in classification gallery view and not typing)
+    if (inGalleryView() && !typing && !onButton && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      const cols = currentGalleryColumns();
+      const idx = gallery.selectedIndex;
+      if (e.key === 'ArrowDown' || e.key === 'j' || e.key === 'J') {
+        e.preventDefault();
+        selectGalleryItem(idx + cols);
+        return;
+      }
+      if (e.key === 'ArrowUp' || e.key === 'k' || e.key === 'K') {
+        e.preventDefault();
+        selectGalleryItem(idx - cols);
+        return;
+      }
+      if (e.key === 'ArrowRight' || e.key === 'l' || e.key === 'L') {
+        e.preventDefault();
+        selectGalleryItem(idx + 1);
+        return;
+      }
+      if (e.key === 'ArrowLeft' || e.key === 'h' || e.key === 'H') {
+        e.preventDefault();
+        selectGalleryItem(idx - 1);
+        return;
+      }
+      if (e.key === 's' || e.key === 'S') {
+        e.preventDefault();
+        triggerGalleryAction('single');
+        return;
+      }
+      if (e.key === 'm' || e.key === 'M') {
+        e.preventDefault();
+        triggerGalleryAction('multi');
+        return;
+      }
+      if (e.key === 'f' || e.key === 'F') {
+        e.preventDefault();
+        const n = gallery.notices[idx];
+        if (!n) return;
+        triggerGalleryAction(n.notice_type === 'single' ? 'multi' : 'single');
+        return;
+      }
+      if (e.key === 'v' || e.key === 'V' || e.key === 'Enter') {
+        e.preventDefault();
+        const n = gallery.notices[idx];
+        if (!n) return;
+        triggerGalleryAction(n.notice_type || 'single');
+        return;
+      }
+      if (e.key === '/') {
+        e.preventDefault();
+        $('q').focus();
+        return;
+      }
+    }
+
+    // Detail-screen shortcuts (unchanged)
     if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) {
       if ($('screen-detail').classList.contains('hidden')) return;
       e.preventDefault();
       $('btn-save').click();
     } else if ((e.key === 'v' || e.key === 'V') && !e.ctrlKey && !e.metaKey && !e.altKey) {
-      const t = e.target;
-      const tag = (t && t.tagName) || '';
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if (typing) return;
       if ($('screen-detail').classList.contains('hidden')) return;
       e.preventDefault();
       $('btn-verify').click();
