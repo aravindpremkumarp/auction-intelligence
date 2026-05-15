@@ -484,6 +484,182 @@ def unverify(auction_id: str) -> bool:
     return bool(rows)
 
 
+ClassificationStatus = Literal["pending", "disagreement", "verified", "all"]
+
+
+def list_classification_queue(
+    status: ClassificationStatus = "pending",
+    q: str | None = None,
+    page: int = 1,
+    size: int = 50,
+) -> dict:
+    """Return a page of :Document nodes for the classification review queue.
+
+    Status semantics:
+      - pending:      not yet human-verified
+                      (notice_type_verified_at IS NULL)
+      - disagreement: not verified AND the LLM's prediction differs from the
+                      current (cluster-count-seeded) notice_type
+      - verified:     human has confirmed (notice_type_verified_at IS NOT NULL)
+      - all:          every Document with a classifier prediction
+
+    Each row carries enough to render a card without a second fetch:
+    filename, public_url for the PDF/image, the current notice_type,
+    the classifier's prediction + confidence + reasoning, and the linked
+    AuctionProperty ids so a reviewer can drill into any of them.
+    """
+    page = max(1, int(page))
+    size = max(1, min(200, int(size)))
+    skip = (page - 1) * size
+
+    where = ["d.notice_type IS NOT NULL"]
+    if status == "pending":
+        where.append("d.notice_type_verified_at IS NULL")
+    elif status == "disagreement":
+        where.append("d.notice_type_verified_at IS NULL")
+        where.append("d.notice_type_classifier_pred IS NOT NULL")
+        where.append("d.notice_type <> d.notice_type_classifier_pred")
+    elif status == "verified":
+        where.append("d.notice_type_verified_at IS NOT NULL")
+    # "all" → no extra filter
+
+    params: dict = {"skip": skip, "size": size}
+    if q:
+        where.append("toLower(coalesce(d.filename, '')) CONTAINS toLower($q)")
+        params["q"] = q
+
+    where_clause = " AND ".join(where)
+
+    cypher = f"""
+        MATCH (d:Document)
+        WHERE {where_clause}
+        OPTIONAL MATCH (d)<-[:HAS_DOCUMENT]-(a:AuctionProperty)
+        WITH d, collect(DISTINCT a.auction_id) AS auction_ids,
+             collect(DISTINCT a.title) AS titles
+        RETURN d.filename                       AS filename,
+               d.file_path                      AS file_path,
+               d.public_url                     AS public_url,
+               d.notice_type                    AS notice_type,
+               coalesce(d.property_count, size(auction_ids)) AS property_count,
+               d.notice_type_classifier_pred    AS classifier_pred,
+               d.notice_type_confidence         AS classifier_confidence,
+               d.notice_type_reasoning          AS classifier_reasoning,
+               d.notice_type_model              AS classifier_model,
+               toString(d.notice_type_classified_at) AS classified_at,
+               coalesce(d.notice_type_overridden, false) AS overridden,
+               (d.notice_type_verified_at IS NOT NULL) AS verified,
+               toString(d.notice_type_verified_at) AS verified_at,
+               d.notice_type_verified_by        AS verified_by,
+               d.notice_type_review_notes       AS review_notes,
+               d.description_extraction_status  AS extraction_status,
+               (d.notice_type_classifier_pred IS NOT NULL
+                AND d.notice_type <> d.notice_type_classifier_pred) AS disagreement,
+               [t IN titles WHERE t IS NOT NULL][0..3] AS sample_titles,
+               size(auction_ids)                AS auction_id_count
+        ORDER BY disagreement DESC,
+                 verified ASC,
+                 coalesce(d.notice_type_confidence, 0.0) ASC,
+                 d.filename ASC
+        SKIP $skip LIMIT $size
+    """
+    rows = run_read_query(cypher, params, max_rows=size, timeout=30.0)
+
+    count_cypher = f"""
+        MATCH (d:Document)
+        WHERE {where_clause}
+        RETURN count(d) AS total
+    """
+    count_rows = run_read_query(count_cypher, params, max_rows=1, timeout=30.0)
+    total = count_rows[0]["total"] if count_rows else 0
+
+    return {"page": page, "size": size, "total": total, "rows": rows}
+
+
+def classification_stats() -> dict:
+    """Counts for the classification queue header."""
+    rows = run_read_query("""
+        MATCH (d:Document)
+        WHERE d.notice_type IS NOT NULL
+        RETURN
+          count(*) AS total,
+          sum(CASE WHEN d.notice_type_verified_at IS NULL THEN 1 ELSE 0 END) AS pending,
+          sum(CASE WHEN d.notice_type_verified_at IS NULL
+                    AND d.notice_type_classifier_pred IS NOT NULL
+                    AND d.notice_type <> d.notice_type_classifier_pred
+                   THEN 1 ELSE 0 END) AS disagreement,
+          sum(CASE WHEN d.notice_type_verified_at IS NOT NULL THEN 1 ELSE 0 END) AS verified
+    """, max_rows=1)
+    if not rows:
+        return {"total": 0, "pending": 0, "disagreement": 0, "verified": 0}
+    r = rows[0]
+    return {
+        "total": int(r.get("total") or 0),
+        "pending": int(r.get("pending") or 0),
+        "disagreement": int(r.get("disagreement") or 0),
+        "verified": int(r.get("verified") or 0),
+    }
+
+
+def verify_classification(
+    filename: str,
+    notice_type: str,
+    by_email: str,
+    notes: str | None,
+) -> dict | None:
+    """Set a Document's notice_type from human review.
+
+    Side effects when the new notice_type differs from the prior:
+      - description_extraction_status is set to 'needs_reextract' so the
+        next pipeline run regenerates the cache file and apply.
+      - Every linked AuctionProperty whose description was NOT human-edited
+        is unverified (description_verified=false; audit fields cleared).
+        The description text stays in place — it gets overwritten by the
+        next pipeline run, after which the reviewer re-verifies.
+      - Human-edited rows (description_source='human') are NEVER touched;
+        their edits stand regardless of classification flips.
+
+    Returns a result row or None if no Document had that filename.
+    """
+    if notice_type not in ("single", "multi"):
+        raise ValueError("notice_type must be 'single' or 'multi'")
+    params = {"filename": filename, "nt": notice_type,
+              "by": by_email, "notes": notes}
+    rows = run_query("""
+        MATCH (d:Document {filename: $filename})
+        WITH d, d.notice_type AS prior
+        SET d.notice_type                  = $nt,
+            d.notice_type_overridden       = true,
+            d.notice_type_verified_at      = datetime(),
+            d.notice_type_verified_by      = $by,
+            d.notice_type_review_notes     = CASE
+                WHEN $notes IS NULL OR $notes = ''
+                THEN d.notice_type_review_notes
+                ELSE $notes END,
+            d.description_extraction_status = CASE
+                WHEN prior = $nt
+                THEN d.description_extraction_status
+                ELSE 'needs_reextract' END
+        WITH d, prior
+        OPTIONAL MATCH (d)<-[:HAS_DOCUMENT]-(a:AuctionProperty)
+        WHERE prior <> $nt
+          AND coalesce(a.description_source, '') <> 'human'
+        WITH d, collect(DISTINCT a) AS to_invalidate
+        FOREACH (aa IN to_invalidate |
+            REMOVE aa.description_verified,
+                   aa.description_verified_by,
+                   aa.description_verified_at
+        )
+        RETURN d.filename                          AS filename,
+               d.notice_type                       AS notice_type,
+               toString(d.notice_type_verified_at) AS verified_at,
+               d.notice_type_verified_by           AS verified_by,
+               d.notice_type_review_notes          AS review_notes,
+               d.description_extraction_status     AS extraction_status,
+               size(to_invalidate)                 AS invalidated_count
+    """, params)
+    return rows[0] if rows else None
+
+
 def stats(
     date_from: str | None = None,
     date_to: str | None = None,

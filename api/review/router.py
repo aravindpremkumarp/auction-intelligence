@@ -120,6 +120,57 @@ class ReviewStats(BaseModel):
     edited: int
 
 
+class ClassificationRow(BaseModel):
+    filename: str | None = None
+    file_path: str | None = None
+    public_url: str | None = None
+    notice_type: str | None = None
+    property_count: int | None = None
+    classifier_pred: str | None = None
+    classifier_confidence: float | None = None
+    classifier_reasoning: str | None = None
+    classifier_model: str | None = None
+    classified_at: str | None = None
+    overridden: bool = False
+    verified: bool = False
+    verified_at: str | None = None
+    verified_by: str | None = None
+    review_notes: str | None = None
+    extraction_status: str | None = None
+    disagreement: bool = False
+    sample_titles: list[str] = []
+    auction_id_count: int = 0
+
+
+class ClassificationQueueOut(BaseModel):
+    page: int
+    size: int
+    total: int
+    rows: list[ClassificationRow]
+
+
+class ClassificationStats(BaseModel):
+    total: int
+    pending: int
+    disagreement: int
+    verified: int
+
+
+class ClassifyBody(BaseModel):
+    notice_type: Literal["single", "multi"]
+    notes: str | None = Field(default=None, max_length=2000)
+
+
+class ClassifyResult(BaseModel):
+    filename: str | None = None
+    notice_type: str | None = None
+    verified_at: str | None = None
+    verified_by: str | None = None
+    review_notes: str | None = None
+    extraction_status: str | None = None
+    invalidated_count: int = 0
+
+
 def _row_to_str(row: dict) -> dict:
     """Stringify Neo4j datetime fields so Pydantic can serialize them."""
     out = dict(row)
@@ -222,3 +273,46 @@ async def review_unverify(
         raise HTTPException(status_code=404, detail="property not found")
     row = q.get_property(auction_id)
     return ReviewPropertyOut(**_row_to_str(row))
+
+
+# ── Classification review ───────────────────────────────────────────────────
+
+
+@router.get("/classifications", response_model=ClassificationQueueOut)
+async def review_classifications(
+    status: Literal["pending", "disagreement", "verified", "all"] = "pending",
+    q_search: str | None = Query(default=None, alias="q", max_length=200),
+    page: int = Query(default=1, ge=1),
+    size: int = Query(default=50, ge=1, le=200),
+    _admin: UserOut = Depends(get_current_admin),
+) -> ClassificationQueueOut:
+    result = q.list_classification_queue(
+        status=status, q=q_search, page=page, size=size,
+    )
+    rows = [ClassificationRow(**r) for r in result["rows"]]
+    return ClassificationQueueOut(
+        page=result["page"], size=result["size"],
+        total=result["total"], rows=rows,
+    )
+
+
+@router.get("/classifications/stats", response_model=ClassificationStats)
+async def review_classification_stats(
+    _admin: UserOut = Depends(get_current_admin),
+) -> ClassificationStats:
+    return ClassificationStats(**q.classification_stats())
+
+
+@router.post("/notice/{filename}/classify", response_model=ClassifyResult)
+async def review_classify(
+    filename: str,
+    body: ClassifyBody,
+    admin: UserOut = Depends(get_current_admin),
+) -> ClassifyResult:
+    row = q.verify_classification(
+        filename=filename, notice_type=body.notice_type,
+        by_email=admin.email, notes=body.notes,
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="notice not found")
+    return ClassifyResult(**row)
