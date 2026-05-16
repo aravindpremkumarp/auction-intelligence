@@ -178,7 +178,10 @@ async def call_llm(
     payload = {
         "model": OPENROUTER_MODEL_CLASSIFY,
         "messages": [{"role": "user", "content": full}],
-        "max_tokens": 512,
+        # Reasoning models consume most of the budget on chain-of-thought
+        # (observed ~500 reasoning tokens on long notices); keep enough
+        # headroom for the JSON verdict so finish_reason isn't 'length'.
+        "max_tokens": 2048,
         "temperature": 0.0,
     }
     headers = {
