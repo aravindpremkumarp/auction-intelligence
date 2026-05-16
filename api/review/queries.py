@@ -683,7 +683,7 @@ def _markdown_where(status: MarkdownStatus, score_max: float | None) -> tuple[li
     # "all" → no extra filter
     if score_max is not None:
         where.append("d.markdown_quality_score IS NOT NULL")
-        where.append("d.markdown_quality_score < $score_max")
+        where.append("d.markdown_quality_score <= $score_max")
         params["score_max"] = float(score_max)
     return where, params
 
@@ -763,7 +763,7 @@ def list_markdown_queue(
                d.notice_type                    AS notice_type,
                coalesce(d.property_count, prop_count) AS property_count,
                size(d.markdown)                 AS markdown_length,
-               substring(d.markdown, 0, 400)    AS markdown_excerpt,
+               d.markdown                       AS markdown,
                d.markdown_quality_score         AS score,
                d.markdown_quality               AS quality,
                (d.markdown_verified_at IS NOT NULL) AS verified,
@@ -813,7 +813,7 @@ def verify_markdown(
                d.notice_type                    AS notice_type,
                d.property_count                 AS property_count,
                size(d.markdown)                 AS markdown_length,
-               substring(d.markdown, 0, 400)    AS markdown_excerpt,
+               d.markdown                       AS markdown,
                d.markdown_quality_score         AS score,
                d.markdown_quality               AS quality,
                true                             AS verified,

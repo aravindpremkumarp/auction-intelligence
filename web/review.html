@@ -118,6 +118,30 @@
   .notice-card .ntable tr.pending td { background: #fff; }
   .notice-card .ntable tr.verified td { background: #f6fbf6; }
   .notice-card .ntable tr.edited td { background: #fffbf0; }
+  /* Markdown review card: side-by-side source + markdown */
+  .mdcard-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 10px 12px; }
+  @media (max-width: 1100px) { .mdcard-grid { grid-template-columns: 1fr; } }
+  .mdcard-source { border: 1.5px solid var(--ink); background: #2a2a2a; min-height: 360px; max-height: 70vh; overflow: auto; display: flex; justify-content: center; align-items: flex-start; }
+  .mdcard-source img { max-width: 100%; height: auto; background: #fff; }
+  .mdcard-source iframe { width: 100%; height: 70vh; min-height: 360px; border: 0; background: #fff; }
+  .mdcard-source .empty { color: #aaa; }
+  .mdcard-md { border: 1.5px solid var(--ink); background: var(--paper); display: flex; flex-direction: column; min-height: 360px; max-height: 70vh; }
+  .mdcard-md-header { padding: 4px 10px; border-bottom: 1.5px solid var(--ink); display: flex; align-items: center; gap: 6px; font-family: 'Caveat', cursive; font-size: 16px; flex-shrink: 0; }
+  .mdcard-md-header .md-title { flex: 1; }
+  .mdcard-md-header button.pill { padding: 1px 8px; font-size: 11px; min-height: 0; }
+  .mdcard-md-body { flex: 1; overflow: auto; padding: 10px; white-space: pre-wrap; font-family: 'IBM Plex Mono', monospace; font-size: 12px; line-height: 1.45; }
+  .mdcard-md-body.rendered { white-space: normal; font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; line-height: 1.5; }
+  .mdcard-md-body.rendered table { width: 100%; border-collapse: collapse; margin: 8px 0; background: #fff; font-size: 12px; }
+  .mdcard-md-body.rendered th, .mdcard-md-body.rendered td { border: 1px solid var(--ink); padding: 6px 8px; vertical-align: top; text-align: left; }
+  .mdcard-md-body.rendered th { background: var(--accent); font-weight: 600; }
+  .mdcard-md-body.rendered p { margin: 6px 0; }
+  .mdcard-md-body.rendered h1, .mdcard-md-body.rendered h2, .mdcard-md-body.rendered h3 { font-family: 'Caveat', cursive; margin: 10px 0 4px; }
+  .mdcard-md-body.rendered ul, .mdcard-md-body.rendered ol { margin: 6px 0 6px 20px; padding: 0; }
+  .mdcard-md-body.rendered code { background: #f3f0e7; padding: 1px 4px; }
+  .mdcard-md-body.rendered pre { background: #f3f0e7; padding: 8px; overflow-x: auto; }
+  .mdcard-md-body.rendered img { max-width: 100%; height: auto; }
+  .mdcard-actions { display: flex; gap: 8px; align-items: center; padding: 10px 12px; border-top: 1px dashed rgba(0,0,0,0.15); }
+  .mdcard-notes { display: block; box-sizing: border-box; width: calc(100% - 24px); margin: 0 12px; padding: 6px 8px; border: 1.5px solid var(--ink); font-family: 'IBM Plex Mono', monospace; font-size: 12px; }
   /* Classification cards */
   .class-card { border: 2px solid var(--ink); background: #fff; box-shadow: 2px 3px 0 rgba(0,0,0,0.9); padding: 12px 14px; display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
   @media (max-width: 1100px) { .class-card { grid-template-columns: 1fr; } }
@@ -822,22 +846,89 @@
     card.appendChild(summary);
 
     const body = document.createElement('div');
-    body.style.cssText = 'padding: 10px 14px; display: flex; flex-direction: column; gap: 10px;';
-    const pre = document.createElement('pre');
-    pre.style.cssText = 'background:#f7f5ee; border:1px solid rgba(0,0,0,0.1); padding:10px; max-height:280px; overflow:auto; white-space:pre-wrap; font-family:"IBM Plex Mono", monospace; font-size:12px; margin:0;';
-    pre.textContent = row.markdown_excerpt || '(empty markdown)';
-    body.appendChild(pre);
+
+    // Side-by-side: notice source (left) and OCR markdown (right)
+    const grid = document.createElement('div');
+    grid.className = 'mdcard-grid';
+    const srcBox = document.createElement('div');
+    srcBox.className = 'mdcard-source';
+    srcBox.innerHTML = '<div class="empty">loading…</div>';
+    const mdBox = document.createElement('div');
+    mdBox.className = 'mdcard-md';
+    mdBox.innerHTML = `
+      <div class="mdcard-md-header">
+        <span class="md-title">Overall markdown (OCR)</span>
+        <button class="pill" data-mdc-mode="rendered">rendered</button>
+        <button class="pill" data-mdc-mode="raw">raw</button>
+      </div>
+      <div class="mdcard-md-body"></div>
+    `;
+    grid.appendChild(srcBox);
+    grid.appendChild(mdBox);
+    body.appendChild(grid);
+
+    const mdBodyEl = mdBox.querySelector('.mdcard-md-body');
+    const markdown = row.markdown || '';
+    let localMode = mdMode;
+    function paintCardMd() {
+      mdBox.querySelectorAll('button[data-mdc-mode]').forEach(b => {
+        b.classList.toggle('on', b.getAttribute('data-mdc-mode') === localMode);
+      });
+      if (!markdown) {
+        mdBodyEl.classList.remove('rendered');
+        mdBodyEl.innerHTML = '<div class="empty">no OCR markdown available.</div>';
+        return;
+      }
+      if (localMode === 'rendered' && window.marked && window.DOMPurify) {
+        const html = window.marked.parse(markdown, { gfm: true, breaks: false });
+        mdBodyEl.classList.add('rendered');
+        mdBodyEl.innerHTML = window.DOMPurify.sanitize(html);
+        renderMathIn(mdBodyEl);
+      } else {
+        mdBodyEl.classList.remove('rendered');
+        mdBodyEl.textContent = markdown;
+      }
+    }
+    paintCardMd();
+    mdBox.querySelectorAll('button[data-mdc-mode]').forEach(b => {
+      b.addEventListener('click', () => {
+        localMode = b.getAttribute('data-mdc-mode');
+        try { localStorage.setItem('mdMode', localMode); } catch {}
+        mdMode = localMode;
+        paintCardMd();
+      });
+    });
+
+    // Lazy-load source image / PDF only when the card is open, so collapsed
+    // cards don't fetch (potentially many) large notices up front.
+    let srcLoaded = false;
+    function loadSource() {
+      if (srcLoaded) return;
+      srcLoaded = true;
+      const url = row.public_url || '';
+      const kind = classifyDocUrl(url);
+      if (kind === 'pdf') {
+        srcBox.innerHTML = `<iframe src="${escapeHtml(url)}" title="notice pdf"></iframe>`;
+      } else if (kind === 'image') {
+        srcBox.innerHTML = `<img src="${escapeHtml(url)}" alt="notice image" loading="lazy">`;
+      } else if (kind === 'other') {
+        srcBox.innerHTML = `<iframe src="${escapeHtml(url)}" title="notice"></iframe>`;
+      } else {
+        srcBox.innerHTML = '<div class="empty">no public_url available for this notice.</div>';
+      }
+    }
+    if (card.open) loadSource();
+    card.addEventListener('toggle', () => { if (card.open) loadSource(); });
 
     const notes = document.createElement('input');
     notes.type = 'text';
     notes.placeholder = 'notes (optional)';
-    notes.className = 'cnotes';
+    notes.className = 'mdcard-notes';
     notes.value = row.review_notes || '';
-    notes.style.cssText = 'padding:6px 8px; border:1.5px solid var(--ink); font-family:"IBM Plex Mono", monospace; font-size:12px;';
     body.appendChild(notes);
 
     const actions = document.createElement('div');
-    actions.style.cssText = 'display:flex; gap:8px; align-items:center;';
+    actions.className = 'mdcard-actions';
     const btnGood = document.createElement('button');
     btnGood.className = 'primary';
     btnGood.textContent = row.quality === 'good' ? 'Re-mark good' : 'Mark good';
