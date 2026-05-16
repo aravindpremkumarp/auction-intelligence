@@ -13,6 +13,12 @@ The on-disk cache at pipeline/cache/mineru_markdown/ remains the canonical
 artifact for re-running OCR; the Neo4j copy is a derived projection meant
 for serving and ad-hoc Cypher queries.
 
+Each markdown write also stamps minimal provenance — markdown_source,
+markdown_model, markdown_loaded_at — so downstream reviewers can tell
+which OCR backend produced the text. Pass --backfill-only to stamp the
+provenance fields on every Document that already has markdown but no
+provenance recorded (one-shot use after this change ships).
+
 Run:  python -m pipeline.load_markdowns_to_neo4j
 
 Safe to re-run. Documents that already have d.markdown set are skipped
@@ -31,6 +37,13 @@ from api.neo4j_client import run_query, run_read_query, session
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 MD_DIR = REPO_ROOT / "pipeline" / "cache" / "mineru_markdown"
+
+# MinerU is the only producer of cached markdowns under MD_DIR. The model
+# tag mirrors MinerU's "model_version: vlm" request param in
+# scripts/ocr_with_mineru.py:107, so future backends can drop in a
+# different value via --markdown-model.
+DEFAULT_MARKDOWN_SOURCE = "mineru"
+DEFAULT_MARKDOWN_MODEL = "mineru-vlm"
 
 
 def safe_name(file_path: str) -> str:
@@ -54,13 +67,34 @@ def fetch_pending(force: bool) -> list[dict]:
     return run_read_query(cypher, max_rows=20_000)
 
 
-def write_markdowns(rows: list[dict]) -> None:
+def write_markdowns(rows: list[dict], source: str, model: str) -> None:
     cypher = """
         UNWIND $rows AS row
         MATCH (d:Document {file_path: row.file_path})
-        SET d.markdown = row.markdown
+        SET d.markdown            = row.markdown,
+            d.markdown_source     = $source,
+            d.markdown_model      = $model,
+            d.markdown_loaded_at  = datetime()
     """
-    run_query(cypher, {"rows": rows})
+    run_query(cypher, {"rows": rows, "source": source, "model": model})
+
+
+def backfill_provenance(source: str, model: str) -> int:
+    """Stamp provenance on every Document that already has markdown but no
+    markdown_source recorded. One-shot use after this change first ships.
+    Returns the number of Documents stamped.
+    """
+    cypher = """
+        MATCH (d:Document)
+        WHERE d.markdown IS NOT NULL AND d.markdown <> ''
+          AND d.markdown_source IS NULL
+        SET d.markdown_source     = $source,
+            d.markdown_model      = $model,
+            d.markdown_loaded_at  = coalesce(d.markdown_loaded_at, datetime())
+        RETURN count(d) AS n
+    """
+    rows = run_query(cypher, {"source": source, "model": model})
+    return int(rows[0]["n"]) if rows else 0
 
 
 def main() -> int:
@@ -71,7 +105,20 @@ def main() -> int:
                     help="cap to first N Documents (staged rollout)")
     ap.add_argument("--write-batch", type=int, default=200,
                     help="rows per Neo4j UNWIND write")
+    ap.add_argument("--markdown-source", default=DEFAULT_MARKDOWN_SOURCE,
+                    help="value to stamp as d.markdown_source")
+    ap.add_argument("--markdown-model", default=DEFAULT_MARKDOWN_MODEL,
+                    help="value to stamp as d.markdown_model")
+    ap.add_argument("--backfill-only", action="store_true",
+                    help="skip the load step; only stamp provenance on "
+                         "existing Documents that already have markdown")
     args = ap.parse_args()
+
+    if args.backfill_only:
+        stamped = backfill_provenance(args.markdown_source, args.markdown_model)
+        print(f"Backfilled provenance on {stamped} Documents "
+              f"(source={args.markdown_source}, model={args.markdown_model})")
+        return 0
 
     pending = fetch_pending(args.force)
     if args.limit:
@@ -80,9 +127,13 @@ def main() -> int:
 
     if total == 0:
         print("nothing to load")
+        stamped = backfill_provenance(args.markdown_source, args.markdown_model)
+        if stamped:
+            print(f"Stamped provenance on {stamped} pre-existing Documents")
         return 0
 
     print(f"Loading markdown for {total} Documents from {MD_DIR}")
+    print(f"(source={args.markdown_source}, model={args.markdown_model})")
     print("(re-runs skip Documents that already have d.markdown; pass "
           "--force to overwrite)")
 
@@ -94,7 +145,7 @@ def main() -> int:
     def safe_write(rows: list[dict]) -> bool:
         for attempt in range(3):
             try:
-                write_markdowns(rows)
+                write_markdowns(rows, args.markdown_source, args.markdown_model)
                 return True
             except Exception as e:
                 if attempt < 2:
@@ -137,7 +188,13 @@ def main() -> int:
     if payloads:
         safe_write(payloads)
 
-    print(f"\nLoaded {done} markdowns  missing_md={missing}  failed={failed}")
+    # Catch any Documents that already had markdown set but no provenance
+    # (e.g. from a previous loader run before this change shipped).
+    stamped = backfill_provenance(args.markdown_source, args.markdown_model)
+    backfill_note = f"  backfilled_existing={stamped}" if stamped else ""
+
+    print(f"\nLoaded {done} markdowns  missing_md={missing}  failed={failed}"
+          f"{backfill_note}")
     return 0
 
 
