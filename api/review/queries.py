@@ -492,6 +492,8 @@ def list_classification_queue(
     q: str | None = None,
     page: int = 1,
     size: int = 50,
+    confidence_min: float | None = None,
+    agrees_only: bool = False,
 ) -> dict:
     """Return a page of :Document nodes for the classification review queue.
 
@@ -503,10 +505,10 @@ def list_classification_queue(
       - verified:     human has confirmed (notice_type_verified_at IS NOT NULL)
       - all:          every Document with a classifier prediction
 
-    Each row carries enough to render a card without a second fetch:
-    filename, public_url for the PDF/image, the current notice_type,
-    the classifier's prediction + confidence + reasoning, and the linked
-    AuctionProperty ids so a reviewer can drill into any of them.
+    confidence_min / agrees_only are independent filters layered on top of
+    status — used by the "auto-confirm" UI to surface unverified notices
+    whose classifier prediction already matches notice_type at or above a
+    chosen confidence threshold.
     """
     page = max(1, int(page))
     size = max(1, min(200, int(size)))
@@ -527,6 +529,12 @@ def list_classification_queue(
     if q:
         where.append("toLower(coalesce(d.filename, '')) CONTAINS toLower($q)")
         params["q"] = q
+    if confidence_min is not None:
+        where.append("coalesce(d.notice_type_confidence, 0.0) >= $confidence_min")
+        params["confidence_min"] = float(confidence_min)
+    if agrees_only:
+        where.append("d.notice_type_classifier_pred IS NOT NULL")
+        where.append("d.notice_type = d.notice_type_classifier_pred")
 
     where_clause = " AND ".join(where)
 
@@ -658,6 +666,66 @@ def verify_classification(
                size(to_invalidate)                 AS invalidated_count
     """, params)
     return rows[0] if rows else None
+
+
+def auto_confirm_classifications(
+    confidence_min: float,
+    by_email: str,
+    notes: str | None = None,
+    dry_run: bool = False,
+) -> dict:
+    """Bulk-verify Documents where the classifier already agrees with the
+    current notice_type AND confidence >= confidence_min AND the Document
+    has not been human-verified yet.
+
+    Because the classifier agrees with the existing notice_type, this does
+    NOT flip the type, does NOT trigger re-extract, and does NOT set
+    notice_type_overridden — there is no override happening; the human is
+    rubber-stamping the model's agreement with the cluster-count seed.
+
+    Returns ``{"count": N, "dry_run": bool}``. When ``dry_run=True`` nothing
+    is written; the count reflects what *would* be confirmed.
+    """
+    params = {
+        "min_conf": float(confidence_min),
+        "by": by_email,
+        "notes": notes,
+    }
+    if dry_run:
+        rows = run_read_query(
+            """
+            MATCH (d:Document)
+            WHERE d.notice_type IS NOT NULL
+              AND d.notice_type_verified_at IS NULL
+              AND d.notice_type_classifier_pred IS NOT NULL
+              AND d.notice_type = d.notice_type_classifier_pred
+              AND coalesce(d.notice_type_confidence, 0.0) >= $min_conf
+            RETURN count(d) AS n
+            """,
+            params,
+            max_rows=1,
+        )
+        return {"count": int(rows[0]["n"]) if rows else 0, "dry_run": True}
+
+    rows = run_query(
+        """
+        MATCH (d:Document)
+        WHERE d.notice_type IS NOT NULL
+          AND d.notice_type_verified_at IS NULL
+          AND d.notice_type_classifier_pred IS NOT NULL
+          AND d.notice_type = d.notice_type_classifier_pred
+          AND coalesce(d.notice_type_confidence, 0.0) >= $min_conf
+        SET d.notice_type_verified_at  = datetime(),
+            d.notice_type_verified_by  = $by,
+            d.notice_type_review_notes = CASE
+                WHEN $notes IS NULL OR $notes = ''
+                THEN d.notice_type_review_notes
+                ELSE $notes END
+        RETURN count(d) AS n
+        """,
+        params,
+    )
+    return {"count": int(rows[0]["n"]) if rows else 0, "dry_run": False}
 
 
 def stats(

@@ -201,6 +201,7 @@
       <span id="status-buttons-class" class="group-toggle hidden">
         <button class="pill" data-cstatus="pending">pending</button>
         <button class="pill" data-cstatus="disagreement">disagreement</button>
+        <button class="pill" data-cstatus="auto-confirm">auto-confirm</button>
         <button class="pill" data-cstatus="verified">verified</button>
         <button class="pill" data-cstatus="all">all</button>
       </span>
@@ -223,6 +224,15 @@
       </label>
       <button id="date-clear" class="ghost" title="show all dates">clear dates</button>
       <span class="meta" id="date-hint" style="color: var(--muted);"></span>
+    </div>
+    <div id="auto-confirm-bar" class="actions hidden">
+      <span>Confidence ≥</span>
+      <input type="range" id="auto-conf-slider" min="50" max="100" step="1" value="95" style="width:160px;">
+      <span class="meta"><strong id="auto-conf-pct">95</strong>%</span>
+      <span style="width:14px"></span>
+      <span class="meta" id="auto-conf-hint" style="color: var(--muted);">classifier agrees with current notice_type · unverified only</span>
+      <span style="flex:1"></span>
+      <button id="auto-conf-bulk" class="primary" disabled>Confirm all 0</button>
     </div>
     <div id="queue-by-property" class="table-scroll">
       <table>
@@ -422,6 +432,7 @@
     status: 'pending', cstatus: 'pending', q: '', group: 'property',
     cview: (savedCView === 'cards' ? 'cards' : 'gallery'),
     dateFrom: todayISO(), dateTo: '', page: 1,
+    autoConfMin: 0.95,
   };
   let queueLoadedCount = 0;
   let queueTotal = 0;
@@ -451,6 +462,11 @@
     $('status-buttons-desc').classList.toggle('hidden', isClass);
     $('status-buttons-class').classList.toggle('hidden', !isClass);
     $('cview-toggle').classList.toggle('hidden', !isClass);
+    const showAutoConf = isClass && queueState.cstatus === 'auto-confirm';
+    $('auto-confirm-bar').classList.toggle('hidden', !showAutoConf);
+    const pct = Math.round(queueState.autoConfMin * 100);
+    $('auto-conf-slider').value = String(pct);
+    $('auto-conf-pct').textContent = String(pct);
   }
 
   function syncDateInputs() {
@@ -484,6 +500,16 @@
       await loadPropertyQueue(append);
     }
     updateLoadMore();
+    updateAutoConfirmButton();
+  }
+
+  function updateAutoConfirmButton() {
+    const btn = $('auto-conf-bulk');
+    if (!btn) return;
+    const active = queueState.group === 'classification' && queueState.cstatus === 'auto-confirm';
+    const n = active ? (queueTotal || 0) : 0;
+    btn.textContent = `Confirm all ${n}`;
+    btn.disabled = !active || n === 0;
   }
 
   function updateLoadMore() {
@@ -650,18 +676,31 @@
     return card;
   }
 
+  // Translate the UI cstatus pill into URL params for /review/classifications.
+  // "auto-confirm" is a synthetic pill: status=pending + agrees_only + confidence_min.
+  function classificationParams(pageSize) {
+    const params = new URLSearchParams({
+      page: String(queueState.page),
+      size: String(pageSize),
+    });
+    if (queueState.cstatus === 'auto-confirm') {
+      params.set('status', 'pending');
+      params.set('agrees_only', 'true');
+      params.set('confidence_min', String(queueState.autoConfMin));
+    } else {
+      params.set('status', queueState.cstatus);
+    }
+    if (queueState.q) params.set('q', queueState.q);
+    return params;
+  }
+
   // ─── Classification queue ───────────────────────────────────────────────
   async function loadClassificationQueue(append) {
     const list = $('queue-by-classification');
     if (!append) {
       list.innerHTML = '<div class="empty">loading…</div>';
     }
-    const params = new URLSearchParams({
-      status: queueState.cstatus,
-      page: String(queueState.page),
-      size: String(PAGE_SIZE_CLASSIFICATION),
-    });
-    if (queueState.q) params.set('q', queueState.q);
+    const params = classificationParams(PAGE_SIZE_CLASSIFICATION);
     const r = await authFetch(API + '/review/classifications?' + params.toString());
     if (r.status === 401 || r.status === 403) {
       list.innerHTML = '<div class="empty"><span class="err">not authorised — sign in as admin from the main app</span></div>';
@@ -787,12 +826,7 @@
       gallery.notices = [];
       gallery.selectedIndex = -1;
     }
-    const params = new URLSearchParams({
-      status: queueState.cstatus,
-      page: String(queueState.page),
-      size: String(PAGE_SIZE_GALLERY),
-    });
-    if (queueState.q) params.set('q', queueState.q);
+    const params = classificationParams(PAGE_SIZE_GALLERY);
     const r = await authFetch(API + '/review/classifications?' + params.toString());
     if (r.status === 401 || r.status === 403) {
       container.innerHTML = '<div class="gr-empty"><span class="err">not authorised — sign in as admin from the main app</span></div>';
@@ -1063,6 +1097,47 @@
       queueState.cstatus = b.getAttribute('data-cstatus');
       loadQueue();
     });
+  });
+
+  // Auto-confirm threshold slider: update the live label on every input, but
+  // only refire the (potentially big) Cypher count on commit (mouse-up / change)
+  // to avoid hammering Neo4j as the user drags.
+  let autoConfReloadTimer = null;
+  $('auto-conf-slider').addEventListener('input', () => {
+    const pct = parseInt($('auto-conf-slider').value, 10) || 95;
+    queueState.autoConfMin = pct / 100;
+    $('auto-conf-pct').textContent = String(pct);
+    if (autoConfReloadTimer) clearTimeout(autoConfReloadTimer);
+    autoConfReloadTimer = setTimeout(() => {
+      if (queueState.cstatus === 'auto-confirm') loadQueue();
+    }, 300);
+  });
+
+  $('auto-conf-bulk').addEventListener('click', async () => {
+    if (queueState.cstatus !== 'auto-confirm') return;
+    const n = queueTotal || 0;
+    if (n === 0) return;
+    const pct = Math.round(queueState.autoConfMin * 100);
+    if (!confirm(`Confirm ${n} sales notices where the classifier agrees with the current notice_type at ≥ ${pct}% confidence?\n\nThis bulk-verifies them — it does NOT change notice_type.`)) return;
+    const btn = $('auto-conf-bulk');
+    btn.disabled = true;
+    const prior = btn.textContent;
+    btn.textContent = 'Confirming…';
+    try {
+      const r = await authFetch(API + '/review/classifications/bulk-confirm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confidence_min: queueState.autoConfMin, dry_run: false }),
+      });
+      if (r.status === 401 || r.status === 403) { setMsg('<span class="err">not authorised</span>', 3000); return; }
+      if (!r.ok) { setMsg(`<span class="err">bulk-confirm failed (${r.status})</span>`, 3000); return; }
+      const data = await r.json();
+      setMsg(`<span class="ok">confirmed ${data.count} notices.</span>`, 2500);
+      loadStats();
+      await loadQueue();
+    } finally {
+      btn.textContent = prior;
+    }
   });
   $$('button.pill[data-cview]').forEach(b => {
     b.addEventListener('click', () => {
