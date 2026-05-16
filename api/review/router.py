@@ -192,7 +192,7 @@ class MarkdownRow(BaseModel):
     notice_type: str | None = None
     property_count: int | None = None
     markdown_length: int | None = None
-    markdown_excerpt: str | None = None
+    markdown: str | None = None
     score: float | None = None
     quality: Literal["good", "bad"] | None = None
     verified: bool = False
