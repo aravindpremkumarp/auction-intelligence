@@ -171,6 +171,17 @@ class ClassifyResult(BaseModel):
     invalidated_count: int = 0
 
 
+class BulkConfirmBody(BaseModel):
+    confidence_min: float = Field(ge=0.0, le=1.0)
+    notes: str | None = Field(default=None, max_length=2000)
+    dry_run: bool = False
+
+
+class BulkConfirmResult(BaseModel):
+    count: int
+    dry_run: bool
+
+
 def _row_to_str(row: dict) -> dict:
     """Stringify Neo4j datetime fields so Pydantic can serialize them."""
     out = dict(row)
@@ -284,16 +295,33 @@ async def review_classifications(
     q_search: str | None = Query(default=None, alias="q", max_length=200),
     page: int = Query(default=1, ge=1),
     size: int = Query(default=50, ge=1, le=200),
+    confidence_min: float | None = Query(default=None, ge=0.0, le=1.0),
+    agrees_only: bool = Query(default=False),
     _admin: UserOut = Depends(get_current_admin),
 ) -> ClassificationQueueOut:
     result = q.list_classification_queue(
         status=status, q=q_search, page=page, size=size,
+        confidence_min=confidence_min, agrees_only=agrees_only,
     )
     rows = [ClassificationRow(**r) for r in result["rows"]]
     return ClassificationQueueOut(
         page=result["page"], size=result["size"],
         total=result["total"], rows=rows,
     )
+
+
+@router.post("/classifications/bulk-confirm", response_model=BulkConfirmResult)
+async def review_bulk_confirm(
+    body: BulkConfirmBody,
+    admin: UserOut = Depends(get_current_admin),
+) -> BulkConfirmResult:
+    result = q.auto_confirm_classifications(
+        confidence_min=body.confidence_min,
+        by_email=admin.email,
+        notes=body.notes,
+        dry_run=body.dry_run,
+    )
+    return BulkConfirmResult(**result)
 
 
 @router.get("/classifications/stats", response_model=ClassificationStats)
