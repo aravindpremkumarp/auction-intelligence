@@ -189,6 +189,7 @@
         <button class="pill" data-group="property">property</button>
         <button class="pill" data-group="notice">sales notice</button>
         <button class="pill" data-group="classification">classification</button>
+        <button class="pill" data-group="markdown">markdown</button>
       </span>
       <span style="width:14px"></span>
       <span>Status:</span>
@@ -204,6 +205,13 @@
         <button class="pill" data-cstatus="auto-confirm">auto-confirm</button>
         <button class="pill" data-cstatus="verified">verified</button>
         <button class="pill" data-cstatus="all">all</button>
+      </span>
+      <span id="status-buttons-md" class="group-toggle hidden">
+        <button class="pill" data-mdstatus="pending">pending</button>
+        <button class="pill" data-mdstatus="good">good</button>
+        <button class="pill" data-mdstatus="bad">bad</button>
+        <button class="pill" data-mdstatus="unscored">unscored</button>
+        <button class="pill" data-mdstatus="all">all</button>
       </span>
       <span id="cview-toggle" class="group-toggle hidden">
         <span style="margin:0 4px; color: var(--muted);">·</span>
@@ -234,6 +242,15 @@
       <span style="flex:1"></span>
       <button id="auto-conf-bulk" class="primary" disabled>Confirm all 0</button>
     </div>
+    <div id="md-confirm-bar" class="actions hidden">
+      <span>Score ≥</span>
+      <input type="range" id="md-conf-slider" min="0" max="100" step="1" value="70" style="width:160px;">
+      <span class="meta"><strong id="md-conf-pct">70</strong></span>
+      <span style="width:14px"></span>
+      <span class="meta" id="md-conf-hint" style="color: var(--muted);">auto-confirm at this score · review below it</span>
+      <span style="flex:1"></span>
+      <button id="md-conf-bulk" class="primary" disabled>Confirm all 0 good</button>
+    </div>
     <div id="queue-by-property" class="table-scroll">
       <table>
         <thead>
@@ -254,6 +271,7 @@
     <div id="queue-by-notice" class="notice-list hidden"></div>
     <div id="queue-by-classification" class="notice-list hidden"></div>
     <div id="queue-by-classification-gallery" class="gallery-grid hidden"></div>
+    <div id="queue-by-markdown" class="notice-list hidden"></div>
     <div id="load-more-wrap" class="hidden" style="text-align:center; margin-top:14px;">
       <button id="load-more" class="ghost">Load more</button>
       <span class="meta" id="load-more-hint" style="margin-left:10px; color: var(--muted);"></span>
@@ -407,6 +425,7 @@
 
   // ─── Stats ──────────────────────────────────────────────────────────────
   async function loadStats() {
+    if (queueState.group === 'markdown') { await loadMarkdownStats(); return; }
     const params = new URLSearchParams();
     appendDateParams(params);
     const url = API + '/review/stats' + (params.toString() ? '?' + params.toString() : '');
@@ -421,6 +440,23 @@
     `;
   }
 
+  async function loadMarkdownStats() {
+    const params = new URLSearchParams({ score_min: String(queueState.mdScoreThreshold) });
+    const r = await authFetch(API + '/review/markdown/stats?' + params.toString());
+    if (!r.ok) { $('stats').textContent = ''; mdStatsAutoConfirmable = 0; updateMdConfirmButton(); return; }
+    const s = await r.json();
+    mdStatsAutoConfirmable = s.auto_confirmable || 0;
+    $('stats').innerHTML = `
+      <span class="pill warn">${s.pending} pending</span>
+      <span class="pill good">${s.good} good</span>
+      <span class="pill danger">${s.bad} bad</span>
+      <span class="pill off">${s.unscored} unscored</span>
+      <span class="pill off">${s.total} total</span>
+      <span class="pill good">${s.auto_confirmable} ≥ ${queueState.mdScoreThreshold}</span>
+    `;
+    updateMdConfirmButton();
+  }
+
   // ─── Queue ──────────────────────────────────────────────────────────────
   // Default to "upcoming auctions" — past auctions are mostly archival.
   const PAGE_SIZE_PROPERTY = 100;
@@ -429,11 +465,17 @@
   const PAGE_SIZE_GALLERY = 100;
   const savedCView = (() => { try { return localStorage.getItem('cView'); } catch { return null; } })();
   let queueState = {
-    status: 'pending', cstatus: 'pending', q: '', group: 'property',
+    status: 'pending', cstatus: 'pending', mdstatus: 'pending',
+    q: '', group: 'property',
     cview: (savedCView === 'cards' ? 'cards' : 'gallery'),
     dateFrom: todayISO(), dateTo: '', page: 1,
     autoConfMin: 0.95,
+    // markdown review: slider sets the auto-confirm-good threshold; queue
+    // only shows Documents strictly below it ("review the suspicious ones").
+    mdScoreThreshold: 70,
   };
+  let mdStatsAutoConfirmable = 0;
+  const PAGE_SIZE_MARKDOWN = 50;
   let queueLoadedCount = 0;
   let queueTotal = 0;
   let gallery = { notices: [], selectedIndex: -1, selectedFilename: null };
@@ -445,6 +487,9 @@
     $$('button.pill[data-cstatus]').forEach(b => {
       b.classList.toggle('on', b.getAttribute('data-cstatus') === queueState.cstatus);
     });
+    $$('button.pill[data-mdstatus]').forEach(b => {
+      b.classList.toggle('on', b.getAttribute('data-mdstatus') === queueState.mdstatus);
+    });
     $$('button.pill[data-cview]').forEach(b => {
       b.classList.toggle('on', b.getAttribute('data-cview') === queueState.cview);
     });
@@ -452,21 +497,27 @@
       b.classList.toggle('on', b.getAttribute('data-group') === queueState.group);
     });
     const isClass = queueState.group === 'classification';
+    const isMd = queueState.group === 'markdown';
     const showCards = isClass && queueState.cview === 'cards';
     const showGallery = isClass && queueState.cview === 'gallery';
     $('queue-by-property').classList.toggle('hidden', queueState.group !== 'property');
     $('queue-by-notice').classList.toggle('hidden', queueState.group !== 'notice');
     $('queue-by-classification').classList.toggle('hidden', !showCards);
     $('queue-by-classification-gallery').classList.toggle('hidden', !showGallery);
-    // Swap the status-button row: description-review statuses vs classification statuses
-    $('status-buttons-desc').classList.toggle('hidden', isClass);
+    $('queue-by-markdown').classList.toggle('hidden', !isMd);
+    // Swap the status-button row: only one of three is visible at a time
+    $('status-buttons-desc').classList.toggle('hidden', isClass || isMd);
     $('status-buttons-class').classList.toggle('hidden', !isClass);
+    $('status-buttons-md').classList.toggle('hidden', !isMd);
     $('cview-toggle').classList.toggle('hidden', !isClass);
     const showAutoConf = isClass && queueState.cstatus === 'auto-confirm';
     $('auto-confirm-bar').classList.toggle('hidden', !showAutoConf);
+    $('md-confirm-bar').classList.toggle('hidden', !isMd);
     const pct = Math.round(queueState.autoConfMin * 100);
     $('auto-conf-slider').value = String(pct);
     $('auto-conf-pct').textContent = String(pct);
+    $('md-conf-slider').value = String(queueState.mdScoreThreshold);
+    $('md-conf-pct').textContent = String(queueState.mdScoreThreshold);
   }
 
   function syncDateInputs() {
@@ -496,11 +547,14 @@
       }
     } else if (queueState.group === 'notice') {
       await loadNoticeQueue(append);
+    } else if (queueState.group === 'markdown') {
+      await loadMarkdownQueue(append);
     } else {
       await loadPropertyQueue(append);
     }
     updateLoadMore();
     updateAutoConfirmButton();
+    updateMdConfirmButton();
   }
 
   function updateAutoConfirmButton() {
@@ -509,6 +563,15 @@
     const active = queueState.group === 'classification' && queueState.cstatus === 'auto-confirm';
     const n = active ? (queueTotal || 0) : 0;
     btn.textContent = `Confirm all ${n}`;
+    btn.disabled = !active || n === 0;
+  }
+
+  function updateMdConfirmButton() {
+    const btn = $('md-conf-bulk');
+    if (!btn) return;
+    const active = queueState.group === 'markdown';
+    const n = active ? (mdStatsAutoConfirmable || 0) : 0;
+    btn.textContent = `Confirm all ${n} good`;
     btn.disabled = !active || n === 0;
   }
 
@@ -673,6 +736,150 @@
       tbody.appendChild(tr);
     }
     card.appendChild(table);
+    return card;
+  }
+
+  // ─── Markdown-quality queue ─────────────────────────────────────────────
+  async function loadMarkdownQueue(append) {
+    const list = $('queue-by-markdown');
+    if (!append) {
+      list.innerHTML = '<div class="empty">loading…</div>';
+    }
+    const params = new URLSearchParams({
+      status: queueState.mdstatus,
+      page: String(queueState.page),
+      size: String(PAGE_SIZE_MARKDOWN),
+    });
+    if (queueState.q) params.set('q', queueState.q);
+    // Show only Documents below the slider threshold — high-score ones are
+    // meant to be bulk-confirmed, not hand-reviewed. 'unscored' and 'all'
+    // ignore the slider so the reviewer can still find them.
+    if (queueState.mdstatus === 'pending' || queueState.mdstatus === 'bad') {
+      params.set('score_max', String(queueState.mdScoreThreshold));
+    }
+    const r = await authFetch(API + '/review/markdown?' + params.toString());
+    if (r.status === 401 || r.status === 403) {
+      list.innerHTML = '<div class="empty"><span class="err">not authorised — sign in as admin from the main app</span></div>';
+      return;
+    }
+    if (!r.ok) {
+      list.innerHTML = `<div class="empty"><span class="err">error ${r.status}</span></div>`;
+      return;
+    }
+    const data = await r.json();
+    if (!append && !data.rows.length) {
+      list.innerHTML = '<div class="empty">no notices match this filter — nice.</div>';
+      queueTotal = data.total || 0;
+      queueLoadedCount = 0;
+      return;
+    }
+    if (!append) list.innerHTML = '';
+    for (const row of data.rows) {
+      list.appendChild(renderMarkdownCard(row));
+    }
+    queueTotal = data.total || 0;
+    queueLoadedCount = (append ? queueLoadedCount : 0) + data.rows.length;
+  }
+
+  function scorePill(score) {
+    if (score == null) return '<span class="pill off">unscored</span>';
+    const cls = score >= 80 ? 'good' : (score >= 50 ? 'warn' : 'danger');
+    return `<span class="pill ${cls}">score ${score}</span>`;
+  }
+
+  function mdStatusPill(row) {
+    if (!row.verified) return '<span class="pill warn">pending</span>';
+    if (row.quality === 'bad') return '<span class="pill danger">bad</span>';
+    return '<span class="pill good">good</span>';
+  }
+
+  function renderMarkdownCard(row) {
+    const card = document.createElement('details');
+    card.className = 'notice-card';
+    card.open = !row.verified;
+    card.dataset.filename = row.filename || '';
+
+    const filename = row.filename || row.file_path || '(unnamed notice)';
+    const typeBadge = row.notice_type
+      ? `<span class="pill">${escapeHtml(row.notice_type)}</span>`
+      : '<span class="pill off">unclassified</span>';
+    const props = row.property_count != null
+      ? `<span class="pill off">${row.property_count} props</span>` : '';
+    const len = row.markdown_length != null
+      ? `<span class="pill off">${row.markdown_length.toLocaleString()} chars</span>` : '';
+    const openLink = row.public_url
+      ? `<a class="link" href="${escapeHtml(row.public_url)}" target="_blank" rel="noopener">open notice ↗</a>`
+      : '';
+
+    const summary = document.createElement('summary');
+    summary.innerHTML = `
+      <span class="nfile">${escapeHtml(filename)}</span>
+      ${typeBadge} ${scorePill(row.score)} ${mdStatusPill(row)}
+      ${props} ${len}
+      <span class="nspacer"></span>
+      <span class="nlinks">${openLink}</span>
+    `;
+    card.appendChild(summary);
+
+    const body = document.createElement('div');
+    body.style.cssText = 'padding: 10px 14px; display: flex; flex-direction: column; gap: 10px;';
+    const pre = document.createElement('pre');
+    pre.style.cssText = 'background:#f7f5ee; border:1px solid rgba(0,0,0,0.1); padding:10px; max-height:280px; overflow:auto; white-space:pre-wrap; font-family:"IBM Plex Mono", monospace; font-size:12px; margin:0;';
+    pre.textContent = row.markdown_excerpt || '(empty markdown)';
+    body.appendChild(pre);
+
+    const notes = document.createElement('input');
+    notes.type = 'text';
+    notes.placeholder = 'notes (optional)';
+    notes.className = 'cnotes';
+    notes.value = row.review_notes || '';
+    notes.style.cssText = 'padding:6px 8px; border:1.5px solid var(--ink); font-family:"IBM Plex Mono", monospace; font-size:12px;';
+    body.appendChild(notes);
+
+    const actions = document.createElement('div');
+    actions.style.cssText = 'display:flex; gap:8px; align-items:center;';
+    const btnGood = document.createElement('button');
+    btnGood.className = 'primary';
+    btnGood.textContent = row.quality === 'good' ? 'Re-mark good' : 'Mark good';
+    const btnBad = document.createElement('button');
+    btnBad.className = 'ghost';
+    btnBad.textContent = row.quality === 'bad' ? 'Re-mark bad' : 'Mark bad';
+    const status = document.createElement('span');
+    status.className = 'meta';
+    status.style.cssText = 'color: var(--muted); margin-left: auto;';
+    if (row.verified) {
+      status.innerHTML = `marked <code>${escapeHtml(row.quality || '?')}</code> by <code>${escapeHtml(row.verified_by || '?')}</code>`;
+    }
+    actions.appendChild(btnGood);
+    actions.appendChild(btnBad);
+    actions.appendChild(status);
+    body.appendChild(actions);
+    card.appendChild(body);
+
+    const submit = async (quality) => {
+      btnGood.disabled = true; btnBad.disabled = true;
+      try {
+        const resp = await authFetch(
+          API + '/review/markdown/' + encodeURIComponent(row.filename) + '/verify',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ quality, notes: notes.value || null }),
+          }
+        );
+        if (!resp.ok) {
+          setMsg(`<span class="err">verify failed (${resp.status})</span>`, 3000);
+          return;
+        }
+        setMsg(`<span class="ok">marked ${quality}.</span>`, 1500);
+        loadStats();
+        loadQueue();
+      } finally {
+        btnGood.disabled = false; btnBad.disabled = false;
+      }
+    };
+    btnGood.addEventListener('click', () => submit('good'));
+    btnBad.addEventListener('click', () => submit('bad'));
     return card;
   }
 
@@ -1098,6 +1305,52 @@
       loadQueue();
     });
   });
+  $$('button.pill[data-mdstatus]').forEach(b => {
+    b.addEventListener('click', () => {
+      queueState.mdstatus = b.getAttribute('data-mdstatus');
+      loadQueue();
+    });
+  });
+
+  // Markdown score-threshold slider: live label, debounced reload (mirrors
+  // the auto-confirm slider above).
+  let mdConfReloadTimer = null;
+  $('md-conf-slider').addEventListener('input', () => {
+    const v = parseInt($('md-conf-slider').value, 10) || 70;
+    queueState.mdScoreThreshold = v;
+    $('md-conf-pct').textContent = String(v);
+    if (mdConfReloadTimer) clearTimeout(mdConfReloadTimer);
+    mdConfReloadTimer = setTimeout(() => {
+      if (queueState.group === 'markdown') { loadStats(); loadQueue(); }
+    }, 300);
+  });
+
+  $('md-conf-bulk').addEventListener('click', async () => {
+    if (queueState.group !== 'markdown') return;
+    const n = mdStatsAutoConfirmable || 0;
+    if (n === 0) return;
+    const threshold = queueState.mdScoreThreshold;
+    if (!confirm(`Mark ${n} sales-notice markdowns as good (score ≥ ${threshold})?`)) return;
+    const btn = $('md-conf-bulk');
+    btn.disabled = true;
+    const prior = btn.textContent;
+    btn.textContent = 'Confirming…';
+    try {
+      const r = await authFetch(API + '/review/markdown/bulk-confirm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ score_min: threshold, dry_run: false }),
+      });
+      if (r.status === 401 || r.status === 403) { setMsg('<span class="err">not authorised</span>', 3000); return; }
+      if (!r.ok) { setMsg(`<span class="err">bulk-confirm failed (${r.status})</span>`, 3000); return; }
+      const data = await r.json();
+      setMsg(`<span class="ok">marked ${data.count} good.</span>`, 2500);
+      loadStats();
+      await loadQueue();
+    } finally {
+      btn.textContent = prior;
+    }
+  });
 
   // Auto-confirm threshold slider: update the live label on every input, but
   // only refire the (potentially big) Cypher count on commit (mouse-up / change)
@@ -1149,6 +1402,7 @@
   $$('button.pill[data-group]').forEach(b => {
     b.addEventListener('click', () => {
       queueState.group = b.getAttribute('data-group');
+      loadStats();
       loadQueue();
     });
   });
