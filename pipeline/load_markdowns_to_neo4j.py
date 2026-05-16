@@ -33,6 +33,7 @@ import time
 from pathlib import Path
 
 from api.neo4j_client import run_query, run_read_query, session
+from pipeline.score_markdown import score_freshly_loaded
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -142,10 +143,13 @@ def main() -> int:
     missing = 0
     failed = 0
 
+    written_file_paths: list[str] = []
+
     def safe_write(rows: list[dict]) -> bool:
         for attempt in range(3):
             try:
                 write_markdowns(rows, args.markdown_source, args.markdown_model)
+                written_file_paths.extend(r["file_path"] for r in rows)
                 return True
             except Exception as e:
                 if attempt < 2:
@@ -193,8 +197,15 @@ def main() -> int:
     stamped = backfill_provenance(args.markdown_source, args.markdown_model)
     backfill_note = f"  backfilled_existing={stamped}" if stamped else ""
 
+    scored = 0
+    if written_file_paths:
+        try:
+            scored = score_freshly_loaded(written_file_paths)
+        except Exception as e:
+            print(f"  [score-fail] {type(e).__name__}: {e}")
+
     print(f"\nLoaded {done} markdowns  missing_md={missing}  failed={failed}"
-          f"{backfill_note}")
+          f"  scored={scored}{backfill_note}")
     return 0
 
 

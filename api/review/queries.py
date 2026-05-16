@@ -5,144 +5,29 @@ Cypher gateway for the enrichment review queue.
 """
 from __future__ import annotations
 
-import re
 from typing import Literal
 
 from api.neo4j_client import run_query, run_read_query
+from api.review.markdown_match import property_offset_in_notice
 
 
 ReviewStatus = Literal["pending", "verified", "edited", "all"]
-
-
-# ── Notice-order helpers (used by list_notice_queue) ────────────────────────
-# A multi-property sales notice lists its lots in a specific order on the
-# page. The reviewer wants the in-card property list to match that order so
-# they can scroll the PDF top-to-bottom and tick lots in sequence.
-#
-# We locate each property inside the notice's OCR markdown (d.markdown) by
-# the property's reserve_price, then disambiguate duplicate-price lots by
-# proximity to the property's borrower name. Sort by the resulting offset.
-
-_BORROWER_PREFIXES = re.compile(
-    r"^\s*(?:m/s\.?|mr\.?|mrs\.?|ms\.?|miss\.?|dr\.?|dr\(mr\)|dr\(mrs\)|smt\.?|shri\.?|sri\.?|tmt\.?|thiru\.?)\b",
-    re.IGNORECASE,
-)
-
-
-def _format_indian_lakh(n: int) -> str:
-    """Format an int in the Indian numbering system, e.g. 3000000 → '30,00,000'."""
-    s = str(abs(int(n)))
-    if len(s) <= 3:
-        return ("-" if n < 0 else "") + s
-    head, tail = s[:-3], s[-3:]
-    groups = []
-    while len(head) > 2:
-        groups.append(head[-2:])
-        head = head[:-2]
-    if head:
-        groups.append(head)
-    formatted = ",".join(reversed(groups)) + "," + tail
-    return ("-" if n < 0 else "") + formatted
-
-
-def _price_patterns(price) -> list[str]:
-    """Candidate strings a reserve price might appear as in the notice markdown."""
-    if price is None:
-        return []
-    try:
-        n = int(round(float(price)))
-    except (TypeError, ValueError):
-        return []
-    if n <= 0:
-        return []
-    raw = str(n)
-    intl = f"{n:,}"
-    indian = _format_indian_lakh(n)
-    seen: set[str] = set()
-    out: list[str] = []
-    for p in (indian, intl, raw):
-        if p and p not in seen:
-            seen.add(p)
-            out.append(p)
-    return out
-
-
-def _borrower_token(name: str | None) -> str | None:
-    """Strip honorific prefixes and return the first remaining word ≥ 4 chars.
-
-    'Mr Dineshkumar M'              → 'Dineshkumar'
-    'Dr(Mr) Vedhasalam U'           → 'Vedhasalam'
-    'M/s. Subbukshmi Enterprises'   → 'Subbukshmi'
-    'Mr A'                          → None  (no word ≥ 4 chars)
-    """
-    if not name:
-        return None
-    stripped = _BORROWER_PREFIXES.sub("", str(name)).strip()
-    for tok in re.split(r"[\s,./()&-]+", stripped):
-        if len(tok) >= 4:
-            return tok
-    return None
-
-
-def _all_offsets(haystack: str, needle: str, case_insensitive: bool = False) -> list[int]:
-    """Every (non-overlapping) offset of needle inside haystack."""
-    if not haystack or not needle:
-        return []
-    hay = haystack.lower() if case_insensitive else haystack
-    pin = needle.lower() if case_insensitive else needle
-    offsets: list[int] = []
-    start = 0
-    while True:
-        i = hay.find(pin, start)
-        if i < 0:
-            break
-        offsets.append(i)
-        start = i + len(pin)
-    return offsets
-
-
-def _property_offset_in_notice(prop: dict, markdown: str) -> int | None:
-    """The notice-order offset for one property.
-
-    Returns the markdown character index of the reserve-price occurrence that
-    sits closest to one of the property's borrower-name mentions. Falls back
-    to the first reserve-price occurrence when no borrower is mentioned, and
-    None when the price isn't in the markdown at all.
-    """
-    if not markdown:
-        return None
-    price_offsets: list[int] = []
-    for pat in _price_patterns(prop.get("reserve_price")):
-        price_offsets.extend(_all_offsets(markdown, pat))
-    if not price_offsets:
-        return None
-
-    borrower_offsets: list[int] = []
-    for b in prop.get("borrowers") or []:
-        tok = _borrower_token(b)
-        if not tok:
-            continue
-        borrower_offsets.extend(_all_offsets(markdown, tok, case_insensitive=True))
-
-    if not borrower_offsets:
-        return min(price_offsets)
-
-    def dist_to_borrower(p: int) -> int:
-        return min(abs(p - b) for b in borrower_offsets)
-
-    return min(price_offsets, key=lambda p: (dist_to_borrower(p), p))
 
 
 def _sort_properties_by_markdown(row: dict) -> None:
     """Sort row['properties'] in place by their position in row['markdown'].
 
     Pops 'markdown' off the row afterwards so it doesn't bloat the response.
+
+    A multi-property sales notice lists its lots in a specific order on the
+    page. The reviewer wants the in-card property list to match that order
+    so they can scroll the PDF top-to-bottom and tick lots in sequence.
     """
     md = row.pop("markdown", None) or ""
     props = row.get("properties") or []
 
     def sort_key(p: dict):
-        off = _property_offset_in_notice(p, md)
+        off = property_offset_in_notice(p, md)
         if off is not None:
             return (0, off, p.get("auction_id") or "")
         # No price hit (or no markdown): fall back to reserve_price ASC, then aid.
@@ -767,3 +652,221 @@ def stats(
         "verified": int(r.get("verified") or 0),
         "edited": int(r.get("edited") or 0),
     }
+
+
+# ── Markdown-quality review ─────────────────────────────────────────────────
+# A :Document's `markdown` is OCR output. Coverage scoring
+# (pipeline/score_markdown.py) writes `markdown_quality_score` 0–100 per
+# Document; reviewers focus on the low end. Verify writes:
+#   - markdown_quality              ('good' | 'bad')
+#   - markdown_verified_at          (datetime)
+#   - markdown_verified_by          (admin email)
+#   - markdown_review_notes         (optional)
+
+
+MarkdownStatus = Literal["pending", "good", "bad", "unscored", "all"]
+
+
+def _markdown_where(status: MarkdownStatus, score_max: float | None) -> tuple[list[str], dict]:
+    where = ["d.markdown IS NOT NULL", "d.markdown <> ''"]
+    params: dict = {}
+    if status == "pending":
+        where.append("d.markdown_verified_at IS NULL")
+    elif status == "good":
+        where.append("d.markdown_verified_at IS NOT NULL")
+        where.append("d.markdown_quality = 'good'")
+    elif status == "bad":
+        where.append("d.markdown_verified_at IS NOT NULL")
+        where.append("d.markdown_quality = 'bad'")
+    elif status == "unscored":
+        where.append("d.markdown_quality_score IS NULL")
+    # "all" → no extra filter
+    if score_max is not None:
+        where.append("d.markdown_quality_score IS NOT NULL")
+        where.append("d.markdown_quality_score < $score_max")
+        params["score_max"] = float(score_max)
+    return where, params
+
+
+def markdown_stats(score_min: float = 70.0) -> dict:
+    """Counts for the markdown review header.
+
+    `auto_confirmable` = unverified Documents whose score ≥ score_min — the
+    pile the bulk-confirm button would clear at the current slider value.
+    """
+    rows = run_read_query(
+        """
+        MATCH (d:Document)
+        WHERE d.markdown IS NOT NULL AND d.markdown <> ''
+        RETURN
+          count(*) AS total,
+          sum(CASE WHEN d.markdown_verified_at IS NULL THEN 1 ELSE 0 END) AS pending,
+          sum(CASE WHEN d.markdown_verified_at IS NOT NULL
+                    AND d.markdown_quality = 'good' THEN 1 ELSE 0 END) AS good,
+          sum(CASE WHEN d.markdown_verified_at IS NOT NULL
+                    AND d.markdown_quality = 'bad' THEN 1 ELSE 0 END) AS bad,
+          sum(CASE WHEN d.markdown_quality_score IS NULL THEN 1 ELSE 0 END) AS unscored,
+          sum(CASE WHEN d.markdown_verified_at IS NULL
+                    AND d.markdown_quality_score IS NOT NULL
+                    AND d.markdown_quality_score >= $min
+                   THEN 1 ELSE 0 END) AS auto_confirmable
+        """,
+        {"min": float(score_min)},
+        max_rows=1,
+    )
+    if not rows:
+        return {"total": 0, "pending": 0, "good": 0, "bad": 0,
+                "unscored": 0, "auto_confirmable": 0}
+    r = rows[0]
+    return {
+        "total":            int(r.get("total") or 0),
+        "pending":          int(r.get("pending") or 0),
+        "good":             int(r.get("good") or 0),
+        "bad":              int(r.get("bad") or 0),
+        "unscored":         int(r.get("unscored") or 0),
+        "auto_confirmable": int(r.get("auto_confirmable") or 0),
+    }
+
+
+def list_markdown_queue(
+    status: MarkdownStatus = "pending",
+    q: str | None = None,
+    page: int = 1,
+    size: int = 50,
+    score_max: float | None = None,
+) -> dict:
+    """Return a page of Documents for markdown-quality review.
+
+    Order: pending first, then lowest score first (so the worst OCR floats
+    to the top of the reviewer's queue). `score_max` lets the UI hide
+    Documents that already score above a threshold.
+    """
+    page = max(1, int(page))
+    size = max(1, min(200, int(size)))
+    skip = (page - 1) * size
+
+    where, params = _markdown_where(status, score_max)
+    params.update({"skip": skip, "size": size})
+    if q:
+        where.append("toLower(coalesce(d.filename, '')) CONTAINS toLower($q)")
+        params["q"] = q
+    where_clause = " AND ".join(where)
+
+    cypher = f"""
+        MATCH (d:Document)
+        WHERE {where_clause}
+        OPTIONAL MATCH (d)<-[:HAS_DOCUMENT]-(a:AuctionProperty)
+        WITH d, count(DISTINCT a) AS prop_count
+        RETURN d.filename                       AS filename,
+               d.file_path                      AS file_path,
+               d.public_url                     AS public_url,
+               d.notice_type                    AS notice_type,
+               coalesce(d.property_count, prop_count) AS property_count,
+               size(d.markdown)                 AS markdown_length,
+               substring(d.markdown, 0, 400)    AS markdown_excerpt,
+               d.markdown_quality_score         AS score,
+               d.markdown_quality               AS quality,
+               (d.markdown_verified_at IS NOT NULL) AS verified,
+               toString(d.markdown_verified_at) AS verified_at,
+               d.markdown_verified_by           AS verified_by,
+               d.markdown_review_notes          AS review_notes
+        ORDER BY (d.markdown_verified_at IS NULL) DESC,
+                 coalesce(d.markdown_quality_score, -1.0) ASC,
+                 d.filename ASC
+        SKIP $skip LIMIT $size
+    """
+    rows = run_read_query(cypher, params, max_rows=size, timeout=30.0)
+
+    count_cypher = f"""
+        MATCH (d:Document)
+        WHERE {where_clause}
+        RETURN count(d) AS total
+    """
+    count_rows = run_read_query(count_cypher, params, max_rows=1, timeout=30.0)
+    total = count_rows[0]["total"] if count_rows else 0
+
+    return {"page": page, "size": size, "total": total, "rows": rows}
+
+
+def verify_markdown(
+    filename: str,
+    quality: str,
+    by_email: str,
+    notes: str | None,
+) -> dict | None:
+    """Mark a Document's markdown as 'good' or 'bad'. Returns the updated row."""
+    if quality not in ("good", "bad"):
+        raise ValueError("quality must be 'good' or 'bad'")
+    rows = run_query(
+        """
+        MATCH (d:Document {filename: $filename})
+        SET d.markdown_quality           = $quality,
+            d.markdown_verified_at       = datetime(),
+            d.markdown_verified_by       = $by,
+            d.markdown_review_notes      = CASE
+                WHEN $notes IS NULL OR $notes = ''
+                THEN d.markdown_review_notes
+                ELSE $notes END
+        RETURN d.filename                       AS filename,
+               d.file_path                      AS file_path,
+               d.public_url                     AS public_url,
+               d.notice_type                    AS notice_type,
+               d.property_count                 AS property_count,
+               size(d.markdown)                 AS markdown_length,
+               substring(d.markdown, 0, 400)    AS markdown_excerpt,
+               d.markdown_quality_score         AS score,
+               d.markdown_quality               AS quality,
+               true                             AS verified,
+               toString(d.markdown_verified_at) AS verified_at,
+               d.markdown_verified_by           AS verified_by,
+               d.markdown_review_notes          AS review_notes
+        """,
+        {"filename": filename, "quality": quality, "by": by_email, "notes": notes},
+    )
+    return rows[0] if rows else None
+
+
+def auto_confirm_markdown(
+    score_min: float,
+    by_email: str,
+    notes: str | None = None,
+    dry_run: bool = False,
+) -> dict:
+    """Bulk-verify (quality='good') every unverified Document with
+    score ≥ score_min. Returns ``{"count": N, "dry_run": bool}``.
+    """
+    params = {"min": float(score_min), "by": by_email, "notes": notes}
+    if dry_run:
+        rows = run_read_query(
+            """
+            MATCH (d:Document)
+            WHERE d.markdown IS NOT NULL AND d.markdown <> ''
+              AND d.markdown_verified_at IS NULL
+              AND d.markdown_quality_score IS NOT NULL
+              AND d.markdown_quality_score >= $min
+            RETURN count(d) AS n
+            """,
+            params,
+            max_rows=1,
+        )
+        return {"count": int(rows[0]["n"]) if rows else 0, "dry_run": True}
+
+    rows = run_query(
+        """
+        MATCH (d:Document)
+        WHERE d.markdown IS NOT NULL AND d.markdown <> ''
+          AND d.markdown_verified_at IS NULL
+          AND d.markdown_quality_score IS NOT NULL
+          AND d.markdown_quality_score >= $min
+        SET d.markdown_quality      = 'good',
+            d.markdown_verified_at  = datetime(),
+            d.markdown_verified_by  = $by,
+            d.markdown_review_notes = CASE
+                WHEN $notes IS NULL OR $notes = ''
+                THEN d.markdown_review_notes
+                ELSE $notes END
+        RETURN count(d) AS n
+        """,
+        params,
+    )
+    return {"count": int(rows[0]["n"]) if rows else 0, "dry_run": False}
