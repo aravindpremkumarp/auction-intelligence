@@ -26,7 +26,7 @@ import sys
 import time
 from pathlib import Path
 
-from api.neo4j_client import run_read_query, session
+from api.neo4j_client import run_query, run_read_query, session
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -60,8 +60,7 @@ def write_markdowns(rows: list[dict]) -> None:
         MATCH (d:Document {file_path: row.file_path})
         SET d.markdown = row.markdown
     """
-    with session() as s:
-        s.run(cypher, {"rows": rows})
+    run_query(cypher, {"rows": rows})
 
 
 def main() -> int:

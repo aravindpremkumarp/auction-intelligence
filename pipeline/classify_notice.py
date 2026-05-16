@@ -110,8 +110,12 @@ def fetch_classify_work() -> list[dict]:
     """, max_rows=20_000, timeout=30.0)
 
 
-def parse_llm_json(text: str) -> dict | None:
+def parse_llm_json(text: str | None) -> dict | None:
+    if not text:
+        return None
     text = text.strip()
+    if not text:
+        return None
     if text.startswith("```"):
         lines = [l for l in text.split("\n") if not l.strip().startswith("```")]
         text = "\n".join(lines).strip()
