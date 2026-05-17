@@ -667,7 +667,7 @@ def stats(
 MarkdownStatus = Literal["pending", "good", "bad", "unscored", "all"]
 
 
-def _markdown_where(status: MarkdownStatus, score_max: float | None) -> tuple[list[str], dict]:
+def _markdown_where(status: MarkdownStatus, score_min: float | None) -> tuple[list[str], dict]:
     where = ["d.markdown IS NOT NULL", "d.markdown <> ''"]
     params: dict = {}
     if status == "pending":
@@ -681,10 +681,10 @@ def _markdown_where(status: MarkdownStatus, score_max: float | None) -> tuple[li
     elif status == "unscored":
         where.append("d.markdown_quality_score IS NULL")
     # "all" → no extra filter
-    if score_max is not None:
+    if score_min is not None:
         where.append("d.markdown_quality_score IS NOT NULL")
-        where.append("d.markdown_quality_score <= $score_max")
-        params["score_max"] = float(score_max)
+        where.append("d.markdown_quality_score >= $score_min")
+        params["score_min"] = float(score_min)
     return where, params
 
 
@@ -733,19 +733,20 @@ def list_markdown_queue(
     q: str | None = None,
     page: int = 1,
     size: int = 50,
-    score_max: float | None = None,
+    score_min: float | None = None,
 ) -> dict:
     """Return a page of Documents for markdown-quality review.
 
     Order: pending first, then lowest score first (so the worst OCR floats
-    to the top of the reviewer's queue). `score_max` lets the UI hide
-    Documents that already score above a threshold.
+    to the top of the reviewer's queue). `score_min` lets the UI restrict
+    the queue to Documents at or above the auto-confirm threshold — what
+    the bulk-confirm button is about to clear.
     """
     page = max(1, int(page))
     size = max(1, min(200, int(size)))
     skip = (page - 1) * size
 
-    where, params = _markdown_where(status, score_max)
+    where, params = _markdown_where(status, score_min)
     params.update({"skip": skip, "size": size})
     if q:
         where.append("toLower(coalesce(d.filename, '')) CONTAINS toLower($q)")

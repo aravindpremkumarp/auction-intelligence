@@ -271,7 +271,7 @@
       <input type="range" id="md-conf-slider" min="0" max="100" step="1" value="70" style="width:160px;">
       <span class="meta"><strong id="md-conf-pct">70</strong></span>
       <span style="width:14px"></span>
-      <span class="meta" id="md-conf-hint" style="color: var(--muted);">auto-confirm at this score · review below it</span>
+      <span class="meta" id="md-conf-hint" style="color: var(--muted);">queue & bulk-confirm show items with score ≥ this value</span>
       <span style="flex:1"></span>
       <button id="md-conf-bulk" class="primary" disabled>Confirm all 0 good</button>
     </div>
@@ -775,11 +775,13 @@
       size: String(PAGE_SIZE_MARKDOWN),
     });
     if (queueState.q) params.set('q', queueState.q);
-    // Show only Documents below the slider threshold — high-score ones are
-    // meant to be bulk-confirmed, not hand-reviewed. 'unscored' and 'all'
-    // ignore the slider so the reviewer can still find them.
-    if (queueState.mdstatus === 'pending' || queueState.mdstatus === 'bad') {
-      params.set('score_max', String(queueState.mdScoreThreshold));
+    // Slider acts as a floor on the pending queue: show only Documents whose
+    // score ≥ slider — exactly the set the bulk-confirm button is about to
+    // clear, so "what you see is what you'll confirm". Skip at 0 so unscored
+    // pending items still appear. Verified tabs (good/bad/unscored/all) are
+    // unaffected by the slider.
+    if (queueState.mdstatus === 'pending' && queueState.mdScoreThreshold > 0) {
+      params.set('score_min', String(queueState.mdScoreThreshold));
     }
     const r = await authFetch(API + '/review/markdown?' + params.toString());
     if (r.status === 401 || r.status === 403) {

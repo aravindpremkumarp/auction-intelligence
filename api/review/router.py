@@ -409,11 +409,11 @@ async def review_markdown_queue(
     q_search: str | None = Query(default=None, alias="q", max_length=200),
     page: int = Query(default=1, ge=1),
     size: int = Query(default=50, ge=1, le=200),
-    score_max: float | None = Query(default=None, ge=0.0, le=100.0),
+    score_min: float | None = Query(default=None, ge=0.0, le=100.0),
     _admin: UserOut = Depends(get_current_admin),
 ) -> MarkdownQueueOut:
     result = q.list_markdown_queue(
-        status=status, q=q_search, page=page, size=size, score_max=score_max,
+        status=status, q=q_search, page=page, size=size, score_min=score_min,
     )
     rows = [MarkdownRow(**r) for r in result["rows"]]
     return MarkdownQueueOut(
