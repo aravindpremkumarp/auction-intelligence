@@ -76,9 +76,10 @@ Operating principles:
 10. Carry forward scope filters across turns. If the user narrowed to a
     bank, city, area, property_type, or asset_category in any prior
     turn, keep passing that filter on every follow-up search_auctions
-    call until the user explicitly changes or drops it. The "Active
-    search scope" block in the system prompt lists the scope you must
-    keep.
+    call until the user explicitly changes or drops it. When scope is
+    active, an "Active search scope narrowed across prior turns" block
+    is appended to the per-turn instructions and lists the scope you
+    must keep.
 11. Use `internet_search` ONLY for questions that cannot be answered from
     the Neo4j auction graph: SARFAESI / legal procedure explanations,
     current bank or RBI news, locality background not stored in the
@@ -156,7 +157,21 @@ _model = OpenAIModel(OPENROUTER_MODEL, provider=_provider)
 agent = Agent(_model, deps_type=ChatDeps, system_prompt=SYSTEM_PROMPT)
 
 
-@agent.system_prompt(dynamic=True)
+# Both inject_* are registered as `@agent.instructions` rather than
+# `@agent.system_prompt(dynamic=True)`. Two reasons:
+#   1. Cache stability — instructions are skipped when they return "" or
+#      None (pydantic-ai's _get_instructions filters falsy strings), so
+#      no empty system message rides on the wire when there's no active
+#      mode. Dynamic system prompts always emit a SystemPromptPart even
+#      for empty output, which polluted Gemini's implicit cache prefix.
+#   2. Instructions are not persisted in message history — they're added
+#      fresh at request-build time on every turn, so old stored turns
+#      can't carry a stale "Active search scope" block when the user
+#      narrows scope differently later.
+# Old stored histories may still contain dynamic SystemPromptParts that
+# referenced these functions; the /chat handler strips them before
+# forwarding so they don't linger as orphan refs.
+@agent.instructions
 def inject_prior_search(ctx: RunContext[ChatDeps]) -> str:
     filters = ctx.deps.active_filters if ctx.deps else None
     total = ctx.deps.last_total_count if ctx.deps else None
@@ -182,10 +197,10 @@ def inject_prior_search(ctx: RunContext[ChatDeps]) -> str:
     return "\n".join(lines)
 
 
-@agent.system_prompt(dynamic=True)
+@agent.instructions
 def inject_mode_overlay(ctx: RunContext[ChatDeps]) -> str:
     """If the caller requested a mode (deep-research / compare / report),
-    append the mode's markdown spec to the system prompt."""
+    append the mode's markdown spec to the turn instructions."""
     mode = ctx.deps.mode if ctx.deps else None
     if not mode:
         return ""
@@ -491,12 +506,14 @@ def list_distinct(
 
 @agent.tool_plain
 def describe_schema(refresh: bool = False) -> dict:
-    """Describe the graph's labels, relationship types, enum values, and the
-    numeric/date ranges of key AuctionProperty fields. Cached for 1 hour.
+    """Describe the graph's labels, relationship types, enum values,
+    numeric/date ranges, and Cypher patterns. Cached for 1 hour.
 
-    Call this BEFORE using `run_cypher` on a novel question when you are
-    unsure about label names, relationship names, property names, or what
-    enum values exist."""
+    Returns `cypher_patterns` with `rules` (MATCH-shape constraints,
+    DATETIME handling) and `examples` (purpose + ready-to-adapt Cypher
+    for counts, breakdowns, temporal queries, re-auction velocity).
+    Call this BEFORE using `run_cypher` on a novel question — it's where
+    the patterns and the must-know rules live."""
     return T.describe_schema(refresh)
 
 

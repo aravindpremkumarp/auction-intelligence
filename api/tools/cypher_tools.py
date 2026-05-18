@@ -1100,6 +1100,179 @@ _DISTINCT_FIELDS: dict[str, tuple[str, str]] = {
 _SCHEMA_CACHE: dict[str, tuple[float, dict]] = {}
 _SCHEMA_TTL_SECONDS = 3600.0
 
+# Cypher patterns surfaced via describe_schema() so they don't bloat the
+# per-turn system prompt. The agent only needs these when composing
+# run_cypher queries; pulling them on demand keeps the baseline chat
+# prompt ~1.5K tokens lighter.
+_CYPHER_PATTERN_RULES = [
+    "HAS_ASSET_CATEGORY, HAS_PROPERTY_TYPE, CONDUCTED_BY, HAS_BORROWER, "
+    "and LOCATED_IN_* all start on AuctionProperty. MATCH each relationship "
+    "independently from `a` and join with commas. Do NOT chain "
+    "(Bank)-[:HAS_PROPERTY_TYPE] or (Bank)-[:HAS_ASSET_CATEGORY] — those "
+    "relationships do not exist.",
+    "auction_start_dt / auction_end_dt / application_deadline_dt are native "
+    "ZONED DATETIME (UTC). Group by component accessors "
+    "(.year .month .day .hour .dayOfWeek .quarter), never substring().",
+    "Now / arithmetic: datetime() for now; datetime() + duration({days: 7}) "
+    "for 'now + 7 days'.",
+    "Gaps: duration.between(a, b) returns a Duration with .days, .hours; "
+    "for numeric hours use duration.inSeconds(a, b).seconds / 3600.0.",
+    "Calendar-day equality: date(a.auction_start_dt) = date($other) strips "
+    "time-of-day so two timestamps on the same day match.",
+    "NEVER compare a DATETIME column against a raw ISO string parameter — "
+    "Cypher silently returns zero matches across ZONED-vs-LOCAL DATETIME. "
+    "If you must pass an ISO string, wrap it on the WHERE side: "
+    "WHERE a.auction_start_dt >= datetime($iso).",
+    "For scoped breakdowns, prefer the list_distinct tool (with city, bank, "
+    "borrower, asset_category, auction_type, or branch scope) before writing "
+    "a run_cypher — the tool already composes the correct Cypher shape.",
+]
+
+_CYPHER_PATTERN_EXAMPLES = [
+    {
+        "purpose": "Count auctions per city",
+        "cypher": (
+            "MATCH (a:AuctionProperty)-[:LOCATED_IN_CITY]->(c:City)\n"
+            "RETURN c.name AS city, count(a) AS n\n"
+            "ORDER BY n DESC LIMIT 20"
+        ),
+    },
+    {
+        "purpose": "Auctions per bank in a city",
+        "cypher": (
+            "MATCH (a:AuctionProperty)-[:CONDUCTED_BY]->(b:Bank),\n"
+            "      (a)-[:LOCATED_IN_CITY]->(c:City {name: $city})\n"
+            "RETURN b.name AS bank, count(a) AS n\n"
+            "ORDER BY n DESC"
+        ),
+    },
+    {
+        "purpose": "Monthly auction volume",
+        "cypher": (
+            "MATCH (a:AuctionProperty)\n"
+            "WHERE a.auction_start_dt IS NOT NULL\n"
+            "RETURN a.auction_start_dt.year  AS year,\n"
+            "       a.auction_start_dt.month AS month,\n"
+            "       count(a) AS n\n"
+            "ORDER BY year, month"
+        ),
+    },
+    {
+        "purpose": "Borrowers with multiple properties",
+        "cypher": (
+            "MATCH (a:AuctionProperty)-[:HAS_BORROWER]->(b:Borrower)\n"
+            "WITH b, count(a) AS n WHERE n > 1\n"
+            "RETURN b.name AS borrower, n ORDER BY n DESC"
+        ),
+    },
+    {
+        "purpose": "Areas where EMD-to-reserve ratio is unusual",
+        "cypher": (
+            "MATCH (a:AuctionProperty)-[:LOCATED_IN_AREA]->(ar:Area)\n"
+            "WHERE a.reserve_price_num > 0 AND a.emd_num > 0\n"
+            "WITH ar, avg(a.emd_num / a.reserve_price_num) AS emd_ratio, count(a) AS n\n"
+            "WHERE n >= 5\n"
+            "RETURN ar.name AS area, emd_ratio, n ORDER BY emd_ratio DESC LIMIT 20"
+        ),
+    },
+    {
+        "purpose": "Property-type breakdown filtered by bank",
+        "cypher": (
+            "MATCH (a:AuctionProperty)-[:CONDUCTED_BY]->(:Bank {name: $bank}),\n"
+            "      (a)-[:HAS_PROPERTY_TYPE]->(pt:PropertyType)\n"
+            "RETURN pt.name AS property_type, count(DISTINCT a) AS n\n"
+            "ORDER BY n DESC"
+        ),
+    },
+    {
+        "purpose": "Asset-category breakdown in a city",
+        "cypher": (
+            "MATCH (a:AuctionProperty)-[:LOCATED_IN_CITY]->(:City {name: $city}),\n"
+            "      (a)-[:HAS_ASSET_CATEGORY]->(ac:AssetCategory)\n"
+            "RETURN ac.name AS asset_category, count(DISTINCT a) AS n\n"
+            "ORDER BY n DESC"
+        ),
+    },
+    {
+        "purpose": "Auctions ending in the next 7 days",
+        "cypher": (
+            "MATCH (a:AuctionProperty)\n"
+            "WHERE a.auction_end_dt >= datetime()\n"
+            "  AND a.auction_end_dt <  datetime() + duration({days: 7})\n"
+            "RETURN count(a) AS n"
+        ),
+    },
+    {
+        "purpose": "Distribution by weekday (1 = Monday … 7 = Sunday)",
+        "cypher": (
+            "MATCH (a:AuctionProperty) WHERE a.auction_start_dt IS NOT NULL\n"
+            "RETURN a.auction_start_dt.dayOfWeek AS dow, count(a) AS n\n"
+            "ORDER BY dow"
+        ),
+    },
+    {
+        "purpose": "Auctions starting during business hours (9–17, server-local clock)",
+        "cypher": (
+            "MATCH (a:AuctionProperty) WHERE a.auction_start_dt IS NOT NULL\n"
+            "WITH a.auction_start_dt.hour AS h\n"
+            "WHERE h >= 9 AND h <= 17\n"
+            "RETURN count(*) AS n"
+        ),
+    },
+    {
+        "purpose": "Quarter bucket",
+        "cypher": (
+            "MATCH (a:AuctionProperty) WHERE a.auction_start_dt IS NOT NULL\n"
+            "RETURN a.auction_start_dt.year    AS year,\n"
+            "       a.auction_start_dt.quarter AS q,\n"
+            "       count(a) AS n\n"
+            "ORDER BY year, q"
+        ),
+    },
+    {
+        "purpose": "Deadline-to-start gap in hours",
+        "cypher": (
+            "MATCH (a:AuctionProperty)\n"
+            "WHERE a.application_deadline_dt IS NOT NULL\n"
+            "  AND a.auction_start_dt        IS NOT NULL\n"
+            "RETURN a.auction_id AS id,\n"
+            "       duration.inSeconds(a.application_deadline_dt,\n"
+            "                          a.auction_start_dt).seconds / 3600.0 AS gap_hours\n"
+            "ORDER BY gap_hours"
+        ),
+    },
+    {
+        "purpose": "Deadline within 24 hours of the auction start",
+        "cypher": (
+            "MATCH (a:AuctionProperty)\n"
+            "WHERE a.application_deadline_dt IS NOT NULL\n"
+            "  AND a.auction_start_dt        IS NOT NULL\n"
+            "WITH a, duration.inSeconds(a.application_deadline_dt,\n"
+            "                           a.auction_start_dt).seconds / 3600.0 AS gap_hours\n"
+            "WHERE abs(gap_hours) <= 24\n"
+            "RETURN count(a) AS n"
+        ),
+    },
+    {
+        "purpose": "Same-calendar-day siblings (batch-sale detection)",
+        "cypher": (
+            "MATCH (a:AuctionProperty {auction_id: $id})-[:SAME_PROPERTY_AS]->(s)\n"
+            "WHERE date(s.auction_start_dt) = date(a.auction_start_dt)\n"
+            "RETURN s.auction_id AS sibling_id,\n"
+            "       toString(s.auction_start_dt) AS starts"
+        ),
+    },
+    {
+        "purpose": "Re-auction velocity: avg days between a property's listings",
+        "cypher": (
+            "MATCH (a:AuctionProperty)-[:SAME_PROPERTY_AS]->(prev:AuctionProperty)\n"
+            "WHERE a.auction_start_dt IS NOT NULL AND prev.auction_start_dt IS NOT NULL\n"
+            "WITH duration.inSeconds(prev.auction_start_dt, a.auction_start_dt).seconds / 86400.0 AS gap_days\n"
+            "RETURN avg(gap_days) AS avg_gap_days, count(*) AS pairs"
+        ),
+    },
+]
+
 
 def list_distinct(
     field: str,
@@ -1301,6 +1474,10 @@ def describe_schema(refresh: bool = False) -> dict:
         "numeric_ranges": numeric_ranges,
         "date_ranges": date_ranges,
         "date_capabilities": date_capabilities,
+        "cypher_patterns": {
+            "rules": _CYPHER_PATTERN_RULES,
+            "examples": _CYPHER_PATTERN_EXAMPLES,
+        },
     }
     _SCHEMA_CACHE["default"] = (now, out)
     return out

@@ -1,7 +1,11 @@
 # Shared Agent Context
 
 This file is loaded into the chat agent's system prompt at boot. It defines
-the Neo4j schema, domain rules, and scoring taxonomy that every mode shares.
+the Neo4j schema and domain rules every chat turn relies on. Mode-specific
+content (scoring taxonomy, evaluation steps) lives in the per-mode files
+that `inject_mode_overlay` appends on demand. Cypher patterns for
+`run_cypher` live on `describe_schema()` so they don't ride along on
+every chat turn.
 
 ---
 
@@ -307,160 +311,21 @@ Do NOT drop `bank="Canara Bank"`. Do NOT invent `max_price=3000000`.
 Never introduce a `min_price`, `max_price`, `starts_after`, or
 `starts_before` the user did not state.
 
-## Cypher cheat-sheet for `run_cypher`
+## Cypher patterns for `run_cypher`
 
-Common patterns the agent will need:
-
-```cypher
-// Count per city
-MATCH (a:AuctionProperty)-[:LOCATED_IN_CITY]->(c:City)
-RETURN c.name AS city, count(a) AS n
-ORDER BY n DESC LIMIT 20
-
-// Auctions per bank in a city
-MATCH (a:AuctionProperty)-[:CONDUCTED_BY]->(b:Bank),
-      (a)-[:LOCATED_IN_CITY]->(c:City {name: $city})
-RETURN b.name AS bank, count(a) AS n
-ORDER BY n DESC
-
-// Monthly auction volume
-// auction_start_dt is DATETIME — group by component accessors, never substring().
-MATCH (a:AuctionProperty)
-WHERE a.auction_start_dt IS NOT NULL
-RETURN a.auction_start_dt.year  AS year,
-       a.auction_start_dt.month AS month,
-       count(a) AS n
-ORDER BY year, month
-
-// Borrowers with multiple properties
-MATCH (a:AuctionProperty)-[:HAS_BORROWER]->(b:Borrower)
-WITH b, count(a) AS n WHERE n > 1
-RETURN b.name AS borrower, n ORDER BY n DESC
-
-// Areas where EMD ratio is unusual
-MATCH (a:AuctionProperty)-[:LOCATED_IN_AREA]->(ar:Area)
-WHERE a.reserve_price_num > 0 AND a.emd_num > 0
-WITH ar, avg(a.emd_num / a.reserve_price_num) AS emd_ratio, count(a) AS n
-WHERE n >= 5
-RETURN ar.name AS area, emd_ratio, n ORDER BY emd_ratio DESC LIMIT 20
-
-// Property-type breakdown filtered by bank.
-// IMPORTANT: HAS_ASSET_CATEGORY / HAS_PROPERTY_TYPE / CONDUCTED_BY /
-// HAS_BORROWER / LOCATED_IN_* all start on AuctionProperty. MATCH each
-// relationship independently from `a` and join with commas. Do NOT
-// chain (Bank)-[:HAS_PROPERTY_TYPE] or (Bank)-[:HAS_ASSET_CATEGORY] —
-// those relationships do not exist.
-MATCH (a:AuctionProperty)-[:CONDUCTED_BY]->(:Bank {name: $bank}),
-      (a)-[:HAS_PROPERTY_TYPE]->(pt:PropertyType)
-RETURN pt.name AS property_type, count(DISTINCT a) AS n
-ORDER BY n DESC
-
-// Asset-category breakdown in a city
-MATCH (a:AuctionProperty)-[:LOCATED_IN_CITY]->(:City {name: $city}),
-      (a)-[:HAS_ASSET_CATEGORY]->(ac:AssetCategory)
-RETURN ac.name AS asset_category, count(DISTINCT a) AS n
-ORDER BY n DESC
-```
-
-### Temporal patterns
-
-These all rely on `auction_start_dt` / `auction_end_dt` /
-`application_deadline_dt` being native DATETIME (post-conversion).
-Reach for these BEFORE refusing a time-based question — there is no
-"the tools don't support this"; `run_cypher` does.
-
-```cypher
-// Auctions ending in the next 7 days (uses auction_end_dt range index)
-MATCH (a:AuctionProperty)
-WHERE a.auction_end_dt >= datetime()
-  AND a.auction_end_dt <  datetime() + duration({days: 7})
-RETURN count(a) AS n
-
-// Distribution by weekday (1 = Monday … 7 = Sunday)
-MATCH (a:AuctionProperty) WHERE a.auction_start_dt IS NOT NULL
-RETURN a.auction_start_dt.dayOfWeek AS dow, count(a) AS n
-ORDER BY dow
-
-// Auctions starting during business hours (9–17, server-local clock)
-MATCH (a:AuctionProperty) WHERE a.auction_start_dt IS NOT NULL
-WITH a.auction_start_dt.hour AS h
-WHERE h >= 9 AND h <= 17
-RETURN count(*) AS n
-
-// Quarter bucket
-MATCH (a:AuctionProperty) WHERE a.auction_start_dt IS NOT NULL
-RETURN a.auction_start_dt.year    AS year,
-       a.auction_start_dt.quarter AS q,
-       count(a) AS n
-ORDER BY year, q
-
-// Deadline-to-start gap, in hours
-MATCH (a:AuctionProperty)
-WHERE a.application_deadline_dt IS NOT NULL
-  AND a.auction_start_dt        IS NOT NULL
-RETURN a.auction_id AS id,
-       duration.inSeconds(a.application_deadline_dt,
-                          a.auction_start_dt).seconds / 3600.0 AS gap_hours
-ORDER BY gap_hours
-
-// Deadline within 24 hours of the auction start
-MATCH (a:AuctionProperty)
-WHERE a.application_deadline_dt IS NOT NULL
-  AND a.auction_start_dt        IS NOT NULL
-WITH a, duration.inSeconds(a.application_deadline_dt,
-                           a.auction_start_dt).seconds / 3600.0 AS gap_hours
-WHERE abs(gap_hours) <= 24
-RETURN count(a) AS n
-
-// Same-calendar-day siblings (batch-sale detection)
-MATCH (a:AuctionProperty {auction_id: $id})-[:SAME_PROPERTY_AS]->(s)
-WHERE date(s.auction_start_dt) = date(a.auction_start_dt)
-RETURN s.auction_id AS sibling_id,
-       toString(s.auction_start_dt) AS starts
-
-// Re-auction velocity: avg days between a property's listings
-MATCH (a:AuctionProperty)-[:SAME_PROPERTY_AS]->(prev:AuctionProperty)
-WHERE a.auction_start_dt IS NOT NULL AND prev.auction_start_dt IS NOT NULL
-WITH duration.inSeconds(prev.auction_start_dt, a.auction_start_dt).seconds / 86400.0 AS gap_days
-RETURN avg(gap_days) AS avg_gap_days, count(*) AS pairs
-```
+Common Cypher patterns, MATCH-shape rules, and the DATETIME-vs-ISO-string
+warning live on `describe_schema()` under `cypher_patterns`. Call
+`describe_schema()` before composing a novel `run_cypher` query — it
+returns `rules` (the must-know constraints) and `examples` (purpose +
+ready-to-adapt Cypher) so you don't have to invent shapes from scratch.
 
 For scoped breakdowns, prefer the `list_distinct` tool (with `city`,
 `bank`, `borrower`, `asset_category`, `auction_type`, or `branch`
-scope) before writing a `run_cypher` — the tool already composes the
-correct Cypher shape.
+scope) over `run_cypher` — the tool already composes the correct
+Cypher shape.
 
 ## Human-in-the-loop principle
 
 AI recommends scores, shortlists, and next actions. **Users confirm state
 transitions** past SCORED. Never auto-submit bids or mark states without
 user approval.
-
-## 10-dimension scoring taxonomy (used by evaluate / deep-research modes)
-
-| Dim | Name | Weight | What to assess |
-|-----|------|--------|----------------|
-| A | Price Attractiveness | 20% | Reserve price vs. comparables in same area |
-| B | Location Quality | 15% | City tier, area desirability, auction density |
-| C | Legal Clarity | 15% | Document completeness and field-conflict count |
-| D | Bank Reliability | 10% | Bank's historical auction volume and success |
-| E | Property Condition | 10% | Asset category, property type, description quality |
-| F | Timeline Urgency | 10% | Days until application deadline |
-| G | Due Diligence Ease | 5% | Download completeness, description score |
-| H | Area Price Trend | 5% | Historical price direction in same area |
-| I | Competition Risk | 5% | Number of similar concurrent auctions |
-| J | Yield Potential | 5% | EMD-to-price ratio, estimated rental yield |
-
-### Decision thresholds
-
-- **85+ (A/A+)** → Strong buy — bid immediately
-- **70–84 (B)** → Worth pursuing — complete due diligence
-- **55–69 (C)** → Selective — only if matches specific criteria
-- **Below 55 (D/F)** → Skip
-
-## Data sources
-
-- Primary: Neo4j knowledge graph (`cc513ea9` Aura database) — Tamil Nadu auctions (~5K+ records, count drifts on every load — call `describe_schema()` if you need the live total).
-- Vector index: `property_desc_idx` on `AuctionProperty.description`.
-- Enrichment: Vision-LLM OCR output in `pipeline/output/normalized.jsonl`.
-- Portals (future): eauctionsindia.com, ibapi.in, bankauctions.in.
