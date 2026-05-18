@@ -2076,7 +2076,10 @@
       const img = new Image();
       img.alt = 'notice';
       img.style.maxWidth = '100%';
-      img.crossOrigin = 'anonymous';
+      // Intentionally NOT setting crossOrigin — R2's public bucket
+      // doesn't serve CORS headers and the browser rejects anonymous
+      // requests. We only need to display the image, not read pixel
+      // data; the bbox overlay anchors on the rendered element.
       img.onload = () => {
         ann.pageRender = { width: img.naturalWidth, height: img.naturalHeight };
         paintAnnAll();
