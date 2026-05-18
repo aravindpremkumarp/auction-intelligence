@@ -392,14 +392,19 @@ def reingest_notice(filename: str, by_email: str) -> dict:
     """Re-run the full MinerU pipeline for a single Document.
 
     Used for backfilling notices that predate the per-block JSON cache.
-    Lazy-imports the bulk pipeline helpers so the import only fires when
-    the reviewer asks for it.
+    On a local dev machine the source file is usually on disk under
+    ``downloads/``. On the production API host it isn't — the canonical
+    source is the R2 ``public_url`` — so this falls back to streaming the
+    R2 bytes to a tempfile before handing them to MinerU. Lazy-imports
+    the bulk pipeline helpers so the import only fires when the reviewer
+    asks for it.
     """
     rows = run_read_query(
         """
         MATCH (d:Document {filename: $filename})
-        RETURN d.file_path AS file_path,
-               d.filename  AS filename
+        RETURN d.file_path  AS file_path,
+               d.filename   AS filename,
+               d.public_url AS public_url
         """,
         {"filename": filename},
         max_rows=1,
@@ -407,30 +412,68 @@ def reingest_notice(filename: str, by_email: str) -> dict:
     if not rows:
         raise BlocksNotFound(f"Document not found: {filename}")
     fp = rows[0]["file_path"]
+    src_filename = rows[0]["filename"]
+    public_url = rows[0].get("public_url")
 
-    from pipeline.mineru import find_disk_path
+    from pipeline.mineru import MINERU_SUPPORTED_EXTS, find_disk_path
     from pipeline.mineru_api import (
         request_batch, upload_files, poll, download_and_cache,
     )
-    disk = find_disk_path(rows[0]["filename"])
-    if disk is None:
-        raise BlocksNotFound(f"source file not on disk: {rows[0]['filename']}")
 
-    item = {
-        "filename":  rows[0]["filename"],
-        "file_path": fp,
-        "disk_path": disk,
-    }
-    batch_id, urls = request_batch([item])
-    upload_files([item], urls)
-    results = poll(batch_id)
-    if not results or results[0].get("state") != "done":
-        err = (results[0].get("err_msg") if results else "no rows")
-        raise RuntimeError(f"MinerU reingest failed: {err}")
-    zip_url = results[0].get("full_zip_url")
-    md_path, blocks_path = download_and_cache(fp, zip_url)
-    if md_path is None:
-        raise RuntimeError("reingest succeeded but no markdown was produced")
+    import os
+    import tempfile
+    from pathlib import Path
+
+    disk = find_disk_path(src_filename)
+    tmp_path: Path | None = None
+    if disk is None:
+        # Fall back to R2 — the canonical source on the production host.
+        if not public_url:
+            raise BlocksNotFound(
+                f"source file not on disk and no public_url: {src_filename}"
+            )
+        ext = Path(src_filename).suffix.lower() or ".bin"
+        if ext not in MINERU_SUPPORTED_EXTS:
+            raise ValueError(f"unsupported source extension: {ext}")
+        import requests
+        try:
+            resp = requests.get(public_url, timeout=120, stream=True)
+            resp.raise_for_status()
+        except requests.RequestException as e:
+            raise RuntimeError(f"failed to fetch source from R2: {e}")
+        fd, tmp_name = tempfile.mkstemp(suffix=ext, prefix="reingest_")
+        tmp_path = Path(tmp_name)
+        try:
+            with os.fdopen(fd, "wb") as out:
+                for chunk in resp.iter_content(chunk_size=65536):
+                    if chunk:
+                        out.write(chunk)
+        finally:
+            resp.close()
+        disk = tmp_path
+
+    try:
+        item = {
+            "filename":  src_filename,
+            "file_path": fp,
+            "disk_path": disk,
+        }
+        batch_id, urls = request_batch([item])
+        upload_files([item], urls)
+        results = poll(batch_id)
+        if not results or results[0].get("state") != "done":
+            err = (results[0].get("err_msg") if results else "no rows")
+            raise RuntimeError(f"MinerU reingest failed: {err}")
+        zip_url = results[0].get("full_zip_url")
+        md_path, blocks_path = download_and_cache(fp, zip_url)
+        if md_path is None:
+            raise RuntimeError("reingest succeeded but no markdown was produced")
+    finally:
+        if tmp_path is not None:
+            try:
+                tmp_path.unlink()
+            except FileNotFoundError:
+                pass
 
     # Reuse the loader's parsing so we share one code path.
     from pipeline.load_markdowns_to_neo4j import load_blocks_for
