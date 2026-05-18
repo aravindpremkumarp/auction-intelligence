@@ -593,6 +593,33 @@ def _strip_ui_rows_from_history(history: list[dict[str, Any]]) -> list[dict[str,
     return history
 
 
+def _strip_dynamic_system_prompts_from_history(
+    history: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Drop any SystemPromptPart with a `dynamic_ref` from incoming history.
+
+    The agent used to register `inject_prior_search` and `inject_mode_overlay`
+    as `@agent.system_prompt(dynamic=True)`, which persists their output as
+    SystemPromptParts carrying a `dynamic_ref` qualname. After we migrated
+    those functions to `@agent.instructions` (cleaner Gemini cache prefix —
+    instructions are skipped when empty, and not persisted in history),
+    the refs in older stored histories no longer resolve to runners, so
+    pydantic-ai would leave them frozen with stale "Active scope" text.
+    Stripping them keeps history clean while letting the agent re-add the
+    fresh content as an instruction message on the new turn.
+    """
+    for msg in history:
+        parts = msg.get("parts", [])
+        msg["parts"] = [
+            p for p in parts
+            if not (
+                p.get("part_kind") == "system-prompt"
+                and p.get("dynamic_ref")
+            )
+        ]
+    return history
+
+
 class FeedbackRequest(BaseModel):
     kind: Literal["message", "general"] = "message"
     rating: Literal["up", "down"] | None = None
@@ -833,7 +860,9 @@ async def chat(
     if user is None:
         _enforce_anon_chat_limit(request)
     history = (
-        ModelMessagesTypeAdapter.validate_python(req.message_history)
+        ModelMessagesTypeAdapter.validate_python(
+            _strip_dynamic_system_prompts_from_history(req.message_history)
+        )
         if req.message_history
         else None
     )

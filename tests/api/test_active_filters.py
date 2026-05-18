@@ -201,3 +201,71 @@ def test_strip_ui_rows_from_history() -> None:
     assert cleaned[0]["parts"][0]["content"]["results"] == [1, 2, 3]
     # Non-tool-return parts are untouched.
     assert cleaned[1]["parts"][0]["content"] == "hello"
+
+
+def test_strip_dynamic_system_prompts_from_history() -> None:
+    """Old stored histories still carry SystemPromptParts with a
+    `dynamic_ref` pointing at functions we migrated to `@agent.instructions`.
+    The strip helper drops those orphan refs so pydantic-ai doesn't
+    re-emit stale 'Active scope' text on the next turn."""
+    from api.main import _strip_dynamic_system_prompts_from_history
+    history = [
+        {
+            "parts": [
+                # Static system prompt — must survive.
+                {"part_kind": "system-prompt", "content": "You are an AI..."},
+                # Dynamic prior_search ref — must be dropped.
+                {
+                    "part_kind": "system-prompt",
+                    "content": "Active search scope narrowed across prior turns: ...",
+                    "dynamic_ref": "Agent.system_prompt.<locals>.inject_prior_search",
+                },
+                # Dynamic mode_overlay ref — must be dropped (even if empty).
+                {
+                    "part_kind": "system-prompt",
+                    "content": "",
+                    "dynamic_ref": "Agent.system_prompt.<locals>.inject_mode_overlay",
+                },
+                # A real user message in the same ModelRequest — keeps.
+                {"part_kind": "user-prompt", "content": "show me 5 cheap ones"},
+            ],
+        },
+        {
+            "parts": [
+                # Tool returns must pass through untouched.
+                {"part_kind": "tool-return", "tool_name": "search_auctions", "content": {"x": 1}},
+            ],
+        },
+    ]
+
+    cleaned = _strip_dynamic_system_prompts_from_history(history)
+
+    msg0_kinds = [p["part_kind"] for p in cleaned[0]["parts"]]
+    msg0_contents = [p.get("content") for p in cleaned[0]["parts"]]
+    # Static system prompt + user prompt survived; both dynamic_ref system
+    # prompts are gone.
+    assert msg0_kinds == ["system-prompt", "user-prompt"]
+    assert "You are an AI..." in msg0_contents
+    assert "show me 5 cheap ones" in msg0_contents
+    # No remaining part should carry a dynamic_ref.
+    for part in cleaned[0]["parts"]:
+        assert "dynamic_ref" not in part or not part.get("dynamic_ref")
+    # Other message kinds (tool-return) are untouched.
+    assert cleaned[1]["parts"][0]["part_kind"] == "tool-return"
+    assert cleaned[1]["parts"][0]["content"] == {"x": 1}
+
+
+def test_strip_dynamic_system_prompts_idempotent_when_no_refs() -> None:
+    """Histories that never went through the old dynamic-system-prompt era
+    must be passed through unchanged."""
+    from api.main import _strip_dynamic_system_prompts_from_history
+    history = [
+        {
+            "parts": [
+                {"part_kind": "system-prompt", "content": "You are an AI..."},
+                {"part_kind": "user-prompt", "content": "hello"},
+            ],
+        },
+    ]
+    cleaned = _strip_dynamic_system_prompts_from_history(history)
+    assert cleaned == history

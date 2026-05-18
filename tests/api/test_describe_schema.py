@@ -69,6 +69,25 @@ def test_describe_schema_shape(monkeypatch):
     assert out["numeric_ranges"]["reserve_price_num"]["p95"] == 20000000.0
     assert out["date_ranges"]["auction_start_dt"]["min"] == "2025-01-01T00:00:00"
 
+    # cypher_patterns moved off the system prompt onto describe_schema so the
+    # agent fetches them on demand for run_cypher composition. The structure
+    # the chat agent relies on is {rules: [...], examples: [{purpose, cypher}, ...]}.
+    patterns = out["cypher_patterns"]
+    assert isinstance(patterns["rules"], list) and len(patterns["rules"]) >= 5
+    assert isinstance(patterns["examples"], list) and len(patterns["examples"]) >= 10
+    for ex in patterns["examples"]:
+        assert set(ex.keys()) == {"purpose", "cypher"}
+        assert ex["purpose"] and ex["cypher"]
+    # Spot-check that the load-bearing rules survived the move.
+    rules_text = " ".join(patterns["rules"]).lower()
+    assert "match each relationship independently" in rules_text
+    assert "zoned datetime" in rules_text
+    assert "iso string" in rules_text
+    # Spot-check a key example shape so a regression doesn't quietly drop it.
+    purposes = {ex["purpose"].lower() for ex in patterns["examples"]}
+    assert any("count auctions per city" in p for p in purposes)
+    assert any("re-auction velocity" in p for p in purposes)
+
 
 def test_describe_schema_cached(monkeypatch):
     import api.tools.cypher_tools as ct
