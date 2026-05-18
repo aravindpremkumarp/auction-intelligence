@@ -8,10 +8,12 @@ from __future__ import annotations
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from api.auth.dependencies import get_current_admin
 from api.auth.schemas import UserOut
+from api.neo4j_client import run_read_query
 from api.review import blocks as block_ops
 from api.review import queries as q
 
@@ -660,3 +662,51 @@ async def review_notice_reingest(
     admin: UserOut = Depends(get_current_admin),
 ) -> BlocksDoc:
     return _ok_doc(block_ops.reingest_notice(filename, by_email=admin.email))
+
+
+@router.get("/notice/{filename}/source")
+async def review_notice_source(filename: str):
+    """Stream a notice's source bytes with CORS headers enabled.
+
+    R2 public URLs don't include CORS headers, so pdf.js's XHR fetch
+    from the annotator UI fails with "Failed to fetch". This proxy
+    fronts the same R2 object behind our origin so the global
+    CORSMiddleware applies. The bytes themselves are already public on
+    R2 — this endpoint just adds CORS — so no admin auth is required
+    (matching the existing pattern of using ``Document.public_url``
+    directly in the queue UI).
+    """
+    import requests
+
+    rows = run_read_query(
+        "MATCH (d:Document {filename: $filename}) RETURN d.public_url AS url",
+        {"filename": filename},
+        max_rows=1,
+    )
+    if not rows or not rows[0].get("url"):
+        raise HTTPException(status_code=404, detail="notice has no public_url")
+    upstream = rows[0]["url"]
+
+    try:
+        r = requests.get(upstream, timeout=60, stream=True)
+    except requests.RequestException as e:
+        raise HTTPException(status_code=502, detail=f"upstream fetch: {e}")
+    if not r.ok:
+        raise HTTPException(status_code=502,
+                            detail=f"upstream returned {r.status_code}")
+
+    content_type = r.headers.get("content-type", "application/octet-stream")
+
+    def _iter():
+        try:
+            for chunk in r.iter_content(chunk_size=65536):
+                if chunk:
+                    yield chunk
+        finally:
+            r.close()
+
+    return StreamingResponse(
+        _iter(),
+        media_type=content_type,
+        headers={"Cache-Control": "private, max-age=300"},
+    )

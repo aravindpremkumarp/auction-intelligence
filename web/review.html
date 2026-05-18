@@ -2064,7 +2064,12 @@
     if (kind === 'pdf') {
       await ensurePdfJs();
       try {
-        const loadingTask = window.pdfjsLib.getDocument(url);
+        // pdf.js fetches the PDF via XHR which requires CORS. R2's
+        // public URL doesn't return CORS headers, so we route the
+        // fetch through our API's source-proxy endpoint (the global
+        // CORSMiddleware adds the right header on the response).
+        const proxied = API + '/review/notice/' + encodeURIComponent(ann.filename) + '/source';
+        const loadingTask = window.pdfjsLib.getDocument(proxied);
         ann.pdfDoc = await loadingTask.promise;
         ann.pages = ann.pdfDoc.numPages;
         renderAnnPageSelect();
