@@ -52,3 +52,5 @@ services:
         sync: false
       - key: R2_PUBLIC_BASE_URL
         sync: false
+      - key: MINERU_API_KEY
+        sync: false
