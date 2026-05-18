@@ -192,6 +192,72 @@
     h1 { font-size: 26px; }
     th, td { padding: 6px 8px; }
   }
+  /* ── Annotator screen ────────────────────────────────────────── */
+  .ann-toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+  .ann-toolbar .filename { font-family: 'IBM Plex Mono', monospace; font-weight: 600; font-size: 13px; }
+  .ann-toolbar .page-select { padding: 4px 8px; border: 1.5px solid var(--ink); background: #fff; }
+  .ann-toolbar .mode-on { background: var(--accent); font-weight: 600; }
+  .ann-grid { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(280px, 1fr); gap: 14px; }
+  @media (max-width: 1100px) { .ann-grid { grid-template-columns: 1fr; } }
+  .ann-stage { border: 2px solid var(--ink); background: #2a2a2a; box-shadow: 2px 3px 0 rgba(0,0,0,0.9); overflow: auto; max-height: 85vh; min-height: 60vh; padding: 8px; display: flex; justify-content: center; }
+  .ann-page { position: relative; display: inline-block; background: #fff; max-width: 100%; }
+  .ann-page > img, .ann-page > canvas { display: block; max-width: 100%; height: auto; user-select: none; }
+  .ann-page.draw { cursor: crosshair; }
+  .ann-overlay { position: absolute; inset: 0; }
+  .ann-block { position: absolute; border: 2px solid var(--ink); background: rgba(255,216,77,0.10); cursor: move; box-sizing: border-box; }
+  .ann-block.selected { z-index: 10; border-color: var(--danger); background: rgba(214,74,46,0.10); }
+  .ann-block.reextracting { border-style: dashed; opacity: 0.65; }
+  .ann-block.lab-Title       { border-color: #1e88e5; }
+  .ann-block.lab-Text        { border-color: #2e8b57; }
+  .ann-block.lab-Table       { border-color: #d64a2e; }
+  .ann-block.lab-Image       { border-color: #7c3aed; }
+  .ann-block.lab-Equation    { border-color: #ff6f00; }
+  .ann-block.lab-Code        { border-color: #555; }
+  .ann-block.lab-List        { border-color: #2e8b57; }
+  .ann-block.lab-Discarded   { border-color: #999; opacity: 0.45; }
+  .ann-block.lab-PageNumber  { border-color: #aaa; opacity: 0.6; }
+  .ann-block.lab-Header      { border-color: #888; }
+  .ann-block.lab-Footer      { border-color: #888; }
+  .ann-block .ann-lbl { position: absolute; top: -18px; left: -2px; font-family: 'IBM Plex Mono', monospace; font-size: 10px; background: var(--ink); color: var(--paper); padding: 1px 6px; white-space: nowrap; pointer-events: none; }
+  .ann-block .resizer { position: absolute; width: 9px; height: 9px; background: #fff; border: 1.5px solid var(--ink); box-sizing: border-box; }
+  .ann-block.selected .resizer { display: block; }
+  .ann-block .resizer { display: none; }
+  .ann-block .resizer.tl { left: -5px;  top: -5px;    cursor: nwse-resize; }
+  .ann-block .resizer.tr { right: -5px; top: -5px;    cursor: nesw-resize; }
+  .ann-block .resizer.bl { left: -5px;  bottom: -5px; cursor: nesw-resize; }
+  .ann-block .resizer.br { right: -5px; bottom: -5px; cursor: nwse-resize; }
+  .ann-block .resizer.t  { left: 50%;  top: -5px;    transform: translateX(-50%); cursor: ns-resize; }
+  .ann-block .resizer.b  { left: 50%;  bottom: -5px; transform: translateX(-50%); cursor: ns-resize; }
+  .ann-block .resizer.l  { left: -5px; top: 50%;     transform: translateY(-50%); cursor: ew-resize; }
+  .ann-block .resizer.r  { right: -5px; top: 50%;    transform: translateY(-50%); cursor: ew-resize; }
+  .ann-block .grid-row, .ann-block .grid-col { position: absolute; background: rgba(0,0,0,0.5); pointer-events: auto; }
+  .ann-block .grid-row { left: 0; right: 0; height: 1px; cursor: row-resize; }
+  .ann-block .grid-row::after { content: ''; position: absolute; inset: -4px 0; }
+  .ann-block .grid-col { top: 0; bottom: 0; width: 1px; cursor: col-resize; }
+  .ann-block .grid-col::after { content: ''; position: absolute; inset: 0 -4px; }
+  .ann-marquee { position: absolute; border: 1.5px dashed var(--danger); background: rgba(214,74,46,0.10); pointer-events: none; }
+  .ann-sidebar { border: 2px solid var(--ink); background: #fff; box-shadow: 2px 3px 0 rgba(0,0,0,0.9); padding: 10px; max-height: 85vh; overflow: auto; }
+  .ann-sidebar h2 { margin: 0 0 8px; }
+  .ann-banner { background: var(--accent); border: 1.5px solid var(--ink); padding: 8px 10px; margin-bottom: 10px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; }
+  .ann-row { border: 1.5px solid var(--ink); background: var(--paper); padding: 8px; margin-bottom: 8px; }
+  .ann-row.selected { background: #fff8d4; box-shadow: inset 0 0 0 2px var(--danger); }
+  .ann-row .ann-row-top { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; flex-wrap: wrap; }
+  .ann-row .order-input { width: 56px; padding: 3px 4px; border: 1.5px solid var(--ink); background: #fff; font-family: 'IBM Plex Mono', monospace; font-size: 12px; }
+  .ann-row .label-select { padding: 3px 4px; border: 1.5px solid var(--ink); background: #fff; font-family: 'IBM Plex Mono', monospace; font-size: 12px; }
+  .ann-row .ann-text { width: 100%; box-sizing: border-box; min-height: 60px; padding: 6px; border: 1.5px solid var(--ink); background: #fff; font-family: 'IBM Plex Mono', monospace; font-size: 12px; line-height: 1.4; resize: vertical; }
+  .ann-row .ann-text.html-mode { font-size: 11px; background: #f3f0e7; }
+  .ann-row .row-actions { display: flex; gap: 6px; align-items: center; margin-top: 6px; flex-wrap: wrap; }
+  .ann-row .row-actions button { padding: 3px 8px; font-size: 11px; min-height: 0; }
+  .ann-row .row-meta { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--muted); margin-left: auto; }
+  .ann-row .reextract-spin { display: inline-block; width: 10px; height: 10px; border: 2px solid var(--ink); border-top-color: transparent; border-radius: 50%; animation: ann-spin 0.7s linear infinite; vertical-align: -1px; margin-right: 4px; }
+  .ann-row .table-editor { margin-top: 6px; padding: 6px; border: 1px dashed var(--ink); font-size: 11px; }
+  .ann-row .table-editor .grid-positions { display: grid; grid-template-columns: 70px 1fr; gap: 4px 8px; align-items: center; margin-top: 4px; }
+  .ann-row .table-editor input { width: 100%; box-sizing: border-box; padding: 3px 5px; border: 1.5px solid var(--ink); font-family: 'IBM Plex Mono', monospace; font-size: 11px; }
+  @keyframes ann-spin { to { transform: rotate(360deg); } }
+  .ann-toast { position: fixed; bottom: 18px; right: 18px; background: var(--ink); color: var(--paper); padding: 8px 14px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; z-index: 1000; box-shadow: 2px 3px 0 rgba(0,0,0,0.5); }
+  .ann-toast.err { background: var(--danger); }
+  .ann-toast.ok  { background: var(--good); color: #fff; }
+  .ann-link { color: var(--ink); text-decoration: underline; cursor: pointer; font-family: 'IBM Plex Mono', monospace; font-size: 11px; }
 </style>
 </head>
 <body>
@@ -374,6 +440,45 @@
       </div>
     </div>
   </section>
+
+  <!-- Annotator screen -->
+  <section id="screen-annotator" class="hidden">
+    <div class="ann-toolbar">
+      <a class="link" href="#">← Back to queue</a>
+      <span class="filename" id="ann-filename"></span>
+      <span class="pill" id="ann-rev"></span>
+      <span style="flex:1"></span>
+      <label class="meta" style="display:none" id="ann-page-wrap">page <select class="page-select" id="ann-page"></select></label>
+      <button id="ann-add" class="ghost">+ Add block</button>
+      <button id="ann-reload" class="ghost">Reload</button>
+      <a class="link" id="ann-open-src" target="_blank" rel="noopener" style="display:none">open source ↗</a>
+    </div>
+    <div id="ann-banner-wrap"></div>
+    <div class="ann-grid">
+      <div class="ann-stage" id="ann-stage">
+        <div class="ann-page" id="ann-page-wrap-inner">
+          <div class="empty" style="padding:20px; color:#fff;">loading…</div>
+        </div>
+      </div>
+      <div class="ann-sidebar">
+        <h2>Blocks</h2>
+        <div id="ann-rows"></div>
+        <details style="margin-top:14px">
+          <summary>Regenerated markdown</summary>
+          <div class="md-section" style="margin-top:6px">
+            <div class="md-header">
+              <span class="md-title">From blocks</span>
+              <span class="md-toggle">
+                <button class="pill" data-ann-md-mode="rendered">rendered</button>
+                <button class="pill" data-ann-md-mode="raw">raw</button>
+              </span>
+            </div>
+            <div id="ann-md-body" class="markdown-body" style="max-height:30vh"></div>
+          </div>
+        </details>
+      </div>
+    </div>
+  </section>
 </div>
 
 <script>
@@ -420,13 +525,15 @@
   function parseHash() {
     const h = (location.hash || '').replace(/^#/, '');
     if (h.startsWith('property/')) return { screen: 'detail', id: decodeURIComponent(h.slice('property/'.length)) };
-    if (h.startsWith('gallery/')) return { screen: 'queue', gallery: decodeURIComponent(h.slice('gallery/'.length)) };
+    if (h.startsWith('notice/'))   return { screen: 'annotator', filename: decodeURIComponent(h.slice('notice/'.length)) };
+    if (h.startsWith('gallery/'))  return { screen: 'queue', gallery: decodeURIComponent(h.slice('gallery/'.length)) };
     return { screen: 'queue' };
   }
 
   function show(screen) {
     $('screen-queue').classList.toggle('hidden', screen !== 'queue');
     $('screen-detail').classList.toggle('hidden', screen !== 'detail');
+    $('screen-annotator').classList.toggle('hidden', screen !== 'annotator');
   }
 
   async function route() {
@@ -440,6 +547,8 @@
         try { localStorage.setItem('cView', 'gallery'); } catch {}
       }
       await loadStats(); await loadQueue();
+    } else if (r.screen === 'annotator') {
+      await loadAnnotator(r.filename);
     } else {
       await loadDetail(r.id);
     }
@@ -836,6 +945,9 @@
     const openLink = row.public_url
       ? `<a class="link" href="${escapeHtml(row.public_url)}" target="_blank" rel="noopener">open notice ↗</a>`
       : '';
+    const annotateLink = row.filename
+      ? `<a class="link" href="#notice/${encodeURIComponent(row.filename)}">annotate blocks ↗</a>`
+      : '';
 
     const summary = document.createElement('summary');
     summary.innerHTML = `
@@ -843,7 +955,7 @@
       ${typeBadge} ${scorePill(row.score)} ${mdStatusPill(row)}
       ${props} ${len}
       <span class="nspacer"></span>
-      <span class="nlinks">${openLink}</span>
+      <span class="nlinks">${annotateLink} ${openLink}</span>
     `;
     card.appendChild(summary);
 
@@ -1801,6 +1913,755 @@
       e.preventDefault();
       $('btn-verify').click();
     }
+  });
+
+  // ─── Annotator screen ───────────────────────────────────────────────────
+  //
+  // Per-block bbox review for a single notice. Loads `Document.blocks` from
+  // /review/notice/{filename}/blocks, renders the source image with CSS
+  // overlays, and lets the reviewer edit / delete / draw / re-extract.
+  // State is local to this object; nothing leaks back to the queue.
+  const LABEL_VALUES = [
+    'Code','Discarded','Equation','Footer','Footnote','Header',
+    'Image','ImageCaption','ImageFootnote','List','PageNumber','Reference',
+    'Table','TableCaption','TableFootnote','Text','Title'
+  ];
+  const ann = {
+    filename: null,
+    doc: null,         // BlocksDoc as returned by the API
+    blocks: [],        // mutable copy of doc.blocks
+    selectedId: null,
+    mode: 'select',    // 'select' | 'draw'
+    page: 1,
+    pages: 1,
+    rev: 0,
+    sourceKind: null,  // 'pdf' | 'image' | 'other'
+    pdfDoc: null,      // pdfjs proxy
+    pageRender: { width: 0, height: 0 },
+    dragSession: null,
+  };
+
+  function annToast(msg, kind) {
+    const t = document.createElement('div');
+    t.className = 'ann-toast' + (kind ? ' ' + kind : '');
+    t.textContent = msg;
+    document.body.appendChild(t);
+    setTimeout(() => t.remove(), 2200);
+  }
+
+  function annClamp01(v) { return Math.max(0, Math.min(1, v)); }
+
+  function annNormalizeBox(b) {
+    let [x0, y0, x1, y1] = b;
+    if (x1 < x0) [x0, x1] = [x1, x0];
+    if (y1 < y0) [y0, y1] = [y1, y0];
+    x0 = annClamp01(x0); y0 = annClamp01(y0);
+    x1 = annClamp01(x1); y1 = annClamp01(y1);
+    if (x1 - x0 < 0.005) x1 = annClamp01(x0 + 0.005);
+    if (y1 - y0 < 0.005) y1 = annClamp01(y0 + 0.005);
+    return [x0, y0, x1, y1];
+  }
+
+  async function loadAnnotator(filename) {
+    ann.filename = filename;
+    ann.selectedId = null;
+    ann.mode = 'select';
+    $('ann-filename').textContent = filename;
+    $('ann-rows').innerHTML = '<div class="empty">loading…</div>';
+    $('ann-banner-wrap').innerHTML = '';
+    $('ann-page-wrap-inner').innerHTML = '<div class="empty" style="padding:20px; color:#fff;">loading…</div>';
+    try {
+      const r = await authFetch(API + '/review/notice/' + encodeURIComponent(filename) + '/blocks');
+      if (!r.ok) {
+        $('ann-rows').innerHTML = `<div class="empty err">load failed (${r.status})</div>`;
+        return;
+      }
+      const doc = await r.json();
+      ann.doc = doc;
+      ann.blocks = (doc.blocks || []).map(b => ({ ...b, bbox: b.bbox.slice() }));
+      ann.rev = doc.blocks_revision || 0;
+      $('ann-rev').textContent = 'rev ' + ann.rev;
+      const openLink = $('ann-open-src');
+      if (doc.public_url) {
+        openLink.href = doc.public_url;
+        openLink.style.display = '';
+      } else {
+        openLink.style.display = 'none';
+      }
+      // Page count: max page in blocks, or 1 if none.
+      ann.pages = Math.max(1, ...ann.blocks.map(b => b.page || 1));
+      ann.page = 1;
+      renderAnnPageSelect();
+      if (doc.backfill_required) {
+        renderAnnBackfillBanner();
+      }
+      await loadAnnSource(doc.public_url);
+      paintAnnAll();
+    } catch (e) {
+      console.error(e);
+      $('ann-rows').innerHTML = `<div class="empty err">load failed (${escapeHtml(String(e))})</div>`;
+    }
+  }
+
+  function renderAnnPageSelect() {
+    const wrap = $('ann-page-wrap');
+    if (ann.pages <= 1 && ann.sourceKind !== 'pdf') {
+      wrap.style.display = 'none';
+      return;
+    }
+    wrap.style.display = '';
+    const sel = $('ann-page');
+    sel.innerHTML = '';
+    for (let i = 1; i <= ann.pages; i++) {
+      const o = document.createElement('option');
+      o.value = String(i); o.textContent = String(i);
+      sel.appendChild(o);
+    }
+    sel.value = String(ann.page);
+  }
+
+  function renderAnnBackfillBanner() {
+    $('ann-banner-wrap').innerHTML = `
+      <div class="ann-banner">
+        no layout data yet for this notice.
+        <button id="ann-reingest" style="margin-left:8px">Re-ingest with layout extraction</button>
+        you can also marquee-draw blocks manually.
+      </div>
+    `;
+    $('ann-reingest').addEventListener('click', annReingest);
+  }
+
+  async function annReingest() {
+    const btn = $('ann-reingest');
+    btn.disabled = true; btn.textContent = 're-ingesting…';
+    try {
+      const r = await authFetch(
+        API + '/review/notice/' + encodeURIComponent(ann.filename) + '/reingest',
+        { method: 'POST' }
+      );
+      if (!r.ok) {
+        annToast(`reingest failed (${r.status})`, 'err');
+        btn.disabled = false; btn.textContent = 'Re-ingest with layout extraction';
+        return;
+      }
+      annToast('re-ingested', 'ok');
+      await loadAnnotator(ann.filename);
+    } catch (e) {
+      annToast('reingest error: ' + e, 'err');
+      btn.disabled = false; btn.textContent = 'Re-ingest with layout extraction';
+    }
+  }
+
+  async function loadAnnSource(url) {
+    const wrap = $('ann-page-wrap-inner');
+    wrap.innerHTML = '';
+    if (!url) {
+      wrap.innerHTML = '<div class="empty" style="padding:20px; color:#fff;">no source url.</div>';
+      return;
+    }
+    const kind = classifyDocUrl(url);
+    ann.sourceKind = kind;
+    if (kind === 'pdf') {
+      await ensurePdfJs();
+      try {
+        const loadingTask = window.pdfjsLib.getDocument(url);
+        ann.pdfDoc = await loadingTask.promise;
+        ann.pages = ann.pdfDoc.numPages;
+        renderAnnPageSelect();
+        await renderAnnPdfPage();
+      } catch (e) {
+        wrap.innerHTML = `<div class="empty err" style="padding:20px;">pdf load failed: ${escapeHtml(String(e))}</div>`;
+      }
+    } else if (kind === 'image') {
+      const img = new Image();
+      img.alt = 'notice';
+      img.style.maxWidth = '100%';
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        ann.pageRender = { width: img.naturalWidth, height: img.naturalHeight };
+        paintAnnAll();
+      };
+      img.onerror = () => {
+        wrap.innerHTML = '<div class="empty err" style="padding:20px;">image load failed.</div>';
+      };
+      img.src = url;
+      wrap.appendChild(img);
+      attachOverlayLayer(wrap);
+    } else {
+      wrap.innerHTML = `<div class="empty" style="padding:20px; color:#fff;">unsupported source type (${escapeHtml(kind || 'unknown')}).</div>`;
+    }
+  }
+
+  async function ensurePdfJs() {
+    if (window.pdfjsLib) return;
+    await new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.0.379/build/pdf.min.mjs';
+      s.type = 'module';
+      s.onload = resolve;
+      s.onerror = reject;
+      document.head.appendChild(s);
+    }).catch(() => {});
+    // pdf.js v4 ESM doesn't auto-attach to window; use the legacy build instead.
+    if (!window.pdfjsLib) {
+      await new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js';
+        s.onload = resolve;
+        s.onerror = reject;
+        document.head.appendChild(s);
+      });
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+        'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+    }
+  }
+
+  async function renderAnnPdfPage() {
+    const wrap = $('ann-page-wrap-inner');
+    wrap.innerHTML = '';
+    const pdfPage = await ann.pdfDoc.getPage(ann.page);
+    const viewport = pdfPage.getViewport({ scale: 1.5 });
+    const canvas = document.createElement('canvas');
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    canvas.style.width = '100%';
+    canvas.style.height = 'auto';
+    wrap.appendChild(canvas);
+    ann.pageRender = { width: viewport.width, height: viewport.height };
+    await pdfPage.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+    attachOverlayLayer(wrap);
+    paintAnnAll();
+  }
+
+  function attachOverlayLayer(wrap) {
+    let overlay = wrap.querySelector('.ann-overlay');
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.className = 'ann-overlay';
+      wrap.appendChild(overlay);
+    }
+    overlay.innerHTML = '';
+    wrap.addEventListener('pointerdown', onStagePointerDown);
+    return overlay;
+  }
+
+  function blocksOnPage() {
+    return ann.blocks.filter(b => (b.page || 1) === ann.page);
+  }
+
+  function paintAnnAll() {
+    paintAnnOverlay();
+    paintAnnSidebar();
+    paintAnnMarkdown();
+  }
+
+  function paintAnnOverlay() {
+    const wrap = $('ann-page-wrap-inner');
+    const overlay = wrap.querySelector('.ann-overlay');
+    if (!overlay) return;
+    overlay.innerHTML = '';
+    for (const b of blocksOnPage()) {
+      overlay.appendChild(renderBlockDiv(b));
+    }
+    wrap.classList.toggle('draw', ann.mode === 'draw');
+  }
+
+  function renderBlockDiv(b) {
+    const el = document.createElement('div');
+    el.className = 'ann-block lab-' + (b.label || 'Text');
+    el.dataset.id = b.id;
+    if (ann.selectedId === b.id) el.classList.add('selected');
+    placeBlockEl(el, b.bbox);
+    const lbl = document.createElement('div');
+    lbl.className = 'ann-lbl';
+    lbl.textContent = `${b.reading_order} · ${b.label}`;
+    el.appendChild(lbl);
+    if (ann.selectedId === b.id) {
+      for (const pos of ['tl','tr','bl','br','t','b','l','r']) {
+        const r = document.createElement('div');
+        r.className = 'resizer ' + pos;
+        r.dataset.handle = pos;
+        el.appendChild(r);
+      }
+      if (b.label === 'Table' && b.table) {
+        const rowps = b.table.row_positions || [];
+        const colps = b.table.col_positions || [];
+        for (let i = 0; i < rowps.length; i++) {
+          const g = document.createElement('div');
+          g.className = 'grid-row';
+          g.style.top = (rowps[i] * 100) + '%';
+          g.dataset.guide = 'row';
+          g.dataset.idx = String(i);
+          el.appendChild(g);
+        }
+        for (let i = 0; i < colps.length; i++) {
+          const g = document.createElement('div');
+          g.className = 'grid-col';
+          g.style.left = (colps[i] * 100) + '%';
+          g.dataset.guide = 'col';
+          g.dataset.idx = String(i);
+          el.appendChild(g);
+        }
+      }
+    }
+    return el;
+  }
+
+  function placeBlockEl(el, bbox) {
+    el.style.left   = (bbox[0] * 100) + '%';
+    el.style.top    = (bbox[1] * 100) + '%';
+    el.style.width  = ((bbox[2] - bbox[0]) * 100) + '%';
+    el.style.height = ((bbox[3] - bbox[1]) * 100) + '%';
+  }
+
+  function paintAnnSidebar() {
+    const root = $('ann-rows');
+    root.innerHTML = '';
+    const sorted = ann.blocks.slice().sort((a, b) => a.reading_order - b.reading_order);
+    if (!sorted.length) {
+      root.innerHTML = '<div class="empty">no blocks yet. press “+ Add block” and marquee-draw a region.</div>';
+      return;
+    }
+    for (const b of sorted) {
+      root.appendChild(renderSidebarRow(b));
+    }
+  }
+
+  function renderSidebarRow(b) {
+    const row = document.createElement('div');
+    row.className = 'ann-row';
+    if (ann.selectedId === b.id) row.classList.add('selected');
+    row.dataset.id = b.id;
+    const top = document.createElement('div');
+    top.className = 'ann-row-top';
+
+    const orderInput = document.createElement('input');
+    orderInput.type = 'number'; orderInput.className = 'order-input';
+    orderInput.value = String(b.reading_order);
+    orderInput.title = 'reading order';
+    top.appendChild(orderInput);
+
+    const labelSel = document.createElement('select');
+    labelSel.className = 'label-select';
+    for (const v of LABEL_VALUES) {
+      const o = document.createElement('option');
+      o.value = v; o.textContent = v;
+      if (v === b.label) o.selected = true;
+      labelSel.appendChild(o);
+    }
+    top.appendChild(labelSel);
+
+    const pagePill = document.createElement('span');
+    pagePill.className = 'pill off';
+    pagePill.textContent = 'p' + (b.page || 1);
+    top.appendChild(pagePill);
+
+    const sourcePill = document.createElement('span');
+    sourcePill.className = 'pill ' + (b.source === 'human' ? 'warn' : 'off');
+    sourcePill.textContent = b.source || 'mineru';
+    top.appendChild(sourcePill);
+
+    row.appendChild(top);
+
+    const textArea = document.createElement('textarea');
+    textArea.className = 'ann-text';
+    if (b.label === 'Table') textArea.classList.add('html-mode');
+    textArea.value = b.text || '';
+    row.appendChild(textArea);
+
+    if (b.label === 'Table') {
+      const ed = document.createElement('div');
+      ed.className = 'table-editor';
+      const rowsCsv = ((b.table && b.table.row_positions) || []).map(v => v.toFixed(3)).join(', ');
+      const colsCsv = ((b.table && b.table.col_positions) || []).map(v => v.toFixed(3)).join(', ');
+      ed.innerHTML = `
+        <div><strong>Table grid</strong> · drag guide lines on the bbox, or type comma-separated normalized positions (0..1).</div>
+        <div class="grid-positions">
+          <label>row positions</label><input data-grid="rows" value="${rowsCsv}">
+          <label>col positions</label><input data-grid="cols" value="${colsCsv}">
+        </div>
+      `;
+      row.appendChild(ed);
+      ed.querySelectorAll('input[data-grid]').forEach(inp => {
+        inp.addEventListener('change', () => {
+          const arr = inp.value.split(',').map(s => parseFloat(s.trim()))
+            .filter(v => !isNaN(v)).map(annClamp01).sort((a,b)=>a-b);
+          const table = Object.assign({}, b.table || { format: 'html' });
+          if (inp.dataset.grid === 'rows') table.row_positions = arr;
+          else                              table.col_positions = arr;
+          updateBlockOnServer(b.id, { table }, b);
+        });
+      });
+    }
+
+    const actions = document.createElement('div');
+    actions.className = 'row-actions';
+    const btnReextract = document.createElement('button');
+    btnReextract.textContent = '↻ re-run extraction';
+    const btnDel = document.createElement('button');
+    btnDel.className = 'danger'; btnDel.textContent = 'delete';
+    actions.appendChild(btnReextract);
+    actions.appendChild(btnDel);
+    const meta = document.createElement('span');
+    meta.className = 'row-meta';
+    if (b.edited_at) meta.textContent = `edited ${b.edited_at.slice(0,16)}`;
+    actions.appendChild(meta);
+    row.appendChild(actions);
+
+    // Wire up
+    row.addEventListener('click', (ev) => {
+      if (ev.target.tagName === 'INPUT' || ev.target.tagName === 'TEXTAREA'
+          || ev.target.tagName === 'BUTTON' || ev.target.tagName === 'SELECT') return;
+      selectBlock(b.id);
+    });
+    orderInput.addEventListener('change', () => {
+      const v = parseInt(orderInput.value, 10);
+      if (!isNaN(v) && v !== b.reading_order) {
+        updateBlockOnServer(b.id, { reading_order: v }, b);
+      }
+    });
+    labelSel.addEventListener('change', () => {
+      const newLabel = labelSel.value;
+      const patch = { label: newLabel };
+      if (newLabel === 'Table' && !b.table) patch.table = { format: 'html' };
+      if (newLabel !== 'Table') patch.table = null;
+      updateBlockOnServer(b.id, patch, b);
+    });
+    let textTimer = null;
+    textArea.addEventListener('input', () => {
+      clearTimeout(textTimer);
+      textTimer = setTimeout(() => {
+        if (textArea.value !== (b.text || '')) {
+          updateBlockOnServer(b.id, { text: textArea.value }, b);
+        }
+      }, 700);
+    });
+    btnReextract.addEventListener('click', () => reextractBlock(b.id, btnReextract));
+    btnDel.addEventListener('click', () => {
+      if (!confirm('Delete this block?')) return;
+      deleteBlockOnServer(b.id);
+    });
+    return row;
+  }
+
+  function paintAnnMarkdown() {
+    const el = $('ann-md-body');
+    if (!el) return;
+    const text = ann.doc && ann.doc.markdown ? ann.doc.markdown : '';
+    const mode = $('ann-md-body').dataset.mode || 'rendered';
+    if (mode === 'rendered' && window.marked && window.DOMPurify && text) {
+      const html = window.marked.parse(text, { gfm: true, breaks: false });
+      el.classList.add('rendered');
+      el.innerHTML = window.DOMPurify.sanitize(html);
+    } else {
+      el.classList.remove('rendered');
+      el.textContent = text || '(empty)';
+    }
+  }
+
+  function selectBlock(id) {
+    if (ann.selectedId === id) return;
+    ann.selectedId = id;
+    paintAnnAll();
+  }
+
+  // ── Pointer interactions (select / drag / resize / marquee) ──────────────
+  function onStagePointerDown(ev) {
+    const wrap = $('ann-page-wrap-inner');
+    const target = ev.target.closest('.resizer, .grid-row, .grid-col, .ann-block');
+    if (ann.mode === 'draw' && (!target || target.classList.contains('ann-overlay'))) {
+      return startMarquee(ev);
+    }
+    if (!target) return;
+    const blockEl = target.closest('.ann-block');
+    if (!blockEl) return;
+    const id = blockEl.dataset.id;
+    selectBlock(id);
+    if (target.classList.contains('resizer')) {
+      ev.preventDefault();
+      return startResize(ev, id, target.dataset.handle);
+    }
+    if (target.classList.contains('grid-row') || target.classList.contains('grid-col')) {
+      ev.preventDefault();
+      return startGuideDrag(ev, id, target.dataset.guide, parseInt(target.dataset.idx, 10));
+    }
+    ev.preventDefault();
+    return startMove(ev, id);
+  }
+
+  function getStageRect() {
+    return $('ann-page-wrap-inner').getBoundingClientRect();
+  }
+
+  function pointerToNorm(ev) {
+    const r = getStageRect();
+    return [
+      annClamp01((ev.clientX - r.left) / r.width),
+      annClamp01((ev.clientY - r.top) / r.height),
+    ];
+  }
+
+  function startMove(ev, id) {
+    const blk = ann.blocks.find(b => b.id === id);
+    if (!blk) return;
+    const r = getStageRect();
+    const startX = (ev.clientX - r.left) / r.width;
+    const startY = (ev.clientY - r.top) / r.height;
+    const [x0, y0, x1, y1] = blk.bbox;
+    const dx = startX - x0, dy = startY - y0;
+    const onMove = (e) => {
+      const nx = (e.clientX - r.left) / r.width - dx;
+      const ny = (e.clientY - r.top) / r.height - dy;
+      const w = x1 - x0, h = y1 - y0;
+      let nx0 = annClamp01(nx), ny0 = annClamp01(ny);
+      if (nx0 + w > 1) nx0 = 1 - w;
+      if (ny0 + h > 1) ny0 = 1 - h;
+      blk.bbox = [nx0, ny0, nx0 + w, ny0 + h];
+      paintAnnOverlay();
+    };
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      updateBlockOnServer(id, { bbox: annNormalizeBox(blk.bbox) }, blk);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  }
+
+  function startResize(ev, id, handle) {
+    const blk = ann.blocks.find(b => b.id === id);
+    if (!blk) return;
+    const r = getStageRect();
+    const onMove = (e) => {
+      const nx = annClamp01((e.clientX - r.left) / r.width);
+      const ny = annClamp01((e.clientY - r.top) / r.height);
+      let [x0, y0, x1, y1] = blk.bbox;
+      if (handle.includes('l')) x0 = Math.min(nx, x1 - 0.005);
+      if (handle.includes('r')) x1 = Math.max(nx, x0 + 0.005);
+      if (handle.includes('t')) y0 = Math.min(ny, y1 - 0.005);
+      if (handle.includes('b')) y1 = Math.max(ny, y0 + 0.005);
+      blk.bbox = [x0, y0, x1, y1];
+      paintAnnOverlay();
+    };
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      updateBlockOnServer(id, { bbox: annNormalizeBox(blk.bbox) }, blk);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  }
+
+  function startGuideDrag(ev, id, kind, idx) {
+    const blk = ann.blocks.find(b => b.id === id);
+    if (!blk || !blk.table) return;
+    const r = getStageRect();
+    const onMove = (e) => {
+      const nx = annClamp01((e.clientX - r.left) / r.width);
+      const ny = annClamp01((e.clientY - r.top) / r.height);
+      const bx0 = blk.bbox[0], by0 = blk.bbox[1];
+      const bw = blk.bbox[2] - bx0, bh = blk.bbox[3] - by0;
+      const local = kind === 'row' ? annClamp01((ny - by0) / bh) : annClamp01((nx - bx0) / bw);
+      const key = kind === 'row' ? 'row_positions' : 'col_positions';
+      const arr = (blk.table[key] || []).slice();
+      arr[idx] = local;
+      blk.table[key] = arr;
+      paintAnnOverlay();
+    };
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      const sortedRows = (blk.table.row_positions || []).slice().sort((a,b)=>a-b);
+      const sortedCols = (blk.table.col_positions || []).slice().sort((a,b)=>a-b);
+      updateBlockOnServer(id, { table: { ...blk.table,
+        row_positions: sortedRows, col_positions: sortedCols } }, blk);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  }
+
+  function startMarquee(ev) {
+    const wrap = $('ann-page-wrap-inner');
+    const overlay = wrap.querySelector('.ann-overlay');
+    if (!overlay) return;
+    const r = getStageRect();
+    const start = pointerToNorm(ev);
+    const marquee = document.createElement('div');
+    marquee.className = 'ann-marquee';
+    overlay.appendChild(marquee);
+    let end = start.slice();
+    const onMove = (e) => {
+      end = pointerToNorm(e);
+      const x0 = Math.min(start[0], end[0]);
+      const y0 = Math.min(start[1], end[1]);
+      const x1 = Math.max(start[0], end[0]);
+      const y1 = Math.max(start[1], end[1]);
+      marquee.style.left   = (x0 * 100) + '%';
+      marquee.style.top    = (y0 * 100) + '%';
+      marquee.style.width  = ((x1 - x0) * 100) + '%';
+      marquee.style.height = ((y1 - y0) * 100) + '%';
+    };
+    const onUp = async () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      marquee.remove();
+      const bbox = annNormalizeBox([
+        Math.min(start[0], end[0]), Math.min(start[1], end[1]),
+        Math.max(start[0], end[0]), Math.max(start[1], end[1])
+      ]);
+      if (bbox[2] - bbox[0] < 0.01 || bbox[3] - bbox[1] < 0.01) {
+        ann.mode = 'select';
+        $('ann-add').classList.remove('mode-on');
+        paintAnnOverlay();
+        return;
+      }
+      await createBlockOnServer({ page: ann.page, bbox, label: 'Text' });
+      ann.mode = 'select';
+      $('ann-add').classList.remove('mode-on');
+      paintAnnOverlay();
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  }
+
+  // ── Server calls ─────────────────────────────────────────────────────────
+  async function updateBlockOnServer(id, patch, beforeSnapshot) {
+    try {
+      const r = await authFetch(
+        API + '/review/notice/' + encodeURIComponent(ann.filename)
+            + '/blocks/' + encodeURIComponent(id),
+        { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(patch) }
+      );
+      if (r.status === 409) { annToast('conflict, reloading', 'err'); await loadAnnotator(ann.filename); return; }
+      if (!r.ok) { annToast('save failed (' + r.status + ')', 'err'); rollback(id, beforeSnapshot); return; }
+      const updated = await r.json();
+      mergeBlock(updated);
+      ann.rev += 1; $('ann-rev').textContent = 'rev ' + ann.rev;
+      refreshMarkdownAfterChange();
+      paintAnnSidebar();
+      paintAnnOverlay();
+    } catch (e) {
+      annToast('save error: ' + e, 'err');
+      rollback(id, beforeSnapshot);
+    }
+  }
+
+  function rollback(id, snap) {
+    if (!snap) return;
+    const i = ann.blocks.findIndex(b => b.id === id);
+    if (i >= 0) ann.blocks[i] = { ...snap, bbox: snap.bbox.slice() };
+    paintAnnAll();
+  }
+
+  function mergeBlock(updated) {
+    const i = ann.blocks.findIndex(b => b.id === updated.id);
+    if (i >= 0) ann.blocks[i] = updated;
+    else ann.blocks.push(updated);
+  }
+
+  async function createBlockOnServer(body) {
+    try {
+      const r = await authFetch(
+        API + '/review/notice/' + encodeURIComponent(ann.filename) + '/blocks',
+        { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body) }
+      );
+      if (!r.ok) { annToast('add failed (' + r.status + ')', 'err'); return; }
+      const blk = await r.json();
+      mergeBlock(blk);
+      ann.selectedId = blk.id;
+      ann.rev += 1; $('ann-rev').textContent = 'rev ' + ann.rev;
+      ann.pages = Math.max(ann.pages, blk.page || 1);
+      refreshMarkdownAfterChange();
+      paintAnnAll();
+    } catch (e) { annToast('add error: ' + e, 'err'); }
+  }
+
+  async function deleteBlockOnServer(id) {
+    try {
+      const r = await authFetch(
+        API + '/review/notice/' + encodeURIComponent(ann.filename)
+            + '/blocks/' + encodeURIComponent(id),
+        { method: 'DELETE' }
+      );
+      if (!r.ok) { annToast('delete failed (' + r.status + ')', 'err'); return; }
+      ann.blocks = ann.blocks.filter(b => b.id !== id);
+      if (ann.selectedId === id) ann.selectedId = null;
+      ann.rev += 1; $('ann-rev').textContent = 'rev ' + ann.rev;
+      refreshMarkdownAfterChange();
+      paintAnnAll();
+    } catch (e) { annToast('delete error: ' + e, 'err'); }
+  }
+
+  async function reextractBlock(id, btn) {
+    const blk = ann.blocks.find(b => b.id === id);
+    if (!blk) return;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="reextract-spin"></span>re-extracting…';
+    const el = document.querySelector(`.ann-block[data-id="${CSS.escape(id)}"]`);
+    if (el) el.classList.add('reextracting');
+    try {
+      const body = {};
+      if (blk.label === 'Table' && blk.table) {
+        body.row_positions = blk.table.row_positions || null;
+        body.col_positions = blk.table.col_positions || null;
+      }
+      const r = await authFetch(
+        API + '/review/notice/' + encodeURIComponent(ann.filename)
+            + '/blocks/' + encodeURIComponent(id) + '/re-extract',
+        { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body) }
+      );
+      if (!r.ok) { annToast('re-extract failed (' + r.status + ')', 'err'); return; }
+      const updated = await r.json();
+      mergeBlock(updated);
+      ann.rev += 1; $('ann-rev').textContent = 'rev ' + ann.rev;
+      annToast('re-extracted', 'ok');
+      refreshMarkdownAfterChange();
+      paintAnnAll();
+    } catch (e) { annToast('re-extract error: ' + e, 'err'); }
+    finally {
+      btn.disabled = false; btn.textContent = '↻ re-run extraction';
+      if (el) el.classList.remove('reextracting');
+    }
+  }
+
+  // After any mutation, refresh ann.doc.markdown via a fresh GET so the
+  // collapsible regenerated-markdown preview reflects the server's view.
+  let mdRefreshTimer = null;
+  function refreshMarkdownAfterChange() {
+    clearTimeout(mdRefreshTimer);
+    mdRefreshTimer = setTimeout(async () => {
+      try {
+        const r = await authFetch(API + '/review/notice/' + encodeURIComponent(ann.filename) + '/blocks');
+        if (!r.ok) return;
+        const doc = await r.json();
+        ann.doc = doc;
+        ann.rev = doc.blocks_revision || ann.rev;
+        $('ann-rev').textContent = 'rev ' + ann.rev;
+        paintAnnMarkdown();
+      } catch {}
+    }, 400);
+  }
+
+  // ── Toolbar wiring ───────────────────────────────────────────────────────
+  $('ann-add').addEventListener('click', () => {
+    ann.mode = (ann.mode === 'draw') ? 'select' : 'draw';
+    $('ann-add').classList.toggle('mode-on', ann.mode === 'draw');
+    paintAnnOverlay();
+  });
+  $('ann-reload').addEventListener('click', () => loadAnnotator(ann.filename));
+  $('ann-page').addEventListener('change', async (e) => {
+    ann.page = parseInt(e.target.value, 10) || 1;
+    if (ann.sourceKind === 'pdf') await renderAnnPdfPage();
+    paintAnnAll();
+  });
+  document.querySelectorAll('button[data-ann-md-mode]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      $('ann-md-body').dataset.mode = btn.dataset.annMdMode;
+      paintAnnMarkdown();
+    });
   });
 
   // Boot

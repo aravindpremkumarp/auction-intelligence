@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 
 from api.auth.dependencies import get_current_admin
 from api.auth.schemas import UserOut
+from api.review import blocks as block_ops
 from api.review import queries as q
 
 
@@ -226,6 +227,85 @@ class MarkdownBulkConfirmBody(BaseModel):
     score_min: float = Field(ge=0.0, le=100.0)
     notes: str | None = Field(default=None, max_length=2000)
     dry_run: bool = False
+
+
+# ── Per-block annotator models ──────────────────────────────────────────────
+
+
+class TableShape(BaseModel):
+    format: str = "html"
+    rows: int | None = None
+    cols: int | None = None
+    row_positions: list[float] | None = None
+    col_positions: list[float] | None = None
+
+
+class Block(BaseModel):
+    id: str
+    page: int = 1
+    bbox: list[float]
+    label: str
+    text: str | None = None
+    reading_order: int = 0
+    source: Literal["mineru", "human"] = "mineru"
+    confidence: float | None = None
+    table: TableShape | None = None
+    edited_at: str | None = None
+    edited_by: str | None = None
+
+
+class SourceDim(BaseModel):
+    page: int
+    width: int | None = None
+    height: int | None = None
+
+
+class BlocksDoc(BaseModel):
+    filename: str | None = None
+    file_path: str | None = None
+    public_url: str | None = None
+    storage_key: str | None = None
+    notice_type: str | None = None
+    markdown: str | None = None
+    schema_version: int = 1
+    source_dims: list[SourceDim] = []
+    blocks: list[Block] = []
+    blocks_revision: int = 0
+    backfill_required: bool = False
+
+
+class BlockUpdateBody(BaseModel):
+    bbox: list[float] | None = None
+    label: str | None = None
+    text: str | None = None
+    reading_order: int | None = None
+    table: TableShape | None = None
+
+
+class BlockCreateBody(BaseModel):
+    page: int = 1
+    bbox: list[float]
+    label: str = "Text"
+    text: str | None = ""
+    reading_order: int | None = None
+    table: TableShape | None = None
+
+
+class ReorderItem(BaseModel):
+    id: str
+    reading_order: int
+
+
+class ReorderBody(BaseModel):
+    order: list[ReorderItem]
+
+
+class ReExtractBody(BaseModel):
+    bbox: list[float] | None = None
+    label: str | None = None
+    page: int | None = None
+    row_positions: list[float] | None = None
+    col_positions: list[float] | None = None
 
 
 def _row_to_str(row: dict) -> dict:
@@ -452,3 +532,131 @@ async def review_markdown_verify(
     if row is None:
         raise HTTPException(status_code=404, detail="notice not found")
     return MarkdownRow(**row)
+
+
+# ── Per-block annotator endpoints ───────────────────────────────────────────
+
+
+def _ok_block(b: dict) -> Block:
+    return Block(**b)
+
+
+def _ok_doc(doc: dict) -> BlocksDoc:
+    blocks = [Block(**b) for b in (doc.get("blocks") or [])]
+    return BlocksDoc(
+        filename=doc.get("filename"),
+        file_path=doc.get("file_path"),
+        public_url=doc.get("public_url"),
+        storage_key=doc.get("storage_key"),
+        notice_type=doc.get("notice_type"),
+        markdown=doc.get("markdown"),
+        schema_version=int(doc.get("schema_version") or 1),
+        source_dims=[SourceDim(**d) for d in (doc.get("source_dims") or [])
+                     if isinstance(d, dict) and "page" in d],
+        blocks=blocks,
+        blocks_revision=int(doc.get("blocks_revision") or 0),
+        backfill_required=bool(doc.get("backfill_required")),
+    )
+
+
+def _wrap_block_errors(fn):
+    """Map blocks-module exceptions to HTTPException."""
+    from functools import wraps
+
+    @wraps(fn)
+    async def inner(*args, **kwargs):
+        try:
+            return await fn(*args, **kwargs)
+        except block_ops.BlocksNotFound as e:
+            raise HTTPException(status_code=404, detail=str(e))
+        except block_ops.BlocksConflict as e:
+            raise HTTPException(status_code=409, detail=str(e))
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+    return inner
+
+
+@router.get("/notice/{filename}/blocks", response_model=BlocksDoc)
+@_wrap_block_errors
+async def review_notice_get_blocks(
+    filename: str,
+    _admin: UserOut = Depends(get_current_admin),
+) -> BlocksDoc:
+    return _ok_doc(block_ops.get_blocks(filename))
+
+
+@router.post("/notice/{filename}/blocks", response_model=Block, status_code=201)
+@_wrap_block_errors
+async def review_notice_create_block(
+    filename: str,
+    body: BlockCreateBody,
+    admin: UserOut = Depends(get_current_admin),
+) -> Block:
+    blk = block_ops.create_block(
+        filename, body.model_dump(exclude_none=True), by_email=admin.email,
+    )
+    return _ok_block(blk)
+
+
+@router.put("/notice/{filename}/blocks/{block_id}", response_model=Block)
+@_wrap_block_errors
+async def review_notice_update_block(
+    filename: str,
+    block_id: str,
+    body: BlockUpdateBody,
+    admin: UserOut = Depends(get_current_admin),
+) -> Block:
+    blk = block_ops.update_block(
+        filename, block_id, body.model_dump(exclude_unset=True),
+        by_email=admin.email,
+    )
+    return _ok_block(blk)
+
+
+@router.delete("/notice/{filename}/blocks/{block_id}")
+@_wrap_block_errors
+async def review_notice_delete_block(
+    filename: str,
+    block_id: str,
+    _admin: UserOut = Depends(get_current_admin),
+) -> dict:
+    block_ops.delete_block(filename, block_id)
+    return {"ok": True}
+
+
+@router.post("/notice/{filename}/blocks/reorder", response_model=BlocksDoc)
+@_wrap_block_errors
+async def review_notice_reorder_blocks(
+    filename: str,
+    body: ReorderBody,
+    admin: UserOut = Depends(get_current_admin),
+) -> BlocksDoc:
+    order = [item.model_dump() for item in body.order]
+    return _ok_doc(block_ops.reorder_blocks(filename, order, by_email=admin.email))
+
+
+@router.post(
+    "/notice/{filename}/blocks/{block_id}/re-extract",
+    response_model=Block,
+)
+@_wrap_block_errors
+async def review_notice_reextract_block(
+    filename: str,
+    block_id: str,
+    body: ReExtractBody,
+    admin: UserOut = Depends(get_current_admin),
+) -> Block:
+    blk = await block_ops.re_extract_block(
+        filename, block_id, body.model_dump(exclude_none=True),
+        by_email=admin.email,
+    )
+    return _ok_block(blk)
+
+
+@router.post("/notice/{filename}/reingest", response_model=BlocksDoc)
+@_wrap_block_errors
+async def review_notice_reingest(
+    filename: str,
+    admin: UserOut = Depends(get_current_admin),
+) -> BlocksDoc:
+    return _ok_doc(block_ops.reingest_notice(filename, by_email=admin.email))
