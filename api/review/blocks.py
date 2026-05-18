@@ -73,6 +73,30 @@ def _clean_bbox(raw: Any) -> list[float]:
     return [x0, y0, x1, y1]
 
 
+def _clean_crop_bbox(raw: Any) -> list[float] | None:
+    """Validate a Document-level crop bbox.
+
+    Returns ``None`` to clear the field. Otherwise returns a normalized
+    ``[x0, y0, x1, y1]`` in ``[0, 1]`` with a stricter min-size floor than
+    block bboxes (2%) — accidental tiny crops would brick re-ingest.
+    """
+    if raw is None:
+        return None
+    if not isinstance(raw, (list, tuple)) or len(raw) < 4:
+        raise ValueError("crop bbox must be a 4-element list [x0,y0,x1,y1] or null")
+    x0, y0, x1, y1 = (float(raw[0]), float(raw[1]),
+                      float(raw[2]), float(raw[3]))
+    if x1 < x0:
+        x0, x1 = x1, x0
+    if y1 < y0:
+        y0, y1 = y1, y0
+    x0, y0, x1, y1 = (_clamp01(x0), _clamp01(y0),
+                      _clamp01(x1), _clamp01(y1))
+    if x1 - x0 < 0.02 or y1 - y0 < 0.02:
+        raise ValueError("crop bbox must be at least 2% of the source on each axis")
+    return [x0, y0, x1, y1]
+
+
 def _validate_label(label: str) -> str:
     if not isinstance(label, str):
         raise ValueError("label must be a string")
@@ -146,7 +170,8 @@ def _load_doc(filename: str) -> tuple[dict, int, dict]:
                d.public_url                   AS public_url,
                d.storage_key                  AS storage_key,
                d.notice_type                  AS notice_type,
-               d.markdown                     AS markdown
+               d.markdown                     AS markdown,
+               d.crop_bbox                    AS crop_bbox
         """,
         {"filename": filename},
         max_rows=1,
@@ -155,6 +180,13 @@ def _load_doc(filename: str) -> tuple[dict, int, dict]:
         raise BlocksNotFound(f"Document not found: {filename}")
     r = rows[0]
     doc = _parse_doc_blob(r.get("blocks_json"))
+    raw_crop = r.get("crop_bbox")
+    crop_bbox: list[float] | None
+    try:
+        crop_bbox = _clean_crop_bbox(raw_crop) if raw_crop else None
+    except ValueError:
+        # A persisted-but-malformed crop_bbox shouldn't break loading.
+        crop_bbox = None
     meta = {
         "filename":    r.get("filename"),
         "file_path":   r.get("file_path"),
@@ -162,6 +194,7 @@ def _load_doc(filename: str) -> tuple[dict, int, dict]:
         "storage_key": r.get("storage_key"),
         "notice_type": r.get("notice_type"),
         "markdown":    r.get("markdown"),
+        "crop_bbox":   crop_bbox,
     }
     return doc, int(r.get("rev") or 0), meta
 
@@ -218,6 +251,41 @@ def get_blocks(filename: str) -> dict:
         "blocks_revision":   rev,
         "backfill_required": not bool(doc.get("blocks")),
     }
+
+
+def set_crop(filename: str, raw_bbox: Any) -> dict:
+    """Persist (or clear) the Document-level ``crop_bbox``.
+
+    The crop is stored as a Neo4j list property on the Document node, NOT
+    inside the ``blocks`` JSON, so it doesn't churn ``blocks_revision``.
+    Existing block bboxes remain normalized to the full source — the
+    crop only affects (a) what the annotator visually masks, and
+    (b) what the re-ingest pipeline ships to MinerU.
+    """
+    crop_bbox = _clean_crop_bbox(raw_bbox)
+    if crop_bbox is None:
+        rows = run_query(
+            """
+            MATCH (d:Document {filename: $filename})
+            REMOVE d.crop_bbox
+            SET d.crop_bbox_set_at = NULL
+            RETURN d.filename AS filename
+            """,
+            {"filename": filename},
+        )
+    else:
+        rows = run_query(
+            """
+            MATCH (d:Document {filename: $filename})
+            SET d.crop_bbox        = $crop_bbox,
+                d.crop_bbox_set_at = datetime()
+            RETURN d.filename AS filename
+            """,
+            {"filename": filename, "crop_bbox": crop_bbox},
+        )
+    if not rows:
+        raise BlocksNotFound(f"Document not found: {filename}")
+    return get_blocks(filename)
 
 
 def create_block(filename: str, body: dict, by_email: str) -> dict:
@@ -422,7 +490,8 @@ def reingest_notice(filename: str, by_email: str) -> dict:
         MATCH (d:Document {filename: $filename})
         RETURN d.file_path  AS file_path,
                d.filename   AS filename,
-               d.public_url AS public_url
+               d.public_url AS public_url,
+               d.crop_bbox  AS crop_bbox
         """,
         {"filename": filename},
         max_rows=1,
@@ -432,15 +501,23 @@ def reingest_notice(filename: str, by_email: str) -> dict:
     fp = rows[0]["file_path"]
     src_filename = rows[0]["filename"]
     public_url = rows[0].get("public_url")
+    raw_crop = rows[0].get("crop_bbox")
+    try:
+        crop_bbox = _clean_crop_bbox(raw_crop) if raw_crop else None
+    except ValueError:
+        crop_bbox = None
 
     from pipeline.mineru import MINERU_SUPPORTED_EXTS, find_disk_path
     from pipeline.mineru_api import (
         request_batch, upload_files, poll, download_and_cache,
     )
 
+    import logging
     import os
     import tempfile
     from pathlib import Path
+
+    log = logging.getLogger(__name__)
 
     disk = find_disk_path(src_filename)
     tmp_path: Path | None = None
@@ -470,9 +547,49 @@ def reingest_notice(filename: str, by_email: str) -> dict:
             resp.close()
         disk = tmp_path
 
+    # If a Document-level crop is set, apply it BEFORE shipping to MinerU.
+    # Only images are cropped in v1 — multi-page PDFs would need per-page
+    # cropping + re-stitch, which we punt on. We track ``applied_crop`` so
+    # that the post-OCR step can remap block bboxes back to full-image
+    # coords (existing blocks already use full-image coords, so all bboxes
+    # in Neo4j stay in the same coordinate system regardless of crop).
+    applied_crop: list[float] | None = None
+    crop_tmp_path: Path | None = None
+    if crop_bbox is not None:
+        ext = Path(src_filename).suffix.lower()
+        is_image = ext in {".jpg", ".jpeg", ".png", ".webp", ".jfif"}
+        if is_image:
+            try:
+                from pipeline.reextract import _image_crop_to_png
+                src_bytes = disk.read_bytes()
+                cropped_png = _image_crop_to_png(src_bytes, crop_bbox)
+                fd, tmp_name = tempfile.mkstemp(
+                    suffix=".png", prefix="reingest_crop_",
+                )
+                with os.fdopen(fd, "wb") as out:
+                    out.write(cropped_png)
+                crop_tmp_path = Path(tmp_name)
+                disk = crop_tmp_path
+                applied_crop = crop_bbox
+            except Exception:
+                log.exception(
+                    "crop apply failed for %s; falling back to uncropped",
+                    filename,
+                )
+        else:
+            log.info(
+                "skipping crop for %s: source is %s, only images are cropped in v1",
+                filename, ext,
+            )
+
     try:
         item = {
-            "filename":  src_filename,
+            # When we cropped, send the PNG with a .png filename so MinerU's
+            # extension hint matches the bytes. Cache key (file_path) stays
+            # the original — the new result authoritatively replaces the
+            # previous cached blocks for this document.
+            "filename":  (Path(src_filename).stem + "_crop.png"
+                          if applied_crop else src_filename),
             "file_path": fp,
             "disk_path": disk,
         }
@@ -492,10 +609,28 @@ def reingest_notice(filename: str, by_email: str) -> dict:
                 tmp_path.unlink()
             except FileNotFoundError:
                 pass
+        if crop_tmp_path is not None:
+            try:
+                crop_tmp_path.unlink()
+            except FileNotFoundError:
+                pass
 
     # Reuse the loader's parsing so we share one code path.
     from pipeline.load_markdowns_to_neo4j import load_blocks_for
     blocks = load_blocks_for(fp) or []
+
+    if applied_crop is not None and blocks:
+        cx0, cy0, cx1, cy1 = applied_crop
+        cw = cx1 - cx0
+        ch = cy1 - cy0
+        for blk in blocks:
+            bx0, by0, bx1, by1 = blk["bbox"]
+            blk["bbox"] = [
+                cx0 + bx0 * cw,
+                cy0 + by0 * ch,
+                cx0 + bx1 * cw,
+                cy0 + by1 * ch,
+            ]
 
     doc = {"schema_version": 1, "blocks": blocks}
     blocks_json = json.dumps(doc, ensure_ascii=False)
