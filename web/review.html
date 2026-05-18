@@ -2752,31 +2752,33 @@
   // ── Zoom ─────────────────────────────────────────────────────────────────
   // `ann.zoom == null` means "fit to viewport" (default). Otherwise the
   // value is a multiplier on the source's natural dimensions.
+  //
+  // We size `.ann-page` (the wrap) — NOT the image — to the target width
+  // and let the image fill it via `width: 100%`. Sizing the image alone
+  // let it overflow `.ann-page` (which has `max-width: 100%`) while the
+  // `.ann-overlay` (inset:0 of `.ann-page`) stayed clamped to the
+  // un-zoomed parent, so bboxes didn't follow the image at high zoom.
   function applyAnnZoom() {
     const wrap = $('ann-page-wrap-inner');
     const el = wrap.querySelector('img, canvas');
     if (!el) return;
     const natW = el.naturalWidth || el.width || 0;
     if (ann.zoom == null) {
-      el.style.maxHeight = '';   // falls back to the stylesheet rule
-      el.style.maxWidth  = '';
-      el.style.width     = '';
-      el.style.height    = '';
       wrap.style.width    = '';
       wrap.style.maxWidth = '';
+      el.style.maxHeight  = '';   // falls back to the stylesheet rule
+      el.style.maxWidth   = '';
+      el.style.width      = '';
+      el.style.height     = '';
       $('ann-zoom-pct').textContent = 'Fit';
     } else if (natW > 0) {
-      // The overlay (inset:0) is sized by the wrap, not the image. Without
-      // syncing the wrap, .ann-page's max-width:100% clips the overlay at
-      // the stage width while the image overflows — so percent-based bboxes
-      // stop matching the underlying text.
-      const w = natW * ann.zoom;
-      el.style.maxHeight = 'none';
-      el.style.maxWidth  = 'none';
-      el.style.width     = w + 'px';
-      el.style.height    = 'auto';
+      const targetPx = Math.round(natW * ann.zoom);
+      wrap.style.width    = targetPx + 'px';
       wrap.style.maxWidth = 'none';
-      wrap.style.width    = w + 'px';
+      el.style.maxHeight  = 'none';
+      el.style.maxWidth   = '100%';
+      el.style.width      = '100%';
+      el.style.height     = 'auto';
       $('ann-zoom-pct').textContent = Math.round(ann.zoom * 100) + '%';
     }
   }
