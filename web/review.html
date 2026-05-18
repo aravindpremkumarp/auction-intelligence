@@ -202,7 +202,7 @@
   .ann-toolbar .zoom-pct { min-width: 36px; text-align: center; font-family: 'IBM Plex Mono', monospace; font-size: 11px; }
   .ann-grid { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(280px, 1fr); gap: 14px; }
   @media (max-width: 1100px) { .ann-grid { grid-template-columns: 1fr; } }
-  .ann-stage { border: 2px solid var(--ink); background: #2a2a2a; box-shadow: 2px 3px 0 rgba(0,0,0,0.9); overflow: auto; max-height: 85vh; min-height: 60vh; padding: 8px; display: flex; justify-content: center; }
+  .ann-stage { border: 2px solid var(--ink); background: #2a2a2a; box-shadow: 2px 3px 0 rgba(0,0,0,0.9); overflow: auto; max-height: 85vh; min-height: 60vh; padding: 8px; text-align: center; }
   .ann-page { position: relative; display: inline-block; background: #fff; max-width: 100%; }
   .ann-page > img, .ann-page > canvas { display: block; max-width: 100%; max-height: calc(85vh - 32px); width: auto; height: auto; user-select: none; }
   .ann-page.draw { cursor: crosshair; }
@@ -2753,7 +2753,8 @@
   // `ann.zoom == null` means "fit to viewport" (default). Otherwise the
   // value is a multiplier on the source's natural dimensions.
   function applyAnnZoom() {
-    const el = $('ann-page-wrap-inner').querySelector('img, canvas');
+    const wrap = $('ann-page-wrap-inner');
+    const el = wrap.querySelector('img, canvas');
     if (!el) return;
     const natW = el.naturalWidth || el.width || 0;
     if (ann.zoom == null) {
@@ -2761,12 +2762,21 @@
       el.style.maxWidth  = '';
       el.style.width     = '';
       el.style.height    = '';
+      wrap.style.width    = '';
+      wrap.style.maxWidth = '';
       $('ann-zoom-pct').textContent = 'Fit';
     } else if (natW > 0) {
+      // The overlay (inset:0) is sized by the wrap, not the image. Without
+      // syncing the wrap, .ann-page's max-width:100% clips the overlay at
+      // the stage width while the image overflows — so percent-based bboxes
+      // stop matching the underlying text.
+      const w = natW * ann.zoom;
       el.style.maxHeight = 'none';
       el.style.maxWidth  = 'none';
-      el.style.width     = (natW * ann.zoom) + 'px';
+      el.style.width     = w + 'px';
       el.style.height    = 'auto';
+      wrap.style.maxWidth = 'none';
+      wrap.style.width    = w + 'px';
       $('ann-zoom-pct').textContent = Math.round(ann.zoom * 100) + '%';
     }
   }
