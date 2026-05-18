@@ -197,6 +197,9 @@
   .ann-toolbar .filename { font-family: 'IBM Plex Mono', monospace; font-weight: 600; font-size: 13px; }
   .ann-toolbar .page-select { padding: 4px 8px; border: 1.5px solid var(--ink); background: #fff; }
   .ann-toolbar .mode-on { background: var(--accent); font-weight: 600; }
+  .ann-toolbar .zoom-group { display: inline-flex; gap: 4px; align-items: center; padding: 0 6px; border-left: 1px solid var(--muted); border-right: 1px solid var(--muted); }
+  .ann-toolbar .zoom-btn { padding: 2px 8px; min-height: 0; font-size: 13px; }
+  .ann-toolbar .zoom-pct { min-width: 36px; text-align: center; font-family: 'IBM Plex Mono', monospace; font-size: 11px; }
   .ann-grid { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(280px, 1fr); gap: 14px; }
   @media (max-width: 1100px) { .ann-grid { grid-template-columns: 1fr; } }
   .ann-stage { border: 2px solid var(--ink); background: #2a2a2a; box-shadow: 2px 3px 0 rgba(0,0,0,0.9); overflow: auto; max-height: 85vh; min-height: 60vh; padding: 8px; display: flex; justify-content: center; }
@@ -452,6 +455,12 @@
       <label class="meta" style="display:none" id="ann-page-wrap">page <select class="page-select" id="ann-page"></select></label>
       <button id="ann-add" class="ghost">+ Add block</button>
       <button id="ann-toggle-boxes" class="ghost" title="show / hide bounding boxes">Hide boxes</button>
+      <span class="zoom-group">
+        <button id="ann-zoom-out" class="ghost zoom-btn" title="zoom out">−</button>
+        <button id="ann-zoom-fit" class="ghost zoom-btn" title="fit image to viewport">Fit</button>
+        <span id="ann-zoom-pct" class="meta zoom-pct">Fit</span>
+        <button id="ann-zoom-in" class="ghost zoom-btn" title="zoom in">+</button>
+      </span>
       <button id="ann-reload" class="ghost">Reload</button>
       <a class="link" id="ann-open-src" target="_blank" rel="noopener" style="display:none">open source ↗</a>
     </div>
@@ -1940,6 +1949,7 @@
     sourceKind: null,  // 'pdf' | 'image' | 'other'
     pdfDoc: null,      // pdfjs proxy
     pageRender: { width: 0, height: 0 },
+    zoom: null,        // null = fit-to-viewport; number = naturalDim * zoom
     dragSession: null,
   };
 
@@ -2134,6 +2144,7 @@
       // data; the bbox overlay anchors on the rendered element.
       img.onload = () => {
         ann.pageRender = { width: img.naturalWidth, height: img.naturalHeight };
+        applyAnnZoom();
         paintAnnAll();
       };
       img.onerror = () => {
@@ -2181,6 +2192,7 @@
     ann.pageRender = { width: viewport.width, height: viewport.height };
     await pdfPage.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
     attachOverlayLayer(wrap);
+    applyAnnZoom();
     paintAnnAll();
   }
 
@@ -2275,12 +2287,13 @@
       root.innerHTML = '<div class="empty">no blocks yet. press “+ Add block” and marquee-draw a region.</div>';
       return;
     }
-    for (const b of sorted) {
-      root.appendChild(renderSidebarRow(b));
+    const total = sorted.length;
+    for (let i = 0; i < total; i++) {
+      root.appendChild(renderSidebarRow(sorted[i], i + 1, total, sorted));
     }
   }
 
-  function renderSidebarRow(b) {
+  function renderSidebarRow(b, position, total, sortedAll) {
     const row = document.createElement('div');
     row.className = 'ann-row';
     if (ann.selectedId === b.id) row.classList.add('selected');
@@ -2290,8 +2303,9 @@
 
     const orderInput = document.createElement('input');
     orderInput.type = 'number'; orderInput.className = 'order-input';
-    orderInput.value = String(b.reading_order);
-    orderInput.title = 'reading order';
+    orderInput.value = String(position);
+    orderInput.min = '1'; orderInput.max = String(total);
+    orderInput.title = `position (1–${total}) · edit to reorder`;
     top.appendChild(orderInput);
 
     const labelSel = document.createElement('select');
@@ -2368,10 +2382,16 @@
       selectBlock(b.id);
     });
     orderInput.addEventListener('change', () => {
-      const v = parseInt(orderInput.value, 10);
-      if (!isNaN(v) && v !== b.reading_order) {
-        updateBlockOnServer(b.id, { reading_order: v }, b);
+      const newPos = parseInt(orderInput.value, 10);
+      if (isNaN(newPos) || newPos === position || newPos < 1 || newPos > total) {
+        orderInput.value = String(position);
+        return;
       }
+      const newOrder = sortedAll.slice();
+      newOrder.splice(position - 1, 1);
+      newOrder.splice(Math.min(total - 1, newPos - 1), 0, b);
+      const updates = newOrder.map((blk, i) => ({ id: blk.id, reading_order: i + 1 }));
+      reorderBlocksOnServer(updates);
     });
     labelSel.addEventListener('change', () => {
       const newLabel = labelSel.value;
@@ -2416,6 +2436,12 @@
     if (ann.selectedId === id) return;
     ann.selectedId = id;
     paintAnnAll();
+    requestAnimationFrame(() => {
+      const row = document.querySelector(`#ann-rows .ann-row[data-id="${id}"]`);
+      if (row) row.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      const blk = document.querySelector(`#ann-page-wrap-inner .ann-block[data-id="${id}"]`);
+      if (blk) blk.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
+    });
   }
 
   // ── Pointer interactions (select / drag / resize / marquee) ──────────────
@@ -2647,6 +2673,23 @@
     } catch (e) { annToast('delete error: ' + e, 'err'); }
   }
 
+  async function reorderBlocksOnServer(updates) {
+    try {
+      const r = await authFetch(
+        API + '/review/notice/' + encodeURIComponent(ann.filename) + '/blocks/reorder',
+        { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ order: updates }) }
+      );
+      if (!r.ok) { annToast('reorder failed (' + r.status + ')', 'err'); return; }
+      const doc = await r.json();
+      ann.blocks = (doc.blocks || []).map(b => ({ ...b, bbox: b.bbox.slice() }));
+      ann.rev = doc.blocks_revision || ann.rev;
+      $('ann-rev').textContent = 'rev ' + ann.rev;
+      refreshMarkdownAfterChange();
+      paintAnnAll();
+    } catch (e) { annToast('reorder error: ' + e, 'err'); }
+  }
+
   async function reextractBlock(id, btn) {
     const blk = ann.blocks.find(b => b.id === id);
     if (!blk) return;
@@ -2705,6 +2748,43 @@
     paintAnnOverlay();
   });
   $('ann-reload').addEventListener('click', () => loadAnnotator(ann.filename));
+
+  // ── Zoom ─────────────────────────────────────────────────────────────────
+  // `ann.zoom == null` means "fit to viewport" (default). Otherwise the
+  // value is a multiplier on the source's natural dimensions.
+  function applyAnnZoom() {
+    const el = $('ann-page-wrap-inner').querySelector('img, canvas');
+    if (!el) return;
+    const natW = el.naturalWidth || el.width || 0;
+    if (ann.zoom == null) {
+      el.style.maxHeight = '';   // falls back to the stylesheet rule
+      el.style.maxWidth  = '';
+      el.style.width     = '';
+      el.style.height    = '';
+      $('ann-zoom-pct').textContent = 'Fit';
+    } else if (natW > 0) {
+      el.style.maxHeight = 'none';
+      el.style.maxWidth  = 'none';
+      el.style.width     = (natW * ann.zoom) + 'px';
+      el.style.height    = 'auto';
+      $('ann-zoom-pct').textContent = Math.round(ann.zoom * 100) + '%';
+    }
+  }
+  $('ann-zoom-in').addEventListener('click', () => {
+    ann.zoom = (ann.zoom == null ? 1.0 : ann.zoom) + 0.25;
+    if (ann.zoom > 4) ann.zoom = 4;
+    applyAnnZoom();
+  });
+  $('ann-zoom-out').addEventListener('click', () => {
+    ann.zoom = (ann.zoom == null ? 0.75 : ann.zoom - 0.25);
+    if (ann.zoom < 0.25) ann.zoom = 0.25;
+    applyAnnZoom();
+  });
+  $('ann-zoom-fit').addEventListener('click', () => {
+    ann.zoom = null;
+    applyAnnZoom();
+  });
+
   $('ann-toggle-boxes').addEventListener('click', () => {
     const wrap = $('ann-page-wrap-inner');
     const overlay = wrap && wrap.querySelector('.ann-overlay');
