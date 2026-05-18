@@ -1,6 +1,6 @@
 # Production requirements for Render deployment.
-# Excludes scraping (selenium, webdriver-manager) and PDF/image generation
-# (weasyprint, pdf2image, Pillow) which are local-only features.
+# Excludes scraping (selenium, webdriver-manager) and heavy PDF/image
+# generation (weasyprint, pdf2image) which are local-only features.
 # For full local dev requirements see config/requirements.txt.
 
 # Core utilities
@@ -8,6 +8,13 @@ python-dotenv
 aiohttp
 rapidfuzz
 pyyaml
+
+# Annotator UI: crop the source bbox before re-running MinerU on a region.
+# PyMuPDF handles PDF cropping and cell-level table extraction; Pillow
+# handles image cropping. Both stay local imports — the rest of the API
+# only pays the import cost when a reviewer triggers a re-extract.
+PyMuPDF
+Pillow
 
 # Database
 neo4j

@@ -29,12 +29,10 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import io
 import json
 import os
 import sys
 import time
-import zipfile
 from pathlib import Path
 
 import aiohttp
@@ -47,21 +45,22 @@ from pipeline.config import (
     PROMPTS_DIR, MAX_RETRIES,
 )
 from pipeline.mineru import (
-    MINERU_EXT_REMAP,
+    MINERU_BLOCKS_DIR,
     MINERU_MARKDOWN_DIR as MINERU_MD_DIR,
     MINERU_SUPPORTED_EXTS,
     find_disk_path,
     safe_cache_name,
 )
+from pipeline.mineru_api import (
+    download_and_cache as mineru_download_and_cache,
+    poll as mineru_poll,
+    request_batch as mineru_request_batch,
+    upload_files as mineru_upload_files,
+)
 
 
 load_dotenv()
 MINERU_KEY = os.environ.get("MINERU_API_KEY")
-MINERU_BASE = "https://mineru.net/api/v4"
-MINERU_HEADERS = {
-    "Authorization": f"Bearer {MINERU_KEY}" if MINERU_KEY else "",
-    "Content-Type": "application/json",
-}
 
 REPO_ROOT          = Path(__file__).resolve().parent.parent
 NOTICE_DESC_V3_DIR = REPO_ROOT / "pipeline" / "cache" / "notice_descriptions_v3"
@@ -91,87 +90,20 @@ def fetch_all_work() -> list[dict]:
 
 
 # ── MinerU stage ─────────────────────────────────────────────────────────────
-
-def mineru_request_batch(items: list[dict]) -> tuple[str, list[str]]:
-    def api_name(filename: str) -> str:
-        # Remap unsupported-but-equivalent extensions (e.g. .jfif -> .jpg)
-        for src, tgt in MINERU_EXT_REMAP.items():
-            if filename.lower().endswith(src):
-                return filename[: -len(src)] + tgt
-        return filename
-
-    payload = {
-        "files": [{"name": api_name(it["filename"]),
-                   "data_id": safe_cache_name(it["file_path"])[:128]}
-                  for it in items],
-        "model_version": "vlm",
-    }
-    r = requests.post(f"{MINERU_BASE}/file-urls/batch",
-                      headers=MINERU_HEADERS, json=payload, timeout=30)
-    r.raise_for_status()
-    body = r.json()
-    if body.get("code") != 0:
-        raise RuntimeError(f"MinerU batch request failed: {body}")
-    data = body["data"]
-    return data["batch_id"], data["file_urls"]
-
-
-def mineru_upload_files(items: list[dict], signed_urls: list[str]) -> None:
-    for it, url in zip(items, signed_urls):
-        with open(it["disk_path"], "rb") as f:
-            r = requests.put(url, data=f.read(), timeout=120)
-        if not r.ok:
-            print(f"    [upload-fail] {it['filename']}: HTTP {r.status_code}")
-
-
-def mineru_poll(batch_id: str, timeout_s: int = 600) -> list[dict]:
-    poll_url = f"{MINERU_BASE}/extract-results/batch/{batch_id}"
-    deadline = time.time() + timeout_s
-    while time.time() < deadline:
-        r = requests.get(poll_url, headers=MINERU_HEADERS, timeout=30)
-        r.raise_for_status()
-        rows = r.json().get("data", {}).get("extract_result", [])
-        states = [r.get("state") for r in rows]
-        if states and all(s in ("done", "failed") for s in states):
-            return rows
-        n_done = sum(1 for s in states if s == "done")
-        n_running = sum(1 for s in states if s == "running")
-        n_pending = sum(1 for s in states if s == "pending")
-        print(f"    [poll] done={n_done} running={n_running} pending={n_pending}", flush=True)
-        time.sleep(8)
-    raise TimeoutError(f"MinerU polling timeout after {timeout_s}s for batch {batch_id}")
-
-
-def download_and_cache_md(file_path: str, full_zip_url: str) -> Path | None:
-    MINERU_MD_DIR.mkdir(parents=True, exist_ok=True)
-    md_path = MINERU_MD_DIR / f"{safe_cache_name(file_path)}.md"
-    # Retry on transient network errors (ConnectionResetError, timeouts) —
-    # the OSS download URL is short-lived but stable for the few minutes after
-    # MinerU returns it, so a few retries with backoff usually clear blips.
-    for attempt in range(4):
-        try:
-            r = requests.get(full_zip_url, timeout=120)
-            if not r.ok:
-                return None
-            z = zipfile.ZipFile(io.BytesIO(r.content))
-            if "full.md" not in z.namelist():
-                return None
-            md = z.read("full.md").decode("utf-8")
-            md_path.write_text(md, encoding="utf-8")
-            return md_path
-        except (requests.exceptions.RequestException, zipfile.BadZipFile) as e:
-            if attempt < 3:
-                wait = 2 ** attempt * 5  # 5, 10, 20s
-                print(f"    [zip-dl retry {attempt + 1}] {type(e).__name__}: {e}; waiting {wait}s")
-                time.sleep(wait)
-            else:
-                print(f"    [zip-dl GAVE UP] {file_path}: {e}")
-                return None
-    return None
+# The four HTTP helpers (request_batch, upload_files, poll,
+# download_and_cache) live in ``pipeline/mineru_api.py`` so the annotator's
+# per-block re-extract path can reuse them. Each result zip now caches
+# both ``full.md`` and the per-block content-list JSON.
 
 
 def stage1_mineru(work: list[dict]) -> dict[str, str]:
-    """{file_path: markdown}. Cache hits skip the API."""
+    """{file_path: markdown}. Cache hits skip the API.
+
+    The result zip carries both ``full.md`` and a per-block content-list
+    JSON; both are cached on disk (see ``pipeline/mineru_api.download_and_cache``).
+    Only the markdown is returned here — the loader reads the blocks JSON
+    from disk when projecting into Neo4j.
+    """
     md_by_path: dict[str, str] = {}
     items_to_call: list[dict] = []
     missing_disk = 0
@@ -235,10 +167,11 @@ def stage1_mineru(work: list[dict]) -> dict[str, str]:
             zip_url = r.get("full_zip_url")
             if zip_url is None:
                 continue
-            md_path = download_and_cache_md(match["file_path"], zip_url)
+            md_path, blocks_path = mineru_download_and_cache(match["file_path"], zip_url)
             if md_path:
                 md_by_path[match["file_path"]] = md_path.read_text(encoding="utf-8")
-                print(f"    [{match['filename']}] -> {md_path.stat().st_size} bytes")
+                blocks_note = " +blocks.json" if blocks_path else " (no blocks.json)"
+                print(f"    [{match['filename']}] -> {md_path.stat().st_size} bytes{blocks_note}")
     return md_by_path
 
 
@@ -403,9 +336,11 @@ def print_summary():
         MATCH (a:AuctionProperty) RETURN a.description_source AS src, count(*) AS n ORDER BY src
     """):
         print(f"  source={str(row['src']):<20} {row['n']:>5}")
-    md_count = len(list(MINERU_MD_DIR.glob("*.md"))) if MINERU_MD_DIR.exists() else 0
-    v3_count = len(list(NOTICE_DESC_V3_DIR.glob("*.json"))) if NOTICE_DESC_V3_DIR.exists() else 0
+    md_count     = len(list(MINERU_MD_DIR.glob("*.md")))      if MINERU_MD_DIR.exists()     else 0
+    blocks_count = len(list(MINERU_BLOCKS_DIR.glob("*.json"))) if MINERU_BLOCKS_DIR.exists() else 0
+    v3_count     = len(list(NOTICE_DESC_V3_DIR.glob("*.json"))) if NOTICE_DESC_V3_DIR.exists() else 0
     print(f"\n  mineru_markdown cache: {md_count} files")
+    print(f"  mineru_blocks cache:   {blocks_count} files")
     print(f"  notice_descriptions_v3 cache: {v3_count} files")
 
 

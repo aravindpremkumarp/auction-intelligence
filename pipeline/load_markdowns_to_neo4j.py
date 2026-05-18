@@ -28,16 +28,24 @@ finishes in seconds.
 from __future__ import annotations
 
 import argparse
+import json
+import secrets
 import sys
 import time
 from pathlib import Path
 
 from api.neo4j_client import run_query, run_read_query, session
+from pipeline.mineru import (
+    MINERU_BLOCKS_DIR,
+    parse_mineru_content_list,
+    safe_cache_name,
+)
 from pipeline.score_markdown import score_freshly_loaded
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 MD_DIR = REPO_ROOT / "pipeline" / "cache" / "mineru_markdown"
+BLOCKS_DIR = MINERU_BLOCKS_DIR
 
 # MinerU is the only producer of cached markdowns under MD_DIR. The model
 # tag mirrors MinerU's "model_version: vlm" request param in
@@ -49,6 +57,38 @@ DEFAULT_MARKDOWN_MODEL = "mineru-vlm"
 
 def safe_name(file_path: str) -> str:
     return file_path.replace("/", "_").replace("\\", "_").replace(":", "_")
+
+
+def _new_block_id() -> str:
+    return f"blk_{secrets.token_hex(6)}"
+
+
+def _assign_block_ids(blocks: list[dict]) -> list[dict]:
+    """Stamp a stable random id on each block. The parser leaves id blank."""
+    for b in blocks:
+        if not b.get("id"):
+            b["id"] = _new_block_id()
+    return blocks
+
+
+def load_blocks_for(file_path: str) -> list[dict] | None:
+    """Read the cached content-list JSON for ``file_path`` and convert it
+    to our canonical block shape. Returns ``None`` if no cache exists or
+    the file is unreadable."""
+    p = BLOCKS_DIR / f"{safe_name(file_path)}.json"
+    if not p.exists():
+        return None
+    try:
+        raw = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as e:
+        print(f"  [blocks-parse-fail] {p.name}: {e}")
+        return None
+    if isinstance(raw, dict) and isinstance(raw.get("blocks"), list):
+        # Already normalized (e.g. a re-serialize from earlier run).
+        return _assign_block_ids(raw["blocks"])
+    if isinstance(raw, list):
+        return _assign_block_ids(parse_mineru_content_list(raw))
+    return None
 
 
 def fetch_pending(force: bool) -> list[dict]:
@@ -69,13 +109,26 @@ def fetch_pending(force: bool) -> list[dict]:
 
 
 def write_markdowns(rows: list[dict], source: str, model: str) -> None:
+    """Write markdown + (optional) blocks JSON to each Document.
+
+    ``rows`` items carry: ``file_path``, ``markdown``, and optionally
+    ``blocks_json`` (string, JSON-encoded ``{"schema_version":1,"blocks":[...]}``).
+    Documents without a blocks payload keep their existing ``d.blocks``
+    (or ``NULL``) — we never clobber blocks the reviewer may have edited.
+    """
     cypher = """
         UNWIND $rows AS row
         MATCH (d:Document {file_path: row.file_path})
         SET d.markdown            = row.markdown,
             d.markdown_source     = $source,
             d.markdown_model      = $model,
-            d.markdown_loaded_at  = datetime()
+            d.markdown_loaded_at  = datetime(),
+            d.blocks              = CASE
+                WHEN row.blocks_json IS NULL THEN d.blocks
+                ELSE row.blocks_json END,
+            d.blocks_revision     = CASE
+                WHEN row.blocks_json IS NULL THEN coalesce(d.blocks_revision, 0)
+                ELSE coalesce(d.blocks_revision, 0) END
     """
     run_query(cypher, {"rows": rows, "source": source, "model": model})
 
@@ -142,6 +195,8 @@ def main() -> int:
     done = 0
     missing = 0
     failed = 0
+    blocks_loaded = 0
+    blocks_missing = 0
 
     written_file_paths: list[str] = []
 
@@ -176,7 +231,23 @@ def main() -> int:
         if not text.strip():
             missing += 1
             continue
-        payloads.append({"file_path": fp, "markdown": text})
+
+        blocks = load_blocks_for(fp)
+        if blocks is not None:
+            blocks_json = json.dumps(
+                {"schema_version": 1, "blocks": blocks},
+                ensure_ascii=False,
+            )
+            blocks_loaded += 1
+        else:
+            blocks_json = None
+            blocks_missing += 1
+
+        payloads.append({
+            "file_path":   fp,
+            "markdown":    text,
+            "blocks_json": blocks_json,
+        })
         done += 1
 
         if len(payloads) >= args.write_batch:
@@ -205,6 +276,7 @@ def main() -> int:
             print(f"  [score-fail] {type(e).__name__}: {e}")
 
     print(f"\nLoaded {done} markdowns  missing_md={missing}  failed={failed}"
+          f"  blocks_loaded={blocks_loaded}  blocks_missing={blocks_missing}"
           f"  scored={scored}{backfill_note}")
     return 0
 
