@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -308,6 +308,18 @@ class ReExtractBody(BaseModel):
     page: int | None = None
     row_positions: list[float] | None = None
     col_positions: list[float] | None = None
+
+
+class ReingestStarted(BaseModel):
+    """Returned immediately when a reingest is scheduled in the background.
+
+    Reviewers should poll ``GET /review/notice/{filename}/blocks`` until
+    ``blocks_revision`` exceeds ``blocks_revision`` here (or until
+    ``backfill_required`` flips to false) to know the job has landed.
+    """
+    started: bool = True
+    filename: str
+    blocks_revision: int
 
 
 def _row_to_str(row: dict) -> dict:
@@ -655,13 +667,34 @@ async def review_notice_reextract_block(
     return _ok_block(blk)
 
 
-@router.post("/notice/{filename}/reingest", response_model=BlocksDoc)
+@router.post(
+    "/notice/{filename}/reingest",
+    response_model=ReingestStarted,
+    status_code=202,
+)
 @_wrap_block_errors
 async def review_notice_reingest(
     filename: str,
+    background_tasks: BackgroundTasks,
     admin: UserOut = Depends(get_current_admin),
-) -> BlocksDoc:
-    return _ok_doc(block_ops.reingest_notice(filename, by_email=admin.email))
+) -> ReingestStarted:
+    """Schedule a single-document MinerU re-OCR.
+
+    The full pipeline — download from R2, MinerU upload + poll, zip parse,
+    Neo4j write — can take 30s-5min, well over Render's per-request
+    timeout. Returning 202 immediately lets the connection close cleanly;
+    the UI polls ``GET .../blocks`` and stops when ``blocks_revision``
+    advances past the value we return here.
+    """
+    # Validate the notice exists + capture the current rev before scheduling.
+    doc = block_ops.get_blocks(filename)
+    background_tasks.add_task(
+        block_ops.reingest_notice_safe, filename, admin.email,
+    )
+    return ReingestStarted(
+        filename=filename,
+        blocks_revision=int(doc.get("blocks_revision") or 0),
+    )
 
 
 @router.get("/notice/{filename}/source")

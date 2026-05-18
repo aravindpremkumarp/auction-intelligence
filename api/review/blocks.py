@@ -388,6 +388,24 @@ async def re_extract_block(filename: str, block_id: str,
     return blk
 
 
+def reingest_notice_safe(filename: str, by_email: str) -> None:
+    """Background-task wrapper around :func:`reingest_notice`.
+
+    Exceptions are logged and swallowed — the foreground request has
+    already returned 202, so a thrown error here can't be surfaced via
+    HTTP. The frontend detects success by polling ``GET .../blocks``
+    and watching ``blocks_revision``; if the rev doesn't advance, the
+    reviewer can simply press Re-ingest again.
+    """
+    import logging
+    log = logging.getLogger(__name__)
+    try:
+        reingest_notice(filename, by_email)
+        log.info("reingest succeeded for %s", filename)
+    except Exception:
+        log.exception("reingest background task failed for %s", filename)
+
+
 def reingest_notice(filename: str, by_email: str) -> dict:
     """Re-run the full MinerU pipeline for a single Document.
 

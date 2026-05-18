@@ -2033,23 +2033,68 @@
 
   async function annReingest() {
     const btn = $('ann-reingest');
-    btn.disabled = true; btn.textContent = 're-ingesting…';
+    btn.disabled = true;
+    const filename = ann.filename;
+    let elapsed = 0;
+    btn.textContent = 're-ingesting… 0s';
+    const tickElapsed = setInterval(() => {
+      elapsed += 1;
+      if (btn.isConnected) btn.textContent = `re-ingesting… ${elapsed}s`;
+    }, 1000);
+
+    // The server returns 202 immediately and runs the actual MinerU
+    // pipeline in a background task — Render's per-request timeout
+    // would otherwise kill the connection mid-flight. We then poll
+    // GET /blocks until blocks_revision advances past the rev the
+    // server reported when it scheduled the task.
+    let startedRev = null;
     try {
       const r = await authFetch(
-        API + '/review/notice/' + encodeURIComponent(ann.filename) + '/reingest',
+        API + '/review/notice/' + encodeURIComponent(filename) + '/reingest',
         { method: 'POST' }
       );
       if (!r.ok) {
+        clearInterval(tickElapsed);
         annToast(`reingest failed (${r.status})`, 'err');
         btn.disabled = false; btn.textContent = 'Re-ingest with layout extraction';
         return;
       }
-      annToast('re-ingested', 'ok');
-      await loadAnnotator(ann.filename);
+      const started = await r.json();
+      startedRev = Number(started.blocks_revision || 0);
     } catch (e) {
+      clearInterval(tickElapsed);
       annToast('reingest error: ' + e, 'err');
       btn.disabled = false; btn.textContent = 'Re-ingest with layout extraction';
+      return;
     }
+
+    // Poll until the document's revision moves past startedRev, or 5
+    // minutes elapses. The MinerU job for a single notice usually
+    // completes in 15-90 seconds.
+    const POLL_INTERVAL_MS = 3000;
+    const MAX_WAIT_MS      = 5 * 60 * 1000;
+    const t0 = Date.now();
+    while (Date.now() - t0 < MAX_WAIT_MS) {
+      await new Promise(res => setTimeout(res, POLL_INTERVAL_MS));
+      if (ann.filename !== filename) break;   // reviewer navigated away
+      try {
+        const r = await authFetch(
+          API + '/review/notice/' + encodeURIComponent(filename) + '/blocks'
+        );
+        if (!r.ok) continue;
+        const doc = await r.json();
+        if (Number(doc.blocks_revision || 0) > startedRev
+            || (Array.isArray(doc.blocks) && doc.blocks.length > 0)) {
+          clearInterval(tickElapsed);
+          annToast('re-ingested', 'ok');
+          await loadAnnotator(filename);
+          return;
+        }
+      } catch {}
+    }
+    clearInterval(tickElapsed);
+    annToast('reingest is taking longer than 5 min; check Render logs', 'err');
+    btn.disabled = false; btn.textContent = 'Re-ingest with layout extraction';
   }
 
   async function loadAnnSource(url) {
