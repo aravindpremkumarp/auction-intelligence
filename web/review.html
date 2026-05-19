@@ -202,7 +202,9 @@
   .ann-toolbar .zoom-pct { min-width: 36px; text-align: center; font-family: 'IBM Plex Mono', monospace; font-size: 11px; }
   .ann-grid { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(280px, 1fr); gap: 14px; }
   @media (max-width: 1100px) { .ann-grid { grid-template-columns: 1fr; } }
-  .ann-stage { border: 2px solid var(--ink); background: #2a2a2a; box-shadow: 2px 3px 0 rgba(0,0,0,0.9); overflow: auto; max-height: 85vh; min-height: 60vh; padding: 8px; text-align: center; }
+  .ann-stage { border: 2px solid var(--ink); background: #2a2a2a; box-shadow: 2px 3px 0 rgba(0,0,0,0.9); overflow: auto; max-height: 85vh; min-height: 60vh; padding: 8px; text-align: center; overscroll-behavior: contain; }
+  .ann-stage.panning { cursor: grabbing; }
+  .ann-stage.panning * { cursor: grabbing !important; }
   .ann-page { position: relative; display: inline-block; background: #fff; max-width: 100%; }
   .ann-page.cropped { display: block; overflow: hidden; max-width: none; }
   .ann-content { position: relative; display: block; }
@@ -261,6 +263,32 @@
   .ann-row .table-editor { margin-top: 6px; padding: 6px; border: 1px dashed var(--ink); font-size: 11px; }
   .ann-row .table-editor .grid-positions { display: grid; grid-template-columns: 70px 1fr; gap: 4px 8px; align-items: center; margin-top: 4px; }
   .ann-row .table-editor input { width: 100%; box-sizing: border-box; padding: 3px 5px; border: 1.5px solid var(--ink); font-family: 'IBM Plex Mono', monospace; font-size: 11px; }
+  /* Rendered table preview with hover-triggered +/× affordances (ported
+     from the reference TableEditor at 07_project_aiparsed_humanvalidated_extractor). */
+  .ann-tbl-wrap { margin-top: 6px; overflow: auto; max-height: 320px; border: 1.5px solid var(--ink); background: #fff; padding: 16px 18px 8px 18px; }
+  .ann-tbl { border-collapse: collapse; width: 100%; table-layout: auto; }
+  .ann-tbl td, .ann-tbl th { border: 1px solid var(--ink); padding: 4px 6px; font-size: 11px; font-family: 'IBM Plex Mono', monospace; vertical-align: top; position: relative; min-width: 40px; }
+  .ann-tbl td[contenteditable], .ann-tbl th[contenteditable] { outline: none; cursor: text; }
+  .ann-tbl td:focus, .ann-tbl th:focus { background: #fff8d4; box-shadow: inset 0 0 0 1px var(--danger); }
+  .ann-tbl .ann-tbl-rowctl { width: 18px; padding: 0; border: none; background: transparent; position: relative; }
+  .ann-tbl .ann-tbl-colctl { height: 18px; padding: 0; border: none; background: transparent; position: relative; }
+  .ann-tbl .ann-tbl-corner { width: 18px; height: 18px; padding: 0; border: none; background: transparent; }
+  .ann-tbl-handle { width: 14px; height: 14px; border-radius: 3px; background: #d8d4c4; display: block; margin: 2px auto; cursor: pointer; }
+  .ann-tbl-handle:hover { background: #b5b0a0; }
+  .ann-tbl-handle.del:hover { background: var(--danger); }
+  .ann-tbl-add { position: absolute; width: 16px; height: 16px; border-radius: 50%; background: #3b82f6; color: #fff; border: none; font-size: 12px; font-weight: bold; cursor: pointer; display: none; align-items: center; justify-content: center; box-shadow: 0 1px 3px rgba(59,130,246,0.5); padding: 0; line-height: 1; z-index: 5; }
+  .ann-tbl-add:hover { background: #2563eb; }
+  .ann-tbl-add.show { display: flex; }
+  .ann-tbl-add.row-before { top: -8px; left: 50%; transform: translateX(-50%); }
+  .ann-tbl-add.row-after  { bottom: -8px; left: 50%; transform: translateX(-50%); }
+  .ann-tbl-add.col-before { left: -8px; top: 50%; transform: translateY(-50%); }
+  .ann-tbl-add.col-after  { right: -8px; top: 50%; transform: translateY(-50%); }
+  .ann-tbl-del { position: absolute; top: -8px; right: -8px; width: 14px; height: 14px; border-radius: 50%; background: var(--danger); color: #fff; border: none; font-size: 10px; font-weight: bold; cursor: pointer; display: none; align-items: center; justify-content: center; padding: 0; line-height: 1; z-index: 5; }
+  .ann-tbl-del.show { display: flex; }
+  .ann-tbl-toolbar { display: flex; gap: 6px; align-items: center; margin-top: 6px; font-size: 11px; }
+  .ann-tbl-toolbar button { padding: 3px 8px; font-size: 11px; min-height: 0; }
+  .ann-tbl-toolbar .hint { color: var(--muted); }
+  .ann-tbl-html-toggle { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--muted); cursor: pointer; user-select: none; }
   @keyframes ann-spin { to { transform: rotate(360deg); } }
   .ann-toast { position: fixed; bottom: 18px; right: 18px; background: var(--ink); color: var(--paper); padding: 8px 14px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; z-index: 1000; box-shadow: 2px 3px 0 rgba(0,0,0,0.5); }
   .ann-toast.err { background: var(--danger); }
@@ -460,11 +488,11 @@
       <button id="ann-add" class="ghost">+ Add block</button>
       <button id="ann-crop" class="ghost" title="define the sales-notice region; only the cropped area is sent to OCR on re-ingest">+ Set crop</button>
       <button id="ann-toggle-boxes" class="ghost" title="show / hide bounding boxes">Hide boxes</button>
-      <span class="zoom-group">
-        <button id="ann-zoom-out" class="ghost zoom-btn" title="zoom out">−</button>
+      <span class="zoom-group" title="wheel to zoom · middle-click or alt+drag to pan">
+        <button id="ann-zoom-out" class="ghost zoom-btn" title="zoom out (or scroll wheel down)">−</button>
         <button id="ann-zoom-fit" class="ghost zoom-btn" title="fit image to viewport">Fit</button>
         <span id="ann-zoom-pct" class="meta zoom-pct">Fit</span>
-        <button id="ann-zoom-in" class="ghost zoom-btn" title="zoom in">+</button>
+        <button id="ann-zoom-in" class="ghost zoom-btn" title="zoom in (or scroll wheel up)">+</button>
       </span>
       <button id="ann-reload" class="ghost">Reload</button>
       <a class="link" id="ann-open-src" target="_blank" rel="noopener" style="display:none">open source ↗</a>
@@ -2432,10 +2460,35 @@
 
     row.appendChild(top);
 
-    const textArea = document.createElement('textarea');
+    // For Table blocks we render an interactive table preview FIRST so the
+    // reviewer sees the actual structure (port of the row/col affordances
+    // from 07_project_aiparsed_humanvalidated_extractor/.../TableEditor.jsx).
+    // The HTML <textarea> below is collapsed by default but available as
+    // an escape hatch for raw edits.
+    let textArea = null;
+    if (b.label === 'Table') {
+      const tableWrap = renderAnnTablePreview(b);
+      if (tableWrap) row.appendChild(tableWrap);
+    }
+
+    textArea = document.createElement('textarea');
     textArea.className = 'ann-text';
-    if (b.label === 'Table') textArea.classList.add('html-mode');
+    if (b.label === 'Table') {
+      textArea.classList.add('html-mode');
+      textArea.style.display = 'none';
+    }
     textArea.value = b.text || '';
+    if (b.label === 'Table') {
+      const toggle = document.createElement('div');
+      toggle.className = 'ann-tbl-html-toggle';
+      toggle.textContent = '▸ edit raw HTML';
+      toggle.addEventListener('click', () => {
+        const hidden = textArea.style.display === 'none';
+        textArea.style.display = hidden ? '' : 'none';
+        toggle.textContent = hidden ? '▾ hide raw HTML' : '▸ edit raw HTML';
+      });
+      row.appendChild(toggle);
+    }
     row.appendChild(textArea);
 
     if (b.label === 'Table') {
@@ -2517,6 +2570,225 @@
       deleteBlockOnServer(b.id);
     });
     return row;
+  }
+
+  // ── Table preview (rendered view + hover-triggered add/delete) ──────────
+  // Parses block.text as HTML, builds a 2D cell grid, and renders an editable
+  // table. Hovering the row/col gutters reveals blue "+" buttons; the small
+  // "×" appears on hover for delete. Cell content is contenteditable; commits
+  // happen on blur so cursor state survives in-place typing.
+  function _annParseTableHtml(html) {
+    const doc = new DOMParser().parseFromString(
+      html && html.trim() ? html : '<table><tr><td></td></tr></table>',
+      'text/html'
+    );
+    let tbl = doc.querySelector('table');
+    if (!tbl) {
+      tbl = doc.createElement('table');
+      const tr = doc.createElement('tr');
+      tr.appendChild(doc.createElement('td'));
+      tbl.appendChild(tr);
+    }
+    const rows = [];
+    tbl.querySelectorAll('tr').forEach(tr => {
+      const cells = [];
+      tr.querySelectorAll('td, th').forEach(cell => {
+        cells.push({
+          html:    cell.innerHTML,
+          tag:     cell.tagName.toLowerCase(),
+          rowspan: parseInt(cell.getAttribute('rowspan') || '1', 10) || 1,
+          colspan: parseInt(cell.getAttribute('colspan') || '1', 10) || 1,
+        });
+      });
+      if (cells.length) rows.push(cells);
+    });
+    if (!rows.length) rows.push([{ html: '', tag: 'td', rowspan: 1, colspan: 1 }]);
+    const maxCols = Math.max(...rows.map(r => r.length));
+    for (const r of rows) {
+      while (r.length < maxCols) {
+        r.push({ html: '', tag: 'td', rowspan: 1, colspan: 1 });
+      }
+    }
+    return rows;
+  }
+
+  function _annSerializeTableHtml(rows) {
+    return '<table>'
+      + rows.map(r => '<tr>' + r.map(c => {
+          const attrs = [];
+          if (c.rowspan && c.rowspan > 1) attrs.push(`rowspan="${c.rowspan}"`);
+          if (c.colspan && c.colspan > 1) attrs.push(`colspan="${c.colspan}"`);
+          const a = attrs.length ? ' ' + attrs.join(' ') : '';
+          return `<${c.tag}${a}>${c.html}</${c.tag}>`;
+        }).join('') + '</tr>').join('')
+      + '</table>';
+  }
+
+  function renderAnnTablePreview(b) {
+    const wrap = document.createElement('div');
+    wrap.className = 'ann-tbl-wrap';
+    const rows = _annParseTableHtml(b.text || '');
+    const nCols = rows[0] ? rows[0].length : 1;
+
+    const commit = (nextRows) => {
+      const html = _annSerializeTableHtml(nextRows);
+      b.text = html;
+      updateBlockOnServer(b.id, { text: html }, b);
+    };
+    const blankCell = () => ({ html: '', tag: 'td', rowspan: 1, colspan: 1 });
+    const addRow = (afterIdx) => {
+      const blank = Array.from({ length: nCols }, blankCell);
+      const next = rows.slice();
+      next.splice(afterIdx + 1, 0, blank);
+      commit(next);
+    };
+    const addCol = (afterIdx) => {
+      const next = rows.map(r => {
+        const out = r.slice();
+        out.splice(afterIdx + 1, 0, blankCell());
+        return out;
+      });
+      commit(next);
+    };
+    const delRow = (idx) => {
+      if (rows.length <= 1) return;
+      commit(rows.filter((_, i) => i !== idx));
+    };
+    const delCol = (idx) => {
+      if (nCols <= 1) return;
+      commit(rows.map(r => r.filter((_, i) => i !== idx)));
+    };
+
+    const tbl = document.createElement('table');
+    tbl.className = 'ann-tbl';
+
+    // Column-control row (above the data): each cell shows a grey handle that
+    // is the delete-column affordance; on hover, "+" buttons fade in on the
+    // left/right edges. Corner cell at top-left adds a row before row 0.
+    const thead = document.createElement('thead');
+    const ctrlRow = document.createElement('tr');
+    const corner = document.createElement('td');
+    corner.className = 'ann-tbl-corner';
+    {
+      const addBefore = document.createElement('button');
+      addBefore.className = 'ann-tbl-add row-before';
+      addBefore.title = 'Add row above first';
+      addBefore.textContent = '+';
+      addBefore.addEventListener('click', (e) => { e.stopPropagation(); addRow(-1); });
+      corner.appendChild(addBefore);
+      corner.addEventListener('mouseenter', () => addBefore.classList.add('show'));
+      corner.addEventListener('mouseleave', () => addBefore.classList.remove('show'));
+    }
+    ctrlRow.appendChild(corner);
+    for (let c = 0; c < nCols; c++) {
+      const td = document.createElement('td');
+      td.className = 'ann-tbl-colctl';
+      const handle = document.createElement('div');
+      handle.className = 'ann-tbl-handle del';
+      handle.title = 'Click to delete this column';
+      handle.addEventListener('click', () => {
+        if (confirm('Delete column ' + (c + 1) + '?')) delCol(c);
+      });
+      td.appendChild(handle);
+      const addBefore = document.createElement('button');
+      addBefore.className = 'ann-tbl-add col-before';
+      addBefore.title = 'Add column before';
+      addBefore.textContent = '+';
+      addBefore.addEventListener('click', (e) => { e.stopPropagation(); addCol(c - 1); });
+      const addAfter = document.createElement('button');
+      addAfter.className = 'ann-tbl-add col-after';
+      addAfter.title = 'Add column after';
+      addAfter.textContent = '+';
+      addAfter.addEventListener('click', (e) => { e.stopPropagation(); addCol(c); });
+      td.appendChild(addBefore);
+      td.appendChild(addAfter);
+      td.addEventListener('mouseenter', () => {
+        addBefore.classList.add('show'); addAfter.classList.add('show');
+      });
+      td.addEventListener('mouseleave', () => {
+        addBefore.classList.remove('show'); addAfter.classList.remove('show');
+      });
+      ctrlRow.appendChild(td);
+    }
+    thead.appendChild(ctrlRow);
+    tbl.appendChild(thead);
+
+    const tbody = document.createElement('tbody');
+    for (let r = 0; r < rows.length; r++) {
+      const tr = document.createElement('tr');
+      const rowCtl = document.createElement('td');
+      rowCtl.className = 'ann-tbl-rowctl';
+      const rowHandle = document.createElement('div');
+      rowHandle.className = 'ann-tbl-handle del';
+      rowHandle.title = 'Click to delete this row';
+      rowHandle.addEventListener('click', () => {
+        if (confirm('Delete row ' + (r + 1) + '?')) delRow(r);
+      });
+      rowCtl.appendChild(rowHandle);
+      const addAbove = document.createElement('button');
+      addAbove.className = 'ann-tbl-add row-before';
+      addAbove.title = 'Add row above';
+      addAbove.textContent = '+';
+      addAbove.addEventListener('click', (e) => { e.stopPropagation(); addRow(r - 1); });
+      const addBelow = document.createElement('button');
+      addBelow.className = 'ann-tbl-add row-after';
+      addBelow.title = 'Add row below';
+      addBelow.textContent = '+';
+      addBelow.addEventListener('click', (e) => { e.stopPropagation(); addRow(r); });
+      rowCtl.appendChild(addAbove);
+      rowCtl.appendChild(addBelow);
+      rowCtl.addEventListener('mouseenter', () => {
+        addAbove.classList.add('show'); addBelow.classList.add('show');
+      });
+      rowCtl.addEventListener('mouseleave', () => {
+        addAbove.classList.remove('show'); addBelow.classList.remove('show');
+      });
+      tr.appendChild(rowCtl);
+
+      for (let c = 0; c < nCols; c++) {
+        const td = document.createElement(rows[r][c].tag === 'th' ? 'th' : 'td');
+        // Sanitize the stored HTML before injecting so a malicious <script>
+        // baked into the DB can't execute when the reviewer opens the doc.
+        const dirty = rows[r][c].html || '';
+        td.innerHTML = (window.DOMPurify
+          ? window.DOMPurify.sanitize(dirty, { USE_PROFILES: { html: true } })
+          : dirty);
+        td.setAttribute('contenteditable', 'true');
+        td.addEventListener('blur', () => {
+          const fresh = td.innerHTML;
+          if (fresh !== rows[r][c].html) {
+            rows[r][c].html = fresh;
+            commit(rows);
+          }
+        });
+        td.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); td.blur(); }
+          if (e.key === 'Escape') { td.blur(); }
+        });
+        tr.appendChild(td);
+      }
+      tbody.appendChild(tr);
+    }
+    tbl.appendChild(tbody);
+    wrap.appendChild(tbl);
+
+    const toolbar = document.createElement('div');
+    toolbar.className = 'ann-tbl-toolbar';
+    const addRowBtn = document.createElement('button');
+    addRowBtn.textContent = '+ Row';
+    addRowBtn.addEventListener('click', () => addRow(rows.length - 1));
+    const addColBtn = document.createElement('button');
+    addColBtn.textContent = '+ Col';
+    addColBtn.addEventListener('click', () => addCol(nCols - 1));
+    toolbar.appendChild(addRowBtn);
+    toolbar.appendChild(addColBtn);
+    const hint = document.createElement('span');
+    hint.className = 'hint';
+    hint.textContent = `${rows.length} × ${nCols} · hover gutters for inline +/×`;
+    toolbar.appendChild(hint);
+    wrap.appendChild(toolbar);
+
+    return wrap;
   }
 
   function paintAnnMarkdown() {
@@ -2992,6 +3264,100 @@
     ann.zoom = null;
     applyAnnZoom();
   });
+
+  // ── Mouse wheel zoom (cursor-anchored) ───────────────────────────────────
+  // Plain wheel over the image zooms; the scroll position is then adjusted so
+  // the pixel under the cursor stays put. Shift+wheel or wheel outside the
+  // image keeps native scroll behavior. We attach to the OUTER stage so the
+  // listener exists once for the document and survives sidebar re-renders.
+  (function () {
+    const stage = $('ann-stage');
+    if (!stage || stage._annWheelBound) return;
+    stage._annWheelBound = true;
+    stage.addEventListener('wheel', (ev) => {
+      const wrap = $('ann-page-wrap-inner');
+      const el = wrap && wrap.querySelector('img, canvas');
+      if (!el) return;
+      // <img> uses naturalWidth; canvas (PDF page) uses .width — same
+      // convention applyAnnZoom() uses to compute its target pixel width.
+      const natW = el.naturalWidth || el.width || 0;
+      if (!natW) return;
+      // Shift+wheel: leave alone (native horizontal scroll on some setups).
+      if (ev.shiftKey) return;
+      ev.preventDefault();
+      const rect = wrap.getBoundingClientRect();
+      // Position of cursor within the page wrap, in pre-zoom CSS pixels.
+      const cx = ev.clientX - rect.left;
+      const cy = ev.clientY - rect.top;
+      const beforeW = rect.width || 1;
+      const beforeH = rect.height || 1;
+      const fx = cx / beforeW;   // 0..1 across the wrap
+      const fy = cy / beforeH;
+      const prevZoom = ann.zoom == null ? (rect.width / natW) : ann.zoom;
+      const step = ev.deltaY < 0 ? 1.15 : 1 / 1.15;
+      let next = prevZoom * step;
+      if (next < 0.25) next = 0.25;
+      if (next > 6) next = 6;
+      ann.zoom = next;
+      applyAnnZoom();
+      // After applying zoom the wrap has resized; adjust the stage scroll
+      // so the same fractional point (fx, fy) sits under the cursor.
+      const newRect = wrap.getBoundingClientRect();
+      const sRect = stage.getBoundingClientRect();
+      const targetClientX = ev.clientX;
+      const targetClientY = ev.clientY;
+      const wantWrapClientX = targetClientX - fx * newRect.width;
+      const wantWrapClientY = targetClientY - fy * newRect.height;
+      const deltaX = newRect.left - wantWrapClientX;
+      const deltaY = newRect.top  - wantWrapClientY;
+      stage.scrollLeft += deltaX;
+      stage.scrollTop  += deltaY;
+    }, { passive: false });
+  })();
+
+  // ── Mouse pan (middle-button OR alt+left-button drag) ───────────────────
+  // Left-click without modifier is reserved for block selection / marquee,
+  // so we only steal pointer events when the user signals intent to pan.
+  // Capture-phase so we run BEFORE the block-selection pointerdown handler.
+  (function () {
+    const stage = $('ann-stage');
+    if (!stage || stage._annPanBound) return;
+    stage._annPanBound = true;
+    let panning = false;
+    let startX = 0, startY = 0, startSL = 0, startST = 0, panPointerId = null;
+    const onDown = (ev) => {
+      const isMiddle = ev.button === 1;
+      const isAltLeft = ev.button === 0 && ev.altKey;
+      if (!isMiddle && !isAltLeft) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      panning = true;
+      panPointerId = ev.pointerId;
+      startX = ev.clientX; startY = ev.clientY;
+      startSL = stage.scrollLeft; startST = stage.scrollTop;
+      stage.classList.add('panning');
+      try { stage.setPointerCapture(ev.pointerId); } catch {}
+    };
+    const onMove = (ev) => {
+      if (!panning) return;
+      stage.scrollLeft = startSL - (ev.clientX - startX);
+      stage.scrollTop  = startST - (ev.clientY - startY);
+    };
+    const onUp = (ev) => {
+      if (!panning) return;
+      panning = false;
+      stage.classList.remove('panning');
+      try { stage.releasePointerCapture(panPointerId); } catch {}
+      ev.preventDefault(); ev.stopPropagation();
+    };
+    // Use capture so pan starts BEFORE block-selection handler grabs it.
+    stage.addEventListener('pointerdown', onDown, true);
+    stage.addEventListener('pointermove', onMove, true);
+    stage.addEventListener('pointerup',   onUp,   true);
+    stage.addEventListener('pointercancel', onUp, true);
+    // Some browsers fire auxclick for middle button; suppress it during pan.
+    stage.addEventListener('auxclick', (ev) => { if (ev.button === 1) ev.preventDefault(); });
+  })();
 
   $('ann-toggle-boxes').addEventListener('click', () => {
     const wrap = $('ann-page-wrap-inner');
