@@ -453,6 +453,18 @@ async def re_extract_block(filename: str, block_id: str,
     blk["edited_at"] = _iso_now()
     blk["edited_by"] = by_email
     _save_doc(filename, doc, rev)
+    # The reassembled markdown changed; refresh the coverage score so the
+    # queue counters reflect the new state. Best-effort.
+    fp = meta.get("file_path")
+    if fp:
+        try:
+            from pipeline.score_markdown import score_freshly_loaded
+            score_freshly_loaded([fp])
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception(
+                "re-scoring after re-extract failed for %s", filename
+            )
     return blk
 
 
@@ -650,4 +662,12 @@ def reingest_notice(filename: str, by_email: str) -> dict:
         """,
         {"filename": filename, "markdown": new_md, "blocks_json": blocks_json},
     )
+    # Refresh the coverage score: the markdown just changed, so any prior
+    # `markdown_quality_score` is stale. Best-effort — a scoring failure
+    # must not undo the successful re-ingest.
+    try:
+        from pipeline.score_markdown import score_freshly_loaded
+        score_freshly_loaded([fp])
+    except Exception:
+        log.exception("re-scoring after reingest failed for %s", filename)
     return get_blocks(filename)
