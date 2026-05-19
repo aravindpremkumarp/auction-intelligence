@@ -274,6 +274,13 @@ class BlocksDoc(BaseModel):
     blocks: list[Block] = []
     blocks_revision: int = 0
     backfill_required: bool = False
+    crop_bbox: list[float] | None = None
+
+
+class CropBody(BaseModel):
+    # ``None`` clears the saved crop. A 4-element ``[x0,y0,x1,y1]`` (each
+    # in [0,1], normalized to the FULL source image) saves a new one.
+    bbox: list[float] | None = None
 
 
 class BlockUpdateBody(BaseModel):
@@ -557,6 +564,13 @@ def _ok_block(b: dict) -> Block:
 
 def _ok_doc(doc: dict) -> BlocksDoc:
     blocks = [Block(**b) for b in (doc.get("blocks") or [])]
+    raw_crop = doc.get("crop_bbox")
+    crop_bbox: list[float] | None = None
+    if isinstance(raw_crop, (list, tuple)) and len(raw_crop) == 4:
+        try:
+            crop_bbox = [float(v) for v in raw_crop]
+        except (TypeError, ValueError):
+            crop_bbox = None
     return BlocksDoc(
         filename=doc.get("filename"),
         file_path=doc.get("file_path"),
@@ -570,6 +584,7 @@ def _ok_doc(doc: dict) -> BlocksDoc:
         blocks=blocks,
         blocks_revision=int(doc.get("blocks_revision") or 0),
         backfill_required=bool(doc.get("backfill_required")),
+        crop_bbox=crop_bbox,
     )
 
 
@@ -665,6 +680,24 @@ async def review_notice_reextract_block(
         by_email=admin.email,
     )
     return _ok_block(blk)
+
+
+@router.put("/notice/{filename}/crop", response_model=BlocksDoc)
+@_wrap_block_errors
+async def review_notice_set_crop(
+    filename: str,
+    body: CropBody,
+    _admin: UserOut = Depends(get_current_admin),
+) -> BlocksDoc:
+    """Save (or clear) the Document-level crop region.
+
+    The crop is stored as a Neo4j list property and applied by the
+    re-ingest pipeline before shipping the source to MinerU. Block bboxes
+    in storage stay normalized to the FULL source image regardless — the
+    crop only changes what OCR / extraction see. Pass ``bbox: null`` to
+    clear a saved crop.
+    """
+    return _ok_doc(block_ops.set_crop(filename, body.bbox))
 
 
 @router.post(

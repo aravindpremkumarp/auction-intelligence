@@ -240,6 +240,18 @@
   .ann-block .grid-col { top: 0; bottom: 0; width: 1px; cursor: col-resize; }
   .ann-block .grid-col::after { content: ''; position: absolute; inset: 0 -4px; }
   .ann-marquee { position: absolute; border: 1.5px dashed var(--danger); background: rgba(214,74,46,0.10); pointer-events: none; }
+  /* Document-level crop region: a dashed frame + a giant outset box-shadow that
+     dims everything outside the crop. The mask doesn't block pointer events so
+     individual block editing through the crop area still works. No z-index so
+     blocks (appended after in DOM order) paint above the mask + its shadow. */
+  .ann-crop-mask { position: absolute; pointer-events: none;
+    border: 2px dashed var(--accent);
+    box-shadow: 0 0 0 9999px rgba(0,0,0,0.55); }
+  .ann-crop-label { position: absolute; top: -22px; left: -2px;
+    font-family: 'IBM Plex Mono', monospace; font-size: 11px;
+    background: var(--accent); color: var(--ink); padding: 2px 8px;
+    border: 1.5px solid var(--ink); white-space: nowrap; pointer-events: none; }
+  .ann-page.crop { cursor: crosshair; }
   .ann-sidebar { border: 2px solid var(--ink); background: #fff; box-shadow: 2px 3px 0 rgba(0,0,0,0.9); padding: 10px; max-height: 85vh; overflow: auto; }
   .ann-sidebar h2 { margin: 0 0 8px; }
   .ann-banner { background: var(--accent); border: 1.5px solid var(--ink); padding: 8px 10px; margin-bottom: 10px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; }
@@ -454,6 +466,7 @@
       <span style="flex:1"></span>
       <label class="meta" style="display:none" id="ann-page-wrap">page <select class="page-select" id="ann-page"></select></label>
       <button id="ann-add" class="ghost">+ Add block</button>
+      <button id="ann-crop" class="ghost" title="define the sales-notice region; only the cropped area is sent to OCR on re-ingest">+ Set crop</button>
       <button id="ann-toggle-boxes" class="ghost" title="show / hide bounding boxes">Hide boxes</button>
       <span class="zoom-group">
         <button id="ann-zoom-out" class="ghost zoom-btn" title="zoom out">−</button>
@@ -1942,7 +1955,7 @@
     doc: null,         // BlocksDoc as returned by the API
     blocks: [],        // mutable copy of doc.blocks
     selectedId: null,
-    mode: 'select',    // 'select' | 'draw'
+    mode: 'select',    // 'select' | 'draw' | 'crop'
     page: 1,
     pages: 1,
     rev: 0,
@@ -1950,6 +1963,7 @@
     pdfDoc: null,      // pdfjs proxy
     pageRender: { width: 0, height: 0 },
     zoom: null,        // null = fit-to-viewport; number = naturalDim * zoom
+    crop_bbox: null,   // [x0,y0,x1,y1] in [0,1] or null; FULL-image coords
     dragSession: null,
   };
 
@@ -1991,6 +2005,8 @@
       const doc = await r.json();
       ann.doc = doc;
       ann.blocks = (doc.blocks || []).map(b => ({ ...b, bbox: b.bbox.slice() }));
+      ann.crop_bbox = (Array.isArray(doc.crop_bbox) && doc.crop_bbox.length === 4)
+        ? doc.crop_bbox.slice() : null;
       ann.rev = doc.blocks_revision || 0;
       $('ann-rev').textContent = 'rev ' + ann.rev;
       const openLink = $('ann-open-src');
@@ -2004,9 +2020,8 @@
       ann.pages = Math.max(1, ...ann.blocks.map(b => b.page || 1));
       ann.page = 1;
       renderAnnPageSelect();
-      if (doc.backfill_required) {
-        renderAnnBackfillBanner();
-      }
+      renderAnnBanners();
+      refreshCropButton();
       await loadAnnSource(doc.public_url);
       paintAnnAll();
     } catch (e) {
@@ -2040,11 +2055,38 @@
         you can also marquee-draw blocks manually.
       </div>
     `;
-    $('ann-reingest').addEventListener('click', annReingest);
+    $('ann-reingest').addEventListener('click', (e) => annReingest(e.currentTarget));
   }
 
-  async function annReingest() {
-    const btn = $('ann-reingest');
+  function renderAnnCropBanner() {
+    const wrap = $('ann-banner-wrap');
+    const div = document.createElement('div');
+    div.className = 'ann-banner';
+    div.innerHTML = `
+      crop region saved — only this area will be sent to OCR / extraction on re-ingest.
+      <button id="ann-reingest-crop" style="margin-left:8px">Re-ingest with crop</button>
+    `;
+    wrap.appendChild(div);
+    $('ann-reingest-crop').addEventListener('click', (e) => annReingest(e.currentTarget));
+  }
+
+  function renderAnnBanners() {
+    const doc = ann.doc || {};
+    $('ann-banner-wrap').innerHTML = '';
+    if (doc.backfill_required) {
+      renderAnnBackfillBanner();
+    }
+    if (ann.crop_bbox) {
+      renderAnnCropBanner();
+    }
+  }
+
+  async function annReingest(btn) {
+    // ``btn`` is the button the reviewer clicked (backfill banner OR crop
+    // banner). Either way we own its disabled/text state for the duration.
+    btn = btn || $('ann-reingest') || $('ann-reingest-crop');
+    if (!btn) return;
+    const originalLabel = btn.textContent;
     btn.disabled = true;
     const filename = ann.filename;
     let elapsed = 0;
@@ -2068,7 +2110,7 @@
       if (!r.ok) {
         clearInterval(tickElapsed);
         annToast(`reingest failed (${r.status})`, 'err');
-        btn.disabled = false; btn.textContent = 'Re-ingest with layout extraction';
+        btn.disabled = false; btn.textContent = originalLabel;
         return;
       }
       const started = await r.json();
@@ -2076,7 +2118,7 @@
     } catch (e) {
       clearInterval(tickElapsed);
       annToast('reingest error: ' + e, 'err');
-      btn.disabled = false; btn.textContent = 'Re-ingest with layout extraction';
+      btn.disabled = false; btn.textContent = originalLabel;
       return;
     }
 
@@ -2106,7 +2148,7 @@
     }
     clearInterval(tickElapsed);
     annToast('reingest is taking longer than 5 min; check Render logs', 'err');
-    btn.disabled = false; btn.textContent = 'Re-ingest with layout extraction';
+    btn.disabled = false; btn.textContent = originalLabel;
   }
 
   async function loadAnnSource(url) {
@@ -2223,12 +2265,34 @@
     const overlay = wrap.querySelector('.ann-overlay');
     if (!overlay) return;
     overlay.innerHTML = '';
+    paintAnnCropMask(overlay);
     const sorted = ann.blocks.slice().sort((a, b) => a.reading_order - b.reading_order);
     const displayIdx = new Map(sorted.map((b, i) => [b.id, i + 1]));
     for (const b of blocksOnPage()) {
       overlay.appendChild(renderBlockDiv(b, displayIdx.get(b.id)));
     }
     wrap.classList.toggle('draw', ann.mode === 'draw');
+    wrap.classList.toggle('crop', ann.mode === 'crop');
+  }
+
+  // The crop mask is a single absolute element with a huge outset shadow.
+  // The shadow dims everything outside the rectangle; the dashed border
+  // shows where the crop is. Block divs still render on top so reviewers
+  // can edit individual blocks while the crop region is visible.
+  function paintAnnCropMask(overlay) {
+    if (!ann.crop_bbox) return;
+    const [x0, y0, x1, y1] = ann.crop_bbox;
+    const mask = document.createElement('div');
+    mask.className = 'ann-crop-mask';
+    mask.style.left   = (x0 * 100) + '%';
+    mask.style.top    = (y0 * 100) + '%';
+    mask.style.width  = ((x1 - x0) * 100) + '%';
+    mask.style.height = ((y1 - y0) * 100) + '%';
+    const lbl = document.createElement('div');
+    lbl.className = 'ann-crop-label';
+    lbl.textContent = 'Sales notice region';
+    mask.appendChild(lbl);
+    overlay.appendChild(mask);
   }
 
   function renderBlockDiv(b, displayIdx) {
@@ -2448,7 +2512,11 @@
   function onStagePointerDown(ev) {
     const wrap = $('ann-page-wrap-inner');
     const target = ev.target.closest('.resizer, .grid-row, .grid-col, .ann-block');
-    if (ann.mode === 'draw' && (!target || target.classList.contains('ann-overlay'))) {
+    const inCrop = ann.mode === 'crop';
+    const inDraw = ann.mode === 'draw';
+    if ((inDraw || inCrop) &&
+        (!target || target.classList.contains('ann-overlay')
+                 || target.classList.contains('ann-crop-mask'))) {
       return startMarquee(ev);
     }
     if (!target) return;
@@ -2580,6 +2648,7 @@
       marquee.style.width  = ((x1 - x0) * 100) + '%';
       marquee.style.height = ((y1 - y0) * 100) + '%';
     };
+    const wasCropMode = ann.mode === 'crop';
     const onUp = async () => {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
@@ -2588,6 +2657,21 @@
         Math.min(start[0], end[0]), Math.min(start[1], end[1]),
         Math.max(start[0], end[0]), Math.max(start[1], end[1])
       ]);
+      if (wasCropMode) {
+        // Crop has a stricter floor than blocks — accidental clicks
+        // shouldn't replace a real crop with a single-pixel one.
+        if (bbox[2] - bbox[0] < 0.02 || bbox[3] - bbox[1] < 0.02) {
+          annToast('crop too small — drag a larger region', 'err');
+          // Stay in crop mode so the reviewer can immediately retry.
+          paintAnnOverlay();
+          return;
+        }
+        await saveCropOnServer(bbox);
+        ann.mode = 'select';
+        $('ann-crop').classList.remove('mode-on');
+        paintAnnOverlay();
+        return;
+      }
       if (bbox[2] - bbox[0] < 0.01 || bbox[3] - bbox[1] < 0.01) {
         ann.mode = 'select';
         $('ann-add').classList.remove('mode-on');
@@ -2655,6 +2739,48 @@
       refreshMarkdownAfterChange();
       paintAnnAll();
     } catch (e) { annToast('add error: ' + e, 'err'); }
+  }
+
+  // Persist (or clear with bbox=null) the Document-level crop region.
+  // Block bboxes in storage stay in FULL-image coords — the crop only
+  // changes what re-ingest sends to OCR.
+  async function saveCropOnServer(bbox) {
+    try {
+      const r = await authFetch(
+        API + '/review/notice/' + encodeURIComponent(ann.filename) + '/crop',
+        { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ bbox }) }
+      );
+      if (!r.ok) {
+        const text = await r.text().catch(() => '');
+        annToast('crop save failed (' + r.status + ')' + (text ? ': ' + text : ''), 'err');
+        return;
+      }
+      const doc = await r.json();
+      ann.crop_bbox = (Array.isArray(doc.crop_bbox) && doc.crop_bbox.length === 4)
+        ? doc.crop_bbox.slice() : null;
+      refreshCropButton();
+      renderAnnBanners();
+      annToast(bbox ? 'crop saved — press Re-ingest with crop' : 'crop cleared');
+    } catch (e) {
+      annToast('crop save error: ' + e, 'err');
+    }
+  }
+
+  function refreshCropButton() {
+    const btn = $('ann-crop');
+    if (!btn) return;
+    const inMode = ann.mode === 'crop';
+    if (inMode) {
+      btn.textContent = 'drag region…';
+      btn.classList.add('mode-on');
+    } else if (ann.crop_bbox) {
+      btn.textContent = '✕ Clear crop';
+      btn.classList.remove('mode-on');
+    } else {
+      btn.textContent = '+ Set crop';
+      btn.classList.remove('mode-on');
+    }
   }
 
   async function deleteBlockOnServer(id) {
@@ -2745,6 +2871,31 @@
   $('ann-add').addEventListener('click', () => {
     ann.mode = (ann.mode === 'draw') ? 'select' : 'draw';
     $('ann-add').classList.toggle('mode-on', ann.mode === 'draw');
+    if (ann.mode === 'draw') $('ann-crop').classList.remove('mode-on');
+    refreshCropButton();
+    paintAnnOverlay();
+  });
+  $('ann-crop').addEventListener('click', async () => {
+    if (ann.mode === 'crop') {
+      // Cancel drawing — revert without clearing the saved crop.
+      ann.mode = 'select';
+      refreshCropButton();
+      paintAnnOverlay();
+      return;
+    }
+    if (ann.crop_bbox) {
+      // Clear the saved crop. No confirm — the next re-ingest restores
+      // the full-page OCR, which is the reversible action.
+      await saveCropOnServer(null);
+      paintAnnOverlay();
+      return;
+    }
+    // Enter crop-drawing mode.
+    ann.mode = 'crop';
+    if ($('ann-add').classList.contains('mode-on')) {
+      $('ann-add').classList.remove('mode-on');
+    }
+    refreshCropButton();
     paintAnnOverlay();
   });
   $('ann-reload').addEventListener('click', () => loadAnnotator(ann.filename));
