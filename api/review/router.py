@@ -275,12 +275,16 @@ class BlocksDoc(BaseModel):
     blocks_revision: int = 0
     backfill_required: bool = False
     crop_bbox: list[float] | None = None
+    crop_page: int | None = None
 
 
 class CropBody(BaseModel):
     # ``None`` clears the saved crop. A 4-element ``[x0,y0,x1,y1]`` (each
     # in [0,1], normalized to the FULL source image) saves a new one.
     bbox: list[float] | None = None
+    # 1-indexed page the crop is drawn on. For multi-page PDFs this tells
+    # re-ingest which page to crop. Defaults to 1 when omitted.
+    page: int | None = None
 
 
 class BlockUpdateBody(BaseModel):
@@ -571,6 +575,12 @@ def _ok_doc(doc: dict) -> BlocksDoc:
             crop_bbox = [float(v) for v in raw_crop]
         except (TypeError, ValueError):
             crop_bbox = None
+    crop_page: int | None = None
+    if crop_bbox is not None:
+        try:
+            crop_page = int(doc.get("crop_page") or 1)
+        except (TypeError, ValueError):
+            crop_page = 1
     return BlocksDoc(
         filename=doc.get("filename"),
         file_path=doc.get("file_path"),
@@ -585,6 +595,7 @@ def _ok_doc(doc: dict) -> BlocksDoc:
         blocks_revision=int(doc.get("blocks_revision") or 0),
         backfill_required=bool(doc.get("backfill_required")),
         crop_bbox=crop_bbox,
+        crop_page=crop_page,
     )
 
 
@@ -697,7 +708,7 @@ async def review_notice_set_crop(
     crop only changes what OCR / extraction see. Pass ``bbox: null`` to
     clear a saved crop.
     """
-    return _ok_doc(block_ops.set_crop(filename, body.bbox))
+    return _ok_doc(block_ops.set_crop(filename, body.bbox, body.page))
 
 
 @router.post(

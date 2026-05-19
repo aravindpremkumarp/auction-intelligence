@@ -204,7 +204,10 @@
   @media (max-width: 1100px) { .ann-grid { grid-template-columns: 1fr; } }
   .ann-stage { border: 2px solid var(--ink); background: #2a2a2a; box-shadow: 2px 3px 0 rgba(0,0,0,0.9); overflow: auto; max-height: 85vh; min-height: 60vh; padding: 8px; text-align: center; }
   .ann-page { position: relative; display: inline-block; background: #fff; max-width: 100%; }
-  .ann-page > img, .ann-page > canvas { display: block; max-width: 100%; max-height: calc(85vh - 32px); width: auto; height: auto; user-select: none; }
+  .ann-page.cropped { display: block; overflow: hidden; max-width: none; }
+  .ann-content { position: relative; display: block; }
+  .ann-page.cropped > .ann-content { position: absolute; }
+  .ann-content > img, .ann-content > canvas { display: block; max-width: 100%; max-height: calc(85vh - 32px); width: auto; height: auto; user-select: none; }
   .ann-page.draw { cursor: crosshair; }
   .ann-overlay { position: absolute; inset: 0; }
   .ann-overlay.boxes-hidden { display: none; }
@@ -240,17 +243,6 @@
   .ann-block .grid-col { top: 0; bottom: 0; width: 1px; cursor: col-resize; }
   .ann-block .grid-col::after { content: ''; position: absolute; inset: 0 -4px; }
   .ann-marquee { position: absolute; border: 1.5px dashed var(--danger); background: rgba(214,74,46,0.10); pointer-events: none; }
-  /* Document-level crop region: a dashed frame + a giant outset box-shadow that
-     dims everything outside the crop. The mask doesn't block pointer events so
-     individual block editing through the crop area still works. No z-index so
-     blocks (appended after in DOM order) paint above the mask + its shadow. */
-  .ann-crop-mask { position: absolute; pointer-events: none;
-    border: 2px dashed var(--accent);
-    box-shadow: 0 0 0 9999px rgba(0,0,0,0.55); }
-  .ann-crop-label { position: absolute; top: -22px; left: -2px;
-    font-family: 'IBM Plex Mono', monospace; font-size: 11px;
-    background: var(--accent); color: var(--ink); padding: 2px 8px;
-    border: 1.5px solid var(--ink); white-space: nowrap; pointer-events: none; }
   .ann-page.crop { cursor: crosshair; }
   .ann-sidebar { border: 2px solid var(--ink); background: #fff; box-shadow: 2px 3px 0 rgba(0,0,0,0.9); padding: 10px; max-height: 85vh; overflow: auto; }
   .ann-sidebar h2 { margin: 0 0 8px; }
@@ -1964,6 +1956,7 @@
     pageRender: { width: 0, height: 0 },
     zoom: null,        // null = fit-to-viewport; number = naturalDim * zoom
     crop_bbox: null,   // [x0,y0,x1,y1] in [0,1] or null; FULL-image coords
+    crop_page: null,   // 1-indexed PDF page the crop is drawn on; null if no crop
     dragSession: null,
   };
 
@@ -2007,6 +2000,8 @@
       ann.blocks = (doc.blocks || []).map(b => ({ ...b, bbox: b.bbox.slice() }));
       ann.crop_bbox = (Array.isArray(doc.crop_bbox) && doc.crop_bbox.length === 4)
         ? doc.crop_bbox.slice() : null;
+      ann.crop_page = ann.crop_bbox && Number.isFinite(doc.crop_page)
+        ? Math.max(1, Number(doc.crop_page)) : null;
       ann.rev = doc.blocks_revision || 0;
       $('ann-rev').textContent = 'rev ' + ann.rev;
       const openLink = $('ann-open-src');
@@ -2177,9 +2172,9 @@
         wrap.innerHTML = `<div class="empty err" style="padding:20px;">pdf load failed: ${escapeHtml(String(e))}</div>`;
       }
     } else if (kind === 'image') {
+      const content = makeAnnContent(wrap);
       const img = new Image();
       img.alt = 'notice';
-      img.style.maxWidth = '100%';
       // Intentionally NOT setting crossOrigin — R2's public bucket
       // doesn't serve CORS headers and the browser rejects anonymous
       // requests. We only need to display the image, not read pixel
@@ -2193,11 +2188,21 @@
         wrap.innerHTML = '<div class="empty err" style="padding:20px;">image load failed.</div>';
       };
       img.src = url;
-      wrap.appendChild(img);
+      content.appendChild(img);
       attachOverlayLayer(wrap);
     } else {
       wrap.innerHTML = `<div class="empty" style="padding:20px; color:#fff;">unsupported source type (${escapeHtml(kind || 'unknown')}).</div>`;
     }
+  }
+
+  // The canvas/img and overlay live inside .ann-content so the wrap can act
+  // as a viewport that clips the source down to the saved crop region.
+  function makeAnnContent(wrap) {
+    wrap.innerHTML = '';
+    const content = document.createElement('div');
+    content.className = 'ann-content';
+    wrap.appendChild(content);
+    return content;
   }
 
   async function ensurePdfJs() {
@@ -2222,7 +2227,7 @@
 
   async function renderAnnPdfPage() {
     const wrap = $('ann-page-wrap-inner');
-    wrap.innerHTML = '';
+    const content = makeAnnContent(wrap);
     const pdfPage = await ann.pdfDoc.getPage(ann.page);
     const viewport = pdfPage.getViewport({ scale: 1.5 });
     const canvas = document.createElement('canvas');
@@ -2230,7 +2235,7 @@
     canvas.height = viewport.height;
     canvas.style.width = '100%';
     canvas.style.height = 'auto';
-    wrap.appendChild(canvas);
+    content.appendChild(canvas);
     ann.pageRender = { width: viewport.width, height: viewport.height };
     await pdfPage.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
     attachOverlayLayer(wrap);
@@ -2239,11 +2244,12 @@
   }
 
   function attachOverlayLayer(wrap) {
-    let overlay = wrap.querySelector('.ann-overlay');
+    const content = wrap.querySelector('.ann-content') || wrap;
+    let overlay = content.querySelector('.ann-overlay');
     if (!overlay) {
       overlay = document.createElement('div');
       overlay.className = 'ann-overlay';
-      wrap.appendChild(overlay);
+      content.appendChild(overlay);
     }
     overlay.innerHTML = '';
     wrap.addEventListener('pointerdown', onStagePointerDown);
@@ -2265,7 +2271,6 @@
     const overlay = wrap.querySelector('.ann-overlay');
     if (!overlay) return;
     overlay.innerHTML = '';
-    paintAnnCropMask(overlay);
     const sorted = ann.blocks.slice().sort((a, b) => a.reading_order - b.reading_order);
     const displayIdx = new Map(sorted.map((b, i) => [b.id, i + 1]));
     for (const b of blocksOnPage()) {
@@ -2273,26 +2278,59 @@
     }
     wrap.classList.toggle('draw', ann.mode === 'draw');
     wrap.classList.toggle('crop', ann.mode === 'crop');
+    applyAnnCropClip();
   }
 
-  // The crop mask is a single absolute element with a huge outset shadow.
-  // The shadow dims everything outside the rectangle; the dashed border
-  // shows where the crop is. Block divs still render on top so reviewers
-  // can edit individual blocks while the crop region is visible.
-  function paintAnnCropMask(overlay) {
-    if (!ann.crop_bbox) return;
-    const [x0, y0, x1, y1] = ann.crop_bbox;
-    const mask = document.createElement('div');
-    mask.className = 'ann-crop-mask';
-    mask.style.left   = (x0 * 100) + '%';
-    mask.style.top    = (y0 * 100) + '%';
-    mask.style.width  = ((x1 - x0) * 100) + '%';
-    mask.style.height = ((y1 - y0) * 100) + '%';
-    const lbl = document.createElement('div');
-    lbl.className = 'ann-crop-label';
-    lbl.textContent = 'Sales notice region';
-    mask.appendChild(lbl);
-    overlay.appendChild(mask);
+  // Visually clip the displayed page down to the saved crop region. We size
+  // the wrap to (crop fraction × rendered source size) and position the
+  // content layer with negative offsets so the crop region fills the wrap.
+  // Block bboxes inside .ann-overlay keep using full-image percent coords
+  // and land in the right place automatically; blocks outside the crop are
+  // hidden by the wrap's overflow:hidden.
+  function applyAnnCropClip() {
+    const wrap = $('ann-page-wrap-inner');
+    if (!wrap) return;
+    const content = wrap.querySelector('.ann-content');
+    if (!content) return;
+    // Reset crop-owned properties. ``content.style.height`` is always cleared
+    // here (only set by the crop branch). ``content.style.width`` is owned
+    // by zoom in zoom-mode, so we only clear it in fit-mode (zoom == null).
+    wrap.classList.remove('cropped');
+    wrap.style.width = '';
+    wrap.style.height = '';
+    content.style.left = '';
+    content.style.top = '';
+    content.style.height = '';
+    // Skip the visual clip when:
+    //  * no crop is saved,
+    //  * the reviewer is drawing a new crop (mode === 'crop'),
+    //  * the current page isn't the page the crop was drawn on
+    //    (PDF multi-page: a crop on page 2 shouldn't shrink page 1).
+    if (!ann.crop_bbox
+        || ann.mode === 'crop'
+        || (ann.crop_page && ann.page && ann.crop_page !== ann.page)) {
+      if (ann.zoom == null) content.style.width = '';
+      return;
+    }
+    const el = content.querySelector('img, canvas');
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    if (r.width <= 0 || r.height <= 0) {
+      // Source not laid out yet (image still loading / pdf still painting).
+      // Retry next frame so we measure post-layout.
+      requestAnimationFrame(applyAnnCropClip);
+      return;
+    }
+    const [cx0, cy0, cx1, cy1] = ann.crop_bbox;
+    const cw = cx1 - cx0;
+    const ch = cy1 - cy0;
+    wrap.classList.add('cropped');
+    wrap.style.width  = (r.width  * cw) + 'px';
+    wrap.style.height = (r.height * ch) + 'px';
+    content.style.width  = r.width  + 'px';
+    content.style.height = r.height + 'px';
+    content.style.left = (-cx0 * r.width)  + 'px';
+    content.style.top  = (-cy0 * r.height) + 'px';
   }
 
   function renderBlockDiv(b, displayIdx) {
@@ -2515,8 +2553,7 @@
     const inCrop = ann.mode === 'crop';
     const inDraw = ann.mode === 'draw';
     if ((inDraw || inCrop) &&
-        (!target || target.classList.contains('ann-overlay')
-                 || target.classList.contains('ann-crop-mask'))) {
+        (!target || target.classList.contains('ann-overlay'))) {
       return startMarquee(ev);
     }
     if (!target) return;
@@ -2537,7 +2574,12 @@
   }
 
   function getStageRect() {
-    return $('ann-page-wrap-inner').getBoundingClientRect();
+    // Use the content layer's rect (which spans the FULL source even when
+    // the wrap is clipped to a crop window). That way ``pointerToNorm``
+    // produces full-image normalized coords regardless of crop state.
+    const wrap = $('ann-page-wrap-inner');
+    const content = wrap && wrap.querySelector('.ann-content');
+    return (content || wrap).getBoundingClientRect();
   }
 
   function pointerToNorm(ev) {
@@ -2749,7 +2791,7 @@
       const r = await authFetch(
         API + '/review/notice/' + encodeURIComponent(ann.filename) + '/crop',
         { method: 'PUT', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ bbox }) }
+          body: JSON.stringify({ bbox, page: bbox ? (ann.page || 1) : null }) }
       );
       if (!r.ok) {
         const text = await r.text().catch(() => '');
@@ -2759,6 +2801,8 @@
       const doc = await r.json();
       ann.crop_bbox = (Array.isArray(doc.crop_bbox) && doc.crop_bbox.length === 4)
         ? doc.crop_bbox.slice() : null;
+      ann.crop_page = ann.crop_bbox && Number.isFinite(doc.crop_page)
+        ? Math.max(1, Number(doc.crop_page)) : null;
       refreshCropButton();
       renderAnnBanners();
       annToast(bbox ? 'crop saved — press Re-ingest with crop' : 'crop cleared');
@@ -2904,19 +2948,18 @@
   // `ann.zoom == null` means "fit to viewport" (default). Otherwise the
   // value is a multiplier on the source's natural dimensions.
   //
-  // We size `.ann-page` (the wrap) — NOT the image — to the target width
-  // and let the image fill it via `width: 100%`. Sizing the image alone
-  // let it overflow `.ann-page` (which has `max-width: 100%`) while the
-  // `.ann-overlay` (inset:0 of `.ann-page`) stayed clamped to the
-  // un-zoomed parent, so bboxes didn't follow the image at high zoom.
+  // We size `.ann-content` (which holds the canvas/img + overlay) — NOT the
+  // wrap — so applyAnnCropClip can independently set the wrap's pixel size
+  // to (crop fraction × content size) without fighting the zoom logic.
   function applyAnnZoom() {
     const wrap = $('ann-page-wrap-inner');
+    const content = wrap.querySelector('.ann-content');
     const el = wrap.querySelector('img, canvas');
-    if (!el) return;
+    if (!el || !content) return;
     const natW = el.naturalWidth || el.width || 0;
     if (ann.zoom == null) {
-      wrap.style.width    = '';
-      wrap.style.maxWidth = '';
+      content.style.width    = '';
+      content.style.maxWidth = '';
       el.style.maxHeight  = '';   // falls back to the stylesheet rule
       el.style.maxWidth   = '';
       el.style.width      = '';
@@ -2924,14 +2967,16 @@
       $('ann-zoom-pct').textContent = 'Fit';
     } else if (natW > 0) {
       const targetPx = Math.round(natW * ann.zoom);
-      wrap.style.width    = targetPx + 'px';
-      wrap.style.maxWidth = 'none';
+      content.style.width    = targetPx + 'px';
+      content.style.maxWidth = 'none';
       el.style.maxHeight  = 'none';
       el.style.maxWidth   = '100%';
       el.style.width      = '100%';
       el.style.height     = 'auto';
       $('ann-zoom-pct').textContent = Math.round(ann.zoom * 100) + '%';
     }
+    // Source size changed — recompute the crop viewport.
+    applyAnnCropClip();
   }
   $('ann-zoom-in').addEventListener('click', () => {
     ann.zoom = (ann.zoom == null ? 1.0 : ann.zoom) + 0.25;

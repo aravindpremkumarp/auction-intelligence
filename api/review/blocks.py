@@ -97,6 +97,22 @@ def _clean_crop_bbox(raw: Any) -> list[float] | None:
     return [x0, y0, x1, y1]
 
 
+def _clean_crop_page(raw: Any) -> int:
+    """Normalize a 1-indexed page number for ``crop_page``.
+
+    Defaults to ``1`` for ``None``/missing/invalid input. The crop is
+    document-level but for multi-page PDFs we need to know which page
+    the bbox is meant for so re-ingest crops the right page.
+    """
+    if raw is None:
+        return 1
+    try:
+        n = int(raw)
+    except (TypeError, ValueError):
+        return 1
+    return max(1, n)
+
+
 def _validate_label(label: str) -> str:
     if not isinstance(label, str):
         raise ValueError("label must be a string")
@@ -171,7 +187,8 @@ def _load_doc(filename: str) -> tuple[dict, int, dict]:
                d.storage_key                  AS storage_key,
                d.notice_type                  AS notice_type,
                d.markdown                     AS markdown,
-               d.crop_bbox                    AS crop_bbox
+               d.crop_bbox                    AS crop_bbox,
+               d.crop_page                    AS crop_page
         """,
         {"filename": filename},
         max_rows=1,
@@ -187,6 +204,7 @@ def _load_doc(filename: str) -> tuple[dict, int, dict]:
     except ValueError:
         # A persisted-but-malformed crop_bbox shouldn't break loading.
         crop_bbox = None
+    crop_page = _clean_crop_page(r.get("crop_page")) if crop_bbox else None
     meta = {
         "filename":    r.get("filename"),
         "file_path":   r.get("file_path"),
@@ -195,6 +213,7 @@ def _load_doc(filename: str) -> tuple[dict, int, dict]:
         "notice_type": r.get("notice_type"),
         "markdown":    r.get("markdown"),
         "crop_bbox":   crop_bbox,
+        "crop_page":   crop_page,
     }
     return doc, int(r.get("rev") or 0), meta
 
@@ -253,35 +272,40 @@ def get_blocks(filename: str) -> dict:
     }
 
 
-def set_crop(filename: str, raw_bbox: Any) -> dict:
-    """Persist (or clear) the Document-level ``crop_bbox``.
+def set_crop(filename: str, raw_bbox: Any, raw_page: Any = None) -> dict:
+    """Persist (or clear) the Document-level ``crop_bbox`` and ``crop_page``.
 
-    The crop is stored as a Neo4j list property on the Document node, NOT
-    inside the ``blocks`` JSON, so it doesn't churn ``blocks_revision``.
+    The crop is stored as Neo4j list/int properties on the Document node,
+    NOT inside the ``blocks`` JSON, so it doesn't churn ``blocks_revision``.
     Existing block bboxes remain normalized to the full source — the
-    crop only affects (a) what the annotator visually masks, and
-    (b) what the re-ingest pipeline ships to MinerU.
+    crop only affects what the re-ingest pipeline ships to MinerU and how
+    the annotator clips the displayed page.
+
+    ``raw_page`` is 1-indexed; for multi-page PDFs it tells re-ingest which
+    page the bbox is meant for. Ignored when ``raw_bbox`` is ``None``.
     """
     crop_bbox = _clean_crop_bbox(raw_bbox)
     if crop_bbox is None:
         rows = run_query(
             """
             MATCH (d:Document {filename: $filename})
-            REMOVE d.crop_bbox
+            REMOVE d.crop_bbox, d.crop_page
             SET d.crop_bbox_set_at = NULL
             RETURN d.filename AS filename
             """,
             {"filename": filename},
         )
     else:
+        crop_page = _clean_crop_page(raw_page)
         rows = run_query(
             """
             MATCH (d:Document {filename: $filename})
             SET d.crop_bbox        = $crop_bbox,
+                d.crop_page        = $crop_page,
                 d.crop_bbox_set_at = datetime()
             RETURN d.filename AS filename
             """,
-            {"filename": filename, "crop_bbox": crop_bbox},
+            {"filename": filename, "crop_bbox": crop_bbox, "crop_page": crop_page},
         )
     if not rows:
         raise BlocksNotFound(f"Document not found: {filename}")
@@ -491,7 +515,8 @@ def reingest_notice(filename: str, by_email: str) -> dict:
         RETURN d.file_path  AS file_path,
                d.filename   AS filename,
                d.public_url AS public_url,
-               d.crop_bbox  AS crop_bbox
+               d.crop_bbox  AS crop_bbox,
+               d.crop_page  AS crop_page
         """,
         {"filename": filename},
         max_rows=1,
@@ -506,6 +531,7 @@ def reingest_notice(filename: str, by_email: str) -> dict:
         crop_bbox = _clean_crop_bbox(raw_crop) if raw_crop else None
     except ValueError:
         crop_bbox = None
+    crop_page = _clean_crop_page(rows[0].get("crop_page")) if crop_bbox else 1
 
     from pipeline.mineru import MINERU_SUPPORTED_EXTS, find_disk_path
     from pipeline.mineru_api import (
@@ -548,21 +574,31 @@ def reingest_notice(filename: str, by_email: str) -> dict:
         disk = tmp_path
 
     # If a Document-level crop is set, apply it BEFORE shipping to MinerU.
-    # Only images are cropped in v1 — multi-page PDFs would need per-page
-    # cropping + re-stitch, which we punt on. We track ``applied_crop`` so
-    # that the post-OCR step can remap block bboxes back to full-image
-    # coords (existing blocks already use full-image coords, so all bboxes
-    # in Neo4j stay in the same coordinate system regardless of crop).
+    # Images crop straight through Pillow; PDFs crop via PyMuPDF rendering the
+    # selected page through the bbox clip. We track ``applied_crop`` so the
+    # post-OCR step can remap block bboxes back to full-image coords (existing
+    # blocks already use full-image coords, so all bboxes in Neo4j stay in
+    # the same coordinate system regardless of crop).
     applied_crop: list[float] | None = None
+    applied_crop_page: int = 1
     crop_tmp_path: Path | None = None
     if crop_bbox is not None:
         ext = Path(src_filename).suffix.lower()
-        is_image = ext in {".jpg", ".jpeg", ".png", ".webp", ".jfif"}
-        if is_image:
-            try:
+        try:
+            src_bytes = disk.read_bytes()
+            cropped_png: bytes | None = None
+            if ext in {".jpg", ".jpeg", ".png", ".webp", ".jfif"}:
                 from pipeline.reextract import _image_crop_to_png
-                src_bytes = disk.read_bytes()
                 cropped_png = _image_crop_to_png(src_bytes, crop_bbox)
+            elif ext == ".pdf":
+                from pipeline.reextract import _pdf_crop_to_png
+                cropped_png = _pdf_crop_to_png(src_bytes, crop_page, crop_bbox)
+            else:
+                log.info(
+                    "skipping crop for %s: unsupported source extension %s",
+                    filename, ext,
+                )
+            if cropped_png is not None:
                 fd, tmp_name = tempfile.mkstemp(
                     suffix=".png", prefix="reingest_crop_",
                 )
@@ -571,15 +607,11 @@ def reingest_notice(filename: str, by_email: str) -> dict:
                 crop_tmp_path = Path(tmp_name)
                 disk = crop_tmp_path
                 applied_crop = crop_bbox
-            except Exception:
-                log.exception(
-                    "crop apply failed for %s; falling back to uncropped",
-                    filename,
-                )
-        else:
-            log.info(
-                "skipping crop for %s: source is %s, only images are cropped in v1",
-                filename, ext,
+                applied_crop_page = crop_page
+        except Exception:
+            log.exception(
+                "crop apply failed for %s; falling back to uncropped",
+                filename,
             )
 
     try:
@@ -625,12 +657,21 @@ def reingest_notice(filename: str, by_email: str) -> dict:
         ch = cy1 - cy0
         for blk in blocks:
             bx0, by0, bx1, by1 = blk["bbox"]
+            rx0 = cx0 + bx0 * cw
+            ry0 = cy0 + by0 * ch
+            rx1 = cx0 + bx1 * cw
+            ry1 = cy0 + by1 * ch
+            # Clamp to the crop region so OCR edge artifacts can't leak
+            # outside the visually-cropped view.
             blk["bbox"] = [
-                cx0 + bx0 * cw,
-                cy0 + by0 * ch,
-                cx0 + bx1 * cw,
-                cy0 + by1 * ch,
+                min(max(rx0, cx0), cx1),
+                min(max(ry0, cy0), cy1),
+                min(max(rx1, cx0), cx1),
+                min(max(ry1, cy0), cy1),
             ]
+            # MinerU saw a single image so it labels everything page 1 —
+            # re-tag with the page the crop was drawn on.
+            blk["page"] = applied_crop_page
 
     doc = {"schema_version": 1, "blocks": blocks}
     blocks_json = json.dumps(doc, ensure_ascii=False)
