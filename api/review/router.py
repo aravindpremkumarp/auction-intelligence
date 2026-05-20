@@ -438,7 +438,9 @@ async def review_unverify(
 
 @router.get("/classifications", response_model=ClassificationQueueOut)
 async def review_classifications(
-    status: Literal["pending", "disagreement", "verified", "all"] = "pending",
+    status: Literal[
+        "pending", "verified", "edited", "all", "disagreement",
+    ] = "pending",
     q_search: str | None = Query(default=None, alias="q", max_length=200),
     page: int = Query(default=1, ge=1),
     size: int = Query(default=50, ge=1, le=200),

@@ -245,6 +245,16 @@ def test_classifier_normalize_verdict_rejects_missing_label() -> None:
     assert normalize_verdict({"confidence": 0.9, "reasoning": "x"}) is None
 
 
+def test_classifications_accepts_uniform_status_values(client) -> None:
+    """status=verified, status=edited must be accepted (uniform model).
+
+    Existing `disagreement` still works (additive, not breaking)."""
+    _ensure_admin_user()
+    for s in ("pending", "verified", "edited", "all", "disagreement"):
+        r = client.get(f"/review/classifications?status={s}", headers=_admin_header())
+        assert r.status_code == 200, f"status={s} rejected: {r.text}"
+
+
 def test_extractor_normalize_schedules_drops_blank() -> None:
     from pipeline.extract_descriptions import normalize_schedules
     out = normalize_schedules({"schedules": [

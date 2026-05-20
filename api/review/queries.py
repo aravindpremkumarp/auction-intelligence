@@ -369,7 +369,10 @@ def unverify(auction_id: str) -> bool:
     return bool(rows)
 
 
-ClassificationStatus = Literal["pending", "disagreement", "verified", "all"]
+ClassificationStatus = Literal[
+    "pending", "verified", "edited", "all",
+    "disagreement",  # legacy — retire in Task 15
+]
 
 
 def list_classification_queue(
@@ -402,12 +405,16 @@ def list_classification_queue(
     where = ["d.notice_type IS NOT NULL"]
     if status == "pending":
         where.append("d.notice_type_verified_at IS NULL")
+    elif status == "verified":
+        where.append("d.notice_type_verified_at IS NOT NULL")
+        where.append("coalesce(d.notice_type_overridden, false) = false")
+    elif status == "edited":
+        where.append("d.notice_type_verified_at IS NOT NULL")
+        where.append("coalesce(d.notice_type_overridden, false) = true")
     elif status == "disagreement":
         where.append("d.notice_type_verified_at IS NULL")
         where.append("d.notice_type_classifier_pred IS NOT NULL")
         where.append("d.notice_type <> d.notice_type_classifier_pred")
-    elif status == "verified":
-        where.append("d.notice_type_verified_at IS NOT NULL")
     # "all" → no extra filter
 
     params: dict = {"skip": skip, "size": size}
