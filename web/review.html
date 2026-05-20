@@ -1656,10 +1656,10 @@
       // Refresh stats in the header (counts may have shifted)
       loadStats();
 
-      // Pending / disagreement: the item leaves the queue — advance to next.
+      // Pending: the item leaves the queue — advance to next.
       // Verified / all: update in place and re-render.
       const removedIdx = gallery.selectedIndex;
-      if (queueState.status === 'pending' || queueState.status === 'disagreement') {
+      if (queueState.status === 'pending') {
         gallery.notices.splice(removedIdx, 1);
         if (gallery.notices.length === 0) {
           // Try loading the next page; if nothing comes back the empty state shows.
