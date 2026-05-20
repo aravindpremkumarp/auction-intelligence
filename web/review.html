@@ -1674,7 +1674,48 @@
     });
   });
 
-  // bulk-confirm wired in Task 12
+  $('bulk-confirm-btn').addEventListener('click', async () => {
+    const stage = queueState.stage;
+    if (stage !== 'classification' && stage !== 'markdown') return;
+    const btn = $('bulk-confirm-btn');
+    btn.disabled = true;
+    const url = API + (stage === 'classification'
+      ? '/review/classifications/bulk-confirm'
+      : '/review/markdown/bulk-confirm');
+    const body = stage === 'classification'
+      ? {
+          confidence_min: queueState.scoreFrom / 100,
+          confidence_max: queueState.scoreTo   / 100,
+          dry_run: false,
+        }
+      : {
+          score_min: queueState.scoreFrom,
+          score_max: queueState.scoreTo,
+          dry_run: false,
+        };
+    let result = null;
+    try {
+      const r = await authFetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) {
+        alert('bulk-confirm failed: ' + r.status);
+        return;
+      }
+      result = await r.json();
+    } catch (err) {
+      alert('bulk-confirm failed: ' + err);
+      return;
+    }
+    await loadStats();
+    await loadQueue();
+    if (result && typeof result.count === 'number') {
+      // Brief toast-style alert; reviewer expects feedback.
+      alert(`Confirmed ${result.count} ${stage} items.`);
+    }
+  });
   $('reload').addEventListener('click', () => { loadStats(); loadQueue(); });
   $('q').addEventListener('input', (e) => {
     queueState.q = e.target.value.trim();
