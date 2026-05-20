@@ -35,3 +35,12 @@ def test_markdown_accepts_uniform_status_values(client) -> None:
     for s in ("pending", "verified", "edited", "all", "good", "bad", "unscored"):
         r = client.get(f"/review/markdown?status={s}", headers=_admin_header())
         assert r.status_code == 200, f"status={s} rejected: {r.text}"
+
+
+def test_markdown_accepts_score_max(client) -> None:
+    _ensure_admin_user()
+    r = client.get(
+        "/review/markdown?score_min=50&score_max=80",
+        headers=_admin_header(),
+    )
+    assert r.status_code == 200

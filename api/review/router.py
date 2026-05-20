@@ -228,6 +228,7 @@ class VerifyMarkdownBody(BaseModel):
 
 class MarkdownBulkConfirmBody(BaseModel):
     score_min: float = Field(ge=0.0, le=100.0)
+    score_max: float = Field(default=100.0, ge=0.0, le=100.0)
     notes: str | None = Field(default=None, max_length=2000)
     dry_run: bool = False
 
@@ -520,10 +521,12 @@ async def review_markdown_queue(
     page: int = Query(default=1, ge=1),
     size: int = Query(default=50, ge=1, le=200),
     score_min: float | None = Query(default=None, ge=0.0, le=100.0),
+    score_max: float | None = Query(default=None, ge=0.0, le=100.0),
     _admin: UserOut = Depends(get_current_admin),
 ) -> MarkdownQueueOut:
     result = q.list_markdown_queue(
-        status=status, q=q_search, page=page, size=size, score_min=score_min,
+        status=status, q=q_search, page=page, size=size,
+        score_min=score_min, score_max=score_max,
     )
     rows = [MarkdownRow(**r) for r in result["rows"]]
     return MarkdownQueueOut(
@@ -539,6 +542,7 @@ async def review_markdown_bulk_confirm(
 ) -> BulkConfirmResult:
     result = q.auto_confirm_markdown(
         score_min=body.score_min,
+        score_max=body.score_max,
         by_email=admin.email,
         notes=body.notes,
         dry_run=body.dry_run,

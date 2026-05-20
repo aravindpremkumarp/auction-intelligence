@@ -685,7 +685,11 @@ MarkdownStatus = Literal[
 ]
 
 
-def _markdown_where(status: MarkdownStatus, score_min: float | None) -> tuple[list[str], dict]:
+def _markdown_where(
+    status: MarkdownStatus,
+    score_min: float | None,
+    score_max: float | None = None,
+) -> tuple[list[str], dict]:
     where = ["d.markdown IS NOT NULL", "d.markdown <> ''"]
     params: dict = {}
     if status == "pending":
@@ -709,6 +713,10 @@ def _markdown_where(status: MarkdownStatus, score_min: float | None) -> tuple[li
         where.append("d.markdown_quality_score IS NOT NULL")
         where.append("d.markdown_quality_score >= $score_min")
         params["score_min"] = float(score_min)
+    if score_max is not None:
+        where.append("d.markdown_quality_score IS NOT NULL")
+        where.append("d.markdown_quality_score <= $score_max")
+        params["score_max"] = float(score_max)
     return where, params
 
 
@@ -758,6 +766,7 @@ def list_markdown_queue(
     page: int = 1,
     size: int = 50,
     score_min: float | None = None,
+    score_max: float | None = None,
 ) -> dict:
     """Return a page of Documents for markdown-quality review.
 
@@ -770,7 +779,7 @@ def list_markdown_queue(
     size = max(1, min(200, int(size)))
     skip = (page - 1) * size
 
-    where, params = _markdown_where(status, score_min)
+    where, params = _markdown_where(status, score_min, score_max)
     params.update({"skip": skip, "size": size})
     if q:
         where.append("toLower(coalesce(d.filename, '')) CONTAINS toLower($q)")
@@ -856,11 +865,17 @@ def auto_confirm_markdown(
     by_email: str,
     notes: str | None = None,
     dry_run: bool = False,
+    score_max: float = 100.0,
 ) -> dict:
     """Bulk-verify (quality='good') every unverified Document with
-    score ≥ score_min. Returns ``{"count": N, "dry_run": bool}``.
+    score_min ≤ score ≤ score_max. Returns ``{"count": N, "dry_run": bool}``.
     """
-    params = {"min": float(score_min), "by": by_email, "notes": notes}
+    params = {
+        "min": float(score_min),
+        "max": float(score_max),
+        "by": by_email,
+        "notes": notes,
+    }
     if dry_run:
         rows = run_read_query(
             """
@@ -869,6 +884,7 @@ def auto_confirm_markdown(
               AND d.markdown_verified_at IS NULL
               AND d.markdown_quality_score IS NOT NULL
               AND d.markdown_quality_score >= $min
+              AND d.markdown_quality_score <= $max
             RETURN count(d) AS n
             """,
             params,
@@ -883,6 +899,7 @@ def auto_confirm_markdown(
           AND d.markdown_verified_at IS NULL
           AND d.markdown_quality_score IS NOT NULL
           AND d.markdown_quality_score >= $min
+          AND d.markdown_quality_score <= $max
         SET d.markdown_quality      = 'good',
             d.markdown_verified_at  = datetime(),
             d.markdown_verified_by  = $by,
