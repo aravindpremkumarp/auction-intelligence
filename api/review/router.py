@@ -508,7 +508,10 @@ async def review_markdown_stats(
 
 @router.get("/markdown", response_model=MarkdownQueueOut)
 async def review_markdown_queue(
-    status: Literal["pending", "good", "bad", "unscored", "all"] = "pending",
+    status: Literal[
+        "pending", "verified", "edited", "all",
+        "good", "bad", "unscored",
+    ] = "pending",
     q_search: str | None = Query(default=None, alias="q", max_length=200),
     page: int = Query(default=1, ge=1),
     size: int = Query(default=50, ge=1, le=200),

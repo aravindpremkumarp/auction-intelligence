@@ -671,7 +671,10 @@ def stats(
 #   - markdown_review_notes         (optional)
 
 
-MarkdownStatus = Literal["pending", "good", "bad", "unscored", "all"]
+MarkdownStatus = Literal[
+    "pending", "verified", "edited", "all",
+    "good", "bad", "unscored",  # legacy — retire in Task 15
+]
 
 
 def _markdown_where(status: MarkdownStatus, score_min: float | None) -> tuple[list[str], dict]:
@@ -679,6 +682,12 @@ def _markdown_where(status: MarkdownStatus, score_min: float | None) -> tuple[li
     params: dict = {}
     if status == "pending":
         where.append("d.markdown_verified_at IS NULL")
+    elif status == "verified":
+        where.append("d.markdown_verified_at IS NOT NULL")
+        where.append("d.markdown_quality = 'good'")
+    elif status == "edited":
+        where.append("d.markdown_verified_at IS NOT NULL")
+        where.append("d.markdown_quality = 'bad'")
     elif status == "good":
         where.append("d.markdown_verified_at IS NOT NULL")
         where.append("d.markdown_quality = 'good'")
