@@ -660,10 +660,20 @@
 
   // ─── Stats ──────────────────────────────────────────────────────────────
   async function loadStats() {
-    if (queueState.stage === 'markdown') { await loadMarkdownStats(); return; }
     const params = new URLSearchParams();
     appendCommonParams(params);
-    const url = API + '/review/stats' + (params.toString() ? '?' + params.toString() : '');
+    let url;
+    if (queueState.stage === 'classification') {
+      url = API + '/review/classifications/stats';
+    } else if (queueState.stage === 'markdown') {
+      url = API + '/review/markdown/stats';
+      // The markdown stats endpoint also computes `auto_confirmable` over a score
+      // range — feed it the current score from/to so the count reflects the filter.
+      appendScoreParams(params);
+    } else {
+      url = API + '/review/stats';
+    }
+    if (params.toString()) url += '?' + params.toString();
     const r = await authFetch(url);
     if (!r.ok) { $('stats').textContent = ''; return; }
     const s = await r.json();
@@ -673,23 +683,6 @@
       <span class="pill good">${s.edited} edited</span>
       <span class="pill off">${s.total} total</span>
     `;
-  }
-
-  async function loadMarkdownStats() {
-    const params = new URLSearchParams();
-    appendScoreParams(params);
-    const r = await authFetch(API + '/review/markdown/stats?' + params.toString());
-    if (!r.ok) { $('stats').textContent = ''; updateBulkConfirmButton(); return; }
-    const s = await r.json();
-    $('stats').innerHTML = `
-      <span class="pill warn">${s.pending} pending</span>
-      <span class="pill good">${s.good} good</span>
-      <span class="pill danger">${s.bad} bad</span>
-      <span class="pill off">${s.unscored} unscored</span>
-      <span class="pill off">${s.total} total</span>
-      ${s.auto_confirmable != null ? `<span class="pill good">${s.auto_confirmable} auto-confirmable</span>` : ''}
-    `;
-    updateBulkConfirmButton();
   }
 
   // ─── Queue ──────────────────────────────────────────────────────────────
