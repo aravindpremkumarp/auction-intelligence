@@ -51,3 +51,14 @@ def test_markdown_accepts_notice_type(client) -> None:
     for nt in ("all", "single", "multi", "unclassified"):
         r = client.get(f"/review/markdown?notice_type={nt}", headers=_admin_header())
         assert r.status_code == 200, f"notice_type={nt} rejected: {r.text}"
+
+
+def test_markdown_stats_includes_edited(client) -> None:
+    _ensure_admin_user()
+    r = client.get("/review/markdown/stats", headers=_admin_header())
+    assert r.status_code == 200
+    body = r.json()
+    assert "edited" in body
+    assert "verified" in body
+    assert "pending" in body
+    assert "total" in body

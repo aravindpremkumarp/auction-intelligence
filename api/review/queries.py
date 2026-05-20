@@ -538,20 +538,26 @@ def classification_stats(
         RETURN
           count(*) AS total,
           sum(CASE WHEN d.notice_type_verified_at IS NULL THEN 1 ELSE 0 END) AS pending,
+          sum(CASE WHEN d.notice_type_verified_at IS NOT NULL
+                    AND coalesce(d.notice_type_overridden, false) = false
+                   THEN 1 ELSE 0 END) AS verified,
+          sum(CASE WHEN d.notice_type_verified_at IS NOT NULL
+                    AND coalesce(d.notice_type_overridden, false) = true
+                   THEN 1 ELSE 0 END) AS edited,
           sum(CASE WHEN d.notice_type_verified_at IS NULL
                     AND d.notice_type_classifier_pred IS NOT NULL
                     AND d.notice_type <> d.notice_type_classifier_pred
-                   THEN 1 ELSE 0 END) AS disagreement,
-          sum(CASE WHEN d.notice_type_verified_at IS NOT NULL THEN 1 ELSE 0 END) AS verified
+                   THEN 1 ELSE 0 END) AS disagreement
     """, max_rows=1)
     if not rows:
-        return {"total": 0, "pending": 0, "disagreement": 0, "verified": 0}
+        return {"total": 0, "pending": 0, "verified": 0, "edited": 0, "disagreement": 0}
     r = rows[0]
     return {
-        "total": int(r.get("total") or 0),
-        "pending": int(r.get("pending") or 0),
+        "total":        int(r.get("total") or 0),
+        "pending":      int(r.get("pending") or 0),
+        "verified":     int(r.get("verified") or 0),
+        "edited":       int(r.get("edited") or 0),
         "disagreement": int(r.get("disagreement") or 0),
-        "verified": int(r.get("verified") or 0),
     }
 
 
@@ -807,12 +813,14 @@ def _markdown_where(
 
 def markdown_stats(
     score_min: float = 70.0,
+    score_max: float = 100.0,
     notice_type: NoticeTypeFilter | None = None,
 ) -> dict:
     """Counts for the markdown review header.
 
-    `auto_confirmable` = unverified Documents whose score ≥ score_min — the
-    pile the bulk-confirm button would clear at the current slider value.
+    `auto_confirmable` = unverified Documents whose score ≥ score_min and
+    ≤ score_max — the pile the bulk-confirm button would clear at the current
+    slider values.
     """
     nt_clause = _notice_type_clause(notice_type, alias="d")
     nt_where = f" AND {nt_clause}" if nt_clause else ""
@@ -824,25 +832,34 @@ def markdown_stats(
           count(*) AS total,
           sum(CASE WHEN d.markdown_verified_at IS NULL THEN 1 ELSE 0 END) AS pending,
           sum(CASE WHEN d.markdown_verified_at IS NOT NULL
+                    AND d.markdown_quality = 'good' THEN 1 ELSE 0 END) AS verified,
+          sum(CASE WHEN d.markdown_verified_at IS NOT NULL
+                    AND d.markdown_quality = 'bad' THEN 1 ELSE 0 END) AS edited,
+          sum(CASE WHEN d.markdown_verified_at IS NOT NULL
                     AND d.markdown_quality = 'good' THEN 1 ELSE 0 END) AS good,
           sum(CASE WHEN d.markdown_verified_at IS NOT NULL
                     AND d.markdown_quality = 'bad' THEN 1 ELSE 0 END) AS bad,
           sum(CASE WHEN d.markdown_quality_score IS NULL THEN 1 ELSE 0 END) AS unscored,
           sum(CASE WHEN d.markdown_verified_at IS NULL
                     AND d.markdown_quality_score IS NOT NULL
-                    AND d.markdown_quality_score >= $min
+                    AND d.markdown_quality_score >= $score_min
+                    AND d.markdown_quality_score <= $score_max
                    THEN 1 ELSE 0 END) AS auto_confirmable
         """,
-        {"min": float(score_min)},
+        {"score_min": float(score_min), "score_max": float(score_max)},
         max_rows=1,
     )
     if not rows:
-        return {"total": 0, "pending": 0, "good": 0, "bad": 0,
-                "unscored": 0, "auto_confirmable": 0}
+        return {
+            "total": 0, "pending": 0, "verified": 0, "edited": 0,
+            "good": 0, "bad": 0, "unscored": 0, "auto_confirmable": 0,
+        }
     r = rows[0]
     return {
         "total":            int(r.get("total") or 0),
         "pending":          int(r.get("pending") or 0),
+        "verified":         int(r.get("verified") or 0),
+        "edited":           int(r.get("edited") or 0),
         "good":             int(r.get("good") or 0),
         "bad":              int(r.get("bad") or 0),
         "unscored":         int(r.get("unscored") or 0),

@@ -155,8 +155,9 @@ class ClassificationQueueOut(BaseModel):
 class ClassificationStats(BaseModel):
     total: int
     pending: int
-    disagreement: int
     verified: int
+    edited: int
+    disagreement: int = 0  # legacy — drop in Task 15
 
 
 class ClassifyBody(BaseModel):
@@ -215,10 +216,12 @@ class MarkdownQueueOut(BaseModel):
 class MarkdownStats(BaseModel):
     total: int
     pending: int
-    good: int
-    bad: int
-    unscored: int
-    auto_confirmable: int
+    verified: int
+    edited: int
+    good: int = 0       # legacy — drop in Task 15
+    bad: int = 0        # legacy — drop in Task 15
+    unscored: int = 0   # legacy — drop in Task 15
+    auto_confirmable: int = 0
 
 
 class VerifyMarkdownBody(BaseModel):
@@ -519,11 +522,13 @@ async def review_classify(
 @router.get("/markdown/stats", response_model=MarkdownStats)
 async def review_markdown_stats(
     score_min: float = Query(default=70.0, ge=0.0, le=100.0),
+    score_max: float = Query(default=100.0, ge=0.0, le=100.0),
     notice_type: Literal["all", "single", "multi", "unclassified"] = Query(default="all"),
     _admin: UserOut = Depends(get_current_admin),
 ) -> MarkdownStats:
     return MarkdownStats(**q.markdown_stats(
         score_min=score_min,
+        score_max=score_max,
         notice_type=notice_type if notice_type != "all" else None,
     ))
 

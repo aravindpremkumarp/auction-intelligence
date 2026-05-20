@@ -72,7 +72,7 @@ def test_classifications_stats_returns_zero_when_no_docs(client) -> None:
     r = client.get("/review/classifications/stats", headers=_admin_header())
     assert r.status_code == 200
     body = r.json()
-    assert body == {"total": 0, "pending": 0, "disagreement": 0, "verified": 0}
+    assert body == {"total": 0, "pending": 0, "verified": 0, "edited": 0, "disagreement": 0}
 
 
 def test_classifications_row_shape(client, monkeypatch) -> None:
@@ -281,3 +281,14 @@ def test_classifications_accepts_notice_type(client) -> None:
     for nt in ("all", "single", "multi", "unclassified"):
         r = client.get(f"/review/classifications?notice_type={nt}", headers=_admin_header())
         assert r.status_code == 200, f"notice_type={nt} rejected: {r.text}"
+
+
+def test_classifications_stats_includes_edited(client) -> None:
+    _ensure_admin_user()
+    r = client.get("/review/classifications/stats", headers=_admin_header())
+    assert r.status_code == 200
+    body = r.json()
+    assert "edited" in body
+    assert "verified" in body
+    assert "pending" in body
+    assert "total" in body
