@@ -407,6 +407,38 @@
     <div id="queue-by-classification" class="notice-list hidden"></div>
     <div id="queue-by-classification-gallery" class="gallery-grid hidden"></div>
     <div id="queue-by-markdown" class="notice-list hidden"></div>
+    <div id="queue-by-classification-by-property" class="table-scroll hidden">
+      <table>
+        <thead>
+          <tr>
+            <th>Title</th>
+            <th>Auction date</th>
+            <th>Reserve (₹)</th>
+            <th>Notice</th>
+            <th>Predicted type</th>
+            <th>Confidence</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="queue-by-classification-by-property-rows"></tbody>
+      </table>
+    </div>
+    <div id="queue-by-markdown-by-property" class="table-scroll hidden">
+      <table>
+        <thead>
+          <tr>
+            <th>Title</th>
+            <th>Auction date</th>
+            <th>Reserve (₹)</th>
+            <th>Notice</th>
+            <th>Markdown score</th>
+            <th>Quality</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="queue-by-markdown-by-property-rows"></tbody>
+      </table>
+    </div>
     <div id="load-more-wrap" class="hidden" style="text-align:center; margin-top:14px;">
       <button id="load-more" class="ghost">Load more</button>
       <span class="meta" id="load-more-hint" style="margin-left:10px; color: var(--muted);"></span>
@@ -746,6 +778,10 @@
     $('queue-by-classification-gallery').classList.toggle('hidden',
         !(isClass && isNotice && queueState.cview === 'gallery'));
     $('queue-by-markdown').classList.toggle('hidden', !(isMd && isNotice));
+    $('queue-by-classification-by-property').classList.toggle('hidden',
+        !(isClass && isProperty));
+    $('queue-by-markdown-by-property').classList.toggle('hidden',
+        !(isMd && isProperty));
 
     // The classification stage has a gallery/cards toggle, but only when
     // looking at the sales-notice sub-group.
@@ -805,10 +841,79 @@
   }
 
   async function loadClassificationByPropertyQueue(append) {
-    // Implemented in Task 14.
+    const tbody = $('queue-by-classification-by-property-rows');
+    if (!append) tbody.innerHTML = '<tr><td colspan="7"><div class="empty">loading…</div></td></tr>';
+    const params = new URLSearchParams({
+      status: queueState.status,
+      page: String(queueState.page),
+      size: String(PAGE_SIZE_PROPERTY),
+    });
+    if (queueState.q) params.set('q', queueState.q);
+    appendCommonParams(params);
+    appendScoreParams(params);
+    const r = await authFetch(API + '/review/classifications/by-property?' + params.toString());
+    if (!r.ok) { tbody.innerHTML = '<tr><td colspan="7"><div class="empty">error</div></td></tr>'; return; }
+    const data = await r.json();
+    queueTotal = data.total;
+    if (!append) tbody.innerHTML = '';
+    for (const row of data.rows) {
+      const tr = document.createElement('tr');
+      tr.className = row.verified ? (row.overridden ? 'edited' : 'verified') : 'pending';
+      const statusLabel = row.verified ? (row.overridden ? 'edited' : 'verified') : 'pending';
+      const conf = row.notice_type_confidence == null ? '—' : (Math.round(row.notice_type_confidence * 100) + '%');
+      const noticeLink = row.notice_filename
+        ? `<a href="#notice/${encodeURIComponent(row.notice_filename)}">${row.notice_filename}</a>`
+        : '—';
+      tr.innerHTML = `
+        <td><a href="#detail/${encodeURIComponent(row.auction_id)}">${row.title || row.auction_id}</a></td>
+        <td>${row.auction_start || '—'}</td>
+        <td>${row.reserve_price == null ? '—' : row.reserve_price.toLocaleString('en-IN')}</td>
+        <td>${noticeLink}</td>
+        <td>${row.notice_type || '—'}</td>
+        <td>${conf}</td>
+        <td>${statusLabel}</td>
+      `;
+      tbody.appendChild(tr);
+    }
+    queueLoadedCount += data.rows.length;
   }
   async function loadMarkdownByPropertyQueue(append) {
-    // Implemented in Task 14.
+    const tbody = $('queue-by-markdown-by-property-rows');
+    if (!append) tbody.innerHTML = '<tr><td colspan="7"><div class="empty">loading…</div></td></tr>';
+    const params = new URLSearchParams({
+      status: queueState.status,
+      page: String(queueState.page),
+      size: String(PAGE_SIZE_PROPERTY),
+    });
+    if (queueState.q) params.set('q', queueState.q);
+    appendCommonParams(params);
+    appendScoreParams(params);
+    const r = await authFetch(API + '/review/markdown/by-property?' + params.toString());
+    if (!r.ok) { tbody.innerHTML = '<tr><td colspan="7"><div class="empty">error</div></td></tr>'; return; }
+    const data = await r.json();
+    queueTotal = data.total;
+    if (!append) tbody.innerHTML = '';
+    for (const row of data.rows) {
+      const tr = document.createElement('tr');
+      const statusLabel = row.verified
+        ? (row.quality === 'bad' ? 'edited' : 'verified')
+        : 'pending';
+      tr.className = statusLabel;
+      const noticeLink = row.notice_filename
+        ? `<a href="#notice/${encodeURIComponent(row.notice_filename)}">${row.notice_filename}</a>`
+        : '—';
+      tr.innerHTML = `
+        <td><a href="#detail/${encodeURIComponent(row.auction_id)}">${row.title || row.auction_id}</a></td>
+        <td>${row.auction_start || '—'}</td>
+        <td>${row.reserve_price == null ? '—' : row.reserve_price.toLocaleString('en-IN')}</td>
+        <td>${noticeLink}</td>
+        <td>${row.score == null ? '—' : Math.round(row.score)}</td>
+        <td>${row.quality || '—'}</td>
+        <td>${statusLabel}</td>
+      `;
+      tbody.appendChild(tr);
+    }
+    queueLoadedCount += data.rows.length;
   }
   function syncScoreInputs() {
     const sf = $('score-from'), st = $('score-to');
