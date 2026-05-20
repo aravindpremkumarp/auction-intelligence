@@ -862,16 +862,16 @@
       const statusLabel = row.verified ? (row.overridden ? 'edited' : 'verified') : 'pending';
       const conf = row.notice_type_confidence == null ? '—' : (Math.round(row.notice_type_confidence * 100) + '%');
       const noticeLink = row.notice_filename
-        ? `<a href="#notice/${encodeURIComponent(row.notice_filename)}">${row.notice_filename}</a>`
+        ? `<a href="#notice/${encodeURIComponent(row.notice_filename)}">${escapeHtml(row.notice_filename)}</a>`
         : '—';
       tr.innerHTML = `
-        <td><a href="#detail/${encodeURIComponent(row.auction_id)}">${row.title || row.auction_id}</a></td>
-        <td>${row.auction_start || '—'}</td>
+        <td><a href="#detail/${encodeURIComponent(row.auction_id)}">${escapeHtml(row.title || row.auction_id)}</a></td>
+        <td>${escapeHtml(row.auction_start || '—')}</td>
         <td>${row.reserve_price == null ? '—' : row.reserve_price.toLocaleString('en-IN')}</td>
         <td>${noticeLink}</td>
-        <td>${row.notice_type || '—'}</td>
+        <td>${escapeHtml(row.notice_type || '—')}</td>
         <td>${conf}</td>
-        <td>${statusLabel}</td>
+        <td>${escapeHtml(statusLabel)}</td>
       `;
       tbody.appendChild(tr);
     }
@@ -900,16 +900,16 @@
         : 'pending';
       tr.className = statusLabel;
       const noticeLink = row.notice_filename
-        ? `<a href="#notice/${encodeURIComponent(row.notice_filename)}">${row.notice_filename}</a>`
+        ? `<a href="#notice/${encodeURIComponent(row.notice_filename)}">${escapeHtml(row.notice_filename)}</a>`
         : '—';
       tr.innerHTML = `
-        <td><a href="#detail/${encodeURIComponent(row.auction_id)}">${row.title || row.auction_id}</a></td>
-        <td>${row.auction_start || '—'}</td>
+        <td><a href="#detail/${encodeURIComponent(row.auction_id)}">${escapeHtml(row.title || row.auction_id)}</a></td>
+        <td>${escapeHtml(row.auction_start || '—')}</td>
         <td>${row.reserve_price == null ? '—' : row.reserve_price.toLocaleString('en-IN')}</td>
         <td>${noticeLink}</td>
         <td>${row.score == null ? '—' : Math.round(row.score)}</td>
-        <td>${row.quality || '—'}</td>
-        <td>${statusLabel}</td>
+        <td>${escapeHtml(row.quality || '—')}</td>
+        <td>${escapeHtml(statusLabel)}</td>
       `;
       tbody.appendChild(tr);
     }
