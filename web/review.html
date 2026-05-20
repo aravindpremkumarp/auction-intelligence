@@ -318,34 +318,26 @@
   <!-- Queue screen -->
   <section id="screen-queue">
     <div class="actions">
-      <span>Group by:</span>
-      <span class="group-toggle">
+      <span>Stage:</span>
+      <span class="group-toggle" id="stage-tabs">
+        <button class="pill" data-stage="classification">classification</button>
+        <button class="pill" data-stage="markdown">markdown</button>
+        <button class="pill" data-stage="description">description</button>
+      </span>
+    </div>
+    <div class="actions">
+      <span>Group:</span>
+      <span class="group-toggle" id="group-tabs">
         <button class="pill" data-group="property">property</button>
         <button class="pill" data-group="notice">sales notice</button>
-        <button class="pill" data-group="classification">classification</button>
-        <button class="pill" data-group="markdown">markdown</button>
       </span>
       <span style="width:14px"></span>
       <span>Status:</span>
-      <span id="status-buttons-desc" class="group-toggle">
+      <span id="status-buttons" class="group-toggle">
         <button class="pill" data-status="pending">pending</button>
         <button class="pill" data-status="verified">verified</button>
         <button class="pill" data-status="edited">edited</button>
         <button class="pill" data-status="all">all</button>
-      </span>
-      <span id="status-buttons-class" class="group-toggle hidden">
-        <button class="pill" data-cstatus="pending">pending</button>
-        <button class="pill" data-cstatus="disagreement">disagreement</button>
-        <button class="pill" data-cstatus="auto-confirm">auto-confirm</button>
-        <button class="pill" data-cstatus="verified">verified</button>
-        <button class="pill" data-cstatus="all">all</button>
-      </span>
-      <span id="status-buttons-md" class="group-toggle hidden">
-        <button class="pill" data-mdstatus="pending">pending</button>
-        <button class="pill" data-mdstatus="good">good</button>
-        <button class="pill" data-mdstatus="bad">bad</button>
-        <button class="pill" data-mdstatus="unscored">unscored</button>
-        <button class="pill" data-mdstatus="all">all</button>
       </span>
       <span id="cview-toggle" class="group-toggle hidden">
         <span style="margin:0 4px; color: var(--muted);">·</span>
@@ -367,23 +359,32 @@
       <button id="date-clear" class="ghost" title="show all dates">clear dates</button>
       <span class="meta" id="date-hint" style="color: var(--muted);"></span>
     </div>
-    <div id="auto-confirm-bar" class="actions hidden">
-      <span>Confidence ≥</span>
-      <input type="range" id="auto-conf-slider" min="50" max="100" step="1" value="95" style="width:160px;">
-      <span class="meta"><strong id="auto-conf-pct">95</strong>%</span>
-      <span style="width:14px"></span>
-      <span class="meta" id="auto-conf-hint" style="color: var(--muted);">classifier agrees with current notice_type · unverified only</span>
-      <span style="flex:1"></span>
-      <button id="auto-conf-bulk" class="primary" disabled>Confirm all 0</button>
+    <div class="actions" id="score-bar">
+      <span>Score:</span>
+      <label class="meta" style="display:flex; gap:6px; align-items:center;">
+        from <input type="number" id="score-from" min="0" max="100" step="1" value="0"
+                    style="width:60px; padding:4px 6px; border:1.5px solid var(--ink);">
+      </label>
+      <label class="meta" style="display:flex; gap:6px; align-items:center;">
+        to <input type="number" id="score-to" min="0" max="100" step="1" value="100"
+                  style="width:60px; padding:4px 6px; border:1.5px solid var(--ink);">
+      </label>
+      <button id="score-clear" class="ghost" title="reset to 0–100">clear</button>
+      <span class="meta" id="score-hint" style="color: var(--muted);"></span>
     </div>
-    <div id="md-confirm-bar" class="actions hidden">
-      <span>Score ≥</span>
-      <input type="range" id="md-conf-slider" min="0" max="100" step="1" value="70" style="width:160px;">
-      <span class="meta"><strong id="md-conf-pct">70</strong></span>
-      <span style="width:14px"></span>
-      <span class="meta" id="md-conf-hint" style="color: var(--muted);">queue & bulk-confirm show items with score ≥ this value</span>
+    <div class="actions" id="notice-type-bar">
+      <span>Notice type:</span>
+      <span class="group-toggle" id="notice-type-tabs">
+        <button class="pill" data-ntype="all">all</button>
+        <button class="pill" data-ntype="single">single</button>
+        <button class="pill" data-ntype="multi">multi</button>
+        <button class="pill" data-ntype="unclassified">unclassified</button>
+      </span>
+    </div>
+    <div id="bulk-confirm-bar" class="actions hidden">
+      <span class="meta" id="bulk-confirm-hint" style="color: var(--muted);">verifies pending items in the current filtered range</span>
       <span style="flex:1"></span>
-      <button id="md-conf-bulk" class="primary" disabled>Confirm all 0 good</button>
+      <button id="bulk-confirm-btn" class="primary" disabled>Confirm all 0 in range</button>
     </div>
     <div id="queue-by-property" class="table-scroll">
       <table>
