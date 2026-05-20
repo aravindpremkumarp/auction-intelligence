@@ -155,8 +155,8 @@ class ClassificationQueueOut(BaseModel):
 class ClassificationStats(BaseModel):
     total: int
     pending: int
-    disagreement: int
     verified: int
+    edited: int
 
 
 class ClassifyBody(BaseModel):
@@ -176,6 +176,7 @@ class ClassifyResult(BaseModel):
 
 class BulkConfirmBody(BaseModel):
     confidence_min: float = Field(ge=0.0, le=1.0)
+    confidence_max: float = Field(default=1.0, ge=0.0, le=1.0)
     notes: str | None = Field(default=None, max_length=2000)
     dry_run: bool = False
 
@@ -183,6 +184,26 @@ class BulkConfirmBody(BaseModel):
 class BulkConfirmResult(BaseModel):
     count: int
     dry_run: bool
+
+
+class ClassificationPropertyRow(BaseModel):
+    auction_id: str
+    title: str | None = None
+    auction_start: str | None = None
+    reserve_price: float | None = None
+    notice_filename: str | None = None
+    notice_type: str | None = None
+    notice_type_confidence: float | None = None
+    overridden: bool = False
+    verified: bool = False
+    verified_at: str | None = None
+
+
+class ClassificationPropertyQueueOut(BaseModel):
+    page: int
+    size: int
+    total: int
+    rows: list[ClassificationPropertyRow]
 
 
 # ── Markdown-quality review models ──────────────────────────────────────────
@@ -214,10 +235,9 @@ class MarkdownQueueOut(BaseModel):
 class MarkdownStats(BaseModel):
     total: int
     pending: int
-    good: int
-    bad: int
-    unscored: int
-    auto_confirmable: int
+    verified: int
+    edited: int
+    auto_confirmable: int = 0
 
 
 class VerifyMarkdownBody(BaseModel):
@@ -227,8 +247,29 @@ class VerifyMarkdownBody(BaseModel):
 
 class MarkdownBulkConfirmBody(BaseModel):
     score_min: float = Field(ge=0.0, le=100.0)
+    score_max: float = Field(default=100.0, ge=0.0, le=100.0)
     notes: str | None = Field(default=None, max_length=2000)
     dry_run: bool = False
+
+
+class MarkdownPropertyRow(BaseModel):
+    auction_id: str
+    title: str | None = None
+    auction_start: str | None = None
+    reserve_price: float | None = None
+    notice_filename: str | None = None
+    notice_type: str | None = None
+    score: float | None = None
+    quality: Literal["good", "bad"] | None = None
+    verified: bool = False
+    verified_at: str | None = None
+
+
+class MarkdownPropertyQueueOut(BaseModel):
+    page: int
+    size: int
+    total: int
+    rows: list[MarkdownPropertyRow]
 
 
 # ── Per-block annotator models ──────────────────────────────────────────────
@@ -347,9 +388,13 @@ def _row_to_str(row: dict) -> dict:
 async def review_stats(
     date_from: str | None = Query(default=None, max_length=20),
     date_to: str | None = Query(default=None, max_length=20),
+    notice_type: Literal["all", "single", "multi", "unclassified"] = Query(default="all"),
     _admin: UserOut = Depends(get_current_admin),
 ) -> ReviewStats:
-    return ReviewStats(**q.stats(date_from=date_from, date_to=date_to))
+    return ReviewStats(**q.stats(
+        date_from=date_from, date_to=date_to,
+        notice_type=notice_type if notice_type != "all" else None,
+    ))
 
 
 @router.get("/queue", response_model=ReviewQueueOut)
@@ -360,11 +405,13 @@ async def review_queue(
     size: int = Query(default=50, ge=1, le=200),
     date_from: str | None = Query(default=None, max_length=20),
     date_to: str | None = Query(default=None, max_length=20),
+    notice_type: Literal["all", "single", "multi", "unclassified"] = Query(default="all"),
     _admin: UserOut = Depends(get_current_admin),
 ) -> ReviewQueueOut:
     result = q.list_queue(
         status=status, q=q_search, page=page, size=size,
         date_from=date_from, date_to=date_to,
+        notice_type=notice_type if notice_type != "all" else None,
     )
     rows = [ReviewQueueRow(**_row_to_str(r)) for r in result["rows"]]
     return ReviewQueueOut(page=result["page"], size=result["size"], total=result["total"], rows=rows)
@@ -378,11 +425,13 @@ async def review_notices(
     size: int = Query(default=50, ge=1, le=200),
     date_from: str | None = Query(default=None, max_length=20),
     date_to: str | None = Query(default=None, max_length=20),
+    notice_type: Literal["all", "single", "multi", "unclassified"] = Query(default="all"),
     _admin: UserOut = Depends(get_current_admin),
 ) -> ReviewNoticeQueueOut:
     result = q.list_notice_queue(
         status=status, q=q_search, page=page, size=size,
         date_from=date_from, date_to=date_to,
+        notice_type=notice_type if notice_type != "all" else None,
     )
     rows = [ReviewNoticeRow(**r) for r in result["rows"]]
     return ReviewNoticeQueueOut(page=result["page"], size=result["size"], total=result["total"], rows=rows)
@@ -442,20 +491,53 @@ async def review_unverify(
 
 @router.get("/classifications", response_model=ClassificationQueueOut)
 async def review_classifications(
-    status: Literal["pending", "disagreement", "verified", "all"] = "pending",
+    status: Literal["pending", "verified", "edited", "all"] = "pending",
     q_search: str | None = Query(default=None, alias="q", max_length=200),
     page: int = Query(default=1, ge=1),
     size: int = Query(default=50, ge=1, le=200),
     confidence_min: float | None = Query(default=None, ge=0.0, le=1.0),
+    confidence_max: float | None = Query(default=None, ge=0.0, le=1.0),
     agrees_only: bool = Query(default=False),
+    notice_type: Literal["all", "single", "multi", "unclassified"] = Query(default="all"),
     _admin: UserOut = Depends(get_current_admin),
 ) -> ClassificationQueueOut:
     result = q.list_classification_queue(
         status=status, q=q_search, page=page, size=size,
-        confidence_min=confidence_min, agrees_only=agrees_only,
+        confidence_min=confidence_min, confidence_max=confidence_max,
+        agrees_only=agrees_only,
+        notice_type=notice_type if notice_type != "all" else None,
     )
     rows = [ClassificationRow(**r) for r in result["rows"]]
     return ClassificationQueueOut(
+        page=result["page"], size=result["size"],
+        total=result["total"], rows=rows,
+    )
+
+
+@router.get(
+    "/classifications/by-property",
+    response_model=ClassificationPropertyQueueOut,
+)
+async def review_classifications_by_property(
+    status: Literal["pending", "verified", "edited", "all"] = "pending",
+    q_search: str | None = Query(default=None, alias="q", max_length=200),
+    page: int = Query(default=1, ge=1),
+    size: int = Query(default=100, ge=1, le=200),
+    confidence_min: float | None = Query(default=None, ge=0.0, le=1.0),
+    confidence_max: float | None = Query(default=None, ge=0.0, le=1.0),
+    notice_type: Literal["all", "single", "multi", "unclassified"] = Query(default="all"),
+    date_from: str | None = Query(default=None, max_length=20),
+    date_to: str | None = Query(default=None, max_length=20),
+    _admin: UserOut = Depends(get_current_admin),
+) -> ClassificationPropertyQueueOut:
+    result = q.list_classification_queue_by_property(
+        status=status, q=q_search, page=page, size=size,
+        confidence_min=confidence_min, confidence_max=confidence_max,
+        notice_type=notice_type if notice_type != "all" else None,
+        date_from=date_from, date_to=date_to,
+    )
+    rows = [ClassificationPropertyRow(**_row_to_str(r)) for r in result["rows"]]
+    return ClassificationPropertyQueueOut(
         page=result["page"], size=result["size"],
         total=result["total"], rows=rows,
     )
@@ -468,6 +550,7 @@ async def review_bulk_confirm(
 ) -> BulkConfirmResult:
     result = q.auto_confirm_classifications(
         confidence_min=body.confidence_min,
+        confidence_max=body.confidence_max,
         by_email=admin.email,
         notes=body.notes,
         dry_run=body.dry_run,
@@ -477,9 +560,12 @@ async def review_bulk_confirm(
 
 @router.get("/classifications/stats", response_model=ClassificationStats)
 async def review_classification_stats(
+    notice_type: Literal["all", "single", "multi", "unclassified"] = Query(default="all"),
     _admin: UserOut = Depends(get_current_admin),
 ) -> ClassificationStats:
-    return ClassificationStats(**q.classification_stats())
+    return ClassificationStats(**q.classification_stats(
+        notice_type=notice_type if notice_type != "all" else None,
+    ))
 
 
 @router.post("/notice/{filename}/classify", response_model=ClassifyResult)
@@ -503,25 +589,64 @@ async def review_classify(
 @router.get("/markdown/stats", response_model=MarkdownStats)
 async def review_markdown_stats(
     score_min: float = Query(default=70.0, ge=0.0, le=100.0),
+    score_max: float = Query(default=100.0, ge=0.0, le=100.0),
+    notice_type: Literal["all", "single", "multi", "unclassified"] = Query(default="all"),
     _admin: UserOut = Depends(get_current_admin),
 ) -> MarkdownStats:
-    return MarkdownStats(**q.markdown_stats(score_min=score_min))
+    return MarkdownStats(**q.markdown_stats(
+        score_min=score_min,
+        score_max=score_max,
+        notice_type=notice_type if notice_type != "all" else None,
+    ))
 
 
 @router.get("/markdown", response_model=MarkdownQueueOut)
 async def review_markdown_queue(
-    status: Literal["pending", "good", "bad", "unscored", "all"] = "pending",
+    status: Literal["pending", "verified", "edited", "all"] = "pending",
     q_search: str | None = Query(default=None, alias="q", max_length=200),
     page: int = Query(default=1, ge=1),
     size: int = Query(default=50, ge=1, le=200),
     score_min: float | None = Query(default=None, ge=0.0, le=100.0),
+    score_max: float | None = Query(default=None, ge=0.0, le=100.0),
+    notice_type: Literal["all", "single", "multi", "unclassified"] = Query(default="all"),
     _admin: UserOut = Depends(get_current_admin),
 ) -> MarkdownQueueOut:
     result = q.list_markdown_queue(
-        status=status, q=q_search, page=page, size=size, score_min=score_min,
+        status=status, q=q_search, page=page, size=size,
+        score_min=score_min, score_max=score_max,
+        notice_type=notice_type if notice_type != "all" else None,
     )
     rows = [MarkdownRow(**r) for r in result["rows"]]
     return MarkdownQueueOut(
+        page=result["page"], size=result["size"],
+        total=result["total"], rows=rows,
+    )
+
+
+@router.get(
+    "/markdown/by-property",
+    response_model=MarkdownPropertyQueueOut,
+)
+async def review_markdown_by_property(
+    status: Literal["pending", "verified", "edited", "all"] = "pending",
+    q_search: str | None = Query(default=None, alias="q", max_length=200),
+    page: int = Query(default=1, ge=1),
+    size: int = Query(default=100, ge=1, le=200),
+    score_min: float | None = Query(default=None, ge=0.0, le=100.0),
+    score_max: float | None = Query(default=None, ge=0.0, le=100.0),
+    notice_type: Literal["all", "single", "multi", "unclassified"] = Query(default="all"),
+    date_from: str | None = Query(default=None, max_length=20),
+    date_to: str | None = Query(default=None, max_length=20),
+    _admin: UserOut = Depends(get_current_admin),
+) -> MarkdownPropertyQueueOut:
+    result = q.list_markdown_queue_by_property(
+        status=status, q=q_search, page=page, size=size,
+        score_min=score_min, score_max=score_max,
+        notice_type=notice_type if notice_type != "all" else None,
+        date_from=date_from, date_to=date_to,
+    )
+    rows = [MarkdownPropertyRow(**_row_to_str(r)) for r in result["rows"]]
+    return MarkdownPropertyQueueOut(
         page=result["page"], size=result["size"],
         total=result["total"], rows=rows,
     )
@@ -534,6 +659,7 @@ async def review_markdown_bulk_confirm(
 ) -> BulkConfirmResult:
     result = q.auto_confirm_markdown(
         score_min=body.score_min,
+        score_max=body.score_max,
         by_email=admin.email,
         notes=body.notes,
         dry_run=body.dry_run,

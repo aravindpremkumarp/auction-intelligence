@@ -72,7 +72,7 @@ def test_classifications_stats_returns_zero_when_no_docs(client) -> None:
     r = client.get("/review/classifications/stats", headers=_admin_header())
     assert r.status_code == 200
     body = r.json()
-    assert body == {"total": 0, "pending": 0, "disagreement": 0, "verified": 0}
+    assert body == {"total": 0, "pending": 0, "verified": 0, "edited": 0}
 
 
 def test_classifications_row_shape(client, monkeypatch) -> None:
@@ -113,7 +113,7 @@ def test_classifications_row_shape(client, monkeypatch) -> None:
     import api.review.queries as q
     monkeypatch.setattr(q, "run_read_query", fake_read)
 
-    r = client.get("/review/classifications?status=disagreement",
+    r = client.get("/review/classifications?status=all",
                    headers=_admin_header())
     assert r.status_code == 200
     body = r.json()
@@ -245,6 +245,23 @@ def test_classifier_normalize_verdict_rejects_missing_label() -> None:
     assert normalize_verdict({"confidence": 0.9, "reasoning": "x"}) is None
 
 
+def test_classifications_accepts_uniform_status_values(client) -> None:
+    """status=pending/verified/edited/all must be accepted (canonical 4-value set)."""
+    _ensure_admin_user()
+    for s in ("pending", "verified", "edited", "all"):
+        r = client.get(f"/review/classifications?status={s}", headers=_admin_header())
+        assert r.status_code == 200, f"status={s} rejected: {r.text}"
+
+
+def test_classifications_accepts_confidence_max(client) -> None:
+    _ensure_admin_user()
+    r = client.get(
+        "/review/classifications?confidence_min=0.5&confidence_max=0.9",
+        headers=_admin_header(),
+    )
+    assert r.status_code == 200
+
+
 def test_extractor_normalize_schedules_drops_blank() -> None:
     from pipeline.extract_descriptions import normalize_schedules
     out = normalize_schedules({"schedules": [
@@ -255,3 +272,43 @@ def test_extractor_normalize_schedules_drops_blank() -> None:
     assert out is not None
     assert len(out) == 1
     assert out[0]["reserve_price_num"] == 1
+
+
+def test_classifications_accepts_notice_type(client) -> None:
+    _ensure_admin_user()
+    for nt in ("all", "single", "multi", "unclassified"):
+        r = client.get(f"/review/classifications?notice_type={nt}", headers=_admin_header())
+        assert r.status_code == 200, f"notice_type={nt} rejected: {r.text}"
+
+
+def test_classifications_stats_includes_edited(client) -> None:
+    _ensure_admin_user()
+    r = client.get("/review/classifications/stats", headers=_admin_header())
+    assert r.status_code == 200
+    body = r.json()
+    assert "edited" in body
+    assert "verified" in body
+    assert "pending" in body
+    assert "total" in body
+
+
+def test_classifications_by_property_routes_registered(client) -> None:
+    from api.main import app
+    paths = {r.path for r in app.routes}
+    assert "/review/classifications/by-property" in paths
+
+
+def test_classifications_by_property_returns_empty(client) -> None:
+    _ensure_admin_user()
+    r = client.get("/review/classifications/by-property", headers=_admin_header())
+    assert r.status_code == 200
+    body = r.json()
+    assert body["total"] == 0
+    assert body["rows"] == []
+
+
+def test_classifications_rejects_legacy_status(client) -> None:
+    _ensure_admin_user()
+    for s in ("disagreement", "auto-confirm"):
+        r = client.get(f"/review/classifications?status={s}", headers=_admin_header())
+        assert r.status_code == 422, f"status={s} should be rejected"
