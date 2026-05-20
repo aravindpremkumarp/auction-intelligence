@@ -569,18 +569,70 @@
     return `${d.getFullYear()}-${m}-${day}`;
   }
 
-  function appendDateParams(params) {
+  function appendCommonParams(params) {
     if (queueState.dateFrom) params.set('date_from', queueState.dateFrom);
-    if (queueState.dateTo)   params.set('date_to', queueState.dateTo);
+    if (queueState.dateTo)   params.set('date_to',   queueState.dateTo);
+    if (queueState.noticeType && queueState.noticeType !== 'all') {
+      params.set('notice_type', queueState.noticeType);
+    }
+  }
+  function appendScoreParams(params) {
+    // The classification API takes 0–1 floats; markdown API takes 0–100.
+    if (queueState.stage === 'classification') {
+      if (queueState.scoreFrom !== 0)   params.set('confidence_min', String(queueState.scoreFrom / 100));
+      if (queueState.scoreTo   !== 100) params.set('confidence_max', String(queueState.scoreTo   / 100));
+    } else if (queueState.stage === 'markdown') {
+      if (queueState.scoreFrom !== 0)   params.set('score_min', String(queueState.scoreFrom));
+      if (queueState.scoreTo   !== 100) params.set('score_max', String(queueState.scoreTo));
+    }
   }
 
   // ─── Routing ────────────────────────────────────────────────────────────
   function parseHash() {
     const h = (location.hash || '').replace(/^#/, '');
-    if (h.startsWith('property/')) return { screen: 'detail', id: decodeURIComponent(h.slice('property/'.length)) };
+    if (h.startsWith('detail/'))  return { screen: 'detail',   id: decodeURIComponent(h.slice('detail/'.length)) };
+    if (h.startsWith('property/')) return { screen: 'detail',  id: decodeURIComponent(h.slice('property/'.length)) };
     if (h.startsWith('notice/'))   return { screen: 'annotator', filename: decodeURIComponent(h.slice('notice/'.length)) };
-    if (h.startsWith('gallery/'))  return { screen: 'queue', gallery: decodeURIComponent(h.slice('gallery/'.length)) };
+    if (h.startsWith('gallery/')) {
+      // Legacy deep-link: jump into the classification gallery for a specific notice.
+      const fn = decodeURIComponent(h.slice('gallery/'.length));
+      queueState.stage = 'classification';
+      queueState.group = 'notice';
+      queueState.cview = 'gallery';
+      return { screen: 'queue', gallery: fn };
+    }
+
+    // New hash format: kv-pairs separated by `&`.
+    const p = new URLSearchParams(h);
+    if (p.has('stage')) {
+      queueState.stage      = p.get('stage')       || queueState.stage;
+      queueState.group      = p.get('group')       || queueState.group;
+      queueState.status     = p.get('status')      || queueState.status;
+      queueState.noticeType = p.get('notice_type') || queueState.noticeType;
+      queueState.dateFrom   = p.get('date_from')   ?? queueState.dateFrom;
+      queueState.dateTo     = p.get('date_to')     ?? queueState.dateTo;
+      const sf = parseInt(p.get('score_from'), 10);
+      const st = parseInt(p.get('score_to'),   10);
+      if (!isNaN(sf)) queueState.scoreFrom = sf;
+      if (!isNaN(st)) queueState.scoreTo   = st;
+    }
     return { screen: 'queue' };
+  }
+
+  function writeHash() {
+    const p = new URLSearchParams();
+    p.set('stage', queueState.stage);
+    p.set('group', queueState.group);
+    p.set('status', queueState.status);
+    p.set('notice_type', queueState.noticeType);
+    if (queueState.dateFrom) p.set('date_from', queueState.dateFrom);
+    if (queueState.dateTo)   p.set('date_to',   queueState.dateTo);
+    if (queueState.scoreFrom !== 0)   p.set('score_from', String(queueState.scoreFrom));
+    if (queueState.scoreTo   !== 100) p.set('score_to',   String(queueState.scoreTo));
+    const next = '#' + p.toString();
+    if (location.hash !== next) {
+      history.replaceState(null, '', next);
+    }
   }
 
   function show(screen) {
@@ -594,9 +646,6 @@
     show(r.screen);
     if (r.screen === 'queue') {
       if (r.gallery) {
-        // Deep-link to a specific notice in the gallery: force the right view.
-        queueState.group = 'classification';
-        queueState.cview = 'gallery';
         try { localStorage.setItem('cView', 'gallery'); } catch {}
       }
       await loadStats(); await loadQueue();
@@ -611,9 +660,9 @@
 
   // ─── Stats ──────────────────────────────────────────────────────────────
   async function loadStats() {
-    if (queueState.group === 'markdown') { await loadMarkdownStats(); return; }
+    if (queueState.stage === 'markdown') { await loadMarkdownStats(); return; }
     const params = new URLSearchParams();
-    appendDateParams(params);
+    appendCommonParams(params);
     const url = API + '/review/stats' + (params.toString() ? '?' + params.toString() : '');
     const r = await authFetch(url);
     if (!r.ok) { $('stats').textContent = ''; return; }
@@ -627,7 +676,8 @@
   }
 
   async function loadMarkdownStats() {
-    const params = new URLSearchParams({ score_min: String(queueState.mdScoreThreshold) });
+    const params = new URLSearchParams();
+    appendScoreParams(params);
     const r = await authFetch(API + '/review/markdown/stats?' + params.toString());
     if (!r.ok) { $('stats').textContent = ''; updateBulkConfirmButton(); return; }
     const s = await r.json();
@@ -637,7 +687,7 @@
       <span class="pill danger">${s.bad} bad</span>
       <span class="pill off">${s.unscored} unscored</span>
       <span class="pill off">${s.total} total</span>
-      <span class="pill good">${s.auto_confirmable} ≥ ${queueState.mdScoreThreshold}</span>
+      ${s.auto_confirmable != null ? `<span class="pill good">${s.auto_confirmable} auto-confirmable</span>` : ''}
     `;
     updateBulkConfirmButton();
   }
@@ -807,7 +857,7 @@
       size: String(PAGE_SIZE_PROPERTY),
     });
     if (queueState.q) params.set('q', queueState.q);
-    appendDateParams(params);
+    appendCommonParams(params);
     const r = await authFetch(API + '/review/queue?' + params.toString());
     if (r.status === 401 || r.status === 403) {
       tbody.innerHTML = '<tr><td colspan="8"><div class="empty"><span class="err">not authorised — sign in as admin from the main app</span></div></td></tr>';
@@ -859,7 +909,7 @@
       size: String(PAGE_SIZE_NOTICE),
     });
     if (queueState.q) params.set('q', queueState.q);
-    appendDateParams(params);
+    appendCommonParams(params);
     const r = await authFetch(API + '/review/notices?' + params.toString());
     if (r.status === 401 || r.status === 403) {
       list.innerHTML = '<div class="empty"><span class="err">not authorised — sign in as admin from the main app</span></div>';
@@ -957,19 +1007,13 @@
       list.innerHTML = '<div class="empty">loading…</div>';
     }
     const params = new URLSearchParams({
-      status: queueState.mdstatus,
+      status: queueState.status,
       page: String(queueState.page),
       size: String(PAGE_SIZE_MARKDOWN),
     });
     if (queueState.q) params.set('q', queueState.q);
-    // Slider acts as a floor on the pending queue: show only Documents whose
-    // score ≥ slider — exactly the set the bulk-confirm button is about to
-    // clear, so "what you see is what you'll confirm". Skip at 0 so unscored
-    // pending items still appear. Verified tabs (good/bad/unscored/all) are
-    // unaffected by the slider.
-    if (queueState.mdstatus === 'pending' && queueState.mdScoreThreshold > 0) {
-      params.set('score_min', String(queueState.mdScoreThreshold));
-    }
+    appendCommonParams(params);
+    appendScoreParams(params);
     const r = await authFetch(API + '/review/markdown?' + params.toString());
     if (r.status === 401 || r.status === 403) {
       list.innerHTML = '<div class="empty"><span class="err">not authorised — sign in as admin from the main app</span></div>';
@@ -1166,21 +1210,16 @@
     return card;
   }
 
-  // Translate the UI cstatus pill into URL params for /review/classifications.
-  // "auto-confirm" is a synthetic pill: status=pending + agrees_only + confidence_min.
+  // Translate the UI status pill into URL params for /review/classifications.
   function classificationParams(pageSize) {
     const params = new URLSearchParams({
       page: String(queueState.page),
       size: String(pageSize),
     });
-    if (queueState.cstatus === 'auto-confirm') {
-      params.set('status', 'pending');
-      params.set('agrees_only', 'true');
-      params.set('confidence_min', String(queueState.autoConfMin));
-    } else {
-      params.set('status', queueState.cstatus);
-    }
+    params.set('status', queueState.status);
     if (queueState.q) params.set('q', queueState.q);
+    appendCommonParams(params);
+    appendScoreParams(params);
     return params;
   }
 
@@ -1522,7 +1561,7 @@
       // Pending / disagreement: the item leaves the queue — advance to next.
       // Verified / all: update in place and re-render.
       const removedIdx = gallery.selectedIndex;
-      if (queueState.cstatus === 'pending' || queueState.cstatus === 'disagreement') {
+      if (queueState.status === 'pending' || queueState.status === 'disagreement') {
         gallery.notices.splice(removedIdx, 1);
         if (gallery.notices.length === 0) {
           // Try loading the next page; if nothing comes back the empty state shows.
@@ -1558,7 +1597,8 @@
   }
 
   function inGalleryView() {
-    return queueState.group === 'classification'
+    return queueState.stage === 'classification'
+        && queueState.group === 'notice'
         && queueState.cview === 'gallery'
         && !$('screen-queue').classList.contains('hidden');
   }
@@ -1576,119 +1616,65 @@
     submitClassificationFromGallery(n.filename || '', targetType, galleryNotesValue());
   }
 
-  $$('button.pill[data-status]').forEach(b => {
+  // ─── Pill handlers ──────────────────────────────────────────────────────
+  $$('button.pill[data-stage]').forEach(b => {
     b.addEventListener('click', () => {
-      queueState.status = b.getAttribute('data-status');
-      loadQueue();
-    });
-  });
-  $$('button.pill[data-cstatus]').forEach(b => {
-    b.addEventListener('click', () => {
-      queueState.cstatus = b.getAttribute('data-cstatus');
-      loadQueue();
-    });
-  });
-  $$('button.pill[data-mdstatus]').forEach(b => {
-    b.addEventListener('click', () => {
-      queueState.mdstatus = b.getAttribute('data-mdstatus');
-      loadQueue();
+      const next = b.getAttribute('data-stage');
+      if (queueState.stage === next) return;
+      queueState.stage = next;
+      queueState.group = DEFAULT_GROUP_FOR_STAGE[next] || 'property';
+      try {
+        const saved = localStorage.getItem('reviewSubgroup:' + next);
+        if (saved) queueState.group = saved;
+      } catch {}
+      writeHash();
+      loadStats(); loadQueue();
     });
   });
 
-  // Markdown score-threshold slider: live label, debounced reload (mirrors
-  // the auto-confirm slider above).
-  let mdConfReloadTimer = null;
-  if ($('md-conf-slider')) $('md-conf-slider').addEventListener('input', () => {
-    const v = parseInt($('md-conf-slider').value, 10) || 70;
-    queueState.mdScoreThreshold = v;
-    $('md-conf-pct').textContent = String(v);
-    if (mdConfReloadTimer) clearTimeout(mdConfReloadTimer);
-    mdConfReloadTimer = setTimeout(() => {
-      if (queueState.group === 'markdown') { loadStats(); loadQueue(); }
-    }, 300);
-  });
-
-  if ($('md-conf-bulk')) $('md-conf-bulk').addEventListener('click', async () => {
-    if (queueState.group !== 'markdown') return;
-    const n = mdStatsAutoConfirmable || 0;
-    if (n === 0) return;
-    const threshold = queueState.mdScoreThreshold;
-    if (!confirm(`Mark ${n} sales-notice markdowns as good (score ≥ ${threshold})?`)) return;
-    const btn = $('md-conf-bulk');
-    btn.disabled = true;
-    const prior = btn.textContent;
-    btn.textContent = 'Confirming…';
-    try {
-      const r = await authFetch(API + '/review/markdown/bulk-confirm', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ score_min: threshold, dry_run: false }),
-      });
-      if (r.status === 401 || r.status === 403) { setMsg('<span class="err">not authorised</span>', 3000); return; }
-      if (!r.ok) { setMsg(`<span class="err">bulk-confirm failed (${r.status})</span>`, 3000); return; }
-      const data = await r.json();
-      setMsg(`<span class="ok">marked ${data.count} good.</span>`, 2500);
-      loadStats();
-      await loadQueue();
-    } finally {
-      btn.textContent = prior;
-    }
-  });
-
-  // Auto-confirm threshold slider: update the live label on every input, but
-  // only refire the (potentially big) Cypher count on commit (mouse-up / change)
-  // to avoid hammering Neo4j as the user drags.
-  let autoConfReloadTimer = null;
-  if ($('auto-conf-slider')) $('auto-conf-slider').addEventListener('input', () => {
-    const pct = parseInt($('auto-conf-slider').value, 10) || 95;
-    queueState.autoConfMin = pct / 100;
-    $('auto-conf-pct').textContent = String(pct);
-    if (autoConfReloadTimer) clearTimeout(autoConfReloadTimer);
-    autoConfReloadTimer = setTimeout(() => {
-      if (queueState.cstatus === 'auto-confirm') loadQueue();
-    }, 300);
-  });
-
-  if ($('auto-conf-bulk')) $('auto-conf-bulk').addEventListener('click', async () => {
-    if (queueState.cstatus !== 'auto-confirm') return;
-    const n = queueTotal || 0;
-    if (n === 0) return;
-    const pct = Math.round(queueState.autoConfMin * 100);
-    if (!confirm(`Confirm ${n} sales notices where the classifier agrees with the current notice_type at ≥ ${pct}% confidence?\n\nThis bulk-verifies them — it does NOT change notice_type.`)) return;
-    const btn = $('auto-conf-bulk');
-    btn.disabled = true;
-    const prior = btn.textContent;
-    btn.textContent = 'Confirming…';
-    try {
-      const r = await authFetch(API + '/review/classifications/bulk-confirm', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ confidence_min: queueState.autoConfMin, dry_run: false }),
-      });
-      if (r.status === 401 || r.status === 403) { setMsg('<span class="err">not authorised</span>', 3000); return; }
-      if (!r.ok) { setMsg(`<span class="err">bulk-confirm failed (${r.status})</span>`, 3000); return; }
-      const data = await r.json();
-      setMsg(`<span class="ok">confirmed ${data.count} notices.</span>`, 2500);
-      loadStats();
-      await loadQueue();
-    } finally {
-      btn.textContent = prior;
-    }
-  });
-  $$('button.pill[data-cview]').forEach(b => {
-    b.addEventListener('click', () => {
-      queueState.cview = b.getAttribute('data-cview');
-      try { localStorage.setItem('cView', queueState.cview); } catch {}
-      loadQueue();
-    });
-  });
   $$('button.pill[data-group]').forEach(b => {
     b.addEventListener('click', () => {
-      queueState.group = b.getAttribute('data-group');
-      loadStats();
+      const next = b.getAttribute('data-group');
+      if (queueState.group === next) return;
+      queueState.group = next;
+      try { localStorage.setItem('reviewSubgroup:' + queueState.stage, next); } catch {}
+      writeHash();
       loadQueue();
     });
   });
+
+  $$('button.pill[data-status]').forEach(b => {
+    b.addEventListener('click', () => {
+      const next = b.getAttribute('data-status');
+      if (queueState.status === next) return;
+      queueState.status = next;
+      writeHash();
+      loadQueue();
+    });
+  });
+
+  $$('button.pill[data-ntype]').forEach(b => {
+    b.addEventListener('click', () => {
+      const next = b.getAttribute('data-ntype');
+      if (queueState.noticeType === next) return;
+      queueState.noticeType = next;
+      writeHash();
+      loadStats(); loadQueue();
+    });
+  });
+
+  $$('button.pill[data-cview]').forEach(b => {
+    b.addEventListener('click', () => {
+      const next = b.getAttribute('data-cview');
+      if (queueState.cview === next) return;
+      queueState.cview = next;
+      try { localStorage.setItem('cView', next); } catch {}
+      writeHash();
+      loadQueue();
+    });
+  });
+
+  // bulk-confirm wired in Task 12
   $('reload').addEventListener('click', () => { loadStats(); loadQueue(); });
   $('q').addEventListener('input', (e) => {
     queueState.q = e.target.value.trim();
@@ -1697,15 +1683,36 @@
   });
   $('date-from').addEventListener('change', (e) => {
     queueState.dateFrom = e.target.value || '';
+    writeHash();
     loadStats(); loadQueue();
   });
   $('date-to').addEventListener('change', (e) => {
     queueState.dateTo = e.target.value || '';
+    writeHash();
     loadStats(); loadQueue();
   });
   $('date-clear').addEventListener('click', () => {
     queueState.dateFrom = '';
     queueState.dateTo = '';
+    writeHash();
+    loadStats(); loadQueue();
+  });
+  $('score-from').addEventListener('change', (e) => {
+    const v = parseInt(e.target.value, 10);
+    queueState.scoreFrom = isNaN(v) ? 0 : Math.max(0, Math.min(100, v));
+    writeHash();
+    loadStats(); loadQueue();
+  });
+  $('score-to').addEventListener('change', (e) => {
+    const v = parseInt(e.target.value, 10);
+    queueState.scoreTo = isNaN(v) ? 100 : Math.max(0, Math.min(100, v));
+    writeHash();
+    loadStats(); loadQueue();
+  });
+  $('score-clear').addEventListener('click', () => {
+    queueState.scoreFrom = 0;
+    queueState.scoreTo = 100;
+    writeHash();
     loadStats(); loadQueue();
   });
   $('load-more').addEventListener('click', async () => {
