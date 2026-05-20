@@ -187,6 +187,26 @@ class BulkConfirmResult(BaseModel):
     dry_run: bool
 
 
+class ClassificationPropertyRow(BaseModel):
+    auction_id: str
+    title: str | None = None
+    auction_start: str | None = None
+    reserve_price: float | None = None
+    notice_filename: str | None = None
+    notice_type: str | None = None
+    notice_type_confidence: float | None = None
+    overridden: bool = False
+    verified: bool = False
+    verified_at: str | None = None
+
+
+class ClassificationPropertyQueueOut(BaseModel):
+    page: int
+    size: int
+    total: int
+    rows: list[ClassificationPropertyRow]
+
+
 # ── Markdown-quality review models ──────────────────────────────────────────
 
 
@@ -471,6 +491,35 @@ async def review_classifications(
     )
     rows = [ClassificationRow(**r) for r in result["rows"]]
     return ClassificationQueueOut(
+        page=result["page"], size=result["size"],
+        total=result["total"], rows=rows,
+    )
+
+
+@router.get(
+    "/classifications/by-property",
+    response_model=ClassificationPropertyQueueOut,
+)
+async def review_classifications_by_property(
+    status: Literal["pending", "verified", "edited", "all"] = "pending",
+    q_search: str | None = Query(default=None, alias="q", max_length=200),
+    page: int = Query(default=1, ge=1),
+    size: int = Query(default=100, ge=1, le=200),
+    confidence_min: float | None = Query(default=None, ge=0.0, le=1.0),
+    confidence_max: float | None = Query(default=None, ge=0.0, le=1.0),
+    notice_type: Literal["all", "single", "multi", "unclassified"] = Query(default="all"),
+    date_from: str | None = Query(default=None, max_length=20),
+    date_to: str | None = Query(default=None, max_length=20),
+    _admin: UserOut = Depends(get_current_admin),
+) -> ClassificationPropertyQueueOut:
+    result = q.list_classification_queue_by_property(
+        status=status, q=q_search, page=page, size=size,
+        confidence_min=confidence_min, confidence_max=confidence_max,
+        notice_type=notice_type if notice_type != "all" else None,
+        date_from=date_from, date_to=date_to,
+    )
+    rows = [ClassificationPropertyRow(**_row_to_str(r)) for r in result["rows"]]
+    return ClassificationPropertyQueueOut(
         page=result["page"], size=result["size"],
         total=result["total"], rows=rows,
     )

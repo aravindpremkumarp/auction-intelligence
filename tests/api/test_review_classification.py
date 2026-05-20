@@ -292,3 +292,18 @@ def test_classifications_stats_includes_edited(client) -> None:
     assert "verified" in body
     assert "pending" in body
     assert "total" in body
+
+
+def test_classifications_by_property_routes_registered(client) -> None:
+    from api.main import app
+    paths = {r.path for r in app.routes}
+    assert "/review/classifications/by-property" in paths
+
+
+def test_classifications_by_property_returns_empty(client) -> None:
+    _ensure_admin_user()
+    r = client.get("/review/classifications/by-property", headers=_admin_header())
+    assert r.status_code == 200
+    body = r.json()
+    assert body["total"] == 0
+    assert body["rows"] == []
