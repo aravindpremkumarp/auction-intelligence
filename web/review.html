@@ -1708,6 +1708,8 @@
     } catch (err) {
       alert('bulk-confirm failed: ' + err);
       return;
+    } finally {
+      btn.disabled = false;
     }
     await loadStats();
     await loadQueue();
