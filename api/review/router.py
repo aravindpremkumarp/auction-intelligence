@@ -256,6 +256,26 @@ class MarkdownBulkConfirmBody(BaseModel):
     dry_run: bool = False
 
 
+class MarkdownPropertyRow(BaseModel):
+    auction_id: str
+    title: str | None = None
+    auction_start: str | None = None
+    reserve_price: float | None = None
+    notice_filename: str | None = None
+    notice_type: str | None = None
+    score: float | None = None
+    quality: Literal["good", "bad"] | None = None
+    verified: bool = False
+    verified_at: str | None = None
+
+
+class MarkdownPropertyQueueOut(BaseModel):
+    page: int
+    size: int
+    total: int
+    rows: list[MarkdownPropertyRow]
+
+
 # ── Per-block annotator models ──────────────────────────────────────────────
 
 
@@ -603,6 +623,35 @@ async def review_markdown_queue(
     )
     rows = [MarkdownRow(**r) for r in result["rows"]]
     return MarkdownQueueOut(
+        page=result["page"], size=result["size"],
+        total=result["total"], rows=rows,
+    )
+
+
+@router.get(
+    "/markdown/by-property",
+    response_model=MarkdownPropertyQueueOut,
+)
+async def review_markdown_by_property(
+    status: Literal["pending", "verified", "edited", "all"] = "pending",
+    q_search: str | None = Query(default=None, alias="q", max_length=200),
+    page: int = Query(default=1, ge=1),
+    size: int = Query(default=100, ge=1, le=200),
+    score_min: float | None = Query(default=None, ge=0.0, le=100.0),
+    score_max: float | None = Query(default=None, ge=0.0, le=100.0),
+    notice_type: Literal["all", "single", "multi", "unclassified"] = Query(default="all"),
+    date_from: str | None = Query(default=None, max_length=20),
+    date_to: str | None = Query(default=None, max_length=20),
+    _admin: UserOut = Depends(get_current_admin),
+) -> MarkdownPropertyQueueOut:
+    result = q.list_markdown_queue_by_property(
+        status=status, q=q_search, page=page, size=size,
+        score_min=score_min, score_max=score_max,
+        notice_type=notice_type if notice_type != "all" else None,
+        date_from=date_from, date_to=date_to,
+    )
+    rows = [MarkdownPropertyRow(**_row_to_str(r)) for r in result["rows"]]
+    return MarkdownPropertyQueueOut(
         page=result["page"], size=result["size"],
         total=result["total"], rows=rows,
     )

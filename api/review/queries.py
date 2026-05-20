@@ -1016,6 +1016,93 @@ def list_markdown_queue(
     return {"page": page, "size": size, "total": total, "rows": rows}
 
 
+def list_markdown_queue_by_property(
+    status: MarkdownStatus = "pending",
+    q: str | None = None,
+    page: int = 1,
+    size: int = 50,
+    score_min: float | None = None,
+    score_max: float | None = None,
+    notice_type: NoticeTypeFilter | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> dict:
+    """One row per AuctionProperty projected with its Document's
+    markdown-quality status."""
+    page = max(1, int(page))
+    size = max(1, min(200, int(size)))
+    skip = (page - 1) * size
+
+    where = ["d.markdown IS NOT NULL", "d.markdown <> ''"]
+    params: dict = {"skip": skip, "size": size}
+
+    if status == "pending":
+        where.append("d.markdown_verified_at IS NULL")
+    elif status == "verified":
+        where.append("d.markdown_verified_at IS NOT NULL")
+        where.append("d.markdown_quality = 'good'")
+    elif status == "edited":
+        where.append("d.markdown_verified_at IS NOT NULL")
+        where.append("d.markdown_quality = 'bad'")
+    # "all" → no extra filter
+
+    if score_min is not None:
+        where.append("d.markdown_quality_score IS NOT NULL")
+        where.append("d.markdown_quality_score >= $score_min")
+        params["score_min"] = float(score_min)
+    if score_max is not None:
+        where.append("d.markdown_quality_score IS NOT NULL")
+        where.append("d.markdown_quality_score <= $score_max")
+        params["score_max"] = float(score_max)
+
+    nt_clause = _notice_type_clause(notice_type, alias="d")
+    if nt_clause:
+        where.append(nt_clause)
+
+    if q:
+        where.append(
+            "(toLower(coalesce(a.title, '')) CONTAINS toLower($q) "
+            "OR toLower(coalesce(d.filename, '')) CONTAINS toLower($q))"
+        )
+        params["q"] = q
+
+    if date_from:
+        where.append("a.auction_start_dt >= date($date_from)")
+        params["date_from"] = date_from
+    if date_to:
+        where.append("a.auction_start_dt <= date($date_to)")
+        params["date_to"] = date_to
+
+    where_clause = " AND ".join(where)
+    cypher = f"""
+        MATCH (a:AuctionProperty)-[:HAS_DOCUMENT]->(d:Document)
+        WHERE {where_clause}
+        RETURN a.auction_id                       AS auction_id,
+               a.title                            AS title,
+               toString(a.auction_start_dt)       AS auction_start,
+               a.reserve_price                    AS reserve_price,
+               d.filename                         AS notice_filename,
+               d.notice_type                      AS notice_type,
+               d.markdown_quality_score           AS score,
+               d.markdown_quality                 AS quality,
+               (d.markdown_verified_at IS NOT NULL) AS verified,
+               toString(d.markdown_verified_at)   AS verified_at
+        ORDER BY verified ASC,
+                 coalesce(d.markdown_quality_score, -1.0) ASC,
+                 a.title ASC
+        SKIP $skip LIMIT $size
+    """
+    rows = run_read_query(cypher, params, max_rows=size, timeout=30.0)
+    count_cypher = f"""
+        MATCH (a:AuctionProperty)-[:HAS_DOCUMENT]->(d:Document)
+        WHERE {where_clause}
+        RETURN count(a) AS total
+    """
+    count_rows = run_read_query(count_cypher, params, max_rows=1, timeout=30.0)
+    total = count_rows[0]["total"] if count_rows else 0
+    return {"page": page, "size": size, "total": total, "rows": rows}
+
+
 def verify_markdown(
     filename: str,
     quality: str,
