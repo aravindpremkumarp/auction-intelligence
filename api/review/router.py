@@ -345,9 +345,13 @@ def _row_to_str(row: dict) -> dict:
 async def review_stats(
     date_from: str | None = Query(default=None, max_length=20),
     date_to: str | None = Query(default=None, max_length=20),
+    notice_type: Literal["all", "single", "multi", "unclassified"] = Query(default="all"),
     _admin: UserOut = Depends(get_current_admin),
 ) -> ReviewStats:
-    return ReviewStats(**q.stats(date_from=date_from, date_to=date_to))
+    return ReviewStats(**q.stats(
+        date_from=date_from, date_to=date_to,
+        notice_type=notice_type if notice_type != "all" else None,
+    ))
 
 
 @router.get("/queue", response_model=ReviewQueueOut)
@@ -358,11 +362,13 @@ async def review_queue(
     size: int = Query(default=50, ge=1, le=200),
     date_from: str | None = Query(default=None, max_length=20),
     date_to: str | None = Query(default=None, max_length=20),
+    notice_type: Literal["all", "single", "multi", "unclassified"] = Query(default="all"),
     _admin: UserOut = Depends(get_current_admin),
 ) -> ReviewQueueOut:
     result = q.list_queue(
         status=status, q=q_search, page=page, size=size,
         date_from=date_from, date_to=date_to,
+        notice_type=notice_type if notice_type != "all" else None,
     )
     rows = [ReviewQueueRow(**_row_to_str(r)) for r in result["rows"]]
     return ReviewQueueOut(page=result["page"], size=result["size"], total=result["total"], rows=rows)
@@ -376,11 +382,13 @@ async def review_notices(
     size: int = Query(default=50, ge=1, le=200),
     date_from: str | None = Query(default=None, max_length=20),
     date_to: str | None = Query(default=None, max_length=20),
+    notice_type: Literal["all", "single", "multi", "unclassified"] = Query(default="all"),
     _admin: UserOut = Depends(get_current_admin),
 ) -> ReviewNoticeQueueOut:
     result = q.list_notice_queue(
         status=status, q=q_search, page=page, size=size,
         date_from=date_from, date_to=date_to,
+        notice_type=notice_type if notice_type != "all" else None,
     )
     rows = [ReviewNoticeRow(**r) for r in result["rows"]]
     return ReviewNoticeQueueOut(page=result["page"], size=result["size"], total=result["total"], rows=rows)
@@ -449,12 +457,14 @@ async def review_classifications(
     confidence_min: float | None = Query(default=None, ge=0.0, le=1.0),
     confidence_max: float | None = Query(default=None, ge=0.0, le=1.0),
     agrees_only: bool = Query(default=False),
+    notice_type: Literal["all", "single", "multi", "unclassified"] = Query(default="all"),
     _admin: UserOut = Depends(get_current_admin),
 ) -> ClassificationQueueOut:
     result = q.list_classification_queue(
         status=status, q=q_search, page=page, size=size,
         confidence_min=confidence_min, confidence_max=confidence_max,
         agrees_only=agrees_only,
+        notice_type=notice_type if notice_type != "all" else None,
     )
     rows = [ClassificationRow(**r) for r in result["rows"]]
     return ClassificationQueueOut(
@@ -480,9 +490,12 @@ async def review_bulk_confirm(
 
 @router.get("/classifications/stats", response_model=ClassificationStats)
 async def review_classification_stats(
+    notice_type: Literal["all", "single", "multi", "unclassified"] = Query(default="all"),
     _admin: UserOut = Depends(get_current_admin),
 ) -> ClassificationStats:
-    return ClassificationStats(**q.classification_stats())
+    return ClassificationStats(**q.classification_stats(
+        notice_type=notice_type if notice_type != "all" else None,
+    ))
 
 
 @router.post("/notice/{filename}/classify", response_model=ClassifyResult)
@@ -506,9 +519,13 @@ async def review_classify(
 @router.get("/markdown/stats", response_model=MarkdownStats)
 async def review_markdown_stats(
     score_min: float = Query(default=70.0, ge=0.0, le=100.0),
+    notice_type: Literal["all", "single", "multi", "unclassified"] = Query(default="all"),
     _admin: UserOut = Depends(get_current_admin),
 ) -> MarkdownStats:
-    return MarkdownStats(**q.markdown_stats(score_min=score_min))
+    return MarkdownStats(**q.markdown_stats(
+        score_min=score_min,
+        notice_type=notice_type if notice_type != "all" else None,
+    ))
 
 
 @router.get("/markdown", response_model=MarkdownQueueOut)
@@ -522,11 +539,13 @@ async def review_markdown_queue(
     size: int = Query(default=50, ge=1, le=200),
     score_min: float | None = Query(default=None, ge=0.0, le=100.0),
     score_max: float | None = Query(default=None, ge=0.0, le=100.0),
+    notice_type: Literal["all", "single", "multi", "unclassified"] = Query(default="all"),
     _admin: UserOut = Depends(get_current_admin),
 ) -> MarkdownQueueOut:
     result = q.list_markdown_queue(
         status=status, q=q_search, page=page, size=size,
         score_min=score_min, score_max=score_max,
+        notice_type=notice_type if notice_type != "all" else None,
     )
     rows = [MarkdownRow(**r) for r in result["rows"]]
     return MarkdownQueueOut(

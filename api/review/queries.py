@@ -13,6 +13,26 @@ from api.review.markdown_match import property_offset_in_notice
 
 ReviewStatus = Literal["pending", "verified", "edited", "all"]
 
+NoticeTypeFilter = Literal["all", "single", "multi", "unclassified"]
+
+
+def _notice_type_clause(
+    notice_type: NoticeTypeFilter | None,
+    alias: str = "d",
+) -> str | None:
+    """Return a Cypher snippet to filter on `<alias>.notice_type`, or None
+    when no filter applies. `alias` lets callers reuse the helper whether
+    the Document is bound as `d` or via a path like `(a)-[:HAS_DOCUMENT]->(d)`."""
+    if notice_type in (None, "all"):
+        return None
+    if notice_type == "single":
+        return f"{alias}.notice_type = 'single'"
+    if notice_type == "multi":
+        return f"{alias}.notice_type = 'multi'"
+    if notice_type == "unclassified":
+        return f"{alias}.notice_type IS NULL"
+    raise ValueError(f"unknown notice_type filter: {notice_type!r}")
+
 
 def _sort_properties_by_markdown(row: dict) -> None:
     """Sort row['properties'] in place by their position in row['markdown'].
@@ -44,6 +64,7 @@ def list_queue(
     size: int = 50,
     date_from: str | None = None,
     date_to: str | None = None,
+    notice_type: NoticeTypeFilter | None = None,
 ) -> dict:
     """Return a page of properties whose description came from a notice
     extraction (or a human edit), filtered by review status.
@@ -86,6 +107,10 @@ def list_queue(
         where.append("a.auction_start_dt IS NOT NULL AND date(a.auction_start_dt) <= date($date_to)")
         params["date_to"] = date_to
 
+    nt_clause = _notice_type_clause(notice_type, alias="d")
+    if nt_clause:
+        where.append(nt_clause)
+
     where_clause = " AND ".join(where)
 
     cypher = f"""
@@ -114,16 +139,29 @@ def list_queue(
     """
     rows = run_read_query(cypher, params, max_rows=size)
 
-    # Total count — strip predicates that reference the document since the
-    # count query doesn't pull docs.
-    count_where = [w for w in where if "d." not in w]
-    count_cypher = f"""
-        MATCH (a:AuctionProperty)
-        OPTIONAL MATCH (a)-[:HAS_BORROWER]->(b:Borrower)
-        WITH a, collect(DISTINCT b.name) AS borrowers
-        WHERE {' AND '.join(count_where)}
-        RETURN count(a) AS total
-    """
+    # Total count.  When a notice_type filter is active, we must join Document
+    # to apply it; otherwise strip d. predicates as before (the count query
+    # in the no-filter path doesn't pull docs for performance).
+    if notice_type:
+        count_cypher = f"""
+            MATCH (a:AuctionProperty)
+            OPTIONAL MATCH (a)-[:HAS_BORROWER]->(b:Borrower)
+            OPTIONAL MATCH (a)-[:HAS_DOCUMENT]->(d:Document)
+            WITH a, collect(DISTINCT b.name) AS borrowers,
+                 collect(DISTINCT d) AS docs
+            WITH a, borrowers, head(docs) AS d
+            WHERE {where_clause}
+            RETURN count(a) AS total
+        """
+    else:
+        count_where = [w for w in where if "d." not in w]
+        count_cypher = f"""
+            MATCH (a:AuctionProperty)
+            OPTIONAL MATCH (a)-[:HAS_BORROWER]->(b:Borrower)
+            WITH a, collect(DISTINCT b.name) AS borrowers
+            WHERE {' AND '.join(count_where)}
+            RETURN count(a) AS total
+        """
     count_rows = run_read_query(count_cypher, params, max_rows=1)
     total = count_rows[0]["total"] if count_rows else 0
 
@@ -137,6 +175,7 @@ def list_notice_queue(
     size: int = 50,
     date_from: str | None = None,
     date_to: str | None = None,
+    notice_type: NoticeTypeFilter | None = None,
 ) -> dict:
     """Return a page of sales notices (Documents), each carrying the list of
     AuctionProperty rows extracted from it.
@@ -186,6 +225,9 @@ def list_notice_queue(
     if date_to:
         date_predicate += " AND a.auction_start_dt IS NOT NULL AND date(a.auction_start_dt) <= date($date_to)"
         params["date_to"] = date_to
+    nt_clause = _notice_type_clause(notice_type, alias="d")
+    if nt_clause:
+        date_predicate += f" AND {nt_clause}"
 
     cypher = f"""
         MATCH (d:Document)<-[:HAS_DOCUMENT]-(a:AuctionProperty)
@@ -383,6 +425,7 @@ def list_classification_queue(
     confidence_min: float | None = None,
     confidence_max: float | None = None,
     agrees_only: bool = False,
+    notice_type: NoticeTypeFilter | None = None,
 ) -> dict:
     """Return a page of :Document nodes for the classification review queue.
 
@@ -432,6 +475,10 @@ def list_classification_queue(
         where.append("d.notice_type_classifier_pred IS NOT NULL")
         where.append("d.notice_type = d.notice_type_classifier_pred")
 
+    nt_clause = _notice_type_clause(notice_type, alias="d")
+    if nt_clause:
+        where.append(nt_clause)
+
     where_clause = " AND ".join(where)
 
     cypher = f"""
@@ -479,11 +526,15 @@ def list_classification_queue(
     return {"page": page, "size": size, "total": total, "rows": rows}
 
 
-def classification_stats() -> dict:
+def classification_stats(
+    notice_type: NoticeTypeFilter | None = None,
+) -> dict:
     """Counts for the classification queue header."""
-    rows = run_read_query("""
+    nt_clause = _notice_type_clause(notice_type, alias="d")
+    nt_where = f" AND {nt_clause}" if nt_clause else ""
+    rows = run_read_query(f"""
         MATCH (d:Document)
-        WHERE d.notice_type IS NOT NULL
+        WHERE d.notice_type IS NOT NULL{nt_where}
         RETURN
           count(*) AS total,
           sum(CASE WHEN d.notice_type_verified_at IS NULL THEN 1 ELSE 0 END) AS pending,
@@ -631,11 +682,17 @@ def auto_confirm_classifications(
 def stats(
     date_from: str | None = None,
     date_to: str | None = None,
+    notice_type: NoticeTypeFilter | None = None,
 ) -> dict:
     """Counts for the queue header — pending / verified / edited / total.
 
     Optional date_from / date_to filter properties by auction_start_dt so the
     pills reflect the current date filter the reviewer has applied.
+
+    Optional notice_type filter scopes stats to properties backed by a
+    Document of the given type. When filtering, an OPTIONAL MATCH to Document
+    is added; properties with no Document have d.notice_type = NULL, so they
+    are excluded by single/multi filters and included by unclassified.
     """
     where = ["a.description_source IN ['notice', 'human']", "a.description IS NOT NULL"]
     params: dict = {}
@@ -646,17 +703,41 @@ def stats(
         where.append("a.auction_start_dt IS NOT NULL AND date(a.auction_start_dt) <= date($date_to)")
         params["date_to"] = date_to
 
-    cypher = f"""
-        MATCH (a:AuctionProperty)
-        WHERE {' AND '.join(where)}
-        RETURN
-          count(*) AS total,
-          sum(CASE WHEN coalesce(a.description_verified, false) = false THEN 1 ELSE 0 END) AS pending,
-          sum(CASE WHEN coalesce(a.description_verified, false) = true
-                    AND a.description_source = 'notice' THEN 1 ELSE 0 END) AS verified,
-          sum(CASE WHEN coalesce(a.description_verified, false) = true
-                    AND a.description_source = 'human' THEN 1 ELSE 0 END) AS edited
-    """
+    nt_clause = _notice_type_clause(notice_type, alias="d")
+    if nt_clause:
+        where.append(nt_clause)
+
+    where_str = ' AND '.join(where)
+
+    if nt_clause:
+        # Need to join Document to apply the filter; OPTIONAL MATCH so that
+        # properties without a document still participate (NULL d.notice_type
+        # satisfies `IS NULL` but fails `= 'single'/'multi'` — correct).
+        cypher = f"""
+            MATCH (a:AuctionProperty)
+            OPTIONAL MATCH (a)-[:HAS_DOCUMENT]->(d:Document)
+            WITH a, head(collect(d)) AS d
+            WHERE {where_str}
+            RETURN
+              count(*) AS total,
+              sum(CASE WHEN coalesce(a.description_verified, false) = false THEN 1 ELSE 0 END) AS pending,
+              sum(CASE WHEN coalesce(a.description_verified, false) = true
+                        AND a.description_source = 'notice' THEN 1 ELSE 0 END) AS verified,
+              sum(CASE WHEN coalesce(a.description_verified, false) = true
+                        AND a.description_source = 'human' THEN 1 ELSE 0 END) AS edited
+        """
+    else:
+        cypher = f"""
+            MATCH (a:AuctionProperty)
+            WHERE {where_str}
+            RETURN
+              count(*) AS total,
+              sum(CASE WHEN coalesce(a.description_verified, false) = false THEN 1 ELSE 0 END) AS pending,
+              sum(CASE WHEN coalesce(a.description_verified, false) = true
+                        AND a.description_source = 'notice' THEN 1 ELSE 0 END) AS verified,
+              sum(CASE WHEN coalesce(a.description_verified, false) = true
+                        AND a.description_source = 'human' THEN 1 ELSE 0 END) AS edited
+        """
     rows = run_read_query(cypher, params, max_rows=1)
     if not rows:
         return {"total": 0, "pending": 0, "verified": 0, "edited": 0}
@@ -689,6 +770,7 @@ def _markdown_where(
     status: MarkdownStatus,
     score_min: float | None,
     score_max: float | None = None,
+    notice_type: NoticeTypeFilter | None = None,
 ) -> tuple[list[str], dict]:
     where = ["d.markdown IS NOT NULL", "d.markdown <> ''"]
     params: dict = {}
@@ -717,19 +799,27 @@ def _markdown_where(
         where.append("d.markdown_quality_score IS NOT NULL")
         where.append("d.markdown_quality_score <= $score_max")
         params["score_max"] = float(score_max)
+    clause = _notice_type_clause(notice_type, alias="d")
+    if clause:
+        where.append(clause)
     return where, params
 
 
-def markdown_stats(score_min: float = 70.0) -> dict:
+def markdown_stats(
+    score_min: float = 70.0,
+    notice_type: NoticeTypeFilter | None = None,
+) -> dict:
     """Counts for the markdown review header.
 
     `auto_confirmable` = unverified Documents whose score ≥ score_min — the
     pile the bulk-confirm button would clear at the current slider value.
     """
+    nt_clause = _notice_type_clause(notice_type, alias="d")
+    nt_where = f" AND {nt_clause}" if nt_clause else ""
     rows = run_read_query(
-        """
+        f"""
         MATCH (d:Document)
-        WHERE d.markdown IS NOT NULL AND d.markdown <> ''
+        WHERE d.markdown IS NOT NULL AND d.markdown <> ''{nt_where}
         RETURN
           count(*) AS total,
           sum(CASE WHEN d.markdown_verified_at IS NULL THEN 1 ELSE 0 END) AS pending,
@@ -767,6 +857,7 @@ def list_markdown_queue(
     size: int = 50,
     score_min: float | None = None,
     score_max: float | None = None,
+    notice_type: NoticeTypeFilter | None = None,
 ) -> dict:
     """Return a page of Documents for markdown-quality review.
 
@@ -779,7 +870,7 @@ def list_markdown_queue(
     size = max(1, min(200, int(size)))
     skip = (page - 1) * size
 
-    where, params = _markdown_where(status, score_min, score_max)
+    where, params = _markdown_where(status, score_min, score_max, notice_type)
     params.update({"skip": skip, "size": size})
     if q:
         where.append("toLower(coalesce(d.filename, '')) CONTAINS toLower($q)")

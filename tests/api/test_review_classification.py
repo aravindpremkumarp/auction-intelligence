@@ -274,3 +274,10 @@ def test_extractor_normalize_schedules_drops_blank() -> None:
     assert out is not None
     assert len(out) == 1
     assert out[0]["reserve_price_num"] == 1
+
+
+def test_classifications_accepts_notice_type(client) -> None:
+    _ensure_admin_user()
+    for nt in ("all", "single", "multi", "unclassified"):
+        r = client.get(f"/review/classifications?notice_type={nt}", headers=_admin_header())
+        assert r.status_code == 200, f"notice_type={nt} rejected: {r.text}"
