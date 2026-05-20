@@ -72,7 +72,7 @@ def test_classifications_stats_returns_zero_when_no_docs(client) -> None:
     r = client.get("/review/classifications/stats", headers=_admin_header())
     assert r.status_code == 200
     body = r.json()
-    assert body == {"total": 0, "pending": 0, "verified": 0, "edited": 0, "disagreement": 0}
+    assert body == {"total": 0, "pending": 0, "verified": 0, "edited": 0}
 
 
 def test_classifications_row_shape(client, monkeypatch) -> None:
@@ -113,7 +113,7 @@ def test_classifications_row_shape(client, monkeypatch) -> None:
     import api.review.queries as q
     monkeypatch.setattr(q, "run_read_query", fake_read)
 
-    r = client.get("/review/classifications?status=disagreement",
+    r = client.get("/review/classifications?status=all",
                    headers=_admin_header())
     assert r.status_code == 200
     body = r.json()
@@ -246,11 +246,9 @@ def test_classifier_normalize_verdict_rejects_missing_label() -> None:
 
 
 def test_classifications_accepts_uniform_status_values(client) -> None:
-    """status=verified, status=edited must be accepted (uniform model).
-
-    Existing `disagreement` still works (additive, not breaking)."""
+    """status=pending/verified/edited/all must be accepted (canonical 4-value set)."""
     _ensure_admin_user()
-    for s in ("pending", "verified", "edited", "all", "disagreement"):
+    for s in ("pending", "verified", "edited", "all"):
         r = client.get(f"/review/classifications?status={s}", headers=_admin_header())
         assert r.status_code == 200, f"status={s} rejected: {r.text}"
 
@@ -307,3 +305,10 @@ def test_classifications_by_property_returns_empty(client) -> None:
     body = r.json()
     assert body["total"] == 0
     assert body["rows"] == []
+
+
+def test_classifications_rejects_legacy_status(client) -> None:
+    _ensure_admin_user()
+    for s in ("disagreement", "auto-confirm"):
+        r = client.get(f"/review/classifications?status={s}", headers=_admin_header())
+        assert r.status_code == 422, f"status={s} should be rejected"

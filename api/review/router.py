@@ -157,7 +157,6 @@ class ClassificationStats(BaseModel):
     pending: int
     verified: int
     edited: int
-    disagreement: int = 0  # legacy — drop in Task 15
 
 
 class ClassifyBody(BaseModel):
@@ -238,9 +237,6 @@ class MarkdownStats(BaseModel):
     pending: int
     verified: int
     edited: int
-    good: int = 0       # legacy — drop in Task 15
-    bad: int = 0        # legacy — drop in Task 15
-    unscored: int = 0   # legacy — drop in Task 15
     auto_confirmable: int = 0
 
 
@@ -491,9 +487,7 @@ async def review_unverify(
 
 @router.get("/classifications", response_model=ClassificationQueueOut)
 async def review_classifications(
-    status: Literal[
-        "pending", "verified", "edited", "all", "disagreement",
-    ] = "pending",
+    status: Literal["pending", "verified", "edited", "all"] = "pending",
     q_search: str | None = Query(default=None, alias="q", max_length=200),
     page: int = Query(default=1, ge=1),
     size: int = Query(default=50, ge=1, le=200),
@@ -604,10 +598,7 @@ async def review_markdown_stats(
 
 @router.get("/markdown", response_model=MarkdownQueueOut)
 async def review_markdown_queue(
-    status: Literal[
-        "pending", "verified", "edited", "all",
-        "good", "bad", "unscored",
-    ] = "pending",
+    status: Literal["pending", "verified", "edited", "all"] = "pending",
     q_search: str | None = Query(default=None, alias="q", max_length=200),
     page: int = Query(default=1, ge=1),
     size: int = Query(default=50, ge=1, le=200),

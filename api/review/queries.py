@@ -411,10 +411,7 @@ def unverify(auction_id: str) -> bool:
     return bool(rows)
 
 
-ClassificationStatus = Literal[
-    "pending", "verified", "edited", "all",
-    "disagreement",  # legacy — retire in Task 15
-]
+ClassificationStatus = Literal["pending", "verified", "edited", "all"]
 
 
 def list_classification_queue(
@@ -430,12 +427,10 @@ def list_classification_queue(
     """Return a page of :Document nodes for the classification review queue.
 
     Status semantics:
-      - pending:      not yet human-verified
-                      (notice_type_verified_at IS NULL)
-      - disagreement: not verified AND the LLM's prediction differs from the
-                      current (cluster-count-seeded) notice_type
-      - verified:     human has confirmed (notice_type_verified_at IS NOT NULL)
-      - all:          every Document with a classifier prediction
+      - pending:  not yet human-verified (notice_type_verified_at IS NULL)
+      - verified: human confirmed, type unchanged (notice_type_overridden = false)
+      - edited:   human overrode the type (notice_type_overridden = true)
+      - all:      every Document with a notice_type
 
     confidence_min / agrees_only are independent filters layered on top of
     status — used by the "auto-confirm" UI to surface unverified notices
@@ -455,10 +450,6 @@ def list_classification_queue(
     elif status == "edited":
         where.append("d.notice_type_verified_at IS NOT NULL")
         where.append("coalesce(d.notice_type_overridden, false) = true")
-    elif status == "disagreement":
-        where.append("d.notice_type_verified_at IS NULL")
-        where.append("d.notice_type_classifier_pred IS NOT NULL")
-        where.append("d.notice_type <> d.notice_type_classifier_pred")
     # "all" → no extra filter
 
     params: dict = {"skip": skip, "size": size}
@@ -629,21 +620,16 @@ def classification_stats(
                    THEN 1 ELSE 0 END) AS verified,
           sum(CASE WHEN d.notice_type_verified_at IS NOT NULL
                     AND coalesce(d.notice_type_overridden, false) = true
-                   THEN 1 ELSE 0 END) AS edited,
-          sum(CASE WHEN d.notice_type_verified_at IS NULL
-                    AND d.notice_type_classifier_pred IS NOT NULL
-                    AND d.notice_type <> d.notice_type_classifier_pred
-                   THEN 1 ELSE 0 END) AS disagreement
+                   THEN 1 ELSE 0 END) AS edited
     """, max_rows=1)
     if not rows:
-        return {"total": 0, "pending": 0, "verified": 0, "edited": 0, "disagreement": 0}
+        return {"total": 0, "pending": 0, "verified": 0, "edited": 0}
     r = rows[0]
     return {
-        "total":        int(r.get("total") or 0),
-        "pending":      int(r.get("pending") or 0),
-        "verified":     int(r.get("verified") or 0),
-        "edited":       int(r.get("edited") or 0),
-        "disagreement": int(r.get("disagreement") or 0),
+        "total":    int(r.get("total") or 0),
+        "pending":  int(r.get("pending") or 0),
+        "verified": int(r.get("verified") or 0),
+        "edited":   int(r.get("edited") or 0),
     }
 
 
@@ -852,10 +838,7 @@ def stats(
 #   - markdown_review_notes         (optional)
 
 
-MarkdownStatus = Literal[
-    "pending", "verified", "edited", "all",
-    "good", "bad", "unscored",  # legacy — retire in Task 15
-]
+MarkdownStatus = Literal["pending", "verified", "edited", "all"]
 
 
 def _markdown_where(
@@ -874,14 +857,6 @@ def _markdown_where(
     elif status == "edited":
         where.append("d.markdown_verified_at IS NOT NULL")
         where.append("d.markdown_quality = 'bad'")
-    elif status == "good":
-        where.append("d.markdown_verified_at IS NOT NULL")
-        where.append("d.markdown_quality = 'good'")
-    elif status == "bad":
-        where.append("d.markdown_verified_at IS NOT NULL")
-        where.append("d.markdown_quality = 'bad'")
-    elif status == "unscored":
-        where.append("d.markdown_quality_score IS NULL")
     # "all" → no extra filter
     if score_min is not None:
         where.append("d.markdown_quality_score IS NOT NULL")
@@ -921,11 +896,6 @@ def markdown_stats(
                     AND d.markdown_quality = 'good' THEN 1 ELSE 0 END) AS verified,
           sum(CASE WHEN d.markdown_verified_at IS NOT NULL
                     AND d.markdown_quality = 'bad' THEN 1 ELSE 0 END) AS edited,
-          sum(CASE WHEN d.markdown_verified_at IS NOT NULL
-                    AND d.markdown_quality = 'good' THEN 1 ELSE 0 END) AS good,
-          sum(CASE WHEN d.markdown_verified_at IS NOT NULL
-                    AND d.markdown_quality = 'bad' THEN 1 ELSE 0 END) AS bad,
-          sum(CASE WHEN d.markdown_quality_score IS NULL THEN 1 ELSE 0 END) AS unscored,
           sum(CASE WHEN d.markdown_verified_at IS NULL
                     AND d.markdown_quality_score IS NOT NULL
                     AND d.markdown_quality_score >= $score_min
@@ -936,19 +906,13 @@ def markdown_stats(
         max_rows=1,
     )
     if not rows:
-        return {
-            "total": 0, "pending": 0, "verified": 0, "edited": 0,
-            "good": 0, "bad": 0, "unscored": 0, "auto_confirmable": 0,
-        }
+        return {"total": 0, "pending": 0, "verified": 0, "edited": 0, "auto_confirmable": 0}
     r = rows[0]
     return {
         "total":            int(r.get("total") or 0),
         "pending":          int(r.get("pending") or 0),
         "verified":         int(r.get("verified") or 0),
         "edited":           int(r.get("edited") or 0),
-        "good":             int(r.get("good") or 0),
-        "bad":              int(r.get("bad") or 0),
-        "unscored":         int(r.get("unscored") or 0),
         "auto_confirmable": int(r.get("auto_confirmable") or 0),
     }
 

@@ -32,7 +32,7 @@ def client():
 
 def test_markdown_accepts_uniform_status_values(client) -> None:
     _ensure_admin_user()
-    for s in ("pending", "verified", "edited", "all", "good", "bad", "unscored"):
+    for s in ("pending", "verified", "edited", "all"):
         r = client.get(f"/review/markdown?status={s}", headers=_admin_header())
         assert r.status_code == 200, f"status={s} rejected: {r.text}"
 
@@ -77,3 +77,10 @@ def test_markdown_by_property_returns_empty(client) -> None:
     body = r.json()
     assert body["total"] == 0
     assert body["rows"] == []
+
+
+def test_markdown_rejects_legacy_status(client) -> None:
+    _ensure_admin_user()
+    for s in ("good", "bad", "unscored"):
+        r = client.get(f"/review/markdown?status={s}", headers=_admin_header())
+        assert r.status_code == 422, f"status={s} should be rejected"
