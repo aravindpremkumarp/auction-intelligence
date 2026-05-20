@@ -381,6 +381,7 @@ def list_classification_queue(
     page: int = 1,
     size: int = 50,
     confidence_min: float | None = None,
+    confidence_max: float | None = None,
     agrees_only: bool = False,
 ) -> dict:
     """Return a page of :Document nodes for the classification review queue.
@@ -424,6 +425,9 @@ def list_classification_queue(
     if confidence_min is not None:
         where.append("coalesce(d.notice_type_confidence, 0.0) >= $confidence_min")
         params["confidence_min"] = float(confidence_min)
+    if confidence_max is not None:
+        where.append("coalesce(d.notice_type_confidence, 0.0) <= $confidence_max")
+        params["confidence_max"] = float(confidence_max)
     if agrees_only:
         where.append("d.notice_type_classifier_pred IS NOT NULL")
         where.append("d.notice_type = d.notice_type_classifier_pred")
@@ -565,6 +569,7 @@ def auto_confirm_classifications(
     by_email: str,
     notes: str | None = None,
     dry_run: bool = False,
+    confidence_max: float = 1.0,
 ) -> dict:
     """Bulk-verify Documents where the classifier already agrees with the
     current notice_type AND confidence >= confidence_min AND the Document
@@ -580,6 +585,7 @@ def auto_confirm_classifications(
     """
     params = {
         "min_conf": float(confidence_min),
+        "max_conf": float(confidence_max),
         "by": by_email,
         "notes": notes,
     }
@@ -592,6 +598,7 @@ def auto_confirm_classifications(
               AND d.notice_type_classifier_pred IS NOT NULL
               AND d.notice_type = d.notice_type_classifier_pred
               AND coalesce(d.notice_type_confidence, 0.0) >= $min_conf
+              AND coalesce(d.notice_type_confidence, 0.0) <= $max_conf
             RETURN count(d) AS n
             """,
             params,
@@ -607,6 +614,7 @@ def auto_confirm_classifications(
           AND d.notice_type_classifier_pred IS NOT NULL
           AND d.notice_type = d.notice_type_classifier_pred
           AND coalesce(d.notice_type_confidence, 0.0) >= $min_conf
+          AND coalesce(d.notice_type_confidence, 0.0) <= $max_conf
         SET d.notice_type_verified_at  = datetime(),
             d.notice_type_verified_by  = $by,
             d.notice_type_review_notes = CASE

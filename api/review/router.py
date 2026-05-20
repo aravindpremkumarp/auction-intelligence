@@ -176,6 +176,7 @@ class ClassifyResult(BaseModel):
 
 class BulkConfirmBody(BaseModel):
     confidence_min: float = Field(ge=0.0, le=1.0)
+    confidence_max: float = Field(default=1.0, ge=0.0, le=1.0)
     notes: str | None = Field(default=None, max_length=2000)
     dry_run: bool = False
 
@@ -445,12 +446,14 @@ async def review_classifications(
     page: int = Query(default=1, ge=1),
     size: int = Query(default=50, ge=1, le=200),
     confidence_min: float | None = Query(default=None, ge=0.0, le=1.0),
+    confidence_max: float | None = Query(default=None, ge=0.0, le=1.0),
     agrees_only: bool = Query(default=False),
     _admin: UserOut = Depends(get_current_admin),
 ) -> ClassificationQueueOut:
     result = q.list_classification_queue(
         status=status, q=q_search, page=page, size=size,
-        confidence_min=confidence_min, agrees_only=agrees_only,
+        confidence_min=confidence_min, confidence_max=confidence_max,
+        agrees_only=agrees_only,
     )
     rows = [ClassificationRow(**r) for r in result["rows"]]
     return ClassificationQueueOut(
@@ -466,6 +469,7 @@ async def review_bulk_confirm(
 ) -> BulkConfirmResult:
     result = q.auto_confirm_classifications(
         confidence_min=body.confidence_min,
+        confidence_max=body.confidence_max,
         by_email=admin.email,
         notes=body.notes,
         dry_run=body.dry_run,

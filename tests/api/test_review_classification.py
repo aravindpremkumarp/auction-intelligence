@@ -255,6 +255,15 @@ def test_classifications_accepts_uniform_status_values(client) -> None:
         assert r.status_code == 200, f"status={s} rejected: {r.text}"
 
 
+def test_classifications_accepts_confidence_max(client) -> None:
+    _ensure_admin_user()
+    r = client.get(
+        "/review/classifications?confidence_min=0.5&confidence_max=0.9",
+        headers=_admin_header(),
+    )
+    assert r.status_code == 200
+
+
 def test_extractor_normalize_schedules_drops_blank() -> None:
     from pipeline.extract_descriptions import normalize_schedules
     out = normalize_schedules({"schedules": [
