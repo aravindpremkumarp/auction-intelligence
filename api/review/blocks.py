@@ -477,17 +477,16 @@ async def re_extract_block(filename: str, block_id: str,
     blk["edited_at"] = _iso_now()
     blk["edited_by"] = by_email
     _save_doc(filename, doc, rev)
-    # _save_doc cleared the verification flags (the standard "blocks changed →
-    # markdown verdict is stale" behaviour). For re-extract specifically we
-    # want the notice to land in the markdown-stage `edited` bucket
-    # (verified_at IS NOT NULL AND quality='bad'), since the reviewer just
-    # touched it.
+    # _save_doc left the doc in `pending` (the standard "blocks changed →
+    # markdown verdict is stale" behaviour). Additionally stamp a
+    # re-extracted marker so the markdown queue card can show a "re-extracted"
+    # pill — lets the reviewer see at a glance that this notice has been
+    # touched without moving it out of the pending bucket.
     run_query(
         """
         MATCH (d:Document {filename: $filename})
-        SET d.markdown_verified_at = datetime(),
-            d.markdown_verified_by = $by,
-            d.markdown_quality     = 'bad'
+        SET d.markdown_reextracted_at = datetime(),
+            d.markdown_reextracted_by = $by
         """,
         {"filename": filename, "by": by_email},
     )
