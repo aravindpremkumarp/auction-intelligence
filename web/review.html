@@ -3375,6 +3375,12 @@
   }
 
   // ── Server calls ─────────────────────────────────────────────────────────
+  // Returns true if the PUT landed cleanly, false on any failure path
+  // (409 conflict, non-2xx response, or thrown exception). Callers that need
+  // to gate UI on the outcome — e.g. the Table Editor's Save, which should
+  // stay open + flag the error instead of silently closing on a failed
+  // write — should `await` the return value. Existing fire-and-forget call
+  // sites that ignore the result keep their previous behavior.
   async function updateBlockOnServer(id, patch, beforeSnapshot) {
     try {
       const r = await authFetch(
@@ -3383,17 +3389,19 @@
         { method: 'PUT', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(patch) }
       );
-      if (r.status === 409) { annToast('conflict, reloading', 'err'); await loadAnnotator(ann.filename); return; }
-      if (!r.ok) { annToast('save failed (' + r.status + ')', 'err'); rollback(id, beforeSnapshot); return; }
+      if (r.status === 409) { annToast('conflict, reloading', 'err'); await loadAnnotator(ann.filename); return false; }
+      if (!r.ok) { annToast('save failed (' + r.status + ')', 'err'); rollback(id, beforeSnapshot); return false; }
       const updated = await r.json();
       mergeBlock(updated);
       ann.rev += 1; $('ann-rev').textContent = 'rev ' + ann.rev;
       refreshMarkdownAfterChange();
       paintAnnSidebar();
       paintAnnOverlay();
+      return true;
     } catch (e) {
       annToast('save error: ' + e, 'err');
       rollback(id, beforeSnapshot);
+      return false;
     }
   }
 
@@ -4440,11 +4448,29 @@
     if (!tbled.block) return;
     const html = tbledSerialize(tbled.rows);
     const b = tbled.block;
+    // Snapshot BEFORE the optimistic mutation so rollback on failure has a
+    // real previous state to restore to (passing the live `b` ref would
+    // capture the new text and make rollback a no-op).
+    const snapshot = { ...b, bbox: b.bbox.slice() };
     b.text = html;
-    // Reuse the standard block update + markdown refresh path.
-    await updateBlockOnServer(b.id, { text: html }, b);
-    annToast('table saved', 'ok');
-    tbledClose();
+    const saveBtn = document.getElementById('tbled-save');
+    if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
+    try {
+      const ok = await updateBlockOnServer(b.id, { text: html }, snapshot);
+      if (ok) {
+        annToast('table saved', 'ok');
+        tbledClose();
+      }
+      // On failure: updateBlockOnServer already toasted the specific error
+      // (conflict / 5xx / network) and rolled back b.text via `snapshot`,
+      // so leave the modal open with tbled.rows intact so the reviewer can
+      // retry or copy their work out instead of losing it silently.
+    } finally {
+      if (saveBtn && tbled.open) {
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Save';
+      }
+    }
   }
 
   // Mount the editor overlay lazily — only when the reviewer first opens it.
