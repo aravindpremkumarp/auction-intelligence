@@ -961,7 +961,9 @@ def list_markdown_queue(
                (d.markdown_verified_at IS NOT NULL) AS verified,
                toString(d.markdown_verified_at) AS verified_at,
                d.markdown_verified_by           AS verified_by,
-               d.markdown_review_notes          AS review_notes
+               d.markdown_review_notes          AS review_notes,
+               toString(d.markdown_reextracted_at) AS reextracted_at,
+               d.markdown_reextracted_by        AS reextracted_by
         ORDER BY (d.markdown_verified_at IS NULL) DESC,
                  coalesce(d.markdown_quality_score, -1.0) ASC,
                  d.filename ASC
@@ -1098,7 +1100,9 @@ def verify_markdown(
                true                             AS verified,
                toString(d.markdown_verified_at) AS verified_at,
                d.markdown_verified_by           AS verified_by,
-               d.markdown_review_notes          AS review_notes
+               d.markdown_review_notes          AS review_notes,
+               toString(d.markdown_reextracted_at) AS reextracted_at,
+               d.markdown_reextracted_by        AS reextracted_by
         """,
         {"filename": filename, "quality": quality, "by": by_email, "notes": notes},
     )

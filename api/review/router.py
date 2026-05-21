@@ -223,6 +223,8 @@ class MarkdownRow(BaseModel):
     verified_at: str | None = None
     verified_by: str | None = None
     review_notes: str | None = None
+    reextracted_at: str | None = None
+    reextracted_by: str | None = None
 
 
 class MarkdownQueueOut(BaseModel):

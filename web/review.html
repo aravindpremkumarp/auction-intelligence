@@ -1209,11 +1209,14 @@
     const annotateLink = row.filename
       ? `<a class="link" href="#notice/${encodeURIComponent(row.filename)}">annotate blocks ↗</a>`
       : '';
+    const reextractedBadge = row.reextracted_at
+      ? `<span class="pill warn" title="re-extracted ${escapeHtml(row.reextracted_at)}${row.reextracted_by ? ' by ' + escapeHtml(row.reextracted_by) : ''}">re-extracted</span>`
+      : '';
 
     const summary = document.createElement('summary');
     summary.innerHTML = `
       <span class="nfile">${escapeHtml(filename)}</span>
-      ${typeBadge} ${scorePill(row.score)} ${mdStatusPill(row)}
+      ${typeBadge} ${scorePill(row.score)} ${mdStatusPill(row)} ${reextractedBadge}
       ${props} ${len}
       <span class="nspacer"></span>
       <span class="nlinks">${annotateLink} ${openLink}</span>
