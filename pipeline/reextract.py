@@ -171,6 +171,44 @@ def _image_crop_to_png(img_bytes: bytes, bbox_norm: list[float]) -> bytes:
     return buf.getvalue()
 
 
+def _image_rotate_to_png(img_bytes: bytes, rotation: int) -> bytes:
+    """Rotate ``img_bytes`` by ``rotation`` degrees clockwise, return PNG bytes.
+
+    ``rotation`` is one of 0/90/180/270. Pillow's ``rotate`` takes a CCW
+    angle, so we pass ``-rotation``. ``expand=True`` enlarges the canvas so
+    the rotated image fits (otherwise corners would be clipped).
+    """
+    from PIL import Image  # type: ignore
+    src = Image.open(io.BytesIO(img_bytes))
+    src.load()
+    rotated = src.rotate(-int(rotation), expand=True)
+    buf = io.BytesIO()
+    rotated.convert("RGB").save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def _pdf_rotate_page_to_png(pdf_bytes: bytes, page_1: int, rotation: int) -> bytes:
+    """Render a single PDF page rotated by ``rotation`` more CW degrees as PNG.
+
+    PyMuPDF's ``page.set_rotation(value)`` writes the page's absolute
+    ``/Rotate`` tag — for scanned notices that already carry a non-zero
+    rotation, passing the user's delta directly would overwrite the
+    existing orientation. Add to the page's current rotation so the
+    reviewer's request composes with whatever was already there. We
+    flatten to a PNG so the rest of the pipeline can treat the result as
+    an image (matches how cropped PDFs are already handled).
+    """
+    import fitz  # type: ignore
+    doc = _open_pdf(pdf_bytes)
+    try:
+        page = doc[max(0, page_1 - 1)]
+        page.set_rotation((int(page.rotation) + int(rotation)) % 360)
+        pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
+        return pix.tobytes("png")
+    finally:
+        doc.close()
+
+
 # ── MinerU single-block call ────────────────────────────────────────────────
 
 def _mineru_one_shot_png(png_bytes: bytes, *, hint_name: str) -> list[dict]:

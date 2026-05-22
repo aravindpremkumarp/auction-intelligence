@@ -569,6 +569,10 @@
       <label class="meta" style="display:none" id="ann-page-wrap">page <select class="page-select" id="ann-page"></select></label>
       <button id="ann-add" class="ghost">+ Add block</button>
       <button id="ann-crop" class="ghost" title="define the sales-notice region; only the cropped area is sent to OCR on re-ingest">+ Set crop</button>
+      <span class="zoom-group" title="rotate the notice — also applied to the source on re-ingest so OCR runs upright">
+        <button id="ann-rotate-left" class="ghost zoom-btn" title="rotate 90° counter-clockwise">↺</button>
+        <button id="ann-rotate-right" class="ghost zoom-btn" title="rotate 90° clockwise">↻</button>
+      </span>
       <button id="ann-toggle-boxes" class="ghost" title="show / hide bounding boxes">Hide boxes</button>
       <span class="zoom-group" title="wheel to zoom · middle-click or alt+drag to pan">
         <button id="ann-zoom-out" class="ghost zoom-btn" title="zoom out (or scroll wheel down)">−</button>
@@ -2211,6 +2215,7 @@
     zoom: null,        // null = fit-to-viewport; number = naturalDim * zoom
     crop_bbox: null,   // [x0,y0,x1,y1] in [0,1] or null; FULL-image coords
     crop_page: null,   // 1-indexed PDF page the crop is drawn on; null if no crop
+    rotation: 0,       // degrees CW the source should be displayed at; 0|90|180|270
     dragSession: null,
     hintsDismissed: new Set(),  // block ids the reviewer has × dismissed this session
     reextractInflight: new Set(), // block ids currently being re-extracted
@@ -2225,6 +2230,11 @@
   }
 
   function annClamp01(v) { return Math.max(0, Math.min(1, v)); }
+
+  function normalizeRotation(raw) {
+    const n = ((Number(raw) || 0) % 360 + 360) % 360;
+    return (n === 0 || n === 90 || n === 180 || n === 270) ? n : 0;
+  }
 
   function annNormalizeBox(b) {
     let [x0, y0, x1, y1] = b;
@@ -2258,6 +2268,7 @@
         ? doc.crop_bbox.slice() : null;
       ann.crop_page = ann.crop_bbox && Number.isFinite(doc.crop_page)
         ? Math.max(1, Number(doc.crop_page)) : null;
+      ann.rotation = normalizeRotation(doc.rotation);
       ann.rev = doc.blocks_revision || 0;
       $('ann-rev').textContent = 'rev ' + ann.rev;
       const openLink = $('ann-open-src');
@@ -2548,6 +2559,16 @@
     if (!wrap) return;
     const content = wrap.querySelector('.ann-content');
     if (!content) return;
+    // When rotation is set, applyAnnZoom owns wrap dims and the content
+    // transform — overlaying the crop visual clip on top would fight that
+    // logic. The crop still applies at re-ingest, and the reviewer can
+    // clear rotation to see the crop preview again.
+    if (ann.rotation && ann.rotation !== 0) {
+      wrap.classList.remove('cropped');
+      content.style.left = '';
+      content.style.top = '';
+      return;
+    }
     // Reset crop-owned properties. ``content.style.height`` is always cleared
     // here (only set by the crop branch). ``content.style.width`` is owned
     // by zoom in zoom-mode, so we only clear it in fit-mode (zoom == null).
@@ -3229,23 +3250,29 @@
 
   function pointerToNorm(ev) {
     const r = getStageRect();
-    return [
-      annClamp01((ev.clientX - r.left) / r.width),
-      annClamp01((ev.clientY - r.top) / r.height),
-    ];
+    const fx = (ev.clientX - r.left) / r.width;     // 0..1 of the displayed
+    const fy = (ev.clientY - r.top)  / r.height;    //       (post-rotation) box
+    // Un-rotate back to raw-orientation coords so bbox storage stays
+    // canonical regardless of which way the reviewer is viewing the source.
+    // Inverse of the forward map applied by applyAnnZoom's CSS transform.
+    switch (ann.rotation || 0) {
+      case 90:  return [annClamp01(fy),     annClamp01(1 - fx)];
+      case 180: return [annClamp01(1 - fx), annClamp01(1 - fy)];
+      case 270: return [annClamp01(1 - fy), annClamp01(fx)];
+      default:  return [annClamp01(fx),     annClamp01(fy)];
+    }
   }
 
   function startMove(ev, id) {
     const blk = ann.blocks.find(b => b.id === id);
     if (!blk) return;
-    const r = getStageRect();
-    const startX = (ev.clientX - r.left) / r.width;
-    const startY = (ev.clientY - r.top) / r.height;
+    const [startX, startY] = pointerToNorm(ev);
     const [x0, y0, x1, y1] = blk.bbox;
     const dx = startX - x0, dy = startY - y0;
     const onMove = (e) => {
-      const nx = (e.clientX - r.left) / r.width - dx;
-      const ny = (e.clientY - r.top) / r.height - dy;
+      const [px, py] = pointerToNorm(e);
+      const nx = px - dx;
+      const ny = py - dy;
       const w = x1 - x0, h = y1 - y0;
       let nx0 = annClamp01(nx), ny0 = annClamp01(ny);
       if (nx0 + w > 1) nx0 = 1 - w;
@@ -3265,10 +3292,8 @@
   function startResize(ev, id, handle) {
     const blk = ann.blocks.find(b => b.id === id);
     if (!blk) return;
-    const r = getStageRect();
     const onMove = (e) => {
-      const nx = annClamp01((e.clientX - r.left) / r.width);
-      const ny = annClamp01((e.clientY - r.top) / r.height);
+      const [nx, ny] = pointerToNorm(e);
       let [x0, y0, x1, y1] = blk.bbox;
       if (handle.includes('l')) x0 = Math.min(nx, x1 - 0.005);
       if (handle.includes('r')) x1 = Math.max(nx, x0 + 0.005);
@@ -3289,10 +3314,8 @@
   function startGuideDrag(ev, id, kind, idx) {
     const blk = ann.blocks.find(b => b.id === id);
     if (!blk || !blk.table) return;
-    const r = getStageRect();
     const onMove = (e) => {
-      const nx = annClamp01((e.clientX - r.left) / r.width);
-      const ny = annClamp01((e.clientY - r.top) / r.height);
+      const [nx, ny] = pointerToNorm(e);
       const bx0 = blk.bbox[0], by0 = blk.bbox[1];
       const bw = blk.bbox[2] - bx0, bh = blk.bbox[3] - by0;
       const local = kind === 'row' ? annClamp01((ny - by0) / bh) : annClamp01((nx - bx0) / bw);
@@ -3480,6 +3503,37 @@
     }
   }
 
+  // Persist the rotation angle on the Document; re-ingest applies it to
+  // the source before MinerU so OCR runs on the upright image. Returns
+  // true on success, false on any failure path so the caller can roll
+  // back the optimistic UI state.
+  async function saveRotationOnServer(rotation) {
+    try {
+      const r = await authFetch(
+        API + '/review/notice/' + encodeURIComponent(ann.filename) + '/rotation',
+        { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ rotation }) }
+      );
+      if (!r.ok) {
+        const text = await r.text().catch(() => '');
+        annToast('rotation save failed (' + r.status + ')' + (text ? ': ' + text : ''), 'err');
+        return false;
+      }
+      const doc = await r.json();
+      // Only reconcile crop state from the response — leave ann.rotation
+      // alone so an in-flight earlier save can't clobber a newer optimistic
+      // click that's already queued behind us.
+      ann.crop_bbox = (Array.isArray(doc.crop_bbox) && doc.crop_bbox.length === 4)
+        ? doc.crop_bbox.slice() : null;
+      ann.crop_page = ann.crop_bbox && Number.isFinite(doc.crop_page)
+        ? Math.max(1, Number(doc.crop_page)) : null;
+      return true;
+    } catch (e) {
+      annToast('rotation save error: ' + e, 'err');
+      return false;
+    }
+  }
+
   async function deleteBlockOnServer(id) {
     try {
       const r = await authFetch(
@@ -3619,35 +3673,92 @@
   // `ann.zoom == null` means "fit to viewport" (default). Otherwise the
   // value is a multiplier on the source's natural dimensions.
   //
-  // We size `.ann-content` (which holds the canvas/img + overlay) — NOT the
-  // wrap — so applyAnnCropClip can independently set the wrap's pixel size
-  // to (crop fraction × content size) without fighting the zoom logic.
+  // When rotation is 0 we keep the existing CSS-driven fit/zoom path so we
+  // don't regress reviewers who never rotate. When rotation is non-zero we
+  // switch to an explicit-dims path: compute pre-rotation content size,
+  // apply a CSS transform to `.ann-content`, and size the wrap to the
+  // post-rotation outer dimensions so the stage scrolls correctly.
   function applyAnnZoom() {
     const wrap = $('ann-page-wrap-inner');
     const content = wrap.querySelector('.ann-content');
     const el = wrap.querySelector('img, canvas');
     if (!el || !content) return;
+    const rotation = ann.rotation || 0;
     const natW = el.naturalWidth || el.width || 0;
-    if (ann.zoom == null) {
-      content.style.width    = '';
-      content.style.maxWidth = '';
-      el.style.maxHeight  = '';   // falls back to the stylesheet rule
-      el.style.maxWidth   = '';
-      el.style.width      = '';
-      el.style.height     = '';
-      $('ann-zoom-pct').textContent = 'Fit';
-    } else if (natW > 0) {
-      const targetPx = Math.round(natW * ann.zoom);
-      content.style.width    = targetPx + 'px';
+    const natH = el.naturalHeight || el.height || 0;
+    if (rotation === 0) {
+      content.style.transform = '';
+      content.style.transformOrigin = '';
+      wrap.style.width  = '';
+      wrap.style.height = '';
+      if (ann.zoom == null) {
+        content.style.width    = '';
+        content.style.maxWidth = '';
+        content.style.height   = '';
+        el.style.maxHeight  = '';   // falls back to the stylesheet rule
+        el.style.maxWidth   = '';
+        el.style.width      = '';
+        el.style.height     = '';
+        $('ann-zoom-pct').textContent = 'Fit';
+      } else if (natW > 0) {
+        const targetPx = Math.round(natW * ann.zoom);
+        content.style.width    = targetPx + 'px';
+        content.style.height   = '';
+        content.style.maxWidth = 'none';
+        el.style.maxHeight  = 'none';
+        el.style.maxWidth   = '100%';
+        el.style.width      = '100%';
+        el.style.height     = 'auto';
+        $('ann-zoom-pct').textContent = Math.round(ann.zoom * 100) + '%';
+      }
+    } else if (natW > 0 && natH > 0) {
+      let contentW, contentH;
+      if (ann.zoom == null) {
+        const dims = computeFitDims(natW, natH, rotation);
+        contentW = dims.w;
+        contentH = dims.h;
+        $('ann-zoom-pct').textContent = 'Fit';
+      } else {
+        contentW = Math.max(1, Math.round(natW * ann.zoom));
+        contentH = Math.max(1, Math.round(natH * ann.zoom));
+        $('ann-zoom-pct').textContent = Math.round(ann.zoom * 100) + '%';
+      }
+      content.style.width    = contentW + 'px';
+      content.style.height   = contentH + 'px';
       content.style.maxWidth = 'none';
-      el.style.maxHeight  = 'none';
+      el.style.maxHeight  = '100%';
       el.style.maxWidth   = '100%';
       el.style.width      = '100%';
-      el.style.height     = 'auto';
-      $('ann-zoom-pct').textContent = Math.round(ann.zoom * 100) + '%';
+      el.style.height     = '100%';
+      // translate so the rotated content's visible top-left sits at (0, 0)
+      let tx = 0, ty = 0;
+      if (rotation === 90)  { tx = contentH; ty = 0;        }
+      if (rotation === 180) { tx = contentW; ty = contentH; }
+      if (rotation === 270) { tx = 0;        ty = contentW; }
+      content.style.transform = `translate(${tx}px, ${ty}px) rotate(${rotation}deg)`;
+      content.style.transformOrigin = '0 0';
+      const swap = (rotation === 90 || rotation === 270);
+      wrap.style.width  = (swap ? contentH : contentW) + 'px';
+      wrap.style.height = (swap ? contentW : contentH) + 'px';
     }
     // Source size changed — recompute the crop viewport.
     applyAnnCropClip();
+  }
+
+  // When rotated, the displayed (post-rotation) box must fit within the stage.
+  // Compute the largest pre-rotation content size whose rotated box fits.
+  function computeFitDims(natW, natH, rotation) {
+    const stage = $('ann-stage');
+    const sr = stage ? stage.getBoundingClientRect() : { width: 800, height: 600 };
+    const maxW = Math.max(50, (sr.width  || 800) - 32);  // stage padding allowance
+    const maxH = Math.max(50, (sr.height || 600) - 32);
+    const swap = (rotation === 90 || rotation === 270);
+    // Displayed dims after rotation: (swap ? natH : natW) × (swap ? natW : natH)
+    const scaleW = swap ? (maxW / natH) : (maxW / natW);
+    const scaleH = swap ? (maxH / natW) : (maxH / natH);
+    const scale = Math.min(scaleW, scaleH, 1.0);   // never upscale past natural
+    return { w: Math.max(1, Math.round(natW * scale)),
+             h: Math.max(1, Math.round(natH * scale)) };
   }
   $('ann-zoom-in').addEventListener('click', () => {
     ann.zoom = (ann.zoom == null ? 1.0 : ann.zoom) + 0.25;
@@ -3663,6 +3774,40 @@
     ann.zoom = null;
     applyAnnZoom();
   });
+
+  // ── Rotate ───────────────────────────────────────────────────────────────
+  // Rotation is stored on the Document and applied to the source before
+  // MinerU on re-ingest, so a sideways scan can be made readable AND get
+  // proper OCR. Bboxes in storage stay in raw-orientation coords; the CSS
+  // transform on .ann-content (set in applyAnnZoom) rotates the overlay
+  // along with the image, so existing blocks ride along visually.
+  //
+  // Saves are serialized: rapid clicks queue up so a stale server response
+  // can't clobber a later optimistic state. On failure we roll back the
+  // optimistic update so the UI and server stay in sync.
+  let annRotationSaving = Promise.resolve();
+  async function bumpAnnRotation(deltaDeg) {
+    const prev = ann.rotation || 0;
+    const next = normalizeRotation(prev + deltaDeg);
+    if (next === prev) return;
+    ann.rotation = next;
+    applyAnnZoom();
+    paintAnnOverlay();
+    const chain = annRotationSaving.then(async () => {
+      const ok = await saveRotationOnServer(next);
+      if (!ok) {
+        // Roll back so the canvas doesn't stay rotated while the server
+        // is still at the previous angle.
+        ann.rotation = prev;
+        applyAnnZoom();
+      }
+      paintAnnOverlay();
+    });
+    annRotationSaving = chain.catch(() => {});
+    return chain;
+  }
+  $('ann-rotate-left').addEventListener('click',  () => bumpAnnRotation(-90));
+  $('ann-rotate-right').addEventListener('click', () => bumpAnnRotation(90));
 
   // ── Mouse wheel zoom (cursor-anchored) ───────────────────────────────────
   // Plain wheel over the image zooms; the scroll position is then adjusted so
@@ -3692,7 +3837,12 @@
       const beforeH = rect.height || 1;
       const fx = cx / beforeW;   // 0..1 across the wrap
       const fy = cy / beforeH;
-      const prevZoom = ann.zoom == null ? (rect.width / natW) : ann.zoom;
+      // When rotated 90/270, the wrap's width is the rotated outer dim
+      // (= contentH = natH * zoom), NOT contentW. Use the matching natural
+      // dim so the implicit "fit" zoom reads correctly.
+      const rotSwap = (ann.rotation === 90 || ann.rotation === 270);
+      const baseNatW = rotSwap ? (el.naturalHeight || el.height || natW) : natW;
+      const prevZoom = ann.zoom == null ? (rect.width / baseNatW) : ann.zoom;
       const step = ev.deltaY < 0 ? 1.15 : 1 / 1.15;
       let next = prevZoom * step;
       if (next < 0.25) next = 0.25;

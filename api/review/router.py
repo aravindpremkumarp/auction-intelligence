@@ -319,6 +319,9 @@ class BlocksDoc(BaseModel):
     backfill_required: bool = False
     crop_bbox: list[float] | None = None
     crop_page: int | None = None
+    # Degrees clockwise the source should be rotated when displayed and
+    # before MinerU sees it. One of 0, 90, 180, 270.
+    rotation: int = 0
 
 
 class CropBody(BaseModel):
@@ -328,6 +331,11 @@ class CropBody(BaseModel):
     # 1-indexed page the crop is drawn on. For multi-page PDFs this tells
     # re-ingest which page to crop. Defaults to 1 when omitted.
     page: int | None = None
+
+
+class RotationBody(BaseModel):
+    # Degrees clockwise. Must be one of 0/90/180/270.
+    rotation: int
 
 
 class BlockUpdateBody(BaseModel):
@@ -709,6 +717,12 @@ def _ok_doc(doc: dict) -> BlocksDoc:
             crop_page = int(doc.get("crop_page") or 1)
         except (TypeError, ValueError):
             crop_page = 1
+    try:
+        rotation = int(doc.get("rotation") or 0) % 360
+    except (TypeError, ValueError):
+        rotation = 0
+    if rotation not in (0, 90, 180, 270):
+        rotation = 0
     return BlocksDoc(
         filename=doc.get("filename"),
         file_path=doc.get("file_path"),
@@ -724,6 +738,7 @@ def _ok_doc(doc: dict) -> BlocksDoc:
         backfill_required=bool(doc.get("backfill_required")),
         crop_bbox=crop_bbox,
         crop_page=crop_page,
+        rotation=rotation,
     )
 
 
@@ -837,6 +852,24 @@ async def review_notice_set_crop(
     clear a saved crop.
     """
     return _ok_doc(block_ops.set_crop(filename, body.bbox, body.page))
+
+
+@router.put("/notice/{filename}/rotation", response_model=BlocksDoc)
+@_wrap_block_errors
+async def review_notice_set_rotation(
+    filename: str,
+    body: RotationBody,
+    _admin: UserOut = Depends(get_current_admin),
+) -> BlocksDoc:
+    """Save (or clear) the Document-level rotation.
+
+    Rotation is degrees clockwise ∈ {0, 90, 180, 270}; pass ``0`` to
+    clear. Stored as a Neo4j int property. Re-ingest applies the rotation
+    to the source before MinerU so OCR runs on an upright image; block
+    bboxes in storage stay in raw-orientation, full-image coords
+    regardless.
+    """
+    return _ok_doc(block_ops.set_rotation(filename, body.rotation))
 
 
 @router.post(
