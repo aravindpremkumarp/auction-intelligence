@@ -113,6 +113,74 @@ def _clean_crop_page(raw: Any) -> int:
     return max(1, n)
 
 
+_VALID_ROTATIONS = (0, 90, 180, 270)
+
+
+def _clean_rotation(raw: Any) -> int:
+    """Validate a Document-level rotation. Returns one of 0/90/180/270.
+
+    ``None`` / missing maps to ``0``. Any other value raises ``ValueError``
+    so the router surfaces a 400 instead of silently persisting garbage.
+    """
+    if raw is None:
+        return 0
+    try:
+        n = int(raw)
+    except (TypeError, ValueError):
+        raise ValueError("rotation must be one of 0, 90, 180, 270")
+    n = n % 360
+    if n not in _VALID_ROTATIONS:
+        raise ValueError("rotation must be one of 0, 90, 180, 270")
+    return n
+
+
+def _rotate_bbox_forward(bbox: list[float], rotation: int) -> list[float]:
+    """Map a normalized ``[x0,y0,x1,y1]`` from raw coords to ``rotation``-CW
+    rotated coords.
+
+    Used when re-ingesting a notice with a saved crop: the crop is stored
+    in raw-orientation coords, but the cropper sees the post-rotation
+    image, so we forward-map before passing it through.
+    """
+    x0, y0, x1, y1 = (float(bbox[0]), float(bbox[1]),
+                      float(bbox[2]), float(bbox[3]))
+    r = int(rotation) % 360
+    if r == 0:
+        return [x0, y0, x1, y1]
+    if r == 90:
+        # CW: (x, y) → (1-y, x).
+        return [1.0 - y1, x0, 1.0 - y0, x1]
+    if r == 180:
+        return [1.0 - x1, 1.0 - y1, 1.0 - x0, 1.0 - y0]
+    # 270 CW: (x, y) → (y, 1-x).
+    return [y0, 1.0 - x1, y1, 1.0 - x0]
+
+
+def _un_rotate_bbox(bbox: list[float], rotation: int) -> list[float]:
+    """Inverse of :func:`_rotate_bbox_forward` — map rotated coords back to raw.
+
+    Re-ingest sends a rotated image to MinerU, which returns bboxes in
+    rotated coords; we un-rotate them before storing so block bboxes
+    stay in canonical raw-orientation coords.
+    """
+    return _rotate_bbox_forward(bbox, (360 - int(rotation)) % 360)
+
+
+def _pdf_page_count(pdf_bytes: bytes) -> int:
+    """Count pages in a PDF without loading any rendering machinery.
+
+    Used by ``reingest_notice`` to decide whether rotation would discard
+    pages 2+ of a multi-page PDF. Lazy-imports PyMuPDF so callers that
+    don't need PDF parsing don't pay the import cost.
+    """
+    import fitz  # type: ignore
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    try:
+        return int(doc.page_count or 0)
+    finally:
+        doc.close()
+
+
 def _validate_label(label: str) -> str:
     if not isinstance(label, str):
         raise ValueError("label must be a string")
@@ -188,7 +256,8 @@ def _load_doc(filename: str) -> tuple[dict, int, dict]:
                d.notice_type                  AS notice_type,
                d.markdown                     AS markdown,
                d.crop_bbox                    AS crop_bbox,
-               d.crop_page                    AS crop_page
+               d.crop_page                    AS crop_page,
+               d.rotation                     AS rotation
         """,
         {"filename": filename},
         max_rows=1,
@@ -205,6 +274,11 @@ def _load_doc(filename: str) -> tuple[dict, int, dict]:
         # A persisted-but-malformed crop_bbox shouldn't break loading.
         crop_bbox = None
     crop_page = _clean_crop_page(r.get("crop_page")) if crop_bbox else None
+    try:
+        rotation = _clean_rotation(r.get("rotation"))
+    except ValueError:
+        # Stale/corrupt persisted value shouldn't brick the loader.
+        rotation = 0
     meta = {
         "filename":    r.get("filename"),
         "file_path":   r.get("file_path"),
@@ -214,6 +288,7 @@ def _load_doc(filename: str) -> tuple[dict, int, dict]:
         "markdown":    r.get("markdown"),
         "crop_bbox":   crop_bbox,
         "crop_page":   crop_page,
+        "rotation":    rotation,
     }
     return doc, int(r.get("rev") or 0), meta
 
@@ -306,6 +381,49 @@ def set_crop(filename: str, raw_bbox: Any, raw_page: Any = None) -> dict:
             RETURN d.filename AS filename
             """,
             {"filename": filename, "crop_bbox": crop_bbox, "crop_page": crop_page},
+        )
+    if not rows:
+        raise BlocksNotFound(f"Document not found: {filename}")
+    return get_blocks(filename)
+
+
+def set_rotation(filename: str, raw_rotation: Any) -> dict:
+    """Persist (or clear) the Document-level ``rotation``.
+
+    Rotation is degrees clockwise ∈ {0, 90, 180, 270}, stored as a Neo4j
+    int property. Like crop, this is NOT in the blocks JSON, so it doesn't
+    churn ``blocks_revision``. The re-ingest pipeline applies the
+    rotation to the source before shipping it to MinerU, so OCR runs on
+    an upright image; block bboxes from MinerU are then un-rotated back
+    to raw-orientation coords so storage stays canonical.
+
+    If a crop is already saved, the caller's NEW rotation changes the
+    canonical-vs-displayed mapping. Existing block bboxes are already in
+    raw-orientation coords, so they don't need touching — but the saved
+    ``crop_bbox`` was drawn against whatever orientation was on screen at
+    the time, so we leave it untouched here (it stays in raw-orientation
+    coords as a Document property, same as blocks). The re-ingest
+    pipeline forward-rotates it before applying the crop.
+    """
+    new_rotation = _clean_rotation(raw_rotation)
+    if new_rotation == 0:
+        rows = run_query(
+            """
+            MATCH (d:Document {filename: $filename})
+            REMOVE d.rotation, d.rotation_set_at
+            RETURN d.filename AS filename
+            """,
+            {"filename": filename},
+        )
+    else:
+        rows = run_query(
+            """
+            MATCH (d:Document {filename: $filename})
+            SET d.rotation        = $rotation,
+                d.rotation_set_at = datetime()
+            RETURN d.filename AS filename
+            """,
+            {"filename": filename, "rotation": new_rotation},
         )
     if not rows:
         raise BlocksNotFound(f"Document not found: {filename}")
@@ -541,7 +659,8 @@ def reingest_notice(filename: str, by_email: str) -> dict:
                d.filename   AS filename,
                d.public_url AS public_url,
                d.crop_bbox  AS crop_bbox,
-               d.crop_page  AS crop_page
+               d.crop_page  AS crop_page,
+               d.rotation   AS rotation
         """,
         {"filename": filename},
         max_rows=1,
@@ -557,6 +676,10 @@ def reingest_notice(filename: str, by_email: str) -> dict:
     except ValueError:
         crop_bbox = None
     crop_page = _clean_crop_page(rows[0].get("crop_page")) if crop_bbox else 1
+    try:
+        rotation = _clean_rotation(rows[0].get("rotation"))
+    except ValueError:
+        rotation = 0
 
     from pipeline.mineru import MINERU_SUPPORTED_EXTS, find_disk_path
     from pipeline.mineru_api import (
@@ -598,6 +721,70 @@ def reingest_notice(filename: str, by_email: str) -> dict:
             resp.close()
         disk = tmp_path
 
+    # If a Document-level rotation is set, apply it BEFORE the crop and
+    # BEFORE shipping to MinerU. We replace ``disk`` with a PNG of the
+    # rotated source so the rest of the pipeline (crop, MinerU) consumes
+    # the upright image. For PDFs we flatten the chosen page to a PNG
+    # (matches what crop already does for PDFs); ``applied_rotation_page``
+    # tells the post-OCR step which page everything came from.
+    #
+    # Multi-page PDFs without a crop are a special case: applying rotation
+    # would force us to flatten the whole doc to one page (losing pages
+    # 2+ of OCR). We skip rotation in that case to preserve the existing
+    # multi-page behavior; the reviewer can set a crop to scope re-ingest
+    # to one page if they need rotation. The CSS rotation in the UI is
+    # unaffected.
+    applied_rotation: int = 0
+    applied_rotation_page: int = max(1, crop_page if crop_bbox else 1)
+    rotation_tmp_path: Path | None = None
+    if rotation != 0:
+        ext = Path(src_filename).suffix.lower()
+        try:
+            src_bytes = disk.read_bytes()
+            rotated_png: bytes | None = None
+            if ext in {".jpg", ".jpeg", ".png", ".webp", ".jfif"}:
+                from pipeline.reextract import _image_rotate_to_png
+                rotated_png = _image_rotate_to_png(src_bytes, rotation)
+            elif ext == ".pdf":
+                if crop_bbox is None and _pdf_page_count(src_bytes) > 1:
+                    log.info(
+                        "skipping rotation for %s: multi-page PDF without "
+                        "crop would discard pages 2+ of OCR",
+                        filename,
+                    )
+                else:
+                    from pipeline.reextract import _pdf_rotate_page_to_png
+                    rotated_png = _pdf_rotate_page_to_png(
+                        src_bytes, applied_rotation_page, rotation,
+                    )
+            else:
+                log.info(
+                    "skipping rotation for %s: unsupported source extension %s",
+                    filename, ext,
+                )
+            if rotated_png is not None:
+                fd, tmp_name = tempfile.mkstemp(
+                    suffix=".png", prefix="reingest_rot_",
+                )
+                with os.fdopen(fd, "wb") as out:
+                    out.write(rotated_png)
+                rotation_tmp_path = Path(tmp_name)
+                disk = rotation_tmp_path
+                applied_rotation = rotation
+                # The crop bbox is stored in raw-orientation coords; the
+                # crop step below now sees a rotated image, so forward-map
+                # the bbox into the rotated frame. ``crop_page`` stays as
+                # the user-facing page — the crop step picks the image
+                # branch (ext forced to .png), which doesn't consume it,
+                # but the post-process uses it to set ``blk['page']``.
+                if crop_bbox is not None:
+                    crop_bbox = _rotate_bbox_forward(crop_bbox, applied_rotation)
+        except Exception:
+            log.exception(
+                "rotation apply failed for %s; falling back to unrotated",
+                filename,
+            )
+
     # If a Document-level crop is set, apply it BEFORE shipping to MinerU.
     # Images crop straight through Pillow; PDFs crop via PyMuPDF rendering the
     # selected page through the bbox clip. We track ``applied_crop`` so the
@@ -608,7 +795,9 @@ def reingest_notice(filename: str, by_email: str) -> dict:
     applied_crop_page: int = 1
     crop_tmp_path: Path | None = None
     if crop_bbox is not None:
-        ext = Path(src_filename).suffix.lower()
+        # When rotation flattened the source to a PNG, the crop step must
+        # treat it as an image regardless of the original extension.
+        ext = ".png" if applied_rotation else Path(src_filename).suffix.lower()
         try:
             src_bytes = disk.read_bytes()
             cropped_png: bytes | None = None
@@ -640,13 +829,19 @@ def reingest_notice(filename: str, by_email: str) -> dict:
             )
 
     try:
+        # When we cropped or rotated, the source on disk is a PNG; send
+        # the .png filename so MinerU's extension hint matches the bytes.
+        # Cache key (file_path) stays the original — the new result
+        # authoritatively replaces the previous cached blocks for this
+        # document.
+        if applied_crop:
+            mineru_filename = Path(src_filename).stem + "_crop.png"
+        elif applied_rotation:
+            mineru_filename = Path(src_filename).stem + "_rot.png"
+        else:
+            mineru_filename = src_filename
         item = {
-            # When we cropped, send the PNG with a .png filename so MinerU's
-            # extension hint matches the bytes. Cache key (file_path) stays
-            # the original — the new result authoritatively replaces the
-            # previous cached blocks for this document.
-            "filename":  (Path(src_filename).stem + "_crop.png"
-                          if applied_crop else src_filename),
+            "filename":  mineru_filename,
             "file_path": fp,
             "disk_path": disk,
         }
@@ -666,6 +861,11 @@ def reingest_notice(filename: str, by_email: str) -> dict:
                 tmp_path.unlink()
             except FileNotFoundError:
                 pass
+        if rotation_tmp_path is not None:
+            try:
+                rotation_tmp_path.unlink()
+            except FileNotFoundError:
+                pass
         if crop_tmp_path is not None:
             try:
                 crop_tmp_path.unlink()
@@ -675,6 +875,12 @@ def reingest_notice(filename: str, by_email: str) -> dict:
     # Reuse the loader's parsing so we share one code path.
     from pipeline.load_markdowns_to_neo4j import load_blocks_for
     blocks = load_blocks_for(fp) or []
+
+    # The page the user was viewing when they set rotation/crop. Whenever
+    # we flattened the source to a single-page PNG (via either step) the
+    # blocks need their page set to this user-facing page.
+    effective_page = (applied_crop_page if applied_crop
+                      else applied_rotation_page)
 
     if applied_crop is not None and blocks:
         cx0, cy0, cx1, cy1 = applied_crop
@@ -694,9 +900,19 @@ def reingest_notice(filename: str, by_email: str) -> dict:
                 min(max(rx1, cx0), cx1),
                 min(max(ry1, cy0), cy1),
             ]
-            # MinerU saw a single image so it labels everything page 1 —
-            # re-tag with the page the crop was drawn on.
-            blk["page"] = applied_crop_page
+
+    # Un-rotate bboxes from rotated-image coords back to raw-orientation
+    # so storage stays canonical (all bboxes in raw, full-image coords).
+    if applied_rotation and blocks:
+        for blk in blocks:
+            blk["bbox"] = _un_rotate_bbox(blk["bbox"], applied_rotation)
+
+    # When we flattened to a single PNG (crop or rotation), MinerU sees
+    # one page and labels everything page 1 — retag with the page the
+    # user was working on.
+    if (applied_crop or applied_rotation) and blocks:
+        for blk in blocks:
+            blk["page"] = effective_page
 
     doc = {"schema_version": 1, "blocks": blocks}
     blocks_json = json.dumps(doc, ensure_ascii=False)
