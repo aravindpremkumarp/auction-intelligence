@@ -16,29 +16,50 @@ import pytest
 
 # Import the helpers directly from the source file so we don't trigger
 # ``api.review.__init__``'s heavy imports (fastapi, jwt, cryptography) just
-# to test pure-function bbox math.
+# to test pure-function bbox math. blocks.py imports from
+# ``api.neo4j_client`` and ``pipeline.mineru`` — stub those only for the
+# duration of the import, then restore whatever was in ``sys.modules``
+# before (the test-suite conftest installs its own functional stubs that
+# other tests rely on; if we leak our minimal stubs into ``sys.modules``
+# they break later tests like ``test_review_markdown``).
 import importlib.util
+import sys
+import types
 from pathlib import Path
 
 _BLOCKS_PATH = Path(__file__).resolve().parents[2] / "api" / "review" / "blocks.py"
 _spec = importlib.util.spec_from_file_location("_blocks_under_test", _BLOCKS_PATH)
 _mod = importlib.util.module_from_spec(_spec)
-# blocks.py imports from api.neo4j_client and pipeline.mineru — stub those
-# so the module can load without a live DB or MinerU client.
-import sys
-import types
-_stub_neo4j = types.ModuleType("api.neo4j_client")
-_stub_neo4j.run_query = lambda *a, **k: None
-_stub_neo4j.run_read_query = lambda *a, **k: None
-sys.modules.setdefault("api", types.ModuleType("api"))
-sys.modules["api.neo4j_client"] = _stub_neo4j
-_stub_mineru = types.ModuleType("pipeline.mineru")
-_stub_mineru.DEFAULT_LABEL = "Text"
-_stub_mineru.MINERU_LABEL_VALUES = ["Text", "Title", "Table"]
-_stub_mineru.assemble_markdown = lambda blocks: ""
-sys.modules.setdefault("pipeline", types.ModuleType("pipeline"))
-sys.modules["pipeline.mineru"] = _stub_mineru
-_spec.loader.exec_module(_mod)
+
+_STUB_KEYS = ("api.neo4j_client", "pipeline.mineru", "pipeline")
+_saved = {k: sys.modules.get(k) for k in _STUB_KEYS}
+
+# Only install stubs for entries not already provided by conftest. The
+# conftest's ``api.neo4j_client`` stub is functional and exposes ``_users``
+# / ``_feedback`` that downstream tests rely on — don't clobber it.
+if "api.neo4j_client" not in sys.modules:
+    _stub_neo4j = types.ModuleType("api.neo4j_client")
+    _stub_neo4j.run_query = lambda *a, **k: None
+    _stub_neo4j.run_read_query = lambda *a, **k: None
+    sys.modules["api.neo4j_client"] = _stub_neo4j
+if "pipeline" not in sys.modules:
+    sys.modules["pipeline"] = types.ModuleType("pipeline")
+if "pipeline.mineru" not in sys.modules:
+    _stub_mineru = types.ModuleType("pipeline.mineru")
+    _stub_mineru.DEFAULT_LABEL = "Text"
+    _stub_mineru.MINERU_LABEL_VALUES = ["Text", "Title", "Table"]
+    _stub_mineru.assemble_markdown = lambda blocks: ""
+    sys.modules["pipeline.mineru"] = _stub_mineru
+
+try:
+    _spec.loader.exec_module(_mod)
+finally:
+    # Restore prior state so we don't leak our stubs to other tests.
+    for k, v in _saved.items():
+        if v is None:
+            sys.modules.pop(k, None)
+        else:
+            sys.modules[k] = v
 
 _clean_rotation = _mod._clean_rotation
 _rotate_bbox_forward = _mod._rotate_bbox_forward
