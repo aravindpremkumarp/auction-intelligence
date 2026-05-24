@@ -50,12 +50,17 @@ def _date_exists_clause(
     """
     if not date_from and not date_to:
         return None
+    # `auction_start_dt` is stored as a Cypher DateTime (per
+    # config/domain_ontology.yaml and scripts/load_tn_to_neo4j.py). Comparing
+    # DateTime to Date directly returns NULL in Neo4j 5, so wrap the LHS in
+    # date(...) to coerce — matches the working pattern at queries.py:129.
     return (
-        f"EXISTS {{ "
+        "EXISTS { "
         f"MATCH ({alias})<-[:HAS_DOCUMENT]-(_a:AuctionProperty) "
-        f"WHERE ($date_from IS NULL OR _a.auction_start_dt >= date($date_from)) "
-        f"AND ($date_to IS NULL OR _a.auction_start_dt <= date($date_to)) "
-        f"}}"
+        "WHERE _a.auction_start_dt IS NOT NULL "
+        "AND ($date_from IS NULL OR date(_a.auction_start_dt) >= date($date_from)) "
+        "AND ($date_to IS NULL OR date(_a.auction_start_dt) <= date($date_to)) "
+        "}"
     )
 
 
