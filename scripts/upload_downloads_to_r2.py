@@ -52,20 +52,38 @@ WHERE a.downloads_list IS NOT NULL AND size(a.downloads_list) > 0
 RETURN a.auction_id AS auction_id, a.downloads_list AS downloads_list
 """
 
-# Single MERGE on the relationship + filename: stable across machines and
-# pipeline re-runs, so we never create a duplicate :Document node for the
-# same (auction_id, filename) pair (issue #45). file_path is preserved if
-# the enrichment pipeline already populated it; otherwise we fall back to
-# the R2 storage_key so the field is never null.
+# One canonical :Document per filename across all auctions. MERGE on the
+# node first so the same filename collapses across multiple auctions, then
+# MERGE the relationship separately. coalesce on storage_key / public_url
+# so we never overwrite a canonical's R2 location with a fresh upload that
+# was supposed to be a dedup.
 UPSERT_DOC_CYPHER = """
 MATCH (a:AuctionProperty {auction_id: $auction_id})
-MERGE (a)-[:HAS_DOCUMENT]->(doc:Document {filename: $filename})
-SET doc.storage_key  = $storage_key,
-    doc.public_url   = $public_url,
-    doc.content_type = $content_type,
-    doc.doc_type     = $doc_type,
-    doc.file_path    = coalesce(doc.file_path, $storage_key),
-    doc.uploaded_at  = datetime()
+MERGE (doc:Document {filename: $filename})
+ON CREATE SET doc.storage_key  = $storage_key,
+              doc.public_url   = $public_url,
+              doc.content_type = $content_type,
+              doc.doc_type     = $doc_type,
+              doc.file_path    = $storage_key,
+              doc.uploaded_at  = datetime()
+ON MATCH  SET doc.storage_key  = coalesce(doc.storage_key,  $storage_key),
+              doc.public_url   = coalesce(doc.public_url,   $public_url),
+              doc.content_type = coalesce(doc.content_type, $content_type),
+              doc.doc_type     = coalesce(doc.doc_type,     $doc_type),
+              doc.file_path    = coalesce(doc.file_path,    $storage_key)
+MERGE (a)-[:HAS_DOCUMENT]->(doc)
+"""
+
+# Look up an existing canonical Document so repeat uploads of the same
+# filename across multiple auctions reuse the same R2 object instead of
+# creating a per-auction copy.
+LOOKUP_CANONICAL_CYPHER = """
+MATCH (doc:Document {filename: $filename})
+WHERE doc.storage_key IS NOT NULL
+RETURN doc.storage_key  AS storage_key,
+       doc.public_url   AS public_url,
+       doc.content_type AS content_type
+LIMIT 1
 """
 
 
@@ -74,8 +92,14 @@ class UploadResult:
     uploaded: int = 0
     skipped_exists: int = 0
     skipped_missing: int = 0
+    reused_canonical: int = 0
     graph_updates: int = 0
     errors: int = 0
+
+
+def lookup_canonical(filename: str) -> dict | None:
+    rows = run_query(LOOKUP_CANONICAL_CYPHER, {"filename": filename})
+    return rows[0] if rows else None
 
 
 def locate_local_file(filename: str) -> Path | None:
@@ -116,6 +140,32 @@ def process_auction(
     for raw in filenames:
         filename = (raw or "").strip()
         if not filename or filename.upper() == "N/A":
+            continue
+
+        canonical = lookup_canonical(filename)
+        if canonical:
+            key = canonical["storage_key"]
+            public_url = canonical["public_url"]
+            content_type = canonical.get("content_type") or storage.guess_content_type(filename)
+            doc_type = storage.doc_type_from_content_type(content_type)
+            if dry_run:
+                print(f"  [dry-run] would reuse canonical for {auction_id} :: {filename} -> {key}")
+                continue
+            try:
+                upsert_document(
+                    auction_id=auction_id,
+                    filename=filename,
+                    storage_key=key,
+                    public_url=public_url,
+                    content_type=content_type,
+                    doc_type=doc_type,
+                )
+                result.reused_canonical += 1
+                result.graph_updates += 1
+                print(f"  [reused] {auction_id} :: {filename} -> {public_url}")
+            except Exception as e:
+                result.errors += 1
+                print(f"  [error] {auction_id} :: {filename}: {e}")
             continue
 
         local = locate_local_file(filename)
@@ -188,11 +238,12 @@ def main() -> None:
         )
 
     print("\n" + "=" * 50)
-    print(f"  Uploaded       : {result.uploaded}")
-    print(f"  Already in R2  : {result.skipped_exists}")
-    print(f"  Missing locally: {result.skipped_missing}")
-    print(f"  Graph upserts  : {result.graph_updates}")
-    print(f"  Errors         : {result.errors}")
+    print(f"  Uploaded         : {result.uploaded}")
+    print(f"  Already in R2    : {result.skipped_exists}")
+    print(f"  Reused canonical : {result.reused_canonical}")
+    print(f"  Missing locally  : {result.skipped_missing}")
+    print(f"  Graph upserts    : {result.graph_updates}")
+    print(f"  Errors           : {result.errors}")
     print("=" * 50)
 
 
