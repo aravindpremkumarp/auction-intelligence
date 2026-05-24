@@ -142,7 +142,12 @@ def process_auction(
         if not filename or filename.upper() == "N/A":
             continue
 
-        canonical = lookup_canonical(filename)
+        try:
+            canonical = lookup_canonical(filename)
+        except Exception as e:
+            result.errors += 1
+            print(f"  [error] {auction_id} :: {filename}: canonical lookup failed: {e}")
+            continue
         if canonical:
             key = canonical["storage_key"]
             public_url = canonical["public_url"]
