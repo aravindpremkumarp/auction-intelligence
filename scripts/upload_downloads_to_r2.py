@@ -76,13 +76,18 @@ MERGE (a)-[:HAS_DOCUMENT]->(doc)
 
 # Look up an existing canonical Document so repeat uploads of the same
 # filename across multiple auctions reuse the same R2 object instead of
-# creating a per-auction copy.
+# creating a per-auction copy. Ranking matches dedupe_documents.py so
+# that, when stale duplicates still exist, every run picks the same row.
 LOOKUP_CANONICAL_CYPHER = """
 MATCH (doc:Document {filename: $filename})
 WHERE doc.storage_key IS NOT NULL
 RETURN doc.storage_key  AS storage_key,
        doc.public_url   AS public_url,
        doc.content_type AS content_type
+ORDER BY CASE WHEN doc.public_url IS NOT NULL THEN 1 ELSE 0 END DESC,
+         doc.uploaded_at DESC,
+         doc.extracted_at DESC,
+         elementId(doc) ASC
 LIMIT 1
 """
 
