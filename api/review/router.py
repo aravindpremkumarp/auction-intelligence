@@ -177,6 +177,10 @@ class ClassifyResult(BaseModel):
 class BulkConfirmBody(BaseModel):
     confidence_min: float = Field(ge=0.0, le=1.0)
     confidence_max: float = Field(default=1.0, ge=0.0, le=1.0)
+    notice_type: Literal["all", "single", "multi", "unclassified"] = "all"
+    date_from: str | None = Field(default=None, max_length=20)
+    date_to:   str | None = Field(default=None, max_length=20)
+    q:         str | None = Field(default=None, max_length=200)
     notes: str | None = Field(default=None, max_length=2000)
     dry_run: bool = False
 
@@ -250,6 +254,10 @@ class VerifyMarkdownBody(BaseModel):
 class MarkdownBulkConfirmBody(BaseModel):
     score_min: float = Field(ge=0.0, le=100.0)
     score_max: float = Field(default=100.0, ge=0.0, le=100.0)
+    notice_type: Literal["all", "single", "multi", "unclassified"] = "all"
+    date_from: str | None = Field(default=None, max_length=20)
+    date_to:   str | None = Field(default=None, max_length=20)
+    q:         str | None = Field(default=None, max_length=200)
     notes: str | None = Field(default=None, max_length=2000)
     dry_run: bool = False
 
@@ -509,6 +517,8 @@ async def review_classifications(
     confidence_max: float | None = Query(default=None, ge=0.0, le=1.0),
     agrees_only: bool = Query(default=False),
     notice_type: Literal["all", "single", "multi", "unclassified"] = Query(default="all"),
+    date_from: str | None = Query(default=None, max_length=20),
+    date_to: str | None = Query(default=None, max_length=20),
     _admin: UserOut = Depends(get_current_admin),
 ) -> ClassificationQueueOut:
     result = q.list_classification_queue(
@@ -516,6 +526,7 @@ async def review_classifications(
         confidence_min=confidence_min, confidence_max=confidence_max,
         agrees_only=agrees_only,
         notice_type=notice_type if notice_type != "all" else None,
+        date_from=date_from, date_to=date_to,
     )
     rows = [ClassificationRow(**r) for r in result["rows"]]
     return ClassificationQueueOut(
@@ -561,6 +572,10 @@ async def review_bulk_confirm(
     result = q.auto_confirm_classifications(
         confidence_min=body.confidence_min,
         confidence_max=body.confidence_max,
+        notice_type=body.notice_type if body.notice_type != "all" else None,
+        date_from=body.date_from,
+        date_to=body.date_to,
+        q=body.q,
         by_email=admin.email,
         notes=body.notes,
         dry_run=body.dry_run,
@@ -571,10 +586,13 @@ async def review_bulk_confirm(
 @router.get("/classifications/stats", response_model=ClassificationStats)
 async def review_classification_stats(
     notice_type: Literal["all", "single", "multi", "unclassified"] = Query(default="all"),
+    date_from: str | None = Query(default=None, max_length=20),
+    date_to: str | None = Query(default=None, max_length=20),
     _admin: UserOut = Depends(get_current_admin),
 ) -> ClassificationStats:
     return ClassificationStats(**q.classification_stats(
         notice_type=notice_type if notice_type != "all" else None,
+        date_from=date_from, date_to=date_to,
     ))
 
 
@@ -601,12 +619,15 @@ async def review_markdown_stats(
     score_min: float = Query(default=70.0, ge=0.0, le=100.0),
     score_max: float = Query(default=100.0, ge=0.0, le=100.0),
     notice_type: Literal["all", "single", "multi", "unclassified"] = Query(default="all"),
+    date_from: str | None = Query(default=None, max_length=20),
+    date_to: str | None = Query(default=None, max_length=20),
     _admin: UserOut = Depends(get_current_admin),
 ) -> MarkdownStats:
     return MarkdownStats(**q.markdown_stats(
         score_min=score_min,
         score_max=score_max,
         notice_type=notice_type if notice_type != "all" else None,
+        date_from=date_from, date_to=date_to,
     ))
 
 
@@ -619,12 +640,15 @@ async def review_markdown_queue(
     score_min: float | None = Query(default=None, ge=0.0, le=100.0),
     score_max: float | None = Query(default=None, ge=0.0, le=100.0),
     notice_type: Literal["all", "single", "multi", "unclassified"] = Query(default="all"),
+    date_from: str | None = Query(default=None, max_length=20),
+    date_to: str | None = Query(default=None, max_length=20),
     _admin: UserOut = Depends(get_current_admin),
 ) -> MarkdownQueueOut:
     result = q.list_markdown_queue(
         status=status, q=q_search, page=page, size=size,
         score_min=score_min, score_max=score_max,
         notice_type=notice_type if notice_type != "all" else None,
+        date_from=date_from, date_to=date_to,
     )
     rows = [MarkdownRow(**r) for r in result["rows"]]
     return MarkdownQueueOut(
@@ -670,6 +694,10 @@ async def review_markdown_bulk_confirm(
     result = q.auto_confirm_markdown(
         score_min=body.score_min,
         score_max=body.score_max,
+        notice_type=body.notice_type if body.notice_type != "all" else None,
+        date_from=body.date_from,
+        date_to=body.date_to,
+        q=body.q,
         by_email=admin.email,
         notes=body.notes,
         dry_run=body.dry_run,

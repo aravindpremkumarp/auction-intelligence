@@ -34,6 +34,31 @@ def _notice_type_clause(
     raise ValueError(f"unknown notice_type filter: {notice_type!r}")
 
 
+def _date_exists_clause(
+    date_from: str | None,
+    date_to: str | None,
+    alias: str = "d",
+) -> str | None:
+    """Cypher predicate: Document `alias` has any linked AuctionProperty whose
+    auction_start_dt falls in the [date_from, date_to] window (inclusive).
+    Returns None when neither bound is set.
+
+    Documents in Neo4j can be linked to multiple AuctionProperty nodes
+    (multi-notice). Using EXISTS keeps the document-centric row shape and
+    surfaces the Document if *any* of its auctions match the date filter.
+    Callers must also add `date_from` / `date_to` to their params dict.
+    """
+    if not date_from and not date_to:
+        return None
+    return (
+        f"EXISTS {{ "
+        f"MATCH ({alias})<-[:HAS_DOCUMENT]-(_a:AuctionProperty) "
+        f"WHERE ($date_from IS NULL OR _a.auction_start_dt >= date($date_from)) "
+        f"AND ($date_to IS NULL OR _a.auction_start_dt <= date($date_to)) "
+        f"}}"
+    )
+
+
 def _sort_properties_by_markdown(row: dict) -> None:
     """Sort row['properties'] in place by their position in row['markdown'].
 
@@ -414,34 +439,24 @@ def unverify(auction_id: str) -> bool:
 ClassificationStatus = Literal["pending", "verified", "edited", "all"]
 
 
-def list_classification_queue(
-    status: ClassificationStatus = "pending",
+def _classification_where(
+    status: ClassificationStatus,
     q: str | None = None,
-    page: int = 1,
-    size: int = 50,
     confidence_min: float | None = None,
     confidence_max: float | None = None,
-    agrees_only: bool = False,
     notice_type: NoticeTypeFilter | None = None,
-) -> dict:
-    """Return a page of :Document nodes for the classification review queue.
+    date_from: str | None = None,
+    date_to: str | None = None,
+    agrees_only: bool = False,
+) -> tuple[list[str], dict]:
+    """Shared filter clause for the classification queue + bulk-confirm.
 
-    Status semantics:
-      - pending:  not yet human-verified (notice_type_verified_at IS NULL)
-      - verified: human confirmed, type unchanged (notice_type_overridden = false)
-      - edited:   human overrode the type (notice_type_overridden = true)
-      - all:      every Document with a notice_type
-
-    confidence_min / agrees_only are independent filters layered on top of
-    status — used by the "auto-confirm" UI to surface unverified notices
-    whose classifier prediction already matches notice_type at or above a
-    chosen confidence threshold.
+    Keeping list + bulk-confirm in the same WHERE prevents the two from
+    drifting (which let bulk-confirm act on a different set than the count
+    advertised on the button).
     """
-    page = max(1, int(page))
-    size = max(1, min(200, int(size)))
-    skip = (page - 1) * size
-
     where = ["d.notice_type IS NOT NULL"]
+    params: dict = {}
     if status == "pending":
         where.append("d.notice_type_verified_at IS NULL")
     elif status == "verified":
@@ -452,7 +467,6 @@ def list_classification_queue(
         where.append("coalesce(d.notice_type_overridden, false) = true")
     # "all" → no extra filter
 
-    params: dict = {"skip": skip, "size": size}
     if q:
         where.append("toLower(coalesce(d.filename, '')) CONTAINS toLower($q)")
         params["q"] = q
@@ -469,6 +483,57 @@ def list_classification_queue(
     nt_clause = _notice_type_clause(notice_type, alias="d")
     if nt_clause:
         where.append(nt_clause)
+
+    date_clause = _date_exists_clause(date_from, date_to, alias="d")
+    if date_clause:
+        where.append(date_clause)
+        params["date_from"] = date_from
+        params["date_to"] = date_to
+
+    return where, params
+
+
+def list_classification_queue(
+    status: ClassificationStatus = "pending",
+    q: str | None = None,
+    page: int = 1,
+    size: int = 50,
+    confidence_min: float | None = None,
+    confidence_max: float | None = None,
+    agrees_only: bool = False,
+    notice_type: NoticeTypeFilter | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> dict:
+    """Return a page of :Document nodes for the classification review queue.
+
+    Status semantics:
+      - pending:  not yet human-verified (notice_type_verified_at IS NULL)
+      - verified: human confirmed, type unchanged (notice_type_overridden = false)
+      - edited:   human overrode the type (notice_type_overridden = true)
+      - all:      every Document with a notice_type
+
+    confidence_min / agrees_only are independent filters layered on top of
+    status — used by the "auto-confirm" UI to surface unverified notices
+    whose classifier prediction already matches notice_type at or above a
+    chosen confidence threshold.
+
+    date_from / date_to filter to Documents linked to any AuctionProperty
+    whose auction_start_dt falls in the window.
+    """
+    page = max(1, int(page))
+    size = max(1, min(200, int(size)))
+    skip = (page - 1) * size
+
+    where, params = _classification_where(
+        status=status, q=q,
+        confidence_min=confidence_min, confidence_max=confidence_max,
+        notice_type=notice_type,
+        date_from=date_from, date_to=date_to,
+        agrees_only=agrees_only,
+    )
+    params["skip"] = skip
+    params["size"] = size
 
     where_clause = " AND ".join(where)
 
@@ -605,13 +670,29 @@ def list_classification_queue_by_property(
 
 def classification_stats(
     notice_type: NoticeTypeFilter | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
 ) -> dict:
-    """Counts for the classification queue header."""
+    """Counts for the classification queue header.
+
+    date_from / date_to scope counts to Documents linked to an AuctionProperty
+    whose auction_start_dt falls in the window — the pills must reflect the
+    same filter that's narrowing the queue below.
+    """
+    extra: list[str] = []
+    params: dict = {}
     nt_clause = _notice_type_clause(notice_type, alias="d")
-    nt_where = f" AND {nt_clause}" if nt_clause else ""
+    if nt_clause:
+        extra.append(nt_clause)
+    date_clause = _date_exists_clause(date_from, date_to, alias="d")
+    if date_clause:
+        extra.append(date_clause)
+        params["date_from"] = date_from
+        params["date_to"] = date_to
+    extra_where = (" AND " + " AND ".join(extra)) if extra else ""
     rows = run_read_query(f"""
         MATCH (d:Document)
-        WHERE d.notice_type IS NOT NULL{nt_where}
+        WHERE d.notice_type IS NOT NULL{extra_where}
         RETURN
           count(*) AS total,
           sum(CASE WHEN d.notice_type_verified_at IS NULL THEN 1 ELSE 0 END) AS pending,
@@ -621,7 +702,7 @@ def classification_stats(
           sum(CASE WHEN d.notice_type_verified_at IS NOT NULL
                     AND coalesce(d.notice_type_overridden, false) = true
                    THEN 1 ELSE 0 END) AS edited
-    """, max_rows=1)
+    """, params, max_rows=1)
     if not rows:
         return {"total": 0, "pending": 0, "verified": 0, "edited": 0}
     r = rows[0]
@@ -699,35 +780,45 @@ def auto_confirm_classifications(
     notes: str | None = None,
     dry_run: bool = False,
     confidence_max: float = 1.0,
+    notice_type: NoticeTypeFilter | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    q: str | None = None,
 ) -> dict:
-    """Bulk-verify Documents where the classifier already agrees with the
-    current notice_type AND confidence >= confidence_min AND the Document
-    has not been human-verified yet.
+    """Bulk-verify every pending Document that matches the reviewer's current
+    queue filter (confidence range, notice_type, date window, filename search).
 
-    Because the classifier agrees with the existing notice_type, this does
-    NOT flip the type, does NOT trigger re-extract, and does NOT set
-    notice_type_overridden — there is no override happening; the human is
-    rubber-stamping the model's agreement with the cluster-count seed.
+    The reviewer's click on "Confirm all N in range" means "I've eyeballed
+    the visible gallery and approve them all" — so we mirror the exact
+    WHERE clause that produced the visible count. The shared
+    `_classification_where` helper keeps the two queries in lockstep.
+
+    The SET clause only stamps notice_type_verified_at / _by / _notes — it
+    does NOT touch notice_type or notice_type_overridden, so no re-extract
+    is triggered. (If the reviewer wants to FLIP a type, they use the per-
+    notice verify endpoint, not bulk-confirm.)
 
     Returns ``{"count": N, "dry_run": bool}``. When ``dry_run=True`` nothing
     is written; the count reflects what *would* be confirmed.
     """
-    params = {
-        "min_conf": float(confidence_min),
-        "max_conf": float(confidence_max),
-        "by": by_email,
-        "notes": notes,
-    }
+    where, params = _classification_where(
+        status="pending",
+        q=q,
+        confidence_min=confidence_min,
+        confidence_max=confidence_max,
+        notice_type=notice_type,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    params["by"] = by_email
+    params["notes"] = notes
+    where_clause = " AND ".join(where)
+
     if dry_run:
         rows = run_read_query(
-            """
+            f"""
             MATCH (d:Document)
-            WHERE d.notice_type IS NOT NULL
-              AND d.notice_type_verified_at IS NULL
-              AND d.notice_type_classifier_pred IS NOT NULL
-              AND d.notice_type = d.notice_type_classifier_pred
-              AND coalesce(d.notice_type_confidence, 0.0) >= $min_conf
-              AND coalesce(d.notice_type_confidence, 0.0) <= $max_conf
+            WHERE {where_clause}
             RETURN count(d) AS n
             """,
             params,
@@ -736,14 +827,9 @@ def auto_confirm_classifications(
         return {"count": int(rows[0]["n"]) if rows else 0, "dry_run": True}
 
     rows = run_query(
-        """
+        f"""
         MATCH (d:Document)
-        WHERE d.notice_type IS NOT NULL
-          AND d.notice_type_verified_at IS NULL
-          AND d.notice_type_classifier_pred IS NOT NULL
-          AND d.notice_type = d.notice_type_classifier_pred
-          AND coalesce(d.notice_type_confidence, 0.0) >= $min_conf
-          AND coalesce(d.notice_type_confidence, 0.0) <= $max_conf
+        WHERE {where_clause}
         SET d.notice_type_verified_at  = datetime(),
             d.notice_type_verified_by  = $by,
             d.notice_type_review_notes = CASE
@@ -846,6 +932,9 @@ def _markdown_where(
     score_min: float | None,
     score_max: float | None = None,
     notice_type: NoticeTypeFilter | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    q: str | None = None,
 ) -> tuple[list[str], dict]:
     where = ["d.markdown IS NOT NULL", "d.markdown <> ''"]
     params: dict = {}
@@ -869,6 +958,14 @@ def _markdown_where(
     clause = _notice_type_clause(notice_type, alias="d")
     if clause:
         where.append(clause)
+    if q:
+        where.append("toLower(coalesce(d.filename, '')) CONTAINS toLower($q)")
+        params["q"] = q
+    date_clause = _date_exists_clause(date_from, date_to, alias="d")
+    if date_clause:
+        where.append(date_clause)
+        params["date_from"] = date_from
+        params["date_to"] = date_to
     return where, params
 
 
@@ -876,19 +973,34 @@ def markdown_stats(
     score_min: float = 70.0,
     score_max: float = 100.0,
     notice_type: NoticeTypeFilter | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
 ) -> dict:
     """Counts for the markdown review header.
 
     `auto_confirmable` = unverified Documents whose score ≥ score_min and
     ≤ score_max — the pile the bulk-confirm button would clear at the current
     slider values.
+
+    date_from / date_to filter to Documents linked to any AuctionProperty
+    whose auction_start_dt falls in the window, so the header pills track
+    the same date filter the reviewer applied.
     """
+    extra: list[str] = []
+    params: dict = {"score_min": float(score_min), "score_max": float(score_max)}
     nt_clause = _notice_type_clause(notice_type, alias="d")
-    nt_where = f" AND {nt_clause}" if nt_clause else ""
+    if nt_clause:
+        extra.append(nt_clause)
+    date_clause = _date_exists_clause(date_from, date_to, alias="d")
+    if date_clause:
+        extra.append(date_clause)
+        params["date_from"] = date_from
+        params["date_to"] = date_to
+    extra_where = (" AND " + " AND ".join(extra)) if extra else ""
     rows = run_read_query(
         f"""
         MATCH (d:Document)
-        WHERE d.markdown IS NOT NULL AND d.markdown <> ''{nt_where}
+        WHERE d.markdown IS NOT NULL AND d.markdown <> ''{extra_where}
         RETURN
           count(*) AS total,
           sum(CASE WHEN d.markdown_verified_at IS NULL THEN 1 ELSE 0 END) AS pending,
@@ -902,7 +1014,7 @@ def markdown_stats(
                     AND d.markdown_quality_score <= $score_max
                    THEN 1 ELSE 0 END) AS auto_confirmable
         """,
-        {"score_min": float(score_min), "score_max": float(score_max)},
+        params,
         max_rows=1,
     )
     if not rows:
@@ -925,6 +1037,8 @@ def list_markdown_queue(
     score_min: float | None = None,
     score_max: float | None = None,
     notice_type: NoticeTypeFilter | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
 ) -> dict:
     """Return a page of Documents for markdown-quality review.
 
@@ -932,16 +1046,19 @@ def list_markdown_queue(
     to the top of the reviewer's queue). `score_min` lets the UI restrict
     the queue to Documents at or above the auto-confirm threshold — what
     the bulk-confirm button is about to clear.
+
+    date_from / date_to filter to Documents linked to any AuctionProperty
+    whose auction_start_dt falls in the window.
     """
     page = max(1, int(page))
     size = max(1, min(200, int(size)))
     skip = (page - 1) * size
 
-    where, params = _markdown_where(status, score_min, score_max, notice_type)
+    where, params = _markdown_where(
+        status, score_min, score_max, notice_type,
+        date_from=date_from, date_to=date_to, q=q,
+    )
     params.update({"skip": skip, "size": size})
-    if q:
-        where.append("toLower(coalesce(d.filename, '')) CONTAINS toLower($q)")
-        params["q"] = q
     where_clause = " AND ".join(where)
 
     cypher = f"""
@@ -1115,25 +1232,36 @@ def auto_confirm_markdown(
     notes: str | None = None,
     dry_run: bool = False,
     score_max: float = 100.0,
+    notice_type: NoticeTypeFilter | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    q: str | None = None,
 ) -> dict:
-    """Bulk-verify (quality='good') every unverified Document with
-    score_min ≤ score ≤ score_max. Returns ``{"count": N, "dry_run": bool}``.
+    """Bulk-verify (quality='good') every pending Document that matches the
+    reviewer's current queue filter (score range, notice_type, date window,
+    filename search). Mirrors `list_markdown_queue` via the shared
+    `_markdown_where` helper so the count and the action stay aligned.
+
+    Returns ``{"count": N, "dry_run": bool}``.
     """
-    params = {
-        "min": float(score_min),
-        "max": float(score_max),
-        "by": by_email,
-        "notes": notes,
-    }
+    where, params = _markdown_where(
+        status="pending",
+        score_min=score_min,
+        score_max=score_max,
+        notice_type=notice_type,
+        date_from=date_from,
+        date_to=date_to,
+        q=q,
+    )
+    params["by"] = by_email
+    params["notes"] = notes
+    where_clause = " AND ".join(where)
+
     if dry_run:
         rows = run_read_query(
-            """
+            f"""
             MATCH (d:Document)
-            WHERE d.markdown IS NOT NULL AND d.markdown <> ''
-              AND d.markdown_verified_at IS NULL
-              AND d.markdown_quality_score IS NOT NULL
-              AND d.markdown_quality_score >= $min
-              AND d.markdown_quality_score <= $max
+            WHERE {where_clause}
             RETURN count(d) AS n
             """,
             params,
@@ -1142,13 +1270,9 @@ def auto_confirm_markdown(
         return {"count": int(rows[0]["n"]) if rows else 0, "dry_run": True}
 
     rows = run_query(
-        """
+        f"""
         MATCH (d:Document)
-        WHERE d.markdown IS NOT NULL AND d.markdown <> ''
-          AND d.markdown_verified_at IS NULL
-          AND d.markdown_quality_score IS NOT NULL
-          AND d.markdown_quality_score >= $min
-          AND d.markdown_quality_score <= $max
+        WHERE {where_clause}
         SET d.markdown_quality      = 'good',
             d.markdown_verified_at  = datetime(),
             d.markdown_verified_by  = $by,
