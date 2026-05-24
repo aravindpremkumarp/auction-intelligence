@@ -116,7 +116,7 @@ MERGE (a)-[:HAS_ASSET_CATEGORY]->(ac)
 // through it leaked types across unrelated auctions.
 WITH a, r
 UNWIND coalesce(r.property_types, []) AS pt_name
-WITH a, pt_name
+WITH a, r, pt_name
 WHERE pt_name IS NOT NULL AND pt_name <> ''
 MERGE (pt:PropertyType {name: pt_name})
 MERGE (a)-[:HAS_PROPERTY_TYPE]->(pt)
