@@ -20,6 +20,7 @@ import json
 import os
 import time
 import zipfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import requests
@@ -85,46 +86,69 @@ def request_batch(items: list[dict],
     return data["batch_id"], data["file_urls"]
 
 
-def upload_files(items: list[dict], signed_urls: list[str]) -> None:
-    """PUT each item's bytes to its signed OSS URL.
+UPLOAD_CONCURRENCY = 8
 
-    ``item`` must have ``disk_path`` (Path) pointing at the file to upload.
 
-    Each upload uses a fresh ``requests.Session`` so a flaky TLS keep-alive
-    on one PUT doesn't poison subsequent uploads. SSL/connection errors on a
-    single file are retried up to 3 times with exponential backoff (1s, 2s,
-    4s) and a transient HTTP 5xx is also retried. After exhausting retries,
-    we log the file as failed and continue — the poll step naturally skips
-    files that never landed in OSS, so one bad upload no longer aborts the
-    whole batch's signed URLs.
-    """
-    for it, url in zip(items, signed_urls):
-        with open(it["disk_path"], "rb") as f:
-            body = f.read()
-        last_err: str | None = None
-        for attempt in range(3):
-            try:
-                with requests.Session() as s:
-                    s.headers["Connection"] = "close"
-                    r = s.put(url, data=body, timeout=120)
-                if r.ok:
-                    last_err = None
-                    break
-                if 500 <= r.status_code < 600 and attempt < 2:
-                    last_err = f"HTTP {r.status_code}"
-                    time.sleep(2 ** attempt)
-                    continue
+def _put_one(it: dict, url: str) -> str | None:
+    """Upload one file. Returns ``None`` on success or a short error string."""
+    with open(it["disk_path"], "rb") as f:
+        body = f.read()
+    last_err: str | None = None
+    for attempt in range(3):
+        try:
+            with requests.Session() as s:
+                s.headers["Connection"] = "close"
+                r = s.put(url, data=body, timeout=120)
+            if r.ok:
+                return None
+            if 500 <= r.status_code < 600 and attempt < 2:
                 last_err = f"HTTP {r.status_code}"
-                break
-            except (requests.exceptions.SSLError,
-                    requests.exceptions.ConnectionError,
-                    requests.exceptions.Timeout) as e:
-                last_err = f"{type(e).__name__}"
-                if attempt < 2:
-                    time.sleep(2 ** attempt)
-                    continue
-        if last_err:
-            print(f"    [upload-fail] {it['filename']}: {last_err}")
+                time.sleep(2 ** attempt)
+                continue
+            return f"HTTP {r.status_code}"
+        except (requests.exceptions.SSLError,
+                requests.exceptions.ConnectionError,
+                requests.exceptions.Timeout) as e:
+            last_err = f"{type(e).__name__}"
+            if attempt < 2:
+                time.sleep(2 ** attempt)
+                continue
+    return last_err
+
+
+def upload_files(items: list[dict], signed_urls: list[str]) -> None:
+    """PUT every item's bytes to its signed OSS URL, in parallel.
+
+    Signed OSS URLs are short-lived; serial uploads on a 10-file batch
+    can exceed the TTL on the last file and trigger HTTP 403. Running
+    them in parallel keeps cumulative wall time at roughly one PUT
+    duration regardless of batch size, well under any reasonable TTL.
+
+    Per-file behaviour (in ``_put_one``):
+    - fresh ``requests.Session`` (Connection: close) so a flaky TLS
+      keep-alive on one PUT doesn't poison other uploads
+    - 3-attempt retry with exponential backoff on SSL/connection/timeout
+      errors and on 5xx responses; 4xx is logged once and skipped
+    - failures don't raise out of ``upload_files``; the batch's other
+      files still get to poll/download
+
+    Concurrency: ``UPLOAD_CONCURRENCY`` threads (default 8). Tune lower
+    if the egress proxy rate-limits.
+    """
+    workers = min(UPLOAD_CONCURRENCY, max(1, len(items)))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futs = {
+            pool.submit(_put_one, it, url): it
+            for it, url in zip(items, signed_urls)
+        }
+        for fut in as_completed(futs):
+            it = futs[fut]
+            try:
+                err = fut.result()
+            except Exception as e:
+                err = f"{type(e).__name__}: {e}"
+            if err:
+                print(f"    [upload-fail] {it['filename']}: {err}")
 
 
 def poll(batch_id: str, *, timeout_s: int = 600) -> list[dict]:
