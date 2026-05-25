@@ -151,14 +151,24 @@ def upload_files(items: list[dict], signed_urls: list[str]) -> None:
                 print(f"    [upload-fail] {it['filename']}: {err}")
 
 
-def poll(batch_id: str, *, timeout_s: int = 600) -> list[dict]:
+def poll(batch_id: str, *, timeout_s: int = 600,
+         stall_polls: int = 5) -> list[dict]:
     """Block until every row in ``batch_id`` is ``done`` or ``failed``.
 
     Returns the rows list MinerU returned (each row has ``data_id``,
     ``state``, ``err_msg``, ``full_zip_url``).
+
+    Short-circuits when the batch has visibly stalled — i.e. ``running``
+    and ``pending`` are both 0 yet ``all(done/failed)`` is still False
+    (a file slot left in some untracked state, e.g. when its OSS upload
+    never completed). Returns the rows we have after ``stall_polls``
+    identical readings so the caller can download the files that did
+    finish instead of burning ``timeout_s`` per affected batch.
     """
     poll_url = f"{MINERU_BASE}/extract-results/batch/{batch_id}"
     deadline = time.time() + timeout_s
+    last_sig: tuple | None = None
+    stall_count = 0
     while time.time() < deadline:
         r = requests.get(poll_url, headers=MINERU_HEADERS, timeout=30)
         r.raise_for_status()
@@ -169,6 +179,16 @@ def poll(batch_id: str, *, timeout_s: int = 600) -> list[dict]:
         n_done    = sum(1 for s in states if s == "done")
         n_running = sum(1 for s in states if s == "running")
         n_pending = sum(1 for s in states if s == "pending")
+        sig = (len(rows), n_done, n_running, n_pending)
+        if sig == last_sig:
+            stall_count += 1
+        else:
+            stall_count = 0
+            last_sig = sig
+        if n_running == 0 and n_pending == 0 and stall_count >= stall_polls:
+            print(f"    [poll] stalled at done={n_done} (rows={len(rows)});"
+                  f" returning partial results", flush=True)
+            return rows
         print(f"    [poll] done={n_done} running={n_running} pending={n_pending}",
               flush=True)
         time.sleep(8)
