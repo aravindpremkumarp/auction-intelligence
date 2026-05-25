@@ -18,10 +18,11 @@ Resumable:
   - Re-runs skip cached entries
 
 Usage:
-  python -m scripts.ocr_with_mineru               # full run
-  python -m scripts.ocr_with_mineru --limit 50    # cap to first 50 Documents
-  python -m scripts.ocr_with_mineru --skip-mineru # only run LLM + apply stages
-  python -m scripts.ocr_with_mineru --skip-apply  # don't write to Neo4j
+  python -m scripts.ocr_with_mineru                 # full run
+  python -m scripts.ocr_with_mineru --limit 50      # cap to first 50 Documents
+  python -m scripts.ocr_with_mineru --skip-mineru   # only run LLM + apply stages
+  python -m scripts.ocr_with_mineru --skip-apply    # don't write to Neo4j
+  python -m scripts.ocr_with_mineru --missing-only  # only Documents with d.markdown IS NULL
 
 Auth: MINERU_API_KEY + OPENROUTER_API_KEY in .env
 """
@@ -66,7 +67,9 @@ REPO_ROOT          = Path(__file__).resolve().parent.parent
 NOTICE_DESC_V3_DIR = REPO_ROOT / "pipeline" / "cache" / "notice_descriptions_v3"
 PROMPT_PATH        = PROMPTS_DIR / "extract_description.txt"
 
-MINERU_BATCH_SIZE = 20      # files per MinerU batch request
+MINERU_BATCH_SIZE = 10      # files per MinerU batch request
+                            # (signed OSS URLs are short-lived; smaller
+                            # batches reduce the chance of expiry mid-batch)
 LLM_CONCURRENCY   = 6       # concurrent OpenRouter calls
 WRITE_CHUNK       = 200     # rows per UNWIND Cypher write
 
@@ -76,10 +79,19 @@ def chunked(seq, n):
         yield seq[i:i + n]
 
 
-def fetch_all_work() -> list[dict]:
-    """Every Document + its linked listings, with notice_type for routing."""
-    return run_read_query("""
+def fetch_all_work(missing_only: bool = False) -> list[dict]:
+    """Every Document + its linked listings, with notice_type for routing.
+
+    ``missing_only=True`` restricts the worklist to Documents whose
+    ``markdown`` is NULL or empty — used for catch-up runs that should
+    not re-OCR already-loaded notices.
+    """
+    where = ""
+    if missing_only:
+        where = "WHERE d.markdown IS NULL OR d.markdown = ''"
+    return run_read_query(f"""
       MATCH (d:Document)
+      {where}
       OPTIONAL MATCH (d)<-[:HAS_DOCUMENT]-(a:AuctionProperty)
       WITH d, collect(a.auction_id) AS aids
       RETURN d.filename       AS filename,
@@ -355,12 +367,14 @@ def main():
                         help="Skip MinerU stage; reuse cached markdowns only")
     parser.add_argument("--skip-apply", action="store_true",
                         help="Skip Neo4j writes (cache only)")
+    parser.add_argument("--missing-only", action="store_true",
+                        help="Only Documents whose d.markdown is NULL/empty")
     args = parser.parse_args()
 
     if not MINERU_KEY:
         sys.exit("MINERU_API_KEY not set in .env")
 
-    work = fetch_all_work()
+    work = fetch_all_work(missing_only=args.missing_only)
     if args.limit:
         work = work[:args.limit]
     by_type = {}

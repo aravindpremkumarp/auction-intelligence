@@ -20,6 +20,7 @@ import json
 import os
 import time
 import zipfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import requests
@@ -85,26 +86,89 @@ def request_batch(items: list[dict],
     return data["batch_id"], data["file_urls"]
 
 
+UPLOAD_CONCURRENCY = 8
+
+
+def _put_one(it: dict, url: str) -> str | None:
+    """Upload one file. Returns ``None`` on success or a short error string."""
+    with open(it["disk_path"], "rb") as f:
+        body = f.read()
+    last_err: str | None = None
+    for attempt in range(3):
+        try:
+            with requests.Session() as s:
+                s.headers["Connection"] = "close"
+                r = s.put(url, data=body, timeout=120)
+            if r.ok:
+                return None
+            if 500 <= r.status_code < 600 and attempt < 2:
+                last_err = f"HTTP {r.status_code}"
+                time.sleep(2 ** attempt)
+                continue
+            return f"HTTP {r.status_code}"
+        except (requests.exceptions.SSLError,
+                requests.exceptions.ConnectionError,
+                requests.exceptions.Timeout) as e:
+            last_err = f"{type(e).__name__}"
+            if attempt < 2:
+                time.sleep(2 ** attempt)
+                continue
+    return last_err
+
+
 def upload_files(items: list[dict], signed_urls: list[str]) -> None:
-    """PUT each item's bytes to its signed OSS URL.
+    """PUT every item's bytes to its signed OSS URL, in parallel.
 
-    ``item`` must have ``disk_path`` (Path) pointing at the file to upload.
+    Signed OSS URLs are short-lived; serial uploads on a 10-file batch
+    can exceed the TTL on the last file and trigger HTTP 403. Running
+    them in parallel keeps cumulative wall time at roughly one PUT
+    duration regardless of batch size, well under any reasonable TTL.
+
+    Per-file behaviour (in ``_put_one``):
+    - fresh ``requests.Session`` (Connection: close) so a flaky TLS
+      keep-alive on one PUT doesn't poison other uploads
+    - 3-attempt retry with exponential backoff on SSL/connection/timeout
+      errors and on 5xx responses; 4xx is logged once and skipped
+    - failures don't raise out of ``upload_files``; the batch's other
+      files still get to poll/download
+
+    Concurrency: ``UPLOAD_CONCURRENCY`` threads (default 8). Tune lower
+    if the egress proxy rate-limits.
     """
-    for it, url in zip(items, signed_urls):
-        with open(it["disk_path"], "rb") as f:
-            r = requests.put(url, data=f.read(), timeout=120)
-        if not r.ok:
-            print(f"    [upload-fail] {it['filename']}: HTTP {r.status_code}")
+    workers = min(UPLOAD_CONCURRENCY, max(1, len(items)))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futs = {
+            pool.submit(_put_one, it, url): it
+            for it, url in zip(items, signed_urls)
+        }
+        for fut in as_completed(futs):
+            it = futs[fut]
+            try:
+                err = fut.result()
+            except Exception as e:
+                err = f"{type(e).__name__}: {e}"
+            if err:
+                print(f"    [upload-fail] {it['filename']}: {err}")
 
 
-def poll(batch_id: str, *, timeout_s: int = 600) -> list[dict]:
+def poll(batch_id: str, *, timeout_s: int = 600,
+         stall_polls: int = 5) -> list[dict]:
     """Block until every row in ``batch_id`` is ``done`` or ``failed``.
 
     Returns the rows list MinerU returned (each row has ``data_id``,
     ``state``, ``err_msg``, ``full_zip_url``).
+
+    Short-circuits when the batch has visibly stalled — i.e. ``running``
+    and ``pending`` are both 0 yet ``all(done/failed)`` is still False
+    (a file slot left in some untracked state, e.g. when its OSS upload
+    never completed). Returns the rows we have after ``stall_polls``
+    identical readings so the caller can download the files that did
+    finish instead of burning ``timeout_s`` per affected batch.
     """
     poll_url = f"{MINERU_BASE}/extract-results/batch/{batch_id}"
     deadline = time.time() + timeout_s
+    last_sig: tuple | None = None
+    stall_count = 0
     while time.time() < deadline:
         r = requests.get(poll_url, headers=MINERU_HEADERS, timeout=30)
         r.raise_for_status()
@@ -115,6 +179,16 @@ def poll(batch_id: str, *, timeout_s: int = 600) -> list[dict]:
         n_done    = sum(1 for s in states if s == "done")
         n_running = sum(1 for s in states if s == "running")
         n_pending = sum(1 for s in states if s == "pending")
+        sig = (len(rows), n_done, n_running, n_pending)
+        if sig == last_sig:
+            stall_count += 1
+        else:
+            stall_count = 0
+            last_sig = sig
+        if n_running == 0 and n_pending == 0 and stall_count >= stall_polls:
+            print(f"    [poll] stalled at done={n_done} (rows={len(rows)});"
+                  f" returning partial results", flush=True)
+            return rows
         print(f"    [poll] done={n_done} running={n_running} pending={n_pending}",
               flush=True)
         time.sleep(8)
