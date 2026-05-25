@@ -89,12 +89,42 @@ def upload_files(items: list[dict], signed_urls: list[str]) -> None:
     """PUT each item's bytes to its signed OSS URL.
 
     ``item`` must have ``disk_path`` (Path) pointing at the file to upload.
+
+    Each upload uses a fresh ``requests.Session`` so a flaky TLS keep-alive
+    on one PUT doesn't poison subsequent uploads. SSL/connection errors on a
+    single file are retried up to 3 times with exponential backoff (1s, 2s,
+    4s) and a transient HTTP 5xx is also retried. After exhausting retries,
+    we log the file as failed and continue — the poll step naturally skips
+    files that never landed in OSS, so one bad upload no longer aborts the
+    whole batch's signed URLs.
     """
     for it, url in zip(items, signed_urls):
         with open(it["disk_path"], "rb") as f:
-            r = requests.put(url, data=f.read(), timeout=120)
-        if not r.ok:
-            print(f"    [upload-fail] {it['filename']}: HTTP {r.status_code}")
+            body = f.read()
+        last_err: str | None = None
+        for attempt in range(3):
+            try:
+                with requests.Session() as s:
+                    s.headers["Connection"] = "close"
+                    r = s.put(url, data=body, timeout=120)
+                if r.ok:
+                    last_err = None
+                    break
+                if 500 <= r.status_code < 600 and attempt < 2:
+                    last_err = f"HTTP {r.status_code}"
+                    time.sleep(2 ** attempt)
+                    continue
+                last_err = f"HTTP {r.status_code}"
+                break
+            except (requests.exceptions.SSLError,
+                    requests.exceptions.ConnectionError,
+                    requests.exceptions.Timeout) as e:
+                last_err = f"{type(e).__name__}"
+                if attempt < 2:
+                    time.sleep(2 ** attempt)
+                    continue
+        if last_err:
+            print(f"    [upload-fail] {it['filename']}: {last_err}")
 
 
 def poll(batch_id: str, *, timeout_s: int = 600) -> list[dict]:

@@ -67,7 +67,9 @@ REPO_ROOT          = Path(__file__).resolve().parent.parent
 NOTICE_DESC_V3_DIR = REPO_ROOT / "pipeline" / "cache" / "notice_descriptions_v3"
 PROMPT_PATH        = PROMPTS_DIR / "extract_description.txt"
 
-MINERU_BATCH_SIZE = 20      # files per MinerU batch request
+MINERU_BATCH_SIZE = 10      # files per MinerU batch request
+                            # (signed OSS URLs are short-lived; smaller
+                            # batches reduce the chance of expiry mid-batch)
 LLM_CONCURRENCY   = 6       # concurrent OpenRouter calls
 WRITE_CHUNK       = 200     # rows per UNWIND Cypher write
 
