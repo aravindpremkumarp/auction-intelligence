@@ -39,8 +39,22 @@ def _format_indian_lakh(n: int) -> str:
     return ("-" if n < 0 else "") + formatted
 
 
-def _price_patterns(price) -> list[str]:
-    """Candidate strings a reserve price might appear as in the notice markdown."""
+def _trim_zero(s: str) -> str:
+    """``'32.80' -> '32.8'``; ``'32.00' -> '32'``. Used for Lakhs/Crores."""
+    if "." not in s:
+        return s
+    return s.rstrip("0").rstrip(".")
+
+
+def _price_patterns(price) -> list[tuple[str, bool]]:
+    """Candidate strings a reserve price might appear as in the notice markdown.
+
+    Returns ``[(pattern, case_insensitive), ...]``. The case-sensitive
+    patterns are the digit-only / digit-comma / digit-dot forms — flipping
+    those to case-insensitive would not change behaviour but would slow
+    matching slightly. The Lakhs/Crores suffix forms are case-insensitive
+    so we match ``32.80 Lakhs``/``32.80 lakhs``/``32.80LAKHS`` uniformly.
+    """
     if price is None:
         return []
     try:
@@ -53,11 +67,39 @@ def _price_patterns(price) -> list[str]:
     intl = f"{n:,}"
     indian = _format_indian_lakh(n)
     seen: set[str] = set()
-    out: list[str] = []
+    out: list[tuple[str, bool]] = []
+    # Digit forms: indian-lakh (``9,24,00,000``), international (``92,400,000``),
+    # raw (``92400000``), and dot-separated twins of the comma forms — OCR
+    # frequently renders thousand-separator commas as dots.
     for p in (indian, intl, raw):
-        if p and p not in seen:
-            seen.add(p)
-            out.append(p)
+        if not p or p in seen:
+            continue
+        seen.add(p)
+        out.append((p, False))
+        if "," in p:
+            dotted = p.replace(",", ".")
+            if dotted not in seen:
+                seen.add(dotted)
+                out.append((dotted, False))
+    # Lakhs / Crores suffix forms (``Rs.32.80 Lakhs``, ``18.00Lakhs``,
+    # ``Rs.70.00 Lakhs``). Common in TN sale notices that summarise the
+    # reserve price in words instead of the full digit string.
+    if n >= 100_000:
+        lakh = n / 100_000.0
+        for num_str in (f"{lakh:.2f}", _trim_zero(f"{lakh:.2f}"), f"{lakh:g}"):
+            for suffix in (" Lakhs", " Lakh", "Lakhs", "Lakh"):
+                pat = num_str + suffix
+                if pat not in seen:
+                    seen.add(pat)
+                    out.append((pat, True))
+    if n >= 10_000_000:
+        cr = n / 10_000_000.0
+        for num_str in (f"{cr:.2f}", _trim_zero(f"{cr:.2f}"), f"{cr:g}"):
+            for suffix in (" Crores", " Crore", "Crores", "Crore"):
+                pat = num_str + suffix
+                if pat not in seen:
+                    seen.add(pat)
+                    out.append((pat, True))
     return out
 
 
@@ -107,8 +149,8 @@ def property_offset_in_notice(prop: dict, markdown: str) -> int | None:
     if not markdown:
         return None
     price_offsets: list[int] = []
-    for pat in _price_patterns(prop.get("reserve_price")):
-        price_offsets.extend(_all_offsets(markdown, pat))
+    for pat, case_insensitive in _price_patterns(prop.get("reserve_price")):
+        price_offsets.extend(_all_offsets(markdown, pat, case_insensitive))
     if not price_offsets:
         return None
 
