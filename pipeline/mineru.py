@@ -29,6 +29,20 @@ MINERU_RAW_ZIPS_DIR = PIPELINE_DIR / "cache" / "mineru_raw_zips"
 MINERU_SUPPORTED_EXTS = {".pdf", ".jpg", ".jpeg", ".png", ".jfif"}
 MINERU_EXT_REMAP = {".jfif": ".jpg"}
 
+# Pre-clean (LANCZOS upscale + unsharp mask) is applied to raster source
+# images whose long edge is below PRECLEAN_LONG_EDGE_THRESHOLD pixels.
+# Under-resolution input triggers MinerU's vlm model into repetition-loop
+# hallucinations (a single low-res notice produced ~120 fabricated
+# boundary entries and ate four of five borrowers). A 2x LANCZOS upscale
+# + light unsharp mask brings the per-character pixel density back into
+# the model's comfort zone and eliminates the loops. PDFs are skipped:
+# they carry vector text or embedded images at their native resolution
+# and MinerU rasterizes them internally.
+PRECLEAN_EXTS               = {".jpg", ".jpeg", ".png", ".webp", ".jfif"}
+PRECLEAN_LONG_EDGE_THRESHOLD = 1500
+PRECLEAN_FACTOR              = 2
+PRECLEAN_MODEL_TAG           = f"mineru-vlm-preclean{PRECLEAN_FACTOR}x"
+
 
 # MinerU's content-list JSON uses lowercase snake-case block types. Map
 # them to a stable canonical set used everywhere downstream (UI dropdown,
@@ -83,10 +97,13 @@ def safe_cache_name(path: str) -> str:
 def find_disk_path(filename: str, downloads_dir: Path = DOWNLOADS_DIR) -> Path | None:
     """Resolve a Document filename to a concrete file on disk.
 
-    Tries ``downloads/tn_properties/`` first (current scraper layout) and
-    falls back to ``downloads/``. Returns ``None`` if neither exists.
+    Tries the known scraper layouts under ``downloads/`` in order:
+    ``live_properties/`` (current), ``tn_properties/`` (historical),
+    then the bare ``downloads/`` root. Returns ``None`` if none exist.
     """
-    for base in (downloads_dir / "tn_properties", downloads_dir):
+    for base in (downloads_dir / "live_properties",
+                 downloads_dir / "tn_properties",
+                 downloads_dir):
         p = base / filename
         if p.exists():
             return p
@@ -279,6 +296,61 @@ def assemble_markdown(blocks: list[dict]) -> str:
                 text = "# " + text
         chunks.append(text)
     return "\n\n".join(chunks)
+
+
+def preclean_if_needed(disk_path: Path) -> tuple[Path, bool]:
+    """Apply pre-clean (upscale + unsharp) when the image is under the
+    resolution threshold. Returns ``(path_to_send, was_precleaned)``.
+
+    The returned path is a temp JPEG that the CALLER must delete when
+    pre-clean fired. Non-image extensions and already-large images pass
+    through unchanged. Any Pillow failure falls through to the original
+    so a broken pre-clean can't strand a doc that would otherwise OCR.
+    """
+    ext = disk_path.suffix.lower()
+    if ext not in PRECLEAN_EXTS:
+        return disk_path, False
+    try:
+        # Lazy import: most callers don't hit this path; the bulk pipeline
+        # already imports Pillow elsewhere when it needs to.
+        from PIL import Image, ImageFilter
+        import os
+        import tempfile
+
+        with Image.open(disk_path) as im:
+            w, h = im.size
+            if max(w, h) >= PRECLEAN_LONG_EDGE_THRESHOLD:
+                return disk_path, False
+            up = im.convert("RGB").resize(
+                (w * PRECLEAN_FACTOR, h * PRECLEAN_FACTOR), Image.LANCZOS,
+            )
+            up = up.filter(
+                ImageFilter.UnsharpMask(radius=2, percent=150, threshold=3),
+            )
+            fd, name = tempfile.mkstemp(suffix=".jpg", prefix="preclean_")
+            with os.fdopen(fd, "wb") as f:
+                up.save(f, format="JPEG", quality=95)
+            return Path(name), True
+    except Exception:
+        return disk_path, False
+
+
+def preclean_sentinel_path(file_path: str) -> Path:
+    """Sidecar file path marking that ``file_path`` was pre-cleaned during
+    its most recent stage1 OCR. The Neo4j loader reads this per-doc to
+    set ``Document.markdown_model``."""
+    return MINERU_MARKDOWN_DIR / f"{safe_cache_name(file_path)}.preclean"
+
+
+def mark_precleaned(file_path: str) -> None:
+    """Drop the sidecar marker. Idempotent."""
+    p = preclean_sentinel_path(file_path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text("", encoding="utf-8")
+
+
+def is_precleaned(file_path: str) -> bool:
+    return preclean_sentinel_path(file_path).exists()
 
 
 def cached_blocks_for_file_path(file_path: str) -> list[dict] | None:
