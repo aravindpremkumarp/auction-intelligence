@@ -221,6 +221,7 @@ class MarkdownRow(BaseModel):
     property_count: int | None = None
     markdown_length: int | None = None
     markdown: str | None = None
+    markdown_model: str | None = None
     score: float | None = None
     quality: Literal["good", "bad"] | None = None
     verified: bool = False

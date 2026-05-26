@@ -569,6 +569,7 @@
       <a class="link" href="#">← Back to queue</a>
       <span class="filename" id="ann-filename"></span>
       <span class="pill" id="ann-rev"></span>
+      <span class="pill" id="ann-preclean" title="Source image was upscaled + sharpened before OCR (long edge was below 1500 px)" style="display:none;background:#dff5e3;color:#1b6b3c;border-color:#9bd2af">preclean 2×</span>
       <span style="flex:1"></span>
       <label class="meta" style="display:none" id="ann-page-wrap">page <select class="page-select" id="ann-page"></select></label>
       <button id="ann-add" class="ghost">+ Add block</button>
@@ -1220,11 +1221,14 @@
     const reextractedBadge = row.reextracted_at
       ? `<span class="pill warn" title="re-extracted ${escapeHtml(row.reextracted_at)}${row.reextracted_by ? ' by ' + escapeHtml(row.reextracted_by) : ''}">re-extracted</span>`
       : '';
+    const precleanBadge = row.markdown_model === 'mineru-vlm-preclean2x'
+      ? `<span class="pill" title="Source image was upscaled + sharpened before OCR (long edge was below 1500 px)" style="background:#dff5e3;color:#1b6b3c;border-color:#9bd2af">preclean 2×</span>`
+      : '';
 
     const summary = document.createElement('summary');
     summary.innerHTML = `
       <span class="nfile">${escapeHtml(filename)}</span>
-      ${typeBadge} ${scorePill(row.score)} ${mdStatusPill(row)} ${reextractedBadge}
+      ${typeBadge} ${scorePill(row.score)} ${mdStatusPill(row)} ${reextractedBadge} ${precleanBadge}
       ${props} ${len}
       <span class="nspacer"></span>
       <span class="nlinks">${annotateLink} ${openLink}</span>
@@ -2289,6 +2293,8 @@
       ann.rotation = normalizeRotation(doc.rotation);
       ann.rev = doc.blocks_revision || 0;
       $('ann-rev').textContent = 'rev ' + ann.rev;
+      $('ann-preclean').style.display =
+        (doc.markdown_model === 'mineru-vlm-preclean2x') ? '' : 'none';
       const openLink = $('ann-open-src');
       if (doc.public_url) {
         openLink.href = doc.public_url;
