@@ -50,6 +50,9 @@ from pipeline.mineru import (
     MINERU_MARKDOWN_DIR as MINERU_MD_DIR,
     MINERU_SUPPORTED_EXTS,
     find_disk_path,
+    mark_precleaned,
+    preclean_if_needed,
+    preclean_sentinel_path,
     safe_cache_name,
 )
 from pipeline.mineru_api import (
@@ -140,50 +143,88 @@ def stage1_mineru(work: list[dict]) -> dict[str, str]:
     if not items_to_call:
         return md_by_path
 
-    batches = list(chunked(items_to_call, MINERU_BATCH_SIZE))
-    for bi, batch in enumerate(batches, 1):
-        print(f"\n  Batch {bi}/{len(batches)}: {len(batch)} files", flush=True)
-        # Retry the whole batch up to 3 times for transient network errors.
-        for attempt in range(3):
-            try:
-                batch_id, urls = mineru_request_batch(batch)
-                print(f"    batch_id={batch_id}")
-                mineru_upload_files(batch, urls)
-                results = mineru_poll(batch_id)
-                break
-            except (requests.exceptions.ConnectionError,
-                    requests.exceptions.Timeout) as e:
-                wait = 5 * (attempt + 1)
-                print(f"    [transient] {type(e).__name__}, retry {attempt+1}/3 in {wait}s")
-                time.sleep(wait)
-                continue
-            except Exception as e:
-                print(f"    [BATCH FAIL] {e}")
-                results = []
-                break
-        else:
-            print(f"    [BATCH FAIL] gave up after 3 retries")
-            continue
-        if not results:
-            continue
+    # Pre-clean low-resolution images before upload. Swaps disk_path to a
+    # temp JPEG and tags the filename so the API-side name reflects the
+    # transformation. The file_path / data_id stays canonical so the
+    # downstream cache lands in the same key.
+    preclean_tmps: list[Path] = []
+    precleaned_fps: set[str] = set()
+    for it in items_to_call:
+        new_disk, was_pre = preclean_if_needed(it["disk_path"])
+        if was_pre:
+            it["disk_path"] = new_disk
+            it["filename"] = Path(it["filename"]).stem + "_preclean.jpg"
+            preclean_tmps.append(new_disk)
+            precleaned_fps.add(it["file_path"])
+    if precleaned_fps:
+        print(f"  pre-cleaned {len(precleaned_fps)}/{len(items_to_call)} "
+              f"low-res images (long edge < 1500 px)")
 
-        for r in results:
-            data_id = r.get("data_id")
-            state = r.get("state")
-            match = next((it for it in batch if safe_cache_name(it["file_path"])[:128] == data_id), None)
-            if match is None:
+    batches = list(chunked(items_to_call, MINERU_BATCH_SIZE))
+    try:
+        for bi, batch in enumerate(batches, 1):
+            print(f"\n  Batch {bi}/{len(batches)}: {len(batch)} files", flush=True)
+            # Retry the whole batch up to 3 times for transient network errors.
+            for attempt in range(3):
+                try:
+                    batch_id, urls = mineru_request_batch(batch)
+                    print(f"    batch_id={batch_id}")
+                    mineru_upload_files(batch, urls)
+                    results = mineru_poll(batch_id)
+                    break
+                except (requests.exceptions.ConnectionError,
+                        requests.exceptions.Timeout) as e:
+                    wait = 5 * (attempt + 1)
+                    print(f"    [transient] {type(e).__name__}, retry {attempt+1}/3 in {wait}s")
+                    time.sleep(wait)
+                    continue
+                except Exception as e:
+                    print(f"    [BATCH FAIL] {e}")
+                    results = []
+                    break
+            else:
+                print(f"    [BATCH FAIL] gave up after 3 retries")
                 continue
-            if state != "done":
-                print(f"    [{match['filename']}] state={state}  err={r.get('err_msg')}")
+            if not results:
                 continue
-            zip_url = r.get("full_zip_url")
-            if zip_url is None:
-                continue
-            md_path, blocks_path = mineru_download_and_cache(match["file_path"], zip_url)
-            if md_path:
-                md_by_path[match["file_path"]] = md_path.read_text(encoding="utf-8")
-                blocks_note = " +blocks.json" if blocks_path else " (no blocks.json)"
-                print(f"    [{match['filename']}] -> {md_path.stat().st_size} bytes{blocks_note}")
+
+            for r in results:
+                data_id = r.get("data_id")
+                state = r.get("state")
+                match = next((it for it in batch if safe_cache_name(it["file_path"])[:128] == data_id), None)
+                if match is None:
+                    continue
+                if state != "done":
+                    print(f"    [{match['filename']}] state={state}  err={r.get('err_msg')}")
+                    continue
+                zip_url = r.get("full_zip_url")
+                if zip_url is None:
+                    continue
+                md_path, blocks_path = mineru_download_and_cache(match["file_path"], zip_url)
+                if md_path:
+                    md_by_path[match["file_path"]] = md_path.read_text(encoding="utf-8")
+                    blocks_note = " +blocks.json" if blocks_path else " (no blocks.json)"
+                    pre_note = ""
+                    if match["file_path"] in precleaned_fps:
+                        mark_precleaned(match["file_path"])
+                        pre_note = " +preclean"
+                    else:
+                        # If a prior pre-cleaned run cached this doc and
+                        # the source was since re-OCR'd at full size,
+                        # clear the stale marker so the loader doesn't
+                        # mis-tag the new run.
+                        stale = preclean_sentinel_path(match["file_path"])
+                        if stale.exists():
+                            stale.unlink()
+                    print(f"    [{match['filename']}] -> {md_path.stat().st_size} bytes"
+                          f"{blocks_note}{pre_note}")
+    finally:
+        for tmp in preclean_tmps:
+            try:
+                tmp.unlink()
+            except FileNotFoundError:
+                pass
+
     return md_by_path
 
 

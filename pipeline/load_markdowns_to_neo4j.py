@@ -37,6 +37,8 @@ from pathlib import Path
 from api.neo4j_client import run_query, run_read_query, session
 from pipeline.mineru import (
     MINERU_BLOCKS_DIR,
+    PRECLEAN_MODEL_TAG,
+    is_precleaned,
     parse_mineru_content_list,
     safe_cache_name,
 )
@@ -111,8 +113,11 @@ def fetch_pending(force: bool) -> list[dict]:
 def write_markdowns(rows: list[dict], source: str, model: str) -> None:
     """Write markdown + (optional) blocks JSON to each Document.
 
-    ``rows`` items carry: ``file_path``, ``markdown``, and optionally
-    ``blocks_json`` (string, JSON-encoded ``{"schema_version":1,"blocks":[...]}``).
+    ``rows`` items carry: ``file_path``, ``markdown``, optional
+    ``blocks_json`` (string, JSON-encoded ``{"schema_version":1,"blocks":[...]}``),
+    and optional ``model`` (per-row override of the default ``$model``
+    parameter — used when stage1 pre-cleaned the source so the tag
+    reflects what produced this row, not the batch-wide default).
     Documents without a blocks payload keep their existing ``d.blocks``
     (or ``NULL``) — we never clobber blocks the reviewer may have edited.
     """
@@ -121,7 +126,7 @@ def write_markdowns(rows: list[dict], source: str, model: str) -> None:
         MATCH (d:Document {file_path: row.file_path})
         SET d.markdown            = row.markdown,
             d.markdown_source     = $source,
-            d.markdown_model      = $model,
+            d.markdown_model      = coalesce(row.model, $model),
             d.markdown_loaded_at  = datetime(),
             d.blocks              = CASE
                 WHEN row.blocks_json IS NULL THEN d.blocks
@@ -247,6 +252,7 @@ def main() -> int:
             "file_path":   fp,
             "markdown":    text,
             "blocks_json": blocks_json,
+            "model":       PRECLEAN_MODEL_TAG if is_precleaned(fp) else None,
         })
         done += 1
 

@@ -255,6 +255,7 @@ def _load_doc(filename: str) -> tuple[dict, int, dict]:
                d.storage_key                  AS storage_key,
                d.notice_type                  AS notice_type,
                d.markdown                     AS markdown,
+               d.markdown_model               AS markdown_model,
                d.crop_bbox                    AS crop_bbox,
                d.crop_page                    AS crop_page,
                d.rotation                     AS rotation
@@ -280,15 +281,16 @@ def _load_doc(filename: str) -> tuple[dict, int, dict]:
         # Stale/corrupt persisted value shouldn't brick the loader.
         rotation = 0
     meta = {
-        "filename":    r.get("filename"),
-        "file_path":   r.get("file_path"),
-        "public_url":  r.get("public_url"),
-        "storage_key": r.get("storage_key"),
-        "notice_type": r.get("notice_type"),
-        "markdown":    r.get("markdown"),
-        "crop_bbox":   crop_bbox,
-        "crop_page":   crop_page,
-        "rotation":    rotation,
+        "filename":       r.get("filename"),
+        "file_path":      r.get("file_path"),
+        "public_url":     r.get("public_url"),
+        "storage_key":    r.get("storage_key"),
+        "notice_type":    r.get("notice_type"),
+        "markdown":       r.get("markdown"),
+        "markdown_model": r.get("markdown_model"),
+        "crop_bbox":      crop_bbox,
+        "crop_page":      crop_page,
+        "rotation":       rotation,
     }
     return doc, int(r.get("rev") or 0), meta
 
