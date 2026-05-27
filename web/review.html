@@ -593,6 +593,7 @@
         <span id="ann-zoom-pct" class="meta zoom-pct">Fit</span>
         <button id="ann-zoom-in" class="ghost zoom-btn" title="zoom in (or scroll wheel up)">+</button>
       </span>
+      <button id="ann-reingest-btn" class="ghost" title="re-run MinerU layout extraction (applies saved rotation + crop)">Re-ingest</button>
       <button id="ann-reload" class="ghost">Reload</button>
       <a class="link" id="ann-open-src" target="_blank" rel="noopener" style="display:none">open source ↗</a>
     </div>
@@ -3767,6 +3768,7 @@
     refreshCropButton();
     paintAnnOverlay();
   });
+  $('ann-reingest-btn').addEventListener('click', (e) => annReingest(e.currentTarget));
   $('ann-reload').addEventListener('click', () => loadAnnotator(ann.filename));
 
   // ── Zoom ─────────────────────────────────────────────────────────────────
