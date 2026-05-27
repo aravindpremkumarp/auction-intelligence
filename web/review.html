@@ -119,8 +119,12 @@
   .notice-card .ntable tr.verified td { background: #f6fbf6; }
   .notice-card .ntable tr.edited td { background: #fffbf0; }
   /* Markdown review card: side-by-side source + markdown */
-  .mdcard-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 10px 12px; }
-  @media (max-width: 1100px) { .mdcard-grid { grid-template-columns: 1fr; } }
+  .mdcard-grid { display: grid; grid-template-columns: minmax(0, calc(var(--mdcard-left-fr, 1) * 1fr)) 6px minmax(0, calc(var(--mdcard-right-fr, 1) * 1fr)); gap: 4px; padding: 10px 12px; }
+  @media (max-width: 1100px) { .mdcard-grid { grid-template-columns: 1fr; gap: 10px; } .mdcard-resizer { display: none; } }
+  .mdcard-resizer { cursor: col-resize; background: var(--ink); opacity: 0.18; border-radius: 2px; align-self: stretch; min-height: 360px; user-select: none; touch-action: none; }
+  .mdcard-resizer:hover { opacity: 0.4; }
+  body.mdcard-resizing { cursor: col-resize !important; user-select: none; }
+  body.mdcard-resizing .mdcard-resizer { opacity: 0.6; }
   .mdcard-source { border: 1.5px solid var(--ink); background: #2a2a2a; min-height: 360px; max-height: 70vh; overflow: auto; display: flex; justify-content: center; align-items: flex-start; }
   .mdcard-source img { max-width: 100%; height: auto; background: #fff; }
   .mdcard-source iframe { width: 100%; height: 70vh; min-height: 360px; border: 0; background: #fff; }
@@ -1198,6 +1202,50 @@
     return '<span class="pill good">good</span>';
   }
 
+  (function initMdcardSplit() {
+    try {
+      const v = parseFloat(localStorage.getItem('mdcardSplit') || '');
+      if (isFinite(v) && v >= 0.15 && v <= 0.85) {
+        document.documentElement.style.setProperty('--mdcard-left-fr', v.toFixed(3));
+        document.documentElement.style.setProperty('--mdcard-right-fr', (1 - v).toFixed(3));
+      }
+    } catch {}
+  })();
+
+  function attachMdcardResizer(handle, grid) {
+    handle.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      try { handle.setPointerCapture(e.pointerId); } catch {}
+      document.body.classList.add('mdcard-resizing');
+      const onMove = (ev) => {
+        const rect = grid.getBoundingClientRect();
+        if (rect.width <= 0) return;
+        let ratio = (ev.clientX - rect.left) / rect.width;
+        ratio = Math.min(0.85, Math.max(0.15, ratio));
+        document.documentElement.style.setProperty('--mdcard-left-fr', ratio.toFixed(3));
+        document.documentElement.style.setProperty('--mdcard-right-fr', (1 - ratio).toFixed(3));
+      };
+      const onUp = () => {
+        document.body.classList.remove('mdcard-resizing');
+        handle.removeEventListener('pointermove', onMove);
+        handle.removeEventListener('pointerup', onUp);
+        handle.removeEventListener('pointercancel', onUp);
+        try {
+          const v = parseFloat(document.documentElement.style.getPropertyValue('--mdcard-left-fr')) || 0.5;
+          localStorage.setItem('mdcardSplit', v.toFixed(3));
+        } catch {}
+      };
+      handle.addEventListener('pointermove', onMove);
+      handle.addEventListener('pointerup', onUp);
+      handle.addEventListener('pointercancel', onUp);
+    });
+    handle.addEventListener('dblclick', () => {
+      document.documentElement.style.removeProperty('--mdcard-left-fr');
+      document.documentElement.style.removeProperty('--mdcard-right-fr');
+      try { localStorage.removeItem('mdcardSplit'); } catch {}
+    });
+  }
+
   function renderMarkdownCard(row) {
     const card = document.createElement('details');
     card.className = 'notice-card';
@@ -1253,7 +1301,12 @@
       </div>
       <div class="mdcard-md-body"></div>
     `;
+    const resizer = document.createElement('div');
+    resizer.className = 'mdcard-resizer';
+    resizer.title = 'Drag to resize panels';
+    attachMdcardResizer(resizer, grid);
     grid.appendChild(srcBox);
+    grid.appendChild(resizer);
     grid.appendChild(mdBox);
     body.appendChild(grid);
 
