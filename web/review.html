@@ -208,8 +208,12 @@
   .ann-toolbar .zoom-group { display: inline-flex; gap: 4px; align-items: center; padding: 0 6px; border-left: 1px solid var(--muted); border-right: 1px solid var(--muted); }
   .ann-toolbar .zoom-btn { padding: 2px 8px; min-height: 0; font-size: 13px; }
   .ann-toolbar .zoom-pct { min-width: 36px; text-align: center; font-family: 'IBM Plex Mono', monospace; font-size: 11px; }
-  .ann-grid { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(280px, 1fr); gap: 14px; }
-  @media (max-width: 1100px) { .ann-grid { grid-template-columns: 1fr; } }
+  .ann-grid { display: grid; grid-template-columns: minmax(0, var(--anngrid-left-fr, 1.4fr)) 6px minmax(280px, var(--anngrid-right-fr, 1fr)); gap: 4px; }
+  @media (max-width: 1100px) { .ann-grid { grid-template-columns: 1fr; gap: 14px; } .ann-resizer { display: none; } }
+  .ann-resizer { cursor: col-resize; background: var(--ink); opacity: 0.18; border-radius: 2px; align-self: stretch; user-select: none; touch-action: none; }
+  .ann-resizer:hover { opacity: 0.4; }
+  body.anngrid-resizing { cursor: col-resize !important; user-select: none; }
+  body.anngrid-resizing .ann-resizer { opacity: 0.6; }
   .ann-stage { border: 2px solid var(--ink); background: #2a2a2a; box-shadow: 2px 3px 0 rgba(0,0,0,0.9); overflow: auto; max-height: 85vh; min-height: 60vh; padding: 8px; text-align: center; overscroll-behavior: contain; }
   .ann-stage.panning { cursor: grabbing; }
   .ann-stage.panning * { cursor: grabbing !important; }
@@ -599,6 +603,7 @@
           <div class="empty" style="padding:20px; color:#fff;">loading…</div>
         </div>
       </div>
+      <div class="ann-resizer" id="ann-resizer" title="Drag to resize panels"></div>
       <div class="ann-sidebar">
         <h2>Blocks</h2>
         <div id="ann-rows"></div>
@@ -1202,37 +1207,44 @@
     return '<span class="pill good">good</span>';
   }
 
-  (function initMdcardSplit() {
+  const MDCARD_SPLIT_OPTS = { storageKey: 'mdcardSplit', leftVar: '--mdcard-left-fr', rightVar: '--mdcard-right-fr', bodyClass: 'mdcard-resizing' };
+  const ANNGRID_SPLIT_OPTS = { storageKey: 'anngridSplit', leftVar: '--anngrid-left-fr', rightVar: '--anngrid-right-fr', bodyClass: 'anngrid-resizing', minRightPx: 280 };
+
+  function initPanelSplit(opts) {
     try {
-      const v = parseFloat(localStorage.getItem('mdcardSplit') || '');
+      const v = parseFloat(localStorage.getItem(opts.storageKey) || '');
       if (isFinite(v) && v >= 0.15 && v <= 0.85) {
-        document.documentElement.style.setProperty('--mdcard-left-fr', v.toFixed(3) + 'fr');
-        document.documentElement.style.setProperty('--mdcard-right-fr', (1 - v).toFixed(3) + 'fr');
+        document.documentElement.style.setProperty(opts.leftVar, v.toFixed(3) + 'fr');
+        document.documentElement.style.setProperty(opts.rightVar, (1 - v).toFixed(3) + 'fr');
       }
     } catch {}
-  })();
+  }
 
-  function attachMdcardResizer(handle, grid) {
+  function attachPanelResizer(handle, grid, opts) {
+    const { storageKey, leftVar, rightVar, bodyClass, minRightPx = 0 } = opts;
     handle.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       try { handle.setPointerCapture(e.pointerId); } catch {}
-      document.body.classList.add('mdcard-resizing');
+      document.body.classList.add(bodyClass);
       const onMove = (ev) => {
         const rect = grid.getBoundingClientRect();
         if (rect.width <= 0) return;
+        const maxRatio = minRightPx > 0
+          ? Math.max(0.15, (rect.width - minRightPx - 6) / rect.width)
+          : 0.85;
         let ratio = (ev.clientX - rect.left) / rect.width;
-        ratio = Math.min(0.85, Math.max(0.15, ratio));
-        document.documentElement.style.setProperty('--mdcard-left-fr', ratio.toFixed(3) + 'fr');
-        document.documentElement.style.setProperty('--mdcard-right-fr', (1 - ratio).toFixed(3) + 'fr');
+        ratio = Math.min(maxRatio, Math.max(0.15, ratio));
+        document.documentElement.style.setProperty(leftVar, ratio.toFixed(3) + 'fr');
+        document.documentElement.style.setProperty(rightVar, (1 - ratio).toFixed(3) + 'fr');
       };
       const onUp = () => {
-        document.body.classList.remove('mdcard-resizing');
+        document.body.classList.remove(bodyClass);
         handle.removeEventListener('pointermove', onMove);
         handle.removeEventListener('pointerup', onUp);
         handle.removeEventListener('pointercancel', onUp);
         try {
-          const v = parseFloat(document.documentElement.style.getPropertyValue('--mdcard-left-fr')) || 0.5;
-          localStorage.setItem('mdcardSplit', v.toFixed(3));
+          const v = parseFloat(document.documentElement.style.getPropertyValue(leftVar)) || 0.5;
+          localStorage.setItem(storageKey, v.toFixed(3));
         } catch {}
       };
       handle.addEventListener('pointermove', onMove);
@@ -1240,11 +1252,22 @@
       handle.addEventListener('pointercancel', onUp);
     });
     handle.addEventListener('dblclick', () => {
-      document.documentElement.style.removeProperty('--mdcard-left-fr');
-      document.documentElement.style.removeProperty('--mdcard-right-fr');
-      try { localStorage.removeItem('mdcardSplit'); } catch {}
+      document.documentElement.style.removeProperty(leftVar);
+      document.documentElement.style.removeProperty(rightVar);
+      try { localStorage.removeItem(storageKey); } catch {}
     });
   }
+
+  initPanelSplit(MDCARD_SPLIT_OPTS);
+  initPanelSplit(ANNGRID_SPLIT_OPTS);
+
+  (function wireAnngridResizer() {
+    const handle = document.getElementById('ann-resizer');
+    const grid = handle && handle.parentElement;
+    if (handle && grid && grid.classList.contains('ann-grid')) {
+      attachPanelResizer(handle, grid, ANNGRID_SPLIT_OPTS);
+    }
+  })();
 
   function renderMarkdownCard(row) {
     const card = document.createElement('details');
@@ -1304,7 +1327,7 @@
     const resizer = document.createElement('div');
     resizer.className = 'mdcard-resizer';
     resizer.title = 'Drag to resize panels';
-    attachMdcardResizer(resizer, grid);
+    attachPanelResizer(resizer, grid, MDCARD_SPLIT_OPTS);
     grid.appendChild(srcBox);
     grid.appendChild(resizer);
     grid.appendChild(mdBox);
