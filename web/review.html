@@ -2500,8 +2500,11 @@
         );
         if (!r.ok) continue;
         const doc = await r.json();
-        if (Number(doc.blocks_revision || 0) > startedRev
-            || (Array.isArray(doc.blocks) && doc.blocks.length > 0)) {
+        // Rev-only: the server always bumps blocks_revision on a
+        // successful re-ingest, and the OR fallback on blocks.length > 0
+        // falsely fires whenever blocks already existed (crop path,
+        // always-visible toolbar button) before MinerU has finished.
+        if (Number(doc.blocks_revision || 0) > startedRev) {
           clearInterval(tickElapsed);
           annToast('re-ingested', 'ok');
           await loadAnnotator(filename);
