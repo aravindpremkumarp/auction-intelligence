@@ -273,3 +273,34 @@ def borrower_in_markdown(borrowers, markdown: str | None) -> bool:
         if tok and _all_offsets(markdown, tok, case_insensitive=True):
             return True
     return False
+
+
+# ── Highlight spans ─────────────────────────────────────────────────────────
+# For the review UI: locate where a property's description sits in the OCR
+# markdown so the panel can highlight it. Unlike description_coverage (which
+# normalizes both sides and so loses raw offsets), this matches on a
+# lowercase-only copy of the markdown — lowercasing doesn't change length, so
+# the alignment offsets map 1:1 back to the raw markdown characters.
+
+# Below this match quality we don't trust the location enough to highlight it.
+_HIGHLIGHT_MIN_SCORE = 75.0
+
+
+def match_span(website_desc: str | None, markdown: str | None) -> tuple[int, int] | None:
+    """Raw ``(start, end)`` character offsets of the markdown window that best
+    matches the (bleed-stripped) website description, or ``None`` when there's
+    no confident match. Offsets index directly into ``markdown``.
+    """
+    if not website_desc or not markdown:
+        return None
+    probe = strip_field_bleed(website_desc).strip().lower()
+    if not probe:
+        return None
+    al = fuzz.partial_ratio_alignment(probe, markdown.lower())
+    if al is None or al.score < _HIGHLIGHT_MIN_SCORE:
+        return None
+    start, end = al.dest_start, al.dest_end
+    if end <= start:
+        return None
+    return (start, end)
+
