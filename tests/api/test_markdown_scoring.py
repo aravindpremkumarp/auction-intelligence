@@ -10,6 +10,7 @@ from api.review.markdown_match import (
     borrower_in_markdown,
     description_coverage,
     price_in_markdown,
+    strip_field_bleed,
 )
 from pipeline.score_markdown import (
     W_BORROWER,
@@ -68,6 +69,44 @@ def test_coverage_ignores_hyphenation_and_label_noise():
     b = "Sub-Division New Survey within Anchaneyar Street"
     score, _ = description_coverage(a, b)
     assert score >= 95.0
+
+
+# ── strip_field_bleed ───────────────────────────────────────────────────────
+
+def test_strip_field_bleed_removes_trailing_scraped_fields():
+    text = (
+        "...Admeasuring 1160 Sq.Ft of land and building"
+        "Province/State :Tamil NaduCity/Town :RanipetArea/Town :Wallaja Taluk"
+    )
+    cleaned = strip_field_bleed(text)
+    assert cleaned.endswith("land and building")
+    assert "Province/State" not in cleaned
+    assert "City/Town" not in cleaned
+
+
+def test_strip_field_bleed_preserves_prose_with_label_words():
+    # "District of" (no colon) is real prose and must survive.
+    prose = (
+        "within the Sub-Registration District of Sholingur and Registration "
+        "District of Ranipet within the boundaries"
+    )
+    assert strip_field_bleed(prose) == prose
+
+
+def test_strip_field_bleed_passthrough_and_empty():
+    assert strip_field_bleed("a plain clean description") == "a plain clean description"
+    assert strip_field_bleed("") == ""
+    assert strip_field_bleed(None) == ""
+
+
+def test_coverage_ignores_field_bleed_in_probe():
+    # The website description carries the bleed; the markdown does not. Coverage
+    # should not be dragged down, because the bleed is stripped from the probe.
+    clean_score, _ = description_coverage(WEBSITE, MARKDOWN)
+    bled_score, _ = description_coverage(
+        WEBSITE + "Province/State :Tamil NaduCity/Town :Ranipet", MARKDOWN
+    )
+    assert bled_score >= clean_score - 0.1
 
 
 # ── price / borrower presence ───────────────────────────────────────────────

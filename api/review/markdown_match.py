@@ -188,6 +188,37 @@ _DESC_LABEL = re.compile(r"^\s*property\s+description\s*[:\-]?\s*", re.IGNORECAS
 _HYPHEN_JOIN = re.compile(r"\s*-\s*")
 _WS = re.compile(r"\s+")
 
+# The website scraper grabs the whole container after the "Description" header,
+# so the structured key-value fields below it get glued onto the end of the
+# description text, e.g. "…land and buildingProvince/State :Tamil NaduCity/Town
+# :Ranipet…". These labels never appear as "Label :" inside genuine property
+# prose (a description says "Registration District of Ranipet", never
+# "District :…"), so the colon requirement makes truncation safe.
+_BLEED_LABELS = [
+    "Province/State", "City/Town", "Area/Town", "District", "Taluk", "Village",
+    "Pincode", "PIN Code", "Asset Category", "Property Type", "Auction Type",
+    "Reserve Price", "EMD", "Bank Name", "Branch Name", "Borrower Name",
+    "Service Provider", "Contact Details", "Application Deadline",
+    "Auction Start", "Auction End", "Auction Date",
+]
+_FIELD_BLEED = re.compile(
+    r"(?:" + "|".join(re.escape(lbl) for lbl in _BLEED_LABELS) + r")\s*:"
+)
+
+
+def strip_field_bleed(text: str | None) -> str:
+    """Cut the trailing run of scraped ``Label :value`` fields off a website
+    description (see ``_BLEED_LABELS``). Returns the text unchanged when no
+    such label is present. Safe on genuine prose — the ``:`` after the label
+    is what distinguishes a glued field from words like "District of Ranipet".
+    """
+    if not text:
+        return text or ""
+    m = _FIELD_BLEED.search(text)
+    if not m:
+        return text
+    return text[: m.start()].rstrip(" ,;:-\n\t")
+
 
 def _normalize_for_match(text: str) -> str:
     """Fold OCR / scraper noise so fuzzy matching compares like with like.
@@ -217,7 +248,9 @@ def description_coverage(
     highlight, but not a raw-markdown offset. ``span`` is ``None`` when either
     side is empty.
     """
-    nd = _normalize_for_match(website_desc or "")
+    # Strip the scraper's trailing field bleed from the probe only — never from
+    # the markdown haystack, which legitimately contains "Reserve Price :" etc.
+    nd = _normalize_for_match(strip_field_bleed(website_desc))
     nm = _normalize_for_match(markdown or "")
     if not nd or not nm:
         return 0.0, None
