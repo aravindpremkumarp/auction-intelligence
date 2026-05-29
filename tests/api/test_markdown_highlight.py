@@ -121,3 +121,25 @@ def test_attach_property_highlight_none_when_no_match_or_no_markdown():
     row3 = {"website_description": "", "description": "", "documents": []}
     _attach_property_highlight(row3)
     assert row3["markdown_highlight"] is None
+
+
+# ── edge snapping (ragged start/end fix) ────────────────────────────────────
+
+def test_match_span_snaps_partial_tokens_to_word_boundaries():
+    # The leading "1) :" prefix (absent from the OCR) makes rapidfuzz trim the
+    # first word, and the trailing date is cut mid-token — the real failure the
+    # user saw. After snapping, neither boundary may sit inside a word.
+    md = ("Description of the property : All that part and parcel of the flat "
+          "known as SUDHARSHAN SAYEE. (Physical Possession - 22.01.2025)\n\n"
+          "# Reserve Price: Rs.46,20,000/-")
+    desc = ("1) : All that part and parcel of the flat known as SUDHARSHAN "
+            "SAYEE. (Physical Possession - 22.01.2025)")
+    span = match_span(desc, md)
+    assert span is not None
+    start, end = span
+    # boundaries land on whitespace (or string ends), never inside a word
+    assert start == 0 or md[start - 1].isspace()
+    assert end == len(md) or md[end].isspace()
+    found = md[start:end]
+    assert "All that part" in found
+    assert found.rstrip().endswith("22.01.2025)")  # full date, not "22.0"

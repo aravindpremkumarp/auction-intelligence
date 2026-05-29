@@ -286,6 +286,23 @@ def borrower_in_markdown(borrowers, markdown: str | None) -> bool:
 _HIGHLIGHT_MIN_SCORE = 75.0
 
 
+def _snap_to_word_boundaries(text: str, start: int, end: int) -> tuple[int, int]:
+    """Grow a span outward to the nearest whitespace on both sides.
+
+    rapidfuzz's partial_ratio alignment can trim a few characters at the edges
+    (e.g. a leading "All" the probe's item-number prefix shifted off, or a
+    trailing "1.2025)" cut mid-token), leaving a ragged highlight. Extending to
+    whitespace boundaries completes the partial word/token at each end without
+    pulling in unrelated text — the gap is only ever a fragment of one token.
+    """
+    n = len(text)
+    while start > 0 and not text[start - 1].isspace():
+        start -= 1
+    while end < n and not text[end].isspace():
+        end += 1
+    return start, end
+
+
 def match_span(
     website_desc: str | None, markdown: str | None, with_score: bool = False
 ):
@@ -307,5 +324,6 @@ def match_span(
     start, end = al.dest_start, al.dest_end
     if end <= start:
         return None
+    start, end = _snap_to_word_boundaries(markdown, start, end)
     return (al.score, start, end) if with_score else (start, end)
 
