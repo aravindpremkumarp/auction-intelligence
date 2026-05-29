@@ -8,13 +8,21 @@ property sits, we search for its reserve_price (Indian-lakh + international
 formats) and disambiguate duplicate-price lots by proximity to the
 property's borrower name.
 
+This module also exposes the building blocks of the markdown-quality score:
+  - ``description_coverage`` — how much of the scraped website description is
+    present in the OCR markdown (the primary fidelity probe).
+  - ``price_in_markdown`` / ``borrower_in_markdown`` — corroborating presence
+    checks for the reserve price and a borrower name.
+
 Shared by:
   - api/review/queries.py:_sort_properties_by_markdown  (notice-order sort)
-  - pipeline/score_markdown.py                          (coverage scoring)
+  - pipeline/score_markdown.py                          (blended quality score)
 """
 from __future__ import annotations
 
 import re
+
+from rapidfuzz import fuzz
 
 
 _BORROWER_PREFIXES = re.compile(
@@ -168,3 +176,73 @@ def property_offset_in_notice(prop: dict, markdown: str) -> int | None:
         return min(abs(p - b) for b in borrower_offsets)
 
     return min(price_offsets, key=lambda p: (dist_to_borrower(p), p))
+
+
+# ── Website-description coverage ────────────────────────────────────────────
+# The scraped website description is often a near-verbatim copy of the
+# property paragraph inside the notice. Checking how much of it survives in the
+# OCR markdown is a far stronger fidelity probe than the lone reserve price: a
+# whole paragraph can't match by coincidence the way a single number can.
+
+_DESC_LABEL = re.compile(r"^\s*property\s+description\s*[:\-]?\s*", re.IGNORECASE)
+_HYPHEN_JOIN = re.compile(r"\s*-\s*")
+_WS = re.compile(r"\s+")
+
+
+def _normalize_for_match(text: str) -> str:
+    """Fold OCR / scraper noise so fuzzy matching compares like with like.
+
+    - drop a leading ``Property description:`` label
+    - join hyphenated and line-broken words (``Sub- Division`` → ``subdivision``,
+      ``An-chaneyar`` → ``anchaneyar``) so they line up with the un-hyphenated
+      OCR rendering
+    - lowercase and collapse every whitespace run to a single space
+    """
+    if not text:
+        return ""
+    t = _DESC_LABEL.sub("", text).lower()
+    t = _HYPHEN_JOIN.sub("", t)
+    return _WS.sub(" ", t).strip()
+
+
+def description_coverage(
+    website_desc: str | None, markdown: str | None
+) -> tuple[float, tuple[int, int] | None]:
+    """How much of the website description appears in the markdown.
+
+    Returns ``(score, span)`` where ``score`` is rapidfuzz's 0–100
+    ``partial_ratio`` of the (normalized) website description against the
+    (normalized) markdown, and ``span`` is the ``(start, end)`` of the
+    best-matching window **in the normalized markdown** — useful for a future
+    highlight, but not a raw-markdown offset. ``span`` is ``None`` when either
+    side is empty.
+    """
+    nd = _normalize_for_match(website_desc or "")
+    nm = _normalize_for_match(markdown or "")
+    if not nd or not nm:
+        return 0.0, None
+    al = fuzz.partial_ratio_alignment(nd, nm)
+    if al is None:
+        return 0.0, None
+    return round(al.score, 1), (al.dest_start, al.dest_end)
+
+
+def price_in_markdown(price, markdown: str | None) -> bool:
+    """True if the reserve price appears in the markdown (any known format)."""
+    if not markdown:
+        return False
+    for pat, case_insensitive in _price_patterns(price):
+        if _all_offsets(markdown, pat, case_insensitive):
+            return True
+    return False
+
+
+def borrower_in_markdown(borrowers, markdown: str | None) -> bool:
+    """True if any borrower's distinguishing name token appears in the markdown."""
+    if not markdown:
+        return False
+    for b in borrowers or []:
+        tok = _borrower_token(b)
+        if tok and _all_offsets(markdown, tok, case_insensitive=True):
+            return True
+    return False
