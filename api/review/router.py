@@ -213,6 +213,11 @@ class ClassificationPropertyQueueOut(BaseModel):
 # ── Markdown-quality review models ──────────────────────────────────────────
 
 
+class MarkdownHighlight(BaseModel):
+    start: int
+    end: int
+
+
 class MarkdownRow(BaseModel):
     filename: str | None = None
     file_path: str | None = None
@@ -230,6 +235,9 @@ class MarkdownRow(BaseModel):
     review_notes: str | None = None
     reextracted_at: str | None = None
     reextracted_by: str | None = None
+    # Raw markdown char spans of the tracked properties, for the review-UI
+    # highlight. Populated by queries._attach_markdown_highlights.
+    highlights: list[MarkdownHighlight] = Field(default_factory=list)
 
 
 class MarkdownQueueOut(BaseModel):
