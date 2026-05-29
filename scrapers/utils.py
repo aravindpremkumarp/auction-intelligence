@@ -1,5 +1,6 @@
 
 import os
+import re
 import time
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
@@ -8,6 +9,26 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
+
+# The site renders the property description and the structured location fields
+# (Province/State, City/Town, Area/Town) inside the same container, so grabbing
+# the container's text glues those field labels onto the end of the description,
+# e.g. "…land and buildingProvince/State :Tamil NaduCity/Town :Ranipet…".
+# Cut the description at the first such label. These slashed labels never appear
+# in genuine property prose, so this is safe.
+# NOTE: mirrored by api/review/markdown_match.strip_field_bleed — keep in sync.
+_FIELD_BLEED = re.compile(r"(?:Province/State|City/Town|Area/Town)")
+
+
+def strip_field_bleed(text):
+    """Remove the glued-on location fields from the end of a scraped description."""
+    if not text:
+        return text or ""
+    m = _FIELD_BLEED.search(text)
+    if not m:
+        return text
+    return text[: m.start()].rstrip(" ,;:-\n\t")
+
 
 def setup_driver(download_dir=None, headless=False):
     """

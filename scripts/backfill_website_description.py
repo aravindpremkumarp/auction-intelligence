@@ -6,11 +6,18 @@ data/tn_auction_data.jsonl onto the AuctionProperty node as
 `website_description`, so the review UI can show it next to the
 notice-extracted `description`.
 
+The scraped description has the structured key-value fields glued onto its
+end (the scraper grabs the whole container after the "Description" header),
+e.g. "…land and buildingProvince/State :Tamil NaduCity/Town :Ranipet…". We
+strip that trailing field bleed (see markdown_match.strip_field_bleed) before
+storing, so both the review UI and the markdown-quality score work off the
+clean description text.
+
 Idempotent — safe to re-run. Never touches `a.description`, so it does
 not disturb the OCR pipeline or human edits.
 
 Run:
-    python -m scripts.backfill_website_description --dry-run
+    python -m scripts.backfill_website_description --dry-run   # show before/after samples
     python -m scripts.backfill_website_description
 """
 
@@ -21,6 +28,7 @@ import json
 from pathlib import Path
 
 from api.neo4j_client import run_query, run_read_query
+from api.review.markdown_match import strip_field_bleed
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 INPUT_FILE = REPO_ROOT / "data" / "tn_auction_data.jsonl"
@@ -47,7 +55,9 @@ def load_rows() -> list[dict]:
             desc = r.get("description")
             if not aid or not desc:
                 continue
-            rows.append({"auction_id": aid, "desc": str(desc).strip()})
+            raw = str(desc).strip()
+            cleaned = strip_field_bleed(raw).strip()
+            rows.append({"auction_id": aid, "desc": cleaned, "raw": raw})
     return rows
 
 
@@ -60,6 +70,9 @@ def main() -> int:
     rows = load_rows()
     print(f"JSONL rows with auction_id + description: {len(rows):,}")
 
+    bled = [r for r in rows if r["desc"] != r["raw"]]
+    print(f"Rows with field-bleed to strip:            {len(bled):,}")
+
     aids = [r["auction_id"] for r in rows]
     matched = run_read_query(
         "MATCH (a:AuctionProperty) WHERE a.auction_id IN $aids "
@@ -70,7 +83,12 @@ def main() -> int:
     print(f"Matching AuctionProperty nodes in Neo4j:    {n_matched:,}")
 
     if args.dry_run:
-        print("(dry-run) no writes performed.")
+        print("\n--- field-bleed strip samples (before → after tail) ---")
+        for r in bled[:5]:
+            print(f"\n[{r['auction_id']}]")
+            print(f"  before …{r['raw'][-90:]!r}")
+            print(f"  after  …{r['desc'][-90:]!r}")
+        print("\n(dry-run) no writes performed.")
         return 0
 
     written = 0

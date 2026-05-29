@@ -4,19 +4,26 @@ pipeline/score_markdown.py
 Score every :Document.markdown for OCR quality, so the human reviewer in
 web/review.html only has to inspect the low-scoring ones.
 
-Coverage score
-~~~~~~~~~~~~~~
-For each Document with `markdown` and ≥1 linked AuctionProperty that has a
-reserve_price:
+Blended quality score
+~~~~~~~~~~~~~~~~~~~~~~~
+The score is driven by how faithfully the OCR markdown reproduces the property
+description we scraped from the source website — a long, specific probe that
+can't match by coincidence the way a lone price can. The reserve price and a
+borrower name act as corroborating bonuses.
 
-    score = round(100 * properties_found / properties_total)
+For each AuctionProperty that carries a `website_description`:
 
-where "found" means the property's reserve_price (Indian-lakh or
-international notation) appears in the markdown. Borrower names are not
-required — only used as tie-breakers inside the existing matcher.
+    coverage = description_coverage(website_description, markdown)   # 0–100
+    price    = 100 if the reserve price appears in the markdown else 0
+    borrower = 100 if a borrower name appears in the markdown else 0
+    property_score = 0.7*coverage + 0.2*price + 0.1*borrower
 
-Documents whose properties all lack a reserve_price end up with
-`score = NULL` (unscored) — flagged separately in the review UI.
+    Document score = mean(property_score over those properties)
+
+Documents whose properties all lack a `website_description` end up with
+`score = NULL` (unscored) — flagged separately in the review UI. The score is
+display-only: reviewers eyeball it and bulk-confirm a range; nothing is
+auto-adopted from it.
 
 Usage
 ~~~~~
@@ -35,7 +42,16 @@ import time
 from typing import Iterable
 
 from api.neo4j_client import run_query, run_read_query
-from api.review.markdown_match import property_offset_in_notice
+from api.review.markdown_match import (
+    borrower_in_markdown,
+    description_coverage,
+    price_in_markdown,
+)
+
+# Blend weights — description coverage dominates; price + borrower corroborate.
+W_COVERAGE = 0.7
+W_PRICE = 0.2
+W_BORROWER = 0.1
 
 
 def _fetch_docs(file_paths: list[str] | None, force: bool) -> list[dict]:
@@ -59,8 +75,9 @@ def _fetch_docs(file_paths: list[str] | None, force: bool) -> list[dict]:
         OPTIONAL MATCH (a)-[:HAS_BORROWER]->(b:Borrower)
         WITH d, a, collect(DISTINCT b.name) AS borrowers
         WITH d, collect(CASE WHEN a IS NULL THEN NULL ELSE {{
-                reserve_price: a.reserve_price_num,
-                borrowers:     borrowers
+                reserve_price:       a.reserve_price_num,
+                website_description: a.website_description,
+                borrowers:           borrowers
              }} END) AS props_raw
         RETURN d.file_path AS file_path,
                d.markdown  AS markdown,
@@ -69,15 +86,29 @@ def _fetch_docs(file_paths: list[str] | None, force: bool) -> list[dict]:
     return run_read_query(cypher, params, max_rows=20_000, timeout=60.0)
 
 
-def _score_one(markdown: str, properties: list[dict]) -> float | None:
-    """Return 0–100 coverage score, or None if no property has a price."""
-    priced = [p for p in properties
-              if p.get("reserve_price") not in (None, 0)]
-    if not priced:
+def _score_property(markdown: str, prop: dict) -> float | None:
+    """Blended 0–100 score for one property, or None if it has no
+    `website_description` to probe with."""
+    website_desc = (prop.get("website_description") or "").strip()
+    if not website_desc:
         return None
-    found = sum(1 for p in priced
-                if property_offset_in_notice(p, markdown) is not None)
-    return round(100.0 * found / len(priced), 1)
+    coverage, _span = description_coverage(website_desc, markdown)
+    price = 100.0 if price_in_markdown(prop.get("reserve_price"), markdown) else 0.0
+    borrower = 100.0 if borrower_in_markdown(prop.get("borrowers"), markdown) else 0.0
+    return W_COVERAGE * coverage + W_PRICE * price + W_BORROWER * borrower
+
+
+def _score_one(markdown: str, properties: list[dict]) -> float | None:
+    """Return the document's 0–100 blended score: the mean of the per-property
+    scores over properties that carry a `website_description`. None (unscored)
+    when no property has one."""
+    if not markdown:
+        return None
+    scored = [s for s in (_score_property(markdown, p) for p in properties)
+              if s is not None]
+    if not scored:
+        return None
+    return round(sum(scored) / len(scored), 1)
 
 
 def _write_scores(rows: list[dict]) -> None:

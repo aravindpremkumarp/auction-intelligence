@@ -72,7 +72,7 @@ def extract_details(driver):
             
             check_text = content_div.text.strip()
             if check_text:
-                data['Description'] = check_text
+                data['Description'] = utils.strip_field_bleed(check_text)
             else:
                 data['Description'] = "N/A"
         except:
