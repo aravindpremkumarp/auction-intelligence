@@ -1098,7 +1098,7 @@ def list_markdown_queue(
                d.file_path                      AS file_path,
                d.public_url                     AS public_url,
                d.notice_type                    AS notice_type,
-               coalesce(d.property_count, prop_count) AS property_count,
+               prop_count                       AS property_count,
                website_descriptions             AS website_descriptions,
                size(d.markdown)                 AS markdown_length,
                d.markdown                       AS markdown,

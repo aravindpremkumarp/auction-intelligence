@@ -1370,15 +1370,15 @@
         mdBodyEl.innerHTML = '<div class="empty">no OCR markdown available.</div>';
         return;
       }
-      const src = injectSentinels(markdown);
       if (localMode === 'rendered' && window.marked && window.DOMPurify) {
-        const html = window.marked.parse(src, { gfm: true, breaks: false });
+        const html = window.marked.parse(injectSentinels(markdown), { gfm: true, breaks: false });
         mdBodyEl.classList.add('rendered');
         mdBodyEl.innerHTML = applyMarks(window.DOMPurify.sanitize(html));
         renderMathIn(mdBodyEl);
       } else {
+        // Highlight is rendered-mode only; raw view shows the unaltered OCR text.
         mdBodyEl.classList.remove('rendered');
-        mdBodyEl.innerHTML = applyMarks(escapeHtml(src));
+        mdBodyEl.textContent = markdown;
       }
     }
     paintCardMd();
