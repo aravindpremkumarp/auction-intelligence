@@ -188,29 +188,23 @@ _DESC_LABEL = re.compile(r"^\s*property\s+description\s*[:\-]?\s*", re.IGNORECAS
 _HYPHEN_JOIN = re.compile(r"\s*-\s*")
 _WS = re.compile(r"\s+")
 
-# The website scraper grabs the whole container after the "Description" header,
-# so the structured key-value fields below it get glued onto the end of the
-# description text, e.g. "…land and buildingProvince/State :Tamil NaduCity/Town
-# :Ranipet…". These labels never appear as "Label :" inside genuine property
-# prose (a description says "Registration District of Ranipet", never
-# "District :…"), so the colon requirement makes truncation safe.
-_BLEED_LABELS = [
-    "Province/State", "City/Town", "Area/Town", "District", "Taluk", "Village",
-    "Pincode", "PIN Code", "Asset Category", "Property Type", "Auction Type",
-    "Reserve Price", "EMD", "Bank Name", "Branch Name", "Borrower Name",
-    "Service Provider", "Contact Details", "Application Deadline",
-    "Auction Start", "Auction End", "Auction Date",
-]
+# The website description has three location fields glued onto its end. They
+# come from the graph nodes (State / City / Area), not from the scraped prose,
+# and always start at "Province/State", e.g.
+#   "…land and buildingProvince/State :Tamil NaduCity/Town :RanipetArea/Town :…"
+# These labels contain a slash and never appear in a genuine property
+# description, so cutting at the first one is safe.
+_BLEED_LABELS = ["Province/State", "City/Town", "Area/Town"]
 _FIELD_BLEED = re.compile(
-    r"(?:" + "|".join(re.escape(lbl) for lbl in _BLEED_LABELS) + r")\s*:"
+    r"(?:" + "|".join(re.escape(lbl) for lbl in _BLEED_LABELS) + r")"
 )
 
 
 def strip_field_bleed(text: str | None) -> str:
-    """Cut the trailing run of scraped ``Label :value`` fields off a website
-    description (see ``_BLEED_LABELS``). Returns the text unchanged when no
-    such label is present. Safe on genuine prose — the ``:`` after the label
-    is what distinguishes a glued field from words like "District of Ranipet".
+    """Cut the glued-on location fields (Province/State, City/Town, Area/Town)
+    off the end of a website description. Returns the text unchanged when none
+    is present. Safe on prose — these slashed field names don't occur in a real
+    property description ("Registration District of Ranipet" is untouched).
     """
     if not text:
         return text or ""
