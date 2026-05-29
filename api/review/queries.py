@@ -379,7 +379,40 @@ def get_property(auction_id: str) -> dict | None:
         {"aid": auction_id},
         max_rows=1,
     )
-    return rows[0] if rows else None
+    if not rows:
+        return None
+    row = rows[0]
+    _attach_property_highlight(row)
+    return row
+
+
+def _attach_property_highlight(row: dict) -> None:
+    """Locate this property's block in its notice markdown and attach the raw
+    char span as ``row['markdown_highlight'] = {'doc_index', 'start', 'end'}``
+    (or None).
+
+    The detail view shows one property, so this is a single span pointing at
+    that auction's block inside a (possibly multi-property) notice. Probes with
+    the website description, falling back to the notice-extracted description.
+
+    A property can link to more than one Document (e.g. a per-lot crop plus the
+    full notice); ``match_span`` is run against each and the best confident
+    match wins, with ``doc_index`` telling the UI which document it belongs to.
+    """
+    row["markdown_highlight"] = None
+    probe = row.get("website_description") or row.get("description") or ""
+    if not probe:
+        return
+    best = None  # (score, doc_index, start, end)
+    for i, doc in enumerate(row.get("documents") or []):
+        md = (doc or {}).get("markdown")
+        if not md:
+            continue
+        hit = match_span(probe, md, with_score=True)
+        if hit and (best is None or hit[0] > best[0]):
+            best = (hit[0], i, hit[1], hit[2])
+    if best:
+        row["markdown_highlight"] = {"doc_index": best[1], "start": best[2], "end": best[3]}
 
 
 def verify(auction_id: str, by_email: str, notes: str | None) -> bool:

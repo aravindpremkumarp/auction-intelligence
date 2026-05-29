@@ -286,10 +286,15 @@ def borrower_in_markdown(borrowers, markdown: str | None) -> bool:
 _HIGHLIGHT_MIN_SCORE = 75.0
 
 
-def match_span(website_desc: str | None, markdown: str | None) -> tuple[int, int] | None:
-    """Raw ``(start, end)`` character offsets of the markdown window that best
-    matches the (bleed-stripped) website description, or ``None`` when there's
-    no confident match. Offsets index directly into ``markdown``.
+def match_span(
+    website_desc: str | None, markdown: str | None, with_score: bool = False
+):
+    """Raw character offsets of the markdown window that best matches the
+    (bleed-stripped) website description, or ``None`` when there's no confident
+    match. Offsets index directly into ``markdown``.
+
+    Returns ``(start, end)`` by default; with ``with_score=True`` returns
+    ``(score, start, end)`` so callers can pick the best document among several.
     """
     if not website_desc or not markdown:
         return None
@@ -302,5 +307,5 @@ def match_span(website_desc: str | None, markdown: str | None) -> tuple[int, int
     start, end = al.dest_start, al.dest_end
     if end <= start:
         return None
-    return (start, end)
+    return (al.score, start, end) if with_score else (start, end)
 

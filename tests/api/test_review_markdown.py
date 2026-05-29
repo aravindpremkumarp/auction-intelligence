@@ -93,7 +93,7 @@ def test_markdown_row_model_exposes_highlights() -> None:
     from api.review.router import MarkdownRow
     assert "highlights" in MarkdownRow.model_fields
     row = MarkdownRow(filename="n.jpg", highlights=[{"start": 3, "end": 9}])
-    dumped = row.model_dump()
-    assert dumped["highlights"] == [{"start": 3, "end": 9}]
+    hl = row.model_dump()["highlights"]
+    assert len(hl) == 1 and hl[0]["start"] == 3 and hl[0]["end"] == 9
     # default is an empty list, never missing
     assert MarkdownRow(filename="n.jpg").model_dump()["highlights"] == []

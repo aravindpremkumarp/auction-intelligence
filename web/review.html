@@ -88,6 +88,11 @@
   .markdown-body.rendered pre { background: #f3f0e7; padding: 8px; overflow-x: auto; }
   .markdown-body.rendered blockquote { border-left: 3px solid var(--muted); margin: 6px 0; padding: 2px 10px; color: #555; }
   .markdown-body.rendered img { max-width: 100%; height: auto; }
+  /* Highlight the OCR block(s) matching a tracked property (review panels). */
+  .markdown-body mark.hl, .mdcard-md-body mark.hl {
+    background: #fde68a; color: inherit; border-radius: 2px; padding: 0 1px;
+    box-shadow: 0 0 0 1px #f59e0b inset;
+  }
   .desc-compare { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
   .desc-compare h2 { margin-bottom: 4px; }
   @media (max-width: 1100px) { .desc-compare { grid-template-columns: 1fr; } }
@@ -2111,6 +2116,7 @@
 
   // ─── Markdown rendering ─────────────────────────────────────────────────
   let currentMarkdown = '';
+  let currentHighlight = null;   // {start,end} of this property's block in the notice
   let mdMode = localStorage.getItem('mdMode') || 'rendered';
 
   function syncMdToggleButtons() {
@@ -2143,10 +2149,23 @@
       mdBody.innerHTML = '<div class="empty">no OCR markdown available.</div>';
       return;
     }
+    // Highlight this property's block in the notice (rendered view only).
+    const HL_S = '', HL_E = '';
+    const hl = currentHighlight;
+    function injectSentinels(src) {
+      if (!hl || !(hl.end > hl.start)) return src;
+      const s = Math.max(0, Math.min(hl.start, src.length));
+      const e = Math.max(s, Math.min(hl.end, src.length));
+      const region = src.slice(s, e).split('\n').join(HL_E + '\n' + HL_S);
+      return src.slice(0, s) + HL_S + region + HL_E + src.slice(e);
+    }
+    function applyMarks(html) {
+      return html.split(HL_S).join('<mark class="hl">').split(HL_E).join('</mark>');
+    }
     if (mdMode === 'rendered' && window.marked && window.DOMPurify) {
-      const html = window.marked.parse(currentMarkdown, { gfm: true, breaks: false });
+      const html = window.marked.parse(injectSentinels(currentMarkdown), { gfm: true, breaks: false });
       mdBody.classList.add('rendered');
-      mdBody.innerHTML = window.DOMPurify.sanitize(html);
+      mdBody.innerHTML = applyMarks(window.DOMPurify.sanitize(html));
       renderMathIn(mdBody);
     } else {
       mdBody.classList.remove('rendered');
@@ -2165,10 +2184,17 @@
   function renderSourcePane(p) {
     const docs = (p.documents || []).filter(Boolean);
     const doc = docs.find(d => d && d.public_url) || docs[0];
-    const mdDoc = docs.find(d => d && d.markdown) || doc;
+    const hl = p.markdown_highlight || null;
+    // Prefer the document the highlight was matched against, so the span lines
+    // up with the markdown we show. Falls back to the first doc with markdown.
+    const allDocs = p.documents || [];
+    const mdDoc = (hl && allDocs[hl.doc_index] && allDocs[hl.doc_index].markdown)
+      ? allDocs[hl.doc_index]
+      : (docs.find(d => d && d.markdown) || doc);
 
     // Right-pane markdown box (always populated from any doc with markdown)
     currentMarkdown = (mdDoc && mdDoc.markdown) ? mdDoc.markdown : '';
+    currentHighlight = hl;
     paintMarkdown();
 
     // Left pane: PDF or image
