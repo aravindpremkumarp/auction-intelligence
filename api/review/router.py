@@ -74,6 +74,14 @@ class ReviewNoticeQueueOut(BaseModel):
     rows: list[ReviewNoticeRow]
 
 
+class MarkdownHighlight(BaseModel):
+    start: int
+    end: int
+    # Which linked document the span belongs to (property detail view only;
+    # the queue's per-row highlights are all against that row's single doc).
+    doc_index: int | None = None
+
+
 class ReviewDocument(BaseModel):
     filename: str | None = None
     file_path: str | None = None
@@ -105,6 +113,9 @@ class ReviewPropertyOut(BaseModel):
     verified_by: str | None = None
     review_notes: str | None = None
     documents: list[ReviewDocument] = []
+    # Raw markdown char span of this property's block in the notice OCR, for the
+    # detail-view highlight. Populated by queries._attach_property_highlight.
+    markdown_highlight: MarkdownHighlight | None = None
 
 
 class VerifyBody(BaseModel):
@@ -211,11 +222,6 @@ class ClassificationPropertyQueueOut(BaseModel):
 
 
 # ── Markdown-quality review models ──────────────────────────────────────────
-
-
-class MarkdownHighlight(BaseModel):
-    start: int
-    end: int
 
 
 class MarkdownRow(BaseModel):
