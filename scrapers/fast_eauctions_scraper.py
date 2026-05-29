@@ -98,7 +98,7 @@ def scrape_detail_selenium(driver, url):
                 parent = desc_header.parent
                 content = parent.find_next_sibling("div")
                 if content:
-                    data["Description"] = content.get_text(strip=True)
+                    data["Description"] = utils.strip_field_bleed(content.get_text(strip=True))
             except: pass
         
         if "Description" not in data: 
