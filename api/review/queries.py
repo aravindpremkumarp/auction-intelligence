@@ -8,7 +8,7 @@ from __future__ import annotations
 from typing import Literal
 
 from api.neo4j_client import run_query, run_read_query
-from api.review.markdown_match import property_offset_in_notice
+from api.review.markdown_match import match_span, property_offset_in_notice
 
 
 ReviewStatus = Literal["pending", "verified", "edited", "all"]
@@ -1034,6 +1034,28 @@ def markdown_stats(
     }
 
 
+def _attach_markdown_highlights(rows: list[dict]) -> None:
+    """For each Document row, turn its linked properties' website descriptions
+    into highlight spans over the OCR markdown, then drop the raw descriptions.
+
+    Adds ``row['highlights'] = [{'start': int, 'end': int}, ...]`` (raw markdown
+    character offsets), so the review UI can mark where each property in the DB
+    sits inside the notice — handy on multi-property notices where only some
+    lots are tracked.
+    """
+    for row in rows:
+        descriptions = row.pop("website_descriptions", None) or []
+        markdown = row.get("markdown") or ""
+        spans: list[tuple[int, int]] = []
+        if markdown:
+            for desc in descriptions:
+                span = match_span(desc, markdown)
+                if span and span not in spans:
+                    spans.append(span)
+        spans.sort()
+        row["highlights"] = [{"start": s, "end": e} for s, e in spans]
+
+
 def list_markdown_queue(
     status: MarkdownStatus = "pending",
     q: str | None = None,
@@ -1070,12 +1092,14 @@ def list_markdown_queue(
         MATCH (d:Document)
         WHERE {where_clause}
         OPTIONAL MATCH (d)<-[:HAS_DOCUMENT]-(a:AuctionProperty)
-        WITH d, count(DISTINCT a) AS prop_count
+        WITH d, count(DISTINCT a) AS prop_count,
+             collect(DISTINCT a.website_description) AS website_descriptions
         RETURN d.filename                       AS filename,
                d.file_path                      AS file_path,
                d.public_url                     AS public_url,
                d.notice_type                    AS notice_type,
-               coalesce(d.property_count, prop_count) AS property_count,
+               prop_count                       AS property_count,
+               website_descriptions             AS website_descriptions,
                size(d.markdown)                 AS markdown_length,
                d.markdown                       AS markdown,
                d.markdown_model                 AS markdown_model,
