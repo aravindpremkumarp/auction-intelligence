@@ -593,6 +593,105 @@ def _strip_ui_rows_from_history(history: list[dict[str, Any]]) -> list[dict[str,
     return history
 
 
+# ── old tool-result trimming ───────────────────────────────────────────────
+# Once the model has read a heavy tool result and written its prose answer,
+# the raw rows rarely need to re-enter context on later turns — the agent can
+# always re-query the graph. We keep the most recent turns fully detailed and
+# squeeze older, heavy tool returns down to a breadcrumb stub, shrinking the
+# history the client echoes back into the LLM on the next /chat turn. This is
+# the same philosophy as `_strip_ui_rows_from_history`, applied to the rows the
+# model *did* see (but only on stale turns).
+_HISTORY_KEEP_FULL_TURNS = max(1, int(os.getenv("CHAT_HISTORY_KEEP_FULL_TURNS", "2")))
+# Only trim tool returns whose JSON is at least this many chars — leaves small
+# aggregate/stat results (list_distinct, location_analysis) untouched so the
+# model keeps cheap-but-useful context, and avoids stubs larger than the
+# original payload.
+_HISTORY_TRIM_MIN_CHARS = int(os.getenv("CHAT_HISTORY_TRIM_MIN_CHARS", "600"))
+# How many auction_ids to keep as a breadcrumb so the model can still reference
+# (or re-query) specific properties from a trimmed turn.
+_HISTORY_TRIM_ID_SAMPLE = int(os.getenv("CHAT_HISTORY_TRIM_ID_SAMPLE", "20"))
+_HISTORY_TRIM_NOTE = "older result trimmed to save context — re-call the tool for full rows"
+
+
+def _summarize_tool_return_content(content: Any) -> Any:
+    """Collapse a heavy tool-return `content` to a compact breadcrumb stub.
+
+    Keeps the cheap facts the model reasons over (row count, total_count, a
+    sample of auction_ids) and drops the bulky per-row payload. Content that
+    is already a stub or isn't row-shaped is returned unchanged.
+    """
+    if isinstance(content, dict):
+        if content.get("_trimmed"):
+            return content  # already trimmed — idempotent
+        stub: dict[str, Any] = {"_trimmed": True}
+        if "total_count" in content:
+            stub["total_count"] = content["total_count"]
+        rows = content.get("results")
+        if isinstance(rows, list):
+            stub["returned"] = len(rows)
+            ids = [r["auction_id"] for r in rows
+                   if isinstance(r, dict) and r.get("auction_id")]
+            if ids:
+                stub["auction_ids"] = ids[:_HISTORY_TRIM_ID_SAMPLE]
+        elif content.get("auction_id"):
+            # Single-record result (e.g. get_auction_detail).
+            stub["auction_id"] = content["auction_id"]
+        stub["_note"] = _HISTORY_TRIM_NOTE
+        return stub
+    if isinstance(content, list):
+        ids = [r["auction_id"] for r in content
+               if isinstance(r, dict) and r.get("auction_id")]
+        stub = {"_trimmed": True, "returned": len(content), "_note": _HISTORY_TRIM_NOTE}
+        if ids:
+            stub["auction_ids"] = ids[:_HISTORY_TRIM_ID_SAMPLE]
+        return stub
+    return content
+
+
+def _trim_old_tool_results(
+    history: list[dict[str, Any]],
+    keep_full_turns: int = _HISTORY_KEEP_FULL_TURNS,
+) -> list[dict[str, Any]]:
+    """Squeeze heavy tool-return payloads on all but the most recent turns.
+
+    A "turn" starts at each message carrying a `user-prompt` part. The last
+    `keep_full_turns` turns are left fully intact (the agent may still be
+    working with their results); older turns get their large tool returns
+    replaced with breadcrumb stubs. Mutates and returns `history`.
+    """
+    if not history or keep_full_turns < 1:
+        return history
+    turn_starts = [
+        i for i, msg in enumerate(history)
+        if any(p.get("part_kind") == "user-prompt" for p in msg.get("parts", []))
+    ]
+    if len(turn_starts) <= keep_full_turns:
+        return history  # nothing older than the keep window
+    cutoff = turn_starts[-keep_full_turns]
+    trimmed_count = 0
+    saved_chars = 0
+    for msg in history[:cutoff]:
+        for part in msg.get("parts", []):
+            if part.get("part_kind") != "tool-return":
+                continue
+            content = part.get("content")
+            if isinstance(content, dict) and content.get("_trimmed"):
+                continue
+            content_json = json.dumps(content, default=str)
+            if len(content_json) < _HISTORY_TRIM_MIN_CHARS:
+                continue
+            part["content"] = _summarize_tool_return_content(content)
+            saved_chars += max(0, len(content_json) - len(json.dumps(part["content"], default=str)))
+            trimmed_count += 1
+    if trimmed_count:
+        logger.info(
+            "chat history: trimmed %d old tool result(s) (~%d chars, ≈%d tokens) "
+            "beyond the last %d turn(s)",
+            trimmed_count, saved_chars, saved_chars // 4, keep_full_turns,
+        )
+    return history
+
+
 def _strip_dynamic_system_prompts_from_history(
     history: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
@@ -894,13 +993,20 @@ async def chat(
         logger.exception("agent.run failed for message=%r mode=%r", req.message, mode)
         raise HTTPException(status_code=500, detail="chat agent failed — please retry")
     dumped_history = ModelMessagesTypeAdapter.dump_python(result.all_messages(), mode="json")
+    # Strip `_ui_results` from the history echoed back to the client —
+    # otherwise the client ships it back on the next /chat turn and it
+    # re-enters the LLM's context, defeating the UI/LLM split.
+    dumped_history = _strip_ui_rows_from_history(dumped_history)
+    # Squeeze heavy tool results on stale turns down to breadcrumb stubs so a
+    # long conversation's history stops re-billing the model for rows it has
+    # already summarized. Recent turns stay fully detailed; the agent can
+    # re-query for anything it trimmed. Artifacts (above) are extracted from
+    # the live `new_messages()` objects, so the UI payload is unaffected.
+    dumped_history = _trim_old_tool_results(dumped_history)
     return ChatResponse(
         answer=result.output,
         artifacts=_extract_artifacts(result.new_messages()),
-        # Strip `_ui_results` from the history echoed back to the client —
-        # otherwise the client ships it back on the next /chat turn and it
-        # re-enters the LLM's context, defeating the UI/LLM split.
-        message_history=_strip_ui_rows_from_history(dumped_history),
+        message_history=dumped_history,
     )
 
 
