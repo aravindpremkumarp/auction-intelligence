@@ -2960,11 +2960,16 @@
     // Mount the inline table editor into the selected Table block's row (it
     // must be in the DOM first so cell .focus() works).
     const sel = ann.selectedId && ann.blocks.find(b => b.id === ann.selectedId);
-    if (sel && sel.label === 'Table') {
-      const rowEl = root.querySelector(`.ann-row[data-id="${sel.id}"]`);
-      const cont = rowEl && rowEl.querySelector('.tbled-inline');
-      if (cont) tbledMountInline(sel, cont);
+    const rowEl = (sel && sel.label === 'Table')
+      ? root.querySelector(`.ann-row[data-id="${sel.id}"]`) : null;
+    const cont = rowEl ? rowEl.querySelector('.tbled-inline') : null;
+    if (cont) {
+      tbledMountInline(sel, cont);
     } else {
+      // No active inline editor this paint → tear down any prior one. The old
+      // container was destroyed by innerHTML='' above; abort its keydown
+      // listener defensively and drop the stale refs.
+      if (tbled.container && tbled.container._tbledAbort) tbled.container._tbledAbort.abort();
       tbled.block = null; tbled.blockId = null; tbled.container = null;
     }
   }
