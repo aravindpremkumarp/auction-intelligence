@@ -4817,7 +4817,13 @@
         td.innerHTML = window.DOMPurify
           ? window.DOMPurify.sanitize(dirty, { USE_PROFILES: { html: true } })
           : dirty;
-        if (tbledIsCellSelected(r, c)) td.classList.add('selected');
+        // Footprint-overlap test (matches tbledRepaintSelection) so spanned
+        // cells highlight consistently on first paint and on in-place repaint.
+        const selRect0 = tbledRectFromSelection(tbled.selection);
+        if (selRect0 && !((r + rs - 1) < selRect0.r0 || r > selRect0.r1
+                          || (c + cs - 1) < selRect0.c0 || c > selRect0.c1)) {
+          td.classList.add('selected');
+        }
 
         // Commit a cell that is currently being edited (used before we move
         // focus/selection elsewhere).
@@ -4897,7 +4903,7 @@
       const cN = rect.c1 - rect.c0 + 1;
       txt += ` · selection ${rN} × ${cN}`;
     } else {
-      txt += ' · click a cell to select, dbl-click to edit';
+      txt += ' · click a cell to edit, shift-click to extend a range';
     }
     status.textContent = txt;
   }
