@@ -8,7 +8,7 @@ from __future__ import annotations
 from typing import Literal
 
 from api.neo4j_client import run_query, run_read_query
-from api.review.markdown_match import property_offset_in_notice
+from api.review.markdown_match import match_span, property_offset_in_notice
 
 
 ReviewStatus = Literal["pending", "verified", "edited", "all"]
@@ -379,7 +379,40 @@ def get_property(auction_id: str) -> dict | None:
         {"aid": auction_id},
         max_rows=1,
     )
-    return rows[0] if rows else None
+    if not rows:
+        return None
+    row = rows[0]
+    _attach_property_highlight(row)
+    return row
+
+
+def _attach_property_highlight(row: dict) -> None:
+    """Locate this property's block in its notice markdown and attach the raw
+    char span as ``row['markdown_highlight'] = {'doc_index', 'start', 'end'}``
+    (or None).
+
+    The detail view shows one property, so this is a single span pointing at
+    that auction's block inside a (possibly multi-property) notice. Probes with
+    the website description, falling back to the notice-extracted description.
+
+    A property can link to more than one Document (e.g. a per-lot crop plus the
+    full notice); ``match_span`` is run against each and the best confident
+    match wins, with ``doc_index`` telling the UI which document it belongs to.
+    """
+    row["markdown_highlight"] = None
+    probe = row.get("website_description") or row.get("description") or ""
+    if not probe:
+        return
+    best = None  # (score, doc_index, start, end)
+    for i, doc in enumerate(row.get("documents") or []):
+        md = (doc or {}).get("markdown")
+        if not md:
+            continue
+        hit = match_span(probe, md, with_score=True)
+        if hit and (best is None or hit[0] > best[0]):
+            best = (hit[0], i, hit[1], hit[2])
+    if best:
+        row["markdown_highlight"] = {"doc_index": best[1], "start": best[2], "end": best[3]}
 
 
 def verify(auction_id: str, by_email: str, notes: str | None) -> bool:
@@ -1034,6 +1067,28 @@ def markdown_stats(
     }
 
 
+def _attach_markdown_highlights(rows: list[dict]) -> None:
+    """For each Document row, turn its linked properties' website descriptions
+    into highlight spans over the OCR markdown, then drop the raw descriptions.
+
+    Adds ``row['highlights'] = [{'start': int, 'end': int}, ...]`` (raw markdown
+    character offsets), so the review UI can mark where each property in the DB
+    sits inside the notice — handy on multi-property notices where only some
+    lots are tracked.
+    """
+    for row in rows:
+        descriptions = row.pop("website_descriptions", None) or []
+        markdown = row.get("markdown") or ""
+        spans: list[tuple[int, int]] = []
+        if markdown:
+            for desc in descriptions:
+                span = match_span(desc, markdown)
+                if span and span not in spans:
+                    spans.append(span)
+        spans.sort()
+        row["highlights"] = [{"start": s, "end": e} for s, e in spans]
+
+
 def list_markdown_queue(
     status: MarkdownStatus = "pending",
     q: str | None = None,
@@ -1070,12 +1125,14 @@ def list_markdown_queue(
         MATCH (d:Document)
         WHERE {where_clause}
         OPTIONAL MATCH (d)<-[:HAS_DOCUMENT]-(a:AuctionProperty)
-        WITH d, count(DISTINCT a) AS prop_count
+        WITH d, count(DISTINCT a) AS prop_count,
+             collect(DISTINCT a.website_description) AS website_descriptions
         RETURN d.filename                       AS filename,
                d.file_path                      AS file_path,
                d.public_url                     AS public_url,
                d.notice_type                    AS notice_type,
-               coalesce(d.property_count, prop_count) AS property_count,
+               prop_count                       AS property_count,
+               website_descriptions             AS website_descriptions,
                size(d.markdown)                 AS markdown_length,
                d.markdown                       AS markdown,
                d.markdown_model                 AS markdown_model,

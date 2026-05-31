@@ -1404,9 +1404,6 @@ body {
     border-radius: 10px; font-size: 10px; line-height: 1.4;
   }
   .mobile-tabs button.on .badge { background: #1a1a1a; color: var(--accent); }
-  /* When mobile-tabs are active, only one pane shows at a time. */
-  .results .transcript-pane.mobile-hidden,
-  .results .results-pane.mobile-hidden { display: none; }
 }
 
 /* ====== BOTTOM TAB BAR (mobile-only) ====== */
@@ -1461,6 +1458,10 @@ body {
   /* Each screen also gets bottom clearance so the inner inputs (e.g. results
      refine textarea, detail ask-about-property) sit above the bottom tabs. */
   .screen { padding-bottom: 80px !important; }
+  /* On the chat screen, lock the page so only the inner chat-log / matches list
+     scroll — the screen is height-bounded and clips its own overflow. */
+  body:has(.screen[data-screen="results"].on) { overflow: hidden; }
+  body:has(.screen[data-screen="results"].on) .app { padding-bottom: 0; min-height: 0; }
   .topbar { padding: 8px 12px; flex-wrap: wrap; gap: 8px; }
   .brand { font-size: 20px; }
   /* Top-nav is replaced by the bottom tab bar on mobile */
@@ -1492,13 +1493,36 @@ body {
   /* Chat (results) screen — fill the viewport between topbar and bottom-tabs so
      the conversation panel and its refine input don't float in the middle of the
      page with empty space below them. */
+  /* Bound the chat screen to exactly the space between the sticky topbar (56px)
+     and the fixed bottom-tabs (64px) and clip its overflow, so the page itself
+     never scrolls — only the inner chat-log (and the matches list) scroll. */
   .screen[data-screen="results"].on {
-    min-height: calc(100vh - 56px);
+    height: calc(100dvh - 56px - 64px);
+    min-height: 0;
+    padding-bottom: 0 !important;
+    overflow: hidden;
   }
   .screen[data-screen="results"] .results {
     display: flex; flex-direction: column;
     flex: 1; min-height: 0;
     gap: 0;
+    /* contain the matches slide-over and clip it while parked off-screen */
+    position: relative;
+    overflow: hidden;
+  }
+  /* Matches panel: an overlay that slides in from the right over the
+     always-present conversation. Parked off-screen by default so the
+     conversation fills the area and its chat input stays visible. */
+  .screen[data-screen="results"] .results-pane {
+    position: absolute;
+    inset: 0;
+    background: var(--paper);
+    transform: translateX(100%);
+    transition: transform 300ms cubic-bezier(.4, 0, .2, 1);
+    z-index: 5;
+  }
+  .screen[data-screen="results"] .results-pane.show {
+    transform: translateX(0);
   }
   /* Cancel the tablet-breakpoint max-height that was clamping the panes to
      ~220px on mobile too — it leaks in from the @media (max-width: 1000px) rule. */
@@ -2644,7 +2668,7 @@ function go(screen) {
     b.classList.toggle('on', active);
     if (active) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
   });
-  if (screen === 'results') renderResults();
+  if (screen === 'results') { renderResults(); setMobileTab('chat'); }
   if (screen === 'watchlist') renderWatchlist();
   if (screen === 'detail') {
     const empty = document.getElementById('detail-empty');
@@ -2693,7 +2717,6 @@ function setMobileTab(panel) {
   // panel: 'history' | 'chat' | 'results'
   const tabs = document.querySelectorAll('#results-mobile-tabs button');
   if (!tabs.length) return;
-  const transcript = document.querySelector('.results .transcript-pane');
   const resultsPane = document.querySelector('.results .results-pane');
   if (panel === 'history') {
     // History opens the chat-sidebar drawer; the underlying panel state
@@ -2707,12 +2730,12 @@ function setMobileTab(panel) {
     b.classList.toggle('on', active);
     if (b.dataset.mtab !== 'history') b.setAttribute('aria-selected', active ? 'true' : 'false');
   });
+  // The conversation (transcript) is the always-present base layer; the matches
+  // panel is an overlay that slides in from the right when 'results' is active.
   if (panel === 'chat') {
-    transcript && transcript.classList.remove('mobile-hidden');
-    resultsPane && resultsPane.classList.add('mobile-hidden');
+    resultsPane && resultsPane.classList.remove('show');
   } else if (panel === 'results') {
-    transcript && transcript.classList.add('mobile-hidden');
-    resultsPane && resultsPane.classList.remove('mobile-hidden');
+    resultsPane && resultsPane.classList.add('show');
   }
 }
 document.querySelectorAll('#results-mobile-tabs button').forEach(b => {

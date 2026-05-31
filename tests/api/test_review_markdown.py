@@ -84,3 +84,16 @@ def test_markdown_rejects_legacy_status(client) -> None:
     for s in ("good", "bad", "unscored"):
         r = client.get(f"/review/markdown?status={s}", headers=_admin_header())
         assert r.status_code == 422, f"status={s} should be rejected"
+
+
+def test_markdown_row_model_exposes_highlights() -> None:
+    # Regression: the highlight spans must survive the response_model. FastAPI
+    # silently drops fields not declared on MarkdownRow, which is what hid the
+    # highlights from the UI.
+    from api.review.router import MarkdownRow
+    assert "highlights" in MarkdownRow.model_fields
+    row = MarkdownRow(filename="n.jpg", highlights=[{"start": 3, "end": 9}])
+    hl = row.model_dump()["highlights"]
+    assert len(hl) == 1 and hl[0]["start"] == 3 and hl[0]["end"] == 9
+    # default is an empty list, never missing
+    assert MarkdownRow(filename="n.jpg").model_dump()["highlights"] == []
