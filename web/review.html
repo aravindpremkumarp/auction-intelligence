@@ -4002,12 +4002,6 @@
     };
   }
 
-  function tbledIsCellSelected(r, c) {
-    const rect = tbledRectFromSelection(tbled.selection);
-    if (!rect) return false;
-    return r >= rect.r0 && r <= rect.r1 && c >= rect.c0 && c <= rect.c1;
-  }
-
   function tbledParseHtml(html) {
     const src = (html && html.trim()) ? html : '<table><tr><td></td></tr></table>';
     const doc = new DOMParser().parseFromString(src, 'text/html');
@@ -4412,7 +4406,15 @@
     if (opts && opts.className) b.className = opts.className;
     if (opts && opts.disabled)  b.disabled = true;
     if (opts && opts.active)    b.classList.add('active');
-    b.addEventListener('mousedown', (e) => e.preventDefault()); // keep focus
+    // Only the inline-format buttons (B/I/U/sup/sub) preserve the cell's text
+    // selection + focus so execCommand applies to it. Every other button
+    // (merge/split/add/del/align/undo/redo/TeX) intentionally lets the focused
+    // cell blur FIRST — its blur handler commits the in-progress text into
+    // tbled.rows before the action reads it, so a structural op never rebuilds
+    // from stale rows and drops the just-typed text.
+    if (opts && opts.keepFocus) {
+      b.addEventListener('mousedown', (e) => e.preventDefault());
+    }
     b.addEventListener('click', action);
     return b;
   }
@@ -4436,15 +4438,15 @@
       () => tbledApplyAlign('right'), { disabled: !hasSel }));
     bar.appendChild(document.createElement('span')).className = 'sep';
     bar.appendChild(tbledToolbarBtn('<b>B</b>', 'Bold',
-      () => tbledApplyFormat('bold')));
+      () => tbledApplyFormat('bold'), { keepFocus: true }));
     bar.appendChild(tbledToolbarBtn('<i>I</i>', 'Italic',
-      () => tbledApplyFormat('italic')));
+      () => tbledApplyFormat('italic'), { keepFocus: true }));
     bar.appendChild(tbledToolbarBtn('<u>U</u>', 'Underline',
-      () => tbledApplyFormat('underline')));
+      () => tbledApplyFormat('underline'), { keepFocus: true }));
     bar.appendChild(tbledToolbarBtn('X<sup>²</sup>', 'Superscript',
-      () => tbledApplyFormat('superscript')));
+      () => tbledApplyFormat('superscript'), { keepFocus: true }));
     bar.appendChild(tbledToolbarBtn('X<sub>₂</sub>', 'Subscript',
-      () => tbledApplyFormat('subscript')));
+      () => tbledApplyFormat('subscript'), { keepFocus: true }));
     bar.appendChild(document.createElement('span')).className = 'sep';
     bar.appendChild(tbledToolbarBtn('⇿ Merge', 'Merge selected cells',
       tbledMerge, { disabled: !tbledCanMerge() }));
