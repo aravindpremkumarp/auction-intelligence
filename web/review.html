@@ -4186,6 +4186,38 @@
     return { physical, nRows: physical.length, nCols: maxCols };
   }
 
+  // Build a static <table> DOM (spans honored, no listeners, not editable)
+  // from a parsed logical rows model. Used for UNSELECTED Table rows so the
+  // sidebar always shows the same structure the editor shows.
+  function tbledRenderReadonly(rows) {
+    const grid = tbledBuildGrid(rows);
+    const tbl = document.createElement('table');
+    tbl.className = 'tbled-grid readonly';
+    for (let r = 0; r < grid.nRows; r++) {
+      const tr = document.createElement('tr');
+      for (let c = 0; c < grid.nCols; c++) {
+        const ph = grid.physical[r][c];
+        if (!ph) { tr.appendChild(document.createElement('td')); continue; }
+        if (!ph.primary) continue; // covered by an upstream span
+        const cell = rows[ph.lr][ph.li];
+        const td = document.createElement(cell.tag === 'th' ? 'th' : 'td');
+        if ((cell.rowspan || 1) > 1) td.setAttribute('rowspan', String(cell.rowspan));
+        if ((cell.colspan || 1) > 1) td.setAttribute('colspan', String(cell.colspan));
+        if (cell.align) td.style.textAlign = cell.align;
+        const dirty = cell.html || '';
+        td.innerHTML = window.DOMPurify
+          ? window.DOMPurify.sanitize(dirty, { USE_PROFILES: { html: true } })
+          : dirty;
+        tr.appendChild(td);
+      }
+      tbl.appendChild(tr);
+    }
+    const wrap = document.createElement('div');
+    wrap.className = 'tbled-inline-readonly';
+    wrap.appendChild(tbl);
+    return wrap;
+  }
+
   function tbledRectFromSelection(sel) {
     if (!sel) return null;
     return {
