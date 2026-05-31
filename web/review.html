@@ -3115,8 +3115,9 @@
     });
     if (btnEditTable) {
       btnEditTable.addEventListener('click', () => {
-        tbledEnsureMounted();
-        tbledOpen(b);
+        let c = row.querySelector('.tbled-inline');
+        if (!c) { c = document.createElement('div'); c.className = 'tbled-inline'; row.appendChild(c); }
+        tbledMountInline(b, c);
       });
     }
     return row;
@@ -4105,9 +4106,11 @@
   // merge/split, add/delete rows/columns, apply B/I/U/sup/sub/align, and
   // preview the LaTeX export. Save serializes back to HTML and PUTs the
   // block's text field. Closes on back/Esc.
+  // Single active inline table editor (only the selected Table block has one).
   const tbled = {
-    open:        false,
-    block:       null,   // ref to the live block in ann.blocks (for save)
+    block:       null,   // the live block object this editor is bound to
+    blockId:     null,   // stable id for re-finding the block after a save
+    container:   null,   // the .tbled-inline div inside the selected sidebar row
     rows:        [],     // 2D array of cell objects { html, tag, rowspan, colspan, align }
     past:        [],
     future:      [],
@@ -4275,6 +4278,50 @@
     });
     if (!out.length) out.push([{ html: '', tag: 'td', rowspan: 1, colspan: 1, align: null }]);
     return out;
+  }
+
+  // Mount the inline editor into `container` (a .tbled-inline div that already
+  // lives inside the selected Table block's sidebar row). Builds the toolbar /
+  // grid / tex / status skeleton once, then paints.
+  function tbledMountInline(b, container) {
+    tbled.block     = b;
+    tbled.blockId   = b.id;
+    tbled.container = container;
+    tbled.rows      = tbledParseHtml(b.text || '');
+    tbled.past      = [];
+    tbled.future    = [];
+    tbled.selection = null;
+    tbled.showTex   = false;
+    container.innerHTML = '';
+    const toolbar = document.createElement('div');
+    toolbar.className = 'tbled-toolbar';
+    const gridWrap = document.createElement('div');
+    gridWrap.className = 'tbled-grid-wrap';
+    const tex = document.createElement('div');
+    tex.className = 'tbled-tex-panel';
+    tex.style.display = 'none';
+    const status = document.createElement('div');
+    status.className = 'tbled-status';
+    container.appendChild(toolbar);
+    container.appendChild(gridWrap);
+    container.appendChild(tex);
+    container.appendChild(status);
+    // Structural undo/redo via keyboard, but only when NOT typing in a cell
+    // (so in-cell Ctrl+Z stays browser text-undo).
+    container.addEventListener('keydown', (e) => {
+      const editing = document.activeElement
+        && document.activeElement.classList
+        && document.activeElement.classList.contains('editing');
+      if (editing) return;
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key === 'z') {
+        e.preventDefault(); tbledUndo(); return;
+      }
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'y' ||
+          (e.shiftKey && e.key.toLowerCase() === 'z'))) {
+        e.preventDefault(); tbledRedo(); return;
+      }
+    });
+    paintTbled();
   }
 
   function tbledSerialize(rows) {
@@ -4605,7 +4652,9 @@
   }
 
   function paintTbledToolbar() {
-    const bar = document.getElementById('tbled-toolbar');
+    if (!tbled.container) return;
+    const bar = tbled.container.querySelector('.tbled-toolbar');
+    if (!bar) return;
     bar.innerHTML = '';
     const hasSel  = !!tbled.selection;
     bar.appendChild(tbledToolbarBtn('↶', 'Undo (Ctrl+Z)', tbledUndo,
@@ -4654,7 +4703,9 @@
   }
 
   function paintTbledGrid() {
-    const wrap = document.getElementById('tbled-grid-wrap');
+    if (!tbled.container) return;
+    const wrap = tbled.container.querySelector('.tbled-grid-wrap');
+    if (!wrap) return;
     wrap.innerHTML = '';
     const grid = tbledBuildGrid(tbled.rows);
     const tbl  = document.createElement('table');
@@ -4757,7 +4808,9 @@
   }
 
   function paintTbledTex() {
-    const panel = document.getElementById('tbled-tex-panel');
+    if (!tbled.container) return;
+    const panel = tbled.container.querySelector('.tbled-tex-panel');
+    if (!panel) return;
     if (!tbled.showTex) { panel.style.display = 'none'; return; }
     panel.style.display = '';
     panel.innerHTML = '';
@@ -4779,7 +4832,9 @@
   }
 
   function paintTbledStatus() {
-    const status = document.getElementById('tbled-status');
+    if (!tbled.container) return;
+    const status = tbled.container.querySelector('.tbled-status');
+    if (!status) return;
     const grid = tbledBuildGrid(tbled.rows);
     let txt = `${grid.nRows} × ${grid.nCols}`;
     if (tbled.selection) {
