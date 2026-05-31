@@ -4328,6 +4328,50 @@
     paintTbled();
   }
 
+  // Serialize the active editor and save it WITHOUT repainting the sidebar
+  // (so the editor + caret survive). Re-points tbled.block to the merged
+  // server object so later saves snapshot fresh state.
+  function tbledPersist() {
+    if (!tbled.blockId) return;
+    const live = ann.blocks.find(b => b.id === tbled.blockId) || tbled.block;
+    if (!live) return;
+    const html = tbledSerialize(tbled.rows);
+    const snapshot = { ...live, bbox: live.bbox.slice() };
+    live.text = html;
+    tbled.block = live;
+    updateBlockOnServer(tbled.blockId, { text: html }, snapshot, { silent: true })
+      .then(() => {
+        const fresh = ann.blocks.find(b => b.id === tbled.blockId);
+        if (fresh) tbled.block = fresh;
+      });
+  }
+
+  // Update which cells/handles look selected, mutating classes in place so an
+  // open contenteditable caret is never destroyed. Also refreshes the toolbar
+  // (merge/split enablement depends on the selection) — the toolbar has no
+  // caret so rebuilding it is safe.
+  function tbledRepaintSelection() {
+    if (!tbled.container) return;
+    const rect = tbledRectFromSelection(tbled.selection);
+    tbled.container.querySelectorAll('td[data-r0], th[data-r0]').forEach(td => {
+      const r0 = +td.dataset.r0, c0 = +td.dataset.c0,
+            r1 = +td.dataset.r1, c1 = +td.dataset.c1;
+      const sel = !!rect && !(r1 < rect.r0 || r0 > rect.r1 || c1 < rect.c0 || c0 > rect.c1);
+      td.classList.toggle('selected', sel);
+    });
+    const dims = tbledBuildGrid(tbled.rows);
+    tbled.container.querySelectorAll('.tbled-handle-cell.col').forEach((th, i) => {
+      th.classList.toggle('col-selected',
+        !!rect && rect.c0 <= i && rect.c1 >= i && rect.r0 === 0 && rect.r1 === (dims.nRows - 1));
+    });
+    tbled.container.querySelectorAll('tr > .tbled-handle-cell:not(.col):not(.tbled-corner)').forEach((rh, i) => {
+      rh.classList.toggle('row-selected',
+        !!rect && rect.r0 <= i && rect.r1 >= i && rect.c0 === 0 && rect.c1 === (dims.nCols - 1));
+    });
+    paintTbledToolbar();
+    paintTbledStatus();
+  }
+
   function tbledSerialize(rows) {
     return '<table>'
       + rows.map(r => '<tr>' + r.map(c => {
@@ -4762,44 +4806,50 @@
         if (!ph.primary) continue; // skip — covered by an upstream span
         const cell = tbled.rows[ph.lr][ph.li];
         const td = document.createElement(cell.tag === 'th' ? 'th' : 'td');
-        if ((cell.rowspan || 1) > 1) td.setAttribute('rowspan', String(cell.rowspan));
-        if ((cell.colspan || 1) > 1) td.setAttribute('colspan', String(cell.colspan));
+        const rs = cell.rowspan || 1, cs = cell.colspan || 1;
+        if (rs > 1) td.setAttribute('rowspan', String(rs));
+        if (cs > 1) td.setAttribute('colspan', String(cs));
         if (cell.align) td.style.textAlign = cell.align;
+        // Physical footprint, used by tbledRepaintSelection for in-place highlight.
+        td.dataset.r0 = String(r);  td.dataset.c0 = String(c);
+        td.dataset.r1 = String(r + rs - 1); td.dataset.c1 = String(c + cs - 1);
         const dirty = cell.html || '';
         td.innerHTML = window.DOMPurify
           ? window.DOMPurify.sanitize(dirty, { USE_PROFILES: { html: true } })
           : dirty;
         if (tbledIsCellSelected(r, c)) td.classList.add('selected');
-        td.addEventListener('click', (e) => {
-          if (e.shiftKey && tbled.selection) {
-            tbled.selection = { r0: tbled.selection.r0, c0: tbled.selection.c0,
-                                r1: r, c1: c };
-          } else {
-            tbled.selection = { r0: r, c0: c, r1: r, c1: c };
-          }
-          paintTbled();
-        });
-        td.addEventListener('dblclick', () => {
-          td.setAttribute('contenteditable', 'true');
-          td.classList.add('editing');
-          td.focus();
-          // Select all content for quick replace.
-          const range = document.createRange();
-          range.selectNodeContents(td);
-          const sel = window.getSelection();
-          sel.removeAllRanges(); sel.addRange(range);
-        });
-        td.addEventListener('blur', () => {
+
+        // Commit a cell that is currently being edited (used before we move
+        // focus/selection elsewhere).
+        const commitEditing = () => {
           if (!td.classList.contains('editing')) return;
           const fresh = td.innerHTML;
           td.removeAttribute('contenteditable');
           td.classList.remove('editing');
-          if (fresh !== cell.html) {
-            const next = tbledCloneRows(tbled.rows);
-            next[ph.lr][ph.li].html = fresh;
-            tbledCommit(next);
+          if (fresh !== cell.html) { cell.html = fresh; tbledPersist(); }
+        };
+
+        td.addEventListener('click', (e) => {
+          if (e.shiftKey && tbled.selection) {
+            // Extend a range for merge/format/align — never enter edit.
+            const active = tbled.container.querySelector('.editing');
+            if (active) active.blur();
+            tbled.selection = { r0: tbled.selection.r0, c0: tbled.selection.c0, r1: r, c1: c };
+            tbledRepaintSelection();
+            return;
+          }
+          // Plain click → select this single cell AND start editing immediately.
+          const active = tbled.container.querySelector('.editing');
+          if (active && active !== td) active.blur();
+          tbled.selection = { r0: r, c0: c, r1: r, c1: c };
+          tbledRepaintSelection();
+          if (!td.classList.contains('editing')) {
+            td.setAttribute('contenteditable', 'true');
+            td.classList.add('editing');
+            td.focus();
           }
         });
+        td.addEventListener('blur', commitEditing);
         td.addEventListener('keydown', (e) => {
           if (e.key === 'Escape') { td.blur(); }
           if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); td.blur(); }
