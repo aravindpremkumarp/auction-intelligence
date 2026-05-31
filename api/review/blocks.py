@@ -41,6 +41,15 @@ class BlocksNotFound(RuntimeError):
     """Raised when the Document or the block id doesn't exist."""
 
 
+class BlocksUpstreamError(RuntimeError):
+    """Raised when the OCR/extraction upstream (MinerU or network) fails.
+
+    Mapped to HTTP 502 by the router so the reviewer sees the real reason
+    ("MINERU_API_KEY not set", a timeout, a 4xx from MinerU) instead of a
+    bare 500.
+    """
+
+
 # ── helpers ─────────────────────────────────────────────────────────────────
 
 def _iso_now() -> str:
@@ -560,14 +569,21 @@ async def re_extract_block(filename: str, block_id: str,
 
     # Lazy import — keeps cold-start fast for the rest of the review UI.
     from pipeline.reextract import crop_and_reextract
-    result = await crop_and_reextract(
-        public_url=meta["public_url"],
-        page=page,
-        bbox_norm=bbox,
-        label=label,
-        row_positions=row_positions,
-        col_positions=col_positions,
-    )
+    try:
+        result = await crop_and_reextract(
+            public_url=meta["public_url"],
+            page=page,
+            bbox_norm=bbox,
+            label=label,
+            row_positions=row_positions,
+            col_positions=col_positions,
+        )
+    except Exception as e:
+        # MinerU error, network failure, timeout, or a bad crop — surface the
+        # reason as a 502 instead of letting it become a bare 500.
+        raise BlocksUpstreamError(
+            f"extraction failed: {type(e).__name__}: {e}"
+        ) from e
 
     # Refresh after the (potentially long) network call to minimize the
     # window where a concurrent edit could collide.
