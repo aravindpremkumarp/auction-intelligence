@@ -177,3 +177,25 @@ browser (live review UI / `/run`):
 5. Reload the notice → all edits are stuck (round-tripped through the server).
 6. The full-screen modal no longer exists; "✎ Edit table" button is gone; "edit
    raw HTML", "Table grid", "Table Hints", and "re-run extraction" still work.
+
+## Known limitations (accepted; not data loss)
+
+Surfaced during implementation review and consciously deferred as minor — none
+lose committed data; the core flow (select → single-click → type → cell /
+structural / undo all persist silently) is unaffected.
+
+- **Undo history resets when the editor is remounted.** Any *non-silent* save
+  while a Table block is selected — dragging its bbox/guides on the canvas,
+  reordering blocks, changing its label, editing the raw-HTML textarea, or a
+  *different* block's debounced text save — calls `paintAnnSidebar()`, which
+  re-mounts the editor and clears its undo/redo stacks. Cell text is already
+  persisted, so only undo history is lost. (Cell edits and toolbar structural
+  ops persist *silently* and do NOT remount, so undo works throughout a normal
+  editing session.)
+- **Cross-block caret race (narrow):** typing in block A's raw-HTML textarea
+  and then, within the 700 ms debounce, clicking into the selected Table's cell
+  lets A's non-silent save fire and remount the editor — interrupting the caret.
+  Requires editing two blocks within 700 ms; rare in practice.
+- **`tbledToLatex` derives `ncols` from `tbledBuildGrid(tbled.rows)`** while
+  iterating its own `rows` param; correct only because its sole caller passes
+  `tbled.rows`. Harmless today; tidy if it ever gets another caller.
