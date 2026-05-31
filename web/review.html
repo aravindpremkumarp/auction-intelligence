@@ -4307,7 +4307,11 @@
     container.appendChild(tex);
     container.appendChild(status);
     // Structural undo/redo via keyboard, but only when NOT typing in a cell
-    // (so in-cell Ctrl+Z stays browser text-undo).
+    // (so in-cell Ctrl+Z stays browser text-undo). Abort any listener from a
+    // previous mount on this same element so repeated mounts don't stack
+    // handlers (and to allow clean teardown later).
+    if (container._tbledAbort) container._tbledAbort.abort();
+    container._tbledAbort = new AbortController();
     container.addEventListener('keydown', (e) => {
       const editing = document.activeElement
         && document.activeElement.classList
@@ -4320,7 +4324,7 @@
           (e.shiftKey && e.key.toLowerCase() === 'z'))) {
         e.preventDefault(); tbledRedo(); return;
       }
-    });
+    }, { signal: container._tbledAbort.signal });
     paintTbled();
   }
 
