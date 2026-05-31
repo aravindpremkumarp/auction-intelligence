@@ -280,31 +280,6 @@
   .ann-row .table-editor { margin-top: 6px; padding: 6px; border: 1px dashed var(--ink); font-size: 11px; }
   .ann-row .table-editor .grid-positions { display: grid; grid-template-columns: 70px 1fr; gap: 4px 8px; align-items: center; margin-top: 4px; }
   .ann-row .table-editor input { width: 100%; box-sizing: border-box; padding: 3px 5px; border: 1.5px solid var(--ink); font-family: 'IBM Plex Mono', monospace; font-size: 11px; }
-  /* Rendered table preview with hover-triggered +/× affordances (ported
-     from the reference TableEditor at 07_project_aiparsed_humanvalidated_extractor). */
-  .ann-tbl-wrap { margin-top: 6px; overflow: auto; max-height: 320px; border: 1.5px solid var(--ink); background: #fff; padding: 16px 18px 8px 18px; }
-  .ann-tbl { border-collapse: collapse; width: 100%; table-layout: auto; }
-  .ann-tbl td, .ann-tbl th { border: 1px solid var(--ink); padding: 4px 6px; font-size: 11px; font-family: 'IBM Plex Mono', monospace; vertical-align: top; position: relative; min-width: 40px; }
-  .ann-tbl td[contenteditable], .ann-tbl th[contenteditable] { outline: none; cursor: text; }
-  .ann-tbl td:focus, .ann-tbl th:focus { background: #fff8d4; box-shadow: inset 0 0 0 1px var(--danger); }
-  .ann-tbl .ann-tbl-rowctl { width: 18px; padding: 0; border: none; background: transparent; position: relative; }
-  .ann-tbl .ann-tbl-colctl { height: 18px; padding: 0; border: none; background: transparent; position: relative; }
-  .ann-tbl .ann-tbl-corner { width: 18px; height: 18px; padding: 0; border: none; background: transparent; }
-  .ann-tbl-handle { width: 14px; height: 14px; border-radius: 3px; background: #d8d4c4; display: block; margin: 2px auto; cursor: pointer; }
-  .ann-tbl-handle:hover { background: #b5b0a0; }
-  .ann-tbl-handle.del:hover { background: var(--danger); }
-  .ann-tbl-add { position: absolute; width: 16px; height: 16px; border-radius: 50%; background: #3b82f6; color: #fff; border: none; font-size: 12px; font-weight: bold; cursor: pointer; display: none; align-items: center; justify-content: center; box-shadow: 0 1px 3px rgba(59,130,246,0.5); padding: 0; line-height: 1; z-index: 5; }
-  .ann-tbl-add:hover { background: #2563eb; }
-  .ann-tbl-add.show { display: flex; }
-  .ann-tbl-add.row-before { top: -8px; left: 50%; transform: translateX(-50%); }
-  .ann-tbl-add.row-after  { bottom: -8px; left: 50%; transform: translateX(-50%); }
-  .ann-tbl-add.col-before { left: -8px; top: 50%; transform: translateY(-50%); }
-  .ann-tbl-add.col-after  { right: -8px; top: 50%; transform: translateY(-50%); }
-  .ann-tbl-del { position: absolute; top: -8px; right: -8px; width: 14px; height: 14px; border-radius: 50%; background: var(--danger); color: #fff; border: none; font-size: 10px; font-weight: bold; cursor: pointer; display: none; align-items: center; justify-content: center; padding: 0; line-height: 1; z-index: 5; }
-  .ann-tbl-del.show { display: flex; }
-  .ann-tbl-toolbar { display: flex; gap: 6px; align-items: center; margin-top: 6px; font-size: 11px; }
-  .ann-tbl-toolbar button { padding: 3px 8px; font-size: 11px; min-height: 0; }
-  .ann-tbl-toolbar .hint { color: var(--muted); }
   .ann-tbl-html-toggle { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--muted); cursor: pointer; user-select: none; }
   /* Floating Table Hints popup — anchored to the selected Table bbox on the
      annotator canvas. The reviewer bumps Cols/Rows to seed evenly-spaced
@@ -322,16 +297,6 @@
   .ann-table-hints .th-rex:disabled { background: #eee; color: var(--muted); cursor: progress; }
   .ann-block.lab-Table .show-hints-btn { position: absolute; top: -18px; right: -2px; font-family: 'IBM Plex Mono', monospace; font-size: 9px; background: var(--ink); color: var(--paper); padding: 1px 5px; border: none; cursor: pointer; display: none; }
   .ann-block.lab-Table.selected .show-hints-btn.show { display: block; }
-  /* Full-screen Table Editor modal — opened from the sidebar "Edit table"
-     button. Provides cell selection, formatting (B/I/U/sup/sub), align,
-     merge/split, row/col handles, TeX export, and a single Save commit. */
-  .tbled-overlay { position: fixed; inset: 0; background: rgba(26,26,26,0.85); z-index: 1500; display: none; }
-  .tbled-overlay.open { display: flex; flex-direction: column; }
-  .tbled-header { display: flex; align-items: center; gap: 12px; padding: 10px 16px; background: var(--paper); border-bottom: 2px solid var(--ink); }
-  .tbled-header .back { background: transparent; border: none; font-family: 'Caveat', cursive; font-size: 22px; cursor: pointer; min-height: 0; padding: 2px 8px; }
-  .tbled-header h2 { margin: 0; font-family: 'Caveat', cursive; font-size: 26px; }
-  .tbled-header .spacer { flex: 1; }
-  .tbled-header .save { background: var(--accent); border: 2px solid var(--ink); padding: 6px 18px; font-weight: 700; box-shadow: 2px 3px 0 rgba(0,0,0,0.6); cursor: pointer; }
   .tbled-toolbar { display: flex; align-items: center; gap: 4px; padding: 8px 16px; background: #fff; border-bottom: 1.5px solid var(--ink); flex-wrap: wrap; }
   .tbled-toolbar .sep { width: 1px; height: 22px; background: rgba(0,0,0,0.2); margin: 0 4px; }
   .tbled-toolbar button { padding: 4px 9px; min-height: 0; font-size: 13px; background: #fff; border: 1.5px solid var(--ink); cursor: pointer; min-width: 30px; line-height: 1.1; }
@@ -339,7 +304,6 @@
   .tbled-toolbar button:disabled { opacity: 0.45; cursor: not-allowed; }
   .tbled-toolbar button.active { background: var(--accent); font-weight: 700; }
   .tbled-toolbar .tex-btn { margin-left: auto; font-family: 'Times New Roman', serif; font-style: italic; }
-  .tbled-body { flex: 1; overflow: auto; padding: 18px 24px; background: var(--paper); display: flex; flex-direction: column; gap: 10px; }
   .tbled-grid-wrap { background: #fff; border: 2px solid var(--ink); box-shadow: 2px 3px 0 rgba(0,0,0,0.6); padding: 12px; overflow: auto; align-self: flex-start; max-width: 100%; }
   .tbled-grid { border-collapse: collapse; table-layout: auto; }
   .tbled-grid td { border: 1px solid var(--ink); padding: 6px 9px; vertical-align: top; font-family: 'IBM Plex Mono', monospace; font-size: 12px; min-width: 60px; position: relative; cursor: text; }
@@ -355,6 +319,20 @@
   .tbled-tex { background: #1a1a1a; color: #f0ead2; padding: 12px 14px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; white-space: pre-wrap; border: 2px solid var(--ink); box-shadow: 2px 3px 0 rgba(0,0,0,0.6); position: relative; }
   .tbled-tex .copy-tex { position: absolute; top: 8px; right: 8px; background: var(--accent); border: 1.5px solid var(--ink); padding: 2px 8px; cursor: pointer; font-size: 10px; min-height: 0; color: var(--ink); }
   .tbled-status { font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--muted); }
+  /* Inline table editor — lives in the selected Table block's sidebar row.
+     Reuses .tbled-toolbar / .tbled-grid / .tbled-tex / .tbled-status. */
+  .tbled-inline { margin-top: 6px; border: 1.5px solid var(--ink); background: #fff; }
+  .tbled-inline .tbled-toolbar { padding: 5px 6px; gap: 3px; border-bottom: 1.5px solid var(--ink); }
+  .tbled-inline .tbled-toolbar button { padding: 2px 6px; font-size: 12px; min-width: 26px; }
+  .tbled-inline .tbled-grid-wrap { padding: 8px; overflow: auto; max-height: 360px; }
+  .tbled-inline .tbled-grid td { padding: 4px 6px; font-size: 11px; min-width: 44px; }
+  .tbled-inline .tbled-status { padding: 4px 7px; border-top: 1px solid rgba(0,0,0,0.15); }
+  .tbled-inline .tbled-tex-panel { padding: 0 8px 8px; }
+  /* Read-only preview for unselected Table rows. */
+  .tbled-inline-readonly { margin-top: 6px; overflow: auto; max-height: 320px; border: 1.5px solid var(--ink); background: #fff; padding: 8px; }
+  .tbled-inline-readonly .tbled-grid.readonly td,
+  .tbled-inline-readonly .tbled-grid.readonly th { border: 1px solid var(--ink); padding: 3px 6px; font-size: 11px; font-family: 'IBM Plex Mono', monospace; vertical-align: top; }
+  .tbled-inline-readonly .tbled-grid.readonly th { background: #f3f0e7; font-weight: 700; }
   @keyframes ann-spin { to { transform: rotate(360deg); } }
   .ann-toast { position: fixed; bottom: 18px; right: 18px; background: var(--ink); color: var(--paper); padding: 8px 14px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; z-index: 1000; box-shadow: 2px 3px 0 rgba(0,0,0,0.5); }
   .ann-toast.err { background: var(--danger); }
@@ -4030,24 +4008,6 @@
     return r >= rect.r0 && r <= rect.r1 && c >= rect.c0 && c <= rect.c1;
   }
 
-  function tbledOpen(b) {
-    tbled.open = true;
-    tbled.block = b;
-    tbled.rows = tbledParseHtml(b.text || '');
-    tbled.past = [];
-    tbled.future = [];
-    tbled.selection = null;
-    tbled.showTex = false;
-    paintTbled();
-    document.getElementById('tbled-overlay').classList.add('open');
-  }
-
-  function tbledClose() {
-    tbled.open = false;
-    tbled.block = null;
-    document.getElementById('tbled-overlay').classList.remove('open');
-  }
-
   function tbledParseHtml(html) {
     const src = (html && html.trim()) ? html : '<table><tr><td></td></tr></table>';
     const doc = new DOMParser().parseFromString(src, 'text/html');
@@ -4444,41 +4404,6 @@
     tbledCommit(next);
   }
 
-  function tbledMountOnce() {
-    if (document.getElementById('tbled-overlay')) return;
-    const root = document.createElement('div');
-    root.id = 'tbled-overlay';
-    root.className = 'tbled-overlay';
-    root.innerHTML = `
-      <div class="tbled-header">
-        <button class="back" id="tbled-back" title="Close (Esc)">←</button>
-        <h2>Table Editor</h2>
-        <span class="tbled-status" id="tbled-status"></span>
-        <span class="spacer"></span>
-        <button class="save" id="tbled-save">Save</button>
-      </div>
-      <div class="tbled-toolbar" id="tbled-toolbar"></div>
-      <div class="tbled-body">
-        <div class="tbled-grid-wrap" id="tbled-grid-wrap"></div>
-        <div id="tbled-tex-panel" style="display:none"></div>
-      </div>
-    `;
-    document.body.appendChild(root);
-    document.getElementById('tbled-back').addEventListener('click', tbledClose);
-    document.getElementById('tbled-save').addEventListener('click', tbledSave);
-    document.addEventListener('keydown', (e) => {
-      if (!tbled.open) return;
-      if (e.key === 'Escape') { e.preventDefault(); tbledClose(); return; }
-      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key === 'z') {
-        e.preventDefault(); tbledUndo(); return;
-      }
-      if ((e.ctrlKey || e.metaKey) && (e.key === 'y' ||
-          (e.shiftKey && e.key.toLowerCase() === 'z'))) {
-        e.preventDefault(); tbledRedo(); return;
-      }
-    });
-  }
-
   function tbledToolbarBtn(label, title, action, opts) {
     const b = document.createElement('button');
     b.type = 'button';
@@ -4706,41 +4631,6 @@
     paintTbledGrid();
     paintTbledTex();
     paintTbledStatus();
-  }
-
-  async function tbledSave() {
-    if (!tbled.block) return;
-    const html = tbledSerialize(tbled.rows);
-    const b = tbled.block;
-    // Snapshot BEFORE the optimistic mutation so rollback on failure has a
-    // real previous state to restore to (passing the live `b` ref would
-    // capture the new text and make rollback a no-op).
-    const snapshot = { ...b, bbox: b.bbox.slice() };
-    b.text = html;
-    const saveBtn = document.getElementById('tbled-save');
-    if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
-    try {
-      const ok = await updateBlockOnServer(b.id, { text: html }, snapshot);
-      if (ok) {
-        annToast('table saved', 'ok');
-        tbledClose();
-      }
-      // On failure: updateBlockOnServer already toasted the specific error
-      // (conflict / 5xx / network) and rolled back b.text via `snapshot`,
-      // so leave the modal open with tbled.rows intact so the reviewer can
-      // retry or copy their work out instead of losing it silently.
-    } finally {
-      if (saveBtn && tbled.open) {
-        saveBtn.disabled = false;
-        saveBtn.textContent = 'Save';
-      }
-    }
-  }
-
-  // Mount the editor overlay lazily — only when the reviewer first opens it.
-  // This keeps the initial DOM tree light for non-table flows.
-  function tbledEnsureMounted() {
-    tbledMountOnce();
   }
 
   // Boot
