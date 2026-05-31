@@ -3560,7 +3560,11 @@
   // stay open + flag the error instead of silently closing on a failed
   // write — should `await` the return value. Existing fire-and-forget call
   // sites that ignore the result keep their previous behavior.
-  async function updateBlockOnServer(id, patch, beforeSnapshot) {
+  // opts.silent: skip the sidebar/overlay repaint after a successful save.
+  // Used by the inline table editor, whose DOM + caret must survive a save.
+  // (Text edits never move the bbox, so the overlay doesn't need repainting.)
+  async function updateBlockOnServer(id, patch, beforeSnapshot, opts) {
+    opts = opts || {};
     try {
       const r = await authFetch(
         API + '/review/notice/' + encodeURIComponent(ann.filename)
@@ -3574,8 +3578,10 @@
       mergeBlock(updated);
       ann.rev += 1; $('ann-rev').textContent = 'rev ' + ann.rev;
       refreshMarkdownAfterChange();
-      paintAnnSidebar();
-      paintAnnOverlay();
+      if (!opts.silent) {
+        paintAnnSidebar();
+        paintAnnOverlay();
+      }
       return true;
     } catch (e) {
       annToast('save error: ' + e, 'err');
