@@ -4148,12 +4148,14 @@
     paintTbled();
   }
 
-  // Build a 2D "physical" grid (visual layout) from the logical rows model.
+  // Build a 2D "physical" grid (visual layout) from a logical rows model.
+  // `rows` defaults to the active editor's rows so existing callers can pass
+  // nothing; the read-only preview passes its own parsed rows.
   // Each physical cell either points to its primary {pr, pc} (the cell that
   // owns the span) or has `primary: true` and a back-pointer at [r][c].
-  function tbledBuildGrid() {
+  function tbledBuildGrid(rows) {
     const physical = [];
-    const rows = tbled.rows;
+    rows = rows || tbled.rows;
     const nRowsLogical = rows.length;
     let maxCols = 0;
     for (const r of rows) maxCols = Math.max(maxCols, r.reduce((s, c) => s + (c.colspan || 1), 0));
@@ -4258,7 +4260,7 @@
 
   function tbledToLatex(rows) {
     if (!rows.length) return '';
-    const grid = tbledBuildGrid();
+    const grid = tbledBuildGrid(tbled.rows);
     const ncols = grid.nCols;
     let out = `\\begin{table}[h]\n\\centering\n\\begin{tabular}{|${'c|'.repeat(ncols)}}\n\\hline\n`;
     for (const row of rows) {
@@ -4299,7 +4301,7 @@
       subscript:   s => `<sub>${s}</sub>`,
     }[action];
     if (!wrap) return;
-    const grid = tbledBuildGrid();
+    const grid = tbledBuildGrid(tbled.rows);
     const seen = new Set();
     const next = tbledCloneRows(tbled.rows);
     for (let r = rect.r0; r <= rect.r1; r++) {
@@ -4319,7 +4321,7 @@
   function tbledApplyAlign(align) {
     const rect = tbledRectFromSelection(tbled.selection);
     if (!rect) return;
-    const grid = tbledBuildGrid();
+    const grid = tbledBuildGrid(tbled.rows);
     const next = tbledCloneRows(tbled.rows);
     const seen = new Set();
     for (let r = rect.r0; r <= rect.r1; r++) {
@@ -4342,7 +4344,7 @@
     // Every covered cell must belong to a primary whose footprint is
     // fully inside the rectangle — otherwise merging would clip a
     // pre-existing span.
-    const grid = tbledBuildGrid();
+    const grid = tbledBuildGrid(tbled.rows);
     const checked = new Set();
     for (let r = rect.r0; r <= rect.r1; r++) {
       for (let c = rect.c0; c <= rect.c1; c++) {
@@ -4364,7 +4366,7 @@
   function tbledMerge() {
     if (!tbledCanMerge()) return;
     const rect = tbledRectFromSelection(tbled.selection);
-    const grid = tbledBuildGrid();
+    const grid = tbledBuildGrid(tbled.rows);
     const next = tbledCloneRows(tbled.rows);
     // Gather all unique primaries in the rectangle and their HTML, then
     // delete every primary EXCEPT the top-left one, which we then expand.
@@ -4405,7 +4407,7 @@
     const rect = tbledRectFromSelection(tbled.selection);
     if (!rect) return false;
     if (rect.r0 !== rect.r1 || rect.c0 !== rect.c1) return false;
-    const grid = tbledBuildGrid();
+    const grid = tbledBuildGrid(tbled.rows);
     const ph = grid.physical[rect.r0][rect.c0];
     if (!ph || !ph.primary) return false;
     const cell = tbled.rows[ph.lr][ph.li];
@@ -4415,7 +4417,7 @@
   function tbledSplit() {
     if (!tbledCanSplit()) return;
     const rect = tbledRectFromSelection(tbled.selection);
-    const grid = tbledBuildGrid();
+    const grid = tbledBuildGrid(tbled.rows);
     const ph = grid.physical[rect.r0][rect.c0];
     const next = tbledCloneRows(tbled.rows);
     const cell = next[ph.lr][ph.li];
@@ -4437,7 +4439,7 @@
 
   function tbledAddRow(below) {
     const rect = tbledRectFromSelection(tbled.selection);
-    const grid = tbledBuildGrid();
+    const grid = tbledBuildGrid(tbled.rows);
     const ncols = grid.nCols || 1;
     const insertAtLogical = (() => {
       if (rect) {
@@ -4478,7 +4480,7 @@
   function tbledDelRow() {
     const rect = tbledRectFromSelection(tbled.selection);
     if (!rect) return;
-    const grid = tbledBuildGrid();
+    const grid = tbledBuildGrid(tbled.rows);
     const rowsToDelete = new Set();
     for (let r = rect.r0; r <= rect.r1; r++) {
       const ph = grid.physical[r] && grid.physical[r][rect.c0];
@@ -4495,7 +4497,7 @@
     if (!rect) return;
     // Delete by logical column index. For each row, drop the cell at the
     // logical index that maps to rect.c0..c1 in the physical grid.
-    const grid = tbledBuildGrid();
+    const grid = tbledBuildGrid(tbled.rows);
     const next = tbledCloneRows(tbled.rows);
     for (let lr = 0; lr < next.length; lr++) {
       // For each cell, find its physical column footprint; drop if any
@@ -4622,7 +4624,7 @@
   function paintTbledGrid() {
     const wrap = document.getElementById('tbled-grid-wrap');
     wrap.innerHTML = '';
-    const grid = tbledBuildGrid();
+    const grid = tbledBuildGrid(tbled.rows);
     const tbl  = document.createElement('table');
     tbl.className = 'tbled-grid';
     // Column-handle row (top): a corner cell + one handle per physical column.
@@ -4746,7 +4748,7 @@
 
   function paintTbledStatus() {
     const status = document.getElementById('tbled-status');
-    const grid = tbledBuildGrid();
+    const grid = tbledBuildGrid(tbled.rows);
     let txt = `${grid.nRows} × ${grid.nCols}`;
     if (tbled.selection) {
       const rect = tbledRectFromSelection(tbled.selection);
