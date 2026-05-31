@@ -797,6 +797,8 @@ def _wrap_block_errors(fn):
             raise HTTPException(status_code=404, detail=str(e))
         except block_ops.BlocksConflict as e:
             raise HTTPException(status_code=409, detail=str(e))
+        except block_ops.BlocksUpstreamError as e:
+            raise HTTPException(status_code=502, detail=str(e))
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
     return inner

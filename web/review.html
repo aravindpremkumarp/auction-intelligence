@@ -359,6 +359,7 @@
   .ann-toast { position: fixed; bottom: 18px; right: 18px; background: var(--ink); color: var(--paper); padding: 8px 14px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; z-index: 1000; box-shadow: 2px 3px 0 rgba(0,0,0,0.5); }
   .ann-toast.err { background: var(--danger); }
   .ann-toast.ok  { background: var(--good); color: #fff; }
+  .ann-toast.warn { background: var(--accent); color: var(--ink); }
   .ann-link { color: var(--ink); text-decoration: underline; cursor: pointer; font-family: 'IBM Plex Mono', monospace; font-size: 11px; }
 </style>
 </head>
@@ -3750,11 +3751,20 @@
         { method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body) }
       );
-      if (!r.ok) { annToast('re-extract failed (' + r.status + ')', 'err'); return; }
+      if (!r.ok) {
+        // Surface the server's reason (e.g. "MINERU_API_KEY not set", a MinerU
+        // timeout) instead of a bare status code.
+        let msg = 're-extract failed (' + r.status + ')';
+        try { const j = await r.json(); if (j && j.detail) msg = 're-extract: ' + j.detail; } catch (_) {}
+        annToast(msg, 'err'); return;
+      }
       const updated = await r.json();
       mergeBlock(updated);
       ann.rev += 1; $('ann-rev').textContent = 'rev ' + ann.rev;
-      annToast('re-extracted', 'ok');
+      // An empty result is a real outcome (the crop was too thin / low-res for
+      // OCR), not a success — say so instead of a green "re-extracted".
+      if ((updated.text || '').trim()) annToast('re-extracted', 'ok');
+      else annToast('no text found — try a taller box or Re-ingest', 'warn');
       refreshMarkdownAfterChange();
       paintAnnAll();
     } catch (e) { annToast('re-extract error: ' + e, 'err'); }

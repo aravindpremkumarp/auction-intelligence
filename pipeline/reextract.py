@@ -209,6 +209,67 @@ def _pdf_rotate_page_to_png(pdf_bytes: bytes, page_1: int, rotation: int) -> byt
         doc.close()
 
 
+# ── OCR-prep: pad + upscale a crop so MinerU's layout model can read it ──────
+
+# MinerU misclassifies extreme-aspect-ratio crops — a one-line strip (e.g. the
+# ~356x18 "RESERVE PRICE ..." banner) reads as a single Table/Image region and
+# comes back with no text — and struggles with crops that are simply too small
+# on a low-res scan. The per-block re-extract path therefore letterbox-pads each
+# crop to a sane aspect ratio and upscales it before shipping to MinerU.
+#
+# This only runs on the per-block path (:func:`crop_and_reextract`), which uses
+# the returned *text* and never remaps the returned bboxes. The re-ingest crop
+# path (:mod:`api.review.blocks`) DOES remap MinerU bboxes back to full-image
+# coords, so it must keep using the un-padded ``_image_crop_to_png`` /
+# ``_pdf_crop_to_png`` — padding there would shift every block's coordinates.
+OCR_MAX_ASPECT = 3.0          # cap width:height (and height:width) before OCR
+OCR_TARGET_SHORT_EDGE = 480   # upscale until the short edge reaches this
+OCR_MAX_SCALE = 12.0          # never enlarge more than this
+
+
+def _pad_and_upscale_for_ocr(png_bytes: bytes) -> bytes:
+    """Letterbox-pad to ``OCR_MAX_ASPECT`` then upscale toward the short-edge
+    target so MinerU can OCR thin or low-res crops. White fill; LANCZOS scale.
+
+    Returns ``png_bytes`` unchanged on any decode failure so a Pillow hiccup
+    can't strand the re-extract.
+    """
+    try:
+        from PIL import Image, ImageOps  # type: ignore
+        img = Image.open(io.BytesIO(png_bytes))
+        img.load()
+        img = img.convert("RGB")
+    except Exception:
+        return png_bytes
+    w, h = img.size
+    if w <= 0 or h <= 0:
+        return png_bytes
+    # 1) Pad the short axis with white so the aspect ratio isn't extreme.
+    if w > h * OCR_MAX_ASPECT:
+        target_h = int(round(w / OCR_MAX_ASPECT))
+        pad = max(0, (target_h - h + 1) // 2)   # ceil so aspect lands <= max
+        if pad:
+            img = ImageOps.expand(img, border=(0, pad, 0, pad), fill=(255, 255, 255))
+    elif h > w * OCR_MAX_ASPECT:
+        target_w = int(round(h / OCR_MAX_ASPECT))
+        pad = max(0, (target_w - w + 1) // 2)
+        if pad:
+            img = ImageOps.expand(img, border=(pad, 0, pad, 0), fill=(255, 255, 255))
+    # 2) Upscale so the short edge is large enough for the OCR model.
+    w2, h2 = img.size
+    short = min(w2, h2)
+    if short > 0:
+        scale = min(OCR_MAX_SCALE, max(1.0, OCR_TARGET_SHORT_EDGE / short))
+        if scale > 1.0:
+            img = img.resize(
+                (max(1, round(w2 * scale)), max(1, round(h2 * scale))),
+                Image.LANCZOS,
+            )
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
 # ── MinerU single-block call ────────────────────────────────────────────────
 
 def _mineru_one_shot_png(png_bytes: bytes, *, hint_name: str) -> list[dict]:
@@ -325,6 +386,10 @@ async def crop_and_reextract(
             png_bytes = _pdf_crop_to_png(src_bytes, page, bbox_norm)
         else:
             png_bytes = _image_crop_to_png(src_bytes, bbox_norm)
+
+        # Pad + upscale so MinerU can read thin / low-res crops; otherwise a
+        # one-line strip comes back with no text and looks like a no-op.
+        png_bytes = _pad_and_upscale_for_ocr(png_bytes)
 
         hint = safe_cache_name(Path(urlparse(public_url).path).name or "crop")[:32] or "crop"
         try:
