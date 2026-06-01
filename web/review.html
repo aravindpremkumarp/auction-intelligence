@@ -4030,16 +4030,26 @@
   // Mount the inline editor into `container` (a .tbled-inline div that already
   // lives inside the selected Table block's sidebar row). Builds the toolbar /
   // grid / tex / status skeleton once, then paints.
+  //
+  // Distinguish a true block switch from a same-block remount (sidebar repaint
+  // while this Table block stays selected — e.g. a failed PUT's rollback calls
+  // paintAnnAll). On a same-block remount we MUST preserve `tbled.rows` and
+  // `tbledSavePending`: rows hold the user's coalesced trailing edit and the
+  // pending flag drives the trailing flush in `tbledFlushSave().finally()`.
+  // Clobbering them here drops the edit on offline / 5xx / conflict paths.
   function tbledMountInline(b, container) {
+    const sameBlock = tbled.blockId === b.id;
     tbled.block     = b;
     tbled.blockId   = b.id;
     tbled.container = container;
-    tbled.rows      = tbledParseHtml(b.text || '');
-    tbled.past      = [];
-    tbled.future    = [];
-    tbled.selection = null;
-    tbled.showTex   = false;
-    tbledSavePending = false;   // drop any coalesced save queued for a prior block
+    if (!sameBlock) {
+      tbled.rows       = tbledParseHtml(b.text || '');
+      tbled.past       = [];
+      tbled.future     = [];
+      tbled.selection  = null;
+      tbled.showTex    = false;
+      tbledSavePending = false;   // drop any coalesced save queued for a prior block
+    }
     container.innerHTML = '';
     const toolbar = document.createElement('div');
     toolbar.className = 'tbled-toolbar';
