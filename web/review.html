@@ -280,31 +280,6 @@
   .ann-row .table-editor { margin-top: 6px; padding: 6px; border: 1px dashed var(--ink); font-size: 11px; }
   .ann-row .table-editor .grid-positions { display: grid; grid-template-columns: 70px 1fr; gap: 4px 8px; align-items: center; margin-top: 4px; }
   .ann-row .table-editor input { width: 100%; box-sizing: border-box; padding: 3px 5px; border: 1.5px solid var(--ink); font-family: 'IBM Plex Mono', monospace; font-size: 11px; }
-  /* Rendered table preview with hover-triggered +/× affordances (ported
-     from the reference TableEditor at 07_project_aiparsed_humanvalidated_extractor). */
-  .ann-tbl-wrap { margin-top: 6px; overflow: auto; max-height: 320px; border: 1.5px solid var(--ink); background: #fff; padding: 16px 18px 8px 18px; }
-  .ann-tbl { border-collapse: collapse; width: 100%; table-layout: auto; }
-  .ann-tbl td, .ann-tbl th { border: 1px solid var(--ink); padding: 4px 6px; font-size: 11px; font-family: 'IBM Plex Mono', monospace; vertical-align: top; position: relative; min-width: 40px; }
-  .ann-tbl td[contenteditable], .ann-tbl th[contenteditable] { outline: none; cursor: text; }
-  .ann-tbl td:focus, .ann-tbl th:focus { background: #fff8d4; box-shadow: inset 0 0 0 1px var(--danger); }
-  .ann-tbl .ann-tbl-rowctl { width: 18px; padding: 0; border: none; background: transparent; position: relative; }
-  .ann-tbl .ann-tbl-colctl { height: 18px; padding: 0; border: none; background: transparent; position: relative; }
-  .ann-tbl .ann-tbl-corner { width: 18px; height: 18px; padding: 0; border: none; background: transparent; }
-  .ann-tbl-handle { width: 14px; height: 14px; border-radius: 3px; background: #d8d4c4; display: block; margin: 2px auto; cursor: pointer; }
-  .ann-tbl-handle:hover { background: #b5b0a0; }
-  .ann-tbl-handle.del:hover { background: var(--danger); }
-  .ann-tbl-add { position: absolute; width: 16px; height: 16px; border-radius: 50%; background: #3b82f6; color: #fff; border: none; font-size: 12px; font-weight: bold; cursor: pointer; display: none; align-items: center; justify-content: center; box-shadow: 0 1px 3px rgba(59,130,246,0.5); padding: 0; line-height: 1; z-index: 5; }
-  .ann-tbl-add:hover { background: #2563eb; }
-  .ann-tbl-add.show { display: flex; }
-  .ann-tbl-add.row-before { top: -8px; left: 50%; transform: translateX(-50%); }
-  .ann-tbl-add.row-after  { bottom: -8px; left: 50%; transform: translateX(-50%); }
-  .ann-tbl-add.col-before { left: -8px; top: 50%; transform: translateY(-50%); }
-  .ann-tbl-add.col-after  { right: -8px; top: 50%; transform: translateY(-50%); }
-  .ann-tbl-del { position: absolute; top: -8px; right: -8px; width: 14px; height: 14px; border-radius: 50%; background: var(--danger); color: #fff; border: none; font-size: 10px; font-weight: bold; cursor: pointer; display: none; align-items: center; justify-content: center; padding: 0; line-height: 1; z-index: 5; }
-  .ann-tbl-del.show { display: flex; }
-  .ann-tbl-toolbar { display: flex; gap: 6px; align-items: center; margin-top: 6px; font-size: 11px; }
-  .ann-tbl-toolbar button { padding: 3px 8px; font-size: 11px; min-height: 0; }
-  .ann-tbl-toolbar .hint { color: var(--muted); }
   .ann-tbl-html-toggle { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--muted); cursor: pointer; user-select: none; }
   /* Floating Table Hints popup — anchored to the selected Table bbox on the
      annotator canvas. The reviewer bumps Cols/Rows to seed evenly-spaced
@@ -322,16 +297,6 @@
   .ann-table-hints .th-rex:disabled { background: #eee; color: var(--muted); cursor: progress; }
   .ann-block.lab-Table .show-hints-btn { position: absolute; top: -18px; right: -2px; font-family: 'IBM Plex Mono', monospace; font-size: 9px; background: var(--ink); color: var(--paper); padding: 1px 5px; border: none; cursor: pointer; display: none; }
   .ann-block.lab-Table.selected .show-hints-btn.show { display: block; }
-  /* Full-screen Table Editor modal — opened from the sidebar "Edit table"
-     button. Provides cell selection, formatting (B/I/U/sup/sub), align,
-     merge/split, row/col handles, TeX export, and a single Save commit. */
-  .tbled-overlay { position: fixed; inset: 0; background: rgba(26,26,26,0.85); z-index: 1500; display: none; }
-  .tbled-overlay.open { display: flex; flex-direction: column; }
-  .tbled-header { display: flex; align-items: center; gap: 12px; padding: 10px 16px; background: var(--paper); border-bottom: 2px solid var(--ink); }
-  .tbled-header .back { background: transparent; border: none; font-family: 'Caveat', cursive; font-size: 22px; cursor: pointer; min-height: 0; padding: 2px 8px; }
-  .tbled-header h2 { margin: 0; font-family: 'Caveat', cursive; font-size: 26px; }
-  .tbled-header .spacer { flex: 1; }
-  .tbled-header .save { background: var(--accent); border: 2px solid var(--ink); padding: 6px 18px; font-weight: 700; box-shadow: 2px 3px 0 rgba(0,0,0,0.6); cursor: pointer; }
   .tbled-toolbar { display: flex; align-items: center; gap: 4px; padding: 8px 16px; background: #fff; border-bottom: 1.5px solid var(--ink); flex-wrap: wrap; }
   .tbled-toolbar .sep { width: 1px; height: 22px; background: rgba(0,0,0,0.2); margin: 0 4px; }
   .tbled-toolbar button { padding: 4px 9px; min-height: 0; font-size: 13px; background: #fff; border: 1.5px solid var(--ink); cursor: pointer; min-width: 30px; line-height: 1.1; }
@@ -339,7 +304,6 @@
   .tbled-toolbar button:disabled { opacity: 0.45; cursor: not-allowed; }
   .tbled-toolbar button.active { background: var(--accent); font-weight: 700; }
   .tbled-toolbar .tex-btn { margin-left: auto; font-family: 'Times New Roman', serif; font-style: italic; }
-  .tbled-body { flex: 1; overflow: auto; padding: 18px 24px; background: var(--paper); display: flex; flex-direction: column; gap: 10px; }
   .tbled-grid-wrap { background: #fff; border: 2px solid var(--ink); box-shadow: 2px 3px 0 rgba(0,0,0,0.6); padding: 12px; overflow: auto; align-self: flex-start; max-width: 100%; }
   .tbled-grid { border-collapse: collapse; table-layout: auto; }
   .tbled-grid td { border: 1px solid var(--ink); padding: 6px 9px; vertical-align: top; font-family: 'IBM Plex Mono', monospace; font-size: 12px; min-width: 60px; position: relative; cursor: text; }
@@ -355,6 +319,20 @@
   .tbled-tex { background: #1a1a1a; color: #f0ead2; padding: 12px 14px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; white-space: pre-wrap; border: 2px solid var(--ink); box-shadow: 2px 3px 0 rgba(0,0,0,0.6); position: relative; }
   .tbled-tex .copy-tex { position: absolute; top: 8px; right: 8px; background: var(--accent); border: 1.5px solid var(--ink); padding: 2px 8px; cursor: pointer; font-size: 10px; min-height: 0; color: var(--ink); }
   .tbled-status { font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--muted); }
+  /* Inline table editor — lives in the selected Table block's sidebar row.
+     Reuses .tbled-toolbar / .tbled-grid / .tbled-tex / .tbled-status. */
+  .tbled-inline { margin-top: 6px; border: 1.5px solid var(--ink); background: #fff; }
+  .tbled-inline .tbled-toolbar { padding: 5px 6px; gap: 3px; border-bottom: 1.5px solid var(--ink); }
+  .tbled-inline .tbled-toolbar button { padding: 2px 6px; font-size: 12px; min-width: 26px; }
+  .tbled-inline .tbled-grid-wrap { padding: 8px; overflow: auto; max-height: 360px; }
+  .tbled-inline .tbled-grid td { padding: 4px 6px; font-size: 11px; min-width: 44px; }
+  .tbled-inline .tbled-status { padding: 4px 7px; border-top: 1px solid rgba(0,0,0,0.15); }
+  .tbled-inline .tbled-tex-panel { padding: 0 8px 8px; }
+  /* Read-only preview for unselected Table rows. */
+  .tbled-inline-readonly { margin-top: 6px; overflow: auto; max-height: 320px; border: 1.5px solid var(--ink); background: #fff; padding: 8px; }
+  .tbled-inline-readonly .tbled-grid.readonly td,
+  .tbled-inline-readonly .tbled-grid.readonly th { border: 1px solid var(--ink); padding: 3px 6px; font-size: 11px; font-family: 'IBM Plex Mono', monospace; vertical-align: top; }
+  .tbled-inline-readonly .tbled-grid.readonly th { background: #f3f0e7; font-weight: 700; }
   @keyframes ann-spin { to { transform: rotate(360deg); } }
   .ann-toast { position: fixed; bottom: 18px; right: 18px; background: var(--ink); color: var(--paper); padding: 8px 14px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; z-index: 1000; box-shadow: 2px 3px 0 rgba(0,0,0,0.5); }
   .ann-toast.err { background: var(--danger); }
@@ -2957,6 +2935,21 @@
     for (let i = 0; i < total; i++) {
       root.appendChild(renderSidebarRow(sorted[i], i + 1, total, sorted));
     }
+    // Mount the inline table editor into the selected Table block's row (it
+    // must be in the DOM first so cell .focus() works).
+    const sel = ann.selectedId && ann.blocks.find(b => b.id === ann.selectedId);
+    const rowEl = (sel && sel.label === 'Table')
+      ? root.querySelector(`.ann-row[data-id="${sel.id}"]`) : null;
+    const cont = rowEl ? rowEl.querySelector('.tbled-inline') : null;
+    if (cont) {
+      tbledMountInline(sel, cont);
+    } else {
+      // No active inline editor this paint → tear down any prior one. The old
+      // container was destroyed by innerHTML='' above; abort its keydown
+      // listener defensively and drop the stale refs.
+      if (tbled.container && tbled.container._tbledAbort) tbled.container._tbledAbort.abort();
+      tbled.block = null; tbled.blockId = null; tbled.container = null;
+    }
   }
 
   function renderSidebarRow(b, position, total, sortedAll) {
@@ -3003,8 +2996,17 @@
     // an escape hatch for raw edits.
     let textArea = null;
     if (b.label === 'Table') {
-      const tableWrap = renderAnnTablePreview(b);
-      if (tableWrap) row.appendChild(tableWrap);
+      if (ann.selectedId === b.id) {
+        // Selected Table → full inline editor, mounted after the row lands in
+        // the DOM (focus() needs an attached element). paintAnnSidebar does the
+        // mount; here we just leave the container placeholder.
+        const ed = document.createElement('div');
+        ed.className = 'tbled-inline';
+        row.appendChild(ed);
+      } else {
+        // Unselected Table → read-only span-correct preview.
+        row.appendChild(tbledRenderReadonly(tbledParseHtml(b.text || '')));
+      }
     }
 
     textArea = document.createElement('textarea');
@@ -3058,14 +3060,6 @@
     btnReextract.textContent = '↻ re-run extraction';
     const btnDel = document.createElement('button');
     btnDel.className = 'danger'; btnDel.textContent = 'delete';
-    let btnEditTable = null;
-    if (b.label === 'Table') {
-      btnEditTable = document.createElement('button');
-      btnEditTable.className = 'primary';
-      btnEditTable.textContent = '✎ Edit table';
-      btnEditTable.title = 'Open full-screen editor (cell merge/split, formatting, TeX)';
-      actions.appendChild(btnEditTable);
-    }
     actions.appendChild(btnReextract);
     actions.appendChild(btnDel);
     const meta = document.createElement('span');
@@ -3113,232 +3107,7 @@
       if (!confirm('Delete this block?')) return;
       deleteBlockOnServer(b.id);
     });
-    if (btnEditTable) {
-      btnEditTable.addEventListener('click', () => {
-        tbledEnsureMounted();
-        tbledOpen(b);
-      });
-    }
     return row;
-  }
-
-  // ── Table preview (rendered view + hover-triggered add/delete) ──────────
-  // Parses block.text as HTML, builds a 2D cell grid, and renders an editable
-  // table. Hovering the row/col gutters reveals blue "+" buttons; the small
-  // "×" appears on hover for delete. Cell content is contenteditable; commits
-  // happen on blur so cursor state survives in-place typing.
-  function _annParseTableHtml(html) {
-    const doc = new DOMParser().parseFromString(
-      html && html.trim() ? html : '<table><tr><td></td></tr></table>',
-      'text/html'
-    );
-    let tbl = doc.querySelector('table');
-    if (!tbl) {
-      tbl = doc.createElement('table');
-      const tr = doc.createElement('tr');
-      tr.appendChild(doc.createElement('td'));
-      tbl.appendChild(tr);
-    }
-    const rows = [];
-    tbl.querySelectorAll('tr').forEach(tr => {
-      const cells = [];
-      tr.querySelectorAll('td, th').forEach(cell => {
-        cells.push({
-          html:    cell.innerHTML,
-          tag:     cell.tagName.toLowerCase(),
-          rowspan: parseInt(cell.getAttribute('rowspan') || '1', 10) || 1,
-          colspan: parseInt(cell.getAttribute('colspan') || '1', 10) || 1,
-        });
-      });
-      if (cells.length) rows.push(cells);
-    });
-    if (!rows.length) rows.push([{ html: '', tag: 'td', rowspan: 1, colspan: 1 }]);
-    const maxCols = Math.max(...rows.map(r => r.length));
-    for (const r of rows) {
-      while (r.length < maxCols) {
-        r.push({ html: '', tag: 'td', rowspan: 1, colspan: 1 });
-      }
-    }
-    return rows;
-  }
-
-  function _annSerializeTableHtml(rows) {
-    return '<table>'
-      + rows.map(r => '<tr>' + r.map(c => {
-          const attrs = [];
-          if (c.rowspan && c.rowspan > 1) attrs.push(`rowspan="${c.rowspan}"`);
-          if (c.colspan && c.colspan > 1) attrs.push(`colspan="${c.colspan}"`);
-          const a = attrs.length ? ' ' + attrs.join(' ') : '';
-          return `<${c.tag}${a}>${c.html}</${c.tag}>`;
-        }).join('') + '</tr>').join('')
-      + '</table>';
-  }
-
-  function renderAnnTablePreview(b) {
-    const wrap = document.createElement('div');
-    wrap.className = 'ann-tbl-wrap';
-    const rows = _annParseTableHtml(b.text || '');
-    const nCols = rows[0] ? rows[0].length : 1;
-
-    const commit = (nextRows) => {
-      const html = _annSerializeTableHtml(nextRows);
-      b.text = html;
-      updateBlockOnServer(b.id, { text: html }, b);
-    };
-    const blankCell = () => ({ html: '', tag: 'td', rowspan: 1, colspan: 1 });
-    const addRow = (afterIdx) => {
-      const blank = Array.from({ length: nCols }, blankCell);
-      const next = rows.slice();
-      next.splice(afterIdx + 1, 0, blank);
-      commit(next);
-    };
-    const addCol = (afterIdx) => {
-      const next = rows.map(r => {
-        const out = r.slice();
-        out.splice(afterIdx + 1, 0, blankCell());
-        return out;
-      });
-      commit(next);
-    };
-    const delRow = (idx) => {
-      if (rows.length <= 1) return;
-      commit(rows.filter((_, i) => i !== idx));
-    };
-    const delCol = (idx) => {
-      if (nCols <= 1) return;
-      commit(rows.map(r => r.filter((_, i) => i !== idx)));
-    };
-
-    const tbl = document.createElement('table');
-    tbl.className = 'ann-tbl';
-
-    // Column-control row (above the data): each cell shows a grey handle that
-    // is the delete-column affordance; on hover, "+" buttons fade in on the
-    // left/right edges. Corner cell at top-left adds a row before row 0.
-    const thead = document.createElement('thead');
-    const ctrlRow = document.createElement('tr');
-    const corner = document.createElement('td');
-    corner.className = 'ann-tbl-corner';
-    {
-      const addBefore = document.createElement('button');
-      addBefore.className = 'ann-tbl-add row-before';
-      addBefore.title = 'Add row above first';
-      addBefore.textContent = '+';
-      addBefore.addEventListener('click', (e) => { e.stopPropagation(); addRow(-1); });
-      corner.appendChild(addBefore);
-      corner.addEventListener('mouseenter', () => addBefore.classList.add('show'));
-      corner.addEventListener('mouseleave', () => addBefore.classList.remove('show'));
-    }
-    ctrlRow.appendChild(corner);
-    for (let c = 0; c < nCols; c++) {
-      const td = document.createElement('td');
-      td.className = 'ann-tbl-colctl';
-      const handle = document.createElement('div');
-      handle.className = 'ann-tbl-handle del';
-      handle.title = 'Click to delete this column';
-      handle.addEventListener('click', () => {
-        if (confirm('Delete column ' + (c + 1) + '?')) delCol(c);
-      });
-      td.appendChild(handle);
-      const addBefore = document.createElement('button');
-      addBefore.className = 'ann-tbl-add col-before';
-      addBefore.title = 'Add column before';
-      addBefore.textContent = '+';
-      addBefore.addEventListener('click', (e) => { e.stopPropagation(); addCol(c - 1); });
-      const addAfter = document.createElement('button');
-      addAfter.className = 'ann-tbl-add col-after';
-      addAfter.title = 'Add column after';
-      addAfter.textContent = '+';
-      addAfter.addEventListener('click', (e) => { e.stopPropagation(); addCol(c); });
-      td.appendChild(addBefore);
-      td.appendChild(addAfter);
-      td.addEventListener('mouseenter', () => {
-        addBefore.classList.add('show'); addAfter.classList.add('show');
-      });
-      td.addEventListener('mouseleave', () => {
-        addBefore.classList.remove('show'); addAfter.classList.remove('show');
-      });
-      ctrlRow.appendChild(td);
-    }
-    thead.appendChild(ctrlRow);
-    tbl.appendChild(thead);
-
-    const tbody = document.createElement('tbody');
-    for (let r = 0; r < rows.length; r++) {
-      const tr = document.createElement('tr');
-      const rowCtl = document.createElement('td');
-      rowCtl.className = 'ann-tbl-rowctl';
-      const rowHandle = document.createElement('div');
-      rowHandle.className = 'ann-tbl-handle del';
-      rowHandle.title = 'Click to delete this row';
-      rowHandle.addEventListener('click', () => {
-        if (confirm('Delete row ' + (r + 1) + '?')) delRow(r);
-      });
-      rowCtl.appendChild(rowHandle);
-      const addAbove = document.createElement('button');
-      addAbove.className = 'ann-tbl-add row-before';
-      addAbove.title = 'Add row above';
-      addAbove.textContent = '+';
-      addAbove.addEventListener('click', (e) => { e.stopPropagation(); addRow(r - 1); });
-      const addBelow = document.createElement('button');
-      addBelow.className = 'ann-tbl-add row-after';
-      addBelow.title = 'Add row below';
-      addBelow.textContent = '+';
-      addBelow.addEventListener('click', (e) => { e.stopPropagation(); addRow(r); });
-      rowCtl.appendChild(addAbove);
-      rowCtl.appendChild(addBelow);
-      rowCtl.addEventListener('mouseenter', () => {
-        addAbove.classList.add('show'); addBelow.classList.add('show');
-      });
-      rowCtl.addEventListener('mouseleave', () => {
-        addAbove.classList.remove('show'); addBelow.classList.remove('show');
-      });
-      tr.appendChild(rowCtl);
-
-      for (let c = 0; c < nCols; c++) {
-        const td = document.createElement(rows[r][c].tag === 'th' ? 'th' : 'td');
-        // Sanitize the stored HTML before injecting so a malicious <script>
-        // baked into the DB can't execute when the reviewer opens the doc.
-        const dirty = rows[r][c].html || '';
-        td.innerHTML = (window.DOMPurify
-          ? window.DOMPurify.sanitize(dirty, { USE_PROFILES: { html: true } })
-          : dirty);
-        td.setAttribute('contenteditable', 'true');
-        td.addEventListener('blur', () => {
-          const fresh = td.innerHTML;
-          if (fresh !== rows[r][c].html) {
-            rows[r][c].html = fresh;
-            commit(rows);
-          }
-        });
-        td.addEventListener('keydown', (e) => {
-          if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); td.blur(); }
-          if (e.key === 'Escape') { td.blur(); }
-        });
-        tr.appendChild(td);
-      }
-      tbody.appendChild(tr);
-    }
-    tbl.appendChild(tbody);
-    wrap.appendChild(tbl);
-
-    const toolbar = document.createElement('div');
-    toolbar.className = 'ann-tbl-toolbar';
-    const addRowBtn = document.createElement('button');
-    addRowBtn.textContent = '+ Row';
-    addRowBtn.addEventListener('click', () => addRow(rows.length - 1));
-    const addColBtn = document.createElement('button');
-    addColBtn.textContent = '+ Col';
-    addColBtn.addEventListener('click', () => addCol(nCols - 1));
-    toolbar.appendChild(addRowBtn);
-    toolbar.appendChild(addColBtn);
-    const hint = document.createElement('span');
-    hint.className = 'hint';
-    hint.textContent = `${rows.length} × ${nCols} · hover gutters for inline +/×`;
-    toolbar.appendChild(hint);
-    wrap.appendChild(toolbar);
-
-    return wrap;
   }
 
   function paintAnnMarkdown() {
@@ -3560,7 +3329,11 @@
   // stay open + flag the error instead of silently closing on a failed
   // write — should `await` the return value. Existing fire-and-forget call
   // sites that ignore the result keep their previous behavior.
-  async function updateBlockOnServer(id, patch, beforeSnapshot) {
+  // opts.silent: skip the sidebar/overlay repaint after a successful save.
+  // Used by the inline table editor, whose DOM + caret must survive a save.
+  // (Text edits never move the bbox, so the overlay doesn't need repainting.)
+  async function updateBlockOnServer(id, patch, beforeSnapshot, opts) {
+    opts = opts || {};
     try {
       const r = await authFetch(
         API + '/review/notice/' + encodeURIComponent(ann.filename)
@@ -3574,8 +3347,10 @@
       mergeBlock(updated);
       ann.rev += 1; $('ann-rev').textContent = 'rev ' + ann.rev;
       refreshMarkdownAfterChange();
-      paintAnnSidebar();
-      paintAnnOverlay();
+      if (!opts.silent) {
+        paintAnnSidebar();
+        paintAnnOverlay();
+      }
       return true;
     } catch (e) {
       annToast('save error: ' + e, 'err');
@@ -4094,14 +3869,16 @@
   });
 
   // ── Full-screen Table Editor ────────────────────────────────────────────
-  // Opened from the "✎ Edit table" button on a Table block's sidebar row.
+  // Mounted inline when a Table block is selected in the sidebar.
   // Parses block.text into a 2D cell model, lets the reviewer edit cells,
   // merge/split, add/delete rows/columns, apply B/I/U/sup/sub/align, and
   // preview the LaTeX export. Save serializes back to HTML and PUTs the
   // block's text field. Closes on back/Esc.
+  // Single active inline table editor (only the selected Table block has one).
   const tbled = {
-    open:        false,
-    block:       null,   // ref to the live block in ann.blocks (for save)
+    block:       null,   // the live block object this editor is bound to
+    blockId:     null,   // stable id for re-finding the block after a save
+    container:   null,   // the .tbled-inline div inside the selected sidebar row
     rows:        [],     // 2D array of cell objects { html, tag, rowspan, colspan, align }
     past:        [],
     future:      [],
@@ -4124,6 +3901,7 @@
     }
     tbled.rows = nextRows;
     paintTbled();
+    tbledPersist();
   }
 
   function tbledUndo() {
@@ -4132,6 +3910,7 @@
     tbled.rows = tbled.past.pop();
     tbled.selection = null;
     paintTbled();
+    tbledPersist();
   }
 
   function tbledRedo() {
@@ -4140,14 +3919,17 @@
     tbled.rows = tbled.future.pop();
     tbled.selection = null;
     paintTbled();
+    tbledPersist();
   }
 
-  // Build a 2D "physical" grid (visual layout) from the logical rows model.
+  // Build a 2D "physical" grid (visual layout) from a logical rows model.
+  // `rows` defaults to the active editor's rows so existing callers can pass
+  // nothing; the read-only preview passes its own parsed rows.
   // Each physical cell either points to its primary {pr, pc} (the cell that
   // owns the span) or has `primary: true` and a back-pointer at [r][c].
-  function tbledBuildGrid() {
+  function tbledBuildGrid(rows) {
     const physical = [];
-    const rows = tbled.rows;
+    rows = rows || tbled.rows;
     const nRowsLogical = rows.length;
     let maxCols = 0;
     for (const r of rows) maxCols = Math.max(maxCols, r.reduce((s, c) => s + (c.colspan || 1), 0));
@@ -4178,6 +3960,38 @@
     return { physical, nRows: physical.length, nCols: maxCols };
   }
 
+  // Build a static <table> DOM (spans honored, no listeners, not editable)
+  // from a parsed logical rows model. Used for UNSELECTED Table rows so the
+  // sidebar always shows the same structure the editor shows.
+  function tbledRenderReadonly(rows) {
+    const grid = tbledBuildGrid(rows);
+    const tbl = document.createElement('table');
+    tbl.className = 'tbled-grid readonly';
+    for (let r = 0; r < grid.nRows; r++) {
+      const tr = document.createElement('tr');
+      for (let c = 0; c < grid.nCols; c++) {
+        const ph = grid.physical[r][c];
+        if (!ph) { tr.appendChild(document.createElement('td')); continue; }
+        if (!ph.primary) continue; // covered by an upstream span
+        const cell = rows[ph.lr][ph.li];
+        const td = document.createElement(cell.tag === 'th' ? 'th' : 'td');
+        if ((cell.rowspan || 1) > 1) td.setAttribute('rowspan', String(cell.rowspan));
+        if ((cell.colspan || 1) > 1) td.setAttribute('colspan', String(cell.colspan));
+        if (cell.align) td.style.textAlign = cell.align;
+        const dirty = cell.html || '';
+        td.innerHTML = window.DOMPurify
+          ? window.DOMPurify.sanitize(dirty, { USE_PROFILES: { html: true } })
+          : dirty;
+        tr.appendChild(td);
+      }
+      tbl.appendChild(tr);
+    }
+    const wrap = document.createElement('div');
+    wrap.className = 'tbled-inline-readonly';
+    wrap.appendChild(tbl);
+    return wrap;
+  }
+
   function tbledRectFromSelection(sel) {
     if (!sel) return null;
     return {
@@ -4186,30 +4000,6 @@
       c0: Math.min(sel.c0, sel.c1),
       c1: Math.max(sel.c0, sel.c1),
     };
-  }
-
-  function tbledIsCellSelected(r, c) {
-    const rect = tbledRectFromSelection(tbled.selection);
-    if (!rect) return false;
-    return r >= rect.r0 && r <= rect.r1 && c >= rect.c0 && c <= rect.c1;
-  }
-
-  function tbledOpen(b) {
-    tbled.open = true;
-    tbled.block = b;
-    tbled.rows = tbledParseHtml(b.text || '');
-    tbled.past = [];
-    tbled.future = [];
-    tbled.selection = null;
-    tbled.showTex = false;
-    paintTbled();
-    document.getElementById('tbled-overlay').classList.add('open');
-  }
-
-  function tbledClose() {
-    tbled.open = false;
-    tbled.block = null;
-    document.getElementById('tbled-overlay').classList.remove('open');
   }
 
   function tbledParseHtml(html) {
@@ -4237,6 +4027,134 @@
     return out;
   }
 
+  // Mount the inline editor into `container` (a .tbled-inline div that already
+  // lives inside the selected Table block's sidebar row). Builds the toolbar /
+  // grid / tex / status skeleton once, then paints.
+  //
+  // Distinguish a true block switch from a same-block remount (sidebar repaint
+  // while this Table block stays selected — e.g. a failed PUT's rollback calls
+  // paintAnnAll). On a same-block remount we MUST preserve `tbled.rows` and
+  // `tbledSavePending`: rows hold the user's coalesced trailing edit and the
+  // pending flag drives the trailing flush in `tbledFlushSave().finally()`.
+  // Clobbering them here drops the edit on offline / 5xx / conflict paths.
+  function tbledMountInline(b, container) {
+    const sameBlock = tbled.blockId === b.id;
+    tbled.block     = b;
+    tbled.blockId   = b.id;
+    tbled.container = container;
+    if (!sameBlock) {
+      tbled.rows       = tbledParseHtml(b.text || '');
+      tbled.past       = [];
+      tbled.future     = [];
+      tbled.selection  = null;
+      tbled.showTex    = false;
+      tbledSavePending = false;   // drop any coalesced save queued for a prior block
+    }
+    container.innerHTML = '';
+    const toolbar = document.createElement('div');
+    toolbar.className = 'tbled-toolbar';
+    const gridWrap = document.createElement('div');
+    gridWrap.className = 'tbled-grid-wrap';
+    const tex = document.createElement('div');
+    tex.className = 'tbled-tex-panel';
+    tex.style.display = 'none';
+    const status = document.createElement('div');
+    status.className = 'tbled-status';
+    container.appendChild(toolbar);
+    container.appendChild(gridWrap);
+    container.appendChild(tex);
+    container.appendChild(status);
+    // Structural undo/redo via keyboard, but only when NOT typing in a cell
+    // (so in-cell Ctrl+Z stays browser text-undo). Abort any listener from a
+    // previous mount on this same element so repeated mounts don't stack
+    // handlers (and to allow clean teardown later).
+    if (container._tbledAbort) container._tbledAbort.abort();
+    container._tbledAbort = new AbortController();
+    container.addEventListener('keydown', (e) => {
+      const editing = document.activeElement
+        && document.activeElement.classList
+        && document.activeElement.classList.contains('editing');
+      if (editing) return;
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key === 'z') {
+        e.preventDefault(); tbledUndo(); return;
+      }
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'y' ||
+          (e.shiftKey && e.key.toLowerCase() === 'z'))) {
+        e.preventDefault(); tbledRedo(); return;
+      }
+    }, { signal: container._tbledAbort.signal });
+    paintTbled();
+  }
+
+  // Serialize the active editor and save it WITHOUT repainting the sidebar
+  // (so the editor + caret survive). Re-points tbled.block to the merged
+  // server object so later saves snapshot fresh state.
+  //
+  // Single-flight + coalesce: blur / structural ops can fire tbledPersist() in
+  // quick succession. The PUT sends the full table HTML and carries NO client
+  // base revision, so the server's revision CAS cannot tell that a *delayed*
+  // older save is stale — if it lands after a newer save it silently overwrites
+  // the newer table (and a late failure's rollback could clobber a newer
+  // success). So we keep at most one save in flight and coalesce any saves
+  // requested meanwhile into a single trailing save of the LATEST rows.
+  let tbledSaveInFlight = false;
+  let tbledSavePending  = false;
+
+  function tbledPersist() {
+    if (!tbled.blockId) return;
+    tbledSavePending = true;
+    tbledFlushSave();
+  }
+
+  function tbledFlushSave() {
+    if (tbledSaveInFlight || !tbledSavePending || !tbled.blockId) return;
+    const live = ann.blocks.find(b => b.id === tbled.blockId) || tbled.block;
+    if (!live) { tbledSavePending = false; return; }
+    tbledSavePending  = false;
+    tbledSaveInFlight = true;
+    const blockId  = tbled.blockId;            // bind the save to this block
+    const html     = tbledSerialize(tbled.rows);
+    const snapshot = { ...live, bbox: live.bbox.slice() };
+    live.text = html;
+    tbled.block = live;
+    updateBlockOnServer(blockId, { text: html }, snapshot, { silent: true })
+      .then(() => {
+        if (tbled.blockId !== blockId) return;  // editor moved to another block
+        const fresh = ann.blocks.find(b => b.id === blockId);
+        if (fresh) tbled.block = fresh;
+      })
+      .finally(() => {
+        tbledSaveInFlight = false;
+        if (tbledSavePending) tbledFlushSave(); // push the latest edit made meanwhile
+      });
+  }
+
+  // Update which cells/handles look selected, mutating classes in place so an
+  // open contenteditable caret is never destroyed. Also refreshes the toolbar
+  // (merge/split enablement depends on the selection) — the toolbar has no
+  // caret so rebuilding it is safe.
+  function tbledRepaintSelection() {
+    if (!tbled.container) return;
+    const rect = tbledRectFromSelection(tbled.selection);
+    tbled.container.querySelectorAll('td[data-r0], th[data-r0]').forEach(td => {
+      const r0 = +td.dataset.r0, c0 = +td.dataset.c0,
+            r1 = +td.dataset.r1, c1 = +td.dataset.c1;
+      const sel = !!rect && !(r1 < rect.r0 || r0 > rect.r1 || c1 < rect.c0 || c0 > rect.c1);
+      td.classList.toggle('selected', sel);
+    });
+    const dims = tbledBuildGrid(tbled.rows);
+    tbled.container.querySelectorAll('.tbled-handle-cell.col').forEach((th, i) => {
+      th.classList.toggle('col-selected',
+        !!rect && rect.c0 <= i && rect.c1 >= i && rect.r0 === 0 && rect.r1 === (dims.nRows - 1));
+    });
+    tbled.container.querySelectorAll('tr > .tbled-handle-cell:not(.col):not(.tbled-corner)').forEach((rh, i) => {
+      rh.classList.toggle('row-selected',
+        !!rect && rect.r0 <= i && rect.r1 >= i && rect.c0 === 0 && rect.c1 === (dims.nCols - 1));
+    });
+    paintTbledToolbar();
+    paintTbledStatus();
+  }
+
   function tbledSerialize(rows) {
     return '<table>'
       + rows.map(r => '<tr>' + r.map(c => {
@@ -4252,7 +4170,7 @@
 
   function tbledToLatex(rows) {
     if (!rows.length) return '';
-    const grid = tbledBuildGrid();
+    const grid = tbledBuildGrid(tbled.rows);
     const ncols = grid.nCols;
     let out = `\\begin{table}[h]\n\\centering\n\\begin{tabular}{|${'c|'.repeat(ncols)}}\n\\hline\n`;
     for (const row of rows) {
@@ -4293,7 +4211,7 @@
       subscript:   s => `<sub>${s}</sub>`,
     }[action];
     if (!wrap) return;
-    const grid = tbledBuildGrid();
+    const grid = tbledBuildGrid(tbled.rows);
     const seen = new Set();
     const next = tbledCloneRows(tbled.rows);
     for (let r = rect.r0; r <= rect.r1; r++) {
@@ -4313,7 +4231,7 @@
   function tbledApplyAlign(align) {
     const rect = tbledRectFromSelection(tbled.selection);
     if (!rect) return;
-    const grid = tbledBuildGrid();
+    const grid = tbledBuildGrid(tbled.rows);
     const next = tbledCloneRows(tbled.rows);
     const seen = new Set();
     for (let r = rect.r0; r <= rect.r1; r++) {
@@ -4336,7 +4254,7 @@
     // Every covered cell must belong to a primary whose footprint is
     // fully inside the rectangle — otherwise merging would clip a
     // pre-existing span.
-    const grid = tbledBuildGrid();
+    const grid = tbledBuildGrid(tbled.rows);
     const checked = new Set();
     for (let r = rect.r0; r <= rect.r1; r++) {
       for (let c = rect.c0; c <= rect.c1; c++) {
@@ -4358,7 +4276,7 @@
   function tbledMerge() {
     if (!tbledCanMerge()) return;
     const rect = tbledRectFromSelection(tbled.selection);
-    const grid = tbledBuildGrid();
+    const grid = tbledBuildGrid(tbled.rows);
     const next = tbledCloneRows(tbled.rows);
     // Gather all unique primaries in the rectangle and their HTML, then
     // delete every primary EXCEPT the top-left one, which we then expand.
@@ -4399,7 +4317,7 @@
     const rect = tbledRectFromSelection(tbled.selection);
     if (!rect) return false;
     if (rect.r0 !== rect.r1 || rect.c0 !== rect.c1) return false;
-    const grid = tbledBuildGrid();
+    const grid = tbledBuildGrid(tbled.rows);
     const ph = grid.physical[rect.r0][rect.c0];
     if (!ph || !ph.primary) return false;
     const cell = tbled.rows[ph.lr][ph.li];
@@ -4409,7 +4327,7 @@
   function tbledSplit() {
     if (!tbledCanSplit()) return;
     const rect = tbledRectFromSelection(tbled.selection);
-    const grid = tbledBuildGrid();
+    const grid = tbledBuildGrid(tbled.rows);
     const ph = grid.physical[rect.r0][rect.c0];
     const next = tbledCloneRows(tbled.rows);
     const cell = next[ph.lr][ph.li];
@@ -4431,7 +4349,7 @@
 
   function tbledAddRow(below) {
     const rect = tbledRectFromSelection(tbled.selection);
-    const grid = tbledBuildGrid();
+    const grid = tbledBuildGrid(tbled.rows);
     const ncols = grid.nCols || 1;
     const insertAtLogical = (() => {
       if (rect) {
@@ -4472,7 +4390,7 @@
   function tbledDelRow() {
     const rect = tbledRectFromSelection(tbled.selection);
     if (!rect) return;
-    const grid = tbledBuildGrid();
+    const grid = tbledBuildGrid(tbled.rows);
     const rowsToDelete = new Set();
     for (let r = rect.r0; r <= rect.r1; r++) {
       const ph = grid.physical[r] && grid.physical[r][rect.c0];
@@ -4489,7 +4407,7 @@
     if (!rect) return;
     // Delete by logical column index. For each row, drop the cell at the
     // logical index that maps to rect.c0..c1 in the physical grid.
-    const grid = tbledBuildGrid();
+    const grid = tbledBuildGrid(tbled.rows);
     const next = tbledCloneRows(tbled.rows);
     for (let lr = 0; lr < next.length; lr++) {
       // For each cell, find its physical column footprint; drop if any
@@ -4516,41 +4434,6 @@
     tbledCommit(next);
   }
 
-  function tbledMountOnce() {
-    if (document.getElementById('tbled-overlay')) return;
-    const root = document.createElement('div');
-    root.id = 'tbled-overlay';
-    root.className = 'tbled-overlay';
-    root.innerHTML = `
-      <div class="tbled-header">
-        <button class="back" id="tbled-back" title="Close (Esc)">←</button>
-        <h2>Table Editor</h2>
-        <span class="tbled-status" id="tbled-status"></span>
-        <span class="spacer"></span>
-        <button class="save" id="tbled-save">Save</button>
-      </div>
-      <div class="tbled-toolbar" id="tbled-toolbar"></div>
-      <div class="tbled-body">
-        <div class="tbled-grid-wrap" id="tbled-grid-wrap"></div>
-        <div id="tbled-tex-panel" style="display:none"></div>
-      </div>
-    `;
-    document.body.appendChild(root);
-    document.getElementById('tbled-back').addEventListener('click', tbledClose);
-    document.getElementById('tbled-save').addEventListener('click', tbledSave);
-    document.addEventListener('keydown', (e) => {
-      if (!tbled.open) return;
-      if (e.key === 'Escape') { e.preventDefault(); tbledClose(); return; }
-      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key === 'z') {
-        e.preventDefault(); tbledUndo(); return;
-      }
-      if ((e.ctrlKey || e.metaKey) && (e.key === 'y' ||
-          (e.shiftKey && e.key.toLowerCase() === 'z'))) {
-        e.preventDefault(); tbledRedo(); return;
-      }
-    });
-  }
-
   function tbledToolbarBtn(label, title, action, opts) {
     const b = document.createElement('button');
     b.type = 'button';
@@ -4559,13 +4442,23 @@
     if (opts && opts.className) b.className = opts.className;
     if (opts && opts.disabled)  b.disabled = true;
     if (opts && opts.active)    b.classList.add('active');
-    b.addEventListener('mousedown', (e) => e.preventDefault()); // keep focus
+    // Only the inline-format buttons (B/I/U/sup/sub) preserve the cell's text
+    // selection + focus so execCommand applies to it. Every other button
+    // (merge/split/add/del/align/undo/redo/TeX) intentionally lets the focused
+    // cell blur FIRST — its blur handler commits the in-progress text into
+    // tbled.rows before the action reads it, so a structural op never rebuilds
+    // from stale rows and drops the just-typed text.
+    if (opts && opts.keepFocus) {
+      b.addEventListener('mousedown', (e) => e.preventDefault());
+    }
     b.addEventListener('click', action);
     return b;
   }
 
   function paintTbledToolbar() {
-    const bar = document.getElementById('tbled-toolbar');
+    if (!tbled.container) return;
+    const bar = tbled.container.querySelector('.tbled-toolbar');
+    if (!bar) return;
     bar.innerHTML = '';
     const hasSel  = !!tbled.selection;
     bar.appendChild(tbledToolbarBtn('↶', 'Undo (Ctrl+Z)', tbledUndo,
@@ -4581,15 +4474,15 @@
       () => tbledApplyAlign('right'), { disabled: !hasSel }));
     bar.appendChild(document.createElement('span')).className = 'sep';
     bar.appendChild(tbledToolbarBtn('<b>B</b>', 'Bold',
-      () => tbledApplyFormat('bold')));
+      () => tbledApplyFormat('bold'), { keepFocus: true }));
     bar.appendChild(tbledToolbarBtn('<i>I</i>', 'Italic',
-      () => tbledApplyFormat('italic')));
+      () => tbledApplyFormat('italic'), { keepFocus: true }));
     bar.appendChild(tbledToolbarBtn('<u>U</u>', 'Underline',
-      () => tbledApplyFormat('underline')));
+      () => tbledApplyFormat('underline'), { keepFocus: true }));
     bar.appendChild(tbledToolbarBtn('X<sup>²</sup>', 'Superscript',
-      () => tbledApplyFormat('superscript')));
+      () => tbledApplyFormat('superscript'), { keepFocus: true }));
     bar.appendChild(tbledToolbarBtn('X<sub>₂</sub>', 'Subscript',
-      () => tbledApplyFormat('subscript')));
+      () => tbledApplyFormat('subscript'), { keepFocus: true }));
     bar.appendChild(document.createElement('span')).className = 'sep';
     bar.appendChild(tbledToolbarBtn('⇿ Merge', 'Merge selected cells',
       tbledMerge, { disabled: !tbledCanMerge() }));
@@ -4614,9 +4507,11 @@
   }
 
   function paintTbledGrid() {
-    const wrap = document.getElementById('tbled-grid-wrap');
+    if (!tbled.container) return;
+    const wrap = tbled.container.querySelector('.tbled-grid-wrap');
+    if (!wrap) return;
     wrap.innerHTML = '';
-    const grid = tbledBuildGrid();
+    const grid = tbledBuildGrid(tbled.rows);
     const tbl  = document.createElement('table');
     tbl.className = 'tbled-grid';
     // Column-handle row (top): a corner cell + one handle per physical column.
@@ -4667,44 +4562,56 @@
         if (!ph.primary) continue; // skip — covered by an upstream span
         const cell = tbled.rows[ph.lr][ph.li];
         const td = document.createElement(cell.tag === 'th' ? 'th' : 'td');
-        if ((cell.rowspan || 1) > 1) td.setAttribute('rowspan', String(cell.rowspan));
-        if ((cell.colspan || 1) > 1) td.setAttribute('colspan', String(cell.colspan));
+        const rs = cell.rowspan || 1, cs = cell.colspan || 1;
+        if (rs > 1) td.setAttribute('rowspan', String(rs));
+        if (cs > 1) td.setAttribute('colspan', String(cs));
         if (cell.align) td.style.textAlign = cell.align;
+        // Physical footprint, used by tbledRepaintSelection for in-place highlight.
+        td.dataset.r0 = String(r);  td.dataset.c0 = String(c);
+        td.dataset.r1 = String(r + rs - 1); td.dataset.c1 = String(c + cs - 1);
         const dirty = cell.html || '';
         td.innerHTML = window.DOMPurify
           ? window.DOMPurify.sanitize(dirty, { USE_PROFILES: { html: true } })
           : dirty;
-        if (tbledIsCellSelected(r, c)) td.classList.add('selected');
-        td.addEventListener('click', (e) => {
-          if (e.shiftKey && tbled.selection) {
-            tbled.selection = { r0: tbled.selection.r0, c0: tbled.selection.c0,
-                                r1: r, c1: c };
-          } else {
-            tbled.selection = { r0: r, c0: c, r1: r, c1: c };
-          }
-          paintTbled();
-        });
-        td.addEventListener('dblclick', () => {
-          td.setAttribute('contenteditable', 'true');
-          td.classList.add('editing');
-          td.focus();
-          // Select all content for quick replace.
-          const range = document.createRange();
-          range.selectNodeContents(td);
-          const sel = window.getSelection();
-          sel.removeAllRanges(); sel.addRange(range);
-        });
-        td.addEventListener('blur', () => {
+        // Footprint-overlap test (matches tbledRepaintSelection) so spanned
+        // cells highlight consistently on first paint and on in-place repaint.
+        const selRect0 = tbledRectFromSelection(tbled.selection);
+        if (selRect0 && !((r + rs - 1) < selRect0.r0 || r > selRect0.r1
+                          || (c + cs - 1) < selRect0.c0 || c > selRect0.c1)) {
+          td.classList.add('selected');
+        }
+
+        // Commit a cell that is currently being edited (used before we move
+        // focus/selection elsewhere).
+        const commitEditing = () => {
           if (!td.classList.contains('editing')) return;
           const fresh = td.innerHTML;
           td.removeAttribute('contenteditable');
           td.classList.remove('editing');
-          if (fresh !== cell.html) {
-            const next = tbledCloneRows(tbled.rows);
-            next[ph.lr][ph.li].html = fresh;
-            tbledCommit(next);
+          if (fresh !== cell.html) { cell.html = fresh; tbledPersist(); }
+        };
+
+        td.addEventListener('click', (e) => {
+          if (e.shiftKey && tbled.selection) {
+            // Extend a range for merge/format/align — never enter edit.
+            const active = tbled.container.querySelector('.editing');
+            if (active) active.blur();
+            tbled.selection = { r0: tbled.selection.r0, c0: tbled.selection.c0, r1: r, c1: c };
+            tbledRepaintSelection();
+            return;
+          }
+          // Plain click → select this single cell AND start editing immediately.
+          const active = tbled.container.querySelector('.editing');
+          if (active && active !== td) active.blur();
+          tbled.selection = { r0: r, c0: c, r1: r, c1: c };
+          tbledRepaintSelection();
+          if (!td.classList.contains('editing')) {
+            td.setAttribute('contenteditable', 'true');
+            td.classList.add('editing');
+            td.focus();
           }
         });
+        td.addEventListener('blur', commitEditing);
         td.addEventListener('keydown', (e) => {
           if (e.key === 'Escape') { td.blur(); }
           if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); td.blur(); }
@@ -4717,7 +4624,9 @@
   }
 
   function paintTbledTex() {
-    const panel = document.getElementById('tbled-tex-panel');
+    if (!tbled.container) return;
+    const panel = tbled.container.querySelector('.tbled-tex-panel');
+    if (!panel) return;
     if (!tbled.showTex) { panel.style.display = 'none'; return; }
     panel.style.display = '';
     panel.innerHTML = '';
@@ -4739,8 +4648,10 @@
   }
 
   function paintTbledStatus() {
-    const status = document.getElementById('tbled-status');
-    const grid = tbledBuildGrid();
+    if (!tbled.container) return;
+    const status = tbled.container.querySelector('.tbled-status');
+    if (!status) return;
+    const grid = tbledBuildGrid(tbled.rows);
     let txt = `${grid.nRows} × ${grid.nCols}`;
     if (tbled.selection) {
       const rect = tbledRectFromSelection(tbled.selection);
@@ -4748,7 +4659,7 @@
       const cN = rect.c1 - rect.c0 + 1;
       txt += ` · selection ${rN} × ${cN}`;
     } else {
-      txt += ' · click a cell to select, dbl-click to edit';
+      txt += ' · click a cell to edit, shift-click to extend a range';
     }
     status.textContent = txt;
   }
@@ -4758,41 +4669,6 @@
     paintTbledGrid();
     paintTbledTex();
     paintTbledStatus();
-  }
-
-  async function tbledSave() {
-    if (!tbled.block) return;
-    const html = tbledSerialize(tbled.rows);
-    const b = tbled.block;
-    // Snapshot BEFORE the optimistic mutation so rollback on failure has a
-    // real previous state to restore to (passing the live `b` ref would
-    // capture the new text and make rollback a no-op).
-    const snapshot = { ...b, bbox: b.bbox.slice() };
-    b.text = html;
-    const saveBtn = document.getElementById('tbled-save');
-    if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
-    try {
-      const ok = await updateBlockOnServer(b.id, { text: html }, snapshot);
-      if (ok) {
-        annToast('table saved', 'ok');
-        tbledClose();
-      }
-      // On failure: updateBlockOnServer already toasted the specific error
-      // (conflict / 5xx / network) and rolled back b.text via `snapshot`,
-      // so leave the modal open with tbled.rows intact so the reviewer can
-      // retry or copy their work out instead of losing it silently.
-    } finally {
-      if (saveBtn && tbled.open) {
-        saveBtn.disabled = false;
-        saveBtn.textContent = 'Save';
-      }
-    }
-  }
-
-  // Mount the editor overlay lazily — only when the reviewer first opens it.
-  // This keeps the initial DOM tree light for non-table flows.
-  function tbledEnsureMounted() {
-    tbledMountOnce();
   }
 
   // Boot
