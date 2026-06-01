@@ -4039,6 +4039,7 @@
     tbled.future    = [];
     tbled.selection = null;
     tbled.showTex   = false;
+    tbledSavePending = false;   // drop any coalesced save queued for a prior block
     container.innerHTML = '';
     const toolbar = document.createElement('div');
     toolbar.className = 'tbled-toolbar';
@@ -4078,18 +4079,43 @@
   // Serialize the active editor and save it WITHOUT repainting the sidebar
   // (so the editor + caret survive). Re-points tbled.block to the merged
   // server object so later saves snapshot fresh state.
+  //
+  // Single-flight + coalesce: blur / structural ops can fire tbledPersist() in
+  // quick succession. The PUT sends the full table HTML and carries NO client
+  // base revision, so the server's revision CAS cannot tell that a *delayed*
+  // older save is stale — if it lands after a newer save it silently overwrites
+  // the newer table (and a late failure's rollback could clobber a newer
+  // success). So we keep at most one save in flight and coalesce any saves
+  // requested meanwhile into a single trailing save of the LATEST rows.
+  let tbledSaveInFlight = false;
+  let tbledSavePending  = false;
+
   function tbledPersist() {
     if (!tbled.blockId) return;
+    tbledSavePending = true;
+    tbledFlushSave();
+  }
+
+  function tbledFlushSave() {
+    if (tbledSaveInFlight || !tbledSavePending || !tbled.blockId) return;
     const live = ann.blocks.find(b => b.id === tbled.blockId) || tbled.block;
-    if (!live) return;
-    const html = tbledSerialize(tbled.rows);
+    if (!live) { tbledSavePending = false; return; }
+    tbledSavePending  = false;
+    tbledSaveInFlight = true;
+    const blockId  = tbled.blockId;            // bind the save to this block
+    const html     = tbledSerialize(tbled.rows);
     const snapshot = { ...live, bbox: live.bbox.slice() };
     live.text = html;
     tbled.block = live;
-    updateBlockOnServer(tbled.blockId, { text: html }, snapshot, { silent: true })
+    updateBlockOnServer(blockId, { text: html }, snapshot, { silent: true })
       .then(() => {
-        const fresh = ann.blocks.find(b => b.id === tbled.blockId);
+        if (tbled.blockId !== blockId) return;  // editor moved to another block
+        const fresh = ann.blocks.find(b => b.id === blockId);
         if (fresh) tbled.block = fresh;
+      })
+      .finally(() => {
+        tbledSaveInFlight = false;
+        if (tbledSavePending) tbledFlushSave(); // push the latest edit made meanwhile
       });
   }
 
