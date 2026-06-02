@@ -3071,8 +3071,12 @@
           const arr = inp.value.split(',').map(s => parseFloat(s.trim()))
             .filter(v => !isNaN(v)).map(annClamp01).sort((a,b)=>a-b);
           const table = Object.assign({}, b.table || { format: 'html' });
-          if (inp.dataset.grid === 'rows') table.row_positions = arr;
-          else                              table.col_positions = arr;
+          // Keep the count in lockstep with the typed dividers (N dividers =>
+          // N+1 cells). Otherwise a stale rows/cols number would override what
+          // was typed: inferTableCount prefers the count, so typing positions
+          // without updating it would be silently dropped on the next render.
+          if (inp.dataset.grid === 'rows') { table.row_positions = arr; table.rows = arr.length + 1; }
+          else                             { table.col_positions = arr; table.cols = arr.length + 1; }
           updateBlockOnServer(b.id, { table }, b);
         });
       });
