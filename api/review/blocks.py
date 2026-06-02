@@ -1029,7 +1029,10 @@ def reingest_notice(filename: str, by_email: str) -> dict:
     doc = {"schema_version": 1, "blocks": blocks}
     blocks_json = json.dumps(doc, ensure_ascii=False)
     new_md = md_path.read_text(encoding="utf-8")
-    blocks_raw = blocks_path.read_text(encoding="utf-8") if blocks_path else None
+    try:
+        blocks_raw = blocks_path.read_text(encoding="utf-8") if blocks_path else None
+    except (OSError, UnicodeDecodeError):
+        blocks_raw = None
     _persist_reingest_result(
         filename,
         markdown=new_md,
