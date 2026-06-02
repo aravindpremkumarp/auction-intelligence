@@ -51,3 +51,9 @@ def test_load_doc_query_excludes_raw_fields():
     src = inspect.getsource(B._load_doc)
     assert "markdown_raw" not in src
     assert "blocks_raw" not in src
+
+
+def test_re_extract_block_never_writes_raw():
+    src = inspect.getsource(B.re_extract_block)
+    assert "markdown_raw" not in src
+    assert "blocks_raw" not in src

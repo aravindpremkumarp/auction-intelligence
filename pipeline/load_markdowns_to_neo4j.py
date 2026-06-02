@@ -278,6 +278,8 @@ def main() -> int:
             blocks_json = None
             blocks_missing += 1
 
+        # markdown_raw == text (the raw full.md already read above); only
+        # blocks_raw is new here, so discard the helper's first return value.
         _, blocks_raw = read_raw_artifacts(fp)
         payloads.append({
             "file_path":    fp,
