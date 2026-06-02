@@ -3576,7 +3576,19 @@
   const HIST_CAP = 50;
 
   function annSnapshot() {
-    return ann.blocks.map(b => ({ ...b, bbox: b.bbox.slice() }));
+    // Deep-clone the mutable nested structures so snapshots are immutable.
+    // bbox AND table need cloning: startGuideDrag (and the hints-panel inputs)
+    // mutate blk.table[key] in place, which would otherwise corrupt every
+    // prior snapshot that shares the same table object reference.
+    return ann.blocks.map(b => ({
+      ...b,
+      bbox: b.bbox.slice(),
+      table: b.table ? {
+        ...b.table,
+        row_positions: b.table.row_positions ? b.table.row_positions.slice() : b.table.row_positions,
+        col_positions: b.table.col_positions ? b.table.col_positions.slice() : b.table.col_positions,
+      } : b.table,
+    }));
   }
 
   function initHistory() {
