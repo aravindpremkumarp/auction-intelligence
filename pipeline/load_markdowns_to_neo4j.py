@@ -42,9 +42,6 @@ from pipeline.mineru import (
     parse_mineru_content_list,
     safe_cache_name,
 )
-from pipeline.score_markdown import score_freshly_loaded
-
-
 REPO_ROOT = Path(__file__).resolve().parent.parent
 MD_DIR = REPO_ROOT / "pipeline" / "cache" / "mineru_markdown"
 BLOCKS_DIR = MINERU_BLOCKS_DIR
@@ -313,6 +310,7 @@ def main() -> int:
     scored = 0
     if written_file_paths:
         try:
+            from pipeline.score_markdown import score_freshly_loaded
             scored = score_freshly_loaded(written_file_paths)
         except Exception as e:
             print(f"  [score-fail] {type(e).__name__}: {e}")
