@@ -2762,8 +2762,11 @@
         el.appendChild(r);
       }
       if (b.label === 'Table' && b.table) {
-        const rowps = b.table.row_positions || [];
-        const colps = b.table.col_positions || [];
+        // Derive lines from the Cols/Rows count (count-1 interior dividers),
+        // defaulting to even spacing when no explicit positions are stored —
+        // so the count always shows the matching number of draggable lines.
+        const rowps = tableGuidePositions(b, 'rows');
+        const colps = tableGuidePositions(b, 'cols');
         for (let i = 0; i < rowps.length; i++) {
           const g = document.createElement('div');
           g.className = 'grid-row';
@@ -2894,6 +2897,25 @@
     if (!count || count <= 1) return [];
     const out = [];
     for (let i = 1; i < count; i++) out.push(i / count);
+    return out;
+  }
+
+  // Interior guide-line positions for one axis, matching the reference model
+  // (07_project_aiparsed_humanvalidated_extractor): a table with N cells has
+  // N-1 interior dividers. Use the stored positions where present, else fall
+  // back to evenly-spaced defaults derived from the count. This keeps the
+  // lines the reviewer SEES, the lines they can DRAG, and the positions sent
+  // to re-extract all in lockstep with the Cols/Rows count — even before any
+  // drag has materialized an explicit array.
+  function tableGuidePositions(b, axis) {
+    const count = inferTableCount(b, axis);
+    if (count <= 1) return [];
+    const posKey = axis === 'rows' ? 'row_positions' : 'col_positions';
+    const stored = (b.table && Array.isArray(b.table[posKey])) ? b.table[posKey] : [];
+    const out = [];
+    for (let i = 0; i < count - 1; i++) {
+      out.push(stored[i] != null ? annClamp01(stored[i]) : (i + 1) / count);
+    }
     return out;
   }
 
@@ -3032,8 +3054,10 @@
     if (b.label === 'Table') {
       const ed = document.createElement('div');
       ed.className = 'table-editor';
-      const rowsCsv = ((b.table && b.table.row_positions) || []).map(v => v.toFixed(3)).join(', ');
-      const colsCsv = ((b.table && b.table.col_positions) || []).map(v => v.toFixed(3)).join(', ');
+      // Show the same interior dividers the canvas draws (count-1, even-default
+      // when not yet dragged) so this raw editor stays in sync with the guides.
+      const rowsCsv = tableGuidePositions(b, 'rows').map(v => v.toFixed(3)).join(', ');
+      const colsCsv = tableGuidePositions(b, 'cols').map(v => v.toFixed(3)).join(', ');
       ed.innerHTML = `
         <div><strong>Table grid</strong> · drag guide lines on the bbox, or type comma-separated normalized positions (0..1).</div>
         <div class="grid-positions">
@@ -3245,7 +3269,10 @@
       const bw = blk.bbox[2] - bx0, bh = blk.bbox[3] - by0;
       const local = kind === 'row' ? annClamp01((ny - by0) / bh) : annClamp01((nx - bx0) / bw);
       const key = kind === 'row' ? 'row_positions' : 'col_positions';
-      const arr = (blk.table[key] || []).slice();
+      // Seed the full count-1 array from the current (possibly even-default)
+      // positions before updating the dragged divider, so dragging a line that
+      // was only shown at its default spacing materializes correctly.
+      const arr = tableGuidePositions(blk, kind === 'row' ? 'rows' : 'cols');
       arr[idx] = local;
       blk.table[key] = arr;
       paintAnnOverlay();
@@ -3501,6 +3528,12 @@
   async function reextractBlock(id, btn) {
     const blk = ann.blocks.find(b => b.id === id);
     if (!blk) return;
+    // Remember the text we started with so we can tell the reviewer whether the
+    // re-extract actually changed anything. MinerU is near-deterministic on an
+    // unchanged crop, so re-running without touching the bbox or table guides
+    // usually returns the same text — a green "re-extracted" then looks like a
+    // no-op. Compare and say so honestly.
+    const prevText = blk.text || '';
     // Stash whichever label/HTML the caller's button started with so the
     // sidebar's "↻ re-run extraction" and the hints panel's "↻ Re-extract"
     // both end up restored correctly. The hints panel also subscribes to
@@ -3517,8 +3550,13 @@
     try {
       const body = {};
       if (blk.label === 'Table' && blk.table) {
-        body.row_positions = blk.table.row_positions || null;
-        body.col_positions = blk.table.col_positions || null;
+        // Send exactly the interior dividers the reviewer sees (count-1 lines,
+        // even-default when not dragged) so the extracted grid matches the
+        // Cols/Rows they set — not a stale/partial stored array.
+        const rp = tableGuidePositions(blk, 'rows');
+        const cp = tableGuidePositions(blk, 'cols');
+        body.row_positions = rp.length ? rp : null;
+        body.col_positions = cp.length ? cp : null;
       }
       const r = await authFetch(
         API + '/review/notice/' + encodeURIComponent(ann.filename)
@@ -3536,10 +3574,20 @@
       const updated = await r.json();
       mergeBlock(updated);
       ann.rev += 1; $('ann-rev').textContent = 'rev ' + ann.rev;
-      // An empty result is a real outcome (the crop was too thin / low-res for
-      // OCR), not a success — say so instead of a green "re-extracted".
-      if ((updated.text || '').trim()) annToast('re-extracted', 'ok');
-      else annToast('no text found — try a taller box or Re-ingest', 'warn');
+      // Three distinct outcomes, each with honest feedback:
+      //  * empty result → the crop was too thin / low-res for OCR
+      //  * same text as before → MinerU re-read the same crop identically
+      //    (change the bbox or set table guides to get a different result)
+      //  * genuinely new text → success
+      const newText = updated.text || '';
+      const norm = (s) => (s || '').replace(/\s+/g, ' ').trim();
+      if (!newText.trim()) {
+        annToast('no text found — try a taller box or Re-ingest', 'warn');
+      } else if (norm(newText) === norm(prevText)) {
+        annToast('re-extracted — no change (same OCR result; adjust the box or table guides)', 'warn');
+      } else {
+        annToast('re-extracted', 'ok');
+      }
       refreshMarkdownAfterChange();
       paintAnnAll();
     } catch (e) { annToast('re-extract error: ' + e, 'err'); }
@@ -4006,7 +4054,15 @@
     const src = (html && html.trim()) ? html : '<table><tr><td></td></tr></table>';
     const doc = new DOMParser().parseFromString(src, 'text/html');
     const tbl = doc.querySelector('table');
-    if (!tbl) return [[{ html: '', tag: 'td', rowspan: 1, colspan: 1, align: null }]];
+    if (!tbl) {
+      // Text that isn't wrapped in <table> — e.g. a prose block re-typed as a
+      // Table, or MinerU returning plain text for a Table region. Don't drop it
+      // into a blank cell (that reads as "re-extract did nothing"): surface the
+      // content as a single editable cell so the reviewer sees it and can build
+      // structure from it.
+      const cellHtml = (doc.body && doc.body.innerHTML.trim()) || '';
+      return [[{ html: cellHtml, tag: 'td', rowspan: 1, colspan: 1, align: null }]];
+    }
     const out = [];
     tbl.querySelectorAll('tr').forEach(tr => {
       const cells = [];
