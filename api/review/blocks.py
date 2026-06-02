@@ -542,6 +542,65 @@ def reorder_blocks(filename: str, order: list[dict], by_email: str) -> dict:
     return get_blocks(filename)
 
 
+def _normalize_replacement_blocks(raw_blocks: Any, by_email: str) -> list[dict]:
+    """Validate + canonicalize a full incoming block array for replace_blocks.
+
+    Pure (no DB access) so it is unit-testable in isolation. Preserves each
+    block's id (assigns a fresh one only when missing/blank), de-dups ids,
+    cleans bbox, validates label, and strips/cleans ``table`` to match the
+    label. ``source`` / ``confidence`` / ``edited_*`` are preserved so an undo
+    restores a faithful prior state.
+    """
+    if not isinstance(raw_blocks, list):
+        raise ValueError("blocks must be a list")
+    out: list[dict] = []
+    seen: set[str] = set()
+    for raw in raw_blocks:
+        if not isinstance(raw, dict):
+            raise ValueError("each block must be an object")
+        bid = raw.get("id") or _new_id()
+        if bid in seen:
+            bid = _new_id()
+        seen.add(bid)
+        label = _validate_label(raw.get("label") or DEFAULT_LABEL)
+        src = raw.get("source")
+        conf = raw.get("confidence")
+        out.append({
+            "id":            bid,
+            "page":          max(1, int(raw.get("page") or 1)),
+            "bbox":          _clean_bbox(raw.get("bbox")),
+            "label":         label,
+            "text":          str(raw.get("text") or ""),
+            "reading_order": int(raw.get("reading_order") or 0),
+            "source":        src if src in ("mineru", "human") else "human",
+            "confidence":    (float(conf)
+                              if isinstance(conf, (int, float))
+                              and not isinstance(conf, bool) else None),
+            "table":         _clean_table(raw.get("table")) if label == "Table"
+                             else None,
+            "edited_at":     raw.get("edited_at") or _iso_now(),
+            "edited_by":     raw.get("edited_by") or by_email,
+        })
+    return out
+
+
+def replace_blocks(filename: str, raw_blocks: Any,
+                   expected_rev: int | None, by_email: str) -> dict:
+    """Atomically replace the entire block array (undo/redo + multi-delete).
+
+    CAS on ``blocks_revision`` via ``expected_rev`` when provided (the client
+    always passes the current rev, so a stale write yields a clean 409 →
+    reload). Reuses ``_save_doc`` so markdown is reassembled and the markdown
+    verdict cleared, exactly like the granular endpoints.
+    """
+    doc, rev, _ = _load_doc(filename)
+    if expected_rev is not None and int(expected_rev) != rev:
+        raise BlocksConflict("blocks_revision changed; reload required")
+    doc["blocks"] = _normalize_replacement_blocks(raw_blocks, by_email)
+    _save_doc(filename, doc, rev)
+    return get_blocks(filename)
+
+
 async def re_extract_block(filename: str, block_id: str,
                            body: dict, by_email: str) -> dict:
     """Re-run extraction on a single block via the MinerU crop pipeline.
