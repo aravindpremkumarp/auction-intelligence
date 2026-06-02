@@ -2305,6 +2305,14 @@
       }
     }
 
+    // Annotator-screen shortcuts (Delete selection — undo/redo keys in Task 6)
+    if (!$('screen-annotator').classList.contains('hidden') && !typing) {
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (ann.selectedIds.size) { e.preventDefault(); deleteSelectedBlocks(); }
+        return;
+      }
+    }
+
     // Detail-screen shortcuts (unchanged)
     if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) {
       if ($('screen-detail').classList.contains('hidden')) return;
@@ -3105,10 +3113,7 @@
       }, 700);
     });
     btnReextract.addEventListener('click', () => reextractBlock(b.id, btnReextract));
-    btnDel.addEventListener('click', () => {
-      if (!confirm('Delete this block?')) return;
-      deleteBlockOnServer(b.id);
-    });
+    btnDel.addEventListener('click', () => { deleteBlockOnServer(b.id); });
     return row;
   }
 
@@ -3549,6 +3554,51 @@
       annToast('rotation save error: ' + e, 'err');
       return false;
     }
+  }
+
+  // Atomic full-array overwrite — used by multi-delete and undo/redo. Returns
+  // true on a clean save, false on any failure. Does NOT push undo history
+  // itself; callers decide (multi-delete pushes; undo/redo does not).
+  async function replaceBlocksOnServer(blocks) {
+    try {
+      const r = await authFetch(
+        API + '/review/notice/' + encodeURIComponent(ann.filename) + '/blocks',
+        { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ blocks, expected_revision: ann.rev }) }
+      );
+      if (r.status === 409) { annToast('conflict, reloading', 'err'); await loadAnnotator(ann.filename); return false; }
+      if (!r.ok) { annToast('save failed (' + r.status + ')', 'err'); return false; }
+      const doc = await r.json();
+      ann.blocks = (doc.blocks || []).map(b => ({ ...b, bbox: b.bbox.slice() }));
+      ann.rev = doc.blocks_revision || ann.rev;
+      $('ann-rev').textContent = 'rev ' + ann.rev;
+      const live = new Set(ann.blocks.map(b => b.id));
+      ann.selectedIds = new Set(Array.from(ann.selectedIds).filter(id => live.has(id)));
+      if (ann.anchorId && !live.has(ann.anchorId)) {
+        ann.anchorId = ann.selectedIds.values().next().value || null;
+      }
+      refreshMarkdownAfterChange();
+      paintAnnAll();
+      return true;
+    } catch (e) { annToast('save error: ' + e, 'err'); return false; }
+  }
+
+  // Delete every selected block. 1 → existing DELETE endpoint; 2+ → one atomic
+  // replace with the survivors. No confirm — undo is the safety net.
+  async function deleteSelectedBlocks() {
+    const ids = Array.from(ann.selectedIds);
+    if (!ids.length) return;
+    if (ids.length === 1) {
+      const ok = await deleteBlockOnServer(ids[0]);
+      if (!ok) return;
+    } else {
+      const survivors = ann.blocks.filter(b => !ann.selectedIds.has(b.id));
+      const ok = await replaceBlocksOnServer(survivors);
+      if (!ok) return;
+      clearSelection();
+      pushHistory();
+    }
+    annToast('deleted ' + ids.length + ' — Ctrl+Z to undo');
   }
 
   async function deleteBlockOnServer(id) {
