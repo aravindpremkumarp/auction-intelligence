@@ -34,7 +34,7 @@ import sys
 import time
 from pathlib import Path
 
-from api.neo4j_client import run_query, run_read_query, session
+from api.neo4j_client import run_query, run_read_query
 from pipeline.mineru import (
     MINERU_BLOCKS_DIR,
     PRECLEAN_MODEL_TAG,
