@@ -565,6 +565,8 @@
       <span style="flex:1"></span>
       <label class="meta" style="display:none" id="ann-page-wrap">page <select class="page-select" id="ann-page"></select></label>
       <button id="ann-add" class="ghost">+ Add block</button>
+      <button id="ann-undo" class="ghost" title="undo (Ctrl+Z)" disabled>↶ Undo</button>
+      <button id="ann-redo" class="ghost" title="redo (Ctrl+Shift+Z)" disabled>↷ Redo</button>
       <button id="ann-crop" class="ghost" title="define the sales-notice region; only the cropped area is sent to OCR on re-ingest">+ Set crop</button>
       <span class="zoom-group" title="rotate the notice — also applied to the source on re-ingest so OCR runs upright">
         <button id="ann-rotate-left" class="ghost zoom-btn" title="rotate 90° counter-clockwise">↺</button>
@@ -2245,7 +2247,8 @@
   document.addEventListener('keydown', (e) => {
     const t = e.target;
     const tag = (t && t.tagName) || '';
-    const typing = (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT');
+    const typing = (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'
+                    || (t && t.isContentEditable));
     // Treat a focused button as "interactive" so Space/Enter don't double-fire
     // (the button's default click + our gallery shortcut).
     const onButton = (tag === 'BUTTON');
@@ -2305,6 +2308,21 @@
       }
     }
 
+    // Annotator-screen shortcuts (Delete selection, Undo/Redo)
+    if (!$('screen-annotator').classList.contains('hidden') && !typing) {
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (ann.selectedIds.size) { e.preventDefault(); deleteSelectedBlocks(); }
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z') && !e.shiftKey) {
+        e.preventDefault(); annUndo(); return;
+      }
+      if ((e.ctrlKey || e.metaKey) &&
+          (((e.key === 'z' || e.key === 'Z') && e.shiftKey) || e.key === 'y' || e.key === 'Y')) {
+        e.preventDefault(); annRedo(); return;
+      }
+    }
+
     // Detail-screen shortcuts (unchanged)
     if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) {
       if ($('screen-detail').classList.contains('hidden')) return;
@@ -2333,7 +2351,11 @@
     filename: null,
     doc: null,         // BlocksDoc as returned by the API
     blocks: [],        // mutable copy of doc.blocks
-    selectedId: null,
+    selectedIds: new Set(),   // ids of all selected blocks
+    anchorId: null,           // "primary" selected id (scroll target, table editor)
+    history: [],              // session-local stack of full block-list snapshots
+    histPtr: -1,              // index in history matching current server state
+    applyingHistory: false,   // guard: undo/redo restores must not push history
     mode: 'select',    // 'select' | 'draw' | 'crop'
     page: 1,
     pages: 1,
@@ -2378,7 +2400,8 @@
 
   async function loadAnnotator(filename) {
     ann.filename = filename;
-    ann.selectedId = null;
+    ann.selectedIds = new Set();
+    ann.anchorId = null;
     ann.mode = 'select';
     $('ann-filename').textContent = filename;
     $('ann-rows').innerHTML = '<div class="empty">loading…</div>';
@@ -2416,6 +2439,7 @@
       renderAnnBanners();
       refreshCropButton();
       await loadAnnSource(doc.public_url);
+      initHistory();
       paintAnnAll();
     } catch (e) {
       console.error(e);
@@ -2748,13 +2772,13 @@
     const el = document.createElement('div');
     el.className = 'ann-block lab-' + (b.label || 'Text');
     el.dataset.id = b.id;
-    if (ann.selectedId === b.id) el.classList.add('selected');
+    if (isSelected(b.id)) el.classList.add('selected');
     placeBlockEl(el, b.bbox);
     const lbl = document.createElement('div');
     lbl.className = 'ann-lbl';
     lbl.textContent = `${displayIdx ?? b.reading_order} · ${b.label}`;
     el.appendChild(lbl);
-    if (ann.selectedId === b.id) {
+    if (ann.selectedIds.size === 1 && isSelected(b.id)) {
       for (const pos of ['tl','tr','bl','br','t','b','l','r']) {
         const r = document.createElement('div');
         r.className = 'resizer ' + pos;
@@ -2798,7 +2822,7 @@
           paintAnnOverlay();
         });
         el.appendChild(showBtn);
-      } else if (ann.selectedId === b.id) {
+      } else if (ann.selectedIds.size === 1 && isSelected(b.id)) {
         el.appendChild(renderTableHintsPanel(b));
       }
     }
@@ -2959,7 +2983,7 @@
     }
     // Mount the inline table editor into the selected Table block's row (it
     // must be in the DOM first so cell .focus() works).
-    const sel = ann.selectedId && ann.blocks.find(b => b.id === ann.selectedId);
+    const sel = ann.anchorId && ann.blocks.find(b => b.id === ann.anchorId);
     const rowEl = (sel && sel.label === 'Table')
       ? root.querySelector(`.ann-row[data-id="${sel.id}"]`) : null;
     const cont = rowEl ? rowEl.querySelector('.tbled-inline') : null;
@@ -2977,7 +3001,7 @@
   function renderSidebarRow(b, position, total, sortedAll) {
     const row = document.createElement('div');
     row.className = 'ann-row';
-    if (ann.selectedId === b.id) row.classList.add('selected');
+    if (isSelected(b.id)) row.classList.add('selected');
     row.dataset.id = b.id;
     const top = document.createElement('div');
     top.className = 'ann-row-top';
@@ -3018,7 +3042,7 @@
     // an escape hatch for raw edits.
     let textArea = null;
     if (b.label === 'Table') {
-      if (ann.selectedId === b.id) {
+      if (ann.anchorId === b.id) {
         // Selected Table → full inline editor, mounted after the row lands in
         // the DOM (focus() needs an attached element). paintAnnSidebar does the
         // mount; here we just leave the container placeholder.
@@ -3131,10 +3155,7 @@
       }, 700);
     });
     btnReextract.addEventListener('click', () => reextractBlock(b.id, btnReextract));
-    btnDel.addEventListener('click', () => {
-      if (!confirm('Delete this block?')) return;
-      deleteBlockOnServer(b.id);
-    });
+    btnDel.addEventListener('click', () => { deleteBlockOnServer(b.id); });
     return row;
   }
 
@@ -3153,21 +3174,44 @@
     }
   }
 
-  function selectBlock(id) {
-    if (ann.selectedId === id) return;
-    ann.selectedId = id;
+  function isSelected(id) { return ann.selectedIds.has(id); }
+
+  function clearSelection() {
+    if (!ann.selectedIds.size && !ann.anchorId) return;
+    ann.selectedIds = new Set();
+    ann.anchorId = null;
+    paintAnnAll();
+  }
+
+  function selectBlock(id, opts) {
+    opts = opts || {};
+    if (opts.additive) {
+      if (ann.selectedIds.has(id)) {
+        ann.selectedIds.delete(id);
+        if (ann.anchorId === id) {
+          ann.anchorId = ann.selectedIds.values().next().value || null;
+        }
+      } else {
+        ann.selectedIds.add(id);
+        ann.anchorId = id;
+      }
+    } else {
+      if (ann.selectedIds.size === 1 && ann.anchorId === id) return;  // re-click selected → no-op (as before)
+      ann.selectedIds = new Set([id]);
+      ann.anchorId = id;
+    }
     paintAnnAll();
     requestAnimationFrame(() => {
-      const row = document.querySelector(`#ann-rows .ann-row[data-id="${id}"]`);
+      if (!ann.anchorId) return;
+      const row = document.querySelector(`#ann-rows .ann-row[data-id="${ann.anchorId}"]`);
       if (row) row.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-      const blk = document.querySelector(`#ann-page-wrap-inner .ann-block[data-id="${id}"]`);
+      const blk = document.querySelector(`#ann-page-wrap-inner .ann-block[data-id="${ann.anchorId}"]`);
       if (blk) blk.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
     });
   }
 
   // ── Pointer interactions (select / drag / resize / marquee) ──────────────
   function onStagePointerDown(ev) {
-    const wrap = $('ann-page-wrap-inner');
     const target = ev.target.closest('.resizer, .grid-row, .grid-col, .ann-block');
     const inCrop = ann.mode === 'crop';
     const inDraw = ann.mode === 'draw';
@@ -3175,10 +3219,22 @@
         (!target || target.classList.contains('ann-overlay'))) {
       return startMarquee(ev);
     }
+    // Select mode + left-drag on empty canvas → rubber-band multi-select.
+    if (!inDraw && !inCrop && ev.button === 0 && !target) {
+      return startSelectMarquee(ev);
+    }
     if (!target) return;
     const blockEl = target.closest('.ann-block');
     if (!blockEl) return;
     const id = blockEl.dataset.id;
+    // Ctrl/Cmd+click toggles a block in/out of the selection (no move/resize).
+    if ((ev.ctrlKey || ev.metaKey) &&
+        !target.classList.contains('resizer') &&
+        !target.classList.contains('grid-row') &&
+        !target.classList.contains('grid-col')) {
+      ev.preventDefault();
+      return selectBlock(id, { additive: true });
+    }
     selectBlock(id);
     if (target.classList.contains('resizer')) {
       ev.preventDefault();
@@ -3353,6 +3409,54 @@
     window.addEventListener('pointerup', onUp);
   }
 
+  // Select-mode rubber-band: drag a box on empty canvas to select every block
+  // on the current page whose bbox intersects it. Ctrl/Cmd held during the
+  // drag adds to the existing selection instead of replacing it.
+  function startSelectMarquee(ev) {
+    const wrap = $('ann-page-wrap-inner');
+    const overlay = wrap && wrap.querySelector('.ann-overlay');
+    if (!overlay) return;
+    const additive = ev.ctrlKey || ev.metaKey;
+    const start = pointerToNorm(ev);
+    const marquee = document.createElement('div');
+    marquee.className = 'ann-marquee';
+    overlay.appendChild(marquee);
+    let end = start.slice();
+    const onMove = (e) => {
+      end = pointerToNorm(e);
+      const x0 = Math.min(start[0], end[0]), y0 = Math.min(start[1], end[1]);
+      const x1 = Math.max(start[0], end[0]), y1 = Math.max(start[1], end[1]);
+      marquee.style.left   = (x0 * 100) + '%';
+      marquee.style.top    = (y0 * 100) + '%';
+      marquee.style.width  = ((x1 - x0) * 100) + '%';
+      marquee.style.height = ((y1 - y0) * 100) + '%';
+    };
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      marquee.remove();
+      const mx0 = Math.min(start[0], end[0]), my0 = Math.min(start[1], end[1]);
+      const mx1 = Math.max(start[0], end[0]), my1 = Math.max(start[1], end[1]);
+      // Tiny drag = a click on empty space → clear (unless additive).
+      if (mx1 - mx0 < 0.01 && my1 - my0 < 0.01) {
+        if (!additive) clearSelection();
+        return;
+      }
+      const hits = ann.blocks.filter(b =>
+        (b.page || 1) === ann.page &&
+        b.bbox[0] < mx1 && b.bbox[2] > mx0 &&
+        b.bbox[1] < my1 && b.bbox[3] > my0);
+      const next = additive ? new Set(ann.selectedIds) : new Set();
+      for (const b of hits) next.add(b.id);
+      ann.selectedIds = next;
+      ann.anchorId = hits.length ? hits[hits.length - 1].id
+                   : (additive ? ann.anchorId : null);
+      paintAnnAll();
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  }
+
   // ── Server calls ─────────────────────────────────────────────────────────
   // Returns true if the PUT landed cleanly, false on any failure path
   // (409 conflict, non-2xx response, or thrown exception). Callers that need
@@ -3378,6 +3482,7 @@
       mergeBlock(updated);
       ann.rev += 1; $('ann-rev').textContent = 'rev ' + ann.rev;
       refreshMarkdownAfterChange();
+      pushHistory();
       if (!opts.silent) {
         paintAnnSidebar();
         paintAnnOverlay();
@@ -3413,10 +3518,12 @@
       if (!r.ok) { annToast('add failed (' + r.status + ')', 'err'); return; }
       const blk = await r.json();
       mergeBlock(blk);
-      ann.selectedId = blk.id;
+      ann.selectedIds = new Set([blk.id]);
+      ann.anchorId = blk.id;
       ann.rev += 1; $('ann-rev').textContent = 'rev ' + ann.rev;
       ann.pages = Math.max(ann.pages, blk.page || 1);
       refreshMarkdownAfterChange();
+      pushHistory();
       paintAnnAll();
     } catch (e) { annToast('add error: ' + e, 'err'); }
   }
@@ -3496,6 +3603,119 @@
     }
   }
 
+  // ── Undo / redo (session-local snapshot stack) ───────────────────────────
+  const HIST_CAP = 50;
+
+  function annSnapshot() {
+    // Deep-clone the mutable nested structures so snapshots are immutable.
+    // bbox AND table need cloning: startGuideDrag (and the hints-panel inputs)
+    // mutate blk.table[key] in place, which would otherwise corrupt every
+    // prior snapshot that shares the same table object reference.
+    return ann.blocks.map(b => ({
+      ...b,
+      bbox: b.bbox.slice(),
+      table: b.table ? {
+        ...b.table,
+        row_positions: b.table.row_positions ? b.table.row_positions.slice() : b.table.row_positions,
+        col_positions: b.table.col_positions ? b.table.col_positions.slice() : b.table.col_positions,
+      } : b.table,
+    }));
+  }
+
+  function initHistory() {
+    ann.history = [annSnapshot()];
+    ann.histPtr = 0;
+    updateUndoRedoButtons();
+  }
+
+  function pushHistory() {
+    if (ann.applyingHistory) return;
+    ann.history = ann.history.slice(0, ann.histPtr + 1);  // drop redo tail
+    ann.history.push(annSnapshot());
+    if (ann.history.length > HIST_CAP) ann.history.shift();
+    ann.histPtr = ann.history.length - 1;
+    updateUndoRedoButtons();
+  }
+
+  async function annUndo() {
+    if (ann.applyingHistory) return;   // ignore overlapping undo/redo in flight
+    if (ann.histPtr <= 0) return;
+    const prev = ann.histPtr;
+    const histRef = ann.history;       // detect a 409→reload that rebuilds the stack
+    ann.histPtr -= 1;
+    ann.applyingHistory = true;
+    const ok = await replaceBlocksOnServer(ann.history[ann.histPtr]);
+    ann.applyingHistory = false;
+    // Revert the pointer only on a plain failure. A 409 reload runs initHistory,
+    // which replaces ann.history and already set a correct histPtr — don't clobber it.
+    if (!ok && ann.history === histRef) ann.histPtr = prev;
+    updateUndoRedoButtons();
+  }
+
+  async function annRedo() {
+    if (ann.applyingHistory) return;   // ignore overlapping undo/redo in flight
+    if (ann.histPtr >= ann.history.length - 1) return;
+    const prev = ann.histPtr;
+    const histRef = ann.history;       // detect a 409→reload that rebuilds the stack
+    ann.histPtr += 1;
+    ann.applyingHistory = true;
+    const ok = await replaceBlocksOnServer(ann.history[ann.histPtr]);
+    ann.applyingHistory = false;
+    if (!ok && ann.history === histRef) ann.histPtr = prev;
+    updateUndoRedoButtons();
+  }
+
+  function updateUndoRedoButtons() {
+    const u = $('ann-undo'), r = $('ann-redo');
+    if (u) u.disabled = ann.histPtr <= 0;
+    if (r) r.disabled = ann.histPtr >= ann.history.length - 1;
+  }
+
+  // Atomic full-array overwrite — used by multi-delete and undo/redo. Returns
+  // true on a clean save, false on any failure. Does NOT push undo history
+  // itself; callers decide (multi-delete pushes; undo/redo does not).
+  async function replaceBlocksOnServer(blocks) {
+    try {
+      const r = await authFetch(
+        API + '/review/notice/' + encodeURIComponent(ann.filename) + '/blocks',
+        { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ blocks, expected_revision: ann.rev }) }
+      );
+      if (r.status === 409) { annToast('conflict, reloading', 'err'); await loadAnnotator(ann.filename); return false; }
+      if (!r.ok) { annToast('save failed (' + r.status + ')', 'err'); return false; }
+      const doc = await r.json();
+      ann.blocks = (doc.blocks || []).map(b => ({ ...b, bbox: b.bbox.slice() }));
+      ann.rev = doc.blocks_revision || ann.rev;
+      $('ann-rev').textContent = 'rev ' + ann.rev;
+      const live = new Set(ann.blocks.map(b => b.id));
+      ann.selectedIds = new Set(Array.from(ann.selectedIds).filter(id => live.has(id)));
+      if (ann.anchorId && !live.has(ann.anchorId)) {
+        ann.anchorId = ann.selectedIds.values().next().value || null;
+      }
+      refreshMarkdownAfterChange();
+      paintAnnAll();
+      return true;
+    } catch (e) { annToast('save error: ' + e, 'err'); return false; }
+  }
+
+  // Delete every selected block. 1 → existing DELETE endpoint; 2+ → one atomic
+  // replace with the survivors. No confirm — undo is the safety net.
+  async function deleteSelectedBlocks() {
+    const ids = Array.from(ann.selectedIds);
+    if (!ids.length) return;
+    if (ids.length === 1) {
+      const ok = await deleteBlockOnServer(ids[0]);
+      if (!ok) return;
+    } else {
+      const survivors = ann.blocks.filter(b => !ann.selectedIds.has(b.id));
+      const ok = await replaceBlocksOnServer(survivors);
+      if (!ok) return;
+      clearSelection();
+      pushHistory();
+    }
+    annToast('deleted ' + ids.length + ' — Ctrl+Z to undo');
+  }
+
   async function deleteBlockOnServer(id) {
     try {
       const r = await authFetch(
@@ -3503,13 +3723,16 @@
             + '/blocks/' + encodeURIComponent(id),
         { method: 'DELETE' }
       );
-      if (!r.ok) { annToast('delete failed (' + r.status + ')', 'err'); return; }
+      if (!r.ok) { annToast('delete failed (' + r.status + ')', 'err'); return false; }
       ann.blocks = ann.blocks.filter(b => b.id !== id);
-      if (ann.selectedId === id) ann.selectedId = null;
+      ann.selectedIds.delete(id);
+      if (ann.anchorId === id) ann.anchorId = ann.selectedIds.values().next().value || null;
       ann.rev += 1; $('ann-rev').textContent = 'rev ' + ann.rev;
       refreshMarkdownAfterChange();
+      pushHistory();
       paintAnnAll();
-    } catch (e) { annToast('delete error: ' + e, 'err'); }
+      return true;
+    } catch (e) { annToast('delete error: ' + e, 'err'); return false; }
   }
 
   async function reorderBlocksOnServer(updates) {
@@ -3525,6 +3748,7 @@
       ann.rev = doc.blocks_revision || ann.rev;
       $('ann-rev').textContent = 'rev ' + ann.rev;
       refreshMarkdownAfterChange();
+      pushHistory();
       paintAnnAll();
     } catch (e) { annToast('reorder error: ' + e, 'err'); }
   }
@@ -3593,6 +3817,7 @@
         annToast('re-extracted', 'ok');
       }
       refreshMarkdownAfterChange();
+      pushHistory();
       paintAnnAll();
     } catch (e) { annToast('re-extract error: ' + e, 'err'); }
     finally {
@@ -3629,6 +3854,8 @@
   }
 
   // ── Toolbar wiring ───────────────────────────────────────────────────────
+  $('ann-undo').addEventListener('click', annUndo);
+  $('ann-redo').addEventListener('click', annRedo);
   $('ann-add').addEventListener('click', () => {
     ann.mode = (ann.mode === 'draw') ? 'select' : 'draw';
     $('ann-add').classList.toggle('mode-on', ann.mode === 'draw');
