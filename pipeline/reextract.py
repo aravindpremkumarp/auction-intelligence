@@ -9,6 +9,10 @@ the source PDF/image and run a fresh extraction on just that crop:
   * **PDF + row/col guides** -> PyMuPDF cell-text extraction (no API call).
     This is the fastest, cheapest path and gives reviewer-controlled
     structure when they've drawn explicit table guides.
+  * **Image + row/col guides** -> burn the guides onto the crop as solid
+    black rules, then OCR once. Images have no text layer, so we can't read
+    cells directly; an explicitly gridded crop steers MinerU's table model
+    toward the structure the reviewer drew (a bare crop re-OCRs identically).
   * **Otherwise** -> render the crop as a 2x PNG and submit it to MinerU
     as a single-file batch. The returned content-list JSON is normalized
     via :func:`pipeline.mineru.parse_mineru_content_list` and merged into
@@ -168,6 +172,57 @@ def _image_crop_to_png(img_bytes: bytes, bbox_norm: list[float]) -> bytes:
     crop = src.crop((int(x0), int(y0), int(x1), int(y1)))
     buf = io.BytesIO()
     crop.convert("RGB").save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def _draw_table_guides_on_png(
+    png_bytes: bytes,
+    row_positions: list[float] | None,
+    col_positions: list[float] | None,
+) -> bytes:
+    """Burn the reviewer's row/col guide lines onto an image crop.
+
+    Images have no text layer, so we can't read cells directly the way the
+    PDF guide path does. Instead we draw the guides as solid black rules on
+    the crop before OCR: MinerU's table model keys off visible ruling lines,
+    so an explicitly gridded crop is far more likely to come back with the
+    structure the reviewer drew than the bare crop (which re-OCRs to the same
+    answer every time).
+
+    ``row_positions`` / ``col_positions`` are normalized (0..1) WITHIN the
+    crop. We also stroke the outer border so MinerU sees a closed table.
+    Returns ``png_bytes`` unchanged on any decode failure.
+    """
+    if not row_positions and not col_positions:
+        return png_bytes
+    try:
+        from PIL import Image, ImageDraw  # type: ignore
+        img = Image.open(io.BytesIO(png_bytes)).convert("RGB")
+    except Exception:
+        return png_bytes
+    w, h = img.size
+    if w <= 0 or h <= 0:
+        return png_bytes
+    draw = ImageDraw.Draw(img)
+    # Scale line thickness to the crop so the rules survive the later upscale
+    # but never dominate a small cell.
+    lw = max(2, round(min(w, h) * 0.004))
+    black = (0, 0, 0)
+
+    def _clamp_px(pos: float, span: int) -> int:
+        return max(0, min(span - 1, int(round(pos * span))))
+
+    # Outer border (closed table box).
+    draw.rectangle([0, 0, w - 1, h - 1], outline=black, width=lw)
+    # Interior column rules (vertical) and row rules (horizontal).
+    for pos in sorted(set(col_positions or [])):
+        x = _clamp_px(pos, w)
+        draw.line([(x, 0), (x, h - 1)], fill=black, width=lw)
+    for pos in sorted(set(row_positions or [])):
+        y = _clamp_px(pos, h)
+        draw.line([(0, y), (w - 1, y)], fill=black, width=lw)
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
     return buf.getvalue()
 
 
@@ -386,6 +441,13 @@ async def crop_and_reextract(
             png_bytes = _pdf_crop_to_png(src_bytes, page, bbox_norm)
         else:
             png_bytes = _image_crop_to_png(src_bytes, bbox_norm)
+            # Image + table guides: burn the reviewer's grid onto the crop so
+            # MinerU's table model follows it. (PDFs with guides never reach
+            # here — they take the PyMuPDF cell-text path above.)
+            if label == "Table" and (row_positions or col_positions):
+                png_bytes = _draw_table_guides_on_png(
+                    png_bytes, row_positions, col_positions
+                )
 
         # Pad + upscale so MinerU can read thin / low-res crops; otherwise a
         # one-line strip comes back with no text and looks like a no-op.
