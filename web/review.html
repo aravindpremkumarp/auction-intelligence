@@ -2247,7 +2247,8 @@
   document.addEventListener('keydown', (e) => {
     const t = e.target;
     const tag = (t && t.tagName) || '';
-    const typing = (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT');
+    const typing = (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'
+                    || (t && t.isContentEditable));
     // Treat a focused button as "interactive" so Space/Enter don't double-fire
     // (the button's default click + our gallery shortcut).
     const onButton = (tag === 'BUTTON');
@@ -3597,11 +3598,14 @@
     if (ann.applyingHistory) return;   // ignore overlapping undo/redo in flight
     if (ann.histPtr <= 0) return;
     const prev = ann.histPtr;
+    const histRef = ann.history;       // detect a 409→reload that rebuilds the stack
     ann.histPtr -= 1;
     ann.applyingHistory = true;
     const ok = await replaceBlocksOnServer(ann.history[ann.histPtr]);
     ann.applyingHistory = false;
-    if (!ok) ann.histPtr = prev;       // revert pointer on failure
+    // Revert the pointer only on a plain failure. A 409 reload runs initHistory,
+    // which replaces ann.history and already set a correct histPtr — don't clobber it.
+    if (!ok && ann.history === histRef) ann.histPtr = prev;
     updateUndoRedoButtons();
   }
 
@@ -3609,11 +3613,12 @@
     if (ann.applyingHistory) return;   // ignore overlapping undo/redo in flight
     if (ann.histPtr >= ann.history.length - 1) return;
     const prev = ann.histPtr;
+    const histRef = ann.history;       // detect a 409→reload that rebuilds the stack
     ann.histPtr += 1;
     ann.applyingHistory = true;
     const ok = await replaceBlocksOnServer(ann.history[ann.histPtr]);
     ann.applyingHistory = false;
-    if (!ok) ann.histPtr = prev;
+    if (!ok && ann.history === histRef) ann.histPtr = prev;
     updateUndoRedoButtons();
   }
 
