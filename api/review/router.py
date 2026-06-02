@@ -387,6 +387,25 @@ class ReorderBody(BaseModel):
     order: list[ReorderItem]
 
 
+class BlockReplaceItem(BaseModel):
+    id: str | None = None
+    page: int = 1
+    bbox: list[float]
+    label: str = "Text"
+    text: str | None = ""
+    reading_order: int = 0
+    source: str | None = None
+    confidence: float | None = None
+    table: TableShape | None = None
+    edited_at: str | None = None
+    edited_by: str | None = None
+
+
+class ReplaceBlocksBody(BaseModel):
+    blocks: list[BlockReplaceItem]
+    expected_revision: int | None = None
+
+
 class ReExtractBody(BaseModel):
     bbox: list[float] | None = None
     label: str | None = None
@@ -861,6 +880,18 @@ async def review_notice_reorder_blocks(
 ) -> BlocksDoc:
     order = [item.model_dump() for item in body.order]
     return _ok_doc(block_ops.reorder_blocks(filename, order, by_email=admin.email))
+
+
+@router.put("/notice/{filename}/blocks", response_model=BlocksDoc)
+@_wrap_block_errors
+async def review_notice_replace_blocks(
+    filename: str,
+    body: ReplaceBlocksBody,
+    admin: UserOut = Depends(get_current_admin),
+) -> BlocksDoc:
+    blocks = [b.model_dump(exclude_none=True) for b in body.blocks]
+    return _ok_doc(block_ops.replace_blocks(
+        filename, blocks, body.expected_revision, by_email=admin.email))
 
 
 @router.post(
