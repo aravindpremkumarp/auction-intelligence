@@ -565,6 +565,8 @@
       <span style="flex:1"></span>
       <label class="meta" style="display:none" id="ann-page-wrap">page <select class="page-select" id="ann-page"></select></label>
       <button id="ann-add" class="ghost">+ Add block</button>
+      <button id="ann-undo" class="ghost" title="undo (Ctrl+Z)" disabled>↶ Undo</button>
+      <button id="ann-redo" class="ghost" title="redo (Ctrl+Shift+Z)" disabled>↷ Redo</button>
       <button id="ann-crop" class="ghost" title="define the sales-notice region; only the cropped area is sent to OCR on re-ingest">+ Set crop</button>
       <span class="zoom-group" title="rotate the notice — also applied to the source on re-ingest so OCR runs upright">
         <button id="ann-rotate-left" class="ghost zoom-btn" title="rotate 90° counter-clockwise">↺</button>
@@ -2305,11 +2307,18 @@
       }
     }
 
-    // Annotator-screen shortcuts (Delete selection — undo/redo keys in Task 6)
+    // Annotator-screen shortcuts (Delete selection, Undo/Redo)
     if (!$('screen-annotator').classList.contains('hidden') && !typing) {
       if (e.key === 'Delete' || e.key === 'Backspace') {
         if (ann.selectedIds.size) { e.preventDefault(); deleteSelectedBlocks(); }
         return;
+      }
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z') && !e.shiftKey) {
+        e.preventDefault(); annUndo(); return;
+      }
+      if ((e.ctrlKey || e.metaKey) &&
+          (((e.key === 'z' || e.key === 'Z') && e.shiftKey) || e.key === 'y' || e.key === 'Y')) {
+        e.preventDefault(); annRedo(); return;
       }
     }
 
@@ -2343,6 +2352,9 @@
     blocks: [],        // mutable copy of doc.blocks
     selectedIds: new Set(),   // ids of all selected blocks
     anchorId: null,           // "primary" selected id (scroll target, table editor)
+    history: [],              // session-local stack of full block-list snapshots
+    histPtr: -1,              // index in history matching current server state
+    applyingHistory: false,   // guard: undo/redo restores must not push history
     mode: 'select',    // 'select' | 'draw' | 'crop'
     page: 1,
     pages: 1,
@@ -2426,6 +2438,7 @@
       renderAnnBanners();
       refreshCropButton();
       await loadAnnSource(doc.public_url);
+      initHistory();
       paintAnnAll();
     } catch (e) {
       console.error(e);
@@ -3437,6 +3450,7 @@
       mergeBlock(updated);
       ann.rev += 1; $('ann-rev').textContent = 'rev ' + ann.rev;
       refreshMarkdownAfterChange();
+      pushHistory();
       if (!opts.silent) {
         paintAnnSidebar();
         paintAnnOverlay();
@@ -3477,6 +3491,7 @@
       ann.rev += 1; $('ann-rev').textContent = 'rev ' + ann.rev;
       ann.pages = Math.max(ann.pages, blk.page || 1);
       refreshMarkdownAfterChange();
+      pushHistory();
       paintAnnAll();
     } catch (e) { annToast('add error: ' + e, 'err'); }
   }
@@ -3556,6 +3571,58 @@
     }
   }
 
+  // ── Undo / redo (session-local snapshot stack) ───────────────────────────
+  const HIST_CAP = 50;
+
+  function annSnapshot() {
+    return ann.blocks.map(b => ({ ...b, bbox: b.bbox.slice() }));
+  }
+
+  function initHistory() {
+    ann.history = [annSnapshot()];
+    ann.histPtr = 0;
+    updateUndoRedoButtons();
+  }
+
+  function pushHistory() {
+    if (ann.applyingHistory) return;
+    ann.history = ann.history.slice(0, ann.histPtr + 1);  // drop redo tail
+    ann.history.push(annSnapshot());
+    if (ann.history.length > HIST_CAP) ann.history.shift();
+    ann.histPtr = ann.history.length - 1;
+    updateUndoRedoButtons();
+  }
+
+  async function annUndo() {
+    if (ann.applyingHistory) return;   // ignore overlapping undo/redo in flight
+    if (ann.histPtr <= 0) return;
+    const prev = ann.histPtr;
+    ann.histPtr -= 1;
+    ann.applyingHistory = true;
+    const ok = await replaceBlocksOnServer(ann.history[ann.histPtr]);
+    ann.applyingHistory = false;
+    if (!ok) ann.histPtr = prev;       // revert pointer on failure
+    updateUndoRedoButtons();
+  }
+
+  async function annRedo() {
+    if (ann.applyingHistory) return;   // ignore overlapping undo/redo in flight
+    if (ann.histPtr >= ann.history.length - 1) return;
+    const prev = ann.histPtr;
+    ann.histPtr += 1;
+    ann.applyingHistory = true;
+    const ok = await replaceBlocksOnServer(ann.history[ann.histPtr]);
+    ann.applyingHistory = false;
+    if (!ok) ann.histPtr = prev;
+    updateUndoRedoButtons();
+  }
+
+  function updateUndoRedoButtons() {
+    const u = $('ann-undo'), r = $('ann-redo');
+    if (u) u.disabled = ann.histPtr <= 0;
+    if (r) r.disabled = ann.histPtr >= ann.history.length - 1;
+  }
+
   // Atomic full-array overwrite — used by multi-delete and undo/redo. Returns
   // true on a clean save, false on any failure. Does NOT push undo history
   // itself; callers decide (multi-delete pushes; undo/redo does not).
@@ -3614,6 +3681,7 @@
       if (ann.anchorId === id) ann.anchorId = ann.selectedIds.values().next().value || null;
       ann.rev += 1; $('ann-rev').textContent = 'rev ' + ann.rev;
       refreshMarkdownAfterChange();
+      pushHistory();
       paintAnnAll();
       return true;
     } catch (e) { annToast('delete error: ' + e, 'err'); return false; }
@@ -3632,6 +3700,7 @@
       ann.rev = doc.blocks_revision || ann.rev;
       $('ann-rev').textContent = 'rev ' + ann.rev;
       refreshMarkdownAfterChange();
+      pushHistory();
       paintAnnAll();
     } catch (e) { annToast('reorder error: ' + e, 'err'); }
   }
@@ -3715,6 +3784,8 @@
   }
 
   // ── Toolbar wiring ───────────────────────────────────────────────────────
+  $('ann-undo').addEventListener('click', annUndo);
+  $('ann-redo').addEventListener('click', annRedo);
   $('ann-add').addEventListener('click', () => {
     ann.mode = (ann.mode === 'draw') ? 'select' : 'draw';
     $('ann-add').classList.toggle('mode-on', ann.mode === 'draw');
