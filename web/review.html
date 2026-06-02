@@ -3149,6 +3149,7 @@
         ann.anchorId = id;
       }
     } else {
+      if (ann.selectedIds.size === 1 && ann.anchorId === id) return;  // re-click selected → no-op (as before)
       ann.selectedIds = new Set([id]);
       ann.anchorId = id;
     }
