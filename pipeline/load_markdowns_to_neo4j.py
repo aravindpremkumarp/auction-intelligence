@@ -61,6 +61,33 @@ def safe_name(file_path: str) -> str:
     return file_path.replace("/", "_").replace("\\", "_").replace(":", "_")
 
 
+def read_raw_artifacts(file_path: str) -> tuple[str | None, str | None]:
+    """Return ``(markdown_raw, blocks_raw)`` verbatim from the on-disk MinerU
+    cache for ``file_path``.
+
+    ``markdown_raw`` is the raw ``full.md``; ``blocks_raw`` is the raw
+    ``content_list.json`` text (the array MinerU emitted, as written to disk by
+    ``pipeline.mineru_api.download_and_cache``). Either is ``None`` when its
+    cache file is missing or unreadable. Used by the loader and the backfill
+    script so both read the cache the same way.
+    """
+    md_p = MD_DIR / f"{safe_name(file_path)}.md"
+    bl_p = BLOCKS_DIR / f"{safe_name(file_path)}.json"
+    md_raw: str | None = None
+    bl_raw: str | None = None
+    if md_p.exists():
+        try:
+            md_raw = md_p.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            md_raw = None
+    if bl_p.exists():
+        try:
+            bl_raw = bl_p.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            bl_raw = None
+    return md_raw, bl_raw
+
+
 def _new_block_id() -> str:
     return f"blk_{secrets.token_hex(6)}"
 
