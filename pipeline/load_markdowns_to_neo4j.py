@@ -82,8 +82,10 @@ def read_raw_artifacts(file_path: str) -> tuple[str | None, str | None]:
             md_raw = None
     if bl_p.exists():
         try:
-            bl_raw = bl_p.read_text(encoding="utf-8", errors="replace")
-        except OSError:
+            # blocks_raw is verbatim JSON meant to be re-parsed; decode strictly
+            # so a bad byte yields None rather than a silently corrupted blob.
+            bl_raw = bl_p.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
             bl_raw = None
     return md_raw, bl_raw
 
@@ -155,6 +157,10 @@ def write_markdowns(rows: list[dict], source: str, model: str) -> None:
             d.markdown_source     = $source,
             d.markdown_model      = coalesce(row.model, $model),
             d.markdown_loaded_at  = datetime(),
+            d.markdown_raw        = coalesce(row.markdown_raw, d.markdown_raw),
+            d.blocks_raw          = coalesce(row.blocks_raw, d.blocks_raw),
+            d.markdown_raw_at     = CASE WHEN row.markdown_raw IS NULL
+                                        THEN d.markdown_raw_at ELSE datetime() END,
             d.blocks              = CASE
                 WHEN row.blocks_json IS NULL THEN d.blocks
                 ELSE row.blocks_json END,
@@ -275,11 +281,14 @@ def main() -> int:
             blocks_json = None
             blocks_missing += 1
 
+        _, blocks_raw = read_raw_artifacts(fp)
         payloads.append({
-            "file_path":   fp,
-            "markdown":    text,
-            "blocks_json": blocks_json,
-            "model":       PRECLEAN_MODEL_TAG if is_precleaned(fp) else None,
+            "file_path":    fp,
+            "markdown":     text,
+            "markdown_raw": text,
+            "blocks_raw":   blocks_raw,
+            "blocks_json":  blocks_json,
+            "model":        PRECLEAN_MODEL_TAG if is_precleaned(fp) else None,
         })
         done += 1
 

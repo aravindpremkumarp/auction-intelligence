@@ -45,3 +45,23 @@ def test_read_raw_artifacts_blocks_none_when_only_md(tmp_path, monkeypatch):
     md_raw, bl_raw = L.read_raw_artifacts(fp)
     assert md_raw == "only md"
     assert bl_raw is None
+
+
+def test_write_markdowns_sets_raw_fields(monkeypatch):
+    captured = {}
+
+    def _capture(cypher, params=None):
+        captured["cypher"] = cypher
+        captured["params"] = params
+        return []
+
+    monkeypatch.setattr(L, "run_query", _capture)
+    row = {"file_path": "notices/x.jpg", "markdown": "MD",
+           "markdown_raw": "MD", "blocks_raw": "[1]",
+           "blocks_json": None, "model": None}
+    L.write_markdowns([row], "mineru", "mineru-vlm")
+    assert "d.markdown_raw" in captured["cypher"]
+    assert "d.blocks_raw" in captured["cypher"]
+    assert "d.markdown_raw_at" in captured["cypher"]
+    assert captured["params"]["rows"][0]["markdown_raw"] == "MD"
+    assert captured["params"]["rows"][0]["blocks_raw"] == "[1]"
