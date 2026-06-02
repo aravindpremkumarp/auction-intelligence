@@ -33,7 +33,7 @@ def fetch_pending(limit: int | None, force: bool) -> list[dict]:
                d.file_path AS file_path
         ORDER BY d.markdown_loaded_at DESC
     """
-    rows = run_read_query(cypher, max_rows=20_000)
+    rows = run_read_query(cypher, max_rows=20_000, timeout=120.0)
     return rows[:limit] if limit else rows
 
 
@@ -85,7 +85,8 @@ def main() -> int:
             failed += 1
             print(f"  [{i}] write-fail {row['filename']}: {e}")
 
-    print(f"\nDone. wrote={wrote}  no_cache={no_cache}  failed={failed}")
+    verb = "would_write" if args.dry_run else "wrote"
+    print(f"\nDone. {verb}={wrote}  no_cache={no_cache}  failed={failed}")
     return 0
 
 

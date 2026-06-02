@@ -42,3 +42,5 @@ def test_write_raw_passes_all_fields(monkeypatch):
     assert "d.markdown_raw_at" in captured["cypher"]
     assert captured["params"]["markdown_raw"] == "MD"
     assert captured["params"]["blocks_raw"] == "[1]"
+    assert "d.blocks_raw" in captured["cypher"]
+    assert "coalesce($blocks_raw" in captured["cypher"]
