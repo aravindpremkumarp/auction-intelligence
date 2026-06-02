@@ -2333,7 +2333,8 @@
     filename: null,
     doc: null,         // BlocksDoc as returned by the API
     blocks: [],        // mutable copy of doc.blocks
-    selectedId: null,
+    selectedIds: new Set(),   // ids of all selected blocks
+    anchorId: null,           // "primary" selected id (scroll target, table editor)
     mode: 'select',    // 'select' | 'draw' | 'crop'
     page: 1,
     pages: 1,
@@ -2378,7 +2379,8 @@
 
   async function loadAnnotator(filename) {
     ann.filename = filename;
-    ann.selectedId = null;
+    ann.selectedIds = new Set();
+    ann.anchorId = null;
     ann.mode = 'select';
     $('ann-filename').textContent = filename;
     $('ann-rows').innerHTML = '<div class="empty">loading…</div>';
@@ -2748,13 +2750,13 @@
     const el = document.createElement('div');
     el.className = 'ann-block lab-' + (b.label || 'Text');
     el.dataset.id = b.id;
-    if (ann.selectedId === b.id) el.classList.add('selected');
+    if (isSelected(b.id)) el.classList.add('selected');
     placeBlockEl(el, b.bbox);
     const lbl = document.createElement('div');
     lbl.className = 'ann-lbl';
     lbl.textContent = `${displayIdx ?? b.reading_order} · ${b.label}`;
     el.appendChild(lbl);
-    if (ann.selectedId === b.id) {
+    if (ann.selectedIds.size === 1 && isSelected(b.id)) {
       for (const pos of ['tl','tr','bl','br','t','b','l','r']) {
         const r = document.createElement('div');
         r.className = 'resizer ' + pos;
@@ -2795,7 +2797,7 @@
           paintAnnOverlay();
         });
         el.appendChild(showBtn);
-      } else if (ann.selectedId === b.id) {
+      } else if (ann.selectedIds.size === 1 && isSelected(b.id)) {
         el.appendChild(renderTableHintsPanel(b));
       }
     }
@@ -2937,7 +2939,7 @@
     }
     // Mount the inline table editor into the selected Table block's row (it
     // must be in the DOM first so cell .focus() works).
-    const sel = ann.selectedId && ann.blocks.find(b => b.id === ann.selectedId);
+    const sel = ann.anchorId && ann.blocks.find(b => b.id === ann.anchorId);
     const rowEl = (sel && sel.label === 'Table')
       ? root.querySelector(`.ann-row[data-id="${sel.id}"]`) : null;
     const cont = rowEl ? rowEl.querySelector('.tbled-inline') : null;
@@ -2955,7 +2957,7 @@
   function renderSidebarRow(b, position, total, sortedAll) {
     const row = document.createElement('div');
     row.className = 'ann-row';
-    if (ann.selectedId === b.id) row.classList.add('selected');
+    if (isSelected(b.id)) row.classList.add('selected');
     row.dataset.id = b.id;
     const top = document.createElement('div');
     top.className = 'ann-row-top';
@@ -2996,7 +2998,7 @@
     // an escape hatch for raw edits.
     let textArea = null;
     if (b.label === 'Table') {
-      if (ann.selectedId === b.id) {
+      if (ann.anchorId === b.id) {
         // Selected Table → full inline editor, mounted after the row lands in
         // the DOM (focus() needs an attached element). paintAnnSidebar does the
         // mount; here we just leave the container placeholder.
@@ -3125,14 +3127,37 @@
     }
   }
 
-  function selectBlock(id) {
-    if (ann.selectedId === id) return;
-    ann.selectedId = id;
+  function isSelected(id) { return ann.selectedIds.has(id); }
+
+  function clearSelection() {
+    if (!ann.selectedIds.size && !ann.anchorId) return;
+    ann.selectedIds = new Set();
+    ann.anchorId = null;
+    paintAnnAll();
+  }
+
+  function selectBlock(id, opts) {
+    opts = opts || {};
+    if (opts.additive) {
+      if (ann.selectedIds.has(id)) {
+        ann.selectedIds.delete(id);
+        if (ann.anchorId === id) {
+          ann.anchorId = ann.selectedIds.values().next().value || null;
+        }
+      } else {
+        ann.selectedIds.add(id);
+        ann.anchorId = id;
+      }
+    } else {
+      ann.selectedIds = new Set([id]);
+      ann.anchorId = id;
+    }
     paintAnnAll();
     requestAnimationFrame(() => {
-      const row = document.querySelector(`#ann-rows .ann-row[data-id="${id}"]`);
+      if (!ann.anchorId) return;
+      const row = document.querySelector(`#ann-rows .ann-row[data-id="${ann.anchorId}"]`);
       if (row) row.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-      const blk = document.querySelector(`#ann-page-wrap-inner .ann-block[data-id="${id}"]`);
+      const blk = document.querySelector(`#ann-page-wrap-inner .ann-block[data-id="${ann.anchorId}"]`);
       if (blk) blk.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
     });
   }
@@ -3382,7 +3407,8 @@
       if (!r.ok) { annToast('add failed (' + r.status + ')', 'err'); return; }
       const blk = await r.json();
       mergeBlock(blk);
-      ann.selectedId = blk.id;
+      ann.selectedIds = new Set([blk.id]);
+      ann.anchorId = blk.id;
       ann.rev += 1; $('ann-rev').textContent = 'rev ' + ann.rev;
       ann.pages = Math.max(ann.pages, blk.page || 1);
       refreshMarkdownAfterChange();
@@ -3472,13 +3498,15 @@
             + '/blocks/' + encodeURIComponent(id),
         { method: 'DELETE' }
       );
-      if (!r.ok) { annToast('delete failed (' + r.status + ')', 'err'); return; }
+      if (!r.ok) { annToast('delete failed (' + r.status + ')', 'err'); return false; }
       ann.blocks = ann.blocks.filter(b => b.id !== id);
-      if (ann.selectedId === id) ann.selectedId = null;
+      ann.selectedIds.delete(id);
+      if (ann.anchorId === id) ann.anchorId = ann.selectedIds.values().next().value || null;
       ann.rev += 1; $('ann-rev').textContent = 'rev ' + ann.rev;
       refreshMarkdownAfterChange();
       paintAnnAll();
-    } catch (e) { annToast('delete error: ' + e, 'err'); }
+      return true;
+    } catch (e) { annToast('delete error: ' + e, 'err'); return false; }
   }
 
   async function reorderBlocksOnServer(updates) {
