@@ -3165,7 +3165,6 @@
 
   // ── Pointer interactions (select / drag / resize / marquee) ──────────────
   function onStagePointerDown(ev) {
-    const wrap = $('ann-page-wrap-inner');
     const target = ev.target.closest('.resizer, .grid-row, .grid-col, .ann-block');
     const inCrop = ann.mode === 'crop';
     const inDraw = ann.mode === 'draw';
@@ -3173,10 +3172,22 @@
         (!target || target.classList.contains('ann-overlay'))) {
       return startMarquee(ev);
     }
+    // Select mode + left-drag on empty canvas → rubber-band multi-select.
+    if (!inDraw && !inCrop && ev.button === 0 && !target) {
+      return startSelectMarquee(ev);
+    }
     if (!target) return;
     const blockEl = target.closest('.ann-block');
     if (!blockEl) return;
     const id = blockEl.dataset.id;
+    // Ctrl/Cmd+click toggles a block in/out of the selection (no move/resize).
+    if ((ev.ctrlKey || ev.metaKey) &&
+        !target.classList.contains('resizer') &&
+        !target.classList.contains('grid-row') &&
+        !target.classList.contains('grid-col')) {
+      ev.preventDefault();
+      return selectBlock(id, { additive: true });
+    }
     selectBlock(id);
     if (target.classList.contains('resizer')) {
       ev.preventDefault();
@@ -3343,6 +3354,54 @@
       ann.mode = 'select';
       $('ann-add').classList.remove('mode-on');
       paintAnnOverlay();
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  }
+
+  // Select-mode rubber-band: drag a box on empty canvas to select every block
+  // on the current page whose bbox intersects it. Ctrl/Cmd held during the
+  // drag adds to the existing selection instead of replacing it.
+  function startSelectMarquee(ev) {
+    const wrap = $('ann-page-wrap-inner');
+    const overlay = wrap && wrap.querySelector('.ann-overlay');
+    if (!overlay) return;
+    const additive = ev.ctrlKey || ev.metaKey;
+    const start = pointerToNorm(ev);
+    const marquee = document.createElement('div');
+    marquee.className = 'ann-marquee';
+    overlay.appendChild(marquee);
+    let end = start.slice();
+    const onMove = (e) => {
+      end = pointerToNorm(e);
+      const x0 = Math.min(start[0], end[0]), y0 = Math.min(start[1], end[1]);
+      const x1 = Math.max(start[0], end[0]), y1 = Math.max(start[1], end[1]);
+      marquee.style.left   = (x0 * 100) + '%';
+      marquee.style.top    = (y0 * 100) + '%';
+      marquee.style.width  = ((x1 - x0) * 100) + '%';
+      marquee.style.height = ((y1 - y0) * 100) + '%';
+    };
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      marquee.remove();
+      const mx0 = Math.min(start[0], end[0]), my0 = Math.min(start[1], end[1]);
+      const mx1 = Math.max(start[0], end[0]), my1 = Math.max(start[1], end[1]);
+      // Tiny drag = a click on empty space → clear (unless additive).
+      if (mx1 - mx0 < 0.01 && my1 - my0 < 0.01) {
+        if (!additive) clearSelection();
+        return;
+      }
+      const hits = ann.blocks.filter(b =>
+        (b.page || 1) === ann.page &&
+        b.bbox[0] < mx1 && b.bbox[2] > mx0 &&
+        b.bbox[1] < my1 && b.bbox[3] > my0);
+      const next = additive ? new Set(ann.selectedIds) : new Set();
+      for (const b of hits) next.add(b.id);
+      ann.selectedIds = next;
+      ann.anchorId = hits.length ? hits[hits.length - 1].id
+                   : (additive ? ann.anchorId : null);
+      paintAnnAll();
     };
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
