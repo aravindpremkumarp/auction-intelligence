@@ -3753,6 +3753,7 @@
       if ((updated.text || '').trim()) annToast('re-extracted', 'ok');
       else annToast('no text found — try a taller box or Re-ingest', 'warn');
       refreshMarkdownAfterChange();
+      pushHistory();
       paintAnnAll();
     } catch (e) { annToast('re-extract error: ' + e, 'err'); }
     finally {
