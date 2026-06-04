@@ -81,7 +81,7 @@ def _cors_allow_list() -> list[str]:
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_allow_list(),
-    allow_origin_regex=r"https://.*\.vercel\.app",
+    allow_origin_regex=r"https://(.*\.vercel\.app|(.*\.)?auctionscope\.in)",
     allow_methods=["*"],
     allow_headers=["Authorization", "Content-Type"],
     allow_credentials=False,

@@ -1,5 +1,7 @@
 # Bank Auction Intelligence
 
+Production: <https://www.auctionscope.in>
+
 A FastAPI + Neo4j app with a chat UI over a knowledge graph of ~3,391 Tamil Nadu bank auctions.
 
 - **Backend**: FastAPI + pydantic-ai agent, queries Neo4j Aura.
