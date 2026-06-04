@@ -71,6 +71,11 @@
   .meta .row { margin-bottom: 4px; }
   .desc-textarea { width: 100%; box-sizing: border-box; min-height: 360px; padding: 10px; border: 1.5px solid var(--ink); font-family: 'IBM Plex Mono', monospace; font-size: 13px; line-height: 1.45; resize: vertical; background: #fff; color: var(--ink); }
   .desc-textarea[readonly] { background: #f3f0e7; color: var(--ink); }
+  .desc-head { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+  .desc-head h2 { margin: 0; flex: 1; }
+  .desc-head .md-toggle { display: inline-flex; gap: 4px; }
+  .desc-head .md-toggle button { padding: 1px 8px; font-size: 11px; min-height: 0; }
+  .desc-preview { box-sizing: border-box; width: 100%; min-height: 360px; max-height: 60vh; padding: 10px; border: 1.5px solid var(--ink); background: #fff; overflow: auto; }
   .md-section { margin-bottom: 14px; border: 1.5px solid var(--ink); background: var(--paper); }
   .md-section .md-header { padding: 6px 10px; border-bottom: 1.5px solid var(--ink); font-family: 'Caveat', cursive; font-size: 20px; display: flex; align-items: center; gap: 8px; }
   .md-section .md-header .md-title { flex: 1; }
@@ -526,12 +531,26 @@
 
         <div class="desc-compare" style="margin-top:14px">
           <div>
-            <h2>Website description</h2>
+            <div class="desc-head">
+              <h2>Website description</h2>
+              <span class="md-toggle">
+                <button class="pill" data-website-desc-mode="rendered">rendered</button>
+                <button class="pill" data-website-desc-mode="raw">raw</button>
+              </span>
+            </div>
             <textarea id="website-desc" class="desc-textarea" readonly></textarea>
+            <div id="website-desc-preview" class="desc-preview markdown-body" style="display:none;"></div>
           </div>
           <div>
-            <h2>Notice description (editable)</h2>
+            <div class="desc-head">
+              <h2>Notice description (editable)</h2>
+              <span class="md-toggle">
+                <button class="pill" data-desc-mode="rendered">rendered</button>
+                <button class="pill" data-desc-mode="raw">raw</button>
+              </span>
+            </div>
             <textarea id="desc" class="desc-textarea" spellcheck="true"></textarea>
+            <div id="desc-preview" class="desc-preview markdown-body" style="display:none;"></div>
           </div>
         </div>
 
@@ -2068,6 +2087,8 @@
       : (p.enriched_description || p.description || '');
     $('website-desc').value = p.description_scraped || p.website_description || '';
     $('notes').value = p.review_notes || '';
+    paintDescPreview();
+    paintWebsiteDescPreview();
 
     // Audit footer
     if (p.verified) {
@@ -2161,6 +2182,61 @@
       paintMarkdown();
     });
   });
+
+  // ─── Notice description (editable) + Website description toggles ─────
+  // Lets the reviewer flip each description between the raw text/markdown
+  // they entered and a rendered preview (so pasted HTML tables show as
+  // tables). Edits still happen in raw mode — rendered is preview only.
+  function makeDescToggle(attr, storageKey, textareaId, previewId, defaultMode) {
+    let mode = localStorage.getItem(storageKey) || defaultMode;
+    const sel = `button.pill[data-${attr}]`;
+
+    function syncButtons() {
+      $$(sel).forEach(b => {
+        b.classList.toggle('on', b.getAttribute(`data-${attr}`) === mode);
+      });
+    }
+
+    function paint() {
+      const ta = $(textareaId);
+      const preview = $(previewId);
+      if (!ta || !preview) return;
+      syncButtons();
+      if (mode === 'rendered' && window.marked && window.DOMPurify) {
+        const text = ta.value || '';
+        const html = window.marked.parse(text, { gfm: true, breaks: false });
+        preview.innerHTML = window.DOMPurify.sanitize(html);
+        preview.classList.add('rendered');
+        ta.style.display = 'none';
+        preview.style.display = '';
+        renderMathIn(preview);
+      } else {
+        ta.style.display = '';
+        preview.style.display = 'none';
+      }
+    }
+
+    $$(sel).forEach(b => {
+      b.addEventListener('click', () => {
+        mode = b.getAttribute(`data-${attr}`);
+        try { localStorage.setItem(storageKey, mode); } catch {}
+        paint();
+      });
+    });
+
+    return paint;
+  }
+
+  const paintDescPreview = makeDescToggle(
+    'desc-mode', 'descMode', 'desc', 'desc-preview', 'raw'
+  );
+  const paintWebsiteDescPreview = makeDescToggle(
+    'website-desc-mode', 'websiteDescMode', 'website-desc', 'website-desc-preview', 'raw'
+  );
+  // Reflect the persisted mode on the buttons immediately so the toggle is
+  // never visually blank before the first row is opened.
+  paintDescPreview();
+  paintWebsiteDescPreview();
 
   function renderSourcePane(p) {
     const docs = (p.documents || []).filter(Boolean);
