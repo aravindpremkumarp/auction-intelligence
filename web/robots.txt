@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /review
+
+Sitemap: https://www.auctionscope.in/sitemap.xml
