@@ -125,6 +125,35 @@ def test_attach_property_highlight_none_when_no_match_or_no_markdown():
 
 # ── edge snapping (ragged start/end fix) ────────────────────────────────────
 
+def test_match_span_does_not_cross_html_table_cell_boundary():
+    # MinerU emits tables as raw HTML with NO whitespace between cells
+    # (``...625602)</td><td>All the Piece...``). The description sits in its own
+    # <td>; the previous cell ends in the borrower's pincode. Snapping to the
+    # "nearest whitespace" used to walk the span start back across </td><td>
+    # onto that pincode, so the highlight landed on "625602)" instead of the
+    # description (the real bug a reviewer reported on auction 744440).
+    md = ("<table><tr>"
+          "<td>Mr/Mrs Paulpandi M, Devadanapalli, Theni, Tamilnadu, 625602)</td>"
+          "<td>All the Piece and parcel of land and building comprised in "
+          "S.NO.3067/2 with the extent of 1800 sq.ft Land Situated at "
+          "Sengulathupatti, Theni District, Dindigul Registration District.</td>"
+          "<td>Rs.9,61,000</td>"
+          "</tr></table>")
+    desc = ("All the Piece and parcel of land and building comprised in S.NO.3067/2 "
+            "with the extent of 1800 sq.ft Land Situated at Sengulathupatti, Theni "
+            "District, Dindigul Registration District.")
+    span = match_span(desc, md)
+    assert span is not None
+    found = md[span[0]:span[1]]
+    # The highlight must stay inside the description cell …
+    assert found.startswith("All the Piece")
+    assert found.rstrip().endswith("Registration District.")
+    # … and never pull in the neighbouring cells or any tag.
+    assert "625602" not in found
+    assert "Rs.9,61,000" not in found
+    assert "<td>" not in found and "</td>" not in found
+
+
 def test_match_span_snaps_partial_tokens_to_word_boundaries():
     # The leading "1) :" prefix (absent from the OCR) makes rapidfuzz trim the
     # first word, and the trailing date is cut mid-token — the real failure the
