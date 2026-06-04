@@ -287,18 +287,28 @@ _HIGHLIGHT_MIN_SCORE = 75.0
 
 
 def _snap_to_word_boundaries(text: str, start: int, end: int) -> tuple[int, int]:
-    """Grow a span outward to the nearest whitespace on both sides.
+    """Grow a span outward to the nearest whitespace on both sides, but never
+    across an HTML tag boundary.
 
     rapidfuzz's partial_ratio alignment can trim a few characters at the edges
     (e.g. a leading "All" the probe's item-number prefix shifted off, or a
     trailing "1.2025)" cut mid-token), leaving a ragged highlight. Extending to
     whitespace boundaries completes the partial word/token at each end without
     pulling in unrelated text — the gap is only ever a fragment of one token.
+
+    MinerU emits tables as raw HTML (``...Tamilnadu, 625602)</td><td>All the
+    Piece...``) with no whitespace between cells, so plain "nearest whitespace"
+    would walk the span across ``</td><td>`` into the neighbouring cell and
+    latch onto the previous cell's trailing token (a pincode or date). When the
+    UI later wraps that span in a ``<mark>`` the browser collapses the cross-cell
+    tag down to just the previous cell's fragment — so the highlight lands on
+    the pincode instead of the description. Treat ``<`` and ``>`` as hard stops
+    so the span can never cross a tag.
     """
     n = len(text)
-    while start > 0 and not text[start - 1].isspace():
+    while start > 0 and not text[start - 1].isspace() and text[start - 1] not in "<>":
         start -= 1
-    while end < n and not text[end].isspace():
+    while end < n and not text[end].isspace() and text[end] not in "<>":
         end += 1
     return start, end
 
