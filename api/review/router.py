@@ -74,6 +74,15 @@ class ReviewNoticeQueueOut(BaseModel):
     rows: list[ReviewNoticeRow]
 
 
+class ReviewSiblingsOut(BaseModel):
+    """The properties sharing one sales notice, for the detail-view switcher."""
+    filename: str | None = None
+    file_path: str | None = None
+    public_url: str | None = None
+    notice_type: str | None = None
+    properties: list[ReviewNoticeProperty] = []
+
+
 class MarkdownHighlight(BaseModel):
     start: int
     end: int
@@ -498,6 +507,27 @@ async def review_property(
     if row is None:
         raise HTTPException(status_code=404, detail="property not found")
     return ReviewPropertyOut(**_row_to_str(row))
+
+
+@router.get("/property/{auction_id}/siblings", response_model=ReviewSiblingsOut)
+async def review_property_siblings(
+    auction_id: str,
+    _admin: UserOut = Depends(get_current_admin),
+) -> ReviewSiblingsOut:
+    """Sibling properties sharing this property's sales notice (for the
+    detail-view switcher). Returns an empty payload — not a 404 — when the
+    property has no linked notice, so the UI can simply hide the switcher."""
+    row = q.list_notice_siblings(auction_id)
+    if row is None:
+        return ReviewSiblingsOut()
+    props = [ReviewNoticeProperty(**_row_to_str(p)) for p in (row.get("properties") or [])]
+    return ReviewSiblingsOut(
+        filename=row.get("filename"),
+        file_path=row.get("file_path"),
+        public_url=row.get("public_url"),
+        notice_type=row.get("notice_type"),
+        properties=props,
+    )
 
 
 @router.post("/property/{auction_id}/verify", response_model=ReviewPropertyOut)
