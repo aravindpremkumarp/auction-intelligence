@@ -259,7 +259,7 @@ def _strip_ui_rows_from_history(history: list[dict[str, Any]]) -> list[dict[str,
 # model *did* see (but only on stale turns).
 _HISTORY_KEEP_FULL_TURNS = max(1, int(os.getenv("CHAT_HISTORY_KEEP_FULL_TURNS", "2")))
 # Only trim tool returns whose JSON is at least this many chars — leaves small
-# aggregate/stat results (list_distinct, location_analysis) untouched so the
+# aggregate/stat results (list_distinct) untouched so the
 # model keeps cheap-but-useful context, and avoids stubs larger than the
 # original payload.
 _HISTORY_TRIM_MIN_CHARS = int(os.getenv("CHAT_HISTORY_TRIM_MIN_CHARS", "600"))
@@ -375,6 +375,51 @@ def _strip_dynamic_system_prompts_from_history(
     return history
 
 
+def _usage_fields(result: Any) -> dict[str, Any]:
+    """Best-effort token accounting for the per-turn obs log.
+
+    Pulls input / output / cached token counts and the LLM round-trip count
+    off the pydantic-ai run result. One user message fans out to several LLM
+    calls (each tool round-trip re-sends the system+tools prefix), so
+    `llm_calls` × the prefix size is where most input tokens go.
+
+    `cached_tokens` is the prompt-cache-hit portion of the input: when the
+    OpenRouter→Gemini route honors implicit caching of the stable prefix it
+    shows up here; a steady 0 means the prefix is billed at full rate every
+    call — the signal to move to a direct Vertex client. Wrapped in
+    getattr/try so a pydantic-ai field rename degrades to an empty dict
+    instead of 500-ing a chat turn; this is telemetry, never load-bearing.
+    """
+    try:
+        u = result.usage()
+    except Exception:  # noqa: BLE001 - telemetry must never break the turn
+        return {}
+
+    def pick(*names: str) -> int:
+        for n in names:
+            v = getattr(u, n, None)
+            if isinstance(v, int) and v:
+                return v
+        return 0
+
+    cached = pick("cache_read_tokens")
+    if not cached:
+        # Fallback: some providers report the hit under usage `details`
+        # (e.g. {"cached_tokens": N}) rather than the typed field.
+        details = getattr(u, "details", None)
+        if isinstance(details, dict):
+            for k, v in details.items():
+                if "cache" in str(k).lower() and isinstance(v, int) and v:
+                    cached = v
+                    break
+    return {
+        "llm_calls": pick("requests"),
+        "input_tokens": pick("input_tokens", "request_tokens"),
+        "cached_tokens": cached,
+        "output_tokens": pick("output_tokens", "response_tokens"),
+    }
+
+
 @router.get("/modes")
 def list_modes() -> dict:
     """Mode registry consumed by the web UI to render the mode selector and
@@ -424,8 +469,13 @@ async def chat(
         # Time the LLM round-trip on its own budget so slow-agent turns are
         # easy to spot in logs (auction.obs chat.agent_run ... elapsed_ms=...).
         with timed("chat.agent_run", slow_ms=SLOW_AGENT_MS,
-                   mode=mode or "ask", history_msgs=len(history) if history else 0):
+                   mode=mode or "ask", history_msgs=len(history) if history else 0) as obs:
             result = await agent.run(req.message, message_history=history, deps=deps)
+            # Attach token/cache counts to the obs line so a turn's cost — and
+            # whether the stable prefix is hitting the implicit prompt cache —
+            # is greppable next to its latency.
+            usage = _usage_fields(result)
+            obs.update(usage)
     except Exception:
         # Most often pydantic-ai's UnexpectedModelBehavior or a transient
         # OpenRouter error. Log with the user message so the failing input is
@@ -434,8 +484,11 @@ async def chat(
         raise HTTPException(status_code=500, detail="chat agent failed — please retry")
     artifacts = _extract_artifacts(result.new_messages())
     logger.info(
-        "chat turn ok mode=%s tool_calls=%d answer_chars=%d",
+        "chat turn ok mode=%s tool_calls=%d answer_chars=%d "
+        "llm_calls=%s in_tok=%s cached_tok=%s out_tok=%s",
         mode or "ask", len(artifacts), len(result.output or ""),
+        usage.get("llm_calls"), usage.get("input_tokens"),
+        usage.get("cached_tokens"), usage.get("output_tokens"),
     )
     dumped_history = ModelMessagesTypeAdapter.dump_python(result.all_messages(), mode="json")
     # Strip `_ui_results` from the history echoed back to the client —
