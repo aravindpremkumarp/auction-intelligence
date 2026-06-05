@@ -852,6 +852,16 @@ body {
 .source-num { font-weight: 600; opacity: 0.7; }
 .source-domain { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* Per-response timing shown under each AI reply (round-trip wall time). */
+.resp-time {
+  display: inline-flex; align-items: center; gap: 4px;
+  margin-top: 4px;
+  font-family: var(--font-mono); font-size: 10px;
+  color: var(--muted); letter-spacing: 0.02em; line-height: 1;
+}
+.resp-time svg { opacity: 0.75; }
+.detail-chat .resp-time { font-size: 9px; }
+
 .results-pane {
   display: flex; flex-direction: column;
   min-height: 0;
