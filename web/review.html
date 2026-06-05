@@ -69,8 +69,8 @@
   /* Notice-image zoom & pan — applied to the read-only image views (markdown
      card source, classification gallery, property-detail left pane). The
      annotator has its own richer zoom; this is the lightweight version. */
-  .iz-surface { cursor: grab; touch-action: none; }
   .iz-surface.iz-panning { cursor: grabbing; }
+  .iz-surface.iz-panning * { cursor: grabbing !important; }
   .iz-surface img { user-select: none; -webkit-user-select: none; -webkit-user-drag: none; }
   .iz-controls { position: absolute; top: 0; right: 8px; z-index: 6; display: inline-flex; gap: 3px; align-items: center; padding: 3px 5px; background: rgba(20,20,20,0.72); border: 1px solid rgba(255,255,255,0.28); border-radius: 4px; opacity: 0.4; transition: opacity 0.12s; will-change: transform; }
   .iz-surface:hover .iz-controls, .iz-controls:hover { opacity: 1; }
@@ -2131,11 +2131,13 @@
   }
 
   // ─── Notice image zoom & pan ────────────────────────────────────────────
-  // Make any scrollable notice-image container zoomable + pannable, like the
-  // annotator does. `scrollEl` is the overflow:auto box that directly holds an
-  // <img> (the markdown card source, the gallery image body, or the
-  // property-detail left pane). Controls + listeners are only wired up once the
-  // image has loaded successfully, so broken/missing images stay untouched.
+  // Make any scrollable notice-image container zoomable + pannable, with the
+  // same gestures as the annotator: wheel up/down zooms in/out (anchored at the
+  // cursor), and holding the middle mouse button (or Alt+left) drags to pan.
+  // `scrollEl` is the overflow:auto box that directly holds an <img> (the
+  // markdown card source, the gallery image body, or the property-detail left
+  // pane). Controls + listeners are only wired up once the image has loaded
+  // successfully, so broken/missing images stay untouched.
   //
   // zoom == null  → fit to width (the default CSS behaviour; nothing overridden)
   // zoom == 1.0   → image shown at its natural pixel size (100%)
@@ -2156,6 +2158,7 @@
 
       const controls = document.createElement('div');
       controls.className = 'iz-controls';
+      controls.title = 'Scroll to zoom · hold middle-mouse (or Alt+drag) to pan';
       controls.innerHTML =
         '<button type="button" class="iz-btn" data-iz="out" title="Zoom out">−</button>' +
         '<button type="button" class="iz-btn" data-iz="fit" title="Fit to width">Fit</button>' +
@@ -2224,10 +2227,14 @@
         zoomTo(currentScale() * (ev.deltaY < 0 ? 1.15 : 1 / 1.15), ev.clientX, ev.clientY);
       }, { passive: false });
 
-      // Left-button drag pans.
+      // Pan by holding the middle mouse button (the scroll wheel) and dragging,
+      // or Alt+left-drag — same triggers as the annotator. Plain left-drag is
+      // left free so it never fights text selection elsewhere on the page.
       let panning = false, sx = 0, sy = 0, sl = 0, st = 0, pid = null;
       scrollEl.addEventListener('pointerdown', (ev) => {
-        if (ev.button !== 0 || onControls(ev)) return;
+        const isMiddle = ev.button === 1;
+        const isAltLeft = ev.button === 0 && ev.altKey;
+        if ((!isMiddle && !isAltLeft) || onControls(ev)) return;
         panning = true; pid = ev.pointerId;
         sx = ev.clientX; sy = ev.clientY; sl = scrollEl.scrollLeft; st = scrollEl.scrollTop;
         scrollEl.classList.add('iz-panning');
@@ -2239,14 +2246,18 @@
         scrollEl.scrollLeft = sl - (ev.clientX - sx);
         scrollEl.scrollTop  = st - (ev.clientY - sy);
       });
-      const endPan = () => {
+      const endPan = (ev) => {
         if (!panning) return;
         panning = false;
         scrollEl.classList.remove('iz-panning');
         try { scrollEl.releasePointerCapture(pid); } catch {}
+        if (ev) ev.preventDefault();
       };
       scrollEl.addEventListener('pointerup', endPan);
       scrollEl.addEventListener('pointercancel', endPan);
+      // Stop the browser's middle-click autoscroll from hijacking the pan.
+      scrollEl.addEventListener('mousedown', (ev) => { if (ev.button === 1) ev.preventDefault(); });
+      scrollEl.addEventListener('auxclick', (ev) => { if (ev.button === 1) ev.preventDefault(); });
 
       // Double-click toggles between fit and 2× (anchored at the cursor).
       scrollEl.addEventListener('dblclick', (ev) => {
