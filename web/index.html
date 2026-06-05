@@ -22,9 +22,18 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;600;700&family=Kalam:wght@300;400;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script>
-  window.API_BASE = (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
-    ? ''
-    : 'https://api.auctionscope.in';
+  // Pick API origin per hostname. On *.auctionscope.in we use the branded
+  // api.auctionscope.in CNAME; everywhere else (the legacy Vercel URL, preview
+  // deploys) we hit Render directly so networks that block the new domain
+  // before web-filter vendors categorise it still work.
+  window.API_BASE = (function () {
+    var h = location.hostname;
+    if (h === 'localhost' || h === '127.0.0.1') return '';
+    if (h === 'auctionscope.in' || h.endsWith('.auctionscope.in')) {
+      return 'https://api.auctionscope.in';
+    }
+    return 'https://auction-api-w68b.onrender.com';
+  })();
   // Supabase project credentials. ANON key is safe to expose; service-role
   // key stays server-side. Replace these at deploy time if they move.
   window.SUPABASE_URL = window.SUPABASE_URL || 'https://yrcrxpwoqddfcengkryw.supabase.co';
