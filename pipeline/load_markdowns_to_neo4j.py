@@ -34,7 +34,7 @@ import sys
 import time
 from pathlib import Path
 
-from api.neo4j_client import run_query, run_read_query, session
+from api.neo4j_client import run_query, run_read_query
 from pipeline.mineru import (
     MINERU_BLOCKS_DIR,
     PRECLEAN_MODEL_TAG,
@@ -42,9 +42,6 @@ from pipeline.mineru import (
     parse_mineru_content_list,
     safe_cache_name,
 )
-from pipeline.score_markdown import score_freshly_loaded
-
-
 REPO_ROOT = Path(__file__).resolve().parent.parent
 MD_DIR = REPO_ROOT / "pipeline" / "cache" / "mineru_markdown"
 BLOCKS_DIR = MINERU_BLOCKS_DIR
@@ -59,6 +56,35 @@ DEFAULT_MARKDOWN_MODEL = "mineru-vlm"
 
 def safe_name(file_path: str) -> str:
     return file_path.replace("/", "_").replace("\\", "_").replace(":", "_")
+
+
+def read_raw_artifacts(file_path: str) -> tuple[str | None, str | None]:
+    """Return ``(markdown_raw, blocks_raw)`` verbatim from the on-disk MinerU
+    cache for ``file_path``.
+
+    ``markdown_raw`` is the raw ``full.md``; ``blocks_raw`` is the raw
+    ``content_list.json`` text (the array MinerU emitted, as written to disk by
+    ``pipeline.mineru_api.download_and_cache``). Either is ``None`` when its
+    cache file is missing or unreadable. Used by the loader and the backfill
+    script so both read the cache the same way.
+    """
+    md_p = MD_DIR / f"{safe_name(file_path)}.md"
+    bl_p = BLOCKS_DIR / f"{safe_name(file_path)}.json"
+    md_raw: str | None = None
+    bl_raw: str | None = None
+    if md_p.exists():
+        try:
+            md_raw = md_p.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            md_raw = None
+    if bl_p.exists():
+        try:
+            # blocks_raw is verbatim JSON meant to be re-parsed; decode strictly
+            # so a bad byte yields None rather than a silently corrupted blob.
+            bl_raw = bl_p.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            bl_raw = None
+    return md_raw, bl_raw
 
 
 def _new_block_id() -> str:
@@ -128,6 +154,10 @@ def write_markdowns(rows: list[dict], source: str, model: str) -> None:
             d.markdown_source     = $source,
             d.markdown_model      = coalesce(row.model, $model),
             d.markdown_loaded_at  = datetime(),
+            d.markdown_raw        = coalesce(row.markdown_raw, d.markdown_raw),
+            d.blocks_raw          = coalesce(row.blocks_raw, d.blocks_raw),
+            d.markdown_raw_at     = CASE WHEN row.markdown_raw IS NULL
+                                        THEN d.markdown_raw_at ELSE datetime() END,
             d.blocks              = CASE
                 WHEN row.blocks_json IS NULL THEN d.blocks
                 ELSE row.blocks_json END,
@@ -248,11 +278,16 @@ def main() -> int:
             blocks_json = None
             blocks_missing += 1
 
+        # markdown_raw == text (the raw full.md already read above); only
+        # blocks_raw is new here, so discard the helper's first return value.
+        _, blocks_raw = read_raw_artifacts(fp)
         payloads.append({
-            "file_path":   fp,
-            "markdown":    text,
-            "blocks_json": blocks_json,
-            "model":       PRECLEAN_MODEL_TAG if is_precleaned(fp) else None,
+            "file_path":    fp,
+            "markdown":     text,
+            "markdown_raw": text,
+            "blocks_raw":   blocks_raw,
+            "blocks_json":  blocks_json,
+            "model":        PRECLEAN_MODEL_TAG if is_precleaned(fp) else None,
         })
         done += 1
 
@@ -277,6 +312,7 @@ def main() -> int:
     scored = 0
     if written_file_paths:
         try:
+            from pipeline.score_markdown import score_freshly_loaded
             scored = score_freshly_loaded(written_file_paths)
         except Exception as e:
             print(f"  [score-fail] {type(e).__name__}: {e}")

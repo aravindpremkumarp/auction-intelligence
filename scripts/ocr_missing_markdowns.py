@@ -35,6 +35,7 @@ from pipeline.config import DOWNLOADS_DIR
 from pipeline.load_markdowns_to_neo4j import (
     DEFAULT_MARKDOWN_MODEL,
     DEFAULT_MARKDOWN_SOURCE,
+    read_raw_artifacts,
     write_markdowns,
 )
 from pipeline.mineru import MINERU_SUPPORTED_EXTS
@@ -90,6 +91,30 @@ def download_file(url: str, dest: Path, timeout: int = 60) -> bool:
             else:
                 print(f"    [GAVE UP] {url}: {e}")
     return False
+
+
+def build_write_rows(mds: dict[str, str]) -> list[dict]:
+    """Build ``write_markdowns`` rows from ``{file_path: markdown}``.
+
+    Attaches the durable raw artifacts that stage1 just cached on disk so
+    documents OCR'd through this script also get ``markdown_raw`` /
+    ``blocks_raw`` (the same fields ``load_markdowns_to_neo4j.main`` writes).
+    ``markdown_raw`` is the markdown we're writing — it *is* the raw
+    ``full.md`` MinerU returned; ``blocks_raw`` is the verbatim
+    ``content_list.json`` read from the on-disk cache.
+    """
+    rows: list[dict] = []
+    for fp, md in mds.items():
+        if not (md and md.strip()):
+            continue
+        _, blocks_raw = read_raw_artifacts(fp)
+        rows.append({
+            "file_path":    fp,
+            "markdown":     md,
+            "markdown_raw": md,
+            "blocks_raw":   blocks_raw,
+        })
+    return rows
 
 
 def main() -> int:
@@ -156,8 +181,7 @@ def main() -> int:
         print("\nNo markdown produced — nothing to write.")
         return 1
 
-    rows = [{"file_path": fp, "markdown": md}
-            for fp, md in mds.items() if md and md.strip()]
+    rows = build_write_rows(mds)
     print(f"\n[Stage 2] Writing {len(rows)} markdowns to Neo4j")
     if rows:
         # Write in batches of 200 like the loader does.

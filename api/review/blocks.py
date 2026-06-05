@@ -718,6 +718,41 @@ def reingest_notice_safe(filename: str, by_email: str) -> None:
         log.exception("reingest background task failed for %s", filename)
 
 
+def _persist_reingest_result(filename: str, *, markdown: str, blocks_json: str,
+                             markdown_raw: str | None,
+                             blocks_raw: str | None) -> None:
+    """Persist a fresh full-document MinerU re-ingest.
+
+    Writes the working ``markdown`` + ``blocks`` AND the durable raw copy
+    (``markdown_raw`` = full.md, ``blocks_raw`` = content_list.json). Bumps
+    ``blocks_revision`` and clears the markdown verdict, same as before. The raw
+    fields are written here — a full OCR run — and NEVER by the edit paths
+    (``_save_doc`` / ``re_extract_block``), so a reviewer edit can't lose them. A
+    crop/rotation re-ingest refreshes the raw copy to that run's output, which is
+    correct: the resulting blocks come from that run too.
+    """
+    run_query(
+        """
+        MATCH (d:Document {filename: $filename})
+        SET d.markdown            = $markdown,
+            d.blocks              = $blocks_json,
+            d.markdown_raw        = coalesce($markdown_raw, d.markdown_raw),
+            d.blocks_raw          = coalesce($blocks_raw, d.blocks_raw),
+            d.markdown_raw_at     = CASE WHEN $markdown_raw IS NULL
+                                        THEN d.markdown_raw_at ELSE datetime() END,
+            d.blocks_revision     = coalesce(d.blocks_revision, 0) + 1,
+            d.markdown_loaded_at  = datetime(),
+            d.markdown_source     = 'mineru',
+            d.markdown_model      = 'mineru-vlm',
+            d.markdown_verified_at = NULL,
+            d.markdown_verified_by = NULL,
+            d.markdown_quality     = NULL
+        """,
+        {"filename": filename, "markdown": markdown, "blocks_json": blocks_json,
+         "markdown_raw": markdown_raw, "blocks_raw": blocks_raw},
+    )
+
+
 def reingest_notice(filename: str, by_email: str) -> dict:
     """Re-run the full MinerU pipeline for a single Document.
 
@@ -994,20 +1029,16 @@ def reingest_notice(filename: str, by_email: str) -> dict:
     doc = {"schema_version": 1, "blocks": blocks}
     blocks_json = json.dumps(doc, ensure_ascii=False)
     new_md = md_path.read_text(encoding="utf-8")
-    run_query(
-        """
-        MATCH (d:Document {filename: $filename})
-        SET d.markdown            = $markdown,
-            d.blocks              = $blocks_json,
-            d.blocks_revision     = coalesce(d.blocks_revision, 0) + 1,
-            d.markdown_loaded_at  = datetime(),
-            d.markdown_source     = 'mineru',
-            d.markdown_model      = 'mineru-vlm',
-            d.markdown_verified_at = NULL,
-            d.markdown_verified_by = NULL,
-            d.markdown_quality     = NULL
-        """,
-        {"filename": filename, "markdown": new_md, "blocks_json": blocks_json},
+    try:
+        blocks_raw = blocks_path.read_text(encoding="utf-8") if blocks_path else None
+    except (OSError, UnicodeDecodeError):
+        blocks_raw = None
+    _persist_reingest_result(
+        filename,
+        markdown=new_md,
+        blocks_json=blocks_json,
+        markdown_raw=new_md,
+        blocks_raw=blocks_raw,
     )
     # Refresh the coverage score: the markdown just changed, so any prior
     # `markdown_quality_score` is stale. Best-effort — a scoring failure
