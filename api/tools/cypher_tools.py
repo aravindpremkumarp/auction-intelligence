@@ -131,6 +131,15 @@ _AGG_FUNCS = {
 # `_ui_results` side-channel — they never enter the LLM's context.
 _UI_ROWS_HARD_CAP = 500
 
+# Upper bound on how many rows ever enter the LLM's context from one search,
+# independent of the model-requested `limit`. The model can ask for a large
+# `limit` (e.g. to "find insights"), which would otherwise serialize hundreds
+# of rows into the prompt — one such call dominated a recent session's token
+# bill. The UI still receives the full set (up to `_UI_ROWS_HARD_CAP`) via the
+# `_ui_results` side-channel; this only bounds what the model sees. Quantities
+# come from `total_count`, never the row count, so capping rows loses no facts.
+_LLM_ROWS_HARD_CAP = 25
+
 _ORDER_BY_CLAUSES = {
     "deadline_asc":  "a.auction_start_dt ASC",
     "deadline_desc": "a.auction_start_dt DESC",
@@ -151,7 +160,7 @@ def search_auctions(
     branch_name: str | None = None,
     starts_after: datetime | None = None,
     starts_before: datetime | None = None,
-    limit: int = 20,
+    limit: int = 10,
     order_by: str = "deadline_asc",
     aggregate_field: str | None = None,
     aggregations: list[str] | None = None,
@@ -271,9 +280,12 @@ def search_auctions(
             row["reauction_count"] = rc
             row["is_reauction"] = rc > 0
 
-    # LLM-visible slice is capped at the user-requested `limit`; full rows
-    # (up to ui_limit) ride on `_ui_results` for the UI side-channel.
-    results = ui_results[:limit] if limit > 0 else []
+    # LLM-visible slice is capped at the user-requested `limit` AND at the
+    # hard `_LLM_ROWS_HARD_CAP` ceiling, so a large model-requested `limit`
+    # can't dump hundreds of rows into context. Full rows (up to ui_limit)
+    # still ride on `_ui_results` for the UI side-channel.
+    llm_limit = min(limit, _LLM_ROWS_HARD_CAP)
+    results = ui_results[:llm_limit] if limit > 0 else []
 
     out: dict = {
         "total_count": total_count,

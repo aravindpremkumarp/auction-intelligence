@@ -130,6 +130,23 @@ def test_ui_results_side_channel_when_matches_exceed_limit(monkeypatch) -> None:
     assert row_params["limit"] >= 91
 
 
+def test_llm_row_cap_bounds_model_visible_rows(monkeypatch) -> None:
+    """A large model-requested `limit` is bounded for the LLM at
+    `_LLM_ROWS_HARD_CAP`, so one search can't dump hundreds of rows into the
+    prompt. The UI still receives the full set via `_ui_results`."""
+    all_rows = [{"auction_id": str(i)} for i in range(300)]
+    _patch_run_query(monkeypatch, total_count=300, rows=all_rows)
+    from api.tools.cypher_tools import search_auctions, _LLM_ROWS_HARD_CAP
+
+    out = search_auctions(city="Chennai", limit=200)
+
+    assert out["total_count"] == 300
+    # Model sees the cap, not the 200 it asked for.
+    assert len(out["results"]) == _LLM_ROWS_HARD_CAP
+    # UI side-channel still carries every match.
+    assert len(out["_ui_results"]) == 300
+
+
 def test_no_ui_results_key_when_matches_fit_in_limit(monkeypatch) -> None:
     all_rows = [{"auction_id": str(i)} for i in range(5)]
     _patch_run_query(monkeypatch, total_count=5, rows=all_rows)
