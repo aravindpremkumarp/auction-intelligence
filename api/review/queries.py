@@ -336,6 +336,67 @@ def list_notice_queue(
     return {"page": page, "size": size, "total": total, "rows": rows}
 
 
+def list_notice_siblings(auction_id: str) -> dict | None:
+    """Return the properties that share a sales notice with ``auction_id``.
+
+    Powers the detail-view property switcher: a multi-property notice lists
+    several lots, and the reviewer wants to step through them while keeping the
+    notice image on the left — instead of bouncing back to the queue after each
+    one.
+
+    The "notice" is the property's primary linked Document — the one with a
+    public_url if any (matching the detail view's source pane), else the first
+    by filename. Siblings are ordered the same way the notice queue orders them
+    (by position in the OCR markdown via ``_sort_properties_by_markdown``), so
+    the switcher mirrors the order the lots appear on the page.
+
+    Returns None when the property has no linked Document (nothing to switch
+    between). When the property stands alone on its notice, ``properties`` holds
+    just that one row, and the caller can choose to hide the switcher.
+    """
+    rows = run_read_query(
+        """
+        MATCH (a:AuctionProperty {auction_id: $aid})-[:HAS_DOCUMENT]->(d:Document)
+        WITH d ORDER BY (CASE WHEN d.public_url IS NULL THEN 1 ELSE 0 END), d.filename
+        WITH collect(d)[0] AS d
+        WHERE d IS NOT NULL
+        MATCH (d)<-[:HAS_DOCUMENT]-(sib:AuctionProperty)
+        WHERE sib.description_source IN ['notice', 'human']
+          AND sib.description IS NOT NULL
+        OPTIONAL MATCH (sib)-[:HAS_BORROWER]->(b:Borrower)
+        WITH d, sib, collect(DISTINCT b.name) AS borrowers
+        WITH d, collect({
+                auction_id:    sib.auction_id,
+                title:         sib.title,
+                borrowers:     borrowers,
+                reserve_price: sib.reserve_price_num,
+                completeness:  sib.description_completeness,
+                source:        sib.description_source,
+                verified:      coalesce(sib.description_verified, false),
+                verified_at:   sib.description_verified_at,
+                verified_by:   sib.description_verified_by
+             }) AS properties
+        RETURN d.filename     AS filename,
+               d.file_path    AS file_path,
+               d.public_url   AS public_url,
+               d.notice_type  AS notice_type,
+               d.markdown     AS markdown,
+               properties     AS properties
+        """,
+        {"aid": auction_id},
+        max_rows=1,
+    )
+    if not rows:
+        return None
+    row = rows[0]
+    for p in row.get("properties") or []:
+        v = p.get("verified_at")
+        if v is not None and not isinstance(v, str):
+            p["verified_at"] = str(v)
+    _sort_properties_by_markdown(row)
+    return row
+
+
 def get_property(auction_id: str) -> dict | None:
     """Full review payload for one property: descriptions + linked Document."""
     rows = run_read_query(

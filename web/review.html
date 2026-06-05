@@ -54,6 +54,23 @@
   tr.verified td { background: #f6fbf6; }
   tr.edited td { background: #fffbf0; }
   /* Detail */
+  /* Sibling switcher — step through the lots of a multi-property notice
+     without leaving the description/notice review view. */
+  .sibling-nav { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; padding: 8px 10px; border: 2px solid var(--ink); background: #fff; box-shadow: 2px 3px 0 rgba(0,0,0,0.9); }
+  .sibling-nav .sib-label { font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--muted); white-space: nowrap; }
+  .sib-list { display: flex; gap: 6px; overflow-x: auto; flex: 1; padding-bottom: 2px; }
+  .sib-item { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border: 1.5px solid var(--ink); background: #fff; cursor: pointer; font-family: 'IBM Plex Mono', monospace; font-size: 12px; white-space: nowrap; text-decoration: none; color: var(--ink); }
+  .sib-item:hover { background: var(--paper); }
+  .sib-item.current { background: var(--accent); font-weight: 600; cursor: default; }
+  .sib-num { color: var(--muted); }
+  .sib-item.current .sib-num { color: var(--ink); }
+  .sib-name { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sib-dot { width: 8px; height: 8px; border-radius: 50%; border: 1px solid var(--ink); flex: none; }
+  .sib-dot.pending { background: #ffb066; }
+  .sib-dot.verified, .sib-dot.edited { background: #5ec25e; }
+  .sib-arrow { flex: none; padding: 2px 9px; border: 1.5px solid var(--ink); background: #fff; cursor: pointer; font-family: 'IBM Plex Mono', monospace; font-size: 15px; line-height: 1.2; color: var(--ink); }
+  .sib-arrow:hover:not(:disabled) { background: var(--accent); }
+  .sib-arrow:disabled { opacity: 0.35; cursor: default; }
   .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
   @media (max-width: 1100px) { .detail-grid { grid-template-columns: 1fr; } }
   .pane { border: 2px solid var(--ink); background: #fff; box-shadow: 2px 3px 0 rgba(0,0,0,0.9); padding: 12px; }
@@ -505,6 +522,12 @@
       <a class="link" href="#">← Back to queue</a>
       <span style="flex:1"></span>
       <span id="detail-id" class="meta"></span>
+    </div>
+    <div id="sibling-nav" class="sibling-nav hidden">
+      <span id="sib-label" class="sib-label"></span>
+      <button id="sib-prev" class="sib-arrow" title="Previous property in this notice ([)">‹</button>
+      <div id="sib-list" class="sib-list"></div>
+      <button id="sib-next" class="sib-arrow" title="Next property in this notice (])">›</button>
     </div>
     <div class="detail-grid">
       <div class="pane left">
@@ -2066,6 +2089,7 @@
   async function loadDetail(aid) {
     $('msg').textContent = '';
     $('detail-id').textContent = aid;
+    $('sibling-nav').classList.add('hidden');   // reset switcher until siblings load
     $('src-body').innerHTML = '<div class="empty">loading…</div>';
     const r = await authFetch(API + '/review/property/' + encodeURIComponent(aid));
     if (r.status === 401 || r.status === 403) {
@@ -2083,6 +2107,68 @@
     const p = await r.json();
     currentDetail = p;
     renderDetail(p);
+    loadSiblings(aid);   // fire-and-forget: the switcher is a nicety, not blocking
+  }
+
+  // ─── Sibling switcher ────────────────────────────────────────────────────
+  // A multi-property sales notice lists several lots; let the reviewer step
+  // between them without bouncing back to the queue, keeping the notice image
+  // on the left. Populated from /review/property/{aid}/siblings.
+  let currentSiblings = [];
+
+  async function loadSiblings(aid) {
+    const nav = $('sibling-nav');
+    currentSiblings = [];
+    nav.classList.add('hidden');
+    try {
+      const r = await authFetch(API + '/review/property/' + encodeURIComponent(aid) + '/siblings');
+      if (!r.ok) return;
+      const data = await r.json();
+      const props = (data.properties || []);
+      // A single-lot notice has nothing to switch between — keep it hidden.
+      if (props.length <= 1) return;
+      // The detail view may have moved on (fast clicking) — only paint if the
+      // siblings still belong to the property currently on screen.
+      if (!currentDetail || currentDetail.auction_id !== aid) return;
+      currentSiblings = props;
+      renderSiblingNav(aid, props);
+      nav.classList.remove('hidden');
+    } catch { /* switcher is optional; never block the review on it */ }
+  }
+
+  function siblingStatus(p) {
+    if (!p.verified) return 'pending';
+    return p.source === 'human' ? 'edited' : 'verified';
+  }
+
+  function renderSiblingNav(aid, props) {
+    const idx = props.findIndex(p => p.auction_id === aid);
+    const list = $('sib-list');
+    list.innerHTML = '';
+    props.forEach((p, i) => {
+      const isCurrent = p.auction_id === aid;
+      const status = siblingStatus(p);
+      const name = (p.borrowers || []).filter(Boolean).join(', ') || p.title || p.auction_id;
+      const a = document.createElement('a');
+      a.className = 'sib-item' + (isCurrent ? ' current' : '');
+      a.href = '#property/' + encodeURIComponent(p.auction_id);
+      a.title = `${p.title ? p.title + '\n' : ''}${name} · ₹ ${fmtPrice(p.reserve_price)} · ${status}`;
+      a.innerHTML =
+        `<span class="sib-dot ${status}"></span>` +
+        `<span class="sib-num">${i + 1}</span>` +
+        `<span class="sib-name">${escapeHtml(name)}</span>`;
+      list.appendChild(a);
+    });
+
+    const prev = $('sib-prev'), next = $('sib-next');
+    prev.disabled = idx <= 0;
+    next.disabled = idx < 0 || idx >= props.length - 1;
+    prev.onclick = () => { if (idx > 0) location.hash = 'property/' + encodeURIComponent(props[idx - 1].auction_id); };
+    next.onclick = () => { if (idx >= 0 && idx < props.length - 1) location.hash = 'property/' + encodeURIComponent(props[idx + 1].auction_id); };
+
+    $('sib-label').textContent = idx >= 0 ? `Lot ${idx + 1} / ${props.length}` : `${props.length} lots`;
+    const cur = list.querySelector('.sib-item.current');
+    if (cur) cur.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }
 
   function renderDetail(p) {
@@ -2582,6 +2668,13 @@
       if ($('screen-detail').classList.contains('hidden')) return;
       e.preventDefault();
       $('btn-verify').click();
+    } else if ((e.key === '[' || e.key === ']') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      // Step between the lots of a multi-property notice.
+      if (typing) return;
+      if ($('screen-detail').classList.contains('hidden')) return;
+      if ($('sibling-nav').classList.contains('hidden')) return;
+      e.preventDefault();
+      (e.key === '[' ? $('sib-prev') : $('sib-next')).click();
     }
   });
 
