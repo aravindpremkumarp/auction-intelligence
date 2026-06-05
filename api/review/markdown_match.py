@@ -313,6 +313,65 @@ def _snap_to_word_boundaries(text: str, start: int, end: int) -> tuple[int, int]
     return start, end
 
 
+def _tag_span_at(text: str, i: int) -> tuple[int, int] | None:
+    """If index ``i`` lands on or inside an HTML ``<...>`` tag, return that tag's
+    ``(open, close)`` bracket indices; otherwise ``None``.
+
+    HTML tags don't nest, so the tag covering ``i`` (if any) opens at the last
+    ``<`` at-or-before ``i`` and closes at the first ``>`` after it — and only
+    actually covers ``i`` when that ``>`` lands at-or-after ``i`` (else the ``<``
+    was already closed and ``i`` is in plain cell text). The char after ``<``
+    must look like a tag (``a-z`` or ``/``) so a bare less-than in the prose
+    (``area < 1000``) isn't mistaken for markup.
+    """
+    if not 0 <= i < len(text):
+        return None
+    lt = text.rfind("<", 0, i + 1)
+    if lt < 0 or lt + 1 >= len(text):
+        return None
+    nxt = text[lt + 1]
+    if not (nxt.isalpha() or nxt == "/"):
+        return None
+    gt = text.find(">", lt)
+    if gt < 0 or gt < i:
+        return None
+    return lt, gt
+
+
+def _clamp_out_of_tags(text: str, start: int, end: int) -> tuple[int, int]:
+    """Pull both span ends out of any HTML tag they land on or inside.
+
+    rapidfuzz can align a boundary onto a tag bracket — a scraped ``1) :``
+    item-number prefix shifts the start onto the ``>`` of ``</td><td>`` — and
+    word-snapping then stops just *inside* the tag (at ``/td><td>All…``) rather
+    than clearing it; symmetrically the end can over-run into a closing
+    ``…2025)</td``. Inserting the review UI's highlight sentinel at such a
+    boundary splits the tag (``<t␀d>``), so ``marked`` mis-parses the row and the
+    highlight escapes the description cell — the bug ``_snap_to_word_boundaries``
+    alone doesn't catch, since it only stops spans that *approach* a tag from
+    cell text, not ones that begin or end on/inside one.
+
+    Tags only ever sit at a cell's edges, so moving ``start`` forward to the
+    first character after its tag and ``end`` back to the ``<`` that opens its
+    tag lands both ends on cell text without dropping any description — every
+    character skipped is pure markup. The loops repeat to clear runs of adjacent
+    tags (``</td><td>``). A tag in the *middle* of the span is left untouched:
+    wrapping it in ``<mark>…</mark>`` is valid HTML; only a split boundary is not.
+    """
+    n = len(text)
+    while start < n:
+        tag = _tag_span_at(text, start)
+        if tag is None:
+            break
+        start = tag[1] + 1          # first character after this tag's '>'
+    while end > start:
+        tag = _tag_span_at(text, end - 1)
+        if tag is None:
+            break
+        end = tag[0]                # the '<' that opens this tag
+    return start, end
+
+
 def match_span(
     website_desc: str | None, markdown: str | None, with_score: bool = False
 ):
@@ -335,5 +394,11 @@ def match_span(
     if end <= start:
         return None
     start, end = _snap_to_word_boundaries(markdown, start, end)
+    # Snapping can leave a boundary sitting inside an HTML tag (or rapidfuzz can
+    # align it there directly); pull both ends back onto cell text so the UI's
+    # highlight sentinel never splits a tag and corrupts the rendered table.
+    start, end = _clamp_out_of_tags(markdown, start, end)
+    if end <= start:
+        return None
     return (al.score, start, end) if with_score else (start, end)
 

@@ -154,6 +154,63 @@ def test_match_span_does_not_cross_html_table_cell_boundary():
     assert "<td>" not in found and "</td>" not in found
 
 
+# ── tag-boundary clamping (highlight may never begin/end on or inside a tag) ──
+# _snap_to_word_boundaries only stops a span that *approaches* a tag from cell
+# text. rapidfuzz can instead align a boundary directly onto a tag bracket, and
+# snapping then halts just inside the tag — leaving a span that starts
+# "/td><td>All…" or ends "…2025)</td". The UI inserts its highlight sentinel at
+# that offset, splitting the tag (``<t␀d>``) and corrupting the rendered table.
+
+
+def test_match_span_clamps_start_aligned_inside_html_tag():
+    # Same Equitas table, but the scraped description carries the common
+    # "1) :" item-number prefix the OCR markdown lacks. That prefix shifts
+    # rapidfuzz's start onto the ``>`` of ``</td>`` (it aligns ``) :`` against
+    # ``)</`` etc.), so word-snapping returns a span beginning "/td><td>All…".
+    md = ("<table><tr>"
+          "<td>Mr/Mrs Paulpandi M, Devadanapalli, Theni, Tamilnadu, 625602)</td>"
+          "<td>All the Piece and parcel of land and building comprised in "
+          "S.NO.3067/2 with the extent of 1800 sq.ft Land Situated at "
+          "Sengulathupatti, Theni District, Dindigul Registration District.</td>"
+          "<td>Rs.9,61,000</td>"
+          "</tr></table>")
+    desc = ("1) : All the Piece and parcel of land and building comprised in "
+            "S.NO.3067/2 with the extent of 1800 sq.ft Land Situated at "
+            "Sengulathupatti, Theni District, Dindigul Registration District.")
+    span = match_span(desc, md)
+    assert span is not None
+    found = md[span[0]:span[1]]
+    # Start clears the ``</td><td>`` run and lands on the description proper …
+    assert found.startswith("All the Piece")
+    assert found.rstrip().endswith("Registration District.")
+    # … with no tag fragment ("/td>", "<td") and no neighbouring-cell tokens.
+    assert "<" not in found and ">" not in found
+    assert "625602" not in found and "Rs.9,61,000" not in found
+
+
+def test_match_span_clamps_end_aligned_inside_html_tag():
+    # Mirror image: the description sits in the FIRST cell and a trailing " :"
+    # on the scraped probe pushes rapidfuzz's end across the closing ``</td>``,
+    # so word-snapping returns a span ending "…22.01.2025)</td".
+    md = ("<table><tr>"
+          "<td>All that part and parcel of the flat known as SUDHARSHAN SAYEE "
+          "(Physical Possession 22.01.2025)</td>"
+          "<td>Mr Kumar, 625602</td>"
+          "<td>Rs.46,20,000</td>"
+          "</tr></table>")
+    desc = ("All that part and parcel of the flat known as SUDHARSHAN SAYEE "
+            "(Physical Possession 22.01.2025) :")
+    span = match_span(desc, md)
+    assert span is not None
+    found = md[span[0]:span[1]]
+    # End stops at the cell's closing tag, not inside it …
+    assert found.startswith("All that part")
+    assert found.rstrip().endswith("22.01.2025)")  # full date, no "</td" tail
+    # … with no tag fragment and nothing from the borrower/price cells.
+    assert "<" not in found and ">" not in found
+    assert "625602" not in found and "Rs.46,20,000" not in found
+
+
 def test_match_span_snaps_partial_tokens_to_word_boundaries():
     # The leading "1) :" prefix (absent from the OCR) makes rapidfuzz trim the
     # first word, and the trailing date is cut mid-token — the real failure the
