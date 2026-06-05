@@ -54,7 +54,7 @@ def _search_turn(text: str, call_id: str, content) -> list[dict]:
 # ── _trim_old_tool_results ─────────────────────────────────────────────────
 
 def test_old_turn_trimmed_recent_turns_kept() -> None:
-    from api.main import _trim_old_tool_results
+    from api.chat.router import _trim_old_tool_results
     history = (
         _search_turn("cheap chennai land", "a", _heavy_search_content())
         + _search_turn("only under 10L", "b", _heavy_search_content())
@@ -79,7 +79,7 @@ def test_old_turn_trimmed_recent_turns_kept() -> None:
 def test_small_results_below_threshold_are_left_intact() -> None:
     """A tiny aggregate result on an old turn must survive — trimming it would
     save nothing and could lose context the model still wants cheaply."""
-    from api.main import _trim_old_tool_results
+    from api.chat.router import _trim_old_tool_results
     small = {"counts": {"SBI": 12, "Canara": 4}}
     history = (
         [_user_msg("bank spread"), _call_msg("list_distinct", "a"),
@@ -95,7 +95,7 @@ def test_small_results_below_threshold_are_left_intact() -> None:
 
 
 def test_nothing_trimmed_when_within_keep_window() -> None:
-    from api.main import _trim_old_tool_results
+    from api.chat.router import _trim_old_tool_results
     history = (
         _search_turn("one", "a", _heavy_search_content())
         + _search_turn("two", "b", _heavy_search_content())
@@ -108,7 +108,7 @@ def test_nothing_trimmed_when_within_keep_window() -> None:
 
 
 def test_trim_is_idempotent() -> None:
-    from api.main import _trim_old_tool_results
+    from api.chat.router import _trim_old_tool_results
     history = (
         _search_turn("one", "a", _heavy_search_content())
         + _search_turn("two", "b", _heavy_search_content())
@@ -123,7 +123,7 @@ def test_trim_is_idempotent() -> None:
 
 
 def test_keep_full_turns_one_trims_all_but_current() -> None:
-    from api.main import _trim_old_tool_results
+    from api.chat.router import _trim_old_tool_results
     history = (
         _search_turn("one", "a", _heavy_search_content())
         + _search_turn("two", "b", _heavy_search_content())
@@ -136,7 +136,7 @@ def test_keep_full_turns_one_trims_all_but_current() -> None:
 
 
 def test_non_tool_return_parts_untouched() -> None:
-    from api.main import _trim_old_tool_results
+    from api.chat.router import _trim_old_tool_results
     history = (
         [_user_msg("hi"), {"parts": [{"part_kind": "text", "content": "hello there"}]}]
         + _search_turn("search", "a", _heavy_search_content())
@@ -152,7 +152,7 @@ def test_non_tool_return_parts_untouched() -> None:
 # ── _summarize_tool_return_content ─────────────────────────────────────────
 
 def test_summarize_list_shaped_content() -> None:
-    from api.main import _summarize_tool_return_content
+    from api.chat.router import _summarize_tool_return_content
     rows = [{"auction_id": str(i), "title": f"t{i}"} for i in range(5)]
     stub = _summarize_tool_return_content(rows)
     assert stub["_trimmed"] is True
@@ -161,7 +161,7 @@ def test_summarize_list_shaped_content() -> None:
 
 
 def test_summarize_single_detail_keeps_id() -> None:
-    from api.main import _summarize_tool_return_content
+    from api.chat.router import _summarize_tool_return_content
     detail = {"auction_id": "777", "title": "x", "documents": [1, 2, 3]}
     stub = _summarize_tool_return_content(detail)
     assert stub["_trimmed"] is True
@@ -170,6 +170,6 @@ def test_summarize_single_detail_keeps_id() -> None:
 
 
 def test_summarize_scalar_passthrough() -> None:
-    from api.main import _summarize_tool_return_content
+    from api.chat.router import _summarize_tool_return_content
     assert _summarize_tool_return_content("just text") == "just text"
     assert _summarize_tool_return_content(42) == 42

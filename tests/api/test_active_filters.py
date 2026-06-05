@@ -38,7 +38,7 @@ def _search_turn(call_id: str, args: dict, total_count: int) -> tuple[ModelRespo
 # ── _extract_active_filters ────────────────────────────────────────────────
 
 def test_active_filters_accumulate_across_turns() -> None:
-    from api.main import _extract_active_filters
+    from api.chat.router import _extract_active_filters
     msgs = []
     c1, r1 = _search_turn("a", {"bank": "Canara Bank"}, 834)
     msgs.extend([c1, r1])
@@ -52,7 +52,7 @@ def test_active_filters_accumulate_across_turns() -> None:
 
 
 def test_later_turn_overwrites_same_key() -> None:
-    from api.main import _extract_active_filters
+    from api.chat.router import _extract_active_filters
     msgs = []
     c1, r1 = _search_turn("a", {"city": "Chennai"}, 481)
     msgs.extend([c1, r1])
@@ -66,7 +66,7 @@ def test_later_turn_overwrites_same_key() -> None:
 
 
 def test_explicit_none_clears_filter() -> None:
-    from api.main import _extract_active_filters
+    from api.chat.router import _extract_active_filters
     msgs = []
     c1, r1 = _search_turn("a", {"bank": "Canara Bank", "property_type": "Land"}, 226)
     msgs.extend([c1, r1])
@@ -82,7 +82,7 @@ def test_explicit_none_clears_filter() -> None:
 
 def test_non_scope_keys_are_dropped() -> None:
     """limit / order_by / aggregations are per-call, not scope."""
-    from api.main import _extract_active_filters
+    from api.chat.router import _extract_active_filters
     c, r = _search_turn("a", {
         "bank": "Canara Bank",
         "limit": 5,
@@ -97,7 +97,7 @@ def test_non_scope_keys_are_dropped() -> None:
 
 
 def test_non_search_tools_ignored() -> None:
-    from api.main import _extract_active_filters
+    from api.chat.router import _extract_active_filters
     # A list_distinct call shouldn't pollute the search scope.
     c = ModelResponse(parts=[
         ToolCallPart(tool_name="list_distinct", tool_call_id="x", args={"field": "bank"}),
@@ -115,7 +115,7 @@ def test_non_search_tools_ignored() -> None:
 # ── _extract_artifacts + ui_rows split ─────────────────────────────────────
 
 def test_extract_artifacts_moves_ui_results_to_ui_rows() -> None:
-    from api.main import _extract_artifacts
+    from api.chat.router import _extract_artifacts
     call = ModelResponse(parts=[
         ToolCallPart(
             tool_name="search_auctions",
@@ -152,7 +152,7 @@ def test_extract_artifacts_moves_ui_results_to_ui_rows() -> None:
 
 
 def test_extract_artifacts_ui_rows_none_when_no_overflow() -> None:
-    from api.main import _extract_artifacts
+    from api.chat.router import _extract_artifacts
     call = ModelResponse(parts=[
         ToolCallPart(tool_name="search_auctions", tool_call_id="a", args={"city": "Chennai"}),
     ])
@@ -173,7 +173,7 @@ def test_extract_artifacts_ui_rows_none_when_no_overflow() -> None:
 def test_strip_ui_rows_from_history() -> None:
     """The dumped history echoed back to the client must not carry
     `_ui_results` — otherwise it re-enters the LLM's context next turn."""
-    from api.main import _strip_ui_rows_from_history
+    from api.chat.router import _strip_ui_rows_from_history
     history = [
         {
             "parts": [
@@ -208,7 +208,7 @@ def test_strip_dynamic_system_prompts_from_history() -> None:
     `dynamic_ref` pointing at functions we migrated to `@agent.instructions`.
     The strip helper drops those orphan refs so pydantic-ai doesn't
     re-emit stale 'Active scope' text on the next turn."""
-    from api.main import _strip_dynamic_system_prompts_from_history
+    from api.chat.router import _strip_dynamic_system_prompts_from_history
     history = [
         {
             "parts": [
@@ -258,7 +258,7 @@ def test_strip_dynamic_system_prompts_from_history() -> None:
 def test_strip_dynamic_system_prompts_idempotent_when_no_refs() -> None:
     """Histories that never went through the old dynamic-system-prompt era
     must be passed through unchanged."""
-    from api.main import _strip_dynamic_system_prompts_from_history
+    from api.chat.router import _strip_dynamic_system_prompts_from_history
     history = [
         {
             "parts": [

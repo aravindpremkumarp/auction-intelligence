@@ -9,7 +9,7 @@ params dict is built — Neo4j execution is downstream and out of scope.
 """
 from __future__ import annotations
 
-from api.main import _facet_filters_for, _properties_filter_cypher
+from api.properties.router import _facet_filters_for, _properties_filter_cypher
 
 
 def test_property_type_filter_adds_match_and_param() -> None:

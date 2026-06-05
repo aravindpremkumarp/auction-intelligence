@@ -1,21 +1,29 @@
-selenium
-webdriver-manager
-python-dotenv
-tqdm
-google-genai
-pdf2image
-rapidfuzz
-Pillow
-aiohttp
-neo4j
-boto3
+# Full local-dev requirements (scraping + OCR + report generation).
+# Production (Render) installs the leaner top-level requirements.txt instead.
+# Version ranges match requirements.txt where deps overlap; ceilings sit at the
+# next major to keep breaking upgrades out of a `pip install`.
+
+# Scraping
+selenium>=4.20,<5
+webdriver-manager>=4.0,<5
+
+# Core utilities
+python-dotenv>=1.0,<2
+tqdm>=4.66,<5
+google-genai>=2.0,<3
+pdf2image>=1.17,<2
+rapidfuzz>=3.9,<4
+Pillow>=10.4,<13
+aiohttp>=3.10,<4
+neo4j>=5.26,<7
+boto3>=1.34,<2
 
 # API + Agent layer (Phase 1)
-fastapi
-uvicorn[standard]
-pydantic-ai
-pyyaml
+fastapi>=0.115,<1.0
+uvicorn[standard]>=0.30,<1.0
+pydantic-ai>=1.0,<2
+pyyaml>=6.0,<7
 
 # Report generation (Phase 4)
-weasyprint
-jinja2
+weasyprint>=60,<70
+jinja2>=3.1,<4

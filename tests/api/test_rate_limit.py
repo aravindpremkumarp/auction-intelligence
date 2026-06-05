@@ -31,10 +31,11 @@ def rate_limited_client() -> TestClient:
 
 
 def test_anon_chat_rate_limit(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The manual per-IP counter in api/main.py throttles anonymous /chat."""
+    """The manual per-IP counter in api/chat/router.py throttles anonymous /chat."""
     monkeypatch.setenv("RATELIMIT_DISABLED", "")
-    from api import main as main_mod
-    main_mod._anon_chat_hits.clear()
+    from api.main import app
+    from api.chat.router import _ANON_CHAT_MAX_PER_HOUR, _anon_chat_hits, agent
+    _anon_chat_hits.clear()
 
     # Stub the agent so /chat returns fast.
     class _Res:
@@ -42,11 +43,11 @@ def test_anon_chat_rate_limit(monkeypatch: pytest.MonkeyPatch) -> None:
         def new_messages(self): return []
         def all_messages(self): return []
     async def _fake_run(*_a, **_kw): return _Res()
-    monkeypatch.setattr(main_mod.agent, "run", _fake_run, raising=False)
+    monkeypatch.setattr(agent, "run", _fake_run, raising=False)
 
-    client = TestClient(main_mod.app)
+    client = TestClient(app)
     codes = []
-    for _ in range(main_mod._ANON_CHAT_MAX_PER_HOUR + 2):
+    for _ in range(_ANON_CHAT_MAX_PER_HOUR + 2):
         r = client.post("/chat", json={"message": "hi"})
         codes.append(r.status_code)
     assert 429 in codes, f"expected 429 in {codes}"

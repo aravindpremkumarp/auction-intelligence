@@ -20,6 +20,7 @@ from contextlib import contextmanager
 
 from neo4j import GraphDatabase, Driver, READ_ACCESS
 
+from api.observability import SLOW_QUERY_MS, timed
 from pipeline.config import (
     NEO4J_URI, NEO4J_USERNAME, NEO4J_PASSWORD, NEO4J_DATABASE,
 )
@@ -92,11 +93,15 @@ def read_session():
 
 
 def run_query(cypher: str, params: dict | None = None) -> list[dict]:
-    if USE_HTTP_API:
-        return _http_run(cypher, params, access_mode="WRITE", timeout=120.0)
-    with session() as s:
-        result = s.run(cypher, params or {})
-        return [dict(r) for r in result]
+    with timed("neo4j.run_query", slow_ms=SLOW_QUERY_MS, access="write") as t:
+        if USE_HTTP_API:
+            rows = _http_run(cypher, params, access_mode="WRITE", timeout=120.0)
+        else:
+            with session() as s:
+                result = s.run(cypher, params or {})
+                rows = [dict(r) for r in result]
+        t["rows"] = len(rows)
+        return rows
 
 
 def run_read_query(
@@ -114,15 +119,17 @@ def run_read_query(
     - `max_rows` trims the returned list after fetching. Pair with a LIMIT
       clause in the caller to also bound database work.
     """
-    if USE_HTTP_API:
-        rows = _http_run(cypher, params, access_mode="READ",
-                         timeout=max(timeout, 30.0))
-        return rows[:max_rows]
-    with read_session() as s:
-        result = s.run(cypher, params or {}, timeout=timeout)
-        out: list[dict] = []
-        for i, r in enumerate(result):
-            if i >= max_rows:
-                break
-            out.append(dict(r))
+    with timed("neo4j.run_read_query", slow_ms=SLOW_QUERY_MS, access="read") as t:
+        if USE_HTTP_API:
+            out = _http_run(cypher, params, access_mode="READ",
+                            timeout=max(timeout, 30.0))[:max_rows]
+        else:
+            with read_session() as s:
+                result = s.run(cypher, params or {}, timeout=timeout)
+                out = []
+                for i, r in enumerate(result):
+                    if i >= max_rows:
+                        break
+                    out.append(dict(r))
+        t["rows"] = len(out)
         return out
