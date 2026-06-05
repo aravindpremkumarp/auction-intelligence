@@ -257,7 +257,11 @@ def _strip_ui_rows_from_history(history: list[dict[str, Any]]) -> list[dict[str,
 # history the client echoes back into the LLM on the next /chat turn. This is
 # the same philosophy as `_strip_ui_rows_from_history`, applied to the rows the
 # model *did* see (but only on stale turns).
-_HISTORY_KEEP_FULL_TURNS = max(1, int(os.getenv("CHAT_HISTORY_KEEP_FULL_TURNS", "2")))
+# Default 1 = keep only the current turn's rows full; older turns collapse to a
+# breadcrumb stub (auction_ids + counts) the model can re-query. Holding two
+# full turns re-billed the prior turn's heavy rows on every follow-up call;
+# bump via env if a flow genuinely needs the prior turn's rows verbatim.
+_HISTORY_KEEP_FULL_TURNS = max(1, int(os.getenv("CHAT_HISTORY_KEEP_FULL_TURNS", "1")))
 # Only trim tool returns whose JSON is at least this many chars — leaves small
 # aggregate/stat results (list_distinct) untouched so the
 # model keeps cheap-but-useful context, and avoids stubs larger than the

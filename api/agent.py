@@ -174,7 +174,7 @@ def search_auctions(
     auction_type: str | None = None,
     branch_name: str | None = None,
     starts_after: datetime | None = None, starts_before: datetime | None = None,
-    limit: int = 20,
+    limit: int = 10,
     order_by: str = "deadline_asc",
     aggregate_field: str | None = None,
     aggregations: list[str] | None = None,
@@ -184,8 +184,10 @@ def search_auctions(
     auction type, branch, and date window.
 
     Returns {total_count, returned, limit, results}. `total_count` is the
-    true match count (ignoring `limit`); `results` is capped at `limit`.
-    Use `total_count` for quantity questions, never `len(results)`.
+    true match count (ignoring `limit`); `results` is capped at `limit` and
+    never exceeds 25 rows to you regardless of `limit` (the UI still shows
+    every match). Use `total_count` for quantity questions, never
+    `len(results)`; for "top/cheapest/soonest N" use `order_by` + `limit`.
 
     Defaults to future-only (`auction_start_dt >= now()`). Pass
     `include_past=True` only for retrospective questions.
