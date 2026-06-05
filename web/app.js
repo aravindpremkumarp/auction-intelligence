@@ -760,6 +760,7 @@ async function askAI(userText, opts = {}) {
   lastQuery = userText;
   renderChat();
 
+  const startedAt = performance.now();
   try {
     const resp = await apiChat(userText);
     apiMessageHistory = resp.message_history || apiMessageHistory;
@@ -769,11 +770,11 @@ async function askAI(userText, opts = {}) {
       currentTotalCount = extracted.total;
     }
     chatHistory = chatHistory.filter(m => m.role !== 'ai thinking');
-    chatHistory.push({ role: 'ai', text: (resp.answer || '').trim(), artifacts: resp.artifacts || [] });
+    chatHistory.push({ role: 'ai', text: (resp.answer || '').trim(), artifacts: resp.artifacts || [], elapsedMs: performance.now() - startedAt });
   } catch(e) {
     console.error(e);
     chatHistory = chatHistory.filter(m => m.role !== 'ai thinking');
-    chatHistory.push({ role: 'ai', text: `Sorry — I couldn't reach the server. (${e.message})` });
+    chatHistory.push({ role: 'ai', text: `Sorry — I couldn't reach the server. (${e.message})`, elapsedMs: performance.now() - startedAt });
   }
   renderChat();
   renderResultsList();
@@ -783,6 +784,13 @@ async function askAI(userText, opts = {}) {
     activeChatId = (crypto.randomUUID && crypto.randomUUID()) || ('c-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10));
   }
   saveActiveConversation();
+}
+
+// Human-friendly response time: sub-second as "420ms", otherwise "3.4s".
+function formatDuration(ms) {
+  if (typeof ms !== 'number' || !isFinite(ms) || ms < 0) return '';
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
 }
 
 function renderChat(history, logEl, opts) {
@@ -827,9 +835,15 @@ function renderChat(history, logEl, opts) {
               <span class="source-domain">${escapeHtml(s.domain || '')}</span>
             </a>`).join('')}
         </div>` : '';
+      const timeHtml = (typeof m.elapsedMs === 'number' && isFinite(m.elapsedMs)) ? `
+        <div class="resp-time" title="time taken for this response">
+          <svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 4.5 L8 8 L10.5 9.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span>${escapeHtml(formatDuration(m.elapsedMs))}</span>
+        </div>` : '';
       return `<div class="bubble-wrap ai">
         <div class="bubble ai md">${renderMarkdown(m.text)}</div>
         ${sourcesHtml}
+        ${timeHtml}
         <div class="bubble-actions">
           <button class="b-act" data-act="copy-ai" data-i="${i}" title="copy" aria-label="copy">
             <svg viewBox="0 0 16 16" width="12" height="12"><rect x="4" y="4" width="9" height="10" fill="none" stroke="currentColor" stroke-width="1.5"/><rect x="2" y="2" width="9" height="10" fill="currentColor" opacity="0.15" stroke="currentColor" stroke-width="1.5"/></svg>
@@ -1473,6 +1487,7 @@ async function askAboutProperty(text) {
   const preamble = `Regarding auction ${auctionId} (${currentDetailTitle} in ${currentDetailLoc}): ${text}`;
   let aiEntry;
   let nextApiHistory = apiHistorySnapshot;
+  const startedAt = performance.now();
   try {
     const res = await authFetch(`${API_BASE}/chat`, {
       method: 'POST',
@@ -1482,11 +1497,12 @@ async function askAboutProperty(text) {
     const resp = await res.json();
     nextApiHistory = resp.message_history || apiHistorySnapshot;
     const answer = (resp.answer || '').trim();
+    const elapsedMs = performance.now() - startedAt;
     aiEntry = answer
-      ? { role: 'ai', text: answer, artifacts: resp.artifacts || [] }
-      : { role: 'ai', text: "_The agent didn't return an answer. Try rephrasing — e.g. ask about the EMD, schedule, reserve price, or borrower._", artifacts: resp.artifacts || [] };
+      ? { role: 'ai', text: answer, artifacts: resp.artifacts || [], elapsedMs }
+      : { role: 'ai', text: "_The agent didn't return an answer. Try rephrasing — e.g. ask about the EMD, schedule, reserve price, or borrower._", artifacts: resp.artifacts || [], elapsedMs };
   } catch(e) {
-    aiEntry = { role: 'ai', text: `Server unavailable: ${e.message}` };
+    aiEntry = { role: 'ai', text: `Server unavailable: ${e.message}`, elapsedMs: performance.now() - startedAt };
   }
   // If the user navigated to a different property while /chat was in flight,
   // the response no longer applies to what's on screen — drop it silently
