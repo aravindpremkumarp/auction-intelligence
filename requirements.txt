@@ -2,37 +2,43 @@
 # Excludes scraping (selenium, webdriver-manager) and heavy PDF/image
 # generation (weasyprint, pdf2image) which are local-only features.
 # For full local dev requirements see config/requirements.txt.
+#
+# Versions use compatible-release ranges: a floor that includes a known-good
+# version and a ceiling at the next major to keep surprise breaking upgrades
+# out of deploys. For byte-for-byte reproducible installs use requirements.lock
+# (the exact pinned set these ranges resolved to); regen instructions are in
+# that file's header.
 
 # Core utilities
-python-dotenv
-aiohttp
-rapidfuzz
-pyyaml
+python-dotenv>=1.0,<2
+aiohttp>=3.10,<4
+rapidfuzz>=3.9,<4
+pyyaml>=6.0,<7
 
 # Annotator UI: crop the source bbox before re-running MinerU on a region.
 # PyMuPDF handles PDF cropping and cell-level table extraction; Pillow
 # handles image cropping. Both stay local imports — the rest of the API
 # only pays the import cost when a reviewer triggers a re-extract.
-PyMuPDF
-Pillow
+PyMuPDF>=1.24,<2
+Pillow>=10.4,<13
 
 # Database
-neo4j
+neo4j>=5.26,<7
 
 # LLM clients
-google-genai
+google-genai>=2.0,<3
 
 # API + Agent layer
-fastapi
-uvicorn[standard]
-pydantic-ai
+fastapi>=0.115,<1.0
+uvicorn[standard]>=0.30,<1.0
+pydantic-ai>=1.0,<2
 
 # Auth + email
-bcrypt
-PyJWT
-httpx
-slowapi
-email-validator
+bcrypt>=4.0,<6
+PyJWT>=2.8,<3
+httpx>=0.27,<1.0
+slowapi>=0.1.9,<1.0
+email-validator>=2.1,<3
 
 # Web search
-tavily-python
+tavily-python>=0.5,<1.0
