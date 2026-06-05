@@ -65,6 +65,18 @@
   .markdown-body { padding: 12px 16px; white-space: pre-wrap; font-family: 'IBM Plex Mono', monospace; font-size: 12px; line-height: 1.45; overflow: auto; max-height: 75vh; }
   .image-body { display: flex; justify-content: center; align-items: flex-start; overflow: auto; max-height: 75vh; padding: 8px; background: #2a2a2a; }
   .image-body img { max-width: 100%; height: auto; background: #fff; }
+
+  /* Notice-image zoom & pan — applied to the read-only image views (markdown
+     card source, classification gallery, property-detail left pane). The
+     annotator has its own richer zoom; this is the lightweight version. */
+  .iz-surface.iz-panning { cursor: grabbing; }
+  .iz-surface.iz-panning * { cursor: grabbing !important; }
+  .iz-surface img { user-select: none; -webkit-user-select: none; -webkit-user-drag: none; }
+  .iz-controls { position: absolute; top: 0; right: 8px; z-index: 6; display: inline-flex; gap: 3px; align-items: center; padding: 3px 5px; background: rgba(20,20,20,0.72); border: 1px solid rgba(255,255,255,0.28); border-radius: 4px; opacity: 0.4; transition: opacity 0.12s; will-change: transform; }
+  .iz-surface:hover .iz-controls, .iz-controls:hover { opacity: 1; }
+  .iz-controls .iz-btn { min-height: 0; padding: 1px 7px; font-family: 'IBM Plex Mono', monospace; font-size: 14px; line-height: 1.4; background: #fff; color: var(--ink); border: 1px solid var(--ink); border-radius: 3px; cursor: pointer; }
+  .iz-controls .iz-btn:hover { background: var(--accent); }
+  .iz-controls .iz-pct { min-width: 34px; text-align: center; font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #fff; user-select: none; }
   .meta { font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--ink); }
   .meta dt { color: var(--muted); font-weight: 400; display: inline-block; min-width: 100px; }
   .meta dd { margin: 0 0 4px 0; display: inline; }
@@ -1413,6 +1425,7 @@
       } else {
         srcBox.innerHTML = '<div class="empty">no public_url available for this notice.</div>';
       }
+      enableNoticeZoom(srcBox);
     }
     if (card.open) loadSource();
     card.addEventListener('toggle', () => { if (card.open) loadSource(); });
@@ -1797,6 +1810,7 @@
     right.innerHTML = '';
     right.appendChild(header);
     right.appendChild(body);
+    enableNoticeZoom(body.querySelector('.image-body'));
 
     const filenameForApi = n.filename || '';
     header.querySelector('button[data-act="confirm"]').addEventListener('click', () =>
@@ -2116,6 +2130,164 @@
     return 'other';
   }
 
+  // ─── Notice image zoom & pan ────────────────────────────────────────────
+  // Make any scrollable notice-image container zoomable + pannable, with the
+  // same gestures as the annotator: wheel up/down zooms in/out (anchored at the
+  // cursor), and holding the middle mouse button (or Alt+left) drags to pan.
+  // `scrollEl` is the overflow:auto box that directly holds an <img> (the
+  // markdown card source, the gallery image body, or the property-detail left
+  // pane). Controls + listeners are only wired up once the image has loaded
+  // successfully, so broken/missing images stay untouched.
+  //
+  // zoom == null  → fit to width (the default CSS behaviour; nothing overridden)
+  // zoom == 1.0   → image shown at its natural pixel size (100%)
+  function enableNoticeZoom(scrollEl) {
+    if (!scrollEl || scrollEl._noticeZoomBound) return;
+    const img = scrollEl.querySelector('img');
+    if (!img) return;
+
+    const init = () => {
+      if (scrollEl._noticeZoomBound || !img.naturalWidth) return;
+      scrollEl._noticeZoomBound = true;
+      scrollEl.classList.add('iz-surface');
+      scrollEl.style.position = 'relative';
+      img.setAttribute('draggable', 'false');
+
+      let zoom = null;                       // null = fit to width
+      const MIN = 0.25, MAX = 8;
+
+      const controls = document.createElement('div');
+      controls.className = 'iz-controls';
+      controls.title = 'Scroll to zoom · hold middle-mouse (or Alt+drag) to pan';
+      controls.innerHTML =
+        '<button type="button" class="iz-btn" data-iz="out" title="Zoom out">−</button>' +
+        '<button type="button" class="iz-btn" data-iz="fit" title="Fit to width">Fit</button>' +
+        '<span class="iz-pct">Fit</span>' +
+        '<button type="button" class="iz-btn" data-iz="in" title="Zoom in">+</button>';
+      scrollEl.appendChild(controls);
+      const pctEl = controls.querySelector('.iz-pct');
+
+      // Keep the control bar pinned to the top-right of the visible viewport
+      // even as the user scrolls the (larger-than-viewport) zoomed image. The
+      // bar is absolutely positioned at right:8px of the padding (client) box,
+      // so translating it by the scroll offset keeps it glued to the viewport.
+      function pinControls() {
+        controls.style.transform =
+          `translate(${scrollEl.scrollLeft}px, ${scrollEl.scrollTop + 8}px)`;
+      }
+
+      function applyZoom() {
+        const nat = img.naturalWidth || 0;
+        if (zoom == null || !nat) {
+          img.style.width = '';
+          img.style.maxWidth = '';
+          img.style.height = '';
+          pctEl.textContent = 'Fit';
+        } else {
+          img.style.width = Math.round(nat * zoom) + 'px';
+          img.style.maxWidth = 'none';
+          img.style.height = 'auto';
+          pctEl.textContent = Math.round(zoom * 100) + '%';
+        }
+        // Flex centering clips the overflow edge and makes it unreachable by
+        // scrolling, so left-align once the image is wider than the viewport.
+        scrollEl.style.justifyContent =
+          (img.offsetWidth > scrollEl.clientWidth + 1) ? 'flex-start' : '';
+        pinControls();
+      }
+
+      // Effective scale (multiplier on natural width), even while fitting.
+      function currentScale() {
+        const nat = img.naturalWidth || 0;
+        if (!nat) return 1;
+        return (zoom != null) ? zoom : (img.getBoundingClientRect().width / nat);
+      }
+
+      // Zoom to `next`, keeping the point under (clientX, clientY) anchored.
+      function zoomTo(next, clientX, clientY) {
+        if (!img.naturalWidth) return;
+        next = Math.min(MAX, Math.max(MIN, next));
+        const before = img.getBoundingClientRect();
+        const fx = before.width  ? (clientX - before.left) / before.width  : 0.5;
+        const fy = before.height ? (clientY - before.top)  / before.height : 0.5;
+        zoom = next;
+        applyZoom();
+        const after = img.getBoundingClientRect();
+        scrollEl.scrollLeft += (after.left + fx * after.width)  - clientX;
+        scrollEl.scrollTop  += (after.top  + fy * after.height) - clientY;
+        pinControls();
+      }
+
+      const onControls = (ev) => ev.target.closest && ev.target.closest('.iz-controls');
+
+      // Wheel zooms (cursor-anchored). Shift+wheel keeps native scrolling.
+      scrollEl.addEventListener('wheel', (ev) => {
+        if (ev.shiftKey || onControls(ev) || !img.naturalWidth) return;
+        ev.preventDefault();
+        zoomTo(currentScale() * (ev.deltaY < 0 ? 1.15 : 1 / 1.15), ev.clientX, ev.clientY);
+      }, { passive: false });
+
+      // Pan by holding the middle mouse button (the scroll wheel) and dragging,
+      // or Alt+left-drag — same triggers as the annotator. Plain left-drag is
+      // left free so it never fights text selection elsewhere on the page.
+      let panning = false, sx = 0, sy = 0, sl = 0, st = 0, pid = null;
+      scrollEl.addEventListener('pointerdown', (ev) => {
+        const isMiddle = ev.button === 1;
+        const isAltLeft = ev.button === 0 && ev.altKey;
+        if ((!isMiddle && !isAltLeft) || onControls(ev)) return;
+        panning = true; pid = ev.pointerId;
+        sx = ev.clientX; sy = ev.clientY; sl = scrollEl.scrollLeft; st = scrollEl.scrollTop;
+        scrollEl.classList.add('iz-panning');
+        try { scrollEl.setPointerCapture(pid); } catch {}
+        ev.preventDefault();
+      });
+      scrollEl.addEventListener('pointermove', (ev) => {
+        if (!panning) return;
+        scrollEl.scrollLeft = sl - (ev.clientX - sx);
+        scrollEl.scrollTop  = st - (ev.clientY - sy);
+      });
+      const endPan = (ev) => {
+        if (!panning) return;
+        panning = false;
+        scrollEl.classList.remove('iz-panning');
+        try { scrollEl.releasePointerCapture(pid); } catch {}
+        if (ev) ev.preventDefault();
+      };
+      scrollEl.addEventListener('pointerup', endPan);
+      scrollEl.addEventListener('pointercancel', endPan);
+      // Stop the browser's middle-click autoscroll from hijacking the pan.
+      scrollEl.addEventListener('mousedown', (ev) => { if (ev.button === 1) ev.preventDefault(); });
+      scrollEl.addEventListener('auxclick', (ev) => { if (ev.button === 1) ev.preventDefault(); });
+
+      // Double-click toggles between fit and 2× (anchored at the cursor).
+      scrollEl.addEventListener('dblclick', (ev) => {
+        if (onControls(ev)) return;
+        if (zoom == null) zoomTo(Math.max(currentScale() * 2, 1), ev.clientX, ev.clientY);
+        else { zoom = null; applyZoom(); }
+      });
+
+      controls.addEventListener('click', (ev) => {
+        const act = ev.target.getAttribute && ev.target.getAttribute('data-iz');
+        if (!act) return;
+        ev.preventDefault(); ev.stopPropagation();
+        const r = scrollEl.getBoundingClientRect();
+        const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+        if (act === 'in')  zoomTo(currentScale() * 1.25, cx, cy);
+        if (act === 'out') zoomTo(currentScale() / 1.25, cx, cy);
+        if (act === 'fit') { zoom = null; applyZoom(); }
+      });
+
+      scrollEl.addEventListener('scroll', pinControls, { passive: true });
+      if (window.ResizeObserver) new ResizeObserver(() => applyZoom()).observe(scrollEl);
+
+      applyZoom();
+      requestAnimationFrame(pinControls);
+    };
+
+    if (img.complete && img.naturalWidth) init();
+    else img.addEventListener('load', init, { once: true });
+  }
+
   // ─── Markdown rendering ─────────────────────────────────────────────────
   let currentMarkdown = '';
   let currentHighlight = null;   // {start,end} of this property's block in the notice
@@ -2283,6 +2455,7 @@
     } else {
       body.innerHTML = '<div class="empty">no public_url available for this notice.</div>';
     }
+    enableNoticeZoom(body.querySelector('.image-body'));
   }
 
   function setMsg(html, ms) {
