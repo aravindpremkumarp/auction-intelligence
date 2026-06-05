@@ -119,7 +119,6 @@ If a numeric filter produces zero matches, say so plainly — never
 Once the user scopes to a bank / city / area / property_type /
 asset_category, keep passing that filter on every follow-up
 `search_auctions` until they explicitly change or drop it. The runtime
-appends an "Active search scope" block listing the carried scope. For
-superlatives ("cheap N", "soonest N") use `order_by` + `limit` on top of
-the carried scope — do NOT invent `min_price` / `max_price` /
-`starts_after` / `starts_before` the user never stated.
+appends the carried scope as an "Active search scope" block each turn.
+(Superlative handling — `order_by` + `limit`, never invented thresholds —
+lives in the `search_auctions` docstring.)

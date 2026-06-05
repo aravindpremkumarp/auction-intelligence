@@ -45,9 +45,8 @@ properties.
 Rules:
 1. Ground every answer in tools. Never invent auction_ids, prices, counts,
    enums, or numeric thresholds (`min_price`, `max_price`, `starts_after`,
-   `starts_before`). For superlatives ("cheapest N", "soonest N", "top N
-   priced") use `order_by` + `limit` on the carried scope — not a made-up
-   threshold. Cite by `auction_id`.
+   `starts_before`); for "cheapest/soonest/top N" use `order_by` + `limit`,
+   never a made-up threshold (see `search_auctions`). Cite by `auction_id`.
 2. Tool choice: prefer the specialized tool that matches; fall back to
    `run_cypher` only for novel queries. Call `describe_schema()` before
    composing a novel Cypher. For distribution / breakdown / "spread"
@@ -60,13 +59,10 @@ Rules:
    or similar — those edges don't exist.
 4. Zero results → loosen (drop property_type, widen price, recheck
    city/area spelling) before declaring "no matches".
-5. `internet_search` is for OFF-GRAPH context only: SARFAESI/legal
-   explainers, RBI/bank news, locality background, term definitions.
-   Never for properties, prices, deadlines, auction_ids, or counts. For
-   hybrid questions, query the graph first. Retry at most once per turn;
-   on `{error}` say web search is unavailable. When you use it, cite
-   inline as `[1]`, `[2]` matching the order of `sources`; the UI
-   renders the chip list — do NOT print a "Sources:" footer.
+5. Use `internet_search` only for OFF-graph context (legal/RBI explainers,
+   locality background, term definitions) — never for properties, prices,
+   deadlines, auction_ids, or counts; for hybrid questions query the graph
+   first. Its docstring holds the retry and citation rules.
 6. Don't offer follow-ups outside the tool surface. The graph holds
    AuctionProperty, Borrower, Bank, City, Area, Document, AssetCategory
    — and nothing else. No litigations, court cases, FIRs, credit
@@ -104,7 +100,23 @@ SYSTEM_PROMPT = f"{_ROLE_PROMPT}\n\n---\n\n{_SHARED_CONTEXT}" if _SHARED_CONTEXT
 _provider = OpenAIProvider(api_key=OPENROUTER_API_KEY, base_url=OPENROUTER_BASE_URL)
 _model = OpenAIModel(OPENROUTER_MODEL, provider=_provider)
 
-agent = Agent(_model, deps_type=ChatDeps, system_prompt=SYSTEM_PROMPT)
+# OpenRouter-specific: ask for detailed usage accounting on every response so
+# the /chat obs log can report prompt-cache hits
+# (`prompt_tokens_details.cached_tokens`) and cost. Gemini 2.5+/3 implicit
+# caching is automatic upstream when the leading prefix — this role prompt +
+# _shared.md + the tool schemas, ~5k stable tokens — repeats within the cache
+# window; this flag only makes the hit/miss visible. If `cached_tokens` stays
+# 0 in the logs, the route isn't honoring implicit caching and a direct
+# Vertex/Gemini client (google-genai) is the next lever. Passed as a plain
+# dict so it rides through `extra_body` regardless of the settings TypedDict.
+_MODEL_SETTINGS: dict = {"extra_body": {"usage": {"include": True}}}
+
+agent = Agent(
+    _model,
+    deps_type=ChatDeps,
+    system_prompt=SYSTEM_PROMPT,
+    model_settings=_MODEL_SETTINGS,
+)
 
 
 # Both inject_* are registered as `@agent.instructions` rather than
@@ -397,9 +409,12 @@ def run_cypher(
 async def internet_search(query: str, max_results: int = 5) -> dict:
     """Public web search (Tavily) for OFF-graph context: SARFAESI/legal
     explainers, RBI/bank news, locality background, term definitions.
-    NEVER for property listings, prices, auction_ids, or counts. Cite
-    inline as [1], [2] matching the order of `sources`; the UI renders
-    chips automatically.
+    NEVER for property listings, prices, auction_ids, or counts.
+
+    Retry at most once per turn; on `{error}` tell the user web search is
+    unavailable. Cite inline as [1], [2] matching the order of `sources`;
+    the UI renders the chip list automatically — do NOT print a "Sources:"
+    footer.
 
     Returns {sources: [{title, url, snippet, domain, score}], query} or
     {error: str} on failure."""
