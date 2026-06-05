@@ -259,7 +259,7 @@ def _strip_ui_rows_from_history(history: list[dict[str, Any]]) -> list[dict[str,
 # model *did* see (but only on stale turns).
 _HISTORY_KEEP_FULL_TURNS = max(1, int(os.getenv("CHAT_HISTORY_KEEP_FULL_TURNS", "2")))
 # Only trim tool returns whose JSON is at least this many chars — leaves small
-# aggregate/stat results (list_distinct, location_analysis) untouched so the
+# aggregate/stat results (list_distinct) untouched so the
 # model keeps cheap-but-useful context, and avoids stubs larger than the
 # original payload.
 _HISTORY_TRIM_MIN_CHARS = int(os.getenv("CHAT_HISTORY_TRIM_MIN_CHARS", "600"))

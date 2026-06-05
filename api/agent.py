@@ -235,33 +235,9 @@ def search_auctions(
 
 
 @agent.tool_plain
-def find_similar_properties(auction_id: str, price_tolerance_pct: float = 25.0, limit: int = 10) -> list[dict]:
-    """Comparable properties in the same area with similar price."""
-    return T.find_similar_properties(auction_id, price_tolerance_pct, limit)
-
-
-@agent.tool_plain
-def bank_portfolio(bank_name: str) -> list[dict]:
-    """Aggregate stats for all auctions by a bank."""
-    return T.bank_portfolio(bank_name)
-
-
-@agent.tool_plain
-def location_analysis(location: str, location_type: str = "city") -> list[dict]:
-    """Price distribution + density for a city, area, or state."""
-    return T.location_analysis(location, location_type)
-
-
-@agent.tool_plain
 def upcoming_auctions(days: int = 14, limit: int = 20) -> list[dict]:
     """Auctions with application deadline within N days."""
     return T.upcoming_auctions(days, limit)
-
-
-@agent.tool_plain
-def price_comparison(city: str, property_type: str) -> list[dict]:
-    """Reserve prices for one property type in one city, sorted asc."""
-    return T.price_comparison(city, property_type)
 
 
 @agent.tool_plain

@@ -288,46 +288,6 @@ def search_auctions(
     return out
 
 
-def find_similar_properties(auction_id: str, price_tolerance_pct: float = 25.0, limit: int = 10) -> list[dict]:
-    cypher = """
-        MATCH (seed:AuctionProperty {auction_id: $auction_id})-[:LOCATED_IN_AREA]->(area:Area)
-        MATCH (other:AuctionProperty)-[:LOCATED_IN_AREA]->(area)
-        WHERE other.auction_id <> seed.auction_id
-          AND other.reserve_price_num >= seed.reserve_price_num * (1 - $tol/100.0)
-          AND other.reserve_price_num <= seed.reserve_price_num * (1 + $tol/100.0)
-        RETURN other.auction_id AS auction_id, other.title AS title,
-               other.reserve_price_num AS reserve_price, area.name AS area
-        LIMIT $limit
-    """
-    return run_query(cypher, {"auction_id": auction_id, "tol": price_tolerance_pct, "limit": limit})
-
-
-def bank_portfolio(bank_name: str) -> list[dict]:
-    cypher = """
-        MATCH (a:AuctionProperty)-[:CONDUCTED_BY]->(b:Bank {name: $bank_name})
-        RETURN count(a) AS total_auctions,
-               avg(a.reserve_price_num) AS avg_reserve,
-               min(a.reserve_price_num) AS min_reserve,
-               max(a.reserve_price_num) AS max_reserve,
-               collect(DISTINCT a.auction_id)[0..20] AS sample_auction_ids
-    """
-    return run_query(cypher, {"bank_name": bank_name})
-
-
-def location_analysis(location: str, location_type: str = "city") -> list[dict]:
-    label = {"city": "City", "area": "Area", "state": "State"}.get(location_type, "City")
-    rel = {"city": "LOCATED_IN_CITY", "area": "LOCATED_IN_AREA", "state": "LOCATED_IN_STATE"}[location_type]
-    cypher = f"""
-        MATCH (a:AuctionProperty)-[:{rel}]->(loc:{label} {{name: $location}})
-        RETURN count(a) AS total,
-               avg(a.reserve_price_num) AS avg_reserve,
-               percentileCont(a.reserve_price_num, 0.5) AS median_reserve,
-               min(a.reserve_price_num) AS min_reserve,
-               max(a.reserve_price_num) AS max_reserve
-    """
-    return run_query(cypher, {"location": location})
-
-
 def upcoming_auctions(days: int = 14, limit: int = 20) -> list[dict]:
     now = datetime.now(timezone.utc)
     cutoff = now + timedelta(days=days)
@@ -342,17 +302,6 @@ def upcoming_auctions(days: int = 14, limit: int = 20) -> list[dict]:
         LIMIT $limit
     """
     return run_query(cypher, {"cutoff": cutoff, "now": now, "limit": limit})
-
-
-def price_comparison(city: str, property_type: str) -> list[dict]:
-    cypher = """
-        MATCH (a:AuctionProperty)-[:LOCATED_IN_CITY]->(:City {name: $city})
-        MATCH (a)-[:HAS_PROPERTY_TYPE]->(:PropertyType {name: $property_type})
-        RETURN a.auction_id AS auction_id, a.title AS title,
-               a.reserve_price_num AS reserve_price
-        ORDER BY a.reserve_price_num ASC
-    """
-    return run_query(cypher, {"city": city, "property_type": property_type})
 
 
 def borrower_lookup(borrower_name: str) -> list[dict]:

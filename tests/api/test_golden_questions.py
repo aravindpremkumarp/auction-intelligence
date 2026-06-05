@@ -64,7 +64,7 @@ GOLDEN: list[GoldenCase] = [
 
     # ─── Multi-hop / novel ──────────────────────────────────────────────
     GoldenCase("multi_hop", "Banks with more than 50 auctions in Tamil Nadu",
-               ["run_cypher", "bank_portfolio"]),
+               ["run_cypher", "list_distinct"]),
     GoldenCase("multi_hop", "Borrowers with multiple properties",
                ["run_cypher"]),
     GoldenCase("multi_hop", "Areas where EMD is more than 15% of reserve on average",
@@ -102,7 +102,7 @@ GOLDEN: list[GoldenCase] = [
     GoldenCase("specific_auction", "What is the possession type for auction AUC-12345?",
                ["get_auction_detail"]),
     GoldenCase("specific_auction", "Find properties similar to AUC-12345",
-               ["find_similar_properties"]),
+               ["get_auction_detail", "search_auctions"]),
     GoldenCase("specific_auction", "Show the borrower for auction AUC-12345",
                ["get_auction_detail"]),
     GoldenCase("specific_auction", "Which bank conducted auction AUC-12345?",
@@ -147,8 +147,7 @@ def test_catalogue_well_formed() -> None:
         assert c.acceptable_tools, f"{c.question!r} has no acceptable_tools"
         for t in c.acceptable_tools:
             assert t in {
-                "search_auctions", "find_similar_properties", "bank_portfolio",
-                "location_analysis", "upcoming_auctions", "price_comparison",
+                "search_auctions", "upcoming_auctions",
                 "borrower_lookup", "semantic_property_search",
                 "get_auction_detail", "list_distinct", "describe_schema",
                 "run_cypher",
