@@ -48,7 +48,14 @@ number — never blended into completeness.
 | Symbol | Source field | Meaning |
 |---|---|---|
 | `W` | `a.website_description` ?? `a.description_scraped` | website **reference** description |
-| `E` | `a.extracted_description` ?? `a.description` | description **extracted from the notice** |
+| `E` | `a.extracted_description` | description **extracted from the notice markdown** (`property_description_full`, `pipeline/load_enriched.py:147`) |
+
+> **Do not use `a.description` as `E`.** It is seeded from the *website* text
+> (`scripts/load_tn_to_neo4j.py:59-60`) and only becomes the notice description
+> after `apply_descriptions.py` runs. Using it before that step would compare
+> website-vs-website and inflate `reference_recall` to ~1.0. `E` is **only**
+> `a.extracted_description`; a property with no `extracted_description` is
+> "not yet extracted" → not auto-verifiable.
 | `M` | `d.markdown` (linked `Document`) | full notice OCR markdown (haystack) |
 | boundaries | `a.boundary_{north,south,east,west}` | tail of the legal schedule |
 | doors | `a.door_numbers_{old,new}` | apartment-type tail (schedules without boundaries) |

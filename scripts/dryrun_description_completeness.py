@@ -62,7 +62,11 @@ def end_reached(prop: dict) -> float:
 
 def score(prop: dict) -> dict:
     website = prop.get("website_description") or prop.get("description_scraped")
-    extracted = prop.get("extracted_description") or prop.get("description")
+    # E is ONLY extracted_description (the notice extraction). a.description is
+    # NOT a safe fallback: it is seeded from the website text and only becomes
+    # the notice description after apply_descriptions runs, so using it would
+    # compare website-vs-website and inflate recall to ~1.0.
+    extracted = prop.get("extracted_description")
     markdown = prop.get("markdown")
 
     recall = reference_recall(website, extracted)
