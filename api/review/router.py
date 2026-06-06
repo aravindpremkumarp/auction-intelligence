@@ -218,6 +218,19 @@ class BulkConfirmResult(BaseModel):
     dry_run: bool
 
 
+class DescriptionBulkConfirmBody(BaseModel):
+    # Completeness-judge confidence band (0–1). The review UI's 0–100 score
+    # inputs are divided by 100 before they reach here.
+    judge_min: float = Field(ge=0.0, le=1.0)
+    judge_max: float = Field(default=1.0, ge=0.0, le=1.0)
+    notice_type: Literal["all", "single", "multi", "unclassified"] = "all"
+    date_from: str | None = Field(default=None, max_length=20)
+    date_to:   str | None = Field(default=None, max_length=20)
+    q:         str | None = Field(default=None, max_length=200)
+    notes: str | None = Field(default=None, max_length=2000)
+    dry_run: bool = False
+
+
 class ClassificationPropertyRow(BaseModel):
     auction_id: str
     title: str | None = None
@@ -475,12 +488,15 @@ async def review_queue(
     date_from: str | None = Query(default=None, max_length=20),
     date_to: str | None = Query(default=None, max_length=20),
     notice_type: Literal["all", "single", "multi", "unclassified"] = Query(default="all"),
+    judge_min: float | None = Query(default=None, ge=0.0, le=1.0),
+    judge_max: float | None = Query(default=None, ge=0.0, le=1.0),
     _admin: UserOut = Depends(get_current_admin),
 ) -> ReviewQueueOut:
     result = q.list_queue(
         status=status, q=q_search, page=page, size=size,
         date_from=date_from, date_to=date_to,
         notice_type=notice_type if notice_type != "all" else None,
+        judge_min=judge_min, judge_max=judge_max,
     )
     rows = [ReviewQueueRow(**_row_to_str(r)) for r in result["rows"]]
     return ReviewQueueOut(page=result["page"], size=result["size"], total=result["total"], rows=rows)
@@ -495,12 +511,15 @@ async def review_notices(
     date_from: str | None = Query(default=None, max_length=20),
     date_to: str | None = Query(default=None, max_length=20),
     notice_type: Literal["all", "single", "multi", "unclassified"] = Query(default="all"),
+    judge_min: float | None = Query(default=None, ge=0.0, le=1.0),
+    judge_max: float | None = Query(default=None, ge=0.0, le=1.0),
     _admin: UserOut = Depends(get_current_admin),
 ) -> ReviewNoticeQueueOut:
     result = q.list_notice_queue(
         status=status, q=q_search, page=page, size=size,
         date_from=date_from, date_to=date_to,
         notice_type=notice_type if notice_type != "all" else None,
+        judge_min=judge_min, judge_max=judge_max,
     )
     rows = [ReviewNoticeRow(**r) for r in result["rows"]]
     return ReviewNoticeQueueOut(page=result["page"], size=result["size"], total=result["total"], rows=rows)
@@ -574,6 +593,25 @@ async def review_unverify(
         raise HTTPException(status_code=404, detail="property not found")
     row = q.get_property(auction_id)
     return ReviewPropertyOut(**_row_to_str(row))
+
+
+@router.post("/bulk-confirm", response_model=BulkConfirmResult)
+async def review_description_bulk_confirm(
+    body: DescriptionBulkConfirmBody,
+    admin: UserOut = Depends(get_current_admin),
+) -> BulkConfirmResult:
+    result = q.auto_confirm_descriptions(
+        judge_min=body.judge_min,
+        judge_max=body.judge_max,
+        notice_type=body.notice_type if body.notice_type != "all" else None,
+        date_from=body.date_from,
+        date_to=body.date_to,
+        q=body.q,
+        by_email=admin.email,
+        notes=body.notes,
+        dry_run=body.dry_run,
+    )
+    return BulkConfirmResult(**result)
 
 
 # ── Classification review ───────────────────────────────────────────────────

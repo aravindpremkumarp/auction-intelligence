@@ -129,6 +129,22 @@
     background: #fde68a; color: inherit; border-radius: 2px; padding: 0 1px;
     box-shadow: 0 0 0 1px #f59e0b inset;
   }
+  /* Find-in-OCR matches (the in-panel search box). The active match is
+     emphasised as the reviewer steps through with the prev/next buttons. */
+  .markdown-body mark.find, .mdcard-md-body mark.find {
+    background: #bfdbfe; color: inherit; border-radius: 2px; padding: 0 1px;
+  }
+  .markdown-body mark.find.active, .mdcard-md-body mark.find.active {
+    background: #fb923c; box-shadow: 0 0 0 1px #ea580c inset;
+  }
+  .md-find { display: inline-flex; gap: 4px; align-items: center; }
+  .md-find input[type="search"] {
+    padding: 2px 8px; font-size: 11px; min-height: 0;
+    border: 1.5px solid var(--ink); background: #fff; min-width: 130px;
+  }
+  .md-find .md-find-count { font-size: 11px; color: var(--muted); min-width: 30px; text-align: center; }
+  .md-find button { padding: 1px 7px; font-size: 11px; min-height: 0; }
+  .mdcard-md-header .md-find input[type="search"] { min-width: 110px; }
   .desc-compare { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
   .desc-compare h2 { margin-bottom: 4px; }
   @media (max-width: 1100px) { .desc-compare { grid-template-columns: 1fr; } }
@@ -547,6 +563,12 @@
         <section class="md-section">
           <div class="md-header">
             <span class="md-title">Overall markdown (OCR)</span>
+            <span class="md-find">
+              <input type="search" id="md-find-input" placeholder="find in OCR…" autocomplete="off">
+              <span class="md-find-count" id="md-find-count"></span>
+              <button class="pill" id="md-find-prev" title="previous match (Shift+Enter)">↑</button>
+              <button class="pill" id="md-find-next" title="next match (Enter)">↓</button>
+            </span>
             <span class="md-toggle">
               <button class="pill" data-md-mode="rendered">rendered</button>
               <button class="pill" data-md-mode="raw">raw</button>
@@ -714,13 +736,17 @@
     }
   }
   function appendScoreParams(params) {
-    // The classification API takes 0–1 floats; markdown API takes 0–100.
+    // The classification API takes 0–1 floats; markdown API takes 0–100;
+    // description filters the completeness-judge confidence (0–1 floats).
     if (queueState.stage === 'classification') {
       if (queueState.scoreFrom !== 0)   params.set('confidence_min', String(queueState.scoreFrom / 100));
       if (queueState.scoreTo   !== 100) params.set('confidence_max', String(queueState.scoreTo   / 100));
     } else if (queueState.stage === 'markdown') {
       if (queueState.scoreFrom !== 0)   params.set('score_min', String(queueState.scoreFrom));
       if (queueState.scoreTo   !== 100) params.set('score_max', String(queueState.scoreTo));
+    } else if (queueState.stage === 'description') {
+      if (queueState.scoreFrom !== 0)   params.set('judge_min', String(queueState.scoreFrom / 100));
+      if (queueState.scoreTo   !== 100) params.set('judge_max', String(queueState.scoreTo   / 100));
     }
   }
 
@@ -892,11 +918,11 @@
     // looking at the sales-notice sub-group.
     $('cview-toggle').classList.toggle('hidden', !(isClass && isNotice));
 
-    // Score row visibility — description has no score.
-    $('score-bar').classList.toggle('hidden', isDesc);
-
-    // Bulk-confirm only in classification + markdown.
-    $('bulk-confirm-bar').classList.toggle('hidden', isDesc);
+    // Score row + bulk-confirm are available in every stage. Description
+    // filters/acts on the completeness-judge confidence; classification on
+    // the classifier confidence; markdown on the OCR-quality score.
+    $('score-bar').classList.remove('hidden');
+    $('bulk-confirm-bar').classList.remove('hidden');
   }
 
   function syncDateInputs() {
@@ -1033,9 +1059,16 @@
   function updateBulkConfirmButton() {
     const btn = $('bulk-confirm-btn');
     if (!btn) return;
-    const active = queueState.stage === 'classification' || queueState.stage === 'markdown';
+    const active = queueState.stage === 'classification'
+                || queueState.stage === 'markdown'
+                || queueState.stage === 'description';
     const n = active ? (queueTotal || 0) : 0;
-    btn.textContent = `Confirm all ${n} in range`;
+    // In the description stage the count reflects whatever the queue is grouped
+    // by (properties, or notices when grouped by sales notice) — the confirm
+    // itself always verifies the matching pending properties.
+    const unit = queueState.stage === 'description' && queueState.group === 'notice'
+      ? 'notices' : 'in range';
+    btn.textContent = `Confirm all ${n} ${unit}`;
     btn.disabled = !active || n === 0 || queueState.status !== 'pending';
   }
 
@@ -1061,6 +1094,7 @@
     });
     if (queueState.q) params.set('q', queueState.q);
     appendCommonParams(params);
+    appendScoreParams(params);
     const r = await authFetch(API + '/review/queue?' + params.toString());
     if (r.status === 401 || r.status === 403) {
       tbody.innerHTML = '<tr><td colspan="8"><div class="empty"><span class="err">not authorised — sign in as admin from the main app</span></div></td></tr>';
@@ -1113,6 +1147,7 @@
     });
     if (queueState.q) params.set('q', queueState.q);
     appendCommonParams(params);
+    appendScoreParams(params);
     const r = await authFetch(API + '/review/notices?' + params.toString());
     if (r.status === 401 || r.status === 403) {
       list.innerHTML = '<div class="empty"><span class="err">not authorised — sign in as admin from the main app</span></div>';
@@ -1369,6 +1404,12 @@
     mdBox.innerHTML = `
       <div class="mdcard-md-header">
         <span class="md-title">Overall markdown (OCR)</span>
+        <span class="md-find">
+          <input type="search" class="mdc-find-input" placeholder="find in OCR…" autocomplete="off">
+          <span class="md-find-count mdc-find-count"></span>
+          <button class="pill mdc-find-prev" title="previous match (Shift+Enter)">↑</button>
+          <button class="pill mdc-find-next" title="next match (Enter)">↓</button>
+        </span>
         <button class="pill" data-mdc-mode="rendered">rendered</button>
         <button class="pill" data-mdc-mode="raw">raw</button>
       </div>
@@ -1384,6 +1425,7 @@
     body.appendChild(grid);
 
     const mdBodyEl = mdBox.querySelector('.mdcard-md-body');
+    const cardFinder = createMdFinder(() => mdBodyEl, mdBox.querySelector('.mdc-find-count'));
     const markdown = row.markdown || '';
     // Highlight spans (raw markdown char offsets) for the properties we track.
     const highlights = (row.highlights || []).filter(h => h && h.end > h.start);
@@ -1413,6 +1455,7 @@
       if (!markdown) {
         mdBodyEl.classList.remove('rendered');
         mdBodyEl.innerHTML = '<div class="empty">no OCR markdown available.</div>';
+        cardFinder.reapply(false);
         return;
       }
       if (localMode === 'rendered' && window.marked && window.DOMPurify) {
@@ -1425,6 +1468,7 @@
         mdBodyEl.classList.remove('rendered');
         mdBodyEl.textContent = markdown;
       }
+      cardFinder.reapply(false);
     }
     paintCardMd();
     mdBox.querySelectorAll('button[data-mdc-mode]').forEach(b => {
@@ -1435,6 +1479,16 @@
         paintCardMd();
       });
     });
+    (function wireCardFind() {
+      const input = mdBox.querySelector('.mdc-find-input');
+      if (!input) return;
+      input.addEventListener('input', () => cardFinder.setTerm(input.value));
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); cardFinder.step(e.shiftKey ? -1 : 1); }
+      });
+      mdBox.querySelector('.mdc-find-prev').addEventListener('click', () => cardFinder.step(-1));
+      mdBox.querySelector('.mdc-find-next').addEventListener('click', () => cardFinder.step(1));
+    })();
 
     // Lazy-load source image / PDF only when the card is open, so collapsed
     // cards don't fetch (potentially many) large notices up front.
@@ -1986,12 +2040,14 @@
 
   $('bulk-confirm-btn').addEventListener('click', async () => {
     const stage = queueState.stage;
-    if (stage !== 'classification' && stage !== 'markdown') return;
+    if (stage !== 'classification' && stage !== 'markdown' && stage !== 'description') return;
     const btn = $('bulk-confirm-btn');
     btn.disabled = true;
     const url = API + (stage === 'classification'
       ? '/review/classifications/bulk-confirm'
-      : '/review/markdown/bulk-confirm');
+      : stage === 'markdown'
+        ? '/review/markdown/bulk-confirm'
+        : '/review/bulk-confirm');
     const commonFilters = {
       notice_type: queueState.noticeType || 'all',
       date_from:   queueState.dateFrom || null,
@@ -2005,9 +2061,16 @@
           confidence_max: queueState.scoreTo   / 100,
           ...commonFilters,
         }
-      : {
+      : stage === 'markdown'
+      ? {
           score_min: queueState.scoreFrom,
           score_max: queueState.scoreTo,
+          ...commonFilters,
+        }
+      : {
+          // description → completeness-judge confidence band (0–1)
+          judge_min: queueState.scoreFrom / 100,
+          judge_max: queueState.scoreTo   / 100,
           ...commonFilters,
         };
     let result = null;
@@ -2426,12 +2489,106 @@
     } catch (e) { /* ignore — fall back to raw text */ }
   }
 
+  // ─── Find-in-OCR ──────────────────────────────────────────────────────
+  // A lightweight in-panel "find" for the OCR markdown bodies (detail view +
+  // markdown-stage cards). Works in both rendered and raw modes by wrapping
+  // matches in <mark class="find"> across the body's text nodes, leaving the
+  // tracked-property <mark class="hl"> highlights intact.
+  function clearFindMarks(container) {
+    container.querySelectorAll('mark.find').forEach(m => {
+      const parent = m.parentNode;
+      while (m.firstChild) parent.insertBefore(m.firstChild, m);
+      parent.removeChild(m);
+      parent.normalize();
+    });
+  }
+  function applyFindMarks(container, term) {
+    clearFindMarks(container);
+    if (!term) return [];
+    const needle = term.toLowerCase();
+    const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        if (!node.nodeValue) return NodeFilter.FILTER_REJECT;
+        return node.nodeValue.toLowerCase().includes(needle)
+          ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+      },
+    });
+    const textNodes = [];
+    let n; while ((n = walker.nextNode())) textNodes.push(n);
+    const marks = [];
+    for (const node of textNodes) {
+      const text = node.nodeValue;
+      const lower = text.toLowerCase();
+      const frag = document.createDocumentFragment();
+      let from = 0, idx;
+      while ((idx = lower.indexOf(needle, from)) !== -1) {
+        if (idx > from) frag.appendChild(document.createTextNode(text.slice(from, idx)));
+        const mark = document.createElement('mark');
+        mark.className = 'find';
+        mark.textContent = text.slice(idx, idx + needle.length);
+        frag.appendChild(mark);
+        marks.push(mark);
+        from = idx + needle.length;
+      }
+      if (from < text.length) frag.appendChild(document.createTextNode(text.slice(from)));
+      node.parentNode.replaceChild(frag, node);
+    }
+    return marks;
+  }
+  // Build a finder controller bound to a body element (via getBody, so it
+  // keeps working after the body is repainted on rendered/raw toggle).
+  function createMdFinder(getBody, countEl) {
+    let term = '', marks = [], active = -1;
+    function updateCount() {
+      if (!countEl) return;
+      countEl.textContent = !term ? '' : (marks.length ? `${active + 1}/${marks.length}` : '0/0');
+    }
+    function paintActive(scroll) {
+      marks.forEach((m, i) => m.classList.toggle('active', i === active));
+      if (scroll && active >= 0 && marks[active]) {
+        marks[active].scrollIntoView({ block: 'center', behavior: 'smooth' });
+      }
+      updateCount();
+    }
+    function reapply(scrollToActive) {
+      const body = getBody();
+      if (!body) { marks = []; active = -1; updateCount(); return; }
+      marks = applyFindMarks(body, term);
+      if (active < 0 && marks.length) active = 0;
+      else if (active >= marks.length) active = marks.length ? marks.length - 1 : -1;
+      paintActive(scrollToActive);
+    }
+    return {
+      setTerm(t) { term = (t || '').trim(); active = term ? 0 : -1; reapply(true); },
+      reapply,                                   // re-run after a repaint
+      step(dir) {
+        if (!marks.length) return;
+        active = (active + dir + marks.length) % marks.length;
+        paintActive(true);
+      },
+    };
+  }
+
+  // Detail-view finder for the "Overall markdown (OCR)" panel.
+  const detailMdFinder = createMdFinder(() => $('md-body'), $('md-find-count'));
+  (function wireDetailMdFind() {
+    const input = $('md-find-input');
+    if (!input) return;
+    input.addEventListener('input', () => detailMdFinder.setTerm(input.value));
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); detailMdFinder.step(e.shiftKey ? -1 : 1); }
+    });
+    $('md-find-prev').addEventListener('click', () => detailMdFinder.step(-1));
+    $('md-find-next').addEventListener('click', () => detailMdFinder.step(1));
+  })();
+
   function paintMarkdown() {
     const mdBody = $('md-body');
     syncMdToggleButtons();
     if (!currentMarkdown) {
       mdBody.classList.remove('rendered');
       mdBody.innerHTML = '<div class="empty">no OCR markdown available.</div>';
+      detailMdFinder.reapply(false);
       return;
     }
     // Highlight this property's block in the notice (rendered view only).
@@ -2456,6 +2613,8 @@
       mdBody.classList.remove('rendered');
       mdBody.textContent = currentMarkdown;
     }
+    // Re-apply the current find term over the freshly painted body.
+    detailMdFinder.reapply(false);
   }
 
   $$('button.pill[data-md-mode]').forEach(b => {
