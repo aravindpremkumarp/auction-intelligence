@@ -35,6 +35,8 @@
   .pill.off { background: #eee; color: var(--muted); }
   .pill.good { background: #d8f0d8; }
   .pill.warn { background: #ffe1c2; }
+  .pill.bad { background: #f5c6c6; }
+  .muted { color: #999; }
   .pill.danger { background: #ffd4cc; }
   button { padding: 6px 12px; border: 1.5px solid var(--ink); background: #fff; cursor: pointer; min-height: 32px; }
   button.primary { background: var(--accent); font-weight: 600; }
@@ -560,6 +562,9 @@
           <div class="row"><dt>Reserve</dt><dd id="d-reserve"></dd></div>
           <div class="row"><dt>Location</dt><dd id="d-location"></dd></div>
           <div class="row"><dt>Completeness</dt><dd id="d-completeness"></dd></div>
+          <div class="row"><dt>Judge</dt><dd id="d-judge"></dd></div>
+          <div class="row" id="d-missing-row" style="display:none"><dt>Missing</dt><dd id="d-missing"></dd></div>
+          <div class="row" id="d-reasoning-row" style="display:none"><dt>Reasoning</dt><dd id="d-reasoning"></dd></div>
           <div class="row"><dt>Source</dt><dd id="d-source"></dd></div>
           <div class="row"><dt>Status</dt><dd id="d-status"></dd></div>
         </dl>
@@ -1084,7 +1089,7 @@
         <td>${escapeHtml(row.title || '—')}</td>
         <td>${escapeHtml(borrower)}</td>
         <td>${fmtPrice(row.reserve_price)}</td>
-        <td>${fmtPct(row.completeness)}</td>
+        <td>${fmtPct(row.completeness)}${row.wrong_property ? ' <span class="pill bad">wrong?</span>' : ''}</td>
         <td>${noticeBadge}</td>
         <td><span class="pill ${row.source === 'human' ? 'good' : ''}">${escapeHtml(row.source || '—')}</span></td>
         <td>${statusPill(row)}</td>
@@ -2178,6 +2183,26 @@
     $('d-reserve').textContent = '₹ ' + fmtPrice(p.reserve_price);
     $('d-location').textContent = [p.area, p.city].filter(Boolean).join(' · ') || '—';
     $('d-completeness').innerHTML = fmtPct(p.completeness);
+
+    // Judge verdict (completeness LLM judge): complete flag, wrong-property
+    // risk, confidence and the cheap website-overlap pre-filter.
+    const judgeBits = [];
+    if (p.complete === true) judgeBits.push('<span class="pill good">complete</span>');
+    else if (p.complete === false) judgeBits.push('<span class="pill warn">incomplete</span>');
+    if (p.wrong_property === true) judgeBits.push('<span class="pill bad">wrong property</span>');
+    if (p.judge_confidence != null) judgeBits.push(`conf ${fmtPct(p.judge_confidence)}`);
+    if (p.text_overlap != null) judgeBits.push(`overlap ${fmtPct(p.text_overlap)}`);
+    $('d-judge').innerHTML = judgeBits.length ? judgeBits.join(' ') : '<span class="muted">not scored</span>';
+
+    const missing = (p.missing_parts || []).filter(Boolean);
+    $('d-missing-row').style.display = missing.length ? '' : 'none';
+    if (missing.length) {
+      $('d-missing').innerHTML = '<ul style="margin:0;padding-left:18px">' +
+        missing.map(m => `<li>${escapeHtml(m)}</li>`).join('') + '</ul>';
+    }
+    $('d-reasoning-row').style.display = p.judge_reasoning ? '' : 'none';
+    if (p.judge_reasoning) $('d-reasoning').textContent = p.judge_reasoning;
+
     $('d-source').innerHTML = `<span class="pill ${p.description_source === 'human' ? 'good' : ''}">${escapeHtml(p.description_source || '—')}</span>`;
     $('d-status').innerHTML = statusPill({ verified: p.verified, source: p.description_source });
 

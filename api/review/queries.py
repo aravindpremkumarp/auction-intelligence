@@ -156,6 +156,8 @@ def list_queue(
                borrowers                   AS borrowers,
                a.reserve_price_num         AS reserve_price,
                a.description_completeness  AS completeness,
+               a.description_wrong_property AS wrong_property,
+               a.description_text_overlap  AS text_overlap,
                a.description_source        AS source,
                coalesce(a.description_verified, false) AS verified,
                a.description_verified_at   AS verified_at,
@@ -164,6 +166,7 @@ def list_queue(
                (d.public_url IS NOT NULL AND d.public_url <> '') AS has_pdf
         ORDER BY verified ASC,
                  coalesce(a.description_completeness, 0.0) ASC,
+                 coalesce(a.description_text_overlap, 0.0) ASC,
                  a.auction_id ASC
         SKIP $skip LIMIT $size
     """
@@ -425,6 +428,12 @@ def get_property(auction_id: str) -> dict | None:
                a.description_extracted     AS description_extracted_original,
                a.extracted_description     AS extracted_description,
                a.description_completeness  AS completeness,
+               a.description_complete       AS complete,
+               a.description_missing_parts  AS missing_parts,
+               a.description_wrong_property AS wrong_property,
+               a.description_judge_confidence AS judge_confidence,
+               a.description_judge_reasoning  AS judge_reasoning,
+               a.description_text_overlap   AS text_overlap,
                coalesce(a.description_verified, false) AS verified,
                a.description_verified_at   AS verified_at,
                a.description_verified_by   AS verified_by,
