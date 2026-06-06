@@ -95,6 +95,13 @@ existing OpenRouter client pattern in `pipeline/ocr_extract.py` /
 `notice_type = 'multi'` — the property's `title`/`borrowers` so the judge knows
 *which* lot to evaluate.
 
+> **The website description `W` is deliberately NOT given to the judge.** It is a
+> short eauctionsindia.com summary; passing it as a "reference" risks the judge
+> grading completeness against that summary and declaring `E` complete when it
+> merely matches the summary but missed the notice's fuller schedule — the exact
+> failure we are trying to catch. Completeness is judged against `M` only. `W`
+> stays a cheap pre-filter / sort key.
+
 **Prompt contract (returns strict JSON):**
 
 ```json
