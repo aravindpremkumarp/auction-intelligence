@@ -33,21 +33,29 @@ It is unsafe as an auto-pass gate:
 ## Definition (corrected)
 
 > The **sales notice** is the source of truth — the full legal property
-> description lives there. The **website description** is the *reference* we
-> check against to confirm we extracted that description **completely, start to
-> finish**, and that it is the **right** property.
+> description lives there. The **website description** (scraped from
+> **eauctionsindia.com**) is the *reference* we check against. For each property
+> we compare the notice description to the eauctionsindia.com description on
+> **similar words** and **length** to judge whether we captured the notice
+> description **completely, start to finish**, and whether it is the **right**
+> property.
 
-So completeness is a **recall** problem ("did the whole reference survive into
-our extraction, including its tail?") plus an **end-of-schedule guard** ("did we
-reach the finish even when the reference is shorter than the notice?"). The
-"right property" question is a separate **anchor** signal, kept as its own
-number — never blended into completeness.
+So completeness combines three signals:
+1. **Word similarity** — how much of the eauctionsindia.com description's wording
+   also appears in the notice extraction ("did we miss content the website had").
+2. **Length adequacy** — is the notice description long enough relative to the
+   eauctionsindia.com one ("is it suspiciously shorter → probably partial").
+3. **End-of-schedule guard** — did we reach the legal tail (boundaries), which a
+   short website reference can't confirm on its own.
+
+The **"right property"** question is a separate **anchor** signal, kept as its
+own number — never blended into completeness.
 
 ## Inputs (all already in Neo4j — no new extraction)
 
 | Symbol | Source field | Meaning |
 |---|---|---|
-| `W` | `a.website_description` ?? `a.description_scraped` | website **reference** description |
+| `W` | `a.website_description` ?? `a.description_scraped` | **eauctionsindia.com** reference description (scraped) |
 | `E` | `a.extracted_description` | description **extracted from the notice markdown** (`property_description_full`, `pipeline/load_enriched.py:147`) |
 
 > **Do not use `a.description` as `E`.** It is seeded from the *website* text
@@ -64,27 +72,44 @@ number — never blended into completeness.
 
 ## Algorithm
 
-### 1. `reference_recall` ∈ [0,1] — primary, "start to finish" substance
+All three components are computed, **displayed** alongside the property, and
+**blended** into one `completeness` number (so the queue can sort/auto-approve
+on a single value while a reviewer can still see *why* it scored that way).
+
+### 1. `word_similarity` ∈ [0,1] — "similar words"
 
 Split `W` into sentences (drop fragments shorter than ~25 chars). For each
 sentence `s`, it counts as **covered** when
 `rapidfuzz.fuzz.partial_ratio(normalize(s), normalize(E)) ≥ 85`.
 
 ```
-reference_recall = covered_sentences / total_sentences   (1.0 if W is empty/trivial)
+word_similarity = covered_sentences / total_sentences   (1.0 if W is empty/trivial)
 ```
 
-Why **recall**, not the symmetric length ratio: the notice (`E`) is *expected*
-to be a superset of the website (`W`), so extra content in `E` must not be
-penalised. A truncated `E` drops the **last** sentences of `W` → those
-sentences fail the match → recall falls. That is precisely the "we got cut off
-before the finish" failure we care about. Reuses the normalisation already in
+This measures how much of the eauctionsindia.com wording also shows up in the
+notice extraction. It's **recall** (W's words found in E), not a symmetric
+match: the notice `E` is *expected* to contain at least as much as the website
+`W`, so extra content in `E` must not be penalised here — that's what
+`length_adequacy` is for. Reuses the normalisation already in
 `api/review/markdown_match.py` (`_normalize_for_match`, `strip_field_bleed`).
 
-### 2. `end_reached` ∈ {0, 0.6, 1.0} — schedule-tail guard
+### 2. `length_adequacy` ∈ [0,1] — "more or less length"
 
-The website reference is often a short summary that omits the boundary schedule,
-so `reference_recall` can be 1.0 while `E` is still truncated before the
+```
+length_ratio    = len(E) / max(len(W), 1)              # notice vs eauctionsindia.com
+length_adequacy = min(length_ratio / 0.9, 1.0)         # full credit once E ≥ 0.9·W
+```
+
+A notice description much **shorter** than the website one is a strong "partial
+extraction" signal → `length_adequacy` drops. Once the notice is about as long
+as (or longer than) the website text, it gets full credit — being *longer* is
+expected and good, so it is capped at 1.0, never rewarded for sheer length (the
+bug in the old score).
+
+### 3. `end_reached` ∈ {0, 0.6, 1.0} — schedule-tail guard
+
+The eauctionsindia.com reference is often a short summary that omits the boundary
+schedule, so words+length can look fine while `E` is still truncated before the
 boundaries. The boundary block is the canonical **end** of a property schedule,
 and we already extract it, so its presence is strong evidence we reached the
 finish:
@@ -98,16 +123,21 @@ end_reached = 1.0 if n == 4
 # if door_numbers_{old|new} present and n < 2, end_reached = max(end_reached, 0.6)
 ```
 
-### 3. `completeness` ∈ [0,1]
+### 4. `completeness` ∈ [0,1] — blended
 
 ```
-completeness = round(0.65 * reference_recall + 0.35 * end_reached, 2)
+completeness = round(0.50 * word_similarity
+                   + 0.20 * length_adequacy
+                   + 0.30 * end_reached, 2)
 ```
 
-Stored back as `a.description_completeness` (same field name → nothing
+Word similarity leads (it most directly answers "did we capture the
+description"), length is a lighter corroborating signal, and the end-of-schedule
+guard is weighted enough to pull a truncated notice below the auto-verify line on
+its own. Stored back as `a.description_completeness` (same field name → nothing
 downstream breaks; `scoring/auction_scorer.py` and the queue sort keep working).
 
-### 4. `anchor_score` ∈ [0,100] — separate "correct property" signal
+### 5. `anchor_score` ∈ [0,100] — separate "correct property" signal
 
 ```
 anchor_score, span = description_coverage(W, M)   # api/review/markdown_match.py
@@ -141,23 +171,25 @@ Notice schedule (`E`, extracted): *"All that piece of land in Survey No. 123,
 Naranapuram Village, Coimbatore Taluk, measuring 2400 sq.ft., bounded on the
 North by Road, South by Plot 12, East by Channel, West by Plot 9."*
 
-- `W` = *"Residential land 2400 sq ft in Naranapuram, Coimbatore."*
-  → both sentences of `W` found in `E` → `reference_recall = 1.0`
+- `W` (eauctionsindia.com) = *"Residential land 2400 sq ft in Naranapuram,
+  Coimbatore."*
+  → its wording is found in `E` → `word_similarity = 1.0`
+- `len(E)/len(W)` ≈ 2.3 → `length_adequacy = 1.0` (notice is richer, capped)
 - 4 boundaries present → `end_reached = 1.0`
-- `completeness = 0.65*1.0 + 0.35*1.0 = 1.0`
+- `completeness = 0.50*1.0 + 0.20*1.0 + 0.30*1.0 = 1.0`
 - `description_coverage(W, M)` ≈ 92 → `anchor_score = 92`
 - single notice, source `notice` → **auto-verify ✔**
 
 Truncated variant — `E` stops at *"…measuring 2400 sq.ft."* (boundaries
-dropped): `reference_recall` still ~1.0 (the short `W` had no boundaries), but
-`end_reached = 0.0` → `completeness = 0.65` → **below 0.85, goes to a human.**
-This is the case the length ratio misses today.
+dropped): `word_similarity` still ~1.0 and `length_adequacy` ~1.0 (the short `W`
+had no boundaries), but `end_reached = 0.0` → `completeness = 0.70` → **below
+0.85, goes to a human.** This is the truncation case words+length alone miss.
 
 ## Rollout
 
 1. Add `score_description_completeness(W, E, boundaries, doors) -> dict` to
-   `api/review/markdown_match.py` (returns `reference_recall`, `end_reached`,
-   `completeness`, `anchor_score`). Pure function, unit-testable.
+   `api/review/markdown_match.py` (returns `word_similarity`, `length_adequacy`,
+   `end_reached`, `completeness`, `anchor_score`). Pure function, unit-testable.
 2. Wire it into `pipeline/ocr_extract.py::cross_reference()` (replace the length
    ratio) and persist `description_anchor_score` via `pipeline/load_enriched.py`.
 3. Surface `completeness` + `anchor_score` in `get_property()` and `list_queue()`

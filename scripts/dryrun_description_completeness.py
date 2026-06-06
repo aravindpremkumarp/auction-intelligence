@@ -29,19 +29,30 @@ MIN_SENTENCE_CHARS = 25
 SENTENCE_HIT = 85.0  # partial_ratio at/above which a reference sentence counts as covered
 
 
-def reference_recall(website: str | None, extracted: str | None) -> float:
-    """Fraction of the website reference's sentences recovered in the extraction."""
+def word_similarity(website: str | None, extracted: str | None) -> float:
+    """Fraction of the eauctionsindia.com reference's sentences whose wording is
+    recovered in the notice extraction."""
     w = strip_field_bleed(website or "")
     e_norm = _normalize_for_match(extracted or "")
     if not e_norm:
         return 0.0
     sentences = [s for s in SENTENCE_SPLIT.split(w) if len(s.strip()) >= MIN_SENTENCE_CHARS]
     if not sentences:
-        return 1.0  # nothing meaningful to recall against
+        return 1.0  # nothing meaningful to compare against
     covered = sum(
         1 for s in sentences if fuzz.partial_ratio(_normalize_for_match(s), e_norm) >= SENTENCE_HIT
     )
     return covered / len(sentences)
+
+
+def length_adequacy(website: str | None, extracted: str | None) -> float:
+    """1.0 once the notice extraction is at least ~0.9x the website length;
+    scales down when the notice is suspiciously shorter (likely partial)."""
+    w_len = len(strip_field_bleed(website or ""))
+    e_len = len(extracted or "")
+    if w_len == 0:
+        return 1.0
+    return min((e_len / w_len) / 0.9, 1.0)
 
 
 def end_reached(prop: dict) -> float:
@@ -69,9 +80,10 @@ def score(prop: dict) -> dict:
     extracted = prop.get("extracted_description")
     markdown = prop.get("markdown")
 
-    recall = reference_recall(website, extracted)
+    words = word_similarity(website, extracted)
+    length = length_adequacy(website, extracted)
     end = end_reached(prop)
-    completeness = round(0.65 * recall + 0.35 * end, 2)
+    completeness = round(0.50 * words + 0.20 * length + 0.30 * end, 2)
     anchor, _span = description_coverage(website, markdown)
 
     return {
@@ -81,7 +93,8 @@ def score(prop: dict) -> dict:
         "verified": bool(prop.get("verified")),
         "has_extracted": bool((extracted or "").strip()),
         "old_completeness": prop.get("old_completeness"),
-        "reference_recall": round(recall, 2),
+        "word_similarity": round(words, 2),
+        "length_adequacy": round(length, 2),
         "end_reached": end,
         "completeness": completeness,
         "anchor_score": anchor,
