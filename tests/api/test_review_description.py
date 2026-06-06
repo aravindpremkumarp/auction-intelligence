@@ -78,8 +78,13 @@ def test_bulk_confirm_returns_count(client, monkeypatch) -> None:
         seen.update(kwargs)
         return {"count": 5, "dry_run": kwargs.get("dry_run", False)}
 
-    import api.review.router as router_mod
-    monkeypatch.setattr(router_mod.q, "auto_confirm_descriptions", fake_auto_confirm)
+    # The router calls ``q.auto_confirm_descriptions`` where ``q`` is the
+    # queries module, so patch the attribute on that module. (Patching via
+    # ``api.review.router`` doesn't work: the package __init__ does
+    # ``from api.review.router import router``, which shadows the submodule
+    # attribute with the APIRouter instance.)
+    from api.review import queries as rq
+    monkeypatch.setattr(rq, "auto_confirm_descriptions", fake_auto_confirm)
 
     r = client.post(
         "/review/bulk-confirm",
