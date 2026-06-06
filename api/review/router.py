@@ -27,6 +27,8 @@ class ReviewQueueRow(BaseModel):
     borrowers: list[str] = []
     reserve_price: float | None = None
     completeness: float | None = None
+    wrong_property: bool | None = None
+    text_overlap: float | None = None
     source: str | None = None
     verified: bool = False
     verified_at: str | None = None
@@ -117,6 +119,12 @@ class ReviewPropertyOut(BaseModel):
     description_extracted_original: str | None = None
     extracted_description: str | None = None
     completeness: float | None = None
+    complete: bool | None = None
+    missing_parts: list[str] | None = None
+    wrong_property: bool | None = None
+    judge_confidence: float | None = None
+    judge_reasoning: str | None = None
+    text_overlap: float | None = None
     verified: bool = False
     verified_at: str | None = None
     verified_by: str | None = None
