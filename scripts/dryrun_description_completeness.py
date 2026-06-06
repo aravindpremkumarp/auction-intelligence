@@ -28,7 +28,7 @@ import urllib.request
 
 from rapidfuzz import fuzz
 
-from api.neo4j_client import read_session
+from api.neo4j_client import run_read_query
 from api.review.markdown_match import _normalize_for_match, strip_field_bleed
 
 # ── Cheap pre-filter: contiguous-text overlap (E vs eauctionsindia.com W) ──────
@@ -57,21 +57,34 @@ def text_overlap(website: str | None, extracted: str | None) -> float:
 JUDGE_PROMPT = """You are auditing a property-description extraction from an Indian bank \
 auction sales notice.
 
-The SALES NOTICE MARKDOWN below is the source of truth — it contains the full \
-legal property description (the "schedule"). We extracted one property's \
-description from it. Your job: decide whether the EXTRACTED DESCRIPTION is the \
-COMPLETE property description present in the notice for {target} — nothing \
+The SALES NOTICE MARKDOWN below is the source of truth. Inside it is the legal \
+PROPERTY DESCRIPTION (the "schedule") for {target}. Your job: decide whether the \
+EXTRACTED DESCRIPTION captured that property description COMPLETELY — nothing \
 missing, nothing truncated.
 
+The PROPERTY DESCRIPTION consists ONLY of:
+- location (village/taluk/district/street/door address),
+- identifiers (survey / plot / door / patta numbers),
+- extent / area / measurements,
+- boundaries (North/South/East/West) and their measurements,
+- building / structure / land details and appurtenant rights (pathway, easement).
+
+Do NOT treat the following as part of the property description, and do NOT list \
+them as missing:
+- auction logistics (reserve price, EMD, bid increment, auction date/time, lot no),
+- lender / bank / branch names, possession status, account/loan references,
+- borrower or owner / title-holder NAMES,
+- contact details, dates, signatures, general terms & conditions.
+
 Rules:
-- Judge only against what the notice markdown actually contains. Do NOT assume a \
-fixed schedule structure.
-- Do NOT penalise the extraction for containing MORE detail than a short listing \
-would; extra legitimate detail is good.
-- If the extraction describes a DIFFERENT property/lot than {target}, set \
-wrong_property=true.
-- Report exactly what is in the notice's description but missing/cut off in the \
-extraction.
+- Judge only against what the notice markdown actually contains for {target}. Do \
+NOT assume a fixed schedule structure.
+- Do NOT penalise the extraction for containing MORE property detail than a short \
+listing would; extra legitimate detail is good.
+- Set wrong_property=true only if the extraction describes a DIFFERENT physical \
+property/lot than the one in the notice for {target}.
+- missing_parts must contain only PROPERTY-DESCRIPTION text present in the notice \
+but absent/cut off in the extraction (empty list if complete).
 
 Return STRICT JSON only:
 {{"complete": bool, "completeness": 0.0-1.0, "missing_parts": ["..."], \
@@ -149,6 +162,7 @@ RETURN a.auction_id               AS auction_id,
        a.website_description      AS website_description,
        a.description_scraped      AS description_scraped,
        a.extracted_description    AS extracted_description,
+       a.description              AS description,
        a.description_source       AS description_source,
        a.description_completeness AS old_completeness,
        coalesce(a.description_verified, false) AS verified,
@@ -159,10 +173,14 @@ RETURN a.auction_id               AS auction_id,
 
 def build_row(r: dict) -> dict:
     website = r.get("website_description") or r.get("description_scraped")
-    # E is ONLY extracted_description (the notice extraction). a.description is
-    # NOT a safe fallback: it is seeded from the website text and only becomes
-    # the notice description after apply_descriptions runs.
+    # E is the notice extraction. Prefer extracted_description; if it is empty
+    # (some graphs never loaded it), fall back to a.description ONLY when the
+    # source marks it as notice/human-derived — never when it is website-seeded
+    # ('scraped_cleaned' / null), which would compare website-vs-website.
+    src = r.get("description_source")
     extracted = r.get("extracted_description")
+    if not (extracted or "").strip() and src in ("notice", "human"):
+        extracted = r.get("description")
     return {
         "auction_id": r.get("auction_id"),
         "title": r.get("title"),
@@ -188,8 +206,10 @@ def main() -> int:
     args = ap.parse_args()
 
     cypher = FETCH + (f"\nLIMIT {int(args.limit)}" if args.limit else "")
-    with read_session() as s:
-        rows = [build_row(dict(r)) for r in s.run(cypher)]
+    # run_read_query transparently uses the HTTP API (port 443) when
+    # NEO4J_HTTP_API=1, or bolt otherwise — so this works from sandboxed/web
+    # environments where the bolt port (7687) is blocked.
+    rows = [build_row(r) for r in run_read_query(cypher, {}, timeout=120, max_rows=100000)]
     if not rows:
         print("No properties found.")
         return 1
