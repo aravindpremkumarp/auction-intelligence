@@ -102,16 +102,30 @@ def normalize_schedules(obj: dict) -> list[dict] | None:
     return cleaned or None
 
 
-def fetch_extraction_work() -> list[dict]:
+def fetch_extraction_work(missing_only: bool = False) -> list[dict]:
     """Every Document that needs (or might need) a description extraction.
 
     The orchestrator decides what to do per row using cache + status.
+
+    When ``missing_only`` is True, the worklist is restricted to Documents
+    that back at least one :AuctionProperty whose description was NOT sourced
+    from a notice (description_source not in {'notice','human'}). This is the
+    safe way to backfill properties that were never extracted without
+    re-extracting — and potentially overwriting — the descriptions already
+    applied to other listings.
     """
-    return run_read_query("""
+    missing_clause = ""
+    if missing_only:
+        missing_clause = """
+        AND EXISTS {
+          MATCH (a:AuctionProperty)-[:HAS_DOCUMENT]->(d)
+          WHERE NOT coalesce(a.description_source, '') IN ['notice', 'human']
+        }"""
+    return run_read_query(f"""
       MATCH (d:Document)
       WHERE d.markdown IS NOT NULL
         AND d.markdown <> ''
-        AND d.notice_type IN ['single', 'multi']
+        AND d.notice_type IN ['single', 'multi']{missing_clause}
       RETURN d.file_path                       AS file_path,
              d.filename                        AS filename,
              d.markdown                        AS markdown,
@@ -365,8 +379,9 @@ async def run_async(
             "count_mismatches": count_mismatches}
 
 
-def run(limit: int | None = None, force: bool = False) -> int:
-    work = fetch_extraction_work()
+def run(limit: int | None = None, force: bool = False,
+        missing_only: bool = False) -> int:
+    work = fetch_extraction_work(missing_only=missing_only)
     if limit:
         work = work[:limit]
     print(f"Worklist: {len(work)} Documents "
@@ -394,8 +409,12 @@ def main() -> int:
                     help="cap to first N Documents")
     ap.add_argument("--force", action="store_true",
                     help="re-extract even when a cache file already exists")
+    ap.add_argument("--missing-only", action="store_true",
+                    help="restrict to Documents backing properties that lack a "
+                         "notice-sourced description (safe backfill)")
     args = ap.parse_args()
-    return run(limit=args.limit, force=args.force)
+    return run(limit=args.limit, force=args.force,
+               missing_only=args.missing_only)
 
 
 if __name__ == "__main__":
