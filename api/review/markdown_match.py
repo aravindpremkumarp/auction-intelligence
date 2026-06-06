@@ -214,6 +214,50 @@ def strip_field_bleed(text: str | None) -> str:
     return text[: m.start()].rstrip(" ,;:-\n\t")
 
 
+# ── Borrower/contact column bleed at the START of a notice description ───────
+# Multi-column sale notices place the borrower/guarantor/contact details in a
+# column next to the property description. When the multi-notice splitter carved
+# a notice into per-lot descriptions it sometimes swept that column in, so the
+# stored description reads "Borrower:Mr X ... Residing at ... <real property
+# description>". We cut everything before the first genuine property-description
+# anchor — but ONLY when the text in front of it looks like a borrower/contact
+# block, so legitimate descriptions that merely start with "Door No 5, ..." are
+# left untouched.
+_DESC_ANCHOR = re.compile(
+    r"(?P<label>Description of the Immovable Property(?:\s*/\s*Secured Asset)?\s*:?\s*)"
+    r"|(?P<allthat>\bAll th(?:at|e)\s+(?:piece|part)\s+(?:and|of)\s+parcel\b)"
+    r"|(?P<sched>\bSchedule of (?:the )?Propert)",
+    re.IGNORECASE,
+)
+_CONTACT_LEAD = re.compile(
+    r"\b(?:Borrower|Co[\s-]*Borrower|Guarantor|Mortgagor|C\s*/?\s*O|"
+    r"Both are [Rr]esiding|All are [Rr]esiding|Residing at|Name (?:&|and) address|"
+    r"Name of (?:the )?[Bb]orrower|Door\s*No|Account\s*No|Loan\s*(?:Account|No))\b",
+    re.IGNORECASE,
+)
+
+
+def strip_contact_prefix(text: str | None) -> tuple[str, bool]:
+    """Strip a leading borrower/contact block off a notice description.
+
+    Returns ``(cleaned_text, changed)``. The text is only altered when a
+    property-description anchor is found *after* some text, and that leading
+    text contains borrower/contact tokens — otherwise the original is returned
+    unchanged. The "Description of the Immovable Property:" label is itself
+    boilerplate, so it is dropped along with the prefix; the "All that piece and
+    parcel" anchor is kept (it is the start of the real description).
+    """
+    if not text:
+        return text or "", False
+    m = _DESC_ANCHOR.search(text)
+    if not m or m.start() == 0:
+        return text, False
+    if not _CONTACT_LEAD.search(text[: m.start()]):
+        return text, False
+    cut = m.end() if m.lastgroup == "label" else m.start()
+    return text[cut:].lstrip(" ,;:-\n\t"), True
+
+
 def _normalize_for_match(text: str) -> str:
     """Fold OCR / scraper noise so fuzzy matching compares like with like.
 

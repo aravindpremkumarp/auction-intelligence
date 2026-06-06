@@ -10,6 +10,7 @@ from api.review.markdown_match import (
     borrower_in_markdown,
     description_coverage,
     price_in_markdown,
+    strip_contact_prefix,
     strip_field_bleed,
 )
 from pipeline.score_markdown import (
@@ -42,6 +43,50 @@ MARKDOWN = (
     "the boundaries hereunder South by: 23 Ft of Sri Yoga Anchaneyar Street\n"
     "| 2. | 1. GANDHI K LOGANATHAN | Reserve Price Rs. 71,23,450 |"
 )
+
+
+# ── strip_contact_prefix ─────────────────────────────────────────────────────
+
+def test_strip_contact_prefix_borrower_block_then_label():
+    text = (
+        "Borrower:Mr. Madhesh. VCo Borrower -1Mrs. Rukkumani Both are Residing "
+        "at: Door No.67, Police Colony, Dharmapuri, India - 636809. "
+        "Description of the Immovable Property/Secured Asset: In Dharmapuri "
+        "Registration District, measuring 2400 sq.ft."
+    )
+    out, changed = strip_contact_prefix(text)
+    assert changed is True
+    assert out.startswith("In Dharmapuri Registration District")
+    assert "Borrower" not in out and "Madhesh" not in out
+
+
+def test_strip_contact_prefix_keeps_all_that_anchor():
+    text = (
+        "Name & address of Borrower(s) Guarantor(s): (1) Mr. Kamesh, "
+        "(2) Mrs. Venkatalakshmi. All that part and parcel of land situated at "
+        "Royal Town, Chettipunniyam Village."
+    )
+    out, changed = strip_contact_prefix(text)
+    assert changed is True
+    assert out.startswith("All that part and parcel of land")
+
+
+def test_strip_contact_prefix_leaves_clean_description_untouched():
+    # Starts with a real property anchor — nothing to strip.
+    clean = "All that piece and parcel of land in Survey No.123, measuring 2400 sq.ft."
+    assert strip_contact_prefix(clean) == (clean, False)
+
+
+def test_strip_contact_prefix_leaves_address_style_description():
+    # Legitimately starts with "Door No" but has no contact block / no anchor
+    # before a property anchor — must not be mangled.
+    addr = "Door No. 1146/K, Plot No.5, Thendral Nagar. Residential House, 1054 Sq.ft."
+    assert strip_contact_prefix(addr) == (addr, False)
+
+
+def test_strip_contact_prefix_empty():
+    assert strip_contact_prefix("") == ("", False)
+    assert strip_contact_prefix(None) == ("", False)
 
 
 # ── description_coverage ────────────────────────────────────────────────────
