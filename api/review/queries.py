@@ -95,6 +95,8 @@ def list_queue(
     date_from: str | None = None,
     date_to: str | None = None,
     notice_type: NoticeTypeFilter | None = None,
+    judge_min: float | None = None,
+    judge_max: float | None = None,
 ) -> dict:
     """Return a page of properties whose description came from a notice
     extraction (or a human edit), filtered by review status.
@@ -125,11 +127,20 @@ def list_queue(
 
     params: dict = {"skip": skip, "size": size}
     if q:
+        # `b` is collapsed into the `borrowers` collection before this WHERE
+        # runs, so the borrower search must go through the collection (an
+        # `ANY` over `borrowers`) rather than referencing `b.name` directly.
         where.append(
             "(toLower(coalesce(a.title, '')) CONTAINS toLower($q) "
-            "OR toLower(coalesce(b.name, '')) CONTAINS toLower($q))"
+            "OR ANY(bn IN borrowers WHERE toLower(coalesce(bn, '')) CONTAINS toLower($q)))"
         )
         params["q"] = q
+    if judge_min is not None:
+        where.append("coalesce(a.description_judge_confidence, 0.0) >= $judge_min")
+        params["judge_min"] = float(judge_min)
+    if judge_max is not None:
+        where.append("coalesce(a.description_judge_confidence, 0.0) <= $judge_max")
+        params["judge_max"] = float(judge_max)
     if date_from:
         where.append("a.auction_start_dt IS NOT NULL AND date(a.auction_start_dt) >= date($date_from)")
         params["date_from"] = date_from
@@ -209,6 +220,8 @@ def list_notice_queue(
     date_from: str | None = None,
     date_to: str | None = None,
     notice_type: NoticeTypeFilter | None = None,
+    judge_min: float | None = None,
+    judge_max: float | None = None,
 ) -> dict:
     """Return a page of sales notices (Documents), each carrying the list of
     AuctionProperty rows extracted from it.
@@ -258,6 +271,15 @@ def list_notice_queue(
     if date_to:
         date_predicate += " AND a.auction_start_dt IS NOT NULL AND date(a.auction_start_dt) <= date($date_to)"
         params["date_to"] = date_to
+    # Score (completeness-judge confidence) filter — narrows the per-property
+    # rows that feed each notice's aggregate counts, so a notice surfaces only
+    # while it has reviewable properties inside the requested score band.
+    if judge_min is not None:
+        date_predicate += " AND coalesce(a.description_judge_confidence, 0.0) >= $judge_min"
+        params["judge_min"] = float(judge_min)
+    if judge_max is not None:
+        date_predicate += " AND coalesce(a.description_judge_confidence, 0.0) <= $judge_max"
+        params["judge_max"] = float(judge_max)
     nt_clause = _notice_type_clause(notice_type, alias="d")
     if nt_clause:
         date_predicate += f" AND {nt_clause}"
@@ -542,6 +564,97 @@ def unverify(auction_id: str) -> bool:
         {"aid": auction_id},
     )
     return bool(rows)
+
+
+def auto_confirm_descriptions(
+    judge_min: float,
+    by_email: str,
+    notes: str | None = None,
+    dry_run: bool = False,
+    judge_max: float = 1.0,
+    notice_type: NoticeTypeFilter | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    q: str | None = None,
+) -> dict:
+    """Bulk-verify every pending property whose description matches the
+    reviewer's current description-queue filter (completeness-judge score
+    range, notice_type, date window, title/borrower search).
+
+    Mirrors the pending-side WHERE of ``list_queue`` so the count advertised
+    on the "Confirm all N in range" button and the set actually verified stay
+    in lockstep. Only the verification audit fields are stamped — the
+    description text and source are left untouched (no re-extract).
+
+    Returns ``{"count": N, "dry_run": bool}``. When ``dry_run=True`` nothing
+    is written; the count reflects what *would* be confirmed.
+    """
+    where = [
+        "a.description_source IN ['notice', 'human']",
+        "a.description IS NOT NULL",
+        "coalesce(a.description_verified, false) = false",
+    ]
+    params: dict = {}
+    if q:
+        where.append(
+            "(toLower(coalesce(a.title, '')) CONTAINS toLower($q) "
+            "OR ANY(bn IN borrowers WHERE toLower(coalesce(bn, '')) CONTAINS toLower($q)))"
+        )
+        params["q"] = q
+    if judge_min is not None:
+        where.append("coalesce(a.description_judge_confidence, 0.0) >= $judge_min")
+        params["judge_min"] = float(judge_min)
+    if judge_max is not None:
+        where.append("coalesce(a.description_judge_confidence, 0.0) <= $judge_max")
+        params["judge_max"] = float(judge_max)
+    if date_from:
+        where.append("a.auction_start_dt IS NOT NULL AND date(a.auction_start_dt) >= date($date_from)")
+        params["date_from"] = date_from
+    if date_to:
+        where.append("a.auction_start_dt IS NOT NULL AND date(a.auction_start_dt) <= date($date_to)")
+        params["date_to"] = date_to
+    nt_clause = _notice_type_clause(notice_type, alias="d")
+    if nt_clause:
+        where.append(nt_clause)
+    where_clause = " AND ".join(where)
+
+    base_match = """
+        MATCH (a:AuctionProperty)
+        OPTIONAL MATCH (a)-[:HAS_BORROWER]->(b:Borrower)
+        OPTIONAL MATCH (a)-[:HAS_DOCUMENT]->(d:Document)
+        WITH a, collect(DISTINCT b.name) AS borrowers,
+             head(collect(DISTINCT d)) AS d
+    """
+
+    if dry_run:
+        rows = run_read_query(
+            f"""
+            {base_match}
+            WHERE {where_clause}
+            RETURN count(a) AS n
+            """,
+            params,
+            max_rows=1,
+        )
+        return {"count": int(rows[0]["n"]) if rows else 0, "dry_run": True}
+
+    params["by"] = by_email
+    params["notes"] = notes
+    rows = run_query(
+        f"""
+        {base_match}
+        WHERE {where_clause}
+        SET a.description_verified = true,
+            a.description_verified_by = $by,
+            a.description_verified_at = datetime(),
+            a.description_review_notes = CASE WHEN $notes IS NULL OR $notes = ''
+                                              THEN a.description_review_notes
+                                              ELSE $notes END
+        RETURN count(a) AS n
+        """,
+        params,
+    )
+    return {"count": int(rows[0]["n"]) if rows else 0, "dry_run": False}
 
 
 ClassificationStatus = Literal["pending", "verified", "edited", "all"]
