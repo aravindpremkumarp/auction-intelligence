@@ -27,6 +27,7 @@ dist/
 downloads/
 reports/
 data/
+output/
 pipeline/cache/
 pipeline/output/
 screenshots/
