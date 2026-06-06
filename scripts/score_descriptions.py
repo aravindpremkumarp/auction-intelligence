@@ -42,7 +42,11 @@ def judge(markdown: str, extracted: str, target: str, retries: int = 3) -> dict 
     payload = json.dumps({
         "model": OPENROUTER_MODEL,
         "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": 1024,
+        # deepseek-v4-pro and other reasoning models spend tokens on a
+        # reasoning pass before emitting the answer; 1024 was being consumed
+        # by reasoning, leaving content empty (null) → judge failed. Give the
+        # model headroom to actually produce the small JSON verdict.
+        "max_tokens": 4096,
         "temperature": 0.0,
     }).encode()
     for attempt in range(retries):
