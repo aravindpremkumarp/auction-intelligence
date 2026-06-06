@@ -34,15 +34,17 @@ CLASSIFY_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 # Override via OPENROUTER_MODEL in .env. Verified options:
-#   google/gemini-2.0-flash-001   (default; cheap, weaker at multi-turn grounding)
+#   google/gemini-2.5-flash       (default; cheap, weaker at multi-turn grounding)
 #   minimax/minimax-m2.5:free     (free tier; slower but decent grounding)
 #   anthropic/claude-sonnet-4.5   (strongest tool use; paid)
-OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "google/gemini-2.0-flash-001")
+# NB: google/gemini-2.0-flash-001 was retired from OpenRouter (404 "No
+# endpoints found"); 2.5-flash is the drop-in successor.
+OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "google/gemini-2.5-flash")
 
 # Per-stage model overrides so the chat agent and the description pipeline
 # can pin different models. Each defaults to a value that has been pilot-
 # validated for that stage:
-#   - SINGLE: gemini-2.0-flash (cheap, accurate on one-property notices)
+#   - SINGLE: gemini-2.5-flash (cheap, accurate on one-property notices)
 #   - MULTI:  deepseek-v4-flash (non-reasoning sibling; clean per-lot splits)
 #   - CLASSIFY: deepseek-v4-flash (single-shot single/multi judgment)
 OPENROUTER_MODEL_DESCRIPTION_SINGLE = os.getenv(

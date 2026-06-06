@@ -30,6 +30,7 @@ data/
 output/
 pipeline/cache/
 pipeline/output/
+output/
 screenshots/
 *.log
 ~$*                   # Windows Office temp files
