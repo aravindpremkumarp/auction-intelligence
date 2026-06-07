@@ -24,18 +24,24 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from api.neo4j_client import run_read_query
-from scripts.dryrun_description_completeness import FETCH, JUDGE_PROMPT, build_row, text_overlap
+from scripts.dryrun_description_completeness import (
+    FETCH,
+    JUDGE_PROMPT,
+    build_identity,
+    build_row,
+    text_overlap,
+)
 
 OUT = Path("output/description_judge.jsonl")
 
 
-def judge(markdown: str, extracted: str, target: str, retries: int = 3) -> dict | None:
+def judge(markdown: str, extracted: str, identity: str, retries: int = 3) -> dict | None:
     """Robust single judge call: retries on transient/parse failure."""
     from pipeline.config import OPENROUTER_API_KEY, OPENROUTER_BASE_URL, OPENROUTER_MODEL
     from pipeline.ocr_extract import parse_llm_response
 
     prompt = JUDGE_PROMPT.format(
-        target=target or "the property in this notice",
+        identity=identity or "the single property described in this notice",
         markdown=(markdown or "")[:20000],
         extracted=extracted or "",
     )
@@ -98,8 +104,8 @@ def main() -> int:
         return 0
 
     def work(r: dict) -> dict:
-        target = r["title"] or (r["borrowers"][0] if r["borrowers"] else "") or r["auction_id"]
-        v = judge(r["_markdown"], r["_extracted"], target)
+        identity = build_identity(r["borrowers"], r["reserve_price"], r["emd"])
+        v = judge(r["_markdown"], r["_extracted"], identity)
         return {
             "auction_id": r["auction_id"],
             "notice_type": r["notice_type"],

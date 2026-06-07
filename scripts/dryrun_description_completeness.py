@@ -57,10 +57,33 @@ def text_overlap(website: str | None, extracted: str | None) -> float:
 JUDGE_PROMPT = """You are auditing a property-description extraction from an Indian bank \
 auction sales notice.
 
-The SALES NOTICE MARKDOWN below is the source of truth. Inside it is the legal \
-PROPERTY DESCRIPTION (the "schedule") for {target}. Your job: decide whether the \
-EXTRACTED DESCRIPTION captured that property description COMPLETELY — nothing \
-missing, nothing truncated.
+The SALES NOTICE MARKDOWN below is the source of truth. It often describes \
+SEVERAL properties (lots). You are evaluating ONE specific auction lot, \
+identified by:
+
+{identity}
+
+FIRST, locate THIS lot inside the notice by matching the BORROWER name(s), the \
+RESERVE PRICE and the EMD above — these are the reliable keys. IMPORTANT: do NOT \
+use any listing title to decide which lot you are judging. Listing titles are \
+auto-generated summaries and frequently misstate the property TYPE (e.g. label a \
+flat as "Land and Building"). Only the borrower, reserve price and EMD identify \
+the correct lot.
+
+CRITICAL — ONE NOTICE OFTEN CONTAINS SEVERAL SEPARATE LOTS FOR THE SAME BORROWER. \
+A single borrower frequently has MULTIPLE distinct lots in one notice (e.g. \
+"PROPERTY-1" and "PROPERTY-2", or two blocks each with its own reserve price / \
+EMD). Each such block is a SEPARATE auction lot, NOT part of this one. You must \
+judge completeness ONLY against the single property block whose RESERVE PRICE (and \
+EMD) matches the target above. Any other property block — even under the same \
+borrower, even in the same area — that has a DIFFERENT reserve price or EMD is a \
+DIFFERENT lot: it is NOT missing, and you must NOT list its description in \
+missing_parts. Only when reserve price and EMD genuinely cannot tell two blocks \
+apart should you treat them as one lot.
+
+Then decide whether the EXTRACTED DESCRIPTION captured the legal PROPERTY \
+DESCRIPTION (the "schedule") of THAT lot COMPLETELY — nothing missing, nothing \
+truncated.
 
 The PROPERTY DESCRIPTION consists ONLY of:
 - location (village/taluk/district/street/door address),
@@ -77,18 +100,25 @@ them as missing:
 - contact details, dates, signatures, general terms & conditions.
 
 Rules:
-- Judge only against what the notice markdown actually contains for {target}. Do \
-NOT assume a fixed schedule structure.
+- Match the lot by borrower + reserve price + EMD, then judge the extraction only \
+against THAT one lot's schedule. Do NOT assume a fixed schedule structure. Do NOT \
+fold a same-borrower sibling lot (different reserve/EMD) into this lot.
 - Do NOT penalise the extraction for containing MORE property detail than a short \
 listing would; extra legitimate detail is good.
-- Set wrong_property=true only if the extraction describes a DIFFERENT physical \
-property/lot than the one in the notice for {target}.
+- Set wrong_property=true ONLY when the extraction clearly describes a DIFFERENT \
+lot than the one matching the borrower + reserve price above (e.g. a different \
+survey number belonging to another borrower). Do NOT set wrong_property merely \
+because the property TYPE differs from a title or listing — the title is not \
+evidence. If the notice has only one property, that is THIS lot.
 - missing_parts must contain only PROPERTY-DESCRIPTION text present in the notice \
 but absent/cut off in the extraction (empty list if complete).
 
 Return STRICT JSON only:
 {{"complete": bool, "completeness": 0.0-1.0, "missing_parts": ["..."], \
 "wrong_property": bool, "confidence": 0.0-1.0, "reasoning": "1-2 lines"}}
+
+=== TARGET LOT (identify by borrower + reserve price) ===
+{identity}
 
 === SALES NOTICE MARKDOWN ===
 {markdown}
@@ -98,14 +128,32 @@ Return STRICT JSON only:
 """
 
 
-def run_judge(markdown: str, extracted: str, target: str) -> dict | None:
+def build_identity(borrowers, reserve_price, emd=None) -> str:
+    """Identity block for the judge: the reliable per-lot keys (borrower names +
+    reserve price + EMD). The EMD is a second anchor that, together with the
+    reserve price, separates one borrower's multiple lots within a single notice.
+    Deliberately excludes the listing title, which can misstate the property type
+    and mislead lot matching."""
+    parts = []
+    names = [b for b in (borrowers or []) if b]
+    if names:
+        parts.append("Borrower(s): " + "; ".join(names))
+    if reserve_price:
+        parts.append(f"Reserve price: Rs. {int(reserve_price):,}")
+    if emd:
+        parts.append(f"EMD: Rs. {int(emd):,}")
+    return "\n".join(parts) if parts else "the single property described in this notice"
+
+
+
+def run_judge(markdown: str, extracted: str, identity: str) -> dict | None:
     """Synchronous OpenRouter call for the dry-run sample. Reuses pipeline config
     + JSON parser. Returns the parsed judge verdict or None on failure."""
     from pipeline.config import OPENROUTER_API_KEY, OPENROUTER_BASE_URL, OPENROUTER_MODEL
     from pipeline.ocr_extract import parse_llm_response
 
     prompt = JUDGE_PROMPT.format(
-        target=target or "the property in this notice",
+        identity=identity or "the single property described in this notice",
         markdown=(markdown or "")[:20000],
         extracted=extracted or "",
     )
@@ -159,6 +207,8 @@ WITH a, head(collect(DISTINCT d)) AS d, collect(DISTINCT b.name) AS borrowers
 RETURN a.auction_id               AS auction_id,
        a.title                    AS title,
        borrowers                  AS borrowers,
+       a.reserve_price_num        AS reserve_price,
+       a.emd_num                  AS emd,
        a.website_description      AS website_description,
        a.description_scraped      AS description_scraped,
        a.extracted_description    AS extracted_description,
@@ -185,6 +235,8 @@ def build_row(r: dict) -> dict:
         "auction_id": r.get("auction_id"),
         "title": r.get("title"),
         "borrowers": r.get("borrowers") or [],
+        "reserve_price": r.get("reserve_price"),
+        "emd": r.get("emd"),
         "notice_type": r.get("notice_type"),
         "source": r.get("description_source"),
         "verified": bool(r.get("verified")),
@@ -234,8 +286,8 @@ def main() -> int:
         sample = random.sample(candidates, min(args.judge_sample, len(candidates)))
         print(f"\nRunning LLM judge on {len(sample)} sampled properties…")
         for r in sample:
-            target = r["title"] or (r["borrowers"][0] if r["borrowers"] else "") or r["auction_id"]
-            r["judge"] = run_judge(r["_markdown"], r["_extracted"], target)
+            identity = build_identity(r["borrowers"], r["reserve_price"], r["emd"])
+            r["judge"] = run_judge(r["_markdown"], r["_extracted"], identity)
 
         judged = [r for r in sample if r["judge"]]
         print(f"\njudged ok: {len(judged)}/{len(sample)}")
