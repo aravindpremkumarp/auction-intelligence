@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -46,6 +47,13 @@ app = FastAPI(title="Bank Auction Intelligence API", version="0.1.0")
 configure_telemetry(app)
 
 
+# Branded site + Vercel previews are matched by regex; explicit dev/prod
+# origins come from _cors_allow_list(). Kept as a module constant so the
+# CORSMiddleware config and the error-path origin check stay in sync.
+_CORS_ORIGIN_REGEX = r"https://(.*\.vercel\.app|(.*\.)?auctionscope\.in)"
+_cors_origin_re = re.compile(_CORS_ORIGIN_REGEX)
+
+
 def _cors_allow_list() -> list[str]:
     base = os.environ.get("APP_BASE_URL", "").strip()
     env = os.environ.get("APP_ENV", "prod").lower()
@@ -57,10 +65,22 @@ def _cors_allow_list() -> list[str]:
     return sorted(origins)
 
 
+def _origin_allowed(origin: str | None) -> bool:
+    """Mirror the CORSMiddleware policy so error responses — which are emitted
+    by ServerErrorMiddleware *outside* CORSMiddleware and therefore never get
+    its headers — can echo a valid Access-Control-Allow-Origin."""
+    if not origin:
+        return False
+    allow = _cors_allow_list()
+    if "*" in allow or origin in allow:
+        return True
+    return bool(_cors_origin_re.fullmatch(origin))
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_allow_list(),
-    allow_origin_regex=r"https://(.*\.vercel\.app|(.*\.)?auctionscope\.in)",
+    allow_origin_regex=_CORS_ORIGIN_REGEX,
     allow_methods=["*"],
     allow_headers=["Authorization", "Content-Type"],
     allow_credentials=False,
@@ -77,12 +97,20 @@ async def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONR
 
 @app.exception_handler(Exception)
 async def _unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-    # Routed through the FastAPI exception handler chain (inside CORSMiddleware)
-    # so the response carries Access-Control-Allow-Origin. Without this, browsers
-    # see Starlette's bare 500 from ServerErrorMiddleware, strip it for missing
-    # CORS, and report "Failed to fetch" instead of the real status.
+    # The catch-all Exception handler is invoked by Starlette's
+    # ServerErrorMiddleware, which sits OUTSIDE CORSMiddleware — so (unlike
+    # HTTPException responses) this 500 never passes back through CORS and
+    # would reach the browser with no Access-Control-Allow-Origin. The browser
+    # then discards it and the fetch rejects as "Failed to fetch", masking the
+    # real status. Re-attach the CORS header here so the SPA can surface a
+    # clear error (e.g. "detail 500") instead of a generic network failure.
     logger.exception("Unhandled exception on %s %s", request.method, request.url.path)
-    return JSONResponse(status_code=500, content={"detail": "internal server error"})
+    resp = JSONResponse(status_code=500, content={"detail": "internal server error"})
+    origin = request.headers.get("origin")
+    if _origin_allowed(origin):
+        resp.headers["Access-Control-Allow-Origin"] = origin
+        resp.headers["Vary"] = "Origin"
+    return resp
 
 
 # Always-on public routers.
