@@ -104,7 +104,7 @@ def main() -> int:
         return 0
 
     def work(r: dict) -> dict:
-        identity = build_identity(r["borrowers"], r["reserve_price"])
+        identity = build_identity(r["borrowers"], r["reserve_price"], r["emd"])
         v = judge(r["_markdown"], r["_extracted"], identity)
         return {
             "auction_id": r["auction_id"],
