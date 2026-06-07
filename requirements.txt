@@ -33,6 +33,12 @@ fastapi>=0.115,<1.0
 uvicorn[standard]>=0.30,<1.0
 pydantic-ai>=1.0,<2
 
+# Observability — Logfire/OpenTelemetry tracing of the agent + LLM + tool
+# calls. Tracing is a no-op unless LOGFIRE_TOKEN is set (see api/telemetry.py),
+# but the package is installed in prod so the instrumentation is available.
+# The [fastapi] extra adds per-request root spans (opentelemetry asgi/fastapi).
+logfire[fastapi]>=4,<5
+
 # Auth + email
 bcrypt>=4.0,<6
 PyJWT>=2.8,<3

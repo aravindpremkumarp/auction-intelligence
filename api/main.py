@@ -29,6 +29,7 @@ from api.feedback import router as feedback_router
 from api.health import router as health_router
 from api.properties import router as properties_router
 from api.review import router as review_router
+from api.telemetry import configure_telemetry
 from api.watchlist import router as watchlist_router
 
 logger = logging.getLogger(__name__)
@@ -37,6 +38,12 @@ ROOT = Path(__file__).resolve().parent.parent
 WEB_DIR = ROOT / "web"
 
 app = FastAPI(title="Bank Auction Intelligence API", version="0.1.0")
+
+# Optional Logfire/OpenTelemetry tracing — no-op unless LOGFIRE_TOKEN (or a
+# generic OTLP endpoint) is set. Instruments pydantic-ai (agent + LLM + tool
+# spans) and FastAPI (per-request root span) so a /chat turn shows a full
+# trace waterfall. See api/telemetry.py.
+configure_telemetry(app)
 
 
 def _cors_allow_list() -> list[str]:
