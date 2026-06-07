@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<title>Auctionscope</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="auctionscope.css">
+<link rel="stylesheet" href="screens.css">
+</head>
+<body>
+
+<!-- ===== icon defs ===== -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-flat" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="3" width="14" height="18" rx="1.5"/><line x1="8.5" y1="7" x2="10.5" y2="7"/><line x1="13.5" y1="7" x2="15.5" y2="7"/><line x1="8.5" y1="11" x2="10.5" y2="11"/><line x1="13.5" y1="11" x2="15.5" y2="11"/><line x1="8.5" y1="15" x2="10.5" y2="15"/><line x1="13.5" y1="15" x2="15.5" y2="15"/><path d="M10.5 21v-2.5h3V21"/></symbol>
+  <symbol id="i-house" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11l8-6 8 6"/><path d="M6 10v10h12V10"/><path d="M10.5 20v-5h3v5"/></symbol>
+  <symbol id="i-villa" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-6 9 6"/><path d="M5 10v10h14V10"/><rect x="9.5" y="14" width="5" height="6"/><line x1="7.5" y1="13" x2="8.5" y2="13"/><line x1="15.5" y1="13" x2="16.5" y2="13"/></symbol>
+  <symbol id="i-land" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="6" width="16" height="12" rx="1" stroke-dasharray="3 2.5"/><path d="M4 6h1.5M18.5 6H20M4 18h1.5M18.5 18H20"/><circle cx="9" cy="13" r="0.6" fill="currentColor" stroke="none"/><circle cx="14" cy="11" r="0.6" fill="currentColor" stroke="none"/><circle cx="15" cy="15" r="0.6" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-commercial" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9l1.2-3h13.6L20 9"/><path d="M5 9v11h14V9"/><path d="M5 9h14"/><rect x="8" y="13" width="4" height="4"/><path d="M15 20v-7h2v7"/></symbol>
+  <symbol id="i-industrial" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 20V11l4 2.5V11l4 2.5V11l4 2.5"/><path d="M19 20V6"/><path d="M3 20h18"/><line x1="19" y1="6" x2="16.5" y2="4"/></symbol>
+  <symbol id="i-godown" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10l9-5 9 5"/><path d="M5 9.5V20h14V9.5"/><rect x="9" y="13" width="6" height="7"/><line x1="9" y1="16" x2="15" y2="16"/></symbol>
+  <symbol id="i-pin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-6-5.3-6-10a6 6 0 1 1 12 0c0 4.7-6 10-6 10z"/><circle cx="12" cy="11" r="2"/></symbol>
+  <symbol id="i-cal" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="16" rx="2"/><path d="M4 9h16M8 3v4M16 3v4"/></symbol>
+  <symbol id="i-star" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4l2.4 4.9 5.4.8-3.9 3.8.9 5.4-4.8-2.5-4.8 2.5.9-5.4L4.2 9.7l5.4-.8z"/></symbol>
+  <symbol id="i-star-fill" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M12 4l2.4 4.9 5.4.8-3.9 3.8.9 5.4-4.8-2.5-4.8 2.5.9-5.4L4.2 9.7l5.4-.8z"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h13M12 5l7 7-7 7"/></symbol>
+  <symbol id="i-link" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1.5 1.5"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1.5-1.5"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4 12H2M22 12h-2M5 5l1.5 1.5M17.5 17.5L19 19M19 5l-1.5 1.5M6.5 17.5L5 19"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11.5a7.5 7.5 0 0 1-10.7 6.8L4 20l1.7-5.3A7.5 7.5 0 1 1 20 11.5z"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l2.5 1.5"/></symbol>
+  <symbol id="i-home" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11l8-6 8 6"/><path d="M6 10v10h12V10"/></symbol>
+  <symbol id="i-back" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></symbol>
+  <symbol id="i-doc" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3h7l4 4v14H7z"/><path d="M14 3v4h4"/><line x1="10" y1="13" x2="15" y2="13"/><line x1="10" y1="16.5" x2="15" y2="16.5"/></symbol>
+  <symbol id="i-msg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-12 7.6L3 21l1.9-5.7A8.4 8.4 0 1 1 21 11.5z"/></symbol>
+  <symbol id="i-filter" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M7 12h10M10 18h4"/></symbol>
+</svg>
+
+<div class="app">
+
+  <!-- ===== TOP BAR ===== -->
+  <header class="topbar">
+    <div class="top-left">
+      <a class="brand" data-nav="landing" href="#">
+        <span class="brand-mark"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="5.5"/><circle cx="12" cy="12" r="1.6" fill="#fff" stroke="none"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></span>
+        <span class="brand-name"><b>Auction</b><span>scope</span></span>
+      </a>
+    </div>
+    <nav class="top-nav">
+      <button data-nav="landing" class="on">Search</button>
+      <button data-nav="results">Chat</button>
+      <button data-nav="watchlist">Watchlist <span class="count-pill" id="save-count" hidden>0</span></button>
+    </nav>
+    <div class="top-right">
+      <button class="icon-btn" id="theme-toggle" title="Toggle theme" aria-label="Toggle theme"><svg><use href="#i-moon"/></svg></button>
+      <span class="avatar" data-comment-anchor="5f422b1a55-span">AP</span>
+    </div>
+  </header>
+
+  <div class="screen-host">
+
+    <!-- ===== SEARCH / HOME ===== -->
+    <section class="screen on" data-screen="landing" data-screen-label="Search">
+      <div class="screen-inner">
+        <div class="landing-hero">
+          <div class="eyebrow">3,391 Tamil Nadu bank auctions · AI-powered</div>
+          <h1 class="h1">What property are you looking for?</h1>
+          <div class="chat-input">
+            <select class="mode-select-inline" aria-label="Answer mode"><option>Ask</option></select>
+            <textarea id="landing-input" rows="1" placeholder="3BHK in Chennai under ₹1Cr, ready possession…"></textarea>
+            <button class="send" id="landing-send" aria-label="Search"><svg><use href="#i-send"/></svg></button>
+          </div>
+          <div class="try-label">Try asking</div>
+          <div class="landing-suggest" id="landing-suggest"></div>
+        </div>
+
+        <div class="browse">
+          <div class="browse-head">
+            <div>
+              <h2 class="h2">Browse all properties</h2>
+              <div class="sub">Filter the full catalogue, or chat above for smart matching.</div>
+            </div>
+          </div>
+
+          <div class="filter-bar">
+            <div class="bf-row">
+              <div class="field" style="flex:1; min-width:220px;">
+                <svg class="field-ico"><use href="#i-search"/></svg>
+                <input class="input" id="browse-q" placeholder="Search by location, bank, or property type…">
+              </div>
+              <button class="filter-toggle" id="filter-toggle" aria-expanded="false"><svg width="16" height="16"><use href="#i-filter"/></svg> Filters<span class="count-pill" id="filter-count" hidden>0</span></button>
+              <button class="filter-clear" id="filter-clear" disabled><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg> Clear all</button>
+            </div>
+            <div class="filter-panel" id="filter-panel" hidden>
+              <div class="bf-row wrap" id="filter-row"></div>
+            </div>
+            <div class="bf-row" id="active-chips" style="display:none"></div>
+          </div>
+
+          <div class="browse-meta">
+            <span class="count" id="browse-count">— properties</span>
+            <span class="freshness"><span class="dot"></span>Data updated 2 days ago</span>
+            <div class="filter-group" style="margin-left:auto"><span class="lbl-inline">Sort</span><select class="filter-select" id="f-sort"><option value="date_asc">Auction: soonest</option><option value="price_asc">Price: low → high</option><option value="price_desc">Price: high → low</option></select></div>
+          </div>
+
+          <div class="browse-grid" id="browse-grid"></div>
+          <div class="load-more" id="load-more" hidden><button class="btn secondary">Load more</button></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== RESULTS / CHAT ===== -->
+    <section class="screen" data-screen="results" data-screen-label="Chat">
+      <div class="screen-inner">
+        <div class="mobile-tabs" role="tablist" aria-label="Chat panels">
+          <button data-mtab="history" class="mt-icon" role="tab" aria-label="Chat history" title="History"><svg width="17" height="17"><use href="#i-clock"/></svg></button>
+          <button data-mtab="chat" class="on" role="tab" aria-selected="true">Conversation</button>
+          <button data-mtab="matches" role="tab" aria-selected="false">Matches <span class="mt-badge" id="mtab-count">0</span></button>
+        </div>
+        <div class="results" id="results-grid">
+          <aside class="chat-sidebar">
+            <div class="sb-head"><span class="sb-title">Chats</span></div>
+            <button class="sb-new" id="new-chat"><svg width="15" height="15"><use href="#i-plus"/></svg> New chat</button>
+            <div class="field" style="margin:2px 0"><svg class="field-ico" style="width:15px;height:15px"><use href="#i-search"/></svg><input class="input" style="padding:8px 10px 8px 34px;font-size:13px" placeholder="Search chats…" id="sb-search"></div>
+            <div class="sb-body" id="sb-body"></div>
+          </aside>
+
+          <div class="transcript-pane">
+            <div class="transcript-head">
+              <div>
+                <div class="t-title" id="thread-title">New conversation</div>
+                <div class="t-sub">Ask in plain English — Auctionscope searches the catalogue</div>
+              </div>
+            </div>
+            <div class="chat-log" id="chat-log"></div>
+            <div class="chat-input">
+              <select class="mode-select-inline" aria-label="Answer mode"><option>Ask</option></select>
+              <textarea id="results-input" rows="1" placeholder="Refine your search…"></textarea>
+              <button class="send" id="results-send" aria-label="Send"><svg><use href="#i-send"/></svg></button>
+            </div>
+          </div>
+
+          <div class="results-pane">
+            <div class="results-head">
+              <div class="count" id="results-count">Matches <small id="results-subcount"></small></div>
+              <select class="filter-select" id="results-sort"><option value="date_asc">Auction: soonest</option><option value="price_asc">Price: low → high</option><option value="price_desc">Price: high → low</option></select>
+            </div>
+            <div class="results-list" id="results-list"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== PROPERTY DETAIL ===== -->
+    <section class="screen" data-screen="detail" data-screen-label="Property detail">
+      <div class="screen-inner">
+        <button class="back-link" id="detail-back"><svg><use href="#i-back"/></svg> Back to results</button>
+        <div class="detail" id="detail-content"></div>
+      </div>
+    </section>
+
+    <!-- ===== WATCHLIST ===== -->
+    <section class="screen" data-screen="watchlist" data-screen-label="Watchlist">
+      <div class="screen-inner">
+        <div class="watchlist">
+          <div class="watchlist-head">
+            <div><h2 class="h2">Your watchlist</h2></div>
+            <div class="wl-count" id="wl-count">0 saved</div>
+          </div>
+          <div id="watchlist-body"></div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+  <!-- ===== MOBILE BOTTOM NAV ===== -->
+  <nav class="bottom-tabs">
+    <button class="bt on" data-nav="landing"><svg><use href="#i-home"/></svg> Search</button>
+    <button class="bt" data-nav="results"><svg><use href="#i-chat"/></svg> Chat</button>
+    <button class="bt" data-nav="watchlist"><svg><use href="#i-star"/></svg> Saved<span class="bt-badge" id="bt-save-count" hidden>0</span></button>
+  </nav>
+
+</div>
+
+<script src="prototype.js"></script>
+</body>
+</html>
