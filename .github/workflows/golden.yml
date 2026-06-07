@@ -1,10 +1,13 @@
 name: Golden-question eval
 
-# Runs the live golden-question harness against the real OpenRouter + Neo4j
-# stack. Scheduled nightly; can also be triggered manually via the UI or an
-# explicit push to the `claude/**` branches. Secrets must be configured:
+# Runs the live golden-question eval (evals/run_golden.py) against the real
+# OpenRouter + Neo4j stack using pydantic-evals: each catalogue question is run
+# through the agent, scored on tool-trajectory (CI gate) + LLM-as-judge answer
+# quality, and — when LOGFIRE_TOKEN is set — streamed to Logfire as a browsable
+# experiment. Scheduled nightly; also triggerable manually. Secrets required:
 # OPENROUTER_API_KEY, OPENROUTER_MODEL, NEO4J_URI, NEO4J_USERNAME,
-# NEO4J_PASSWORD, NEO4J_DATABASE, OPENAI_API_KEY.
+# NEO4J_PASSWORD, NEO4J_DATABASE, OPENAI_API_KEY. Optional: LOGFIRE_TOKEN,
+# EVAL_JUDGE_MODEL.
 
 on:
   schedule:
@@ -16,7 +19,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      RUN_LIVE_EVAL: "1"
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       OPENROUTER_MODEL:   ${{ secrets.OPENROUTER_MODEL }}
       NEO4J_URI:          ${{ secrets.NEO4J_URI }}
@@ -24,6 +26,9 @@ jobs:
       NEO4J_PASSWORD:     ${{ secrets.NEO4J_PASSWORD }}
       NEO4J_DATABASE:     ${{ secrets.NEO4J_DATABASE }}
       OPENAI_API_KEY:     ${{ secrets.OPENAI_API_KEY }}
+      LOGFIRE_TOKEN:      ${{ secrets.LOGFIRE_TOKEN }}
+      LOGFIRE_ENVIRONMENT: ci
+      EVAL_JUDGE_MODEL:   ${{ secrets.EVAL_JUDGE_MODEL }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -33,6 +38,6 @@ jobs:
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
-          pip install pytest httpx
+          pip install pydantic-evals
       - name: Run golden-question live eval
-        run: pytest tests/api/test_golden_questions.py -v --tb=short
+        run: python -m evals.run_golden

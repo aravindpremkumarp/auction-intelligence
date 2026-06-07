@@ -73,6 +73,30 @@ Slow operations log at WARNING above env-tunable budgets — `OBS_SLOW_QUERY_MS`
 (default 1500) for Neo4j and `OBS_SLOW_AGENT_MS` (default 12000) for the LLM
 turn. `/chat` also logs a per-turn summary (`chat turn ok mode=… tool_calls=…`).
 
+### Tracing (Pydantic Logfire)
+
+`pydantic-ai` is natively OpenTelemetry-instrumented. Set `LOGFIRE_TOKEN` (get
+one at <https://logfire.pydantic.dev>) and `api/telemetry.py` lights up a full
+trace per chat turn — the request, the agent run, every LLM call (prompt,
+response, tokens, cost), and every tool call — as a waterfall in the Logfire
+UI. Unset, it's a no-op and the structured logs above are all you get. Because
+the transport is OTLP, the same instrumentation can target any OTel backend
+(LangSmith, Langfuse, Honeycomb) via `OTEL_EXPORTER_OTLP_*` env vars instead.
+
+### Evaluation (`evals/`)
+
+`evals/` is a `pydantic-evals` harness over a golden-question catalogue
+(`evals/cases.py`). It runs each question through the real agent and scores the
+**tool trajectory** (did it pick an acceptable tool — the CI gate) and **answer
+quality** (a reference-free LLM-as-judge score). Run it with:
+
+```bash
+python -m evals.run_golden      # needs OpenRouter + Neo4j creds
+```
+
+CI runs it nightly (`.github/workflows/golden.yml`); the offline
+`tests/api/test_golden_questions.py` only validates the catalogue's shape.
+
 ## Health & data freshness
 
 - `GET /health` — cheap liveness probe.
