@@ -40,21 +40,32 @@ _WRITE_PROCEDURE_RE = re.compile(
 _MAX_CYPHER_LENGTH = 4000
 _ALLOWED_PARAM_TYPES = (str, int, float, bool, type(None))
 
-# Property keys that are stored as Neo4j DATETIME and must be serialized
-# to ISO strings before leaving the API boundary (FastAPI's default JSON
-# encoder can't handle neo4j.time.DateTime).
-_AUCTION_DATETIME_KEYS = (
-    "auction_start_dt", "auction_end_dt", "application_deadline_dt",
-    "auction_start_dt_scraped", "auction_end_dt_scraped",
-    "application_deadline_dt_scraped",
-    "verified_at",
-)
 
-
+# Neo4j DATETIME values must be serialized to ISO strings before leaving the
+# API boundary — FastAPI's response serializer can't encode neo4j.time.*.
 def _iso(v):
     """Coerce a neo4j.time.DateTime to its ISO string. Pass through anything
     else (str, None, numbers) untouched."""
     return v.iso_format() if hasattr(v, "iso_format") else v
+
+
+def _json_safe(v):
+    """Recursively coerce neo4j temporal types (Date/Time/DateTime/Duration),
+    wherever they sit in a nested value, to ISO strings.
+
+    `properties(node)` hands back raw neo4j temporal objects, which FastAPI's
+    pydantic-v2 response serializer cannot encode — it raises and the route
+    500s. The detail payload previously coerced only a hardcoded set of
+    top-level AuctionProperty keys, so any datetime on a related node
+    (Bank/City/Borrower/…) — or a newly-added AuctionProperty datetime field —
+    slipped through raw and 500'd every property detail."""
+    if hasattr(v, "iso_format"):
+        return v.iso_format()
+    if isinstance(v, dict):
+        return {k: _json_safe(x) for k, x in v.items()}
+    if isinstance(v, (list, tuple)):
+        return [_json_safe(x) for x in v]
+    return v
 
 
 def _aware(dt: datetime | None) -> datetime | None:
@@ -971,10 +982,10 @@ def get_auction_detail(auction_id: str) -> dict | None:
     rows = run_query(cypher, {"auction_id": auction_id})
     if not rows:
         return None
-    fields = dict(rows[0]["fields"])
-    for k in _AUCTION_DATETIME_KEYS:
-        if k in fields:
-            fields[k] = _iso(fields[k])
+    # Coerce every neo4j temporal value (top-level fields AND nested
+    # related-node maps) to ISO strings up front so the response serializer
+    # never sees a raw neo4j.time.* object.
+    fields = _json_safe(dict(rows[0]["fields"]))
 
     extras_raw = fields.get("extras")
     if isinstance(extras_raw, str) and extras_raw.strip().startswith(("{", "[")):
@@ -1036,7 +1047,7 @@ def get_auction_detail(auction_id: str) -> dict | None:
     return {
         "auction_id":    auction_id,
         "fields":        fields,
-        "relationships": rows[0]["relationships"],
+        "relationships": _json_safe(rows[0]["relationships"]),
         "documents":     documents,
         "price_history": price_history,
     }
