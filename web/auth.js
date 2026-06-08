@@ -205,7 +205,10 @@
       'border-radius:var(--radius-sm);padding:7px 14px;font-family:var(--font-body);' +
       'font-size:13px;font-weight:600;cursor:pointer;color:var(--on-accent);' +
       'transition:background 150ms ease;}' +
-      '.auth-slot .sign-in:hover{background:var(--accent-hover);}';
+      '.auth-slot .sign-in:hover{background:var(--accent-hover);}' +
+      '.auth-slot .user-menu .avatar.guest{background:var(--paper-2);color:var(--ink-soft);' +
+      'border:1px solid var(--border);}' +
+      '.auth-slot details .dropdown a.primary{color:var(--accent);font-weight:600;}';
     var style = document.createElement('style');
     style.id = 'auth-modal-styles';
     style.textContent = css;
@@ -426,12 +429,20 @@
     if (!slot) return;
     slot.className = 'auth-slot';
     slot.innerHTML = '';
+    var closeMenu = function () { var d = slot.querySelector('details'); if (d) d.open = false; };
+    var openFeedback = function (e) { e.preventDefault(); closeMenu(); if (window.openGeneralFeedback) window.openGeneralFeedback(); };
     if (!currentUser) {
-      var btn = document.createElement('button');
-      btn.className = 'sign-in';
-      btn.textContent = 'Sign in';
-      btn.onclick = openLoginModal;
-      slot.appendChild(btn);
+      var personIcon = '<svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="10" cy="7" r="3.2"/><path d="M3.8 16.6c0-3 2.8-4.9 6.2-4.9s6.2 1.9 6.2 4.9"/></svg>';
+      slot.innerHTML =
+        '<details>' +
+          '<summary><div class="user-menu"><div class="avatar guest" title="Account">' + personIcon + '</div></div></summary>' +
+          '<div class="dropdown">' +
+            '<a data-act="signin" class="primary">Sign in</a>' +
+            '<a data-act="feedback">Send feedback</a>' +
+          '</div>' +
+        '</details>';
+      slot.querySelector('[data-act="signin"]').onclick = function (e) { e.preventDefault(); closeMenu(); openLoginModal(); };
+      slot.querySelector('[data-act="feedback"]').onclick = openFeedback;
       return;
     }
     var initials = (currentUser.name || currentUser.email || '?').trim().slice(0, 1).toUpperCase();
@@ -443,9 +454,11 @@
           '<a data-act="who">' + escapeHtml(currentUser.email) + '</a>' +
           (isAdmin ? '<a href="/admin">Admin</a>' : '') +
           (isAdmin ? '<a href="/review">Review</a>' : '') +
+          '<a data-act="feedback">Send feedback</a>' +
           '<a data-act="logout">Sign out</a>' +
         '</div>' +
       '</details>';
+    slot.querySelector('[data-act="feedback"]').onclick = openFeedback;
     slot.querySelector('[data-act="logout"]').onclick = async function (e) {
       e.preventDefault(); await logout();
     };
