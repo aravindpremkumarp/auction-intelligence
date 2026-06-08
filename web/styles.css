@@ -1514,8 +1514,14 @@ body {
   /* Bound the chat screen to exactly the space between the sticky topbar (56px)
      and the fixed bottom-tabs (64px) and clip its overflow, so the page itself
      never scrolls — only the inner chat-log (and the matches list) scroll. */
+  /* Hide the global header on the chat screen for a full-height conversation;
+     it reappears on the other tabs. */
+  body:has(.screen[data-screen="results"].on) .topbar { display: none; }
   .screen[data-screen="results"].on {
-    height: calc(100dvh - 56px - 64px);
+    /* Fill from the top of the viewport down to just above the fixed bottom-tabs.
+       The bar is ~64px tall PLUS the device bottom safe-area inset (gesture bar) —
+       subtracting the inset is what stops it from clipping the chat input. */
+    height: calc(100dvh - 64px - env(safe-area-inset-bottom, 0px));
     min-height: 0;
     padding-bottom: 0 !important;
     overflow: hidden;
@@ -2124,11 +2130,10 @@ body {
   .screen[data-screen="results"] .transcript-pane {
     border: 0; box-shadow: none; padding: 0; gap: 6px;
   }
-  .screen[data-screen="results"] .transcript-head {
-    border-bottom: 0; padding: 0; justify-content: flex-end; min-height: 0;
-  }
-  .screen[data-screen="results"] .transcript-head .hand { display: none; }
-  .screen[data-screen="results"] .transcript-head .chip { padding: 5px 12px; }
+  /* The segmented tab bar already labels the conversation, so drop the in-panel
+     header and its "+ new" button. A new chat is still one tap away via the
+     history (clock) tab → "+ new chat". */
+  .screen[data-screen="results"] .transcript-head { display: none; }
   /* trim the empty-state so the prompt + chips sit higher and feel less sparse */
   .screen[data-screen="results"] .chat-empty { padding: 12px 8px; gap: 8px; }
 }
