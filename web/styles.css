@@ -493,9 +493,9 @@ body {
 .chat-input textarea {
   resize: none;
   overflow-y: auto;
-  line-height: 1.25;
+  line-height: 1.3;
   max-height: 160px;
-  min-height: 28px;
+  min-height: 22px;
   width: 100%;
   display: block;
 }
@@ -1569,12 +1569,14 @@ body {
   .landing-sub { font-size: 11px; }
   .landing-suggest { gap: 6px; }
 
-  .chat-input { padding: 10px; gap: 8px; }
+  .chat-input { padding: 7px 8px; gap: 8px; }
   .chat-input input,
   .chat-input input::placeholder,
   .chat-input textarea,
   .chat-input textarea::placeholder { font-size: 16px; }
-  .chat-input .send { width: 44px; height: 44px; font-size: 20px; }
+  /* Buttons sized to the new font; matched to the mode-pick so the bar is a
+     tidy, compact height. The textarea still auto-grows (up to 160px) as you type. */
+  .chat-input .send { width: 38px; height: 38px; font-size: 18px; }
   .mode-select-inline { font-size: 11px; padding: 8px 10px; max-width: 108px; min-height: 36px; }
 
   .fact-grid { grid-template-columns: 1fr; }
@@ -2162,6 +2164,9 @@ body {
   .screen[data-screen="results"] .chat-empty { padding: 12px 8px; gap: 8px; }
   /* breathing room between the chat input and the bottom navigation bar */
   .screen[data-screen="results"] .chat-input { margin-bottom: 10px; }
+  /* Center the row so a single line of text aligns with the buttons. Placed here
+     (after the desktop redesign layer) so it wins over its flex-end default. */
+  .chat-input { align-items: center; }
 
   /* compact, icon-only bottom navigation: drop the text labels and shrink the
      bar height (kept in sync with the chat-screen height calc above). */
