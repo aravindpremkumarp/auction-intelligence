@@ -1692,10 +1692,10 @@ body {
 }
 .chat-input:focus-within { border-color: var(--accent); box-shadow: var(--shadow-focus); }
 .chat-input input, .chat-input textarea {
-  font-family: var(--font-body); font-size: 15px; line-height: 1.5; color: var(--ink); padding: 7px 0;
+  font-family: var(--font-body); font-size: 14px; line-height: 1.5; color: var(--ink); padding: 7px 0;
 }
 .chat-input input::placeholder, .chat-input textarea::placeholder {
-  font-family: var(--font-body); font-size: 15px; color: var(--muted);
+  font-family: var(--font-body); font-size: 14px; color: var(--muted);
 }
 .chat-input .send {
   width: 38px; height: 38px; border: 0; border-radius: var(--radius);
@@ -1958,12 +1958,21 @@ body {
 .transcript-head .hand { font-family: var(--font-body); font-size: 14px; font-weight: 600; }
 .bubble {
   border: 1px solid var(--border); border-radius: var(--radius-lg);
-  font-family: var(--font-body); font-size: 14.5px; line-height: 1.55;
-  padding: 11px 15px;
+  font-family: var(--font-body); font-size: 14px; line-height: 1.5;
+  padding: 10px 14px;
 }
 .bubble.user { background: var(--accent); color: var(--on-accent); border-color: transparent; border-bottom-right-radius: var(--radius-xs); }
 .bubble.ai { background: var(--card); color: var(--ink); border: 1px solid var(--border); box-shadow: var(--shadow); border-bottom-left-radius: var(--radius-xs); }
-.bubble.ai.thinking { font-family: var(--font-body); color: var(--muted); }
+.bubble.ai.thinking { font-family: var(--font-body); font-size: 14px; color: var(--muted); }
+
+/* Optimised chat-area typography — Inter renders noticeably larger than the
+   old script font these px values were originally tuned for, so scale the
+   markdown headings inside AI replies down toward body size. */
+.bubble.ai.md .md-h1 { font-size: 16px; }
+.bubble.ai.md .md-h2 { font-size: 15px; }
+.bubble.ai.md .md-h3 { font-size: 14px; }
+.bubble.ai.md .md-h4 { font-size: 13.5px; }
+.bubble.ai.md .md-h5, .bubble.ai.md .md-h6 { font-size: 12.5px; }
 .b-act { border: 1px solid var(--border); border-radius: var(--radius-xs); background: var(--card); color: var(--ink-soft); }
 .b-act:hover { background: var(--paper-2); color: var(--ink); }
 .b-act.active { background: var(--accent-soft); color: var(--accent); border-color: transparent; }

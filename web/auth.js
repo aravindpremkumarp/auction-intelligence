@@ -143,49 +143,69 @@
   function ensureStyles() {
     if (document.getElementById('auth-modal-styles')) return;
     var css = '' +
-      '.auth-modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,0.45);' +
-      'display:grid;place-items:center;z-index:9999;}' +
-      '.auth-modal{background:#fff;border:2px solid #1a1a1a;box-shadow:2px 3px 0 rgba(0,0,0,0.9);' +
-      'padding:22px 24px;max-width:380px;width:92%;font-family:\'Kalam\',cursive;color:#1a1a1a;' +
-      'position:relative;}' +
-      '.auth-modal .x-close{position:absolute;top:6px;right:8px;background:transparent;' +
-      'border:none;box-shadow:none;font-size:22px;line-height:1;cursor:pointer;padding:4px 8px;' +
-      'margin:0;color:#1a1a1a;font-weight:700;}' +
-      '.auth-modal .x-close:hover{color:#d64a2e;}' +
-      '.auth-modal h2{font-family:\'Caveat\',cursive;font-size:28px;margin:0 0 10px;}' +
-      '.auth-modal h2 em{background:#ffd84d;padding:0 6px;font-style:normal;}' +
-      '.auth-modal label{display:block;font-family:\'IBM Plex Mono\',monospace;font-size:12px;margin-top:10px;}' +
-      '.auth-modal input{width:100%;padding:8px 10px;border:2px solid #1a1a1a;' +
-      'font-family:\'IBM Plex Mono\',monospace;font-size:13px;background:#fff;color:#1a1a1a;}' +
-      '.auth-modal button{margin-top:12px;padding:8px 14px;background:#ffd84d;border:2px solid #1a1a1a;' +
-      'color:#1a1a1a;font-family:\'IBM Plex Mono\',monospace;font-size:13px;font-weight:600;' +
-      'box-shadow:2px 3px 0 rgba(0,0,0,0.9);cursor:pointer;}' +
-      '.auth-modal .sec{margin-left:8px;background:#fff;}' +
-      '.auth-modal .alt{display:flex;flex-direction:column;gap:8px;margin:12px 0;}' +
-      '.auth-modal .alt button{margin:0;width:100%;background:#fff;}' +
-      '.auth-modal .alt button.g{background:#fff;}' +
-      '.auth-modal .sep{display:flex;align-items:center;gap:8px;margin:10px 0;' +
-      'font-family:\'IBM Plex Mono\',monospace;font-size:11px;color:#666;}' +
-      '.auth-modal .sep::before,.auth-modal .sep::after{content:"";flex:1;height:1px;background:#ddd;}' +
-      '.auth-modal .msg{font-family:\'IBM Plex Mono\',monospace;font-size:12px;margin:10px 0 0;min-height:1em;}' +
-      '.auth-modal .msg.err{color:#d64a2e;font-weight:600;}' +
-      '.auth-modal .msg.ok{color:#2e8b57;font-weight:600;}' +
-      '.auth-modal .link{font-family:\'IBM Plex Mono\',monospace;font-size:11px;cursor:pointer;text-decoration:underline;}' +
-      '.auth-slot .user-menu{display:flex;align-items:center;gap:8px;font-family:\'IBM Plex Mono\',monospace;font-size:12px;}' +
-      '.auth-slot .user-menu .avatar{background:#ffd84d;border:2px solid #1a1a1a;width:32px;height:32px;' +
-      'display:grid;place-items:center;font-weight:700;cursor:pointer;}' +
+      '.auth-modal-backdrop{position:fixed;inset:0;background:rgba(15,23,42,0.45);' +
+      'backdrop-filter:saturate(180%) blur(2px);display:grid;place-items:center;z-index:9999;}' +
+      '.auth-modal{background:var(--card);border:1px solid var(--border);border-radius:var(--radius-lg);' +
+      'box-shadow:var(--shadow-lg);padding:24px 26px;max-width:380px;width:92%;' +
+      'font-family:var(--font-body);color:var(--ink);position:relative;}' +
+      '.auth-modal .x-close{position:absolute;top:10px;right:12px;background:transparent;' +
+      'border:none;box-shadow:none;font-size:20px;line-height:1;cursor:pointer;padding:4px 8px;' +
+      'margin:0;color:var(--muted);font-weight:500;border-radius:var(--radius-xs);}' +
+      '.auth-modal .x-close:hover{color:var(--ink);background:var(--paper-2);}' +
+      '.auth-modal h2{font-family:var(--font-body);font-size:22px;font-weight:700;' +
+      'letter-spacing:-0.01em;margin:0 0 14px;}' +
+      '.auth-modal h2 em{background:transparent;color:var(--accent);padding:0;font-style:normal;}' +
+      '.auth-modal label{display:block;font-family:var(--font-body);font-size:12px;' +
+      'font-weight:600;color:var(--ink-soft);margin-top:12px;}' +
+      '.auth-modal input{width:100%;padding:9px 12px;border:1px solid var(--border-strong);' +
+      'border-radius:var(--radius-sm);font-family:var(--font-body);font-size:14px;' +
+      'background:var(--card);color:var(--ink);margin-top:5px;' +
+      'transition:border-color 150ms ease, box-shadow 150ms ease;}' +
+      '.auth-modal input:focus{outline:none;border-color:var(--accent);box-shadow:var(--shadow-focus);}' +
+      '.auth-modal button{margin-top:14px;padding:9px 16px;background:var(--accent);' +
+      'border:1px solid transparent;border-radius:var(--radius-sm);color:var(--on-accent);' +
+      'font-family:var(--font-body);font-size:14px;font-weight:600;cursor:pointer;' +
+      'transition:background 150ms ease;}' +
+      '.auth-modal button:hover{background:var(--accent-hover);}' +
+      '.auth-modal .sec{margin-left:8px;background:var(--card);color:var(--ink-soft);' +
+      'border:1px solid var(--border-strong);}' +
+      '.auth-modal .sec:hover{background:var(--paper-2);color:var(--ink);}' +
+      '.auth-modal .alt{display:flex;flex-direction:column;gap:8px;margin:14px 0;}' +
+      '.auth-modal .alt button{margin:0;width:100%;background:var(--card);color:var(--ink);' +
+      'border:1px solid var(--border-strong);font-weight:500;}' +
+      '.auth-modal .alt button:hover{background:var(--paper-2);}' +
+      '.auth-modal .alt button.g{background:var(--card);}' +
+      '.auth-modal .sep{display:flex;align-items:center;gap:10px;margin:14px 0;' +
+      'font-family:var(--font-body);font-size:11px;font-weight:500;color:var(--muted);' +
+      'text-transform:uppercase;letter-spacing:0.04em;}' +
+      '.auth-modal .sep::before,.auth-modal .sep::after{content:"";flex:1;height:1px;background:var(--border);}' +
+      '.auth-modal .msg{font-family:var(--font-body);font-size:12.5px;margin:12px 0 0;min-height:1em;}' +
+      '.auth-modal .msg.err{color:var(--danger);font-weight:600;}' +
+      '.auth-modal .msg.ok{color:var(--good);font-weight:600;}' +
+      '.auth-modal .link{font-family:var(--font-body);font-size:12px;color:var(--accent);' +
+      'cursor:pointer;text-decoration:none;}' +
+      '.auth-modal .link:hover{text-decoration:underline;}' +
+      '.auth-slot .user-menu{display:flex;align-items:center;gap:8px;' +
+      'font-family:var(--font-body);font-size:13px;}' +
+      '.auth-slot .user-menu .avatar{background:var(--accent);color:var(--on-accent);border:0;' +
+      'border-radius:50%;width:32px;height:32px;display:grid;place-items:center;' +
+      'font-weight:600;font-size:13px;cursor:pointer;}' +
       '.auth-slot .user-menu details[open] summary~div{display:block;}' +
       '.auth-slot details{position:relative;}' +
       '.auth-slot details summary{list-style:none;cursor:pointer;}' +
       '.auth-slot details summary::-webkit-details-marker{display:none;}' +
-      '.auth-slot details .dropdown{position:absolute;right:0;top:38px;background:#fff;border:2px solid #1a1a1a;' +
-      'box-shadow:2px 3px 0 rgba(0,0,0,0.9);min-width:160px;z-index:50;}' +
-      '.auth-slot details .dropdown a{display:block;padding:8px 12px;color:#1a1a1a;text-decoration:none;' +
-      'font-family:\'IBM Plex Mono\',monospace;font-size:12px;border-bottom:1px dashed rgba(0,0,0,0.15);cursor:pointer;}' +
-      '.auth-slot details .dropdown a:hover{background:#faf7f0;}' +
-      '.auth-slot .sign-in{background:#ffd84d;border:2px solid #1a1a1a;padding:6px 12px;' +
-      'font-family:\'IBM Plex Mono\',monospace;font-size:12px;font-weight:600;cursor:pointer;' +
-      'box-shadow:2px 3px 0 rgba(0,0,0,0.9);color:#1a1a1a;}';
+      '.auth-slot details .dropdown{position:absolute;right:0;top:42px;background:var(--card);' +
+      'border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-lg);' +
+      'min-width:170px;z-index:50;overflow:hidden;padding:4px;}' +
+      '.auth-slot details .dropdown a{display:block;padding:8px 12px;color:var(--ink);' +
+      'text-decoration:none;font-family:var(--font-body);font-size:13px;' +
+      'border-radius:var(--radius-xs);cursor:pointer;}' +
+      '.auth-slot details .dropdown a:hover{background:var(--paper-2);}' +
+      '.auth-slot .sign-in{background:var(--accent);border:1px solid transparent;' +
+      'border-radius:var(--radius-sm);padding:7px 14px;font-family:var(--font-body);' +
+      'font-size:13px;font-weight:600;cursor:pointer;color:var(--on-accent);' +
+      'transition:background 150ms ease;}' +
+      '.auth-slot .sign-in:hover{background:var(--accent-hover);}';
     var style = document.createElement('style');
     style.id = 'auth-modal-styles';
     style.textContent = css;
