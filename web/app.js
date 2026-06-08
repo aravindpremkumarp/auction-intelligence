@@ -447,6 +447,38 @@ function joinLoc(area, city) {
   const parts = [area, city].filter(Boolean);
   return parts.length ? parts.join(', ') : '—';
 }
+// Human-readable labels for the keys returned by inferType().
+const TYPE_LABEL = {
+  'flat': 'Residential flat',
+  'house': 'Independent house',
+  'villa': 'Villa',
+  'plot': 'Plot',
+  'land': 'Land',
+  'land-building': 'Land & building',
+  'commercial': 'Commercial property',
+  'commercial-property': 'Commercial property',
+  'commercial-building': 'Commercial building',
+  'godown': 'Godown / warehouse',
+  'cold-storage': 'Cold storage',
+  'factory': 'Factory',
+  'industrial-land': 'Industrial land',
+  'industrial-land-building': 'Industrial land & building',
+};
+function _normEntity(s) { return (s || '').toLowerCase().replace(/[^a-z0-9]/g, ''); }
+// The raw `title` is frequently the lender/borrower entity (e.g. "… Finance Ltd.")
+// rather than a property description, and it duplicates the bank tag. When it looks
+// like an entity name, fall back to a descriptive property-type label so cards lead
+// with *what* the property is; the location and bank are shown on their own lines.
+function deriveDisplayTitle(row, type) {
+  const rawTitle = (row.title || '').trim();
+  const bankNorm = _normEntity(row.bank);
+  const titleNorm = _normEntity(rawTitle);
+  const looksLikeEntity = !rawTitle
+    || (bankNorm && (titleNorm === bankNorm || titleNorm.includes(bankNorm) || bankNorm.includes(titleNorm)))
+    || /\b(ltd|limited|pvt|llp)\b/i.test(rawTitle);
+  if (looksLikeEntity) return TYPE_LABEL[type] || 'Property';
+  return rawTitle;
+}
 function toCard(row) {
   const current = Number(row.reserve_price);
   const previous = row.previous_reserve_price != null ? Number(row.previous_reserve_price) : null;
@@ -458,10 +490,11 @@ function toCard(row) {
       previous: formatINR(previous),
     };
   }
+  const type = inferType(row);
   return {
     id: row.auction_id,
-    type: inferType(row),
-    title: row.title || 'Untitled property',
+    type,
+    title: deriveDisplayTitle(row, type),
     loc: joinLoc(row.area, row.city),
     bank: row.bank || null,
     price: formatINR(row.reserve_price),
@@ -502,27 +535,36 @@ function syncURLForScreen(screen, replace) {
   history[method]({ screen, id: currentDetailId }, '', target);
 }
 function go(screen) {
-  if (screen === 'detail' && currentScreen && currentScreen !== 'detail') {
+  // 'browse' is a virtual nav target: it shows the home screen scrolled to the
+  // property listing, while keeping the "browse" tab highlighted. This keeps the
+  // tab a real destination instead of the dead-end "no property selected" detail view.
+  const navTarget = screen;
+  const screenName = screen === 'browse' ? 'landing' : screen;
+  if (screenName === 'detail' && currentScreen && currentScreen !== 'detail') {
     detailReturnScreen = currentScreen;
-    const labels = { landing: '← back to all properties', results: '← back to results', watchlist: '← back to watchlist' };
+    const labels = { landing: '← back to all properties', browse: '← back to all properties', results: '← back to results', watchlist: '← back to watchlist' };
     const btn = document.getElementById('detail-back');
     if (btn) btn.textContent = labels[detailReturnScreen] || '← back';
   }
-  currentScreen = screen;
-  document.querySelectorAll('.screen').forEach(s => s.classList.toggle('on', s.dataset.screen === screen));
+  currentScreen = screenName;
+  document.querySelectorAll('.screen').forEach(s => s.classList.toggle('on', s.dataset.screen === screenName));
   document.querySelectorAll('.top-nav button').forEach(b => {
-    const active = b.dataset.nav === screen;
+    const active = b.dataset.nav === navTarget;
     b.classList.toggle('on', active);
     if (active) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
   });
   document.querySelectorAll('.bottom-tabs .bt').forEach(b => {
-    const active = b.dataset.nav === screen;
+    const active = b.dataset.nav === navTarget;
     b.classList.toggle('on', active);
     if (active) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
   });
-  if (screen === 'results') { renderResults(); setMobileTab('chat'); }
-  if (screen === 'watchlist') renderWatchlist();
-  if (screen === 'detail') {
+  if (navTarget === 'browse') {
+    const bs = document.getElementById('browse-section');
+    if (bs) bs.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+  if (screenName === 'results') { renderResults(); setMobileTab('chat'); }
+  if (screenName === 'watchlist') renderWatchlist();
+  if (screenName === 'detail') {
     const empty = document.getElementById('detail-empty');
     const content = document.getElementById('detail-content');
     const backWrap = document.getElementById('detail-back-wrap');
@@ -537,7 +579,7 @@ function go(screen) {
       if (backWrap) backWrap.style.display = 'none';
     }
   }
-  syncURLForScreen(screen, false);
+  syncURLForScreen(screenName, false);
 }
 document.querySelectorAll('.top-nav button').forEach(b => {
   b.addEventListener('click', () => go(b.dataset.nav));
@@ -1001,6 +1043,8 @@ function propCardHtml(c, urgent, countdown) {
   const dropBadge = c.drop
     ? `<div class="price-drop" title="Reserve price previously ${escapeHtml(c.drop.previous)}">${c.drop.pct}% Drop from ${escapeHtml(c.drop.previous)}</div>`
     : '';
+  // Don't show the bank tag when it merely repeats the (entity-derived) title.
+  const showBank = c.bank && _normEntity(c.bank) !== _normEntity(c.title);
   return `
     <div class="prop${urgent ? ' urgent' : ''}" data-id="${escapeHtml(c.id)}">
       <div class="thumb">${thumbSvg(c.type)}</div>
@@ -1008,7 +1052,7 @@ function propCardHtml(c, urgent, countdown) {
         <div class="title" title="${escapeHtml(c.title)}">${escapeHtml(c.title)}</div>
         <div class="loc">${escapeHtml(c.loc)}</div>
         <div class="row" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-          ${c.bank ? `<span class="bank-tag">${escapeHtml(c.bank)}</span>` : ''}
+          ${showBank ? `<span class="bank-tag">${escapeHtml(c.bank)}</span>` : ''}
           <span class="mono" style="color:var(--muted);">${escapeHtml(c.date)}</span>
         </div>
         <div class="price">${escapeHtml(c.price)}</div>
@@ -1149,7 +1193,8 @@ function renderDetail(detail) {
   const loc = joinLoc(area, city);
   currentDetailTitle = title;
   currentDetailLoc = loc;
-  document.getElementById('detail-title').textContent = title;
+  document.getElementById('detail-title').textContent =
+    deriveDisplayTitle({ title, bank }, inferType({ asset_category: assetCategory, property_types: types, title }));
   const subBits = [loc, assetCategory, types.length ? types.join(' / ') : ''].filter(Boolean);
   document.getElementById('detail-sub').textContent = subBits.join(' · ') || '—';
 

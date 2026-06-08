@@ -707,6 +707,21 @@ body {
   display: flex; flex-direction: column; gap: 8px;
   padding: 4px 0;
 }
+/* Empty-state guidance shown before a conversation has any messages. */
+.chat-empty {
+  flex: 1;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 10px; text-align: center;
+  padding: 24px 16px;
+  color: var(--muted);
+}
+.chat-empty-title { font-size: 18px; font-weight: 700; color: var(--ink); }
+.chat-empty-sub { font-size: 13px; max-width: 340px; line-height: 1.5; }
+.chat-empty .lbl { margin-top: 4px; }
+.chat-empty .landing-suggest { justify-content: center; }
+/* When the conversation has messages, collapse the empty state and let the log fill. */
+.transcript-pane:has(#chat-log:not(:empty)) .chat-empty { display: none; }
+#chat-log:empty { flex: 0 0 auto; padding: 0; }
 .bubble {
   border: 1.5px solid var(--ink);
   padding: 8px 12px;
@@ -2065,7 +2080,19 @@ body {
   body[data-theme="dark"] .bottom-tabs .bt.on,
   body[data-theme="dark"] .bottom-tabs .bt.on svg { color: var(--accent) !important; }
 
-  .feedback-btn::before { content: '💬'; }
+  /* Collapse feedback to an icon-only button on mobile. The desktop redesign layer
+     (.feedback-btn,.save-btn) is appended after the original 640px rules and would
+     otherwise re-show the text label, causing it to clip to "feedbac". Re-assert the
+     collapse here so the last-winning mobile rule keeps it icon-only. */
+  .feedback-btn {
+    font-size: 0; padding: 0; line-height: 1;
+    width: 38px; height: 38px;
+    display: inline-flex; align-items: center; justify-content: center;
+    border-radius: var(--radius-sm);
+  }
+  .feedback-btn::before { content: '💬'; font-size: 16px; }
+  .theme-toggle { width: 38px; height: 38px; }
+  .top-right { gap: 6px; align-items: center; }
 
   /* re-assert mobile sizing the desktop layer would otherwise override
      (it is appended after the original 640px rules) */
