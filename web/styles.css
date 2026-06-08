@@ -493,9 +493,9 @@ body {
 .chat-input textarea {
   resize: none;
   overflow-y: auto;
-  line-height: 1.25;
+  line-height: 1.3;
   max-height: 160px;
-  min-height: 28px;
+  min-height: 22px;
   width: 100%;
   display: block;
 }
@@ -707,6 +707,21 @@ body {
   display: flex; flex-direction: column; gap: 8px;
   padding: 4px 0;
 }
+/* Empty-state guidance shown before a conversation has any messages. */
+.chat-empty {
+  flex: 1;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 10px; text-align: center;
+  padding: 24px 16px;
+  color: var(--muted);
+}
+.chat-empty-title { font-size: 18px; font-weight: 700; color: var(--ink); }
+.chat-empty-sub { font-size: 13px; max-width: 340px; line-height: 1.5; }
+.chat-empty .lbl { margin-top: 4px; }
+.chat-empty .landing-suggest { justify-content: center; }
+/* When the conversation has messages, collapse the empty state and let the log fill. */
+.transcript-pane:has(#chat-log:not(:empty)) .chat-empty { display: none; }
+#chat-log:empty { flex: 0 0 auto; padding: 0; }
 .bubble {
   border: 1.5px solid var(--ink);
   padding: 8px 12px;
@@ -1181,7 +1196,7 @@ body {
 }
 .doc-preview[hidden] { display: none; }
 .doc-preview iframe {
-  width: 100%; height: 600px; border: 0; background: #fff;
+  width: 100%; height: 600px; border: 0; background: var(--paper-2);
   display: block;
 }
 .doc-preview img {
@@ -1301,37 +1316,27 @@ body {
 /* ====== CHAT SIDEBAR DRAWER — mobile-only slide-in ====== */
 .sb-backdrop { display: none; }
 @media (max-width: 640px) {
-  .sb-backdrop {
-    display: block;
-    position: fixed;
-    top: 56px; left: 0; right: 0; bottom: 64px;
-    background: rgba(0, 0, 0, 0);
-    z-index: 95;
-    pointer-events: none;
-    transition: background 0.25s ease;
-  }
-  .sb-backdrop.on {
-    background: rgba(0, 0, 0, 0.4);
-    pointer-events: auto;
-  }
+  /* The history panel now slides within the results area like the matches panel,
+     so the old full-screen backdrop is no longer used. */
+  .sb-backdrop { display: none; }
   /* Override the desktop+tablet collapse-to-icon behaviour with a real
      slide-in drawer. Position fixed so it floats over the panes; transform
      drives the open/close animation. */
   .results .chat-sidebar {
-    position: fixed;
-    top: 56px; bottom: 64px; left: 0;
-    width: min(86vw, 320px);
-    max-height: none; min-height: 0; margin: 0;
-    z-index: 100;
-    transform: translateX(-102%);
-    transition: transform 0.25s ease;
-    box-shadow: 4px 0 12px rgba(0, 0, 0, 0.15);
+    position: absolute; inset: 0;
+    width: auto; max-height: none; min-height: 0; margin: 0;
+    z-index: 6;
+    background: var(--paper);
+    transform: translateX(-100%);
+    transition: transform 300ms cubic-bezier(.4, 0, .2, 1);
+    box-shadow: none; border: 0;
     overflow-y: auto;
+    padding: 12px 14px;
   }
   .results .chat-sidebar.mobile-on {
     transform: translateX(0);
   }
-  /* When drawer is open, hide the desktop sb-toggle (drawer closes via backdrop) */
+  /* When the panel is open, hide the desktop collapse toggle */
   .results .chat-sidebar.mobile-on .sb-toggle { display: none; }
 
   /* Card-style chat history items inside the mobile drawer */
@@ -1499,8 +1504,14 @@ body {
   /* Bound the chat screen to exactly the space between the sticky topbar (56px)
      and the fixed bottom-tabs (64px) and clip its overflow, so the page itself
      never scrolls — only the inner chat-log (and the matches list) scroll. */
+  /* Hide the global header on the chat screen for a full-height conversation;
+     it reappears on the other tabs. */
+  body:has(.screen[data-screen="results"].on) .topbar { display: none; }
   .screen[data-screen="results"].on {
-    height: calc(100dvh - 56px - 64px);
+    /* Fill from the top of the viewport down to just above the fixed bottom-tabs.
+       The icon-only bar is ~46px tall PLUS the device bottom safe-area inset —
+       subtracting the inset is what stops it from clipping the chat input. */
+    height: calc(100dvh - 46px - env(safe-area-inset-bottom, 0px));
     min-height: 0;
     padding-bottom: 0 !important;
     overflow: hidden;
@@ -1548,12 +1559,14 @@ body {
   .landing-sub { font-size: 11px; }
   .landing-suggest { gap: 6px; }
 
-  .chat-input { padding: 10px; gap: 8px; }
+  .chat-input { padding: 7px 8px; gap: 8px; }
   .chat-input input,
   .chat-input input::placeholder,
   .chat-input textarea,
-  .chat-input textarea::placeholder { font-size: 18px; }
-  .chat-input .send { width: 44px; height: 44px; font-size: 20px; }
+  .chat-input textarea::placeholder { font-size: 16px; }
+  /* Buttons sized to the new font; matched to the mode-pick so the bar is a
+     tidy, compact height. The textarea still auto-grows (up to 160px) as you type. */
+  .chat-input .send { width: 38px; height: 38px; font-size: 18px; }
   .mode-select-inline { font-size: 11px; padding: 8px 10px; max-width: 108px; min-height: 36px; }
 
   .fact-grid { grid-template-columns: 1fr; }
@@ -1691,6 +1704,10 @@ body {
   transition: border-color 150ms ease, box-shadow 150ms ease;
 }
 .chat-input:focus-within { border-color: var(--accent); box-shadow: var(--shadow-focus); }
+/* The container shows the focus state, so suppress the inner field's own
+   focus-visible outline — it drew a second blue box that shrank the type area. */
+.chat-input input:focus-visible,
+.chat-input textarea:focus-visible { outline: none; }
 .chat-input input, .chat-input textarea {
   font-family: var(--font-body); font-size: 14px; line-height: 1.5; color: var(--ink); padding: 7px 0;
 }
@@ -1703,6 +1720,42 @@ body {
   font-size: 18px; transition: background 150ms ease;
 }
 .chat-input .send:hover { background: var(--accent-hover); color: var(--on-accent); }
+
+/* Compact mode picker: an icon-only button that frees up the typing area.
+   The native <select> sits transparently on top so tapping opens the real
+   menu (with full mode names); the icon is the visible face. */
+.mode-pick {
+  position: relative; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 38px; height: 38px; border-radius: var(--radius-sm);
+  background: var(--paper-2); border: 1px solid var(--border);
+  color: var(--ink-soft); cursor: pointer;
+  transition: background 150ms ease, color 150ms ease, border-color 150ms ease;
+}
+.mode-pick:hover { background: var(--card); color: var(--ink); border-color: var(--border-strong); }
+.mode-pick.active { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
+.mode-pick .mode-pick-ico { width: 18px; height: 18px; pointer-events: none; }
+.mode-pick .mode-select-inline {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  opacity: 0; margin: 0; padding: 0; border: 0; cursor: pointer;
+  -webkit-appearance: none; appearance: none;
+}
+
+/* Property-detail "ask about this property" panel — clean card (replaces the old
+   inline dashed sketchbook boxes). */
+.detail-ask {
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--card); box-shadow: var(--shadow);
+  padding: 12px;
+}
+.detail-ask-new {
+  background: var(--card); color: var(--ink-soft);
+  border: 1px solid var(--border-strong); border-radius: var(--radius-xs);
+  padding: 4px 8px; cursor: pointer;
+  font-family: var(--font-body); font-size: 11px; font-weight: 600;
+  transition: background 150ms ease, color 150ms ease, border-color 150ms ease;
+}
+.detail-ask-new:hover { background: var(--paper-2); color: var(--ink); border-color: var(--border-strong); }
 
 /* ---- chips ---- */
 .chip {
@@ -1728,7 +1781,7 @@ body {
 
 /* ---- browse heading ---- */
 .browse { border-top: 1px solid var(--border); }
-.browse-head h2 { font-family: var(--font-body); font-weight: 600; letter-spacing: -0.02em; }
+.browse-head h2 { font-family: var(--font-body); font-size: clamp(22px, 5.5vw, 26px); font-weight: 700; letter-spacing: -0.02em; }
 .browse-head h2 em { background: transparent; color: var(--accent); padding: 0; }
 .browse-meta .count, .results-head .count {
   font-family: var(--font-body); font-size: 16px; font-weight: 600;
@@ -2009,7 +2062,7 @@ body {
 
 /* ---- watchlist ---- */
 .watchlist-head { border-bottom: 1px solid var(--border); }
-.watchlist-head h2 { font-family: var(--font-body); font-weight: 600; letter-spacing: -0.02em; }
+.watchlist-head h2 { font-family: var(--font-body); font-size: clamp(22px, 5.5vw, 26px); font-weight: 700; letter-spacing: -0.02em; }
 .timeline-label { font-family: var(--font-body); font-size: 13px; font-weight: 600; color: var(--ink-soft); }
 .timeline-label .dot { background: var(--accent); }
 .timeline-label.urgent { color: var(--danger); }
@@ -2065,7 +2118,19 @@ body {
   body[data-theme="dark"] .bottom-tabs .bt.on,
   body[data-theme="dark"] .bottom-tabs .bt.on svg { color: var(--accent) !important; }
 
-  .feedback-btn::before { content: '💬'; }
+  /* Collapse feedback to an icon-only button on mobile. The desktop redesign layer
+     (.feedback-btn,.save-btn) is appended after the original 640px rules and would
+     otherwise re-show the text label, causing it to clip to "feedbac". Re-assert the
+     collapse here so the last-winning mobile rule keeps it icon-only. */
+  .feedback-btn {
+    font-size: 0; padding: 0; line-height: 1;
+    width: 38px; height: 38px;
+    display: inline-flex; align-items: center; justify-content: center;
+    border-radius: var(--radius-sm);
+  }
+  .feedback-btn::before { content: '💬'; font-size: 16px; }
+  .theme-toggle { width: 38px; height: 38px; }
+  .top-right { gap: 6px; align-items: center; }
 
   /* re-assert mobile sizing the desktop layer would otherwise override
      (it is appended after the original 640px rules) */
@@ -2088,4 +2153,31 @@ body {
   .results .chat-sidebar .sb-item-meta .matches-count { background: var(--accent-soft); color: var(--accent); border-radius: var(--radius-pill); }
   .results .chat-sidebar .sb-item.active .sb-item-meta .matches-count { background: var(--accent); color: var(--on-accent); }
   .prop.urgent { background: var(--card); border-left: 3px solid var(--danger); }
+
+  /* ---- maximize conversation area on mobile ----
+     The sticky segmented tab bar already labels "conversation", so the in-panel
+     heading is redundant. Drop the label (keep the +new action), strip the panel
+     frame, and tighten margins so messages use the full available height. */
+  .mobile-tabs { margin-bottom: 6px; }
+  .screen[data-screen="results"] .transcript-pane {
+    border: 0; box-shadow: none; padding: 0; gap: 6px;
+  }
+  /* The segmented tab bar already labels the conversation, so drop the in-panel
+     header and its "+ new" button. A new chat is still one tap away via the
+     history (clock) tab → "+ new chat". */
+  .screen[data-screen="results"] .transcript-head { display: none; }
+  /* trim the empty-state so the prompt + chips sit higher and feel less sparse */
+  .screen[data-screen="results"] .chat-empty { padding: 12px 8px; gap: 8px; }
+  /* breathing room between the chat input and the bottom navigation bar */
+  .screen[data-screen="results"] .chat-input { margin-bottom: 10px; }
+  /* Center the row so a single line of text aligns with the buttons. Placed here
+     (after the desktop redesign layer) so it wins over its flex-end default. */
+  .chat-input { align-items: center; }
+
+  /* compact, icon-only bottom navigation: drop the text labels and shrink the
+     bar height (kept in sync with the chat-screen height calc above). */
+  .bottom-tabs { padding: 6px 10px calc(6px + env(safe-area-inset-bottom, 0px)); }
+  .bottom-tabs .bt { min-height: 34px; padding: 4px; gap: 0; }
+  .bottom-tabs .bt-lbl { display: none; }
+  .bottom-tabs .bt svg { width: 23px; height: 23px; }
 }

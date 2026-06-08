@@ -58,14 +58,12 @@
       <span class="brand-name"><b>Auction</b><span>scope</span></span>
     </div>
     <div class="top-nav" role="navigation" aria-label="primary">
-      <button data-nav="landing" class="on" aria-current="page">search</button>
-      <button data-nav="results">results</button>
-      <button data-nav="detail">property</button>
+      <button data-nav="landing" class="on" aria-current="page">home</button>
+      <button data-nav="results">chat</button>
       <button data-nav="watchlist">watchlist</button>
     </div>
     <div class="top-right">
       <button class="theme-toggle" id="theme-toggle" title="Toggle theme" aria-label="Toggle dark mode">🌙</button>
-      <button class="feedback-btn" onclick="openGeneralFeedback()" title="Send feedback about the app">💬 feedback</button>
       <button class="save-btn" onclick="go('watchlist')"><span id="save-count">0</span> saved</button>
       <div id="auth-slot" class="auth-slot"></div>
     </div>
@@ -78,9 +76,12 @@
         <div class="landing-sub" id="landing-sub">bank auctions · ai-powered search</div>
         <h1>What property are you <em>looking for?</em></h1>
         <div class="chat-input">
-          <select class="mode-select-inline" aria-label="Answer mode">
-            <option value="ask">ask ▾</option>
-          </select>
+          <span class="mode-pick" title="Answer mode">
+            <svg class="mode-pick-ico" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M3 6h8M16 6h1M3 14h1M9 14h8"/><circle cx="13" cy="6" r="2.2"/><circle cx="6.5" cy="14" r="2.2"/></svg>
+            <select class="mode-select-inline" aria-label="Answer mode">
+              <option value="ask">ask</option>
+            </select>
+          </span>
           <textarea id="landing-input" rows="1" placeholder="3BHK in Chennai under 1 Cr, ready possession…" autocomplete="off"></textarea>
           <button class="send" id="landing-send" aria-label="send query">→</button>
         </div>
@@ -245,12 +246,26 @@
             <span class="hand">conversation</span>
             <button class="chip" onclick="newThread()">+ new</button>
           </div>
+          <div class="chat-empty" id="chat-empty">
+            <div class="chat-empty-title">start a conversation</div>
+            <div class="chat-empty-sub">describe what you're looking for and i'll find matching auctions — then refine in plain english.</div>
+            <div class="lbl">try asking</div>
+            <div class="landing-suggest">
+              <span class="chip" data-q="flats in Chennai under 50 lakhs">flats in Chennai &lt;50L</span>
+              <span class="chip" data-q="commercial properties in Coimbatore">commercial Coimbatore</span>
+              <span class="chip" data-q="agricultural plots near Madurai">plots near Madurai</span>
+              <span class="chip" data-q="independent house in Trichy">house in Trichy</span>
+            </div>
+          </div>
           <div class="chat-log" id="chat-log"></div>
           <div class="chat-input" style="box-shadow:none; padding:8px 10px;">
-            <select class="mode-select-inline" aria-label="Answer mode" style="font-size:10px; padding:3px 6px; max-width:110px;">
-              <option value="ask">ask ▾</option>
-            </select>
-            <textarea id="results-input" rows="1" placeholder="refine…" autocomplete="off" style="font-size:18px;"></textarea>
+            <span class="mode-pick" title="Answer mode">
+              <svg class="mode-pick-ico" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M3 6h8M16 6h1M3 14h1M9 14h8"/><circle cx="13" cy="6" r="2.2"/><circle cx="6.5" cy="14" r="2.2"/></svg>
+              <select class="mode-select-inline" aria-label="Answer mode">
+                <option value="ask">ask</option>
+              </select>
+            </span>
+            <textarea id="results-input" rows="1" placeholder="refine…" autocomplete="off"></textarea>
             <button class="send" id="results-send" aria-label="send refined query">→</button>
           </div>
         </div>
@@ -258,7 +273,7 @@
           <div class="results-head">
             <div>
               <div class="count" id="results-count">—</div>
-              <div class="lbl" id="results-subcount">waiting for query</div>
+              <div class="lbl" id="results-subcount">matches appear here</div>
             </div>
             <select id="results-sort" class="results-sort" aria-label="sort properties">
               <option value="date_asc">Auction date: oldest first</option>
@@ -279,7 +294,7 @@
       <div id="detail-empty" style="display:none; text-align:center; padding:60px 20px;">
         <div class="hand" style="font-size:26px; color:var(--muted);">no property selected.</div>
         <div class="lbl" style="margin-top:10px;">select a property card to view its details</div>
-        <button class="btn" onclick="go('landing')" style="margin: 24px auto 0; max-width: 320px;">browse all properties</button>
+        <button class="btn" onclick="go('browse')" style="margin: 24px auto 0; max-width: 320px;">browse all properties</button>
       </div>
       <div class="detail" id="detail-content">
         <div class="detail-main">
@@ -290,37 +305,36 @@
           <div class="hero-photo" id="detail-photo"></div>
           <div class="fact-grid" id="detail-facts"></div>
           <div id="detail-history-wrap" style="display:none;">
-            <div class="detail-section-title">Price history (re-auctions)</div>
+            <div class="detail-section-title">price history (re-auctions)</div>
             <div class="price-history" id="detail-history"></div>
           </div>
           <div id="detail-desc-wrap" style="display:none;">
             <div class="detail-section-head">
-              <div class="detail-section-title">Description</div>
+              <div class="detail-section-title">description</div>
               <button type="button" class="doc-toggle" id="detail-desc-toggle"
                       data-mode="formatted" aria-pressed="false">View original</button>
             </div>
             <div class="detail-desc" id="detail-desc"></div>
           </div>
           <div id="detail-docs-wrap" style="display:none;">
-            <div class="detail-section-title">Documents</div>
+            <div class="detail-section-title">documents</div>
             <div class="docs" id="detail-docs"></div>
           </div>
         </div>
         <aside class="detail-aside">
-          <button class="btn" id="detail-save">☆ Save to watchlist</button>
+          <button class="btn" id="detail-save">☆ save to watchlist</button>
           <button class="btn ghost" id="detail-share" type="button" title="copy link to this property">
             <svg viewBox="0 0 18 18" width="14" height="14" aria-hidden="true" style="vertical-align:-2px; margin-right:4px;">
               <path d="M11 2 H16 V7 M16 2 L9 9 M14 11 V15 a1 1 0 0 1 -1 1 H3 a1 1 0 0 1 -1 -1 V5 a1 1 0 0 1 1 -1 H7"
                     fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
-            Copy link
+            copy link
           </button>
-          <a class="btn ghost" id="detail-sale-notice" href="#" target="_blank" rel="noopener" style="display:none;">Open sale notice ↗</a>
-          <div style="border:1.5px dashed var(--ink); padding:10px; background:var(--card);">
+          <a class="btn ghost" id="detail-sale-notice" href="#" target="_blank" rel="noopener" style="display:none;">open sale notice ↗</a>
+          <div class="detail-ask">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
               <div class="lbl">ask about this property</div>
-              <button id="detail-chat-new" type="button" title="start a new chat about this property"
-                      style="background:none; border:1.5px solid var(--ink); padding:2px 8px; font-family:var(--font-mono); font-size:10px; letter-spacing:0.08em; text-transform:uppercase; color:var(--ink); cursor:pointer; line-height:1.4;">+ new</button>
+              <button id="detail-chat-new" class="detail-ask-new" type="button" title="start a new chat about this property">+ new</button>
             </div>
             <div id="detail-chat-log" class="detail-chat" style="display:flex; flex-direction:column; gap:6px; max-height:240px; overflow-y:auto; margin-bottom:8px; min-height:60px;"></div>
             <div class="chat-input" style="box-shadow:none; padding:6px 8px;">
@@ -328,7 +342,7 @@
               <button class="send" id="detail-send" aria-label="ask about this property">→</button>
             </div>
           </div>
-          <div id="detail-chat-history" style="display:none; border:1.5px dashed var(--ink); padding:10px; background:var(--card);"></div>
+          <div id="detail-chat-history" class="detail-ask" style="display:none;"></div>
         </aside>
       </div>
     </div>
@@ -336,7 +350,7 @@
     <div class="screen" data-screen="watchlist">
       <div class="watchlist">
         <div class="watchlist-head">
-          <h2>Your watchlist</h2>
+          <h2>your watchlist</h2>
           <div class="mono" id="watchlist-count">0 saved</div>
         </div>
         <div id="watchlist-body"></div>
@@ -379,10 +393,6 @@
     <button class="bt" data-nav="results" aria-label="chat">
       <svg viewBox="0 0 22 22" width="20" height="20" aria-hidden="true"><path d="M4 5 h14 a1 1 0 0 1 1 1 v9 a1 1 0 0 1 -1 1 H9 l-4 3 V6 a1 1 0 0 1 1 -1 Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
       <span class="bt-lbl">chat</span>
-    </button>
-    <button class="bt" data-nav="detail" aria-label="property">
-      <svg viewBox="0 0 22 22" width="20" height="20" aria-hidden="true"><path d="M3 10 L11 4 L19 10 V18 a1 1 0 0 1 -1 1 H4 a1 1 0 0 1 -1 -1 Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><rect x="9" y="12" width="4" height="7" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>
-      <span class="bt-lbl">property</span>
     </button>
     <button class="bt" data-nav="watchlist" aria-label="watchlist">
       <svg viewBox="0 0 22 22" width="20" height="20" aria-hidden="true"><path d="M11 18 L4.5 12.5 a4 4 0 0 1 5.5 -5.8 L11 7.5 L12 6.7 a4 4 0 0 1 5.5 5.8 Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
