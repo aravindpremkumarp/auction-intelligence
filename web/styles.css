@@ -1725,6 +1725,26 @@ body {
 }
 .chat-input .send:hover { background: var(--accent-hover); color: var(--on-accent); }
 
+/* Compact mode picker: an icon-only button that frees up the typing area.
+   The native <select> sits transparently on top so tapping opens the real
+   menu (with full mode names); the icon is the visible face. */
+.mode-pick {
+  position: relative; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 38px; height: 38px; border-radius: var(--radius-sm);
+  background: var(--paper-2); border: 1px solid var(--border);
+  color: var(--ink-soft); cursor: pointer;
+  transition: background 150ms ease, color 150ms ease, border-color 150ms ease;
+}
+.mode-pick:hover { background: var(--card); color: var(--ink); border-color: var(--border-strong); }
+.mode-pick.active { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
+.mode-pick .mode-pick-ico { width: 18px; height: 18px; pointer-events: none; }
+.mode-pick .mode-select-inline {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  opacity: 0; margin: 0; padding: 0; border: 0; cursor: pointer;
+  -webkit-appearance: none; appearance: none;
+}
+
 /* ---- chips ---- */
 .chip {
   border: 1px solid var(--border-strong); border-radius: var(--radius-pill);
@@ -2136,4 +2156,6 @@ body {
   .screen[data-screen="results"] .transcript-head { display: none; }
   /* trim the empty-state so the prompt + chips sit higher and feel less sparse */
   .screen[data-screen="results"] .chat-empty { padding: 12px 8px; gap: 8px; }
+  /* breathing room between the chat input and the bottom navigation bar */
+  .screen[data-screen="results"] .chat-input { margin-bottom: 10px; }
 }

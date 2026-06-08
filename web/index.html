@@ -77,9 +77,12 @@
         <div class="landing-sub" id="landing-sub">bank auctions · ai-powered search</div>
         <h1>What property are you <em>looking for?</em></h1>
         <div class="chat-input">
-          <select class="mode-select-inline" aria-label="Answer mode">
-            <option value="ask">ask ▾</option>
-          </select>
+          <span class="mode-pick" title="Answer mode">
+            <svg class="mode-pick-ico" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M3 6h8M16 6h1M3 14h1M9 14h8"/><circle cx="13" cy="6" r="2.2"/><circle cx="6.5" cy="14" r="2.2"/></svg>
+            <select class="mode-select-inline" aria-label="Answer mode">
+              <option value="ask">ask</option>
+            </select>
+          </span>
           <textarea id="landing-input" rows="1" placeholder="3BHK in Chennai under 1 Cr, ready possession…" autocomplete="off"></textarea>
           <button class="send" id="landing-send" aria-label="send query">→</button>
         </div>
@@ -257,9 +260,12 @@
           </div>
           <div class="chat-log" id="chat-log"></div>
           <div class="chat-input" style="box-shadow:none; padding:8px 10px;">
-            <select class="mode-select-inline" aria-label="Answer mode" style="font-size:10px; padding:3px 6px; max-width:110px;">
-              <option value="ask">ask ▾</option>
-            </select>
+            <span class="mode-pick" title="Answer mode">
+              <svg class="mode-pick-ico" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M3 6h8M16 6h1M3 14h1M9 14h8"/><circle cx="13" cy="6" r="2.2"/><circle cx="6.5" cy="14" r="2.2"/></svg>
+              <select class="mode-select-inline" aria-label="Answer mode">
+                <option value="ask">ask</option>
+              </select>
+            </span>
             <textarea id="results-input" rows="1" placeholder="refine…" autocomplete="off" style="font-size:18px;"></textarea>
             <button class="send" id="results-send" aria-label="send refined query">→</button>
           </div>

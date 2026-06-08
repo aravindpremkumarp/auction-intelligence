@@ -643,6 +643,10 @@ document.addEventListener('change', (e) => {
   document.querySelectorAll('.mode-select-inline').forEach(s => {
     if (s !== e.target) s.value = e.target.value;
   });
+  // Accent the compact mode icon when a non-default mode is selected, so the
+  // active mode stays discoverable even though the face shows only an icon.
+  const special = e.target.value !== 'ask';
+  document.querySelectorAll('.mode-pick').forEach(p => p.classList.toggle('active', special));
 });
 
 /* ====== theme toggle ====== */
@@ -691,7 +695,7 @@ async function hydrateModes() {
     if (!modes.length) return;
     const sels = document.querySelectorAll('.mode-select-inline');
     if (!sels.length) return;
-    const optHtml = modes.map(m => `<option value="${escapeHtml(m.id)}">${escapeHtml(m.label || m.id)} ▾</option>`).join('');
+    const optHtml = modes.map(m => `<option value="${escapeHtml(m.id)}">${escapeHtml(m.label || m.id)}</option>`).join('');
     sels.forEach(s => { s.innerHTML = optHtml; s.value = window.currentMode || 'ask'; });
   } catch(e) { /* keep the default "ask" option */ }
 }
