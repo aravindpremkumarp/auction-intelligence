@@ -2115,4 +2115,20 @@ body {
   .results .chat-sidebar .sb-item-meta .matches-count { background: var(--accent-soft); color: var(--accent); border-radius: var(--radius-pill); }
   .results .chat-sidebar .sb-item.active .sb-item-meta .matches-count { background: var(--accent); color: var(--on-accent); }
   .prop.urgent { background: var(--card); border-left: 3px solid var(--danger); }
+
+  /* ---- maximize conversation area on mobile ----
+     The sticky segmented tab bar already labels "conversation", so the in-panel
+     heading is redundant. Drop the label (keep the +new action), strip the panel
+     frame, and tighten margins so messages use the full available height. */
+  .mobile-tabs { margin-bottom: 6px; }
+  .screen[data-screen="results"] .transcript-pane {
+    border: 0; box-shadow: none; padding: 0; gap: 6px;
+  }
+  .screen[data-screen="results"] .transcript-head {
+    border-bottom: 0; padding: 0; justify-content: flex-end; min-height: 0;
+  }
+  .screen[data-screen="results"] .transcript-head .hand { display: none; }
+  .screen[data-screen="results"] .transcript-head .chip { padding: 5px 12px; }
+  /* trim the empty-state so the prompt + chips sit higher and feel less sparse */
+  .screen[data-screen="results"] .chat-empty { padding: 12px 8px; gap: 8px; }
 }
