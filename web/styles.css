@@ -1573,7 +1573,7 @@ body {
   .chat-input input,
   .chat-input input::placeholder,
   .chat-input textarea,
-  .chat-input textarea::placeholder { font-size: 18px; }
+  .chat-input textarea::placeholder { font-size: 16px; }
   .chat-input .send { width: 44px; height: 44px; font-size: 20px; }
   .mode-select-inline { font-size: 11px; padding: 8px 10px; max-width: 108px; min-height: 36px; }
 
@@ -1712,6 +1712,10 @@ body {
   transition: border-color 150ms ease, box-shadow 150ms ease;
 }
 .chat-input:focus-within { border-color: var(--accent); box-shadow: var(--shadow-focus); }
+/* The container shows the focus state, so suppress the inner field's own
+   focus-visible outline — it drew a second blue box that shrank the type area. */
+.chat-input input:focus-visible,
+.chat-input textarea:focus-visible { outline: none; }
 .chat-input input, .chat-input textarea {
   font-family: var(--font-body); font-size: 14px; line-height: 1.5; color: var(--ink); padding: 7px 0;
 }
