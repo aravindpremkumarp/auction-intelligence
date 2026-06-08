@@ -535,10 +535,9 @@ function syncURLForScreen(screen, replace) {
   history[method]({ screen, id: currentDetailId }, '', target);
 }
 function go(screen) {
-  // 'browse' is a virtual nav target: it shows the home screen scrolled to the
-  // property listing, while keeping the "browse" tab highlighted. This keeps the
-  // tab a real destination instead of the dead-end "no property selected" detail view.
-  const navTarget = screen;
+  // 'browse' is a virtual nav target (used by the "browse all properties" CTA): it
+  // shows the home screen scrolled to the property listing. There's no separate
+  // browse tab — it shares the home screen — so the home tab stays highlighted.
   const screenName = screen === 'browse' ? 'landing' : screen;
   if (screenName === 'detail' && currentScreen && currentScreen !== 'detail') {
     detailReturnScreen = currentScreen;
@@ -549,16 +548,16 @@ function go(screen) {
   currentScreen = screenName;
   document.querySelectorAll('.screen').forEach(s => s.classList.toggle('on', s.dataset.screen === screenName));
   document.querySelectorAll('.top-nav button').forEach(b => {
-    const active = b.dataset.nav === navTarget;
+    const active = b.dataset.nav === screenName;
     b.classList.toggle('on', active);
     if (active) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
   });
   document.querySelectorAll('.bottom-tabs .bt').forEach(b => {
-    const active = b.dataset.nav === navTarget;
+    const active = b.dataset.nav === screenName;
     b.classList.toggle('on', active);
     if (active) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
   });
-  if (navTarget === 'browse') {
+  if (screen === 'browse') {
     const bs = document.getElementById('browse-section');
     if (bs) bs.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
