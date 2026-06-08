@@ -1196,7 +1196,7 @@ body {
 }
 .doc-preview[hidden] { display: none; }
 .doc-preview iframe {
-  width: 100%; height: 600px; border: 0; background: #fff;
+  width: 100%; height: 600px; border: 0; background: var(--paper-2);
   display: block;
 }
 .doc-preview img {
@@ -1741,6 +1741,22 @@ body {
   -webkit-appearance: none; appearance: none;
 }
 
+/* Property-detail "ask about this property" panel — clean card (replaces the old
+   inline dashed sketchbook boxes). */
+.detail-ask {
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--card); box-shadow: var(--shadow);
+  padding: 12px;
+}
+.detail-ask-new {
+  background: var(--card); color: var(--ink-soft);
+  border: 1px solid var(--border-strong); border-radius: var(--radius-xs);
+  padding: 4px 8px; cursor: pointer;
+  font-family: var(--font-body); font-size: 11px; font-weight: 600;
+  transition: background 150ms ease, color 150ms ease, border-color 150ms ease;
+}
+.detail-ask-new:hover { background: var(--paper-2); color: var(--ink); border-color: var(--border-strong); }
+
 /* ---- chips ---- */
 .chip {
   border: 1px solid var(--border-strong); border-radius: var(--radius-pill);
@@ -1765,7 +1781,7 @@ body {
 
 /* ---- browse heading ---- */
 .browse { border-top: 1px solid var(--border); }
-.browse-head h2 { font-family: var(--font-body); font-weight: 600; letter-spacing: -0.02em; }
+.browse-head h2 { font-family: var(--font-body); font-size: clamp(22px, 5.5vw, 26px); font-weight: 700; letter-spacing: -0.02em; }
 .browse-head h2 em { background: transparent; color: var(--accent); padding: 0; }
 .browse-meta .count, .results-head .count {
   font-family: var(--font-body); font-size: 16px; font-weight: 600;
@@ -2046,7 +2062,7 @@ body {
 
 /* ---- watchlist ---- */
 .watchlist-head { border-bottom: 1px solid var(--border); }
-.watchlist-head h2 { font-family: var(--font-body); font-weight: 600; letter-spacing: -0.02em; }
+.watchlist-head h2 { font-family: var(--font-body); font-size: clamp(22px, 5.5vw, 26px); font-weight: 700; letter-spacing: -0.02em; }
 .timeline-label { font-family: var(--font-body); font-size: 13px; font-weight: 600; color: var(--ink-soft); }
 .timeline-label .dot { background: var(--accent); }
 .timeline-label.urgent { color: var(--danger); }

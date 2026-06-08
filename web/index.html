@@ -322,20 +322,19 @@
           </div>
         </div>
         <aside class="detail-aside">
-          <button class="btn" id="detail-save">☆ Save to watchlist</button>
+          <button class="btn" id="detail-save">☆ save to watchlist</button>
           <button class="btn ghost" id="detail-share" type="button" title="copy link to this property">
             <svg viewBox="0 0 18 18" width="14" height="14" aria-hidden="true" style="vertical-align:-2px; margin-right:4px;">
               <path d="M11 2 H16 V7 M16 2 L9 9 M14 11 V15 a1 1 0 0 1 -1 1 H3 a1 1 0 0 1 -1 -1 V5 a1 1 0 0 1 1 -1 H7"
                     fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
-            Copy link
+            copy link
           </button>
-          <a class="btn ghost" id="detail-sale-notice" href="#" target="_blank" rel="noopener" style="display:none;">Open sale notice ↗</a>
-          <div style="border:1.5px dashed var(--ink); padding:10px; background:var(--card);">
+          <a class="btn ghost" id="detail-sale-notice" href="#" target="_blank" rel="noopener" style="display:none;">open sale notice ↗</a>
+          <div class="detail-ask">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
               <div class="lbl">ask about this property</div>
-              <button id="detail-chat-new" type="button" title="start a new chat about this property"
-                      style="background:none; border:1.5px solid var(--ink); padding:2px 8px; font-family:var(--font-mono); font-size:10px; letter-spacing:0.08em; text-transform:uppercase; color:var(--ink); cursor:pointer; line-height:1.4;">+ new</button>
+              <button id="detail-chat-new" class="detail-ask-new" type="button" title="start a new chat about this property">+ new</button>
             </div>
             <div id="detail-chat-log" class="detail-chat" style="display:flex; flex-direction:column; gap:6px; max-height:240px; overflow-y:auto; margin-bottom:8px; min-height:60px;"></div>
             <div class="chat-input" style="box-shadow:none; padding:6px 8px;">
@@ -343,7 +342,7 @@
               <button class="send" id="detail-send" aria-label="ask about this property">→</button>
             </div>
           </div>
-          <div id="detail-chat-history" style="display:none; border:1.5px dashed var(--ink); padding:10px; background:var(--card);"></div>
+          <div id="detail-chat-history" class="detail-ask" style="display:none;"></div>
         </aside>
       </div>
     </div>

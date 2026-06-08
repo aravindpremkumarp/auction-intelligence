@@ -1353,7 +1353,7 @@ function updateDetailSaveButton() {
   const sb = document.getElementById('detail-save');
   if (!currentDetailId) return;
   const isSaved = saved.has(currentDetailId);
-  sb.textContent = isSaved ? '★ Saved to watchlist' : '☆ Save to watchlist';
+  sb.textContent = isSaved ? '★ saved to watchlist' : '☆ save to watchlist';
   sb.classList.toggle('saved', isSaved);
   sb.onclick = () => toggleSaved(currentDetailId);
 }
