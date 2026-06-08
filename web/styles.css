@@ -1316,37 +1316,27 @@ body {
 /* ====== CHAT SIDEBAR DRAWER — mobile-only slide-in ====== */
 .sb-backdrop { display: none; }
 @media (max-width: 640px) {
-  .sb-backdrop {
-    display: block;
-    position: fixed;
-    top: 56px; left: 0; right: 0; bottom: 64px;
-    background: rgba(0, 0, 0, 0);
-    z-index: 95;
-    pointer-events: none;
-    transition: background 0.25s ease;
-  }
-  .sb-backdrop.on {
-    background: rgba(0, 0, 0, 0.4);
-    pointer-events: auto;
-  }
+  /* The history panel now slides within the results area like the matches panel,
+     so the old full-screen backdrop is no longer used. */
+  .sb-backdrop { display: none; }
   /* Override the desktop+tablet collapse-to-icon behaviour with a real
      slide-in drawer. Position fixed so it floats over the panes; transform
      drives the open/close animation. */
   .results .chat-sidebar {
-    position: fixed;
-    top: 56px; bottom: 64px; left: 0;
-    width: min(86vw, 320px);
-    max-height: none; min-height: 0; margin: 0;
-    z-index: 100;
-    transform: translateX(-102%);
-    transition: transform 0.25s ease;
-    box-shadow: 4px 0 12px rgba(0, 0, 0, 0.15);
+    position: absolute; inset: 0;
+    width: auto; max-height: none; min-height: 0; margin: 0;
+    z-index: 6;
+    background: var(--paper);
+    transform: translateX(-100%);
+    transition: transform 300ms cubic-bezier(.4, 0, .2, 1);
+    box-shadow: none; border: 0;
     overflow-y: auto;
+    padding: 12px 14px;
   }
   .results .chat-sidebar.mobile-on {
     transform: translateX(0);
   }
-  /* When drawer is open, hide the desktop sb-toggle (drawer closes via backdrop) */
+  /* When the panel is open, hide the desktop collapse toggle */
   .results .chat-sidebar.mobile-on .sb-toggle { display: none; }
 
   /* Card-style chat history items inside the mobile drawer */

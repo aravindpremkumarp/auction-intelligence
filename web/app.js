@@ -612,12 +612,16 @@ function setMobileTab(panel) {
   if (!tabs.length) return;
   const resultsPane = document.querySelector('.results .results-pane');
   if (panel === 'history') {
-    // History opens the chat-sidebar drawer; the underlying panel state
-    // doesn't change so the user sees the same tab highlighted when they
-    // close the drawer.
-    openSidebar();
+    // History slides in over the results area like the matches panel; tapping the
+    // clock again toggles it shut. (No backdrop — close via the tabs or by
+    // picking a chat.)
+    const sb = document.getElementById('chat-sidebar');
+    if (sb && sb.classList.contains('mobile-on')) closeSidebar();
+    else openSidebar();
     return;
   }
+  // Switching to conversation/matches dismisses the history overlay if open.
+  closeSidebar();
   tabs.forEach(b => {
     const active = b.dataset.mtab === panel;
     b.classList.toggle('on', active);
