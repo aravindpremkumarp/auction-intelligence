@@ -1519,9 +1519,9 @@ body {
   body:has(.screen[data-screen="results"].on) .topbar { display: none; }
   .screen[data-screen="results"].on {
     /* Fill from the top of the viewport down to just above the fixed bottom-tabs.
-       The bar is ~64px tall PLUS the device bottom safe-area inset (gesture bar) —
+       The icon-only bar is ~46px tall PLUS the device bottom safe-area inset —
        subtracting the inset is what stops it from clipping the chat input. */
-    height: calc(100dvh - 64px - env(safe-area-inset-bottom, 0px));
+    height: calc(100dvh - 46px - env(safe-area-inset-bottom, 0px));
     min-height: 0;
     padding-bottom: 0 !important;
     overflow: hidden;
@@ -2158,4 +2158,11 @@ body {
   .screen[data-screen="results"] .chat-empty { padding: 12px 8px; gap: 8px; }
   /* breathing room between the chat input and the bottom navigation bar */
   .screen[data-screen="results"] .chat-input { margin-bottom: 10px; }
+
+  /* compact, icon-only bottom navigation: drop the text labels and shrink the
+     bar height (kept in sync with the chat-screen height calc above). */
+  .bottom-tabs { padding: 6px 10px calc(6px + env(safe-area-inset-bottom, 0px)); }
+  .bottom-tabs .bt { min-height: 34px; padding: 4px; gap: 0; }
+  .bottom-tabs .bt-lbl { display: none; }
+  .bottom-tabs .bt svg { width: 23px; height: 23px; }
 }
