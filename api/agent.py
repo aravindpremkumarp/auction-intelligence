@@ -37,41 +37,32 @@ class ChatDeps:
 
 
 _ROLE_PROMPT = """\
-You are an AI assistant for the Bank Auction Intelligence Platform. You help
-users find, analyze, score, and track Indian bank auction properties
-(primarily SARFAESI) over a Neo4j knowledge graph of 3,391 Tamil Nadu
-properties.
+You are the assistant for the Bank Auction Intelligence Platform: help users
+find, analyze, score, and track Indian bank-auction properties (mostly
+SARFAESI) over a Neo4j knowledge graph of 3,391 Tamil Nadu properties. The
+shared context below holds the schema, enums, tool routing, and Cypher rules.
 
 Rules:
-1. Ground every answer in tools. Never invent auction_ids, prices, counts,
-   enums, or numeric thresholds (`min_price`, `max_price`, `starts_after`,
-   `starts_before`); for "cheapest/soonest/top N" use `order_by` + `limit`,
-   never a made-up threshold (see `search_auctions`). Cite by `auction_id`.
-2. Tool choice: prefer the specialized tool that matches; fall back to
-   `run_cypher` only for novel queries. Call `describe_schema()` before
-   composing a novel Cypher. For distribution / breakdown / "spread"
-   questions use `list_distinct` — never iterate `get_auction_detail` to
-   compute counts or aggregates.
-3. Cypher shape: every domain relationship starts on `AuctionProperty`
-   (`HAS_ASSET_CATEGORY`, `HAS_PROPERTY_TYPE`, `CONDUCTED_BY`,
-   `HAS_BORROWER`, `LOCATED_IN_*`). MATCH each from the AuctionProperty
-   node and join with commas; never chain `(Bank)-[:HAS_PROPERTY_TYPE]`
-   or similar — those edges don't exist.
-4. Zero results → loosen (drop property_type, widen price, recheck
-   city/area spelling) before declaring "no matches".
-5. Use `internet_search` only for OFF-graph context (legal/RBI explainers,
+1. Ground every answer in tool output. Never invent auction_ids, prices,
+   counts, enums, or numeric thresholds (`min_price`, `max_price`,
+   `starts_after`, `starts_before`); for "cheapest/soonest/top N" use
+   `order_by` + `limit`, never a made-up threshold. Cite by `auction_id`.
+2. Prefer the specialized tool that matches; fall back to `run_cypher` only
+   for novel queries (see Tool routing below). On zero results, loosen
+   (drop property_type, widen price, recheck city/area spelling) before
+   declaring "no matches".
+3. Use `internet_search` only for OFF-graph context (legal/RBI explainers,
    locality background, term definitions) — never for properties, prices,
    deadlines, auction_ids, or counts; for hybrid questions query the graph
    first. Its docstring holds the retry and citation rules.
-6. Don't offer follow-ups outside the tool surface. The graph holds
-   AuctionProperty, Borrower, Bank, City, Area, Document, AssetCategory
-   — and nothing else. No litigations, court cases, FIRs, credit
-   history, ownership chains, encumbrance certificates, market
-   valuations, or external records. Frame borrower follow-ups as
-   `borrower_lookup` output ("other auctions tied to this borrower"),
-   never "check legal records". Confirm before any state-changing
-   action (scoring, tracker transitions).
-7. Markdown only for genuine multi-section answers: open each section
+4. Stay on the tool surface. The graph holds AuctionProperty, Borrower,
+   Bank, City, Area, Document, AssetCategory — and nothing else. No
+   litigations, court cases, FIRs, credit history, ownership chains,
+   encumbrance certificates, market valuations, or external records. Frame
+   borrower follow-ups as `borrower_lookup` output ("other auctions tied to
+   this borrower"), never "check legal records". Confirm before any
+   state-changing action (scoring, tracker transitions).
+5. Markdown only for genuine multi-section answers: open each section
    with `### <emoji> **Title**` (one emoji matching intent — 📍 location,
    🔍 search, 🏆 top, 📊 data, 📰 news, ⚡ insight, ⚠️ caveat, ✅, 💰, 📅).
    Separate sections with a blank line + `---` + blank line. Use **bold**
@@ -180,48 +171,38 @@ def search_auctions(
     aggregations: list[str] | None = None,
     include_past: bool = False,
 ) -> dict:
-    """Filter auctions by price, city, area, type, asset category, bank,
-    auction type, branch, and date window.
+    """Filter auctions by price, city, area, property_type, asset_category,
+    bank, auction_type, branch, and date window.
 
-    Returns {total_count, returned, limit, results}. `total_count` is the
-    true match count (ignoring `limit`); `results` is capped at `limit` and
-    never exceeds 25 rows to you regardless of `limit` (the UI still shows
-    every match). Use `total_count` for quantity questions, never
-    `len(results)`; for "top/cheapest/soonest N" use `order_by` + `limit`.
+    Returns {total_count, returned, limit, results}: `total_count` is the
+    true match count (ignores `limit`); `results` is capped at `limit` and
+    never exceeds 25 rows to you (the UI shows every match). Use
+    `total_count` for "how many", never `len(results)`. Future-only by
+    default; pass `include_past=True` only for retrospective questions.
 
-    Defaults to future-only (`auction_start_dt >= now()`). Pass
-    `include_past=True` only for retrospective questions.
+    Filters take a single value OR a list (OR within a list, AND across
+    filters):
+      - `city`: exact City name. `area`: case-insensitive substring —
+        combine with `city` so same-named areas elsewhere don't match.
+      - `property_type`: exact name(s); expand synonyms BEFORE calling —
+        "independent house" → ["House","Villa","Bungalow","Land And
+        Building"]; "plot" → ["Plot","Land","Non-Agricultural Land"];
+        "shop" → ["Commercial Shop","Commercial Property"]. For
+        "residential"/"commercial"/"industrial" use `asset_category`, NOT
+        `property_type`.
+      - `bank`/`branch_name`: exact names. `auction_type`: one of
+        "SARFAESI Auction", "DRT Auction", "Liquidation Auction",
+        "Private Property".
 
-    Filters — each accepts a single string OR a list (OR semantics within
-    the list, AND across filters):
-      - `city`: exact City name ("Chennai", "Kanchipuram").
-      - `area`: case-insensitive substring on Area name. Combine with
-        `city` so identically-named areas in other cities don't match.
-      - `property_type`: exact PropertyType name. Expand domain synonyms
-        BEFORE calling — "independent house" → ["House","Villa",
-        "Bungalow","Land And Building"]; "plot" → ["Plot","Land",
-        "Non-Agricultural Land"]; "shop" → ["Commercial Shop",
-        "Commercial Property"].
-      - `asset_category`: exact AssetCategory name ("Residential",
-        "Commercial", etc.). Use this — NOT `property_type` — when the
-        user says "residential" / "commercial" / "industrial".
-      - `bank`: exact Bank name. Carry across follow-up turns until the
-        user changes scope.
-      - `auction_type`: one of "SARFAESI Auction", "DRT Auction",
-        "Liquidation Auction", "Private Property".
-      - `branch_name`: exact Branch name.
+    `order_by` ∈ "deadline_asc" (default), "deadline_desc", "price_asc",
+    "price_desc". For "cheapest/soonest/most-expensive N" use ordering +
+    `limit=N`; never invent `min_price`/`max_price`/date thresholds.
 
-    Ordering — `order_by` is one of "deadline_asc" (default),
-    "deadline_desc", "price_asc", "price_desc". For "cheapest N" /
-    "soonest N" / "most expensive N", use ordering + `limit=N`; do NOT
-    invent `min_price` / `max_price` / date thresholds the user didn't
-    state.
-
-    Aggregations — for "price range" / "median" / "average" / "spread":
-    set `aggregate_field` to "reserve_price_num" or "emd_num" and
-    `aggregations` to any subset of ["min","max","avg","median","p25",
-    "p75"]. Pass `limit=0` to skip row fetch when only stats are needed.
-    Results are added as an `aggregations` key.
+    Aggregations — for "price range"/"median"/"average"/"spread": set
+    `aggregate_field` to "reserve_price_num" or "emd_num" and `aggregations`
+    to any subset of ["min","max","avg","median","p25","p75"]; pass
+    `limit=0` to skip the row fetch when only stats are needed. Results are
+    added under an `aggregations` key.
     """
     return T.search_auctions(
         min_price=min_price, max_price=max_price,
@@ -262,21 +243,17 @@ def semantic_search(
     include_past: bool = False,
 ) -> dict:
     """Semantic search over descriptions, notice markdown, and notice
-    images (single gemini-embedding-2 call ranked across three indexes
-    in the same vector space). Use for qualitative text — boundaries,
-    neighborhood, legal caveats, condition, layout — anything in free
-    text or the notice but absent from structured fields.
+    images (one gemini-embedding-2 call ranked across three indexes in the
+    same vector space). Use for qualitative text — boundaries, neighborhood,
+    legal caveats, condition, layout — present in free text or the notice
+    but absent from structured fields. For a PASTED listing (WhatsApp/broker
+    note with a price, date, or area) use `match_pasted_listing` instead.
 
-    For a PASTED listing (WhatsApp forward / broker note with a price,
-    date, or area) use `match_pasted_listing` instead.
-
-    Optional `city` / `area` / `min_price` / `max_price` /
-    `asset_category` / date window post-filter the hits. Future-only by
-    default; `include_past=True` for retrospective queries.
-
-    Each row carries `score` and `hit_sources` (subset of
-    'desc'/'markdown'/'image'). On embedding-backend failure returns
-    `{"error": ..., "results": []}` — fall back to `search_auctions`.
+    Optional `city`/`area`/`min_price`/`max_price`/`asset_category`/date
+    window post-filter the hits. Future-only by default; `include_past=True`
+    for retrospective queries. Each row carries `score` and `hit_sources`
+    (subset of 'desc'/'markdown'/'image'). On embedding-backend failure
+    returns `{"error": ..., "results": []}` — fall back to `search_auctions`.
     """
     try:
         return T.semantic_search(
@@ -292,19 +269,17 @@ def semantic_search(
 
 @agent.tool_plain
 def match_pasted_listing(pasted_text: str) -> dict:
-    """Match a pasted property listing (WhatsApp forward, broker note,
-    bank circular) to an auction. Use whenever the user pastes a blurb
-    with a price / EMD / auction date / building / plot / area / PIN —
-    even if messy. Always preferred over `semantic_search` for this.
+    """Match a pasted property listing (WhatsApp forward, broker note, bank
+    circular) to an auction. Use whenever the user pastes a blurb with a
+    price / EMD / auction date / building / plot / area / PIN, even if messy.
+    Always preferred over `semantic_search` for this.
 
-    Anchors on reserve price ±2% AND auction date ±2 days, widens if
-    nothing strict-matches. Returns {match, confidence (0-1),
-    candidates (≤5), widening_reason, extracted}.
-
-    Present results by confidence:
-      - confidence ≥ 0.85 → "Found it: <match>".
-      - 0.6 ≤ conf < 0.85 → "Very likely this property" + ask to confirm.
-      - conf < 0.6 (widened) → "Couldn't find this exact property; closest
+    Anchors on reserve price ±2% AND auction date ±2 days, widening if
+    nothing strict-matches. Returns {match, confidence (0-1), candidates
+    (≤5), widening_reason, extracted}. Present by confidence:
+      - ≥ 0.85 → "Found it: <match>".
+      - 0.6–0.85 → "Very likely this property" + ask to confirm.
+      - < 0.6 (widened) → "Couldn't find this exact property; closest
         matches (<widening_reason>):" — list candidates, quote
         `widening_reason` verbatim.
       - match None & candidates empty → say so; ask for auction_id or
