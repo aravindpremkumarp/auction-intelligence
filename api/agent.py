@@ -1,7 +1,8 @@
 """
 api/agent.py
 ------------
-PydanticAI agent wired to OpenRouter (Gemini 2.0 Flash) with Cypher tools.
+PydanticAI agent wired to OpenRouter (DeepSeek V4 Pro by default — automatic
+prompt caching + reasoning; see pipeline/config.py) with Cypher tools.
 Keeps the existing OpenRouter config from pipeline/config.py.
 
 The system prompt is assembled from two parts:
@@ -20,7 +21,12 @@ from pydantic_ai import Agent, RunContext
 from pydantic_ai.models.openai import OpenAIModel
 from pydantic_ai.providers.openai import OpenAIProvider
 
-from pipeline.config import OPENROUTER_API_KEY, OPENROUTER_BASE_URL, OPENROUTER_MODEL
+from pipeline.config import (
+    OPENROUTER_API_KEY,
+    OPENROUTER_BASE_URL,
+    OPENROUTER_CHAT_REASONING_EFFORT,
+    OPENROUTER_MODEL_CHAT,
+)
 from api.tools import cypher_tools as T
 from api.tools import web_tools as W
 
@@ -89,18 +95,28 @@ SYSTEM_PROMPT = f"{_ROLE_PROMPT}\n\n---\n\n{_SHARED_CONTEXT}" if _SHARED_CONTEXT
 
 
 _provider = OpenAIProvider(api_key=OPENROUTER_API_KEY, base_url=OPENROUTER_BASE_URL)
-_model = OpenAIModel(OPENROUTER_MODEL, provider=_provider)
+_model = OpenAIModel(OPENROUTER_MODEL_CHAT, provider=_provider)
 
-# OpenRouter-specific: ask for detailed usage accounting on every response so
-# the /chat obs log can report prompt-cache hits
-# (`prompt_tokens_details.cached_tokens`) and cost. Gemini 2.5+/3 implicit
-# caching is automatic upstream when the leading prefix — this role prompt +
-# _shared.md + the tool schemas, ~5k stable tokens — repeats within the cache
-# window; this flag only makes the hit/miss visible. If `cached_tokens` stays
-# 0 in the logs, the route isn't honoring implicit caching and a direct
-# Vertex/Gemini client (google-genai) is the next lever. Passed as a plain
-# dict so it rides through `extra_body` regardless of the settings TypedDict.
-_MODEL_SETTINGS: dict = {"extra_body": {"usage": {"include": True}}}
+# OpenRouter-specific request extras, sent via `extra_body`:
+#   * usage.include — return detailed usage accounting so the /chat obs log can
+#     report prompt-cache hits (`prompt_tokens_details.cached_tokens`) and cost.
+#     DeepSeek's context caching is automatic: the stable leading prefix (this
+#     role prompt + _shared.md + the tool schemas) is cached upstream and billed
+#     at the cache-hit rate on repeat calls, and the cache persists long enough
+#     to survive our bursty traffic — so `cached_tokens` should now climb above
+#     0 (it stayed 0 under Gemini implicit caching). To reduce input cost
+#     further, keep that prefix byte-for-byte stable across turns.
+#   * reasoning.effort — enable the model's reasoning ("high"/"xhigh" for
+#     deepseek-v4-pro). Omitted when OPENROUTER_CHAT_REASONING_EFFORT is blank
+#     or "off"/"none". NB: reasoning tokens bill as output, so this trades some
+#     output cost/latency for grounding quality — tune via the env var.
+# Passed as a plain dict so it rides through `extra_body` regardless of the
+# settings TypedDict.
+_extra_body: dict = {"usage": {"include": True}}
+_reasoning_effort = (OPENROUTER_CHAT_REASONING_EFFORT or "").strip().lower()
+if _reasoning_effort and _reasoning_effort not in {"off", "none", "disabled", "0", "false"}:
+    _extra_body["reasoning"] = {"effort": _reasoning_effort}
+_MODEL_SETTINGS: dict = {"extra_body": _extra_body}
 
 agent = Agent(
     _model,

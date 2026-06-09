@@ -41,6 +41,18 @@ OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 # endpoints found"); 2.5-flash is the drop-in successor.
 OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "google/gemini-2.5-flash")
 
+# Chat agent model — pinned separately from the pipeline model so the two can
+# diverge. DeepSeek V4 Pro: 1M context, *automatic* prompt caching (the stable
+# system+tools prefix is billed at the provider cache-hit rate — ~$0.003625/M
+# vs ~$0.435/M cache-miss, ~99% off — and the cache persists long enough to
+# survive bursty traffic, unlike Gemini implicit caching), plus reasoning.
+# Override via OPENROUTER_MODEL_CHAT in .env.
+OPENROUTER_MODEL_CHAT = os.getenv("OPENROUTER_MODEL_CHAT", "deepseek/deepseek-v4-pro")
+# Reasoning effort for the chat model, sent via OpenRouter's `reasoning` param.
+# deepseek-v4-pro supports "high" and "xhigh" (xhigh = max). Set to "off" (or
+# empty) to disable. NB: reasoning tokens bill as output.
+OPENROUTER_CHAT_REASONING_EFFORT = os.getenv("OPENROUTER_CHAT_REASONING_EFFORT", "high")
+
 # Per-stage model overrides so the chat agent and the description pipeline
 # can pin different models. Each defaults to a value that has been pilot-
 # validated for that stage:
