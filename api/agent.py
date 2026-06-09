@@ -24,6 +24,9 @@ from pydantic_ai.providers.openai import OpenAIProvider
 from pipeline.config import (
     OPENROUTER_API_KEY,
     OPENROUTER_BASE_URL,
+    OPENROUTER_CHAT_PROVIDER_ALLOW_FALLBACKS,
+    OPENROUTER_CHAT_PROVIDER_MAX_PRICE,
+    OPENROUTER_CHAT_PROVIDER_ORDER,
     OPENROUTER_CHAT_REASONING_EFFORT,
     OPENROUTER_MODEL_CHAT,
 )
@@ -110,12 +113,40 @@ _model = OpenAIModel(OPENROUTER_MODEL_CHAT, provider=_provider)
 #     deepseek-v4-pro). Omitted when OPENROUTER_CHAT_REASONING_EFFORT is blank
 #     or "off"/"none". NB: reasoning tokens bill as output, so this trades some
 #     output cost/latency for grounding quality — tune via the env var.
+#   * provider — pin routing to first-party DeepSeek (OPENROUTER_CHAT_PROVIDER_*).
+#     Without it OpenRouter load-balances onto third-party hosts that charge
+#     ~3-4x and cache far worse, so the cache-hit assumption above only holds on
+#     the `deepseek` endpoint. allow_fallbacks + max_price keep us resilient when
+#     DeepSeek is down without routing onto the pricey tier.
 # Passed as a plain dict so it rides through `extra_body` regardless of the
 # settings TypedDict.
 _extra_body: dict = {"usage": {"include": True}}
 _reasoning_effort = (OPENROUTER_CHAT_REASONING_EFFORT or "").strip().lower()
 if _reasoning_effort and _reasoning_effort not in {"off", "none", "disabled", "0", "false"}:
     _extra_body["reasoning"] = {"effort": _reasoning_effort}
+
+_provider_order = [
+    p.strip() for p in (OPENROUTER_CHAT_PROVIDER_ORDER or "").split(",") if p.strip()
+]
+if _provider_order:
+    _provider_routing: dict = {
+        "order": _provider_order,
+        "allow_fallbacks": OPENROUTER_CHAT_PROVIDER_ALLOW_FALLBACKS.strip().lower()
+        in {"1", "true", "yes", "on"},
+    }
+    _max_price = [
+        p.strip() for p in (OPENROUTER_CHAT_PROVIDER_MAX_PRICE or "").split(",") if p.strip()
+    ]
+    if len(_max_price) == 2:
+        try:
+            _provider_routing["max_price"] = {
+                "prompt": float(_max_price[0]),
+                "completion": float(_max_price[1]),
+            }
+        except ValueError:
+            pass
+    _extra_body["provider"] = _provider_routing
+
 _MODEL_SETTINGS: dict = {"extra_body": _extra_body}
 
 agent = Agent(

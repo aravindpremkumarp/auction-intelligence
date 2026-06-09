@@ -53,6 +53,25 @@ OPENROUTER_MODEL_CHAT = os.getenv("OPENROUTER_MODEL_CHAT", "deepseek/deepseek-v4
 # empty) to disable. NB: reasoning tokens bill as output.
 OPENROUTER_CHAT_REASONING_EFFORT = os.getenv("OPENROUTER_CHAT_REASONING_EFFORT", "high")
 
+# Provider routing for the chat model, sent via OpenRouter's `provider` field.
+# Without a pin, OpenRouter load-balances deepseek-v4-pro across third-party
+# hosts (SiliconFlow, DigitalOcean, …) that charge ~3-4x first-party DeepSeek
+# *and* cache far worse (~37% vs ~95% hit) — so the automatic prompt cache the
+# chat agent relies on rarely lands and input cost balloons. Pin to first-party
+# DeepSeek; comma-separated, in preference order. Empty disables the pin.
+OPENROUTER_CHAT_PROVIDER_ORDER = os.getenv("OPENROUTER_CHAT_PROVIDER_ORDER", "deepseek")
+# When the ordered provider(s) are unavailable: "true" lets OpenRouter fall back
+# to other hosts (kept cheap by the price cap below), "false" fails the request.
+OPENROUTER_CHAT_PROVIDER_ALLOW_FALLBACKS = os.getenv(
+    "OPENROUTER_CHAT_PROVIDER_ALLOW_FALLBACKS", "true",
+)
+# Price ceiling ($/1M tokens) so any fallback stays on DeepSeek-class pricing —
+# the default admits only deepseek/baidu/streamlake and excludes the ~3x
+# SiliconFlow/DigitalOcean tier. Format "prompt,completion"; empty disables it.
+OPENROUTER_CHAT_PROVIDER_MAX_PRICE = os.getenv(
+    "OPENROUTER_CHAT_PROVIDER_MAX_PRICE", "0.9,1.8",
+)
+
 # Per-stage model overrides so the chat agent and the description pipeline
 # can pin different models. Each defaults to a value that has been pilot-
 # validated for that stage:
