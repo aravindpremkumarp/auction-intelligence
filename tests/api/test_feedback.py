@@ -11,6 +11,12 @@ def _client() -> TestClient:
     return TestClient(app)
 
 
+def _recent_headers() -> dict:
+    """Reads of /feedback/recent need the shared token (or an admin JWT)."""
+    os.environ.setdefault("FEEDBACK_RESOLVE_TOKEN", "test-resolve-token")
+    return {"X-Resolve-Token": os.environ["FEEDBACK_RESOLVE_TOKEN"]}
+
+
 def _payload(rating: str = "down", text: str | None = "wrong price") -> dict:
     return {
         "rating": rating,
@@ -39,7 +45,7 @@ def test_submit_and_list_feedback() -> None:
     assert body["status"] == "saved"
     fid = body["id"]
 
-    r2 = client.get("/feedback/recent")
+    r2 = client.get("/feedback/recent", headers=_recent_headers())
     assert r2.status_code == 200
     items = r2.json()
     assert len(items) >= 1
@@ -75,7 +81,7 @@ def test_resolve_requires_token_or_admin() -> None:
     assert r.json()["resolved"] is True
 
     # unresolved_only now excludes it
-    remaining = client.get("/feedback/recent?unresolved_only=true").json()
+    remaining = client.get("/feedback/recent?unresolved_only=true", headers=_recent_headers()).json()
     assert all(item["id"] != fid for item in remaining)
 
 
@@ -132,7 +138,7 @@ def test_rating_filter() -> None:
     client = _client()
     client.post("/feedback", json=_payload(rating="up", text=None))
     client.post("/feedback", json=_payload(rating="down", text="bad"))
-    ups = client.get("/feedback/recent?rating=up").json()
+    ups = client.get("/feedback/recent?rating=up", headers=_recent_headers()).json()
     assert all(i["rating"] == "up" for i in ups)
 
 
@@ -148,7 +154,7 @@ def test_general_feedback_without_rating() -> None:
     assert r.status_code == 200
     fid = r.json()["id"]
 
-    items = client.get("/feedback/recent?kind=general").json()
+    items = client.get("/feedback/recent?kind=general", headers=_recent_headers()).json()
     assert any(i["id"] == fid for i in items)
     rec = next(i for i in items if i["id"] == fid)
     assert rec["kind"] == "general"
@@ -157,8 +163,35 @@ def test_general_feedback_without_rating() -> None:
     assert rec["page_url"] == "https://example.com/"
 
     # kind=message filter excludes it
-    msgs = client.get("/feedback/recent?kind=message").json()
+    msgs = client.get("/feedback/recent?kind=message", headers=_recent_headers()).json()
     assert all(i["id"] != fid for i in msgs)
+
+
+def test_feedback_recent_requires_credentials() -> None:
+    """Records carry users' chat context, so anonymous reads are rejected."""
+    from api import neo4j_client
+    from tests.api.conftest import auth_header
+    neo4j_client._users.clear()       # type: ignore[attr-defined]
+
+    client = _client()
+    client.post("/feedback", json=_payload())
+
+    # Anonymous → 401; wrong token → 401.
+    assert client.get("/feedback/recent").status_code == 401
+    os.environ["FEEDBACK_RESOLVE_TOKEN"] = "correct-token"
+    r = client.get("/feedback/recent", headers={"X-Resolve-Token": "nope"})
+    assert r.status_code == 401
+
+    # Authenticated non-admin → 401.
+    h_user = auth_header(sub="sub-fr", email="fr@x.com")
+    client.get("/auth/me", headers=h_user)
+    assert client.get("/feedback/recent", headers=h_user).status_code == 401
+
+    # Admin JWT → 200, shared token → 200.
+    neo4j_client._users["sub-fr"]["role"] = "admin"  # type: ignore[attr-defined]
+    assert client.get("/feedback/recent", headers=h_user).status_code == 200
+    r = client.get("/feedback/recent", headers={"X-Resolve-Token": "correct-token"})
+    assert r.status_code == 200
 
 
 def test_general_feedback_requires_rating_or_text() -> None:
@@ -178,7 +211,7 @@ def test_resolved_at_populated_after_resolve() -> None:
     fid = client.post("/feedback", json=_payload()).json()["id"]
 
     # Before resolve, resolved_at is None.
-    items = client.get("/feedback/recent?unresolved_only=false").json()
+    items = client.get("/feedback/recent?unresolved_only=false", headers=_recent_headers()).json()
     rec = next(i for i in items if i["id"] == fid)
     assert rec["resolved"] is False
     assert rec["resolved_at"] is None
@@ -188,7 +221,7 @@ def test_resolved_at_populated_after_resolve() -> None:
     r = client.patch(f"/feedback/{fid}/resolve", headers={"X-Resolve-Token": "correct-token-2"})
     assert r.status_code == 200
 
-    items = client.get("/feedback/recent?unresolved_only=false").json()
+    items = client.get("/feedback/recent?unresolved_only=false", headers=_recent_headers()).json()
     rec = next(i for i in items if i["id"] == fid)
     assert rec["resolved"] is True
     assert isinstance(rec["resolved_at"], str) and rec["resolved_at"]

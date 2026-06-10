@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Literal
@@ -56,6 +57,14 @@ class FeedbackRecord(BaseModel):
     created_at: str
     resolved: bool = False
     resolved_at: str | None = None
+
+
+def _resolve_token_ok(supplied: str | None) -> bool:
+    """Constant-time check of the shared automation token."""
+    expected = os.environ.get("FEEDBACK_RESOLVE_TOKEN")
+    if not expected or not supplied:
+        return False
+    return secrets.compare_digest(supplied, expected)
 
 
 def _strip_artifacts(arts: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
@@ -170,7 +179,15 @@ async def list_feedback(
     unresolved_only: bool = True,
     rating: Literal["up", "down"] | None = None,
     kind: Literal["message", "general"] | None = None,
+    x_resolve_token: str | None = Header(default=None),
+    user: UserOut | None = Depends(get_optional_user),
 ) -> list[FeedbackRecord]:
+    """List feedback for triage. Records carry users' chat context
+    (`context_turns`, `session_id`, `user_agent`), so reads require either an
+    admin JWT or the shared `X-Resolve-Token` used by the sync workflow."""
+    admin_ok = user is not None and user.role == "admin"
+    if not (_resolve_token_ok(x_resolve_token) or admin_ok):
+        raise HTTPException(status_code=401, detail="Invalid feedback credentials")
     rows = run_query(
         """
         MATCH (f:Feedback)
@@ -199,8 +216,7 @@ async def resolve_feedback(
     an admin closes the item we also persist `resolved_by` / `resolved_by_email`
     for audit.
     """
-    expected = os.environ.get("FEEDBACK_RESOLVE_TOKEN")
-    token_ok = bool(expected) and x_resolve_token == expected
+    token_ok = _resolve_token_ok(x_resolve_token)
     admin_ok = user is not None and user.role == "admin"
     if not (token_ok or admin_ok):
         raise HTTPException(status_code=401, detail="Invalid resolve credentials")

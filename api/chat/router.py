@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import threading
 import time
 from typing import Any
 
@@ -46,23 +47,44 @@ _CARRY_FORWARD_FILTER_KEYS = {
 
 _GATED_MODES = {"deep-research", "report"}
 
-# Simple in-memory hourly counter for anonymous /chat. slowapi's decorator can't
-# see Depends-provided state, so we enforce this manually only when user=None.
+# Simple in-memory counters for /chat. slowapi's decorator can't see
+# Depends-provided state, so both throttles are enforced manually: anonymous
+# callers get a small hourly cap per IP, and authenticated users get a daily
+# turn cap so a runaway client can't run up the OpenRouter bill. In-memory is
+# fine on a single instance; move to Redis-backed storage before scaling out.
 _ANON_CHAT_MAX_PER_HOUR = 10
+_USER_CHAT_MAX_PER_DAY = int(os.environ.get("CHAT_USER_DAILY_LIMIT", "200"))
+_chat_hits_lock = threading.Lock()
 _anon_chat_hits: dict[str, list[float]] = {}
+_user_chat_hits: dict[str, list[float]] = {}
 
 
-def _enforce_anon_chat_limit(request: Request) -> None:
+def _enforce_chat_limit(
+    hits: dict[str, list[float]], key: str, max_hits: int, window: float, detail: str
+) -> None:
     if os.environ.get("RATELIMIT_DISABLED", "").lower() in {"1", "true", "yes"}:
         return
     now = time.time()
-    window = 3600.0
+    with _chat_hits_lock:
+        recent = [t for t in hits.get(key, []) if now - t < window]
+        if len(recent) >= max_hits:
+            raise HTTPException(status_code=429, detail=detail)
+        recent.append(now)
+        hits[key] = recent
+
+
+def _enforce_anon_chat_limit(request: Request) -> None:
     ip = request.client.host if request.client else "unknown"
-    hits = [t for t in _anon_chat_hits.get(ip, []) if now - t < window]
-    if len(hits) >= _ANON_CHAT_MAX_PER_HOUR:
-        raise HTTPException(status_code=429, detail="rate limit exceeded")
-    hits.append(now)
-    _anon_chat_hits[ip] = hits
+    _enforce_chat_limit(
+        _anon_chat_hits, ip, _ANON_CHAT_MAX_PER_HOUR, 3600.0, "rate limit exceeded"
+    )
+
+
+def _enforce_user_chat_limit(user_id: str) -> None:
+    _enforce_chat_limit(
+        _user_chat_hits, user_id, _USER_CHAT_MAX_PER_DAY, 86400.0,
+        "daily chat limit reached — try again tomorrow",
+    )
 
 
 class ChatRequest(BaseModel):
@@ -443,6 +465,8 @@ async def chat(
         raise HTTPException(status_code=401, detail="login required for this mode")
     if user is None:
         _enforce_anon_chat_limit(request)
+    else:
+        _enforce_user_chat_limit(user.id)
     history = (
         ModelMessagesTypeAdapter.validate_python(
             _strip_dynamic_system_prompts_from_history(req.message_history)

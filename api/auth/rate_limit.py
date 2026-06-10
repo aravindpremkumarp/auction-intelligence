@@ -28,3 +28,7 @@ LOGIN_LIMIT = "5/minute"
 FORGOT_LIMIT = "5/minute"
 REGISTER_LIMIT = "10/hour"
 ANON_CHAT_LIMIT = "10/hour"
+# Public, unauthenticated read endpoints. Generous enough for an active
+# browsing session (the UI debounces), tight enough to stop scrape loops.
+PUBLIC_READ_LIMIT = "60/minute"
+STATS_LIMIT = "20/minute"
