@@ -21,6 +21,7 @@ import json
 import time
 from pathlib import Path
 
+from pipeline.obs import USAGE, get_logger
 from pipeline.config import (
     INPUT_JSONL, CACHE_DIR, OUTPUT_DIR,
     PROMPTS_DIR, OPENROUTER_API_KEY, OPENROUTER_BASE_URL,
@@ -33,17 +34,23 @@ PROMPT_TEMPLATE = (PROMPTS_DIR / "extract_auction.txt").read_text(encoding="utf-
 
 EXTRACTED_JSONL = OUTPUT_DIR / "extracted.jsonl"
 
+log = get_logger(__name__)
+
 
 def load_records() -> list[dict]:
     records = []
+    skipped = 0
     with open(INPUT_JSONL, "r", encoding="utf-8") as f:
-        for line in f:
+        for i, line in enumerate(f, 1):
             line = line.strip()
             if line:
                 try:
                     records.append(json.loads(line))
                 except json.JSONDecodeError:
-                    pass
+                    skipped += 1
+                    log.warning("load_records skipped malformed line %d: %.100s", i, line)
+    if skipped:
+        log.warning("load_records skipped=%d of input lines", skipped)
     return records
 
 
@@ -57,7 +64,8 @@ def read_cache(auction_id: str, filename: str) -> dict | None:
     if path.exists():
         try:
             return json.loads(path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
+        except (json.JSONDecodeError, OSError) as e:
+            log.warning("read_cache corrupt/unreadable %s: %s", path.name, e)
             return None
     return None
 
@@ -134,6 +142,7 @@ async def call_text_llm(
                         continue
 
                     data = await resp.json()
+                    USAGE.record(data.get("usage"))
                     text = data["choices"][0]["message"]["content"]
                     return parse_llm_response(text)
 
@@ -283,6 +292,7 @@ async def run_extraction(limit: int | None = None):
 
     elapsed = time.time() - t_start
     print(f"\n\n  Completed: {completed} | Errors: {errors} | Time: {elapsed:.1f}s")
+    log.info(USAGE.summary("ocr_extract"))
     if stats.get("missing_markdown"):
         print(f"  [WARN] {stats['missing_markdown']} document(s) had no cached MinerU markdown and were skipped.")
         print(f"         Run `python -m scripts.ocr_with_mineru --skip-apply` first to populate the cache.")
