@@ -672,8 +672,15 @@ document.addEventListener('change', (e) => {
 (function () {
   const btn = document.getElementById('theme-toggle');
   if (!btn) return;
+  // Stroke icons (not emoji) so the toggle matches the rest of the icon set.
+  const MOON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>';
+  const SUN = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4.6"/><path d="M12 2v2.4M12 19.6V22M2 12h2.4M19.6 12H22M4.9 4.9l1.7 1.7M17.4 17.4l1.7 1.7M19.1 4.9l-1.7 1.7M6.6 17.4l-1.7 1.7"/></svg>';
   const sync = () => {
-    btn.textContent = document.documentElement.getAttribute('data-theme') === 'dark' ? '☀' : '🌙';
+    const dark = document.documentElement.getAttribute('data-theme') === 'dark';
+    btn.innerHTML = dark ? SUN : MOON;
+    const label = dark ? 'Switch to light mode' : 'Switch to dark mode';
+    btn.setAttribute('aria-label', label);
+    btn.title = label;
   };
   sync();
   btn.addEventListener('click', () => {
