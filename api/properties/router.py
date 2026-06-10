@@ -207,7 +207,11 @@ def list_properties(
         "min_price": min_price, "max_price": max_price,
         "date_from": date_from, "date_to": date_to,
     }
-    match_clause, where_clause, params = _properties_filter_cypher(filters)
+    try:
+        match_clause, where_clause, params = _properties_filter_cypher(filters)
+    except ValueError as e:
+        # Bad client input (e.g. a malformed date_from) is a 400, not a 500.
+        raise HTTPException(status_code=400, detail=f"invalid filter value: {e}")
 
     total_rows = run_query(
         f"MATCH {match_clause} {where_clause} RETURN count(DISTINCT a) AS total",
