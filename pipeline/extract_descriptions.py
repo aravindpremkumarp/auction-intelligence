@@ -29,6 +29,7 @@ import aiohttp
 from dotenv import load_dotenv
 
 from api.neo4j_client import run_query, run_read_query
+from pipeline.obs import USAGE, get_logger
 from pipeline.config import (
     OPENROUTER_API_KEY,
     OPENROUTER_BASE_URL,
@@ -39,6 +40,8 @@ from pipeline.config import (
     PROMPTS_DIR,
     MAX_RETRIES,
 )
+
+log = get_logger(__name__)
 
 
 load_dotenv()
@@ -185,6 +188,7 @@ async def call_extraction_llm(
                             await asyncio.sleep(2 ** attempt)
                         continue
                     data = await resp.json()
+                    USAGE.record(data.get("usage"))
                     text = data["choices"][0]["message"]["content"]
                     return parse_llm_json(text)
             except RuntimeError:
@@ -209,7 +213,8 @@ def existing_cache_payload(notice_type: str, file_path: str) -> dict | None:
         return None
     try:
         return json.loads(p.read_text(encoding="utf-8"))
-    except Exception:
+    except Exception as e:
+        log.warning("corrupt extraction cache %s: %s", p.name, e)
         return None
 
 
@@ -326,8 +331,14 @@ async def run_async(
                         cache_path.write_text(json.dumps({
                             "property_description_full": desc.strip(),
                         }, ensure_ascii=False, indent=2), encoding="utf-8")
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        # A lost cache write must not be stamped "cached" in the
+                        # graph — apply_descriptions would then read a missing file.
+                        failed += 1
+                        log.error("cache write failed %s: %s", cache_path.name, e)
+                        status_rows.append({"file_path": fp, "status": "failed",
+                                            "at": now_iso})
+                        return
                     extracted_single += 1
                     status_rows.append({"file_path": fp, "status": "cached",
                                         "at": now_iso})
@@ -352,8 +363,12 @@ async def run_async(
                                                        ensure_ascii=False,
                                                        indent=2),
                                           encoding="utf-8")
-                except Exception:
-                    pass
+                except Exception as e:
+                    failed += 1
+                    log.error("cache write failed %s: %s", cache_path.name, e)
+                    status_rows.append({"file_path": fp, "status": "failed",
+                                        "at": now_iso})
+                    return
                 extracted_multi += 1
                 status_rows.append({"file_path": fp, "status": this_status,
                                     "at": now_iso})
@@ -371,6 +386,7 @@ async def run_async(
                 raise fatal[0]
 
     write_extraction_status(status_rows)
+    log.info(USAGE.summary("extract_descriptions"))
 
     return {"cache_hits": cache_hits,
             "extracted_single": extracted_single,

@@ -136,10 +136,25 @@ GOLDEN: list[GoldenCase] = [
     # ─── Borrower lookup ────────────────────────────────────────────────
     GoldenCase("borrower", "Auctions tied to borrower XYZ Industries",
                ["borrower_lookup"]),
+
+    # ─── Edge / negative cases ──────────────────────────────────────────
+    # Zero-result and out-of-coverage questions: the agent must still ground
+    # the answer in a tool call and say "none found" rather than hallucinate
+    # listings or invent coverage it doesn't have.
+    GoldenCase("edge", "Residential auctions in Mumbai",
+               ["search_auctions"]),
+    GoldenCase("edge", "Flats in Chennai under 1000 rupees",
+               ["search_auctions"]),
+    GoldenCase("edge", "Auctions conducted by the Bank of Narnia",
+               ["search_auctions", "list_distinct"]),
+    GoldenCase("edge", "Show me the details of auction id 999999999",
+               ["get_auction_detail"]),
+    GoldenCase("edge", "Which auctions does borrower Walter White have?",
+               ["borrower_lookup"]),
 ]
 
 
 EXPECTED_INTENTS: set[str] = {
     "basic_filter", "aggregation", "multi_hop", "schema",
-    "specific_auction", "semantic", "temporal", "borrower",
+    "specific_auction", "semantic", "temporal", "borrower", "edge",
 }
