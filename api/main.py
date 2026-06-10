@@ -38,6 +38,25 @@ logger = logging.getLogger(__name__)
 ROOT = Path(__file__).resolve().parent.parent
 WEB_DIR = ROOT / "web"
 
+
+def _validate_required_env() -> None:
+    """Fail fast at boot with a clear message instead of a mid-request crash.
+
+    Only enforced outside dev/test so offline development (AUTH_ENABLED=false,
+    stubbed graph) keeps working without a full .env.
+    """
+    if os.environ.get("APP_ENV", "prod").lower() in {"dev", "test"}:
+        return
+    required = ["NEO4J_URI", "NEO4J_USERNAME", "NEO4J_PASSWORD", "OPENROUTER_API_KEY"]
+    if os.environ.get("AUTH_ENABLED", "true").lower() not in {"false", "0", "no"}:
+        required += ["SUPABASE_URL", "SUPABASE_ANON_KEY"]
+    missing = [v for v in required if not os.environ.get(v, "").strip()]
+    if missing:
+        raise RuntimeError(f"missing required environment variables: {', '.join(missing)}")
+
+
+_validate_required_env()
+
 app = FastAPI(title="Bank Auction Intelligence API", version="0.1.0")
 
 # Optional Logfire/OpenTelemetry tracing — no-op unless LOGFIRE_TOKEN (or a

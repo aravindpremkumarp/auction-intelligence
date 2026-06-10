@@ -17,12 +17,12 @@ router = APIRouter()
 
 
 @router.get("/watchlist")
-async def list_watchlist(user: UserOut = Depends(get_current_user)) -> dict:
+def list_watchlist(user: UserOut = Depends(get_current_user)) -> dict:
     return {"ids": repo.list_saved_auction_ids(user.id)}
 
 
 @router.post("/watchlist/{auction_id}", status_code=204)
-async def save_auction(
+def save_auction(
     auction_id: str,
     user: UserOut = Depends(get_current_user),
 ) -> Response:
@@ -33,7 +33,7 @@ async def save_auction(
 
 
 @router.delete("/watchlist/{auction_id}", status_code=204)
-async def unsave_auction(
+def unsave_auction(
     auction_id: str,
     user: UserOut = Depends(get_current_user),
 ) -> Response:

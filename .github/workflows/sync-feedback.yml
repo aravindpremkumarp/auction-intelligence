@@ -27,12 +27,15 @@ jobs:
             exit 0
           fi
           mkdir -p feedback
+          # Strip users' chat context and browser fingerprint before the
+          # snapshot lands in the repo — triage needs the rating/text/question,
+          # not the full conversation.
           curl -fsS -H "X-Resolve-Token: $TOKEN" \
             "$API/feedback/recent?limit=200&unresolved_only=false" \
-            | jq 'sort_by(.created_at) | reverse' > feedback/all.json
+            | jq 'map(del(.context_turns, .user_agent)) | sort_by(.created_at) | reverse' > feedback/all.json
           curl -fsS -H "X-Resolve-Token: $TOKEN" \
             "$API/feedback/recent?limit=200&unresolved_only=true" \
-            | jq 'sort_by(.created_at) | reverse' > feedback/unresolved.json
+            | jq 'map(del(.context_turns, .user_agent)) | sort_by(.created_at) | reverse' > feedback/unresolved.json
 
       - name: Commit if changed
         run: |
