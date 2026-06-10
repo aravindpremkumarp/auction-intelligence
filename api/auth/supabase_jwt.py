@@ -36,6 +36,9 @@ def _jwks_client() -> PyJWKClient:
             f"{_supabase_url()}/auth/v1/.well-known/jwks.json",
             cache_keys=True,
             lifespan=3600,
+            # Keys are cached for an hour, so a hung refresh would otherwise
+            # block every authenticated request until Supabase recovers.
+            timeout=10,
         )
     return _JWKS_CLIENT
 

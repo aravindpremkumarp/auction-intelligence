@@ -5,6 +5,7 @@ Admin-only `/review/*` endpoints powering the enrichment review UI.
 """
 from __future__ import annotations
 
+import os
 from typing import Literal
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
@@ -1077,8 +1078,15 @@ async def review_notice_source(filename: str):
         raise HTTPException(status_code=404, detail="notice has no public_url")
     upstream = rows[0]["url"]
 
+    # The URL comes from the graph, not the client, but a poisoned
+    # Document.public_url must not turn this proxy into an SSRF vector —
+    # only fetch from the configured R2 public base.
+    allowed_base = os.environ.get("R2_PUBLIC_BASE_URL", "").strip().rstrip("/")
+    if allowed_base and not upstream.startswith(allowed_base + "/"):
+        raise HTTPException(status_code=502, detail="source URL outside the notice bucket")
+
     try:
-        r = requests.get(upstream, timeout=60, stream=True)
+        r = requests.get(upstream, timeout=30, stream=True)
     except requests.RequestException as e:
         raise HTTPException(status_code=502, detail=f"upstream fetch: {e}")
     if not r.ok:

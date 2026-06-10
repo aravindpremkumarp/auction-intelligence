@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+import httpx
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.models.openai import OpenAIModel
 from pydantic_ai.providers.openai import OpenAIProvider
@@ -97,7 +98,13 @@ _SHARED_CONTEXT = _load_mode_file("_shared")
 SYSTEM_PROMPT = f"{_ROLE_PROMPT}\n\n---\n\n{_SHARED_CONTEXT}" if _SHARED_CONTEXT else _ROLE_PROMPT
 
 
-_provider = OpenAIProvider(api_key=OPENROUTER_API_KEY, base_url=OPENROUTER_BASE_URL)
+# Explicit timeout: pydantic-ai's default HTTP client waits far longer, and a
+# hung OpenRouter call would pin a worker for the whole request. 90s covers
+# slow reasoning turns; connect failures should surface fast.
+_http_client = httpx.AsyncClient(timeout=httpx.Timeout(90.0, connect=10.0))
+_provider = OpenAIProvider(
+    api_key=OPENROUTER_API_KEY, base_url=OPENROUTER_BASE_URL, http_client=_http_client
+)
 _model = OpenAIModel(OPENROUTER_MODEL_CHAT, provider=_provider)
 
 # OpenRouter-specific request extras, sent via `extra_body`:

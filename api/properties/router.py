@@ -13,8 +13,9 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 
+from api.auth.rate_limit import PUBLIC_READ_LIMIT, STATS_LIMIT, limiter
 from api.neo4j_client import run_query
 from api.tools.cypher_tools import get_auction_detail
 
@@ -170,7 +171,9 @@ def _facet_for(
 
 
 @router.get("/properties")
+@limiter.limit(PUBLIC_READ_LIMIT)
 def list_properties(
+    request: Request,
     q: str | None = None,
     type: list[str] | None = Query(default=None),
     property_type: list[str] | None = Query(default=None),
@@ -269,7 +272,8 @@ def list_properties(
 
 
 @router.get("/stats")
-def stats() -> dict:
+@limiter.limit(STATS_LIMIT)
+def stats(request: Request) -> dict:
     """Public data-freshness + coverage snapshot.
 
     Powers the UI's "Data as of …" indicator and doubles as a cheap probe for
@@ -294,7 +298,8 @@ def stats() -> dict:
 
 
 @router.get("/auction/{auction_id}")
-def auction_detail(auction_id: str) -> dict:
+@limiter.limit(PUBLIC_READ_LIMIT)
+def auction_detail(request: Request, auction_id: str) -> dict:
     detail = get_auction_detail(auction_id)
     if detail is None:
         raise HTTPException(status_code=404, detail="Auction not found")

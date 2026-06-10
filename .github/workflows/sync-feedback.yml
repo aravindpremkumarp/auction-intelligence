@@ -16,15 +16,22 @@ jobs:
       contents: write
     env:
       API: https://auction-api-w68b.onrender.com
+      TOKEN: ${{ secrets.FEEDBACK_RESOLVE_TOKEN }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Fetch feedback from API
         run: |
+          if [ -z "$TOKEN" ]; then
+            echo "FEEDBACK_RESOLVE_TOKEN secret not set — skipping."
+            exit 0
+          fi
           mkdir -p feedback
-          curl -fsS "$API/feedback/recent?limit=200&unresolved_only=false" \
+          curl -fsS -H "X-Resolve-Token: $TOKEN" \
+            "$API/feedback/recent?limit=200&unresolved_only=false" \
             | jq 'sort_by(.created_at) | reverse' > feedback/all.json
-          curl -fsS "$API/feedback/recent?limit=200&unresolved_only=true" \
+          curl -fsS -H "X-Resolve-Token: $TOKEN" \
+            "$API/feedback/recent?limit=200&unresolved_only=true" \
             | jq 'sort_by(.created_at) | reverse' > feedback/unresolved.json
 
       - name: Commit if changed
