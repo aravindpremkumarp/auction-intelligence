@@ -28,12 +28,12 @@ router = APIRouter()
 
 
 @router.get("/auth/me", response_model=UserOut)
-async def me(user: UserOut = Depends(get_current_user)) -> UserOut:
+def me(user: UserOut = Depends(get_current_user)) -> UserOut:
     return user
 
 
 @router.patch("/auth/me", response_model=UserOut)
-async def patch_me(
+def patch_me(
     body: UserPatchIn,
     user: UserOut = Depends(get_current_user),
 ) -> UserOut:
@@ -46,7 +46,7 @@ async def patch_me(
 
 
 @router.get("/admin/users", response_model=list[UserOut])
-async def admin_list_users(
+def admin_list_users(
     limit: int = 200,
     _admin: UserOut = Depends(get_current_admin),
 ) -> list[UserOut]:
@@ -55,7 +55,7 @@ async def admin_list_users(
 
 
 @router.patch("/admin/users/{user_id}", response_model=UserOut)
-async def admin_patch_user(
+def admin_patch_user(
     user_id: str,
     body: AdminUserPatchIn,
     _admin: UserOut = Depends(get_current_admin),

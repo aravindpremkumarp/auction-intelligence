@@ -30,7 +30,7 @@ class ConversationUpsertIn(BaseModel):
 
 
 @router.get("/conversations")
-async def list_conversations(
+def list_conversations(
     property_id: str | None = None,
     user: UserOut = Depends(get_current_user),
 ) -> dict:
@@ -42,7 +42,7 @@ async def list_conversations(
 
 
 @router.get("/conversations/{conv_id}")
-async def get_conversation(
+def get_conversation(
     conv_id: str,
     user: UserOut = Depends(get_current_user),
 ) -> dict:
@@ -72,7 +72,7 @@ async def get_conversation(
 
 
 @router.put("/conversations/{conv_id}", status_code=204)
-async def upsert_conversation(
+def upsert_conversation(
     conv_id: str,
     body: ConversationUpsertIn,
     user: UserOut = Depends(get_current_user),
@@ -91,7 +91,7 @@ async def upsert_conversation(
 
 
 @router.delete("/conversations/{conv_id}", status_code=204)
-async def delete_conversation(
+def delete_conversation(
     conv_id: str,
     user: UserOut = Depends(get_current_user),
 ) -> Response:

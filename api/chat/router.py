@@ -15,6 +15,7 @@ import threading
 import time
 from typing import Any
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from pydantic_ai.messages import (
@@ -504,12 +505,17 @@ async def chat(
             # is greppable next to its latency.
             usage = _usage_fields(result)
             obs.update(usage)
+    except (httpx.TimeoutException, TimeoutError):
+        # Upstream LLM hung — retryable, so tell the client with a 504.
+        logger.exception("agent.run timed out for message=%r mode=%r", req.message, mode)
+        raise HTTPException(status_code=504, detail="the model took too long — please retry")
     except Exception:
         # Most often pydantic-ai's UnexpectedModelBehavior or a transient
         # OpenRouter error. Log with the user message so the failing input is
-        # recoverable from Render logs, then surface a friendly 500.
+        # recoverable from Render logs, then surface a friendly 502 (retryable
+        # upstream failure, not a bug in this service).
         logger.exception("agent.run failed for message=%r mode=%r", req.message, mode)
-        raise HTTPException(status_code=500, detail="chat agent failed — please retry")
+        raise HTTPException(status_code=502, detail="chat agent failed — please retry")
     artifacts = _extract_artifacts(result.new_messages())
     logger.info(
         "chat turn ok mode=%s tool_calls=%d answer_chars=%d "

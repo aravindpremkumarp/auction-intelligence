@@ -129,7 +129,7 @@ def _feedback_row_to_record(row: dict) -> FeedbackRecord:
 
 
 @router.post("/feedback")
-async def submit_feedback(
+def submit_feedback(
     req: FeedbackRequest,
     user: UserOut | None = Depends(get_optional_user),
 ) -> dict:
@@ -174,7 +174,7 @@ async def submit_feedback(
 
 
 @router.get("/feedback/recent", response_model=list[FeedbackRecord])
-async def list_feedback(
+def list_feedback(
     limit: int = 50,
     unresolved_only: bool = True,
     rating: Literal["up", "down"] | None = None,
@@ -204,7 +204,7 @@ async def list_feedback(
 
 
 @router.patch("/feedback/{feedback_id}/resolve")
-async def resolve_feedback(
+def resolve_feedback(
     feedback_id: str,
     x_resolve_token: str | None = Header(default=None),
     user: UserOut | None = Depends(get_optional_user),
@@ -242,7 +242,7 @@ async def resolve_feedback(
 
 
 @router.get("/admin/feedback", response_model=list[FeedbackRecord])
-async def list_admin_feedback(
+def list_admin_feedback(
     limit: int = 100,
     unresolved_only: bool = True,
     _admin: UserOut = Depends(get_current_admin),

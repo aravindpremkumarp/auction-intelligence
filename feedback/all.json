@@ -9,8 +9,6 @@
     "question": "",
     "answer": "",
     "artifacts": [],
-    "context_turns": [],
-    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
     "page_url": "https://auction-intelligence-alpha.vercel.app/",
     "property_id": null,
     "created_at": "2026-05-07T08:24:05.969685000+00:00",
@@ -27,8 +25,6 @@
     "question": "",
     "answer": "",
     "artifacts": [],
-    "context_turns": [],
-    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
     "page_url": "https://auction-intelligence-alpha.vercel.app/",
     "property_id": null,
     "created_at": "2026-04-21T22:52:46.101460000+00:00",
@@ -45,36 +41,6 @@
     "question": "which of them are re-auction",
     "answer": "I do not have the functionality to determine if these are re-auctions. However, you can check the auction details on the provided URLs to see if that information is available. Would you like me to get the details for a specific auction ID?",
     "artifacts": [],
-    "context_turns": [
-      {
-        "role": "user",
-        "content": "flats in Chennai under 50 lakhs"
-      },
-      {
-        "role": "assistant",
-        "content": "I found 97 flats in Chennai under 50 lakhs. Here are the first 20:\n- Canara Bank Flat Auction in Ambattur, Chennai, auction_id: 661708, reserve price: 2600000\n- Canara Bank Flat Auction in Avadi, Chennai, auction_id: 661710, reserve price: 1584000\n- Canara Bank Flat Auction in Ambattur, Chennai, auction_id: 661711, reserve price: 1800000\n- Canara Bank Flat Auction in Pallikaranai, Chennai, auction_id: 663377, reserve price: 2375000\n- Punjab National Bank Flat Auction in Pammal, Chennai, auction_id: 667779, reserve price: 2050000\n- Punjab National Bank Flat Auction in Anakaputhur, Chennai, auction_id: 667783, reserve price: 2700000\n- Canara Bank Flat Auction in Perambur, Chennai, auction_id: 665849, reserve price: 3730000\n- PNB Housing Finance Limited Flat Auction in Singaperumal Koil, Chennai, auction_id: 664850, reserve price: 2238000\n- PNB Housing Finance Limited Flat Auction in Sholinganallur., Chennai, auction_id: 664858, reserve price: 4623000\n- PNB Housing Finance Limited Flat Auction in Villivakkam, Chennai, auction_id: 664855, reserve price: 2216000\n- PNB Housing Finance Limited Flat Auction in Sengundram ,, Chennai, auction_id: 664869, reserve price: 2358000\n- Canara Bank Flat Auction in Thiruvanmiyur, Chennai, auction_id: 662994, reserve price: 2900000\n- Canara Bank Flat Auction in Thiruvanmiyur, Chennai, auction_id: 662991, reserve price: 3700000\n- Indian Overseas Bank Flat Auction in Pallikaranai, Chennai, auction_id: 664788, reserve price: 2400000\n- Indian Overseas Bank Flat Auction in Avadi, Chennai, auction_id: 664785, reserve price: 3654400\n- Indian Overseas Bank Flat Auction in Nanganallur, Chennai, auction_id: 664798, reserve price: 2500000\n- Asset Reconstruction Company (India) Ltd. (Arcil) Flat Auction in Guindy, Chennai, auction_id: 644090, reserve price: 1140000\n- Canara Bank Flat Auction in Pallikaranai, Chennai, auction_id: 659915, reserve price: 4362000\n- Canara Bank Flat Auction in Pallikaranai, Chennai, auction_id: 653072, reserve price: 4",
-        "tool_calls": [
-          {
-            "tool": "search_auctions",
-            "args": {
-              "city": "Chennai",
-              "max_price": 5000000,
-              "property_type": "Flat"
-            }
-          }
-        ]
-      },
-      {
-        "role": "user",
-        "content": "which of them are re-auction"
-      },
-      {
-        "role": "assistant",
-        "content": "I do not have the functionality to determine if these are re-auctions. However, you can check the auction details on the provided URLs to see if that information is available. Would you like me to get the details for a specific auction ID?",
-        "tool_calls": []
-      }
-    ],
-    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
     "page_url": "https://auction-intelligence-alpha.vercel.app/",
     "property_id": null,
     "created_at": "2026-04-21T22:50:51.390371000+00:00",
@@ -91,36 +57,6 @@
     "question": "which of them are re-auction",
     "answer": "I do not have the functionality to determine if these are re-auctions. However, you can check the auction details on the provided URLs to see if that information is available. Would you like me to get the details for a specific auction ID?",
     "artifacts": [],
-    "context_turns": [
-      {
-        "role": "user",
-        "content": "flats in Chennai under 50 lakhs"
-      },
-      {
-        "role": "assistant",
-        "content": "I found 97 flats in Chennai under 50 lakhs. Here are the first 20:\n- Canara Bank Flat Auction in Ambattur, Chennai, auction_id: 661708, reserve price: 2600000\n- Canara Bank Flat Auction in Avadi, Chennai, auction_id: 661710, reserve price: 1584000\n- Canara Bank Flat Auction in Ambattur, Chennai, auction_id: 661711, reserve price: 1800000\n- Canara Bank Flat Auction in Pallikaranai, Chennai, auction_id: 663377, reserve price: 2375000\n- Punjab National Bank Flat Auction in Pammal, Chennai, auction_id: 667779, reserve price: 2050000\n- Punjab National Bank Flat Auction in Anakaputhur, Chennai, auction_id: 667783, reserve price: 2700000\n- Canara Bank Flat Auction in Perambur, Chennai, auction_id: 665849, reserve price: 3730000\n- PNB Housing Finance Limited Flat Auction in Singaperumal Koil, Chennai, auction_id: 664850, reserve price: 2238000\n- PNB Housing Finance Limited Flat Auction in Sholinganallur., Chennai, auction_id: 664858, reserve price: 4623000\n- PNB Housing Finance Limited Flat Auction in Villivakkam, Chennai, auction_id: 664855, reserve price: 2216000\n- PNB Housing Finance Limited Flat Auction in Sengundram ,, Chennai, auction_id: 664869, reserve price: 2358000\n- Canara Bank Flat Auction in Thiruvanmiyur, Chennai, auction_id: 662994, reserve price: 2900000\n- Canara Bank Flat Auction in Thiruvanmiyur, Chennai, auction_id: 662991, reserve price: 3700000\n- Indian Overseas Bank Flat Auction in Pallikaranai, Chennai, auction_id: 664788, reserve price: 2400000\n- Indian Overseas Bank Flat Auction in Avadi, Chennai, auction_id: 664785, reserve price: 3654400\n- Indian Overseas Bank Flat Auction in Nanganallur, Chennai, auction_id: 664798, reserve price: 2500000\n- Asset Reconstruction Company (India) Ltd. (Arcil) Flat Auction in Guindy, Chennai, auction_id: 644090, reserve price: 1140000\n- Canara Bank Flat Auction in Pallikaranai, Chennai, auction_id: 659915, reserve price: 4362000\n- Canara Bank Flat Auction in Pallikaranai, Chennai, auction_id: 653072, reserve price: 4",
-        "tool_calls": [
-          {
-            "tool": "search_auctions",
-            "args": {
-              "city": "Chennai",
-              "max_price": 5000000,
-              "property_type": "Flat"
-            }
-          }
-        ]
-      },
-      {
-        "role": "user",
-        "content": "which of them are re-auction"
-      },
-      {
-        "role": "assistant",
-        "content": "I do not have the functionality to determine if these are re-auctions. However, you can check the auction details on the provided URLs to see if that information is available. Would you like me to get the details for a specific auction ID?",
-        "tool_calls": []
-      }
-    ],
-    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
     "page_url": "https://auction-intelligence-alpha.vercel.app/",
     "property_id": null,
     "created_at": "2026-04-21T22:50:51.277930000+00:00",
@@ -144,25 +80,6 @@
         }
       }
     ],
-    "context_turns": [
-      {
-        "role": "user",
-        "content": "show me 712492"
-      },
-      {
-        "role": "assistant",
-        "content": "Auction `712492` is a residential land auction in Vilavancode, Kanyakumari by State Bank of India, with a reserve price of 1,700,000 INR and an EMD of 170,000 INR. The application deadline is 2026-04-04 and the auction starts on 2026-04-06. The property consists of 6.666 Cents of land in Re. Sy No. 271-2A of Kollamcode Village, Vilavancodu Taluk, Kanyakumari District registered in the name of Shri. Subrahmanion. It also includes 1.01 Ares of land in Resurvey No. 271/2 of Kollemcode Village, Vilavancode Taluk, Kanyakuman District, registered in the name of Shri. Subramonian.\n\nDo you have any other questions about this auction?",
-        "tool_calls": [
-          {
-            "tool": "get_auction_detail",
-            "args": {
-              "auction_id": "712492"
-            }
-          }
-        ]
-      }
-    ],
-    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
     "page_url": "https://auction-intelligence-alpha.vercel.app/",
     "property_id": null,
     "created_at": "2026-04-21T20:32:37.136703000+00:00",
@@ -189,59 +106,6 @@
         }
       }
     ],
-    "context_turns": [
-      {
-        "role": "assistant",
-        "content": "Could you please clarify what data you're looking for in addition to the property types? I already provided the counts of each property type. Do you want to know the cities each property type is in, or something else?",
-        "tool_calls": []
-      },
-      {
-        "role": "user",
-        "content": "please give me full list of property type in canara bank"
-      },
-      {
-        "role": "assistant",
-        "content": "I have previously provided the full list of property types in Canara Bank. Here it is again:\n\n*   Land And Building (313)\n*   Land (226)\n*   Plot (180)\n*   Flat (47)\n*   House (31)\n*   Industrial Land & Building (5)\n*   Vehicle (4)\n*   Car (4)\n*   Commercial Building (4)\n*   Machinary (3)\n*   Plant & Machinery (3)\n*   Commercial Property (3)\n*   Factory land and Building (2)\n*   Scrap (1)\n*   Industrial Land (1)\n*   Godown (1)\n\nIs there anything else I can help you with?",
-        "tool_calls": []
-      },
-      {
-        "role": "user",
-        "content": "let us explore land in chennai"
-      },
-      {
-        "role": "assistant",
-        "content": "Here are the first 20 Land auctions in Chennai. There are 91 total. Do you want to see more?",
-        "tool_calls": [
-          {
-            "tool": "search_auctions",
-            "args": {
-              "property_type": "Land",
-              "city": "Chennai"
-            }
-          }
-        ]
-      },
-      {
-        "role": "user",
-        "content": "show me 5 cheap ones"
-      },
-      {
-        "role": "assistant",
-        "content": "Here are 5 of the cheapest land auctions in Chennai, with reserve prices under 3,000,000 INR:\n\n*   **667782** (Tambaram): 2,015,000 INR\n*   **669947** (T Nagar): 2,629,000 INR\n*   **664376** (Pozhichalur): 2,230,000 INR\n*   **665981** (Thiruvallur Salai): 240,000 INR\n*   **665982** (Thiruvallur Salai): 150,000 INR",
-        "tool_calls": [
-          {
-            "tool": "search_auctions",
-            "args": {
-              "property_type": "Land",
-              "city": "Chennai",
-              "max_price": 3000000,
-              "limit": 5
-            }
-          }
-        ]
-      }
-    ],
-    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
     "page_url": "https://auction-intelligence-alpha.vercel.app/",
     "property_id": null,
     "created_at": "2026-04-19T19:45:49.883801000+00:00",
@@ -266,49 +130,6 @@
         }
       }
     ],
-    "context_turns": [
-      {
-        "role": "assistant",
-        "content": "I have already provided the full lists of property types and cities for Canara Bank auctions, as returned by the tool. Do you mean you want to see *all* the auction IDs in those cities? That would be a very long list.\n\nOr were you perhaps looking for a different field, like \"area\"?",
-        "tool_calls": []
-      },
-      {
-        "role": "user",
-        "content": "i mean i wanna see all data spread specific to property types in canara bank"
-      },
-      {
-        "role": "assistant",
-        "content": "Could you please clarify what data you're looking for in addition to the property types? I already provided the counts of each property type. Do you want to know the cities each property type is in, or something else?",
-        "tool_calls": []
-      },
-      {
-        "role": "user",
-        "content": "please give me full list of property type in canara bank"
-      },
-      {
-        "role": "assistant",
-        "content": "I have previously provided the full list of property types in Canara Bank. Here it is again:\n\n*   Land And Building (313)\n*   Land (226)\n*   Plot (180)\n*   Flat (47)\n*   House (31)\n*   Industrial Land & Building (5)\n*   Vehicle (4)\n*   Car (4)\n*   Commercial Building (4)\n*   Machinary (3)\n*   Plant & Machinery (3)\n*   Commercial Property (3)\n*   Factory land and Building (2)\n*   Scrap (1)\n*   Industrial Land (1)\n*   Godown (1)\n\nIs there anything else I can help you with?",
-        "tool_calls": []
-      },
-      {
-        "role": "user",
-        "content": "let us explore land in chennai"
-      },
-      {
-        "role": "assistant",
-        "content": "Here are the first 20 Land auctions in Chennai. There are 91 total. Do you want to see more?",
-        "tool_calls": [
-          {
-            "tool": "search_auctions",
-            "args": {
-              "property_type": "Land",
-              "city": "Chennai"
-            }
-          }
-        ]
-      }
-    ],
-    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
     "page_url": "https://auction-intelligence-alpha.vercel.app/",
     "property_id": null,
     "created_at": "2026-04-19T19:42:50.522103000+00:00",
@@ -325,8 +146,6 @@
     "question": "",
     "answer": "",
     "artifacts": [],
-    "context_turns": [],
-    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
     "page_url": "https://auction-intelligence-alpha.vercel.app/",
     "property_id": null,
     "created_at": "2026-04-19T18:37:32.251084000+00:00",
@@ -343,88 +162,6 @@
     "question": "yes",
     "answer": "I have processed two auction details so far. To provide a comprehensive distribution, I need to fetch details for all 132 SBI auctions. This will take a significant amount of time.\n\nHere's what I've found so far:\n\n*   **Residential:** 1 Land\n*   **Others:** 1 Others\n\nDo you want me to continue fetching the details for all 132 auctions, or would you like me to stop and perhaps try a different approach, if available?",
     "artifacts": [],
-    "context_turns": [
-      {
-        "role": "assistant",
-        "content": "Here's the distribution of Asset Categories and Property Types:\n\n**Asset Categories:**\n\n*   Residential: 3202\n*   Scrap, Plant & Machinery: 40\n*   Commercial: 32\n*   Industrials: 31\n*   Vehicle Auctions: 30\n*   Others: 24\n\n**Property Types:**\n\n*   Land: 996\n*   Land And Building: 946\n*   Plot: 704\n*   Flat: 354\n*   House: 184\n*   Others: 24\n*   Plant & Machinery: 22\n*   Vehicle: 16\n*   Machinary: 16\n*   Commercial Property: 14\n*   Commercial Building: 14\n*   Car: 13\n*   Factory land and Building: 12\n*   Villa: 11\n*   Industrial Land: 8\n*   Industrial Land & Building: 7\n*   Commercial Shop: 4\n*   Non- Agricultural Land: 4\n*   Shed: 3\n*   Agricultural Land: 2\n*   Scrap: 2\n*   Residential Unit: 1\n*   Godown: 1\n*   Bike: 1",
-        "tool_calls": [
-          {
-            "tool": "list_distinct",
-            "args": {
-              "field": "asset_category"
-            }
-          },
-          {
-            "tool": "list_distinct",
-            "args": {
-              "field": "property_type"
-            }
-          }
-        ]
-      },
-      {
-        "role": "user",
-        "content": "I mean i asked for specific to SBI"
-      },
-      {
-        "role": "assistant",
-        "content": "SBI has 132 auctions. I will now iterate through the auction IDs and find the asset categories and property types. Since I can only retrieve one auction detail at a time, this process will be slow. Do you want to proceed?",
-        "tool_calls": [
-          {
-            "tool": "run_cypher",
-            "args": {
-              "cypher": "MATCH (a:AuctionProperty)-[:CONDUCTED_BY]->(b:Bank {name: 'State Bank of India'})-[:HAS_ASSET_CATEGORY]->(c:AssetCategory) RETURN c.name AS asset_category, count(a) AS count ORDER BY count DESC",
-              "description": "Distribution of asset categories for SBI auctions"
-            }
-          },
-          {
-            "tool": "run_cypher",
-            "args": {
-              "description": "Distribution of property types for SBI auctions",
-              "cypher": "MATCH (a:AuctionProperty)-[:CONDUCTED_BY]->(b:Bank {name: 'State Bank of India'})-[:HAS_PROPERTY_TYPE]->(c:PropertyType) RETURN c.name AS property_type, count(a) AS count ORDER BY count DESC"
-            }
-          },
-          {
-            "tool": "bank_portfolio",
-            "args": {
-              "bank_name": "State Bank of India"
-            }
-          }
-        ]
-      },
-      {
-        "role": "user",
-        "content": "yes proceed"
-      },
-      {
-        "role": "assistant",
-        "content": "Auction ID 677309 is an Others type in Nanganallur, Chennai. The asset category is Others and property type is Others.\n\nI will continue fetching details for the remaining auction IDs.",
-        "tool_calls": [
-          {
-            "tool": "get_auction_detail",
-            "args": {
-              "auction_id": "677718"
-            }
-          },
-          {
-            "tool": "get_auction_detail",
-            "args": {
-              "auction_id": "677309"
-            }
-          }
-        ]
-      },
-      {
-        "role": "user",
-        "content": "yes"
-      },
-      {
-        "role": "assistant",
-        "content": "I have processed two auction details so far. To provide a comprehensive distribution, I need to fetch details for all 132 SBI auctions. This will take a significant amount of time.\n\nHere's what I've found so far:\n\n*   **Residential:** 1 Land\n*   **Others:** 1 Others\n\nDo you want me to continue fetching the details for all 132 auctions, or would you like me to stop and perhaps try a different approach, if available?",
-        "tool_calls": []
-      }
-    ],
-    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
     "page_url": "https://auction-intelligence-alpha.vercel.app/",
     "property_id": null,
     "created_at": "2026-04-19T18:30:32.255437000+00:00",
@@ -441,14 +178,6 @@
     "question": "",
     "answer": "",
     "artifacts": [],
-    "context_turns": [
-      {
-        "role": "assistant",
-        "content": "Hi — I can query the auction knowledge graph (3,391 Tamil Nadu properties). Ask about **prices, locations, banks, deadlines, or specific auctions**. I will show the structured results in the artifacts panel on the right.",
-        "tool_calls": []
-      }
-    ],
-    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
     "page_url": "https://auction-intelligence-alpha.vercel.app/",
     "property_id": null,
     "created_at": "2026-04-17T19:16:47.876662000+00:00",
@@ -473,32 +202,6 @@
         }
       }
     ],
-    "context_turns": [
-      {
-        "role": "assistant",
-        "content": "Hi — I can query the auction knowledge graph (3,391 Tamil Nadu properties). Ask about **prices, locations, banks, deadlines, or specific auctions**. I will show the structured results in the artifacts panel on the right.",
-        "tool_calls": []
-      },
-      {
-        "role": "assistant",
-        "content": "Hi — I can query the auction knowledge graph (3,391 Tamil Nadu properties). Ask about **prices, locations, banks, deadlines, or specific auctions**. I will show the structured results in the artifacts panel on the right.",
-        "tool_calls": []
-      },
-      {
-        "role": "user",
-        "content": "hello"
-      },
-      {
-        "role": "assistant",
-        "content": "Hello! How can I help you with bank auction properties today? Are you looking to search for properties, analyze a specific auction, or something else?\n",
-        "tool_calls": []
-      },
-      {
-        "role": "user",
-        "content": "how many flats in chennai"
-      }
-    ],
-    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
     "page_url": null,
     "property_id": null,
     "created_at": "2026-04-17T18:59:48.424818000+00:00",
@@ -515,66 +218,6 @@
     "question": "show properties from Ambattur",
     "answer": "I am very sorry. I cannot filter by area. However, I can search for properties in Chennai and include \"Ambattur\" in the title. Would you like me to do that?\n",
     "artifacts": [],
-    "context_turns": [
-      {
-        "role": "assistant",
-        "content": "There are currently no flats listed for auction in Chennai. Should I broaden the search to include other property types or a wider geographic area?\n",
-        "tool_calls": [
-          {
-            "tool": "search_auctions",
-            "args": {
-              "property_type": "Flat",
-              "city": "Chennai"
-            }
-          }
-        ]
-      },
-      {
-        "role": "user",
-        "content": "how many in chennai"
-      },
-      {
-        "role": "assistant",
-        "content": "There are 481 properties listed for auction in Chennai. The list above shows the first 20.\n\nDo you want to narrow the search by specifying a property type (e.g., \"Flat\", \"House\", \"Plot\") or a price range? I can also show you the next 20 properties on the list.",
-        "tool_calls": [
-          {
-            "tool": "search_auctions",
-            "args": {
-              "city": "Chennai"
-            }
-          }
-        ]
-      },
-      {
-        "role": "user",
-        "content": "show me flat"
-      },
-      {
-        "role": "assistant",
-        "content": "I found 422 residential properties in Chennai. The first 20 are displayed above. Some are listed as \"Flat\".\n\nTo refine the search, would you like to specify a price range? I can also show you the next 20 properties on the list.",
-        "tool_calls": [
-          {
-            "tool": "search_auctions",
-            "args": {
-              "property_type": "Flat",
-              "city": "Chennai"
-            }
-          },
-          {
-            "tool": "search_auctions",
-            "args": {
-              "city": "Chennai",
-              "asset_category": "Residential"
-            }
-          }
-        ]
-      },
-      {
-        "role": "user",
-        "content": "show properties from Ambattur"
-      }
-    ],
-    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
     "page_url": null,
     "property_id": null,
     "created_at": "2026-04-17T18:59:31.713681000+00:00",
@@ -599,58 +242,6 @@
         }
       }
     ],
-    "context_turns": [
-      {
-        "role": "assistant",
-        "content": "Hello! How can I help you with bank auction properties today? Are you interested in searching for properties, analyzing a specific auction, or something else?\n",
-        "tool_calls": []
-      },
-      {
-        "role": "user",
-        "content": "What is the price range in Kanchipuram?"
-      },
-      {
-        "role": "assistant",
-        "content": "The price range for auction properties in Kanchipuram is from INR 333,000 to INR 158,287,000.",
-        "tool_calls": [
-          {
-            "tool": "search_auctions",
-            "args": {
-              "aggregate_field": "reserve_price_num",
-              "city": "Kanchipuram",
-              "limit": 0,
-              "aggregations": [
-                "min",
-                "max"
-              ]
-            }
-          }
-        ]
-      },
-      {
-        "role": "user",
-        "content": "how many property under 5 lakh"
-      },
-      {
-        "role": "assistant",
-        "content": "There are 4 properties in Kanchipuram with a reserve price under 5 lakh.",
-        "tool_calls": [
-          {
-            "tool": "search_auctions",
-            "args": {
-              "city": "Kanchipuram",
-              "max_price": 500000,
-              "limit": 0
-            }
-          }
-        ]
-      },
-      {
-        "role": "user",
-        "content": "show me those properties"
-      }
-    ],
-    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
     "page_url": null,
     "property_id": null,
     "created_at": "2026-04-17T11:29:07.494742000+00:00",
@@ -674,68 +265,6 @@
         }
       }
     ],
-    "context_turns": [
-      {
-        "role": "assistant",
-        "content": "There are 473 flats currently listed for auction in Kanchipuram. I am showing the first 20. Do you want to see more?",
-        "tool_calls": [
-          {
-            "tool": "search_auctions",
-            "args": {
-              "property_type": "Flat",
-              "city": "Kanchipuram"
-            }
-          }
-        ]
-      },
-      {
-        "role": "user",
-        "content": "what is price range of them"
-      },
-      {
-        "role": "assistant",
-        "content": "The price range for flats in Kanchipuram is from INR 333,000 to INR 158,287,000.",
-        "tool_calls": [
-          {
-            "tool": "search_auctions",
-            "args": {
-              "limit": 0,
-              "city": "Kanchipuram",
-              "aggregations": [
-                "min",
-                "max"
-              ],
-              "aggregate_field": "reserve_price_num",
-              "property_type": "Flat"
-            }
-          }
-        ]
-      },
-      {
-        "role": "user",
-        "content": "show me INR 158,287,000."
-      },
-      {
-        "role": "assistant",
-        "content": "There is one flat in Kanchipuram with a reserve price of INR 158,287,000. The auction ID is 717410, located in Cheyyur. The auction is scheduled for 2026-04-09. Would you like more details on this property?",
-        "tool_calls": [
-          {
-            "tool": "search_auctions",
-            "args": {
-              "min_price": 158287000,
-              "city": "Kanchipuram",
-              "property_type": "Flat",
-              "max_price": 158287000
-            }
-          }
-        ]
-      },
-      {
-        "role": "user",
-        "content": "yes more details"
-      }
-    ],
-    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
     "page_url": null,
     "property_id": null,
     "created_at": "2026-04-16T22:35:43.193046000+00:00",
@@ -759,8 +288,6 @@
         }
       }
     ],
-    "context_turns": [],
-    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
     "page_url": null,
     "property_id": null,
     "created_at": "2026-04-16T22:17:53.141218000+00:00",

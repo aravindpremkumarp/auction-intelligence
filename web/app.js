@@ -1,6 +1,21 @@
 /* ====== CONFIG ====== */
 const API_BASE = window.API_BASE || '';
-const authFetch = (url, opts) => (window.Auth && window.Auth.fetchWithAuth ? window.Auth.fetchWithAuth(url, opts) : fetch(url, opts));
+// Every API call gets a timeout so a down/hung backend fails visibly instead
+// of leaving the UI waiting forever. /chat is generous (agent turns can take
+// a while); everything else should answer fast. A caller-supplied signal
+// (e.g. the browse abort) still wins where AbortSignal.any is available.
+const FETCH_TIMEOUT_MS = 20000;
+const CHAT_FETCH_TIMEOUT_MS = 120000;
+const authFetch = (url, opts = {}) => {
+  if (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) {
+    const ms = String(url).includes('/chat') ? CHAT_FETCH_TIMEOUT_MS : FETCH_TIMEOUT_MS;
+    const timeoutSignal = AbortSignal.timeout(ms);
+    let signal = timeoutSignal;
+    if (opts.signal) signal = AbortSignal.any ? AbortSignal.any([opts.signal, timeoutSignal]) : opts.signal;
+    opts = { ...opts, signal };
+  }
+  return (window.Auth && window.Auth.fetchWithAuth ? window.Auth.fetchWithAuth(url, opts) : fetch(url, opts));
+};
 const GATED_MODES = new Set(['deep-research', 'report']);
 function _requireAuthForMode(mode) {
   if (!GATED_MODES.has(mode)) return true;
@@ -692,7 +707,7 @@ async function apiChat(message) {
 }
 async function hydrateModes() {
   try {
-    const res = await fetch(`${API_BASE}/modes`);
+    const res = await authFetch(`${API_BASE}/modes`);
     if (!res.ok) return;
     const data = await res.json();
     const modes = Array.isArray(data?.modes) ? data.modes : [];
@@ -2577,7 +2592,7 @@ async function loadDataFreshness() {
   const el = document.getElementById('data-freshness');
   if (!el) return;
   try {
-    const r = await fetch(`${API_BASE}/stats`);
+    const r = await authFetch(`${API_BASE}/stats`);
     if (!r.ok) return;
     const s = await r.json();
     const rel = _relativeTime(s.last_enriched);
