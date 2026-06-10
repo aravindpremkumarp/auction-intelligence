@@ -1,0 +1,30 @@
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+# Scrapers and one-off scripts are local tooling; lint the deployable code.
+extend-exclude = ["redesign", "walkthrough"]
+
+[tool.ruff.lint]
+# Start with correctness rules (pyflakes + pycodestyle errors) so the gate
+# catches real bugs without forcing a big-bang style rewrite. Tighten over
+# time (I = import sorting, B = bugbear) as the codebase is touched.
+select = ["E4", "E7", "E9", "F"]
+
+[tool.ruff.lint.per-file-ignores]
+# Routers re-export names for the package namespace.
+"**/__init__.py" = ["F401"]
+# Local-only tooling (pipeline, scrapers, one-off scripts, scraper probes)
+# predates the linter and is full of compact compound lines and bare excepts.
+# TODO: tighten these as that code is touched — the bare-except cleanup is
+# tracked in docs/production-readiness-2026-06.md (P2 items 12/16).
+"pipeline/**" = ["E401", "E402", "E701", "E702", "E722", "E741", "F401", "F541", "F841"]
+"scrapers/**" = ["E401", "E402", "E701", "E702", "E722", "E741", "F401", "F541", "F841"]
+"scripts/**" = ["E401", "E402", "E701", "E702", "E722", "E741", "F401", "F541", "F841"]
+"scoring/**" = ["E701", "E702", "F541"]
+"tracking/**" = ["E701", "E702", "F541"]
+"tests/test_*.py" = ["E401", "E402", "E701", "E702", "E722", "E741", "F401", "F541", "F841"]
+"tests/pipeline/**" = ["E402", "E722", "F401"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests/api"]
+addopts = "-q"

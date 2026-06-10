@@ -6,6 +6,30 @@ on:
     branches: [main]
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Lint with ruff
+        run: |
+          pip install ruff
+          ruff check .
+
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Audit locked dependencies for known CVEs
+        run: |
+          pip install pip-audit
+          pip-audit -r requirements.lock --disable-pip --no-deps
+
   test:
     runs-on: ubuntu-latest
     steps:
@@ -14,9 +38,9 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
-      - name: Install dependencies
+      - name: Install dependencies (locked)
         run: |
-          pip install -r requirements.txt
+          pip install -r requirements.lock
           pip install pytest httpx
       - name: Run API tests
         env:

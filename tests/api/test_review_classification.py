@@ -5,8 +5,6 @@ JWT so the FastAPI app is importable without live credentials.
 """
 from __future__ import annotations
 
-import sys
-import types
 from datetime import datetime, timezone
 
 import pytest
