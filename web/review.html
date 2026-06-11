@@ -4218,6 +4218,7 @@
       if (ann.anchorId && !live.has(ann.anchorId)) {
         ann.anchorId = ann.selectedIds.values().next().value || null;
       }
+      tbledRebaseFromServer();
       refreshMarkdownAfterChange();
       paintAnnAll();
       return true;
@@ -4850,6 +4851,25 @@
   // `tbledSavePending`: rows hold the user's coalesced trailing edit and the
   // pending flag drives the trailing flush in `tbledFlushSave().finally()`.
   // Clobbering them here drops the edit on offline / 5xx / conflict paths.
+  // Rebase the open inline table editor onto the live ann.blocks copy of its
+  // block. Called when server truth replaced the whole doc on purpose (doc-level
+  // undo/redo, multi-delete) — unlike the failed-PUT rollback path, the editor's
+  // local rows are the stale state here, so clobbering them is the point.
+  // Without this, the same-block remount in tbledMountInline preserves the
+  // pre-undo rows and the next structural op silently re-commits the undone
+  // edit. Editor history is dropped: it predates the new server truth.
+  function tbledRebaseFromServer() {
+    if (!tbled.blockId) return;
+    const live = ann.blocks.find(b => b.id === tbled.blockId);
+    if (!live) return;                  // block deleted; sidebar repaint tears down
+    tbled.block     = live;
+    tbled.rows      = tbledParseHtml(live.text || '');
+    tbled.past      = [];
+    tbled.future    = [];
+    tbled.selection = null;
+    tbledSavePending = false;           // a queued stale save must not resurrect the old rows
+  }
+
   function tbledMountInline(b, container) {
     const sameBlock = tbled.blockId === b.id;
     tbled.block     = b;
