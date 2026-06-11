@@ -1893,6 +1893,11 @@ body {
   background: var(--card); color: var(--ink-soft);
   font-family: var(--font-body); font-size: 12px; font-weight: 500; padding: 3px 9px; text-transform: none;
 }
+.prop .ended-tag {
+  border: 0; border-radius: var(--radius-xs);
+  background: var(--danger-soft, rgba(214, 74, 46, 0.12)); color: var(--danger);
+  font-family: var(--font-body); font-size: 12px; font-weight: 600; padding: 3px 9px;
+}
 .prop .price { font-family: var(--font-body); font-size: 19px; font-weight: 700; letter-spacing: -0.02em; }
 .prop .price-drop {
   border: 0; border-radius: var(--radius-xs);

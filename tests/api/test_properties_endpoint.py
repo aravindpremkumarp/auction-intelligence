@@ -94,6 +94,18 @@ def test_properties_bad_sort_400(captured: dict) -> None:
     assert _client().get("/properties?sort=banana").status_code == 400
 
 
+def test_properties_upcoming_sort(captured: dict) -> None:
+    """`upcoming` (the browse-grid default) buckets live auctions before
+    ended ones: bucket CASE first, soonest-upcoming ascending, then ended
+    rows most-recently-ended first."""
+    assert _client().get("/properties?sort=upcoming").status_code == 200
+    results_cypher = next(c for c, p in captured["queries"] if "SKIP $offset" in c)
+    order_by = results_cypher.split("ORDER BY", 1)[1]
+    assert "WHEN a.auction_start_dt < datetime() THEN 1 ELSE 0 END ASC" in order_by
+    assert "CASE WHEN a.auction_start_dt >= datetime() THEN a.auction_start_dt END ASC" in order_by
+    assert "a.auction_start_dt DESC" in order_by
+
+
 def test_properties_bad_date_400(captured: dict) -> None:
     assert _client().get("/properties?date_from=not-a-date").status_code == 400
 

@@ -276,6 +276,34 @@ function formatDescription(text) {
 // italic (* *), links [text](http(s)://…), and unordered/ordered lists.
 // All raw input is HTML-escaped before any tags are introduced, so user-
 // supplied text can never inject markup.
+
+// MinerU OCR stores notice tables as raw HTML (<table><tr><td>… with no
+// inter-cell whitespace), so property descriptions can carry literal table
+// markup. renderMarkdown escapes all HTML, which made those tables display
+// as raw tags. Convert each <table> block to a GFM pipe table; the cell text
+// still flows through renderMarkdown's escaping, so nothing in the scraped
+// data can inject markup (DOMParser parses inert, never executes scripts).
+function convertHtmlTables(text) {
+  const s = String(text);
+  if (!/<table[\s>]/i.test(s) || typeof DOMParser === 'undefined') return s;
+  return s.replace(/<table[\s\S]*?<\/table>/gi, (block) => {
+    let doc;
+    try { doc = new DOMParser().parseFromString(block, 'text/html'); } catch (_) { return block; }
+    const rows = Array.from(doc.querySelectorAll('tr')).map(tr =>
+      Array.from(tr.querySelectorAll('th,td')).map(cell =>
+        // `|` is the one character that would break the pipe-table shape.
+        cell.textContent.replace(/\s+/g, ' ').replace(/\|/g, '/').trim()
+      )
+    ).filter(r => r.length);
+    if (!rows.length) return block;
+    const width = Math.max(...rows.map(r => r.length));
+    const pad = (r) => r.concat(Array(width - r.length).fill(''));
+    const line = (r) => '| ' + pad(r).join(' | ') + ' |';
+    const sep = '| ' + Array(width).fill('---').join(' | ') + ' |';
+    return '\n\n' + [line(rows[0]), sep, ...rows.slice(1).map(line)].join('\n') + '\n\n';
+  });
+}
+
 function renderMarkdown(text) {
   if (text == null || text === '') return '';
   const escapeChars = (str) => String(str).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -295,6 +323,11 @@ function renderMarkdown(text) {
     const idx = inlines.push(code) - 1;
     return ` I${idx} `;
   });
+
+  // 2.5. Turn raw HTML tables (OCR'd notice data) into pipe tables so the
+  // table renderer below picks them up instead of escaping them to literal
+  // markup. Runs after code stashing so tables inside code blocks survive.
+  s = convertHtmlTables(s);
 
   // 3. Escape HTML in everything that's left.
   s = escapeChars(s);
@@ -506,6 +539,7 @@ function toCard(row) {
     };
   }
   const type = inferType(row);
+  const startD = parseDate(row.auction_start || row.deadline);
   return {
     id: row.auction_id,
     type,
@@ -516,6 +550,7 @@ function toCard(row) {
     emd: formatINR(row.emd),
     date: formatAuctionDate(row.auction_start || row.deadline),
     dateRaw: row.auction_start || row.deadline || null,
+    ended: !!(startD && startD < new Date()),
     url: row.url || null,
     drop,
   };
@@ -1083,6 +1118,7 @@ function propCardHtml(c, urgent, countdown) {
         <div class="row" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
           ${showBank ? `<span class="bank-tag">${escapeHtml(c.bank)}</span>` : ''}
           <span class="mono" style="color:var(--muted);">${escapeHtml(c.date)}</span>
+          ${c.ended ? '<span class="ended-tag">auction ended</span>' : ''}
         </div>
         <div class="price">${escapeHtml(c.price)}</div>
         ${dropBadge}
@@ -1232,10 +1268,12 @@ function renderDetail(detail) {
 
   const auctionStart = f.auction_start_dt;
   const deadline = f.application_deadline_dt;
+  const _startD = parseDate(auctionStart);
+  const auctionEnded = !!(_startD && _startD < new Date());
   const facts = [
     { cls: 'fact accent big', lbl: 'reserve price', val: formatINR(f.reserve_price_num) },
     { cls: 'fact big', lbl: 'EMD', val: formatINR(f.emd_num) },
-    { cls: 'fact big', lbl: 'auction', val: formatAuctionDate(auctionStart) },
+    { cls: 'fact big', lbl: auctionEnded ? 'auction · ended' : 'auction', val: formatAuctionDate(auctionStart) },
     { cls: 'fact', lbl: 'bank', val: bank || '—' },
     { cls: 'fact', lbl: 'type', val: [assetCategory, types.join(', ')].filter(Boolean).join(' · ') || '—' },
     { cls: 'fact', lbl: 'apply by', val: formatAuctionDate(deadline) },
@@ -1426,6 +1464,25 @@ async function loadDetailChat(propertyId) {
   // recent chat for this property.
   const explicitChatId = _pendingPropertyChatId;
   _pendingPropertyChatId = null;
+  // Anonymous visitors have no saved chats; skip the calls instead of firing
+  // a guaranteed 401 (console noise on every detail view while signed out).
+  // Gate on the persisted Supabase session — the same source authFetch reads —
+  // NOT on Auth.getUser(), which hydrates async and is still null during a
+  // cold deep-link load for signed-in users.
+  let _hasSession = false;
+  try {
+    const _sb = window.Auth && window.Auth._supabase;
+    if (_sb) {
+      const _res = await _sb.auth.getSession();
+      _hasSession = !!(_res && _res.data && _res.data.session);
+    }
+  } catch (_) { /* treat as anon */ }
+  if (!_hasSession) {
+    currentPropertyChatId = _mintChatId();
+    renderDetailChat();
+    renderPropertyChatHistory();
+    return;
+  }
   try {
     const r = await authFetch(`${API_BASE}/conversations?property_id=${encodeURIComponent(propertyId)}`);
     if (r && r.ok) {
@@ -2038,7 +2095,9 @@ const browseState = {
   state: [], district: [], village: [],
   price: '', priceMin: '', priceMax: '',
   dateFrom: '', dateTo: '',
-  sort: 'date_asc',
+  // 'upcoming' = live auctions soonest-first, ended ones after. Plain
+  // date_asc led with months-old ended auctions on first load.
+  sort: 'upcoming',
   offset: 0,
 };
 const MULTI_FILTER_KEYS = ['category', 'propertyType', 'bank', 'state', 'district', 'village'];
@@ -2079,7 +2138,7 @@ function _browseQueryParams() {
   if (hi != null && !isNaN(hi)) p.set('max_price', String(hi * 1e5));
   if (browseState.dateFrom) p.set('date_from', browseState.dateFrom);
   if (browseState.dateTo) p.set('date_to', new Date(browseState.dateTo + 'T23:59:59').toISOString());
-  p.set('sort', browseState.sort || 'date_asc');
+  p.set('sort', browseState.sort || 'upcoming');
   p.set('limit', String(BROWSE_LIMIT));
   p.set('offset', String(browseState.offset || 0));
   return p;
@@ -2308,6 +2367,14 @@ async function applyBrowse({ append = false } = {}) {
   let payload;
   try {
     const r = await authFetch(url, browseAbort ? { signal: browseAbort.signal } : undefined);
+    // Deploy-window guard: an API that predates the 'upcoming' sort 400s it.
+    // Fall back to date_asc (supported forever) instead of an empty grid.
+    if (r.status === 400 && browseState.sort === 'upcoming') {
+      browseState.sort = 'date_asc';
+      const sortSel = document.getElementById('f-sort');
+      if (sortSel) sortSel.value = 'date_asc';
+      return applyBrowse({ append });
+    }
     if (!r.ok) throw new Error(`browse ${r.status}`);
     payload = await r.json();
   } catch (e) {
