@@ -33,6 +33,13 @@ def _parse_to_utc(s: str) -> datetime:
 
 
 _PROPERTIES_SORT_CLAUSES = {
+    # Upcoming auctions soonest-first, then ended ones most-recently-ended
+    # first, undated rows last. Plain date_asc leads with months-old ended
+    # auctions, which is what the browse grid shows by default.
+    "upcoming":   "CASE WHEN a.auction_start_dt IS NULL THEN 2 "
+                  "WHEN a.auction_start_dt < datetime() THEN 1 ELSE 0 END ASC, "
+                  "CASE WHEN a.auction_start_dt >= datetime() THEN a.auction_start_dt END ASC, "
+                  "a.auction_start_dt DESC",
     "date_asc":   "a.auction_start_dt ASC",
     "date_desc":  "a.auction_start_dt DESC",
     "price_asc":  "a.reserve_price_num ASC",
