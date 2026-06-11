@@ -23,6 +23,31 @@ PROPERTY_DESC_INDEX = "property_desc_idx"        # AuctionProperty.description_e
 NOTICE_MARKDOWN_INDEX = "notice_markdown_idx"    # Document.markdown_embedding (structured text)
 NOTICE_IMAGE_INDEX = "notice_image_idx"          # Document.image_embedding (image / PDF bytes)
 
+# Lucene fulltext index over AuctionProperty title + description. Adds a
+# lexical "keyword" lens to semantic_search so exact tokens the embedding
+# may smear out — locality names ("Balaraman Nagar"), survey/plot numbers,
+# bank names — rank properties directly. Created by
+# scripts/load_tn_to_neo4j.py; semantic_search degrades to vector-only when
+# the index is absent.
+PROPERTY_FULLTEXT_INDEX = "property_text_idx"
+
+# Lucene scores are unbounded, so the keyword branch max-normalizes them to
+# [0, 1] per query and scales by this weight to sit in the same range as the
+# vector cosines. < 1.0 so a weak best-keyword hit can't outrank a strong
+# vector consensus (same alpha idea as neo4j-graphrag's HybridRetriever).
+_KEYWORD_WEIGHT = 0.8
+
+# Strip Lucene operators so raw user text can't break query parsing or smuggle
+# in boolean syntax; terms are left OR-joined (Lucene's default).
+_LUCENE_SPECIALS_RE = re.compile(r'[+\-&|!(){}\[\]^"~*?:\\/]')
+
+
+def _lucene_query(text: str) -> str | None:
+    """Sanitize free text into a safe Lucene query, or None if nothing
+    searchable survives."""
+    terms = _LUCENE_SPECIALS_RE.sub(" ", text or "").split()
+    return " ".join(terms) if terms else None
+
 # ── run_cypher guardrails ──────────────────────────────────────────────────
 
 # Word-boundary regex matching any mutating clause. Case-insensitive.
@@ -194,9 +219,10 @@ def search_auctions(
         )
 
     where = []
-    # ui_limit caps the UI-only row count; fetch enough to cover the full
-    # result set up to the hard cap, but never smaller than `limit`.
-    ui_limit = max(limit, _UI_ROWS_HARD_CAP)
+    # ui_limit caps the UI-only row count. Always fetch up to the hard cap so
+    # the `_ui_results` side-channel is fully populated, and never beyond it —
+    # a model-requested limit above the cap must not widen the blast radius.
+    ui_limit = _UI_ROWS_HARD_CAP
     params: dict = {"limit": ui_limit}
     if min_price is not None:
         where.append("a.reserve_price_num >= $min_price"); params["min_price"] = min_price
@@ -250,7 +276,10 @@ def search_auctions(
         for name in aggregations:
             agg_returns.append(f"{_AGG_FUNCS[name].format(f=aggregate_field)} AS {name}")
     agg_cypher = f"MATCH {match_clause} {where_clause} RETURN {', '.join(agg_returns)}"
-    agg_rows = run_query(agg_cypher, {k: v for k, v in params.items() if k != "limit"})
+    agg_rows = run_read_query(
+        agg_cypher, {k: v for k, v in params.items() if k != "limit"},
+        timeout=15.0, max_rows=1,
+    )
     agg_row = agg_rows[0] if agg_rows else {}
     total_count = agg_row.get("total_count", 0)
 
@@ -285,7 +314,7 @@ def search_auctions(
             ORDER BY {_ORDER_BY_CLAUSES[order_by]}
             LIMIT $limit
         """
-        ui_results = run_query(cypher, params)
+        ui_results = run_read_query(cypher, params, timeout=15.0, max_rows=ui_limit)
         for row in ui_results:
             rc = row.get("reauction_count") or 0
             row["reauction_count"] = rc
@@ -324,7 +353,10 @@ def upcoming_auctions(days: int = 14, limit: int = 20) -> list[dict]:
         ORDER BY a.application_deadline_dt ASC
         LIMIT $limit
     """
-    return run_query(cypher, {"cutoff": cutoff, "now": now, "limit": limit})
+    return run_read_query(
+        cypher, {"cutoff": cutoff, "now": now, "limit": limit},
+        max_rows=min(max(int(limit), 1), _UI_ROWS_HARD_CAP),
+    )
 
 
 def borrower_lookup(borrower_name: str) -> list[dict]:
@@ -334,7 +366,7 @@ def borrower_lookup(borrower_name: str) -> list[dict]:
         RETURN a.auction_id AS auction_id, a.title AS title, b.name AS borrower
         LIMIT 50
     """
-    return run_query(cypher, {"name": borrower_name})
+    return run_read_query(cypher, {"name": borrower_name}, max_rows=50)
 
 
 def semantic_search(
@@ -365,14 +397,19 @@ def semantic_search(
         notice file (image / PDF bytes). Best for layout / visual signal
         ("tabular SFC notices in Villupuram") and as a fallback when the
         text-side description is sparse.
+      - property_text_idx     (Lucene fulltext over title + description) —
+        lexical "keyword" lens. Catches exact tokens embeddings smear out:
+        locality names, survey/plot numbers, bank names. Scores are
+        max-normalized per query and weighted into the cosine range.
 
-    For each property the best score from any index wins, and `hit_sources`
+    For each property the best score from any lens wins, and `hit_sources`
     indicates which lenses matched. Defaults to future-only auctions; pass
-    include_past=True for retrospective queries.
+    include_past=True for retrospective queries. If the fulltext index is
+    missing the search silently degrades to vector-only.
 
     Returns {returned, limit, results} where each result carries `score`
-    (cosine, higher is better) and `hit_sources` (list of 'desc' /
-    'markdown' / 'image').
+    (higher is better) and `hit_sources` (list of 'desc' / 'markdown' /
+    'image' / 'keyword').
     """
     qvec = embed_query_gemini(query)
     k = max(limit * 5, 50)
@@ -404,12 +441,65 @@ def semantic_search(
 
     where_clause = ("WHERE " + " AND ".join(where)) if where else ""
 
-    # Fan out across all three Gemini indexes. The CALL () { … UNION … }
-    # form (Neo4j 5.7+) declares an empty variable-scope import — parameters
-    # ($k, $qvec) are visible inside the subquery without explicit import. The
-    # block returns (p, score, source) rows; the outer query dedupes by p
-    # (max score) before applying structured post-filters.
-    cypher = f"""
+    ft_query = _lucene_query(query)
+    include_keyword = ft_query is not None
+    if include_keyword:
+        params["ft_query"] = ft_query
+        params["keyword_weight"] = _KEYWORD_WEIGHT
+
+    cypher = _semantic_search_cypher(optional_matches, where_clause, include_keyword)
+    max_rows = min(max(int(limit), 1), _UI_ROWS_HARD_CAP)
+    if include_keyword:
+        from neo4j.exceptions import Neo4jError
+        try:
+            results = run_read_query(cypher, params, timeout=15.0, max_rows=max_rows)
+        except Neo4jError:
+            # Most likely the fulltext index hasn't been created on this
+            # database yet — retry with the vector-only shape so search
+            # keeps working. If something else is wrong, the retry's error
+            # propagates with the real cause.
+            cypher = _semantic_search_cypher(optional_matches, where_clause, False)
+            results = run_read_query(cypher, params, timeout=15.0, max_rows=max_rows)
+    else:
+        results = run_read_query(cypher, params, timeout=15.0, max_rows=max_rows)
+    return {"returned": len(results), "limit": limit, "results": results}
+
+
+def _semantic_search_cypher(
+    optional_matches: str, where_clause: str, include_keyword: bool
+) -> str:
+    """Compose the hybrid retrieval Cypher.
+
+    Fans out across the three Gemini vector indexes — plus, when
+    `include_keyword` is set, the Lucene fulltext index — inside a
+    CALL () { … UNION … } block (Neo4j 5.7+; the empty variable-scope import
+    makes $k / $qvec visible without explicit import). The block returns
+    (p, score, source) rows; the outer query applies structured post-filters,
+    normalizes keyword scores into the cosine range, and dedupes by p
+    (max score across lenses).
+    """
+    keyword_branch = f"""
+            UNION
+            CALL db.index.fulltext.queryNodes('{PROPERTY_FULLTEXT_INDEX}', $ft_query, {{limit: $k}})
+            YIELD node AS p, score
+            RETURN p, score, 'keyword' AS source""" if include_keyword else ""
+
+    # Lucene scores are unbounded while cosines live in [0, 1]; max-normalize
+    # the keyword rows per query, then scale by $keyword_weight. The
+    # collect/UNWIND round-trip is bounded by 4 × $k rows.
+    keyword_normalize = """
+        WITH collect({p: p, score: score, source: source}) AS rows
+        WITH rows, reduce(m = 0.0, r IN [x IN rows WHERE x.source = 'keyword'] |
+                          CASE WHEN r.score > m THEN r.score ELSE m END) AS ft_max
+        UNWIND rows AS row
+        WITH row.p AS p,
+             CASE WHEN row.source = 'keyword'
+                  THEN (row.score / CASE WHEN ft_max > 0.0 THEN ft_max ELSE 1.0 END)
+                       * $keyword_weight
+                  ELSE row.score END AS score,
+             row.source AS source""" if include_keyword else ""
+
+    return f"""
         CALL () {{
             CALL db.index.vector.queryNodes('{PROPERTY_DESC_INDEX}', $k, $qvec)
             YIELD node AS p, score
@@ -423,11 +513,12 @@ def semantic_search(
             CALL db.index.vector.queryNodes('{NOTICE_IMAGE_INDEX}', $k, $qvec)
             YIELD node AS d, score
             MATCH (d)<-[:HAS_DOCUMENT]-(p:AuctionProperty)
-            RETURN p, score, 'image' AS source
+            RETURN p, score, 'image' AS source{keyword_branch}
         }}
         WITH p, score, source
         {optional_matches}
         {where_clause}
+        {keyword_normalize}
         WITH p, max(score) AS score, collect(DISTINCT source) AS hit_sources
         OPTIONAL MATCH (p)-[:LOCATED_IN_CITY]->(city:City)
         OPTIONAL MATCH (p)-[:LOCATED_IN_AREA]->(area:Area)
@@ -455,8 +546,6 @@ def semantic_search(
         ORDER BY score DESC
         LIMIT $limit
     """
-    results = run_query(cypher, params)
-    return {"returned": len(results), "limit": limit, "results": results}
 
 
 # ── match_pasted_listing: find an auction from pasted property text ────────
@@ -530,8 +619,8 @@ def _load_known_locations() -> tuple[frozenset[str], frozenset[str]]:
     """Cached set of all (City, Area) names in the graph. Used to disambiguate
     location tokens in pasted text — we never want to mistake a building
     name ('Sai Nila') for an area."""
-    city_rows = run_query("MATCH (c:City) RETURN c.name AS n", {})
-    area_rows = run_query("MATCH (a:Area) RETURN a.name AS n", {})
+    city_rows = run_read_query("MATCH (c:City) RETURN c.name AS n", {}, max_rows=20000)
+    area_rows = run_read_query("MATCH (a:Area) RETURN a.name AS n", {}, max_rows=20000)
     cities = frozenset(r["n"] for r in city_rows if r.get("n"))
     areas = frozenset(r["n"] for r in area_rows if r.get("n"))
     return cities, areas
@@ -828,7 +917,7 @@ def _run_match_cypher(where: list[str], matches: list[str], params: dict) -> lis
                substring(a.description, 0, 400) AS description
         LIMIT 50
     """
-    return run_query(cypher, params)
+    return run_read_query(cypher, params, max_rows=50)
 
 
 def _widen_until_hits(
@@ -979,7 +1068,7 @@ def get_auction_detail(auction_id: str) -> dict | None:
                documents AS documents,
                siblings  AS siblings
     """
-    rows = run_query(cypher, {"auction_id": auction_id})
+    rows = run_read_query(cypher, {"auction_id": auction_id}, max_rows=1)
     if not rows:
         return None
     # Coerce every neo4j temporal value (top-level fields AND nested

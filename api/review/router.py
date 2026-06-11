@@ -468,7 +468,7 @@ def _row_to_str(row: dict) -> dict:
 
 
 @router.get("/stats", response_model=ReviewStats)
-async def review_stats(
+def review_stats(
     date_from: str | None = Query(default=None, max_length=20),
     date_to: str | None = Query(default=None, max_length=20),
     notice_type: Literal["all", "single", "multi", "unclassified"] = Query(default="all"),
@@ -481,7 +481,7 @@ async def review_stats(
 
 
 @router.get("/queue", response_model=ReviewQueueOut)
-async def review_queue(
+def review_queue(
     status: Literal["pending", "verified", "edited", "all"] = "pending",
     q_search: str | None = Query(default=None, alias="q", max_length=200),
     page: int = Query(default=1, ge=1),
@@ -504,7 +504,7 @@ async def review_queue(
 
 
 @router.get("/notices", response_model=ReviewNoticeQueueOut)
-async def review_notices(
+def review_notices(
     status: Literal["pending", "verified", "edited", "all"] = "pending",
     q_search: str | None = Query(default=None, alias="q", max_length=200),
     page: int = Query(default=1, ge=1),
@@ -527,7 +527,7 @@ async def review_notices(
 
 
 @router.get("/property/{auction_id}", response_model=ReviewPropertyOut)
-async def review_property(
+def review_property(
     auction_id: str,
     _admin: UserOut = Depends(get_current_admin),
 ) -> ReviewPropertyOut:
@@ -538,7 +538,7 @@ async def review_property(
 
 
 @router.get("/property/{auction_id}/siblings", response_model=ReviewSiblingsOut)
-async def review_property_siblings(
+def review_property_siblings(
     auction_id: str,
     _admin: UserOut = Depends(get_current_admin),
 ) -> ReviewSiblingsOut:
@@ -559,7 +559,7 @@ async def review_property_siblings(
 
 
 @router.post("/property/{auction_id}/verify", response_model=ReviewPropertyOut)
-async def review_verify(
+def review_verify(
     auction_id: str,
     body: VerifyBody,
     admin: UserOut = Depends(get_current_admin),
@@ -572,7 +572,7 @@ async def review_verify(
 
 
 @router.post("/property/{auction_id}/edit", response_model=ReviewPropertyOut)
-async def review_edit(
+def review_edit(
     auction_id: str,
     body: EditBody,
     admin: UserOut = Depends(get_current_admin),
@@ -585,7 +585,7 @@ async def review_edit(
 
 
 @router.post("/property/{auction_id}/unverify", response_model=ReviewPropertyOut)
-async def review_unverify(
+def review_unverify(
     auction_id: str,
     _admin: UserOut = Depends(get_current_admin),
 ) -> ReviewPropertyOut:
@@ -597,7 +597,7 @@ async def review_unverify(
 
 
 @router.post("/bulk-confirm", response_model=BulkConfirmResult)
-async def review_description_bulk_confirm(
+def review_description_bulk_confirm(
     body: DescriptionBulkConfirmBody,
     admin: UserOut = Depends(get_current_admin),
 ) -> BulkConfirmResult:
@@ -619,7 +619,7 @@ async def review_description_bulk_confirm(
 
 
 @router.get("/classifications", response_model=ClassificationQueueOut)
-async def review_classifications(
+def review_classifications(
     status: Literal["pending", "verified", "edited", "all"] = "pending",
     q_search: str | None = Query(default=None, alias="q", max_length=200),
     page: int = Query(default=1, ge=1),
@@ -650,7 +650,7 @@ async def review_classifications(
     "/classifications/by-property",
     response_model=ClassificationPropertyQueueOut,
 )
-async def review_classifications_by_property(
+def review_classifications_by_property(
     status: Literal["pending", "verified", "edited", "all"] = "pending",
     q_search: str | None = Query(default=None, alias="q", max_length=200),
     page: int = Query(default=1, ge=1),
@@ -676,7 +676,7 @@ async def review_classifications_by_property(
 
 
 @router.post("/classifications/bulk-confirm", response_model=BulkConfirmResult)
-async def review_bulk_confirm(
+def review_bulk_confirm(
     body: BulkConfirmBody,
     admin: UserOut = Depends(get_current_admin),
 ) -> BulkConfirmResult:
@@ -695,7 +695,7 @@ async def review_bulk_confirm(
 
 
 @router.get("/classifications/stats", response_model=ClassificationStats)
-async def review_classification_stats(
+def review_classification_stats(
     notice_type: Literal["all", "single", "multi", "unclassified"] = Query(default="all"),
     date_from: str | None = Query(default=None, max_length=20),
     date_to: str | None = Query(default=None, max_length=20),
@@ -708,7 +708,7 @@ async def review_classification_stats(
 
 
 @router.post("/notice/{filename}/classify", response_model=ClassifyResult)
-async def review_classify(
+def review_classify(
     filename: str,
     body: ClassifyBody,
     admin: UserOut = Depends(get_current_admin),
@@ -726,7 +726,7 @@ async def review_classify(
 
 
 @router.get("/markdown/stats", response_model=MarkdownStats)
-async def review_markdown_stats(
+def review_markdown_stats(
     score_min: float = Query(default=70.0, ge=0.0, le=100.0),
     score_max: float = Query(default=100.0, ge=0.0, le=100.0),
     notice_type: Literal["all", "single", "multi", "unclassified"] = Query(default="all"),
@@ -743,7 +743,7 @@ async def review_markdown_stats(
 
 
 @router.get("/markdown", response_model=MarkdownQueueOut)
-async def review_markdown_queue(
+def review_markdown_queue(
     status: Literal["pending", "verified", "edited", "all"] = "pending",
     q_search: str | None = Query(default=None, alias="q", max_length=200),
     page: int = Query(default=1, ge=1),
@@ -772,7 +772,7 @@ async def review_markdown_queue(
     "/markdown/by-property",
     response_model=MarkdownPropertyQueueOut,
 )
-async def review_markdown_by_property(
+def review_markdown_by_property(
     status: Literal["pending", "verified", "edited", "all"] = "pending",
     q_search: str | None = Query(default=None, alias="q", max_length=200),
     page: int = Query(default=1, ge=1),
@@ -798,7 +798,7 @@ async def review_markdown_by_property(
 
 
 @router.post("/markdown/bulk-confirm", response_model=BulkConfirmResult)
-async def review_markdown_bulk_confirm(
+def review_markdown_bulk_confirm(
     body: MarkdownBulkConfirmBody,
     admin: UserOut = Depends(get_current_admin),
 ) -> BulkConfirmResult:
@@ -817,7 +817,7 @@ async def review_markdown_bulk_confirm(
 
 
 @router.post("/markdown/{filename}/verify", response_model=MarkdownRow)
-async def review_markdown_verify(
+def review_markdown_verify(
     filename: str,
     body: VerifyMarkdownBody,
     admin: UserOut = Depends(get_current_admin),
@@ -882,13 +882,22 @@ def _ok_doc(doc: dict) -> BlocksDoc:
 
 
 def _wrap_block_errors(fn):
-    """Map blocks-module exceptions to HTTPException."""
-    from functools import wraps
+    """Map blocks-module exceptions to HTTPException.
+
+    Accepts both coroutine handlers and plain sync handlers; sync handlers
+    are dispatched to the threadpool so their Neo4j / R2 round-trips never
+    block the event loop."""
+    import inspect
+    from functools import partial, wraps
+
+    from starlette.concurrency import run_in_threadpool
 
     @wraps(fn)
     async def inner(*args, **kwargs):
         try:
-            return await fn(*args, **kwargs)
+            if inspect.iscoroutinefunction(fn):
+                return await fn(*args, **kwargs)
+            return await run_in_threadpool(partial(fn, *args, **kwargs))
         except block_ops.BlocksNotFound as e:
             raise HTTPException(status_code=404, detail=str(e))
         except block_ops.BlocksConflict as e:
@@ -902,7 +911,7 @@ def _wrap_block_errors(fn):
 
 @router.get("/notice/{filename}/blocks", response_model=BlocksDoc)
 @_wrap_block_errors
-async def review_notice_get_blocks(
+def review_notice_get_blocks(
     filename: str,
     _admin: UserOut = Depends(get_current_admin),
 ) -> BlocksDoc:
@@ -911,7 +920,7 @@ async def review_notice_get_blocks(
 
 @router.post("/notice/{filename}/blocks", response_model=Block, status_code=201)
 @_wrap_block_errors
-async def review_notice_create_block(
+def review_notice_create_block(
     filename: str,
     body: BlockCreateBody,
     admin: UserOut = Depends(get_current_admin),
@@ -924,7 +933,7 @@ async def review_notice_create_block(
 
 @router.put("/notice/{filename}/blocks/{block_id}", response_model=Block)
 @_wrap_block_errors
-async def review_notice_update_block(
+def review_notice_update_block(
     filename: str,
     block_id: str,
     body: BlockUpdateBody,
@@ -939,7 +948,7 @@ async def review_notice_update_block(
 
 @router.delete("/notice/{filename}/blocks/{block_id}")
 @_wrap_block_errors
-async def review_notice_delete_block(
+def review_notice_delete_block(
     filename: str,
     block_id: str,
     _admin: UserOut = Depends(get_current_admin),
@@ -950,7 +959,7 @@ async def review_notice_delete_block(
 
 @router.post("/notice/{filename}/blocks/reorder", response_model=BlocksDoc)
 @_wrap_block_errors
-async def review_notice_reorder_blocks(
+def review_notice_reorder_blocks(
     filename: str,
     body: ReorderBody,
     admin: UserOut = Depends(get_current_admin),
@@ -961,7 +970,7 @@ async def review_notice_reorder_blocks(
 
 @router.put("/notice/{filename}/blocks", response_model=BlocksDoc)
 @_wrap_block_errors
-async def review_notice_replace_blocks(
+def review_notice_replace_blocks(
     filename: str,
     body: ReplaceBlocksBody,
     admin: UserOut = Depends(get_current_admin),
@@ -991,7 +1000,7 @@ async def review_notice_reextract_block(
 
 @router.put("/notice/{filename}/crop", response_model=BlocksDoc)
 @_wrap_block_errors
-async def review_notice_set_crop(
+def review_notice_set_crop(
     filename: str,
     body: CropBody,
     _admin: UserOut = Depends(get_current_admin),
@@ -1009,7 +1018,7 @@ async def review_notice_set_crop(
 
 @router.put("/notice/{filename}/rotation", response_model=BlocksDoc)
 @_wrap_block_errors
-async def review_notice_set_rotation(
+def review_notice_set_rotation(
     filename: str,
     body: RotationBody,
     _admin: UserOut = Depends(get_current_admin),
@@ -1031,7 +1040,7 @@ async def review_notice_set_rotation(
     status_code=202,
 )
 @_wrap_block_errors
-async def review_notice_reingest(
+def review_notice_reingest(
     filename: str,
     background_tasks: BackgroundTasks,
     admin: UserOut = Depends(get_current_admin),
@@ -1056,7 +1065,7 @@ async def review_notice_reingest(
 
 
 @router.get("/notice/{filename}/source")
-async def review_notice_source(filename: str):
+def review_notice_source(filename: str):
     """Stream a notice's source bytes with CORS headers enabled.
 
     R2 public URLs don't include CORS headers, so pdf.js's XHR fetch

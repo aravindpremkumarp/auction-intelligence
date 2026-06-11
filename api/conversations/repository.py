@@ -14,11 +14,11 @@ inspects them; only the chat UI re-hydrates them.
 """
 from __future__ import annotations
 
-from api.neo4j_client import run_query
+from api.neo4j_client import run_query_async
 
 
-def list_conversations(supabase_id: str) -> list[dict]:
-    rows = run_query(
+async def list_conversations(supabase_id: str) -> list[dict]:
+    rows = await run_query_async(
         """
         MATCH (u:User {supabase_id: $sub})-[:OWNS]->(c:Conversation)
         RETURN c.id           AS id,
@@ -42,8 +42,8 @@ def list_conversations(supabase_id: str) -> list[dict]:
     ]
 
 
-def list_conversations_for_property(supabase_id: str, property_id: str) -> list[dict]:
-    rows = run_query(
+async def list_conversations_for_property(supabase_id: str, property_id: str) -> list[dict]:
+    rows = await run_query_async(
         """
         MATCH (u:User {supabase_id: $sub})-[:OWNS]->(c:Conversation {property_id: $pid})
         RETURN c.id           AS id,
@@ -67,8 +67,8 @@ def list_conversations_for_property(supabase_id: str, property_id: str) -> list[
     ]
 
 
-def get_conversation(supabase_id: str, conv_id: str) -> dict | None:
-    rows = run_query(
+async def get_conversation(supabase_id: str, conv_id: str) -> dict | None:
+    rows = await run_query_async(
         """
         MATCH (u:User {supabase_id: $sub})-[:OWNS]->(c:Conversation {id: $cid})
         RETURN c.id              AS id,
@@ -88,7 +88,7 @@ def get_conversation(supabase_id: str, conv_id: str) -> dict | None:
     return dict(rows[0])
 
 
-def upsert_conversation(
+async def upsert_conversation(
     supabase_id: str,
     conv_id: str,
     title: str,
@@ -100,7 +100,7 @@ def upsert_conversation(
 ) -> None:
     # property_id is set ON CREATE only — once a chat is bound to a property
     # (or is unbound, for search chats), that linkage is permanent.
-    run_query(
+    await run_query_async(
         """
         MATCH (u:User {supabase_id: $sub})
         MERGE (u)-[:OWNS]->(c:Conversation {id: $cid})
@@ -126,8 +126,8 @@ def upsert_conversation(
     )
 
 
-def delete_conversation(supabase_id: str, conv_id: str) -> None:
-    run_query(
+async def delete_conversation(supabase_id: str, conv_id: str) -> None:
+    await run_query_async(
         """
         MATCH (:User {supabase_id: $sub})-[:OWNS]->(c:Conversation {id: $cid})
         DETACH DELETE c

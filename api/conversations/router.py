@@ -35,9 +35,9 @@ async def list_conversations(
     user: UserOut = Depends(get_current_user),
 ) -> dict:
     if property_id:
-        rows = repo.list_conversations_for_property(user.id, property_id)
+        rows = await repo.list_conversations_for_property(user.id, property_id)
     else:
-        rows = repo.list_conversations(user.id)
+        rows = await repo.list_conversations(user.id)
     return {"conversations": rows}
 
 
@@ -46,7 +46,7 @@ async def get_conversation(
     conv_id: str,
     user: UserOut = Depends(get_current_user),
 ) -> dict:
-    row = repo.get_conversation(user.id, conv_id)
+    row = await repo.get_conversation(user.id, conv_id)
     if not row:
         raise HTTPException(status_code=404, detail="conversation not found")
 
@@ -77,7 +77,7 @@ async def upsert_conversation(
     body: ConversationUpsertIn,
     user: UserOut = Depends(get_current_user),
 ) -> Response:
-    repo.upsert_conversation(
+    await repo.upsert_conversation(
         supabase_id=user.id,
         conv_id=conv_id,
         title=body.title[:200],
@@ -95,5 +95,5 @@ async def delete_conversation(
     conv_id: str,
     user: UserOut = Depends(get_current_user),
 ) -> Response:
-    repo.delete_conversation(user.id, conv_id)
+    await repo.delete_conversation(user.id, conv_id)
     return Response(status_code=204)

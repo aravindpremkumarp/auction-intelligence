@@ -20,7 +20,7 @@ from pydantic import BaseModel
 
 from api.auth import get_current_admin, get_optional_user
 from api.auth.schemas import UserOut
-from api.neo4j_client import run_query
+from api.neo4j_client import run_query_async
 
 router = APIRouter()
 
@@ -140,7 +140,7 @@ async def submit_feedback(
     artifacts_json = json.dumps(_strip_artifacts(req.artifacts))
     context_turns_json = json.dumps(_strip_context_turns(req.context_turns))
     answer_trimmed = (req.answer or "")[:4000]
-    run_query(
+    await run_query_async(
         """
         CREATE (f:Feedback {
           id: $id, kind: $kind, rating: $rating, text: $text, session_id: $session_id,
@@ -188,7 +188,7 @@ async def list_feedback(
     admin_ok = user is not None and user.role == "admin"
     if not (_resolve_token_ok(x_resolve_token) or admin_ok):
         raise HTTPException(status_code=401, detail="Invalid feedback credentials")
-    rows = run_query(
+    rows = await run_query_async(
         """
         MATCH (f:Feedback)
         WHERE ($unresolved = false OR f.resolved = false)
@@ -228,7 +228,7 @@ async def resolve_feedback(
         params["resolved_by"] = user.id
         params["resolved_by_email"] = user.email
 
-    rows = run_query(
+    rows = await run_query_async(
         f"""
         MATCH (f:Feedback {{id: $id}})
         {set_clause}
@@ -247,7 +247,7 @@ async def list_admin_feedback(
     unresolved_only: bool = True,
     _admin: UserOut = Depends(get_current_admin),
 ) -> list[FeedbackRecord]:
-    rows = run_query(
+    rows = await run_query_async(
         """
         MATCH (f:Feedback)
         WHERE ($unresolved = false OR f.resolved = false)

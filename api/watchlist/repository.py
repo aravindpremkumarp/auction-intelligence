@@ -8,11 +8,11 @@ The auction node label in this graph is `AuctionProperty` keyed by
 """
 from __future__ import annotations
 
-from api.neo4j_client import run_query
+from api.neo4j_client import run_query_async
 
 
-def list_saved_auction_ids(supabase_id: str) -> list[str]:
-    rows = run_query(
+async def list_saved_auction_ids(supabase_id: str) -> list[str]:
+    rows = await run_query_async(
         """
         MATCH (u:User {supabase_id: $sub})-[r:SAVED]->(a:AuctionProperty)
         RETURN a.auction_id AS auction_id
@@ -23,10 +23,10 @@ def list_saved_auction_ids(supabase_id: str) -> list[str]:
     return [r["auction_id"] for r in rows if r.get("auction_id")]
 
 
-def add_saved(supabase_id: str, auction_id: str) -> bool:
+async def add_saved(supabase_id: str, auction_id: str) -> bool:
     """Create a SAVED edge if the auction exists. Returns True if the
     auction was found (edge created or already present), False otherwise."""
-    rows = run_query(
+    rows = await run_query_async(
         """
         MATCH (u:User {supabase_id: $sub})
         MATCH (a:AuctionProperty {auction_id: $aid})
@@ -39,8 +39,8 @@ def add_saved(supabase_id: str, auction_id: str) -> bool:
     return bool(rows)
 
 
-def remove_saved(supabase_id: str, auction_id: str) -> None:
-    run_query(
+async def remove_saved(supabase_id: str, auction_id: str) -> None:
+    await run_query_async(
         """
         MATCH (:User {supabase_id: $sub})-[r:SAVED]->(:AuctionProperty {auction_id: $aid})
         DELETE r
