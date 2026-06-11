@@ -45,6 +45,7 @@ import aiohttp
 from dotenv import load_dotenv
 
 from api.neo4j_client import run_query, run_read_query
+from pipeline.obs import USAGE, get_logger
 from pipeline.config import (
     CLASSIFY_CACHE_DIR,
     OPENROUTER_API_KEY,
@@ -53,6 +54,8 @@ from pipeline.config import (
     PROMPTS_DIR,
     MAX_RETRIES,
 )
+
+log = get_logger(__name__)
 
 
 load_dotenv()
@@ -213,6 +216,7 @@ async def call_llm(
                             await asyncio.sleep(2 ** attempt)
                         continue
                     data = await resp.json()
+                    USAGE.record(data.get("usage"))
                     text = data["choices"][0]["message"]["content"]
                     obj = parse_llm_json(text)
                     if obj is None:
@@ -266,7 +270,8 @@ async def run_llm_pass(work: list[dict], force: bool = False) -> dict:
             try:
                 cached = json.loads(cache_path.read_text(encoding="utf-8"))
                 v = normalize_verdict(cached.get("verdict") or {})
-            except Exception:
+            except Exception as e:
+                log.warning("corrupt classify cache %s: %s", cache_path.name, e)
                 v = None
             if v is not None:
                 cache_hits += 1
@@ -315,8 +320,8 @@ async def run_llm_pass(work: list[dict], force: bool = False) -> dict:
                         "model": OPENROUTER_MODEL_CLASSIFY,
                         "classified_at": now,
                     }, ensure_ascii=False, indent=2), encoding="utf-8")
-                except Exception:
-                    pass
+                except Exception as e:
+                    log.warning("classify cache write failed %s: %s", cache_path.name, e)
                 new_results[fp] = {**verdict,
                                    "model": OPENROUTER_MODEL_CLASSIFY,
                                    "classified_at": now}
@@ -344,6 +349,7 @@ async def run_llm_pass(work: list[dict], force: bool = False) -> dict:
         })
     written = write_predictions_to_neo4j(payload)
     print(f"  wrote {written} predictions to Neo4j")
+    log.info(USAGE.summary("classify_notice"))
     return {"cached": cache_hits, "scored": len(new_results),
             "written": written}
 

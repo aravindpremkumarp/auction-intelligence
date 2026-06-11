@@ -32,6 +32,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from pipeline.obs import get_logger
 from pipeline.config import (
     INPUT_JSONL, DOWNLOADS_DIR, CACHE_DIR, OUTPUT_DIR,
     OPENROUTER_MODEL, PILOT_SIZE,
@@ -40,6 +41,8 @@ from pipeline.normalize import (
     normalize_bank_name, normalize_city, normalize_area, normalize_property_type,
     clean_text,
 )
+
+log = get_logger(__name__)
 
 VERIFIED_JSONL   = OUTPUT_DIR / "verified_enriched.jsonl"
 EXTRAS_FREQ_JSON = OUTPUT_DIR / "extras_key_frequency.json"
@@ -138,6 +141,12 @@ def consolidate(per_file: list[tuple[str, dict]]) -> dict:
             if k not in verifiable:
                 verifiable[k] = val
                 provenance[f"verifiable.{k}"] = filename
+            elif verifiable[k] != val:
+                # First-non-null wins, but a disagreeing later file is a
+                # data-quality signal worth keeping in the run log.
+                log.warning("merge conflict verifiable.%s: kept %r (%s), dropped %r (%s)",
+                            k, verifiable[k], provenance.get(f"verifiable.{k}"),
+                            val, filename)
 
         # enrichment: union lists/dicts, else first non-null
         for k, val in e.items():
@@ -162,6 +171,10 @@ def consolidate(per_file: list[tuple[str, dict]]) -> dict:
                 if k not in enrichment:
                     enrichment[k] = val
                     provenance[f"enrichment.{k}"] = filename
+                elif enrichment[k] != val:
+                    log.warning("merge conflict enrichment.%s: kept %r (%s), dropped %r (%s)",
+                                k, enrichment[k], provenance.get(f"enrichment.{k}"),
+                                val, filename)
 
         # extras: shallow merge, last non-null wins, record all sources per key
         for k, val in (x or {}).items():

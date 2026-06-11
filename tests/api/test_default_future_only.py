@@ -16,7 +16,6 @@ def _patch_run_query(monkeypatch, *, total_count: int = 0):
         return []
 
     import api.tools.cypher_tools as ct
-    monkeypatch.setattr(ct, "run_query", fake_run_query)
     monkeypatch.setattr(
         ct, "run_read_query",
         lambda cypher, params=None, timeout=10.0, max_rows=200: fake_run_query(cypher, params),

@@ -13,7 +13,7 @@ import time
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from functools import lru_cache
-from api.neo4j_client import run_query, run_read_query
+from api.neo4j_client import run_read_query
 from pipeline.embeddings import embed_query_gemini
 
 # Three Gemini vector indexes, all 3072-dim, all over gemini-embedding-2.
@@ -225,15 +225,19 @@ def search_auctions(
     ui_limit = _UI_ROWS_HARD_CAP
     params: dict = {"limit": ui_limit}
     if min_price is not None:
-        where.append("a.reserve_price_num >= $min_price"); params["min_price"] = min_price
+        where.append("a.reserve_price_num >= $min_price")
+        params["min_price"] = min_price
     if max_price is not None:
-        where.append("a.reserve_price_num <= $max_price"); params["max_price"] = max_price
+        where.append("a.reserve_price_num <= $max_price")
+        params["max_price"] = max_price
     if starts_after is None and not include_past:
         starts_after = datetime.now(timezone.utc)
     if starts_after is not None:
-        where.append("a.auction_start_dt >= $starts_after"); params["starts_after"] = _aware(starts_after)
+        where.append("a.auction_start_dt >= $starts_after")
+        params["starts_after"] = _aware(starts_after)
     if starts_before is not None:
-        where.append("a.auction_start_dt <= $starts_before"); params["starts_before"] = _aware(starts_before)
+        where.append("a.auction_start_dt <= $starts_before")
+        params["starts_before"] = _aware(starts_before)
 
     matches = ["(a:AuctionProperty)"]
     if city:
@@ -417,15 +421,19 @@ def semantic_search(
     where = []
     params: dict = {"qvec": qvec, "k": k, "limit": limit}
     if min_price is not None:
-        where.append("p.reserve_price_num >= $min_price"); params["min_price"] = min_price
+        where.append("p.reserve_price_num >= $min_price")
+        params["min_price"] = min_price
     if max_price is not None:
-        where.append("p.reserve_price_num <= $max_price"); params["max_price"] = max_price
+        where.append("p.reserve_price_num <= $max_price")
+        params["max_price"] = max_price
     if starts_after is None and not include_past:
         starts_after = datetime.now(timezone.utc)
     if starts_after is not None:
-        where.append("p.auction_start_dt >= $starts_after"); params["starts_after"] = _aware(starts_after)
+        where.append("p.auction_start_dt >= $starts_after")
+        params["starts_after"] = _aware(starts_after)
     if starts_before is not None:
-        where.append("p.auction_start_dt <= $starts_before"); params["starts_before"] = _aware(starts_before)
+        where.append("p.auction_start_dt <= $starts_before")
+        params["starts_before"] = _aware(starts_before)
 
     optional_matches = ""
     if city:

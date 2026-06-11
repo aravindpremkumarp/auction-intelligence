@@ -1,6 +1,21 @@
 /* ====== CONFIG ====== */
 const API_BASE = window.API_BASE || '';
-const authFetch = (url, opts) => (window.Auth && window.Auth.fetchWithAuth ? window.Auth.fetchWithAuth(url, opts) : fetch(url, opts));
+// Every API call gets a timeout so a down/hung backend fails visibly instead
+// of leaving the UI waiting forever. /chat is generous (agent turns can take
+// a while); everything else should answer fast. A caller-supplied signal
+// (e.g. the browse abort) still wins where AbortSignal.any is available.
+const FETCH_TIMEOUT_MS = 20000;
+const CHAT_FETCH_TIMEOUT_MS = 120000;
+const authFetch = (url, opts = {}) => {
+  if (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) {
+    const ms = String(url).includes('/chat') ? CHAT_FETCH_TIMEOUT_MS : FETCH_TIMEOUT_MS;
+    const timeoutSignal = AbortSignal.timeout(ms);
+    let signal = timeoutSignal;
+    if (opts.signal) signal = AbortSignal.any ? AbortSignal.any([opts.signal, timeoutSignal]) : opts.signal;
+    opts = { ...opts, signal };
+  }
+  return (window.Auth && window.Auth.fetchWithAuth ? window.Auth.fetchWithAuth(url, opts) : fetch(url, opts));
+};
 const GATED_MODES = new Set(['deep-research', 'report']);
 function _requireAuthForMode(mode) {
   if (!GATED_MODES.has(mode)) return true;
@@ -657,8 +672,15 @@ document.addEventListener('change', (e) => {
 (function () {
   const btn = document.getElementById('theme-toggle');
   if (!btn) return;
+  // Stroke icons (not emoji) so the toggle matches the rest of the icon set.
+  const MOON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>';
+  const SUN = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4.6"/><path d="M12 2v2.4M12 19.6V22M2 12h2.4M19.6 12H22M4.9 4.9l1.7 1.7M17.4 17.4l1.7 1.7M19.1 4.9l-1.7 1.7M6.6 17.4l-1.7 1.7"/></svg>';
   const sync = () => {
-    btn.textContent = document.documentElement.getAttribute('data-theme') === 'dark' ? '☀' : '🌙';
+    const dark = document.documentElement.getAttribute('data-theme') === 'dark';
+    btn.innerHTML = dark ? SUN : MOON;
+    const label = dark ? 'Switch to light mode' : 'Switch to dark mode';
+    btn.setAttribute('aria-label', label);
+    btn.title = label;
   };
   sync();
   btn.addEventListener('click', () => {
@@ -692,7 +714,7 @@ async function apiChat(message) {
 }
 async function hydrateModes() {
   try {
-    const res = await fetch(`${API_BASE}/modes`);
+    const res = await authFetch(`${API_BASE}/modes`);
     if (!res.ok) return;
     const data = await res.json();
     const modes = Array.isArray(data?.modes) ? data.modes : [];
@@ -2577,7 +2599,7 @@ async function loadDataFreshness() {
   const el = document.getElementById('data-freshness');
   if (!el) return;
   try {
-    const r = await fetch(`${API_BASE}/stats`);
+    const r = await authFetch(`${API_BASE}/stats`);
     if (!r.ok) return;
     const s = await r.json();
     const rel = _relativeTime(s.last_enriched);
