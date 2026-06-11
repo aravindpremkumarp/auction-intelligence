@@ -28,17 +28,17 @@ def fake_repo(monkeypatch: pytest.MonkeyPatch) -> dict:
         ]
         return sorted(rows, key=lambda r: r["updated_at"], reverse=True)
 
-    def list_conversations(sub: str) -> list[dict]:
+    async def list_conversations(sub: str) -> list[dict]:
         return _rows_for(sub)
 
-    def list_conversations_for_property(sub: str, pid: str) -> list[dict]:
+    async def list_conversations_for_property(sub: str, pid: str) -> list[dict]:
         return _rows_for(sub, pid)
 
-    def get_conversation(sub: str, cid: str) -> dict | None:
+    async def get_conversation(sub: str, cid: str) -> dict | None:
         c = convs.get((sub, cid))
         return dict(c, id=cid) if c else None
 
-    def upsert_conversation(supabase_id, conv_id, title, messages_json,
+    async def upsert_conversation(supabase_id, conv_id, title, messages_json,
                             api_history_json, results_json, total_count,
                             property_id=None) -> None:
         existing = convs.get((supabase_id, conv_id))
@@ -54,7 +54,7 @@ def fake_repo(monkeypatch: pytest.MonkeyPatch) -> dict:
             "updated_at": f"2026-01-02T00:00:0{len(convs) % 10}Z",
         }
 
-    def delete_conversation(sub: str, cid: str) -> None:
+    async def delete_conversation(sub: str, cid: str) -> None:
         convs.pop((sub, cid), None)
 
     monkeypatch.setattr(repo, "list_conversations", list_conversations)

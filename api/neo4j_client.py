@@ -1,8 +1,14 @@
 """
 api/neo4j_client.py
 -------------------
-Singleton Neo4j driver used by all agent tools.
+Singleton Neo4j drivers (sync + async) used by all agent tools.
 Reuses credentials from pipeline/config.py so the pipeline and API share one source.
+
+Sync helpers (`run_query` / `run_read_query`) serve the pipeline, scripts,
+and FastAPI handlers declared with plain `def` (those run in the threadpool).
+Async helpers (`run_query_async` / `run_read_query_async`) back `async def`
+request paths — auth, feedback, conversations, watchlist — so a Neo4j
+round-trip never blocks the event loop for concurrent chat requests.
 
 When Bolt (port 7687) is blocked — e.g. running inside an HTTP-only egress
 proxy like Claude Code on the web — set NEO4J_HTTP_API=1 to route
@@ -12,13 +18,14 @@ unchanged; only the high-level helpers fall back.
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import os
 import urllib.request
 from contextlib import contextmanager
 
-from neo4j import GraphDatabase, Driver, READ_ACCESS
+from neo4j import AsyncDriver, AsyncGraphDatabase, GraphDatabase, Driver, Query, READ_ACCESS
 
 from api.observability import SLOW_QUERY_MS, timed
 from pipeline.config import (
@@ -26,6 +33,7 @@ from pipeline.config import (
 )
 
 _driver: Driver | None = None
+_async_driver: AsyncDriver | None = None
 
 USE_HTTP_API = os.getenv("NEO4J_HTTP_API", "").strip().lower() in {"1", "true", "yes"}
 
@@ -76,6 +84,15 @@ def get_driver() -> Driver:
     return _driver
 
 
+def get_async_driver() -> AsyncDriver:
+    global _async_driver
+    if _async_driver is None:
+        _async_driver = AsyncGraphDatabase.driver(
+            NEO4J_URI, auth=(NEO4J_USERNAME, NEO4J_PASSWORD)
+        )
+    return _async_driver
+
+
 @contextmanager
 def session():
     drv = get_driver()
@@ -114,8 +131,9 @@ def run_read_query(
 
     - Uses a session with READ access mode so mutating clauses that slip
       past caller-side validation still fail at the server.
-    - `timeout` bounds server-side transaction time (seconds). Honored by
-      the neo4j Python driver via the per-query `timeout` keyword.
+    - `timeout` bounds server-side transaction time (seconds). It must ride
+      on a `neo4j.Query` object — a bare `timeout=` kwarg to `Session.run`
+      is silently absorbed as a Cypher parameter and enforces nothing.
     - `max_rows` trims the returned list after fetching. Pair with a LIMIT
       clause in the caller to also bound database work.
     """
@@ -125,10 +143,56 @@ def run_read_query(
                             timeout=max(timeout, 30.0))[:max_rows]
         else:
             with read_session() as s:
-                result = s.run(cypher, params or {}, timeout=timeout)
+                result = s.run(Query(cypher, timeout=timeout), params or {})
                 out = []
                 for i, r in enumerate(result):
                     if i >= max_rows:
+                        break
+                    out.append(dict(r))
+        t["rows"] = len(out)
+        return out
+
+
+async def run_query_async(cypher: str, params: dict | None = None) -> list[dict]:
+    """Async twin of run_query for `async def` request paths. Same semantics;
+    the HTTP-API fallback offloads its blocking urllib call to a thread."""
+    with timed("neo4j.run_query", slow_ms=SLOW_QUERY_MS, access="write") as t:
+        if USE_HTTP_API:
+            rows = await asyncio.to_thread(
+                _http_run, cypher, params, "WRITE", 120.0
+            )
+        else:
+            drv = get_async_driver()
+            async with drv.session(database=NEO4J_DATABASE) as s:
+                result = await s.run(cypher, params or {})
+                rows = [dict(r) async for r in result]
+        t["rows"] = len(rows)
+        return rows
+
+
+async def run_read_query_async(
+    cypher: str,
+    params: dict | None = None,
+    timeout: float = 10.0,
+    max_rows: int = 200,
+) -> list[dict]:
+    """Async twin of run_read_query: READ access mode, server-side timeout,
+    row cap."""
+    with timed("neo4j.run_read_query", slow_ms=SLOW_QUERY_MS, access="read") as t:
+        if USE_HTTP_API:
+            rows = await asyncio.to_thread(
+                _http_run, cypher, params, "READ", max(timeout, 30.0)
+            )
+            out = rows[:max_rows]
+        else:
+            drv = get_async_driver()
+            async with drv.session(
+                database=NEO4J_DATABASE, default_access_mode=READ_ACCESS
+            ) as s:
+                result = await s.run(Query(cypher, timeout=timeout), params or {})
+                out = []
+                async for r in result:
+                    if len(out) >= max_rows:
                         break
                     out.append(dict(r))
         t["rows"] = len(out)

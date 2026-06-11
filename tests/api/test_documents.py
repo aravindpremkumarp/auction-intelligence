@@ -9,7 +9,8 @@ from __future__ import annotations
 
 def _patch_detail(monkeypatch, rows: list[dict]) -> None:
     import api.tools.cypher_tools as ct
-    monkeypatch.setattr(ct, "run_query", lambda c, p=None: rows)
+    monkeypatch.setattr(ct, "run_read_query",
+                        lambda c, p=None, timeout=10.0, max_rows=200: rows)
 
 
 def test_get_auction_detail_dedupes_documents_by_public_url(monkeypatch) -> None:

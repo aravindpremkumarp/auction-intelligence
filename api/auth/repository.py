@@ -18,7 +18,7 @@ import os
 from datetime import datetime, timezone
 from typing import Any
 
-from api.neo4j_client import run_query
+from api.neo4j_client import run_query_async
 
 
 def _utcnow_iso() -> str:
@@ -41,7 +41,7 @@ def _user_from_row(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def upsert_user_from_supabase(
+async def upsert_user_from_supabase(
     sub: str, email: str, name: str | None,
 ) -> dict[str, Any]:
     """Materialise/refresh the Neo4j profile for a Supabase-authenticated user.
@@ -50,7 +50,7 @@ def upsert_user_from_supabase(
     """
     bootstrap = (os.environ.get("ADMIN_BOOTSTRAP_EMAIL") or "").strip().lower()
     role = "admin" if bootstrap and email.lower() == bootstrap else "user"
-    rows = run_query(
+    rows = await run_query_async(
         """
         MERGE (u:User {supabase_id: $sub})
           ON CREATE SET
@@ -77,26 +77,26 @@ def upsert_user_from_supabase(
     return _user_from_row(rows[0])
 
 
-def get_user_by_id(supabase_id: str) -> dict[str, Any] | None:
-    rows = run_query(
+async def get_user_by_id(supabase_id: str) -> dict[str, Any] | None:
+    rows = await run_query_async(
         "MATCH (u:User {supabase_id: $sub}) RETURN u { .* } AS u",
         {"sub": supabase_id},
     )
     return _user_from_row(rows[0]) if rows else None
 
 
-def patch_user_self(supabase_id: str, name: str | None) -> dict[str, Any] | None:
+async def patch_user_self(supabase_id: str, name: str | None) -> dict[str, Any] | None:
     if name is None:
-        return get_user_by_id(supabase_id)
-    rows = run_query(
+        return await get_user_by_id(supabase_id)
+    rows = await run_query_async(
         "MATCH (u:User {supabase_id: $sub}) SET u.name = $name RETURN u { .* } AS u",
         {"sub": supabase_id, "name": name},
     )
     return _user_from_row(rows[0]) if rows else None
 
 
-def admin_list_users(limit: int = 200) -> list[dict[str, Any]]:
-    rows = run_query(
+async def admin_list_users(limit: int = 200) -> list[dict[str, Any]]:
+    rows = await run_query_async(
         """
         MATCH (u:User)
         RETURN u { .* } AS u
@@ -108,10 +108,10 @@ def admin_list_users(limit: int = 200) -> list[dict[str, Any]]:
     return [_user_from_row(r) for r in rows]
 
 
-def admin_patch_user(
+async def admin_patch_user(
     supabase_id: str, role: str | None, enabled: bool | None,
 ) -> dict[str, Any] | None:
-    rows = run_query(
+    rows = await run_query_async(
         """
         MATCH (u:User {supabase_id: $sub})
         SET u.role = coalesce($role, u.role),

@@ -1,0 +1,97 @@
+"""
+tests/api/test_semantic_hybrid.py
+---------------------------------
+Hybrid (vector + Lucene fulltext) retrieval in semantic_search:
+
+- the keyword branch + score normalization appear in the Cypher when the
+  query yields searchable Lucene terms;
+- Lucene specials are stripped before the text reaches the index;
+- a missing fulltext index degrades to the vector-only query instead of
+  failing the search;
+- search_auctions' UI fetch is clamped to the hard cap even when the model
+  asks for more.
+"""
+from __future__ import annotations
+
+import pytest
+
+import api.tools.cypher_tools as ct
+from neo4j.exceptions import Neo4jError
+
+
+@pytest.fixture(autouse=True)
+def _fake_embedding(monkeypatch):
+    monkeypatch.setattr(ct, "embed_query_gemini", lambda q: [0.0] * 4)
+
+
+def test_lucene_query_strips_specials():
+    assert ct._lucene_query('plot "no: 46" + (Adyar)/~flat') == "plot no 46 Adyar flat"
+    assert ct._lucene_query("AND-OR && || !") == "AND OR"
+    assert ct._lucene_query("  ") is None
+    assert ct._lucene_query(":+!") is None
+
+
+def test_semantic_search_includes_keyword_branch(monkeypatch):
+    captured = {}
+
+    def fake_read(cypher, params=None, timeout=10.0, max_rows=200):
+        captured["cypher"] = cypher
+        captured["params"] = params
+        return []
+
+    monkeypatch.setattr(ct, "run_read_query", fake_read)
+    out = ct.semantic_search("flat in Balaraman Nagar")
+    assert out["results"] == []
+    assert ct.PROPERTY_FULLTEXT_INDEX in captured["cypher"]
+    assert "'keyword' AS source" in captured["cypher"]
+    # Normalization stage rides along with the keyword branch.
+    assert "ft_max" in captured["cypher"]
+    assert captured["params"]["ft_query"] == "flat in Balaraman Nagar"
+    assert captured["params"]["keyword_weight"] == ct._KEYWORD_WEIGHT
+
+
+def test_semantic_search_falls_back_when_fulltext_index_missing(monkeypatch):
+    calls = []
+
+    def fake_read(cypher, params=None, timeout=10.0, max_rows=200):
+        calls.append(cypher)
+        if ct.PROPERTY_FULLTEXT_INDEX in cypher:
+            raise Neo4jError("no such fulltext index")
+        return [{"auction_id": "a1", "score": 0.9, "hit_sources": ["desc"]}]
+
+    monkeypatch.setattr(ct, "run_read_query", fake_read)
+    out = ct.semantic_search("villa in Adyar")
+    assert len(calls) == 2
+    assert ct.PROPERTY_FULLTEXT_INDEX not in calls[1]
+    assert out["returned"] == 1
+    assert out["results"][0]["auction_id"] == "a1"
+
+
+def test_semantic_search_unsearchable_query_skips_keyword(monkeypatch):
+    captured = {}
+
+    def fake_read(cypher, params=None, timeout=10.0, max_rows=200):
+        captured["cypher"] = cypher
+        captured["params"] = params
+        return []
+
+    monkeypatch.setattr(ct, "run_read_query", fake_read)
+    ct.semantic_search(":::")
+    assert ct.PROPERTY_FULLTEXT_INDEX not in captured["cypher"]
+    assert "ft_query" not in captured["params"]
+
+
+def test_search_auctions_ui_fetch_clamped_to_hard_cap(monkeypatch):
+    captured = {}
+
+    def fake_read(cypher, params=None, timeout=10.0, max_rows=200):
+        if "count(a) AS total_count" in cypher:
+            return [{"total_count": 0}]
+        captured["params"] = params
+        captured["max_rows"] = max_rows
+        return []
+
+    monkeypatch.setattr(ct, "run_read_query", fake_read)
+    ct.search_auctions(limit=10_000)
+    assert captured["params"]["limit"] == ct._UI_ROWS_HARD_CAP
+    assert captured["max_rows"] == ct._UI_ROWS_HARD_CAP

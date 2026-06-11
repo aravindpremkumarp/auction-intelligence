@@ -18,7 +18,10 @@ def _patch_run_query(monkeypatch, *, total_count: int, rows: list[dict]) -> list
         return rows
 
     import api.tools.cypher_tools as ct
-    monkeypatch.setattr(ct, "run_query", fake)
+    monkeypatch.setattr(
+        ct, "run_read_query",
+        lambda cypher, params=None, timeout=10.0, max_rows=200: fake(cypher, params),
+    )
     return calls
 
 
@@ -55,7 +58,8 @@ def test_search_auctions_row_passthrough_when_no_previous(monkeypatch) -> None:
 
 def _patch_detail(monkeypatch, rows: list[dict]) -> None:
     import api.tools.cypher_tools as ct
-    monkeypatch.setattr(ct, "run_query", lambda c, p=None: rows)
+    monkeypatch.setattr(ct, "run_read_query",
+                        lambda c, p=None, timeout=10.0, max_rows=200: rows)
 
 
 def test_get_auction_detail_builds_price_history_when_siblings_present(monkeypatch) -> None:
@@ -122,8 +126,10 @@ def test_get_auction_detail_cypher_includes_same_property_clause(monkeypatch) ->
             "siblings": [],
         }]
 
-    monkeypatch.setattr(ct, "run_query", fake)
-
+    monkeypatch.setattr(
+        ct, "run_read_query",
+        lambda cypher, params=None, timeout=10.0, max_rows=200: fake(cypher, params),
+    )
     from api.tools.cypher_tools import get_auction_detail
     get_auction_detail("x")
 

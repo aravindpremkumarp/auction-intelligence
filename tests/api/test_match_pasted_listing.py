@@ -144,7 +144,10 @@ def _patch_run_query(monkeypatch, rows: list[dict]):
         return list(rows)
 
     import api.tools.cypher_tools as ct
-    monkeypatch.setattr(ct, "run_query", fake_run_query)
+    monkeypatch.setattr(
+        ct, "run_read_query",
+        lambda cypher, params=None, timeout=10.0, max_rows=200: fake_run_query(cypher, params),
+    )
     monkeypatch.setattr(ct, "_load_known_locations", lambda: (
         {"Chennai"}, {"Poonamallee", "Ambattur"},
     ))
@@ -318,7 +321,10 @@ def _patch_tiered_run_query(monkeypatch, tiers: list[list[dict]]):
         return list(tiers[i]) if i < len(tiers) else []
 
     import api.tools.cypher_tools as ct
-    monkeypatch.setattr(ct, "run_query", fake_run_query)
+    monkeypatch.setattr(
+        ct, "run_read_query",
+        lambda cypher, params=None, timeout=10.0, max_rows=200: fake_run_query(cypher, params),
+    )
     monkeypatch.setattr(ct, "_load_known_locations", lambda: (
         {"Chennai"}, {"Poonamallee", "Ambattur"},
     ))

@@ -16,7 +16,8 @@ from neo4j.time import Date, DateTime
 
 def _patch_detail(monkeypatch, rows: list[dict]) -> None:
     import api.tools.cypher_tools as ct
-    monkeypatch.setattr(ct, "run_query", lambda c, p=None: rows)
+    monkeypatch.setattr(ct, "run_read_query",
+                        lambda c, p=None, timeout=10.0, max_rows=200: rows)
 
 
 def test_detail_payload_is_json_serializable_with_temporal_values(monkeypatch) -> None:
@@ -66,14 +67,16 @@ def test_auction_detail_route_returns_200_with_related_node_datetime(monkeypatch
     500 (surfaced in the UI as "Failed to fetch")."""
     import importlib
     ct = importlib.import_module("api.tools.cypher_tools")
-    monkeypatch.setattr(ct, "run_query", lambda c, p=None: [{
+    rows = [{
         "fields": {"auction_id": "e2e", "title": "Plot 7",
                    "auction_start_dt": DateTime(2026, 6, 7, 10, 0, 0)},
         "relationships": {"bank": {"name": "SBI",
                                    "verified_at": DateTime(2026, 5, 1, 9, 0, 0)}},
         "documents": [],
         "siblings": [],
-    }])
+    }]
+    monkeypatch.setattr(ct, "run_read_query",
+                        lambda c, p=None, timeout=10.0, max_rows=200: rows)
 
     from fastapi.testclient import TestClient
     from api.main import app

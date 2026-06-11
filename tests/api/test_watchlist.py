@@ -21,10 +21,10 @@ def fake_repo(monkeypatch: pytest.MonkeyPatch) -> dict:
         "saved": {},                          # supabase_id -> list[str]
     }
 
-    def list_saved_auction_ids(sub: str) -> list[str]:
+    async def list_saved_auction_ids(sub: str) -> list[str]:
         return list(state["saved"].get(sub, []))
 
-    def add_saved(sub: str, aid: str) -> bool:
+    async def add_saved(sub: str, aid: str) -> bool:
         if aid not in state["auctions"]:
             return False
         ids = state["saved"].setdefault(sub, [])
@@ -32,7 +32,7 @@ def fake_repo(monkeypatch: pytest.MonkeyPatch) -> dict:
             ids.insert(0, aid)
         return True
 
-    def remove_saved(sub: str, aid: str) -> None:
+    async def remove_saved(sub: str, aid: str) -> None:
         ids = state["saved"].get(sub, [])
         if aid in ids:
             ids.remove(aid)

@@ -178,8 +178,17 @@ def _install_stub_neo4j_client() -> None:
         monkeypatch api.tools.cypher_tools.run_read_query directly."""
         return []
 
+    async def run_query_async(cypher: str, params: dict | None = None) -> list[dict]:
+        return run_query(cypher, params)
+
+    async def run_read_query_async(cypher: str, params: dict | None = None,
+                                   timeout: float = 10.0, max_rows: int = 200) -> list[dict]:
+        return run_read_query(cypher, params, timeout=timeout, max_rows=max_rows)
+
     mod.run_query = run_query
     mod.run_read_query = run_read_query
+    mod.run_query_async = run_query_async
+    mod.run_read_query_async = run_read_query_async
     sys.modules["api.neo4j_client"] = mod
 
 

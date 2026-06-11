@@ -45,6 +45,10 @@ CONSTRAINTS = [
     "CREATE CONSTRAINT asset_cat IF NOT EXISTS FOR (n:AssetCategory) REQUIRE n.name IS UNIQUE",
     "CREATE CONSTRAINT prop_type IF NOT EXISTS FOR (n:PropertyType) REQUIRE n.name IS UNIQUE",
     "CREATE CONSTRAINT auction_type IF NOT EXISTS FOR (n:AuctionType) REQUIRE n.name IS UNIQUE",
+    # Lucene fulltext index backing semantic_search's lexical "keyword" lens
+    # (api/tools/cypher_tools.py: PROPERTY_FULLTEXT_INDEX).
+    "CREATE FULLTEXT INDEX property_text_idx IF NOT EXISTS "
+    "FOR (n:AuctionProperty) ON EACH [n.title, n.description]",
 ]
 
 # ── Batch Cypher: create all nodes + relationships for a batch of records ─────

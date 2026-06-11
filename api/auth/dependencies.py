@@ -58,7 +58,7 @@ async def get_optional_user(
     name = (claims.get("user_metadata") or {}).get("name") or ""
     verified = bool(claims.get("email_confirmed_at") or claims.get("email_verified", True))
 
-    row = repo.upsert_user_from_supabase(sub, email, name)
+    row = await repo.upsert_user_from_supabase(sub, email, name)
     if not row.get("enabled", True):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="account disabled")
     row["email_verified"] = verified

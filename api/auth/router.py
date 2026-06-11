@@ -28,16 +28,16 @@ router = APIRouter()
 
 
 @router.get("/auth/me", response_model=UserOut)
-def me(user: UserOut = Depends(get_current_user)) -> UserOut:
+async def me(user: UserOut = Depends(get_current_user)) -> UserOut:
     return user
 
 
 @router.patch("/auth/me", response_model=UserOut)
-def patch_me(
+async def patch_me(
     body: UserPatchIn,
     user: UserOut = Depends(get_current_user),
 ) -> UserOut:
-    row = repo.patch_user_self(user.id, body.name)
+    row = await repo.patch_user_self(user.id, body.name)
     if not row:
         raise HTTPException(status_code=404, detail="user not found")
     # `email_verified` is derived from the JWT, not stored in Neo4j — preserve it.
@@ -46,21 +46,21 @@ def patch_me(
 
 
 @router.get("/admin/users", response_model=list[UserOut])
-def admin_list_users(
+async def admin_list_users(
     limit: int = 200,
     _admin: UserOut = Depends(get_current_admin),
 ) -> list[UserOut]:
-    rows = repo.admin_list_users(limit=limit)
+    rows = await repo.admin_list_users(limit=limit)
     return [_user_to_out({**r, "email_verified": True}) for r in rows]
 
 
 @router.patch("/admin/users/{user_id}", response_model=UserOut)
-def admin_patch_user(
+async def admin_patch_user(
     user_id: str,
     body: AdminUserPatchIn,
     _admin: UserOut = Depends(get_current_admin),
 ) -> UserOut:
-    row = repo.admin_patch_user(user_id, body.role, body.enabled)
+    row = await repo.admin_patch_user(user_id, body.role, body.enabled)
     if not row:
         raise HTTPException(status_code=404, detail="user not found")
     return _user_to_out({**row, "email_verified": True})
