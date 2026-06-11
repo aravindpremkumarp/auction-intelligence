@@ -2367,6 +2367,14 @@ async function applyBrowse({ append = false } = {}) {
   let payload;
   try {
     const r = await authFetch(url, browseAbort ? { signal: browseAbort.signal } : undefined);
+    // Deploy-window guard: an API that predates the 'upcoming' sort 400s it.
+    // Fall back to date_asc (supported forever) instead of an empty grid.
+    if (r.status === 400 && browseState.sort === 'upcoming') {
+      browseState.sort = 'date_asc';
+      const sortSel = document.getElementById('f-sort');
+      if (sortSel) sortSel.value = 'date_asc';
+      return applyBrowse({ append });
+    }
     if (!r.ok) throw new Error(`browse ${r.status}`);
     payload = await r.json();
   } catch (e) {
