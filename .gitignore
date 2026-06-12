@@ -38,6 +38,8 @@ screenshots/
 # Claude Code per-project / per-user settings
 .claude/*
 !.claude/skills/
+!.claude/settings.json
+!.claude/hooks/
 
 # OS / editor
 .DS_Store
