@@ -727,7 +727,7 @@ document.addEventListener('change', (e) => {
 })();
 
 /* ====== API ====== */
-async function apiChat(message) {
+function _chatRequestBody(message) {
   const mode = window.currentMode || 'ask';
   if (!_requireAuthForMode(mode)) throw new Error('login required for this mode');
   // pendingChatScope is set by the "chat about these" button on the browse
@@ -737,15 +737,78 @@ async function apiChat(message) {
   window.pendingChatScope = null;
   const body = { message, message_history: apiMessageHistory, mode };
   if (activeFilters) body.active_filters = activeFilters;
+  return body;
+}
+function _chatHttpError(res) {
+  if (res.status === 401) { if (window.Auth) window.Auth.openLoginModal(); return new Error('login required'); }
+  if (res.status === 429) return new Error('rate limit reached — please sign in or try again later');
+  return new Error(`chat ${res.status}`);
+}
+// `prebuilt` lets askAI reuse the exact body from a failed streaming attempt
+// so the one-shot pendingChatScope isn't lost on fallback.
+async function apiChat(message, prebuilt) {
+  const body = prebuilt || _chatRequestBody(message);
   const res = await authFetch(`${API_BASE}/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
-  if (res.status === 401) { if (window.Auth) window.Auth.openLoginModal(); throw new Error('login required'); }
-  if (res.status === 429) throw new Error('rate limit reached — please sign in or try again later');
-  if (!res.ok) throw new Error(`chat ${res.status}`);
+  if (!res.ok) throw _chatHttpError(res);
   return res.json();
+}
+// Streaming twin of apiChat against /chat/stream (SSE over POST — fetch +
+// ReadableStream because EventSource can't POST). Calls onEvent(name, data)
+// for `status` and `delta` frames; resolves with the `final` payload, which
+// is shaped exactly like blocking /chat's JSON. Errors carry .useFallback
+// when the blocking endpoint should be retried (old backend / transport
+// failure before the server started working) — never after the model run
+// has started, so a failed turn isn't silently billed twice.
+async function apiChatStream(body, onEvent) {
+  let res;
+  try {
+    res = await authFetch(`${API_BASE}/chat/stream`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  } catch (e) {
+    if (e && e.name === 'AbortError') throw e; // timeout — don't re-wait on fallback
+    const err = new Error('network error'); err.useFallback = true; throw err;
+  }
+  if (res.status === 404 || res.status === 405) {
+    // Backend without /chat/stream (older deploy) — use blocking /chat.
+    const err = new Error(`chat ${res.status}`); err.useFallback = true; throw err;
+  }
+  if (!res.ok) throw _chatHttpError(res);
+  if (!res.body || !res.body.getReader) {
+    const err = new Error('streaming unsupported'); err.useFallback = true; throw err;
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = '';
+  let final = null;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    let sep;
+    while ((sep = buf.indexOf('\n\n')) >= 0) {
+      const frame = buf.slice(0, sep); buf = buf.slice(sep + 2);
+      let ev = 'message', data = '';
+      for (const line of frame.split('\n')) {
+        if (line.startsWith('event:')) ev = line.slice(6).trim();
+        else if (line.startsWith('data:')) data += line.slice(5).trim();
+      }
+      if (!data) continue;
+      let payload;
+      try { payload = JSON.parse(data); } catch (e) { continue; }
+      if (ev === 'final') final = payload;
+      else if (ev === 'error') throw new Error(payload.detail || 'chat failed');
+      else if (onEvent) onEvent(ev, payload);
+    }
+  }
+  if (!final) throw new Error('stream ended unexpectedly — please retry');
+  return final;
 }
 async function hydrateModes() {
   try {
@@ -867,19 +930,48 @@ async function askAI(userText, opts = {}) {
   renderChat();
 
   const startedAt = performance.now();
+  const dropTransient = () => {
+    chatHistory = chatHistory.filter(m => m.role !== 'ai thinking' && m.role !== 'ai streaming');
+  };
   try {
-    const resp = await apiChat(userText);
+    let resp;
+    // Build the body once: _chatRequestBody consumes the one-shot
+    // pendingChatScope, so the same object must serve stream AND fallback.
+    const reqBody = _chatRequestBody(userText);
+    try {
+      resp = await apiChatStream(reqBody, (ev, data) => {
+        const cur = chatHistory[chatHistory.length - 1];
+        if (!cur) return;
+        if (ev === 'status' && cur.role === 'ai thinking') {
+          cur.text = data.label || 'thinking';
+          scheduleChatRender();
+        } else if (ev === 'delta' && data.text) {
+          if (cur.role === 'ai thinking') {
+            chatHistory[chatHistory.length - 1] = { role: 'ai streaming', text: data.text };
+          } else if (cur.role === 'ai streaming') {
+            cur.text += data.text;
+          }
+          scheduleChatRender();
+        }
+      });
+    } catch (streamErr) {
+      if (!streamErr || !streamErr.useFallback) throw streamErr;
+      // Stream transport unavailable (old deploy / proxy) — same turn over
+      // blocking /chat. The model never started, so no double-billing.
+      console.warn('chat stream unavailable, falling back to /chat:', streamErr.message);
+      resp = await apiChat(userText, reqBody);
+    }
     apiMessageHistory = resp.message_history || apiMessageHistory;
     const extracted = extractResultsFromArtifacts(resp.artifacts);
     if (extracted.rows.length || extracted.tool) {
       currentResults = extracted.rows;
       currentTotalCount = extracted.total;
     }
-    chatHistory = chatHistory.filter(m => m.role !== 'ai thinking');
+    dropTransient();
     chatHistory.push({ role: 'ai', text: (resp.answer || '').trim(), artifacts: resp.artifacts || [], elapsedMs: performance.now() - startedAt });
   } catch(e) {
     console.error(e);
-    chatHistory = chatHistory.filter(m => m.role !== 'ai thinking');
+    dropTransient();
     chatHistory.push({ role: 'ai', text: `Sorry — I couldn't reach the server. (${e.message})`, elapsedMs: performance.now() - startedAt });
   }
   renderChat();
@@ -890,6 +982,16 @@ async function askAI(userText, opts = {}) {
     activeChatId = (crypto.randomUUID && crypto.randomUUID()) || ('c-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10));
   }
   saveActiveConversation();
+}
+
+// Coalesce per-delta re-renders into one paint per frame — renderChat
+// rebuilds the whole log's innerHTML, so rendering on every SSE chunk
+// would thrash layout during fast streams.
+let _chatRenderQueued = false;
+function scheduleChatRender() {
+  if (_chatRenderQueued) return;
+  _chatRenderQueued = true;
+  requestAnimationFrame(() => { _chatRenderQueued = false; renderChat(); });
 }
 
 // Human-friendly response time: sub-second as "420ms", otherwise "3.4s".
@@ -912,7 +1014,14 @@ function renderChat(history, logEl, opts) {
   const scope    = opts.scope || null;
 
   logEl.innerHTML = history.map((m, i) => {
-    if (m.role === 'ai thinking') return `<div class="bubble ai thinking">thinking</div>`;
+    // Streaming statuses ("Searching auctions…") ride in m.text; the CSS
+    // ::after dots keep animating whatever the label says.
+    if (m.role === 'ai thinking') return `<div class="bubble ai thinking">${escapeHtml(m.text || 'thinking')}</div>`;
+    // Partial streamed answer: markdown but no action buttons/sources yet —
+    // those attach when the final payload replaces this message.
+    if (m.role === 'ai streaming') {
+      return `<div class="bubble-wrap ai"><div class="bubble ai md">${renderMarkdown(m.text || '')}</div></div>`;
+    }
     if (m.role === 'user') {
       return `<div class="bubble-wrap user">
         <div class="bubble user">${escapeHtml(m.text)}</div>
@@ -991,7 +1100,7 @@ function renderChat(history, logEl, opts) {
         // Drop this user message and its immediate AI reply (if any) so we
         // don't leave an orphan response.
         const next = history[i + 1];
-        const removeCount = (next && (next.role === 'ai' || next.role === 'ai thinking')) ? 2 : 1;
+        const removeCount = (next && (next.role === 'ai' || next.role === 'ai thinking' || next.role === 'ai streaming')) ? 2 : 1;
         history.splice(i, removeCount);
         onChange();
         renderChat(history, logEl, opts);
