@@ -344,6 +344,71 @@ def search_auctions(
     return out
 
 
+# Cap on how many ids one `get_auctions_by_ids` call resolves. The agent uses
+# it to mirror an answer's subset ("top three of those") into the UI matches
+# panel, so real calls are tiny; the cap just bounds a runaway one.
+_BY_IDS_MAX = 25
+
+
+def get_auctions_by_ids(auction_ids: list[str]) -> dict:
+    """Full search-shaped rows for specific auction_ids, in the caller's
+    order (the agent's ranking). Ids that don't resolve are reported under
+    `missing_ids` so the agent can correct itself instead of presenting a
+    property the panel won't show."""
+    ids: list[str] = []
+    for i in auction_ids or []:
+        s = str(i).strip()
+        if s and s not in ids:
+            ids.append(s)
+    ids = ids[:_BY_IDS_MAX]
+    if not ids:
+        return {"total_count": 0, "returned": 0, "results": []}
+    cypher = """
+        MATCH (a:AuctionProperty)
+        WHERE a.auction_id IN $ids
+        OPTIONAL MATCH (a)-[:LOCATED_IN_CITY]->(city:City)
+        OPTIONAL MATCH (a)-[:LOCATED_IN_AREA]->(area:Area)
+        OPTIONAL MATCH (a)-[:CONDUCTED_BY]->(bank:Bank)
+        OPTIONAL MATCH (a)-[:HAS_ASSET_CATEGORY]->(ac:AssetCategory)
+        OPTIONAL MATCH (a)-[:HAS_PROPERTY_TYPE]->(ptx:PropertyType)
+        OPTIONAL MATCH (a)-[:SAME_PROPERTY_AS]->(prev:AuctionProperty)
+            WHERE prev.auction_start_dt IS NOT NULL
+              AND a.auction_start_dt IS NOT NULL
+              AND prev.auction_start_dt < a.auction_start_dt
+        WITH a, city, area, bank, ac,
+             collect(DISTINCT ptx.name) AS property_types,
+             max(CASE WHEN prev.reserve_price_num IS NOT NULL
+                      THEN prev.reserve_price_num END) AS previous_reserve_price,
+             count(DISTINCT prev) AS reauction_count
+        RETURN a.auction_id AS auction_id, a.title AS title, a.url AS url,
+               a.reserve_price_num AS reserve_price, a.emd_num AS emd,
+               toString(a.auction_start_dt) AS auction_start,
+               city.name AS city, area.name AS area,
+               bank.name AS bank,
+               ac.name AS asset_category,
+               property_types,
+               previous_reserve_price,
+               reauction_count
+    """
+    rows = run_read_query(cypher, {"ids": ids}, timeout=15.0, max_rows=_BY_IDS_MAX)
+    by_id: dict[str, dict] = {}
+    for row in rows:
+        rc = row.get("reauction_count") or 0
+        row["reauction_count"] = rc
+        row["is_reauction"] = rc > 0
+        by_id[str(row.get("auction_id"))] = row
+    ordered = [by_id[i] for i in ids if i in by_id]
+    out: dict = {
+        "total_count": len(ordered),
+        "returned": len(ordered),
+        "results": ordered,
+    }
+    missing = [i for i in ids if i not in by_id]
+    if missing:
+        out["missing_ids"] = missing
+    return out
+
+
 def upcoming_auctions(days: int = 14, limit: int = 20) -> list[dict]:
     now = datetime.now(timezone.utc)
     cutoff = now + timedelta(days=days)

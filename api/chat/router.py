@@ -45,7 +45,9 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-_SEARCH_TOOLS = {"search_auctions", "semantic_property_search"}
+# `semantic_property_search` is the tool's pre-rename name — kept so scope
+# extraction still works on stored histories from before the rename.
+_SEARCH_TOOLS = {"search_auctions", "semantic_search", "semantic_property_search"}
 
 # Args that describe scope we want to carry across turns. Excludes output
 # controls (limit, order_by) and aggregate knobs — those don't narrow the
@@ -93,6 +95,7 @@ _TOOL_STATUS_LABELS = {
     "borrower_lookup": "Looking up borrower…",
     "match_pasted_listing": "Matching your pasted listing…",
     "get_auction_detail": "Fetching auction details…",
+    "select_properties": "Updating the matches panel…",
     "list_distinct": "Computing the breakdown…",
     "describe_schema": "Reading the graph schema…",
     "run_cypher": "Querying the graph…",

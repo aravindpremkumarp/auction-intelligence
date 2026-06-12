@@ -22,6 +22,7 @@ KNOWN_TOOLS: set[str] = {
     "borrower_lookup",
     "semantic_property_search",
     "get_auction_detail",
+    "select_properties",
     "list_distinct",
     "describe_schema",
     "run_cypher",

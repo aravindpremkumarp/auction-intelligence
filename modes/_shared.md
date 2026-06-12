@@ -85,6 +85,9 @@ commas. An AuctionProperty can have several types.
 - **Pasted listing** (WhatsApp/broker blurb with price+date+area) →
   `match_pasted_listing` (preferred over `semantic_search` here).
 - **One specific auction_id, any field** → `get_auction_detail`.
+- **Re-presenting an already-found subset** ("top three of those", one
+  locality, a shortlist) → `select_properties(auction_ids=[...])` so the
+  matches panel mirrors the answer.
 - **Distribution / breakdown / "spread" / "mix"** → `list_distinct` (scoped).
   NEVER iterate `get_auction_detail` for counts.
 - **Schema introspection** → `describe_schema()`.
