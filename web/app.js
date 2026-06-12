@@ -24,7 +24,11 @@ function _requireAuthForMode(mode) {
   if (window.Auth && window.Auth.openLoginModal) window.Auth.openLoginModal();
   return false;
 }
-const SEARCH_TOOLS = ['search_auctions', 'semantic_property_search'];
+// `select_properties` is the agent re-presenting a subset of earlier results
+// ("top three of those") — for the matches panel it counts as a search, and
+// the LAST such call in a turn wins. `semantic_property_search` is the
+// pre-rename name of `semantic_search`, kept for stored conversations.
+const SEARCH_TOOLS = ['search_auctions', 'semantic_search', 'semantic_property_search', 'select_properties'];
 const LIST_TOOLS = [...SEARCH_TOOLS, 'upcoming_auctions', 'price_comparison', 'find_similar_properties', 'borrower_lookup', 'survey_search'];
 const DETAIL_TOOLS = ['get_auction_detail'];
 const WATCHLIST_KEY = 'bankauction.watchlist.v1';
@@ -51,6 +55,11 @@ let lastQuery = null;
 let currentResults = [];
 let currentTotalCount = null;
 let currentSort = 'date_asc';
+// Index into chatHistory of the AI message whose matches the panel is
+// currently showing; null = following the live (most recent) result set.
+// Each turn's matches are re-derived from the artifacts already stored on
+// its AI message, so no extra per-message snapshot is persisted.
+let panelSnapshotIndex = null;
 let detailChatHistory = [];
 let detailApiMessageHistory = null;   // server-format message_history for the active property chat — must thread across turns or follow-ups lose context
 let currentPropertyChatId = null;     // UUID of the active chat in the right-side property panel
@@ -913,6 +922,17 @@ function extractResultsFromArtifacts(artifacts) {
   return { rows, total, tool: primary.tool };
 }
 
+// The matches a chat message put on the panel, re-derived from the
+// artifacts stored on it — {rows, total} or null for messages that didn't
+// touch the panel. Powers the per-turn "N matches" chips, including on
+// conversations saved before the chips existed.
+function _msgMatches(m) {
+  if (!m || m.role !== 'ai' || !Array.isArray(m.artifacts)) return null;
+  const ext = extractResultsFromArtifacts(m.artifacts);
+  if (!ext.rows.length && !ext.tool) return null;
+  return { rows: ext.rows, total: (ext.total != null) ? ext.total : ext.rows.length };
+}
+
 async function askAI(userText, opts = {}) {
   userText = (userText || '').trim();
   if (!userText) return;
@@ -921,6 +941,7 @@ async function askAI(userText, opts = {}) {
     apiMessageHistory = null;
     currentResults = [];
     currentTotalCount = null;
+    panelSnapshotIndex = null;
     activeChatId = null;
     go('results');
   }
@@ -966,6 +987,7 @@ async function askAI(userText, opts = {}) {
     if (extracted.rows.length || extracted.tool) {
       currentResults = extracted.rows;
       currentTotalCount = extracted.total;
+      panelSnapshotIndex = null; // a new turn puts the panel back on "live"
     }
     dropTransient();
     chatHistory.push({ role: 'ai', text: (resp.answer || '').trim(), artifacts: resp.artifacts || [], elapsedMs: performance.now() - startedAt });
@@ -1009,9 +1031,18 @@ function renderChat(history, logEl, opts) {
   const inputId  = opts.inputId  || 'results-input';
   // Default callbacks preserve the main-chat behavior: clear pydantic-ai
   // history (can't be cleanly partial-edited) and persist the conversation.
-  const onChange = opts.onChange || (() => { apiMessageHistory = null; saveActiveConversation(); });
+  const onChange = opts.onChange || (() => { apiMessageHistory = null; panelSnapshotIndex = null; saveActiveConversation(); });
   const onRetry  = opts.onRetry  || ((q) => askAI(q));
   const scope    = opts.scope || null;
+
+  // Which message's matches the panel reflects, for chip highlighting.
+  // A null panelSnapshotIndex means "live" — the last panel-touching turn.
+  let activeSnapIdx = panelSnapshotIndex;
+  if (!scope && activeSnapIdx == null) {
+    for (let k = history.length - 1; k >= 0; k--) {
+      if (_msgMatches(history[k])) { activeSnapIdx = k; break; }
+    }
+  }
 
   logEl.innerHTML = history.map((m, i) => {
     // Streaming statuses ("Searching auctions…") ride in m.text; the CSS
@@ -1039,6 +1070,15 @@ function renderChat(history, logEl, opts) {
       </div>`;
     }
     if (m.role === 'ai') {
+      // Per-turn matches chip (main chat only) — click to flip the matches
+      // panel back to what this answer found.
+      const snap = !scope ? _msgMatches(m) : null;
+      const snapTotal = snap ? snap.total : 0;
+      const matchesHtml = snap ? `
+        <button class="matches-chip${i === activeSnapIdx ? ' active' : ''}" data-i="${i}" title="show this answer's matches in the panel" aria-label="show this answer's ${snapTotal} matches in the panel">
+          <svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true"><rect x="2" y="2" width="12" height="12" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.5"/><line x1="6.5" y1="2.75" x2="6.5" y2="13.25" stroke="currentColor" stroke-width="1.5"/></svg>
+          <span>${snapTotal.toLocaleString('en-IN')} match${snapTotal === 1 ? '' : 'es'}</span>
+        </button>` : '';
       const sources = extractWebSources(m.artifacts);
       const sourcesHtml = sources.length ? `
         <div class="sources-row">
@@ -1057,6 +1097,7 @@ function renderChat(history, logEl, opts) {
         </div>` : '';
       return `<div class="bubble-wrap ai">
         <div class="bubble ai md">${renderMarkdown(m.text)}</div>
+        ${matchesHtml}
         ${sourcesHtml}
         ${timeHtml}
         <div class="bubble-actions">
@@ -1122,6 +1163,33 @@ function renderChat(history, logEl, opts) {
       }
     });
   });
+  logEl.querySelectorAll('.matches-chip').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      showMatchSnapshot(+btn.dataset.i);
+    });
+  });
+}
+
+// Flip the matches panel to what the turn at chatHistory[i] found — lets
+// the user click an earlier answer's chip and see that turn's matches.
+function showMatchSnapshot(i) {
+  const snap = _msgMatches(chatHistory[i]);
+  if (!snap) return;
+  currentResults = snap.rows;
+  currentTotalCount = snap.total;
+  panelSnapshotIndex = i;
+  // Toggle the chip highlight in place — a full renderChat would yank the
+  // log's scroll position to the bottom.
+  document.querySelectorAll('#chat-log .matches-chip').forEach(b => {
+    b.classList.toggle('active', +b.dataset.i === i);
+  });
+  renderResultsList();
+  // On mobile the panel is a separate tab — bring it on screen so the click
+  // visibly does something.
+  if (window.matchMedia && window.matchMedia('(max-width: 640px)').matches) {
+    setMobileTab('results');
+  }
 }
 
 function flashBtn(btn) {
@@ -1885,6 +1953,7 @@ async function loadConversation(id) {
     apiMessageHistory = data.api_history || null;
     currentResults = Array.isArray(data.results) ? data.results : [];
     currentTotalCount = (typeof data.total_count === 'number') ? data.total_count : null;
+    panelSnapshotIndex = null; // saved conversations restore the live set
     if (currentScreen !== 'results') go('results');
     renderSidebar();
     renderChat();
@@ -1930,6 +1999,7 @@ async function deleteConversation(id) {
     apiMessageHistory = null;
     currentResults = [];
     currentTotalCount = null;
+    panelSnapshotIndex = null;
     activeChatId = null;
     renderChat();
     renderResultsList();
@@ -1942,6 +2012,7 @@ function newThread() {
   apiMessageHistory = null;
   currentResults = [];
   currentTotalCount = null;
+  panelSnapshotIndex = null;
   activeChatId = null;
   renderSidebar();
   renderChat();

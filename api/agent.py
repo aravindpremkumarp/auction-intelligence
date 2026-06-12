@@ -72,7 +72,10 @@ Rules:
    borrower follow-ups as `borrower_lookup` output ("other auctions tied to
    this borrower"), never "check legal records". Confirm before any
    state-changing action (scoring, tracker transitions).
-5. Markdown only for genuine multi-section answers: open each section
+5. The UI matches panel mirrors your latest property tool call. When you
+   present a subset of already-found properties without a fresh search
+   ("top three of those"), call `select_properties` with those ids.
+6. Markdown only for genuine multi-section answers: open each section
    with `### <emoji> **Title**` (one emoji matching intent — 📍 location,
    🔍 search, 🏆 top, 📊 data, 📰 news, ⚡ insight, ⚠️ caveat, ✅, 💰, 📅).
    Separate sections with a blank line + `---` + blank line. Use **bold**
@@ -349,6 +352,17 @@ def get_auction_detail(auction_id: str) -> dict | None:
     a field is unavailable for a specific auction. Returns None if the
     auction_id doesn't exist."""
     return T.get_auction_detail(auction_id)
+
+
+@agent.tool_plain
+def select_properties(auction_ids: list[str]) -> dict:
+    """Mirror a subset of already-found properties into the UI matches
+    panel — call it whenever you re-present earlier results WITHOUT a new
+    search ("top three of those", one locality, a comparison shortlist),
+    passing auction_ids in your ranked order. Returns full search-shaped
+    rows; unknown ids come back in `missing_ids`. Skip it when a
+    search/detail call this turn already returned exactly that set."""
+    return T.get_auctions_by_ids(auction_ids)
 
 
 @agent.tool_plain

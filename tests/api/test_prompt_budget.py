@@ -30,7 +30,12 @@ _SHARED_MD = _REPO_ROOT / "modes" / "_shared.md"
 # headroom for small edits while still asserting we stay below the pre-trim
 # size. Raise this deliberately (with justification) if you add prompt
 # content on purpose.
-BUDGET_CHARS = 13_500
+#
+# 2026-06: +700 for the `select_properties` tool (docstring + role rule +
+# routing bullet) — keeps the UI matches panel in sync when the agent
+# answers about a subset of earlier results ("top three of those") without
+# a fresh search. Measured ~13,982 after trimming; ceiling at 14,200.
+BUDGET_CHARS = 14_200
 
 
 def _agent_module() -> ast.Module:
