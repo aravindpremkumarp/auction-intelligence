@@ -13,16 +13,28 @@ import logging
 import os
 import threading
 import time
+from collections.abc import AsyncIterator
 from typing import Any
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+from pydantic_ai.exceptions import UsageLimitExceeded
 from pydantic_ai.messages import (
+    FinalResultEvent,
+    FunctionToolCallEvent,
     ModelMessagesTypeAdapter,
+    PartDeltaEvent,
+    PartStartEvent,
+    TextPart,
+    TextPartDelta,
+    ThinkingPart,
     ToolCallPart,
     ToolReturnPart,
 )
+from pydantic_ai.run import AgentRunResultEvent
+from pydantic_ai.usage import UsageLimits
 
 from api.agent import ChatDeps, agent
 from api.auth import get_optional_user
@@ -55,6 +67,54 @@ _GATED_MODES = {"deep-research", "report"}
 # fine on a single instance; move to Redis-backed storage before scaling out.
 _ANON_CHAT_MAX_PER_HOUR = 10
 _USER_CHAT_MAX_PER_DAY = int(os.environ.get("CHAT_USER_DAILY_LIMIT", "200"))
+
+# Per-run ceiling on LLM round-trips. pydantic-ai's default is 50, which at
+# reasoning-effort pricing lets one pathological tool loop cost ~50x a normal
+# turn before the per-user daily cap even notices. Normal "ask" turns take
+# 1-3 requests; deep-research's 7-step flow peaks around 10-12. Read per call
+# (not at import) so tests and ops can retune without a restart.
+_CHAT_REQUEST_LIMIT_DEFAULT = 15
+
+
+def _usage_limits() -> UsageLimits:
+    try:
+        limit = int(os.environ.get("CHAT_REQUEST_LIMIT", str(_CHAT_REQUEST_LIMIT_DEFAULT)))
+    except ValueError:
+        limit = _CHAT_REQUEST_LIMIT_DEFAULT
+    return UsageLimits(request_limit=limit)
+
+
+# Friendly status labels for the streaming UI, keyed by tool name. Anything
+# unlisted falls back to a generic label so new tools degrade gracefully.
+_TOOL_STATUS_LABELS = {
+    "search_auctions": "Searching auctions…",
+    "semantic_search": "Searching notices semantically…",
+    "upcoming_auctions": "Checking upcoming deadlines…",
+    "borrower_lookup": "Looking up borrower…",
+    "match_pasted_listing": "Matching your pasted listing…",
+    "get_auction_detail": "Fetching auction details…",
+    "list_distinct": "Computing the breakdown…",
+    "describe_schema": "Reading the graph schema…",
+    "run_cypher": "Querying the graph…",
+    "internet_search": "Searching the web…",
+}
+
+
+def _tool_status(part: ToolCallPart) -> str:
+    label = _TOOL_STATUS_LABELS.get(part.tool_name, "Working…")
+    if part.tool_name == "run_cypher":
+        # run_cypher carries a one-sentence intent summary meant for UI chips —
+        # reuse it so the status line says what the query is actually doing.
+        args = part.args
+        if isinstance(args, str):
+            try:
+                args = json.loads(args)
+            except ValueError:
+                args = {}
+        desc = (args or {}).get("description") if isinstance(args, dict) else None
+        if desc:
+            label = f"Querying the graph: {desc}"
+    return label
 _chat_hits_lock = threading.Lock()
 _anon_chat_hits: dict[str, list[float]] = {}
 _user_chat_hits: dict[str, list[float]] = {}
@@ -455,12 +515,19 @@ def list_modes() -> dict:
     return {"modes": _AVAILABLE_MODES}
 
 
-@router.post("/chat", response_model=ChatResponse)
-async def chat(
-    request: Request,
-    req: ChatRequest,
-    user: UserOut | None = Depends(get_optional_user),
-) -> ChatResponse:
+_USAGE_LIMIT_DETAIL = (
+    "this question needed too many steps — try asking it more narrowly"
+)
+
+
+def _prepare_turn(
+    request: Request, req: ChatRequest, user: UserOut | None
+) -> tuple[list | None, ChatDeps, str | None]:
+    """Shared per-turn gating + setup for /chat and /chat/stream.
+
+    Raises HTTPException for auth/rate failures, validates the incoming
+    history, and builds ChatDeps with the rolling search scope.
+    """
     mode = req.mode
     if mode in _GATED_MODES and (user is None or not user.email_verified):
         raise HTTPException(status_code=401, detail="login required for this mode")
@@ -494,28 +561,11 @@ async def chat(
         last_total_count=last_total,
         mode=mode,
     )
-    try:
-        # Time the LLM round-trip on its own budget so slow-agent turns are
-        # easy to spot in logs (auction.obs chat.agent_run ... elapsed_ms=...).
-        with timed("chat.agent_run", slow_ms=SLOW_AGENT_MS,
-                   mode=mode or "ask", history_msgs=len(history) if history else 0) as obs:
-            result = await agent.run(req.message, message_history=history, deps=deps)
-            # Attach token/cache counts to the obs line so a turn's cost — and
-            # whether the stable prefix is hitting the implicit prompt cache —
-            # is greppable next to its latency.
-            usage = _usage_fields(result)
-            obs.update(usage)
-    except (httpx.TimeoutException, TimeoutError):
-        # Upstream LLM hung — retryable, so tell the client with a 504.
-        logger.exception("agent.run timed out for message=%r mode=%r", req.message, mode)
-        raise HTTPException(status_code=504, detail="the model took too long — please retry")
-    except Exception:
-        # Most often pydantic-ai's UnexpectedModelBehavior or a transient
-        # OpenRouter error. Log with the user message so the failing input is
-        # recoverable from Render logs, then surface a friendly 502 (retryable
-        # upstream failure, not a bug in this service).
-        logger.exception("agent.run failed for message=%r mode=%r", req.message, mode)
-        raise HTTPException(status_code=502, detail="chat agent failed — please retry")
+    return history, deps, mode
+
+
+def _build_chat_response(result: Any, mode: str | None, usage: dict[str, Any]) -> ChatResponse:
+    """Post-run packaging shared by /chat and /chat/stream."""
     artifacts = _extract_artifacts(result.new_messages())
     logger.info(
         "chat turn ok mode=%s tool_calls=%d answer_chars=%d "
@@ -539,4 +589,149 @@ async def chat(
         answer=result.output,
         artifacts=artifacts,
         message_history=dumped_history,
+    )
+
+
+@router.post("/chat", response_model=ChatResponse)
+async def chat(
+    request: Request,
+    req: ChatRequest,
+    user: UserOut | None = Depends(get_optional_user),
+) -> ChatResponse:
+    history, deps, mode = _prepare_turn(request, req, user)
+    try:
+        # Time the LLM round-trip on its own budget so slow-agent turns are
+        # easy to spot in logs (auction.obs chat.agent_run ... elapsed_ms=...).
+        with timed("chat.agent_run", slow_ms=SLOW_AGENT_MS,
+                   mode=mode or "ask", history_msgs=len(history) if history else 0) as obs:
+            result = await agent.run(
+                req.message, message_history=history, deps=deps,
+                usage_limits=_usage_limits(),
+            )
+            # Attach token/cache counts to the obs line so a turn's cost — and
+            # whether the stable prefix is hitting the implicit prompt cache —
+            # is greppable next to its latency.
+            usage = _usage_fields(result)
+            obs.update(usage)
+    except UsageLimitExceeded:
+        # The per-run request ceiling tripped — almost always a tool loop, not
+        # a transient fault, so 422 (don't invite a blind retry of the same
+        # question the way the 502/504 paths do).
+        logger.exception("agent.run hit usage limit for message=%r mode=%r", req.message, mode)
+        raise HTTPException(status_code=422, detail=_USAGE_LIMIT_DETAIL)
+    except (httpx.TimeoutException, TimeoutError):
+        # Upstream LLM hung — retryable, so tell the client with a 504.
+        logger.exception("agent.run timed out for message=%r mode=%r", req.message, mode)
+        raise HTTPException(status_code=504, detail="the model took too long — please retry")
+    except Exception:
+        # Most often pydantic-ai's UnexpectedModelBehavior or a transient
+        # OpenRouter error. Log with the user message so the failing input is
+        # recoverable from Render logs, then surface a friendly 502 (retryable
+        # upstream failure, not a bug in this service).
+        logger.exception("agent.run failed for message=%r mode=%r", req.message, mode)
+        raise HTTPException(status_code=502, detail="chat agent failed — please retry")
+    return _build_chat_response(result, mode, usage)
+
+
+def _sse(event: str, data: dict[str, Any]) -> str:
+    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+async def _stream_turn(
+    message: str, history: list | None, deps: ChatDeps, mode: str | None
+) -> AsyncIterator[str]:
+    """Run the agent and yield SSE frames.
+
+    Event protocol (each frame is `event: <name>` + JSON `data:`):
+      status — {label}: a tool started (or the model is reasoning); the UI
+               swaps the "thinking" indicator text.
+      delta  — {text}: a chunk of the FINAL answer. Text the model emits on
+               intermediate turns (before tool calls) is suppressed so
+               scratch prose never leaks into the streamed reply.
+      final  — the full ChatResponse payload (answer/artifacts/history),
+               identical to what blocking /chat returns.
+      error  — {detail}: terminal failure. HTTP status is already 200 by the
+               time the agent fails, so errors ride in-band; the client maps
+               them onto the same messaging as /chat's 4xx/5xx paths.
+    """
+    try:
+        with timed("chat.agent_run", slow_ms=SLOW_AGENT_MS,
+                   mode=mode or "ask", history_msgs=len(history) if history else 0) as obs:
+            result = None
+            # Text parts arriving before FinalResultEvent may be scratch
+            # ("let me search…") — buffer the current part and only flush
+            # once pydantic-ai marks the run's output as started.
+            final_started = False
+            pending_text = ""
+            async with agent.run_stream_events(
+                message, message_history=history, deps=deps,
+                usage_limits=_usage_limits(),
+            ) as stream:
+                async for event in stream:
+                    if isinstance(event, AgentRunResultEvent):
+                        result = event.result
+                    elif isinstance(event, FunctionToolCallEvent):
+                        yield _sse("status", {"label": _tool_status(event.part)})
+                    elif isinstance(event, FinalResultEvent):
+                        final_started = True
+                        if pending_text:
+                            yield _sse("delta", {"text": pending_text})
+                            pending_text = ""
+                    elif isinstance(event, PartStartEvent):
+                        if isinstance(event.part, ThinkingPart):
+                            yield _sse("status", {"label": "Reasoning…"})
+                        elif isinstance(event.part, TextPart):
+                            if final_started:
+                                if event.part.content:
+                                    yield _sse("delta", {"text": event.part.content})
+                            else:
+                                pending_text = event.part.content or ""
+                    elif isinstance(event, PartDeltaEvent) and isinstance(
+                        event.delta, TextPartDelta
+                    ):
+                        if final_started:
+                            if event.delta.content_delta:
+                                yield _sse("delta", {"text": event.delta.content_delta})
+                        else:
+                            pending_text += event.delta.content_delta
+            if result is None:  # defensive: stream ended without a result event
+                raise RuntimeError("agent stream ended without a result")
+            usage = _usage_fields(result)
+            obs.update(usage)
+    except UsageLimitExceeded:
+        logger.exception("agent stream hit usage limit for message=%r mode=%r", message, mode)
+        yield _sse("error", {"detail": _USAGE_LIMIT_DETAIL})
+        return
+    except (httpx.TimeoutException, TimeoutError):
+        logger.exception("agent stream timed out for message=%r mode=%r", message, mode)
+        yield _sse("error", {"detail": "the model took too long — please retry"})
+        return
+    except Exception:
+        logger.exception("agent stream failed for message=%r mode=%r", message, mode)
+        yield _sse("error", {"detail": "chat agent failed — please retry"})
+        return
+    yield _sse("final", _build_chat_response(result, mode, usage).model_dump(mode="json"))
+
+
+@router.post("/chat/stream")
+async def chat_stream(
+    request: Request,
+    req: ChatRequest,
+    user: UserOut | None = Depends(get_optional_user),
+) -> StreamingResponse:
+    """Streaming twin of /chat. Same request body, same gating; answers as
+    Server-Sent Events so the UI can show tool progress and stream the reply
+    instead of spinning silently through a long reasoning turn."""
+    # Gating runs BEFORE the response starts so auth/rate failures still
+    # surface as real HTTP statuses (401/429), matching blocking /chat.
+    history, deps, mode = _prepare_turn(request, req, user)
+    return StreamingResponse(
+        _stream_turn(req.message, history, deps, mode),
+        media_type="text/event-stream",
+        headers={
+            # SSE must not be buffered: X-Accel-Buffering for nginx-style
+            # proxies (Render), no-cache for anything else in the path.
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
     )
