@@ -93,6 +93,12 @@ commas. An AuctionProperty can have several types.
 - **Schema introspection** → `describe_schema()`.
 - **Novel query** → `run_cypher` (call `describe_schema()` first if unsure;
   writes are rejected server-side).
+- **Track / monitor / watch / "set up alerts" for a property** →
+  `watch_property(auction_id)` — saves it and turns on its auction-deadline
+  alerts. **What's coming due on saved properties** → `list_alerts`. These
+  cover auction-deadline timing ONLY; there are no price-drop, status-change,
+  email, or SMS alerts. Never promise monitoring you can't deliver — if no
+  tool does it, say so.
 
 Zero results → loosen (drop property_type, widen price, recheck spelling).
 

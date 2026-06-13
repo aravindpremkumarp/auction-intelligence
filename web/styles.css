@@ -1300,6 +1300,50 @@ body {
 .save-btn.saved { background: var(--accent); }
 [data-theme="dark"] .save-btn { background: var(--paper-2); }
 
+/* Deadline-alerts bell (topbar) + watchlist feed */
+.alerts-bell {
+  position: relative;
+  background: var(--card); border: 1.5px solid var(--ink);
+  width: 34px; height: 34px; padding: 0; cursor: pointer;
+  display: grid; place-items: center;
+  color: var(--ink);
+}
+.alerts-badge {
+  position: absolute; top: -7px; right: -7px;
+  min-width: 17px; height: 17px; padding: 0 4px;
+  border-radius: var(--radius-pill);
+  background: var(--danger); color: #fff;
+  font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+  line-height: 17px; text-align: center;
+}
+.alerts-badge[data-empty="1"] { display: none; }
+
+#watchlist-alerts { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+#watchlist-alerts:empty { display: none; }
+.wl-alerts-head {
+  font-family: var(--font-mono); font-size: 12px; font-weight: 600;
+  color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em;
+  margin: 4px 0 2px;
+}
+.wl-alert {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  text-align: left; cursor: pointer;
+  background: var(--card); border: 1.5px solid var(--border);
+  border-left: 4px solid var(--border-strong);
+  border-radius: var(--radius-sm); padding: 10px 12px;
+}
+.wl-alert:hover { border-color: var(--border-strong); box-shadow: var(--shadow); }
+.wl-alert[data-tone="urgent"] { border-left-color: var(--danger); }
+.wl-alert[data-tone="soon"] { border-left-color: #d97706; }
+.wl-alert[data-tone="upcoming"] { border-left-color: var(--accent); }
+.wl-alert-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--border-strong); flex-shrink: 0; }
+.wl-alert[data-tone="urgent"] .wl-alert-dot { background: var(--danger); }
+.wl-alert[data-tone="soon"] .wl-alert-dot { background: #d97706; }
+.wl-alert[data-tone="upcoming"] .wl-alert-dot { background: var(--accent); }
+.wl-alert-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.wl-alert-title { font-size: 14px; font-weight: 600; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wl-alert-msg { font-size: 12px; color: var(--muted); }
+
 .feedback-btn {
   background: var(--card); border: 2px solid var(--ink);
   padding: 4px 10px; font-family: var(--font-hand); font-size: 16px;
