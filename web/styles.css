@@ -751,10 +751,11 @@ body {
 .b-act.active { background: var(--ink); color: var(--paper); }
 .b-act.flash { background: var(--accent); }
 /* AI answers render full-width — the visual "no card chrome" treatment lives in
-   the refinement layer below (.bubble.ai), which overrides this block. Here we
-   just let the wrap and bubble take the whole transcript width. */
-.bubble-wrap.ai { align-self: stretch; display: flex; flex-direction: column; gap: 3px; align-items: stretch; max-width: 100%; width: 100%; }
-.bubble.ai { align-self: stretch; width: 100%; max-width: 100%; background: var(--card); }
+   the refinement layer below (.bubble.ai), which overrides this block. The wrap
+   stays left-aligned so the matches chip and action buttons size to their
+   content; only .bubble.ai gets an explicit full width. */
+.bubble-wrap.ai { align-self: stretch; display: flex; flex-direction: column; gap: 3px; align-items: flex-start; max-width: 100%; width: 100%; }
+.bubble.ai { width: 100%; max-width: 100%; background: var(--card); }
 .bubble.ai.thinking {
   font-family: var(--font-hand); font-size: 16px; color: var(--muted);
 }
