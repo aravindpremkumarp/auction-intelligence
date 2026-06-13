@@ -891,6 +891,28 @@ body {
 .source-num { font-weight: 600; opacity: 0.7; }
 .source-domain { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* Inline [1][2][3] citations inside an answer — link to the matching source. */
+.bubble.ai.md .citation {
+  color: var(--accent);
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  padding: 0 1px;
+  white-space: nowrap;
+}
+.bubble.ai.md .citation:hover { text-decoration: underline; }
+
+/* Bare auction IDs inside an answer — click to open that property. */
+.bubble.ai.md .prop-id-link {
+  color: var(--accent);
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+.bubble.ai.md .prop-id-link:hover { text-decoration: underline; }
+/* When the ID sits inside an OCR/code span, keep the chip look but tint it. */
+.bubble.ai.md .md-code .prop-id-link { color: var(--accent); }
+
 /* Per-turn match snapshot chip under each AI reply — click flips the
    matches panel back to what that turn found. `.active` marks the turn
    the panel currently shows. */

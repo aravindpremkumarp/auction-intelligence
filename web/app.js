@@ -888,6 +888,54 @@ function extractWebSources(artifacts) {
   }
   return out;
 }
+// The auction IDs this turn's tool calls actually returned. We only linkify a
+// bare ID the answer mentions (e.g. "Equitas SFB Auction ( 765494 )") when the
+// backend really surfaced it, so an arbitrary number that merely looks like an
+// ID is never turned into a dead link.
+function collectAuctionIds(artifacts) {
+  const ids = new Set();
+  try {
+    const { rows } = extractResultsFromArtifacts(artifacts);
+    for (const r of (rows || [])) {
+      if (r && r.auction_id != null && r.auction_id !== '') ids.add(String(r.auction_id));
+    }
+  } catch (_) { /* artifacts may be malformed mid-stream — no IDs is fine */ }
+  return ids;
+}
+
+// Apply `fn` only to text that sits between tags, never inside a tag or its
+// attributes, so we can inject anchors into rendered-markdown HTML without ever
+// corrupting an existing href/class/title.
+function mapHtmlText(html, fn) {
+  return String(html).replace(/(<[^>]+>)|([^<]+)/g, (_, tag, text) => tag != null ? tag : fn(text));
+}
+
+// Turn [1][2][3] citations into links to their matching web source, and bare
+// auction IDs into links that open that property. Operates on the already-
+// rendered, already-escaped markdown HTML for an AI answer.
+function linkifyAnswerHtml(html, m) {
+  if (!html) return html;
+  const sources = extractWebSources(m && m.artifacts);
+  const ids = collectAuctionIds(m && m.artifacts);
+
+  if (sources.length) {
+    html = mapHtmlText(html, (text) => text.replace(/\[(\d{1,3})\]/g, (full, n) => {
+      const src = sources[+n - 1];
+      if (!src || !src.url) return full;
+      return `<a class="citation" href="${escapeHtml(src.url)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(src.title || src.url)}">[${n}]</a>`;
+    }));
+  }
+
+  if (ids.size) {
+    const pattern = Array.from(ids).map(id => id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+    const re = new RegExp('\\b(' + pattern + ')\\b', 'g');
+    html = mapHtmlText(html, (text) => text.replace(re, (full) =>
+      `<a class="prop-id-link" role="button" tabindex="0" data-property-id="${escapeHtml(full)}" title="open this property">${full}</a>`));
+  }
+
+  return html;
+}
+
 function extractResultsFromArtifacts(artifacts) {
   if (!Array.isArray(artifacts)) return { rows: [], total: null, tool: null };
   const pick = (names) => artifacts.filter(a => names.includes(a.tool)).pop();
@@ -1100,7 +1148,7 @@ function renderChat(history, logEl, opts) {
       const metaHtml = (matchesHtml || timeHtml) ? `
         <div class="ai-meta">${matchesHtml}${timeHtml}</div>` : '';
       return `<div class="bubble-wrap ai">
-        <div class="bubble ai md">${renderMarkdown(m.text)}</div>
+        <div class="bubble ai md">${linkifyAnswerHtml(renderMarkdown(m.text), m)}</div>
         ${sourcesHtml}
         ${metaHtml}
         <div class="bubble-actions">
@@ -1170,6 +1218,16 @@ function renderChat(history, logEl, opts) {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       showMatchSnapshot(+btn.dataset.i);
+    });
+  });
+  // Bare auction IDs inside an answer ("… Auction ( 765494 )") open that
+  // property's detail page. Works the same in the main chat and the per-
+  // property panel, since both render through here.
+  logEl.querySelectorAll('.prop-id-link').forEach(el => {
+    const open = () => { currentDetailId = el.dataset.propertyId; go('detail'); };
+    el.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); open(); });
+    el.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); }
     });
   });
 }
