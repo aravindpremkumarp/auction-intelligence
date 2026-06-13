@@ -35,7 +35,13 @@ _SHARED_MD = _REPO_ROOT / "modes" / "_shared.md"
 # routing bullet) — keeps the UI matches panel in sync when the agent
 # answers about a subset of earlier results ("top three of those") without
 # a fresh search. Measured ~13,982 after trimming; ceiling at 14,200.
-BUDGET_CHARS = 14_200
+#
+# 2026-06: +~2,300 for the deadline-alerts capability — two new tools
+# (`watch_property`, `list_alerts`), role rule 7, and a routing bullet. This
+# is the grounding that stops the assistant from offering tracking it can't
+# do (it previously promised "set up tracking" with no backing tool), so the
+# extra description earns its per-call cost. Measured ~16,483; ceiling 16,700.
+BUDGET_CHARS = 16_700
 
 
 def _agent_module() -> ast.Module:

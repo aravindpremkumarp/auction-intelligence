@@ -22,6 +22,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from slowapi.errors import RateLimitExceeded
 
+from api.alerts import router as alerts_router
 from api.auth import router as auth_router
 from api.auth.rate_limit import limiter
 from api.chat import router as chat_router
@@ -132,11 +133,15 @@ async def _unhandled_exception_handler(request: Request, exc: Exception) -> JSON
     return resp
 
 
-# Always-on public routers.
+# Always-on public routers. `/alerts` is public so the anonymous POST path
+# (client-supplied watchlist ids) works even when the auth-gated watchlist
+# router below is disabled; its GET path resolves the saved set only when a
+# valid token is present and returns an empty list otherwise.
 app.include_router(health_router)
 app.include_router(properties_router)
 app.include_router(chat_router)
 app.include_router(feedback_router)
+app.include_router(alerts_router)
 
 # Auth-gated routers — skipped entirely when AUTH_ENABLED=false (local/offline
 # dev) so the app can boot without Supabase configured.

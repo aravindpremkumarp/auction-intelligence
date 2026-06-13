@@ -98,6 +98,7 @@ async function syncWatchlistFromServer() {
     saved = new Set(Array.isArray(data.ids) ? data.ids : []);
     watchlistCache = {};
     updateSavedCount();
+    loadAlerts();
     if (currentScreen === 'watchlist') renderWatchlist();
     else if (currentScreen === 'results') renderResultsList();
     else if (currentScreen === 'detail') updateDetailSaveButton();
@@ -118,6 +119,7 @@ async function syncWatchlistFromServer() {
       watchlistCache = {};
       try { localStorage.removeItem(WATCHLIST_KEY); } catch(e) {}
       updateSavedCount();
+      loadAlerts();
       if (currentScreen === 'watchlist') renderWatchlist();
       else if (currentScreen === 'results') renderResultsList();
       else if (currentScreen === 'detail') updateDetailSaveButton();
@@ -1396,6 +1398,7 @@ function toggleSaved(id) {
   }
   persistWatchlist();
   updateSavedCount();
+  loadAlerts();
   if (currentScreen === 'results') renderResultsList();
   else if (currentScreen === 'watchlist') renderWatchlist();
   else if (currentScreen === 'detail') updateDetailSaveButton();
@@ -1885,6 +1888,75 @@ async function askAboutProperty(text) {
 }
 
 /* ====== WATCHLIST ====== */
+/* ====== DEADLINE ALERTS ====== */
+// In-app alerts for saved properties whose auction deadline is within 7 days.
+// Computed on-read by GET /alerts (signed in) or POST /alerts with the
+// localStorage watchlist ids (anonymous). No price/status alerts — deadline
+// timing only. See docs/design/2026-06-13-property-deadline-alerts.md.
+let alertsCache = [];
+const _ALERT_TONES = { urgent: 'urgent', soon: 'soon', upcoming: 'upcoming' };
+
+async function loadAlerts() {
+  try {
+    const user = window.Auth && window.Auth.getUser && window.Auth.getUser();
+    let res;
+    if (user) {
+      res = await authFetch(`${API_BASE}/alerts`);
+    } else {
+      const ids = [...saved];
+      if (!ids.length) { alertsCache = []; updateAlertsBadge(); renderWatchlistAlerts(); return; }
+      res = await authFetch(`${API_BASE}/alerts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ auction_ids: ids }),
+      });
+    }
+    if (!res || !res.ok) return;
+    const data = await res.json();
+    alertsCache = Array.isArray(data.alerts) ? data.alerts : [];
+  } catch (e) {
+    console.error('[alerts] load failed', e);
+    return;
+  }
+  updateAlertsBadge();
+  if (currentScreen === 'watchlist') renderWatchlistAlerts();
+}
+
+function updateAlertsBadge() {
+  const badge = document.getElementById('alerts-count');
+  if (!badge) return;
+  const n = alertsCache.length;
+  badge.textContent = n > 0 ? String(n) : '';
+  badge.dataset.empty = n > 0 ? '0' : '1';
+}
+
+function openAlertDetail(id) {
+  currentDetailId = id;
+  go('detail');
+}
+
+function renderWatchlistAlerts() {
+  const host = document.getElementById('watchlist-alerts');
+  if (!host) return;
+  if (!alertsCache.length) { host.innerHTML = ''; return; }
+  const rows = alertsCache.map(a => {
+    const tone = _ALERT_TONES[a.severity] || 'upcoming';
+    const id = escapeHtml(a.auction_id);
+    const title = escapeHtml(a.title || a.auction_id);
+    const city = a.city ? ` · ${escapeHtml(a.city)}` : '';
+    const msg = escapeHtml(a.message || '');
+    return `<button class="wl-alert" data-tone="${tone}" onclick="openAlertDetail('${id}')">
+      <span class="wl-alert-dot"></span>
+      <span class="wl-alert-body">
+        <span class="wl-alert-title">${title}${city}</span>
+        <span class="wl-alert-msg">${msg}</span>
+      </span>
+    </button>`;
+  }).join('');
+  const n = alertsCache.length;
+  host.innerHTML = `<div class="wl-alerts-head">⏰ ${n} deadline${n === 1 ? '' : 's'} coming up</div>${rows}`;
+}
+
 function updateSavedCount() {
   document.getElementById('save-count').textContent = saved.size;
   const btBadge = document.getElementById('bt-save-count');
@@ -1894,6 +1966,7 @@ function updateSavedCount() {
   }
 }
 function renderWatchlist() {
+  renderWatchlistAlerts();
   const body = document.getElementById('watchlist-body');
   const ids = [...saved];
   document.getElementById('watchlist-count').textContent = `${ids.length} saved${ids.length ? ' · sorted by auction date' : ''}`;
@@ -2919,6 +2992,7 @@ async function loadDataFreshness() {
 /* ====== INIT ====== */
 sessionId();
 updateSavedCount();
+loadAlerts();
 renderSidebar();
 renderResultsList();
 hydrateModes();
