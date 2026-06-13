@@ -1095,11 +1095,14 @@ function renderChat(history, logEl, opts) {
           <svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 4.5 L8 8 L10.5 9.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
           <span>${escapeHtml(formatDuration(m.elapsedMs))}</span>
         </div>` : '';
+      // Matches chip and response time share one row so they sit side by side
+      // under the answer instead of stacking.
+      const metaHtml = (matchesHtml || timeHtml) ? `
+        <div class="ai-meta">${matchesHtml}${timeHtml}</div>` : '';
       return `<div class="bubble-wrap ai">
         <div class="bubble ai md">${renderMarkdown(m.text)}</div>
-        ${matchesHtml}
         ${sourcesHtml}
-        ${timeHtml}
+        ${metaHtml}
         <div class="bubble-actions">
           <button class="b-act" data-act="copy-ai" data-i="${i}" title="copy" aria-label="copy">
             <svg viewBox="0 0 16 16" width="12" height="12"><rect x="4" y="4" width="9" height="10" fill="none" stroke="currentColor" stroke-width="1.5"/><rect x="2" y="2" width="9" height="10" fill="currentColor" opacity="0.15" stroke="currentColor" stroke-width="1.5"/></svg>

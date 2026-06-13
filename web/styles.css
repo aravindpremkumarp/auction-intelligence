@@ -920,6 +920,14 @@ body {
 }
 .resp-time svg { opacity: 0.75; }
 .detail-chat .resp-time { font-size: 9px; }
+/* Matches chip + response time on one row beneath the answer. */
+.ai-meta {
+  display: flex; align-items: center; flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 6px;
+}
+.ai-meta .matches-chip,
+.ai-meta .resp-time { margin-top: 0; }
 
 .results-pane {
   display: flex; flex-direction: column;
