@@ -188,3 +188,21 @@ if WEB_DIR.exists():
     @app.get("/review")
     def review_page() -> FileResponse:
         return FileResponse(str(WEB_DIR / "review.html"))
+
+    # SPA deep-link fallbacks. The client router (web/index.html) pushes
+    # `/chat` and `/property/{id}`; on a fresh load or refresh the browser
+    # GETs those paths and the server must hand back index.html so the SPA
+    # boots and its own router renders the right screen. In production a CDN
+    # rewrite covers this, but the dev server (and any non-rewriting host)
+    # needs explicit routes or refresh dies on a JSON 404/405.
+    #   - GET /chat does NOT collide with the chat API (that's POST /chat).
+    #   - GET /property/{id} has no API route at this path.
+    #   - /watchlist is intentionally NOT here: GET /watchlist is the
+    #     authenticated data API, so an HTML fallback would shadow it.
+    @app.get("/chat")
+    def chat_page() -> FileResponse:
+        return FileResponse(str(WEB_DIR / "index.html"))
+
+    @app.get("/property/{auction_id}")
+    def property_page(auction_id: str) -> FileResponse:
+        return FileResponse(str(WEB_DIR / "index.html"))
