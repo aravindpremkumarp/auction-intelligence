@@ -27,6 +27,7 @@ from api.auth import router as auth_router
 from api.auth.rate_limit import limiter
 from api.chat import router as chat_router
 from api.conversations import router as conversations_router
+from api.dossier import router as dossier_router
 from api.feedback import router as feedback_router
 from api.health import router as health_router
 from api.properties import router as properties_router
@@ -150,6 +151,7 @@ if os.environ.get("AUTH_ENABLED", "true").lower() != "false":
     app.include_router(watchlist_router)
     app.include_router(conversations_router)
     app.include_router(review_router)
+    app.include_router(dossier_router)
 
 
 # Serve the single-page UI. index.html links /styles.css and /app.js as plain

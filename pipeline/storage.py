@@ -24,7 +24,13 @@ R2_SECRET_ACCESS_KEY = os.getenv("R2_SECRET_ACCESS_KEY", "")
 R2_BUCKET            = os.getenv("R2_BUCKET", "")
 R2_PUBLIC_BASE_URL   = os.getenv("R2_PUBLIC_BASE_URL", "").rstrip("/")
 
+# Separate PRIVATE bucket for confidential user dossier documents (title deeds,
+# EC, legal-heir certs). Never made public: reads go through short-TTL presigned
+# URLs minted only after an ownership check. See api/dossier.
+R2_PRIVATE_BUCKET    = os.getenv("R2_PRIVATE_BUCKET", "auction-dossiers")
+
 _KEY_PREFIX = "notices"
+_DOSSIER_KEY_PREFIX = "dossiers"
 _SAFE_SEGMENT_RE = re.compile(r"[^A-Za-z0-9._-]+")
 
 
@@ -141,3 +147,81 @@ def upload_file(local_path: Path | str, key: str, content_type: Optional[str] = 
             ContentType=ct,
         )
     return public_url_for(key)
+
+
+# ── Private dossier storage ───────────────────────────────────────────────────
+#
+# The public path above shares one bucket served openly from R2_PUBLIC_BASE_URL.
+# Dossier documents are confidential, so they live in a *separate* bucket with
+# no public base URL: callers never get a permanent link, only a short-lived
+# presigned GET minted after the per-dossier ownership check in the API layer.
+
+def _require_private_config() -> None:
+    missing = [
+        name for name, val in [
+            ("R2_ACCOUNT_ID",        R2_ACCOUNT_ID),
+            ("R2_ACCESS_KEY_ID",     R2_ACCESS_KEY_ID),
+            ("R2_SECRET_ACCESS_KEY", R2_SECRET_ACCESS_KEY),
+            ("R2_PRIVATE_BUCKET",    R2_PRIVATE_BUCKET),
+        ] if not val
+    ]
+    if missing:
+        raise R2ConfigError(f"Missing private R2 config: {', '.join(missing)}")
+
+
+def dossier_object_key(supabase_id: str, dossier_id: str, doc_id: str, filename: str) -> str:
+    """Deterministic private key for a dossier document.
+
+    Shape: ``dossiers/{supabase_id}/{dossier_id}/{doc_id}__{filename}`` with
+    path-unsafe characters replaced. Namespacing by user + dossier keeps a
+    prefix-delete (on dossier deletion) cheap and unambiguous.
+    """
+    return (
+        f"{_DOSSIER_KEY_PREFIX}/{_safe_segment(supabase_id)}/"
+        f"{_safe_segment(dossier_id)}/{_safe_segment(doc_id)}__{_safe_segment(filename)}"
+    )
+
+
+def upload_bytes_private(key: str, body: bytes, content_type: Optional[str] = None) -> str:
+    """Upload raw bytes to the private dossier bucket. Returns the object key
+    (there is no public URL — reads go through :func:`presigned_get_url`)."""
+    _require_private_config()
+    client = r2_client()
+    client.put_object(
+        Bucket=R2_PRIVATE_BUCKET,
+        Key=key,
+        Body=body,
+        ContentType=content_type or "application/octet-stream",
+    )
+    return key
+
+
+def presigned_get_url(key: str, expires_in: int = 300) -> str:
+    """Mint a short-TTL presigned GET URL for a private object. Callers MUST
+    have already verified the requester owns the dossier this key belongs to."""
+    _require_private_config()
+    client = r2_client()
+    return client.generate_presigned_url(
+        "get_object",
+        Params={"Bucket": R2_PRIVATE_BUCKET, "Key": key},
+        ExpiresIn=expires_in,
+    )
+
+
+def delete_private_objects(keys: list[str]) -> None:
+    """Delete the given private objects (cascade on dossier deletion).
+
+    Best-effort and batched (S3 ``delete_objects`` caps at 1000 keys/call).
+    Empty/blank keys are skipped. Raising is left to the caller's discretion.
+    """
+    _require_private_config()
+    clean = [k for k in keys if k]
+    if not clean:
+        return
+    client = r2_client()
+    for i in range(0, len(clean), 1000):
+        batch = clean[i:i + 1000]
+        client.delete_objects(
+            Bucket=R2_PRIVATE_BUCKET,
+            Delete={"Objects": [{"Key": k} for k in batch], "Quiet": True},
+        )
