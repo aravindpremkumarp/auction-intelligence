@@ -87,6 +87,13 @@ OPENROUTER_MODEL_DESCRIPTION_MULTI = os.getenv(
 OPENROUTER_MODEL_CLASSIFY = os.getenv(
     "OPENROUTER_MODEL_CLASSIFY", "deepseek/deepseek-v4-flash",
 )
+# Doc-type classifier for the dossier locker — places an uploaded user document
+# into the 9-category / ~50-type taxonomy (api/dossier/taxonomy.py). Distinct
+# from CLASSIFY (single/multi notice) because the taxonomy is much larger;
+# gemini-2.5-flash is cheap and accurate on this kind of label-selection task.
+OPENROUTER_MODEL_DOC_CLASSIFY = os.getenv(
+    "OPENROUTER_MODEL_DOC_CLASSIFY", "google/gemini-2.5-flash",
+)
 
 # ── Web search (Tavily) ──────────────────────────────────────────────────────
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")
