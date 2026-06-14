@@ -1659,6 +1659,12 @@ function updateDetailSaveButton() {
   sb.textContent = isSaved ? '★ saved to watchlist' : '☆ save to watchlist';
   sb.classList.toggle('saved', isSaved);
   sb.onclick = () => toggleSaved(currentDetailId);
+  const db = document.getElementById('detail-dossier');
+  if (db) db.onclick = () => {
+    if (window.Dossiers && window.Dossiers.openForAuction) {
+      window.Dossiers.openForAuction(currentDetailId, currentDetailTitle);
+    }
+  };
 }
 
 function renderDetailChat() {

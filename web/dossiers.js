@@ -28,6 +28,9 @@
 
   // Internal view state for the screen.
   var state = { view: 'list', id: null };
+  // Set while openForAuction is driving the screen, so the go('dossiers')
+  // render hook doesn't race a list render over the detail we're opening.
+  var opening = false;
 
   function body() { return document.getElementById('dossiers-body'); }
 
@@ -449,9 +452,46 @@
 
   // ── public entry ──────────────────────────────────────────────────────────
   function render() {
+    if (opening) return;  // openForAuction owns the screen until it resolves
     if (!signedIn()) { state.view = 'list'; state.id = null; renderList(); return; }
     if (state.view === 'detail' && state.id) renderDetail(state.id);
     else renderList();
+  }
+
+  // Open (or create) the dossier for a given auction — entry point for the
+  // "create dossier" button on the property detail page. Find-or-create so a
+  // property never accumulates duplicate dossiers.
+  async function openForAuction(auctionId, title) {
+    if (!auctionId) return;
+    if (!signedIn()) {
+      if (window.Auth && window.Auth.openLoginModal) window.Auth.openLoginModal();
+      return;
+    }
+    opening = true;
+    if (typeof go === 'function') go('dossiers');  // switch screen; render() no-ops
+    var el = body();
+    if (el) el.innerHTML = '<div class="dossier-loading">opening dossier…</div>';
+    try {
+      var rows = await listDossiers();
+      var existing = rows.filter(function (d) {
+        return d.property && d.property.auction_id === auctionId;
+      })[0];
+      if (existing) {
+        state.view = 'detail'; state.id = existing.id;
+        await renderDetail(existing.id);
+      } else {
+        var payload = { auction_id: auctionId };
+        if (title) payload.title = title;
+        var d = await createDossier(payload);
+        renderDetailFrom(d);
+      }
+    } catch (e) {
+      var b = body();
+      if (b) b.innerHTML = '<div class="dossier-empty"><div class="dossier-empty-title">Couldn’t open a dossier</div>'
+        + '<div class="dossier-empty-sub">' + esc(String(e.message || e)) + '</div></div>';
+    } finally {
+      opening = false;
+    }
   }
 
   // Wire delegation once the DOM is ready.
@@ -477,5 +517,5 @@
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
   else init();
 
-  window.Dossiers = { render: render };
+  window.Dossiers = { render: render, openForAuction: openForAuction };
 })();
