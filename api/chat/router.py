@@ -14,6 +14,7 @@ import os
 import threading
 import time
 from collections.abc import AsyncIterator
+from datetime import datetime, timezone
 from typing import Any
 
 import httpx
@@ -38,6 +39,7 @@ from pydantic_ai.usage import UsageLimits
 
 from api.agent import ChatDeps, agent
 from api.auth import get_optional_user
+from api.auth import repository as auth_repo
 from api.auth.schemas import UserOut
 from api.observability import SLOW_AGENT_MS, timed
 
@@ -62,13 +64,13 @@ _CARRY_FORWARD_FILTER_KEYS = {
 
 _GATED_MODES = {"deep-research", "report"}
 
-# Simple in-memory counters for /chat. slowapi's decorator can't see
-# Depends-provided state, so both throttles are enforced manually: anonymous
-# callers get a small hourly cap per IP, and authenticated users get a daily
-# turn cap so a runaway client can't run up the OpenRouter bill. In-memory is
+# Anonymous /chat throttle. slowapi's decorator can't see Depends-provided
+# state, so this is enforced manually: a small hourly cap per IP. In-memory is
 # fine on a single instance; move to Redis-backed storage before scaling out.
+# Authenticated users are gated by the durable, tier-aware daily quota below
+# (see `_enforce_user_chat_quota`) instead of an in-memory counter, so the cap
+# survives restarts and the paid tier can lift it.
 _ANON_CHAT_MAX_PER_HOUR = 10
-_USER_CHAT_MAX_PER_DAY = int(os.environ.get("CHAT_USER_DAILY_LIMIT", "200"))
 
 # Per-run ceiling on LLM round-trips. pydantic-ai's default is 50, which at
 # reasoning-effort pricing lets one pathological tool loop cost ~50x a normal
@@ -122,13 +124,22 @@ def _tool_status(part: ToolCallPart) -> str:
     return label
 _chat_hits_lock = threading.Lock()
 _anon_chat_hits: dict[str, list[float]] = {}
-_user_chat_hits: dict[str, list[float]] = {}
+
+# Free-tier daily chat cap and the (much higher) paid-tier cap. The paid cap is
+# still bounded — it's a cost guard against a runaway client, not a product
+# limit. Read per call so ops/tests can retune without a restart.
+_CHAT_FREE_DAILY_LIMIT_DEFAULT = 25
+_CHAT_PAID_DAILY_LIMIT_DEFAULT = 1000
+
+
+def _ratelimit_disabled() -> bool:
+    return os.environ.get("RATELIMIT_DISABLED", "").lower() in {"1", "true", "yes"}
 
 
 def _enforce_chat_limit(
     hits: dict[str, list[float]], key: str, max_hits: int, window: float, detail: str
 ) -> None:
-    if os.environ.get("RATELIMIT_DISABLED", "").lower() in {"1", "true", "yes"}:
+    if _ratelimit_disabled():
         return
     now = time.time()
     with _chat_hits_lock:
@@ -146,11 +157,44 @@ def _enforce_anon_chat_limit(request: Request) -> None:
     )
 
 
-def _enforce_user_chat_limit(user_id: str) -> None:
-    _enforce_chat_limit(
-        _user_chat_hits, user_id, _USER_CHAT_MAX_PER_DAY, 86400.0,
-        "daily chat limit reached — try again tomorrow",
-    )
+def _chat_daily_cap(user: UserOut) -> int:
+    if user.tier == "paid":
+        return int(os.environ.get(
+            "CHAT_PAID_DAILY_LIMIT", str(_CHAT_PAID_DAILY_LIMIT_DEFAULT)))
+    return int(os.environ.get(
+        "CHAT_FREE_DAILY_LIMIT", str(_CHAT_FREE_DAILY_LIMIT_DEFAULT)))
+
+
+def _today_bucket() -> str:
+    """UTC day key for the quota window (e.g. ``20260614``)."""
+    return datetime.now(timezone.utc).strftime("%Y%m%d")
+
+
+async def _enforce_user_chat_quota(user: UserOut) -> None:
+    """Durable, tier-aware daily chat cap (replaces the old in-memory per-user
+    limiter). One atomic Cypher increment-and-return per turn, so it's correct
+    under concurrent tabs and survives restarts; the UTC date bucket resets the
+    window implicitly. Counts attempts (consistent with the prior limiter), and
+    fails open on a Neo4j hiccup so a DB blip can't take chat down.
+    """
+    if _ratelimit_disabled():
+        return
+    cap = _chat_daily_cap(user)
+    try:
+        count = await auth_repo.bump_chat_quota(user.id, _today_bucket())
+    except Exception:  # noqa: BLE001 - availability over strict enforcement
+        logger.exception("chat quota check failed for user=%s — failing open", user.id)
+        return
+    if count is None:
+        logger.warning("chat quota: no :User row for %s — failing open", user.id)
+        return
+    if count > cap:
+        detail = (
+            "daily chat limit reached — try again tomorrow"
+            if user.tier == "paid"
+            else "daily chat limit reached — upgrade for more, or try again tomorrow"
+        )
+        raise HTTPException(status_code=429, detail=detail)
 
 
 class ChatRequest(BaseModel):
@@ -525,7 +569,7 @@ _USAGE_LIMIT_DETAIL = (
 )
 
 
-def _prepare_turn(
+async def _prepare_turn(
     request: Request, req: ChatRequest, user: UserOut | None
 ) -> tuple[list | None, ChatDeps, str | None]:
     """Shared per-turn gating + setup for /chat and /chat/stream.
@@ -539,7 +583,7 @@ def _prepare_turn(
     if user is None:
         _enforce_anon_chat_limit(request)
     else:
-        _enforce_user_chat_limit(user.id)
+        await _enforce_user_chat_quota(user)
     history = (
         ModelMessagesTypeAdapter.validate_python(
             _strip_dynamic_system_prompts_from_history(req.message_history)
@@ -604,7 +648,7 @@ async def chat(
     req: ChatRequest,
     user: UserOut | None = Depends(get_optional_user),
 ) -> ChatResponse:
-    history, deps, mode = _prepare_turn(request, req, user)
+    history, deps, mode = await _prepare_turn(request, req, user)
     try:
         # Time the LLM round-trip on its own budget so slow-agent turns are
         # easy to spot in logs (auction.obs chat.agent_run ... elapsed_ms=...).
@@ -730,7 +774,7 @@ async def chat_stream(
     instead of spinning silently through a long reasoning turn."""
     # Gating runs BEFORE the response starts so auth/rate failures still
     # surface as real HTTP statuses (401/429), matching blocking /chat.
-    history, deps, mode = _prepare_turn(request, req, user)
+    history, deps, mode = await _prepare_turn(request, req, user)
     return StreamingResponse(
         _stream_turn(req.message, history, deps, mode),
         media_type="text/event-stream",

@@ -150,6 +150,23 @@ def _install_stub_neo4j_client() -> None:
                 u["name"] = params["name"]
                 return [{"u": dict(u)}]
             return []
+        if c.startswith("MATCH (u:User {supabase_id: $sub})\n        SET u.chat_count"):
+            u = users.get(params["sub"])
+            if not u:
+                return []
+            bucket = params["bucket"]
+            if u.get("chat_bucket") == bucket:
+                u["chat_count"] = (u.get("chat_count") or 0) + 1
+            else:
+                u["chat_bucket"] = bucket
+                u["chat_count"] = 1
+            return [{"count": u["chat_count"]}]
+        if c.startswith("MATCH (u:User {supabase_id: $sub})\n        SET u.plan_expires_at"):
+            u = users.get(params["sub"])
+            if not u:
+                return []
+            u["plan_expires_at"] = params["expires_at"]
+            return [{"u": dict(u)}]
         if c.startswith("MATCH (u:User)\n        RETURN u { .* } AS u"):
             limit = params.get("limit", 200)
             rows = sorted(users.values(),

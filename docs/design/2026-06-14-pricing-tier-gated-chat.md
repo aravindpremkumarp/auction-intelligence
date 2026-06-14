@@ -73,6 +73,27 @@ The success redirect calls verify-on-return purely for UX. On failure render
 - CI gate (D5): fail loudly if test-mode keys are absent in CI; skip-with-warning
   locally.
 
+## Implementation Status
+
+**PR 1 — quota + entitlement (this slice).** Implemented:
+- Entitlement on `UserOut` (`tier`, `plan_expires_at`), derived lazily from the
+  `:User.plan_expires_at` timestamp at the auth layer (`_derive_tier`) — no extra
+  query (CQ1), no expiry cron (lazy fallback to free).
+- Atomic, day-bucketed durable counter (`repository.bump_chat_quota`, P1)
+  replacing the old in-memory per-user limiter.
+- Tier-aware daily cap in `api/chat/router.py` (`_enforce_user_chat_quota`):
+  free default 25/day, paid default 1000/day (both env-tunable
+  `CHAT_FREE_DAILY_LIMIT` / `CHAT_PAID_DAILY_LIMIT`). Fails open on a Neo4j blip.
+- `repository.grant_plan` lands the entitlement (for PR 2's webhook; exercised by
+  tests now so the paid path is verifiable without payments).
+- Tests: `tests/api/test_chat_quota.py` (paid bypass, lazy expiry, bucket reset,
+  `/auth/me` tier) + updated `test_rate_limit.py`.
+
+**Deferred to PR 2:** Razorpay order/checkout + webhook (D2/D3), the
+`20∥ remaining=1 → 1/19` concurrency test against a real Neo4j (D4), and the
+CI-required live E2E (D5). The free→paid quota split and `grant_plan` are already
+in place, so PR 2 only adds the payment surface that calls `grant_plan`.
+
 ## Pre-Merge Checklist
 - [ ] Razorpay **test-mode keys wired into CI** as secrets (D5).
 - [ ] E2E **fails** (does not skip) when keys are absent in the CI environment.

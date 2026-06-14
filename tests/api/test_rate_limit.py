@@ -54,17 +54,12 @@ def test_anon_chat_rate_limit(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_user_chat_daily_limit(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Authenticated users hit the per-user daily turn cap (cost guard)."""
+    """Free-tier users hit the durable, day-bucketed per-user chat cap."""
     monkeypatch.setenv("RATELIMIT_DISABLED", "")
-    import importlib
-    # `api.chat.__init__` re-exports an APIRouter as `router`, shadowing the
-    # module attribute — importlib gets the real module to patch.
-    chat_router_mod = importlib.import_module("api.chat.router")
+    monkeypatch.setenv("CHAT_FREE_DAILY_LIMIT", "3")
     from api.main import app
-    from api.chat.router import _user_chat_hits, agent
+    from api.chat.router import agent
     from tests.api.conftest import auth_header
-    _user_chat_hits.clear()
-    monkeypatch.setattr(chat_router_mod, "_USER_CHAT_MAX_PER_DAY", 3)
 
     class _Res:
         output = "ok"
@@ -74,7 +69,8 @@ def test_user_chat_daily_limit(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(agent, "run", _fake_run, raising=False)
 
     client = TestClient(app)
-    h = auth_header(sub="sub-limit", email="limit@x.com")
+    # Unique sub so the durable counter starts clean regardless of test order.
+    h = auth_header(sub="sub-quota-free", email="limit@x.com")
     codes = [
         client.post("/chat", json={"message": "hi"}, headers=h).status_code
         for _ in range(5)
