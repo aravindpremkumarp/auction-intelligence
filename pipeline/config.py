@@ -116,7 +116,13 @@ RATE_LIMIT_DELAY = 0.5   # seconds between batches
 NEO4J_BATCH_SIZE = 100   # records per Neo4j transaction
 PILOT_SIZE       = int(os.getenv("PILOT_SIZE", "50"))
 
-# ── Scoring weights (Phase 2) ────────────────────────────────────────────────
+# ── Dossier ingest caps (sync-with-caps upload path) ─────────────────────────
+# Uploads are OCR'd + classified synchronously inside the request, so the caps
+# keep a single request bounded (no new queue/worker infra). Tune via .env.
+DOSSIER_MAX_FILE_MB = int(os.getenv("DOSSIER_MAX_FILE_MB", "10"))
+DOSSIER_MAX_PAGES   = int(os.getenv("DOSSIER_MAX_PAGES", "15"))
+
+# ── Scoring weights (Phase 2) ─────────────────────────────────────────────────
 SCORING_WEIGHTS = {
     "price_attractiveness": 0.20,
     "location_quality":     0.15,
