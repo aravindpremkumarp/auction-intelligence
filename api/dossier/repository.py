@@ -239,6 +239,129 @@ async def delete_dossier(supabase_id: str, dossier_id: str) -> bool:
     return bool(rows) and int(rows[0].get("n") or 0) > 0
 
 
+# ── documents ─────────────────────────────────────────────────────────────────
+#
+# Every document operation is gated through the owning dossier:
+#   (:User {supabase_id})-[:OWNS]->(:Dossier {id})-[:CONTAINS]->(:DossierDocument {id})
+# so a forged dossier_id/doc_id pairing matches zero rows (router -> 404).
+
+async def owns_dossier(supabase_id: str, dossier_id: str) -> bool:
+    """Cheap ownership probe used before accepting an upload (so we don't push
+    bytes to R2 for a dossier the caller doesn't own)."""
+    rows = await run_read_query_async(
+        """
+        MATCH (:User {supabase_id: $sub})-[:OWNS]->(d:Dossier {id: $did})
+        RETURN d.id AS id
+        """,
+        {"sub": supabase_id, "did": dossier_id},
+        max_rows=1,
+    )
+    return bool(rows)
+
+
+async def add_document(
+    supabase_id: str, dossier_id: str, doc_id: str, *,
+    filename: str, r2_key: str, content_type: str, size_bytes: int,
+    status: str, ocr_consent_at: str,
+) -> bool:
+    """Create a DossierDocument under an owned dossier (status 'processing').
+    Returns False if the dossier isn't owned/found."""
+    rows = await run_query_async(
+        """
+        MATCH (u:User {supabase_id: $sub})-[:OWNS]->(d:Dossier {id: $did})
+        CREATE (d)-[:CONTAINS]->(doc:DossierDocument {
+            id: $doc_id, filename: $filename, r2_key: $r2_key,
+            content_type: $content_type, size_bytes: $size_bytes,
+            status: $status, ocr_consent_at: datetime($consent_at),
+            uploaded_at: datetime()
+        })
+        SET d.updated_at = datetime()
+        RETURN doc.id AS id
+        """,
+        {
+            "sub": supabase_id, "did": dossier_id, "doc_id": doc_id,
+            "filename": filename, "r2_key": r2_key, "content_type": content_type,
+            "size_bytes": size_bytes, "status": status,
+            "consent_at": ocr_consent_at,
+        },
+    )
+    return bool(rows)
+
+
+async def set_document_result(
+    supabase_id: str, dossier_id: str, doc_id: str, *,
+    status: str, category: str | None, doc_type: str | None,
+    confidence: float | None, reasoning: str | None,
+    ocr_text: str | None, classified_at: str | None,
+) -> dict | None:
+    """Persist the OCR + classification outcome onto a document."""
+    rows = await run_query_async(
+        """
+        MATCH (u:User {supabase_id: $sub})-[:OWNS]->(d:Dossier {id: $did})
+              -[:CONTAINS]->(doc:DossierDocument {id: $doc_id})
+        SET doc.status = $status,
+            doc.category = $category,
+            doc.doc_type = $doc_type,
+            doc.doc_type_confidence = $confidence,
+            doc.doc_type_reasoning = $reasoning,
+            doc.ocr_text = $ocr_text,
+            doc.classified_at = CASE WHEN $classified_at IS NULL
+                                THEN null ELSE datetime($classified_at) END,
+            d.updated_at = datetime()
+        RETURN doc.id AS id, doc.filename AS filename, doc.doc_type AS doc_type,
+               doc.category AS category, doc.status AS status,
+               doc.doc_type_confidence AS doc_type_confidence,
+               toString(doc.uploaded_at) AS uploaded_at
+        """,
+        {
+            "sub": supabase_id, "did": dossier_id, "doc_id": doc_id,
+            "status": status, "category": category, "doc_type": doc_type,
+            "confidence": confidence, "reasoning": reasoning,
+            "ocr_text": ocr_text, "classified_at": classified_at,
+        },
+    )
+    return rows[0] if rows else None
+
+
+async def get_document(supabase_id: str, dossier_id: str, doc_id: str) -> dict | None:
+    """Fetch one owned document, including its private ``r2_key`` (so the router
+    can mint a presigned URL only after the ownership match)."""
+    rows = await run_read_query_async(
+        """
+        MATCH (u:User {supabase_id: $sub})-[:OWNS]->(:Dossier {id: $did})
+              -[:CONTAINS]->(doc:DossierDocument {id: $doc_id})
+        RETURN doc.id AS id, doc.filename AS filename, doc.r2_key AS r2_key,
+               doc.content_type AS content_type, doc.status AS status,
+               doc.doc_type AS doc_type, doc.category AS category,
+               doc.doc_type_confidence AS doc_type_confidence,
+               toString(doc.uploaded_at) AS uploaded_at
+        """,
+        {"sub": supabase_id, "did": dossier_id, "doc_id": doc_id},
+        max_rows=1,
+    )
+    return rows[0] if rows else None
+
+
+async def delete_document(supabase_id: str, dossier_id: str, doc_id: str) -> str | None:
+    """Delete one owned document, returning its ``r2_key`` for object cleanup.
+    Returns ``None`` (sentinel ``""`` is impossible since keys are non-empty)
+    when the document isn't found/owned — router maps that to 404."""
+    rows = await run_query_async(
+        """
+        MATCH (u:User {supabase_id: $sub})-[:OWNS]->(d:Dossier {id: $did})
+              -[:CONTAINS]->(doc:DossierDocument {id: $doc_id})
+        WITH d, doc, doc.r2_key AS key
+        DETACH DELETE doc
+        SET d.updated_at = datetime()
+        RETURN key
+        """,
+        {"sub": supabase_id, "did": dossier_id, "doc_id": doc_id},
+    )
+    if not rows:
+        return None
+    return rows[0].get("key") or ""
+
+
 # ── shaping ──────────────────────────────────────────────────────────────────
 
 def _row_to_dossier(row: dict) -> dict:
