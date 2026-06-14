@@ -41,7 +41,14 @@ _SHARED_MD = _REPO_ROOT / "modes" / "_shared.md"
 # is the grounding that stops the assistant from offering tracking it can't
 # do (it previously promised "set up tracking" with no backing tool), so the
 # extra description earns its per-call cost. Measured ~16,483; ceiling 16,700.
-BUDGET_CHARS = 16_700
+#
+# 2026-06: +~1,590 for the private-dossier Q&A capability — the
+# `query_user_dossier` tool (~1,210-char docstring) plus the rule-4 exception
+# that tells the model the signed-in user's OWN uploaded documents (deeds, EC,
+# patta) are answerable via that tool, not the public graph. Without it the
+# assistant would wrongly refuse questions about the user's dossier. Measured
+# ~18,069; ceiling 18,300.
+BUDGET_CHARS = 18_300
 
 
 def _agent_module() -> ast.Module:

@@ -33,6 +33,7 @@ from pipeline.config import (
 )
 from api.alerts import repository as alerts_repo
 from api.alerts.service import build_alerts
+from api.dossier import qa as dossier_qa
 from api.tools import cypher_tools as T
 from api.tools import web_tools as W
 from api.watchlist import repository as watchlist_repo
@@ -72,13 +73,18 @@ Rules:
    locality background, term definitions) — never for properties, prices,
    deadlines, auction_ids, or counts; for hybrid questions query the graph
    first. Its docstring holds the retry and citation rules.
-4. Stay on the tool surface. The graph holds AuctionProperty, Borrower,
-   Bank, City, Area, Document, AssetCategory — and nothing else. No
-   litigations, court cases, FIRs, credit history, ownership chains,
-   encumbrance certificates, market valuations, or external records. Frame
-   borrower follow-ups as `borrower_lookup` output ("other auctions tied to
-   this borrower"), never "check legal records". Confirm before the
-   state-changing `watch_property` call when the user asks to track/save.
+4. Stay on the tool surface. The PUBLIC graph holds AuctionProperty,
+   Borrower, Bank, City, Area, Document, AssetCategory — and nothing else. No
+   litigations, court cases, FIRs, credit history, ownership chains, market
+   valuations, or external records. Frame borrower follow-ups as
+   `borrower_lookup` output ("other auctions tied to this borrower"), never
+   "check legal records". Confirm before the state-changing `watch_property`
+   call when the user asks to track/save. EXCEPTION — the signed-in user's OWN
+   uploaded documents (their private dossier: sale deeds, EC, patta, etc.) ARE
+   available via `query_user_dossier`. For questions about *their* documents
+   ("what does my EC say…", "is there a prior mortgage in my deed",
+   "summarize my dossier"), call it and ground the answer in the excerpts it
+   returns — quote the document, never invent contents.
 5. The UI matches panel mirrors your latest property tool call. When you
    present a subset of already-found properties without a fresh search
    ("top three of those"), call `select_properties` with those ids.
@@ -514,3 +520,37 @@ async def list_alerts(
         rows = [r for r in rows if r.get("auction_id") == auction_id]
     alerts = build_alerts(rows, datetime.now(timezone.utc))
     return {"status": "ok", "alerts": alerts, "count": len(alerts)}
+
+
+@agent.tool
+async def query_user_dossier(
+    ctx: RunContext[ChatDeps],
+    query: str,
+    dossier_id: str | None = None,
+    doc_type: str | None = None,
+) -> dict:
+    """Answer questions about the SIGNED-IN user's OWN uploaded documents — their
+    private property dossier (sale deeds, mother deed, EC, patta, FMB, tax
+    receipts, approvals, etc.). Use this whenever the user asks about *their*
+    documents/dossier ("what does my EC say about prior charges", "is there a
+    mortgage in my deed", "summarize the patta I uploaded", "what's missing
+    from my dossier"). NEVER use the graph/`run_cypher` for the user's private
+    documents — those live only here.
+
+    `query` is the natural-language question (drives keyword retrieval).
+    Optional `dossier_id` scopes to one property's dossier; optional `doc_type`
+    narrows to a taxonomy type (e.g. "encumbrance_certificate", "sale_deed").
+
+    Returns one of:
+      - {status: "ok", matches: [{filename, doc_type, dossier_id, excerpt, …}],
+        count} — ground your answer in the `excerpt`s and cite by `filename` /
+        `doc_type`; quote, don't invent. If the excerpts don't contain the
+        answer, say so plainly.
+      - {status: "no_documents", note} — the user has nothing processed in
+        scope; tell them to upload documents to their dossier first.
+      - {status: "login_required"} — the user isn't signed in; tell them to sign
+        in to use their private dossier."""
+    sub = ctx.deps.supabase_id if ctx.deps else None
+    return await dossier_qa.answer_from_dossier(
+        sub, query, dossier_id=dossier_id, doc_type=doc_type,
+    )
