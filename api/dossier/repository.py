@@ -342,6 +342,38 @@ async def get_document(supabase_id: str, dossier_id: str, doc_id: str) -> dict |
     return rows[0] if rows else None
 
 
+async def search_user_documents(
+    supabase_id: str, *, dossier_id: str | None = None, doc_type: str | None = None,
+    limit: int = 50,
+) -> list[dict]:
+    """Owned, successfully-OCR'd documents with their text, for dossier Q&A.
+
+    Scoped to the caller via OWNS->CONTAINS; optionally narrowed to one dossier
+    and/or one doc type. Only ``status='ready'`` documents (those with text) are
+    returned. Newest first.
+    """
+    rows = await run_read_query_async(
+        """
+        MATCH (u:User {supabase_id: $sub})-[:OWNS]->(d:Dossier)
+              -[:CONTAINS]->(doc:DossierDocument)
+        WHERE ($did IS NULL OR d.id = $did)
+          AND ($doc_type IS NULL OR doc.doc_type = $doc_type)
+          AND doc.status = 'ready'
+          AND doc.ocr_text IS NOT NULL AND doc.ocr_text <> ''
+        OPTIONAL MATCH (d)-[:FOR_PROPERTY]->(prop)
+        RETURN d.id AS dossier_id, d.title AS dossier_title,
+               coalesce(prop.label, prop.title) AS property_label,
+               doc.id AS doc_id, doc.filename AS filename,
+               doc.doc_type AS doc_type, doc.category AS category,
+               doc.ocr_text AS ocr_text
+        ORDER BY doc.uploaded_at DESC
+        """,
+        {"sub": supabase_id, "did": dossier_id, "doc_type": doc_type},
+        max_rows=limit,
+    )
+    return rows
+
+
 async def delete_document(supabase_id: str, dossier_id: str, doc_id: str) -> str | None:
     """Delete one owned document, returning its ``r2_key`` for object cleanup.
     Returns ``None`` (sentinel ``""`` is impossible since keys are non-empty)
