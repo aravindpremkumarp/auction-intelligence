@@ -16,9 +16,9 @@ import os
 import re
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from slowapi.errors import RateLimitExceeded
 
@@ -154,6 +154,28 @@ if os.environ.get("AUTH_ENABLED", "true").lower() != "false":
     app.include_router(dossier_router)
 
 
+# Canonical web origin. The frontend lives on www.auctionscope.in (Vercel),
+# but this same service also answers on api.auctionscope.in and *.onrender.com.
+# Serving the SPA page shell on those API hosts creates a second/third origin,
+# and because the Supabase session lives in per-origin localStorage, a user who
+# logs in on one origin looks logged-out on the others. Redirect browser page
+# loads on the API hosts to the canonical origin so the app — and its session —
+# lives in exactly one place. API routes never call this, so /auth, /properties,
+# /health, the chat API, etc. keep answering on every host (Render's /health
+# check included).
+CANONICAL_WEB_HOST = "www.auctionscope.in"
+_NONCANONICAL_SPA_HOSTS = {"api.auctionscope.in"}
+_NONCANONICAL_SPA_SUFFIXES = (".onrender.com",)
+
+
+def _canonical_spa_redirect(request: Request) -> RedirectResponse | None:
+    host = (request.headers.get("host") or "").split(":")[0].lower()
+    if host in _NONCANONICAL_SPA_HOSTS or host.endswith(_NONCANONICAL_SPA_SUFFIXES):
+        target = request.url.replace(scheme="https", netloc=CANONICAL_WEB_HOST)
+        return RedirectResponse(str(target), status_code=301)
+    return None
+
+
 # Serve the single-page UI. index.html links /styles.css and /app.js as plain
 # top-level assets; on Vercel they're served straight from the filesystem,
 # and these explicit routes make `uvicorn api.main:app` (local dev + Render)
@@ -162,8 +184,8 @@ if WEB_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(WEB_DIR)), name="static")
 
     @app.get("/")
-    def root() -> FileResponse:
-        return FileResponse(str(WEB_DIR / "index.html"))
+    def root(request: Request) -> Response:
+        return _canonical_spa_redirect(request) or FileResponse(str(WEB_DIR / "index.html"))
 
     @app.get("/styles.css")
     def styles_css() -> FileResponse:
@@ -182,12 +204,12 @@ if WEB_DIR.exists():
         return FileResponse(str(WEB_DIR / "dossiers.js"), media_type="application/javascript")
 
     @app.get("/admin")
-    def admin_page() -> FileResponse:
-        return FileResponse(str(WEB_DIR / "admin.html"))
+    def admin_page(request: Request) -> Response:
+        return _canonical_spa_redirect(request) or FileResponse(str(WEB_DIR / "admin.html"))
 
     @app.get("/review")
-    def review_page() -> FileResponse:
-        return FileResponse(str(WEB_DIR / "review.html"))
+    def review_page(request: Request) -> Response:
+        return _canonical_spa_redirect(request) or FileResponse(str(WEB_DIR / "review.html"))
 
     # SPA deep-link fallbacks. The client router (web/index.html) pushes
     # `/chat` and `/property/{id}`; on a fresh load or refresh the browser
@@ -200,9 +222,17 @@ if WEB_DIR.exists():
     #   - /watchlist is intentionally NOT here: GET /watchlist is the
     #     authenticated data API, so an HTML fallback would shadow it.
     @app.get("/chat")
-    def chat_page() -> FileResponse:
-        return FileResponse(str(WEB_DIR / "index.html"))
+    def chat_page(request: Request) -> Response:
+        return _canonical_spa_redirect(request) or FileResponse(str(WEB_DIR / "index.html"))
 
     @app.get("/property/{auction_id}")
-    def property_page(auction_id: str) -> FileResponse:
-        return FileResponse(str(WEB_DIR / "index.html"))
+    def property_page(auction_id: str, request: Request) -> Response:
+        return _canonical_spa_redirect(request) or FileResponse(str(WEB_DIR / "index.html"))
+
+    # GET /chat/{thread_id} is the deep link to a saved conversation so a
+    # refresh restores the open chat instead of dropping into a new one. It's
+    # a page route (the chat API is POST /chat and POST /chat/stream — no GET
+    # collision); the client router reads the id and reopens the thread.
+    @app.get("/chat/{thread_id}")
+    def chat_thread_page(thread_id: str, request: Request) -> Response:
+        return _canonical_spa_redirect(request) or FileResponse(str(WEB_DIR / "index.html"))

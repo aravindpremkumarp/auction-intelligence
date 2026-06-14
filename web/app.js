@@ -580,7 +580,14 @@ function pathForScreen(screen) {
   if (screen === 'detail' && currentDetailId) {
     return '/property/' + encodeURIComponent(currentDetailId);
   }
-  if (screen === 'results') return '/chat';
+  if (screen === 'results') {
+    // Deep-link the open conversation so a refresh restores it. _restoreChatId
+    // covers the boot window after refresh, before the thread has loaded and
+    // set activeChatId — without it the boot go('results') would rewrite the
+    // URL back to bare /chat and lose the id.
+    const cid = activeChatId || _restoreChatId;
+    return cid ? '/chat/' + encodeURIComponent(cid) : '/chat';
+  }
   if (screen === 'watchlist') return '/watchlist';
   if (screen === 'dossiers') return '/dossiers';
   return '/';
@@ -1054,6 +1061,9 @@ async function askAI(userText, opts = {}) {
   // stable key. Saving is a no-op for anonymous users.
   if (isSignedIn() && !activeChatId) {
     activeChatId = (crypto.randomUUID && crypto.randomUUID()) || ('c-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10));
+    // Reflect the new thread id in the URL (replace, not push — same turn) so
+    // a refresh mid-conversation restores this chat instead of a blank one.
+    if (currentScreen === 'results') syncURLForScreen('results', true);
   }
   saveActiveConversation();
 }
@@ -2056,9 +2066,25 @@ function renderWatchlist() {
 let recentChats = [];
 let activeChatId = null;
 let sbFilter = '';
+// A conversation id parsed from /chat/{id} on refresh, held until auth resolves
+// so loadConversation (which needs a signed-in user) can reopen the thread.
+let _restoreChatId = null;
 
 function isSignedIn() {
   return !!(window.Auth && window.Auth.getUser && window.Auth.getUser());
+}
+
+// Reopen the thread named in the URL once we're signed in. No-ops (keeping
+// _restoreChatId pending) until auth is ready; the auth-change hook retries.
+// Drops the pending restore if the user has navigated away from the chat
+// screen so a late auth event can't yank them back.
+function maybeRestoreActiveChat() {
+  if (!_restoreChatId || !isSignedIn()) return;
+  if (currentScreen !== 'results') { _restoreChatId = null; return; }
+  if (_restoreChatId === activeChatId) { _restoreChatId = null; return; }
+  const id = _restoreChatId;
+  _restoreChatId = null;
+  loadConversation(id);
 }
 
 function _conversationTitle() {
@@ -2096,7 +2122,10 @@ async function loadConversation(id) {
     currentResults = Array.isArray(data.results) ? data.results : [];
     currentTotalCount = (typeof data.total_count === 'number') ? data.total_count : null;
     panelSnapshotIndex = null; // saved conversations restore the live set
+    // go('results') syncs the URL to /chat/{id} via pathForScreen; when already
+    // on the chat screen go() is skipped, so push the deep link explicitly.
     if (currentScreen !== 'results') go('results');
+    else syncURLForScreen('results', false);
     renderSidebar();
     renderChat();
     renderResultsList();
@@ -2241,9 +2270,13 @@ function renderSidebar() {
     if (nowSignedIn && (!wasSignedIn || !didInitialSync)) {
       didInitialSync = true;
       syncConversationsFromServer();
+      // A refresh on /chat/{id} stashed _restoreChatId before auth was ready;
+      // now that we're signed in, reopen that thread.
+      maybeRestoreActiveChat();
     } else if (!nowSignedIn && wasSignedIn) {
       recentChats = [];
       activeChatId = null;
+      _restoreChatId = null;
       didInitialSync = false;
       renderSidebar();
     }
@@ -3010,6 +3043,7 @@ loadDataFreshness();
 function applyURLState(replace) {
   const path = window.location.pathname;
   const propMatch = path.match(/^\/property\/([^/]+)\/?$/);
+  const chatMatch = path.match(/^\/chat\/([^/]+)\/?$/);
   const legacyId = new URLSearchParams(window.location.search).get(URL_ID_PARAM);
 
   if (propMatch) {
@@ -3022,6 +3056,13 @@ function applyURLState(replace) {
     detailReturnScreen = 'landing';
     go('detail');
     syncURLForScreen('detail', true);
+  } else if (chatMatch) {
+    // Deep link to a saved conversation. Stash the id (pathForScreen keeps it
+    // in the URL via _restoreChatId), show the chat screen, then reopen the
+    // thread once auth resolves.
+    _restoreChatId = decodeURIComponent(chatMatch[1]);
+    go('results');
+    maybeRestoreActiveChat();
   } else if (path === '/chat') {
     go('results');
   } else if (path === '/watchlist') {
@@ -3036,6 +3077,7 @@ applyURLState(true);
 window.addEventListener('popstate', () => {
   const path = window.location.pathname;
   const propMatch = path.match(/^\/property\/([^/]+)\/?$/);
+  const chatMatch = path.match(/^\/chat\/([^/]+)\/?$/);
 
   if (propMatch) {
     const id = decodeURIComponent(propMatch[1]);
@@ -3045,6 +3087,15 @@ window.addEventListener('popstate', () => {
       go('detail');
     } else {
       loadAndRenderDetail(id);
+    }
+  } else if (chatMatch) {
+    const cid = decodeURIComponent(chatMatch[1]);
+    if (cid !== activeChatId) {
+      _restoreChatId = cid;
+      if (currentScreen !== 'results') go('results');
+      maybeRestoreActiveChat();
+    } else if (currentScreen !== 'results') {
+      go('results');
     }
   } else if (path === '/chat') {
     if (currentScreen !== 'results') go('results');
