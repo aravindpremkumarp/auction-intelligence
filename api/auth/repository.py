@@ -25,6 +25,13 @@ def _utcnow_iso() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+def _iso(value: Any) -> str | None:
+    """Normalise a Neo4j temporal (or already-stringified one) to an ISO string."""
+    if value is None:
+        return None
+    return value.iso_format() if hasattr(value, "iso_format") else str(value)
+
+
 def _user_from_row(row: dict[str, Any]) -> dict[str, Any]:
     u = row["u"] if "u" in row else row
     created = u.get("created_at")
@@ -38,6 +45,9 @@ def _user_from_row(row: dict[str, Any]) -> dict[str, Any]:
         "enabled": bool(u.get("enabled", True)),
         "created_at": created.iso_format() if hasattr(created, "iso_format") else str(created or ""),
         "last_login_at": last.iso_format() if hasattr(last, "iso_format") else (str(last) if last else None),
+        # Billing entitlement timestamp; tier is derived from this at the auth
+        # layer. Absent for free users (the default).
+        "plan_expires_at": _iso(u.get("plan_expires_at")),
     }
 
 
@@ -91,6 +101,49 @@ async def patch_user_self(supabase_id: str, name: str | None) -> dict[str, Any] 
     rows = await run_query_async(
         "MATCH (u:User {supabase_id: $sub}) SET u.name = $name RETURN u { .* } AS u",
         {"sub": supabase_id, "name": name},
+    )
+    return _user_from_row(rows[0]) if rows else None
+
+
+async def bump_chat_quota(supabase_id: str, bucket: str) -> int | None:
+    """Atomically increment and return the user's chat count for `bucket`.
+
+    The whole increment-and-return is one Cypher write so concurrent turns
+    (e.g. several open tabs) can't both read the same count and slip past the
+    cap — the database serialises the SET. The date-bucket key (e.g. an
+    ``YYYYMMDD`` UTC day) makes the window reset implicit: when `bucket` differs
+    from the stored one the count restarts at 1 in the same statement, so no
+    reset job is needed. Returns the new count, or None if the user row is
+    missing (caller decides whether to fail open).
+    """
+    rows = await run_query_async(
+        """
+        MATCH (u:User {supabase_id: $sub})
+        SET u.chat_count = CASE WHEN u.chat_bucket = $bucket
+                                THEN coalesce(u.chat_count, 0) + 1
+                                ELSE 1 END,
+            u.chat_bucket = $bucket
+        RETURN u.chat_count AS count
+        """,
+        {"sub": supabase_id, "bucket": bucket},
+    )
+    return rows[0]["count"] if rows else None
+
+
+async def grant_plan(supabase_id: str, expires_at: str) -> dict[str, Any] | None:
+    """Set the paid-plan expiry on a user (one-time, time-boxed unlock).
+
+    Lands the entitlement that the tier derivation reads. Wired for the
+    Razorpay webhook (PR 2, the source of truth for activation); exposed now so
+    the entitlement path is testable end-to-end without the payment flow.
+    """
+    rows = await run_query_async(
+        """
+        MATCH (u:User {supabase_id: $sub})
+        SET u.plan_expires_at = datetime($expires_at)
+        RETURN u { .* } AS u
+        """,
+        {"sub": supabase_id, "expires_at": expires_at},
     )
     return _user_from_row(rows[0]) if rows else None
 

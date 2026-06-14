@@ -10,6 +10,8 @@ existing.
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import jwt
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -22,7 +24,26 @@ from api.auth.supabase_jwt import verify_access_token
 _bearer = HTTPBearer(auto_error=False)
 
 
+def _derive_tier(plan_expires_at: str | None) -> str:
+    """Map a stored plan-expiry timestamp to the active billing tier.
+
+    Expiry is evaluated lazily here on every user load rather than flipped by a
+    background job, so a lapsed one-time unlock degrades to "free" the moment it
+    passes with no cron to run. A missing/unparseable value is treated as free.
+    """
+    if not plan_expires_at:
+        return "free"
+    try:
+        exp = datetime.fromisoformat(plan_expires_at.replace("Z", "+00:00"))
+    except ValueError:
+        return "free"
+    if exp.tzinfo is None:
+        exp = exp.replace(tzinfo=timezone.utc)
+    return "paid" if exp > datetime.now(timezone.utc) else "free"
+
+
 def _user_to_out(row: dict) -> UserOut:
+    plan_expires_at = row.get("plan_expires_at")
     return UserOut(
         id=row["id"],
         email=row["email"],
@@ -30,6 +51,8 @@ def _user_to_out(row: dict) -> UserOut:
         role=row.get("role") or "user",
         enabled=bool(row.get("enabled", True)),
         email_verified=bool(row.get("email_verified", True)),
+        tier=_derive_tier(plan_expires_at),
+        plan_expires_at=plan_expires_at,
     )
 
 

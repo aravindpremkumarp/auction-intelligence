@@ -31,3 +31,9 @@ class UserOut(BaseModel):
     role: Literal["user", "admin"]
     enabled: bool
     email_verified: bool
+    # Billing entitlement, derived (not stored) from `plan_expires_at` on every
+    # user load so the chat quota gate can read the tier off the already-hydrated
+    # user without an extra query. "paid" while `plan_expires_at` is in the
+    # future; lazily falls back to "free" once it passes — no expiry cron needed.
+    tier: Literal["free", "paid"] = "free"
+    plan_expires_at: str | None = None
