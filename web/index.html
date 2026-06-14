@@ -64,6 +64,7 @@
       <button data-nav="landing" class="on" aria-current="page">home</button>
       <button data-nav="results">chat</button>
       <button data-nav="watchlist">watchlist</button>
+      <button data-nav="dossiers">dossiers</button>
     </div>
     <div class="top-right">
       <button class="theme-toggle" id="theme-toggle" title="Toggle theme" aria-label="Toggle dark mode"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg></button>
@@ -363,6 +364,12 @@
       </div>
     </div>
 
+    <div class="screen" data-screen="dossiers">
+      <div class="dossiers-wrap">
+        <div id="dossiers-body"></div>
+      </div>
+    </div>
+
     <div class="modal-backdrop" id="fb-modal">
       <div class="modal">
         <h3 id="fb-title">What went wrong?</h3>
@@ -404,6 +411,10 @@
       <svg viewBox="0 0 22 22" width="20" height="20" aria-hidden="true"><path d="M11 18 L4.5 12.5 a4 4 0 0 1 5.5 -5.8 L11 7.5 L12 6.7 a4 4 0 0 1 5.5 5.8 Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
       <span class="bt-lbl">watchlist</span>
       <span class="bt-badge" id="bt-save-count" data-empty="1"></span>
+    </button>
+    <button class="bt" data-nav="dossiers" aria-label="dossiers">
+      <svg viewBox="0 0 22 22" width="20" height="20" aria-hidden="true"><path d="M3 6 a1 1 0 0 1 1 -1 h5 l2 2 h6 a1 1 0 0 1 1 1 v8 a1 1 0 0 1 -1 1 H4 a1 1 0 0 1 -1 -1 Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+      <span class="bt-lbl">dossiers</span>
     </button>
   </nav>
 </div>
@@ -455,6 +466,7 @@
 
 <script src="/auth.js"></script>
 <script src="/app.js"></script>
+<script src="/dossiers.js"></script>
 
 </body>
 </html>

@@ -582,6 +582,7 @@ function pathForScreen(screen) {
   }
   if (screen === 'results') return '/chat';
   if (screen === 'watchlist') return '/watchlist';
+  if (screen === 'dossiers') return '/dossiers';
   return '/';
 }
 function syncURLForScreen(screen, replace) {
@@ -624,6 +625,7 @@ function go(screen) {
   }
   if (screenName === 'results') { renderResults(); setMobileTab('chat'); }
   if (screenName === 'watchlist') renderWatchlist();
+  if (screenName === 'dossiers' && window.Dossiers) window.Dossiers.render();
   if (screenName === 'detail') {
     const empty = document.getElementById('detail-empty');
     const content = document.getElementById('detail-content');
@@ -3018,6 +3020,8 @@ function applyURLState(replace) {
     go('results');
   } else if (path === '/watchlist') {
     go('watchlist');
+  } else if (path === '/dossiers') {
+    go('dossiers');
   } else {
     go('landing');
   }
@@ -3040,6 +3044,8 @@ window.addEventListener('popstate', () => {
     if (currentScreen !== 'results') go('results');
   } else if (path === '/watchlist') {
     if (currentScreen !== 'watchlist') go('watchlist');
+  } else if (path === '/dossiers') {
+    if (currentScreen !== 'dossiers') go('dossiers');
   } else {
     if (currentScreen === 'detail') currentDetailId = null;
     if (currentScreen !== 'landing') go('landing');
