@@ -135,6 +135,13 @@ body {
   background: var(--paper);
   border-bottom: 2px solid var(--ink);
   flex-shrink: 0;
+  /* The desktop topbar uses backdrop-filter (see "top bar" block below), which
+     creates a stacking context. Without a z-index that context sits at the auto
+     level and the later-in-DOM .screen paints over it — burying the account
+     dropdown that lives inside the topbar. Lift the whole header above the
+     screen so the dropdown is visible. Mobile overrides this to z-index:70. */
+  position: relative;
+  z-index: 20;
 }
 .brand {
   font-family: var(--font-hand);
