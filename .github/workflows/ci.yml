@@ -50,3 +50,34 @@ jobs:
           RATELIMIT_DISABLED: "1"
           AUTH_ENABLED: "true"
         run: pytest tests/api -q
+
+  # Live Razorpay test-mode E2E + real-Neo4j concurrency (design D4/D5).
+  # REQUIRED: this job goes red when the secrets below are absent — the gate
+  # (tests/e2e/conftest.py) fails loudly in CI instead of skipping, so the paid
+  # path can never silently rot. Add the RAZORPAY_* and NEO4J_TEST_* repository
+  # secrets to turn it green.
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install dependencies (locked)
+        run: |
+          pip install -r requirements.lock
+          pip install pytest httpx
+      - name: Run live Razorpay E2E (required)
+        env:
+          CI: "true"
+          APP_ENV: test
+          RAZORPAY_KEY_ID: ${{ secrets.RAZORPAY_KEY_ID }}
+          RAZORPAY_KEY_SECRET: ${{ secrets.RAZORPAY_KEY_SECRET }}
+          RAZORPAY_WEBHOOK_SECRET: ${{ secrets.RAZORPAY_WEBHOOK_SECRET }}
+          NEO4J_URI: ${{ secrets.NEO4J_TEST_URI }}
+          NEO4J_USERNAME: ${{ secrets.NEO4J_TEST_USERNAME }}
+          NEO4J_PASSWORD: ${{ secrets.NEO4J_TEST_PASSWORD }}
+          NEO4J_DATABASE: ${{ secrets.NEO4J_TEST_DATABASE }}
+          NEO4J_HTTP_API: ${{ secrets.NEO4J_TEST_HTTP_API }}
+        run: pytest tests/e2e -q
