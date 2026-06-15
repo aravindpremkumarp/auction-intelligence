@@ -25,6 +25,7 @@ from slowapi.errors import RateLimitExceeded
 from api.alerts import router as alerts_router
 from api.auth import router as auth_router
 from api.auth.rate_limit import limiter
+from api.billing import router as billing_router
 from api.chat import router as chat_router
 from api.conversations import router as conversations_router
 from api.dossier import router as dossier_router
@@ -148,6 +149,7 @@ app.include_router(alerts_router)
 # dev) so the app can boot without Supabase configured.
 if os.environ.get("AUTH_ENABLED", "true").lower() != "false":
     app.include_router(auth_router)
+    app.include_router(billing_router)
     app.include_router(watchlist_router)
     app.include_router(conversations_router)
     app.include_router(review_router)

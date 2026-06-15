@@ -94,9 +94,32 @@ The success redirect calls verify-on-return purely for UX. On failure render
 CI-required live E2E (D5). The free→paid quota split and `grant_plan` are already
 in place, so PR 2 only adds the payment surface that calls `grant_plan`.
 
+**PR 2 — payment surface (core).** Implemented in `api/billing/`:
+- `POST /billing/order` (verified user) — mints a Razorpay order via REST
+  (`httpx`, no SDK), tagging `notes.supabase_id` so the webhook recovers the
+  buyer without trusting the browser.
+- `POST /billing/webhook` — the **sole** activation path (D3): HMAC-verify the
+  raw body → idempotency-check the event id (D2, `:WebhookEvent` with a
+  time-based TTL, `RAZORPAY_WEBHOOK_TTL_DAYS` default 90) → `grant_plan` for the
+  configured duration (`RAZORPAY_PLAN_DAYS` default 30). 400 only on bad
+  signature; 200 (no-op) on duplicate / irrelevant event.
+- `POST /billing/verify` — non-authoritative verify-on-return (D3): confirms the
+  checkout signature for UX, reports `paid`/`pending` from the freshly re-read
+  tier, **never grants**.
+- Config: `RAZORPAY_KEY_ID` / `_KEY_SECRET` / `_WEBHOOK_SECRET` / `_PLAN_AMOUNT`
+  (paise, default 49900 = ₹499) / `_PLAN_CURRENCY` / `_PLAN_DAYS` /
+  `_WEBHOOK_TTL_DAYS`. Read at call time so the app boots without them.
+- Stub-lane tests: `tests/api/test_billing.py` (order tagging, signed-capture
+  grant, bad-signature reject, idempotent replay, irrelevant event, missing
+  supabase_id, verify pending→paid, verify bad-signature, repo dedupe).
+
+**Still deferred (needs Razorpay CI secrets):** the live test-mode E2E and the
+real-Neo4j concurrency test (D4/D5), plus the CI gate that goes red when
+test-mode keys are absent. Tracked in the pre-merge checklist below.
+
 ## Pre-Merge Checklist
+- [x] Idempotency store has a TTL configured (`RAZORPAY_WEBHOOK_TTL_DAYS`, 90d).
+- [x] Verify-on-return cannot grant entitlement on its own (webhook-only activation).
 - [ ] Razorpay **test-mode keys wired into CI** as secrets (D5).
 - [ ] E2E **fails** (does not skip) when keys are absent in the CI environment.
 - [ ] Concurrency test runs against a real Neo4j instance, not the faked client.
-- [ ] Idempotency store has a 90-day TTL configured.
-- [ ] Verify-on-return cannot grant entitlement on its own (webhook-only activation).
