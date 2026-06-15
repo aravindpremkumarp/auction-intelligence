@@ -208,7 +208,9 @@
       '.auth-slot .sign-in:hover{background:var(--accent-hover);}' +
       '.auth-slot .user-menu .avatar.guest{background:var(--paper-2);color:var(--ink-soft);' +
       'border:1px solid var(--border);}' +
-      '.auth-slot details .dropdown a.primary{color:var(--accent);font-weight:600;}';
+      '.auth-slot details .dropdown a.primary{color:var(--accent);font-weight:600;}' +
+      '.auth-slot details .dropdown a.plan-pro{color:var(--good,#16a34a);font-weight:600;cursor:default;}' +
+      '.auth-slot details .dropdown a.plan-pro:hover{background:transparent;}';
     var style = document.createElement('style');
     style.id = 'auth-modal-styles';
     style.textContent = css;
@@ -447,17 +449,29 @@
     }
     var initials = (currentUser.name || currentUser.email || '?').trim().slice(0, 1).toUpperCase();
     var isAdmin = currentUser.role === 'admin';
+    var isPaid = currentUser.tier === 'paid';
+    var planLine = isPaid
+      ? '<a data-act="plan" class="plan-pro">✦ Pro' +
+          (currentUser.plan_expires_at ? ' · until ' + escapeHtml(fmtPlanDate(currentUser.plan_expires_at)) : '') + '</a>'
+      : '<a data-act="upgrade" class="primary">Upgrade to Pro ✦</a>';
     slot.innerHTML =
       '<details>' +
         '<summary><div class="user-menu"><div class="avatar" title="' + escapeAttr(currentUser.email) + '">' + initials + '</div></div></summary>' +
         '<div class="dropdown">' +
           '<a data-act="who">' + escapeHtml(currentUser.email) + '</a>' +
+          planLine +
           (isAdmin ? '<a href="/admin">Admin</a>' : '') +
           (isAdmin ? '<a href="/review">Review</a>' : '') +
           '<a data-act="feedback">Send feedback</a>' +
           '<a data-act="logout">Sign out</a>' +
         '</div>' +
       '</details>';
+    if (!isPaid) {
+      slot.querySelector('[data-act="upgrade"]').onclick = function (e) {
+        e.preventDefault(); closeMenu();
+        if (window.Billing && window.Billing.openCheckout) window.Billing.openCheckout();
+      };
+    }
     slot.querySelector('[data-act="feedback"]').onclick = openFeedback;
     slot.querySelector('[data-act="logout"]').onclick = async function (e) {
       e.preventDefault(); await logout();
@@ -470,6 +484,14 @@
     });
   }
   function escapeAttr(s) { return escapeHtml(s); }
+
+  function fmtPlanDate(iso) {
+    try {
+      var d = new Date(iso);
+      if (isNaN(d.getTime())) return '';
+      return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+    } catch (_) { return ''; }
+  }
 
   onAuthChange(hydrateSlot);
 
