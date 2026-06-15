@@ -201,6 +201,10 @@ if WEB_DIR.exists():
     def auth_js() -> FileResponse:
         return FileResponse(str(WEB_DIR / "auth.js"), media_type="application/javascript")
 
+    @app.get("/billing.js")
+    def billing_js() -> FileResponse:
+        return FileResponse(str(WEB_DIR / "billing.js"), media_type="application/javascript")
+
     @app.get("/dossiers.js")
     def dossiers_js() -> FileResponse:
         return FileResponse(str(WEB_DIR / "dossiers.js"), media_type="application/javascript")
