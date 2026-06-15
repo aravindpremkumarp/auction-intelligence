@@ -60,7 +60,17 @@ def _validate_required_env() -> None:
 
 _validate_required_env()
 
-app = FastAPI(title="Bank Auction Intelligence API", version="0.1.0")
+# Interactive API docs (/docs, /redoc, /openapi.json) leak the full route schema,
+# so disable them in prod and keep them on in dev/test for local exploration.
+_DOCS_ENABLED = os.environ.get("APP_ENV", "prod").lower() in {"dev", "test"}
+
+app = FastAPI(
+    title="Bank Auction Intelligence API",
+    version="0.1.0",
+    docs_url="/docs" if _DOCS_ENABLED else None,
+    redoc_url="/redoc" if _DOCS_ENABLED else None,
+    openapi_url="/openapi.json" if _DOCS_ENABLED else None,
+)
 
 # Optional Logfire/OpenTelemetry tracing — no-op unless LOGFIRE_TOKEN (or a
 # generic OTLP endpoint) is set. Instruments pydantic-ai (agent + LLM + tool
@@ -107,6 +117,21 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type"],
     allow_credentials=False,
 )
+
+@app.middleware("http")
+async def _security_headers(request: Request, call_next):
+    """Defense-in-depth response headers on every API response. The API serves
+    JSON (and a few static assets), so deny framing outright and stop MIME
+    sniffing; HSTS is safe because the API is HTTPS-only behind Cloudflare."""
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault(
+        "Strict-Transport-Security", "max-age=63072000; includeSubDomains"
+    )
+    return response
+
 
 # Rate limiter (slowapi) — shared across auth + anonymous chat throttles.
 app.state.limiter = limiter
