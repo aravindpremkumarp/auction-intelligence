@@ -50,3 +50,59 @@ jobs:
           RATELIMIT_DISABLED: "1"
           AUTH_ENABLED: "true"
         run: pytest tests/api -q
+
+  # Live Razorpay test-mode E2E + real-Neo4j concurrency (design D4/D5).
+  # REQUIRED: this job goes red when the RAZORPAY_* secrets are absent — the gate
+  # (tests/e2e/conftest.py) fails loudly in CI instead of skipping, so the paid
+  # path can never silently rot. Neo4j is provided by an ephemeral service
+  # container (a real Neo4j, isolated per run — no external test DB needed), so
+  # only the RAZORPAY_* repository secrets are required to turn this green.
+  e2e:
+    runs-on: ubuntu-latest
+    services:
+      neo4j:
+        image: neo4j:5.26
+        env:
+          NEO4J_AUTH: neo4j/testpassword123
+        ports:
+          - 7687:7687
+          - 7474:7474
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install dependencies (locked)
+        run: |
+          pip install -r requirements.lock
+          pip install pytest httpx
+      - name: Wait for Neo4j to accept Bolt connections
+        run: |
+          python - <<'PY'
+          import sys, time
+          from neo4j import GraphDatabase
+          for i in range(60):
+              try:
+                  d = GraphDatabase.driver("bolt://localhost:7687", auth=("neo4j", "testpassword123"))
+                  d.verify_connectivity()
+                  d.close()
+                  print("neo4j is ready")
+                  sys.exit(0)
+              except Exception as exc:  # noqa: BLE001
+                  print(f"waiting for neo4j ({i})... {exc}")
+                  time.sleep(2)
+          sys.exit("neo4j did not become ready in time")
+          PY
+      - name: Run live Razorpay E2E (required)
+        env:
+          CI: "true"
+          APP_ENV: test
+          RAZORPAY_KEY_ID: ${{ secrets.RAZORPAY_KEY_ID }}
+          RAZORPAY_KEY_SECRET: ${{ secrets.RAZORPAY_KEY_SECRET }}
+          RAZORPAY_WEBHOOK_SECRET: ${{ secrets.RAZORPAY_WEBHOOK_SECRET }}
+          NEO4J_URI: bolt://localhost:7687
+          NEO4J_USERNAME: neo4j
+          NEO4J_PASSWORD: testpassword123
+          NEO4J_DATABASE: neo4j
+        run: pytest tests/e2e -q

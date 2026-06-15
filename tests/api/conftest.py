@@ -53,9 +53,11 @@ def _install_stub_neo4j_client() -> None:
     mod = types.ModuleType("api.neo4j_client")
     feedback: list[dict] = []
     users: dict[str, dict] = {}              # keyed by supabase_id
+    webhook_events: dict[str, dict] = {}     # keyed by event_id (billing idempotency)
     mod._store = feedback  # back-compat for feedback tests
     mod._users = users
     mod._feedback = feedback
+    mod._webhook_events = webhook_events
 
     def _now() -> datetime:
         return datetime.now(timezone.utc)
@@ -182,6 +184,24 @@ def _install_stub_neo4j_client() -> None:
             if params.get("enabled") is not None:
                 u["enabled"] = params["enabled"]
             return [{"u": dict(u)}]
+
+        # ── Billing webhook idempotency ─────────────────────────────────
+        if c.startswith("MERGE (e:WebhookEvent {event_id: $event_id})"):
+            eid = params["event_id"]
+            if eid in webhook_events:
+                return [{"first_time": False}]
+            webhook_events[eid] = {
+                "event_id": eid,
+                "seen_at": params["token"],
+                "expires_at": params["expires"],
+            }
+            return [{"first_time": True}]
+        if c.startswith("MATCH (e:WebhookEvent)"):
+            now = params["now"]
+            stale = [k for k, v in webhook_events.items() if v["expires_at"] < now]
+            for k in stale:
+                del webhook_events[k]
+            return [{"deleted": len(stale)}]
 
         # ── Schema init (idempotent constraints/indexes) ────────────────
         if c.startswith("CREATE CONSTRAINT") or c.startswith("CREATE INDEX"):

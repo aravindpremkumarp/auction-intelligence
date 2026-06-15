@@ -58,3 +58,19 @@ services:
         sync: false
       - key: MINERU_API_KEY
         sync: false
+      # Razorpay paid-tier unlock. Secrets are set in the dashboard (sync:
+      # false); the non-secret tunables carry their defaults here.
+      - key: RAZORPAY_KEY_ID
+        sync: false
+      - key: RAZORPAY_KEY_SECRET
+        sync: false
+      - key: RAZORPAY_WEBHOOK_SECRET
+        sync: false
+      - key: RAZORPAY_PLAN_AMOUNT
+        value: "49900"
+      - key: RAZORPAY_PLAN_CURRENCY
+        value: INR
+      - key: RAZORPAY_PLAN_DAYS
+        value: "30"
+      - key: RAZORPAY_WEBHOOK_TTL_DAYS
+        value: "90"
