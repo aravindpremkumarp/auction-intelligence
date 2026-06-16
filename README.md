@@ -173,6 +173,7 @@ overlay** when the client requests one.
 | `semantic_search` | Vector search across description + notice-markdown + notice-image indexes in one call. |
 | `match_pasted_listing` | Anchor a pasted blurb to an auction by reserve price ±2% and date ±2 days. |
 | `get_auction_detail` | Full record for one `auction_id`, including re-auction `price_history`. |
+| `score_auction` | 10-dimension investment score (composite 0–100 + A+–F grade) for one `auction_id`; powers the `compare` / `report` modes. |
 | `list_distinct` | Distinct values + per-value counts for distribution / breakdown questions. |
 | `upcoming_auctions` | Auctions with a deadline within N days. |
 | `borrower_lookup` | Other auctions tied to a borrower. |

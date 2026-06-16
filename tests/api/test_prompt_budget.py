@@ -48,7 +48,13 @@ _SHARED_MD = _REPO_ROOT / "modes" / "_shared.md"
 # patta) are answerable via that tool, not the public graph. Without it the
 # assistant would wrongly refuse questions about the user's dossier. Measured
 # ~18,069; ceiling 18,300.
-BUDGET_CHARS = 18_300
+#
+# 2026-06: +~600 for the `score_auction` tool (405-char docstring) plus a
+# routing line in modes/_shared.md. Exposes the existing 10-dimension scorer
+# (scoring/auction_scorer.py) to the agent so the compare/report modes can
+# actually score properties, instead of instructing a tool that didn't exist.
+# Measured ~18,670; ceiling 18,900.
+BUDGET_CHARS = 18_900
 
 
 def _agent_module() -> ast.Module:

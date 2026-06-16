@@ -1,27 +1,36 @@
 # Mode: report
 
-Generate investor-facing reports.
+A personalised, investor-facing brief — delivered as in-chat markdown. No
+PDF / file output.
 
-## Report types
+## Input — investor profile (parsed from the message)
 
-### 1. Property Investment Brief
-Deep-dive for a single auction: scoring breakdown, comparables, risk factors,
-recommended bid range. Output: `reports/output/brief_{auction_id}.pdf`.
+- Risk appetite (conservative / balanced / aggressive), budget ceiling,
+  preferred city/area, asset category, and any must-haves.
+- Ask ONE brief clarifying question only if budget or risk is missing AND it
+  would change the shortlist; otherwise state your assumptions and proceed.
 
-### 2. Area Market Report
-All auctions in a city/area: price trends, bank distribution, type mix.
-Output: `reports/output/area_{city}_{YYYYMMDD}.pdf`.
+## Process
 
-### 3. Portfolio Shortlist
-Top N scored auctions matching an InvestorProfile, side-by-side.
-Output: `reports/output/shortlist_{profile}_{YYYYMMDD}.pdf`.
+1. `search_auctions` filtered to the profile (price ceiling, city/area,
+   asset_category, future-only). Carry the scope on follow-ups.
+2. `score_auction(auction_id)` on the top candidates. Rank by composite score,
+   tie-broken by fit to the profile — conservative leans on Legal Clarity +
+   Timeline; aggressive leans on Price Attractiveness + Yield.
+3. `select_properties([...])` for the final shortlist in ranked order.
 
-### 4. Due Diligence Checklist
-Generated from `deep-research` mode output: document gaps, legal checks, action items.
-Output: `reports/output/dd_{auction_id}.pdf`.
+## Output (in chat)
 
-## Tech
+A markdown brief:
 
-- Markdown templates in `reports/templates/`
-- Rendered to PDF via `weasyprint` (Python-native — no Node.js dependency)
-- Never invent statistics — all tables must be generated from Neo4j queries
+- **Profile recap** — the assumptions you used (so the user can correct them).
+- **Shortlist table** — top N (default 5): score/grade, reserve, EMD, area,
+  deadline, and a one-line "why it fits".
+- **Top pick** — short paragraph: the scoring rationale, a bid-range *framing*
+  (anchored on the reserve + the price-attractiveness signal — never a
+  guaranteed number), and the key risk to check.
+- **What to verify** — 3–5 due-diligence items; point to the `deep-research`
+  mode for a full work-up on any one property.
+
+**Never invent numbers** — all figures come from `search_auctions` /
+`score_auction` / `get_auction_detail`.
