@@ -110,11 +110,22 @@ NEO4J_URI = os.getenv("NEO4J_URI") or (
 )
 
 # ── Tuning ───────────────────────────────────────────────────────────────────
-BATCH_SIZE       = 10    # concurrent LLM calls
+# All concurrency knobs are env-overridable so a full re-process can be dialed
+# up without code edits (watch for 429s; retry/backoff handles transient ones).
+BATCH_SIZE       = int(os.getenv("OCR_BATCH_SIZE", "10"))    # concurrent LLM calls
 MAX_RETRIES      = 3
-RATE_LIMIT_DELAY = 0.5   # seconds between batches
+RATE_LIMIT_DELAY = float(os.getenv("RATE_LIMIT_DELAY", "0.5"))  # seconds between batches
 NEO4J_BATCH_SIZE = 100   # records per Neo4j transaction
 PILOT_SIZE       = int(os.getenv("PILOT_SIZE", "50"))
+
+# Number of MinerU batches kept in flight at once. MinerU OCR is async
+# server-side, so submitting/polling batches concurrently (rather than one at
+# a time) is the single biggest win on a full re-process — we spend almost all
+# of stage 1 waiting in poll loops. Each batch still uploads + polls + downloads
+# independently, so a slow/stalled batch no longer blocks the others.
+MINERU_BATCH_CONCURRENCY = int(os.getenv("MINERU_BATCH_CONCURRENCY", "6"))
+# Concurrent OpenRouter calls in the per-notice description-extraction stages.
+DESC_LLM_CONCURRENCY = int(os.getenv("DESC_LLM_CONCURRENCY", "12"))
 
 # ── Dossier ingest caps (sync-with-caps upload path) ─────────────────────────
 # Uploads are OCR'd + classified synchronously inside the request, so the caps

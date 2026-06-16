@@ -39,6 +39,7 @@ from pipeline.config import (
     NOTICE_DESC_MULTI_DIR,
     PROMPTS_DIR,
     MAX_RETRIES,
+    DESC_LLM_CONCURRENCY,
 )
 
 log = get_logger(__name__)
@@ -49,7 +50,7 @@ load_dotenv()
 SINGLE_PROMPT_PATH = PROMPTS_DIR / "extract_description.txt"
 MULTI_PROMPT_PATH  = PROMPTS_DIR / "extract_description_multi.txt"
 
-LLM_CONCURRENCY = 6
+LLM_CONCURRENCY = DESC_LLM_CONCURRENCY   # env-tunable (DESC_LLM_CONCURRENCY)
 CHUNK_SIZE = 50
 
 

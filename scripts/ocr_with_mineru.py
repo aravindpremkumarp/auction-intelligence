@@ -34,6 +34,7 @@ import json
 import os
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import aiohttp
@@ -44,6 +45,7 @@ from api.neo4j_client import run_query, run_read_query
 from pipeline.config import (
     OPENROUTER_API_KEY, OPENROUTER_BASE_URL, OPENROUTER_MODEL,
     PROMPTS_DIR, MAX_RETRIES,
+    MINERU_BATCH_CONCURRENCY, DESC_LLM_CONCURRENCY,
 )
 from pipeline.mineru import (
     MINERU_BLOCKS_DIR,
@@ -73,7 +75,7 @@ PROMPT_PATH        = PROMPTS_DIR / "extract_description.txt"
 MINERU_BATCH_SIZE = 10      # files per MinerU batch request
                             # (signed OSS URLs are short-lived; smaller
                             # batches reduce the chance of expiry mid-batch)
-LLM_CONCURRENCY   = 6       # concurrent OpenRouter calls
+LLM_CONCURRENCY   = DESC_LLM_CONCURRENCY   # concurrent OpenRouter calls
 WRITE_CHUNK       = 200     # rows per UNWIND Cypher write
 
 
@@ -161,63 +163,84 @@ def stage1_mineru(work: list[dict]) -> dict[str, str]:
               f"low-res images (long edge < 1500 px)")
 
     batches = list(chunked(items_to_call, MINERU_BATCH_SIZE))
-    try:
-        for bi, batch in enumerate(batches, 1):
-            print(f"\n  Batch {bi}/{len(batches)}: {len(batch)} files", flush=True)
-            # Retry the whole batch up to 3 times for transient network errors.
-            for attempt in range(3):
-                try:
-                    batch_id, urls = mineru_request_batch(batch)
-                    print(f"    batch_id={batch_id}")
-                    mineru_upload_files(batch, urls)
-                    results = mineru_poll(batch_id)
-                    break
-                except (requests.exceptions.ConnectionError,
-                        requests.exceptions.Timeout) as e:
-                    wait = 5 * (attempt + 1)
-                    print(f"    [transient] {type(e).__name__}, retry {attempt+1}/3 in {wait}s")
-                    time.sleep(wait)
-                    continue
-                except Exception as e:
-                    print(f"    [BATCH FAIL] {e}")
-                    results = []
-                    break
-            else:
-                print(f"    [BATCH FAIL] gave up after 3 retries")
-                continue
-            if not results:
-                continue
+    n_batches = len(batches)
 
-            for r in results:
-                data_id = r.get("data_id")
-                state = r.get("state")
-                match = next((it for it in batch if safe_cache_name(it["file_path"])[:128] == data_id), None)
-                if match is None:
-                    continue
-                if state != "done":
-                    print(f"    [{match['filename']}] state={state}  err={r.get('err_msg')}")
-                    continue
-                zip_url = r.get("full_zip_url")
-                if zip_url is None:
-                    continue
-                md_path, blocks_path = mineru_download_and_cache(match["file_path"], zip_url)
-                if md_path:
-                    md_by_path[match["file_path"]] = md_path.read_text(encoding="utf-8")
-                    blocks_note = " +blocks.json" if blocks_path else " (no blocks.json)"
-                    pre_note = ""
-                    if match["file_path"] in precleaned_fps:
-                        mark_precleaned(match["file_path"])
-                        pre_note = " +preclean"
-                    else:
-                        # If a prior pre-cleaned run cached this doc and
-                        # the source was since re-OCR'd at full size,
-                        # clear the stale marker so the loader doesn't
-                        # mis-tag the new run.
-                        stale = preclean_sentinel_path(match["file_path"])
-                        if stale.exists():
-                            stale.unlink()
-                    print(f"    [{match['filename']}] -> {md_path.stat().st_size} bytes"
-                          f"{blocks_note}{pre_note}")
+    def process_batch(bi: int, batch: list[dict]) -> dict[str, str]:
+        """Submit → upload → poll → download one MinerU batch.
+
+        Returns its own ``{file_path: markdown}`` so batches can run
+        concurrently without sharing mutable state. Disk-side effects
+        (markdown/blocks cache, preclean sentinels) are keyed per file_path,
+        so concurrent batches never collide. Never raises — a failed batch
+        returns whatever it managed to download.
+        """
+        local: dict[str, str] = {}
+        print(f"\n  Batch {bi}/{n_batches}: {len(batch)} files", flush=True)
+        # Retry the whole batch up to 3 times for transient network errors.
+        results: list[dict] = []
+        for attempt in range(3):
+            try:
+                batch_id, urls = mineru_request_batch(batch)
+                print(f"    [batch {bi}] batch_id={batch_id}", flush=True)
+                mineru_upload_files(batch, urls)
+                results = mineru_poll(batch_id)
+                break
+            except (requests.exceptions.ConnectionError,
+                    requests.exceptions.Timeout) as e:
+                wait = 5 * (attempt + 1)
+                print(f"    [batch {bi}][transient] {type(e).__name__}, "
+                      f"retry {attempt+1}/3 in {wait}s", flush=True)
+                time.sleep(wait)
+                continue
+            except Exception as e:
+                print(f"    [batch {bi}][BATCH FAIL] {e}", flush=True)
+                return local
+        else:
+            print(f"    [batch {bi}][BATCH FAIL] gave up after 3 retries", flush=True)
+            return local
+
+        for r in results:
+            data_id = r.get("data_id")
+            state = r.get("state")
+            match = next((it for it in batch if safe_cache_name(it["file_path"])[:128] == data_id), None)
+            if match is None:
+                continue
+            if state != "done":
+                print(f"    [{match['filename']}] state={state}  err={r.get('err_msg')}", flush=True)
+                continue
+            zip_url = r.get("full_zip_url")
+            if zip_url is None:
+                continue
+            md_path, blocks_path = mineru_download_and_cache(match["file_path"], zip_url)
+            if md_path:
+                local[match["file_path"]] = md_path.read_text(encoding="utf-8")
+                blocks_note = " +blocks.json" if blocks_path else " (no blocks.json)"
+                pre_note = ""
+                if match["file_path"] in precleaned_fps:
+                    mark_precleaned(match["file_path"])
+                    pre_note = " +preclean"
+                else:
+                    # If a prior pre-cleaned run cached this doc and
+                    # the source was since re-OCR'd at full size,
+                    # clear the stale marker so the loader doesn't
+                    # mis-tag the new run.
+                    stale = preclean_sentinel_path(match["file_path"])
+                    if stale.exists():
+                        stale.unlink()
+                print(f"    [{match['filename']}] -> {md_path.stat().st_size} bytes"
+                      f"{blocks_note}{pre_note}", flush=True)
+        return local
+
+    workers = max(1, min(MINERU_BATCH_CONCURRENCY, n_batches))
+    print(f"  dispatching {n_batches} batches, {workers} in flight", flush=True)
+    try:
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = {
+                pool.submit(process_batch, bi, batch): bi
+                for bi, batch in enumerate(batches, 1)
+            }
+            for fut in as_completed(futures):
+                md_by_path.update(fut.result())
     finally:
         for tmp in preclean_tmps:
             try:
