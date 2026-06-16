@@ -57,8 +57,9 @@ class ChatDeps:
 _ROLE_PROMPT = """\
 You are the assistant for the Bank Auction Intelligence Platform: help users
 find, analyze, score, and track Indian bank-auction properties (mostly
-SARFAESI) over a Neo4j knowledge graph of 3,391 Tamil Nadu properties. The
-shared context below holds the schema, enums, tool routing, and Cypher rules.
+SARFAESI) over a Neo4j knowledge graph of Tamil Nadu properties. The shared
+context below holds the schema, enums, tool routing, and Cypher rules; the
+live graph size is supplied to you each turn.
 
 Rules:
 1. Ground every answer in tool output. Never invent auction_ids, prices,
@@ -232,6 +233,30 @@ def inject_mode_overlay(ctx: RunContext[ChatDeps]) -> str:
     if not text:
         return ""
     return f"---\n\n# Active mode: {mode}\n\n{text}"
+
+
+# Registered as an instruction (not baked into the static role prompt) so the
+# graph size reflects the live database rather than a hardcoded number that
+# drifts as the loader ingests auctions. It's an instruction rather than a
+# dynamic system prompt for the same reasons as the two above: skipped cleanly
+# when the count is unavailable, and never frozen into stored history. The
+# value is cached in-process, so this costs one cheap query per TTL, not per
+# turn.
+@agent.instructions
+async def inject_graph_size() -> str:
+    """Surface the live AuctionProperty total so "how many properties are
+    there" answers track the real graph size. Returns "" when the count can't
+    be read (cold cache + DB outage); the model then falls back to a search
+    tool's `total_count` per Rule 1 instead of inventing a figure."""
+    count = await T.graph_property_count_async()
+    if count is None:
+        return ""
+    return (
+        f"Knowledge-graph size: it currently holds {count:,} Tamil Nadu "
+        'bank-auction properties in total. Use this figure for whole-graph '
+        '"how many properties are there" questions. For any filtered subset, '
+        "call a search tool and report its `total_count` — never this total."
+    )
 
 
 @agent.tool_plain
