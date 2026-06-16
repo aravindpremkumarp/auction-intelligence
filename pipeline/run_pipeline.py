@@ -115,6 +115,20 @@ def main():
     from scripts.link_reauctions import run as link_reauctions
     link_reauctions()
 
+    # Stage 6: Refresh the durable schema cache (:SchemaCache node) so /chat's
+    # describe_schema reads it in one query instead of re-running ~25 live
+    # introspection queries on a cold start. Best-effort — a refresh failure
+    # must not fail the pipeline (the API falls back to a live compute).
+    print("\n" + "="*60)
+    print("STAGE 6: Refresh schema cache (:SchemaCache node)")
+    print("="*60)
+    try:
+        from api.tools.cypher_tools import describe_schema
+        describe_schema(refresh=True)
+        print("  schema cache refreshed")
+    except Exception as e:
+        print(f"  WARNING: schema cache refresh failed ({type(e).__name__}: {e})")
+
     elapsed = time.time() - t_start
     print(f"\n{'='*60}")
     print(f"PIPELINE COMPLETE — Total time: {elapsed:.1f}s")

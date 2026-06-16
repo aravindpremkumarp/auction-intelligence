@@ -42,6 +42,10 @@ def _install_schema_stub(monkeypatch):
         return []
 
     monkeypatch.setattr(ct, "run_read_query", fake_run_read_query)
+    # Isolate the live-compute path: force a live compute (no durable node) and
+    # swallow the write so the test never reaches a real Neo4j.
+    monkeypatch.setattr(ct, "_read_schema_cache_node", lambda: None)
+    monkeypatch.setattr(ct, "_write_schema_cache_node", lambda dynamic: None)
 
 
 def test_describe_schema_shape(monkeypatch):
@@ -116,6 +120,10 @@ def test_describe_schema_cached(monkeypatch):
         return []
 
     monkeypatch.setattr(ct, "run_read_query", tracking_run_read_query)
+    # Force the live-compute path so the call counting measures introspection
+    # queries, not the durable node read.
+    monkeypatch.setattr(ct, "_read_schema_cache_node", lambda: None)
+    monkeypatch.setattr(ct, "_write_schema_cache_node", lambda dynamic: None)
 
     from api.tools.cypher_tools import describe_schema
 
@@ -130,3 +138,42 @@ def test_describe_schema_cached(monkeypatch):
     # refresh=True bypasses the cache.
     describe_schema(refresh=True)
     assert call_count["n"] > first_calls
+
+
+def test_describe_schema_reads_durable_node(monkeypatch):
+    """A warm :SchemaCache node serves describe_schema in one read — zero live
+    introspection queries — and cypher_patterns are re-attached fresh from code."""
+    import api.tools.cypher_tools as ct
+    ct._SCHEMA_CACHE.clear()
+
+    canned_dynamic = {
+        "node_labels": [
+            {"label": "AuctionProperty", "count": 42, "sample_properties": ["auction_id"]},
+        ],
+        "relationships": [{"type": "LOCATED_IN_CITY", "count": 42}],
+        "enums": {"asset_category": ["Residential"], "property_type": ["Flat"]},
+        "numeric_ranges": {"reserve_price_num": {"min": 1.0, "p50": 2.0, "p95": 3.0, "max": 4.0}},
+        "date_ranges": {"auction_start_dt": {"min": "2025-01-01", "max": "2026-12-31"}},
+        "date_capabilities": {"type": "ZONED DATETIME (UTC)"},
+    }
+
+    def boom_run_read_query(*args, **kwargs):
+        raise AssertionError("ran a live introspection query despite a warm durable node")
+
+    # Serve the durable node; any fall-through to live compute would call
+    # run_read_query and fail the test.
+    monkeypatch.setattr(ct, "_read_schema_cache_node", lambda: dict(canned_dynamic))
+    monkeypatch.setattr(ct, "run_read_query", boom_run_read_query)
+
+    from api.tools.cypher_tools import describe_schema
+
+    out = describe_schema()  # no refresh → durable read path
+
+    assert out["node_labels"][0]["count"] == 42
+    assert out["enums"]["asset_category"] == ["Residential"]
+    # cypher_patterns are NOT stored in the node — they're re-attached from code,
+    # so editing the rules/examples is never shadowed by a stale cache.
+    assert "cypher_patterns" not in canned_dynamic
+    assert isinstance(out["cypher_patterns"]["rules"], list)
+    assert len(out["cypher_patterns"]["rules"]) >= 5
+    assert len(out["cypher_patterns"]["examples"]) >= 10
