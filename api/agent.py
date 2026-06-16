@@ -52,6 +52,13 @@ class ChatDeps:
     # The watch/alerts tools are per-user, so they read this off the deps;
     # plain (context-free) tools don't need it.
     supabase_id: str | None = None
+    # auction_ids currently shown in the UI matches panel, in display order.
+    # The panel is browser state the model can't otherwise see, so a bare
+    # "compare these" / "the matches" had nothing to resolve to. Only the ids
+    # ride in context (cheap — a handful of short strings); the model pulls
+    # full rows on demand. Injected by `inject_panel_selection`; absent/empty
+    # when the panel is empty so the cached prompt prefix is untouched.
+    panel_auction_ids: list[str] | None = None
 
 
 _ROLE_PROMPT = """\
@@ -220,6 +227,33 @@ def inject_prior_search(ctx: RunContext[ChatDeps]) -> str:
     if total is not None:
         lines.append(f"- last total_count: {total}")
     return "\n".join(lines)
+
+
+@agent.instructions
+def inject_panel_selection(ctx: RunContext[ChatDeps]) -> str:
+    """Surface the auction_ids the user is currently looking at in the UI
+    matches panel, so a bare "compare these" / "the matches" / "all of them"
+    resolves to concrete ids instead of a blank search. The panel is browser
+    state the model can't otherwise see. Only the ids ride in context (a few
+    short strings); the model fetches full rows on demand via
+    `get_auction_detail` / `select_properties`. Returns "" when the panel is
+    empty so the cached prompt prefix stays byte-stable on those turns."""
+    ids = ctx.deps.panel_auction_ids if ctx.deps else None
+    if not ids:
+        return ""
+    shown = ", ".join(ids)
+    return (
+        f"Matches panel: the user is currently viewing these {len(ids)} "
+        f"propert{'y' if len(ids) == 1 else 'ies'} in the UI, in this order: "
+        f"{shown}.\n"
+        'When the user says "these", "those", "the matches", "all of them", '
+        '"the ones above", or similar WITHOUT naming auction_ids, resolve the '
+        "reference to this list. To re-rank or show a subset in the panel, call "
+        "`select_properties` with the chosen auction_ids. Comparison handles "
+        "2-5 at a time: if the user asks to compare more of them than that, do "
+        "NOT refuse — ask which 2-5 they want (or offer the top 5) and compare "
+        "those."
+    )
 
 
 @agent.instructions
