@@ -13,6 +13,9 @@ Rules of the road (read first):
 - Use `null` for any scalar not found, `[]` for empty lists, `{}` for empty maps.
 - MONEY → integer rupees: "Rs. 81,00,000/-" → 81000000; "Rs. 45 lakh" → 4500000;
   "Rs.1.25 Cr" → 12500000. If only an illegible raw string survives, use null.
+- MULTIPLE LOAN ACCOUNTS in one notice: list every account in `loan_account_no[]`;
+  set `outstanding_amount_num` to the TOTAL across them, and put the per-account
+  breakdown under `extras.outstanding_by_account`.
 - AREAS: keep the verbatim string WITH its unit (sq.ft / sq.m / Ares / Cents /
   Acres / Hectare), preserving ½ ¼ ¾. Additionally give a normalized sq.ft number
   in `extent_sqft` when a square-feet figure is stated or directly convertible.
@@ -33,8 +36,10 @@ Return ONLY this JSON object — no markdown fences, no commentary:
 
 {
   "notice": {
-    "bank_name":            "secured creditor" | null,
+    "bank_name":            "secured creditor (the seller; may be an ARC)" | null,
     "branch_name":          "string" | null,
+    "assignor_bank":        "original lender, if the debt was assigned to an ARC" | null,
+    "trust_name":           "ARC trust name, e.g. 'ACRE 166 Trust', if any" | null,
     "loan_account_no":      ["string"] | [],
     "authorised_officer":   "string" | null,
     "contact_phones":       ["string"] | [],
@@ -71,6 +76,7 @@ Return ONLY this JSON object — no markdown fences, no commentary:
     "full_description": "the complete property-description block, verbatim, preamble + all items/schedules + trailing structural detail (section labels preserved; exclude terms-of-sale boilerplate)" | null,
     "address":          "full property address as written" | null,
     "landmark":         "nearby landmark, if stated" | null,
+    "title_deed_holder": "registered title-deed holder, if named separately from the borrower" | null,
 
     // identifiers
     "survey_numbers": [
@@ -78,7 +84,10 @@ Return ONLY this JSON object — no markdown fences, no commentary:
         "value": "string incl. subdivision", "status": "old"|"new"|null }
     ],
     "patta_no":         "string" | null,
-    "plot_no":          "string" | null,
+    "chitta_no":        "string, e.g. 'e-Chitta S.No.130/6E'" | null,   // TN revenue record
+    "khata_no":         "string" | null,                                // Karnataka revenue record
+    "property_id_no":   "municipal property ID / PID, e.g. '151600602700601459'" | null,
+    "plot_no":          "string (incl. site no / HIG/MIG/LIG tag if given)" | null,
     "flat_no":          "string" | null,
     "block":            "string" | null,
     "floor":            "string" | null,

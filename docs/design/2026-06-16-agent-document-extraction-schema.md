@@ -245,6 +245,23 @@ surfaced field variants beyond the original 20. These are in the runnable prompt
   sq.ft / sq.m / Ares / Cents / Acres / Hectare (keep verbatim + normalize `extent_sqft`).
 - **Multi-lot notices** — primary lot in `property`, extras in `additional_lots[]`.
 
+A second pass over 20 more notices (8 lenders incl. an ARC) added:
+
+- **ARC assignments** — `notice.assignor_bank` + `notice.trust_name` (the seller
+  is an asset-reconstruction company, e.g. "ACRE 166 Trust", with the debt
+  assigned from the original bank). `bank_name` is the current secured creditor.
+- **Revenue records beyond Patta** — `chitta_no` (TN e-Chitta), `khata_no`
+  (Karnataka), `property_id_no` (municipal PID).
+- **Title deed holder** — `title_deed_holder`, when named apart from the borrower.
+- **Multiple loan accounts** — `loan_account_no[]` + total in
+  `outstanding_amount_num`, per-account split in `extras.outstanding_by_account`.
+
+**Data-quality note for the run:** the corpus contains **duplicate markdown**
+across distinct `auction_id`s (e.g. 737966/737973/737974/737977 are identical;
+likewise 737162/737163, 734248/734249, 738029/738033) — re-auctions or repeated
+docs. De-dupe on `Document.file_path` / markdown hash before/while running so the
+same notice isn't extracted (and billed) many times.
+
 ## Mapping to the graph
 
 The schema lines up with existing nodes/relationships — no new graph shape needed.
