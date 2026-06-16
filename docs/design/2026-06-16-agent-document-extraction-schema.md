@@ -46,6 +46,11 @@ authorised officer's contact details.
 
 ## Extraction schema
 
+> **Runnable scheme:** the finalized, ready-to-run extraction prompt encoding
+> this schema lives at [`pipeline/prompts/extract_enrichment.txt`](../../pipeline/prompts/extract_enrichment.txt).
+> That file is the single artifact to run per property across the 889-property
+> corpus; this section is the design rationale behind it.
+
 One JSON object per Document. The top level is **notice-type aware**: a `single`
 notice yields one `lots[]` entry; a `multi` notice yields one entry per auction
 lot. Notice-level fields (creditor, borrower, dates, contact) live once at the
@@ -220,6 +225,25 @@ The 20 enrichment points observed in real notices, mapped to the schema:
 | 17 | Buying size (sq.ft) | `enrichment.extent_sqft` (+ `total_area` verbatim) |
 | 18 | Registration district / sub-district | `enrichment.registration_district`, `registration_sub_district` |
 | 19 | Approved layout no. | `enrichment.approved_layout_no` |
+
+## Additional fields from full-corpus review
+
+Sampling one property per `PropertyType` (flat, villa, house, plot, land,
+commercial, industrial, godown, cold storage, factory, non-agricultural)
+surfaced field variants beyond the original 20. These are in the runnable prompt:
+
+- **Geo coordinates** — `latitude` / `longitude` (some notices print them, e.g. 745829).
+- **Patta number** — `patta_no` (revenue title; frequent on TN land).
+- **Assessment / tax numbers** — `assessment_no.{old,new}` (door/property-tax assessment).
+- **Admin hierarchy** — `panchayat`, `municipality_corporation`, `ward_no`, `hobli`
+  (Karnataka/Kerala notices); state is **not** always Tamil Nadu (e.g. Kerala 766551).
+- **Landmark** — `landmark` ("Nearby Hotel Deepam…").
+- **Loan account no.** — `notice.loan_account_no[]`.
+- **Survey-number kinds** — captured as `{kind, value, status}` to cover S.F.No /
+  R.S.No / T.S.No / Re Sy No / UDR SF No / Block No without losing subdivisions.
+- **Super plinth area** folded into `super_built_up_area`; units span
+  sq.ft / sq.m / Ares / Cents / Acres / Hectare (keep verbatim + normalize `extent_sqft`).
+- **Multi-lot notices** — primary lot in `property`, extras in `additional_lots[]`.
 
 ## Mapping to the graph
 
