@@ -37,7 +37,11 @@ def _install_stub_agent() -> None:
     mod = types.ModuleType("api.agent")
 
     class ChatDeps:  # noqa: D401
-        def __init__(self, *args, **kwargs): pass
+        # Retain whatever the router puts on the deps (active_filters,
+        # panel_auction_ids, mode, …) so tests can assert it was forwarded to
+        # agent.run without building the real (network-y) agent.
+        def __init__(self, *args, **kwargs):
+            self.__dict__.update(kwargs)
 
     class _Agent:
         async def run(self, *args, **kwargs):  # pragma: no cover - not exercised
