@@ -102,22 +102,59 @@ top; per-lot fields (description, price, geography) live inside each lot.
 
       // enrichment — schema-stable structured detail
       "enrichment": {
-        "property_description_full": "verbatim block" | null,  // unchanged contract w/ existing pipeline
-        "undivided_share":  "string with unit" | null,
-        "total_area":       "string with unit" | null,         // preserve ½ ¼ ¾
-        "built_up_area":    "string with unit" | null,
-        "survey_numbers":   { "old": ["string"], "new": ["string"] },
-        "door_numbers":     { "old": ["string"], "new": ["string"] },
-        "boundaries":       { "north": "…"|null, "south": "…"|null,
-                              "east": "…"|null,  "west": "…"|null },
+        "property_description_full": "verbatim block" | null,  // [0] unchanged contract w/ existing pipeline
+        "address": "full property address as written" | null,  // [5]
+
+        // [2] schedule breakdown — a single lot often spans Schedule A/B/C/D
+        // (e.g. A = land, B = undivided share, C = building). One entry each.
+        "schedules": [
+          { "label": "A"|"B"|"C"|"D"|"string", "type": "land"|"building"|"uds"|"flat"|null,
+            "description": "verbatim text for this schedule" | null }
+        ],
+
+        // [3] survey numbers incl. subdivision
+        "survey_numbers": { "old": ["string"], "new": ["string"], "subdivision": ["string"] },
+
+        // [16] unit identification (flats / apartments)
+        "flat_no": "string" | null,
+        "block":   "string" | null,
+        "floor":   "string" | null,
+        "door_numbers": { "old": ["string"], "new": ["string"] },
+
+        // [9] undivided share + the parent land it is carved from
+        "undivided_share":   "string with unit, e.g. '453.50 sq.ft UDS' or '1/4 share'" | null,
+        "uds_parent_extent": "total land from which the UDS is taken, e.g. '10065 sq.ft'" | null,
+
+        // [10][17] areas — keep verbatim string (preserve ½ ¼ ¾) + a normalized sqft
+        "total_area":          "string with unit" | null,
+        "super_built_up_area": "string with unit" | null,
+        "built_up_area":       "string with unit" | null,
+        "carpet_area":         "string with unit" | null,
+        "extent_sqft":         number | null,                  // [17] normalized buying size in sq.ft
+
+        // [12] boundary adjacency — what lies on each side
+        "boundaries": { "north": "…"|null, "south": "…"|null,
+                        "east": "…"|null,  "west": "…"|null },
+        // [13] boundary measurements — dimension along each side (distinct from adjacency)
+        "boundary_measurements": { "north": "…"|null, "south": "…"|null,
+                                   "east": "…"|null,  "west": "…"|null },
+
+        // [11] encumbrances — known charges/dues disclosed in the notice
+        "encumbrance": "string (e.g. 'Nil known' or specific charge)" | null,
+
+        // [15] title / [19] approval references
+        "sale_deed_no":      "string, e.g. 'Doc No 5682/2020'" | null,
+        "approved_layout_no": "string, e.g. '16/2019 DTCP' or 'xxxx/yyyy'" | null,
+
+        // [6][7][8] geography (resolves to graph nodes)
         "village":  "string" | null,
         "taluk":    "string" | null,
         "district": "string" | null,
         "city":     "string" | null,
         "state":    "string" | null,
         "area":     "string" | null,
-        "registration_district":     "string" | null,
-        "registration_sub_district": "string" | null
+        "registration_district":     "string" | null,   // [18]
+        "registration_sub_district": "string" | null    // [18]
       },
 
       // extras — open-ended bag (encumbrances, RERA/GST, tax dues, EC refs,
@@ -149,6 +186,40 @@ top; per-lot fields (description, price, geography) live inside each lot.
    `count_mismatch` status).
 6. **Dates** as ISO where parseable, else the raw string as shown; downstream
    `_norm_date` already tolerates dd/mm/yyyy.
+7. **Adjacency vs measurement are separate.** `boundaries.*` captures *what* lies
+   on each side ("Road", "Plot of Mr.X"); `boundary_measurements.*` captures the
+   *dimension* along that side ("109 ft", "20 ft"). Notices frequently give both —
+   never collapse them into one field.
+8. **Schedules stay itemised.** When a single lot is described across Schedule
+   A/B/C/D (or Item 1/2…), emit one `schedules[]` entry per schedule **and** keep
+   the concatenated `property_description_full` (the legacy contract). Possession
+   type stays notice-level (`notice.possession_type`).
+
+## Observed-field coverage
+
+The 20 enrichment points observed in real notices, mapped to the schema:
+
+| # | Observed | Schema path |
+|---|---|---|
+| 0 | Full description | `enrichment.property_description_full` |
+| 1 | Possession type | `notice.possession_type` |
+| 2 | Schedule A/B/C/D | `enrichment.schedules[]` |
+| 3 | Old / New survey + subdivision no. | `enrichment.survey_numbers.{old,new,subdivision}` |
+| 5 | Address | `enrichment.address` |
+| 6 | State | `enrichment.state` |
+| 7 | District | `enrichment.district` |
+| 8 | Village | `enrichment.village` |
+| 9 | UDS + parent land | `enrichment.undivided_share` + `enrichment.uds_parent_extent` |
+| 10 | Super built-up / built-up / carpet | `enrichment.super_built_up_area`, `built_up_area`, `carpet_area` |
+| 11 | Encumbrance | `enrichment.encumbrance` |
+| 12 | Boundaries N/S/E/W (adjacency) | `enrichment.boundaries.*` |
+| 13 | Boundary measurements N/S/E/W | `enrichment.boundary_measurements.*` |
+| 14 | Property type | `lots[].verifiable.property_type` |
+| 15 | Sale deed no. | `enrichment.sale_deed_no` |
+| 16 | Flat / block / floor | `enrichment.flat_no`, `block`, `floor` |
+| 17 | Buying size (sq.ft) | `enrichment.extent_sqft` (+ `total_area` verbatim) |
+| 18 | Registration district / sub-district | `enrichment.registration_district`, `registration_sub_district` |
+| 19 | Approved layout no. | `enrichment.approved_layout_no` |
 
 ## Mapping to the graph
 
