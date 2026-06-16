@@ -227,14 +227,14 @@ Markdown "mode" prompts the agent can switch into:
   full Neo4j schema (node labels + key properties, relationships,
   enum constraints), tool-choice rules, a Cypher cheat-sheet for
   `run_cypher`, and the shared 10-dim scoring framework.
-- `scan.md` — Broad search of opportunities.
-- `shortlist.md` — Narrow to candidates.
-- `evaluate.md` — Deep score one property.
 - `compare.md` — Side-by-side comparison.
 - `deep-research.md` — Document-level due diligence.
 - `report.md` — Portfolio / pipeline reporting.
-- `track.md` — Move items through the 8-state pipeline.
-- `refresh.md` — Re-score after new data.
+
+Only `compare`, `deep-research`, and `report` (plus the default `ask`) are
+wired into `_AVAILABLE_MODES` in `api/chat/router.py`. Five further specs —
+`scan`, `shortlist`, `evaluate`, `track`, `refresh` — are parked in
+`modes/_archive/` (inert; never loaded). See `modes/_archive/README.md`.
 
 ## 8. Web UI (`web/`)
 
@@ -289,7 +289,7 @@ Markdown "mode" prompts the agent can switch into:
 
 ## 10. Reports (`reports/output/`)
 
-Generated artifacts from `report` / `scan` modes.
+Generated artifacts from the `report` mode.
 
 ## 11. Walkthrough (`walkthrough/`)
 
