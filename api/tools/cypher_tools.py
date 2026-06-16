@@ -13,7 +13,7 @@ import time
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from functools import lru_cache
-from api.neo4j_client import run_read_query
+from api.neo4j_client import run_read_query, run_read_query_async
 from pipeline.embeddings import embed_query_gemini
 
 # Three Gemini vector indexes, all 3072-dim, all over gemini-embedding-2.
@@ -1233,6 +1233,39 @@ _DISTINCT_FIELDS: dict[str, tuple[str, str]] = {
 
 _SCHEMA_CACHE: dict[str, tuple[float, dict]] = {}
 _SCHEMA_TTL_SECONDS = 3600.0
+
+# Live AuctionProperty node count, cached in-process. The agent's system
+# instructions surface this so "how many properties are there" answers track
+# the real graph size instead of a hardcoded number that goes stale as the
+# loader ingests new auctions. The count only moves when the loader runs, so
+# the schema TTL is plenty; on any read failure we serve the last good value
+# (or None) rather than a wrong one.
+_PROPERTY_COUNT_CACHE: dict[str, tuple[float, int]] = {}
+
+
+async def graph_property_count_async(refresh: bool = False) -> int | None:
+    """Total AuctionProperty nodes in the graph (live, cached for
+    `_SCHEMA_TTL_SECONDS`). Returns None when the count can't be read — a
+    cold cache plus DB outage — so callers can fall back to a number-free
+    phrasing instead of asserting a stale figure. A transient failure after a
+    successful read keeps serving the last good value."""
+    now = time.time()
+    cached = _PROPERTY_COUNT_CACHE.get("default")
+    if cached and not refresh and (now - cached[0]) < _SCHEMA_TTL_SECONDS:
+        return cached[1]
+    try:
+        rows = await run_read_query_async(
+            "MATCH (a:AuctionProperty) RETURN count(a) AS n", max_rows=1
+        )
+    except Exception:
+        # Never let a count read break a chat turn; degrade to last good value.
+        return cached[1] if cached else None
+    count = rows[0].get("n") if rows else None
+    if not isinstance(count, int):
+        return cached[1] if cached else None
+    _PROPERTY_COUNT_CACHE["default"] = (now, count)
+    return count
+
 
 # Cypher patterns surfaced via describe_schema() so they don't bloat the
 # per-turn system prompt. The agent only needs these when composing
