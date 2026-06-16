@@ -13,6 +13,9 @@ Rules of the road (read first):
 - Use `null` for any scalar not found, `[]` for empty lists, `{}` for empty maps.
 - MONEY → integer rupees: "Rs. 81,00,000/-" → 81000000; "Rs. 45 lakh" → 4500000;
   "Rs.1.25 Cr" → 12500000. If only an illegible raw string survives, use null.
+  If a column/header declares the UNIT (e.g. "Reserve Price (In Lakhs)" → 572.34,
+  or "₹ in Crores"), apply the multiplier: ×100000 for Lakh, ×10000000 for Crore
+  (so 572.34 Lakh → 57234000).
 - MULTIPLE LOAN ACCOUNTS in one notice: list every account in `loan_account_no[]`;
   set `outstanding_amount_num` to the TOTAL across them, and put the per-account
   breakdown under `extras.outstanding_by_account`.
@@ -23,7 +26,10 @@ Rules of the road (read first):
   • "IBC" (liquidation under the 2016 Code; a LIQUIDATOR sells via NCLT order —
     fill `notice.liquidator` + `notice.court_reference`; the asset may be movable
     or intangible, e.g. trademarks → set `property.asset_category` accordingly and
-    capture the asset class in `extras`).
+    capture the asset class in `extras`). IBC sales may bundle assets as
+    "Option A (all collectively) / Option B / Option C (standalone)" with NRRA and
+    Section 29A eligibility notes — record that bundle structure in
+    `extras.option_structure`.
 - MEGA / MULTI-BRANCH auctions: when separate lots belong to different branches,
   put each lot's branch in that lot's `property.branch_of_lot` (top-level
   `notice.branch_name` may then be null).
@@ -116,7 +122,7 @@ Return ONLY this JSON object — no markdown fences, no commentary:
     "total_area":          "string with unit" | null,        // land / total extent
     "extent_sqft":         number | null,                    // normalized sq.ft
     "super_built_up_area": "string with unit" | null,        // incl. super plinth / built-up incl. common
-    "built_up_area":       "string with unit" | null,
+    "built_up_area":       "string with unit" | null,        // incl. "plinth area"
     "carpet_area":         "string with unit" | null,
     "undivided_share":     "string with unit, e.g. '509.08 sq.ft UDS' or '1/4 share'" | null,
     "uds_parent_extent":   "total land the UDS is carved from, e.g. '80854 sq.ft'" | null,

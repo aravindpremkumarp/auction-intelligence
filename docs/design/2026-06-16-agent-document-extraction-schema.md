@@ -269,6 +269,20 @@ Karnataka Bank, an IBC liquidation and DRT sales) added:
 - **`property.branch_of_lot`** — for mega multi-branch auctions (e.g. Karnataka
   Bank 745873) where each lot sits under a different branch.
 
+A fourth pass over 30 more notices (Tata Capital, LIC HFL, Vistaar, Protium,
+Cholamandalam, U GRO, South Indian Bank, PNB Housing, ARCIL, a second IBC) added
+**no new entities** — convergence. Two refinements only:
+
+- **Column-unit money** — when a header declares "(In Lakhs)" / "(In Crores)",
+  apply the ×10⁵ / ×10⁷ multiplier (IBC notice 751225: 572.34 Lakh → 57234000).
+- **IBC option bundles** — "Option A (all assets) / B / C (standalone)", NRRA,
+  Section 29A eligibility → `extras.option_structure`.
+- Minor: "Plinth Area" maps to `built_up_area`.
+
+**Validation status:** ~80 notices across ~20 lenders and 3 legal frameworks
+(SARFAESI / DRT / IBC). The last batch surfaced no new fields — the schema has
+converged.
+
 **Data-quality note for the run:** the corpus contains **duplicate markdown**
 across distinct `auction_id`s (e.g. 737966/737973/737974/737977 are identical;
 likewise 737162/737163, 734248/734249, 738029/738033) — re-auctions or repeated
