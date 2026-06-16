@@ -256,6 +256,19 @@ A second pass over 20 more notices (8 lenders incl. an ARC) added:
 - **Multiple loan accounts** — `loan_account_no[]` + total in
   `outstanding_amount_num`, per-account split in `extras.outstanding_by_account`.
 
+A third pass over 30 more notices (incl. ARCIL, Omkara, Piramal, U GRO, Jana SFB,
+Karnataka Bank, an IBC liquidation and DRT sales) added:
+
+- **`notice.legal_basis`** — not every notice is SARFAESI. **DRT** sales label the
+  price "Upset Price" (→ `reserve_price_num`) and carry OA/TRC/RC/RP case refs;
+  **IBC** liquidations sell via a **liquidator** + NCLT order (`liquidator`,
+  `court_reference`) and the asset may be movable/intangible (e.g. trademarks,
+  742868) → `asset_category: "intangible"`.
+- **`notice.assignment_date`** — date of the ARC assignment agreement.
+- **`role: "legal-heir"`** added to borrowers (legal heirs of a deceased borrower).
+- **`property.branch_of_lot`** — for mega multi-branch auctions (e.g. Karnataka
+  Bank 745873) where each lot sits under a different branch.
+
 **Data-quality note for the run:** the corpus contains **duplicate markdown**
 across distinct `auction_id`s (e.g. 737966/737973/737974/737977 are identical;
 likewise 737162/737163, 734248/734249, 738029/738033) — re-auctions or repeated

@@ -16,6 +16,17 @@ Rules of the road (read first):
 - MULTIPLE LOAN ACCOUNTS in one notice: list every account in `loan_account_no[]`;
   set `outstanding_amount_num` to the TOTAL across them, and put the per-account
   breakdown under `extras.outstanding_by_account`.
+- LEGAL BASIS varies — set `notice.legal_basis`:
+  • "SARFAESI" (most; authorised officer of a bank/ARC/NBFC under the 2002 Act),
+  • "DRT" (Debts Recovery Tribunal / Recovery Officer sale; the price is often
+    labelled "UPSET PRICE" — map Upset Price → `auction.reserve_price_num`),
+  • "IBC" (liquidation under the 2016 Code; a LIQUIDATOR sells via NCLT order —
+    fill `notice.liquidator` + `notice.court_reference`; the asset may be movable
+    or intangible, e.g. trademarks → set `property.asset_category` accordingly and
+    capture the asset class in `extras`).
+- MEGA / MULTI-BRANCH auctions: when separate lots belong to different branches,
+  put each lot's branch in that lot's `property.branch_of_lot` (top-level
+  `notice.branch_name` may then be null).
 - AREAS: keep the verbatim string WITH its unit (sq.ft / sq.m / Ares / Cents /
   Acres / Hectare), preserving ½ ¼ ¾. Additionally give a normalized sq.ft number
   in `extent_sqft` when a square-feet figure is stated or directly convertible.
@@ -36,10 +47,14 @@ Return ONLY this JSON object — no markdown fences, no commentary:
 
 {
   "notice": {
-    "bank_name":            "secured creditor (the seller; may be an ARC)" | null,
+    "legal_basis":          "SARFAESI" | "DRT" | "IBC" | "other",   // see rules
+    "bank_name":            "secured creditor (the seller; may be an ARC/NBFC)" | null,
     "branch_name":          "string" | null,
     "assignor_bank":        "original lender, if the debt was assigned to an ARC" | null,
     "trust_name":           "ARC trust name, e.g. 'ACRE 166 Trust', if any" | null,
+    "assignment_date":      "ISO date of the assignment agreement, if stated" | null,
+    "liquidator":           "liquidator name, for IBC liquidation sales" | null,
+    "court_reference":      "case/order ref: OA/TRC/RC/RP No. (DRT) or CP(IB)/IA/NCLT order (IBC)" | null,
     "loan_account_no":      ["string"] | [],
     "authorised_officer":   "string" | null,
     "contact_phones":       ["string"] | [],
@@ -54,7 +69,7 @@ Return ONLY this JSON object — no markdown fences, no commentary:
   },
 
   "borrowers": [
-    { "name": "string", "role": "borrower"|"co-borrower"|"guarantor"|"director"|"partner"|"mortgagor"|"proprietor"|null,
+    { "name": "string", "role": "borrower"|"co-borrower"|"guarantor"|"director"|"partner"|"mortgagor"|"proprietor"|"legal-heir"|null,
       "address": "string" | null }
   ],
 
@@ -72,7 +87,8 @@ Return ONLY this JSON object — no markdown fences, no commentary:
 
   "property": {
     "property_type":    "flat"|"house"|"villa"|"plot"|"land"|"commercial"|"industrial"|"godown"|"agricultural"|"string" | null,
-    "asset_category":   "immovable"|"movable" | null,
+    "asset_category":   "immovable"|"movable"|"intangible" | null,
+    "branch_of_lot":    "branch this lot belongs to, for multi-branch mega auctions" | null,
     "full_description": "the complete property-description block, verbatim, preamble + all items/schedules + trailing structural detail (section labels preserved; exclude terms-of-sale boilerplate)" | null,
     "address":          "full property address as written" | null,
     "landmark":         "nearby landmark, if stated" | null,
