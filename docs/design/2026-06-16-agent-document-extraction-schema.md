@@ -290,6 +290,22 @@ frameworks (SARFAESI / DRT / IBC). Two consecutive batches surfaced no new
 entities — the schema is converged and ready to run. Remaining risk is extraction
 *accuracy*, measurable only by a sampled LLM run, not schema *coverage*.
 
+## Full-corpus vocabulary scan
+
+Beyond sampling, the entire corpus (496 documents) was mined two ways: every
+"Label:" token (via `apoc.text.regexGroups`) aggregated by frequency, and a
+keyword-coverage count. Almost all vocabulary mapped to existing fields; three
+recurring concepts were promoted to structured fields:
+
+- **`auction.emd_account`** — EMD remittance details (`ifsc code` appears in 104
+  docs; plus account name/no, bank, mode of payment).
+- **`property.construction_type`** — RCC (61 docs), tiled, thatched, asbestos.
+- **`property.occupancy_status`** — vacant (129) vs tenanted (20).
+
+GST (54), parking (32), zone, RERA (5) remain in the open-ended `extras` bag.
+After this pass the schema covers the full-corpus vocabulary; rare one-offs are
+absorbed by `extras`.
+
 **Data-quality note for the run:** the corpus contains **duplicate markdown**
 across distinct `auction_id`s (e.g. 737966/737973/737974/737977 are identical;
 likewise 737162/737163, 734248/734249, 738029/738033) — re-auctions or repeated

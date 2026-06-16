@@ -89,7 +89,14 @@ Return ONLY this JSON object — no markdown fences, no commentary:
     "auto_extension_minutes":  number | null,
     "application_deadline_dt": "ISO date-time" | null,  // EMD / KYC cutoff
     "inspection_dt":           "ISO date-time or range string" | null,
-    "sarfaesi_stage":          "string" | null
+    "sarfaesi_stage":          "string" | null,
+    "emd_account": {                                    // where EMD is remitted
+      "account_name": "string" | null,
+      "account_no":   "string" | null,
+      "ifsc":         "string" | null,
+      "bank":         "string" | null,
+      "mode_of_payment": "string e.g. 'RTGS/NEFT' or 'Demand Draft'" | null
+    }
   },
 
   "property": {
@@ -97,6 +104,8 @@ Return ONLY this JSON object — no markdown fences, no commentary:
     "asset_category":   "immovable"|"movable"|"intangible" | null,
     "branch_of_lot":    "branch this lot belongs to, for multi-branch mega auctions" | null,
     "full_description": "the complete property-description block, verbatim, preamble + all items/schedules + trailing structural detail (section labels preserved; exclude terms-of-sale boilerplate)" | null,
+    "construction_type": "structure/roof type if stated, e.g. 'RCC framed', 'tiled roof', 'thatched', 'asbestos sheet'" | null,
+    "occupancy_status": "vacant"|"tenanted"|"self-occupied"|"under-construction" | null,
     "address":          "full property address as written" | null,
     "landmark":         "nearby landmark, if stated" | null,
     "title_deed_holder": "registered title-deed holder, if named separately from the borrower" | null,
