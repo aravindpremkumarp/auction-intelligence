@@ -279,9 +279,16 @@ Cholamandalam, U GRO, South Indian Bank, PNB Housing, ARCIL, a second IBC) added
   Section 29A eligibility → `extras.option_structure`.
 - Minor: "Plinth Area" maps to `built_up_area`.
 
-**Validation status:** ~80 notices across ~20 lenders and 3 legal frameworks
-(SARFAESI / DRT / IBC). The last batch surfaced no new fields — the schema has
-converged.
+A fifth pass over 30 more (Hinduja HFC, Repco, ICICI HFC, Omkara ARC, IOB, Union
+Bank, Protium, Karnataka Bank mega, Cholamandalam, HDFC, Aditya Birla) again
+surfaced no new fields. Sole addition: **`notice.predecessor_entity`** — when the
+seller was renamed/amalgamated (Aditya Birla Finance → Aditya Birla Capital via
+an NCLT scheme), distinct from an ARC assignment.
+
+**Validation status:** ~110 notices across ~25 lenders/ARCs and 3 legal
+frameworks (SARFAESI / DRT / IBC). Two consecutive batches surfaced no new
+entities — the schema is converged and ready to run. Remaining risk is extraction
+*accuracy*, measurable only by a sampled LLM run, not schema *coverage*.
 
 **Data-quality note for the run:** the corpus contains **duplicate markdown**
 across distinct `auction_id`s (e.g. 737966/737973/737974/737977 are identical;

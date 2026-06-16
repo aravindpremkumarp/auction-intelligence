@@ -57,6 +57,7 @@ Return ONLY this JSON object — no markdown fences, no commentary:
     "bank_name":            "secured creditor (the seller; may be an ARC/NBFC)" | null,
     "branch_name":          "string" | null,
     "assignor_bank":        "original lender, if the debt was assigned to an ARC" | null,
+    "predecessor_entity":   "prior name, if the seller was renamed/amalgamated (e.g. 'Aditya Birla Finance Ltd' → 'Aditya Birla Capital Ltd')" | null,
     "trust_name":           "ARC trust name, e.g. 'ACRE 166 Trust', if any" | null,
     "assignment_date":      "ISO date of the assignment agreement, if stated" | null,
     "liquidator":           "liquidator name, for IBC liquidation sales" | null,
