@@ -1,0 +1,129 @@
+"""Score LangExtract output against the hand-labelled gold set.
+
+Runs the canonical pipeline.langextract_examples.extract on each fixture, flattens
+the grounded entities into comparable scalar fields, and scores them against
+evals/langextract_gold.py with lenient normalisation (case/space-insensitive,
+substring-tolerant for names/places; exact for money). Prints per-notice scores,
+an overall accuracy, and — most usefully — the list of MISSES so each prompt/
+example change can be judged by the number instead of eyeballing HTML.
+
+Run:  python -m evals.langextract_eval        (needs GOOGLE_API_KEY / LANGEXTRACT_API_KEY)
+"""
+from __future__ import annotations
+
+import collections
+import os
+from pathlib import Path
+
+from evals.langextract_gold import GOLD
+from pipeline import langextract_examples as LX
+
+FIX = Path(__file__).resolve().parent / "fixtures"
+_SC_KEYS = ("legal_basis", "bank_name", "assignor_bank", "trust_name",
+            "court_reference")
+_LOC_KEYS = ("village", "taluk", "district", "registration_district",
+             "registration_sub_district", "hobli")
+
+
+def flatten(res) -> dict:
+    """Collapse grounded entities into one comparable field dict."""
+    out: dict = {"identifiers": collections.defaultdict(set)}
+    locs, props, terms, borrowers = [], [], [], []
+    for e in res.extractions:
+        a = e.attributes or {}
+        c = e.extraction_class
+        if c == "secured_creditor":
+            for k in _SC_KEYS:
+                if a.get(k):
+                    out.setdefault(k, a[k])
+            if "bank_name" not in out and a.get("normalized_name"):
+                out["bank_name"] = a["normalized_name"]
+        elif c == "location":
+            locs.append(a)
+        elif c == "property":
+            props.append(a)
+        elif c == "auction_terms":
+            terms.append(a)
+        elif c == "borrower":
+            borrowers.append((a.get("lot_index"), e.extraction_text))
+        elif c == "identifier" and a.get("kind") and a.get("value"):
+            out["identifiers"][a["kind"]].add(str(a["value"]))
+
+    def _lot1(items):
+        return next((i for i in items if i.get("lot_index") in ("1", None)),
+                    items[0] if items else {})
+
+    for k in _LOC_KEYS:
+        v = _lot1(locs).get(k)
+        if v:
+            out[k] = v
+    if _lot1(props).get("possession_type"):
+        out["possession_type"] = _lot1(props)["possession_type"]
+    out["reserve_set"] = {float(t["reserve_price_num"]) for t in terms
+                          if t.get("reserve_price_num")}
+    out["emd_set"] = {float(t["emd_num"]) for t in terms if t.get("emd_num")}
+    b1 = sorted(borrowers, key=lambda x: (x[0] or "1"))
+    out["borrower_primary"] = b1[0][1] if b1 else None
+    return out
+
+
+def _norm(s) -> str:
+    return "".join(ch for ch in str(s).lower() if ch.isalnum())
+
+
+def _smatch(gold, got) -> bool:
+    if got is None:
+        return False
+    g, h = _norm(gold), _norm(got)
+    return bool(g) and (g == h or g in h or h in g)
+
+
+def score_notice(g: dict, flat: dict) -> list[tuple]:
+    rows = []
+    for key, gold in g["fields"].items():
+        if gold is None:
+            continue
+        if key == "reserve_price_num":
+            got = sorted(flat.get("reserve_set", set()))
+            ok = float(gold) in flat.get("reserve_set", set())
+        elif key == "emd_num":
+            got = sorted(flat.get("emd_set", set()))
+            ok = float(gold) in flat.get("emd_set", set())
+        else:
+            got = flat.get(key)
+            ok = _smatch(gold, got)
+        rows.append((key, gold, got, ok))
+    for kind, val in g.get("identifiers", {}).items():
+        got = sorted(flat["identifiers"].get(kind, set()))
+        ok = any(_smatch(val, x) for x in got)
+        rows.append((f"id:{kind}", val, got, ok))
+    return rows
+
+
+def main() -> int:
+    os.environ.setdefault("LANGEXTRACT_API_KEY",
+                          os.environ.get("GOOGLE_API_KEY", ""))
+    os.environ.setdefault("LANGEXTRACT_PASSES", "1")
+    total = correct = 0
+    misses = []
+    print(f"LangExtract eval — {len(GOLD)} notices "
+          f"(passes={os.environ['LANGEXTRACT_PASSES']})\n")
+    for g in GOLD:
+        md = (FIX / f"{g['aid']}.txt").read_text(encoding="utf-8")
+        flat = flatten(LX.extract(md))
+        rows = score_notice(g, flat)
+        c = sum(1 for *_, ok in rows if ok)
+        total += len(rows)
+        correct += c
+        print(f"  {g['aid']} ({g['notice_type']:6}): {c}/{len(rows)}")
+        misses += [(g["aid"], k, gold, got) for k, gold, got, ok in rows if not ok]
+    print(f"\nOVERALL ACCURACY: {correct}/{total} = {correct/total*100:.1f}%")
+    if misses:
+        print("\nMISSES (auction_id  field  gold -> got):")
+        for aid, key, gold, got in misses:
+            print(f"  {aid}  {key:26} {gold!r:24} -> {got!r}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
