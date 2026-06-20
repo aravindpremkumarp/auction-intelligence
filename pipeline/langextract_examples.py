@@ -302,22 +302,48 @@ MULTI_EXAMPLE = lx.data.ExampleData(
 EXAMPLES = [SINGLE_EXAMPLE, MULTI_EXAMPLE]
 
 
+_MODEL_CACHE: dict = {}
+
+
+def _openrouter_model():
+    """Cached OpenAI-compatible model pointed at OpenRouter."""
+    from langextract.providers.openai import OpenAILanguageModel
+    key = os.environ.get("OPENROUTER_API_KEY")
+    if not key:
+        raise RuntimeError("OPENROUTER_API_KEY not set")
+    model_id = os.environ.get("LANGEXTRACT_MODEL_ID", "google/gemini-2.5-flash")
+    if model_id not in _MODEL_CACHE:
+        _MODEL_CACHE[model_id] = OpenAILanguageModel(
+            model_id=model_id, api_key=key,
+            base_url=os.environ.get("OPENROUTER_BASE_URL",
+                                    "https://openrouter.ai/api/v1"),
+            max_workers=4,
+        )
+    return _MODEL_CACHE[model_id]
+
+
 def extract(markdown: str):
     """Run LangExtract over one notice's MinerU markdown.
 
-    Model/key are env-driven (Gemini API / Vertex / local Ollama). passes=3
-    maximises multi-lot recall; results carry char_interval source grounding.
+    Provider is env-driven via LANGEXTRACT_PROVIDER:
+      'openrouter' (default) -> OpenRouter, OpenAI-compatible; model
+          LANGEXTRACT_MODEL_ID (default 'google/gemini-2.5-flash'), key
+          OPENROUTER_API_KEY. Shares the gateway/billing with the rest of the repo.
+      'gemini'               -> Gemini API direct; model default 'gemini-2.5-flash',
+          key LANGEXTRACT_API_KEY.
+    passes (LANGEXTRACT_PASSES, default 2) maximises multi-lot recall; results
+    carry char_interval source grounding either way.
     """
-    return lx.extract(
-        text_or_documents=markdown,
-        prompt_description=PROMPT_DESCRIPTION,
-        examples=EXAMPLES,
-        model_id=os.environ.get("LANGEXTRACT_MODEL_ID", "gemini-2.5-flash"),
-        api_key=os.environ.get("LANGEXTRACT_API_KEY"),
-        extraction_passes=int(os.environ.get("LANGEXTRACT_PASSES", "2")),
-        max_char_buffer=4000,
-        max_workers=4,
+    common = dict(
+        text_or_documents=markdown, prompt_description=PROMPT_DESCRIPTION,
+        examples=EXAMPLES, extraction_passes=int(os.environ.get("LANGEXTRACT_PASSES", "2")),
+        max_char_buffer=4000, max_workers=4,
     )
+    if os.environ.get("LANGEXTRACT_PROVIDER", "openrouter").lower() == "openrouter":
+        return lx.extract(model=_openrouter_model(), fence_output=True,
+                          use_schema_constraints=False, **common)
+    return lx.extract(model_id=os.environ.get("LANGEXTRACT_MODEL_ID", "gemini-2.5-flash"),
+                      api_key=os.environ.get("LANGEXTRACT_API_KEY"), **common)
 
 
 if __name__ == "__main__":
