@@ -578,6 +578,15 @@ def _normalize_replacement_blocks(raw_blocks: Any, by_email: str) -> list[dict]:
                               and not isinstance(conf, bool) else None),
             "table":         _clean_table(raw.get("table")) if label == "Table"
                              else None,
+            # MinerU-provenance fields (archived image URL + previously-dropped
+            # content-list fields). Preserved verbatim so an undo/redo restores
+            # a faithful prior state; None on human-added blocks.
+            "img_path":       raw.get("img_path"),
+            "img_url":        raw.get("img_url"),
+            "text_level":     raw.get("text_level"),
+            "sub_type":       raw.get("sub_type"),
+            "table_caption":  raw.get("table_caption"),
+            "table_footnote": raw.get("table_footnote"),
             "edited_at":     raw.get("edited_at") or _iso_now(),
             "edited_by":     raw.get("edited_by") or by_email,
         })
@@ -720,7 +729,8 @@ def reingest_notice_safe(filename: str, by_email: str) -> None:
 
 def _persist_reingest_result(filename: str, *, markdown: str, blocks_json: str,
                              markdown_raw: str | None,
-                             blocks_raw: str | None) -> None:
+                             blocks_raw: str | None,
+                             mineru_zip_url: str | None = None) -> None:
     """Persist a fresh full-document MinerU re-ingest.
 
     Writes the working ``markdown`` + ``blocks`` AND the durable raw copy
@@ -730,6 +740,9 @@ def _persist_reingest_result(filename: str, *, markdown: str, blocks_json: str,
     (``_save_doc`` / ``re_extract_block``), so a reviewer edit can't lose them. A
     crop/rotation re-ingest refreshes the raw copy to that run's output, which is
     correct: the resulting blocks come from that run too.
+
+    ``mineru_zip_url`` stamps the archived full-zip URL (and ``mineru_zip_at``)
+    when this run archived to R2; None leaves any prior value untouched.
     """
     run_query(
         """
@@ -740,6 +753,9 @@ def _persist_reingest_result(filename: str, *, markdown: str, blocks_json: str,
             d.blocks_raw          = coalesce($blocks_raw, d.blocks_raw),
             d.markdown_raw_at     = CASE WHEN $markdown_raw IS NULL
                                         THEN d.markdown_raw_at ELSE datetime() END,
+            d.mineru_zip_url      = coalesce($mineru_zip_url, d.mineru_zip_url),
+            d.mineru_zip_at       = CASE WHEN $mineru_zip_url IS NULL
+                                        THEN d.mineru_zip_at ELSE datetime() END,
             d.blocks_revision     = coalesce(d.blocks_revision, 0) + 1,
             d.markdown_loaded_at  = datetime(),
             d.markdown_source     = 'mineru',
@@ -749,7 +765,8 @@ def _persist_reingest_result(filename: str, *, markdown: str, blocks_json: str,
             d.markdown_quality     = NULL
         """,
         {"filename": filename, "markdown": markdown, "blocks_json": blocks_json,
-         "markdown_raw": markdown_raw, "blocks_raw": blocks_raw},
+         "markdown_raw": markdown_raw, "blocks_raw": blocks_raw,
+         "mineru_zip_url": mineru_zip_url},
     )
 
 
@@ -964,7 +981,9 @@ def reingest_notice(filename: str, by_email: str) -> dict:
             err = (results[0].get("err_msg") if results else "no rows")
             raise RuntimeError(f"MinerU reingest failed: {err}")
         zip_url = results[0].get("full_zip_url")
-        md_path, blocks_path = download_and_cache(fp, zip_url)
+        # archive_to_r2: a reviewer re-ingest is a full-document OCR run, so
+        # keep MinerU's complete output (zip + image crops) and the meta sidecar.
+        md_path, blocks_path = download_and_cache(fp, zip_url, archive_to_r2=True)
         if md_path is None:
             raise RuntimeError("reingest succeeded but no markdown was produced")
     finally:
@@ -984,9 +1003,13 @@ def reingest_notice(filename: str, by_email: str) -> dict:
             except FileNotFoundError:
                 pass
 
-    # Reuse the loader's parsing so we share one code path.
+    # Reuse the loader's parsing so we share one code path. The archive meta
+    # (written by download_and_cache above) carries the image map used to
+    # resolve each block's img_url and the archived zip URL stamped below.
     from pipeline.load_markdowns_to_neo4j import load_blocks_for
-    blocks = load_blocks_for(fp) or []
+    from pipeline.mineru import read_mineru_meta
+    archive_meta = read_mineru_meta(fp)
+    blocks = load_blocks_for(fp, img_map=archive_meta.get("img_map") or {}) or []
 
     # The page the user was viewing when they set rotation/crop. Whenever
     # we flattened the source to a single-page PNG (via either step) the
@@ -1039,6 +1062,7 @@ def reingest_notice(filename: str, by_email: str) -> dict:
         blocks_json=blocks_json,
         markdown_raw=new_md,
         blocks_raw=blocks_raw,
+        mineru_zip_url=archive_meta.get("zip_url"),
     )
     # Refresh the coverage score: the markdown just changed, so any prior
     # `markdown_quality_score` is stale. Best-effort — a scoring failure
