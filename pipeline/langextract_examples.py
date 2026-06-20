@@ -37,9 +37,12 @@ IBC). Use these entity classes:
   assignor_bank, trust_name).
 - borrower: each borrower/guarantor (attrs: role, address).
 - property: each auction lot's immovable property (attrs: property_type,
-  possession_type, survey_numbers_old/new, patta_no, plot_no, total_area,
-  extent_sqft, village, taluk, district, registration_district,
+  possession_type, survey_numbers_old/new, patta_no, plot_no,
   boundary_north/south/east/west, lot_index).
+- location: where a lot sits — extract the "Situated At ..." span (attrs:
+  village, taluk, district, registration_district, lot_index).
+- extent: a lot's area — extract the "... Sq.Ft." span (attrs: extent_sqft,
+  total_area, lot_index).
 - schedule: a sub-parcel (Item/Schedule A,B..) of one lot (attrs: label,
   extent, lot_index).
 - auction_terms: price & dates for a lot (attrs: reserve_price_num, emd_num,
@@ -52,12 +55,11 @@ amounts as integers in attributes (Rs.9,50,000 -> 950000). Preserve the unicode
 fractions ½ ¼ ¾. Dates as ISO 8601 (YYYY-MM-DDThh:mm) — always include the time
 when the notice gives one. For multi-lot notices, tag every entity of the Nth lot
 with lot_index=N.
-COMPLETENESS: for EVERY `property`, always populate these attributes whenever the
-text contains them — property_type, survey_numbers_old, survey_numbers_new,
-patta_no, total_area, extent_sqft, village, taluk, district,
-registration_district, and boundary_north/south/east/west. Do NOT stop at
-property_type. OMIT any attribute that is genuinely absent — NEVER output the
-literal string "null", "NA", or an empty value; just leave the key out.
+COMPLETENESS: for EVERY lot emit one `property`, one `location`, and one `extent`
+(when the text contains them). Populate property attributes (property_type,
+survey_numbers_old/new, patta_no, boundary_*) whenever present. OMIT any attribute
+that is genuinely absent — NEVER output the literal string "null", "NA", or an
+empty value; just leave the key out.
 """
 
 # --------------------------------------------------------------------------- #
@@ -129,12 +131,19 @@ SINGLE_EXAMPLE = lx.data.ExampleData(
                 "survey_numbers_new": "UDR SF 256/1F",
                 "survey_numbers_old": "SF 390/1",
                 "plot_no": "4",
-                "village": "Perambalur North",
-                "taluk": "Perambalur",
-                "district": "Perambalur",
-                "total_area": "1242 ¼ sq.ft (115.43 sq.m)",
-                "extent_sqft": "1242.25",
             },
+        ),
+        lx.data.Extraction(
+            extraction_class="location",
+            extraction_text="Perambalur North Village, Perambalur Taluk and District",
+            attributes={"lot_index": "1", "village": "Perambalur North",
+                        "taluk": "Perambalur", "district": "Perambalur"},
+        ),
+        lx.data.Extraction(
+            extraction_class="extent",
+            extraction_text="1242 ¼ Square feet vacant site (115.43 Square Meters)",
+            attributes={"lot_index": "1", "extent_sqft": "1242.25",
+                        "total_area": "1242 ¼ sq.ft (115.43 sq.m)"},
         ),
         lx.data.Extraction(
             extraction_class="schedule",
@@ -234,10 +243,19 @@ MULTI_EXAMPLE = lx.data.ExampleData(
             attributes={"lot_index": "1", "property_type": "land and building",
                         "patta_no": "96",
                         "survey_numbers_old": "108/6A, 99/13",
-                        "survey_numbers_new": "99/13A, 108/6A",
-                        "total_area": "1305 sq.ft", "extent_sqft": "1305",
-                        "village": "Penia Chozhiyampakkam",
+                        "survey_numbers_new": "99/13A, 108/6A"},
+        ),
+        lx.data.Extraction(
+            extraction_class="location",
+            extraction_text="Penia Chozhiyampakkam Village, Gummidipoondi Taluk, Thiruvallur District",
+            attributes={"lot_index": "1", "village": "Penia Chozhiyampakkam",
                         "taluk": "Gummidipoondi", "district": "Thiruvallur"},
+        ),
+        lx.data.Extraction(
+            extraction_class="extent",
+            extraction_text="1305 Sq.Ft.",
+            attributes={"lot_index": "1", "extent_sqft": "1305",
+                        "total_area": "1305 sq.ft"},
         ),
         lx.data.Extraction(
             extraction_class="auction_terms",
@@ -270,13 +288,22 @@ MULTI_EXAMPLE = lx.data.ExampleData(
                              "(West By)- Land Belongs To Mr.Aadhiappan Reddy"),
             attributes={"lot_index": "2", "property_type": "land and building",
                         "survey_numbers_old": "41/28, 25/4",
-                        "total_area": "1526 sq.ft", "extent_sqft": "1526",
-                        "village": "Chinna Chozhiyambampakkam",
-                        "taluk": "Gummidipoodi", "district": "Thiruvallur",
                         "boundary_north": "Pathway",
                         "boundary_south": "Land of Mr.Govindhan",
                         "boundary_east": "Land of Mr.Murugan",
                         "boundary_west": "Land of Mr.Aadhiappan Reddy"},
+        ),
+        lx.data.Extraction(
+            extraction_class="location",
+            extraction_text="Chinna Chozhiyambampakkam Village, Gummidipoodi Taluk, Thiruvallur District",
+            attributes={"lot_index": "2", "village": "Chinna Chozhiyambampakkam",
+                        "taluk": "Gummidipoodi", "district": "Thiruvallur"},
+        ),
+        lx.data.Extraction(
+            extraction_class="extent",
+            extraction_text="1526 Sq.Ft.",
+            attributes={"lot_index": "2", "extent_sqft": "1526",
+                        "total_area": "1526 sq.ft"},
         ),
         lx.data.Extraction(
             extraction_class="auction_terms",
