@@ -45,12 +45,25 @@ class Usage:
     _patched: bool = field(default=False, repr=False)
 
     def add(self, um) -> None:
+        """Record Gemini-direct usage_metadata (google-genai field names)."""
         self.calls += 1
         total_in = getattr(um, "prompt_token_count", 0) or 0
         cached = getattr(um, "cached_content_token_count", 0) or 0
         self.cached_tokens += cached
         self.prompt_tokens += max(total_in - cached, 0)
         self.output_tokens += getattr(um, "candidates_token_count", 0) or 0
+
+    def add_openai(self, usage) -> None:
+        """Record OpenAI/OpenRouter-style usage (chat.completions response.usage)."""
+        self.calls += 1
+        total_in = getattr(usage, "prompt_tokens", 0) or 0
+        cached = 0
+        details = getattr(usage, "prompt_tokens_details", None)
+        if details is not None:
+            cached = getattr(details, "cached_tokens", 0) or 0
+        self.cached_tokens += cached
+        self.prompt_tokens += max(total_in - cached, 0)
+        self.output_tokens += getattr(usage, "completion_tokens", 0) or 0
 
     @property
     def est_cost(self) -> float:
@@ -81,19 +94,42 @@ USAGE = Usage()
 
 
 def install_usage_tracking() -> None:
-    """Monkeypatch genai so every Gemini call records usage (idempotent)."""
+    """Monkeypatch the model clients so every call records usage (idempotent).
+
+    Covers both backends: google-genai (LANGEXTRACT_PROVIDER=gemini) and the
+    OpenAI client used for OpenRouter (LANGEXTRACT_PROVIDER=openrouter, default).
+    """
     if USAGE._patched:
         return
-    orig = _genai_models.Models.generate_content
 
-    def patched(self, *a, **k):
-        resp = orig(self, *a, **k)
+    # Gemini-direct path.
+    orig_genai = _genai_models.Models.generate_content
+
+    def patched_genai(self, *a, **k):
+        resp = orig_genai(self, *a, **k)
         um = getattr(resp, "usage_metadata", None)
         if um is not None:
             USAGE.add(um)
         return resp
 
-    _genai_models.Models.generate_content = patched
+    _genai_models.Models.generate_content = patched_genai
+
+    # OpenRouter / OpenAI path (openai SDK chat.completions.create).
+    try:
+        from openai.resources.chat import completions as _oai
+        orig_oai = _oai.Completions.create
+
+        def patched_oai(self, *a, **k):
+            resp = orig_oai(self, *a, **k)
+            usage = getattr(resp, "usage", None)
+            if usage is not None:
+                USAGE.add_openai(usage)
+            return resp
+
+        _oai.Completions.create = patched_oai
+    except Exception:  # openai not installed / API shape changed — skip gracefully
+        pass
+
     USAGE._patched = True
 
 
