@@ -27,6 +27,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from pipeline import langextract_examples as LX
+from pipeline.langextract_run import USAGE, install_usage_tracking
 from pipeline.validators import COVERAGE_FIELDS, validate
 
 OUT_ROOT = Path(__file__).resolve().parent / "output" / "batches"
@@ -45,14 +46,31 @@ def load_from_dir(path: str) -> list[tuple[str, str]]:
 
 
 def load_from_neo4j(limit: int | None) -> list[tuple[str, str]]:
-    from api.neo4j_client import run_read_query  # noqa: import here (needs creds)
+    """One row per DISTINCT Document with markdown, deduped by content.
+
+    A notice/Document can back several AuctionProperties (and re-auctions reuse
+    identical markdown under different ids), so extracting per property-document
+    pair would re-run — and re-bill — the same notice many times. We key by a
+    representative auction_id and drop byte-identical markdown.
+    """
+    from api.neo4j_client import run_read_query  # needs creds (NEO4J_HTTP_API=1 here)
     rows = run_read_query(
-        "MATCH (p:AuctionProperty)-[:HAS_DOCUMENT]->(d:Document) "
-        "WHERE d.markdown IS NOT NULL AND d.markdown <> '' "
-        "RETURN p.auction_id AS aid, d.markdown AS md ORDER BY aid"
+        "MATCH (d:Document) WHERE d.markdown IS NOT NULL AND d.markdown <> '' "
+        "OPTIONAL MATCH (a:AuctionProperty)-[:HAS_DOCUMENT]->(d) "
+        "WITH d, collect(a.auction_id) AS aids "
+        "RETURN coalesce(aids[0], d.storage_key, d.file_path) AS aid, "
+        "       d.markdown AS md ORDER BY aid"
         + (f" LIMIT {int(limit)}" if limit else ""),
-        max_rows=20_000, timeout=60.0)
-    return [(r["aid"], r["md"]) for r in rows]
+        max_rows=20_000, timeout=120.0)
+    seen: set = set()
+    out: list[tuple[str, str]] = []
+    for r in rows:
+        h = hash(r["md"])
+        if h in seen:
+            continue
+        seen.add(h)
+        out.append((r["aid"], r["md"]))
+    return out
 
 
 def _extract_robust(md: str, tries: int = 3):
@@ -98,6 +116,7 @@ def build_batch_report(records: list[dict]) -> dict:
 
 
 def run(docs: list[tuple[str, str]], batch_size: int) -> None:
+    install_usage_tracking()
     run_id = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     out = OUT_ROOT / run_id
     out.mkdir(parents=True, exist_ok=True)
@@ -134,10 +153,15 @@ def run(docs: list[tuple[str, str]], batch_size: int) -> None:
         "run_id": run_id, "total_docs": len(docs), "batch_size": batch_size,
         "mean_score": round(sum(all_scores) / len(all_scores), 1) if all_scores else 0,
         "issue_frequency": dict(all_issue_freq.most_common()),
+        "usage": {"llm_calls": USAGE.calls, "input_tokens": USAGE.prompt_tokens,
+                  "cached_tokens": USAGE.cached_tokens,
+                  "output_tokens": USAGE.output_tokens,
+                  "est_cost_usd": round(USAGE.est_cost, 4)},
     }
     (out / "summary.json").write_text(
         json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"\nDONE — {len(docs)} docs, mean_score={summary['mean_score']}")
+    print("\n=== USAGE ===\n" + USAGE.report())
     print(f"Reports: {out}")
 
 
