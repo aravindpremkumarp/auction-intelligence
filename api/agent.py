@@ -33,7 +33,7 @@ from pipeline.config import (
 )
 from api.alerts import repository as alerts_repo
 from api.alerts.service import build_alerts
-from api.dossier import qa as dossier_qa
+from api.dossier import dossiers_enabled, qa as dossier_qa
 from api.tools import cypher_tools as T
 from api.tools import web_tools as W
 from api.watchlist import repository as watchlist_repo
@@ -87,12 +87,7 @@ Rules:
    valuations, or external records. Frame borrower follow-ups as
    `borrower_lookup` output ("other auctions tied to this borrower"), never
    "check legal records". Confirm before the state-changing `watch_property`
-   call when the user asks to track/save. EXCEPTION — the signed-in user's OWN
-   uploaded documents (their private dossier: sale deeds, EC, patta, etc.) ARE
-   available via `query_user_dossier`. For questions about *their* documents
-   ("what does my EC say…", "is there a prior mortgage in my deed",
-   "summarize my dossier"), call it and ground the answer in the excerpts it
-   returns — quote the document, never invent contents.
+   call when the user asks to track/save.
 5. The UI matches panel mirrors your latest property tool call. When you
    present a subset of already-found properties without a fresh search
    ("top three of those"), call `select_properties` with those ids.
@@ -115,6 +110,20 @@ Rules:
    if you can't do it, say so plainly and name the closest tool that exists.
 """
 
+# Appended to the role prompt only when the private-dossier feature is enabled
+# (see api.dossier.dossiers_enabled). Kept out of _ROLE_PROMPT so the feature
+# ships dark: when it's off the model is never told the tool exists, and the
+# always-sent prompt prefix shrinks back to its pre-dossier size.
+_DOSSIER_RULE_EXCEPTION = """
+
+8. Private dossier (signed-in users only) — EXCEPTION to rule 4: the user's OWN
+   uploaded documents (their private dossier: sale deeds, EC, patta, etc.) ARE
+   available via `query_user_dossier`, even though they aren't in the public
+   graph. For questions about *their* documents ("what does my EC say…", "is
+   there a prior mortgage in my deed", "summarize my dossier"), call it and
+   ground the answer in the excerpts it returns — quote the document, never
+   invent contents."""
+
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _MODES_DIR = _REPO_ROOT / "modes"
 
@@ -129,7 +138,8 @@ def _load_mode_file(name: str) -> str:
 
 _SHARED_CONTEXT = _load_mode_file("_shared")
 
-SYSTEM_PROMPT = f"{_ROLE_PROMPT}\n\n---\n\n{_SHARED_CONTEXT}" if _SHARED_CONTEXT else _ROLE_PROMPT
+_ROLE = (_ROLE_PROMPT + _DOSSIER_RULE_EXCEPTION) if dossiers_enabled() else _ROLE_PROMPT
+SYSTEM_PROMPT = f"{_ROLE}\n\n---\n\n{_SHARED_CONTEXT}" if _SHARED_CONTEXT else _ROLE
 
 
 # Explicit timeout: pydantic-ai's default HTTP client waits far longer, and a
@@ -581,7 +591,6 @@ async def list_alerts(
     return {"status": "ok", "alerts": alerts, "count": len(alerts)}
 
 
-@agent.tool
 async def query_user_dossier(
     ctx: RunContext[ChatDeps],
     query: str,
@@ -613,3 +622,10 @@ async def query_user_dossier(
     return await dossier_qa.answer_from_dossier(
         sub, query, dossier_id=dossier_id, doc_type=doc_type,
     )
+
+
+# Registered only when the dossier feature is enabled (see dossiers_enabled).
+# Shipping it dark keeps the tool schema out of the model's context for the
+# public release, so the assistant never surfaces a feature users can't reach.
+if dossiers_enabled():
+    agent.tool(query_user_dossier)

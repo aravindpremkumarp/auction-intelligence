@@ -604,6 +604,11 @@ function syncURLForScreen(screen, replace) {
   history[method]({ screen, id: currentDetailId }, '', target);
 }
 function go(screen) {
+  // Dossiers ships dark for the public release (see the index.html bootstrap +
+  // backend DOSSIERS_ENABLED). When it's off, treat any route to it — a tab
+  // click, a /dossiers deep link, or the detail-page button — as a no-op that
+  // lands on home, so the hidden feature is never reachable.
+  if (screen === 'dossiers' && !window.DOSSIERS_ENABLED) screen = 'landing';
   // 'browse' is a virtual nav target (used by the "browse all properties" CTA): it
   // shows the home screen scrolled to the property listing. There's no separate
   // browse tab — it shares the home screen — so the home tab stays highlighted.

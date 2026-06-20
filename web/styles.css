@@ -2508,3 +2508,15 @@ body {
   .dossier-detail-head { flex-direction: column-reverse; align-items: flex-start; }
   .dossiers-wrap { padding: 16px 12px 80px; }
 }
+
+/* ── Dossiers feature flag ────────────────────────────────────────────────
+   The private document-dossier feature ships dark for the public release. Its
+   entry points (top-nav + bottom-tab buttons, the property-detail "create
+   dossier" button, and the screen itself) stay hidden unless the page sets
+   <html class="dossiers-enabled"> — see the bootstrap in index.html (toggle
+   with ?dossiers=1 / ?dossiers=0). Mirrors the backend DOSSIERS_ENABLED flag. */
+html:not(.dossiers-enabled) [data-nav="dossiers"],
+html:not(.dossiers-enabled) #detail-dossier,
+html:not(.dossiers-enabled) [data-screen="dossiers"] {
+  display: none !important;
+}
