@@ -2593,3 +2593,134 @@ html:not(.dossiers-enabled) [data-screen="dossiers"] {
 
 /* — Smooth anchor scrolling for any in-page jumps. */
 html { scroll-behavior: smooth; }
+
+/* =====================================================================
+   PRODUCT-UI PREMIUM LAYER (taste pass — data surfaces)
+   Scope: browse grid, filters, chat, watchlist. Appended last so it wins
+   by source order. Refines the brutalist heavy-ink system into a calmer
+   premium one: hairline borders, one radius scale (controls 8px /
+   surfaces 12px / pills stay pill), accent-tint hovers instead of full
+   accent fills, and softer tinted elevation. Tokens only → dark mode
+   follows. No markup or layout-structure changes.
+   ===================================================================== */
+
+/* ---- Filter bar + controls -------------------------------------------- */
+.browse-filters {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+}
+.browse-search {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.browse-search:focus-within {
+  border-color: var(--accent);
+  box-shadow: var(--shadow-focus);
+}
+.filter-select,
+.filter-multi-btn,
+.filter-num,
+.filter-date,
+.sb-search {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+/* Calm accent-tint hover instead of a full blue fill with dark text */
+.filter-select:hover,
+.filter-multi-btn:hover,
+.filter-multi.open .filter-multi-btn {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.filter-multi-panel {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+}
+.filter-multi-opt { border-radius: var(--radius-xs); margin: 0 4px; padding: 5px 8px; }
+
+/* ---- Browse / result / watchlist cards -------------------------------- */
+.prop {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+.prop:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-md);
+  border-color: var(--accent);
+}
+.prop .thumb {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.prop .title { color: var(--ink); }
+.prop .price { font-size: 16px; color: var(--ink); }
+.prop .bank-tag {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  color: var(--muted);
+  padding: 1px 9px;
+}
+
+/* ---- Chips ------------------------------------------------------------ */
+.chip {
+  border: 1px solid var(--border-strong);
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+.chip:hover { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+.chip.filled { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+
+/* ---- Chat sidebar + thread list -------------------------------------- */
+.chat-sidebar {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+}
+.sb-new {
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.sb-new:hover { transform: translateY(-1px); box-shadow: var(--shadow-accent); }
+.sb-toggle {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.sb-toggle:hover { background: var(--accent-soft); border-color: var(--accent); }
+.sb-search { width: 100%; }
+.sb-item { border-radius: var(--radius-sm); border: 1px solid transparent; }
+.sb-item:hover { background: var(--paper-2); border-color: var(--border); }
+.sb-item.active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.sb-item.active .sb-item-pin { color: var(--accent); }
+#detail-chat-history .pch-item { border-radius: var(--radius-sm); }
+#detail-chat-history .pch-item:hover { background: var(--paper-2); border-color: var(--border); }
+#detail-chat-history .pch-item.active {
+  background: var(--accent-soft); border-color: var(--accent); color: var(--accent);
+}
+#detail-chat-history .pch-item.active .pch-ts { color: var(--accent); }
+
+/* ---- Watchlist -------------------------------------------------------- */
+.watchlist-head { border-bottom: 1px solid var(--border-strong); }
+.timeline-label .rule { background: var(--border-strong); opacity: 1; }
+
+/* ---- Modal (save / feedback dialogs over data) ----------------------- */
+.modal {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+}
+.modal textarea {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+}
+.modal textarea:focus { outline: none; border-color: var(--accent); box-shadow: var(--shadow-focus); }
