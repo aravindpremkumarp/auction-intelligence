@@ -18,6 +18,18 @@ from pathlib import Path
 from evals.langextract_gold import GOLD
 from pipeline import langextract_examples as LX
 
+
+def extract_robust(md: str, tries: int = 3):
+    """LangExtract occasionally returns 0 extractions (transient empty Gemini
+    response) when passes=1. Retry until non-empty so one flaky call doesn't
+    tank a whole notice's score."""
+    res = None
+    for _ in range(tries):
+        res = LX.extract(md)
+        if res.extractions:
+            return res
+    return res
+
 FIX = Path(__file__).resolve().parent / "fixtures"
 _SC_KEYS = ("legal_basis", "bank_name", "assignor_bank", "trust_name",
             "court_reference")
@@ -53,10 +65,15 @@ def flatten(res) -> dict:
         return next((i for i in items if i.get("lot_index") in ("1", None)),
                     items[0] if items else {})
 
+    # A notice often emits several `location` spans for one lot (the "Situated
+    # At ..." span plus a separate "Sub-Registration District of ..." clause);
+    # union their attrs (first non-null wins) so nothing is lost.
+    lot1_locs = [l for l in locs if l.get("lot_index") in ("1", None)] or locs
     for k in _LOC_KEYS:
-        v = _lot1(locs).get(k)
-        if v:
-            out[k] = v
+        for loc in lot1_locs:
+            if loc.get(k):
+                out[k] = loc[k]
+                break
     if _lot1(props).get("possession_type"):
         out["possession_type"] = _lot1(props)["possession_type"]
     out["reserve_set"] = {float(t["reserve_price_num"]) for t in terms
@@ -110,7 +127,7 @@ def main() -> int:
           f"(passes={os.environ['LANGEXTRACT_PASSES']})\n")
     for g in GOLD:
         md = (FIX / f"{g['aid']}.txt").read_text(encoding="utf-8")
-        flat = flatten(LX.extract(md))
+        flat = flatten(extract_robust(md))
         rows = score_notice(g, flat)
         c = sum(1 for *_, ok in rows if ok)
         total += len(rows)

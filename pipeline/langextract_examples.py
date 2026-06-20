@@ -88,6 +88,23 @@ CONVENTIONS:
 - For EVERY lot emit (when present) property, location, extent, its identifiers,
   its boundaries, auction_terms and outstanding — do not stop at property_type.
 
+SLOTTING RULES (avoid these common mistakes):
+- "Registration District of X" / "X Registration District" -> location
+  registration_district=X. "Sub-Registration District of Y" / "Sub Registration
+  District" -> location registration_sub_district=Y. Keep them OUT of `district`
+  (district is the revenue district). Emit them even if they sit in a separate
+  clause at the end of the property description.
+- "X Hobli" -> location hobli=X (Karnataka) — NOT taluk. "X Grama Panchayath" ->
+  location panchayat. "within the limits of X Corporation" -> municipality_corporation.
+- DRT case refs ("OA No...", "RC No...", "RP No...", "TRC No...") and IBC refs
+  ("CP(IB)...", "IA...", NCLT order) -> secured_creditor court_reference — NEVER
+  loan_account_no (loan_account_no is the bank loan A/c number).
+- ARC notices: the ARC is the seller -> secured_creditor bank_name; the bank the
+  debt was assigned FROM -> assignor_bank; the "... Trust" -> trust_name;
+  legal_basis stays SARFAESI.
+- Survey numbers may be prefixed "R.S No.", "T.S No.", "S.F No.", "Re Sy No.",
+  "Old/New S.No." — still emit each as an identifier with kind survey_old/survey_new.
+
 The authoritative field semantics and edge cases (DRT "Upset Price", IBC
 liquidators, ARC assignor/trust, column-unit money, etc.) are below; follow them:
 
