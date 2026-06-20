@@ -1,0 +1,120 @@
+{
+  "docs": 30,
+  "mean_score": 91.1,
+  "min_score": 32,
+  "issue_frequency": {
+    "legal_basis_bad": 11,
+    "ungrounded": 9,
+    "lot_under_recall": 6,
+    "null_value": 2,
+    "missing_borrower": 1,
+    "missing_location": 1,
+    "missing_reserve_price": 1,
+    "missing_extent": 1
+  },
+  "issue_examples": {
+    "lot_under_recall": [
+      "738518",
+      "738868",
+      "738881",
+      "738983",
+      "739225"
+    ],
+    "legal_basis_bad": [
+      "738522",
+      "738868",
+      "738908",
+      "738969",
+      "739225"
+    ],
+    "ungrounded": [
+      "738748",
+      "738868",
+      "738881",
+      "739225",
+      "739513"
+    ],
+    "missing_borrower": [
+      "739481"
+    ],
+    "missing_location": [
+      "739481"
+    ],
+    "missing_reserve_price": [
+      "739481"
+    ],
+    "missing_extent": [
+      "739481"
+    ],
+    "null_value": [
+      "740177",
+      "740684"
+    ]
+  },
+  "field_coverage_pct": {
+    "legal_basis": 96.7,
+    "bank_name": 93.3,
+    "possession_type": 43.3,
+    "reserve_price_num": 96.7,
+    "emd_num": 86.7,
+    "village": 86.7,
+    "taluk": 86.7,
+    "district": 80.0,
+    "registration_district": 70.0,
+    "registration_sub_district": 73.3,
+    "borrower": 96.7,
+    "location": 96.7,
+    "extent": 96.7,
+    "identifier": 93.3
+  },
+  "improvement_targets": {
+    "lowest_coverage_fields": [
+      [
+        "possession_type",
+        43.3
+      ],
+      [
+        "registration_district",
+        70.0
+      ],
+      [
+        "registration_sub_district",
+        73.3
+      ],
+      [
+        "district",
+        80.0
+      ],
+      [
+        "emd_num",
+        86.7
+      ],
+      [
+        "village",
+        86.7
+      ]
+    ],
+    "top_issues": [
+      [
+        "legal_basis_bad",
+        11
+      ],
+      [
+        "ungrounded",
+        9
+      ],
+      [
+        "lot_under_recall",
+        6
+      ],
+      [
+        "null_value",
+        2
+      ],
+      [
+        "missing_borrower",
+        1
+      ]
+    ]
+  }
+}
