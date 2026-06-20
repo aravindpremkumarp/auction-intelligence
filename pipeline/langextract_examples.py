@@ -49,8 +49,15 @@ IBC). Use these entity classes:
 - emd_account: where EMD is remitted (attrs: account_name, account_no, ifsc).
 Rules: extraction_text MUST be copied verbatim from the document. Put rupee
 amounts as integers in attributes (Rs.9,50,000 -> 950000). Preserve the unicode
-fractions ½ ¼ ¾. Dates as ISO where possible. For multi-lot notices, tag every
-entity of the Nth lot with lot_index=N.
+fractions ½ ¼ ¾. Dates as ISO 8601 (YYYY-MM-DDThh:mm) — always include the time
+when the notice gives one. For multi-lot notices, tag every entity of the Nth lot
+with lot_index=N.
+COMPLETENESS: for EVERY `property`, always populate these attributes whenever the
+text contains them — property_type, survey_numbers_old, survey_numbers_new,
+patta_no, total_area, extent_sqft, village, taluk, district,
+registration_district, and boundary_north/south/east/west. Do NOT stop at
+property_type. OMIT any attribute that is genuinely absent — NEVER output the
+literal string "null", "NA", or an empty value; just leave the key out.
 """
 
 # --------------------------------------------------------------------------- #
