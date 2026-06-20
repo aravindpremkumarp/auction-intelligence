@@ -132,6 +132,7 @@ def run(docs: list[tuple[str, str]], batch_size: int) -> None:
                 rec = {"aid": aid, "score": v["score"], "issues": v["issues"],
                        "fields": v["fields"], "stats": v["stats"]}
                 records.append(rec)
+                USAGE.docs += 1
                 rf.write(json.dumps(rec, ensure_ascii=False) + "\n")
                 if v["score"] <= REVIEW_SCORE_THRESHOLD:
                     review.write(json.dumps(
