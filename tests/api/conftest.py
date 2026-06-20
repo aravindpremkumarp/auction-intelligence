@@ -30,6 +30,10 @@ os.environ.setdefault("SUPABASE_ANON_KEY", "fake-anon")
 os.environ.setdefault("APP_ENV", "test")
 os.environ.setdefault("RATELIMIT_DISABLED", "1")
 os.environ.setdefault("AUTH_ENABLED", "true")
+# Dossiers ship dark in prod (DOSSIERS_ENABLED defaults off) — turn the feature
+# on for the test suite so the /dossiers router is mounted and its contract
+# tests exercise real routes.
+os.environ.setdefault("DOSSIERS_ENABLED", "true")
 
 
 def _install_stub_agent() -> None:
