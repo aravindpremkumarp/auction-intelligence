@@ -46,10 +46,15 @@
   --radius-xs: 6px;
   --radius-pill: 999px;
 
-  /* One modern sans-serif system — legacy font vars all map to Inter */
+  /* Premium type system — a characterful grotesk for display, Inter for UI
+     body, and a true monospace for labels/data (legacy var NAMES preserved so
+     existing markup adopts the new faces automatically). */
   --font-body: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  --font-hand: var(--font-body);
-  --font-mono: var(--font-body);
+  --font-hand: 'Bricolage Grotesque', 'Inter', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+
+  /* Accent-tinted elevation for primary surfaces (hero CTA, focused cards) */
+  --shadow-accent: 0 10px 28px -10px rgba(37, 99, 235, 0.40);
 
   color-scheme: light;
 }
@@ -80,6 +85,7 @@
   --shadow: 0 1px 3px rgba(0,0,0,0.5), 0 1px 2px rgba(0,0,0,0.4);
   --shadow-md: 0 6px 18px -6px rgba(0,0,0,0.6), 0 2px 6px -2px rgba(0,0,0,0.4);
   --shadow-lg: 0 18px 40px -12px rgba(0,0,0,0.7);
+  --shadow-accent: 0 12px 32px -10px rgba(59, 130, 246, 0.50);
 
   color-scheme: dark;
 }
@@ -2520,3 +2526,70 @@ html:not(.dossiers-enabled) #detail-dossier,
 html:not(.dossiers-enabled) [data-screen="dossiers"] {
   display: none !important;
 }
+
+/* =====================================================================
+   PREMIUM POLISH LAYER (taste pass)
+   Appended last so it wins by source order. Pure presentation: type
+   presence, interaction feedback, accent-tinted elevation, tabular
+   figures, and ambient depth. No layout or markup changes.
+   ===================================================================== */
+
+/* — Display type presence — Bricolage Grotesque wants tight, confident
+     tracking at large sizes; let headlines breathe and never orphan. */
+.landing-hero h1 {
+  letter-spacing: -0.025em;
+  line-height: 1.02;
+  text-wrap: balance;
+}
+.browse-head h2,
+.watchlist-head h2,
+.detail-title,
+.timeline-label,
+.results-head .count,
+.chat-empty-title {
+  letter-spacing: -0.015em;
+  text-wrap: balance;
+}
+.brand-name { letter-spacing: -0.01em; }
+
+/* — Tabular figures everywhere numbers carry meaning (prices, counts,
+     countdowns) so columns and changing values stay optically aligned. */
+.prop .price,
+.prop .countdown,
+.browse-meta .count,
+.results-head .count,
+.results-count,
+.price-history,
+.detail-title,
+.count {
+  font-variant-numeric: tabular-nums;
+}
+
+/* — Primary buttons: smooth motion + a real pressed state + accent lift.
+     (Base .btn had an instant, untransitioned hover and no :active.) */
+.btn {
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+.btn:hover { box-shadow: var(--shadow-md); }
+.btn:not(.ghost):not(.ink):hover { box-shadow: var(--shadow-accent); }
+.btn:active { transform: translate(0, 0); box-shadow: var(--shadow); }
+
+/* — Send button: same physical feedback as primary actions. */
+.chat-input .send {
+  transition: transform 0.15s ease, box-shadow 0.15s ease,
+              background 0.15s ease, color 0.15s ease;
+}
+.chat-input .send:hover { box-shadow: var(--shadow-accent); }
+.chat-input .send:active { transform: scale(0.94); }
+
+/* — Ambient depth behind the hero headline: a soft accent wash instead of
+     a flat empty canvas, fading to nothing so it never reads as a banner. */
+.landing-hero {
+  background:
+    radial-gradient(120% 90% at 50% -10%,
+      var(--accent-soft) 0%,
+      transparent 60%);
+}
+
+/* — Smooth anchor scrolling for any in-page jumps. */
+html { scroll-behavior: smooth; }
