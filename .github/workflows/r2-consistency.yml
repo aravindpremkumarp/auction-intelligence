@@ -1,0 +1,46 @@
+name: R2 consistency check
+
+# Guards against the multi-property-notice 404 class: a :Document whose
+# public_url / storage_key points at an R2 object that doesn't exist. One
+# notice file is shared across the lots of a multi-property notice, and the
+# dedupe/upload steps choose a canonical public_url — if a Document ends up
+# pointing at a key whose object was never uploaded (or was later cleaned up),
+# the review UI's <img> 404s. This job cross-checks the graph against the
+# bucket and fails (alerting via the failed run) when anything dangles.
+
+on:
+  schedule:
+    - cron: "30 6 * * 1" # Mondays 06:30 UTC (just after data-freshness)
+  workflow_dispatch:
+
+concurrency:
+  group: r2-consistency
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      NEO4J_URI:            ${{ secrets.NEO4J_URI }}
+      NEO4J_USERNAME:       ${{ secrets.NEO4J_USERNAME }}
+      NEO4J_PASSWORD:       ${{ secrets.NEO4J_PASSWORD }}
+      NEO4J_DATABASE:       ${{ secrets.NEO4J_DATABASE }}
+      R2_ACCOUNT_ID:        ${{ secrets.R2_ACCOUNT_ID }}
+      R2_ACCESS_KEY_ID:     ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      R2_BUCKET:            ${{ secrets.R2_BUCKET }}
+      R2_PUBLIC_BASE_URL:   ${{ secrets.R2_PUBLIC_BASE_URL }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install boto3 neo4j python-dotenv
+
+      - name: Cross-check Document.storage_key against R2
+        run: python -m scripts.check_r2_consistency --show 25
