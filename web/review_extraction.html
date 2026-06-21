@@ -60,10 +60,38 @@ const api=(p,o={})=>fetch(API_BASE+p,{credentials:"include",...o});
 const esc=s=>(s||"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
 function setMsg(t){document.getElementById("msg").textContent=t;setTimeout(()=>document.getElementById("msg").textContent="",2500);}
 
+// Replace the document pane with a full-width explanatory notice. Used for the
+// empty / not-authed / errored states so the surface never just shows blank.
+function mainNotice(html){
+  document.getElementById("title").textContent="Extraction review";
+  document.getElementById("status").innerHTML="";
+  document.getElementById("legend").innerHTML="";
+  document.getElementById("doc").innerHTML=
+    '<div style="padding:22px 4px;color:#475569;font-size:13px;max-width:580px;line-height:1.65">'+html+'</div>';
+}
 async function loadQueue(){
-  const r=await api("/review/extraction/queue?limit=500");
-  if(!r.ok){document.getElementById("nav").innerHTML="<div class=nav>load failed ("+r.status+") — admin login required</div>";return;}
-  const q=await r.json();const nav=document.getElementById("nav");nav.innerHTML="";
+  const nav=document.getElementById("nav");
+  let r;
+  try{ r=await api("/review/extraction/queue?limit=500"); }
+  catch(err){
+    nav.innerHTML="<div class=nav>couldn't reach server</div>";
+    mainNotice("<b>Couldn't load the extraction queue.</b><br>The request failed (network error). Make sure the API is running and reachable, then reload.");
+    return;
+  }
+  if(!r.ok){
+    const auth=(r.status===401||r.status===403);
+    nav.innerHTML="<div class=nav>load failed ("+r.status+")</div>";
+    mainNotice(auth
+      ? "<b>Admin login required.</b><br>The extraction queue is admin-only. Sign in as an admin and reload this page."
+      : "<b>Couldn't load the extraction queue ("+r.status+").</b><br>Check the API logs and reload.");
+    return;
+  }
+  const q=await r.json();nav.innerHTML="";
+  if(!q.rows||!q.rows.length){
+    nav.innerHTML="<div class=nav style='color:#94a3b8'>queue is empty</div>";
+    mainNotice("<b>No extractions to review yet.</b><br>This queue lists documents that have grounded LangExtract output. None have been loaded into the graph so far.<br><br>Populate it by running the loader over documents that already have markdown:<br><br><code style='background:#0f172a;color:#e2e8f0;border-radius:6px;padding:8px 10px;display:inline-block;font-size:12px'>NEO4J_HTTP_API=1 LANGEXTRACT_PROVIDER=openrouter \\<br>&nbsp;&nbsp;python -m pipeline.load_extractions --limit 50</code><br><br>Then reload this page.");
+    return;
+  }
   q.rows.forEach(row=>{const e=document.createElement("div");e.className="nav";
     e.innerHTML=`<div>${esc(row.filename)}</div><div class=meta>${row.n_fields} fields · ${row.n_ungrounded} ungrounded · <span class="badge b-${row.status}">${row.status}</span></div>`;
     e.onclick=()=>loadDoc(row.filename,e);nav.appendChild(e);});
