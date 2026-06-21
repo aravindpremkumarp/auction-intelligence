@@ -149,6 +149,48 @@ def upload_file(local_path: Path | str, key: str, content_type: Optional[str] = 
     return public_url_for(key)
 
 
+def upload_bytes(key: str, body: bytes, content_type: Optional[str] = None) -> str:
+    """Upload raw ``body`` bytes to the PUBLIC bucket under ``key``.
+
+    Returns the public URL. Mirrors :func:`upload_file` for callers that hold
+    bytes in memory (e.g. members extracted from a MinerU result zip) rather
+    than a file on disk. Idempotent — re-uploads overwrite the same key.
+    """
+    _require_config()
+    client = r2_client()
+    client.put_object(
+        Bucket=R2_BUCKET,
+        Key=key,
+        Body=body,
+        ContentType=content_type or "application/octet-stream",
+    )
+    return public_url_for(key)
+
+
+# ── MinerU raw-artifact archival keys ─────────────────────────────────────────
+#
+# Going-forward OCR runs archive MinerU's complete result zip (and the image /
+# table crops extracted from it) to the public bucket so nothing MinerU emits is
+# lost. Keys are namespaced under ``mineru/`` and derived from the Document's
+# safe cache name so the same notice always lands on the same key.
+
+_MINERU_KEY_PREFIX = "mineru"
+
+
+def mineru_zip_key(safe_name: str) -> str:
+    """R2 key for a notice's complete MinerU result zip."""
+    return f"{_MINERU_KEY_PREFIX}/raw_zips/{_safe_segment(safe_name)}.zip"
+
+
+def mineru_image_key(safe_name: str, image_name: str) -> str:
+    """R2 key for one image/table crop extracted from a MinerU result zip.
+
+    ``image_name`` is the crop's basename (MinerU uses globally-unique
+    content-hash filenames, so the basename alone is a safe, stable key).
+    """
+    return f"{_MINERU_KEY_PREFIX}/images/{_safe_segment(safe_name)}/{_safe_segment(image_name)}"
+
+
 # ── Private dossier storage ───────────────────────────────────────────────────
 #
 # The public path above shares one bucket served openly from R2_PUBLIC_BASE_URL.

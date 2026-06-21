@@ -21,6 +21,7 @@ import os
 import time
 import zipfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timezone
 from pathlib import Path
 
 import requests
@@ -33,6 +34,7 @@ from pipeline.mineru import (
     MINERU_RAW_ZIPS_DIR,
     MINERU_EXT_REMAP,
     safe_cache_name,
+    write_mineru_meta,
 )
 
 
@@ -258,14 +260,83 @@ def parse_zip_payload(zip_bytes: bytes) -> tuple[str | None, list | None]:
     return md_text, blocks_raw
 
 
+def archive_zip_to_r2(file_path: str, zip_bytes: bytes) -> dict:
+    """Archive MinerU's complete result zip + its image/table crops to R2.
+
+    Keeps everything MinerU emits so it can be used later: the whole zip lands
+    at ``mineru/raw_zips/<safe>.zip`` and every crop under the zip's ``images/``
+    folder is uploaded individually so blocks can link to a usable URL. The
+    returned metadata (also written to the on-disk sidecar via
+    ``write_mineru_meta``) is::
+
+        {"zip_url": str|None, "img_map": {basename: url}, "archived_at": iso}
+
+    Best-effort: a missing R2 config or an upload error is logged and yields a
+    partial/empty result — a storage problem must never fail the OCR run.
+    """
+    from pipeline import storage  # lazy: only pull boto3 when we actually archive
+
+    safe = safe_cache_name(file_path)
+    meta: dict = {
+        "zip_url": None,
+        "img_map": {},
+        "archived_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    }
+
+    try:
+        meta["zip_url"] = storage.upload_bytes(
+            storage.mineru_zip_key(safe), zip_bytes, "application/zip")
+    except Exception as e:
+        print(f"    [r2-archive] zip upload failed for {safe[:60]}: "
+              f"{type(e).__name__}: {e}")
+
+    try:
+        z = zipfile.ZipFile(io.BytesIO(zip_bytes))
+    except zipfile.BadZipFile:
+        z = None
+    if z is not None:
+        for name in z.namelist():
+            if name.endswith("/"):
+                continue
+            # MinerU stores figure/table crops under an ``images/`` folder.
+            if not (name.startswith("images/") or "/images/" in name):
+                continue
+            base = name.rsplit("/", 1)[-1]
+            try:
+                body = z.read(name)
+            except KeyError:
+                continue
+            try:
+                meta["img_map"][base] = storage.upload_bytes(
+                    storage.mineru_image_key(safe, base),
+                    body, storage.guess_content_type(base))
+            except Exception as e:
+                print(f"    [r2-archive] image upload failed {base[:40]}: "
+                      f"{type(e).__name__}: {e}")
+
+    try:
+        write_mineru_meta(file_path, meta)
+    except OSError as e:
+        print(f"    [r2-archive] meta sidecar write failed for {safe[:60]}: {e}")
+    return meta
+
+
 def download_and_cache(file_path: str, full_zip_url: str,
-                       *, keep_zip: bool = False) -> tuple[Path | None, Path | None]:
+                       *, keep_zip: bool = False,
+                       archive_to_r2: bool = False) -> tuple[Path | None, Path | None]:
     """Download the MinerU zip and write its payload to the on-disk caches.
 
     Caches written:
       - ``pipeline/cache/mineru_markdown/<safe>.md`` (the ``full.md`` text)
       - ``pipeline/cache/mineru_blocks/<safe>.json`` (the parsed content-list)
       - ``pipeline/cache/mineru_raw_zips/<safe>.zip`` if ``keep_zip=True``
+
+    When ``archive_to_r2`` is set (full-document OCR runs), the complete result
+    zip and every image/table crop inside it are also archived to R2 via
+    :func:`archive_zip_to_r2`, and a metadata sidecar is written under
+    ``pipeline/cache/mineru_meta/`` so the loader can stamp the zip URL on the
+    Document and resolve each block's image URL. Single-block re-extract leaves
+    this off (default) so it never spawns per-crop uploads.
 
     Returns ``(md_path, blocks_path)``. Either is ``None`` when that
     artifact was missing or unparseable.
@@ -283,6 +354,9 @@ def download_and_cache(file_path: str, full_zip_url: str,
     if keep_zip:
         MINERU_RAW_ZIPS_DIR.mkdir(parents=True, exist_ok=True)
         (MINERU_RAW_ZIPS_DIR / f"{safe}.zip").write_bytes(zip_bytes)
+
+    if archive_to_r2:
+        archive_zip_to_r2(file_path, zip_bytes)
 
     md_text, blocks_raw = parse_zip_payload(zip_bytes)
     md_out: Path | None = None
