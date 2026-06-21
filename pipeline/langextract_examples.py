@@ -11,8 +11,8 @@ Equitas SFB) are annotated to FULL PARITY (option A) with the scheme, across the
 grounded entity classes — chosen so LangExtract extracts spans (its strength)
 rather than long attribute lists (its weakness):
 
-  secured_creditor  borrower  contact  property  location  identifier  extent
-  boundary  schedule  auction_terms  outstanding  emd_account
+  secured_creditor  borrower  contact  property  full_description  location
+  identifier  extent  boundary  schedule  auction_terms  outstanding  emd_account
 
 For MULTI notices every entity of the Nth lot carries ``lot_index=N`` so lots can
 be regrouped into one AuctionProperty each. Fields the two sample notices do not
@@ -57,6 +57,12 @@ entities using EXACTLY these extraction classes (one span each, copied VERBATIM)
 - property         : one lot's property block. attrs: property_type, asset_category,
   possession_type, possession_date, construction_type, occupancy_status,
   title_deed_holder, branch_of_lot, lot_index.
+- full_description : the COMPLETE property-description block for ONE lot, copied
+  verbatim as a SINGLE span — preamble + all items/schedules + boundaries +
+  trailing structural / registration detail, with section labels preserved.
+  EXCLUDE terms-of-sale boilerplate (price, EMD, dates, "as is where is"). This
+  span deliberately OVERLAPS the granular property/location/extent/boundary spans
+  (it is their union) — emit BOTH the block and the granular spans. attrs: lot_index.
 - location         : the "Situated At ..." span. attrs: village, taluk, district,
   city, state, panchayat, municipality_corporation, ward_no, hobli,
   registration_district, registration_sub_district, landmark, latitude, longitude,
@@ -85,8 +91,9 @@ CONVENTIONS:
   57234000). Preserve unicode fractions ½ ¼ ¾. Dates ISO 8601 with time when given.
 - OMIT any attribute that is absent — NEVER output the string "null"/"NA"/empty.
 - For multi-lot notices tag every per-lot entity with lot_index=N.
-- For EVERY lot emit (when present) property, location, extent, its identifiers,
-  its boundaries, auction_terms and outstanding — do not stop at property_type.
+- For EVERY lot emit (when present) property, full_description, location, extent,
+  its identifiers, its boundaries, auction_terms and outstanding — do not stop at
+  property_type.
 
 SLOTTING RULES (avoid these common mistakes):
 - "Registration District of X" / "X Registration District" -> location
@@ -168,6 +175,17 @@ SINGLE_EXAMPLE = lx.data.ExampleData(
           "256/1F, SF No 390/1, Plot No 4", lot_index="1",
           property_type="vacant land", asset_category="immovable",
           possession_type="physical"),
+        E("full_description", "Equitable mortgage of vacant land located in UDR "
+          "SF No 256/1F, SF No 390/1, Plot No 4, Perambalur North Village, "
+          "Perambalur Taluk and District. Item No 1 : An extent of East West 30 "
+          "feet on both sides, North South Eastern site 40 feet, Western side 28 ¼ "
+          "feet, admeasuring an extent of 1023 ¼ Square feet (95.11 Square meters) "
+          "having the following four boundaries : East of Plot No 5, West of Plot "
+          "No 1 belonged to Kowsalya and Varatharajan, South of Plot belongs to "
+          "Gomathi W/o Vijayakumar, North of 2nd item. Item No 2 : An extent of "
+          "218 ¼ square feet (20.32 Square meters). The total extent of above two "
+          "items of plots are 1242 ¼ Square feet (115.43 Square Meters).",
+          lot_index="1"),
         E("location", "Perambalur North Village, Perambalur Taluk and District",
           lot_index="1", village="Perambalur North", taluk="Perambalur",
           district="Perambalur"),
@@ -247,6 +265,11 @@ MULTI_EXAMPLE = lx.data.ExampleData(
           "S.Nos.108/6A, 99/13, As Per Patta No.96, New S.No.99/13A, & 108/6A",
           lot_index="1", property_type="land and building",
           asset_category="immovable"),
+        E("full_description", "All That Piece And Parcel Of Land And Building, "
+          "Comprised In S.Nos.108/6A, 99/13, As Per Patta No.96, New S.No.99/13A, "
+          "& 108/6A, With An Extent Of 1305 Sq.Ft., Situated At Penia "
+          "Chozhiyampakkam Village, Gummidipoondi Taluk, Thiruvallur District.",
+          lot_index="1"),
         E("location", "Penia Chozhiyampakkam Village, Gummidipoondi Taluk, "
           "Thiruvallur District", lot_index="1", village="Penia Chozhiyampakkam",
           taluk="Gummidipoondi", district="Thiruvallur"),
@@ -270,6 +293,12 @@ MULTI_EXAMPLE = lx.data.ExampleData(
         E("property", "All That Piece And Parcel Of Land And Building, Comprised In "
           "S.Nos.41/28, 25/4", lot_index="2", property_type="land and building",
           asset_category="immovable"),
+        E("full_description", "All That Piece And Parcel Of Land And Building, "
+          "Comprised In S.Nos.41/28, 25/4, With An Extent Of 1526 Sq.Ft., Situated "
+          "At Chinna Chozhiyambampakkam Village, Gummidipoodi Taluk, Thiruvallur "
+          "District And Bounded On: (North By)- Pathway (South By)- Land Belongs To "
+          "Mr.Govindhan (East By)- Land Belongs To Mr.Murugan (West By)- Land "
+          "Belongs To Mr.Aadhiappan Reddy.", lot_index="2"),
         E("location", "Chinna Chozhiyambampakkam Village, Gummidipoodi Taluk, "
           "Thiruvallur District", lot_index="2",
           village="Chinna Chozhiyambampakkam", taluk="Gummidipoodi",
