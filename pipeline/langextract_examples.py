@@ -106,11 +106,16 @@ CONVENTIONS:
   property_type.
 
 SLOTTING RULES (avoid these common mistakes):
-- "Registration District of X" / "X Registration District" -> location
-  registration_district=X. "Sub-Registration District of Y" / "Sub Registration
-  District" -> location registration_sub_district=Y. Keep them OUT of `district`
-  (district is the revenue district). Emit them even if they sit in a separate
-  clause at the end of the property description.
+- REGISTRATION DISTRICTS — nearly every Tamil Nadu / Andhra notice closes with
+  these and they are HIGH VALUE; do NOT drop the closing clause as boilerplate.
+  The clause "within the Registration District of X and the Sub-Registration
+  District of Y" (EITHER order) -> emit a SEPARATE location span carrying
+  registration_district=X and registration_sub_district=Y. Variants:
+  "X Registration District", "Sub Registration District of Y", "S.R.O. Y" /
+  "SRO:Y" -> registration_sub_district=Y. Keep BOTH OUT of `district` (the revenue
+  district, e.g. Kancheepuram / Chengalpattu) and out of `taluk` — they are the
+  separate registration hierarchy. Emit even when they sit in a trailing clause
+  after the survey/patta details.
 - "X Hobli" -> location hobli=X (Karnataka) — NOT taluk. "X Grama Panchayath" ->
   location panchayat. "within the limits of X Corporation" -> municipality_corporation.
 - DRT case refs ("OA No...", "RC No...", "RP No...", "TRC No...") and IBC refs
