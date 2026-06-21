@@ -1,0 +1,119 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Extraction review</title>
+<!--
+  Editable grounded review surface for LangExtract output.
+  Talks to the admin-gated /review/extraction/* endpoints (api/review/extraction.py).
+  Standalone scaffold — fold into web/review.html's stage-tabs once the flow is signed off.
+  Relies on the existing admin session cookie (fetch sends credentials).
+-->
+<style>
+ body{font-family:system-ui,Segoe UI,Arial;margin:0;color:#0f172a;background:#f1f5f9}
+ #wrap{display:flex;height:100vh}
+ #side{width:260px;background:#0f172a;color:#cbd5e1;overflow:auto;flex:none}
+ #side h2{color:#fff;font-size:13px;padding:12px 14px;margin:0;border-bottom:1px solid #1e293b}
+ .nav{padding:8px 14px;cursor:pointer;border-bottom:1px solid #1e293b;font-size:12px}
+ .nav:hover{background:#1e293b}.nav.active{background:#2563eb;color:#fff}
+ .nav .meta{color:#94a3b8;font-size:11px}
+ .badge{border-radius:9px;padding:1px 7px;font-size:11px;font-weight:700}
+ .b-pending{background:#475569;color:#e2e8f0}.b-edited{background:#d97706;color:#fff}.b-verified{background:#16a34a;color:#fff}
+ #main{flex:1;overflow:auto;padding:16px 20px}
+ #bar{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+ button{cursor:pointer;border:1px solid #cbd5e1;background:#fff;border-radius:7px;padding:6px 12px;font-size:13px}
+ button.primary{background:#2563eb;color:#fff;border-color:#2563eb}
+ #doc{display:flex;gap:18px}
+ #src{flex:1.3;background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:14px;white-space:pre-wrap;line-height:1.7;font-size:13px;max-height:84vh;overflow:auto}
+ #fields{flex:1;max-height:84vh;overflow:auto}
+ .fld{background:#fff;border:1px solid #e2e8f0;border-radius:9px;padding:9px 11px;margin-bottom:8px}
+ .fld .c{font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px}
+ .fld input{width:100%;box-sizing:border-box;border:1px solid #cbd5e1;border-radius:6px;padding:5px 7px;font-size:13px}
+ .fld .save{margin-top:5px;font-size:12px;padding:3px 9px}
+ .ung{background:#fee2e2;color:#991b1b;border-radius:8px;padding:0 6px;font-size:10px;font-weight:700}
+ .corr{color:#16a34a;font-size:11px;margin-top:3px}
+ mark{border-radius:3px;padding:0 1px}
+ #msg{font-size:12px;color:#64748b}
+</style>
+<div id="wrap">
+  <div id="side"><h2>Extraction queue</h2><div id="nav"></div></div>
+  <div id="main">
+    <div id="bar">
+      <h3 id="title" style="margin:0">Select a document</h3>
+      <span id="status"></span>
+      <span style="flex:1"></span>
+      <button class="primary" id="verifyBtn" onclick="doVerify()">✓ Verify</button>
+      <button id="unverifyBtn" onclick="doUnverify()">Unverify</button>
+      <span id="msg"></span>
+    </div>
+    <div id="legend" style="margin-bottom:8px"></div>
+    <div id="doc"><div id="src"></div><div id="fields"></div></div>
+  </div>
+</div>
+<script>
+const COLORS={secured_creditor:"#fde68a",borrower:"#bbf7d0",contact:"#e9d5ff",property:"#fed7aa",
+ location:"#bfdbfe",identifier:"#fbcfe8",extent:"#a5f3fc",boundary:"#fecaca",schedule:"#ddd6fe",
+ auction_terms:"#c7d2fe",outstanding:"#fef08a",emd_account:"#d9f99d"};
+let CUR=null;
+const api=(p,o={})=>fetch(p,{credentials:"include",...o});
+const esc=s=>(s||"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+function setMsg(t){document.getElementById("msg").textContent=t;setTimeout(()=>document.getElementById("msg").textContent="",2500);}
+
+async function loadQueue(){
+  const r=await api("/review/extraction/queue?limit=500");
+  if(!r.ok){document.getElementById("nav").innerHTML="<div class=nav>load failed ("+r.status+") — admin login required</div>";return;}
+  const q=await r.json();const nav=document.getElementById("nav");nav.innerHTML="";
+  q.rows.forEach(row=>{const e=document.createElement("div");e.className="nav";
+    e.innerHTML=`<div>${esc(row.filename)}</div><div class=meta>${row.n_fields} fields · ${row.n_ungrounded} ungrounded · <span class="badge b-${row.status}">${row.status}</span></div>`;
+    e.onclick=()=>loadDoc(row.filename,e);nav.appendChild(e);});
+}
+async function loadDoc(fn,el){
+  [...document.querySelectorAll(".nav")].forEach(n=>n.classList.remove("active"));if(el)el.classList.add("active");
+  const r=await api("/review/extraction/"+encodeURIComponent(fn));
+  if(!r.ok){setMsg("load failed "+r.status);return;}
+  CUR=await r.json();render();
+}
+function render(){
+  const d=CUR;
+  document.getElementById("title").textContent=d.filename;
+  document.getElementById("status").innerHTML=`<span class="badge b-${d.status}">${d.status}</span>`+
+    (d.verified_by?` <span style="color:#64748b;font-size:12px">by ${esc(d.verified_by)}</span>`:"");
+  const cls=[...new Set(d.fields.map(f=>f.cls))];
+  document.getElementById("legend").innerHTML=cls.map(c=>`<span class=badge style="background:${COLORS[c]||'#e2e8f0'};color:#0f172a">${c}</span>`).join(" ");
+  // highlighted source
+  const sp=d.fields.filter(f=>f.start!=null).map(f=>({s:f.start,e:f.end,c:f.cls})).sort((a,b)=>a.s-b.s);
+  let out="",pos=0;const md=d.markdown||"";
+  for(const x of sp){if(x.s<pos)continue;out+=esc(md.slice(pos,x.s));
+    out+=`<mark style="background:${COLORS[x.c]||'#e2e8f0'}" title="${x.c}">${esc(md.slice(x.s,x.e))}</mark>`;pos=x.e;}
+  out+=esc(md.slice(pos));document.getElementById("src").innerHTML=out;
+  // editable fields
+  let f="";
+  d.fields.forEach(fl=>{
+    const ung=fl.grounded?"":" <span class=ung>UNGROUNDED</span>";
+    const attrs=Object.entries(fl.attrs).map(([k,v])=>`<b>${esc(k)}</b>: ${esc(String(v))}`).join(" · ");
+    const val=esc(fl.corrected_value!=null?fl.corrected_value:fl.text);
+    f+=`<div class="fld"><div class="c">${fl.cls}${fl.lot_index?(" · lot "+fl.lot_index):""}${ung}</div>
+      <div style="background:${COLORS[fl.cls]||'#f1f5f9'};display:inline-block;border-radius:3px;padding:0 3px;margin-bottom:4px">${esc(fl.text.slice(0,90))}</div>
+      ${attrs?`<div style="color:#334155;font-size:12px;margin-bottom:4px">${attrs}</div>`:""}
+      <input id="in_${fl.id}" value="${val}">
+      <button class="save" onclick="saveField('${fl.id}')">Save correction</button>
+      ${fl.corrected_value!=null?`<div class=corr>✓ corrected by ${esc(fl.corrected_by||"")}</div>`:""}
+    </div>`;
+  });
+  document.getElementById("fields").innerHTML=f;
+}
+async function saveField(id){
+  const v=document.getElementById("in_"+id).value;
+  const r=await api(`/review/extraction/${encodeURIComponent(CUR.filename)}/field`,
+    {method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({field_id:id,value:v})});
+  if(r.ok){CUR=await r.json();render();setMsg("saved");}else setMsg("save failed "+r.status);
+}
+async function doVerify(){
+  const r=await api(`/review/extraction/${encodeURIComponent(CUR.filename)}/verify`,
+    {method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({})});
+  if(r.ok){CUR=await r.json();render();loadQueue();setMsg("verified");}else setMsg("verify failed "+r.status);
+}
+async function doUnverify(){
+  const r=await api(`/review/extraction/${encodeURIComponent(CUR.filename)}/unverify`,{method:"POST"});
+  if(r.ok){CUR=await r.json();render();loadQueue();setMsg("unverified");}else setMsg("failed "+r.status);
+}
+loadQueue();
+</script>

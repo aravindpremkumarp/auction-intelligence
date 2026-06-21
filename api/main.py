@@ -33,6 +33,7 @@ from api.feedback import router as feedback_router
 from api.health import router as health_router
 from api.properties import router as properties_router
 from api.review import router as review_router
+from api.review.extraction import router as review_extraction_router
 from api.telemetry import configure_telemetry
 from api.watchlist import router as watchlist_router
 
@@ -178,6 +179,7 @@ if os.environ.get("AUTH_ENABLED", "true").lower() != "false":
     app.include_router(watchlist_router)
     app.include_router(conversations_router)
     app.include_router(review_router)
+    app.include_router(review_extraction_router)
     app.include_router(dossier_router)
 
 
