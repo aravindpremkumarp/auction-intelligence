@@ -6,19 +6,20 @@ scheme) and wrapped with LangExtract-specific conventions. Edit the scheme in th
 one file and this prompt follows automatically; the examples below only have to
 keep *demonstrating* the fields.
 
-The two ExampleData objects (single: 736547 / Bank of Baroda; multi: 738029 /
-Equitas SFB) are annotated to FULL PARITY (option A) with the scheme, across these
-grounded entity classes — chosen so LangExtract extracts spans (its strength)
-rather than long attribute lists (its weakness):
+The three ExampleData objects (single: 736547 / Bank of Baroda; multi: 738029 /
+Equitas SFB; apartment: Canara Bank / flat + UDS) are annotated to FULL PARITY
+(option A) with the scheme, across these grounded entity classes — chosen so
+LangExtract extracts spans (its strength) rather than long attribute lists (its
+weakness):
 
   secured_creditor  borrower  contact  property  full_description  location
   identifier  extent  boundary  schedule  auction_terms  outstanding  emd_account
 
 For MULTI notices every entity of the Nth lot carries ``lot_index=N`` so lots can
-be regrouped into one AuctionProperty each. Fields the two sample notices do not
-contain (e.g. ARC/IBC, flat/block/floor, UDS, carpet area, lat/long, chitta/khata,
-construction_type) are still described by the canonical prompt and will be
-extracted when present — they are just not demonstrated here.
+be regrouped into one AuctionProperty each. Fields the sample notices do not
+contain (e.g. ARC/IBC, carpet area, lat/long, chitta/khata, construction_type)
+are still described by the canonical prompt and will be extracted when present —
+they are just not demonstrated here.
 
 Run:  python -m pipeline.langextract_examples <path-to-markdown.txt>
 """
@@ -68,8 +69,8 @@ entities using EXACTLY these extraction classes (one span each, copied VERBATIM)
   registration_district, registration_sub_district, landmark, latitude, longitude,
   lot_index.
 - identifier       : ONE id span each (emit several). attrs: kind (survey_old|
-  survey_new|patta|chitta|khata|property_id|plot|flat|block|floor|door_old|door_new|
-  assessment_old|assessment_new|sale_deed|approved_layout), value, lot_index.
+  survey_new|patta|chitta|khata|property_id|cersai|plot|flat|block|floor|door_old|
+  door_new|assessment_old|assessment_new|sale_deed|approved_layout), value, lot_index.
 - extent           : an area span. attrs: extent_sqft, total_area,
   super_built_up_area, built_up_area, carpet_area, undivided_share,
   uds_parent_extent, lot_index.
@@ -111,6 +112,17 @@ SLOTTING RULES (avoid these common mistakes):
   legal_basis stays SARFAESI.
 - Survey numbers may be prefixed "R.S No.", "T.S No.", "S.F No.", "Re Sy No.",
   "Old/New S.No." — still emit each as an identifier with kind survey_old/survey_new.
+- APARTMENTS / FLATS: set property property_type=flat. Emit the flat number ->
+  identifier kind=flat, the floor ("Ground Floor", "2nd Floor") -> identifier
+  kind=floor, and the block ("Block No.18") -> identifier kind=block — do NOT
+  leave them inside the property blob. A flat owns an UNDIVIDED SHARE (UDS) of
+  land: put the share in extent undivided_share and the larger parcel it is carved
+  from in extent uds_parent_extent; the flat's own area is built_up_area.
+- "Admeasuring ... Northern/Southern/Eastern/Western Side N Feet" gives the
+  per-side boundary MEASUREMENT (the dimension) — put N Feet in boundary
+  measurement, distinct from adjacency (what abuts that side, e.g. a road/plot).
+- "Name of the Title Holder: X" -> property title_deed_holder=X.
+- "CERSAI Security Interest Id: N" -> identifier kind=cersai value=N.
 
 The authoritative field semantics and edge cases (DRT "Upset Price", IBC
 liquidators, ARC assignor/trust, column-unit money, etc.) are below; follow them:
@@ -328,7 +340,107 @@ MULTI_EXAMPLE = lx.data.ExampleData(
     ],
 )
 
-EXAMPLES = [SINGLE_EXAMPLE, MULTI_EXAMPLE]
+# --------------------------------------------------------------------------- #
+# Example 3 — APARTMENT / FLAT with UDS (one lot). Source: Canara Bank, Kolathur.
+# Flats carry detail vacant land does not: Flat No / Floor / Block identifiers, an
+# UNDIVIDED SHARE (UDS) of land carved from a larger parent extent, per-side
+# boundary MEASUREMENTS distinct from adjacency, a named title-deed holder, and a
+# CERSAI security-interest id. Neither land example above demonstrates these, so
+# this one teaches them. Built from verbatim phrases of the real notice.
+# --------------------------------------------------------------------------- #
+APARTMENT_TEXT = (
+    "Authorised Officer of Canara Bank, Kolathur, Chennai - 600099. "
+    "Mob: 9944838284, Email: cb16062@canarabank.com. "
+    "Borrower Name & Address: 1. Mr. K. Yoganand, S/o. Mr. Kamalanathan, "
+    "2. Mrs. D. S. Kaavya, W/o. Mr. K. Yoganand, Both are residing at: 56A, 120A, "
+    "BB Road, 4th Lane, Vyasarpadi, Chennai - 600039. Outstanding Amount: "
+    "Rs.34,18,676.36/- as on 31.03.2026. "
+    "DETAILS OF PROPERTY: Name of the Title Holder: Mr. K. Yoganand & Mrs. D S "
+    "Kaavya & CERSAI Security Interest Id: 400038860000 All the piece and parcel "
+    "of land and building bearing, Sub divided as Plot No.4, Annapoorna Nagar, "
+    "Madhavaram, Chennai, comprised in Survey No.1258/2 of No.50, Madhavaram "
+    "Village, Chennai District, land measuring an extent of 380 Sq.ft, Undivided "
+    "Share of Land out of total extent of 2400 Sq.ft., out of 9600 Sq ft., "
+    "together with Flat No. G1, Ground Floor, Block No.18, having a built up area "
+    "of 805 Sq ft., (including common area) and Bounded on the North by : 24 Feet "
+    "Road, South by : Plot New No.5, Old No.1 (Sub-division), East by : Plot New "
+    "No.17, Old No.3 (Sub-division), West by : Plot New No.19, Old No.3 "
+    "(Sub-division), Admeasuring East to West on the Northern Side 40 Feet, East "
+    "to West on the Southern Side 40 Feet, North to South on the Eastern Side 60 "
+    "Feet, North to South on the Western Side 60 Feet, The above the Property "
+    "within the Sub-Registration District of Madhavaram and Registration District "
+    "of Chennai North."
+)
+
+APARTMENT_EXAMPLE = lx.data.ExampleData(
+    text=APARTMENT_TEXT,
+    extractions=[
+        E("secured_creditor", "Canara Bank", legal_basis="SARFAESI",
+          bank_name="Canara Bank", branch="Kolathur"),
+        E("contact", "Mob: 9944838284, Email: cb16062@canarabank.com",
+          phones="9944838284", email="cb16062@canarabank.com"),
+        E("borrower", "Mr. K. Yoganand, S/o. Mr. Kamalanathan", role="borrower",
+          lot_index="1", address="56A, 120A, BB Road, 4th Lane, Vyasarpadi, "
+          "Chennai - 600039"),
+        E("borrower", "Mrs. D. S. Kaavya, W/o. Mr. K. Yoganand", role="co-borrower",
+          lot_index="1"),
+        E("property", "All the piece and parcel of land and building bearing, Sub "
+          "divided as Plot No.4, Annapoorna Nagar, Madhavaram, Chennai",
+          lot_index="1", property_type="flat", asset_category="immovable",
+          title_deed_holder="Mr. K. Yoganand & Mrs. D S Kaavya"),
+        E("full_description", "All the piece and parcel of land and building "
+          "bearing, Sub divided as Plot No.4, Annapoorna Nagar, Madhavaram, "
+          "Chennai, comprised in Survey No.1258/2 of No.50, Madhavaram Village, "
+          "Chennai District, land measuring an extent of 380 Sq.ft, Undivided "
+          "Share of Land out of total extent of 2400 Sq.ft., out of 9600 Sq ft., "
+          "together with Flat No. G1, Ground Floor, Block No.18, having a built up "
+          "area of 805 Sq ft., (including common area) and Bounded on the North "
+          "by : 24 Feet Road, South by : Plot New No.5, Old No.1 (Sub-division), "
+          "East by : Plot New No.17, Old No.3 (Sub-division), West by : Plot New "
+          "No.19, Old No.3 (Sub-division), Admeasuring East to West on the "
+          "Northern Side 40 Feet, East to West on the Southern Side 40 Feet, North "
+          "to South on the Eastern Side 60 Feet, North to South on the Western "
+          "Side 60 Feet, The above the Property within the Sub-Registration "
+          "District of Madhavaram and Registration District of Chennai North.",
+          lot_index="1"),
+        E("location", "Madhavaram Village, Chennai District", lot_index="1",
+          village="Madhavaram", district="Chennai"),
+        E("location", "Sub-Registration District of Madhavaram and Registration "
+          "District of Chennai North", lot_index="1",
+          registration_sub_district="Madhavaram",
+          registration_district="Chennai North"),
+        E("identifier", "CERSAI Security Interest Id: 400038860000", kind="cersai",
+          value="400038860000", lot_index="1"),
+        E("identifier", "Plot No.4", kind="plot", value="4", lot_index="1"),
+        E("identifier", "Survey No.1258/2 of No.50", kind="survey_new",
+          value="1258/2", lot_index="1"),
+        E("identifier", "Flat No. G1", kind="flat", value="G1", lot_index="1"),
+        E("identifier", "Ground Floor", kind="floor", value="Ground", lot_index="1"),
+        E("identifier", "Block No.18", kind="block", value="18", lot_index="1"),
+        E("extent", "380 Sq.ft", lot_index="1", undivided_share="380 Sq.ft"),
+        E("extent", "Undivided Share of Land out of total extent of 2400 Sq.ft., "
+          "out of 9600 Sq ft.", lot_index="1",
+          uds_parent_extent="2400 Sq.ft (out of 9600 Sq.ft)"),
+        E("extent", "built up area of 805 Sq ft., (including common area)",
+          lot_index="1", built_up_area="805 Sq.ft (including common area)",
+          extent_sqft="805"),
+        E("boundary", "North by : 24 Feet Road", side="north",
+          adjacency="24 Feet Road", measurement="40 Feet", lot_index="1"),
+        E("boundary", "South by : Plot New No.5, Old No.1 (Sub-division)",
+          side="south", adjacency="Plot New No.5, Old No.1 (Sub-division)",
+          measurement="40 Feet", lot_index="1"),
+        E("boundary", "East by : Plot New No.17, Old No.3 (Sub-division)",
+          side="east", adjacency="Plot New No.17, Old No.3 (Sub-division)",
+          measurement="60 Feet", lot_index="1"),
+        E("boundary", "West by : Plot New No.19, Old No.3 (Sub-division)",
+          side="west", adjacency="Plot New No.19, Old No.3 (Sub-division)",
+          measurement="60 Feet", lot_index="1"),
+        E("outstanding", "Outstanding Amount: Rs.34,18,676.36/- as on 31.03.2026",
+          lot_index="1", amount_num="3418676.36", as_on="2026-03-31"),
+    ],
+)
+
+EXAMPLES = [SINGLE_EXAMPLE, MULTI_EXAMPLE, APARTMENT_EXAMPLE]
 
 
 _MODEL_CACHE: dict = {}
