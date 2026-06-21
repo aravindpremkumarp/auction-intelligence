@@ -40,6 +40,7 @@ from pipeline.mineru import (
     PRECLEAN_MODEL_TAG,
     is_precleaned,
     parse_mineru_content_list,
+    read_mineru_meta,
     safe_cache_name,
 )
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -99,10 +100,16 @@ def _assign_block_ids(blocks: list[dict]) -> list[dict]:
     return blocks
 
 
-def load_blocks_for(file_path: str) -> list[dict] | None:
+def load_blocks_for(file_path: str,
+                    img_map: dict[str, str] | None = None) -> list[dict] | None:
     """Read the cached content-list JSON for ``file_path`` and convert it
     to our canonical block shape. Returns ``None`` if no cache exists or
-    the file is unreadable."""
+    the file is unreadable.
+
+    ``img_map`` ({image-basename -> R2 URL}) lets each block resolve its
+    archived image URL; when omitted it is read from the meta sidecar so
+    callers (e.g. reingest) get image URLs without threading the map through.
+    """
     p = BLOCKS_DIR / f"{safe_name(file_path)}.json"
     if not p.exists():
         return None
@@ -115,7 +122,9 @@ def load_blocks_for(file_path: str) -> list[dict] | None:
         # Already normalized (e.g. a re-serialize from earlier run).
         return _assign_block_ids(raw["blocks"])
     if isinstance(raw, list):
-        return _assign_block_ids(parse_mineru_content_list(raw))
+        if img_map is None:
+            img_map = read_mineru_meta(file_path).get("img_map") or {}
+        return _assign_block_ids(parse_mineru_content_list(raw, img_map=img_map))
     return None
 
 
@@ -146,6 +155,8 @@ def write_markdowns(rows: list[dict], source: str, model: str) -> None:
     reflects what produced this row, not the batch-wide default).
     Documents without a blocks payload keep their existing ``d.blocks``
     (or ``NULL``) — we never clobber blocks the reviewer may have edited.
+    Optional ``mineru_zip_url`` stamps the archived MinerU zip URL (and
+    ``mineru_zip_at``); absent/None leaves any existing value untouched.
     """
     cypher = """
         UNWIND $rows AS row
@@ -158,6 +169,9 @@ def write_markdowns(rows: list[dict], source: str, model: str) -> None:
             d.blocks_raw          = coalesce(row.blocks_raw, d.blocks_raw),
             d.markdown_raw_at     = CASE WHEN row.markdown_raw IS NULL
                                         THEN d.markdown_raw_at ELSE datetime() END,
+            d.mineru_zip_url      = coalesce(row.mineru_zip_url, d.mineru_zip_url),
+            d.mineru_zip_at       = CASE WHEN row.mineru_zip_url IS NULL
+                                        THEN d.mineru_zip_at ELSE datetime() END,
             d.blocks              = CASE
                 WHEN row.blocks_json IS NULL THEN d.blocks
                 ELSE row.blocks_json END,
@@ -267,7 +281,10 @@ def main() -> int:
             missing += 1
             continue
 
-        blocks = load_blocks_for(fp)
+        # One meta read per doc: feeds both the block image URLs and the
+        # Document-level archived zip URL.
+        meta = read_mineru_meta(fp)
+        blocks = load_blocks_for(fp, img_map=meta.get("img_map") or {})
         if blocks is not None:
             blocks_json = json.dumps(
                 {"schema_version": 1, "blocks": blocks},
@@ -282,12 +299,13 @@ def main() -> int:
         # blocks_raw is new here, so discard the helper's first return value.
         _, blocks_raw = read_raw_artifacts(fp)
         payloads.append({
-            "file_path":    fp,
-            "markdown":     text,
-            "markdown_raw": text,
-            "blocks_raw":   blocks_raw,
-            "blocks_json":  blocks_json,
-            "model":        PRECLEAN_MODEL_TAG if is_precleaned(fp) else None,
+            "file_path":      fp,
+            "markdown":       text,
+            "markdown_raw":   text,
+            "blocks_raw":     blocks_raw,
+            "blocks_json":    blocks_json,
+            "model":          PRECLEAN_MODEL_TAG if is_precleaned(fp) else None,
+            "mineru_zip_url": meta.get("zip_url"),
         })
         done += 1
 

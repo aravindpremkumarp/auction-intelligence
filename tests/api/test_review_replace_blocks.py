@@ -108,3 +108,25 @@ def test_source_fallback_and_confidence_none():
 def test_edited_by_defaults_to_caller_when_missing():
     out = _normalize([{"bbox": [0.1, 0.1, 0.2, 0.2], "label": "Text"}], "me@x.com")
     assert out[0]["edited_by"] == "me@x.com"
+
+
+def test_preserves_mineru_provenance_fields():
+    # An undo/redo restore must keep the archived image URL + the previously
+    # dropped content-list fields, not silently strip them.
+    raw = _blk(img_path="images/aa.jpg", img_url="https://cdn/aa.jpg",
+               text_level=1, sub_type="heading",
+               table_caption="Schedule A", table_footnote="as on 2024")
+    out = _normalize([raw], "me@x.com")
+    assert out[0]["img_path"] == "images/aa.jpg"
+    assert out[0]["img_url"] == "https://cdn/aa.jpg"
+    assert out[0]["text_level"] == 1
+    assert out[0]["sub_type"] == "heading"
+    assert out[0]["table_caption"] == "Schedule A"
+    assert out[0]["table_footnote"] == "as on 2024"
+
+
+def test_mineru_fields_default_none_for_human_block():
+    out = _normalize([{"bbox": [0.1, 0.1, 0.2, 0.2], "label": "Text"}], "me@x.com")
+    assert out[0]["img_url"] is None
+    assert out[0]["text_level"] is None
+    assert out[0]["table_caption"] is None
