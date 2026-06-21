@@ -4,9 +4,21 @@
 <!--
   Editable grounded review surface for LangExtract output.
   Talks to the admin-gated /review/extraction/* endpoints (api/review/extraction.py).
-  Standalone scaffold — fold into web/review.html's stage-tabs once the flow is signed off.
-  Relies on the existing admin session cookie (fetch sends credentials).
+  Embedded as a same-origin iframe by web/review.html (the "extraction" stage pill).
+  Auth: the API is bearer-token (Supabase), CORS allow_credentials=False — NOT cookies.
+  We load the Supabase SDK + /auth.js and call window.Auth.fetchWithAuth, exactly like
+  review.html. The iframe shares localStorage with the parent, so the admin's session
+  is already present; no separate login needed.
 -->
+<script>
+  // API base arrives via ?api= when review.html embeds us; fall back to same-origin.
+  // Supabase env mirrors review.html so /auth.js can read the shared session.
+  window.API_BASE = new URLSearchParams(location.search).get("api") || "";
+  window.SUPABASE_URL = window.SUPABASE_URL || 'https://yrcrxpwoqddfcengkryw.supabase.co';
+  window.SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY || 'sb_publishable_IT4CBVWS1a37sduWApOdFw_1UCR0kyJ';
+</script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="/auth.js"></script>
 <style>
  body{font-family:system-ui,Segoe UI,Arial;margin:0;color:#0f172a;background:#f1f5f9}
  #wrap{display:flex;height:100vh}
@@ -53,10 +65,14 @@ const COLORS={secured_creditor:"#fde68a",borrower:"#bbf7d0",contact:"#e9d5ff",pr
  location:"#bfdbfe",identifier:"#fbcfe8",extent:"#a5f3fc",boundary:"#fecaca",schedule:"#ddd6fe",
  auction_terms:"#c7d2fe",outstanding:"#fef08a",emd_account:"#d9f99d"};
 let CUR=null;
-// API base: ?api=... when embedded in review.html (it passes window.API_BASE),
-// else same-origin. Mirrors review.html's window.API_BASE convention.
-const API_BASE=new URLSearchParams(location.search).get("api")||"";
-const api=(p,o={})=>fetch(API_BASE+p,{credentials:"include",...o});
+// API base set on window by the bootstrap above (?api= from review.html, else
+// same-origin). Auth via the Supabase bearer token (window.Auth.fetchWithAuth),
+// matching review.html — the API is token-based with CORS allow_credentials=false,
+// so cookies (credentials:"include") would fail the cross-origin request outright.
+const API_BASE=window.API_BASE||"";
+const api=(p,o={})=>(window.Auth&&window.Auth.fetchWithAuth
+  ? window.Auth.fetchWithAuth(API_BASE+p,o)
+  : fetch(API_BASE+p,o));
 const esc=s=>(s||"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
 function setMsg(t){document.getElementById("msg").textContent=t;setTimeout(()=>document.getElementById("msg").textContent="",2500);}
 
