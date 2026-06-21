@@ -53,7 +53,10 @@ const COLORS={secured_creditor:"#fde68a",borrower:"#bbf7d0",contact:"#e9d5ff",pr
  location:"#bfdbfe",identifier:"#fbcfe8",extent:"#a5f3fc",boundary:"#fecaca",schedule:"#ddd6fe",
  auction_terms:"#c7d2fe",outstanding:"#fef08a",emd_account:"#d9f99d"};
 let CUR=null;
-const api=(p,o={})=>fetch(p,{credentials:"include",...o});
+// API base: ?api=... when embedded in review.html (it passes window.API_BASE),
+// else same-origin. Mirrors review.html's window.API_BASE convention.
+const API_BASE=new URLSearchParams(location.search).get("api")||"";
+const api=(p,o={})=>fetch(API_BASE+p,{credentials:"include",...o});
 const esc=s=>(s||"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
 function setMsg(t){document.getElementById("msg").textContent=t;setTimeout(()=>document.getElementById("msg").textContent="",2500);}
 

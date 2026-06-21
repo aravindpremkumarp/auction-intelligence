@@ -404,6 +404,18 @@
   </div>
   <div id="msg"></div>
 
+  <!-- Extraction-review overlay (LangExtract grounded review). Isolated from the
+       stage machinery: shown by a capture-phase handler when the "extraction"
+       pill is clicked; an embedded iframe hosts web/review_extraction.html. -->
+  <div id="extraction-panel" style="display:none;position:fixed;inset:0;background:#fff;z-index:60">
+    <div style="display:flex;align-items:center;gap:10px;padding:6px 12px;background:#0f172a;color:#fff;font-size:13px">
+      <b>Extraction review</b>
+      <span style="flex:1"></span>
+      <button onclick="closeExtractionPanel()" style="background:#1e293b;color:#fff;border:0;border-radius:6px;padding:4px 12px;cursor:pointer">← back to review</button>
+    </div>
+    <iframe id="extraction-frame" style="border:0;width:100%;height:calc(100% - 33px)"></iframe>
+  </div>
+
   <!-- Queue screen -->
   <section id="screen-queue">
     <div class="actions">
@@ -412,6 +424,7 @@
         <button class="pill" data-stage="classification">classification</button>
         <button class="pill" data-stage="markdown">markdown</button>
         <button class="pill" data-stage="description">description</button>
+        <button class="pill" data-stage="extraction">extraction</button>
       </span>
     </div>
     <div class="actions">
@@ -5503,6 +5516,36 @@
     paintTbledTex();
     paintTbledStatus();
   }
+
+  // ─── Extraction-review tab (isolated overlay) ───────────────────────────
+  // Capture-phase listener: for the "extraction" pill, show the overlay and
+  // stop the event before the normal stage handler runs (so queueState is never
+  // set to an unknown stage). For any other pill, just hide the overlay.
+  function closeExtractionPanel() {
+    const p = document.getElementById('extraction-panel');
+    if (p) p.style.display = 'none';
+    document.querySelectorAll('button.pill[data-stage="extraction"]')
+      .forEach(b => b.classList.remove('on'));
+  }
+  document.addEventListener('click', function (ev) {
+    const pill = ev.target.closest && ev.target.closest('button.pill[data-stage]');
+    if (!pill) return;
+    const panel = document.getElementById('extraction-panel');
+    if (pill.getAttribute('data-stage') === 'extraction') {
+      document.querySelectorAll('button.pill[data-stage]')
+        .forEach(b => b.classList.toggle('on', b === pill));
+      const frame = document.getElementById('extraction-frame');
+      if (frame && !frame.getAttribute('src')) {
+        const base = (typeof window.API_BASE === 'string') ? window.API_BASE : '';
+        frame.setAttribute('src', 'review_extraction.html?api=' + encodeURIComponent(base));
+      }
+      if (panel) panel.style.display = 'block';
+      ev.stopImmediatePropagation();   // keep the normal stage handler from firing
+      ev.preventDefault();
+    } else if (panel) {
+      panel.style.display = 'none';    // leaving extraction; let normal flow run
+    }
+  }, true);
 
   // Boot
   route();
