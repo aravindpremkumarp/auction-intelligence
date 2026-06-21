@@ -11,6 +11,15 @@ webdriver-manager>=4.0,<5
 python-dotenv>=1.0,<2
 tqdm>=4.66,<5
 google-genai>=2.0,<3
+
+# Structured extraction (pipeline/langextract_examples.py + evals/ + batch runner):
+# LangExtract few-shot extraction with source grounding; `openai` is its
+# OpenAI-compatible client, used to reach OpenRouter
+# (LANGEXTRACT_PROVIDER=openrouter, the default). Local/offline pipeline only —
+# not imported by the API server, so kept out of the production requirements.txt.
+langextract>=1.5,<2
+openai>=2.0,<3
+
 pdf2image>=1.17,<2
 rapidfuzz>=3.9,<4
 Pillow>=10.4,<13

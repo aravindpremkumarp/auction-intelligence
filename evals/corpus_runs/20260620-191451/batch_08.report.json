@@ -1,0 +1,99 @@
+{
+  "docs": 30,
+  "mean_score": 93.5,
+  "min_score": 76,
+  "issue_frequency": {
+    "lot_under_recall": 9,
+    "legal_basis_bad": 8,
+    "ungrounded": 7,
+    "null_value": 1
+  },
+  "issue_examples": {
+    "lot_under_recall": [
+      "749882",
+      "749902",
+      "749961",
+      "749995",
+      "750194"
+    ],
+    "ungrounded": [
+      "749995",
+      "750194",
+      "750283",
+      "750302",
+      "750339"
+    ],
+    "null_value": [
+      "749995"
+    ],
+    "legal_basis_bad": [
+      "750194",
+      "750242",
+      "750283",
+      "750302",
+      "750316"
+    ]
+  },
+  "field_coverage_pct": {
+    "legal_basis": 100.0,
+    "bank_name": 96.7,
+    "possession_type": 60.0,
+    "reserve_price_num": 100.0,
+    "emd_num": 93.3,
+    "village": 96.7,
+    "taluk": 76.7,
+    "district": 80.0,
+    "registration_district": 83.3,
+    "registration_sub_district": 90.0,
+    "borrower": 100.0,
+    "location": 100.0,
+    "extent": 100.0,
+    "identifier": 100.0
+  },
+  "improvement_targets": {
+    "lowest_coverage_fields": [
+      [
+        "possession_type",
+        60.0
+      ],
+      [
+        "taluk",
+        76.7
+      ],
+      [
+        "district",
+        80.0
+      ],
+      [
+        "registration_district",
+        83.3
+      ],
+      [
+        "registration_sub_district",
+        90.0
+      ],
+      [
+        "emd_num",
+        93.3
+      ]
+    ],
+    "top_issues": [
+      [
+        "lot_under_recall",
+        9
+      ],
+      [
+        "legal_basis_bad",
+        8
+      ],
+      [
+        "ungrounded",
+        7
+      ],
+      [
+        "null_value",
+        1
+      ]
+    ]
+  }
+}

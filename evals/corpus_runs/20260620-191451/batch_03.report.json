@@ -1,0 +1,119 @@
+{
+  "docs": 30,
+  "mean_score": 93.4,
+  "min_score": 71,
+  "issue_frequency": {
+    "lot_under_recall": 6,
+    "ungrounded": 6,
+    "legal_basis_bad": 4,
+    "missing_extent": 4,
+    "emd_ratio_off": 3,
+    "missing_borrower": 1,
+    "missing_location": 1
+  },
+  "issue_examples": {
+    "emd_ratio_off": [
+      "740880",
+      "744282",
+      "744314"
+    ],
+    "legal_basis_bad": [
+      "740886",
+      "744120",
+      "744204",
+      "744314"
+    ],
+    "lot_under_recall": [
+      "741014",
+      "741614",
+      "744097",
+      "744282",
+      "744445"
+    ],
+    "missing_extent": [
+      "741614",
+      "742868",
+      "744098",
+      "744135"
+    ],
+    "ungrounded": [
+      "741614",
+      "743468",
+      "744135",
+      "744158",
+      "744172"
+    ],
+    "missing_borrower": [
+      "744098"
+    ],
+    "missing_location": [
+      "744135"
+    ]
+  },
+  "field_coverage_pct": {
+    "legal_basis": 100.0,
+    "bank_name": 93.3,
+    "possession_type": 56.7,
+    "reserve_price_num": 100.0,
+    "emd_num": 86.7,
+    "village": 76.7,
+    "taluk": 83.3,
+    "district": 66.7,
+    "registration_district": 66.7,
+    "registration_sub_district": 76.7,
+    "borrower": 96.7,
+    "location": 96.7,
+    "extent": 86.7,
+    "identifier": 90.0
+  },
+  "improvement_targets": {
+    "lowest_coverage_fields": [
+      [
+        "possession_type",
+        56.7
+      ],
+      [
+        "district",
+        66.7
+      ],
+      [
+        "registration_district",
+        66.7
+      ],
+      [
+        "village",
+        76.7
+      ],
+      [
+        "registration_sub_district",
+        76.7
+      ],
+      [
+        "taluk",
+        83.3
+      ]
+    ],
+    "top_issues": [
+      [
+        "lot_under_recall",
+        6
+      ],
+      [
+        "ungrounded",
+        6
+      ],
+      [
+        "legal_basis_bad",
+        4
+      ],
+      [
+        "missing_extent",
+        4
+      ],
+      [
+        "emd_ratio_off",
+        3
+      ]
+    ]
+  }
+}

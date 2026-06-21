@@ -1,0 +1,25 @@
+{
+  "run_id": "20260620-191451",
+  "total_docs": 495,
+  "batch_size": 30,
+  "mean_score": 92.3,
+  "issue_frequency": {
+    "lot_under_recall": 142,
+    "legal_basis_bad": 125,
+    "ungrounded": 117,
+    "emd_ratio_off": 29,
+    "missing_extent": 25,
+    "missing_borrower": 9,
+    "missing_reserve_price": 8,
+    "missing_location": 6,
+    "null_value": 4,
+    "missing_secured_creditor": 1
+  },
+  "usage": {
+    "llm_calls": 978,
+    "input_tokens": 3688683,
+    "cached_tokens": 6704501,
+    "output_tokens": 1952875,
+    "est_cost_usd": 6.4916
+  }
+}

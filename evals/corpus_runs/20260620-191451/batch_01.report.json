@@ -1,0 +1,125 @@
+{
+  "docs": 30,
+  "mean_score": 90.0,
+  "min_score": 7,
+  "issue_frequency": {
+    "ungrounded": 9,
+    "legal_basis_bad": 7,
+    "lot_under_recall": 6,
+    "missing_reserve_price": 2,
+    "missing_extent": 2,
+    "emd_ratio_off": 1,
+    "missing_secured_creditor": 1,
+    "missing_borrower": 1,
+    "missing_location": 1
+  },
+  "issue_examples": {
+    "missing_reserve_price": [
+      "728810",
+      "738304"
+    ],
+    "ungrounded": [
+      "728810",
+      "734249",
+      "736839",
+      "737232",
+      "737514"
+    ],
+    "legal_basis_bad": [
+      "734249",
+      "736839",
+      "737514",
+      "737693",
+      "738304"
+    ],
+    "lot_under_recall": [
+      "734249",
+      "736826",
+      "737973",
+      "738041",
+      "738415"
+    ],
+    "missing_extent": [
+      "736775",
+      "738304"
+    ],
+    "emd_ratio_off": [
+      "737973"
+    ],
+    "missing_secured_creditor": [
+      "738304"
+    ],
+    "missing_borrower": [
+      "738304"
+    ],
+    "missing_location": [
+      "738304"
+    ]
+  },
+  "field_coverage_pct": {
+    "legal_basis": 93.3,
+    "bank_name": 96.7,
+    "possession_type": 36.7,
+    "reserve_price_num": 93.3,
+    "emd_num": 86.7,
+    "village": 86.7,
+    "taluk": 70.0,
+    "district": 63.3,
+    "registration_district": 66.7,
+    "registration_sub_district": 63.3,
+    "borrower": 96.7,
+    "location": 96.7,
+    "extent": 93.3,
+    "identifier": 93.3
+  },
+  "improvement_targets": {
+    "lowest_coverage_fields": [
+      [
+        "possession_type",
+        36.7
+      ],
+      [
+        "district",
+        63.3
+      ],
+      [
+        "registration_sub_district",
+        63.3
+      ],
+      [
+        "registration_district",
+        66.7
+      ],
+      [
+        "taluk",
+        70.0
+      ],
+      [
+        "emd_num",
+        86.7
+      ]
+    ],
+    "top_issues": [
+      [
+        "ungrounded",
+        9
+      ],
+      [
+        "legal_basis_bad",
+        7
+      ],
+      [
+        "lot_under_recall",
+        6
+      ],
+      [
+        "missing_reserve_price",
+        2
+      ],
+      [
+        "missing_extent",
+        2
+      ]
+    ]
+  }
+}
