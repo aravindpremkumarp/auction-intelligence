@@ -1514,7 +1514,10 @@
       if (kind === 'pdf') {
         srcBox.innerHTML = `<iframe src="${escapeHtml(url)}" title="notice pdf"></iframe>`;
       } else if (kind === 'image') {
-        srcBox.innerHTML = `<img src="${escapeHtml(url)}" alt="notice image" loading="lazy" onerror="this.outerHTML='&lt;div class=&quot;empty&quot;&gt;⚠ file missing — 404 in R2&lt;/div&gt;'">`;
+        srcBox.innerHTML = `<img src="${escapeHtml(url)}" alt="notice image" loading="lazy">`;
+        wireNoticeImg(srcBox.querySelector('img'), row.filename, () => {
+          srcBox.innerHTML = '<div class="empty">⚠ file missing — 404 in R2</div>';
+        });
       } else if (kind === 'other') {
         srcBox.innerHTML = `<iframe src="${escapeHtml(url)}" title="notice"></iframe>`;
       } else {
@@ -1787,13 +1790,13 @@
       img.src = url;
       img.loading = 'lazy';
       img.alt = '';
-      img.onerror = () => {
+      wireNoticeImg(img, n.filename, () => {
         const miss = document.createElement('div');
         miss.className = 'missing';
         miss.innerHTML = 'file missing<br><span style="font-size:9px;font-weight:400">404 in R2</span>';
-        miss.title = url;
+        miss.title = img.src;
         img.replaceWith(miss);
-      };
+      });
       body.appendChild(img);
     } else {
       const icon = document.createElement('div');
@@ -1895,7 +1898,12 @@
     if (kind === 'pdf') {
       body.innerHTML = `<iframe src="${escapeHtml(n.public_url)}" title="notice pdf"></iframe>`;
     } else if (kind === 'image') {
-      body.innerHTML = `<div class="image-body"><img src="${escapeHtml(n.public_url)}" alt="notice image" onerror="this.parentElement.classList.add('missing-preview');this.replaceWith(Object.assign(document.createElement('div'),{textContent:'file missing — 404 in R2',title:this.src}));"></div>`;
+      body.innerHTML = `<div class="image-body"><img src="${escapeHtml(n.public_url)}" alt="notice image"></div>`;
+      const galImg = body.querySelector('img');
+      wireNoticeImg(galImg, n.filename, () => {
+        if (galImg.parentElement) galImg.parentElement.classList.add('missing-preview');
+        galImg.replaceWith(Object.assign(document.createElement('div'), {textContent: 'file missing — 404 in R2', title: galImg.src}));
+      });
     } else if (kind === 'other') {
       body.innerHTML = `<iframe src="${escapeHtml(n.public_url)}" title="notice"></iframe>`;
     } else {
@@ -2317,6 +2325,25 @@
     return 'other';
   }
 
+  // A notice file is shared across the lots of a multi-property notice, and a
+  // Document.public_url can occasionally point at a per-auction R2 key whose
+  // object isn't there (yields a 404). Before giving up, retry once through the
+  // CORS proxy, which tries every sibling key for this filename and streams the
+  // first that resolves — so the viewer self-heals. `giveUp` runs only if the
+  // proxy also fails (or there's no filename to retry with).
+  function wireNoticeImg(img, filename, giveUp) {
+    if (!img) return;
+    img.addEventListener('error', function onErr() {
+      if (!img.dataset.proxied && filename) {
+        img.dataset.proxied = '1';
+        img.src = API + '/review/notice/' + encodeURIComponent(filename) + '/source';
+        return;
+      }
+      img.removeEventListener('error', onErr);
+      giveUp();
+    });
+  }
+
   // ─── Notice image zoom & pan ────────────────────────────────────────────
   // Make any scrollable notice-image container zoomable + pannable, with the
   // same gestures as the annotator: wheel up/down zooms in/out (anchored at the
@@ -2732,7 +2759,12 @@
     if (kind === 'pdf') {
       body.innerHTML = `<iframe src="${escapeHtml(url)}" title="notice pdf"></iframe>`;
     } else if (kind === 'image') {
-      body.innerHTML = `<div class="image-body"><img src="${escapeHtml(url)}" alt="notice image" onerror="this.parentElement.classList.add('missing-preview');this.replaceWith(Object.assign(document.createElement('div'),{textContent:'file missing — 404 in R2',title:this.src}));"></div>`;
+      body.innerHTML = `<div class="image-body"><img src="${escapeHtml(url)}" alt="notice image"></div>`;
+      const srcImg = body.querySelector('img');
+      wireNoticeImg(srcImg, doc.filename, () => {
+        if (srcImg.parentElement) srcImg.parentElement.classList.add('missing-preview');
+        srcImg.replaceWith(Object.assign(document.createElement('div'), {textContent: 'file missing — 404 in R2', title: srcImg.src}));
+      });
     } else if (kind === 'other') {
       body.innerHTML = `<iframe src="${escapeHtml(url)}" title="notice"></iframe>`;
     } else {

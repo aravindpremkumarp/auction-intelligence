@@ -151,22 +151,30 @@ def process_auction(
             if dry_run:
                 print(f"  [dry-run] would reuse canonical for {auction_id} :: {filename} -> {key}")
                 continue
-            try:
-                upsert_document(
-                    auction_id=auction_id,
-                    filename=filename,
-                    storage_key=key,
-                    public_url=public_url,
-                    content_type=content_type,
-                    doc_type=doc_type,
-                )
-                result.reused_canonical += 1
-                result.graph_updates += 1
-                print(f"  [reused] {auction_id} :: {filename} -> {public_url}")
-            except Exception as e:
-                result.errors += 1
-                print(f"  [error] {auction_id} :: {filename}: {e}")
-            continue
+            # Only reuse a canonical whose object is actually in R2. A dangling
+            # canonical (file deleted, or never uploaded under that key) would
+            # otherwise propagate a 404ing public_url to this auction. If the
+            # object is gone, fall through to the local-upload path below and
+            # re-upload under this auction's own key.
+            if storage.exists(key):
+                try:
+                    upsert_document(
+                        auction_id=auction_id,
+                        filename=filename,
+                        storage_key=key,
+                        public_url=public_url,
+                        content_type=content_type,
+                        doc_type=doc_type,
+                    )
+                    result.reused_canonical += 1
+                    result.graph_updates += 1
+                    print(f"  [reused] {auction_id} :: {filename} -> {public_url}")
+                except Exception as e:
+                    result.errors += 1
+                    print(f"  [error] {auction_id} :: {filename}: {e}")
+                continue
+            print(f"  [canonical-missing] {auction_id} :: {filename}: "
+                  f"object gone from R2 ({key}); re-uploading from local")
 
         local = locate_local_file(filename)
         if local is None:
