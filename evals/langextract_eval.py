@@ -16,13 +16,18 @@ import os
 from pathlib import Path
 
 from evals.langextract_gold import GOLD
-from pipeline import langextract_examples as LX
 
 
 def extract_robust(md: str, tries: int = 3):
     """LangExtract occasionally returns 0 extractions (transient empty Gemini
     response) when passes=1. Retry until non-empty so one flaky call doesn't
-    tank a whole notice's score."""
+    tank a whole notice's score.
+
+    `langextract` lives in config/requirements.txt (local/offline), NOT the
+    production requirements CI installs — so import it lazily here, keeping the
+    pure scoring logic (flatten_records / load_gold / score_notice) importable
+    without the dep (the eval gold-wiring tests rely on this)."""
+    from pipeline import langextract_examples as LX
     res = None
     for _ in range(tries):
         res = LX.extract(md)
@@ -94,7 +99,7 @@ def flatten_records(records: list[dict]) -> dict:
         return next((i for i in items if i.get("lot_index") in ("1", None)),
                     items[0] if items else {})
 
-    lot1_locs = [l for l in locs if l.get("lot_index") in ("1", None)] or locs
+    lot1_locs = [lc for lc in locs if lc.get("lot_index") in ("1", None)] or locs
     for k in _LOC_KEYS:
         for loc in lot1_locs:
             if loc.get(k):
