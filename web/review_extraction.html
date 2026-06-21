@@ -63,11 +63,12 @@
 <script>
 const COLORS={secured_creditor:"#fde68a",borrower:"#bbf7d0",contact:"#e9d5ff",property:"#fed7aa",
  full_description:"#cbd5e1",location:"#bfdbfe",identifier:"#fbcfe8",extent:"#a5f3fc",boundary:"#fecaca",
- schedule:"#ddd6fe",auction_terms:"#c7d2fe",outstanding:"#fef08a",emd_account:"#d9f99d"};
+ schedule:"#ddd6fe",auction_terms:"#c7d2fe",outstanding:"#fef08a",emd_account:"#d9f99d",full_terms:"#e9d9c9"};
 // Whole-block spans that overlap the granular ones; shown as fields, not painted
 // in the source pane (the overlap-skip in render() would otherwise swallow the
-// finer property/location/extent/boundary highlights inside them).
-const CONTAINER_CLASSES=new Set(["full_description"]);
+// finer highlights inside them). full_description = a lot's property block;
+// full_terms = the notice-level terms & conditions block (shared across lots).
+const CONTAINER_CLASSES=new Set(["full_description","full_terms"]);
 let CUR=null;
 // API base set on window by the bootstrap above (?api= from review.html, else
 // same-origin). Auth via the Supabase bearer token (window.Auth.fetchWithAuth),

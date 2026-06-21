@@ -72,6 +72,7 @@ Return ONLY this JSON object — no markdown fences, no commentary:
     "possession_type":      "symbolic" | "physical" | "constructive" | null,
     "possession_date":      "ISO date" | null,
     "sale_terms":           "string e.g. 'As is where is, as is what is'" | null,
+    "full_terms":           "the COMPLETE 'Terms & Conditions of e-Auction' block, verbatim — the numbered/bulleted sale terms governing the WHOLE notice (EMD refund/forfeiture, deposit schedule e.g. 25% immediately + balance in 15 days, who bears stamp duty/registration/statutory dues, 'As is where is/what is', sale confirmation, AO's right to postpone/cancel, encumbrance disclaimer). ONE per notice — a multi-lot notice shares ONE terms block across every lot" | null,
     "auction_platform_url": "string" | null
   },
 

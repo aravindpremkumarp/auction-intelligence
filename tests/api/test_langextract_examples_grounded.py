@@ -75,3 +75,14 @@ def test_full_description_declared_and_demonstrated_in_every_example():
             with_full_desc.add(owner)
     missing = examples_with_spans - with_full_desc
     assert not missing, f"examples missing a full_description span: {sorted(missing)}"
+
+
+def test_full_terms_declared_and_demonstrated():
+    """full_terms is notice-level (one block shared across lots), so unlike
+    full_description it need not appear in every example — but it must be declared
+    in the guide and demonstrated at least once, with no per-lot tagging."""
+    raw, tree, texts = _parse()
+    assert "- full_terms " in raw, "full_terms missing from the prompt guide"
+    assert any(cls == "full_terms"
+               for _o, _s, cls, _t in _spans(tree, texts)), \
+        "no example demonstrates a full_terms span"

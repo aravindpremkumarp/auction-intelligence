@@ -14,6 +14,7 @@ weakness):
 
   secured_creditor  borrower  contact  property  full_description  location
   identifier  extent  boundary  schedule  auction_terms  outstanding  emd_account
+  full_terms
 
 For MULTI notices every entity of the Nth lot carries ``lot_index=N`` so lots can
 be regrouped into one AuctionProperty each. Fields the sample notices do not
@@ -85,6 +86,14 @@ entities using EXACTLY these extraction classes (one span each, copied VERBATIM)
   loan_account_no, lot_index.
 - emd_account      : EMD remittance details. attrs: account_name, account_no, ifsc,
   bank, mode_of_payment.
+- full_terms       : the COMPLETE "Terms & Conditions of e-Auction" block, copied
+  verbatim as a SINGLE notice-level span (NO lot_index): the numbered/bulleted sale
+  terms governing the WHOLE notice — EMD refund/forfeiture, deposit schedule (e.g.
+  25% immediately + balance in 15 days), who bears stamp duty / registration /
+  statutory dues, "AS IS WHERE IS / AS IS WHAT IS", sale confirmation, the
+  Authorised Officer's right to postpone/cancel, and the encumbrance disclaimer.
+  ONE per notice — a multi-lot notice shares ONE terms block across every lot, so
+  emit it ONCE, never per lot. Overlaps emd_account/auction_terms within it; emit both.
 
 CONVENTIONS:
 - extraction_text MUST be copied verbatim from the document (for source grounding).
@@ -259,7 +268,19 @@ MULTI_TEXT = (
     "24.03.2026). "
     "The intending purchaser is required to submit EMD by way of NEFT/RTGS/DD in "
     "the account of \"Equitas Small Finance Bank Ltd\" Account No- 200000807725 and "
-    "IFSC code- ESFB0001001 on or before date: 08.05.2026"
+    "IFSC code- ESFB0001001 on or before date: 08.05.2026. "
+    "Terms & Conditions of E-Auction: 1. The property is sold on \"As is where "
+    "is\", \"As is what is\" and \"whatever there is\" basis. 2. EMD shall be "
+    "refunded to unsuccessful bidders without interest. 3. The successful bidder "
+    "shall pay 25% of the sale price (less EMD) immediately and the balance 75% "
+    "within 15 days, failing which the amount already paid shall be forfeited and "
+    "the property re-auctioned. 4. The successful bidder shall bear the stamp duty, "
+    "registration charges and all statutory dues / taxes. 5. The sale is subject "
+    "to confirmation by the Secured Creditor and the Authorised Officer reserves "
+    "the right to accept or reject any or all bids or to postpone / cancel the "
+    "auction without assigning any reason. 6. The property is sold subject to all "
+    "known and unknown encumbrances; bidders should make their own enquiries "
+    "before bidding."
 )
 
 MULTI_EXAMPLE = lx.data.ExampleData(
@@ -337,6 +358,20 @@ MULTI_EXAMPLE = lx.data.ExampleData(
         E("emd_account", "Account No- 200000807725 and IFSC code- ESFB0001001",
           account_name="Equitas Small Finance Bank Ltd", account_no="200000807725",
           ifsc="ESFB0001001", mode_of_payment="NEFT/RTGS/DD"),
+        # ---- notice-level terms & conditions (ONE block, shared by both lots) ----
+        E("full_terms", "Terms & Conditions of E-Auction: 1. The property is sold "
+          "on \"As is where is\", \"As is what is\" and \"whatever there is\" "
+          "basis. 2. EMD shall be refunded to unsuccessful bidders without "
+          "interest. 3. The successful bidder shall pay 25% of the sale price (less "
+          "EMD) immediately and the balance 75% within 15 days, failing which the "
+          "amount already paid shall be forfeited and the property re-auctioned. "
+          "4. The successful bidder shall bear the stamp duty, registration charges "
+          "and all statutory dues / taxes. 5. The sale is subject to confirmation "
+          "by the Secured Creditor and the Authorised Officer reserves the right to "
+          "accept or reject any or all bids or to postpone / cancel the auction "
+          "without assigning any reason. 6. The property is sold subject to all "
+          "known and unknown encumbrances; bidders should make their own enquiries "
+          "before bidding."),
     ],
 )
 
