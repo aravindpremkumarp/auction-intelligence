@@ -6,9 +6,13 @@ coverage %, score distribution, and a review queue of the worst docs. That repor
 is the "feedback from the last 30 runs": read it, fix the top recurring pattern in
 the prompt/examples, re-gate with `python -m evals.langextract_eval`, then continue.
 
-Markdown source (in priority order):
-  --dir <path>   : read every <aid>.txt in a directory (offline, no DB).
-  --neo4j        : pull Document.markdown from Neo4j (needs api.neo4j_client + creds).
+Source:
+  --dir <path>   : read every <aid>.txt in a directory and extract (offline).
+  --neo4j        : pull Document.markdown from Neo4j and extract.
+  --from-graph   : report from already-loaded Document.extraction_json
+                   (pipeline/load_extractions.py) — validators only, NO LLM cost.
+                   This is the consolidated path: extract once via the loader,
+                   then regenerate feedback reports for free as often as needed.
 
 Outputs under pipeline/output/batches/<run>/:
   batch_NN.results.jsonl   one line per doc (aid, score, issues, fields, stats)
@@ -82,6 +86,41 @@ def _extract_robust(md: str, tries: int = 3):
     return res
 
 
+def load_from_graph(limit: int | None) -> list[tuple]:
+    """Read already-extracted entities from Document.extraction_json (populated by
+    pipeline/load_extractions.py). The reporting/feedback pass runs off this — no
+    re-extraction, no LLM cost — so extraction happens exactly once per notice."""
+    from api.neo4j_client import run_read_query
+    rows = run_read_query(
+        "MATCH (d:Document) WHERE d.extraction_json IS NOT NULL "
+        "OPTIONAL MATCH (a:AuctionProperty)-[:HAS_DOCUMENT]->(d) "
+        "WITH d, collect(a.auction_id) AS aids "
+        "RETURN coalesce(aids[0], d.storage_key, d.filename) AS aid, "
+        "       d.markdown AS md, d.extraction_json AS ej ORDER BY aid"
+        + (f" LIMIT {int(limit)}" if limit else ""),
+        max_rows=20_000, timeout=120.0)
+    out: list[tuple] = []
+    for r in rows:
+        try:
+            ents = json.loads(r["ej"] or "[]")
+        except json.JSONDecodeError:
+            ents = []
+        out.append((r["aid"], r["md"] or "", ents))
+    return out
+
+
+def _validate_persisted(entities: list[dict], md: str) -> dict:
+    """Validate stored dict-entities by shimming them to the attribute shape
+    validators.validate expects (extraction_class / attributes / char_interval)."""
+    from types import SimpleNamespace
+    shims = [SimpleNamespace(
+        extraction_class=e.get("cls"),
+        attributes=e.get("attrs") or {},
+        char_interval=None if e.get("start") is None else SimpleNamespace(),
+    ) for e in entities]
+    return validate(shims, source_text=md)
+
+
 def build_batch_report(records: list[dict]) -> dict:
     """Aggregate one batch's per-doc validations into actionable feedback."""
     n = len(records)
@@ -115,7 +154,7 @@ def build_batch_report(records: list[dict]) -> dict:
     }
 
 
-def run(docs: list[tuple[str, str]], batch_size: int) -> None:
+def run(docs: list, batch_size: int, from_graph: bool = False) -> None:
     install_usage_tracking()
     run_id = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     out = OUT_ROOT / run_id
@@ -126,9 +165,16 @@ def run(docs: list[tuple[str, str]], batch_size: int) -> None:
     for bi, batch in enumerate(_chunks(docs, batch_size), start=1):
         records = []
         with (out / f"batch_{bi:02d}.results.jsonl").open("w", encoding="utf-8") as rf:
-            for aid, md in batch:
-                res = _extract_robust(md)
-                v = validate(res.extractions, source_text=md)
+            for item in batch:
+                if from_graph:
+                    # Already-extracted entities from Document.extraction_json —
+                    # validate (pure, no LLM) instead of re-extracting.
+                    aid, md, entities = item
+                    v = _validate_persisted(entities, md)
+                else:
+                    aid, md = item
+                    res = _extract_robust(md)
+                    v = validate(res.extractions, source_text=md)
                 rec = {"aid": aid, "score": v["score"], "issues": v["issues"],
                        "fields": v["fields"], "stats": v["stats"]}
                 records.append(rec)
@@ -170,16 +216,25 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     src = ap.add_mutually_exclusive_group(required=True)
-    src.add_argument("--dir", help="directory of <aid>.txt markdown files")
-    src.add_argument("--neo4j", action="store_true", help="pull markdown from Neo4j")
+    src.add_argument("--dir", help="directory of <aid>.txt markdown files (extract)")
+    src.add_argument("--neo4j", action="store_true",
+                     help="pull markdown from Neo4j and extract")
+    src.add_argument("--from-graph", action="store_true",
+                     help="report from already-loaded Document.extraction_json "
+                          "(no re-extraction / no LLM cost)")
     ap.add_argument("--batch-size", type=int, default=30)
-    ap.add_argument("--limit", type=int, default=None, help="cap docs (neo4j)")
+    ap.add_argument("--limit", type=int, default=None, help="cap docs")
     args = ap.parse_args()
-    docs = load_from_dir(args.dir) if args.dir else load_from_neo4j(args.limit)
+    if args.from_graph:
+        docs = load_from_graph(args.limit)
+    elif args.dir:
+        docs = load_from_dir(args.dir)
+    else:
+        docs = load_from_neo4j(args.limit)
     if not docs:
         print("no documents found")
         return 1
-    run(docs, args.batch_size)
+    run(docs, args.batch_size, from_graph=args.from_graph)
     return 0
 
 
