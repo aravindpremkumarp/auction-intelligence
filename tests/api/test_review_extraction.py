@@ -48,3 +48,31 @@ def test_robust_to_empty_and_malformed_json():
     (f,) = _build_fields(json.dumps([{"cls": "borrower", "text": "Mr X"}]), "{}")
     assert f.id == "0"
     assert f.grounded is False
+
+
+# ── corrections -> gold wiring (evals/export_review_gold.py) ──────────────────
+def test_reviewer_correction_flows_into_exported_gold():
+    from evals.export_review_gold import _records_from_stored, _gold_fields
+    from evals.langextract_eval import flatten_records
+    ents = json.dumps([
+        {"id": "0", "cls": "secured_creditor", "text": "Canara Bank",
+         "attrs": {"legal_basis": "SARFAESI", "bank_name": "Canara Bank"}},
+        {"id": "1", "cls": "borrower", "text": "Komla SJ", "attrs": {"lot_index": "1"}},
+        {"id": "2", "cls": "auction_terms", "text": "Rs.1,34,00,000",
+         "attrs": {"reserve_price_num": "13400000"}},
+        {"id": "3", "cls": "identifier", "text": "Khata no 1394",
+         "attrs": {"kind": "khata", "value": "1394"}},
+    ])
+    corrections = json.dumps({"1": {"value": "Komala SJ", "by": "a@b.com"}})
+    flat = flatten_records(_records_from_stored(ents, corrections))
+    fields, identifiers = _gold_fields(flat)
+    assert fields["borrower_primary"] == "Komala SJ"     # correction won
+    assert fields["reserve_price_num"] == 13400000
+    assert fields["legal_basis"] == "SARFAESI"
+    assert identifiers["khata"] == "1394"
+
+
+def test_load_gold_falls_back_to_seed_without_reviewed_file():
+    from evals.langextract_eval import GOLD, load_gold
+    # No reviewed file present in CI -> load_gold == seed
+    assert len(load_gold()) >= len(GOLD)
