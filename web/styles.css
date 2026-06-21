@@ -46,10 +46,15 @@
   --radius-xs: 6px;
   --radius-pill: 999px;
 
-  /* One modern sans-serif system — legacy font vars all map to Inter */
+  /* Premium type system — a characterful grotesk for display, Inter for UI
+     body, and a true monospace for labels/data (legacy var NAMES preserved so
+     existing markup adopts the new faces automatically). */
   --font-body: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  --font-hand: var(--font-body);
-  --font-mono: var(--font-body);
+  --font-hand: 'Bricolage Grotesque', 'Inter', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+
+  /* Accent-tinted elevation for primary surfaces (hero CTA, focused cards) */
+  --shadow-accent: 0 10px 28px -10px rgba(37, 99, 235, 0.40);
 
   color-scheme: light;
 }
@@ -80,6 +85,7 @@
   --shadow: 0 1px 3px rgba(0,0,0,0.5), 0 1px 2px rgba(0,0,0,0.4);
   --shadow-md: 0 6px 18px -6px rgba(0,0,0,0.6), 0 2px 6px -2px rgba(0,0,0,0.4);
   --shadow-lg: 0 18px 40px -12px rgba(0,0,0,0.7);
+  --shadow-accent: 0 12px 32px -10px rgba(59, 130, 246, 0.50);
 
   color-scheme: dark;
 }
@@ -2508,3 +2514,213 @@ body {
   .dossier-detail-head { flex-direction: column-reverse; align-items: flex-start; }
   .dossiers-wrap { padding: 16px 12px 80px; }
 }
+
+/* ── Dossiers feature flag ────────────────────────────────────────────────
+   The private document-dossier feature ships dark for the public release. Its
+   entry points (top-nav + bottom-tab buttons, the property-detail "create
+   dossier" button, and the screen itself) stay hidden unless the page sets
+   <html class="dossiers-enabled"> — see the bootstrap in index.html (toggle
+   with ?dossiers=1 / ?dossiers=0). Mirrors the backend DOSSIERS_ENABLED flag. */
+html:not(.dossiers-enabled) [data-nav="dossiers"],
+html:not(.dossiers-enabled) #detail-dossier,
+html:not(.dossiers-enabled) [data-screen="dossiers"] {
+  display: none !important;
+}
+
+/* =====================================================================
+   PREMIUM POLISH LAYER (taste pass)
+   Appended last so it wins by source order. Pure presentation: type
+   presence, interaction feedback, accent-tinted elevation, tabular
+   figures, and ambient depth. No layout or markup changes.
+   ===================================================================== */
+
+/* — Display type presence — Bricolage Grotesque wants tight, confident
+     tracking at large sizes; let headlines breathe and never orphan. */
+.landing-hero h1 {
+  letter-spacing: -0.025em;
+  line-height: 1.02;
+  text-wrap: balance;
+}
+.browse-head h2,
+.watchlist-head h2,
+.detail-title,
+.timeline-label,
+.results-head .count,
+.chat-empty-title {
+  letter-spacing: -0.015em;
+  text-wrap: balance;
+}
+.brand-name { letter-spacing: -0.01em; }
+
+/* — Tabular figures everywhere numbers carry meaning (prices, counts,
+     countdowns) so columns and changing values stay optically aligned. */
+.prop .price,
+.prop .countdown,
+.browse-meta .count,
+.results-head .count,
+.results-count,
+.price-history,
+.detail-title,
+.count {
+  font-variant-numeric: tabular-nums;
+}
+
+/* — Primary buttons: smooth motion + a real pressed state + accent lift.
+     (Base .btn had an instant, untransitioned hover and no :active.) */
+.btn {
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+.btn:hover { box-shadow: var(--shadow-md); }
+.btn:not(.ghost):not(.ink):hover { box-shadow: var(--shadow-accent); }
+.btn:active { transform: translate(0, 0); box-shadow: var(--shadow); }
+
+/* — Send button: same physical feedback as primary actions. */
+.chat-input .send {
+  transition: transform 0.15s ease, box-shadow 0.15s ease,
+              background 0.15s ease, color 0.15s ease;
+}
+.chat-input .send:hover { box-shadow: var(--shadow-accent); }
+.chat-input .send:active { transform: scale(0.94); }
+
+/* — Ambient depth behind the hero headline: a soft accent wash instead of
+     a flat empty canvas, fading to nothing so it never reads as a banner. */
+.landing-hero {
+  background:
+    radial-gradient(120% 90% at 50% -10%,
+      var(--accent-soft) 0%,
+      transparent 60%);
+}
+
+/* — Smooth anchor scrolling for any in-page jumps. */
+html { scroll-behavior: smooth; }
+
+/* =====================================================================
+   PRODUCT-UI PREMIUM LAYER (taste pass — data surfaces)
+   Scope: browse grid, filters, chat, watchlist. Appended last so it wins
+   by source order. Refines the brutalist heavy-ink system into a calmer
+   premium one: hairline borders, one radius scale (controls 8px /
+   surfaces 12px / pills stay pill), accent-tint hovers instead of full
+   accent fills, and softer tinted elevation. Tokens only → dark mode
+   follows. No markup or layout-structure changes.
+   ===================================================================== */
+
+/* ---- Filter bar + controls -------------------------------------------- */
+.browse-filters {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+}
+.browse-search {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.browse-search:focus-within {
+  border-color: var(--accent);
+  box-shadow: var(--shadow-focus);
+}
+.filter-select,
+.filter-multi-btn,
+.filter-num,
+.filter-date,
+.sb-search {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+/* Calm accent-tint hover instead of a full blue fill with dark text */
+.filter-select:hover,
+.filter-multi-btn:hover,
+.filter-multi.open .filter-multi-btn {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.filter-multi-panel {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+}
+.filter-multi-opt { border-radius: var(--radius-xs); margin: 0 4px; padding: 5px 8px; }
+
+/* ---- Browse / result / watchlist cards -------------------------------- */
+.prop {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+.prop:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-md);
+  border-color: var(--accent);
+}
+.prop .thumb {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.prop .title { color: var(--ink); }
+.prop .price { font-size: 16px; color: var(--ink); }
+.prop .bank-tag {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  color: var(--muted);
+  padding: 1px 9px;
+}
+
+/* ---- Chips ------------------------------------------------------------ */
+.chip {
+  border: 1px solid var(--border-strong);
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+.chip:hover { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+.chip.filled { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+
+/* ---- Chat sidebar + thread list -------------------------------------- */
+.chat-sidebar {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+}
+.sb-new {
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.sb-new:hover { transform: translateY(-1px); box-shadow: var(--shadow-accent); }
+.sb-toggle {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.sb-toggle:hover { background: var(--accent-soft); border-color: var(--accent); }
+.sb-search { width: 100%; }
+.sb-item { border-radius: var(--radius-sm); border: 1px solid transparent; }
+.sb-item:hover { background: var(--paper-2); border-color: var(--border); }
+.sb-item.active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.sb-item.active .sb-item-pin { color: var(--accent); }
+#detail-chat-history .pch-item { border-radius: var(--radius-sm); }
+#detail-chat-history .pch-item:hover { background: var(--paper-2); border-color: var(--border); }
+#detail-chat-history .pch-item.active {
+  background: var(--accent-soft); border-color: var(--accent); color: var(--accent);
+}
+#detail-chat-history .pch-item.active .pch-ts { color: var(--accent); }
+
+/* ---- Watchlist -------------------------------------------------------- */
+.watchlist-head { border-bottom: 1px solid var(--border-strong); }
+.timeline-label .rule { background: var(--border-strong); opacity: 1; }
+
+/* ---- Modal (save / feedback dialogs over data) ----------------------- */
+.modal {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+}
+.modal textarea {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+}
+.modal textarea:focus { outline: none; border-color: var(--accent); box-shadow: var(--shadow-focus); }

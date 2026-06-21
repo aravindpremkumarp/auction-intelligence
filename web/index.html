@@ -23,7 +23,7 @@
 <meta name="theme-color" content="#0b1120" media="(prefers-color-scheme: dark)">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700;12..96,800&family=Inter:wght@400;450;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script>
   // Pick API origin per hostname. On *.auctionscope.in we use the branded
   // api.auctionscope.in CNAME; everywhere else (the legacy Vercel URL, preview
@@ -48,6 +48,24 @@
     var saved = localStorage.getItem('theme');
     var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
     document.documentElement.setAttribute('data-theme', saved || (prefersDark ? 'dark' : 'light'));
+  })();
+</script>
+<script>
+  // Dossiers feature flag — shipped dark for the public release. The private
+  // document-dossier UI stays hidden unless explicitly enabled, so it can be
+  // tested separately before launch. Reveal it on any deploy with ?dossiers=1
+  // (it sticks via localStorage); ?dossiers=0 hides it again. Mirrors the
+  // backend DOSSIERS_ENABLED flag, which gates the API + agent tool. Runs
+  // before styles.css so the entry points never flash in (see styles.css).
+  (function () {
+    try {
+      var v = new URLSearchParams(location.search).get('dossiers');
+      if (v === '1' || v === 'true') localStorage.setItem('dossiers', '1');
+      else if (v === '0' || v === 'false') localStorage.removeItem('dossiers');
+      var on = localStorage.getItem('dossiers') === '1';
+      window.DOSSIERS_ENABLED = on;
+      if (on) document.documentElement.classList.add('dossiers-enabled');
+    } catch (e) { window.DOSSIERS_ENABLED = false; }
   })();
 </script>
 <link rel="stylesheet" href="/styles.css">

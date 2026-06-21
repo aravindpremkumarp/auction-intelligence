@@ -28,7 +28,7 @@ from api.auth.rate_limit import limiter
 from api.billing import router as billing_router
 from api.chat import router as chat_router
 from api.conversations import router as conversations_router
-from api.dossier import router as dossier_router
+from api.dossier import dossiers_enabled, router as dossier_router
 from api.feedback import router as feedback_router
 from api.health import router as health_router
 from api.properties import router as properties_router
@@ -180,7 +180,11 @@ if os.environ.get("AUTH_ENABLED", "true").lower() != "false":
     app.include_router(conversations_router)
     app.include_router(review_router)
     app.include_router(review_extraction_router)
-    app.include_router(dossier_router)
+    # Dossier feature ships dark for the public release — only mount its routes
+    # when explicitly enabled (DOSSIERS_ENABLED). The frontend hides its entry
+    # points to match; see api.dossier.dossiers_enabled.
+    if dossiers_enabled():
+        app.include_router(dossier_router)
 
 
 # Canonical web origin. The frontend lives on www.auctionscope.in (Vercel),
