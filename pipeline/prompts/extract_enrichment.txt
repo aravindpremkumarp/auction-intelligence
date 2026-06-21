@@ -72,6 +72,7 @@ Return ONLY this JSON object — no markdown fences, no commentary:
     "possession_type":      "symbolic" | "physical" | "constructive" | null,
     "possession_date":      "ISO date" | null,
     "sale_terms":           "string e.g. 'As is where is, as is what is'" | null,
+    "full_terms":           "the COMPLETE 'Terms & Conditions of e-Auction' block, verbatim — the numbered/bulleted sale terms governing the WHOLE notice (EMD refund/forfeiture, deposit schedule e.g. 25% immediately + balance in 15 days, who bears stamp duty/registration/statutory dues, 'As is where is/what is', sale confirmation, AO's right to postpone/cancel, encumbrance disclaimer). ONE per notice — a multi-lot notice shares ONE terms block across every lot" | null,
     "auction_platform_url": "string" | null
   },
 
@@ -119,6 +120,7 @@ Return ONLY this JSON object — no markdown fences, no commentary:
     "chitta_no":        "string, e.g. 'e-Chitta S.No.130/6E'" | null,   // TN revenue record
     "khata_no":         "string" | null,                                // Karnataka revenue record
     "property_id_no":   "municipal property ID / PID, e.g. '151600602700601459'" | null,
+    "cersai_id":        "CERSAI security-interest id (national asset-finance registry), e.g. 'CERSAI Security Interest Id: 400038860000' -> '400038860000'" | null,
     "plot_no":          "string (incl. site no / HIG/MIG/LIG tag if given)" | null,
     "flat_no":          "string" | null,
     "block":            "string" | null,
