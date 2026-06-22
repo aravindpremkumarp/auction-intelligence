@@ -48,8 +48,26 @@ def test_rupee_symbols_are_not_flagged():
     assert _codes("Reserve Price ₹1,34,00,000/- EMD ₨13,400") == set()
 
 
-def test_dollar_sign_is_foreign_currency():
-    assert "foreign_currency" in _codes("recovery of $44,000")
+def test_real_corpus_euro_as_rupee_flagged_high():
+    # Real corpus: '€' rendered where ₹ belongs — the trailing "(Rupees …)"
+    # proves it. Must surface as a high-severity currency issue.
+    report = check_markdown("Outstanding dues : €24,14,51,258/- (Rupees Twenty Four Crores)")
+    issue = next(i for i in report["issues"] if i["code"] == "foreign_currency")
+    assert issue["severity"] == "high"
+
+
+def test_dollar_is_not_flagged_it_is_mineru_latex_math():
+    # MinerU wraps math in '$…$' — percentages, superscripts, degrees. These
+    # are pervasive in the real corpus and must not be read as currency.
+    assert "foreign_currency" not in _codes("EMD of $10 \\%$ of the reserve price")
+    assert "foreign_currency" not in _codes("Date: 20 $^{th}$ April 2026")
+    assert "foreign_currency" not in _codes("$35^{\\circ}$ Main, 4th C Cross")
+
+
+def test_han_inside_latex_text_span_is_still_flagged():
+    # Real corpus: a hallucinated Chinese char wrapped in '$\text{…}$'.
+    report = check_markdown("Bid Multiplier : $\\text{元} 50,000/-$")
+    assert "foreign_script" in {i["code"] for i in report["issues"]}
 
 
 def test_chinese_characters_flagged_as_foreign_script():
@@ -91,6 +109,13 @@ def test_repeated_word_not_flagged_across_sentence_or_in_phrase():
     assert "repeated_word" not in _codes("the bank. Bank of India")
 
 
+def test_repeated_word_not_flagged_at_heading_boundary():
+    # Real corpus: a heading ending in "PROPERTY" joined to the next block by a
+    # 2-space gap is not an inline stutter.
+    assert "repeated_word" not in _codes("IMMOVABLE PROPERTY  Property No:1 In Perambalur")
+    assert "repeated_word" not in _codes("DESCRIPTION OF THE PROPERTY\nProperty -2 (Vacant land)")
+
+
 def test_repeated_char_run_flagged_but_double_letters_are_fine():
     assert "repeated_char_run" in _codes("the Saaale notice")     # 3+ → flag
     assert "repeated_char_run" not in _codes("address committee")  # 2 → fine
@@ -99,6 +124,15 @@ def test_repeated_char_run_flagged_but_double_letters_are_fine():
 def test_roman_numerals_not_flagged_as_repeated_chars():
     # Site numbers like "HIG III" / "MIG III" are legitimate.
     assert "repeated_char_run" not in _codes("Site no 258 HIG III, MIG III")
+
+
+def test_lowercase_roman_list_markers_not_flagged():
+    # Real corpus: lowercase "iii" list markers are not OCR stutter.
+    assert "repeated_char_run" not in _codes("(iii) PAN card of the bidder")
+    assert "repeated_char_run" not in _codes("iii.Plot No - Nil iv.Location")
+    # …but a genuine stutter in a word still trips.
+    assert "repeated_char_run" in _codes("Mr.Sundeeep Kumar")
+    assert "repeated_char_run" in _codes("PHYSICAL POSSSESSION of the asset")
 
 
 def test_www_in_url_not_flagged_but_real_typo_is():

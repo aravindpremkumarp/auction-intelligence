@@ -7,8 +7,9 @@ This flags the *intrinsic* transcription failures we keep seeing in MinerU /
 OCR output for SARFAESI auction notices — the ones you can spot without any
 ground truth, just by looking at the text:
 
-    foreign_currency    a non-INR currency symbol (€ £ ¥ $ …) where ₹ / Rs
-                        belongs — usually corrupts the price fields
+    foreign_currency    a non-INR currency symbol (€ £ ¥ …) where ₹ / Rs
+                        belongs — usually corrupts the price fields. A bare '$'
+                        is NOT flagged: MinerU emits LaTeX '$…$' math spans.
     foreign_script      characters from a script that never legitimately
                         appears in an English/Indic notice (Chinese/Han,
                         Japanese, Korean, Cyrillic, Arabic, Greek, …)
@@ -60,14 +61,19 @@ import unicodedata
 # floored at 0. Same scale/weights as pipeline/validators.py.
 _PENALTY = {"high": 25, "med": 10, "low": 4}
 
-# Rupee signs we accept: ₹ INDIAN RUPEE SIGN and ₨ the legacy RUPEE SIGN.
-_RUPEE = {"₹", "₨"}
+# Currency symbols we treat as fine in this corpus:
+#   ₹ / ₨   the rupee (modern INDIAN RUPEE SIGN + legacy RUPEE SIGN)
+#   $       MinerU wraps math in LaTeX '$…$' / '$$…$$' spans — percentages
+#           ($10 \%$), superscripts (20$^{th}$), degrees (35$^{\circ}$) — so a
+#           bare '$' is markup noise here, not a foreign-currency symbol.
+_OK_CURRENCY = {"₹", "₨", "$"}
 
 # Unicode replacement character — an unambiguous decode/OCR failure.
 _REPLACEMENT = "�"
 
-# Uppercase Roman-numeral letters, so a run like "MIG III" / "HIG III" in a
-# site number is NOT mistaken for a stuttered letter run.
+# Roman-numeral letters (matched case-insensitively), so neither a site number
+# like "MIG III" nor a lowercase list marker like "iii) PAN card" is mistaken
+# for a stuttered letter run.
 _ROMAN = set("IVXLCDM")
 
 # Repeated-letter runs that are legitimate, not OCR stutter. "www" appears in
@@ -194,7 +200,7 @@ def check_markdown(text: str | None) -> dict:
 
     # ── per-character checks: currency, scripts, replacement, control ─────────
     for i, ch in enumerate(text):
-        if ch in _RUPEE or ch in "\n\r\t":
+        if ch in _OK_CURRENCY or ch in "\n\r\t":
             continue
         if ch == _REPLACEMENT:
             record("replacement_char", i, i + 1)
@@ -213,18 +219,22 @@ def check_markdown(text: str | None) -> dict:
         record("foreign_script" if kind == "foreign" else "indic_script",
                i, i + 1, detail=name)
 
-    # ── repeated word: same word twice in a row, separated only by space/dash ──
+    # ── repeated word: same word twice in a row, separated by a single space or
+    #    a spaced hyphen/slash. Requiring a single space (not a newline or a
+    #    2-space block join) drops false hits at heading→body boundaries like
+    #    "…IMMOVABLE PROPERTY  Property No:1" while keeping real inline stutters
+    #    like "Rupees Rupees" / "Erode Erode".
     prev: re.Match | None = None
     for m in _WORD.finditer(text):
         if prev is not None and m.group().lower() == prev.group().lower():
             sep = text[prev.end():m.start()]
-            if sep.strip() in ("", "-", "–", "/") and any(c.isspace() for c in sep):
+            if sep == " " or re.fullmatch(r" ?[-–/] ?", sep):
                 record("repeated_word", prev.start(), m.end(), detail=m.group().lower())
         prev = m
 
     # ── repeated char run: 3+ same letter, excluding Roman numerals (MIG III) ─
     for m in _CHAR_RUN.finditer(text):
-        if m.group(1) in _ROMAN or m.group().lower() in _OK_RUNS:
+        if m.group(1).upper() in _ROMAN or m.group().lower() in _OK_RUNS:
             continue
         record("repeated_char_run", m.start(), m.end(), detail=m.group())
 
