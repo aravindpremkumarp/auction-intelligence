@@ -223,6 +223,18 @@ scraped fields against the PDF (PDF wins, original kept as `<field>_scraped`);
 and **embeddings** build three vector indexes (`property_desc_idx`,
 `notice_markdown_idx`, `notice_image_idx`) consumed by `semantic_search`.
 
+**OCR quality checks.** `score_markdown.py` scores a transcription against the
+scraped website description (needs that ground truth), while
+`check_markdown.py` is label-free — it flags intrinsic OCR failures in a notice
+markdown (non-INR currency symbols, foreign scripts like CJK, repeated
+words/letters, the `�` replacement char) with no reference needed. Run it on a
+file or a glob:
+
+```bash
+python -m pipeline.check_markdown notice.md          # human-readable report
+python -m pipeline.check_markdown --json notices/*.md # machine-readable
+```
+
 ---
 
 ## API surface
