@@ -13,7 +13,7 @@ import time
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from functools import lru_cache
-from api.neo4j_client import run_read_query, run_read_query_async
+from api.neo4j_client import run_query, run_read_query, run_read_query_async
 from pipeline.embeddings import embed_query_gemini
 
 # Three Gemini vector indexes, all 3072-dim, all over gemini-embedding-2.
@@ -1521,23 +1521,16 @@ def list_distinct(
     }
 
 
-def describe_schema(refresh: bool = False) -> dict:
-    """Return a compact description of the graph schema and cardinalities.
+def _compute_schema_dynamic() -> dict:
+    """Run the live graph-introspection queries (~25 of them) that yield the
+    data-derived half of the schema: node labels + counts, relationship types
+    + counts, enum values, and numeric/date ranges.
 
-    Results are cached in-process for `_SCHEMA_TTL_SECONDS`. Pass
-    `refresh=True` to bypass the cache. Fields returned:
-
-    - node_labels: [{label, count, sample_properties}, ...]
-    - relationships: [{type, from, to, count}, ...]
-    - enums: {asset_category, property_type, ...}
-    - numeric_ranges: {reserve_price_num: {...}, emd_num: {...}}
-    - date_ranges:    {auction_start_dt: {...}, application_deadline_dt: {...}}
+    This is the expensive part describe_schema caches durably on the
+    :SchemaCache node. The static `cypher_patterns` are deliberately NOT
+    included here — they live in code and are re-attached on every read, so
+    tuning them is never shadowed by a stale cache.
     """
-    now = time.time()
-    cached = _SCHEMA_CACHE.get("default")
-    if cached and not refresh and (now - cached[0]) < _SCHEMA_TTL_SECONDS:
-        return cached[1]
-
     labels = run_read_query(
         "CALL db.labels() YIELD label RETURN label ORDER BY label",
         max_rows=50,
@@ -1634,18 +1627,106 @@ def describe_schema(refresh: bool = False) -> dict:
         ),
     }
 
-    out = {
+    return {
         "node_labels": label_info,
         "relationships": rel_info,
         "enums": enums,
         "numeric_ranges": numeric_ranges,
         "date_ranges": date_ranges,
         "date_capabilities": date_capabilities,
-        "cypher_patterns": {
-            "rules": _CYPHER_PATTERN_RULES,
-            "examples": _CYPHER_PATTERN_EXAMPLES,
-        },
     }
+
+
+# ── Durable schema cache ─────────────────────────────────────────────────────
+# The dynamic (data-derived) half of the schema only changes when the pipeline
+# ingests new auctions, so we persist it on a singleton :SchemaCache node and
+# read it back in ONE query instead of re-running the ~25 introspection queries
+# on every cold start (Render free spins down often, so cold starts are common).
+# The pipeline refreshes it after each ingestion (run_pipeline Stage 6); the API
+# seeds it lazily if it is ever missing.
+_SCHEMA_CACHE_NODE_ID = "default"
+
+
+def _cypher_patterns() -> dict:
+    """Static run_cypher guidance, always sourced from code (never the durable
+    cache) so edits to the rules/examples take effect immediately."""
+    return {"rules": _CYPHER_PATTERN_RULES, "examples": _CYPHER_PATTERN_EXAMPLES}
+
+
+def _read_schema_cache_node() -> dict | None:
+    """Read the precomputed dynamic-schema blob off the singleton :SchemaCache
+    node. Returns None when the node is absent or unreadable, so callers fall
+    back to a live compute."""
+    try:
+        rows = run_read_query(
+            "MATCH (s:SchemaCache {id: $id}) RETURN s.json AS json",
+            {"id": _SCHEMA_CACHE_NODE_ID},
+            max_rows=1,
+        )
+    except Exception:
+        return None
+    if not rows:
+        return None
+    raw = rows[0].get("json")
+    if not isinstance(raw, str) or not raw:
+        return None
+    try:
+        data = json.loads(raw)
+    except (TypeError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _write_schema_cache_node(dynamic: dict) -> None:
+    """Persist the dynamic-schema blob onto the singleton :SchemaCache node.
+    Best-effort: describe_schema is a read tool, so a write failure must never
+    break a chat turn — the in-process cache still serves it, so we swallow
+    errors here and let the next refresh retry."""
+    try:
+        run_query(
+            "MERGE (s:SchemaCache {id: $id}) "
+            "SET s.json = $json, s.computed_at = datetime()",
+            {"id": _SCHEMA_CACHE_NODE_ID, "json": json.dumps(dynamic)},
+        )
+    except Exception:
+        pass
+
+
+def describe_schema(refresh: bool = False) -> dict:
+    """Return a compact description of the graph schema and cardinalities.
+
+    The data-derived half is cached durably on the :SchemaCache node (written
+    by the pipeline after each ingestion) and in-process for
+    `_SCHEMA_TTL_SECONDS`. A normal call reads the node in one query instead of
+    re-running ~25 introspection queries; `refresh=True` recomputes live and
+    rewrites the node. The static `cypher_patterns` are always re-attached from
+    code. Fields returned:
+
+    - node_labels: [{label, count, sample_properties}, ...]
+    - relationships: [{type, from, to, count}, ...]
+    - enums: {asset_category, property_type, ...}
+    - numeric_ranges: {reserve_price_num: {...}, emd_num: {...}}
+    - date_ranges:    {auction_start_dt: {...}, application_deadline_dt: {...}}
+    - cypher_patterns: {rules: [...], examples: [...]}
+    """
+    now = time.time()
+    cached = _SCHEMA_CACHE.get("default")
+    if cached and not refresh and (now - cached[0]) < _SCHEMA_TTL_SECONDS:
+        return cached[1]
+
+    if refresh:
+        dynamic = _compute_schema_dynamic()
+        _write_schema_cache_node(dynamic)
+    else:
+        dynamic = _read_schema_cache_node()
+        if dynamic is None:
+            # Nothing precomputed yet (first deploy before the next ingestion,
+            # or the node was cleared) — compute live and seed the node so the
+            # next cold start reads it instead of recomputing.
+            dynamic = _compute_schema_dynamic()
+            _write_schema_cache_node(dynamic)
+
+    out = {**dynamic, "cypher_patterns": _cypher_patterns()}
     _SCHEMA_CACHE["default"] = (now, out)
     return out
 
