@@ -198,6 +198,9 @@ Dimensions (weights in `modes/_shared.md`):
       `upcoming_auctions`, `price_comparison`, `borrower_lookup`,
       `get_auction_detail` — Specialized parameterized
       Cypher queries.
+    - `score_auction(auction_id)` — 10-dimension investment score
+      (composite 0–100 + A+–F grade) computed live from the graph;
+      wraps `scoring/auction_scorer.py`. Powers compare/report modes.
     - `semantic_property_search` — Vector search over
       `AuctionProperty.embedding` via the `property_desc_idx` index,
       with optional city / price / asset-category post-filters.
@@ -227,9 +230,10 @@ Markdown "mode" prompts the agent can switch into:
   full Neo4j schema (node labels + key properties, relationships,
   enum constraints), tool-choice rules, a Cypher cheat-sheet for
   `run_cypher`, and the shared 10-dim scoring framework.
-- `compare.md` — Side-by-side comparison.
-- `deep-research.md` — Document-level due diligence.
-- `report.md` — Portfolio / pipeline reporting.
+- `compare.md` — Side-by-side comparison of 2–5 auctions (in-chat table;
+  uses `score_auction` + `get_auction_detail`).
+- `deep-research.md` — 7-step due diligence on one auction (in-chat report).
+- `report.md` — Personalised, profile-tuned investment brief (in-chat).
 
 Only `compare`, `deep-research`, and `report` (plus the default `ask`) are
 wired into `_AVAILABLE_MODES` in `api/chat/router.py`. Five further specs —
@@ -287,9 +291,11 @@ wired into `_AVAILABLE_MODES` in `api/chat/router.py`. Five further specs —
   `test_nonheadless.py`, `test_pattern.py`, `test_pw.py`,
   `test_selectors.py`, `test_uc.py`). Local-only; not run in CI.
 
-## 10. Reports (`reports/output/`)
+## 10. Reports
 
-Generated artifacts from the `report` mode.
+The `compare`, `deep-research`, and `report` modes return their output as
+in-chat markdown (no files). `reports/output/` is a legacy path from the
+CLI-era design and is not produced by the web agent.
 
 ## 11. Walkthrough (`walkthrough/`)
 

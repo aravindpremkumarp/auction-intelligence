@@ -51,7 +51,13 @@ _SHARED_MD = _REPO_ROOT / "modes" / "_shared.md"
 # is back to the pre-dossier baseline (~16,508); ceiling 16,700. When the
 # feature is re-enabled for launch, fold the tool docstring + exception back
 # into the measure and raise this ceiling in the same commit.
-BUDGET_CHARS = 16_700
+#
+# 2026-06: +~557 for the `score_auction` tool (405-char docstring) plus a
+# routing line in modes/_shared.md. Exposes the existing 10-dimension scorer
+# (scoring/auction_scorer.py) to the agent so the compare/report modes can
+# actually score, instead of instructing a tool that didn't exist. Measured
+# ~17,065; ceiling 17,300.
+BUDGET_CHARS = 17_300
 
 
 def _agent_module() -> ast.Module:

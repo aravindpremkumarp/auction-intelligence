@@ -85,6 +85,8 @@ commas. An AuctionProperty can have several types.
 - **Pasted listing** (WhatsApp/broker blurb with price+date+area) →
   `match_pasted_listing` (preferred over `semantic_search` here).
 - **One specific auction_id, any field** → `get_auction_detail`.
+- **Score / rate / grade an auction** → `score_auction(auction_id)` (10-dim
+  composite 0–100 + A+–F; read-only). Core of `compare` and `report` modes.
 - **Re-presenting an already-found subset** ("top three of those", one
   locality, a shortlist) → `select_properties(auction_ids=[...])` so the
   matches panel mirrors the answer.

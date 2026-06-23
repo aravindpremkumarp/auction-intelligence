@@ -37,6 +37,7 @@ from api.dossier import dossiers_enabled, qa as dossier_qa
 from api.tools import cypher_tools as T
 from api.tools import web_tools as W
 from api.watchlist import repository as watchlist_repo
+from scoring.auction_scorer import score_auction as _score_auction
 
 
 @dataclass
@@ -444,6 +445,18 @@ def get_auction_detail(auction_id: str) -> dict | None:
     a field is unavailable for a specific auction. Returns None if the
     auction_id doesn't exist."""
     return T.get_auction_detail(auction_id)
+
+
+@agent.tool_plain
+def score_auction(auction_id: str) -> dict | None:
+    """Investment score for ONE auction_id: the 10-dimension framework
+    (price, location, legal clarity, bank, condition, timeline, DD-ease,
+    area trend, competition, yield) computed live from the graph. Returns
+    {composite_score 0-100, grade A+..F, dimensions:[{name, score, weight,
+    rationale}]}; None if the id doesn't exist. Use for "score/rate/grade
+    this auction" and inside the compare/report modes. Read-only."""
+    result = _score_auction(auction_id)
+    return result.to_dict() if result else None
 
 
 @agent.tool_plain
