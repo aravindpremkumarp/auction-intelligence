@@ -1,0 +1,122 @@
+{
+  "docs": 30,
+  "mean_score": 91.3,
+  "min_score": 36,
+  "issue_frequency": {
+    "lot_under_recall": 8,
+    "ungrounded": 6,
+    "legal_basis_bad": 5,
+    "emd_ratio_off": 3,
+    "missing_borrower": 2,
+    "missing_location": 1,
+    "missing_reserve_price": 1,
+    "missing_extent": 1
+  },
+  "issue_examples": {
+    "legal_basis_bad": [
+      "750940",
+      "751191",
+      "751256",
+      "751261",
+      "751576"
+    ],
+    "lot_under_recall": [
+      "751082",
+      "751122",
+      "751158",
+      "751166",
+      "751261"
+    ],
+    "ungrounded": [
+      "751099",
+      "751158",
+      "751162",
+      "751166",
+      "751255"
+    ],
+    "emd_ratio_off": [
+      "751099",
+      "751261",
+      "751261"
+    ],
+    "missing_borrower": [
+      "751228",
+      "751228"
+    ],
+    "missing_location": [
+      "751228"
+    ],
+    "missing_reserve_price": [
+      "751228"
+    ],
+    "missing_extent": [
+      "751228"
+    ]
+  },
+  "field_coverage_pct": {
+    "legal_basis": 100.0,
+    "bank_name": 93.3,
+    "possession_type": 46.7,
+    "reserve_price_num": 96.7,
+    "emd_num": 96.7,
+    "village": 96.7,
+    "taluk": 93.3,
+    "district": 70.0,
+    "registration_district": 80.0,
+    "registration_sub_district": 83.3,
+    "borrower": 93.3,
+    "location": 96.7,
+    "extent": 96.7,
+    "identifier": 93.3
+  },
+  "improvement_targets": {
+    "lowest_coverage_fields": [
+      [
+        "possession_type",
+        46.7
+      ],
+      [
+        "district",
+        70.0
+      ],
+      [
+        "registration_district",
+        80.0
+      ],
+      [
+        "registration_sub_district",
+        83.3
+      ],
+      [
+        "bank_name",
+        93.3
+      ],
+      [
+        "taluk",
+        93.3
+      ]
+    ],
+    "top_issues": [
+      [
+        "lot_under_recall",
+        8
+      ],
+      [
+        "ungrounded",
+        6
+      ],
+      [
+        "legal_basis_bad",
+        5
+      ],
+      [
+        "emd_ratio_off",
+        3
+      ],
+      [
+        "missing_borrower",
+        2
+      ]
+    ]
+  }
+}

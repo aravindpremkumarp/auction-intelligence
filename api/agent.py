@@ -33,7 +33,7 @@ from pipeline.config import (
 )
 from api.alerts import repository as alerts_repo
 from api.alerts.service import build_alerts
-from api.dossier import qa as dossier_qa
+from api.dossier import dossiers_enabled, qa as dossier_qa
 from api.tools import cypher_tools as T
 from api.tools import web_tools as W
 from api.watchlist import repository as watchlist_repo
@@ -53,6 +53,13 @@ class ChatDeps:
     # The watch/alerts tools are per-user, so they read this off the deps;
     # plain (context-free) tools don't need it.
     supabase_id: str | None = None
+    # auction_ids currently shown in the UI matches panel, in display order.
+    # The panel is browser state the model can't otherwise see, so a bare
+    # "compare these" / "the matches" had nothing to resolve to. Only the ids
+    # ride in context (cheap — a handful of short strings); the model pulls
+    # full rows on demand. Injected by `inject_panel_selection`; absent/empty
+    # when the panel is empty so the cached prompt prefix is untouched.
+    panel_auction_ids: list[str] | None = None
 
 
 _ROLE_PROMPT = """\
@@ -81,12 +88,7 @@ Rules:
    valuations, or external records. Frame borrower follow-ups as
    `borrower_lookup` output ("other auctions tied to this borrower"), never
    "check legal records". Confirm before the state-changing `watch_property`
-   call when the user asks to track/save. EXCEPTION — the signed-in user's OWN
-   uploaded documents (their private dossier: sale deeds, EC, patta, etc.) ARE
-   available via `query_user_dossier`. For questions about *their* documents
-   ("what does my EC say…", "is there a prior mortgage in my deed",
-   "summarize my dossier"), call it and ground the answer in the excerpts it
-   returns — quote the document, never invent contents.
+   call when the user asks to track/save.
 5. The UI matches panel mirrors your latest property tool call. When you
    present a subset of already-found properties without a fresh search
    ("top three of those"), call `select_properties` with those ids.
@@ -109,6 +111,20 @@ Rules:
    if you can't do it, say so plainly and name the closest tool that exists.
 """
 
+# Appended to the role prompt only when the private-dossier feature is enabled
+# (see api.dossier.dossiers_enabled). Kept out of _ROLE_PROMPT so the feature
+# ships dark: when it's off the model is never told the tool exists, and the
+# always-sent prompt prefix shrinks back to its pre-dossier size.
+_DOSSIER_RULE_EXCEPTION = """
+
+8. Private dossier (signed-in users only) — EXCEPTION to rule 4: the user's OWN
+   uploaded documents (their private dossier: sale deeds, EC, patta, etc.) ARE
+   available via `query_user_dossier`, even though they aren't in the public
+   graph. For questions about *their* documents ("what does my EC say…", "is
+   there a prior mortgage in my deed", "summarize my dossier"), call it and
+   ground the answer in the excerpts it returns — quote the document, never
+   invent contents."""
+
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _MODES_DIR = _REPO_ROOT / "modes"
 
@@ -123,7 +139,8 @@ def _load_mode_file(name: str) -> str:
 
 _SHARED_CONTEXT = _load_mode_file("_shared")
 
-SYSTEM_PROMPT = f"{_ROLE_PROMPT}\n\n---\n\n{_SHARED_CONTEXT}" if _SHARED_CONTEXT else _ROLE_PROMPT
+_ROLE = (_ROLE_PROMPT + _DOSSIER_RULE_EXCEPTION) if dossiers_enabled() else _ROLE_PROMPT
+SYSTEM_PROMPT = f"{_ROLE}\n\n---\n\n{_SHARED_CONTEXT}" if _SHARED_CONTEXT else _ROLE
 
 
 # Explicit timeout: pydantic-ai's default HTTP client waits far longer, and a
@@ -221,6 +238,33 @@ def inject_prior_search(ctx: RunContext[ChatDeps]) -> str:
     if total is not None:
         lines.append(f"- last total_count: {total}")
     return "\n".join(lines)
+
+
+@agent.instructions
+def inject_panel_selection(ctx: RunContext[ChatDeps]) -> str:
+    """Surface the auction_ids the user is currently looking at in the UI
+    matches panel, so a bare "compare these" / "the matches" / "all of them"
+    resolves to concrete ids instead of a blank search. The panel is browser
+    state the model can't otherwise see. Only the ids ride in context (a few
+    short strings); the model fetches full rows on demand via
+    `get_auction_detail` / `select_properties`. Returns "" when the panel is
+    empty so the cached prompt prefix stays byte-stable on those turns."""
+    ids = ctx.deps.panel_auction_ids if ctx.deps else None
+    if not ids:
+        return ""
+    shown = ", ".join(ids)
+    return (
+        f"Matches panel: the user is currently viewing these {len(ids)} "
+        f"propert{'y' if len(ids) == 1 else 'ies'} in the UI, in this order: "
+        f"{shown}.\n"
+        'When the user says "these", "those", "the matches", "all of them", '
+        '"the ones above", or similar WITHOUT naming auction_ids, resolve the '
+        "reference to this list. To re-rank or show a subset in the panel, call "
+        "`select_properties` with the chosen auction_ids. Comparison handles "
+        "2-5 at a time: if the user asks to compare more of them than that, do "
+        "NOT refuse — ask which 2-5 they want (or offer the top 5) and compare "
+        "those."
+    )
 
 
 @agent.instructions
@@ -560,7 +604,6 @@ async def list_alerts(
     return {"status": "ok", "alerts": alerts, "count": len(alerts)}
 
 
-@agent.tool
 async def query_user_dossier(
     ctx: RunContext[ChatDeps],
     query: str,
@@ -592,3 +635,10 @@ async def query_user_dossier(
     return await dossier_qa.answer_from_dossier(
         sub, query, dossier_id=dossier_id, doc_type=doc_type,
     )
+
+
+# Registered only when the dossier feature is enabled (see dossiers_enabled).
+# Shipping it dark keeps the tool schema out of the model's context for the
+# public release, so the assistant never surfaces a feature users can't reach.
+if dossiers_enabled():
+    agent.tool(query_user_dossier)

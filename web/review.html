@@ -404,6 +404,18 @@
   </div>
   <div id="msg"></div>
 
+  <!-- Extraction-review overlay (LangExtract grounded review). Isolated from the
+       stage machinery: shown by a capture-phase handler when the "extraction"
+       pill is clicked; an embedded iframe hosts web/review_extraction.html. -->
+  <div id="extraction-panel" style="display:none;position:fixed;inset:0;background:#fff;z-index:60">
+    <div style="display:flex;align-items:center;gap:10px;padding:6px 12px;background:#0f172a;color:#fff;font-size:13px">
+      <b>Extraction review</b>
+      <span style="flex:1"></span>
+      <button onclick="closeExtractionPanel()" style="background:#1e293b;color:#fff;border:0;border-radius:6px;padding:4px 12px;cursor:pointer">← back to review</button>
+    </div>
+    <iframe id="extraction-frame" style="border:0;width:100%;height:calc(100% - 33px)"></iframe>
+  </div>
+
   <!-- Queue screen -->
   <section id="screen-queue">
     <div class="actions">
@@ -412,6 +424,7 @@
         <button class="pill" data-stage="classification">classification</button>
         <button class="pill" data-stage="markdown">markdown</button>
         <button class="pill" data-stage="description">description</button>
+        <button class="pill" data-stage="extraction">extraction</button>
       </span>
     </div>
     <div class="actions">
@@ -1501,7 +1514,10 @@
       if (kind === 'pdf') {
         srcBox.innerHTML = `<iframe src="${escapeHtml(url)}" title="notice pdf"></iframe>`;
       } else if (kind === 'image') {
-        srcBox.innerHTML = `<img src="${escapeHtml(url)}" alt="notice image" loading="lazy" onerror="this.outerHTML='&lt;div class=&quot;empty&quot;&gt;⚠ file missing — 404 in R2&lt;/div&gt;'">`;
+        srcBox.innerHTML = `<img src="${escapeHtml(url)}" alt="notice image" loading="lazy">`;
+        wireNoticeImg(srcBox.querySelector('img'), row.filename, () => {
+          srcBox.innerHTML = '<div class="empty">⚠ file missing — 404 in R2</div>';
+        });
       } else if (kind === 'other') {
         srcBox.innerHTML = `<iframe src="${escapeHtml(url)}" title="notice"></iframe>`;
       } else {
@@ -1774,13 +1790,13 @@
       img.src = url;
       img.loading = 'lazy';
       img.alt = '';
-      img.onerror = () => {
+      wireNoticeImg(img, n.filename, () => {
         const miss = document.createElement('div');
         miss.className = 'missing';
         miss.innerHTML = 'file missing<br><span style="font-size:9px;font-weight:400">404 in R2</span>';
-        miss.title = url;
+        miss.title = img.src;
         img.replaceWith(miss);
-      };
+      });
       body.appendChild(img);
     } else {
       const icon = document.createElement('div');
@@ -1882,7 +1898,12 @@
     if (kind === 'pdf') {
       body.innerHTML = `<iframe src="${escapeHtml(n.public_url)}" title="notice pdf"></iframe>`;
     } else if (kind === 'image') {
-      body.innerHTML = `<div class="image-body"><img src="${escapeHtml(n.public_url)}" alt="notice image" onerror="this.parentElement.classList.add('missing-preview');this.replaceWith(Object.assign(document.createElement('div'),{textContent:'file missing — 404 in R2',title:this.src}));"></div>`;
+      body.innerHTML = `<div class="image-body"><img src="${escapeHtml(n.public_url)}" alt="notice image"></div>`;
+      const galImg = body.querySelector('img');
+      wireNoticeImg(galImg, n.filename, () => {
+        if (galImg.parentElement) galImg.parentElement.classList.add('missing-preview');
+        galImg.replaceWith(Object.assign(document.createElement('div'), {textContent: 'file missing — 404 in R2', title: galImg.src}));
+      });
     } else if (kind === 'other') {
       body.innerHTML = `<iframe src="${escapeHtml(n.public_url)}" title="notice"></iframe>`;
     } else {
@@ -2304,6 +2325,25 @@
     return 'other';
   }
 
+  // A notice file is shared across the lots of a multi-property notice, and a
+  // Document.public_url can occasionally point at a per-auction R2 key whose
+  // object isn't there (yields a 404). Before giving up, retry once through the
+  // CORS proxy, which tries every sibling key for this filename and streams the
+  // first that resolves — so the viewer self-heals. `giveUp` runs only if the
+  // proxy also fails (or there's no filename to retry with).
+  function wireNoticeImg(img, filename, giveUp) {
+    if (!img) return;
+    img.addEventListener('error', function onErr() {
+      if (!img.dataset.proxied && filename) {
+        img.dataset.proxied = '1';
+        img.src = API + '/review/notice/' + encodeURIComponent(filename) + '/source';
+        return;
+      }
+      img.removeEventListener('error', onErr);
+      giveUp();
+    });
+  }
+
   // ─── Notice image zoom & pan ────────────────────────────────────────────
   // Make any scrollable notice-image container zoomable + pannable, with the
   // same gestures as the annotator: wheel up/down zooms in/out (anchored at the
@@ -2719,7 +2759,12 @@
     if (kind === 'pdf') {
       body.innerHTML = `<iframe src="${escapeHtml(url)}" title="notice pdf"></iframe>`;
     } else if (kind === 'image') {
-      body.innerHTML = `<div class="image-body"><img src="${escapeHtml(url)}" alt="notice image" onerror="this.parentElement.classList.add('missing-preview');this.replaceWith(Object.assign(document.createElement('div'),{textContent:'file missing — 404 in R2',title:this.src}));"></div>`;
+      body.innerHTML = `<div class="image-body"><img src="${escapeHtml(url)}" alt="notice image"></div>`;
+      const srcImg = body.querySelector('img');
+      wireNoticeImg(srcImg, doc.filename, () => {
+        if (srcImg.parentElement) srcImg.parentElement.classList.add('missing-preview');
+        srcImg.replaceWith(Object.assign(document.createElement('div'), {textContent: 'file missing — 404 in R2', title: srcImg.src}));
+      });
     } else if (kind === 'other') {
       body.innerHTML = `<iframe src="${escapeHtml(url)}" title="notice"></iframe>`;
     } else {
@@ -5503,6 +5548,36 @@
     paintTbledTex();
     paintTbledStatus();
   }
+
+  // ─── Extraction-review tab (isolated overlay) ───────────────────────────
+  // Capture-phase listener: for the "extraction" pill, show the overlay and
+  // stop the event before the normal stage handler runs (so queueState is never
+  // set to an unknown stage). For any other pill, just hide the overlay.
+  function closeExtractionPanel() {
+    const p = document.getElementById('extraction-panel');
+    if (p) p.style.display = 'none';
+    document.querySelectorAll('button.pill[data-stage="extraction"]')
+      .forEach(b => b.classList.remove('on'));
+  }
+  document.addEventListener('click', function (ev) {
+    const pill = ev.target.closest && ev.target.closest('button.pill[data-stage]');
+    if (!pill) return;
+    const panel = document.getElementById('extraction-panel');
+    if (pill.getAttribute('data-stage') === 'extraction') {
+      document.querySelectorAll('button.pill[data-stage]')
+        .forEach(b => b.classList.toggle('on', b === pill));
+      const frame = document.getElementById('extraction-frame');
+      if (frame && !frame.getAttribute('src')) {
+        const base = (typeof window.API_BASE === 'string') ? window.API_BASE : '';
+        frame.setAttribute('src', 'review_extraction.html?api=' + encodeURIComponent(base));
+      }
+      if (panel) panel.style.display = 'block';
+      ev.stopImmediatePropagation();   // keep the normal stage handler from firing
+      ev.preventDefault();
+    } else if (panel) {
+      panel.style.display = 'none';    // leaving extraction; let normal flow run
+    }
+  }, true);
 
   // Boot
   route();

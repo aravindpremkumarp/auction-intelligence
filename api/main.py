@@ -28,11 +28,12 @@ from api.auth.rate_limit import limiter
 from api.billing import router as billing_router
 from api.chat import router as chat_router
 from api.conversations import router as conversations_router
-from api.dossier import router as dossier_router
+from api.dossier import dossiers_enabled, router as dossier_router
 from api.feedback import router as feedback_router
 from api.health import router as health_router
 from api.properties import router as properties_router
 from api.review import router as review_router
+from api.review.extraction import router as review_extraction_router
 from api.telemetry import configure_telemetry
 from api.watchlist import router as watchlist_router
 
@@ -178,7 +179,12 @@ if os.environ.get("AUTH_ENABLED", "true").lower() != "false":
     app.include_router(watchlist_router)
     app.include_router(conversations_router)
     app.include_router(review_router)
-    app.include_router(dossier_router)
+    app.include_router(review_extraction_router)
+    # Dossier feature ships dark for the public release — only mount its routes
+    # when explicitly enabled (DOSSIERS_ENABLED). The frontend hides its entry
+    # points to match; see api.dossier.dossiers_enabled.
+    if dossiers_enabled():
+        app.include_router(dossier_router)
 
 
 # Canonical web origin. The frontend lives on www.auctionscope.in (Vercel),
@@ -241,6 +247,27 @@ if WEB_DIR.exists():
     @app.get("/review")
     def review_page(request: Request) -> Response:
         return _canonical_spa_redirect(request) or FileResponse(str(WEB_DIR / "review.html"))
+
+    # review.html embeds the grounded extraction-review surface in an iframe
+    # whose src is the relative "review_extraction.html"; from /review that
+    # resolves to /review_extraction.html. On Vercel it's served straight from
+    # the filesystem, but uvicorn (local dev + Render) needs this explicit
+    # route or the iframe 404s and the extraction-review UI never shows.
+    #
+    # The global _security_headers middleware sends X-Frame-Options: DENY, which
+    # blocks ALL framing — even same-origin — so the iframe would render blank.
+    # Set SAMEORIGIN here (the middleware uses setdefault, so it won't clobber
+    # this) to allow review.html to embed this page from the same origin.
+    @app.get("/review_extraction.html")
+    def review_extraction_page(request: Request) -> Response:
+        redirect = _canonical_spa_redirect(request)
+        if redirect:
+            return redirect
+        resp = FileResponse(
+            str(WEB_DIR / "review_extraction.html"), media_type="text/html"
+        )
+        resp.headers["X-Frame-Options"] = "SAMEORIGIN"
+        return resp
 
     # SPA deep-link fallbacks. The client router (web/index.html) pushes
     # `/chat` and `/property/{id}`; on a fresh load or refresh the browser

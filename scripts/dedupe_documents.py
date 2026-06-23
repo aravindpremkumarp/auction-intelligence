@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from functools import lru_cache
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -60,6 +61,7 @@ WHERE size(docs) > 1
 WITH a, filename, [x IN docs |
   {
     id:           elementId(x),
+    storage_key:  x.storage_key,
     has_url:      CASE WHEN x.public_url  IS NULL THEN 0 ELSE 1 END,
     has_key:      CASE WHEN x.storage_key IS NULL THEN 0 ELSE 1 END,
     uploaded_at:  toString(x.uploaded_at),
@@ -85,6 +87,7 @@ WHERE size(docs) > 1
 WITH filename, [x IN docs |
   {
     id:           elementId(x),
+    storage_key:  x.storage_key,
     has_url:      CASE WHEN x.public_url  IS NULL THEN 0 ELSE 1 END,
     has_key:      CASE WHEN x.storage_key IS NULL THEN 0 ELSE 1 END,
     uploaded_at:  toString(x.uploaded_at),
@@ -139,16 +142,42 @@ DETACH DELETE dup
 """
 
 
+@lru_cache(maxsize=4096)
+def _r2_object_exists(storage_key: str | None) -> bool:
+    """True iff ``storage_key``'s object is actually present in R2.
+
+    The whole point of dedupe is to leave one canonical Document per file, and
+    that survivor's ``public_url`` is what the UI links to. Preferring a node
+    whose object really exists stops us from electing a canonical whose URL
+    dangles (the multi-property-notice 404 class) when a sibling has the file.
+
+    Best-effort: any R2 error — including R2 not being configured in the
+    runner — returns False so ranking falls back to the metadata-only signals.
+    Dedupe must never hard-fail just because it couldn't reach R2. Cached so a
+    filename shared across many auctions costs at most one HEAD per key.
+    """
+    if not storage_key:
+        return False
+    try:
+        from pipeline import storage
+        return storage.exists(storage_key)
+    except Exception:
+        return False
+
+
 def _pick_canonical(candidates: list[dict]) -> tuple[str, list[str]]:
     """Return (canonical_id, [duplicate_ids]).
 
-    Sort descending so the best candidate ends up at index 0:
-    has_url and has_key are 1/0 ints (a node with public_url wins over one
-    without); uploaded_at and extracted_at are ISO strings so plain string
-    comparison gives newest-first under reverse=True.
+    Sort descending so the best candidate ends up at index 0. The first key is
+    whether the node's R2 object actually exists (a node backed by a real file
+    wins over one whose URL dangles). Then has_url and has_key are 1/0 ints (a
+    node with public_url wins over one without); uploaded_at and extracted_at
+    are ISO strings so plain string comparison gives newest-first under
+    reverse=True.
     """
     def score(c: dict) -> tuple:
         return (
+            1 if _r2_object_exists(c.get("storage_key")) else 0,
             int(c.get("has_url") or 0),
             int(c.get("has_key") or 0),
             c.get("uploaded_at") or "",

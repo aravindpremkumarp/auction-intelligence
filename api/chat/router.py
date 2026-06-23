@@ -64,6 +64,13 @@ _CARRY_FORWARD_FILTER_KEYS = {
 
 _GATED_MODES = {"deep-research", "report"}
 
+# Upper bound on panel auction_ids forwarded into the agent's context per turn.
+# The panel rarely holds more than a shortlist, but a wide browse selection
+# could, and we don't want a runaway list re-billed every turn — the whole
+# point of passing ids (not rows) is to stay cheap. 50 short ids is still a
+# tiny prefix; beyond that, the top of the ranked/sorted list is what matters.
+_MAX_PANEL_IDS = 50
+
 # Anonymous /chat throttle. slowapi's decorator can't see Depends-provided
 # state, so this is enforced manually: a small hourly cap per IP. In-memory is
 # fine on a single instance; move to Redis-backed storage before scaling out.
@@ -205,6 +212,13 @@ class ChatRequest(BaseModel):
     # the browse panel's current selection. History-extracted filters layer
     # on top so the rolling-scope behavior across turns still works.
     active_filters: dict[str, Any] | None = None
+    # auction_ids currently shown in the UI matches panel, in display order.
+    # The panel can be populated outside the chat (browse filters, a restored
+    # conversation, an earlier turn whose rows were trimmed from history), so
+    # without this a "compare these / the matches" turn had no ids to resolve.
+    # Kept separate from `active_filters` (filters are scope; these are a
+    # concrete selection). Cleaned + bounded by `_clean_panel_ids`.
+    panel_auction_ids: list[str] | None = None
 
 
 # Whitelist of modes the agent will overlay. Each maps to a modes/<id>.md file.
@@ -314,6 +328,30 @@ def _extract_active_filters(messages) -> tuple[dict, int | None]:
                 elif isinstance(result, list):
                     last_total = len(result)
     return filters, last_total
+
+
+def _clean_panel_ids(raw: Any) -> list[str] | None:
+    """Sanitize client-supplied `panel_auction_ids` into a bounded, ordered,
+    de-duplicated list of non-empty id strings (or None when there's nothing
+    usable). Order is preserved (it's the panel's display/ranked order, which
+    the model is told to respect); the first occurrence of a duplicate wins.
+    Caps at `_MAX_PANEL_IDS` so a huge selection can't bloat the prompt.
+    """
+    if not isinstance(raw, list):
+        return None
+    seen: set[str] = set()
+    out: list[str] = []
+    for item in raw:
+        if item is None:
+            continue
+        s = str(item).strip()
+        if not s or s in seen:
+            continue
+        seen.add(s)
+        out.append(s)
+        if len(out) >= _MAX_PANEL_IDS:
+            break
+    return out or None
 
 
 def _split_ui_rows(result: Any) -> tuple[Any, list[dict[str, Any]] | None]:
@@ -610,6 +648,7 @@ async def _prepare_turn(
         last_total_count=last_total,
         mode=mode,
         supabase_id=user.id if user else None,
+        panel_auction_ids=_clean_panel_ids(req.panel_auction_ids),
     )
     return history, deps, mode
 

@@ -604,6 +604,11 @@ function syncURLForScreen(screen, replace) {
   history[method]({ screen, id: currentDetailId }, '', target);
 }
 function go(screen) {
+  // Dossiers ships dark for the public release (see the index.html bootstrap +
+  // backend DOSSIERS_ENABLED). When it's off, treat any route to it — a tab
+  // click, a /dossiers deep link, or the detail-page button — as a no-op that
+  // lands on home, so the hidden feature is never reachable.
+  if (screen === 'dossiers' && !window.DOSSIERS_ENABLED) screen = 'landing';
   // 'browse' is a virtual nav target (used by the "browse all properties" CTA): it
   // shows the home screen scrolled to the property listing. There's no separate
   // browse tab — it shares the home screen — so the home tab stays highlighted.
@@ -747,6 +752,29 @@ document.addEventListener('change', (e) => {
 })();
 
 /* ====== API ====== */
+// auction_ids currently shown in the matches panel, in the order on screen.
+// Sent with each chat turn as `panel_auction_ids` so the agent can resolve
+// "compare these" / "the matches" / "all of them" to concrete ids. The panel
+// is browser-only state (it can come from browse filters or a restored chat,
+// not just the live history), so without this the agent has nothing to point
+// at. We send ids only — cheap — and let the agent re-fetch detail on demand.
+function _currentPanelAuctionIds() {
+  if (!Array.isArray(currentResults) || !currentResults.length) return [];
+  // Mirror what the user sees: the panel renders sortResults(currentResults).
+  const ordered = sortResults(currentResults, currentSort);
+  const ids = [];
+  const seen = new Set();
+  for (const row of ordered) {
+    const raw = row && (row.auction_id != null ? row.auction_id : row.id);
+    if (raw == null || raw === '') continue;
+    const id = String(raw);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    ids.push(id);
+    if (ids.length >= 50) break;  // matches the backend's _MAX_PANEL_IDS cap
+  }
+  return ids;
+}
 function _chatRequestBody(message) {
   const mode = window.currentMode || 'ask';
   if (!_requireAuthForMode(mode)) throw new Error('login required for this mode');
@@ -757,6 +785,8 @@ function _chatRequestBody(message) {
   window.pendingChatScope = null;
   const body = { message, message_history: apiMessageHistory, mode };
   if (activeFilters) body.active_filters = activeFilters;
+  const panelIds = _currentPanelAuctionIds();
+  if (panelIds.length) body.panel_auction_ids = panelIds;
   return body;
 }
 function _chatHttpError(res) {

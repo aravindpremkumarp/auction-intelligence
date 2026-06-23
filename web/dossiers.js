@@ -14,6 +14,14 @@
 (function () {
   'use strict';
 
+  // Dossiers ships dark for the public release. When the feature flag is off
+  // (see the bootstrap in index.html), expose inert stubs so app.js's
+  // go('dossiers') / openForAuction hooks stay safe, and do nothing else.
+  if (!window.DOSSIERS_ENABLED) {
+    window.Dossiers = { render: function () {}, openForAuction: function () {} };
+    return;
+  }
+
   var esc = (typeof escapeHtml === 'function')
     ? escapeHtml
     : function (s) {

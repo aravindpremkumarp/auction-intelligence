@@ -42,19 +42,22 @@ _SHARED_MD = _REPO_ROOT / "modes" / "_shared.md"
 # do (it previously promised "set up tracking" with no backing tool), so the
 # extra description earns its per-call cost. Measured ~16,483; ceiling 16,700.
 #
-# 2026-06: +~1,590 for the private-dossier Q&A capability — the
-# `query_user_dossier` tool (~1,210-char docstring) plus the rule-4 exception
-# that tells the model the signed-in user's OWN uploaded documents (deeds, EC,
-# patta) are answerable via that tool, not the public graph. Without it the
-# assistant would wrongly refuse questions about the user's dossier. Measured
-# ~18,069; ceiling 18,300.
+# 2026-06: the private-dossier Q&A capability (the `query_user_dossier` tool +
+# a rule-4 exception) briefly pushed this to ~18,069 (ceiling 18,300). The
+# feature now ships dark behind DOSSIERS_ENABLED: the tool is registered
+# conditionally (no @agent.tool decorator, so it drops out of this static scan)
+# and its prompt fragment lives in `_DOSSIER_RULE_EXCEPTION`, appended to the
+# role prompt only when the flag is on. So the always-sent prefix measured here
+# is back to the pre-dossier baseline (~16,508); ceiling 16,700. When the
+# feature is re-enabled for launch, fold the tool docstring + exception back
+# into the measure and raise this ceiling in the same commit.
 #
-# 2026-06: +~600 for the `score_auction` tool (405-char docstring) plus a
+# 2026-06: +~557 for the `score_auction` tool (405-char docstring) plus a
 # routing line in modes/_shared.md. Exposes the existing 10-dimension scorer
 # (scoring/auction_scorer.py) to the agent so the compare/report modes can
-# actually score properties, instead of instructing a tool that didn't exist.
-# Measured ~18,670; ceiling 18,900.
-BUDGET_CHARS = 18_900
+# actually score, instead of instructing a tool that didn't exist. Measured
+# ~17,065; ceiling 17,300.
+BUDGET_CHARS = 17_300
 
 
 def _agent_module() -> ast.Module:

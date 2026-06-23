@@ -30,6 +30,10 @@ os.environ.setdefault("SUPABASE_ANON_KEY", "fake-anon")
 os.environ.setdefault("APP_ENV", "test")
 os.environ.setdefault("RATELIMIT_DISABLED", "1")
 os.environ.setdefault("AUTH_ENABLED", "true")
+# Dossiers ship dark in prod (DOSSIERS_ENABLED defaults off) — turn the feature
+# on for the test suite so the /dossiers router is mounted and its contract
+# tests exercise real routes.
+os.environ.setdefault("DOSSIERS_ENABLED", "true")
 
 
 def _install_stub_agent() -> None:
@@ -37,7 +41,11 @@ def _install_stub_agent() -> None:
     mod = types.ModuleType("api.agent")
 
     class ChatDeps:  # noqa: D401
-        def __init__(self, *args, **kwargs): pass
+        # Retain whatever the router puts on the deps (active_filters,
+        # panel_auction_ids, mode, …) so tests can assert it was forwarded to
+        # agent.run without building the real (network-y) agent.
+        def __init__(self, *args, **kwargs):
+            self.__dict__.update(kwargs)
 
     class _Agent:
         async def run(self, *args, **kwargs):  # pragma: no cover - not exercised

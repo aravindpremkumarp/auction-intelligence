@@ -200,7 +200,10 @@ def stage1_mineru(work: list[dict]) -> dict[str, str]:
                 zip_url = r.get("full_zip_url")
                 if zip_url is None:
                     continue
-                md_path, blocks_path = mineru_download_and_cache(match["file_path"], zip_url)
+                # archive_to_r2: keep MinerU's complete output (full zip + image
+                # crops) so nothing it emits is lost; loader stamps it on the Document.
+                md_path, blocks_path = mineru_download_and_cache(
+                    match["file_path"], zip_url, archive_to_r2=True)
                 if md_path:
                     md_by_path[match["file_path"]] = md_path.read_text(encoding="utf-8")
                     blocks_note = " +blocks.json" if blocks_path else " (no blocks.json)"

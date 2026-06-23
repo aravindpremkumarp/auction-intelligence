@@ -1064,6 +1064,63 @@ def review_notice_reingest(
     )
 
 
+def _notice_source_candidates(filename: str) -> list[str]:
+    """Ordered, de-duplicated list of R2 URLs to try for a notice filename.
+
+    One notice file is shared across the lots of a multi-property notice. The
+    enrichment pipeline creates a Document per auction keyed
+    ``notices/{auction_id}/{filename}``, but the file is physically uploaded
+    under only one prefix — so a given Document's ``public_url`` can point at a
+    key whose object was never uploaded (or was later cleaned up), yielding a
+    404. We gather every plausible key for this filename so the proxy can
+    stream the first that actually resolves:
+
+      1. the stored ``public_url`` of every Document with this filename,
+      2. ``base/storage_key`` for each of those Documents,
+      3. ``base/notices/{auction_id}/{filename}`` reconstructed from every
+         auction linked to those Documents.
+
+    Candidates outside the configured R2 public base are dropped (a poisoned
+    ``public_url`` must not turn this proxy into an SSRF vector).
+    """
+    from pipeline.storage import object_key
+
+    rows = run_read_query(
+        """
+        MATCH (d:Document {filename: $filename})
+        OPTIONAL MATCH (a:AuctionProperty)-[:HAS_DOCUMENT]->(d)
+        RETURN collect(DISTINCT d.public_url)  AS urls,
+               collect(DISTINCT d.storage_key) AS keys,
+               collect(DISTINCT a.auction_id)  AS auction_ids
+        """,
+        {"filename": filename},
+        max_rows=1,
+    )
+    if not rows:
+        return []
+    row = rows[0]
+    allowed_base = os.environ.get("R2_PUBLIC_BASE_URL", "").strip().rstrip("/")
+
+    candidates: list[str] = []
+
+    def _add(url: str | None) -> None:
+        if url and url not in candidates:
+            candidates.append(url)
+
+    for url in row.get("urls") or []:
+        _add(url)
+    if allowed_base:
+        for key in row.get("keys") or []:
+            if key:
+                _add(f"{allowed_base}/{key}")
+        for aid in row.get("auction_ids") or []:
+            if aid:
+                _add(f"{allowed_base}/{object_key(aid, filename)}")
+        # SSRF guard: only ever fetch from the configured R2 public base.
+        candidates = [c for c in candidates if c.startswith(allowed_base + "/")]
+    return candidates
+
+
 @router.get("/notice/{filename}/source")
 def review_notice_source(filename: str):
     """Stream a notice's source bytes with CORS headers enabled.
@@ -1075,45 +1132,49 @@ def review_notice_source(filename: str):
     R2 — this endpoint just adds CORS — so no admin auth is required
     (matching the existing pattern of using ``Document.public_url``
     directly in the queue UI).
+
+    Resilient by design: it tries every candidate key for this filename
+    (see :func:`_notice_source_candidates`) and streams the first that
+    responds 200, so the viewer self-heals when a Document's ``public_url``
+    points at a missing per-auction key.
     """
     import requests
 
-    rows = run_read_query(
-        "MATCH (d:Document {filename: $filename}) RETURN d.public_url AS url",
-        {"filename": filename},
-        max_rows=1,
-    )
-    if not rows or not rows[0].get("url"):
+    candidates = _notice_source_candidates(filename)
+    if not candidates:
         raise HTTPException(status_code=404, detail="notice has no public_url")
-    upstream = rows[0]["url"]
 
-    # The URL comes from the graph, not the client, but a poisoned
-    # Document.public_url must not turn this proxy into an SSRF vector —
-    # only fetch from the configured R2 public base.
-    allowed_base = os.environ.get("R2_PUBLIC_BASE_URL", "").strip().rstrip("/")
-    if allowed_base and not upstream.startswith(allowed_base + "/"):
-        raise HTTPException(status_code=502, detail="source URL outside the notice bucket")
-
-    try:
-        r = requests.get(upstream, timeout=30, stream=True)
-    except requests.RequestException as e:
-        raise HTTPException(status_code=502, detail=f"upstream fetch: {e}")
-    if not r.ok:
-        raise HTTPException(status_code=502,
-                            detail=f"upstream returned {r.status_code}")
-
-    content_type = r.headers.get("content-type", "application/octet-stream")
-
-    def _iter():
+    last_status: int | None = None
+    for upstream in candidates:
         try:
-            for chunk in r.iter_content(chunk_size=65536):
-                if chunk:
-                    yield chunk
-        finally:
+            r = requests.get(upstream, timeout=30, stream=True)
+        except requests.RequestException:
+            last_status = None
+            continue
+        if not r.ok:
+            last_status = r.status_code
             r.close()
+            continue
 
-    return StreamingResponse(
-        _iter(),
-        media_type=content_type,
-        headers={"Cache-Control": "private, max-age=300"},
+        content_type = r.headers.get("content-type", "application/octet-stream")
+
+        def _iter(resp=r):
+            try:
+                for chunk in resp.iter_content(chunk_size=65536):
+                    if chunk:
+                        yield chunk
+            finally:
+                resp.close()
+
+        return StreamingResponse(
+            _iter(),
+            media_type=content_type,
+            headers={"Cache-Control": "private, max-age=300"},
+        )
+
+    # Every candidate failed. Surface 404 when the objects are simply absent
+    # (so the UI shows "file missing"), 502 for upstream/transport errors.
+    raise HTTPException(
+        status_code=404 if last_status == 404 else 502,
+        detail=f"no working source for notice (last upstream status: {last_status})",
     )

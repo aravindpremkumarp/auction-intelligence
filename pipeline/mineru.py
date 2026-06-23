@@ -25,6 +25,11 @@ from pipeline.config import DOWNLOADS_DIR, PIPELINE_DIR
 MINERU_MARKDOWN_DIR = PIPELINE_DIR / "cache" / "mineru_markdown"
 MINERU_BLOCKS_DIR   = PIPELINE_DIR / "cache" / "mineru_blocks"
 MINERU_RAW_ZIPS_DIR = PIPELINE_DIR / "cache" / "mineru_raw_zips"
+# Sidecar metadata written when an OCR run archives MinerU's full output to R2:
+# the archived zip URL and the {image-basename -> R2 URL} map for the crops
+# extracted from the zip. The loader / reingest read this to (a) stamp the zip
+# URL on the Document and (b) resolve each block's img_path to a usable URL.
+MINERU_META_DIR     = PIPELINE_DIR / "cache" / "mineru_meta"
 
 MINERU_SUPPORTED_EXTS = {".pdf", ".jpg", ".jpeg", ".png", ".jfif"}
 MINERU_EXT_REMAP = {".jfif": ".jpg"}
@@ -197,6 +202,36 @@ def _canon_label(raw: str | None) -> str:
     return MINERU_LABEL_MAP.get(str(raw).strip().lower(), DEFAULT_LABEL)
 
 
+def _coerce_caption(v) -> str | None:
+    """MinerU emits table_caption / table_footnote as a list of strings (or
+    occasionally a bare string). Join to a single newline-delimited string;
+    return None when empty so absent captions stay null on the block."""
+    if v is None:
+        return None
+    if isinstance(v, list):
+        parts = [str(x).strip() for x in v if str(x).strip()]
+        return "\n".join(parts) or None
+    s = str(v).strip()
+    return s or None
+
+
+def _coerce_text_level(v) -> int | None:
+    """Heading level MinerU assigns to titles/headers (1 = top). Ignore bools
+    and non-numerics."""
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        return None
+    return int(v)
+
+
+def _resolve_img_url(img_path: str | None, img_map: dict[str, str] | None) -> str | None:
+    """Map a MinerU ``img_path`` (e.g. ``images/<hash>.jpg``) to its archived
+    R2 URL using ``img_map``. Tries the verbatim path first, then the basename
+    (the map is keyed by basename, which is globally unique for MinerU crops)."""
+    if not img_path or not img_map:
+        return None
+    return img_map.get(img_path) or img_map.get(img_path.rsplit("/", 1)[-1])
+
+
 def _block_text(entry: dict, label: str) -> str:
     """Pick the best text representation from a MinerU content-list entry."""
     if label == "Table":
@@ -224,12 +259,21 @@ def _block_text(entry: dict, label: str) -> str:
     return str(entry.get("text") or entry.get("md") or "").strip()
 
 
-def parse_mineru_content_list(raw: list, *, scale: float = 1000.0) -> list[dict]:
+def parse_mineru_content_list(raw: list, *, scale: float = 1000.0,
+                              img_map: dict[str, str] | None = None) -> list[dict]:
     """Convert MinerU's flat content-list JSON to our canonical block shape.
 
     Output items:
       ``{id, page, bbox, label, text, reading_order, source, confidence,
-         table, edited_at, edited_by}``
+         table, img_path, img_url, text_level, sub_type, table_caption,
+         table_footnote, edited_at, edited_by}``
+
+    ``img_path`` / ``text_level`` / ``sub_type`` / ``table_caption`` /
+    ``table_footnote`` are fields MinerU emits that were previously dropped;
+    they are now carried through so the full output is usable. ``img_url`` is
+    the archived R2 URL for the crop, resolved from ``img_map`` (the
+    {image-basename -> URL} map produced when the run archived its images);
+    it stays ``None`` when the run did not archive to R2.
 
     ``id`` is left empty here; the loader assigns a stable id when writing
     to Neo4j so the same block keeps the same id across re-loads.
@@ -244,6 +288,7 @@ def parse_mineru_content_list(raw: list, *, scale: float = 1000.0) -> list[dict]
         page = int(entry.get("page_idx", entry.get("page", 0))) + 1   # 1-indexed
         bbox = _normalize_bbox(entry.get("bbox") or entry.get("poly_bbox") or [], scale)
         conf = entry.get("score") or entry.get("confidence")
+        img_path = entry.get("img_path") or None
         block: dict = {
             "id": "",
             "page": page,
@@ -254,6 +299,13 @@ def parse_mineru_content_list(raw: list, *, scale: float = 1000.0) -> list[dict]
             "source": "mineru",
             "confidence": float(conf) if isinstance(conf, (int, float)) else None,
             "table": None,
+            "img_path": img_path,
+            "img_url": _resolve_img_url(img_path, img_map),
+            "text_level": _coerce_text_level(entry.get("text_level")),
+            "sub_type": (str(entry["sub_type"]).strip() or None)
+                        if entry.get("sub_type") is not None else None,
+            "table_caption": _coerce_caption(entry.get("table_caption")),
+            "table_footnote": _coerce_caption(entry.get("table_footnote")),
             "edited_at": None,
             "edited_by": None,
         }
@@ -267,6 +319,35 @@ def parse_mineru_content_list(raw: list, *, scale: float = 1000.0) -> list[dict]
             }
         out.append(block)
     return out
+
+
+def mineru_meta_path(file_path: str) -> Path:
+    """On-disk sidecar path for the R2-archive metadata of ``file_path``."""
+    return MINERU_META_DIR / f"{safe_cache_name(file_path)}.json"
+
+
+def write_mineru_meta(file_path: str, meta: dict) -> Path:
+    """Persist the archive metadata sidecar (zip URL + image map) to disk."""
+    MINERU_META_DIR.mkdir(parents=True, exist_ok=True)
+    p = mineru_meta_path(file_path)
+    p.write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
+    return p
+
+
+def read_mineru_meta(file_path: str) -> dict:
+    """Read the archive metadata sidecar for ``file_path``.
+
+    Returns ``{}`` when absent or unreadable so callers can treat "not
+    archived" and "archived" uniformly (no zip URL, empty image map).
+    """
+    p = mineru_meta_path(file_path)
+    if not p.exists():
+        return {}
+    try:
+        obj = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return obj if isinstance(obj, dict) else {}
 
 
 def assemble_markdown(blocks: list[dict]) -> str:
