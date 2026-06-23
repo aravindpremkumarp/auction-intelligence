@@ -728,6 +728,27 @@ document.addEventListener('change', (e) => {
   document.querySelectorAll('.mode-pick').forEach(p => p.classList.toggle('active', special));
 });
 
+/* ====== model + thinking-effort toggles ====== */
+// Both default to null = "let the server pick the tier default" (Flash for
+// free/anon, Pro for paid; server-default effort). The server enforces the
+// tier gate regardless of what we send, so these are purely the UI's view.
+window.currentModel = null;
+window.currentReasoningEffort = null;
+const CHAT_MODEL_KEY = 'chat_model';
+const CHAT_EFFORT_KEY = 'chat_effort';
+document.addEventListener('change', (e) => {
+  if (!e.target.matches) return;
+  if (e.target.matches('.model-select-inline')) {
+    window.currentModel = e.target.value || null;
+    try { localStorage.setItem(CHAT_MODEL_KEY, e.target.value); } catch(_) {}
+    document.querySelectorAll('.model-select-inline').forEach(s => { if (s !== e.target) s.value = e.target.value; });
+  } else if (e.target.matches('.effort-select-inline')) {
+    window.currentReasoningEffort = e.target.value || null;
+    try { localStorage.setItem(CHAT_EFFORT_KEY, e.target.value); } catch(_) {}
+    document.querySelectorAll('.effort-select-inline').forEach(s => { if (s !== e.target) s.value = e.target.value; });
+  }
+});
+
 /* ====== theme toggle ====== */
 (function () {
   const btn = document.getElementById('theme-toggle');
@@ -787,6 +808,11 @@ function _chatRequestBody(message) {
   if (activeFilters) body.active_filters = activeFilters;
   const panelIds = _currentPanelAuctionIds();
   if (panelIds.length) body.panel_auction_ids = panelIds;
+  // Model + thinking-effort toggles (omitted when null so the server applies
+  // the tier default). The server re-gates these, so a free user can't unlock
+  // Pro by tampering with the body.
+  if (window.currentModel) body.model = window.currentModel;
+  if (window.currentReasoningEffort) body.reasoning_effort = window.currentReasoningEffort;
   return body;
 }
 function _chatHttpError(res) {
@@ -872,6 +898,43 @@ async function hydrateModes() {
     const optHtml = modes.map(m => `<option value="${escapeHtml(m.id)}">${escapeHtml(m.label || m.id)}</option>`).join('');
     sels.forEach(s => { s.innerHTML = optHtml; s.value = window.currentMode || 'ask'; });
   } catch(e) { /* keep the default "ask" option */ }
+}
+// Populate the model + thinking-effort toggles from the tier-aware
+// GET /chat/models. Re-run on auth change so upgrading to paid unlocks Pro
+// without a refresh. The model pill is shown only when 2+ models exist, so a
+// single-model deploy hides it entirely. Locked models render disabled; the
+// server enforces the gate regardless.
+async function hydrateChatModels() {
+  try {
+    const res = await authFetch(`${API_BASE}/chat/models`);
+    if (!res.ok) return;
+    const data = await res.json();
+    const models = Array.isArray(data?.models) ? data.models : [];
+    const efforts = Array.isArray(data?.reasoning_efforts) ? data.reasoning_efforts : [];
+    const defModel = (data?.defaults && data.defaults.model) || 'flash';
+    const defEffort = (data?.defaults && data.defaults.reasoning_effort) || 'high';
+    let savedModel = null, savedEffort = null;
+    try { savedModel = localStorage.getItem(CHAT_MODEL_KEY); savedEffort = localStorage.getItem(CHAT_EFFORT_KEY); } catch(_) {}
+    // Never let a locked (or unknown) saved choice stick — fall back to default.
+    const unlocked = new Set(models.filter(m => !m.locked).map(m => m.id));
+    const model = unlocked.has(savedModel) ? savedModel : defModel;
+    const effortIds = new Set(efforts.map(e => e.id));
+    const effort = effortIds.has(savedEffort) ? savedEffort : defEffort;
+    window.currentModel = model;
+    window.currentReasoningEffort = effort;
+
+    const mOpts = models.map(m =>
+      `<option value="${escapeHtml(m.id)}"${m.locked ? ' disabled' : ''}>${escapeHtml(m.label)}${m.locked ? ' 🔒' : ''}</option>`
+    ).join('');
+    document.querySelectorAll('.model-select-inline').forEach(s => { s.innerHTML = mOpts; s.value = model; });
+    document.querySelectorAll('.model-pick').forEach(p => { p.hidden = models.length < 2; });
+
+    const eOpts = efforts.map(e =>
+      `<option value="${escapeHtml(e.id)}">${escapeHtml(e.label)}</option>`
+    ).join('');
+    document.querySelectorAll('.effort-select-inline').forEach(s => { s.innerHTML = eOpts; s.value = effort; });
+    document.querySelectorAll('.effort-pick').forEach(p => { p.hidden = efforts.length < 1; });
+  } catch(e) { /* leave the toggles hidden; the server still applies tier defaults */ }
 }
 async function apiAuctionDetail(auctionId) {
   const res = await authFetch(`${API_BASE}/auction/${encodeURIComponent(auctionId)}`);
@@ -3067,6 +3130,12 @@ loadAlerts();
 renderSidebar();
 renderResultsList();
 hydrateModes();
+hydrateChatModels();
+// Re-hydrate the model/effort toggles on auth change so a fresh login (or an
+// upgrade to paid) unlocks Pro without a page refresh.
+if (window.Auth && window.Auth.onAuthChange) {
+  window.Auth.onAuthChange(() => { hydrateChatModels(); });
+}
 applyBrowse();
 loadDataFreshness();
 

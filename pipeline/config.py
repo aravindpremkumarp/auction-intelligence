@@ -48,6 +48,15 @@ OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "google/gemini-2.5-flash")
 # survive bursty traffic, unlike Gemini implicit caching), plus reasoning.
 # Override via OPENROUTER_MODEL_CHAT in .env.
 OPENROUTER_MODEL_CHAT = os.getenv("OPENROUTER_MODEL_CHAT", "deepseek/deepseek-v4-pro")
+# Cheaper, faster sibling offered alongside Pro as a user-selectable model.
+# Flash trades reasoning depth for ~4-6x lower token cost and minimal reasoning
+# output, so it's the default (and only) model for free/anonymous chat and an
+# opt-in for paid users who want speed over depth. Same first-party DeepSeek
+# provider as Pro, so the automatic prompt-cache assumption (and the provider
+# pin below) applies equally. Override via OPENROUTER_MODEL_CHAT_FLASH in .env.
+OPENROUTER_MODEL_CHAT_FLASH = os.getenv(
+    "OPENROUTER_MODEL_CHAT_FLASH", "deepseek/deepseek-v4-flash"
+)
 # Reasoning effort for the chat model, sent via OpenRouter's `reasoning` param.
 # deepseek-v4-pro supports "high" and "xhigh" (xhigh = max). Set to "off" (or
 # empty) to disable. NB: reasoning tokens bill as output.
