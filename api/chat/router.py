@@ -37,10 +37,18 @@ from pydantic_ai.messages import (
 from pydantic_ai.run import AgentRunResultEvent
 from pydantic_ai.usage import UsageLimits
 
-from api.agent import ChatDeps, agent
+from api.agent import ChatDeps, agent, build_chat_run_overrides
 from api.auth import get_optional_user
 from api.auth import repository as auth_repo
 from api.auth.schemas import UserOut
+from api.model_selection import (
+    CHAT_MODEL_OPTIONS,
+    DEFAULT_PAID_MODEL,
+    FREE_TIER_MODEL,
+    REASONING_EFFORT_OPTIONS,
+    resolve_chat_model,
+    resolve_reasoning_effort,
+)
 from api.observability import SLOW_AGENT_MS, timed
 
 logger = logging.getLogger(__name__)
@@ -219,6 +227,14 @@ class ChatRequest(BaseModel):
     # Kept separate from `active_filters` (filters are scope; these are a
     # concrete selection). Cleaned + bounded by `_clean_panel_ids`.
     panel_auction_ids: list[str] | None = None
+    # User-selectable model ("flash"/"pro") and reasoning effort
+    # ("off"/"medium"/"high"/…). Advisory only — both are resolved + gated
+    # server-side in `_prepare_turn` (free/anon users are forced onto Flash),
+    # so a tampered client can't unlock the pricey model or an unknown effort.
+    # `None` = use the tier default (Flash for free, Pro for paid) / server
+    # default effort.
+    model: str | None = None
+    reasoning_effort: str | None = None
 
 
 # Whitelist of modes the agent will overlay. Each maps to a modes/<id>.md file.
@@ -602,6 +618,33 @@ def list_modes() -> dict:
     return {"modes": _AVAILABLE_MODES}
 
 
+@router.get("/chat/models")
+def list_chat_models(user: UserOut | None = Depends(get_optional_user)) -> dict:
+    """Model + reasoning-effort options for the chat toggles, tier-aware.
+
+    Each model carries `locked`: true when the caller's tier can't use it
+    (free/anon → Pro is locked). The UI should render locked models disabled
+    with an upgrade prompt; the server enforces the same rule on /chat
+    regardless, so this is purely to drive the toggle UI. `defaults` is what
+    the server will use when the client sends no explicit choice.
+    """
+    tier = user.tier if user else "free"
+    is_paid = tier == "paid"
+    models = [
+        {**opt, "locked": opt["min_tier"] == "paid" and not is_paid}
+        for opt in CHAT_MODEL_OPTIONS
+    ]
+    return {
+        "tier": tier,
+        "models": models,
+        "reasoning_efforts": REASONING_EFFORT_OPTIONS,
+        "defaults": {
+            "model": DEFAULT_PAID_MODEL if is_paid else FREE_TIER_MODEL,
+            "reasoning_effort": "high",
+        },
+    }
+
+
 _USAGE_LIMIT_DETAIL = (
     "this question needed too many steps — try asking it more narrowly"
 )
@@ -609,11 +652,16 @@ _USAGE_LIMIT_DETAIL = (
 
 async def _prepare_turn(
     request: Request, req: ChatRequest, user: UserOut | None
-) -> tuple[list | None, ChatDeps, str | None]:
+) -> tuple[list | None, ChatDeps, str | None, dict]:
     """Shared per-turn gating + setup for /chat and /chat/stream.
 
     Raises HTTPException for auth/rate failures, validates the incoming
-    history, and builds ChatDeps with the rolling search scope.
+    history, builds ChatDeps with the rolling search scope, and resolves the
+    per-request model + reasoning effort (gating free/anon users to Flash).
+
+    Returns (history, deps, mode, run_ctx). `run_ctx` carries the
+    `agent.run` overrides under "overrides" plus the resolved "model" /
+    "reasoning_effort" names for the obs log.
     """
     mode = req.mode
     if mode in _GATED_MODES and (user is None or not user.email_verified):
@@ -650,16 +698,28 @@ async def _prepare_turn(
         supabase_id=user.id if user else None,
         panel_auction_ids=_clean_panel_ids(req.panel_auction_ids),
     )
-    return history, deps, mode
+    # Model + effort gating. Anonymous callers (user is None) and the free tier
+    # are locked to Flash; only paid users can opt into Pro. The reasoning
+    # effort toggle is open to all (Flash barely reasons, so it's cheap there).
+    model_name = resolve_chat_model(user.tier if user else "free", req.model)
+    effort = resolve_reasoning_effort(req.reasoning_effort)
+    run_ctx = {
+        "overrides": build_chat_run_overrides(model_name, effort),
+        "model": model_name,
+        "reasoning_effort": effort,
+    }
+    return history, deps, mode, run_ctx
 
 
-def _build_chat_response(result: Any, mode: str | None, usage: dict[str, Any]) -> ChatResponse:
+def _build_chat_response(
+    result: Any, mode: str | None, usage: dict[str, Any], model: str | None = None
+) -> ChatResponse:
     """Post-run packaging shared by /chat and /chat/stream."""
     artifacts = _extract_artifacts(result.new_messages())
     logger.info(
-        "chat turn ok mode=%s tool_calls=%d answer_chars=%d "
+        "chat turn ok mode=%s model=%s tool_calls=%d answer_chars=%d "
         "llm_calls=%s in_tok=%s cached_tok=%s out_tok=%s",
-        mode or "ask", len(artifacts), len(result.output or ""),
+        mode or "ask", model or DEFAULT_PAID_MODEL, len(artifacts), len(result.output or ""),
         usage.get("llm_calls"), usage.get("input_tokens"),
         usage.get("cached_tokens"), usage.get("output_tokens"),
     )
@@ -687,15 +747,17 @@ async def chat(
     req: ChatRequest,
     user: UserOut | None = Depends(get_optional_user),
 ) -> ChatResponse:
-    history, deps, mode = await _prepare_turn(request, req, user)
+    history, deps, mode, run_ctx = await _prepare_turn(request, req, user)
     try:
         # Time the LLM round-trip on its own budget so slow-agent turns are
         # easy to spot in logs (auction.obs chat.agent_run ... elapsed_ms=...).
         with timed("chat.agent_run", slow_ms=SLOW_AGENT_MS,
-                   mode=mode or "ask", history_msgs=len(history) if history else 0) as obs:
+                   mode=mode or "ask", history_msgs=len(history) if history else 0,
+                   model=run_ctx["model"],
+                   reasoning_effort=run_ctx["reasoning_effort"] or "default") as obs:
             result = await agent.run(
                 req.message, message_history=history, deps=deps,
-                usage_limits=_usage_limits(),
+                usage_limits=_usage_limits(), **run_ctx["overrides"],
             )
             # Attach token/cache counts to the obs line so a turn's cost — and
             # whether the stable prefix is hitting the implicit prompt cache —
@@ -719,7 +781,7 @@ async def chat(
         # upstream failure, not a bug in this service).
         logger.exception("agent.run failed for message=%r mode=%r", req.message, mode)
         raise HTTPException(status_code=502, detail="chat agent failed — please retry")
-    return _build_chat_response(result, mode, usage)
+    return _build_chat_response(result, mode, usage, run_ctx["model"])
 
 
 def _sse(event: str, data: dict[str, Any]) -> str:
@@ -727,7 +789,8 @@ def _sse(event: str, data: dict[str, Any]) -> str:
 
 
 async def _stream_turn(
-    message: str, history: list | None, deps: ChatDeps, mode: str | None
+    message: str, history: list | None, deps: ChatDeps, mode: str | None,
+    run_ctx: dict,
 ) -> AsyncIterator[str]:
     """Run the agent and yield SSE frames.
 
@@ -745,7 +808,9 @@ async def _stream_turn(
     """
     try:
         with timed("chat.agent_run", slow_ms=SLOW_AGENT_MS,
-                   mode=mode or "ask", history_msgs=len(history) if history else 0) as obs:
+                   mode=mode or "ask", history_msgs=len(history) if history else 0,
+                   model=run_ctx["model"],
+                   reasoning_effort=run_ctx["reasoning_effort"] or "default") as obs:
             result = None
             # Text parts arriving before FinalResultEvent may be scratch
             # ("let me search…") — buffer the current part and only flush
@@ -754,7 +819,7 @@ async def _stream_turn(
             pending_text = ""
             async with agent.run_stream_events(
                 message, message_history=history, deps=deps,
-                usage_limits=_usage_limits(),
+                usage_limits=_usage_limits(), **run_ctx["overrides"],
             ) as stream:
                 async for event in stream:
                     if isinstance(event, AgentRunResultEvent):
@@ -799,7 +864,10 @@ async def _stream_turn(
         logger.exception("agent stream failed for message=%r mode=%r", message, mode)
         yield _sse("error", {"detail": "chat agent failed — please retry"})
         return
-    yield _sse("final", _build_chat_response(result, mode, usage).model_dump(mode="json"))
+    yield _sse(
+        "final",
+        _build_chat_response(result, mode, usage, run_ctx["model"]).model_dump(mode="json"),
+    )
 
 
 @router.post("/chat/stream")
@@ -813,9 +881,9 @@ async def chat_stream(
     instead of spinning silently through a long reasoning turn."""
     # Gating runs BEFORE the response starts so auth/rate failures still
     # surface as real HTTP statuses (401/429), matching blocking /chat.
-    history, deps, mode = await _prepare_turn(request, req, user)
+    history, deps, mode, run_ctx = await _prepare_turn(request, req, user)
     return StreamingResponse(
-        _stream_turn(req.message, history, deps, mode),
+        _stream_turn(req.message, history, deps, mode, run_ctx),
         media_type="text/event-stream",
         headers={
             # SSE must not be buffered: X-Accel-Buffering for nginx-style

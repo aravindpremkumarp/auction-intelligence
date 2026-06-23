@@ -51,8 +51,17 @@ def _install_stub_agent() -> None:
         async def run(self, *args, **kwargs):  # pragma: no cover - not exercised
             raise RuntimeError("stub agent")
 
+    def build_chat_run_overrides(model_name=None, reasoning_effort=None):
+        # Stub: return no run overrides so tests that monkeypatch `agent` with a
+        # TestModel-backed or fake agent keep using that agent's own model
+        # instead of a real OpenRouter model object. The real implementation
+        # (api/agent.py) returns {"model": ..., "model_settings": ...}; the
+        # model-selection *logic* is tested via api.model_selection directly.
+        return {}
+
     mod.ChatDeps = ChatDeps
     mod.agent = _Agent()
+    mod.build_chat_run_overrides = build_chat_run_overrides
     sys.modules["api.agent"] = mod
 
 

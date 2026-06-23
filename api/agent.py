@@ -25,11 +25,11 @@ from pydantic_ai.providers.openai import OpenAIProvider
 from pipeline.config import (
     OPENROUTER_API_KEY,
     OPENROUTER_BASE_URL,
-    OPENROUTER_CHAT_PROVIDER_ALLOW_FALLBACKS,
-    OPENROUTER_CHAT_PROVIDER_MAX_PRICE,
-    OPENROUTER_CHAT_PROVIDER_ORDER,
-    OPENROUTER_CHAT_REASONING_EFFORT,
-    OPENROUTER_MODEL_CHAT,
+)
+from api.model_selection import (
+    CHAT_MODEL_SLUGS,
+    DEFAULT_PAID_MODEL,
+    build_model_settings,
 )
 from api.alerts import repository as alerts_repo
 from api.alerts.service import build_alerts
@@ -150,63 +150,50 @@ _http_client = httpx.AsyncClient(timeout=httpx.Timeout(90.0, connect=10.0))
 _provider = OpenAIProvider(
     api_key=OPENROUTER_API_KEY, base_url=OPENROUTER_BASE_URL, http_client=_http_client
 )
-_model = OpenAIModel(OPENROUTER_MODEL_CHAT, provider=_provider)
 
-# OpenRouter-specific request extras, sent via `extra_body`:
+# One model object per logical name ("flash"/"pro"), all on the same OpenRouter
+# provider. The chat router resolves a per-request model name (gating free users
+# to Flash) and passes the matching object to `agent.run(..., model=...)`, so a
+# single agent instance serves both models without rebuilding anything.
+CHAT_MODELS: dict[str, OpenAIModel] = {
+    name: OpenAIModel(slug, provider=_provider)
+    for name, slug in CHAT_MODEL_SLUGS.items()
+}
+
+# OpenRouter-specific request extras ride in `model_settings["extra_body"]`,
+# built per request by `api.model_selection.build_model_settings`:
 #   * usage.include — return detailed usage accounting so the /chat obs log can
 #     report prompt-cache hits (`prompt_tokens_details.cached_tokens`) and cost.
 #     DeepSeek's context caching is automatic: the stable leading prefix (this
 #     role prompt + _shared.md + the tool schemas) is cached upstream and billed
 #     at the cache-hit rate on repeat calls, and the cache persists long enough
-#     to survive our bursty traffic — so `cached_tokens` should now climb above
-#     0 (it stayed 0 under Gemini implicit caching). To reduce input cost
-#     further, keep that prefix byte-for-byte stable across turns.
-#   * reasoning.effort — enable the model's reasoning ("high"/"xhigh" for
-#     deepseek-v4-pro). Omitted when OPENROUTER_CHAT_REASONING_EFFORT is blank
-#     or "off"/"none". NB: reasoning tokens bill as output, so this trades some
-#     output cost/latency for grounding quality — tune via the env var.
-#   * provider — pin routing to first-party DeepSeek (OPENROUTER_CHAT_PROVIDER_*).
-#     Without it OpenRouter load-balances onto third-party hosts that charge
-#     ~3-4x and cache far worse, so the cache-hit assumption above only holds on
-#     the `deepseek` endpoint. allow_fallbacks + max_price keep us resilient when
-#     DeepSeek is down without routing onto the pricey tier.
-# Passed as a plain dict so it rides through `extra_body` regardless of the
-# settings TypedDict.
-_extra_body: dict = {"usage": {"include": True}}
-_reasoning_effort = (OPENROUTER_CHAT_REASONING_EFFORT or "").strip().lower()
-if _reasoning_effort and _reasoning_effort not in {"off", "none", "disabled", "0", "false"}:
-    _extra_body["reasoning"] = {"effort": _reasoning_effort}
-
-_provider_order = [
-    p.strip() for p in (OPENROUTER_CHAT_PROVIDER_ORDER or "").split(",") if p.strip()
-]
-if _provider_order:
-    _provider_routing: dict = {
-        "order": _provider_order,
-        "allow_fallbacks": OPENROUTER_CHAT_PROVIDER_ALLOW_FALLBACKS.strip().lower()
-        in {"1", "true", "yes", "on"},
-    }
-    _max_price = [
-        p.strip() for p in (OPENROUTER_CHAT_PROVIDER_MAX_PRICE or "").split(",") if p.strip()
-    ]
-    if len(_max_price) == 2:
-        try:
-            _provider_routing["max_price"] = {
-                "prompt": float(_max_price[0]),
-                "completion": float(_max_price[1]),
-            }
-        except ValueError:
-            pass
-    _extra_body["provider"] = _provider_routing
-
-_MODEL_SETTINGS: dict = {"extra_body": _extra_body}
-
+#     to survive our bursty traffic — so `cached_tokens` should climb above 0.
+#     To reduce input cost further, keep that prefix byte-for-byte stable.
+#   * reasoning.effort — enable the model's reasoning ("high"/"xhigh" for the Pro
+#     tier). User-selectable per turn (the reasoning-effort toggle) and omitted
+#     when "off". NB: reasoning tokens bill as output, so this is the biggest
+#     per-turn cost lever.
+#   * provider — pin routing to first-party DeepSeek so the cache-hit assumption
+#     holds and a fallback can't land on the ~3-4x third-party tier.
+# The agent's own defaults (Pro + server-default effort) are only used if a
+# caller runs it without per-request overrides; the router always supplies them.
 agent = Agent(
-    _model,
+    CHAT_MODELS[DEFAULT_PAID_MODEL],
     deps_type=ChatDeps,
     system_prompt=SYSTEM_PROMPT,
-    model_settings=_MODEL_SETTINGS,
+    model_settings=build_model_settings(None),
 )
+
+
+def build_chat_run_overrides(
+    model_name: str | None, reasoning_effort: str | None
+) -> dict:
+    """Per-request `agent.run` / `agent.run_stream_events` overrides for the
+    resolved model + reasoning effort. Returns a dict to splat at the call site:
+    `{"model": <OpenAIModel>, "model_settings": {...}}`. An unknown `model_name`
+    falls back to the paid default so a bad value can never 500 a turn."""
+    model = CHAT_MODELS.get(model_name or "", CHAT_MODELS[DEFAULT_PAID_MODEL])
+    return {"model": model, "model_settings": build_model_settings(reasoning_effort)}
 
 
 # Both inject_* are registered as `@agent.instructions` rather than
