@@ -45,8 +45,29 @@ users run up the expensive model.
 
 ## Cost rationale
 
-Flash runs ~4–6× cheaper per token and does minimal reasoning, so a Flash chat
-with 10 follow-ups is ~₹1.5–2 vs ~₹8 on Pro. Defaulting free/anon to Flash
-makes free-tier usage a rounding error and pushes the paid break-even point
-(₹499 / 30 days) well past realistic usage. The reasoning-effort toggle is the
-secondary lever: dropping `high`→`off` roughly halves per-turn output cost.
+Token pricing (DeepSeek list, $/1M tokens — https://api-docs.deepseek.com/quick_start/pricing/):
+
+| Model | Input (cache hit) | Input (cache miss) | Output |
+|-------|-------------------|--------------------|--------|
+| deepseek-v4-pro   | $0.003625 | $0.435 | $0.87 |
+| deepseek-v4-flash | $0.0028   | $0.14  | $0.28 |
+
+Modelling a chat with 10 follow-ups (~11 turns, ~22 LLM calls; ~8K cached
+prefix, ~110K uncached conversation history, output incl. reasoning):
+
+- **Pro:** ≈ $0.071 (~₹6) per chat.
+- **Flash:** ≈ $0.020 (~₹1.7) per chat — roughly 3.5× cheaper.
+
+A more typical ~5-turn chat is ~₹2.2 (Pro) / ~₹0.6 (Flash). Against the ₹499 /
+30-day unlock, even a Pro power user (~100 chats/mo ≈ ₹220, or ~₹600 if every
+chat is a heavy 10-follow-up session) stays profitable except at the extreme
+tail; free users (Flash-locked) cost cents. Notably ~68% of a Pro chat's cost
+is the **uncached conversation history** re-sent each call — not the cached
+prefix or the output — which is why `_trim_old_tool_results` (history trimming
+in `api/chat/router.py`) is load-bearing for cost. The reasoning-effort toggle
+is the secondary lever: reasoning tokens bill as output, so dropping
+`high`→`off` cuts the output term substantially.
+
+Both models sit well under the `OPENROUTER_CHAT_PROVIDER_MAX_PRICE` cap
+(`0.9,1.8` $/M prompt,completion), so the first-party DeepSeek provider pin
+works for Flash and Pro with no config change.
