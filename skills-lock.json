@@ -1,11 +1,41 @@
 {
   "version": 1,
   "skills": {
+    "a11y-audit": {
+      "source": "plugin87/ux-ui-agent-skills",
+      "sourceType": "github",
+      "skillPath": ".claude/skills/a11y-audit/SKILL.md",
+      "computedHash": "962cbc619f3908051119cc23158285d6846a1164c90fc06526c835085151bbc1"
+    },
+    "apply-aesthetic": {
+      "source": "plugin87/ux-ui-agent-skills",
+      "sourceType": "github",
+      "skillPath": ".claude/skills/apply-aesthetic/SKILL.md",
+      "computedHash": "0f0971b69a9b581a1b5e3a0a6c267290c1f024ad979762db3e0879527f361d4d"
+    },
     "brandkit": {
       "source": "Leonxlnx/taste-skill",
       "sourceType": "github",
       "skillPath": "skills/brandkit/SKILL.md",
       "computedHash": "b63012f3c3d21197e0185d3e9cc7ec40c589fb10e0b5a32a561739de31aa3f20"
+    },
+    "design-code": {
+      "source": "plugin87/ux-ui-agent-skills",
+      "sourceType": "github",
+      "skillPath": ".claude/skills/design-code/SKILL.md",
+      "computedHash": "7da635200b46140e026fcfde70b9a9dd2dcf1da9e97e22c45077c4eb3f5b3c7f"
+    },
+    "design-component": {
+      "source": "plugin87/ux-ui-agent-skills",
+      "sourceType": "github",
+      "skillPath": ".claude/skills/design-component/SKILL.md",
+      "computedHash": "305c0e6c5c79e57dccf94d0a8b299257f28778458bcb9ec4cd03ca2cdf8469d7"
+    },
+    "design-qa": {
+      "source": "plugin87/ux-ui-agent-skills",
+      "sourceType": "github",
+      "skillPath": ".claude/skills/design-qa/SKILL.md",
+      "computedHash": "429a9acae4c3cebb58aaab2e826c4094fccb1acda36885e88c179c21443b3da4"
     },
     "design-taste-frontend": {
       "source": "Leonxlnx/taste-skill",
@@ -19,11 +49,29 @@
       "skillPath": "skills/taste-skill-v1/SKILL.md",
       "computedHash": "d704ab912c4d0ca954ffa858983da755ae4cd5cad9ba22554db5557382f5bd34"
     },
+    "design-tokens": {
+      "source": "plugin87/ux-ui-agent-skills",
+      "sourceType": "github",
+      "skillPath": ".claude/skills/design-tokens/SKILL.md",
+      "computedHash": "cbd1c61180ded7f13188178c322884e8df6bc7b141ba597f3d1feb327518a120"
+    },
+    "figma-integration": {
+      "source": "plugin87/ux-ui-agent-skills",
+      "sourceType": "github",
+      "skillPath": ".claude/skills/figma-integration/SKILL.md",
+      "computedHash": "9550b96774d67a1a8fd661bbbecded183ba8aa09d2ad40c3060b3037fec1f3b0"
+    },
     "full-output-enforcement": {
       "source": "Leonxlnx/taste-skill",
       "sourceType": "github",
       "skillPath": "skills/output-skill/SKILL.md",
       "computedHash": "26bd29ce4c5e02c7666b2d503609bf466bd32290822e91f0e984147048dbb924"
+    },
+    "governance": {
+      "source": "plugin87/ux-ui-agent-skills",
+      "sourceType": "github",
+      "skillPath": ".claude/skills/governance/SKILL.md",
+      "computedHash": "69a579e7e8a969912d380636d033faa0dcbc6cdfe0ac37e5cd5823b9e31da33d"
     },
     "gpt-taste": {
       "source": "Leonxlnx/taste-skill",
@@ -61,11 +109,35 @@
       "skillPath": "skills/brutalist-skill/SKILL.md",
       "computedHash": "8fc355c4aadb7d29c53ca28bc41be3cd6eea765d121e3737c4dc2d0f90a8effa"
     },
+    "migrate-design-system": {
+      "source": "plugin87/ux-ui-agent-skills",
+      "sourceType": "github",
+      "skillPath": ".claude/skills/migrate-design-system/SKILL.md",
+      "computedHash": "215e6722073be8883cd43048c76bf28af1f17d8f83eccf2f6b4f668980d7d304"
+    },
     "minimalist-ui": {
       "source": "Leonxlnx/taste-skill",
       "sourceType": "github",
       "skillPath": "skills/minimalist-skill/SKILL.md",
       "computedHash": "08873a3131d3be27bef9bf3304b310b16b44ca6e3561aebe532797be3443f6bd"
+    },
+    "performance": {
+      "source": "plugin87/ux-ui-agent-skills",
+      "sourceType": "github",
+      "skillPath": ".claude/skills/performance/SKILL.md",
+      "computedHash": "817cb7b99578878409a8278e22bf7869971226435c69c7296b8ea5ef0af0716b"
+    },
+    "prototype": {
+      "source": "plugin87/ux-ui-agent-skills",
+      "sourceType": "github",
+      "skillPath": ".claude/skills/prototype/SKILL.md",
+      "computedHash": "31d1add282ed0f69a167b9426dafa32a4049ea28e106d3f6f0a5bcd0129e9d78"
+    },
+    "redesign": {
+      "source": "plugin87/ux-ui-agent-skills",
+      "sourceType": "github",
+      "skillPath": ".claude/skills/redesign/SKILL.md",
+      "computedHash": "71c6ea3d625d734f3cbf7be399d778cc704fb7d8588ea9435d48d86090b43ed3"
     },
     "redesign-existing-projects": {
       "source": "Leonxlnx/taste-skill",
@@ -78,6 +150,36 @@
       "sourceType": "github",
       "skillPath": "skills/stitch-skill/SKILL.md",
       "computedHash": "13322f38406cd3abf16ba45e35bdc9b18002d0153a79b4612b97aefc65d5a335"
+    },
+    "token-build": {
+      "source": "plugin87/ux-ui-agent-skills",
+      "sourceType": "github",
+      "skillPath": ".claude/skills/token-build/SKILL.md",
+      "computedHash": "d922d765ac5a226d8154e11194ce561f659f8280e7d61dd0a6f169fdfd49c64e"
+    },
+    "ux-brandkit": {
+      "source": "plugin87/ux-ui-agent-skills",
+      "sourceType": "github",
+      "skillPath": ".claude/skills/brandkit/SKILL.md",
+      "computedHash": "47f27dd280db557827b8c0fed7463034d61cde29b0ade892bc34f8e55a183ab8"
+    },
+    "ux-design-review": {
+      "source": "plugin87/ux-ui-agent-skills",
+      "sourceType": "github",
+      "skillPath": ".claude/skills/design-review/SKILL.md",
+      "computedHash": "571cf4ed689dc1d110e07ce03e5f1a37a1d0438a9a13a1f9874cd59d51c4ff78"
+    },
+    "ux-image-to-code": {
+      "source": "plugin87/ux-ui-agent-skills",
+      "sourceType": "github",
+      "skillPath": ".claude/skills/image-to-code/SKILL.md",
+      "computedHash": "734bfc14e25d2ded762d4cdff92eced2a114486603ac6dc62b7e35d75383beba"
+    },
+    "ux-writing": {
+      "source": "plugin87/ux-ui-agent-skills",
+      "sourceType": "github",
+      "skillPath": ".claude/skills/ux-writing/SKILL.md",
+      "computedHash": "4fb9f0f240a3b346a91eac835a74bfcc174d07233eb8e99318510dda18f1d3a0"
     }
   }
 }
