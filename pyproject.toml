@@ -2,7 +2,9 @@
 target-version = "py311"
 line-length = 120
 # Scrapers and one-off scripts are local tooling; lint the deployable code.
-extend-exclude = ["redesign", "walkthrough"]
+# .agents/ holds vendored agent/skill packs (e.g. the ux-ui-agent-skills kit's
+# validator scripts) — third-party content, not our code, so keep it out of the gate.
+extend-exclude = ["redesign", "walkthrough", ".agents"]
 
 [tool.ruff.lint]
 # Start with correctness rules (pyflakes + pycodestyle errors) so the gate
