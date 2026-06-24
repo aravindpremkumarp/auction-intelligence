@@ -2495,7 +2495,11 @@ function renderSidebar() {
 })();
 
 document.getElementById('sb-toggle').addEventListener('click', () => {
-  document.getElementById('results-grid').classList.toggle('sb-collapsed');
+  const collapsed = document.getElementById('results-grid').classList.toggle('sb-collapsed');
+  const btn = document.getElementById('sb-toggle');
+  btn.title = collapsed ? 'show chats' : 'hide chats';
+  btn.setAttribute('aria-label', collapsed ? 'Show chat history' : 'Hide chat history');
+  btn.setAttribute('aria-expanded', String(!collapsed));
 });
 document.getElementById('sb-search').addEventListener('input', (e) => {
   sbFilter = e.target.value; renderSidebar();
