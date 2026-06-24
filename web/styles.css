@@ -6,37 +6,37 @@
    of this file restyles the components on top of the original layout rules.
    ===================================================================== */
 :root {
-  /* Neutrals — slate family */
-  --ink: #0f172a;        /* primary text / headings (slate-900) */
-  --ink-soft: #334155;   /* secondary text (slate-700)          */
-  --muted: #64748b;      /* muted labels (slate-500)            */
-  --paper: #f8fafc;      /* app canvas (slate-50)               */
-  --paper-2: #f1f5f9;    /* subtle fills / hovers (slate-100)   */
-  --card: #ffffff;       /* surfaces: cards, inputs, bars       */
+  /* Neutrals — Coinbase institutional palette (cool grays, near-black text) */
+  --ink: #0a0b0d;        /* primary text / headings (Coinbase near-black) */
+  --ink-soft: #33373e;   /* secondary text                                */
+  --muted: #5b616e;      /* muted labels (Coinbase blue-gray)             */
+  --paper: #f6f7f9;      /* app canvas (faint cool gray)                  */
+  --paper-2: #eef0f3;    /* subtle fills / hovers (Coinbase cool surface) */
+  --card: #ffffff;       /* surfaces: cards, inputs, bars                 */
 
-  /* Hairline borders (replace the heavy ink outlines) */
-  --border: #e2e8f0;         /* slate-200 */
-  --border-strong: #cbd5e1;  /* slate-300 */
+  /* Hairline borders — kept light (Coinbase uses ~rgba(91,97,110,0.2)) */
+  --border: #dee0e4;         /* divider / card edge (decorative)          */
+  --border-strong: #bcc0c7;  /* control hairline (accent focus ring = 3:1) */
 
-  /* Brand accent — one calm blue (replaces the yellow highlighter) */
-  --accent: #2563eb;         /* blue-600 */
-  --accent-hover: #1d4ed8;   /* blue-700 */
-  --accent-press: #1e40af;   /* blue-800 */
-  --accent-soft: #eff6ff;    /* blue-50  */
-  --accent-soft-2: #dbeafe;  /* blue-100 */
-  --accent-ring: rgba(37, 99, 235, 0.18);
+  /* Brand accent — Coinbase Blue, the singular accent */
+  --accent: #0052ff;         /* Coinbase Blue                             */
+  --accent-hover: #0046e6;   /* darker on hover (keeps white text >=4.5)  */
+  --accent-press: #003ac4;   /* pressed                                   */
+  --accent-soft: #e8f0ff;    /* soft blue tint (active / badges)          */
+  --accent-soft-2: #dce8ff;  /* deeper soft tint (hover fills)            */
+  --accent-ring: rgba(0, 82, 255, 0.22);
   --on-accent: #ffffff;
 
-  /* Semantic */
-  --danger: #dc2626;
+  /* Semantic — tuned to pass WCAG AA on card AND their soft tints */
+  --danger: #c81e1e;
   --danger-soft: #fef2f2;
-  --good: #059669;
+  --good: #047857;
   --good-soft: #ecfdf5;
 
-  /* Soft, layered shadows (replace the hard offset ink shadow) */
-  --shadow: 0 1px 3px rgba(15,23,42,0.08), 0 1px 2px rgba(15,23,42,0.04);
-  --shadow-md: 0 6px 16px -6px rgba(15,23,42,0.12), 0 2px 6px -2px rgba(15,23,42,0.06);
-  --shadow-lg: 0 16px 36px -12px rgba(15,23,42,0.20);
+  /* Minimal shadows — Coinbase leans on color contrast + hairlines for depth */
+  --shadow: 0 1px 2px rgba(10,11,13,0.06);
+  --shadow-md: 0 4px 12px -4px rgba(10,11,13,0.10), 0 1px 3px rgba(10,11,13,0.05);
+  --shadow-lg: 0 14px 32px -12px rgba(10,11,13,0.18);
   --shadow-focus: 0 0 0 3px var(--accent-ring);
 
   /* Soft, friendly radii */
@@ -54,28 +54,32 @@
   --font-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
 
   /* Accent-tinted elevation for primary surfaces (hero CTA, focused cards) */
-  --shadow-accent: 0 10px 28px -10px rgba(37, 99, 235, 0.40);
+  --shadow-accent: 0 8px 22px -10px rgba(0, 82, 255, 0.34);
+
+  /* Inline icon (lucide "message-square") for CSS ::before glyphs — no emoji */
+  --i-feedback: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%20fill='none'%20stroke='%23000'%20stroke-width='2'%20stroke-linecap='round'%20stroke-linejoin='round'%3E%3Cpath%20d='M21%2015a2%202%200%200%201-2%202H7l-4%204V5a2%202%200%200%201%202-2h14a2%202%200%200%201%202%202z'/%3E%3C/svg%3E");
 
   color-scheme: light;
 }
 [data-theme="dark"] {
-  --ink: #f1f5f9;
-  --ink-soft: #cbd5e1;
-  --muted: #94a3b8;
-  --paper: #0b1120;
-  --paper-2: #1a2334;
-  --card: #111827;
+  /* Coinbase dark — near-black canvas, surfaces lift by luminance */
+  --ink: #f5f7fa;            /* near-white text (not pure white)   */
+  --ink-soft: #c2c7d0;       /* secondary text                     */
+  --muted: #8b909b;          /* muted labels                       */
+  --paper: #0a0b0d;          /* canvas (Coinbase near-black)       */
+  --paper-2: #22252b;        /* subtle fills / hovers (lifted)     */
+  --card: #16181d;           /* card surface                       */
 
-  --border: #243044;
-  --border-strong: #33415c;
+  --border: #2a2d34;
+  --border-strong: #3a3e47;
 
-  --accent: #3b82f6;
-  --accent-hover: #60a5fa;
-  --accent-press: #93c5fd;
-  --accent-soft: #172033;
-  --accent-soft-2: #1e2c47;
-  --accent-ring: rgba(59, 130, 246, 0.28);
-  --on-accent: #0b1220;
+  --accent: #5b8bff;         /* brighter Coinbase blue for dark    */
+  --accent-hover: #7da3ff;
+  --accent-press: #9cbcff;
+  --accent-soft: #10203a;    /* dark blue tint (active / badges)   */
+  --accent-soft-2: #16273f;
+  --accent-ring: rgba(91, 139, 255, 0.32);
+  --on-accent: #0a0b0d;      /* dark text on the lighter accent    */
 
   --danger: #f87171;
   --danger-soft: #2a1414;
@@ -85,7 +89,7 @@
   --shadow: 0 1px 3px rgba(0,0,0,0.5), 0 1px 2px rgba(0,0,0,0.4);
   --shadow-md: 0 6px 18px -6px rgba(0,0,0,0.6), 0 2px 6px -2px rgba(0,0,0,0.4);
   --shadow-lg: 0 18px 40px -12px rgba(0,0,0,0.7);
-  --shadow-accent: 0 12px 32px -10px rgba(59, 130, 246, 0.50);
+  --shadow-accent: 0 12px 32px -10px rgba(91, 139, 255, 0.45);
 
   color-scheme: dark;
 }
@@ -132,14 +136,11 @@ body {
 .app {
   display: flex; flex-direction: column;
   height: 100vh; max-width: 1600px; margin: 0 auto;
-  border-left: 1.5px dashed rgba(0,0,0,0.1);
-  border-right: 1.5px dashed rgba(0,0,0,0.1);
 }
 .topbar {
   display: flex; align-items: center; justify-content: space-between;
   padding: 12px 22px;
   background: var(--paper);
-  border-bottom: 2px solid var(--ink);
   flex-shrink: 0;
   /* The desktop topbar uses backdrop-filter (see "top bar" block below), which
      creates a stacking context. Without a z-index that context sits at the auto
@@ -154,7 +155,7 @@ body {
   font-size: 26px; font-weight: 700;
   cursor: pointer;
 }
-.brand em { background: var(--accent); padding: 0 6px; font-style: normal; }
+.brand em { background: transparent; color: var(--accent); padding: 0; font-style: normal; }
 .top-nav { display: flex; gap: 4px; font-family: var(--font-mono); font-size: 12px; }
 .top-nav button {
   background: transparent; border: 1.5px solid transparent;
@@ -1607,7 +1608,12 @@ body {
   .top-nav button { padding: 6px 10px; font-size: 11px; min-height: 32px; }
   .top-right { gap: 6px; margin-left: auto; }
   .feedback-btn { font-size: 0; padding: 0; line-height: 1; width: 36px; height: 36px; justify-content: center; }
-  .feedback-btn::before { content: '💬'; font-size: 15px; }
+  .feedback-btn::before {
+    content: ""; width: 16px; height: 16px;
+    background: currentColor;
+    -webkit-mask: var(--i-feedback) center / contain no-repeat;
+            mask: var(--i-feedback) center / contain no-repeat;
+  }
   /* Saved-count moved to the bottom-tabs watchlist badge on mobile */
   .save-btn { display: none; }
   .avatar { width: 36px; height: 36px; font-size: 15px; }
@@ -2332,7 +2338,7 @@ body {
 .timeline-label .rule { background: var(--border); opacity: 1; }
 
 /* ---- modal ---- */
-.modal-backdrop { background: rgba(15,23,42,0.45); }
+.modal-backdrop { background: rgba(10,11,13,0.5); }
 .modal { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--card); box-shadow: var(--shadow-lg); }
 .modal h3 { font-family: var(--font-body); font-size: 20px; font-weight: 600; letter-spacing: -0.01em; }
 .modal textarea {
@@ -2390,7 +2396,12 @@ body {
     display: inline-flex; align-items: center; justify-content: center;
     border-radius: var(--radius-sm);
   }
-  .feedback-btn::before { content: '💬'; font-size: 16px; }
+  .feedback-btn::before {
+    content: ""; width: 18px; height: 18px;
+    background: currentColor;
+    -webkit-mask: var(--i-feedback) center / contain no-repeat;
+            mask: var(--i-feedback) center / contain no-repeat;
+  }
   .theme-toggle { width: 38px; height: 38px; }
   .top-right { gap: 6px; align-items: center; }
 
@@ -2601,7 +2612,7 @@ body {
 
 /* Create modal */
 .dossier-modal-backdrop {
-  position: fixed; inset: 0; background: rgba(15,23,42,0.45);
+  position: fixed; inset: 0; background: rgba(10,11,13,0.5);
   display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 16px;
 }
 .dossier-modal {
@@ -2839,3 +2850,20 @@ html { scroll-behavior: smooth; }
   border-radius: var(--radius-sm);
 }
 .modal textarea:focus { outline: none; border-color: var(--accent); box-shadow: var(--shadow-focus); }
+
+/* =====================================================================
+   COINBASE AESTHETIC LAYER (apply-aesthetic — institutional trust-blue)
+   The token VALUES in :root / [data-theme="dark"] above already carry the
+   Coinbase palette across the whole app. This layer adds the one structural
+   signature tokens can't express on their own: pill-shaped primary CTAs
+   (Coinbase's most recognizable move). Scoped to the PRIMARY actions only —
+   utility controls, inputs, and selects keep the calmer 6-12px radii.
+   Appended last so it wins by source order. No layout/markup changes.
+   ===================================================================== */
+.btn,
+.filter-chat,
+.sb-new,
+.chat-input .send {
+  border-radius: var(--radius-pill);
+}
+/* The 38-44px square send button reads as a clean circle at pill radius. */
