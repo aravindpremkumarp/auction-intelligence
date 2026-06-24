@@ -2497,10 +2497,19 @@ function renderSidebar() {
 document.getElementById('sb-toggle').addEventListener('click', () => {
   const collapsed = document.getElementById('results-grid').classList.toggle('sb-collapsed');
   const btn = document.getElementById('sb-toggle');
-  btn.title = collapsed ? 'show chats' : 'hide chats';
   btn.setAttribute('aria-label', collapsed ? 'Show chat history' : 'Hide chat history');
   btn.setAttribute('aria-expanded', String(!collapsed));
 });
+// Reopen the collapsed history from the conversation header (Option C).
+(() => {
+  const reopen = document.getElementById('tp-reopen');
+  if (!reopen) return;
+  reopen.addEventListener('click', () => {
+    document.getElementById('results-grid').classList.remove('sb-collapsed');
+    const sbt = document.getElementById('sb-toggle');
+    if (sbt) { sbt.setAttribute('aria-label', 'Hide chat history'); sbt.setAttribute('aria-expanded', 'true'); }
+  });
+})();
 document.getElementById('sb-search').addEventListener('input', (e) => {
   sbFilter = e.target.value; renderSidebar();
 });

@@ -579,8 +579,10 @@ body {
   min-height: 0;
   position: relative;
 }
+/* Collapsed: drop the sidebar and its grid column entirely. It reopens via a
+   panel button in the conversation header (.tp-reopen) — no leftover rail. */
 .results.sb-collapsed {
-  grid-template-columns: 48px var(--transcript-w, clamp(420px, 30vw, 560px)) 1fr;
+  grid-template-columns: var(--transcript-w, clamp(420px, 30vw, 560px)) 1fr;
 }
 
 .chat-sidebar {
@@ -592,17 +594,8 @@ body {
   min-height: 0;
   box-shadow: var(--shadow);
   overflow: hidden;
-  transition: padding 150ms ease;
 }
-/* Collapsed: hug content as a tidy button stack pinned to the top, instead of a
-   tall empty bordered column. */
-.results.sb-collapsed .chat-sidebar {
-  padding: 8px 6px; align-items: center; align-self: start; gap: 8px;
-}
-.results.sb-collapsed .chat-sidebar .sb-body,
-.results.sb-collapsed .chat-sidebar .sb-search,
-.results.sb-collapsed .chat-sidebar .sb-title { display: none; }
-.results.sb-collapsed .sb-head { justify-content: center; }
+.results.sb-collapsed .chat-sidebar { display: none; }
 .sb-head { display: flex; align-items: center; gap: 6px; }
 .sb-title { font-family: var(--font-hand); font-size: 20px; flex: 1; }
 .sb-toggle {
@@ -612,9 +605,6 @@ body {
   flex-shrink: 0;
 }
 .sb-toggle:hover { background: var(--accent); }
-.sb-toggle svg { transition: transform 150ms ease; }
-/* Flip the chevron to point right when collapsed — it now means "expand". */
-.results.sb-collapsed .sb-toggle svg { transform: rotate(180deg); }
 .sb-new {
   border: 2px solid var(--ink); background: var(--accent);
   padding: 6px 10px; font-family: var(--font-hand); font-size: 17px;
@@ -623,8 +613,6 @@ body {
   display: flex; align-items: center; gap: 6px; justify-content: center;
 }
 .sb-new:hover { transform: translate(-1px,-1px); }
-.results.sb-collapsed .sb-new { padding: 0; font-size: 0; width: 44px; height: 40px; }
-.results.sb-collapsed .sb-new::before { content: '+'; font-family: var(--font-hand); font-size: 24px; line-height: 1; }
 .sb-search {
   border: 1.5px solid var(--ink); background: var(--paper);
   padding: 5px 8px;
@@ -720,7 +708,7 @@ body {
 .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
 
 @media (max-width: 1000px) {
-  .results { grid-template-columns: 1fr; }
+  .results, .results.sb-collapsed { grid-template-columns: 1fr; }
   .chat-sidebar, .transcript-pane { max-height: 220px; }
   .tp-resize { display: none; }
   .results-pane, .chat-sidebar { margin: 0 0 10px; }
@@ -738,11 +726,23 @@ body {
   min-height: 0;
 }
 .transcript-head {
-  display: flex; justify-content: space-between; align-items: baseline;
+  display: flex; justify-content: space-between; align-items: center;
   border-bottom: 1.5px dashed var(--ink);
   padding-bottom: 8px;
 }
 .transcript-head .hand { font-size: 20px; }
+.th-left { display: flex; align-items: center; gap: 9px; min-width: 0; }
+/* Reopen-history button: shown in the conversation header only when the sidebar
+   is collapsed (Option C — no persistent rail). */
+.tp-reopen {
+  display: none;
+  width: 30px; height: 30px; padding: 0; flex-shrink: 0;
+  border: 2px solid var(--ink); background: var(--paper-2); color: var(--ink);
+  place-items: center; cursor: pointer;
+}
+.tp-reopen:hover { background: var(--accent); color: var(--on-accent); }
+.tp-reopen svg { width: 15px; height: 15px; }
+.results.sb-collapsed .tp-reopen { display: grid; }
 .chat-log {
   flex: 1; overflow-y: auto;
   display: flex; flex-direction: column; gap: 8px;

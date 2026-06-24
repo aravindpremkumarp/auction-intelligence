@@ -287,7 +287,12 @@
         <div class="transcript-pane">
           <div class="tp-resize" id="tp-resize"></div>
           <div class="transcript-head">
-            <span class="hand">conversation</span>
+            <div class="th-left">
+              <button class="tp-reopen" id="tp-reopen" type="button" title="show chats" aria-label="Show chat history">
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/></svg>
+              </button>
+              <span class="hand">conversation</span>
+            </div>
             <button class="chip" onclick="newThread()">+ new</button>
           </div>
           <div class="chat-empty" id="chat-empty">
