@@ -33,6 +33,14 @@ fastapi>=0.115,<1.0
 uvicorn[standard]>=0.30,<1.0
 pydantic-ai>=1.0,<2
 
+# MCP (Model Context Protocol) connector — exposes the public read-only auction
+# tools over Streamable-HTTP (api/mcp_server.py) so Claude.ai / ChatGPT / the
+# Claude + OpenAI APIs can use the platform as a connector. Ships dark behind
+# MCP_ENABLED; the package is only imported when that flag is on. NOTE: not yet
+# pinned in requirements.lock — regenerate the lock (see its header) before
+# enabling so CI / Render actually install it.
+mcp>=1.9,<2
+
 # Observability — Logfire/OpenTelemetry tracing of the agent + LLM + tool
 # calls. Tracing is a no-op unless LOGFIRE_TOKEN is set (see api/telemetry.py),
 # but the package is installed in prod so the instrumentation is available.

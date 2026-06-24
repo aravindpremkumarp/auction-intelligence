@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request, Response
@@ -31,6 +32,7 @@ from api.conversations import router as conversations_router
 from api.dossier import dossiers_enabled, router as dossier_router
 from api.feedback import router as feedback_router
 from api.health import router as health_router
+from api.mcp_server import build_mcp
 from api.properties import router as properties_router
 from api.review import router as review_router
 from api.review.extraction import router as review_extraction_router
@@ -65,12 +67,36 @@ _validate_required_env()
 # so disable them in prod and keep them on in dev/test for local exploration.
 _DOCS_ENABLED = os.environ.get("APP_ENV", "prod").lower() in {"dev", "test"}
 
+# Optional MCP (Model Context Protocol) connector. Exposes the PUBLIC, read-only
+# auction tools over MCP's Streamable-HTTP transport at /mcp so Claude.ai /
+# ChatGPT / the Claude + OpenAI APIs can use AuctionScope as a connector. Ships
+# dark: off unless MCP_ENABLED is set (1/true/yes/on), exactly like
+# DOSSIERS_ENABLED. When off, the `mcp` package is never imported (build_mcp
+# defers it) and the app behaves identically. See api/mcp_server.py and
+# docs/mcp-connector.md.
+_MCP_ENABLED = os.environ.get("MCP_ENABLED", "false").lower() in {"1", "true", "yes", "on"}
+_mcp = build_mcp() if _MCP_ENABLED else None
+
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    # MCP's Streamable-HTTP transport needs its session-manager task group
+    # running for the app's lifetime. No-op when MCP is disabled, so startup /
+    # shutdown is unchanged for the default build.
+    if _mcp is not None:
+        async with _mcp.session_manager.run():
+            yield
+    else:
+        yield
+
+
 app = FastAPI(
     title="Bank Auction Intelligence API",
     version="0.1.0",
     docs_url="/docs" if _DOCS_ENABLED else None,
     redoc_url="/redoc" if _DOCS_ENABLED else None,
     openapi_url="/openapi.json" if _DOCS_ENABLED else None,
+    lifespan=_lifespan,
 )
 
 # Optional Logfire/OpenTelemetry tracing — no-op unless LOGFIRE_TOKEN (or a
@@ -185,6 +211,15 @@ if os.environ.get("AUTH_ENABLED", "true").lower() != "false":
     # points to match; see api.dossier.dossiers_enabled.
     if dossiers_enabled():
         app.include_router(dossier_router)
+
+
+# Mount the MCP connector (Streamable-HTTP) at /mcp when enabled. The FastMCP
+# app is built with streamable_http_path="/", so mounting at "/mcp" serves the
+# endpoint at exactly /mcp. It doesn't collide with any route below — there is
+# no catch-all, and /static is the only other mount. The session-manager task
+# group it relies on is started in _lifespan above.
+if _mcp is not None:
+    app.mount("/mcp", _mcp.streamable_http_app())
 
 
 # Canonical web origin. The frontend lives on www.auctionscope.in (Vercel),
