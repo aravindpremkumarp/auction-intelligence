@@ -1675,6 +1675,24 @@ function renderPriceHistory(history) {
   });
 }
 
+// Minimal inline lucide icons (stroke = currentColor), inlined rather than a
+// sprite to match the app's existing inline-SVG style. Used by the detail
+// page's "Briefing" data panels.
+const _LUCIDE = {
+  wallet:   '<path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4Z"/>',
+  clock:    '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
+  gavel:    '<path d="m14.5 12.5-8 8a2.1 2.1 0 1 1-3-3l8-8"/><path d="m16 16 6-6"/><path d="m8 8 6-6"/><path d="m9 7 8 8"/><path d="m21 11-8-8"/>',
+  landmark: '<line x1="3" x2="21" y1="22" y2="22"/><line x1="6" x2="6" y1="18" y2="11"/><line x1="10" x2="10" y1="18" y2="11"/><line x1="14" x2="14" y1="18" y2="11"/><line x1="18" x2="18" y1="18" y2="11"/><polygon points="12 2 20 7 4 7"/>',
+  building: '<path d="M3 21h18"/><path d="M5 21V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16"/><path d="M9 7h6M9 11h6M9 15h6"/>',
+  user:     '<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+  pin:      '<path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/>',
+  phone:    '<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.8 19.8 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92Z"/>',
+  tag:      '<path d="M12.59 2.59A2 2 0 0 0 11.17 2H4a2 2 0 0 0-2 2v7.17a2 2 0 0 0 .59 1.41l8.7 8.7a2.43 2.43 0 0 0 3.42 0l6.58-6.58a2.43 2.43 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".75"/>',
+};
+function licon(name) {
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${_LUCIDE[name] || ''}</svg>`;
+}
+
 function renderDetail(detail) {
   const f = detail.fields || {};
   const r = detail.relationships || {};
@@ -1709,30 +1727,76 @@ function renderDetail(detail) {
   const contact = String(f.contact_details || '')
     .replace(/^\s*contact\s*(?:no\.?|nos\.?|details?|number)?\s*[:\-.]*\s*/i, '')
     .trim();
-  // Core facts always show; the rest only when our data actually has them, so
-  // the grid never fills with empty "—" cards.
-  const facts = [
-    { cls: 'fact accent big', lbl: 'reserve price', val: formatINR(f.reserve_price_num) },
-    { cls: 'fact big', lbl: 'EMD', val: formatINR(f.emd_num) },
-    { cls: 'fact big', lbl: auctionEnded ? 'auction · ended' : 'auction', val: formatAuctionDate(auctionStart) },
-  ];
-  const addFact = (lbl, val, cls = 'fact') => {
-    if (val && val !== '—') facts.push({ cls, lbl, val });
-  };
-  addFact('auction ends', formatAuctionDate(auctionEnd));
-  addFact('apply by', formatAuctionDate(deadline));
-  addFact('bank', bank);
-  addFact('branch', branch);
-  addFact('borrower', borrower);
-  addFact('type', [assetCategory, types.join(', ')].filter(Boolean).join(' · '));
-  addFact('auction type', auctionType);
-  addFact('location', fullLoc);
-  addFact('contact', contact);
-  document.getElementById('detail-facts').innerHTML = facts.map(x => `
-    <div class="${x.cls}">
-      <span class="lbl">${escapeHtml(x.lbl)}</span>
-      <span class="val">${escapeHtml(x.val)}</span>
-    </div>`).join('');
+  // ── "Briefing" presentation: Pricing / Timeline / Property & parties ──
+  // Grouped by the questions a bidder asks (how much, by when, what/who) so
+  // the money leads and related facts read together instead of as a flat grid.
+  const now = new Date();
+  const reservePrice = formatINR(f.reserve_price_num);
+  const emd = formatINR(f.emd_num);
+
+  // Derived insight: EMD as a clean % of reserve (SARFAESI EMD is often 10%).
+  let emdNote = '';
+  const _rp = Number(f.reserve_price_num), _em = Number(f.emd_num);
+  if (_rp > 0 && _em > 0 && _em < _rp) {
+    const pct = (_em / _rp) * 100, rounded = Math.round(pct);
+    if (rounded >= 1 && rounded <= 50 && Math.abs(pct - rounded) <= 0.4) {
+      emdNote = `EMD is ${rounded}% of the reserve price`;
+    }
+  }
+
+  // Timeline — only steps with a real date; "done" once the date is past.
+  const _endPast = !!(parseDate(auctionEnd) && parseDate(auctionEnd) < now);
+  const stepDefs = [
+    { lbl: 'Apply by', v: deadline },
+    { lbl: 'Auction starts', v: auctionStart },
+    { lbl: (auctionEnded || _endPast) ? 'Auction ended' : 'Auction ends', v: auctionEnd },
+  ].filter(s => s.v && formatAuctionDate(s.v) !== '—');
+  const stepsHtml = stepDefs.map((s, i) => {
+    const d = parseDate(s.v), done = !!(d && d < now), last = i === stepDefs.length - 1;
+    return `
+      <div class="pb-step${done ? ' done' : ''}">
+        <div class="gut"><span class="node"></span>${last ? '' : '<span class="line"></span>'}</div>
+        <div class="body"><div class="lbl">${escapeHtml(s.lbl)}</div><div class="val">${escapeHtml(formatAuctionDate(s.v))}</div></div>
+      </div>`;
+  }).join('');
+
+  // Property & parties — icon + label + value, only for fields we actually have.
+  const typeVal = [assetCategory, types.join(', ')].filter(Boolean).join(' · ');
+  const metaHtml = [
+    { ic: 'landmark', lbl: 'Bank', val: bank },
+    { ic: 'building', lbl: 'Branch', val: branch },
+    { ic: 'user', lbl: 'Borrower', val: borrower },
+    { ic: 'tag', lbl: 'Type', val: typeVal },
+    { ic: 'gavel', lbl: 'Auction type', val: auctionType },
+    { ic: 'pin', lbl: 'Location', val: fullLoc },
+    { ic: 'phone', lbl: 'Contact', val: contact, tel: true },
+  ].filter(m => m.val && m.val !== '—').map(m => {
+    const valHtml = m.tel
+      ? `<a href="tel:${escapeHtml(String(m.val).replace(/[^0-9+]/g, ''))}">${escapeHtml(m.val)}</a>`
+      : escapeHtml(m.val);
+    return `<div class="pb-item">${licon(m.ic)}<div><div class="lbl">${escapeHtml(m.lbl)}</div><div class="val">${valHtml}</div></div></div>`;
+  }).join('');
+
+  const pricingHtml = `
+    <section class="pb-panel pb-pricing">
+      <div class="pb-eyebrow">${licon('wallet')}Pricing</div>
+      <div class="pb-price">${escapeHtml(reservePrice)}</div>
+      ${emd !== '—' ? `<div class="pb-price-sub"><span class="amt">${escapeHtml(emd)}</span><span class="lbl">EMD</span></div>` : ''}
+      ${emdNote ? `<div class="pb-note">${escapeHtml(emdNote)}</div>` : ''}
+    </section>`;
+  const timelineHtml = stepsHtml ? `
+    <section class="pb-panel">
+      <div class="pb-eyebrow">${licon('clock')}Timeline</div>
+      <div class="pb-steps">${stepsHtml}</div>
+    </section>` : '';
+  // Pricing spans full width when there's no timeline to sit beside it.
+  const topHtml = timelineHtml ? `<div class="pb-row">${pricingHtml}${timelineHtml}</div>` : pricingHtml;
+
+  document.getElementById('detail-facts').innerHTML = `
+    <div class="pb">
+      ${topHtml}
+      ${metaHtml ? `<section class="pb-panel"><div class="pb-eyebrow">${licon('tag')}Property &amp; parties</div><div class="pb-kv">${metaHtml}</div></section>` : ''}
+    </div>`;
 
   renderPriceHistory(detail.price_history);
 
