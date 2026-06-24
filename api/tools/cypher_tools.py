@@ -1108,10 +1108,12 @@ def get_auction_detail(auction_id: str) -> dict | None:
         OPTIONAL MATCH (a)-[:HAS_BORROWER]->(borrower:Borrower)
         OPTIONAL MATCH (a)-[:HAS_ASSET_CATEGORY]->(ac:AssetCategory)
         OPTIONAL MATCH (a)-[:HAS_PROPERTY_TYPE]->(pt:PropertyType)
+        OPTIONAL MATCH (a)-[:LISTED_BY_BRANCH]->(branch:Branch)
+        OPTIONAL MATCH (a)-[:IS_AUCTION_TYPE]->(atype:AuctionType)
         OPTIONAL MATCH (a)-[:HAS_DOCUMENT]->(doc:Document)
             WHERE doc.public_url IS NOT NULL
         OPTIONAL MATCH (a)-[link:SAME_PROPERTY_AS]->(sibling:AuctionProperty)
-        WITH a, city, area, state, bank, borrower, ac,
+        WITH a, city, area, state, bank, borrower, ac, branch, atype,
              collect(DISTINCT pt.name) AS property_types,
              collect(DISTINCT {
                filename:     doc.filename,
@@ -1136,6 +1138,8 @@ def get_auction_detail(auction_id: str) -> dict | None:
                  bank:           CASE WHEN bank     IS NULL THEN NULL ELSE properties(bank)     END,
                  borrower:       CASE WHEN borrower IS NULL THEN NULL ELSE properties(borrower) END,
                  asset_category: CASE WHEN ac       IS NULL THEN NULL ELSE properties(ac)       END,
+                 branch:         CASE WHEN branch   IS NULL THEN NULL ELSE properties(branch)   END,
+                 auction_type:   CASE WHEN atype    IS NULL THEN NULL ELSE properties(atype)    END,
                  property_types: property_types
                } AS relationships,
                documents AS documents,

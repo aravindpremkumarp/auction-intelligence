@@ -176,7 +176,13 @@ function formatDescription(text) {
       /\bBounded\s+(?:on\s+the\s+)?(?:plot\s+no\.?[^,]*,?\s*)?(.+?)(?=(?:\s+And\s+Situated\b|\s+And\s+Within\b|\s+Within\s+The\b|\s*$))/i,
     );
     if (bm) {
-      const inner = bm[1];
+      // The boundary clause often runs straight into a trailing
+      // "Measuring; … feet" dimensions clause. Split that off first so the
+      // dimensions survive in the body instead of being dropped along with
+      // the boundary text.
+      const measureAt = bm[1].search(/\bMeasuring\b/i);
+      const inner = measureAt >= 0 ? bm[1].slice(0, measureAt) : bm[1];
+      const trailing = measureAt >= 0 ? bm[1].slice(measureAt) : '';
       // Walk every direction keyword and slice the value as everything up
       // to the next direction. This preserves commas inside a single value
       // (e.g. "Plot No. 156/2,3 And 155/4").
@@ -192,13 +198,15 @@ function formatDescription(text) {
         const start = positions[k].end;
         const finish = (k + 1 < positions.length) ? positions[k + 1].idx : inner.length;
         let val = inner.slice(start, finish);
-        val = val.replace(/^\s*(?:by|:)\s*/i, '');
+        // Drop the connective that follows the direction word ("by", "of",
+        // and a leading dash/colon) so the value reads as just the neighbour.
+        val = val.replace(/^\s*(?:by|of)\b\s*/i, '').replace(/^\s*[-–:]\s*/, '');
         // Stop at a sentence terminator or any next-field keyword that bled
         // in from the source paragraph, otherwise the value can read
         // "Plot No. 12. Measuring: …".
         val = val.split(/\.\s+(?=[A-Z])/)[0];
         val = val.split(/\b(?:Measuring|Comprised\s+In|Situated\s+Within|As\s+Per\s+Patta|Together\s+With)\b/i)[0];
-        val = val.trim().replace(/[,;.\s]+$/, '');
+        val = val.trim().replace(/^[-–:\s]+/, '').replace(/[,;.\s]+$/, '');
         const dir = positions[k].dir;
         if (val && !seen[dir]) { seen[dir] = true; parts.push({ dir, val }); }
       }
@@ -208,7 +216,8 @@ function formatDescription(text) {
         boundaryLines = parts.map(p =>
           `- ${dirEmoji[p.dir] || '•'} **${p.dir.charAt(0).toUpperCase() + p.dir.slice(1)}:** ${p.val}`
         );
-        body = body.replace(bm[0], '').trim();
+        // Remove only the boundary prose, splicing any dimensions back in.
+        body = (body.slice(0, bm.index) + ' ' + trailing).replace(/\s{2,}/g, ' ').trim();
       }
     }
 
@@ -244,19 +253,16 @@ function formatDescription(text) {
       .replace(/\s{2,}/g, ' ')
       .trim();
 
-    // Put each bolded label at the start of its own paragraph so the body
-    // reads as one fact per line. Anchored on a preceding non-space char so
-    // we never insert a break at the very start of the block.
-    body = body.replace(/(\S)\s+(\*\*(?:[^*]|\*(?!\*))+\*\*)/g, '$1\n\n$2');
+    // Keep the description as one flowing paragraph. The previous version
+    // split on every "period + capital", which shattered abbreviations like
+    // "Mr. H. Dawood Khan" into separate lines and read as broken text; the
+    // bold labels above already give the eye scan-points inline.
+    const paragraph = body
+      .replace(/\s+/g, ' ')
+      .replace(/^[\s,;:.]+|[\s,;:.]+$/g, '')
+      .trim();
 
-    // Split body into facts on the inserted paragraph breaks AND on natural
-    // sentence boundaries (period followed by capital letter or open-paren).
-    const sentences = body
-      .split(/\n{2,}|(?<=\.)\s+(?=[A-Z(])/)
-      .map(t => t.replace(/[ \t]+/g, ' ').replace(/^[\s,;.]+|[\s,;.]+$/g, '').trim())
-      .filter(Boolean);
-
-    if (sentences.length) lines.push(sentences.join('\n\n'));
+    if (paragraph) lines.push(paragraph);
     if (boundaryLines.length) {
       lines.push('');
       lines.push('**Boundaries**');
@@ -1611,8 +1617,6 @@ async function loadAndRenderDetail(id) {
   document.getElementById('detail-history-wrap').style.display = 'none';
   document.getElementById('detail-history').innerHTML = '';
   document.getElementById('detail-desc-wrap').style.display = 'none';
-  document.getElementById('detail-docs-wrap').style.display = 'none';
-  document.getElementById('detail-sale-notice').style.display = 'none';
   document.getElementById('detail-chat-log').innerHTML = '';
   loadDetailChat(id);
   try {
@@ -1692,17 +1696,38 @@ function renderDetail(detail) {
   document.getElementById('detail-photo').innerHTML = thumbSvg(typeIcon);
 
   const auctionStart = f.auction_start_dt;
+  const auctionEnd = f.auction_end_dt;
   const deadline = f.application_deadline_dt;
   const _startD = parseDate(auctionStart);
   const auctionEnded = !!(_startD && _startD < new Date());
+  const state = r.state?.name || '';
+  const branch = r.branch?.name || '';
+  const borrower = r.borrower?.name || '';
+  const auctionType = r.auction_type?.name || '';
+  const fullLoc = [area, city, state].filter(Boolean).join(' · ');
+  // Drop a redundant "Contact No:" prefix so the value reads as just the number.
+  const contact = String(f.contact_details || '')
+    .replace(/^\s*contact\s*(?:no\.?|nos\.?|details?|number)?\s*[:\-.]*\s*/i, '')
+    .trim();
+  // Core facts always show; the rest only when our data actually has them, so
+  // the grid never fills with empty "—" cards.
   const facts = [
     { cls: 'fact accent big', lbl: 'reserve price', val: formatINR(f.reserve_price_num) },
     { cls: 'fact big', lbl: 'EMD', val: formatINR(f.emd_num) },
     { cls: 'fact big', lbl: auctionEnded ? 'auction · ended' : 'auction', val: formatAuctionDate(auctionStart) },
-    { cls: 'fact', lbl: 'bank', val: bank || '—' },
-    { cls: 'fact', lbl: 'type', val: [assetCategory, types.join(', ')].filter(Boolean).join(' · ') || '—' },
-    { cls: 'fact', lbl: 'apply by', val: formatAuctionDate(deadline) },
   ];
+  const addFact = (lbl, val, cls = 'fact') => {
+    if (val && val !== '—') facts.push({ cls, lbl, val });
+  };
+  addFact('auction ends', formatAuctionDate(auctionEnd));
+  addFact('apply by', formatAuctionDate(deadline));
+  addFact('bank', bank);
+  addFact('branch', branch);
+  addFact('borrower', borrower);
+  addFact('type', [assetCategory, types.join(', ')].filter(Boolean).join(' · '));
+  addFact('auction type', auctionType);
+  addFact('location', fullLoc);
+  addFact('contact', contact);
   document.getElementById('detail-facts').innerHTML = facts.map(x => `
     <div class="${x.cls}">
       <span class="lbl">${escapeHtml(x.lbl)}</span>
@@ -1715,6 +1740,9 @@ function renderDetail(detail) {
   if (desc && String(desc).trim()) {
     const cleaned = String(desc).trim()
       .replace(/^#{1,6}\s*description of propert(?:y\/ies|ies|y)\s*:?\s*/i, '')
+      // Drop source-portal identifiers we don't surface (Asset / Security ID).
+      .replace(/[,;.]?\s*\b(?:Asset|Security)\s*ID\s*[-:]?\s*[A-Za-z0-9/]+/gi, '')
+      .replace(/\s{2,}/g, ' ')
       .trim();
     const descEl = document.getElementById('detail-desc');
     const descToggle = document.getElementById('detail-desc-toggle');
@@ -1728,94 +1756,6 @@ function renderDetail(detail) {
     descToggle.textContent = 'View original';
     descToggle.setAttribute('aria-pressed', 'false');
     document.getElementById('detail-desc-wrap').style.display = '';
-  }
-
-  const linkDocs = [];
-  if (f.url) linkDocs.push({ label: 'Sale notice / source page', href: f.url, meta: 'external ↗' });
-  const extras = f.extras;
-  if (extras && typeof extras === 'object' && !Array.isArray(extras)) {
-    Object.entries(extras).forEach(([k, v]) => {
-      if (typeof v === 'string' && /^https?:\/\//.test(v)) {
-        linkDocs.push({ label: k, href: v, meta: 'link ↗' });
-      }
-    });
-  }
-
-  const previewDocs = Array.isArray(detail.documents) ? detail.documents : [];
-
-  if (linkDocs.length || previewDocs.length) {
-    const linkHtml = linkDocs.map(d => `
-      <a class="doc" href="${escapeHtml(d.href)}" target="_blank" rel="noopener">
-        <span>${escapeHtml(d.label)}</span>
-        <span class="mono">${escapeHtml(d.meta)}</span>
-      </a>`).join('');
-
-    const friendlyDocLabel = (filename, kind, ordinal) => {
-      const fname = String(filename || '');
-      const stem = fname.replace(/\.[a-z0-9]+$/i, '');
-      const looksLikeHash = stem.length >= 16 && /^[0-9a-f][0-9a-f-]+$/i.test(stem);
-      if (fname && !looksLikeHash) return fname;
-      const noun = kind === 'image' ? 'Property image' : kind === 'pdf' ? 'Document' : 'File';
-      return `${noun} ${ordinal}`;
-    };
-    const kindCounts = {};
-    const previewHtml = previewDocs.map((d, i) => {
-      const kind = (d.doc_type === 'pdf' || d.doc_type === 'image') ? d.doc_type : 'other';
-      kindCounts[kind] = (kindCounts[kind] || 0) + 1;
-      const label = friendlyDocLabel(d.filename, kind, kindCounts[kind]);
-      const badge = kind === 'pdf' ? 'PDF' : kind === 'image' ? 'IMG' : 'FILE';
-      const canPreview = kind === 'pdf' || kind === 'image';
-      return `
-        <div class="doc-group" data-doc-index="${i}">
-          <div class="doc">
-            <span>${escapeHtml(label)}</span>
-            <span class="doc-badge">${badge}</span>
-            ${canPreview ? `<button type="button" class="doc-toggle" data-action="toggle-preview">Preview</button>` : ''}
-            <a class="mono" href="${escapeHtml(d.public_url)}" target="_blank" rel="noopener">open ↗</a>
-          </div>
-          <div class="doc-preview" hidden
-               data-kind="${escapeHtml(kind)}"
-               data-url="${escapeHtml(d.public_url)}"
-               data-loaded="0"></div>
-        </div>`;
-    }).join('');
-
-    const container = document.getElementById('detail-docs');
-    container.innerHTML = linkHtml + previewHtml;
-    document.getElementById('detail-docs-wrap').style.display = '';
-
-    container.querySelectorAll('.doc-toggle[data-action="toggle-preview"]').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        const group = e.currentTarget.closest('.doc-group');
-        const panel = group.querySelector('.doc-preview');
-        if (panel.dataset.loaded !== '1') {
-          const kind = panel.dataset.kind;
-          const url = panel.dataset.url;
-          if (kind === 'pdf') {
-            panel.innerHTML = `<iframe src="${escapeHtml(url)}#toolbar=1" title="${escapeHtml('PDF preview')}" loading="lazy"></iframe>`;
-          } else if (kind === 'image') {
-            panel.innerHTML = `<img src="${escapeHtml(url)}" alt="sales notice image" loading="lazy">`;
-          }
-          panel.dataset.loaded = '1';
-        }
-        const isHidden = panel.hasAttribute('hidden');
-        if (isHidden) {
-          panel.removeAttribute('hidden');
-          group.classList.add('open');
-          e.currentTarget.textContent = 'Hide';
-        } else {
-          panel.setAttribute('hidden', '');
-          group.classList.remove('open');
-          e.currentTarget.textContent = 'Preview';
-        }
-      });
-    });
-  }
-
-  const saleBtn = document.getElementById('detail-sale-notice');
-  if (f.url) {
-    saleBtn.href = f.url;
-    saleBtn.style.display = '';
   }
 
   // also cache for watchlist
