@@ -728,25 +728,113 @@ document.addEventListener('change', (e) => {
   document.querySelectorAll('.mode-pick').forEach(p => p.classList.toggle('active', special));
 });
 
-/* ====== model + thinking-effort toggles ====== */
-// Both default to null = "let the server pick the tier default" (Flash for
-// free/anon, Pro for paid; server-default effort). The server enforces the
-// tier gate regardless of what we send, so these are purely the UI's view.
+/* ====== model + thinking-effort picker ====== */
+// State + persistence contract (unchanged from the original toggles):
+// window.currentModel / window.currentReasoningEffort hold the chosen ids (or
+// null = "let the server pick the tier default"); both are mirrored to
+// localStorage and read by _chatRequestBody. The server re-gates every turn, so
+// these are advisory UI state only — a free user can't unlock Pro by tampering.
 window.currentModel = null;
 window.currentReasoningEffort = null;
 const CHAT_MODEL_KEY = 'chat_model';
 const CHAT_EFFORT_KEY = 'chat_effort';
-document.addEventListener('change', (e) => {
-  if (!e.target.matches) return;
-  if (e.target.matches('.model-select-inline')) {
-    window.currentModel = e.target.value || null;
-    try { localStorage.setItem(CHAT_MODEL_KEY, e.target.value); } catch(_) {}
-    document.querySelectorAll('.model-select-inline').forEach(s => { if (s !== e.target) s.value = e.target.value; });
-  } else if (e.target.matches('.effort-select-inline')) {
-    window.currentReasoningEffort = e.target.value || null;
-    try { localStorage.setItem(CHAT_EFFORT_KEY, e.target.value); } catch(_) {}
-    document.querySelectorAll('.effort-select-inline').forEach(s => { if (s !== e.target) s.value = e.target.value; });
+let chatModelOpts = [];   // [{id,label,description,locked}] from /chat/models
+let chatEffortOpts = [];  // [{id,label,description}] from /chat/models
+
+const _MP_CHECK = '<svg class="mp-item-check" viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7"/></svg>';
+
+function _mpLabel(list, id) {
+  const hit = list.find(o => o.id === id);
+  return hit ? hit.label : (id || '');
+}
+function _mpRow(kind, opt, selected) {
+  const locked = kind === 'model' && !!opt.locked;
+  return (
+    `<button type="button" class="mp-item" role="menuitemradio" aria-checked="${selected ? 'true' : 'false'}"` +
+    ` data-kind="${kind}" data-id="${escapeHtml(opt.id)}"${locked ? ' disabled aria-disabled="true"' : ''}>` +
+      `<span class="mp-item-main">` +
+        `<span class="mp-item-label">${escapeHtml(opt.label)}${locked ? '<span class="mp-lock">Paid</span>' : ''}</span>` +
+        (opt.description ? `<span class="mp-item-desc">${escapeHtml(opt.description)}</span>` : '') +
+      `</span>` + _MP_CHECK +
+    `</button>`
+  );
+}
+// (Re)render every picker instance from the current option lists + selection.
+// Rebuilds the popover rows and trigger labels in place; never touches the
+// open/closed state, so it's safe to call after each pick.
+function renderModelPickers() {
+  const showModels = chatModelOpts.length >= 2;   // a single model isn't a choice
+  const showEfforts = chatEffortOpts.length >= 1;
+  document.querySelectorAll('.model-picker').forEach(picker => {
+    if (!showModels && !showEfforts) { picker.hidden = true; return; }
+    picker.hidden = false;
+    const parts = [];
+    if (showModels) {
+      parts.push('<div class="mp-group-label">Model</div>');
+      chatModelOpts.forEach(o => parts.push(_mpRow('model', o, o.id === window.currentModel)));
+    }
+    if (showModels && showEfforts) parts.push('<div class="mp-divider"></div>');
+    if (showEfforts) {
+      parts.push('<div class="mp-group-label">Thinking effort</div>');
+      chatEffortOpts.forEach(o => parts.push(_mpRow('effort', o, o.id === window.currentReasoningEffort)));
+    }
+    const pop = picker.querySelector('.model-picker-pop');
+    if (pop) pop.innerHTML = parts.join('');
+    const mEl = picker.querySelector('.mpt-model');
+    const eEl = picker.querySelector('.mpt-effort');
+    const dot = picker.querySelector('.mpt-dot');
+    if (mEl) { mEl.textContent = showModels ? _mpLabel(chatModelOpts, window.currentModel) : ''; mEl.hidden = !showModels; }
+    if (eEl) { eEl.textContent = showEfforts ? _mpLabel(chatEffortOpts, window.currentReasoningEffort) : ''; eEl.hidden = !showEfforts; }
+    if (dot) dot.hidden = !(showModels && showEfforts);
+  });
+}
+function _closeModelPickers(except) {
+  document.querySelectorAll('.model-picker').forEach(p => {
+    if (p === except) return;
+    const t = p.querySelector('.model-picker-trigger');
+    const pop = p.querySelector('.model-picker-pop');
+    if (t) t.setAttribute('aria-expanded', 'false');
+    if (pop) pop.hidden = true;
+  });
+}
+// Delegated interactions: toggle the popover, pick a model/effort, click-away to
+// close. Selecting keeps the popover open (it's a combined settings panel), so
+// the user can set model and effort in one visit; the checkmark + trigger labels
+// update live across every chat bar.
+document.addEventListener('click', (e) => {
+  if (!e.target.closest) return;
+  const trigger = e.target.closest('.model-picker-trigger');
+  if (trigger) {
+    const picker = trigger.closest('.model-picker');
+    const pop = picker && picker.querySelector('.model-picker-pop');
+    const willOpen = trigger.getAttribute('aria-expanded') !== 'true';
+    _closeModelPickers(picker);
+    trigger.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+    if (pop) pop.hidden = !willOpen;
+    return;
   }
+  const item = e.target.closest('.mp-item');
+  if (item) {
+    if (item.hasAttribute('disabled')) return;   // locked model — server gate also enforces
+    const kind = item.dataset.kind, id = item.dataset.id;
+    if (kind === 'model') {
+      window.currentModel = id || null;
+      try { localStorage.setItem(CHAT_MODEL_KEY, id); } catch(_) {}
+    } else if (kind === 'effort') {
+      window.currentReasoningEffort = id || null;
+      try { localStorage.setItem(CHAT_EFFORT_KEY, id); } catch(_) {}
+    }
+    renderModelPickers();
+    return;
+  }
+  if (!e.target.closest('.model-picker')) _closeModelPickers(null);
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  const open = document.querySelector('.model-picker-trigger[aria-expanded="true"]');
+  if (!open) return;
+  _closeModelPickers(null);
+  open.focus();
 });
 
 /* ====== theme toggle ====== */
@@ -899,11 +987,11 @@ async function hydrateModes() {
     sels.forEach(s => { s.innerHTML = optHtml; s.value = window.currentMode || 'ask'; });
   } catch(e) { /* keep the default "ask" option */ }
 }
-// Populate the model + thinking-effort toggles from the tier-aware
+// Populate the model + thinking-effort picker from the tier-aware
 // GET /chat/models. Re-run on auth change so upgrading to paid unlocks Pro
-// without a refresh. The model pill is shown only when 2+ models exist, so a
-// single-model deploy hides it entirely. Locked models render disabled; the
-// server enforces the gate regardless.
+// without a refresh. The picker shows its Model section only when 2+ models
+// exist; locked models render disabled with a "Paid" badge, and the server
+// enforces the gate regardless.
 async function hydrateChatModels() {
   try {
     const res = await authFetch(`${API_BASE}/chat/models`);
@@ -922,19 +1010,10 @@ async function hydrateChatModels() {
     const effort = effortIds.has(savedEffort) ? savedEffort : defEffort;
     window.currentModel = model;
     window.currentReasoningEffort = effort;
-
-    const mOpts = models.map(m =>
-      `<option value="${escapeHtml(m.id)}"${m.locked ? ' disabled' : ''}>${escapeHtml(m.label)}${m.locked ? ' 🔒' : ''}</option>`
-    ).join('');
-    document.querySelectorAll('.model-select-inline').forEach(s => { s.innerHTML = mOpts; s.value = model; });
-    document.querySelectorAll('.model-pick').forEach(p => { p.hidden = models.length < 2; });
-
-    const eOpts = efforts.map(e =>
-      `<option value="${escapeHtml(e.id)}">${escapeHtml(e.label)}</option>`
-    ).join('');
-    document.querySelectorAll('.effort-select-inline').forEach(s => { s.innerHTML = eOpts; s.value = effort; });
-    document.querySelectorAll('.effort-pick').forEach(p => { p.hidden = efforts.length < 1; });
-  } catch(e) { /* leave the toggles hidden; the server still applies tier defaults */ }
+    chatModelOpts = models;
+    chatEffortOpts = efforts;
+    renderModelPickers();
+  } catch(e) { /* leave the picker hidden; the server still applies tier defaults */ }
 }
 async function apiAuctionDetail(auctionId) {
   const res = await authFetch(`${API_BASE}/auction/${encodeURIComponent(auctionId)}`);

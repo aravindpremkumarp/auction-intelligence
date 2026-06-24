@@ -105,12 +105,15 @@
               <option value="ask">ask</option>
             </select>
           </span>
-          <span class="mode-pick model-pick" title="Model" hidden>
-            <select class="model-select-inline" aria-label="Model"></select>
-          </span>
-          <span class="mode-pick effort-pick" title="Thinking effort" hidden>
-            <select class="effort-select-inline" aria-label="Thinking effort"></select>
-          </span>
+          <div class="model-picker" hidden>
+            <button type="button" class="model-picker-trigger" aria-haspopup="true" aria-expanded="false" aria-label="Model and thinking effort">
+              <span class="mpt-model"></span>
+              <span class="mpt-dot" aria-hidden="true"></span>
+              <span class="mpt-effort"></span>
+              <svg class="mpt-caret" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg>
+            </button>
+            <div class="model-picker-pop" role="menu" aria-label="Model and thinking effort" hidden></div>
+          </div>
           <textarea id="landing-input" rows="1" placeholder="3BHK in Chennai under 1 Cr, ready possession…" autocomplete="off"></textarea>
           <button class="send" id="landing-send" aria-label="send query">→</button>
         </div>
@@ -306,12 +309,15 @@
                 <option value="ask">ask</option>
               </select>
             </span>
-            <span class="mode-pick model-pick" title="Model" hidden>
-              <select class="model-select-inline" aria-label="Model"></select>
-            </span>
-            <span class="mode-pick effort-pick" title="Thinking effort" hidden>
-              <select class="effort-select-inline" aria-label="Thinking effort"></select>
-            </span>
+            <div class="model-picker" hidden>
+              <button type="button" class="model-picker-trigger" aria-haspopup="true" aria-expanded="false" aria-label="Model and thinking effort">
+                <span class="mpt-model"></span>
+                <span class="mpt-dot" aria-hidden="true"></span>
+                <span class="mpt-effort"></span>
+                <svg class="mpt-caret" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg>
+              </button>
+              <div class="model-picker-pop" role="menu" aria-label="Model and thinking effort" hidden></div>
+            </div>
             <textarea id="results-input" rows="1" placeholder="refine…" autocomplete="off"></textarea>
             <button class="send" id="results-send" aria-label="send refined query">→</button>
           </div>
