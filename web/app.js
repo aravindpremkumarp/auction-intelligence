@@ -803,6 +803,35 @@ function _closeModelPickers(except) {
     if (pop) pop.hidden = true;
   });
 }
+// Place the popover so it never clips behind the header. The panel normally
+// drops UP from the trigger, but on the landing composer (which sits high, just
+// under the sticky topbar) there isn't room above — so flip it DOWN and cap its
+// height to the available space when up-room is short. Measured on each open.
+function _positionModelPop(picker) {
+  if (!picker) return;
+  const trigger = picker.querySelector('.model-picker-trigger');
+  const pop = picker.querySelector('.model-picker-pop');
+  if (!trigger || !pop) return;
+  const GAP = 8, MARGIN = 8, HARD_MAX = 380;
+  const rect = trigger.getBoundingClientRect();
+  // Top boundary: keep the panel below the header. The desktop topbar paints
+  // above the screen (its own z-index), so honour it whenever it currently sits
+  // above the trigger — whether sticky or a relative bar at the top of the page.
+  // Once scrolled out of view (bottom <= 0) it stops counting.
+  let topBound = MARGIN;
+  const topbar = document.querySelector('.topbar');
+  if (topbar) {
+    const tb = topbar.getBoundingClientRect();
+    if (tb.bottom > topBound && tb.bottom <= rect.top) topBound = tb.bottom + MARGIN;
+  }
+  const spaceAbove = rect.top - GAP - topBound;
+  const spaceBelow = window.innerHeight - rect.bottom - GAP - MARGIN;
+  // Keep the established drop-up when it comfortably fits; otherwise use whichever
+  // side has more room so the panel is fully visible and scrolls internally.
+  const dropUp = spaceAbove >= Math.min(HARD_MAX, 240) || spaceAbove >= spaceBelow;
+  pop.classList.toggle('drop-down', !dropUp);
+  pop.style.maxHeight = Math.max(180, Math.min(HARD_MAX, dropUp ? spaceAbove : spaceBelow)) + 'px';
+}
 // Delegated interactions: toggle the popover, pick a model/effort, click-away to
 // close. Selecting keeps the popover open (it's a combined settings panel), so
 // the user can set model and effort in one visit; the checkmark + trigger labels
@@ -817,6 +846,7 @@ document.addEventListener('click', (e) => {
     _closeModelPickers(picker);
     trigger.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
     if (pop) pop.hidden = !willOpen;
+    if (pop && willOpen) _positionModelPop(picker);
     return;
   }
   const item = e.target.closest('.mp-item');
@@ -841,6 +871,11 @@ document.addEventListener('keydown', (e) => {
   if (!open) return;
   _closeModelPickers(null);
   open.focus();
+});
+// Re-fit an open popover when the viewport changes (e.g. mobile rotate / resize).
+window.addEventListener('resize', () => {
+  const open = document.querySelector('.model-picker-trigger[aria-expanded="true"]');
+  if (open) _positionModelPop(open.closest('.model-picker'));
 });
 
 /* ====== theme toggle ====== */
