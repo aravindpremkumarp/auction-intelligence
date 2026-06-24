@@ -36,9 +36,10 @@ pydantic-ai>=1.0,<2
 # MCP (Model Context Protocol) connector — exposes the public read-only auction
 # tools over Streamable-HTTP (api/mcp_server.py) so Claude.ai / ChatGPT / the
 # Claude + OpenAI APIs can use the platform as a connector. Ships dark behind
-# MCP_ENABLED; the package is only imported when that flag is on. NOTE: not yet
-# pinned in requirements.lock — regenerate the lock (see its header) before
-# enabling so CI / Render actually install it.
+# MCP_ENABLED; the package is only imported when that flag is on. Already present
+# in requirements.lock (pulled transitively by pydantic-ai's fastmcp extra) — this
+# line just makes the direct dependency explicit, since api/mcp_server.py imports
+# `mcp` directly rather than relying on that transitive pin.
 mcp>=1.9,<2
 
 # Observability — Logfire/OpenTelemetry tracing of the agent + LLM + tool

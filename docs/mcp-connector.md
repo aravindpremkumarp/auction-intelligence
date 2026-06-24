@@ -40,10 +40,10 @@ until you flip the flag) is byte-for-byte unchanged.
 
 ## Enabling it
 
-1. **Install `mcp`.** It's in `requirements.txt` but not yet pinned in
-   `requirements.lock` (which CI and Render install). Regenerate the lock per its
-   header so `mcp` is installed, otherwise the app fails to boot with
-   `MCP_ENABLED=true`.
+1. **`mcp` is already installed** — it ships in `requirements.lock` (pulled in by
+   `pydantic-ai`'s `fastmcp` extra), so CI and Render already have it. Nothing to
+   regenerate. `requirements.txt` lists it explicitly because `api/mcp_server.py`
+   imports it directly.
 2. **Set the flag** (Render env / `.env`):
    ```
    MCP_ENABLED=true
