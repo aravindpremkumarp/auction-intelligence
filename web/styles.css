@@ -1914,6 +1914,9 @@ body {
   transform-origin: bottom left;
   animation: mp-pop-in 140ms cubic-bezier(0.16, 1, 0.3, 1);
 }
+/* [hidden] is a UA rule (display:none) and loses to the author display:flex
+   above — without this the popover would never close. Re-assert it. */
+.model-picker-pop[hidden] { display: none; }
 @keyframes mp-pop-in {
   from { opacity: 0; transform: translateY(6px) scale(0.98); }
   to   { opacity: 1; transform: translateY(0) scale(1); }
@@ -1961,6 +1964,26 @@ body {
 @media (max-width: 420px) {
   .mpt-effort, .mpt-dot { display: none; }
   .model-picker-pop { width: 270px; }
+}
+
+/* Stacked composer: textarea on top, with a controls toolbar pinned to the
+   bottom — mode + model pickers on the left, send on the right (modern chat
+   composer layout). Opt-in via .chat-input--stacked so the compact
+   property-detail ask box keeps its single-row layout. Implemented with
+   flex-wrap: the full-width textarea forces the controls onto the row below,
+   and order:-1 floats the textarea to the top regardless of DOM position. */
+.chat-input.chat-input--stacked {
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.chat-input.chat-input--stacked > textarea {
+  order: -1;
+  flex: 1 1 100%;
+  width: 100%;
+}
+.chat-input.chat-input--stacked > .send {
+  margin-left: auto;   /* push send to the far right of the toolbar row */
 }
 
 /* Property-detail "ask about this property" panel — clean card (replaces the old
