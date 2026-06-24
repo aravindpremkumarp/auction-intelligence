@@ -287,7 +287,12 @@
         <div class="transcript-pane">
           <div class="tp-resize" id="tp-resize"></div>
           <div class="transcript-head">
-            <span class="hand">conversation</span>
+            <div class="th-left">
+              <button class="tp-reopen" id="tp-reopen" type="button" title="show chats" aria-label="Show chat history">
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/></svg>
+              </button>
+              <span class="hand">conversation</span>
+            </div>
             <button class="chip" onclick="newThread()">+ new</button>
           </div>
           <div class="chat-empty" id="chat-empty">
@@ -356,7 +361,7 @@
             <div class="detail-sub" id="detail-sub">loading…</div>
           </div>
           <div class="hero-photo" id="detail-photo"></div>
-          <div class="fact-grid" id="detail-facts"></div>
+          <div id="detail-facts"></div>
           <div id="detail-history-wrap" style="display:none;">
             <div class="detail-section-title">price history (re-auctions)</div>
             <div class="price-history" id="detail-history"></div>
@@ -369,10 +374,6 @@
             </div>
             <div class="detail-desc" id="detail-desc"></div>
           </div>
-          <div id="detail-docs-wrap" style="display:none;">
-            <div class="detail-section-title">documents</div>
-            <div class="docs" id="detail-docs"></div>
-          </div>
         </div>
         <aside class="detail-aside">
           <button class="btn" id="detail-save">☆ save to watchlist</button>
@@ -384,7 +385,6 @@
             </svg>
             copy link
           </button>
-          <a class="btn ghost" id="detail-sale-notice" href="#" target="_blank" rel="noopener" style="display:none;">open sale notice ↗</a>
           <div class="detail-ask">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
               <div class="lbl">ask about this property</div>

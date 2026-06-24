@@ -574,13 +574,15 @@ body {
 .results {
   flex: 1;
   display: grid;
-  grid-template-columns: var(--sidebar-w, 200px) var(--transcript-w, 360px) 1fr;
+  grid-template-columns: var(--sidebar-w, 200px) var(--transcript-w, clamp(420px, 30vw, 560px)) 1fr;
   gap: 0;
   min-height: 0;
   position: relative;
 }
+/* Collapsed: drop the sidebar and its grid column entirely. It reopens via a
+   panel button in the conversation header (.tp-reopen) — no leftover rail. */
 .results.sb-collapsed {
-  grid-template-columns: 44px var(--transcript-w, 360px) 1fr;
+  grid-template-columns: var(--transcript-w, clamp(420px, 30vw, 560px)) 1fr;
 }
 
 .chat-sidebar {
@@ -592,12 +594,8 @@ body {
   min-height: 0;
   box-shadow: var(--shadow);
   overflow: hidden;
-  transition: padding 150ms ease;
 }
-.results.sb-collapsed .chat-sidebar { padding: 10px 4px; align-items: center; }
-.results.sb-collapsed .chat-sidebar .sb-body,
-.results.sb-collapsed .chat-sidebar .sb-search,
-.results.sb-collapsed .chat-sidebar .sb-title { display: none; }
+.results.sb-collapsed .chat-sidebar { display: none; }
 .sb-head { display: flex; align-items: center; gap: 6px; }
 .sb-title { font-family: var(--font-hand); font-size: 20px; flex: 1; }
 .sb-toggle {
@@ -615,8 +613,6 @@ body {
   display: flex; align-items: center; gap: 6px; justify-content: center;
 }
 .sb-new:hover { transform: translate(-1px,-1px); }
-.results.sb-collapsed .sb-new { padding: 6px 0; font-size: 0; width: 32px; height: 32px; }
-.results.sb-collapsed .sb-new::before { content: '+'; font-family: var(--font-hand); font-size: 22px; }
 .sb-search {
   border: 1.5px solid var(--ink); background: var(--paper);
   padding: 5px 8px;
@@ -712,7 +708,7 @@ body {
 .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
 
 @media (max-width: 1000px) {
-  .results { grid-template-columns: 1fr; }
+  .results, .results.sb-collapsed { grid-template-columns: 1fr; }
   .chat-sidebar, .transcript-pane { max-height: 220px; }
   .tp-resize { display: none; }
   .results-pane, .chat-sidebar { margin: 0 0 10px; }
@@ -730,11 +726,23 @@ body {
   min-height: 0;
 }
 .transcript-head {
-  display: flex; justify-content: space-between; align-items: baseline;
+  display: flex; justify-content: space-between; align-items: center;
   border-bottom: 1.5px dashed var(--ink);
   padding-bottom: 8px;
 }
 .transcript-head .hand { font-size: 20px; }
+.th-left { display: flex; align-items: center; gap: 9px; min-width: 0; }
+/* Reopen-history button: shown in the conversation header only when the sidebar
+   is collapsed (Option C — no persistent rail). */
+.tp-reopen {
+  display: none;
+  width: 30px; height: 30px; padding: 0; flex-shrink: 0;
+  border: 2px solid var(--ink); background: var(--paper-2); color: var(--ink);
+  place-items: center; cursor: pointer;
+}
+.tp-reopen:hover { background: var(--accent); color: var(--on-accent); }
+.tp-reopen svg { width: 15px; height: 15px; }
+.results.sb-collapsed .tp-reopen { display: grid; }
 .chat-log {
   flex: 1; overflow-y: auto;
   display: flex; flex-direction: column; gap: 8px;
@@ -1149,6 +1157,65 @@ body {
 }
 .fact.big .val { font-size: 22px; }
 .fact.accent { background: var(--accent); }
+
+/* ── Property detail · "Briefing" data presentation ─────────────────────
+   Pricing / Timeline / Property & parties — grouped, with hierarchy, in
+   place of the old uniform fact grid. All values are tokenised so the
+   panels track light/dark automatically. */
+.pb { display: grid; gap: 12px; }
+.pb-row { display: grid; grid-template-columns: 1.05fr 1fr; gap: 12px; }
+.pb-panel {
+  border: 1.5px solid var(--border); background: var(--card);
+  border-radius: var(--radius); padding: 16px;
+}
+.pb-panel.pb-pricing { background: linear-gradient(180deg, var(--accent-soft), transparent); }
+.pb-eyebrow {
+  display: flex; align-items: center; gap: 7px; margin-bottom: 13px;
+  font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.09em;
+  text-transform: uppercase; color: var(--muted);
+}
+.pb-eyebrow svg { width: 14px; height: 14px; color: var(--accent); flex: none; }
+.pb-price {
+  font-family: var(--font-hand); font-size: 38px; font-weight: 800;
+  color: var(--accent); letter-spacing: -0.03em; line-height: 1;
+}
+.pb-price-sub { display: flex; gap: 8px; align-items: baseline; margin-top: 12px; }
+.pb-price-sub .amt { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.pb-price-sub .lbl { font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
+.pb-note { font-size: 11.5px; color: var(--muted); margin-top: 6px; }
+/* timeline / stepper */
+.pb-steps { display: flex; flex-direction: column; }
+.pb-step { display: grid; grid-template-columns: 22px 1fr; gap: 11px; }
+.pb-step .gut { display: flex; flex-direction: column; align-items: center; }
+.pb-step .node {
+  width: 11px; height: 11px; border-radius: 50%; flex: none; margin-top: 3px;
+  border: 2px solid var(--accent); background: var(--card);
+}
+.pb-step.done .node { background: var(--accent); }
+.pb-step .line { flex: 1; width: 2px; background: var(--border); min-height: 14px; }
+.pb-step:last-child .line { display: none; }
+.pb-step .body { padding-bottom: 14px; }
+.pb-step:last-child .body { padding-bottom: 0; }
+.pb-step .lbl {
+  font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--muted);
+}
+.pb-step .val { font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; margin-top: 1px; }
+/* property & parties key-values */
+.pb-kv { display: grid; grid-template-columns: repeat(2, 1fr); gap: 2px 24px; }
+.pb-item { display: flex; gap: 10px; align-items: center; padding: 10px 2px; border-top: 1px solid var(--border); }
+.pb-item svg { width: 16px; height: 16px; color: var(--muted); flex: none; }
+.pb-item .lbl {
+  font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.05em;
+  text-transform: uppercase; color: var(--muted);
+}
+.pb-item .val { font-size: 14.5px; font-weight: 600; word-break: break-word; }
+.pb-item .val a { color: var(--accent); text-decoration: none; }
+.pb-item .val a:hover { text-decoration: underline; }
+@media (max-width: 760px) {
+  .pb-row { grid-template-columns: 1fr; }
+  .pb-kv { grid-template-columns: 1fr; }
+}
 
 .detail-section-title {
   font-family: var(--font-hand); font-size: 24px; margin: 10px 0 6px;
@@ -1923,8 +1990,20 @@ body {
 /* [hidden] is a UA rule (display:none) and loses to the author display:flex
    above — without this the popover would never close. Re-assert it. */
 .model-picker-pop[hidden] { display: none; }
+/* Flipped placement: when there isn't room above the trigger (e.g. the landing
+   composer under the sticky header), JS adds .drop-down so the panel opens
+   below instead of clipping. max-height is set inline to the available space. */
+.model-picker-pop.drop-down {
+  bottom: auto; top: calc(100% + 8px);
+  transform-origin: top left;
+  animation-name: mp-pop-in-down;
+}
 @keyframes mp-pop-in {
   from { opacity: 0; transform: translateY(6px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes mp-pop-in-down {
+  from { opacity: 0; transform: translateY(-6px) scale(0.98); }
   to   { opacity: 1; transform: translateY(0) scale(1); }
 }
 @media (prefers-reduced-motion: reduce) { .model-picker-pop { animation: none; } }

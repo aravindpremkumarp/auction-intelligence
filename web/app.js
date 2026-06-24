@@ -176,7 +176,13 @@ function formatDescription(text) {
       /\bBounded\s+(?:on\s+the\s+)?(?:plot\s+no\.?[^,]*,?\s*)?(.+?)(?=(?:\s+And\s+Situated\b|\s+And\s+Within\b|\s+Within\s+The\b|\s*$))/i,
     );
     if (bm) {
-      const inner = bm[1];
+      // The boundary clause often runs straight into a trailing
+      // "Measuring; … feet" dimensions clause. Split that off first so the
+      // dimensions survive in the body instead of being dropped along with
+      // the boundary text.
+      const measureAt = bm[1].search(/\bMeasuring\b/i);
+      const inner = measureAt >= 0 ? bm[1].slice(0, measureAt) : bm[1];
+      const trailing = measureAt >= 0 ? bm[1].slice(measureAt) : '';
       // Walk every direction keyword and slice the value as everything up
       // to the next direction. This preserves commas inside a single value
       // (e.g. "Plot No. 156/2,3 And 155/4").
@@ -192,13 +198,15 @@ function formatDescription(text) {
         const start = positions[k].end;
         const finish = (k + 1 < positions.length) ? positions[k + 1].idx : inner.length;
         let val = inner.slice(start, finish);
-        val = val.replace(/^\s*(?:by|:)\s*/i, '');
+        // Drop the connective that follows the direction word ("by", "of",
+        // and a leading dash/colon) so the value reads as just the neighbour.
+        val = val.replace(/^\s*(?:by|of)\b\s*/i, '').replace(/^\s*[-–:]\s*/, '');
         // Stop at a sentence terminator or any next-field keyword that bled
         // in from the source paragraph, otherwise the value can read
         // "Plot No. 12. Measuring: …".
         val = val.split(/\.\s+(?=[A-Z])/)[0];
         val = val.split(/\b(?:Measuring|Comprised\s+In|Situated\s+Within|As\s+Per\s+Patta|Together\s+With)\b/i)[0];
-        val = val.trim().replace(/[,;.\s]+$/, '');
+        val = val.trim().replace(/^[-–:\s]+/, '').replace(/[,;.\s]+$/, '');
         const dir = positions[k].dir;
         if (val && !seen[dir]) { seen[dir] = true; parts.push({ dir, val }); }
       }
@@ -208,7 +216,8 @@ function formatDescription(text) {
         boundaryLines = parts.map(p =>
           `- ${dirEmoji[p.dir] || '•'} **${p.dir.charAt(0).toUpperCase() + p.dir.slice(1)}:** ${p.val}`
         );
-        body = body.replace(bm[0], '').trim();
+        // Remove only the boundary prose, splicing any dimensions back in.
+        body = (body.slice(0, bm.index) + ' ' + trailing).replace(/\s{2,}/g, ' ').trim();
       }
     }
 
@@ -244,19 +253,16 @@ function formatDescription(text) {
       .replace(/\s{2,}/g, ' ')
       .trim();
 
-    // Put each bolded label at the start of its own paragraph so the body
-    // reads as one fact per line. Anchored on a preceding non-space char so
-    // we never insert a break at the very start of the block.
-    body = body.replace(/(\S)\s+(\*\*(?:[^*]|\*(?!\*))+\*\*)/g, '$1\n\n$2');
+    // Keep the description as one flowing paragraph. The previous version
+    // split on every "period + capital", which shattered abbreviations like
+    // "Mr. H. Dawood Khan" into separate lines and read as broken text; the
+    // bold labels above already give the eye scan-points inline.
+    const paragraph = body
+      .replace(/\s+/g, ' ')
+      .replace(/^[\s,;:.]+|[\s,;:.]+$/g, '')
+      .trim();
 
-    // Split body into facts on the inserted paragraph breaks AND on natural
-    // sentence boundaries (period followed by capital letter or open-paren).
-    const sentences = body
-      .split(/\n{2,}|(?<=\.)\s+(?=[A-Z(])/)
-      .map(t => t.replace(/[ \t]+/g, ' ').replace(/^[\s,;.]+|[\s,;.]+$/g, '').trim())
-      .filter(Boolean);
-
-    if (sentences.length) lines.push(sentences.join('\n\n'));
+    if (paragraph) lines.push(paragraph);
     if (boundaryLines.length) {
       lines.push('');
       lines.push('**Boundaries**');
@@ -797,6 +803,35 @@ function _closeModelPickers(except) {
     if (pop) pop.hidden = true;
   });
 }
+// Place the popover so it never clips behind the header. The panel normally
+// drops UP from the trigger, but on the landing composer (which sits high, just
+// under the sticky topbar) there isn't room above — so flip it DOWN and cap its
+// height to the available space when up-room is short. Measured on each open.
+function _positionModelPop(picker) {
+  if (!picker) return;
+  const trigger = picker.querySelector('.model-picker-trigger');
+  const pop = picker.querySelector('.model-picker-pop');
+  if (!trigger || !pop) return;
+  const GAP = 8, MARGIN = 8, HARD_MAX = 380;
+  const rect = trigger.getBoundingClientRect();
+  // Top boundary: keep the panel below the header. The desktop topbar paints
+  // above the screen (its own z-index), so honour it whenever it currently sits
+  // above the trigger — whether sticky or a relative bar at the top of the page.
+  // Once scrolled out of view (bottom <= 0) it stops counting.
+  let topBound = MARGIN;
+  const topbar = document.querySelector('.topbar');
+  if (topbar) {
+    const tb = topbar.getBoundingClientRect();
+    if (tb.bottom > topBound && tb.bottom <= rect.top) topBound = tb.bottom + MARGIN;
+  }
+  const spaceAbove = rect.top - GAP - topBound;
+  const spaceBelow = window.innerHeight - rect.bottom - GAP - MARGIN;
+  // Keep the established drop-up when it comfortably fits; otherwise use whichever
+  // side has more room so the panel is fully visible and scrolls internally.
+  const dropUp = spaceAbove >= Math.min(HARD_MAX, 240) || spaceAbove >= spaceBelow;
+  pop.classList.toggle('drop-down', !dropUp);
+  pop.style.maxHeight = Math.max(180, Math.min(HARD_MAX, dropUp ? spaceAbove : spaceBelow)) + 'px';
+}
 // Delegated interactions: toggle the popover, pick a model/effort, click-away to
 // close. Selecting keeps the popover open (it's a combined settings panel), so
 // the user can set model and effort in one visit; the checkmark + trigger labels
@@ -811,6 +846,7 @@ document.addEventListener('click', (e) => {
     _closeModelPickers(picker);
     trigger.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
     if (pop) pop.hidden = !willOpen;
+    if (pop && willOpen) _positionModelPop(picker);
     return;
   }
   const item = e.target.closest('.mp-item');
@@ -835,6 +871,11 @@ document.addEventListener('keydown', (e) => {
   if (!open) return;
   _closeModelPickers(null);
   open.focus();
+});
+// Re-fit an open popover when the viewport changes (e.g. mobile rotate / resize).
+window.addEventListener('resize', () => {
+  const open = document.querySelector('.model-picker-trigger[aria-expanded="true"]');
+  if (open) _positionModelPop(open.closest('.model-picker'));
 });
 
 /* ====== theme toggle ====== */
@@ -1611,8 +1652,6 @@ async function loadAndRenderDetail(id) {
   document.getElementById('detail-history-wrap').style.display = 'none';
   document.getElementById('detail-history').innerHTML = '';
   document.getElementById('detail-desc-wrap').style.display = 'none';
-  document.getElementById('detail-docs-wrap').style.display = 'none';
-  document.getElementById('detail-sale-notice').style.display = 'none';
   document.getElementById('detail-chat-log').innerHTML = '';
   loadDetailChat(id);
   try {
@@ -1671,6 +1710,24 @@ function renderPriceHistory(history) {
   });
 }
 
+// Minimal inline lucide icons (stroke = currentColor), inlined rather than a
+// sprite to match the app's existing inline-SVG style. Used by the detail
+// page's "Briefing" data panels.
+const _LUCIDE = {
+  wallet:   '<path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4Z"/>',
+  clock:    '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
+  gavel:    '<path d="m14.5 12.5-8 8a2.1 2.1 0 1 1-3-3l8-8"/><path d="m16 16 6-6"/><path d="m8 8 6-6"/><path d="m9 7 8 8"/><path d="m21 11-8-8"/>',
+  landmark: '<line x1="3" x2="21" y1="22" y2="22"/><line x1="6" x2="6" y1="18" y2="11"/><line x1="10" x2="10" y1="18" y2="11"/><line x1="14" x2="14" y1="18" y2="11"/><line x1="18" x2="18" y1="18" y2="11"/><polygon points="12 2 20 7 4 7"/>',
+  building: '<path d="M3 21h18"/><path d="M5 21V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16"/><path d="M9 7h6M9 11h6M9 15h6"/>',
+  user:     '<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+  pin:      '<path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/>',
+  phone:    '<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.8 19.8 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92Z"/>',
+  tag:      '<path d="M12.59 2.59A2 2 0 0 0 11.17 2H4a2 2 0 0 0-2 2v7.17a2 2 0 0 0 .59 1.41l8.7 8.7a2.43 2.43 0 0 0 3.42 0l6.58-6.58a2.43 2.43 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".75"/>',
+};
+function licon(name) {
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${_LUCIDE[name] || ''}</svg>`;
+}
+
 function renderDetail(detail) {
   const f = detail.fields || {};
   const r = detail.relationships || {};
@@ -1692,22 +1749,89 @@ function renderDetail(detail) {
   document.getElementById('detail-photo').innerHTML = thumbSvg(typeIcon);
 
   const auctionStart = f.auction_start_dt;
+  const auctionEnd = f.auction_end_dt;
   const deadline = f.application_deadline_dt;
   const _startD = parseDate(auctionStart);
   const auctionEnded = !!(_startD && _startD < new Date());
-  const facts = [
-    { cls: 'fact accent big', lbl: 'reserve price', val: formatINR(f.reserve_price_num) },
-    { cls: 'fact big', lbl: 'EMD', val: formatINR(f.emd_num) },
-    { cls: 'fact big', lbl: auctionEnded ? 'auction · ended' : 'auction', val: formatAuctionDate(auctionStart) },
-    { cls: 'fact', lbl: 'bank', val: bank || '—' },
-    { cls: 'fact', lbl: 'type', val: [assetCategory, types.join(', ')].filter(Boolean).join(' · ') || '—' },
-    { cls: 'fact', lbl: 'apply by', val: formatAuctionDate(deadline) },
-  ];
-  document.getElementById('detail-facts').innerHTML = facts.map(x => `
-    <div class="${x.cls}">
-      <span class="lbl">${escapeHtml(x.lbl)}</span>
-      <span class="val">${escapeHtml(x.val)}</span>
-    </div>`).join('');
+  const state = r.state?.name || '';
+  const branch = r.branch?.name || '';
+  const borrower = r.borrower?.name || '';
+  const auctionType = r.auction_type?.name || '';
+  const fullLoc = [area, city, state].filter(Boolean).join(' · ');
+  // Drop a redundant "Contact No:" prefix so the value reads as just the number.
+  const contact = String(f.contact_details || '')
+    .replace(/^\s*contact\s*(?:no\.?|nos\.?|details?|number)?\s*[:\-.]*\s*/i, '')
+    .trim();
+  // ── "Briefing" presentation: Pricing / Timeline / Property & parties ──
+  // Grouped by the questions a bidder asks (how much, by when, what/who) so
+  // the money leads and related facts read together instead of as a flat grid.
+  const now = new Date();
+  const reservePrice = formatINR(f.reserve_price_num);
+  const emd = formatINR(f.emd_num);
+
+  // Derived insight: EMD as a clean % of reserve (SARFAESI EMD is often 10%).
+  let emdNote = '';
+  const _rp = Number(f.reserve_price_num), _em = Number(f.emd_num);
+  if (_rp > 0 && _em > 0 && _em < _rp) {
+    const pct = (_em / _rp) * 100, rounded = Math.round(pct);
+    if (rounded >= 1 && rounded <= 50 && Math.abs(pct - rounded) <= 0.4) {
+      emdNote = `EMD is ${rounded}% of the reserve price`;
+    }
+  }
+
+  // Timeline — only steps with a real date; "done" once the date is past.
+  const _endPast = !!(parseDate(auctionEnd) && parseDate(auctionEnd) < now);
+  const stepDefs = [
+    { lbl: 'Apply by', v: deadline },
+    { lbl: 'Auction starts', v: auctionStart },
+    { lbl: (auctionEnded || _endPast) ? 'Auction ended' : 'Auction ends', v: auctionEnd },
+  ].filter(s => s.v && formatAuctionDate(s.v) !== '—');
+  const stepsHtml = stepDefs.map((s, i) => {
+    const d = parseDate(s.v), done = !!(d && d < now), last = i === stepDefs.length - 1;
+    return `
+      <div class="pb-step${done ? ' done' : ''}">
+        <div class="gut"><span class="node"></span>${last ? '' : '<span class="line"></span>'}</div>
+        <div class="body"><div class="lbl">${escapeHtml(s.lbl)}</div><div class="val">${escapeHtml(formatAuctionDate(s.v))}</div></div>
+      </div>`;
+  }).join('');
+
+  // Property & parties — icon + label + value, only for fields we actually have.
+  const typeVal = [assetCategory, types.join(', ')].filter(Boolean).join(' · ');
+  const metaHtml = [
+    { ic: 'landmark', lbl: 'Bank', val: bank },
+    { ic: 'building', lbl: 'Branch', val: branch },
+    { ic: 'user', lbl: 'Borrower', val: borrower },
+    { ic: 'tag', lbl: 'Type', val: typeVal },
+    { ic: 'gavel', lbl: 'Auction type', val: auctionType },
+    { ic: 'pin', lbl: 'Location', val: fullLoc },
+    { ic: 'phone', lbl: 'Contact', val: contact, tel: true },
+  ].filter(m => m.val && m.val !== '—').map(m => {
+    const valHtml = m.tel
+      ? `<a href="tel:${escapeHtml(String(m.val).replace(/[^0-9+]/g, ''))}">${escapeHtml(m.val)}</a>`
+      : escapeHtml(m.val);
+    return `<div class="pb-item">${licon(m.ic)}<div><div class="lbl">${escapeHtml(m.lbl)}</div><div class="val">${valHtml}</div></div></div>`;
+  }).join('');
+
+  const pricingHtml = `
+    <section class="pb-panel pb-pricing">
+      <div class="pb-eyebrow">${licon('wallet')}Pricing</div>
+      <div class="pb-price">${escapeHtml(reservePrice)}</div>
+      ${emd !== '—' ? `<div class="pb-price-sub"><span class="amt">${escapeHtml(emd)}</span><span class="lbl">EMD</span></div>` : ''}
+      ${emdNote ? `<div class="pb-note">${escapeHtml(emdNote)}</div>` : ''}
+    </section>`;
+  const timelineHtml = stepsHtml ? `
+    <section class="pb-panel">
+      <div class="pb-eyebrow">${licon('clock')}Timeline</div>
+      <div class="pb-steps">${stepsHtml}</div>
+    </section>` : '';
+  // Pricing spans full width when there's no timeline to sit beside it.
+  const topHtml = timelineHtml ? `<div class="pb-row">${pricingHtml}${timelineHtml}</div>` : pricingHtml;
+
+  document.getElementById('detail-facts').innerHTML = `
+    <div class="pb">
+      ${topHtml}
+      ${metaHtml ? `<section class="pb-panel"><div class="pb-eyebrow">${licon('tag')}Property &amp; parties</div><div class="pb-kv">${metaHtml}</div></section>` : ''}
+    </div>`;
 
   renderPriceHistory(detail.price_history);
 
@@ -1715,6 +1839,9 @@ function renderDetail(detail) {
   if (desc && String(desc).trim()) {
     const cleaned = String(desc).trim()
       .replace(/^#{1,6}\s*description of propert(?:y\/ies|ies|y)\s*:?\s*/i, '')
+      // Drop source-portal identifiers we don't surface (Asset / Security ID).
+      .replace(/[,;.]?\s*\b(?:Asset|Security)\s*ID\s*[-:]?\s*[A-Za-z0-9/]+/gi, '')
+      .replace(/\s{2,}/g, ' ')
       .trim();
     const descEl = document.getElementById('detail-desc');
     const descToggle = document.getElementById('detail-desc-toggle');
@@ -1728,94 +1855,6 @@ function renderDetail(detail) {
     descToggle.textContent = 'View original';
     descToggle.setAttribute('aria-pressed', 'false');
     document.getElementById('detail-desc-wrap').style.display = '';
-  }
-
-  const linkDocs = [];
-  if (f.url) linkDocs.push({ label: 'Sale notice / source page', href: f.url, meta: 'external ↗' });
-  const extras = f.extras;
-  if (extras && typeof extras === 'object' && !Array.isArray(extras)) {
-    Object.entries(extras).forEach(([k, v]) => {
-      if (typeof v === 'string' && /^https?:\/\//.test(v)) {
-        linkDocs.push({ label: k, href: v, meta: 'link ↗' });
-      }
-    });
-  }
-
-  const previewDocs = Array.isArray(detail.documents) ? detail.documents : [];
-
-  if (linkDocs.length || previewDocs.length) {
-    const linkHtml = linkDocs.map(d => `
-      <a class="doc" href="${escapeHtml(d.href)}" target="_blank" rel="noopener">
-        <span>${escapeHtml(d.label)}</span>
-        <span class="mono">${escapeHtml(d.meta)}</span>
-      </a>`).join('');
-
-    const friendlyDocLabel = (filename, kind, ordinal) => {
-      const fname = String(filename || '');
-      const stem = fname.replace(/\.[a-z0-9]+$/i, '');
-      const looksLikeHash = stem.length >= 16 && /^[0-9a-f][0-9a-f-]+$/i.test(stem);
-      if (fname && !looksLikeHash) return fname;
-      const noun = kind === 'image' ? 'Property image' : kind === 'pdf' ? 'Document' : 'File';
-      return `${noun} ${ordinal}`;
-    };
-    const kindCounts = {};
-    const previewHtml = previewDocs.map((d, i) => {
-      const kind = (d.doc_type === 'pdf' || d.doc_type === 'image') ? d.doc_type : 'other';
-      kindCounts[kind] = (kindCounts[kind] || 0) + 1;
-      const label = friendlyDocLabel(d.filename, kind, kindCounts[kind]);
-      const badge = kind === 'pdf' ? 'PDF' : kind === 'image' ? 'IMG' : 'FILE';
-      const canPreview = kind === 'pdf' || kind === 'image';
-      return `
-        <div class="doc-group" data-doc-index="${i}">
-          <div class="doc">
-            <span>${escapeHtml(label)}</span>
-            <span class="doc-badge">${badge}</span>
-            ${canPreview ? `<button type="button" class="doc-toggle" data-action="toggle-preview">Preview</button>` : ''}
-            <a class="mono" href="${escapeHtml(d.public_url)}" target="_blank" rel="noopener">open ↗</a>
-          </div>
-          <div class="doc-preview" hidden
-               data-kind="${escapeHtml(kind)}"
-               data-url="${escapeHtml(d.public_url)}"
-               data-loaded="0"></div>
-        </div>`;
-    }).join('');
-
-    const container = document.getElementById('detail-docs');
-    container.innerHTML = linkHtml + previewHtml;
-    document.getElementById('detail-docs-wrap').style.display = '';
-
-    container.querySelectorAll('.doc-toggle[data-action="toggle-preview"]').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        const group = e.currentTarget.closest('.doc-group');
-        const panel = group.querySelector('.doc-preview');
-        if (panel.dataset.loaded !== '1') {
-          const kind = panel.dataset.kind;
-          const url = panel.dataset.url;
-          if (kind === 'pdf') {
-            panel.innerHTML = `<iframe src="${escapeHtml(url)}#toolbar=1" title="${escapeHtml('PDF preview')}" loading="lazy"></iframe>`;
-          } else if (kind === 'image') {
-            panel.innerHTML = `<img src="${escapeHtml(url)}" alt="sales notice image" loading="lazy">`;
-          }
-          panel.dataset.loaded = '1';
-        }
-        const isHidden = panel.hasAttribute('hidden');
-        if (isHidden) {
-          panel.removeAttribute('hidden');
-          group.classList.add('open');
-          e.currentTarget.textContent = 'Hide';
-        } else {
-          panel.setAttribute('hidden', '');
-          group.classList.remove('open');
-          e.currentTarget.textContent = 'Preview';
-        }
-      });
-    });
-  }
-
-  const saleBtn = document.getElementById('detail-sale-notice');
-  if (f.url) {
-    saleBtn.href = f.url;
-    saleBtn.style.display = '';
   }
 
   // also cache for watchlist
@@ -2456,8 +2495,21 @@ function renderSidebar() {
 })();
 
 document.getElementById('sb-toggle').addEventListener('click', () => {
-  document.getElementById('results-grid').classList.toggle('sb-collapsed');
+  const collapsed = document.getElementById('results-grid').classList.toggle('sb-collapsed');
+  const btn = document.getElementById('sb-toggle');
+  btn.setAttribute('aria-label', collapsed ? 'Show chat history' : 'Hide chat history');
+  btn.setAttribute('aria-expanded', String(!collapsed));
 });
+// Reopen the collapsed history from the conversation header (Option C).
+(() => {
+  const reopen = document.getElementById('tp-reopen');
+  if (!reopen) return;
+  reopen.addEventListener('click', () => {
+    document.getElementById('results-grid').classList.remove('sb-collapsed');
+    const sbt = document.getElementById('sb-toggle');
+    if (sbt) { sbt.setAttribute('aria-label', 'Hide chat history'); sbt.setAttribute('aria-expanded', 'true'); }
+  });
+})();
 document.getElementById('sb-search').addEventListener('input', (e) => {
   sbFilter = e.target.value; renderSidebar();
 });
