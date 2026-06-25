@@ -125,7 +125,6 @@ body {
 .top-nav button,
 .theme-toggle,
 .feedback-btn,
-.save-btn,
 .sb-toggle,
 .bt,
 .card-save {
@@ -267,7 +266,6 @@ body {
   border: 1.5px solid var(--ink);
   box-shadow: var(--shadow);
   margin-bottom: 16px;
-  position: sticky; top: 0; z-index: 5;
 }
 .bf-row {
   display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
@@ -495,6 +493,9 @@ body {
   .browse-grid { grid-template-columns: 1fr; }
   .filter-group { width: 100%; }
   .filter-select { flex: 1; min-width: 0; max-width: 100%; }
+  /* Native date / number inputs have a wide intrinsic min-width; let them shrink
+     and share the row so two date pickers don't overflow at ~320px. */
+  .filter-date, .filter-num { flex: 1 1 0; min-width: 0; max-width: 100%; }
   .filter-multi { flex: 1; min-width: 0; }
   .filter-multi-btn { width: 100%; max-width: 100%; }
   .filter-multi-panel { width: 100%; max-width: 100%; }
@@ -1074,12 +1075,6 @@ body {
   background: rgba(19, 122, 59, 0.18);
   border-color: #3cb371;
 }
-.prop .bank-tag {
-  display: inline-block;
-  font-family: var(--font-mono); font-size: 10px;
-  padding: 1px 6px; border: 1.5px solid var(--ink);
-  background: var(--paper-2);
-}
 .prop .why {
   font-family: var(--font-hand); font-size: 15px;
   color: var(--ink-soft);
@@ -1412,15 +1407,6 @@ body {
   font-family: var(--font-hand); font-size: 16px; color: var(--danger); font-weight: 700;
 }
 
-.save-btn {
-  background: transparent; border: 2px solid var(--ink);
-  padding: 4px 10px; font-family: var(--font-hand); font-size: 16px;
-  cursor: pointer;
-  display: inline-flex; gap: 5px; align-items: center;
-  color: var(--ink);
-}
-.save-btn.saved { background: var(--accent); }
-[data-theme="dark"] .save-btn { background: var(--paper-2); }
 
 /* Deadline-alerts bell (topbar) + watchlist feed */
 .alerts-bell {
@@ -1475,17 +1461,6 @@ body {
 }
 .feedback-btn:hover { background: var(--accent); }
 [data-theme="dark"] .feedback-btn { background: var(--paper-2); }
-
-.mode-select-inline {
-  background: var(--accent); border: 1.5px solid var(--ink);
-  padding: 4px 10px; font-family: var(--font-mono); font-size: 11px;
-  text-transform: lowercase; letter-spacing: 0.04em;
-  cursor: pointer;
-  appearance: none; -webkit-appearance: none;
-  flex-shrink: 0; max-width: 140px;
-  color: var(--ink);
-}
-.mode-select-inline:hover { filter: brightness(0.96); }
 
 .theme-toggle {
   background: var(--card); border: 1.5px solid var(--ink);
@@ -1681,8 +1656,6 @@ body {
     -webkit-mask: var(--i-feedback) center / contain no-repeat;
             mask: var(--i-feedback) center / contain no-repeat;
   }
-  /* Saved-count moved to the bottom-tabs watchlist badge on mobile */
-  .save-btn { display: none; }
   .avatar { width: 36px; height: 36px; font-size: 15px; }
   .theme-toggle { width: 36px; height: 36px; font-size: 16px; }
   .sb-toggle { width: 36px; height: 36px; }
@@ -1767,10 +1740,9 @@ body {
   .chat-input input::placeholder,
   .chat-input textarea,
   .chat-input textarea::placeholder { font-size: 16px; }
-  /* Buttons sized to the new font; matched to the mode-pick so the bar is a
-     tidy, compact height. The textarea still auto-grows (up to 160px) as you type. */
+  /* Send button sized to the new font so the bar stays a tidy, compact height.
+     The textarea still auto-grows (up to 160px) as you type. */
   .chat-input .send { width: 38px; height: 38px; font-size: 18px; }
-  .mode-select-inline { font-size: 11px; padding: 8px 10px; max-width: 108px; min-height: 36px; }
 
   .fact-grid { grid-template-columns: 1fr; }
   .fact .val { font-size: 14px; }
@@ -1878,15 +1850,14 @@ body {
 }
 .theme-toggle { width: 38px; height: 38px; }
 .theme-toggle:hover, .sb-toggle:hover { background: var(--paper-2); color: var(--ink); border-color: var(--border-strong); }
-.feedback-btn, .save-btn {
+.feedback-btn {
   background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-sm);
   padding: 8px 12px; font-family: var(--font-body); font-size: 13px; font-weight: 500;
   color: var(--ink-soft); box-shadow: var(--shadow);
   transition: background 150ms ease, color 150ms ease, border-color 150ms ease;
 }
-.feedback-btn:hover, .save-btn:hover { background: var(--paper-2); color: var(--ink); border-color: var(--border-strong); }
-.save-btn.saved { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
-[data-theme="dark"] .save-btn, [data-theme="dark"] .feedback-btn { background: var(--card); }
+.feedback-btn:hover { background: var(--paper-2); color: var(--ink); border-color: var(--border-strong); }
+[data-theme="dark"] .feedback-btn { background: var(--card); }
 
 /* ---- landing hero ---- */
 .landing-hero h1 {
@@ -1924,36 +1895,17 @@ body {
 }
 .chat-input .send:hover { background: var(--accent-hover); color: var(--on-accent); }
 
-/* Compact mode picker: an icon-only button that frees up the typing area.
-   The native <select> sits transparently on top so tapping opens the real
-   menu (with full mode names); the icon is the visible face. */
-.mode-pick {
-  position: relative; flex-shrink: 0;
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 38px; height: 38px; border-radius: var(--radius-sm);
-  background: var(--paper-2); border: 1px solid var(--border);
-  color: var(--ink-soft); cursor: pointer;
-  transition: background 150ms ease, color 150ms ease, border-color 150ms ease;
-}
-.mode-pick:hover { background: var(--card); color: var(--ink); border-color: var(--border-strong); }
-.mode-pick.active { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
-.mode-pick .mode-pick-ico { width: 18px; height: 18px; pointer-events: none; }
-.mode-pick .mode-select-inline {
-  position: absolute; inset: 0; width: 100%; height: 100%;
-  opacity: 0; margin: 0; padding: 0; border: 0; cursor: pointer;
-  -webkit-appearance: none; appearance: none;
-}
+/* ====== Composer pickers: answer-mode + model/thinking-effort ===============
+   Both controls are the SAME pill that opens a popover (group label + rows of
+   name / one-line description / check). One component, one format: the mode pill
+   shows an icon + the current mode; the model pill shows model + effort. Built
+   on tokens so they track light/dark with no theme-specific rules. The popover
+   opens UPWARD because both chat bars sit low in their panels (a sibling of the
+   scrolling chat-log, so nothing clips it), flipping DOWN via .drop-down when
+   there's no room above. ====================================================*/
+.model-picker, .mode-picker { position: relative; flex-shrink: 0; }
 
-/* ====== Model + thinking-effort picker ======================================
-   Replaces the two raw native <select> boxes with a single pill that opens a
-   popover listing models (name + one-line description + check) and thinking
-   effort. Built entirely on the design tokens, so it tracks light/dark with no
-   theme-specific rules. The popover opens UPWARD because both chat bars sit low
-   in their panels; it's a sibling of the scrolling chat-log, so nothing clips
-   it. =========================================================================*/
-.model-picker { position: relative; flex-shrink: 0; }
-
-.model-picker-trigger {
+.model-picker-trigger, .mode-picker-trigger {
   display: inline-flex; align-items: center; gap: 6px;
   height: 38px; padding: 0 10px; margin: 0;
   border: 1px solid var(--border); border-radius: var(--radius);
@@ -1962,21 +1914,25 @@ body {
   line-height: 1; cursor: pointer; white-space: nowrap;
   transition: background 150ms ease, color 150ms ease, border-color 150ms ease;
 }
-.model-picker-trigger:hover {
+.model-picker-trigger:hover, .mode-picker-trigger:hover {
   background: var(--card); color: var(--ink); border-color: var(--border-strong);
 }
-.model-picker-trigger[aria-expanded="true"] {
+.model-picker-trigger[aria-expanded="true"], .mode-picker-trigger[aria-expanded="true"] {
   background: var(--accent-soft); color: var(--accent); border-color: transparent;
 }
-.mpt-model { font-weight: 700; color: var(--ink); }
+.mpt-ico { flex-shrink: 0; opacity: 0.9; }
+.mpt-model, .mpt-mode { font-weight: 700; color: var(--ink); }
 .model-picker-trigger:hover .mpt-model,
-.model-picker-trigger[aria-expanded="true"] .mpt-model { color: inherit; }
+.model-picker-trigger[aria-expanded="true"] .mpt-model,
+.mode-picker-trigger:hover .mpt-mode,
+.mode-picker-trigger[aria-expanded="true"] .mpt-mode { color: inherit; }
 .mpt-dot { width: 3px; height: 3px; border-radius: 50%; background: currentColor; opacity: 0.4; flex-shrink: 0; }
 .mpt-effort { font-weight: 500; opacity: 0.85; }
 .mpt-caret { margin-left: 1px; opacity: 0.7; transition: transform 180ms ease; }
-.model-picker-trigger[aria-expanded="true"] .mpt-caret { transform: rotate(180deg); }
+.model-picker-trigger[aria-expanded="true"] .mpt-caret,
+.mode-picker-trigger[aria-expanded="true"] .mpt-caret { transform: rotate(180deg); }
 
-.model-picker-pop {
+.model-picker-pop, .mode-picker-pop {
   position: absolute; bottom: calc(100% + 8px); left: 0; z-index: 50;
   width: 290px; max-width: min(290px, 80vw);
   max-height: min(380px, 62vh); overflow-y: auto;
@@ -1989,11 +1945,11 @@ body {
 }
 /* [hidden] is a UA rule (display:none) and loses to the author display:flex
    above — without this the popover would never close. Re-assert it. */
-.model-picker-pop[hidden] { display: none; }
+.model-picker-pop[hidden], .mode-picker-pop[hidden] { display: none; }
 /* Flipped placement: when there isn't room above the trigger (e.g. the landing
    composer under the sticky header), JS adds .drop-down so the panel opens
    below instead of clipping. max-height is set inline to the available space. */
-.model-picker-pop.drop-down {
+.model-picker-pop.drop-down, .mode-picker-pop.drop-down {
   bottom: auto; top: calc(100% + 8px);
   transform-origin: top left;
   animation-name: mp-pop-in-down;
@@ -2006,7 +1962,7 @@ body {
   from { opacity: 0; transform: translateY(-6px) scale(0.98); }
   to   { opacity: 1; transform: translateY(0) scale(1); }
 }
-@media (prefers-reduced-motion: reduce) { .model-picker-pop { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .model-picker-pop, .mode-picker-pop { animation: none; } }
 
 .mp-group-label {
   font-family: var(--font-mono); font-size: 10px; font-weight: 600;
@@ -2048,7 +2004,7 @@ body {
    the popover) so the bar keeps a comfortable typing area. */
 @media (max-width: 420px) {
   .mpt-effort, .mpt-dot { display: none; }
-  .model-picker-pop { width: 270px; }
+  .model-picker-pop, .mode-picker-pop { width: 270px; }
 }
 
 /* Stacked composer: textarea on top, with a controls toolbar pinned to the
@@ -2103,12 +2059,6 @@ body {
 .lbl, .filter-group .lbl-inline, .browse-hint, .sb-group-label, .prop .loc, .detail-sub {
   font-family: var(--font-body); letter-spacing: 0.04em;
 }
-.mode-select-inline {
-  background: var(--paper-2); border: 1px solid var(--border); border-radius: var(--radius-sm);
-  color: var(--ink-soft); font-family: var(--font-body); font-weight: 600; text-transform: none;
-}
-.mode-select-inline:hover { filter: none; background: var(--paper-2); border-color: var(--border-strong); }
-
 /* ---- browse heading ---- */
 .browse { border-top: 1px solid var(--border); }
 .browse-head h2 { font-family: var(--font-body); font-size: clamp(22px, 5.5vw, 26px); font-weight: 700; letter-spacing: -0.02em; }
@@ -2218,11 +2168,6 @@ body {
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
 .prop .loc { font-family: var(--font-body); font-size: 13px; color: var(--muted); text-transform: none; letter-spacing: 0; }
-.prop .bank-tag {
-  border: 1px solid var(--border); border-radius: var(--radius-xs);
-  background: var(--card); color: var(--ink-soft);
-  font-family: var(--font-body); font-size: 12px; font-weight: 500; padding: 3px 9px; text-transform: none;
-}
 .prop .ended-tag {
   border: 0; border-radius: var(--radius-xs);
   background: var(--danger-soft, rgba(214, 74, 46, 0.12)); color: var(--danger);
@@ -2466,9 +2411,9 @@ body {
   body[data-theme="dark"] .bottom-tabs .bt.on svg { color: var(--accent) !important; }
 
   /* Collapse feedback to an icon-only button on mobile. The desktop redesign layer
-     (.feedback-btn,.save-btn) is appended after the original 640px rules and would
-     otherwise re-show the text label, causing it to clip to "feedbac". Re-assert the
-     collapse here so the last-winning mobile rule keeps it icon-only. */
+     (.feedback-btn) is appended after the original 640px rules and would otherwise
+     re-show the text label, causing it to clip to "feedbac". Re-assert the collapse
+     here so the last-winning mobile rule keeps it icon-only. */
   .feedback-btn {
     font-size: 0; padding: 0; line-height: 1;
     width: 38px; height: 38px;
@@ -2848,6 +2793,32 @@ html { scroll-behavior: smooth; }
 }
 .filter-multi-opt { border-radius: var(--radius-xs); margin: 0 4px; padding: 5px 8px; }
 
+/* ---- Collapsible filters: hide the advanced rows so the grid isn't pushed
+   down on every visit. Search + active chips stay visible. ---------------- */
+.filter-toggle {
+  display: inline-flex; align-items: center; gap: 7px; flex-shrink: 0;
+  border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
+  background: var(--card); color: var(--ink);
+  font-family: var(--font-body); font-size: 13px; font-weight: 500;
+  padding: 8px 11px; cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+.filter-toggle:hover { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+.filter-toggle:focus-visible { border-color: var(--accent); box-shadow: var(--shadow-focus); outline: 0; }
+.filter-toggle .ft-ico { flex-shrink: 0; opacity: 0.85; }
+.filter-toggle .ft-caret { transition: transform 180ms ease; opacity: 0.7; }
+.browse-filters.collapsed .filter-toggle .ft-caret { transform: rotate(-90deg); }
+.filter-toggle-count {
+  display: inline-grid; place-items: center; min-width: 18px; height: 18px;
+  padding: 0 5px; border-radius: var(--radius-pill);
+  background: var(--accent); color: var(--on-accent);
+  font-family: var(--font-mono); font-size: 10px; font-weight: 600; line-height: 1;
+}
+.filter-toggle-count[hidden] { display: none; }
+.bf-advanced { display: flex; flex-direction: column; gap: 8px; }
+.browse-filters.collapsed .bf-advanced { display: none; }
+@media (prefers-reduced-motion: reduce) { .filter-toggle .ft-caret { transition: none; } }
+
 /* ---- Browse / result / watchlist cards -------------------------------- */
 .prop {
   border: 1px solid var(--border);
@@ -2864,13 +2835,30 @@ html { scroll-behavior: smooth; }
   border-radius: var(--radius-sm);
 }
 .prop .title { color: var(--ink); }
-.prop .price { font-size: 16px; color: var(--ink); }
-.prop .bank-tag {
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-pill);
-  color: var(--muted);
-  padding: 1px 9px;
+.prop .price { font-size: 18px; color: var(--ink); }
+
+/* ---- Card metadata: bank + date as quiet, icon-led lines (no boxed pills) -- */
+/* Let the card shrink below its content's intrinsic width (grid/flex items
+   default to min-width:auto) so the bank name can truncate instead of forcing
+   horizontal overflow on narrow screens. */
+.prop { min-width: 0; }
+.prop .meta { min-width: 0; }
+.prop .loc {
+  display: flex; align-items: center; gap: 5px; min-width: 0;
 }
+.prop .loc > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.prop .prop-foot {
+  display: flex; align-items: center; gap: 5px 12px; flex-wrap: wrap; min-width: 0;
+  font-family: var(--font-body); font-size: 12.5px; color: var(--muted);
+}
+.prop .card-bank {
+  display: inline-flex; align-items: center; gap: 5px;
+  flex: 0 1 auto; min-width: 0; max-width: 100%;
+}
+.prop .card-bank-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.prop .card-date { display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; }
+.prop .ci { flex-shrink: 0; opacity: 0.7; }
+.prop .countdown { display: inline-flex; align-items: center; gap: 5px; }
 
 /* ---- Chips ------------------------------------------------------------ */
 .chip {

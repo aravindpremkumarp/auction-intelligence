@@ -720,19 +720,40 @@ document.querySelectorAll('#results-mobile-tabs button').forEach(b => {
   b.addEventListener('click', () => setMobileTab(b.dataset.mtab));
 });
 
-/* ====== mode sync (inline dropdowns in chatboxes) ====== */
+/* ====== answer-mode picker (shares the model/effort picker format) ====== */
+// Mode lives in window.currentMode (read by _chatRequestBody). The picker mirrors
+// the model picker exactly: a pill that opens a popover of modes (label +
+// description + check), so both composer controls read as one component. Seeded
+// with a default list + friendlier copy than the raw /modes text, then refreshed
+// by hydrateModes() so the control works even before /modes responds.
 window.currentMode = 'ask';
-document.addEventListener('change', (e) => {
-  if (!e.target.matches || !e.target.matches('.mode-select-inline')) return;
-  window.currentMode = e.target.value;
-  document.querySelectorAll('.mode-select-inline').forEach(s => {
-    if (s !== e.target) s.value = e.target.value;
+const MODE_DESC = {
+  'ask': 'Search and ask questions across every auction.',
+  'deep-research': 'Seven-step due diligence on a single property.',
+  'compare': 'Weigh 2 to 5 properties side by side.',
+  'report': 'An investment report tuned to your profile.',
+};
+let chatModeOpts = [
+  { id: 'ask', label: 'Ask', description: MODE_DESC['ask'] },
+  { id: 'deep-research', label: 'Deep research', description: MODE_DESC['deep-research'] },
+  { id: 'compare', label: 'Compare', description: MODE_DESC['compare'] },
+  { id: 'report', label: 'Personalized report', description: MODE_DESC['report'] },
+];
+// (Re)render every mode picker from the current option list + selection.
+function renderModePickers() {
+  const show = chatModeOpts.length >= 2;   // a single mode isn't a choice
+  document.querySelectorAll('.mode-picker').forEach(picker => {
+    if (!show) { picker.hidden = true; return; }
+    picker.hidden = false;
+    const cur = window.currentMode || 'ask';
+    const parts = ['<div class="mp-group-label">Answer mode</div>'];
+    chatModeOpts.forEach(o => parts.push(_mpRow('mode', o, o.id === cur)));
+    const pop = picker.querySelector('.mode-picker-pop');
+    if (pop) pop.innerHTML = parts.join('');
+    const lbl = picker.querySelector('.mpt-mode');
+    if (lbl) lbl.textContent = _mpLabel(chatModeOpts, cur);
   });
-  // Accent the compact mode icon when a non-default mode is selected, so the
-  // active mode stays discoverable even though the face shows only an icon.
-  const special = e.target.value !== 'ask';
-  document.querySelectorAll('.mode-pick').forEach(p => p.classList.toggle('active', special));
-});
+}
 
 /* ====== model + thinking-effort picker ====== */
 // State + persistence contract (unchanged from the original toggles):
@@ -794,11 +815,18 @@ function renderModelPickers() {
     if (dot) dot.hidden = !(showModels && showEfforts);
   });
 }
+// Both composer controls — model/effort and answer-mode — are the same pill +
+// popover component, so the open/close/position/keyboard plumbing drives them
+// together via these shared selectors.
+const _PICKER_SEL = '.model-picker, .mode-picker';
+const _PICKER_TRIGGER_SEL = '.model-picker-trigger, .mode-picker-trigger';
+const _PICKER_POP_SEL = '.model-picker-pop, .mode-picker-pop';
+const _PICKER_OPEN_SEL = '.model-picker-trigger[aria-expanded="true"], .mode-picker-trigger[aria-expanded="true"]';
 function _closeModelPickers(except) {
-  document.querySelectorAll('.model-picker').forEach(p => {
+  document.querySelectorAll(_PICKER_SEL).forEach(p => {
     if (p === except) return;
-    const t = p.querySelector('.model-picker-trigger');
-    const pop = p.querySelector('.model-picker-pop');
+    const t = p.querySelector(_PICKER_TRIGGER_SEL);
+    const pop = p.querySelector(_PICKER_POP_SEL);
     if (t) t.setAttribute('aria-expanded', 'false');
     if (pop) pop.hidden = true;
   });
@@ -809,8 +837,8 @@ function _closeModelPickers(except) {
 // height to the available space when up-room is short. Measured on each open.
 function _positionModelPop(picker) {
   if (!picker) return;
-  const trigger = picker.querySelector('.model-picker-trigger');
-  const pop = picker.querySelector('.model-picker-pop');
+  const trigger = picker.querySelector(_PICKER_TRIGGER_SEL);
+  const pop = picker.querySelector(_PICKER_POP_SEL);
   if (!trigger || !pop) return;
   const GAP = 8, MARGIN = 8, HARD_MAX = 380;
   const rect = trigger.getBoundingClientRect();
@@ -838,10 +866,10 @@ function _positionModelPop(picker) {
 // update live across every chat bar.
 document.addEventListener('click', (e) => {
   if (!e.target.closest) return;
-  const trigger = e.target.closest('.model-picker-trigger');
+  const trigger = e.target.closest(_PICKER_TRIGGER_SEL);
   if (trigger) {
-    const picker = trigger.closest('.model-picker');
-    const pop = picker && picker.querySelector('.model-picker-pop');
+    const picker = trigger.closest(_PICKER_SEL);
+    const pop = picker && picker.querySelector(_PICKER_POP_SEL);
     const willOpen = trigger.getAttribute('aria-expanded') !== 'true';
     _closeModelPickers(picker);
     trigger.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
@@ -853,6 +881,13 @@ document.addEventListener('click', (e) => {
   if (item) {
     if (item.hasAttribute('disabled')) return;   // locked model — server gate also enforces
     const kind = item.dataset.kind, id = item.dataset.id;
+    if (kind === 'mode') {
+      // A single choice: set it, refresh label + check, then close the popover.
+      window.currentMode = id || 'ask';
+      renderModePickers();
+      _closeModelPickers(null);
+      return;
+    }
     if (kind === 'model') {
       window.currentModel = id || null;
       try { localStorage.setItem(CHAT_MODEL_KEY, id); } catch(_) {}
@@ -863,19 +898,19 @@ document.addEventListener('click', (e) => {
     renderModelPickers();
     return;
   }
-  if (!e.target.closest('.model-picker')) _closeModelPickers(null);
+  if (!e.target.closest(_PICKER_SEL)) _closeModelPickers(null);
 });
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
-  const open = document.querySelector('.model-picker-trigger[aria-expanded="true"]');
+  const open = document.querySelector(_PICKER_OPEN_SEL);
   if (!open) return;
   _closeModelPickers(null);
   open.focus();
 });
 // Re-fit an open popover when the viewport changes (e.g. mobile rotate / resize).
 window.addEventListener('resize', () => {
-  const open = document.querySelector('.model-picker-trigger[aria-expanded="true"]');
-  if (open) _positionModelPop(open.closest('.model-picker'));
+  const open = document.querySelector(_PICKER_OPEN_SEL);
+  if (open) _positionModelPop(open.closest(_PICKER_SEL));
 });
 
 /* ====== theme toggle ====== */
@@ -1018,15 +1053,20 @@ async function apiChatStream(body, onEvent) {
 async function hydrateModes() {
   try {
     const res = await authFetch(`${API_BASE}/modes`);
-    if (!res.ok) return;
-    const data = await res.json();
-    const modes = Array.isArray(data?.modes) ? data.modes : [];
-    if (!modes.length) return;
-    const sels = document.querySelectorAll('.mode-select-inline');
-    if (!sels.length) return;
-    const optHtml = modes.map(m => `<option value="${escapeHtml(m.id)}">${escapeHtml(m.label || m.id)}</option>`).join('');
-    sels.forEach(s => { s.innerHTML = optHtml; s.value = window.currentMode || 'ask'; });
-  } catch(e) { /* keep the default "ask" option */ }
+    if (res.ok) {
+      const data = await res.json();
+      const modes = Array.isArray(data?.modes) ? data.modes : [];
+      if (modes.length) {
+        // Prefer our friendlier copy for known modes; fall back to the API text.
+        chatModeOpts = modes.map(m => ({
+          id: m.id,
+          label: m.label || m.id,
+          description: MODE_DESC[m.id] || m.description || '',
+        }));
+      }
+    }
+  } catch(e) { /* keep the seeded default mode list */ }
+  renderModePickers();
 }
 // Populate the model + thinking-effort picker from the tier-aware
 // GET /chat/models. Re-run on auth change so upgrading to paid unlocks Pro
@@ -1567,27 +1607,33 @@ function _setMtabCount(n) {
     renderResultsList();
   });
 })();
+// Compact inline metadata icons (lucide-style, currentColor — never emoji).
+const _CARD_ICO_PIN = '<svg class="ci" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 14.5s5-4.2 5-8a5 5 0 0 0-10 0c0 3.8 5 8 5 8Z"/><circle cx="8" cy="6.5" r="1.7"/></svg>';
+const _CARD_ICO_BANK = '<svg class="ci" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.2 6.2 8 2.6l5.8 3.6M3 6.9v5.4M13 6.9v5.4M6 6.9v5.4M10 6.9v5.4M2.2 12.7h11.6"/></svg>';
+const _CARD_ICO_CAL = '<svg class="ci" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="3.5" width="11" height="10" rx="1.6"/><path d="M5 2.2v2.6M11 2.2v2.6M2.5 6.8h11"/></svg>';
+const _CARD_ICO_CLOCK = '<svg class="ci" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M8 4.6V8l2.4 1.4"/></svg>';
+
 function propCardHtml(c, urgent, countdown) {
   const isSaved = saved.has(c.id);
   const dropBadge = c.drop
-    ? `<div class="price-drop" title="Reserve price previously ${escapeHtml(c.drop.previous)}">${c.drop.pct}% Drop from ${escapeHtml(c.drop.previous)}</div>`
+    ? `<div class="price-drop" title="Reserve price previously ${escapeHtml(c.drop.previous)}">${c.drop.pct}% drop from ${escapeHtml(c.drop.previous)}</div>`
     : '';
-  // Don't show the bank tag when it merely repeats the (entity-derived) title.
+  // Don't repeat the bank when it merely echoes the (entity-derived) title.
   const showBank = c.bank && _normEntity(c.bank) !== _normEntity(c.title);
   return `
     <div class="prop${urgent ? ' urgent' : ''}" data-id="${escapeHtml(c.id)}">
       <div class="thumb">${thumbSvg(c.type)}</div>
       <div class="meta">
         <div class="title" title="${escapeHtml(c.title)}">${escapeHtml(c.title)}</div>
-        <div class="loc">${escapeHtml(c.loc)}</div>
-        <div class="row" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-          ${showBank ? `<span class="bank-tag">${escapeHtml(c.bank)}</span>` : ''}
-          <span class="mono" style="color:var(--muted);">${escapeHtml(c.date)}</span>
+        ${c.loc ? `<div class="loc">${_CARD_ICO_PIN}<span>${escapeHtml(c.loc)}</span></div>` : ''}
+        <div class="prop-foot">
+          ${showBank ? `<span class="card-bank" title="${escapeHtml(c.bank)}">${_CARD_ICO_BANK}<span class="card-bank-name">${escapeHtml(c.bank)}</span></span>` : ''}
+          ${c.date ? `<span class="card-date">${_CARD_ICO_CAL}<span>${escapeHtml(c.date)}</span></span>` : ''}
           ${c.ended ? '<span class="ended-tag">auction ended</span>' : ''}
         </div>
         <div class="price">${escapeHtml(c.price)}</div>
         ${dropBadge}
-        ${urgent && countdown ? `<div class="countdown">⏱ auction ${escapeHtml(countdown)}</div>` : ''}
+        ${urgent && countdown ? `<div class="countdown">${_CARD_ICO_CLOCK}<span>auction ${escapeHtml(countdown)}</span></div>` : ''}
       </div>
       <button class="card-save ${isSaved ? 'saved' : ''}" data-save-id="${escapeHtml(c.id)}" title="${isSaved ? 'saved' : 'save to watchlist'}" aria-label="save">
         <svg viewBox="0 0 18 18" width="18" height="18"><path d="M9 2 L11.3 6.6 L16.5 7.3 L12.7 11 L13.7 16.2 L9 13.7 L4.3 16.2 L5.3 11 L1.5 7.3 L6.7 6.6 Z" fill="${isSaved ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
@@ -2187,7 +2233,8 @@ function renderWatchlistAlerts() {
 }
 
 function updateSavedCount() {
-  document.getElementById('save-count').textContent = saved.size;
+  const countEl = document.getElementById('save-count');
+  if (countEl) countEl.textContent = saved.size;
   const btBadge = document.getElementById('bt-save-count');
   if (btBadge) {
     btBadge.textContent = saved.size > 0 ? String(saved.size) : '';
@@ -2870,6 +2917,15 @@ function renderActiveChips() {
     const valAttr = c.value != null ? ` data-value="${escapeHtml(c.value)}"` : '';
     return `<span class="active-chip" data-clear="${c.k}"${valAttr} title="remove filter">${escapeHtml(c.label)} <span class="x">×</span></span>`;
   }).join('');
+
+  // Badge on the collapsed "Filters" toggle = number of active advanced filters
+  // (the free-text query lives in the always-visible search box, so exclude it).
+  const advCount = chips.filter(c => c.k !== 'q').length;
+  const badge = document.getElementById('f-active-count');
+  if (badge) {
+    badge.textContent = advCount ? String(advCount) : '';
+    badge.hidden = advCount === 0;
+  }
 }
 
 // Multi-filter clearers receive the specific value to remove from the
@@ -3128,6 +3184,27 @@ function _wireFilterMulti(wrapId) {
   $('f-date-from').addEventListener('change', e => { browseState.dateFrom = e.target.value; applyBrowse(); });
   $('f-date-to').addEventListener('change', e => { browseState.dateTo = e.target.value; applyBrowse(); });
   $('f-clear').addEventListener('click', clearAllBrowseFilters);
+
+  // Collapse / expand the advanced filter rows; remember the choice so the
+  // grid isn't pushed down on every visit. Search + active chips stay visible.
+  const filtersBox = document.querySelector('.browse-filters');
+  const fToggle = $('f-toggle');
+  if (filtersBox && fToggle) {
+    const COLLAPSE_KEY = 'browse_filters_collapsed';
+    let collapsed = false;
+    try { collapsed = localStorage.getItem(COLLAPSE_KEY) === '1'; } catch (_) {}
+    const applyCollapsed = () => {
+      filtersBox.classList.toggle('collapsed', collapsed);
+      fToggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+    };
+    applyCollapsed();
+    fToggle.addEventListener('click', () => {
+      collapsed = !collapsed;
+      try { localStorage.setItem(COLLAPSE_KEY, collapsed ? '1' : '0'); } catch (_) {}
+      applyCollapsed();
+    });
+  }
+
   $('f-chat').addEventListener('click', () => {
     if (!_hasAnyBrowseFilter()) return;
     window.pendingChatScope = _browseFiltersToScope();

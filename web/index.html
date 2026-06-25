@@ -87,7 +87,6 @@
     <div class="top-right">
       <button class="theme-toggle" id="theme-toggle" title="Toggle theme" aria-label="Toggle dark mode"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg></button>
       <button class="alerts-bell" id="alerts-bell" onclick="go('watchlist')" title="Deadline alerts" aria-label="Deadline alerts"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg><span class="alerts-badge" id="alerts-count" data-empty="1"></span></button>
-      <button class="save-btn" onclick="go('watchlist')"><span id="save-count">0</span> saved</button>
       <div id="auth-slot" class="auth-slot"></div>
     </div>
   </div>
@@ -99,12 +98,14 @@
         <div class="landing-sub" id="landing-sub">bank auctions · ai-powered search</div>
         <h1>What property are you <em>looking for?</em></h1>
         <div class="chat-input chat-input--stacked">
-          <span class="mode-pick" title="Answer mode">
-            <svg class="mode-pick-ico" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M3 6h8M16 6h1M3 14h1M9 14h8"/><circle cx="13" cy="6" r="2.2"/><circle cx="6.5" cy="14" r="2.2"/></svg>
-            <select class="mode-select-inline" aria-label="Answer mode">
-              <option value="ask">ask</option>
-            </select>
-          </span>
+          <div class="mode-picker" hidden>
+            <button type="button" class="mode-picker-trigger" aria-haspopup="true" aria-expanded="false" aria-label="Answer mode">
+              <svg class="mpt-ico" viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M3 6h8M16 6h1M3 14h1M9 14h8"/><circle cx="13" cy="6" r="2.2"/><circle cx="6.5" cy="14" r="2.2"/></svg>
+              <span class="mpt-mode"></span>
+              <svg class="mpt-caret" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg>
+            </button>
+            <div class="mode-picker-pop" role="menu" aria-label="Answer mode" hidden></div>
+          </div>
           <div class="model-picker" hidden>
             <button type="button" class="model-picker-trigger" aria-haspopup="true" aria-expanded="false" aria-label="Model and thinking effort">
               <span class="mpt-model"></span>
@@ -135,15 +136,22 @@
         </div>
 
         <div class="browse-filters" role="region" aria-label="property filters">
-          <div class="bf-row">
+          <div class="bf-row bf-row--head">
             <div class="browse-search">
               <svg class="ico-s" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" stroke-width="1.5"/><line x1="10.5" y1="10.5" x2="14" y2="14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
               <input id="browse-q" type="text" placeholder="search by location, bank, type…" autocomplete="off" aria-label="search properties">
             </div>
+            <button class="filter-toggle" id="f-toggle" type="button" aria-expanded="true" aria-controls="bf-advanced" title="Show or hide filters">
+              <svg class="ft-ico" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 3.5h12l-4.6 5.4v3.6l-2.8 1.4V8.9z"/></svg>
+              <span class="ft-label">Filters</span>
+              <span class="filter-toggle-count" id="f-active-count" hidden aria-hidden="true"></span>
+              <svg class="ft-caret" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg>
+            </button>
             <button class="filter-chat" id="f-chat" disabled hidden>chat about these</button>
             <button class="filter-clear" id="f-clear" disabled>clear all</button>
           </div>
 
+          <div class="bf-advanced" id="bf-advanced">
           <div class="bf-row">
             <div class="filter-group">
               <span class="lbl-inline">state</span>
@@ -231,7 +239,9 @@
             </div>
           </div>
 
-          <div class="bf-row">
+          </div><!-- /.bf-advanced -->
+
+          <div class="bf-row bf-row--chips">
             <div class="active-chips" id="active-chips" aria-live="polite"></div>
           </div>
         </div>
@@ -308,12 +318,14 @@
           </div>
           <div class="chat-log" id="chat-log"></div>
           <div class="chat-input chat-input--stacked" style="box-shadow:none; padding:8px 10px;">
-            <span class="mode-pick" title="Answer mode">
-              <svg class="mode-pick-ico" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M3 6h8M16 6h1M3 14h1M9 14h8"/><circle cx="13" cy="6" r="2.2"/><circle cx="6.5" cy="14" r="2.2"/></svg>
-              <select class="mode-select-inline" aria-label="Answer mode">
-                <option value="ask">ask</option>
-              </select>
-            </span>
+            <div class="mode-picker" hidden>
+              <button type="button" class="mode-picker-trigger" aria-haspopup="true" aria-expanded="false" aria-label="Answer mode">
+                <svg class="mpt-ico" viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M3 6h8M16 6h1M3 14h1M9 14h8"/><circle cx="13" cy="6" r="2.2"/><circle cx="6.5" cy="14" r="2.2"/></svg>
+                <span class="mpt-mode"></span>
+                <svg class="mpt-caret" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg>
+              </button>
+              <div class="mode-picker-pop" role="menu" aria-label="Answer mode" hidden></div>
+            </div>
             <div class="model-picker" hidden>
               <button type="button" class="model-picker-trigger" aria-haspopup="true" aria-expanded="false" aria-label="Model and thinking effort">
                 <span class="mpt-model"></span>

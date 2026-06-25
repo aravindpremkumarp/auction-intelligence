@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Auctionscope — property card variations</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<script>
+  // Honour the saved theme so the preview matches the live app.
+  (function () {
+    var saved = localStorage.getItem('theme');
+    var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    document.documentElement.setAttribute('data-theme', saved || (prefersDark ? 'dark' : 'light'));
+  })();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700;12..96,800&family=Inter:wght@400;450;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<style>
+  /* Page chrome for the preview only — the cards themselves reuse the live
+     .prop styles from styles.css so what you see here is what ships. */
+  body { background: var(--paper); color: var(--ink); font-family: var(--font-body); margin: 0; }
+  .vx-wrap { max-width: 1080px; margin: 0 auto; padding: 40px 24px 80px; }
+  .vx-head h1 { font-family: var(--font-body); font-size: 28px; font-weight: 700; letter-spacing: -0.02em; margin: 0 0 6px; }
+  .vx-head p { color: var(--muted); font-size: 15px; line-height: 1.5; max-width: 64ch; margin: 0 0 8px; }
+  .vx-theme { display: inline-flex; gap: 6px; align-items: center; margin-top: 8px; cursor: pointer;
+    border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--card);
+    color: var(--ink-soft); font: inherit; font-size: 13px; padding: 7px 12px; }
+  .vx-theme:hover { border-color: var(--accent); color: var(--ink); }
+  .vx-variant { margin-top: 40px; }
+  .vx-variant > h2 { font-size: 16px; font-weight: 700; margin: 0 0 2px; letter-spacing: -0.01em; }
+  .vx-variant > .vx-desc { color: var(--muted); font-size: 13.5px; margin: 0 0 14px; }
+  .vx-variant.vx-pick > h2::after { content: "Live now"; margin-left: 10px; font-size: 10px; font-weight: 600;
+    letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent);
+    background: var(--accent-soft); border-radius: var(--radius-pill); padding: 2px 9px; vertical-align: 2px; }
+  .vx-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
+
+  /* The thumb here uses a plain inline icon (the live app pulls from an SVG
+     sprite). Cards are pointer-less in the preview. */
+  .vx-grid .prop { cursor: default; }
+  .vx-grid .prop:hover { transform: none; }
+
+  /* ---- Variant: BEFORE (the boxed pill the feedback flagged) ---- */
+  .var-before .bank-pill {
+    display: inline-block; border: 1px solid var(--border-strong); border-radius: var(--radius-pill);
+    color: var(--muted); padding: 1px 9px; font-size: 12px; max-width: 100%;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom;
+  }
+  .var-before .prop-foot { color: var(--muted); font-size: 12.5px; }
+
+  /* ---- Variant B: bank monogram avatar ---- */
+  .var-monogram .bank-mono {
+    width: 22px; height: 22px; border-radius: 50%; flex-shrink: 0;
+    background: var(--accent-soft); color: var(--accent);
+    font-size: 9.5px; font-weight: 700; letter-spacing: 0.02em;
+    display: inline-grid; place-items: center;
+  }
+
+  /* ---- Variant C: labelled meta grid ---- */
+  .var-labelled .prop-foot {
+    display: grid; grid-template-columns: 1fr auto; gap: 8px 16px; align-items: end;
+  }
+  .var-labelled .meta-cell { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+  .var-labelled .meta-cell.right { text-align: right; }
+  .var-labelled .meta-label {
+    font-size: 9.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted);
+  }
+  .var-labelled .meta-val {
+    font-size: 13px; color: var(--ink-soft);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+
+  /* ---- Variant D: ticket footer (hairline-separated, price up top) ---- */
+  .var-ticket .prop { flex-direction: column; gap: 0; }
+  .var-ticket .prop .thumb { width: 100%; height: 120px; }
+  .var-ticket .prop .meta { width: 100%; padding-top: 12px; }
+  .var-ticket .price-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+  .var-ticket .price-row .price { margin: 0; }
+  .var-ticket .prop-foot {
+    margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border);
+    justify-content: space-between; width: 100%;
+  }
+  .var-ticket .card-save { position: absolute; top: 12px; right: 12px; background: var(--card);
+    border-radius: 50%; box-shadow: var(--shadow); }
+</style>
+</head>
+<body>
+<div class="vx-wrap">
+  <div class="vx-head">
+    <h1>Property card — bank treatment options</h1>
+    <p>The boxed bank pill is replaced. <strong>Variant A (clean lines)</strong> is live now. Each option is shown with a long bank name (the hard case) and a short one. Tell me which to keep and I'll make it the default everywhere.</p>
+    <button class="vx-theme" id="vx-theme" type="button">Toggle light / dark</button>
+  </div>
+  <div id="vx-root"></div>
+</div>
+
+<script>
+const ICONS = {
+  pin: '<svg class="ci" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 14.5s5-4.2 5-8a5 5 0 0 0-10 0c0 3.8 5 8 5 8Z"/><circle cx="8" cy="6.5" r="1.7"/></svg>',
+  bank: '<svg class="ci" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.2 6.2 8 2.6l5.8 3.6M3 6.9v5.4M13 6.9v5.4M6 6.9v5.4M10 6.9v5.4M2.2 12.7h11.6"/></svg>',
+  cal: '<svg class="ci" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="3.5" width="11" height="10" rx="1.6"/><path d="M5 2.2v2.6M11 2.2v2.6M2.5 6.8h11"/></svg>',
+  house: '<svg viewBox="0 0 48 40" width="100%" height="100%" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22l12-10 12 10"/><path d="M15 20v12h18V20"/><path d="M21 32v-6h6v6"/></svg>',
+  star: '<svg viewBox="0 0 18 18" width="18" height="18" aria-hidden="true"><path d="M9 2 L11.3 6.6 L16.5 7.3 L12.7 11 L13.7 16.2 L9 13.7 L4.3 16.2 L5.3 11 L1.5 7.3 L6.7 6.6 Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>',
+};
+
+const SAMPLES = [
+  { title: 'Land & building', loc: 'Mambalam, Chennai', bank: 'Asset Reconstruction Company (India) Ltd. (Arcil)', date: '26 Jun · 17:30', price: '₹ 2.38 Cr' },
+  { title: 'Plot', loc: 'Tiruvallur, Tiruvallur', bank: 'State Bank of India', date: '25 Jun · 14:30', price: '₹ 19.28 L' },
+];
+
+function monogram(bank) {
+  const stop = new Set(['of', 'the', 'and', 'india', 'ltd', 'company', 'co', 'reconstruction', 'asset']);
+  const words = bank.replace(/[().]/g, ' ').split(/\s+/).filter(w => w && !stop.has(w.toLowerCase()));
+  const src = words.length ? words : bank.split(/\s+/);
+  return src.slice(0, 2).map(w => w[0]).join('').toUpperCase();
+}
+
+const VARIANTS = [
+  {
+    cls: 'var-clean', live: true, name: 'A · Clean lines',
+    desc: 'Bank and auction date as quiet icon-led lines. No box. Price anchored at the bottom for easy scanning.',
+    foot: s => `
+      <span class="card-bank" title="${s.bank}">${ICONS.bank}<span class="card-bank-name">${s.bank}</span></span>
+      <span class="card-date">${ICONS.cal}<span>${s.date}</span></span>`,
+    body: (s, foot) => `
+      <div class="title">${s.title}</div>
+      <div class="loc">${ICONS.pin}<span>${s.loc}</span></div>
+      <div class="prop-foot">${foot(s)}</div>
+      <div class="price">${s.price}</div>`,
+  },
+  {
+    cls: 'var-monogram', name: 'B · Bank monogram',
+    desc: 'A small initials avatar gives each bank a touch of identity while the name truncates cleanly.',
+    foot: s => `
+      <span class="card-bank" title="${s.bank}"><span class="bank-mono">${monogram(s.bank)}</span><span class="card-bank-name">${s.bank}</span></span>
+      <span class="card-date">${ICONS.cal}<span>${s.date}</span></span>`,
+    body: (s, foot) => `
+      <div class="title">${s.title}</div>
+      <div class="loc">${ICONS.pin}<span>${s.loc}</span></div>
+      <div class="prop-foot">${foot(s)}</div>
+      <div class="price">${s.price}</div>`,
+  },
+  {
+    cls: 'var-labelled', name: 'C · Labelled meta',
+    desc: 'Tiny uppercase labels above each value. More structured and data-dense, like a listing sheet.',
+    body: s => `
+      <div class="title">${s.title}</div>
+      <div class="loc">${ICONS.pin}<span>${s.loc}</span></div>
+      <div class="prop-foot">
+        <span class="meta-cell"><span class="meta-label">Bank</span><span class="meta-val" title="${s.bank}">${s.bank}</span></span>
+        <span class="meta-cell right"><span class="meta-label">Auction</span><span class="meta-val">${s.date}</span></span>
+      </div>
+      <div class="price">${s.price}</div>`,
+  },
+  {
+    cls: 'var-ticket', name: 'D · Ticket footer',
+    desc: 'Vertical card: price beside the title up top, bank and date in a hairline-separated footer bar.',
+    body: s => `
+      <div class="price-row"><div class="title">${s.title}</div><div class="price">${s.price}</div></div>
+      <div class="loc">${ICONS.pin}<span>${s.loc}</span></div>
+      <div class="prop-foot">
+        <span class="card-bank" title="${s.bank}">${ICONS.bank}<span class="card-bank-name">${s.bank}</span></span>
+        <span class="card-date">${ICONS.cal}<span>${s.date}</span></span>
+      </div>`,
+  },
+];
+
+function cardHtml(variant, s) {
+  const inner = variant.foot ? variant.body(s, variant.foot) : variant.body(s);
+  return `
+    <div class="prop">
+      <div class="thumb">${ICONS.house}</div>
+      <div class="meta">${inner}</div>
+      <button class="card-save" aria-label="save">${ICONS.star}</button>
+    </div>`;
+}
+
+function render() {
+  const before = `
+    <div class="vx-variant var-before">
+      <h2>Before · boxed pill</h2>
+      <div class="vx-desc">The current treatment. A long bank name wraps awkwardly inside the outlined pill.</div>
+      <div class="vx-grid">
+        ${SAMPLES.map(s => `
+          <div class="prop">
+            <div class="thumb">${ICONS.house}</div>
+            <div class="meta">
+              <div class="title">${s.title}</div>
+              <div class="loc">${ICONS.pin}<span>${s.loc}</span></div>
+              <div class="prop-foot"><span class="bank-pill" title="${s.bank}">${s.bank}</span><span class="card-date">${ICONS.cal}<span>${s.date}</span></span></div>
+              <div class="price">${s.price}</div>
+            </div>
+            <button class="card-save" aria-label="save">${ICONS.star}</button>
+          </div>`).join('')}
+      </div>
+    </div>`;
+
+  const variants = VARIANTS.map(v => `
+    <div class="vx-variant ${v.cls}${v.live ? ' vx-pick' : ''}">
+      <h2>${v.name}</h2>
+      <div class="vx-desc">${v.desc}</div>
+      <div class="vx-grid">${SAMPLES.map(s => cardHtml(v, s)).join('')}</div>
+    </div>`).join('');
+
+  document.getElementById('vx-root').innerHTML = before + variants;
+}
+render();
+
+document.getElementById('vx-theme').addEventListener('click', () => {
+  const next = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', next);
+  try { localStorage.setItem('theme', next); } catch (e) {}
+});
+</script>
+</body>
+</html>
