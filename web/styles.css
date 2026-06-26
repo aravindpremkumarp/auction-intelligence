@@ -499,7 +499,13 @@ body {
   .filter-multi { flex: 1; min-width: 0; }
   .filter-multi-btn { width: 100%; max-width: 100%; }
   .filter-multi-panel { width: 100%; max-width: 100%; }
-  .browse-search { width: 100%; }
+  /* Give the search its own full-width row so the Filters button + "clear all"
+     wrap onto the line beneath instead of crowding the input. The base rule
+     sets `flex: 1` (flex-basis 0), which let the input shrink until its
+     placeholder clipped against the Filters button on narrow phones; forcing
+     flex-basis to 100% makes the row wrap. */
+  .browse-search { width: 100%; flex: 1 1 100%; min-width: 0; }
+  .bf-row--head .filter-toggle { flex: 1 1 auto; justify-content: center; }
   .browse-pager .lm-btn { width: 100%; padding: 12px 16px; }
 }
 
@@ -1600,6 +1606,18 @@ body {
     background: var(--paper);
     border-top: 2px solid var(--ink);
     box-shadow: 0 -2px 0 rgba(0,0,0,0.08);
+    transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+    will-change: transform;
+  }
+  /* Tucked off-screen until the user touches or scrolls the page (toggled by
+     the auto-hide logic in app.js). 140% clears the bar plus its top border and
+     safe-area inset; pointer-events drop so it never blocks content beneath. */
+  .bottom-tabs.nav-hidden {
+    transform: translateY(140%);
+    pointer-events: none;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .bottom-tabs { transition: none; }
   }
   .bottom-tabs .bt {
     flex: 1;
