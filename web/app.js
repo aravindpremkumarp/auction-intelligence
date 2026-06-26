@@ -668,6 +668,44 @@ document.querySelectorAll('.bottom-tabs .bt').forEach(b => {
   b.addEventListener('click', () => go(b.dataset.nav));
 });
 
+/* ====== Auto-hide bottom navigation (mobile) ======
+   The bottom tab bar stays tucked away and only slides up when the user
+   interacts with the page — a scroll, a touch, a tap, or a wheel — then
+   retracts again after a short pause of inactivity, keeping the limited
+   mobile viewport focused on content. Desktop never renders the bar
+   (display:none), so this is a no-op there. */
+(function () {
+  const nav = document.querySelector('.bottom-tabs');
+  if (!nav) return;
+  const mq = window.matchMedia('(max-width: 640px)');
+  const HIDE_DELAY = 2600;
+  let hideTimer = null;
+
+  function hide() {
+    if (mq.matches) nav.classList.add('nav-hidden');
+  }
+  function reveal() {
+    clearTimeout(hideTimer);
+    nav.classList.remove('nav-hidden');
+    if (mq.matches) hideTimer = setTimeout(hide, HIDE_DELAY);
+  }
+  function reset() {
+    clearTimeout(hideTimer);
+    // Start (and stay, on resize) tucked away on mobile; always visible on desktop.
+    nav.classList.toggle('nav-hidden', mq.matches);
+  }
+
+  ['scroll', 'touchstart', 'touchmove', 'pointerdown', 'wheel'].forEach(ev =>
+    window.addEventListener(ev, reveal, { passive: true, capture: true })
+  );
+  // Keep it up while the pointer rests on the bar (mid-tap); re-arm on leave.
+  nav.addEventListener('pointerenter', () => clearTimeout(hideTimer));
+  nav.addEventListener('pointerleave', reveal);
+
+  if (mq.addEventListener) mq.addEventListener('change', reset);
+  reset();
+})();
+
 /* ====== Chat sidebar drawer (mobile slide-in) ====== */
 function openSidebar() {
   const sb = document.getElementById('chat-sidebar');
