@@ -18,7 +18,7 @@ def responsive(svg):
 
 ICON = open("brand/logo/icon.svg").read()
 WORD = open("brand/logo/wordmark.svg").read()
-WORD_DARK = WORD.replace('fill="#0a0b0d"', 'fill="#ffffff"')
+WORD_DARK = WORD.replace('fill="#1f2a37"', 'fill="#ffffff"')
 ICON_R, WORD_R, WORD_DARK_R = map(responsive, (ICON, WORD, WORD_DARK))
 
 with sync_playwright() as p:
@@ -51,7 +51,7 @@ with sync_playwright() as p:
       <div style="position:absolute;left:88px;top:0;height:100%;display:flex;flex-direction:column;justify-content:center;gap:18px">
         <div style="display:flex;align-items:center;gap:26px">
           <div style="width:104px;height:104px;filter:drop-shadow(0 8px 22px rgba(0,0,0,.28))">{ICON_R}</div>
-          <div style="font-size:62px;font-weight:800;letter-spacing:-2px">AuctionScope</div>
+          <div style="font-size:62px;font-weight:800;letter-spacing:-2px"><span style="color:#fff">Auction</span><span style="color:#bcd2ff">scope</span></div>
         </div>
         <div style="font-size:27px;font-weight:500;color:#e8f0ff;max-width:1000px;letter-spacing:-.2px">
           AI intelligence for India's bank-auction property market.</div>

@@ -1,8 +1,9 @@
 # AuctionScope — Logo & Brand Assets
 
-A clean, fintech-style identity for **AuctionScope** (auctionscope.in): an auction
-**gavel** mark on the brand-blue tile (`#0052ff`, the same Coinbase-blue accent used
-across the product UI), paired with the **Inter** wordmark.
+The identity for **Auctionscope** (auctionscope.in), matching the live web app: a
+white **locate / scope reticle** (center dot, ring, four crosshair ticks) on the
+cobalt-blue tile, paired with the **Inter** wordmark — "Auction" in dark slate and
+"scope" in gray, set as one lowercase word.
 
 ## Files
 
@@ -29,10 +30,10 @@ across the product UI), paired with the **Inter** wordmark.
 
 | Token | Hex |
 | --- | --- |
-| Brand blue (accent) | `#0052ff` |
-| Blue (hover/deep) | `#0046e6` |
-| Ink (text) | `#0a0b0d` |
-| Paper (canvas) | `#f6f7f9` |
+| Tile blue (light→deep) | `#3b74f2` → `#2a5fe6` |
+| Wordmark "Auction" | `#1f2a37` |
+| Wordmark "scope" | `#98a1ad` |
+| Reticle | `#ffffff` |
 
 Typeface: **Inter** (700 for the wordmark).
 
