@@ -1,0 +1,29 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1e6bff"/>
+      <stop offset="1" stop-color="#0046e6"/>
+    </linearGradient>
+    <linearGradient id="metal" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#e8f0ff"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Brand tile -->
+  <rect x="0" y="0" width="1024" height="1024" rx="232" fill="url(#tile)"/>
+
+  <!-- Sounding block (the base the gavel strikes) -->
+  <rect x="250" y="752" width="524" height="96" rx="48" fill="url(#metal)" opacity="0.9"/>
+
+  <!-- Gavel, rotated to a confident diagonal -->
+  <g transform="rotate(-38 512 470)">
+    <!-- mallet head -->
+    <rect x="232" y="300" width="430" height="190" rx="56" fill="url(#metal)"/>
+    <!-- grooves / bands -->
+    <rect x="300" y="300" width="26" height="190" rx="13" fill="#0052ff" opacity="0.16"/>
+    <rect x="568" y="300" width="26" height="190" rx="13" fill="#0052ff" opacity="0.16"/>
+    <!-- handle -->
+    <rect x="412" y="470" width="74" height="330" rx="37" fill="url(#metal)"/>
+  </g>
+</svg>
