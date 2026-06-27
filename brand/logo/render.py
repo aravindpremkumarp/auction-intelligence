@@ -1,4 +1,6 @@
-import glob, re
+import glob
+import re
+
 from playwright.sync_api import sync_playwright
 
 cands = (glob.glob("/opt/pw-browsers/chromium-*/chrome-linux/chrome")
@@ -24,7 +26,8 @@ with sync_playwright() as p:
     page = b.new_page(device_scale_factor=2)
 
     def svg_png(svg, out, omit=True, bg="#ffffff"):
-        page.set_content(html(svg, bg)); page.wait_for_timeout(500)
+        page.set_content(html(svg, bg))
+        page.wait_for_timeout(500)
         page.query_selector("svg").screenshot(path=out, omit_background=omit)
         print("rendered", out)
 
@@ -36,7 +39,8 @@ with sync_playwright() as p:
     # LinkedIn profile/company avatar 400x400, centered tile with padding
     avatar = f'<div style="width:400px;height:400px;background:#fff;display:flex;align-items:center;justify-content:center"><div style="width:400px;height:400px">{ICON_R}</div></div>'
     page.set_viewport_size({"width":400,"height":400})
-    page.set_content(html(avatar)); page.wait_for_timeout(500)
+    page.set_content(html(avatar))
+    page.wait_for_timeout(500)
     page.screenshot(path="brand/logo/linkedin-avatar-400.png", clip={"x":0,"y":0,"width":400,"height":400})
     print("rendered linkedin-avatar-400.png")
 
@@ -55,7 +59,8 @@ with sync_playwright() as p:
       </div>
     </div>'''
     page.set_viewport_size({"width":1584,"height":396})
-    page.set_content(html(banner)); page.wait_for_timeout(500)
+    page.set_content(html(banner))
+    page.wait_for_timeout(500)
     page.screenshot(path="brand/logo/linkedin-banner-1584x396.png", clip={"x":0,"y":0,"width":1584,"height":396})
     print("rendered linkedin-banner-1584x396.png")
 
@@ -72,7 +77,8 @@ with sync_playwright() as p:
       <div style="background:#0a0b0d;border-radius:18px;padding:46px"><div style="width:760px">{WORD_DARK_R}</div></div>
     </div>'''
     page.set_viewport_size({"width":1080,"height":900})
-    page.set_content(html(sheet,"#f6f7f9")); page.wait_for_timeout(500)
+    page.set_content(html(sheet,"#f6f7f9"))
+    page.wait_for_timeout(500)
     page.screenshot(path="/tmp/contact_sheet.png", full_page=True)
     print("rendered contact_sheet.png")
 
