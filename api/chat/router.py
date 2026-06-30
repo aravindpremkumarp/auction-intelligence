@@ -44,6 +44,7 @@ from api.auth.schemas import UserOut
 from api.model_selection import (
     CHAT_MODEL_OPTIONS,
     DEFAULT_PAID_MODEL,
+    FREE_TIER_EFFORT,
     FREE_TIER_MODEL,
     REASONING_EFFORT_OPTIONS,
     resolve_chat_model,
@@ -640,7 +641,9 @@ def list_chat_models(user: UserOut | None = Depends(get_optional_user)) -> dict:
         "reasoning_efforts": REASONING_EFFORT_OPTIONS,
         "defaults": {
             "model": DEFAULT_PAID_MODEL if is_paid else FREE_TIER_MODEL,
-            "reasoning_effort": "high",
+            # Free/anon effort is clamped server-side; report the real value so
+            # the toggle UI doesn't promise reasoning levels they won't get.
+            "reasoning_effort": "high" if is_paid else FREE_TIER_EFFORT,
         },
     }
 
@@ -699,10 +702,12 @@ async def _prepare_turn(
         panel_auction_ids=_clean_panel_ids(req.panel_auction_ids),
     )
     # Model + effort gating. Anonymous callers (user is None) and the free tier
-    # are locked to Flash; only paid users can opt into Pro. The reasoning
-    # effort toggle is open to all (Flash barely reasons, so it's cheap there).
-    model_name = resolve_chat_model(user.tier if user else "free", req.model)
-    effort = resolve_reasoning_effort(req.reasoning_effort)
+    # are locked to Flash; only paid users can opt into Pro. Reasoning effort is
+    # likewise clamped for free/anon (reasoning tokens bill as output), so the
+    # client toggle only takes effect for paid users.
+    tier = user.tier if user else "free"
+    model_name = resolve_chat_model(tier, req.model)
+    effort = resolve_reasoning_effort(req.reasoning_effort, tier)
     run_ctx = {
         "overrides": build_chat_run_overrides(model_name, effort),
         "model": model_name,

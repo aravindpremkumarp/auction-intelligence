@@ -67,6 +67,12 @@ OPENROUTER_MODEL_CHAT_FLASH = os.getenv(
 # deepseek-v4-pro supports "high" and "xhigh" (xhigh = max). Set to "off" (or
 # empty) to disable. NB: reasoning tokens bill as output.
 OPENROUTER_CHAT_REASONING_EFFORT = os.getenv("OPENROUTER_CHAT_REASONING_EFFORT", "high")
+# Reasoning effort cap for free/anonymous chat. Reasoning tokens bill as output,
+# so the global "high" default would let free users run the most expensive turns
+# and drain the chat budget. Free/anon are clamped to this (server-enforced,
+# ignores the client toggle); paid users keep the full range. Set to "off" for
+# the cheapest possible free tier.
+FREE_TIER_REASONING_EFFORT = os.getenv("FREE_TIER_REASONING_EFFORT", "low")
 
 # Provider routing for the chat model, sent via OpenRouter's `provider` field.
 # Without a pin, OpenRouter load-balances deepseek-v4-pro across third-party
