@@ -8,6 +8,10 @@ services:
     # requirements.txt holds the ranges, requirements.lock the resolution.
     buildCommand: pip install -r requirements.lock
     startCommand: uvicorn api.main:app --host 0.0.0.0 --port $PORT
+    # Idempotent Neo4j constraint/index setup (IF NOT EXISTS), run after build
+    # and before the new version goes live, with the service env vars present.
+    # Requires a paid instance type — Render skips pre-deploy on the free plan.
+    preDeployCommand: python -m scripts.init_auth_schema
     # /health checks the API itself; / serves the SPA and would report 200
     # even with the graph down.
     healthCheckPath: /health
