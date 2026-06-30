@@ -51,10 +51,17 @@ def _validate_required_env() -> None:
     """
     if os.environ.get("APP_ENV", "prod").lower() in {"dev", "test"}:
         return
-    required = ["NEO4J_URI", "NEO4J_USERNAME", "NEO4J_PASSWORD", "OPENROUTER_API_KEY"]
+    required = ["NEO4J_URI", "NEO4J_USERNAME", "NEO4J_PASSWORD"]
     if os.environ.get("AUTH_ENABLED", "true").lower() not in {"false", "0", "no"}:
         required += ["SUPABASE_URL", "SUPABASE_ANON_KEY"]
     missing = [v for v in required if not os.environ.get(v, "").strip()]
+    # The chat agent needs an OpenRouter key; accept the dedicated chat key or
+    # the shared pipeline key (the chat client falls back to the latter).
+    if not (
+        os.environ.get("OPENROUTER_CHAT_API_KEY", "").strip()
+        or os.environ.get("OPENROUTER_API_KEY", "").strip()
+    ):
+        missing.append("OPENROUTER_CHAT_API_KEY (or OPENROUTER_API_KEY)")
     if missing:
         raise RuntimeError(f"missing required environment variables: {', '.join(missing)}")
 

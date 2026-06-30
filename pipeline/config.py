@@ -31,7 +31,13 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 CLASSIFY_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 # ── OpenRouter ───────────────────────────────────────────────────────────────
+# Two billing keys, one gateway. OPENROUTER_API_KEY funds the batch pipeline
+# (scrape/OCR/classify/extract). OPENROUTER_CHAT_API_KEY funds the user-facing
+# chat agent and carries its own, smaller credit cap on OpenRouter so a chat
+# abuse spike can't drain the pipeline budget (or vice versa). The chat key
+# falls back to the pipeline key when unset, so single-key setups keep working.
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+OPENROUTER_CHAT_API_KEY = os.getenv("OPENROUTER_CHAT_API_KEY", "") or OPENROUTER_API_KEY
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 # Override via OPENROUTER_MODEL in .env. Verified options:
 #   google/gemini-2.5-flash       (default; cheap, weaker at multi-turn grounding)

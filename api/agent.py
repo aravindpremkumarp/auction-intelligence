@@ -23,7 +23,7 @@ from pydantic_ai.models.openai import OpenAIModel
 from pydantic_ai.providers.openai import OpenAIProvider
 
 from pipeline.config import (
-    OPENROUTER_API_KEY,
+    OPENROUTER_CHAT_API_KEY,
     OPENROUTER_BASE_URL,
 )
 from api.model_selection import (
@@ -148,7 +148,7 @@ SYSTEM_PROMPT = f"{_ROLE}\n\n---\n\n{_SHARED_CONTEXT}" if _SHARED_CONTEXT else _
 # slow reasoning turns; connect failures should surface fast.
 _http_client = httpx.AsyncClient(timeout=httpx.Timeout(90.0, connect=10.0))
 _provider = OpenAIProvider(
-    api_key=OPENROUTER_API_KEY, base_url=OPENROUTER_BASE_URL, http_client=_http_client
+    api_key=OPENROUTER_CHAT_API_KEY, base_url=OPENROUTER_BASE_URL, http_client=_http_client
 )
 
 # One model object per logical name ("flash"/"pro"), all on the same OpenRouter
