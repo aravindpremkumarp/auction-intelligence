@@ -2,7 +2,10 @@ services:
   - type: web
     name: auction-api
     runtime: python
-    plan: free
+    # Paid instance: required for the preDeployCommand below to run (Render
+    # skips pre-deploy on free) and keeps the blueprint from downgrading the
+    # service back to free on deploy.
+    plan: starter
     region: singapore
     # Install from the fully pinned lock so deploys are byte-reproducible;
     # requirements.txt holds the ranges, requirements.lock the resolution.
