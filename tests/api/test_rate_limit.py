@@ -30,14 +30,10 @@ def rate_limited_client() -> TestClient:
             pass
 
 
-def test_anon_chat_rate_limit(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The manual per-IP counter in api/chat/router.py throttles anonymous /chat."""
-    monkeypatch.setenv("RATELIMIT_DISABLED", "")
-    from api.main import app
-    from api.chat.router import _ANON_CHAT_MAX_PER_HOUR, _anon_chat_hits, agent
-    _anon_chat_hits.clear()
+def _stub_agent(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make /chat return fast without hitting a model."""
+    from api.chat.router import agent
 
-    # Stub the agent so /chat returns fast.
     class _Res:
         output = "ok"
         def new_messages(self): return []
@@ -45,12 +41,36 @@ def test_anon_chat_rate_limit(monkeypatch: pytest.MonkeyPatch) -> None:
     async def _fake_run(*_a, **_kw): return _Res()
     monkeypatch.setattr(agent, "run", _fake_run, raising=False)
 
+
+def test_anon_chat_daily_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Anonymous /chat hits the durable per-IP daily cap."""
+    monkeypatch.setenv("RATELIMIT_DISABLED", "")
+    monkeypatch.setenv("CHAT_ANON_DAILY_LIMIT", "3")
+    monkeypatch.setenv("CHAT_ANON_MONTHLY_LIMIT", "100")  # high, so day is the binding cap
+    from api.main import app
+    import api.neo4j_client as neo
+    neo._anon_quota.clear()
+    _stub_agent(monkeypatch)
+
     client = TestClient(app)
-    codes = []
-    for _ in range(_ANON_CHAT_MAX_PER_HOUR + 2):
-        r = client.post("/chat", json={"message": "hi"})
-        codes.append(r.status_code)
-    assert 429 in codes, f"expected 429 in {codes}"
+    codes = [client.post("/chat", json={"message": "hi"}).status_code for _ in range(5)]
+    assert codes[:3] == [200, 200, 200] and 429 in codes[3:], f"unexpected {codes}"
+
+
+def test_anon_chat_monthly_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Anonymous /chat hits the durable per-IP monthly cap even when the day cap
+    is generous — the monthly window is the nudge to log in."""
+    monkeypatch.setenv("RATELIMIT_DISABLED", "")
+    monkeypatch.setenv("CHAT_ANON_DAILY_LIMIT", "100")  # high, so month is the binding cap
+    monkeypatch.setenv("CHAT_ANON_MONTHLY_LIMIT", "2")
+    from api.main import app
+    import api.neo4j_client as neo
+    neo._anon_quota.clear()
+    _stub_agent(monkeypatch)
+
+    client = TestClient(app)
+    codes = [client.post("/chat", json={"message": "hi"}).status_code for _ in range(4)]
+    assert codes[:2] == [200, 200] and 429 in codes[2:], f"unexpected {codes}"
 
 
 def test_user_chat_daily_limit(monkeypatch: pytest.MonkeyPatch) -> None:

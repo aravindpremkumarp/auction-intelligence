@@ -31,7 +31,13 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 CLASSIFY_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 # ── OpenRouter ───────────────────────────────────────────────────────────────
+# Two billing keys, one gateway. OPENROUTER_API_KEY funds the batch pipeline
+# (scrape/OCR/classify/extract). OPENROUTER_CHAT_API_KEY funds the user-facing
+# chat agent and carries its own, smaller credit cap on OpenRouter so a chat
+# abuse spike can't drain the pipeline budget (or vice versa). The chat key
+# falls back to the pipeline key when unset, so single-key setups keep working.
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+OPENROUTER_CHAT_API_KEY = os.getenv("OPENROUTER_CHAT_API_KEY", "") or OPENROUTER_API_KEY
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 # Override via OPENROUTER_MODEL in .env. Verified options:
 #   google/gemini-2.5-flash       (default; cheap, weaker at multi-turn grounding)
@@ -61,6 +67,12 @@ OPENROUTER_MODEL_CHAT_FLASH = os.getenv(
 # deepseek-v4-pro supports "high" and "xhigh" (xhigh = max). Set to "off" (or
 # empty) to disable. NB: reasoning tokens bill as output.
 OPENROUTER_CHAT_REASONING_EFFORT = os.getenv("OPENROUTER_CHAT_REASONING_EFFORT", "high")
+# Reasoning effort cap for free/anonymous chat. Reasoning tokens bill as output,
+# so the global "high" default would let free users run the most expensive turns
+# and drain the chat budget. Free/anon are clamped to this (server-enforced,
+# ignores the client toggle); paid users keep the full range. Set to "off" for
+# the cheapest possible free tier.
+FREE_TIER_REASONING_EFFORT = os.getenv("FREE_TIER_REASONING_EFFORT", "low")
 
 # Provider routing for the chat model, sent via OpenRouter's `provider` field.
 # Without a pin, OpenRouter load-balances deepseek-v4-pro across third-party

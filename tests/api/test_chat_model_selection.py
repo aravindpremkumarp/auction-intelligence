@@ -46,12 +46,16 @@ def test_paid_honors_request_else_defaults_to_pro() -> None:
 
 
 def test_resolve_reasoning_effort_validates() -> None:
-    from api.model_selection import resolve_reasoning_effort
+    from api.model_selection import FREE_TIER_EFFORT, resolve_reasoning_effort
 
-    assert resolve_reasoning_effort("HIGH") == "high"   # normalised
-    assert resolve_reasoning_effort("off") == "off"
-    assert resolve_reasoning_effort(None) is None       # -> server default
-    assert resolve_reasoning_effort("turbo") is None     # unknown -> default
+    # Paid: requested value is normalised/validated; None -> server default.
+    assert resolve_reasoning_effort("HIGH", "paid") == "high"   # normalised
+    assert resolve_reasoning_effort("off", "paid") == "off"
+    assert resolve_reasoning_effort(None, "paid") is None       # -> server default
+    assert resolve_reasoning_effort("turbo", "paid") is None     # unknown -> default
+    # Free/anon: clamped server-side regardless of what the client asked for.
+    assert resolve_reasoning_effort("high", "free") == FREE_TIER_EFFORT
+    assert resolve_reasoning_effort("high", None) == FREE_TIER_EFFORT  # anon
 
 
 def test_build_model_settings_reasoning_toggle(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -109,9 +113,12 @@ def test_free_user_request_for_pro_is_downgraded(
         headers=h,
     )
     assert resp.status_code == 200
-    # Server forced Flash despite the client asking for Pro.
+    # Server forced Flash despite the client asking for Pro, and clamped the
+    # reasoning effort down despite the client asking for "high".
+    from api.model_selection import FREE_TIER_EFFORT
+
     assert captured["model"] == "flash"
-    assert captured["reasoning_effort"] == "high"
+    assert captured["reasoning_effort"] == FREE_TIER_EFFORT
 
 
 def test_anonymous_chat_uses_flash(captured_client: tuple[TestClient, dict]) -> None:
@@ -150,6 +157,10 @@ def test_models_endpoint_locks_pro_for_free() -> None:
     assert by_id["flash"]["locked"] is False
     assert by_id["pro"]["locked"] is True
     assert body["defaults"]["model"] == "flash"
+    # Free default effort reflects the server-side clamp, not the paid "high".
+    from api.model_selection import FREE_TIER_EFFORT
+
+    assert body["defaults"]["reasoning_effort"] == FREE_TIER_EFFORT
     assert [e["id"] for e in body["reasoning_efforts"]] == ["off", "medium", "high"]
 
 

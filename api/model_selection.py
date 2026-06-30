@@ -23,6 +23,7 @@ dict; `api/agent.py` pairs it with a concrete model object per request.
 from __future__ import annotations
 
 from pipeline.config import (
+    FREE_TIER_REASONING_EFFORT,
     OPENROUTER_CHAT_PROVIDER_ALLOW_FALLBACKS,
     OPENROUTER_CHAT_PROVIDER_MAX_PRICE,
     OPENROUTER_CHAT_PROVIDER_ORDER,
@@ -94,10 +95,26 @@ def resolve_chat_model(tier: str | None, requested: str | None) -> str:
     return DEFAULT_PAID_MODEL
 
 
-def resolve_reasoning_effort(requested: str | None) -> str | None:
-    """Normalise the requested effort. `None` (or an unknown value) means
-    "use the server default" — we return None and let `build_model_settings`
-    fall back to OPENROUTER_CHAT_REASONING_EFFORT."""
+# Server-enforced reasoning cap for free/anon. Validated here so a bogus env
+# value can't wedge every free turn; falls back to "low" if misconfigured.
+FREE_TIER_EFFORT = (
+    FREE_TIER_REASONING_EFFORT.strip().lower()
+    if FREE_TIER_REASONING_EFFORT.strip().lower() in ALLOWED_REASONING_EFFORTS
+    else "low"
+)
+
+
+def resolve_reasoning_effort(requested: str | None, tier: str | None = None) -> str | None:
+    """Normalise the requested effort, gated by tier.
+
+    Free/anonymous callers (anything that isn't "paid") are clamped to
+    FREE_TIER_EFFORT server-side, regardless of what the client asked for —
+    reasoning tokens bill as output, so this is the entitlement gate that keeps
+    the free tier cheap (mirrors `resolve_chat_model`). Paid callers get their
+    requested effort when valid; `None`/unknown means "use the server default"
+    (resolved in `build_model_settings`)."""
+    if tier != "paid":
+        return FREE_TIER_EFFORT
     if requested is None:
         return None
     eff = requested.strip().lower()

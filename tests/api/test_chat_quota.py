@@ -99,13 +99,14 @@ def test_bucket_rollover_resets_count() -> None:
         "role": "user", "enabled": True,
     }
 
-    async def _run() -> list[int | None]:
-        a = await repo.bump_chat_quota(sub, "20260614")
-        b = await repo.bump_chat_quota(sub, "20260614")
-        c = await repo.bump_chat_quota(sub, "20260615")  # new day -> reset
-        return [a, b, c]
+    async def _run() -> list[int]:
+        a = await repo.bump_chat_quota(sub, "20260614", "202606")
+        b = await repo.bump_chat_quota(sub, "20260614", "202606")
+        c = await repo.bump_chat_quota(sub, "20260615", "202606")  # new day -> reset
+        # Day counter resets on the new day; the month counter keeps climbing.
+        return [a["day"], b["day"], c["day"], c["month"]]
 
-    assert asyncio.run(_run()) == [1, 2, 1]
+    assert asyncio.run(_run()) == [1, 2, 1, 3]
 
 
 def test_me_reports_free_tier_by_default(chat_client: TestClient) -> None:
