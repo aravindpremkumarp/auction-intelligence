@@ -105,29 +105,67 @@ async def patch_user_self(supabase_id: str, name: str | None) -> dict[str, Any] 
     return _user_from_row(rows[0]) if rows else None
 
 
-async def bump_chat_quota(supabase_id: str, bucket: str) -> int | None:
-    """Atomically increment and return the user's chat count for `bucket`.
+async def bump_chat_quota(
+    supabase_id: str, day_bucket: str, month_bucket: str
+) -> dict[str, int] | None:
+    """Atomically bump and return the user's day + month chat counts.
 
-    The whole increment-and-return is one Cypher write so concurrent turns
-    (e.g. several open tabs) can't both read the same count and slip past the
-    cap — the database serialises the SET. The date-bucket key (e.g. an
-    ``YYYYMMDD`` UTC day) makes the window reset implicit: when `bucket` differs
-    from the stored one the count restarts at 1 in the same statement, so no
-    reset job is needed. Returns the new count, or None if the user row is
-    missing (caller decides whether to fail open).
+    Both windows advance in one Cypher write so concurrent turns (e.g. several
+    open tabs) can't slip past either cap — the database serialises the SET.
+    Each bucket key (``YYYYMMDD`` day, ``YYYYMM`` month, both UTC) makes its
+    window reset implicit: when the stored bucket differs the matching counter
+    restarts at 1 in the same statement, so no reset job is needed. Returns
+    ``{"day": int, "month": int}``, or None if the user row is missing (caller
+    decides whether to fail open).
     """
     rows = await run_query_async(
         """
         MATCH (u:User {supabase_id: $sub})
-        SET u.chat_count = CASE WHEN u.chat_bucket = $bucket
+        SET u.chat_count = CASE WHEN u.chat_bucket = $day
                                 THEN coalesce(u.chat_count, 0) + 1
                                 ELSE 1 END,
-            u.chat_bucket = $bucket
-        RETURN u.chat_count AS count
+            u.chat_bucket = $day,
+            u.chat_month_count = CASE WHEN u.chat_month_bucket = $month
+                                      THEN coalesce(u.chat_month_count, 0) + 1
+                                      ELSE 1 END,
+            u.chat_month_bucket = $month
+        RETURN u.chat_count AS day, u.chat_month_count AS month
         """,
-        {"sub": supabase_id, "bucket": bucket},
+        {"sub": supabase_id, "day": day_bucket, "month": month_bucket},
     )
-    return rows[0]["count"] if rows else None
+    return {"day": rows[0]["day"], "month": rows[0]["month"]} if rows else None
+
+
+async def bump_anon_quota(
+    ip_hash: str, day_bucket: str, month_bucket: str
+) -> dict[str, int]:
+    """Atomically bump and return an anonymous caller's day + month chat counts.
+
+    Keyed by a hashed client IP (no raw IPs stored). Same single-write,
+    implicit-reset semantics as `bump_chat_quota`, but MERGEs the per-IP node so
+    the first request of a window creates it. Durable so the monthly window
+    survives restarts/deploys — an in-memory counter would reset on every ship.
+    """
+    rows = await run_query_async(
+        """
+        MERGE (a:AnonQuota {ip_hash: $ip})
+        SET a.chat_count = CASE WHEN a.chat_bucket = $day
+                                THEN coalesce(a.chat_count, 0) + 1
+                                ELSE 1 END,
+            a.chat_bucket = $day,
+            a.chat_month_count = CASE WHEN a.chat_month_bucket = $month
+                                      THEN coalesce(a.chat_month_count, 0) + 1
+                                      ELSE 1 END,
+            a.chat_month_bucket = $month
+        RETURN a.chat_count AS day, a.chat_month_count AS month
+        """,
+        {"ip": ip_hash, "day": day_bucket, "month": month_bucket},
+    )
+    return (
+        {"day": rows[0]["day"], "month": rows[0]["month"]}
+        if rows
+        else {"day": 1, "month": 1}
+    )
 
 
 async def grant_plan(supabase_id: str, expires_at: str) -> dict[str, Any] | None:

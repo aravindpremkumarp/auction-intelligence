@@ -104,6 +104,7 @@ def test_quota_concurrency_exactly_one_winner() -> None:
     sub = f"e2e-{uuid.uuid4().hex[:10]}"
     cap = 5
     bucket = "e2e-concurrency"
+    month_bucket = "e2e-concurrency-month"
 
     async def _main() -> None:
         try:
@@ -113,9 +114,10 @@ def test_quota_concurrency_exactly_one_winner() -> None:
                 "MATCH (u:User {supabase_id: $s}) SET u.chat_count = $c, u.chat_bucket = $b",
                 {"s": sub, "c": cap - 1, "b": bucket},
             )
-            counts = list(await asyncio.gather(
-                *[auth_repo.bump_chat_quota(sub, bucket) for _ in range(20)]
+            results = list(await asyncio.gather(
+                *[auth_repo.bump_chat_quota(sub, bucket, month_bucket) for _ in range(20)]
             ))
+            counts = [r["day"] if r else None for r in results]
             allowed = [c for c in counts if c is not None and c <= cap]
             rejected = [c for c in counts if c is None or c > cap]
             assert len(allowed) == 1, f"expected exactly 1 winner, got {allowed} from {counts}"

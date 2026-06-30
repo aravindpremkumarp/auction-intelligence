@@ -23,6 +23,9 @@ STATEMENTS = [
     "CREATE CONSTRAINT user_supabase_id_unique IF NOT EXISTS FOR (u:User) REQUIRE u.supabase_id IS UNIQUE",
     "CREATE CONSTRAINT user_email_unique IF NOT EXISTS FOR (u:User) REQUIRE u.email IS UNIQUE",
     "CREATE INDEX user_role_idx IF NOT EXISTS FOR (u:User) ON (u.role)",
+    # Anonymous chat-quota counters, keyed by hashed client IP. The uniqueness
+    # constraint makes the per-IP MERGE race-safe (no duplicate nodes).
+    "CREATE CONSTRAINT anon_quota_ip_unique IF NOT EXISTS FOR (a:AnonQuota) REQUIRE a.ip_hash IS UNIQUE",
 ]
 
 

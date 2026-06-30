@@ -71,10 +71,12 @@ def _install_stub_neo4j_client() -> None:
     feedback: list[dict] = []
     users: dict[str, dict] = {}              # keyed by supabase_id
     webhook_events: dict[str, dict] = {}     # keyed by event_id (billing idempotency)
+    anon_quota: dict[str, dict] = {}         # keyed by ip_hash (anon chat quota)
     mod._store = feedback  # back-compat for feedback tests
     mod._users = users
     mod._feedback = feedback
     mod._webhook_events = webhook_events
+    mod._anon_quota = anon_quota
 
     def _now() -> datetime:
         return datetime.now(timezone.utc)
@@ -173,13 +175,33 @@ def _install_stub_neo4j_client() -> None:
             u = users.get(params["sub"])
             if not u:
                 return []
-            bucket = params["bucket"]
-            if u.get("chat_bucket") == bucket:
+            day, month = params["day"], params["month"]
+            if u.get("chat_bucket") == day:
                 u["chat_count"] = (u.get("chat_count") or 0) + 1
             else:
-                u["chat_bucket"] = bucket
+                u["chat_bucket"] = day
                 u["chat_count"] = 1
-            return [{"count": u["chat_count"]}]
+            if u.get("chat_month_bucket") == month:
+                u["chat_month_count"] = (u.get("chat_month_count") or 0) + 1
+            else:
+                u["chat_month_bucket"] = month
+                u["chat_month_count"] = 1
+            return [{"day": u["chat_count"], "month": u["chat_month_count"]}]
+        if c.startswith("MERGE (a:AnonQuota {ip_hash: $ip})"):
+            ip = params["ip"]
+            day, month = params["day"], params["month"]
+            a = anon_quota.setdefault(ip, {})
+            if a.get("chat_bucket") == day:
+                a["chat_count"] = (a.get("chat_count") or 0) + 1
+            else:
+                a["chat_bucket"] = day
+                a["chat_count"] = 1
+            if a.get("chat_month_bucket") == month:
+                a["chat_month_count"] = (a.get("chat_month_count") or 0) + 1
+            else:
+                a["chat_month_bucket"] = month
+                a["chat_month_count"] = 1
+            return [{"day": a["chat_count"], "month": a["chat_month_count"]}]
         if c.startswith("MATCH (u:User {supabase_id: $sub})\n        SET u.plan_expires_at"):
             u = users.get(params["sub"])
             if not u:

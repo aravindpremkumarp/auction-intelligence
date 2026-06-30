@@ -8,11 +8,10 @@ the anonymous-chat throttle and per-turn latency observability.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
-import threading
-import time
 from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 from typing import Any
@@ -80,13 +79,10 @@ _GATED_MODES = {"deep-research", "report"}
 # tiny prefix; beyond that, the top of the ranked/sorted list is what matters.
 _MAX_PANEL_IDS = 50
 
-# Anonymous /chat throttle. slowapi's decorator can't see Depends-provided
-# state, so this is enforced manually: a small hourly cap per IP. In-memory is
-# fine on a single instance; move to Redis-backed storage before scaling out.
-# Authenticated users are gated by the durable, tier-aware daily quota below
-# (see `_enforce_user_chat_quota`) instead of an in-memory counter, so the cap
-# survives restarts and the paid tier can lift it.
-_ANON_CHAT_MAX_PER_HOUR = 10
+# Chat rate limiting is a durable day + month quota (see the quota helpers
+# below): anonymous callers are capped per hashed IP, logged-in users per
+# account. No in-memory/hourly throttle — the monthly window must survive
+# restarts, which an in-memory counter can't.
 
 # Per-run ceiling on LLM round-trips. pydantic-ai's default is 50, which at
 # reasoning-effort pricing lets one pathological tool loop cost ~50x a normal
@@ -138,13 +134,15 @@ def _tool_status(part: ToolCallPart) -> str:
         if desc:
             label = f"Querying the graph: {desc}"
     return label
-_chat_hits_lock = threading.Lock()
-_anon_chat_hits: dict[str, list[float]] = {}
-
-# Free-tier daily chat cap and the (much higher) paid-tier cap. The paid cap is
-# still bounded — it's a cost guard against a runaway client, not a product
-# limit. Read per call so ops/tests can retune without a restart.
-_CHAT_FREE_DAILY_LIMIT_DEFAULT = 25
+# Day + month quota caps, read per call so ops/tests can retune without a
+# restart. Anonymous (per hashed IP) is the tightest and its monthly window is
+# the main nudge to log in. Free logged-in gets a larger allowance; paid gets
+# the big daily cost-guard cap and no monthly cap (paying customers aren't
+# throttled by month).
+_CHAT_ANON_DAILY_LIMIT_DEFAULT = 10
+_CHAT_ANON_MONTHLY_LIMIT_DEFAULT = 30
+_CHAT_FREE_DAILY_LIMIT_DEFAULT = 20
+_CHAT_FREE_MONTHLY_LIMIT_DEFAULT = 100
 _CHAT_PAID_DAILY_LIMIT_DEFAULT = 1000
 
 
@@ -152,33 +150,29 @@ def _ratelimit_disabled() -> bool:
     return os.environ.get("RATELIMIT_DISABLED", "").lower() in {"1", "true", "yes"}
 
 
-def _enforce_chat_limit(
-    hits: dict[str, list[float]], key: str, max_hits: int, window: float, detail: str
-) -> None:
-    if _ratelimit_disabled():
-        return
-    now = time.time()
-    with _chat_hits_lock:
-        recent = [t for t in hits.get(key, []) if now - t < window]
-        if len(recent) >= max_hits:
-            raise HTTPException(status_code=429, detail=detail)
-        recent.append(now)
-        hits[key] = recent
+def _int_env(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, str(default)))
+    except ValueError:
+        return default
 
 
-def _enforce_anon_chat_limit(request: Request) -> None:
-    ip = request.client.host if request.client else "unknown"
-    _enforce_chat_limit(
-        _anon_chat_hits, ip, _ANON_CHAT_MAX_PER_HOUR, 3600.0, "rate limit exceeded"
+def _anon_caps() -> tuple[int, int]:
+    """(daily, monthly) caps for anonymous callers."""
+    return (
+        _int_env("CHAT_ANON_DAILY_LIMIT", _CHAT_ANON_DAILY_LIMIT_DEFAULT),
+        _int_env("CHAT_ANON_MONTHLY_LIMIT", _CHAT_ANON_MONTHLY_LIMIT_DEFAULT),
     )
 
 
-def _chat_daily_cap(user: UserOut) -> int:
+def _user_caps(user: UserOut) -> tuple[int, int | None]:
+    """(daily, monthly) caps for a logged-in user. Paid has no monthly cap."""
     if user.tier == "paid":
-        return int(os.environ.get(
-            "CHAT_PAID_DAILY_LIMIT", str(_CHAT_PAID_DAILY_LIMIT_DEFAULT)))
-    return int(os.environ.get(
-        "CHAT_FREE_DAILY_LIMIT", str(_CHAT_FREE_DAILY_LIMIT_DEFAULT)))
+        return _int_env("CHAT_PAID_DAILY_LIMIT", _CHAT_PAID_DAILY_LIMIT_DEFAULT), None
+    return (
+        _int_env("CHAT_FREE_DAILY_LIMIT", _CHAT_FREE_DAILY_LIMIT_DEFAULT),
+        _int_env("CHAT_FREE_MONTHLY_LIMIT", _CHAT_FREE_MONTHLY_LIMIT_DEFAULT),
+    )
 
 
 def _today_bucket() -> str:
@@ -186,31 +180,77 @@ def _today_bucket() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%d")
 
 
-async def _enforce_user_chat_quota(user: UserOut) -> None:
-    """Durable, tier-aware daily chat cap (replaces the old in-memory per-user
-    limiter). One atomic Cypher increment-and-return per turn, so it's correct
-    under concurrent tabs and survives restarts; the UTC date bucket resets the
-    window implicitly. Counts attempts (consistent with the prior limiter), and
-    fails open on a Neo4j hiccup so a DB blip can't take chat down.
-    """
+def _month_bucket() -> str:
+    """UTC month key for the quota window (e.g. ``202606``)."""
+    return datetime.now(timezone.utc).strftime("%Y%m")
+
+
+def _hash_ip(ip: str) -> str:
+    """Stable, non-reversible key for an anon caller. Salted so the stored
+    counters aren't a plain list of visitor IPs."""
+    salt = os.environ.get("QUOTA_IP_SALT", "auctionscope-quota")
+    return hashlib.sha256(f"{salt}:{ip}".encode()).hexdigest()
+
+
+async def _enforce_anon_chat_quota(request: Request) -> None:
+    """Durable per-IP day + month cap for anonymous callers. One atomic Cypher
+    bump per turn (correct under concurrency, survives restarts); the UTC
+    buckets reset their windows implicitly. Fails open on a Neo4j hiccup so a
+    DB blip can't take chat down — the prepaid OpenRouter key is the hard
+    backstop either way."""
     if _ratelimit_disabled():
         return
-    cap = _chat_daily_cap(user)
+    ip = request.client.host if request.client else "unknown"
     try:
-        count = await auth_repo.bump_chat_quota(user.id, _today_bucket())
+        counts = await auth_repo.bump_anon_quota(
+            _hash_ip(ip), _today_bucket(), _month_bucket()
+        )
+    except Exception:  # noqa: BLE001 - availability over strict enforcement
+        logger.exception("anon chat quota check failed — failing open")
+        return
+    daily, monthly = _anon_caps()
+    if counts["day"] > daily:
+        raise HTTPException(
+            status_code=429,
+            detail="daily chat limit reached — log in for more, or try again tomorrow",
+        )
+    if counts["month"] > monthly:
+        raise HTTPException(
+            status_code=429,
+            detail="monthly chat limit reached — log in for a higher limit",
+        )
+
+
+async def _enforce_user_chat_quota(user: UserOut) -> None:
+    """Durable, tier-aware day + month cap, keyed by account (IP-independent).
+    One atomic Cypher bump per turn, correct under concurrent tabs and durable
+    across restarts. Counts attempts, and fails open on a Neo4j hiccup so a DB
+    blip can't take chat down."""
+    if _ratelimit_disabled():
+        return
+    try:
+        counts = await auth_repo.bump_chat_quota(
+            user.id, _today_bucket(), _month_bucket()
+        )
     except Exception:  # noqa: BLE001 - availability over strict enforcement
         logger.exception("chat quota check failed for user=%s — failing open", user.id)
         return
-    if count is None:
+    if counts is None:
         logger.warning("chat quota: no :User row for %s — failing open", user.id)
         return
-    if count > cap:
+    daily, monthly = _user_caps(user)
+    if counts["day"] > daily:
         detail = (
             "daily chat limit reached — try again tomorrow"
             if user.tier == "paid"
             else "daily chat limit reached — upgrade for more, or try again tomorrow"
         )
         raise HTTPException(status_code=429, detail=detail)
+    if monthly is not None and counts["month"] > monthly:
+        raise HTTPException(
+            status_code=429,
+            detail="monthly chat limit reached — upgrade for more, or try again next month",
+        )
 
 
 class ChatRequest(BaseModel):
@@ -670,7 +710,7 @@ async def _prepare_turn(
     if mode in _GATED_MODES and (user is None or not user.email_verified):
         raise HTTPException(status_code=401, detail="login required for this mode")
     if user is None:
-        _enforce_anon_chat_limit(request)
+        await _enforce_anon_chat_quota(request)
     else:
         await _enforce_user_chat_quota(user)
     history = (
