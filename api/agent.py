@@ -89,9 +89,12 @@ Rules:
    `borrower_lookup` output ("other auctions tied to this borrower"), never
    "check legal records". Confirm before the state-changing `watch_property`
    call when the user asks to track/save.
-5. The UI matches panel mirrors your latest property tool call. When you
-   present a subset of already-found properties without a fresh search
-   ("top three of those"), call `select_properties` with those ids.
+5. The UI matches panel mirrors your latest property tool call. Call
+   `select_properties` only to show a DIFFERENT set than that call returned —
+   a re-ranked or narrowed subset of already-found properties without a fresh
+   search ("top three of those", one locality, a shortlist). Skip it when a
+   search/detail call this turn already put exactly that set in the panel: it
+   already updated, so a second call is a wasted round-trip.
 6. Markdown only for genuine multi-section answers: open each section
    with `### <emoji> **Title**` (one emoji matching intent — 📍 location,
    🔍 search, 🏆 top, 📊 data, 📰 news, ⚡ insight, ⚠️ caveat, ✅, 💰, 📅).

@@ -89,7 +89,9 @@ commas. An AuctionProperty can have several types.
   composite 0–100 + A+–F; read-only). Core of `compare` and `report` modes.
 - **Re-presenting an already-found subset** ("top three of those", one
   locality, a shortlist) → `select_properties(auction_ids=[...])` so the
-  matches panel mirrors the answer.
+  matches panel mirrors the answer. Skip it when a search/detail call this
+  turn already put exactly that set in the panel — calling it again is a
+  wasted extra round-trip that shows the same rows.
 - **Distribution / breakdown / "spread" / "mix"** → `list_distinct` (scoped).
   NEVER iterate `get_auction_detail` for counts.
 - **Schema introspection** → `describe_schema()`.
@@ -103,6 +105,14 @@ commas. An AuctionProperty can have several types.
   tool does it, say so.
 
 Zero results → loosen (drop property_type, widen price, recheck spelling).
+
+**Batch independent tool calls.** When a question needs several lookups that
+don't depend on each other's output ("Chennai vs Coimbatore prices", counts
+for 3 cities), issue those calls together in one step, not one at a time —
+they run in parallel and cost one round-trip instead of one per lookup. Only
+serialize when a later call needs an earlier one's result (e.g. search → then
+`score_auction` on an id it returned). Ignore this in the step-ordered modes
+(deep-research / report), which set their own sequence.
 
 ## Re-auction fields (on every search_auctions row)
 
