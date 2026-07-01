@@ -57,7 +57,16 @@ _SHARED_MD = _REPO_ROOT / "modes" / "_shared.md"
 # (scoring/auction_scorer.py) to the agent so the compare/report modes can
 # actually score, instead of instructing a tool that didn't exist. Measured
 # ~17,065; ceiling 17,300.
-BUDGET_CHARS = 17_300
+#
+# 2026-07: +~674 for two round-trip-reduction edits — a tighter rule-5 /
+# routing bullet telling the model to SKIP a redundant `select_properties`
+# when this turn's search/detail already put that set in the panel, and a
+# "batch independent tool calls" note in modes/_shared.md so parallelizable
+# lookups (multi-city compares/counts) collapse into one round-trip. The added
+# ~168 tokens/call buy the removal of whole redundant round-trips (~3,300
+# tokens of re-sent prefix each), so this earns its per-call cost. Measured
+# ~17,974; ceiling 18,200.
+BUDGET_CHARS = 18_200
 
 
 def _agent_module() -> ast.Module:
