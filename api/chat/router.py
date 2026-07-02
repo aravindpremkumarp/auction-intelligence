@@ -415,13 +415,14 @@ def _clean_panel_ids(raw: Any) -> list[str] | None:
 def _split_ui_rows(result: Any) -> tuple[Any, list[dict[str, Any]] | None]:
     """Pop the UI-only overflow from a search-tool result.
 
-    `search_auctions` returns `_ui_results` when total_count exceeds the
-    model-visible `limit`. That list belongs in the HTTP response so the
-    right-side panel can render every match — but it must NOT flow back
-    into the LLM's message history on the next turn, or we defeat the
-    whole point of the split. We copy the dict (so we don't mutate the
-    in-memory ToolReturnPart content), pop `_ui_results`, and return the
-    trimmed copy for the LLM + the raw list for the UI.
+    The agent now moves `_ui_results` onto ToolReturn metadata before the
+    model ever sees it (see `_split_ui_overflow` in api/agent.py), so new
+    runs hit the metadata path in `_extract_artifacts` instead. This
+    content-side split is kept for stored histories from before that change,
+    which may still carry `_ui_results` inside the tool-return content. We
+    copy the dict (so we don't mutate the in-memory ToolReturnPart content),
+    pop `_ui_results`, and return the trimmed copy for the LLM + the raw
+    list for the UI.
     """
     if not isinstance(result, dict) or "_ui_results" not in result:
         return result, None
@@ -430,6 +431,16 @@ def _split_ui_rows(result: Any) -> tuple[Any, list[dict[str, Any]] | None]:
     if not isinstance(ui_rows, list):
         ui_rows = None
     return trimmed, ui_rows
+
+
+def _metadata_ui_rows(part: Any) -> list[dict[str, Any]] | None:
+    """UI overflow rows riding on ToolReturnPart.metadata (never model-visible)."""
+    meta = getattr(part, "metadata", None)
+    if isinstance(meta, dict):
+        rows = meta.get("ui_rows")
+        if isinstance(rows, list):
+            return rows
+    return None
 
 
 def _extract_artifacts(messages) -> list[ToolArtifact]:
@@ -453,6 +464,8 @@ def _extract_artifacts(messages) -> list[ToolArtifact]:
                     except Exception:
                         args = call.args if isinstance(call.args, (dict, str)) else str(call.args)
                     result, ui_rows = _split_ui_rows(part.content)
+                    if ui_rows is None:
+                        ui_rows = _metadata_ui_rows(part)
                     artifacts.append(ToolArtifact(
                         tool=part.tool_name,
                         args=args,
@@ -463,9 +476,11 @@ def _extract_artifacts(messages) -> list[ToolArtifact]:
 
 
 def _strip_ui_rows_from_history(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Remove `_ui_results` from any ToolReturnPart content in a dumped
-    message history. Prevents the UI overflow from ballooning the LLM's
-    context on the next turn when the client echoes history back.
+    """Remove UI overflow rows from a dumped message history: `_ui_results`
+    inside tool-return content (pre-metadata stored histories) and the
+    `ui_rows` metadata the agent now attaches instead. Metadata is never
+    sent to the model, but it would bloat the history payload the client
+    stores and echoes back on every turn.
     """
     for msg in history:
         for part in msg.get("parts", []):
@@ -474,6 +489,11 @@ def _strip_ui_rows_from_history(history: list[dict[str, Any]]) -> list[dict[str,
             content = part.get("content")
             if isinstance(content, dict) and "_ui_results" in content:
                 content.pop("_ui_results", None)
+            metadata = part.get("metadata")
+            if isinstance(metadata, dict) and "ui_rows" in metadata:
+                metadata.pop("ui_rows", None)
+                if not metadata:
+                    part["metadata"] = None
     return history
 
 

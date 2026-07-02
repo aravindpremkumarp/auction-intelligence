@@ -37,11 +37,14 @@ def test_semantic_search_includes_keyword_branch(monkeypatch):
     def fake_read(cypher, params=None, timeout=10.0, max_rows=200):
         captured["cypher"] = cypher
         captured["params"] = params
-        return []
+        # Nonzero hits: a zero-hit primary now triggers a no-floor diagnostic
+        # rerun which would overwrite `captured` — this test is about the
+        # PRIMARY query's keyword branch.
+        return [{"auction_id": "a1", "score": 0.9, "hit_sources": ["keyword"]}]
 
     monkeypatch.setattr(ct, "run_read_query", fake_read)
     out = ct.semantic_search("flat in Balaraman Nagar")
-    assert out["results"] == []
+    assert out["returned"] == 1
     assert ct.PROPERTY_FULLTEXT_INDEX in captured["cypher"]
     assert "'keyword' AS source" in captured["cypher"]
     # Normalization stage rides along with the keyword branch.
@@ -73,7 +76,9 @@ def test_semantic_search_unsearchable_query_skips_keyword(monkeypatch):
     def fake_read(cypher, params=None, timeout=10.0, max_rows=200):
         captured["cypher"] = cypher
         captured["params"] = params
-        return []
+        # Nonzero hits so the zero-hit diagnostic rerun doesn't overwrite
+        # `captured` — the assertions target the PRIMARY query.
+        return [{"auction_id": "a1", "score": 0.9, "hit_sources": ["desc"]}]
 
     monkeypatch.setattr(ct, "run_read_query", fake_read)
     ct.semantic_search(":::")
@@ -86,7 +91,8 @@ def test_search_auctions_ui_fetch_clamped_to_hard_cap(monkeypatch):
 
     def fake_read(cypher, params=None, timeout=10.0, max_rows=200):
         if "count(a) AS total_count" in cypher:
-            return [{"total_count": 0}]
+            # Nonzero: a zero total now skips the row fetch entirely.
+            return [{"total_count": 1}]
         captured["params"] = params
         captured["max_rows"] = max_rows
         return []
