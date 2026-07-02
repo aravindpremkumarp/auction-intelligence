@@ -70,6 +70,10 @@ CHAT_MODEL_OPTIONS: list[dict] = [
 _EFFORT_OFF = {"off", "none", "disabled", "0", "false"}
 ALLOWED_REASONING_EFFORTS = frozenset({"off", "none", "low", "medium", "high", "xhigh"})
 
+# Cost ordering for the free-tier ceiling: a request at or below the cap is
+# honored (off is the cheapest — never refuse it), anything above is clamped.
+EFFORT_RANK = {"off": 0, "none": 0, "low": 1, "medium": 2, "high": 3, "xhigh": 4}
+
 # UI option list (consumed by GET /chat/models). Kept to a friendly three; the
 # request body still accepts any value in ALLOWED_REASONING_EFFORTS.
 REASONING_EFFORT_OPTIONS: list[dict] = [
@@ -107,18 +111,23 @@ FREE_TIER_EFFORT = (
 def resolve_reasoning_effort(requested: str | None, tier: str | None = None) -> str | None:
     """Normalise the requested effort, gated by tier.
 
-    Free/anonymous callers (anything that isn't "paid") are clamped to
-    FREE_TIER_EFFORT server-side, regardless of what the client asked for —
-    reasoning tokens bill as output, so this is the entitlement gate that keeps
-    the free tier cheap (mirrors `resolve_chat_model`). Paid callers get their
-    requested effort when valid; `None`/unknown means "use the server default"
-    (resolved in `build_model_settings`)."""
+    Free/anonymous callers (anything that isn't "paid") get a CEILING of
+    FREE_TIER_EFFORT, enforced server-side — reasoning tokens bill as output,
+    so this is the entitlement gate that keeps the free tier cheap (mirrors
+    `resolve_chat_model`). Ceiling, not override: a request at or below the cap
+    (notably "off", the cheapest) is honored; only requests above it clamp
+    down. `None`/unknown means the cap for free users, and "use the server
+    default" (resolved in `build_model_settings`) for paid.
+    """
+    eff = (requested or "").strip().lower()
+    if eff not in ALLOWED_REASONING_EFFORTS:
+        eff = None  # unknown/absent -> tier default
     if tier != "paid":
-        return FREE_TIER_EFFORT
-    if requested is None:
-        return None
-    eff = requested.strip().lower()
-    return eff if eff in ALLOWED_REASONING_EFFORTS else None
+        cap = FREE_TIER_EFFORT
+        if eff is None or EFFORT_RANK[eff] > EFFORT_RANK[cap]:
+            return cap
+        return eff
+    return eff
 
 
 def _provider_routing() -> dict | None:
@@ -164,6 +173,11 @@ def build_model_settings(reasoning_effort: str | None = None) -> dict:
         reasoning_effort if reasoning_effort is not None else OPENROUTER_CHAT_REASONING_EFFORT
     )
     effort = (effort or "").strip().lower()
-    if effort and effort not in _EFFORT_OFF:
+    if effort in _EFFORT_OFF:
+        # Explicitly disable. Omitting the block is NOT off: hybrid-reasoning
+        # models (DeepSeek V4) fall back to the provider default, which can be
+        # reasoning ON — the "toggle Off but it still thinks" bug.
+        body["reasoning"] = {"enabled": False}
+    elif effort:
         body["reasoning"] = {"effort": effort}
     return {"extra_body": body}

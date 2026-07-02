@@ -53,17 +53,46 @@ def test_resolve_reasoning_effort_validates() -> None:
     assert resolve_reasoning_effort("off", "paid") == "off"
     assert resolve_reasoning_effort(None, "paid") is None       # -> server default
     assert resolve_reasoning_effort("turbo", "paid") is None     # unknown -> default
-    # Free/anon: clamped server-side regardless of what the client asked for.
+    # Free/anon: capped server-side — requests ABOVE the ceiling clamp down.
     assert resolve_reasoning_effort("high", "free") == FREE_TIER_EFFORT
     assert resolve_reasoning_effort("high", None) == FREE_TIER_EFFORT  # anon
+    assert resolve_reasoning_effort(None, "free") == FREE_TIER_EFFORT  # no toggle
+    assert resolve_reasoning_effort("turbo", "free") == FREE_TIER_EFFORT  # unknown
+
+
+def test_free_tier_off_is_honored() -> None:
+    """Regression: the ceiling must not OVERRIDE a cheaper request. Off is the
+    cheapest setting — a free/anon user turning thinking off must get off, not
+    the cap ("toggle Off but it still thinks")."""
+    from api.model_selection import resolve_reasoning_effort
+
+    assert resolve_reasoning_effort("off", "free") == "off"
+    assert resolve_reasoning_effort("off", None) == "off"    # anonymous
+    assert resolve_reasoning_effort("none", "free") == "none"
+
+
+def test_free_tier_ceiling_honors_below_cap(monkeypatch: pytest.MonkeyPatch) -> None:
+    """With a raised cap (e.g. medium), a below-cap request (low) is honored."""
+    from api import model_selection as ms
+
+    monkeypatch.setattr(ms, "FREE_TIER_EFFORT", "medium")
+    assert ms.resolve_reasoning_effort("low", "free") == "low"
+    assert ms.resolve_reasoning_effort("high", "free") == "medium"  # above -> clamp
 
 
 def test_build_model_settings_reasoning_toggle(monkeypatch: pytest.MonkeyPatch) -> None:
     from api import model_selection as ms
 
-    # Explicit effort sets the reasoning block; "off" omits it entirely.
+    # Explicit effort sets the reasoning block.
     assert ms.build_model_settings("high")["extra_body"]["reasoning"] == {"effort": "high"}
-    assert "reasoning" not in ms.build_model_settings("off")["extra_body"]
+    # Regression: "off" must EXPLICITLY disable reasoning. Omitting the block
+    # leaves hybrid models (DeepSeek V4) on the provider default, which can be
+    # reasoning ON — the "toggle Off but it still thinks" bug.
+    assert ms.build_model_settings("off")["extra_body"]["reasoning"] == {"enabled": False}
+    assert ms.build_model_settings("none")["extra_body"]["reasoning"] == {"enabled": False}
+    # A server default of "off" disables the same way.
+    monkeypatch.setattr(ms, "OPENROUTER_CHAT_REASONING_EFFORT", "off")
+    assert ms.build_model_settings(None)["extra_body"]["reasoning"] == {"enabled": False}
     # None falls back to the server default (high).
     monkeypatch.setattr(ms, "OPENROUTER_CHAT_REASONING_EFFORT", "high")
     assert ms.build_model_settings(None)["extra_body"]["reasoning"] == {"effort": "high"}
@@ -128,6 +157,23 @@ def test_anonymous_chat_uses_flash(captured_client: tuple[TestClient, dict]) -> 
     assert captured["model"] == "flash"
 
 
+def test_free_user_off_reaches_the_model(
+    captured_client: tuple[TestClient, dict],
+) -> None:
+    """End-to-end regression for "toggle Off but it still thinks": a free
+    user's reasoning_effort="off" must survive the tier gate all the way to
+    the agent overrides, not be swapped for the free-tier cap."""
+    client, captured = captured_client
+    h = auth_header(sub="sub-free-off", email="free-off@x.com")
+    resp = client.post(
+        "/chat",
+        json={"message": "hi", "reasoning_effort": "off"},
+        headers=h,
+    )
+    assert resp.status_code == 200
+    assert captured["reasoning_effort"] == "off"
+
+
 def test_paid_user_can_select_pro(
     captured_client: tuple[TestClient, dict], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -162,6 +208,12 @@ def test_models_endpoint_locks_pro_for_free() -> None:
 
     assert body["defaults"]["reasoning_effort"] == FREE_TIER_EFFORT
     assert [e["id"] for e in body["reasoning_efforts"]] == ["off", "medium", "high"]
+    # Efforts above the free ceiling are locked (they'd silently clamp);
+    # Off is at/below the ceiling and stays available.
+    eff = {e["id"]: e for e in body["reasoning_efforts"]}
+    assert eff["off"]["locked"] is False
+    assert eff["medium"]["locked"] is True
+    assert eff["high"]["locked"] is True
 
 
 def test_models_endpoint_unlocks_pro_for_paid() -> None:
@@ -181,3 +233,5 @@ def test_models_endpoint_unlocks_pro_for_paid() -> None:
     by_id = {m["id"]: m for m in body["models"]}
     assert by_id["pro"]["locked"] is False
     assert body["defaults"]["model"] == "pro"
+    # Paid users get the full effort range — nothing locked.
+    assert all(e["locked"] is False for e in body["reasoning_efforts"])
