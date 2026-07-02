@@ -6,21 +6,26 @@ scheme) and wrapped with LangExtract-specific conventions. Edit the scheme in th
 one file and this prompt follows automatically; the examples below only have to
 keep *demonstrating* the fields.
 
-The three ExampleData objects (single: 736547 / Bank of Baroda; multi: 738029 /
-Equitas SFB; apartment: Canara Bank / flat + UDS) are annotated to FULL PARITY
-(option A) with the scheme, across these grounded entity classes — chosen so
-LangExtract extracts spans (its strength) rather than long attribute lists (its
-weakness):
+The five ExampleData objects (single: 736547 / Bank of Baroda; multi: 738029 /
+Equitas SFB; apartment: Canara Bank / flat + UDS; DRT: Indian Bank / DRT-III
+Chennai, 750600; ARC: Omkara ARC / IndusInd Bank, 747290) are annotated to FULL
+PARITY (option A) with the scheme, across these grounded entity classes — chosen
+so LangExtract extracts spans (its strength) rather than long attribute lists
+(its weakness):
 
   secured_creditor  borrower  contact  property  full_description  location
   identifier  extent  boundary  schedule  auction_terms  outstanding  emd_account
   full_terms
 
 For MULTI notices every entity of the Nth lot carries ``lot_index=N`` so lots can
-be regrouped into one AuctionProperty each. Fields the sample notices do not
-contain (e.g. ARC/IBC, carpet area, lat/long, chitta/khata, construction_type)
-are still described by the canonical prompt and will be extracted when present —
-they are just not demonstrated here.
+be regrouped into one AuctionProperty each. The DRT and ARC examples exist
+specifically because legal_basis diversity (court_reference, assignor_bank,
+trust_name) was previously only documented as prose SLOTTING RULES with no
+grounded demonstration, and the model was silently dropping those fields as a
+result — see the eval MISSES this fixed. Fields the sample notices still don't
+contain (e.g. IBC, carpet area, lat/long, chitta/khata, construction_type,
+Karnataka hobli) are still described by the canonical prompt and will be
+extracted when present — they are just not demonstrated here.
 
 Run:  python -m pipeline.langextract_examples <path-to-markdown.txt>
 """
@@ -480,7 +485,186 @@ APARTMENT_EXAMPLE = lx.data.ExampleData(
     ],
 )
 
-EXAMPLES = [SINGLE_EXAMPLE, MULTI_EXAMPLE, APARTMENT_EXAMPLE]
+# --------------------------------------------------------------------------- #
+# Example 4 — DRT sale (one lot). Source: Indian Bank / DRT-III Chennai, 750600.
+# legal_basis=DRT notices carry a TWO-LEVEL case reference (tribunal-level TRC No.
+# + case-level OA No.) that prior examples never demonstrated, so the model was
+# dropping court_reference despite the prose rule. Also teaches the DRT EMD
+# remittance shape (bank-transfer emd_account, distinct from the Equitas example's
+# single-account-line phrasing) and "leave emd_num null when only a % of the
+# upset price is stated, not a rupee figure" (no invented math).
+# --------------------------------------------------------------------------- #
+DRT_TEXT = (
+    "DEBTS RECOVERY TRIBUNAL - III, CHENNAI. TRC No.578/2023. E-AUCTION SALE "
+    "Dated:17.04.2026. "
+    "The under mentioned property will be sold by online E-Auction through "
+    "website https://www.bankacquisitions.com for recovery of a sum of "
+    "Rs.7,94,16,566.37 as on 19.02.2026 from M/s. Sai Baba Lamination & 2 Others "
+    "payable to Indian Bank, Guindy Branch in OA No.419/2017. "
+    "DESCRIPTION OF PROPERTY: All that piece and parcel of land of an extent of "
+    "2.35 Acres comprised in Punja Old Survey No.183/1B, Survey No.183/1B1A1, "
+    "No.62, Nynarkuppam Village, Mudafryarkuppam Revenue Village, Idaikazhinadu "
+    "Town Panchayat, Cheiyur Taluk, Kancheepuram District. Bounded on the - North "
+    "by: Punja land of Mr. S. Arumugam, South by: Punja land of Saroja and "
+    "Velayutha Pillai, East by: Punja land of Muthu Chettiar, West by: Punja land "
+    "of Muthu. "
+    "Upset Price Rs.2,00,00,000/-. Date and time of e-auction 29.05.2026 between "
+    "1100 hours and 1200 hours. Earnest Money Deposit 10% of the upset price. "
+    "EMD on or before 26.05.2026 through NEFT/RTGS in favour of \"The Recovery "
+    "Officer, DRT-3, Chennai\" to A/c No.163302000000250, Indian Overseas Bank, "
+    "Cathedral Branch, IFSC Code: IOBA0000109. Bid Increment Minimum "
+    "Rs.5,00,000/-. Inspection of Property 14.05.2026 from 11.00 a.m. to 3.00 "
+    "p.m. RECOVERY OFFICER E. SASIKUMAR."
+)
+
+DRT_EXAMPLE = lx.data.ExampleData(
+    text=DRT_TEXT,
+    extractions=[
+        E("secured_creditor", "Indian Bank, Guindy Branch in OA No.419/2017",
+          legal_basis="DRT", bank_name="Indian Bank", branch="Guindy",
+          authorised_officer="E. Sasikumar",
+          court_reference="TRC No.578/2023; OA No.419/2017"),
+        E("borrower", "M/s. Sai Baba Lamination & 2 Others", role="borrower",
+          lot_index="1"),
+        E("property", "All that piece and parcel of land of an extent of 2.35 "
+          "Acres comprised in Punja Old Survey No.183/1B, Survey No.183/1B1A1, "
+          "No.62", lot_index="1", property_type="land", asset_category="immovable"),
+        E("full_description", "All that piece and parcel of land of an extent of "
+          "2.35 Acres comprised in Punja Old Survey No.183/1B, Survey "
+          "No.183/1B1A1, No.62, Nynarkuppam Village, Mudafryarkuppam Revenue "
+          "Village, Idaikazhinadu Town Panchayat, Cheiyur Taluk, Kancheepuram "
+          "District. Bounded on the - North by: Punja land of Mr. S. Arumugam, "
+          "South by: Punja land of Saroja and Velayutha Pillai, East by: Punja "
+          "land of Muthu Chettiar, West by: Punja land of Muthu.", lot_index="1"),
+        E("location", "Nynarkuppam Village, Mudafryarkuppam Revenue Village, "
+          "Idaikazhinadu Town Panchayat, Cheiyur Taluk, Kancheepuram District",
+          lot_index="1", village="Nynarkuppam", taluk="Cheiyur",
+          district="Kancheepuram", panchayat="Idaikazhinadu Town Panchayat"),
+        E("identifier", "Punja Old Survey No.183/1B", kind="survey_old",
+          value="183/1B", lot_index="1"),
+        E("identifier", "Survey No.183/1B1A1", kind="survey_new",
+          value="183/1B1A1", lot_index="1"),
+        E("extent", "2.35 Acres", lot_index="1", total_area="2.35 Acres"),
+        E("boundary", "North by: Punja land of Mr. S. Arumugam", side="north",
+          adjacency="Punja land of Mr. S. Arumugam", lot_index="1"),
+        E("boundary", "South by: Punja land of Saroja and Velayutha Pillai",
+          side="south", adjacency="Punja land of Saroja and Velayutha Pillai",
+          lot_index="1"),
+        E("boundary", "East by: Punja land of Muthu Chettiar", side="east",
+          adjacency="Punja land of Muthu Chettiar", lot_index="1"),
+        E("boundary", "West by: Punja land of Muthu", side="west",
+          adjacency="Punja land of Muthu", lot_index="1"),
+        E("auction_terms", "Upset Price Rs.2,00,00,000/-", lot_index="1",
+          reserve_price_num="20000000", bid_increment_num="500000",
+          auction_start_dt="2026-05-29T11:00", auction_end_dt="2026-05-29T12:00",
+          inspection_dt="2026-05-14T11:00"),
+        E("outstanding", "recovery of a sum of Rs.7,94,16,566.37 as on "
+          "19.02.2026", lot_index="1", amount_num="79416566.37",
+          as_on="2026-02-19"),
+        E("emd_account", "A/c No.163302000000250, Indian Overseas Bank, "
+          "Cathedral Branch, IFSC Code: IOBA0000109",
+          account_name="The Recovery Officer, DRT-3, Chennai",
+          account_no="163302000000250",
+          bank="Indian Overseas Bank, Cathedral Branch", ifsc="IOBA0000109",
+          mode_of_payment="NEFT/RTGS"),
+    ],
+)
+
+# --------------------------------------------------------------------------- #
+# Example 5 — ARC assignment, apartment/UDS (one lot). Source: Omkara ARC /
+# IndusInd Bank, 747290. The seller is an Asset Reconstruction Company holding
+# debt assigned FROM the original lender under a Trust — prior examples only ever
+# showed a bank as its own secured_creditor, so assignor_bank/trust_name were
+# never demonstrated and the model dropped them despite the prose rule.
+# --------------------------------------------------------------------------- #
+ARC_TEXT = (
+    "OMKARA ASSETS RECONSTRUCTION PVT. LTD. PUBLIC NOTICE FOR E-AUCTION SALE OF "
+    "IMMOVABLE PROPERTY. E-Auction Sale Notice under the SARFAESI Act, 2002. "
+    "Possession taken by the Authorised Officer of Omkara Assets Reconstruction "
+    "Pvt Ltd (OARPL). Omkara Assets Reconstruction Pvt Ltd (OARPL), acting in its "
+    "capacity as Trustee of Omkara PS 06/2021-22 Trust, has acquired entire "
+    "outstanding debts of the below accounts vide Assignment Agreement dated "
+    "25.06.2021 from IndusInd Bank Limited (IBL) (Assignor Bank). "
+    "Name of Borrower & Co Borrower: MR. N Elango (Borrower) and Mrs. Aruna E "
+    "(Co-borrower). Sale Deed Document No.4845/2005 dated 01.12.2005 of SRO "
+    "Kodambakkam. "
+    "All that piece and parcel of Residential Flat, bearing Flat No. E, Ground "
+    "Floor, Priya Apartments, Old Door No.105, New Door No.192, Rangarajapuram "
+    "Main Road, Kodambakkam, Chennai - 600024, having built up area of 500 Sq.ft "
+    "together with 331 Sq.ft of Undivided Share of Land, out of the total land "
+    "measuring 3 Ground and 744 Sq.ft, comprised in T S No.34, Block No.44 "
+    "situated at No. 109, Puliyur Village, Egmore-Nungambakkam Taluk, Chennai "
+    "District, bounded on the North by: Door No.104 comprised in T S No.33, "
+    "South by: Door No.106, West by: property owned by Mrs. Zita Aruliah. "
+    "Situated within the Sub Registration District of Kodambakkam and "
+    "Registration District of Central Chennai. "
+    "13(2) Notice Date 20.04.2022. Physical Possession Date 31.12.2025. "
+    "Outstanding due as on 15.04.2026 Rs.37,42,152/-. Reserve Price "
+    "Rs.33,00,000/-."
+)
+
+ARC_EXAMPLE = lx.data.ExampleData(
+    text=ARC_TEXT,
+    extractions=[
+        E("secured_creditor", "Omkara Assets Reconstruction Pvt Ltd (OARPL)",
+          legal_basis="SARFAESI", bank_name="Omkara Assets Reconstruction Pvt Ltd",
+          assignor_bank="IndusInd Bank", trust_name="Omkara PS 06/2021-22 Trust",
+          assignment_date="2021-06-25"),
+        E("borrower", "MR. N Elango (Borrower)", role="borrower", lot_index="1"),
+        E("borrower", "Mrs. Aruna E (Co-borrower)", role="co-borrower",
+          lot_index="1"),
+        E("property", "All that piece and parcel of Residential Flat, bearing "
+          "Flat No. E, Ground Floor, Priya Apartments", lot_index="1",
+          property_type="flat", asset_category="immovable",
+          possession_type="physical"),
+        E("full_description", "All that piece and parcel of Residential Flat, "
+          "bearing Flat No. E, Ground Floor, Priya Apartments, Old Door No.105, "
+          "New Door No.192, Rangarajapuram Main Road, Kodambakkam, Chennai - "
+          "600024, having built up area of 500 Sq.ft together with 331 Sq.ft of "
+          "Undivided Share of Land, out of the total land measuring 3 Ground and "
+          "744 Sq.ft, comprised in T S No.34, Block No.44 situated at No. 109, "
+          "Puliyur Village, Egmore-Nungambakkam Taluk, Chennai District, bounded "
+          "on the North by: Door No.104 comprised in T S No.33, South by: Door "
+          "No.106, West by: property owned by Mrs. Zita Aruliah.", lot_index="1"),
+        E("location", "Puliyur Village, Egmore-Nungambakkam Taluk, Chennai "
+          "District", lot_index="1", village="Puliyur",
+          taluk="Egmore-Nungambakkam", district="Chennai"),
+        E("location", "Sub Registration District of Kodambakkam and "
+          "Registration District of Central Chennai", lot_index="1",
+          registration_sub_district="Kodambakkam",
+          registration_district="Central Chennai"),
+        E("identifier", "Sale Deed Document No.4845/2005 dated 01.12.2005",
+          kind="sale_deed", value="4845/2005", lot_index="1"),
+        E("identifier", "Old Door No.105", kind="door_old", value="105",
+          lot_index="1"),
+        E("identifier", "New Door No.192", kind="door_new", value="192",
+          lot_index="1"),
+        E("identifier", "T S No.34", kind="survey_old", value="34",
+          lot_index="1"),
+        E("identifier", "Block No.44", kind="block", value="44", lot_index="1"),
+        E("identifier", "Flat No. E", kind="flat", value="E", lot_index="1"),
+        E("identifier", "Ground Floor", kind="floor", value="Ground",
+          lot_index="1"),
+        E("extent", "built up area of 500 Sq.ft", lot_index="1",
+          built_up_area="500 Sq.ft", extent_sqft="500"),
+        E("extent", "331 Sq.ft of Undivided Share of Land", lot_index="1",
+          undivided_share="331 Sq.ft"),
+        E("extent", "total land measuring 3 Ground and 744 Sq.ft", lot_index="1",
+          uds_parent_extent="3 Ground and 744 Sq.ft"),
+        E("boundary", "North by: Door No.104 comprised in T S No.33",
+          side="north", adjacency="Door No.104 (T S No.33)", lot_index="1"),
+        E("boundary", "South by: Door No.106", side="south",
+          adjacency="Door No.106", lot_index="1"),
+        E("boundary", "West by: property owned by Mrs. Zita Aruliah",
+          side="west", adjacency="property of Mrs. Zita Aruliah", lot_index="1"),
+        E("outstanding", "Outstanding due as on 15.04.2026 Rs.37,42,152/-",
+          lot_index="1", amount_num="3742152", as_on="2026-04-15"),
+        E("auction_terms", "Reserve Price Rs.33,00,000/-", lot_index="1",
+          reserve_price_num="3300000"),
+    ],
+)
+
+EXAMPLES = [SINGLE_EXAMPLE, MULTI_EXAMPLE, APARTMENT_EXAMPLE, DRT_EXAMPLE, ARC_EXAMPLE]
 
 
 _MODEL_CACHE: dict = {}
