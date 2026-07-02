@@ -66,7 +66,21 @@ _SHARED_MD = _REPO_ROOT / "modes" / "_shared.md"
 # ~168 tokens/call buy the removal of whole redundant round-trips (~3,300
 # tokens of re-sent prefix each), so this earns its per-call cost. Measured
 # ~17,974; ceiling 18,200.
-BUDGET_CHARS = 18_200
+#
+# 2026-07 (anti-flail trim): NET −163 while adding the zero-result protocol.
+# Telemetry showed the old "on zero results, loosen before declaring no
+# matches" rule driving 26-tool-call retry loops (paraphrased semantic_search
+# ×4, per-area splits of an already-tried list filter, a 10× detail fan-out).
+# Replaced with a bounded protocol (read the tool's `hint`, max two follow-up
+# variations, one `select_properties` call for multi-id rows) and de-duplicated
+# the rules that appeared 3-4×: old role rule 5 (select_properties) and rule 7
+# (alerts) now live only in docstrings + one routing bullet; the property-type
+# synonym map moved from the search_auctions docstring into the _shared enums
+# section. Review pass restored three load-bearing clauses the trim had
+# dropped ("name the closest tool", "withdrawal" in the no-such-alerts list,
+# the compare-mode exception to the no-detail-loop rule). Measured ~17,811;
+# ceiling 17,900.
+BUDGET_CHARS = 17_900
 
 
 def _agent_module() -> ast.Module:

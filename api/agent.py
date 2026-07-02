@@ -19,6 +19,7 @@ from pathlib import Path
 
 import httpx
 from pydantic_ai import Agent, RunContext
+from pydantic_ai.messages import ToolReturn
 from pydantic_ai.models.openai import OpenAIModel
 from pydantic_ai.providers.openai import OpenAIProvider
 
@@ -34,6 +35,7 @@ from api.model_selection import (
 from api.alerts import repository as alerts_repo
 from api.alerts.service import build_alerts
 from api.dossier import dossiers_enabled, qa as dossier_qa
+from api.tool_returns import split_ui_overflow
 from api.tools import cypher_tools as T
 from api.tools import web_tools as W
 from api.watchlist import repository as watchlist_repo
@@ -75,43 +77,30 @@ Rules:
    `starts_after`, `starts_before`); for "cheapest/soonest/top N" use
    `order_by` + `limit`, never a made-up threshold. Cite by `auction_id`.
 2. Prefer the specialized tool that matches; fall back to `run_cypher` only
-   for novel queries (see Tool routing below). On zero results, loosen
-   (drop property_type, widen price, recheck city/area spelling) before
-   declaring "no matches".
+   for novel queries (see Tool routing below). On zero results follow the
+   zero-result protocol: read the result's `hint`, spend at most two
+   follow-up variations, then answer honestly with what you found.
 3. Use `internet_search` only for OFF-graph context (legal/RBI explainers,
    locality background, term definitions) — never for properties, prices,
    deadlines, auction_ids, or counts; for hybrid questions query the graph
-   first. Its docstring holds the retry and citation rules.
+   first.
 4. Stay on the tool surface. The PUBLIC graph holds AuctionProperty,
    Borrower, Bank, City, Area, Document, AssetCategory — and nothing else. No
    litigations, court cases, FIRs, credit history, ownership chains, market
    valuations, or external records. Frame borrower follow-ups as
-   `borrower_lookup` output ("other auctions tied to this borrower"), never
-   "check legal records". Confirm before the state-changing `watch_property`
-   call when the user asks to track/save.
-5. The UI matches panel mirrors your latest property tool call. Call
-   `select_properties` only to show a DIFFERENT set than that call returned —
-   a re-ranked or narrowed subset of already-found properties without a fresh
-   search ("top three of those", one locality, a shortlist). Skip it when a
-   search/detail call this turn already put exactly that set in the panel: it
-   already updated, so a second call is a wasted round-trip.
-6. Markdown only for genuine multi-section answers: open each section
+   `borrower_lookup` output, never "check legal records". Never offer or
+   agree to an action no tool performs — if you can't do it, say so plainly
+   and name the closest tool that exists. The ONLY monitoring is
+   auction-deadline alerts via `watch_property` / `list_alerts` (their
+   docstrings are authoritative); confirm before the state-changing
+   `watch_property`.
+5. Markdown only for genuine multi-section answers: open each section
    with `### <emoji> **Title**` (one emoji matching intent — 📍 location,
    🔍 search, 🏆 top, 📊 data, 📰 news, ⚡ insight, ⚠️ caveat, ✅, 💰, 📅).
    Separate sections with a blank line + `---` + blank line. Use **bold**
    for load-bearing facts; short bullets for parallel points; real
    Markdown tables (with `|---|`) for tabular data. Don't wrap a short
    single-section reply in headers.
-7. Tracking & alerts: the ONLY monitoring capability is deadline alerts on
-   saved properties. To "track"/"monitor"/"watch"/"set up alerts" for a
-   property, call `watch_property(auction_id)` — it saves the property and
-   turns on its auction-deadline alerts. To report what's coming due on the
-   user's saved properties, call `list_alerts`. These cover auction-deadline
-   timing ONLY: never promise price-drop, status-change, withdrawal, email,
-   or SMS alerts — they don't exist. If `watch_property` returns
-   `login_required`, the user isn't signed in: tell them to sign in to save
-   and track properties. Never offer or agree to an action no tool performs;
-   if you can't do it, say so plainly and name the closest tool that exists.
 """
 
 # Appended to the role prompt only when the private-dossier feature is enabled
@@ -120,7 +109,7 @@ Rules:
 # always-sent prompt prefix shrinks back to its pre-dossier size.
 _DOSSIER_RULE_EXCEPTION = """
 
-8. Private dossier (signed-in users only) — EXCEPTION to rule 4: the user's OWN
+6. Private dossier (signed-in users only) — EXCEPTION to rule 4: the user's OWN
    uploaded documents (their private dossier: sale deeds, EC, patta, etc.) ARE
    available via `query_user_dossier`, even though they aren't in the public
    graph. For questions about *their* documents ("what does my EC say…", "is
@@ -310,7 +299,7 @@ def search_auctions(
     aggregate_field: str | None = None,
     aggregations: list[str] | None = None,
     include_past: bool = False,
-) -> dict:
+) -> dict | ToolReturn:
     """Filter auctions by price, city, area, property_type, asset_category,
     bank, auction_type, branch, and date window.
 
@@ -318,21 +307,16 @@ def search_auctions(
     true match count (ignores `limit`); `results` is capped at `limit` and
     never exceeds 25 rows to you (the UI shows every match). Use
     `total_count` for "how many", never `len(results)`. Future-only by
-    default; pass `include_past=True` only for retrospective questions.
+    default; pass `include_past=True` only for retrospective questions. A
+    zero-match result may carry `past_matches` + `hint` — follow the hint
+    instead of retrying filter variations.
 
     Filters take a single value OR a list (OR within a list, AND across
-    filters):
-      - `city`: exact City name. `area`: case-insensitive substring —
-        combine with `city` so same-named areas elsewhere don't match.
-      - `property_type`: exact name(s); expand synonyms BEFORE calling —
-        "independent house" → ["House","Villa","Bungalow","Land And
-        Building"]; "plot" → ["Plot","Land","Non-Agricultural Land"];
-        "shop" → ["Commercial Shop","Commercial Property"]. For
-        "residential"/"commercial"/"industrial" use `asset_category`, NOT
-        `property_type`.
-      - `bank`/`branch_name`: exact names. `auction_type`: one of
-        "SARFAESI Auction", "DRT Auction", "Liquidation Auction",
-        "Private Property".
+    filters). `city`: exact name; `area`: case-insensitive substring
+    (combine with `city` so same-named areas elsewhere don't match);
+    `property_type` / `asset_category` / `bank` / `branch_name` /
+    `auction_type`: exact enum names — expand user phrasing via the shared
+    synonym map BEFORE calling.
 
     `order_by` ∈ "deadline_asc" (default), "deadline_desc", "price_asc",
     "price_desc". For "cheapest/soonest/most-expensive N" use ordering +
@@ -344,7 +328,10 @@ def search_auctions(
     `limit=0` to skip the row fetch when only stats are needed. Results are
     added under an `aggregations` key.
     """
-    return T.search_auctions(
+    # UI overflow rows ride on ToolReturn metadata (never model-visible) —
+    # see api/tool_returns.py for why a plain dict return leaked them into
+    # every same-turn round-trip.
+    return split_ui_overflow(T.search_auctions(
         min_price=min_price, max_price=max_price,
         city=city, area=area,
         property_type=property_type, asset_category=asset_category,
@@ -354,7 +341,7 @@ def search_auctions(
         limit=limit, order_by=order_by,
         aggregate_field=aggregate_field, aggregations=aggregations,
         include_past=include_past,
-    )
+    ))
 
 
 @agent.tool_plain
@@ -392,7 +379,9 @@ def semantic_search(
     Optional `city`/`area`/`min_price`/`max_price`/`asset_category`/date
     window post-filter the hits. Future-only by default; `include_past=True`
     for retrospective queries. Each row carries `score` and `hit_sources`
-    (subset of 'desc'/'markdown'/'image'). On embedding-backend failure
+    (subset of 'desc'/'markdown'/'image'). A zero-hit result carries a
+    `hint` (and `past_matches` when past auctions would have matched) —
+    follow it; do NOT rephrase and retry. On embedding-backend failure
     returns `{"error": ..., "results": []}` — fall back to `search_auctions`.
     """
     try:
@@ -433,7 +422,9 @@ def get_auction_detail(auction_id: str) -> dict | None:
     related city/area/state/bank/borrower/category/property_types and
     `price_history` (re-auction timeline). Call this before concluding
     a field is unavailable for a specific auction. Returns None if the
-    auction_id doesn't exist."""
+    auction_id doesn't exist. For rows on SEVERAL known ids, one
+    `select_properties(ids)` call replaces N detail calls — only loop
+    detail when each id's deep fields/`price_history` are needed."""
     return T.get_auction_detail(auction_id)
 
 
@@ -454,9 +445,12 @@ def select_properties(auction_ids: list[str]) -> dict:
     """Mirror a subset of already-found properties into the UI matches
     panel — call it whenever you re-present earlier results WITHOUT a new
     search ("top three of those", one locality, a comparison shortlist),
-    passing auction_ids in your ranked order. Returns full search-shaped
-    rows; unknown ids come back in `missing_ids`. Skip it when a
-    search/detail call this turn already returned exactly that set."""
+    passing auction_ids in your ranked order. Also the ONE-call way to get
+    rows for several known ids (instead of a `get_auction_detail` loop,
+    unless each id's deep fields / `price_history` are needed). Returns
+    full search-shaped rows; unknown ids come back in `missing_ids`. Skip
+    it when a search/detail call this turn already returned exactly that
+    set."""
     return T.get_auctions_by_ids(auction_ids)
 
 

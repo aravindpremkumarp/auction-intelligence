@@ -230,7 +230,12 @@ def search_auctions(
     if max_price is not None:
         where.append("a.reserve_price_num <= $max_price")
         params["max_price"] = max_price
-    if starts_after is None and not include_past:
+    # Remember whether the future-only floor was defaulted (vs. caller-set):
+    # on a zero-result outcome we diagnose whether that default is what hid
+    # the matches, so the model gets one clear signal instead of flailing
+    # through filter variations (observed: a 26-tool-call retry loop).
+    default_future_only = starts_after is None and not include_past
+    if default_future_only:
         starts_after = datetime.now(timezone.utc)
     if starts_after is not None:
         where.append("a.auction_start_dt >= $starts_after")
@@ -288,7 +293,7 @@ def search_auctions(
     total_count = agg_row.get("total_count", 0)
 
     ui_results: list[dict] = []
-    if limit > 0:
+    if limit > 0 and total_count > 0:
         cypher = f"""
             MATCH {match_clause}
             {where_clause}
@@ -341,6 +346,43 @@ def search_auctions(
         out["_ui_results"] = ui_results
     if aggregations:
         out["aggregations"] = {name: agg_row.get(name) for name in aggregations}
+    if total_count == 0 and default_future_only:
+        # Diagnose the zero: was it the implicit future-only floor? One cheap
+        # count with the floor dropped tells the model exactly what to do
+        # next (include_past or stop), instead of leaving it to guess-and-
+        # retry filter variations across many round-trips.
+        where_no_floor = [w for w in where if w != "a.auction_start_dt >= $starts_after"]
+        no_floor_clause = 'WHERE ' + ' AND '.join(where_no_floor) if where_no_floor else ''
+        try:
+            past_rows = run_read_query(
+                f"MATCH {match_clause} {no_floor_clause} RETURN count(a) AS total_count",
+                {k: v for k, v in params.items() if k not in ("limit", "starts_after")},
+                timeout=15.0, max_rows=1,
+            )
+        except Exception:  # noqa: BLE001 - the hint is best-effort, never fatal
+            # The unfloored count is strictly heavier than the indexed primary
+            # (no date-range anchor); a timeout here must not turn a valid
+            # 0-match answer into a failed turn. No hint — the model falls
+            # back to the zero-result protocol.
+            past_rows = None
+        if past_rows is not None:
+            past_total = past_rows[0].get("total_count", 0) if past_rows else 0
+            if past_total:
+                out["past_matches"] = past_total
+                out["hint"] = (
+                    f"0 upcoming auctions match, but {past_total} past auction(s) "
+                    "do — the future-only default excluded them. For a "
+                    "retrospective question retry once with include_past=true; "
+                    "otherwise report no upcoming matches. Do not retry other "
+                    "filter variations."
+                )
+            else:
+                out["hint"] = (
+                    "No auctions match these filters in any time window. Loosen "
+                    "at most ONE filter (drop property_type / widen price / "
+                    "recheck spelling) or report no matches — do not retry the "
+                    "same shape."
+                )
     return out
 
 
@@ -491,7 +533,11 @@ def semantic_search(
     if max_price is not None:
         where.append("p.reserve_price_num <= $max_price")
         params["max_price"] = max_price
-    if starts_after is None and not include_past:
+    # Same zero-result diagnosis as search_auctions: remember whether the
+    # future-only floor was defaulted so an empty result can say WHY it's
+    # empty instead of inviting paraphrase-retry loops.
+    default_future_only = starts_after is None and not include_past
+    if default_future_only:
         starts_after = datetime.now(timezone.utc)
     if starts_after is not None:
         where.append("p.auction_start_dt >= $starts_after")
@@ -531,11 +577,47 @@ def semantic_search(
             # database yet — retry with the vector-only shape so search
             # keeps working. If something else is wrong, the retry's error
             # propagates with the real cause.
+            include_keyword = False
             cypher = _semantic_search_cypher(optional_matches, where_clause, False)
             results = run_read_query(cypher, params, timeout=15.0, max_rows=max_rows)
     else:
         results = run_read_query(cypher, params, timeout=15.0, max_rows=max_rows)
-    return {"returned": len(results), "limit": limit, "results": results}
+    out = {"returned": len(results), "limit": limit, "results": results}
+    if not results and default_future_only:
+        # Re-run WITHOUT the future-only floor, reusing the embedding already
+        # computed above — one extra Neo4j query, no extra Gemini call. Tells
+        # the model whether past auctions would have matched, so a zero turns
+        # into one informed decision instead of rephrased retries.
+        where_no_floor = [w for w in where if w != "p.auction_start_dt >= $starts_after"]
+        no_floor_clause = ("WHERE " + " AND ".join(where_no_floor)) if where_no_floor else ""
+        no_floor_cypher = _semantic_search_cypher(
+            optional_matches, no_floor_clause, include_keyword
+        )
+        no_floor_params = {k: v for k, v in params.items() if k != "starts_after"}
+        try:
+            past_hits = run_read_query(
+                no_floor_cypher, no_floor_params, timeout=15.0, max_rows=max_rows
+            )
+        except Exception:  # noqa: BLE001 - the hint is best-effort, never fatal
+            # Distinguish "diagnostic failed" from "verified zero": no hint at
+            # all here, so the model never gets a confident no-matches claim
+            # the code didn't actually verify.
+            past_hits = None
+        if past_hits:
+            out["past_matches"] = len(past_hits)
+            out["hint"] = (
+                f"The top semantic matches are all past auctions ({len(past_hits)} "
+                "found) — the future-only default excluded them. For a "
+                "retrospective question retry once with include_past=true; "
+                "otherwise report no upcoming matches. Do not rephrase and retry."
+            )
+        elif past_hits is not None:
+            out["hint"] = (
+                "No semantic matches in any time window — do not retry with "
+                "rephrased wording. Switch to search_auctions filters or report "
+                "no matches."
+            )
+    return out
 
 
 def _semantic_search_cypher(

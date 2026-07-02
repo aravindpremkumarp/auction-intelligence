@@ -91,7 +91,8 @@ def test_bank_filter_combines_with_property_type_and_city(monkeypatch) -> None:
 
 
 def test_order_by_price_desc(monkeypatch) -> None:
-    calls = _patch_run_query(monkeypatch, total_count=0)
+    # Nonzero count: a zero total now skips the row fetch entirely.
+    calls = _patch_run_query(monkeypatch, total_count=3)
     from api.tools.cypher_tools import search_auctions
     search_auctions(order_by="price_desc", limit=3)
     row_cypher, _ = calls[1]
@@ -99,7 +100,7 @@ def test_order_by_price_desc(monkeypatch) -> None:
 
 
 def test_order_by_default_is_deadline_asc(monkeypatch) -> None:
-    calls = _patch_run_query(monkeypatch, total_count=0)
+    calls = _patch_run_query(monkeypatch, total_count=3)
     from api.tools.cypher_tools import search_auctions
     search_auctions(limit=3)
     row_cypher, _ = calls[1]
