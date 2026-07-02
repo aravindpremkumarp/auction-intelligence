@@ -64,6 +64,15 @@ def _validate_required_env() -> None:
         missing.append("OPENROUTER_CHAT_API_KEY (or OPENROUTER_API_KEY)")
     if missing:
         raise RuntimeError(f"missing required environment variables: {', '.join(missing)}")
+    # Ops breadcrumb (never logs key material): confirms from the deploy logs
+    # whether chat billing is isolated on its own capped key or silently
+    # falling back to the shared pipeline key.
+    logger.info(
+        "chat OpenRouter billing key: %s",
+        "dedicated (OPENROUTER_CHAT_API_KEY)"
+        if os.environ.get("OPENROUTER_CHAT_API_KEY", "").strip()
+        else "shared fallback (OPENROUTER_API_KEY)",
+    )
 
 
 _validate_required_env()

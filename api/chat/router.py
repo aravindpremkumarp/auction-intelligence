@@ -43,6 +43,7 @@ from api.auth.schemas import UserOut
 from api.model_selection import (
     CHAT_MODEL_OPTIONS,
     DEFAULT_PAID_MODEL,
+    EFFORT_RANK,
     FREE_TIER_EFFORT,
     FREE_TIER_MODEL,
     REASONING_EFFORT_OPTIONS,
@@ -675,13 +676,24 @@ def list_chat_models(user: UserOut | None = Depends(get_optional_user)) -> dict:
         {**opt, "locked": opt["min_tier"] == "paid" and not is_paid}
         for opt in CHAT_MODEL_OPTIONS
     ]
+    # Efforts above the free-tier ceiling are clamped server-side, so render
+    # them locked for free/anon — picking them would silently do nothing.
+    # At/below the ceiling (notably Off) stays available to everyone.
+    efforts = [
+        {
+            **opt,
+            "locked": not is_paid
+            and EFFORT_RANK[opt["id"]] > EFFORT_RANK[FREE_TIER_EFFORT],
+        }
+        for opt in REASONING_EFFORT_OPTIONS
+    ]
     return {
         "tier": tier,
         "models": models,
-        "reasoning_efforts": REASONING_EFFORT_OPTIONS,
+        "reasoning_efforts": efforts,
         "defaults": {
             "model": DEFAULT_PAID_MODEL if is_paid else FREE_TIER_MODEL,
-            # Free/anon effort is clamped server-side; report the real value so
+            # Free/anon effort is capped server-side; report the real value so
             # the toggle UI doesn't promise reasoning levels they won't get.
             "reasoning_effort": "high" if is_paid else FREE_TIER_EFFORT,
         },

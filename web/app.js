@@ -813,7 +813,9 @@ function _mpLabel(list, id) {
   return hit ? hit.label : (id || '');
 }
 function _mpRow(kind, opt, selected) {
-  const locked = kind === 'model' && !!opt.locked;
+  // Server marks paid-only options with locked: true — models AND reasoning
+  // efforts above the free-tier ceiling. Render both disabled with the badge.
+  const locked = !!opt.locked;
   return (
     `<button type="button" class="mp-item" role="menuitemradio" aria-checked="${selected ? 'true' : 'false'}"` +
     ` data-kind="${kind}" data-id="${escapeHtml(opt.id)}"${locked ? ' disabled aria-disabled="true"' : ''}>` +
@@ -1125,8 +1127,8 @@ async function hydrateChatModels() {
     // Never let a locked (or unknown) saved choice stick — fall back to default.
     const unlocked = new Set(models.filter(m => !m.locked).map(m => m.id));
     const model = unlocked.has(savedModel) ? savedModel : defModel;
-    const effortIds = new Set(efforts.map(e => e.id));
-    const effort = effortIds.has(savedEffort) ? savedEffort : defEffort;
+    const unlockedEfforts = new Set(efforts.filter(e => !e.locked).map(e => e.id));
+    const effort = unlockedEfforts.has(savedEffort) ? savedEffort : defEffort;
     window.currentModel = model;
     window.currentReasoningEffort = effort;
     chatModelOpts = models;
