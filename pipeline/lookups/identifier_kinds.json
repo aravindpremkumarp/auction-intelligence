@@ -1,0 +1,39 @@
+{
+  "canonical": [
+    "survey_old", "survey_new", "patta", "chitta", "khata", "property_id",
+    "cersai", "plot", "flat", "block", "floor", "door_old", "door_new",
+    "assessment_old", "assessment_new", "sale_deed", "approved_layout"
+  ],
+  "aliases": {
+    "tsno": "survey_old",
+    "syno": "survey_old",
+    "sfno": "survey_old",
+    "rsno": "survey_old",
+    "surveyno": "survey_old",
+    "surveynumber": "survey_old",
+    "survey": "survey_old",
+    "nathamsurvey": "survey_old",
+    "resyno": "survey_new",
+    "tsnew": "survey_new",
+    "newsno": "survey_new",
+    "udrsfno": "survey_new",
+    "blockno": "block",
+    "flatno": "flat",
+    "plotno": "plot",
+    "doorno": "door_new",
+    "door": "door_new",
+    "assessment": "assessment_new",
+    "assessmentno": "assessment_new",
+    "pattano": "patta",
+    "khatano": "khata",
+    "chittano": "chitta",
+    "cadastre": "property_id",
+    "propertyid": "property_id",
+    "pid": "property_id",
+    "cersaiid": "cersai",
+    "saledeed": "sale_deed",
+    "deedno": "sale_deed",
+    "approvedlayoutno": "approved_layout",
+    "layoutno": "approved_layout"
+  }
+}

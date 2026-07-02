@@ -19,6 +19,7 @@ import json
 
 from api.neo4j_client import run_query, run_read_query
 from pipeline import langextract_examples as LX
+from pipeline.validators import normalize_identifier_kind
 
 
 def _fetch(limit: int | None, force: bool, filename: str | None) -> list[dict]:
@@ -39,13 +40,22 @@ def _entities(res) -> list[dict]:
     out = []
     for i, e in enumerate(res.extractions):
         ci = getattr(e, "char_interval", None)
+        attrs = dict(e.attributes or {})
+        # Safety net: models sometimes copy the document's label as the
+        # identifier kind ("T.S.No") instead of the enum — normalize, keeping
+        # the original in kind_raw so nothing is lost for review.
+        if e.extraction_class == "identifier" and attrs.get("kind"):
+            kind, changed = normalize_identifier_kind(attrs["kind"])
+            if changed:
+                attrs["kind_raw"] = attrs["kind"]
+                attrs["kind"] = kind
         out.append({
             "id": str(i),
             "cls": e.extraction_class,
             "text": e.extraction_text,
             "start": getattr(ci, "start_pos", None) if ci else None,
             "end": getattr(ci, "end_pos", None) if ci else None,
-            "attrs": e.attributes or {},
+            "attrs": attrs,
         })
     return out
 
