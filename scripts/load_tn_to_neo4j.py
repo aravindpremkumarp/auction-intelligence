@@ -214,7 +214,7 @@ def main():
 
     print(f"\nLoading records from {INPUT_FILE} ...")
     records = load_records(INPUT_FILE)
-    rows = [sanitise(r) for r in records]
+    rows = [sanitise(r) for r in records if r.get('downloads_found')]
     total = len(rows)
     print(f"  {total:,} records to ingest (batch size: {BATCH_SIZE})")
 

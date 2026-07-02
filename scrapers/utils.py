@@ -2,13 +2,12 @@
 import os
 import re
 import time
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.chrome.options import Options
+import threading
+import subprocess
+import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from webdriver_manager.chrome import ChromeDriverManager
 
 # The site renders the property description and the structured location fields
 # (Province/State, City/Town, Area/Town) inside the same container, so grabbing
@@ -18,6 +17,9 @@ from webdriver_manager.chrome import ChromeDriverManager
 # in genuine property prose, so this is safe.
 # NOTE: mirrored by api/review/markdown_match.strip_field_bleed — keep in sync.
 _FIELD_BLEED = re.compile(r"(?:Province/State|City/Town|Area/Town)")
+
+# Lock to prevent parallel workers from patching chromedriver simultaneously
+_uc_lock = threading.Lock()
 
 
 def strip_field_bleed(text):
@@ -32,7 +34,8 @@ def strip_field_bleed(text):
 
 def setup_driver(download_dir=None, headless=False):
     """
-    Sets up the Chrome WebDriver with headless options and a specified download directory.
+    Sets up an undetected Chrome WebDriver that bypasses Cloudflare bot detection.
+    Uses undetected-chromedriver to patch Chrome and avoid WebDriver fingerprinting.
     """
     if download_dir is None:
          download_dir = os.path.join(os.getcwd(), "downloads")
@@ -40,13 +43,13 @@ def setup_driver(download_dir=None, headless=False):
     if not os.path.exists(download_dir):
         os.makedirs(download_dir)
 
-    chrome_options = Options()
+    options = uc.ChromeOptions()
     if headless:
-        chrome_options.add_argument("--headless=new") # Run in headless mode
-    chrome_options.add_argument("--disable-gpu")
-    chrome_options.add_argument("--window-size=1920,1080")
-    chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--disable-dev-shm-usage")
+        options.add_argument("--headless=new")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--window-size=1920,1080")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
     
     # Set preferences for automatic downloads
     prefs = {
@@ -57,11 +60,45 @@ def setup_driver(download_dir=None, headless=False):
         "plugins.always_open_pdf_externally": True,
         "profile.default_content_settings.popups": 0
     }
-    chrome_options.add_experimental_option("prefs", prefs)
+    options.add_experimental_option("prefs", prefs)
 
-    service = Service(ChromeDriverManager().install())
-    driver = webdriver.Chrome(service=service, options=chrome_options)
+    # Thread-safe driver creation — UC patches the chromedriver binary,
+    # so parallel workers must not race each other during patching.
+    with _uc_lock:
+        driver = uc.Chrome(options=options, use_subprocess=True, version_main=149)
     return driver
+
+def notify_cloudflare_block():
+    """
+    Fire a one-time Windows notification the moment a Cloudflare challenge is
+    detected, so a human physically at the machine notices even if nobody is
+    watching the console (e.g. a Task-Scheduler-launched unattended run).
+
+    Dependency-free: shells out to PowerShell's built-in Windows Forms message
+    box. Fired via Popen (non-blocking) so it doesn't hold up the existing
+    cf_wait() polling loop — the caller keeps polling driver.title/current_url
+    in parallel while this dialog sits on screen for the human to see.
+    """
+    try:
+        ps_script = (
+            "Add-Type -AssemblyName System.Windows.Forms; "
+            "[System.Windows.Forms.MessageBox]::Show("
+            "'Cloudflare challenge detected in the scraper Chrome window. "
+            "Please solve the CAPTCHA manually — the script is waiting and "
+            "will resume automatically once it is cleared.', "
+            "'Auction scraper: action needed', "
+            "[System.Windows.Forms.MessageBoxButtons]::OK, "
+            "[System.Windows.Forms.MessageBoxIcon]::Warning)"
+        )
+        subprocess.Popen(
+            ["powershell.exe", "-NoProfile", "-WindowStyle", "Hidden", "-Command", ps_script],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except Exception:
+        # Never let a notification failure break the scrape itself.
+        pass
+
 
 def login(driver, email, password):
     """

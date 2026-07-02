@@ -122,6 +122,15 @@ def main():
             if STATE_FILTER not in state.lower():
                 continue
 
+            # Filter unwanted asset categories
+            # "Gold Auctions" added for consistency with scripts/remove_non_property_categories.py
+            # (2026-05-11), which already purged this category from the live Neo4j graph as a
+            # non-property asset type — keeping the two filters in sync prevents a future scrape
+            # of a Gold Auctions listing from silently flowing back into the graph.
+            unwanted_cats = {"Vehicle Auctions", "Scrap, Plant & Machinery", "Others", "Gold Auctions"}
+            if str(r.get('Asset Category', '')).strip() in unwanted_cats:
+                continue
+
             # ── 2. Clean prices ───────────────────────────────────────────
             rp_raw, rp_num = clean_price(r.get('Reserve Price', ''))
             emd_raw, emd_num = clean_price(r.get('EMD', ''))
@@ -148,7 +157,7 @@ def main():
                 "auction_id"                : r.get('auction_id') or r.get('URL', '').rstrip('/').split('/')[-1],
                 "url"                       : r.get('URL', ''),
                 "title"                     : r.get('Title', ''),
-                "description"               : r.get('Description', ''),
+                "description"               : r.get('Description', '').split('Province/State :')[0].strip(),
                 # Financial
                 "reserve_price_raw"         : rp_raw,
                 "reserve_price_num"         : rp_num,
@@ -229,8 +238,8 @@ def main():
     print(f"  Download files found     : {total_dl_found:,}")
     print(f"  Download files missing   : {total_dl_missing:,}")
     print(f"  Records missing files    : {records_missing_dl:,}")
-    print(f"  Output → {OUTPUT_FILE}")
-    print(f"  Report → {REPORT_FILE}")
+    print(f"  Output -> {OUTPUT_FILE}")
+    print(f"  Report -> {REPORT_FILE}")
     print("=" * 50)
 
 

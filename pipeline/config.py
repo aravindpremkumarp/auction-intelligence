@@ -13,7 +13,7 @@ load_dotenv()
 
 # ── Paths ────────────────────────────────────────────────────────────────────
 ROOT_DIR      = Path(__file__).resolve().parent.parent
-INPUT_JSONL   = ROOT_DIR / "tn_auction_data.jsonl"
+INPUT_JSONL   = ROOT_DIR / "data" / "tn_auction_data.jsonl"
 DOWNLOADS_DIR = ROOT_DIR / "downloads"
 
 PIPELINE_DIR  = ROOT_DIR / "pipeline"
