@@ -8,8 +8,18 @@ Fixtures with the matching markdown live in evals/fixtures/<aid>.txt.
 These 6 notices are deliberately NOT the two few-shot examples (no train/test
 leakage) and span the hard cases: Karnataka khata/Hobli, DRT 'Upset Price',
 flat+UDS, ARC assignor/trust, and tiled-house notices.
+
+EXPECT_NULL is a distinct sentinel from None: None means "not scored" (we have
+no opinion), EXPECT_NULL means "this field must come back empty" — e.g. a
+possession clause that lists all three types disjunctively ("Constructive /
+Symbolic / Physical Possession", sometimes literally an unfilled template:
+"(mention whichever is applicable)") has no single correct answer, so the
+"don't invent" rule says leave it null rather than emit the raw disjunction or
+guess one.
 """
 from __future__ import annotations
+
+EXPECT_NULL = object()
 
 GOLD = [
     {
@@ -80,5 +90,49 @@ GOLD = [
             "borrower_primary": "Jagadeesan",
         },
         "identifiers": {"survey_old": "47/5", "plot": "60"},
+    },
+    {
+        # Canara Bank boilerplate: "the Constructive / Symbolic / Physical
+        # Possession of which has been taken" — the notice never commits to one
+        # value (no per-lot resolution either), so possession_type must be null,
+        # not the raw disjunction and not a guess. See EXPECT_NULL above.
+        "aid": "750348", "notice_type": "multi",
+        "fields": {
+            "legal_basis": "SARFAESI", "bank_name": "Canara Bank",
+            "possession_type": EXPECT_NULL,
+        },
+    },
+    {
+        # ARC (ARCIL) flat: assignor_bank present via a "Selling Bank" column
+        # rather than prose ("... vide Assignment Agreement ..."), and the flat
+        # is described across Schedule A/B/C with floor+block in Schedule C —
+        # a structure none of the few-shot examples demonstrate. Regression
+        # target for the flat/floor/block misplacement + miss found in review.
+        "aid": "752245", "notice_type": "single",
+        "fields": {
+            "legal_basis": "SARFAESI", "bank_name": "ARCIL",
+            "assignor_bank": "Bajaj Housing Finance",
+            "trust_name": "Arcil-Retail Loan Portfolio-042",
+            "possession_type": "physical",
+            "reserve_price_num": 2889000,
+            "village": "Kalapatty", "taluk": "Coimbatore North",
+            "district": "Coimbatore", "borrower_primary": "Dhayanandh",
+        },
+        "identifiers": {"floor": "First", "block": "A"},
+    },
+    {
+        # Indian Bank, one combined notice bundling 5 unrelated
+        # borrowers/properties (not lots of one property) — Document.markdown is
+        # shared, so this is what production actually feeds to extract() for
+        # each of the 5 AuctionProperty nodes backed by it. First block only.
+        "aid": "753006", "notice_type": "multi",
+        "fields": {
+            "legal_basis": "SARFAESI", "bank_name": "Indian Bank",
+            "possession_type": "symbolic",
+            "reserve_price_num": 7000000,
+            "village": "Kolathuvanchery", "taluk": "Kundrathur",
+            "district": "Kancheepuram", "borrower_primary": "Sakthivel",
+        },
+        "identifiers": {"flat": "T-2", "floor": "Third"},
     },
 ]

@@ -15,7 +15,7 @@ import collections
 import os
 from pathlib import Path
 
-from evals.langextract_gold import GOLD
+from evals.langextract_gold import EXPECT_NULL, GOLD
 
 
 def extract_robust(md: str, tries: int = 3):
@@ -135,6 +135,10 @@ def score_notice(g: dict, flat: dict) -> list[tuple]:
     rows = []
     for key, gold in g["fields"].items():
         if gold is None:
+            continue
+        if gold is EXPECT_NULL:
+            got = flat.get(key)
+            rows.append((key, "<null>", got, got is None))
             continue
         if key == "reserve_price_num":
             got = sorted(flat.get("reserve_set", set()))
