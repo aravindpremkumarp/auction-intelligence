@@ -49,7 +49,9 @@ Rules of the road (read first):
   (each with its own reserve price), put the first/primary lot in the top-level
   fields and every additional lot as an entry in `additional_lots[]`.
 
-Return ONLY this JSON object — no markdown fences, no commentary:
+FIELD CATALOGUE — the JSON below defines each field's SEMANTICS and edge cases.
+It is a reference shape, NOT your output format; your output format is defined
+by the entity classes and examples above:
 
 {
   "notice": {
@@ -181,5 +183,5 @@ Return ONLY this JSON object — no markdown fences, no commentary:
   // lists, etc.). snake_case keys; only what is in the document.
   "extras": { "key_in_snake_case": "value" },
 
-  "enriched_description": "2-4 sentence buyer-facing summary based only on THIS document; preserve ½ ¼ ¾ if present"
+  "enriched_description": "OUT OF SCOPE for extraction — never emit; produced by a separate summarization step"
 }

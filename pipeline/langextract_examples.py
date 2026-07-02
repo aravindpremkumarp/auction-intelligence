@@ -6,26 +6,29 @@ scheme) and wrapped with LangExtract-specific conventions. Edit the scheme in th
 one file and this prompt follows automatically; the examples below only have to
 keep *demonstrating* the fields.
 
-The five ExampleData objects (single: 736547 / Bank of Baroda; multi: 738029 /
+The seven ExampleData objects (single: 736547 / Bank of Baroda; multi: 738029 /
 Equitas SFB; apartment: Canara Bank / flat + UDS; DRT: Indian Bank / DRT-III
-Chennai, 750600; ARC: Omkara ARC / IndusInd Bank, 747290) are annotated to FULL
-PARITY (option A) with the scheme, across these grounded entity classes — chosen
-so LangExtract extracts spans (its strength) rather than long attribute lists
-(its weakness):
+Chennai, 750600; ARC: Omkara ARC / IndusInd Bank, 747290; Karnataka leasehold:
+Karnataka Bank, 752691; Can Fin multi w/ disjunctive possession:
+CANFN17791720254760) are annotated to FULL PARITY (option A) with the scheme,
+across these grounded entity classes — chosen so LangExtract extracts spans
+(its strength) rather than long attribute lists (its weakness):
 
   secured_creditor  borrower  contact  property  full_description  location
   identifier  extent  boundary  schedule  auction_terms  outstanding  emd_account
-  full_terms
+  full_terms  extras
 
 For MULTI notices every entity of the Nth lot carries ``lot_index=N`` so lots can
-be regrouped into one AuctionProperty each. The DRT and ARC examples exist
-specifically because legal_basis diversity (court_reference, assignor_bank,
-trust_name) was previously only documented as prose SLOTTING RULES with no
-grounded demonstration, and the model was silently dropping those fields as a
-result — see the eval MISSES this fixed. Fields the sample notices still don't
-contain (e.g. IBC, carpet area, lat/long, chitta/khata, construction_type,
-Karnataka hobli) are still described by the canonical prompt and will be
-extracted when present — they are just not demonstrated here.
+be regrouped into one AuctionProperty each. The DRT/ARC/Karnataka/CanFin examples
+exist because attrs documented only as prose rules were being dropped: prose
+alone demonstrably underperforms, and on the Gemini model_id path langextract
+builds its response schema FROM THE EXAMPLES, so an attr key demonstrated
+nowhere used to be suppressed outright (that is why hobli never appeared).
+tests/api/test_langextract_prompt_coverage.py enforces that every guide-declared
+attr key is demonstrated in at least one example or exempted with justification.
+Rare fields with no demonstration source (liquidator, predecessor_entity,
+lat/long, carpet_area, sarfaesi_stage, ...) remain prose-only — extracted when
+present now that schema constraints are off on both provider paths.
 
 Run:  python -m pipeline.langextract_examples <path-to-markdown.txt>
 """
@@ -63,7 +66,9 @@ entities using EXACTLY these extraction classes (one span each, copied VERBATIM)
 - borrower         : one borrower/guarantor. attrs: role, address, lot_index.
 - property         : one lot's property block. attrs: property_type, asset_category,
   possession_type, possession_date, construction_type, occupancy_status,
-  title_deed_holder, branch_of_lot, lot_index.
+  title_deed_holder, branch_of_lot, address (full property address as written,
+  when the notice states one), encumbrance (disclosed charges/dues, e.g. "Nil"
+  or a specific charge), lot_index.
 - full_description : the COMPLETE property-description block for ONE lot, copied
   verbatim as a SINGLE span — preamble + all items/schedules + boundaries +
   trailing structural / registration detail, with section labels preserved.
@@ -71,7 +76,7 @@ entities using EXACTLY these extraction classes (one span each, copied VERBATIM)
   span deliberately OVERLAPS the granular property/location/extent/boundary spans
   (it is their union) — emit BOTH the block and the granular spans. attrs: lot_index.
 - location         : the "Situated At ..." span. attrs: village, taluk, district,
-  city, state, panchayat, municipality_corporation, ward_no, hobli,
+  city, state, area, panchayat, municipality_corporation, ward_no, hobli,
   registration_district, registration_sub_district, landmark, latitude, longitude,
   lot_index.
 - identifier       : ONE id span each (emit several). attrs: kind (survey_old|
@@ -99,6 +104,14 @@ entities using EXACTLY these extraction classes (one span each, copied VERBATIM)
   Authorised Officer's right to postpone/cancel, and the encumbrance disclaimer.
   ONE per notice — a multi-lot notice shares ONE terms block across every lot, so
   emit it ONCE, never per lot. Overlaps emd_account/auction_terms within it; emit both.
+- extras           : ONE meaningful fact NOT covered by any class above, as a short
+  span. attrs: key (snake_case), value, lot_index (omit if notice-level). USE
+  SPARINGLY — only decision-relevant facts a bidder would need: RERA/GST numbers,
+  leasehold tenure & NOC/transfer restrictions (e.g. KIADB), IBC option bundles /
+  Section 29A eligibility, disclosed tax/maintenance dues, road access, pending
+  litigation, machinery lists, per-account outstanding breakdown, TDS-inclusive
+  pricing. NEVER for anything that fits an existing class/attr; never restate
+  terms-of-sale boilerplate; at most ~5 per notice.
 
 CONVENTIONS:
 - extraction_text MUST be copied verbatim from the document (for source grounding).
@@ -142,11 +155,50 @@ SLOTTING RULES (avoid these common mistakes):
   measurement, distinct from adjacency (what abuts that side, e.g. a road/plot).
 - "Name of the Title Holder: X" -> property title_deed_holder=X.
 - "CERSAI Security Interest Id: N" -> identifier kind=cersai value=N.
+- POSSESSION: emit property possession_type ONLY when the notice commits to ONE
+  value for that lot. The boilerplate disjunction "Constructive / Symbolic /
+  Physical Possession" (in the preamble or a "Type of Possession" column,
+  including the unfilled template "(mention whichever is applicable)") names all
+  types without choosing — emit NO possession_type for it: not the raw
+  disjunction, not a guess. A stated possession DATE ("Possession taken on
+  17-07-2025") -> property possession_date (ISO), independent of the type.
+- identifier kind MUST be exactly one of the enum values listed above — NEVER
+  invent a kind and NEVER copy the document's label as the kind. Map labels:
+  "T.S No" / "Sy No" / "S.F No" / "Survey No" / "R.S No" -> survey_old (or
+  survey_new when marked new/re-survey); "Re Sy No" / "New S.No" -> survey_new;
+  "Block No.18" -> kind=block value=18. The document's label stays only in the
+  extraction_text span.
+- BOUNDARY MEASUREMENTS: whenever per-side dimensions appear ANYWHERE in the
+  description ("East to West on the Northern Side 40 Feet", "Measuring Northern
+  Side 34ft", "North to South on the Eastern side: 50 feet"), attach measurement
+  to the matching boundary entity — check ALL FOUR sides every time; a notice
+  that gives adjacencies usually gives dimensions too, later in the text.
 
 The authoritative field semantics and edge cases (DRT "Upset Price", IBC
-liquidators, ARC assignor/trust, column-unit money, etc.) are below; follow them:
+liquidators, ARC assignor/trust, column-unit money, etc.) are in the FIELD
+CATALOGUE below. The catalogue's nested JSON is a SEMANTICS REFERENCE ONLY —
+do NOT output that JSON shape; output only the entity classes above. Map the
+catalogue's nested paths onto entity attrs like this:
+- property.flat_no/block/floor/plot_no/patta_no/chitta_no/khata_no/
+  property_id_no/cersai_id/sale_deed_no/approved_layout_no/survey_numbers/
+  door_numbers/assessment_no -> SEPARATE identifier entities (kind=flat|block|
+  floor|plot|patta|chitta|khata|property_id|cersai|sale_deed|approved_layout|
+  survey_old|survey_new|door_old|door_new|assessment_old|assessment_new),
+  NEVER attributes on the property entity.
+- property.village/taluk/district/city/area/state/panchayat/
+  municipality_corporation/ward_no/hobli/registration_district/
+  registration_sub_district/latitude/longitude and landmark -> location attrs.
+- property.total_area/extent_sqft/super_built_up_area/built_up_area/
+  carpet_area/undivided_share/uds_parent_extent -> extent attrs.
+- property.boundaries / boundary_measurements -> boundary entities (adjacency
+  vs measurement, one entity per side).
+- notice.* -> secured_creditor / contact / property / outstanding / full_terms
+  attrs as declared above; auction.* -> auction_terms / emd_account attrs.
+- additional_lots -> the same per-lot entities tagged lot_index=N.
+- extras -> extras entities. schedules[].description is the schedule span
+  itself (no attr needed). enriched_description: NEVER emit — out of scope.
 
-=== CANONICAL SCHEME (extract_enrichment.txt) ===
+=== FIELD CATALOGUE (extract_enrichment.txt) ===
 """
 
 PROMPT_DESCRIPTION = _LANGEXTRACT_GUIDE + load_canonical_scheme()
@@ -557,7 +609,8 @@ DRT_EXAMPLE = lx.data.ExampleData(
         E("auction_terms", "Upset Price Rs.2,00,00,000/-", lot_index="1",
           reserve_price_num="20000000", bid_increment_num="500000",
           auction_start_dt="2026-05-29T11:00", auction_end_dt="2026-05-29T12:00",
-          inspection_dt="2026-05-14T11:00"),
+          inspection_dt="2026-05-14T11:00",
+          application_deadline_dt="2026-05-26"),
         E("outstanding", "recovery of a sum of Rs.7,94,16,566.37 as on "
           "19.02.2026", lot_index="1", amount_num="79416566.37",
           as_on="2026-02-19"),
@@ -616,7 +669,10 @@ ARC_EXAMPLE = lx.data.ExampleData(
         E("property", "All that piece and parcel of Residential Flat, bearing "
           "Flat No. E, Ground Floor, Priya Apartments", lot_index="1",
           property_type="flat", asset_category="immovable",
-          possession_type="physical"),
+          possession_type="physical", possession_date="2025-12-31",
+          address="Flat No. E, Ground Floor, Priya Apartments, Old Door "
+          "No.105, New Door No.192, Rangarajapuram Main Road, Kodambakkam, "
+          "Chennai - 600024"),
         E("full_description", "All that piece and parcel of Residential Flat, "
           "bearing Flat No. E, Ground Floor, Priya Apartments, Old Door No.105, "
           "New Door No.192, Rangarajapuram Main Road, Kodambakkam, Chennai - "
@@ -628,7 +684,7 @@ ARC_EXAMPLE = lx.data.ExampleData(
           "No.106, West by: property owned by Mrs. Zita Aruliah.", lot_index="1"),
         E("location", "Puliyur Village, Egmore-Nungambakkam Taluk, Chennai "
           "District", lot_index="1", village="Puliyur",
-          taluk="Egmore-Nungambakkam", district="Chennai"),
+          taluk="Egmore-Nungambakkam", district="Chennai", city="Chennai"),
         E("location", "Sub Registration District of Kodambakkam and "
           "Registration District of Central Chennai", lot_index="1",
           registration_sub_district="Kodambakkam",
@@ -658,13 +714,270 @@ ARC_EXAMPLE = lx.data.ExampleData(
         E("boundary", "West by: property owned by Mrs. Zita Aruliah",
           side="west", adjacency="property of Mrs. Zita Aruliah", lot_index="1"),
         E("outstanding", "Outstanding due as on 15.04.2026 Rs.37,42,152/-",
-          lot_index="1", amount_num="3742152", as_on="2026-04-15"),
+          lot_index="1", amount_num="3742152", as_on="2026-04-15",
+          demand_notice_date="2022-04-20"),
         E("auction_terms", "Reserve Price Rs.33,00,000/-", lot_index="1",
           reserve_price_num="3300000"),
     ],
 )
 
-EXAMPLES = [SINGLE_EXAMPLE, MULTI_EXAMPLE, APARTMENT_EXAMPLE, DRT_EXAMPLE, ARC_EXAMPLE]
+# --------------------------------------------------------------------------- #
+# Example 6 — KARNATAKA / leasehold industrial (one lot). Source: Karnataka Bank,
+# 752691. Teaches the Karnataka geo hierarchy (hobli — previously prose-only and
+# suppressed by the Gemini example-derived schema), a COMMITTED possession_type
+# with a possession_date, auto_extension_minutes, partner-role borrowers, and the
+# `extras` class: leasehold tenure, a KIADB NOC use-restriction, and
+# TDS-inclusive pricing — decision-relevant facts with no dedicated field.
+# --------------------------------------------------------------------------- #
+KARNATAKA_TEXT = (
+    "Notice is hereby given to public in general and in particular to Borrower "
+    "(s) and Guarantor (s) that the below described leasehold immovable property "
+    "mortgaged/charged to the secured creditor, the constructive possession of "
+    "which has been taken by the Authorised Officer of Karnataka Bank Ltd, the "
+    "Secured Creditor on 17-07-2025, will be sold on \"As is Where is\", and "
+    "\"As is What is\" basis on 08.05.2026 for recovery of total amount of "
+    "Rs.1,62,24,218.05 (i.e. in respect of PSTL A/c No. 1827001800243301) + "
+    "interest from 05-07-2025 and costs due to the Karnataka Bank Ltd, "
+    "Davangere - Main Branch. "
+    "Name & Address of the Borrower / Co-obligants / Guarantors: 1) M/s, Texas "
+    "Textile Represented by its partners : a) Sri Hitesh Y, b) Smt. Nirmala Raj, "
+    "addressed at: No.3547/78A, Balaji Layout, Kundawada Road, Near Kundawada "
+    "Lake, Devaraj Urs Layout, Devanagere-577006. "
+    "Description of the Immovable Property: All that part and parcel of "
+    "Industrial Land bearing Plot No. 56, in Sy. No. 5 & 13 measuring 21775.57 "
+    "Sq. Feet with building constructed thereon situated at KIADB, Karur "
+    "Industrial area, Karur Village, Kasaba Hobli, Davangere and bounded by: "
+    "East: Plot No.55, West: Plot No.57 & 57-A, North: Road, South: Plot No.45 "
+    "& 46. "
+    "Reserve Price Rs 3,40,12,000/- (Including TDS @1%). EMD: Rs. 34,01,200. "
+    "Date & Time of Auction: 08.05.2026 from 11.05 A.M to 11.25 A.M. The "
+    "E-auction will be conducted through portal www.auctionbazaar.com with "
+    "unlimited extension of 05 minutes. "
+    "The intending bidder shall use the demised premises only for the purpose "
+    "of Readymade Garments' Textile Industry as per NOC dated 25-09-2025 issued "
+    "by KADB. "
+    "Address of the Secured Creditor Karnataka Bank Ltd, Davangere Main Branch "
+    "(Phone: 08192-258432(G), 9449595580 (BM), 9448497320(ABM))."
+)
+
+KARNATAKA_EXAMPLE = lx.data.ExampleData(
+    text=KARNATAKA_TEXT,
+    extractions=[
+        E("secured_creditor", "Karnataka Bank Ltd, Davangere - Main Branch",
+          legal_basis="SARFAESI", bank_name="Karnataka Bank Ltd",
+          branch="Davangere - Main",
+          sale_terms="As is Where is, As is What is",
+          auction_platform_url="www.auctionbazaar.com"),
+        E("contact", "Phone: 08192-258432(G), 9449595580 (BM), 9448497320(ABM)",
+          phones="08192-258432, 9449595580, 9448497320"),
+        E("borrower", "M/s, Texas Textile", role="borrower", lot_index="1",
+          address="No.3547/78A, Balaji Layout, Kundawada Road, Near Kundawada "
+          "Lake, Devaraj Urs Layout, Devanagere-577006"),
+        E("borrower", "Sri Hitesh Y", role="partner", lot_index="1"),
+        E("borrower", "Smt. Nirmala Raj", role="partner", lot_index="1"),
+        E("property", "All that part and parcel of Industrial Land bearing "
+          "Plot No. 56, in Sy. No. 5 & 13", lot_index="1",
+          property_type="industrial land", asset_category="immovable",
+          possession_type="constructive", possession_date="2025-07-17"),
+        E("full_description", "All that part and parcel of Industrial Land "
+          "bearing Plot No. 56, in Sy. No. 5 & 13 measuring 21775.57 Sq. Feet "
+          "with building constructed thereon situated at KIADB, Karur "
+          "Industrial area, Karur Village, Kasaba Hobli, Davangere and bounded "
+          "by: East: Plot No.55, West: Plot No.57 & 57-A, North: Road, South: "
+          "Plot No.45 & 46.", lot_index="1"),
+        E("location", "KIADB, Karur Industrial area, Karur Village, Kasaba "
+          "Hobli, Davangere", lot_index="1", village="Karur", hobli="Kasaba",
+          district="Davangere", area="KIADB, Karur Industrial area"),
+        E("identifier", "Plot No. 56", kind="plot", value="56", lot_index="1"),
+        E("identifier", "Sy. No. 5 & 13", kind="survey_old", value="5 & 13",
+          lot_index="1"),
+        E("extent", "21775.57 Sq. Feet", lot_index="1",
+          total_area="21775.57 sq.ft", extent_sqft="21775.57"),
+        E("boundary", "East: Plot No.55", side="east", adjacency="Plot No.55",
+          lot_index="1"),
+        E("boundary", "West: Plot No.57 & 57-A", side="west",
+          adjacency="Plot No.57 & 57-A", lot_index="1"),
+        E("boundary", "North: Road", side="north", adjacency="Road",
+          lot_index="1"),
+        E("boundary", "South: Plot No.45 & 46", side="south",
+          adjacency="Plot No.45 & 46", lot_index="1"),
+        E("auction_terms", "Reserve Price Rs 3,40,12,000/- (Including TDS "
+          "@1%). EMD: Rs. 34,01,200", lot_index="1",
+          reserve_price_num="34012000", emd_num="3401200",
+          auction_start_dt="2026-05-08T11:05", auction_end_dt="2026-05-08T11:25",
+          auto_extension_minutes="5"),
+        E("outstanding", "recovery of total amount of Rs.1,62,24,218.05 (i.e. "
+          "in respect of PSTL A/c No. 1827001800243301) + interest from "
+          "05-07-2025", lot_index="1", amount_num="16224218.05",
+          as_on="2025-07-05", loan_account_no="1827001800243301"),
+        # extras: decision-relevant facts with no dedicated field.
+        E("extras", "leasehold immovable property", key="tenure",
+          value="leasehold"),
+        E("extras", "The intending bidder shall use the demised premises only "
+          "for the purpose of Readymade Garments' Textile Industry as per NOC "
+          "dated 25-09-2025 issued by KADB", key="leasehold_use_restriction",
+          value="KIADB NOC 25-09-2025: use restricted to Readymade Garments' "
+          "Textile Industry"),
+        E("extras", "(Including TDS @1%)", key="reserve_price_tds",
+          value="reserve price includes TDS @1%"),
+    ],
+)
+
+# --------------------------------------------------------------------------- #
+# Example 7 — CAN FIN multi-lot with DISJUNCTIVE possession. Source: Can Fin
+# Homes / Salem, CANFN17791720254760.png (not in the gold set). The "Type of
+# Possession" column reads "constructive / physical" — the notice never commits
+# to one value, so property entities carry NO possession_type (user decision:
+# null over raw disjunction or a guess; evals/langextract_gold.py EXPECT_NULL).
+# Also demonstrates: encumbrance ("known encumbrances : NIL"), Salem-style
+# registration hierarchy inside the description, patta subdivision surveys, and
+# the ½ unicode fraction in extents.
+# --------------------------------------------------------------------------- #
+CANFIN_TEXT = (
+    "NOTICE is hereby given to the public in general and in particular to the "
+    "Borrower (s) and Guarantor (s) that the below described immovable "
+    "properties mortgaged/charged to the Secured Creditor, the possession of "
+    "which has been taken by the Authorised Officer of Can Fin Homes Ltd., "
+    "Salem Branch, will be sold by holding e-auction on \"As is where is\", "
+    "\"As is what is\", and \"Whatever there is\" on 19.06.2026. "
+    "Sl. No. 1. Mrs. Sarun Saroja I and Mr. Iruthalyaraj L (Borrowers) and "
+    "Guarantors Mrs. M.Preethi and Mr. M.Mahendran. Liability as on 18-05-2026 "
+    "Rs.12,80,926/-. Reserve Price Rs.32,00,000/-. Earnest Money Deposit "
+    "Rs.3,20,000/-. Type of Possession: constructive / physical. Description "
+    "of the property: All the piece and parcel of land situated in Salem West "
+    "registration District, Omakur Sub registration District, Kadalyampatty "
+    "Taluk, Kanjanaaickenpatty Village, Government re-survey no.400/2B, as per "
+    "New Survey subdivision, Patta No.1724, Survey no.400/2B1a1A, in this an "
+    "Area of 20021⁄2 Sq. feet of House site which Is Situated Within the "
+    "Following Boundaries : To the North of 20 Feet Width Road, To the South "
+    "of Remaining Land of executant Mrs. Devaki, To the East of Saarun Saroja "
+    "Land - Plot No. 71, To the West of Saarun Saroja Land. known "
+    "encumbrances : NIL. "
+    "Sl. No. 2. Selvakumar K, S/o. Krishnamoorthy, Shanthi S, W/o. Selvakumar "
+    "K (Borrowers). Liability as on 18-05-2026 Rs.37,05,426/-. Reserve Price "
+    "Rs.37,00,000/-. Earnest Money Deposit Rs.3,70,000/-. Type of Possession: "
+    "constructive / physical. Description of the property: Salem west "
+    "registration district, Salem east joint 1 SRD, Salem taluk, Chinnanur "
+    "village, patta no.247, S.no.18/3, as per patta sub division S.no.18/3A1, "
+    "out of the above land within 1769.50 sq.ft of land are related to this "
+    "description. the boundaries measurements for the same as per deed no. "
+    "4659/2013 are below To North of : Rangasamy & Senthil And Other Property, "
+    "To South of : 15 Feet Wide Road East West Road, To East of : Senthil @ "
+    "Subramani Land, To West of : Veerasamy Mariyammal Land. known "
+    "encumbrances : NIL. "
+    "Link for Participating e-auction: www.auctionbazaar.com"
+)
+
+CANFIN_EXAMPLE = lx.data.ExampleData(
+    text=CANFIN_TEXT,
+    extractions=[
+        E("secured_creditor", "Can Fin Homes Ltd., Salem Branch",
+          legal_basis="SARFAESI", bank_name="Can Fin Homes Ltd",
+          branch="Salem",
+          sale_terms="As is where is, As is what is, Whatever there is",
+          auction_platform_url="www.auctionbazaar.com"),
+        # ---- Lot 1 ----
+        E("borrower", "Mrs. Sarun Saroja I", role="borrower", lot_index="1"),
+        E("borrower", "Mr. Iruthalyaraj L", role="co-borrower", lot_index="1"),
+        E("borrower", "Mrs. M.Preethi", role="guarantor", lot_index="1"),
+        E("borrower", "Mr. M.Mahendran", role="guarantor", lot_index="1"),
+        # "constructive / physical" commits to nothing -> NO possession_type.
+        E("property", "All the piece and parcel of land situated in Salem "
+          "West registration District, Omakur Sub registration District, "
+          "Kadalyampatty Taluk, Kanjanaaickenpatty Village", lot_index="1",
+          property_type="house site", asset_category="immovable",
+          encumbrance="Nil"),
+        E("full_description", "All the piece and parcel of land situated in "
+          "Salem West registration District, Omakur Sub registration "
+          "District, Kadalyampatty Taluk, Kanjanaaickenpatty Village, "
+          "Government re-survey no.400/2B, as per New Survey subdivision, "
+          "Patta No.1724, Survey no.400/2B1a1A, in this an Area of "
+          "20021⁄2 Sq. feet of House site which Is Situated Within the "
+          "Following Boundaries : To the North of 20 Feet Width Road, To the "
+          "South of Remaining Land of executant Mrs. Devaki, To the East of "
+          "Saarun Saroja Land - Plot No. 71, To the West of Saarun Saroja "
+          "Land.", lot_index="1"),
+        E("location", "Salem West registration District, Omakur Sub "
+          "registration District, Kadalyampatty Taluk, Kanjanaaickenpatty "
+          "Village", lot_index="1", registration_district="Salem West",
+          registration_sub_district="Omakur", taluk="Kadalyampatty",
+          village="Kanjanaaickenpatty"),
+        E("identifier", "Government re-survey no.400/2B", kind="survey_old",
+          value="400/2B", lot_index="1"),
+        E("identifier", "Patta No.1724", kind="patta", value="1724",
+          lot_index="1"),
+        E("identifier", "Survey no.400/2B1a1A", kind="survey_new",
+          value="400/2B1a1A", lot_index="1"),
+        E("extent", "20021⁄2 Sq. feet", lot_index="1",
+          total_area="2002½ sq.ft", extent_sqft="2002.5"),
+        E("boundary", "To the North of 20 Feet Width Road", side="north",
+          adjacency="20 Feet Width Road", lot_index="1"),
+        E("boundary", "To the South of Remaining Land of executant Mrs. "
+          "Devaki", side="south",
+          adjacency="Remaining Land of executant Mrs. Devaki", lot_index="1"),
+        E("boundary", "To the East of Saarun Saroja Land - Plot No. 71",
+          side="east", adjacency="Saarun Saroja Land - Plot No. 71",
+          lot_index="1"),
+        E("boundary", "To the West of Saarun Saroja Land", side="west",
+          adjacency="Saarun Saroja Land", lot_index="1"),
+        E("auction_terms", "Reserve Price Rs.32,00,000/-. Earnest Money "
+          "Deposit Rs.3,20,000/-", lot_index="1", reserve_price_num="3200000",
+          emd_num="320000", auction_start_dt="2026-06-19"),
+        E("outstanding", "Liability as on 18-05-2026 Rs.12,80,926/-",
+          lot_index="1", amount_num="1280926", as_on="2026-05-18"),
+        # ---- Lot 2 ----
+        E("borrower", "Selvakumar K, S/o. Krishnamoorthy", role="borrower",
+          lot_index="2"),
+        E("borrower", "Shanthi S, W/o. Selvakumar K", role="co-borrower",
+          lot_index="2"),
+        E("property", "Salem west registration district, Salem east joint 1 "
+          "SRD, Salem taluk, Chinnanur village, patta no.247, S.no.18/3",
+          lot_index="2", property_type="land", asset_category="immovable",
+          encumbrance="Nil"),
+        E("full_description", "Salem west registration district, Salem east "
+          "joint 1 SRD, Salem taluk, Chinnanur village, patta no.247, "
+          "S.no.18/3, as per patta sub division S.no.18/3A1, out of the above "
+          "land within 1769.50 sq.ft of land are related to this description. "
+          "the boundaries measurements for the same as per deed no. 4659/2013 "
+          "are below To North of : Rangasamy & Senthil And Other Property, To "
+          "South of : 15 Feet Wide Road East West Road, To East of : Senthil "
+          "@ Subramani Land, To West of : Veerasamy Mariyammal Land.",
+          lot_index="2"),
+        E("location", "Salem west registration district, Salem east joint 1 "
+          "SRD, Salem taluk, Chinnanur village", lot_index="2",
+          registration_district="Salem West",
+          registration_sub_district="Salem East Joint 1", taluk="Salem",
+          village="Chinnanur"),
+        E("identifier", "patta no.247", kind="patta", value="247",
+          lot_index="2"),
+        E("identifier", "S.no.18/3", kind="survey_old", value="18/3",
+          lot_index="2"),
+        E("identifier", "S.no.18/3A1", kind="survey_new", value="18/3A1",
+          lot_index="2"),
+        E("identifier", "deed no. 4659/2013", kind="sale_deed",
+          value="4659/2013", lot_index="2"),
+        E("extent", "1769.50 sq.ft", lot_index="2", total_area="1769.50 sq.ft",
+          extent_sqft="1769.5"),
+        E("boundary", "To North of : Rangasamy & Senthil And Other Property",
+          side="north", adjacency="Rangasamy & Senthil And Other Property",
+          lot_index="2"),
+        E("boundary", "To South of : 15 Feet Wide Road East West Road",
+          side="south", adjacency="15 Feet Wide Road East West Road",
+          lot_index="2"),
+        E("boundary", "To East of : Senthil @ Subramani Land", side="east",
+          adjacency="Senthil @ Subramani Land", lot_index="2"),
+        E("boundary", "To West of : Veerasamy Mariyammal Land", side="west",
+          adjacency="Veerasamy Mariyammal Land", lot_index="2"),
+        E("auction_terms", "Reserve Price Rs.37,00,000/-. Earnest Money "
+          "Deposit Rs.3,70,000/-", lot_index="2", reserve_price_num="3700000",
+          emd_num="370000", auction_start_dt="2026-06-19"),
+        E("outstanding", "Liability as on 18-05-2026 Rs.37,05,426/-",
+          lot_index="2", amount_num="3705426", as_on="2026-05-18"),
+    ],
+)
+
+EXAMPLES = [SINGLE_EXAMPLE, MULTI_EXAMPLE, APARTMENT_EXAMPLE, DRT_EXAMPLE,
+            ARC_EXAMPLE, KARNATAKA_EXAMPLE, CANFIN_EXAMPLE]
 
 
 _MODEL_CACHE: dict = {}
