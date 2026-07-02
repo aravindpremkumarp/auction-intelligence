@@ -75,7 +75,8 @@
       "caption": "Bank",
       "labels": ["Bank"],
       "properties": {
-        "name": "Bank Name"
+        "name": "Bank Name",
+        "short_name": "Short Display Name (card UI)"
       },
       "style": { "node-color": "#4C8EDA" }
     },

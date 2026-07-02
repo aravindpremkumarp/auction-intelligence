@@ -249,7 +249,7 @@ def list_properties(
                a.reserve_price_num AS reserve_price, a.emd_num AS emd,
                toString(a.auction_start_dt) AS auction_start,
                stt.name AS state, cty.name AS city, ara.name AS area,
-               bnk.name AS bank,
+               bnk.name AS bank, bnk.short_name AS bank_short,
                asc.name AS asset_category,
                property_types,
                previous_reserve_price,

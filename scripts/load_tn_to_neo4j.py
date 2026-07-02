@@ -17,7 +17,7 @@ Follows the auction_graph_model.json schema:
   (AuctionProperty)-[:HAS_BORROWER]->(Borrower)
   (AuctionProperty)-[:IS_AUCTION_TYPE]->(AuctionType)
 
-Run:  python load_tn_to_neo4j.py
+Run:  python -m scripts.load_tn_to_neo4j
 """
 
 import json
@@ -25,15 +25,30 @@ import os
 import time
 from neo4j import GraphDatabase
 
-# ── Connection (from Neo4j-cc513ea9-Created-2026-03-11.txt) ──────────────────
-NEO4J_URI      = "neo4j+s://cc513ea9.databases.neo4j.io"
-NEO4J_USERNAME = "cc513ea9"
-NEO4J_PASSWORD = "ZCgIWawTvdawFfPrwSPnl-kEQF-HEjFR4_iYI-mMT08"
-NEO4J_DATABASE = "cc513ea9"
+from pipeline.config import (
+    NEO4J_URI, NEO4J_USERNAME, NEO4J_PASSWORD, NEO4J_DATABASE, LOOKUPS_DIR,
+)
 
 PROJECT_ROOT   = os.path.join(os.path.dirname(__file__), '..')
 INPUT_FILE     = os.path.join(PROJECT_ROOT, "data", "tn_auction_data.jsonl")
 BATCH_SIZE     = 100  # records per transaction
+
+# Card-display abbreviation for long legal entity names (e.g. "SMFG INDIA
+# CREDIT COMPANY LIMITED" -> "SMFG India Credit"), curated by hand per bank
+# in bank_names.json. Falls back to the full name for any bank not yet
+# curated, so every Bank node always gets a non-null short_name.
+_BANK_SHORT_NAMES = json.loads(
+    (LOOKUPS_DIR / "bank_names.json").read_text(encoding="utf-8")
+).get("short_names", {})
+
+
+def bank_short_name(name: str | None) -> str | None:
+    if not name:
+        return name
+    if name in _BANK_SHORT_NAMES:
+        return _BANK_SHORT_NAMES[name]
+    lower_map = {k.lower(): v for k, v in _BANK_SHORT_NAMES.items()}
+    return lower_map.get(name.lower(), name)
 
 # ── Constraint / Index creation ───────────────────────────────────────────────
 CONSTRAINTS = [
@@ -78,6 +93,7 @@ SET
 WITH a, r
 WHERE r.bank_name IS NOT NULL AND r.bank_name <> ''
 MERGE (b:Bank {name: r.bank_name})
+SET b.short_name = r.bank_short_name
 MERGE (a)-[:CONDUCTED_BY]->(b)
 
 // ── Branch ────────────────────────────────────────────────────────────────
@@ -185,6 +201,7 @@ def sanitise(r: dict) -> dict:
         "contact_details"          : _str(r.get("contact_details")),
         "service_provider"         : _str(r.get("service_provider")),
         "bank_name"                : _str(r.get("bank_name")),
+        "bank_short_name"          : bank_short_name(_str(r.get("bank_name"))),
         "branch_name"              : _str(r.get("branch_name")),
         "state"                    : _str(r.get("state")),
         "city"                     : _str(r.get("city")),

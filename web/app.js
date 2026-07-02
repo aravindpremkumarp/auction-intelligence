@@ -563,6 +563,7 @@ function toCard(row) {
     title: deriveDisplayTitle(row, type),
     loc: joinLoc(row.area, row.city),
     bank: row.bank || null,
+    bankShort: row.bank_short || row.bank || null,
     price: formatINR(row.reserve_price),
     emd: formatINR(row.emd),
     date: formatAuctionDate(row.auction_start || row.deadline),
@@ -1667,7 +1668,7 @@ function propCardHtml(c, urgent, countdown) {
         <div class="title" title="${escapeHtml(c.title)}">${escapeHtml(c.title)}</div>
         ${c.loc ? `<div class="loc">${_CARD_ICO_PIN}<span>${escapeHtml(c.loc)}</span></div>` : ''}
         <div class="prop-foot">
-          ${showBank ? `<span class="card-bank" title="${escapeHtml(c.bank)}">${_CARD_ICO_BANK}<span class="card-bank-name">${escapeHtml(c.bank)}</span></span>` : ''}
+          ${showBank ? `<span class="card-bank" title="${escapeHtml(c.bank)}">${_CARD_ICO_BANK}<span class="card-bank-name">${escapeHtml(c.bankShort)}</span></span>` : ''}
           ${c.date ? `<span class="card-date">${_CARD_ICO_CAL}<span>${escapeHtml(c.date)}</span></span>` : ''}
           ${c.ended ? '<span class="ended-tag">auction ended</span>' : ''}
         </div>

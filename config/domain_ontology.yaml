@@ -36,6 +36,7 @@ entity_types:
     key: name
     properties:
       name: {type: string, unique: true}
+      short_name: {type: string}  # abbreviated label for card UI display; falls back to name when uncurated
 
   Branch:
     description: Specific bank branch listing the auction
