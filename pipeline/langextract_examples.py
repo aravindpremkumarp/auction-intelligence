@@ -1011,6 +1011,12 @@ def extract(markdown: str):
           key LANGEXTRACT_API_KEY.
     passes (LANGEXTRACT_PASSES, default 2) maximises multi-lot recall; results
     carry char_interval source grounding either way.
+
+    Both paths run WITHOUT schema constraints: on the gemini path langextract
+    would otherwise derive a response schema from EXAMPLES and silently suppress
+    any attr key not demonstrated there, while the OpenRouter path never
+    constrains — so evals would test different behaviour than production. Set
+    LANGEXTRACT_USE_SCHEMA=1 to restore constrained generation on gemini.
     """
     common = dict(
         text_or_documents=markdown, prompt_description=PROMPT_DESCRIPTION,
@@ -1020,8 +1026,11 @@ def extract(markdown: str):
     if os.environ.get("LANGEXTRACT_PROVIDER", "openrouter").lower() == "openrouter":
         return lx.extract(model=_openrouter_model(), fence_output=True,
                           use_schema_constraints=False, **common)
+    use_schema = os.environ.get("LANGEXTRACT_USE_SCHEMA", "").strip() == "1"
     return lx.extract(model_id=os.environ.get("LANGEXTRACT_MODEL_ID", "gemini-2.5-flash"),
-                      api_key=os.environ.get("LANGEXTRACT_API_KEY"), **common)
+                      api_key=os.environ.get("LANGEXTRACT_API_KEY"),
+                      fence_output=not use_schema,
+                      use_schema_constraints=use_schema, **common)
 
 
 if __name__ == "__main__":
