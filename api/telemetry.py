@@ -82,6 +82,20 @@ def configure_telemetry(app: object | None = None) -> bool:
     # Captures the agent run + every model request (prompt, response, tokens,
     # cost) and tool call as spans — this is the core of the trace.
     logfire.instrument_pydantic_ai()
+
+    # Ship the api/observability.py `timed()` lines (auction.obs — chat
+    # latency, resolved model/reasoning_effort, Neo4j query timings) into
+    # Logfire too. Scoped to this one logger (not the root logger) so uvicorn
+    # access logs and other library noise don't ride along. setLevel is
+    # required: this logger has no explicit level today, so it inherits the
+    # root logger's default WARNING and the happy-path INFO lines (the ones
+    # carrying reasoning_effort) would never reach any handler at all.
+    from logfire.integrations.logging import LogfireLoggingHandler
+
+    obs_logger = logging.getLogger("auction.obs")
+    obs_logger.setLevel(logging.INFO)
+    obs_logger.addHandler(LogfireLoggingHandler())
+
     if app is not None:
         # Root HTTP span per request, so a /chat trace shows the full
         # request → agent → LLM/tool waterfall under one trace id. Needs the
