@@ -14,10 +14,37 @@ Usage:
 from __future__ import annotations
 
 import collections
+import json
 import re
+from pathlib import Path
 
 # Penalty (0-100 scale) per severity; score = 100 - sum(penalties), floored at 0.
 _PENALTY = {"high": 25, "med": 10, "low": 4}
+
+# ── identifier-kind normalization ────────────────────────────────────────────
+# The prompt instructs an exact enum for identifier `kind`, but models sometimes
+# copy the document's label ("T.S.No", "Sy No", "Block No") instead. This maps
+# such drift back to the canonical enum; unmappable kinds are flagged
+# kind_invalid below. Shared by pipeline/load_extractions.py and the eval.
+_KINDS_PATH = Path(__file__).resolve().parent / "lookups" / "identifier_kinds.json"
+_KINDS = json.loads(_KINDS_PATH.read_text(encoding="utf-8"))
+CANONICAL_KINDS = frozenset(_KINDS["canonical"])
+_KIND_ALIASES = _KINDS["aliases"]
+
+
+def normalize_identifier_kind(kind):
+    """Return (canonical_kind_or_original, changed).
+
+    "T.S.No" -> ("survey_old", True); "survey_old" -> ("survey_old", False);
+    "shop" (no mapping) -> ("shop", False) — caller may flag kind_invalid.
+    """
+    if not kind or kind in CANONICAL_KINDS:
+        return kind, False
+    squashed = re.sub(r"[^a-z0-9]", "", str(kind).lower())
+    mapped = _KIND_ALIASES.get(squashed)
+    if mapped:
+        return mapped, True
+    return kind, False
 
 # Plausible single-property rupee reserve price: Rs 10k .. Rs 100 crore.
 _RESERVE_MIN, _RESERVE_MAX = 10_000, 10_000_000_000
@@ -25,10 +52,16 @@ _RESERVE_MIN, _RESERVE_MAX = 10_000, 10_000_000_000
 _EMD_LO, _EMD_HI = 0.04, 0.25
 _LEGAL = {"SARFAESI", "DRT", "IBC", "other"}
 # High-value fields whose per-batch coverage % is the main improvement signal.
+# Mixed convention (kept): entity-class names (borrower/location/boundary/...),
+# attr names (village/possession_type/...), and identifier kinds (flat/floor/
+# block — added to present_fields in validate()).
 COVERAGE_FIELDS = (
     "legal_basis", "bank_name", "possession_type", "reserve_price_num", "emd_num",
     "village", "taluk", "district", "registration_district",
     "registration_sub_district", "borrower", "location", "extent", "identifier",
+    "boundary", "full_description", "full_terms", "extras",
+    "flat", "floor", "block", "measurement", "undivided_share",
+    "address", "encumbrance", "hobli",
 )
 _LOT_MARKER = re.compile(r"\b(S\.?\s?No|Sr\.?\s?No|Sl\.?\s?No|Item\s*No)\b", re.I)
 
@@ -53,6 +86,7 @@ def validate(extractions, source_text: str = "") -> dict:
     present_fields: set = set()
     sec: dict = {}
     ungrounded = nullvals = 0
+    invalid_kinds: set = set()
 
     for e in extractions:
         a = e.attributes or {}
@@ -68,8 +102,17 @@ def validate(extractions, source_text: str = "") -> dict:
                 present_fields.add(k)     # attribute presence (village/...)
             if isinstance(v, str) and v.strip().lower() in {"null", "na", "n/a", ""}:
                 nullvals += 1
+        if c == "identifier" and a.get("kind"):
+            kind, _ = normalize_identifier_kind(a["kind"])
+            present_fields.add(kind)      # kind presence (flat/floor/block/...)
+            if kind not in CANONICAL_KINDS:
+                invalid_kinds.add(str(a["kind"]))
         if c == "secured_creditor":
-            sec = a
+            # A multi-branch/multi-lot notice repeats secured_creditor; the
+            # first entity carries legal_basis etc. — merge first-non-null
+            # instead of letting the last (usually sparse) one win.
+            for k, v in a.items():
+                sec.setdefault(k, v)
         elif c == "auction_terms":
             r, m = _num(a.get("reserve_price_num")), _num(a.get("emd_num"))
             if r is not None:
@@ -94,6 +137,12 @@ def validate(extractions, source_text: str = "") -> dict:
         flag("ungrounded", "med", f"{ungrounded} extraction(s) not grounded to source")
     if nullvals:
         flag("null_value", "low", f"{nullvals} literal 'null'/empty attribute value(s)")
+    if invalid_kinds:
+        flag("kind_invalid", "low",
+             f"identifier kind(s) outside the enum: {sorted(invalid_kinds)}")
+    if classes.get("extras", 0) > 5:
+        flag("extras_excess", "low",
+             f"{classes['extras']} extras entities (prompt caps at ~5)")
 
     # ── field sanity ─────────────────────────────────────────────────────────
     lb = sec.get("legal_basis")

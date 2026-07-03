@@ -15,7 +15,7 @@ import collections
 import os
 from pathlib import Path
 
-from evals.langextract_gold import GOLD
+from evals.langextract_gold import EXPECT_NULL, GOLD
 
 
 def extract_robust(md: str, tries: int = 3):
@@ -93,7 +93,11 @@ def flatten_records(records: list[dict]) -> dict:
         elif c == "borrower":
             borrowers.append((a.get("lot_index"), text))
         elif c == "identifier" and a.get("kind") and a.get("value"):
-            out["identifiers"][a["kind"]].add(str(a["value"]))
+            # Same kind-normalization the loader applies (pipeline/validators),
+            # so the eval measures post-normalization reality.
+            from pipeline.validators import normalize_identifier_kind
+            kind, _ = normalize_identifier_kind(a["kind"])
+            out["identifiers"][kind].add(str(a["value"]))
 
     def _lot1(items):
         return next((i for i in items if i.get("lot_index") in ("1", None)),
@@ -135,6 +139,10 @@ def score_notice(g: dict, flat: dict) -> list[tuple]:
     rows = []
     for key, gold in g["fields"].items():
         if gold is None:
+            continue
+        if gold is EXPECT_NULL:
+            got = flat.get(key)
+            rows.append((key, "<null>", got, got is None))
             continue
         if key == "reserve_price_num":
             got = sorted(flat.get("reserve_set", set()))
