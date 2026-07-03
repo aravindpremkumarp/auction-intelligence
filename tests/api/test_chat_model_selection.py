@@ -72,12 +72,12 @@ def test_free_tier_off_is_honored() -> None:
 
 
 def test_free_tier_ceiling_honors_below_cap(monkeypatch: pytest.MonkeyPatch) -> None:
-    """With a raised cap (e.g. medium), a below-cap request (low) is honored."""
+    """With a raised cap (e.g. xhigh), a below-cap request (high) is honored."""
     from api import model_selection as ms
 
-    monkeypatch.setattr(ms, "FREE_TIER_EFFORT", "medium")
-    assert ms.resolve_reasoning_effort("low", "free") == "low"
-    assert ms.resolve_reasoning_effort("high", "free") == "medium"  # above -> clamp
+    monkeypatch.setattr(ms, "FREE_TIER_EFFORT", "xhigh")
+    assert ms.resolve_reasoning_effort("high", "free") == "high"
+    assert ms.resolve_reasoning_effort("xhigh", "free") == "xhigh"
 
 
 def test_build_model_settings_reasoning_toggle(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -207,13 +207,13 @@ def test_models_endpoint_locks_pro_for_free() -> None:
     from api.model_selection import FREE_TIER_EFFORT
 
     assert body["defaults"]["reasoning_effort"] == FREE_TIER_EFFORT
-    assert [e["id"] for e in body["reasoning_efforts"]] == ["off", "medium", "high"]
+    assert [e["id"] for e in body["reasoning_efforts"]] == ["off", "high", "xhigh"]
     # Efforts above the free ceiling are locked (they'd silently clamp);
     # Off is at/below the ceiling and stays available.
     eff = {e["id"]: e for e in body["reasoning_efforts"]}
     assert eff["off"]["locked"] is False
-    assert eff["medium"]["locked"] is True
     assert eff["high"]["locked"] is True
+    assert eff["xhigh"]["locked"] is True
 
 
 def test_models_endpoint_unlocks_pro_for_paid() -> None:

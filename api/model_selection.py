@@ -67,19 +67,27 @@ CHAT_MODEL_OPTIONS: list[dict] = [
 # (and synonyms) disables reasoning entirely. We validate against this set and
 # fall back to the server default on anything unknown, so a stale client can't
 # wedge a turn with a bogus value.
+#
+# NB: "low"/"medium" are deliberately NOT in this set. OpenRouter's DeepSeek
+# V4 Pro/Flash only implement "high" and "xhigh" (xhigh = max) as distinct
+# effort levels — per DeepSeek's own compatibility spec, "low"/"medium"
+# requests normalize to "high", so offering them as cheaper options was
+# misleading (confirmed empirically: zero "effort" values ever showed up in
+# Logfire's chat spans, and OpenRouter's docs for these two models list only
+# high/xhigh). "off" is the only genuinely cheaper tier below "high".
 _EFFORT_OFF = {"off", "none", "disabled", "0", "false"}
-ALLOWED_REASONING_EFFORTS = frozenset({"off", "none", "low", "medium", "high", "xhigh"})
+ALLOWED_REASONING_EFFORTS = frozenset({"off", "none", "high", "xhigh"})
 
 # Cost ordering for the free-tier ceiling: a request at or below the cap is
 # honored (off is the cheapest — never refuse it), anything above is clamped.
-EFFORT_RANK = {"off": 0, "none": 0, "low": 1, "medium": 2, "high": 3, "xhigh": 4}
+EFFORT_RANK = {"off": 0, "none": 0, "high": 1, "xhigh": 2}
 
-# UI option list (consumed by GET /chat/models). Kept to a friendly three; the
-# request body still accepts any value in ALLOWED_REASONING_EFFORTS.
+# UI option list (consumed by GET /chat/models). The request body still
+# accepts any value in ALLOWED_REASONING_EFFORTS.
 REASONING_EFFORT_OPTIONS: list[dict] = [
     {"id": "off", "label": "Off", "description": "Fastest and cheapest — no extra reasoning."},
-    {"id": "medium", "label": "Balanced", "description": "Moderate reasoning for everyday questions."},
-    {"id": "high", "label": "Thorough", "description": "Maximum reasoning for hard, multi-step questions."},
+    {"id": "high", "label": "Thorough", "description": "Deeper reasoning for hard, multi-step questions."},
+    {"id": "xhigh", "label": "Maximum", "description": "The most exhaustive reasoning DeepSeek supports."},
 ]
 
 
@@ -100,11 +108,13 @@ def resolve_chat_model(tier: str | None, requested: str | None) -> str:
 
 
 # Server-enforced reasoning cap for free/anon. Validated here so a bogus env
-# value can't wedge every free turn; falls back to "low" if misconfigured.
+# value can't wedge every free turn; falls back to "off" if misconfigured —
+# the only tier below "high" that's actually honored by DeepSeek V4 (see the
+# ALLOWED_REASONING_EFFORTS note above).
 FREE_TIER_EFFORT = (
     FREE_TIER_REASONING_EFFORT.strip().lower()
     if FREE_TIER_REASONING_EFFORT.strip().lower() in ALLOWED_REASONING_EFFORTS
-    else "low"
+    else "off"
 )
 
 

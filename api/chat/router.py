@@ -270,7 +270,7 @@ class ChatRequest(BaseModel):
     # concrete selection). Cleaned + bounded by `_clean_panel_ids`.
     panel_auction_ids: list[str] | None = None
     # User-selectable model ("flash"/"pro") and reasoning effort
-    # ("off"/"medium"/"high"/…). Advisory only — both are resolved + gated
+    # ("off"/"high"/"xhigh"). Advisory only — both are resolved + gated
     # server-side in `_prepare_turn` (free/anon users are forced onto Flash),
     # so a tampered client can't unlock the pricey model or an unknown effort.
     # `None` = use the tier default (Flash for free, Pro for paid) / server
