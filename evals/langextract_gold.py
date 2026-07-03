@@ -110,13 +110,20 @@ GOLD = [
         # target for the flat/floor/block misplacement + miss found in review.
         "aid": "752245", "notice_type": "single",
         "fields": {
-            "legal_basis": "SARFAESI", "bank_name": "ARCIL",
+            # The notice names the seller by its full legal name ("Asset
+            # Reconstruction Company (India) Limited"); "Asset Reconstruction"
+            # substring-matches both that and any ARCIL short form.
+            "legal_basis": "SARFAESI", "bank_name": "Asset Reconstruction",
             "assignor_bank": "Bajaj Housing Finance",
             "trust_name": "Arcil-Retail Loan Portfolio-042",
             "possession_type": "physical",
             "reserve_price_num": 2889000,
+            # district deliberately unscored: the notice states only the
+            # REGISTRATION District of Coimbatore (OCR: "Colmbatore") — the
+            # revenue district is never named, so per the verbatim/no-invention
+            # rule the correct extraction is district=None.
             "village": "Kalapatty", "taluk": "Coimbatore North",
-            "district": "Coimbatore", "borrower_primary": "Dhayanandh",
+            "district": None, "borrower_primary": "Dhayanandh",
         },
         "identifiers": {"floor": "First", "block": "A"},
     },
