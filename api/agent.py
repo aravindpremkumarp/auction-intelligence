@@ -293,8 +293,8 @@ def search_auctions(
     asset_category: str | list[str] | None = None,
     bank: str | list[str] | None = None,
     borrower: str | list[str] | None = None,
-    auction_type: str | None = None,
-    branch_name: str | None = None,
+    auction_type: str | list[str] | None = None,
+    branch_name: str | list[str] | None = None,
     service_provider: str | list[str] | None = None,
     starts_after: datetime | None = None, starts_before: datetime | None = None,
     deadline_within_days: int | None = None,
@@ -302,6 +302,7 @@ def search_auctions(
     order_by: str = "deadline_asc",
     aggregate_field: str | None = None,
     aggregations: list[str] | None = None,
+    group_by: str | None = None,
     include_past: bool = False,
 ) -> dict | ToolReturn:
     """Filter auctions by price, EMD, city, area, property_type,
@@ -340,6 +341,14 @@ def search_auctions(
     to any subset of ["min","max","avg","median","p25","p75"]; pass
     `limit=0` to skip the row fetch when only stats are needed. Results are
     added under an `aggregations` key.
+
+    Distributions — for breakdown/"mix"/"how many per X" questions: set
+    `group_by` ∈ {"city","area","state","bank","branch","borrower",
+    "asset_category","property_type","auction_type","service_provider"}.
+    Returns value→count buckets under `distribution` (rows are skipped);
+    all filters compose with it — e.g. bank mix under 30 lakhs =
+    `group_by="bank", max_price=3000000`. NEVER loop `get_auction_detail`
+    or per-value searches for counts.
     """
     # UI overflow rows ride on ToolReturn metadata (never model-visible) —
     # see api/tool_returns.py for why a plain dict return leaked them into
@@ -356,6 +365,7 @@ def search_auctions(
         deadline_within_days=deadline_within_days,
         limit=limit, order_by=order_by,
         aggregate_field=aggregate_field, aggregations=aggregations,
+        group_by=group_by,
         include_past=include_past,
     ))
 
@@ -435,40 +445,6 @@ def select_properties(auction_ids: list[str]) -> dict:
     it when a search/detail call this turn already returned exactly that
     set."""
     return T.get_auctions_by_ids(auction_ids)
-
-
-@agent.tool_plain
-def list_distinct(
-    field: str,
-    limit: int = 100,
-    city: str | list[str] | None = None,
-    bank: str | list[str] | None = None,
-    borrower: str | list[str] | None = None,
-    asset_category: str | list[str] | None = None,
-    auction_type: str | list[str] | None = None,
-    branch: str | list[str] | None = None,
-) -> dict:
-    """Distinct values of a reference field with per-value auction counts —
-    use for distribution / breakdown / "spread" / "mix" questions.
-
-    `field` ∈ {"city","area","state","bank","branch","borrower",
-    "asset_category","property_type","auction_type","service_provider"
-    (e-auction platform)}.
-
-    Optional scope filters narrow the count: `city`, `bank`, `borrower`,
-    `asset_category`, `auction_type`, `branch` (each single str or list,
-    any-match). Scope must differ from `field`. Example: property-type
-    mix for SBI → field="property_type", bank="State Bank of India"."""
-    return T.list_distinct(
-        field,
-        limit,
-        city=city,
-        bank=bank,
-        borrower=borrower,
-        asset_category=asset_category,
-        auction_type=auction_type,
-        branch=branch,
-    )
 
 
 @agent.tool_plain

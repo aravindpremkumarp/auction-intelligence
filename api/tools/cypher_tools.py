@@ -174,6 +174,10 @@ _UI_ROWS_HARD_CAP = 500
 # come from `total_count`, never the row count, so capping rows loses no facts.
 _LLM_ROWS_HARD_CAP = 25
 
+# Bucket cap for `group_by` distributions (matches the old list_distinct
+# default). Distributions are value→count pairs, so 100 stays tiny in context.
+_GROUP_BY_MAX_BUCKETS = 100
+
 # `deadline_*` orders by the application deadline (the actionable bidding
 # cutoff); `start_*` by the auction start. Historically both `deadline_*`
 # keys pointed at `auction_start_dt` — a mislabel, since the row's deadline
@@ -201,8 +205,8 @@ def search_auctions(
     asset_category: str | list[str] | None = None,
     bank: str | list[str] | None = None,
     borrower: str | list[str] | None = None,
-    auction_type: str | None = None,
-    branch_name: str | None = None,
+    auction_type: str | list[str] | None = None,
+    branch_name: str | list[str] | None = None,
     service_provider: str | list[str] | None = None,
     starts_after: datetime | None = None,
     starts_before: datetime | None = None,
@@ -211,8 +215,14 @@ def search_auctions(
     order_by: str = "deadline_asc",
     aggregate_field: str | None = None,
     aggregations: list[str] | None = None,
+    group_by: str | None = None,
     include_past: bool = False,
 ) -> dict:
+    if group_by is not None and (
+        group_by not in _DISTINCT_FIELDS and group_by not in _DISTINCT_NODE_PROPS
+    ):
+        valid = sorted([*_DISTINCT_FIELDS, *_DISTINCT_NODE_PROPS])
+        raise ValueError(f"group_by must be one of {valid}, got {group_by!r}")
     if aggregations:
         if aggregate_field not in _AGG_FIELDS:
             raise ValueError(
@@ -318,11 +328,15 @@ def search_auctions(
         where.append("any(x IN $borrower WHERE toLower(bor.name) CONTAINS toLower(x))")
         params["borrower"] = borrower_list
     if auction_type:
-        matches.append("(a)-[:IS_AUCTION_TYPE]->(:AuctionType {name: $auction_type})")
-        params["auction_type"] = auction_type
+        at_list = [auction_type] if isinstance(auction_type, str) else list(auction_type)
+        matches.append("(a)-[:IS_AUCTION_TYPE]->(at:AuctionType)")
+        where.append("at.name IN $auction_type")
+        params["auction_type"] = at_list
     if branch_name:
-        matches.append("(a)-[:LISTED_BY_BRANCH]->(:Branch {name: $branch_name})")
-        params["branch_name"] = branch_name
+        br_list = [branch_name] if isinstance(branch_name, str) else list(branch_name)
+        matches.append("(a)-[:LISTED_BY_BRANCH]->(br:Branch)")
+        where.append("br.name IN $branch_name")
+        params["branch_name"] = br_list
 
     where_clause = 'WHERE ' + ' AND '.join(where) if where else ''
     match_clause = ', '.join(matches)
@@ -339,8 +353,38 @@ def search_auctions(
     agg_row = agg_rows[0] if agg_rows else {}
     total_count = agg_row.get("total_count", 0)
 
+    # `group_by` turns the call into a distribution query: value → auction
+    # count over the SAME filter set (this is what the old list_distinct did,
+    # but with the full search scope — price/EMD/date/platform included). The
+    # row fetch is skipped; the buckets are the answer.
+    distribution: list[dict] | None = None
+    if group_by is not None and total_count > 0:
+        dist_matches = list(matches)
+        dist_where = list(where)
+        if group_by in _DISTINCT_NODE_PROPS:
+            value_expr = _DISTINCT_NODE_PROPS[group_by]
+            dist_where.append(f"{value_expr} IS NOT NULL")
+        else:
+            g_label, g_rel = _DISTINCT_FIELDS[group_by]
+            dist_matches.append(f"(a)-[:{g_rel}]->(g:{g_label})")
+            value_expr = "g.name"
+        dist_where_clause = ("WHERE " + " AND ".join(dist_where)) if dist_where else ""
+        dist_cypher = f"""
+            MATCH {', '.join(dist_matches)}
+            {dist_where_clause}
+            RETURN {value_expr} AS value, count(DISTINCT a) AS auction_count
+            ORDER BY auction_count DESC
+            LIMIT {_GROUP_BY_MAX_BUCKETS}
+        """
+        distribution = run_read_query(
+            dist_cypher, {k: v for k, v in params.items() if k != "limit"},
+            timeout=15.0, max_rows=_GROUP_BY_MAX_BUCKETS,
+        )
+    elif group_by is not None:
+        distribution = []
+
     ui_results: list[dict] = []
-    if limit > 0 and total_count > 0:
+    if limit > 0 and total_count > 0 and group_by is None:
         cypher = f"""
             MATCH {match_clause}
             {where_clause}
@@ -395,6 +439,9 @@ def search_auctions(
         out["_ui_results"] = ui_results
     if aggregations:
         out["aggregations"] = {name: agg_row.get(name) for name in aggregations}
+    if group_by is not None:
+        out["group_by"] = group_by
+        out["distribution"] = distribution or []
     if total_count == 0 and default_future_only:
         # Diagnose the zero: was it the implicit future-only floor? One cheap
         # count with the floor dropped tells the model exactly what to do
@@ -931,9 +978,9 @@ _CYPHER_PATTERN_RULES = [
     "Cypher silently returns zero matches across ZONED-vs-LOCAL DATETIME. "
     "If you must pass an ISO string, wrap it on the WHERE side: "
     "WHERE a.auction_start_dt >= datetime($iso).",
-    "For scoped breakdowns, prefer the list_distinct tool (with city, bank, "
-    "borrower, asset_category, auction_type, or branch scope) before writing "
-    "a run_cypher — the tool already composes the correct Cypher shape.",
+    "For scoped breakdowns, prefer search_auctions(group_by=...) — filters "
+    "compose with the grouping — before writing a run_cypher; the tool "
+    "already composes the correct Cypher shape.",
 ]
 
 _CYPHER_PATTERN_EXAMPLES = [
@@ -1080,94 +1127,6 @@ _CYPHER_PATTERN_EXAMPLES = [
         ),
     },
 ]
-
-
-def list_distinct(
-    field: str,
-    limit: int = 100,
-    city: str | list[str] | None = None,
-    bank: str | list[str] | None = None,
-    borrower: str | list[str] | None = None,
-    asset_category: str | list[str] | None = None,
-    auction_type: str | list[str] | None = None,
-    branch: str | list[str] | None = None,
-) -> dict:
-    """List distinct values of a reference field with counts.
-
-    `field` must be a key of _DISTINCT_FIELDS (edge-walked reference nodes)
-    or _DISTINCT_NODE_PROPS (grouped straight off the AuctionProperty node,
-    e.g. "service_provider"). Scope filters (`city`, `bank`, `borrower`,
-    `asset_category`, `auction_type`, `branch`) narrow the count to
-    auctions that match every provided scope. Each scope accepts either a
-    single string or a list of strings (any-match within the list). A
-    scope must differ from `field` — you can't group by bank while
-    filtering by bank.
-
-    Use this for distribution / breakdown / "spread" questions
-    ("property-type mix for SBI", "asset categories in Chennai",
-    "auction-type breakdown for Canara Bank"). Never iterate
-    `get_auction_detail` to compute a count.
-    """
-    if field not in _DISTINCT_FIELDS and field not in _DISTINCT_NODE_PROPS:
-        valid = sorted([*_DISTINCT_FIELDS, *_DISTINCT_NODE_PROPS])
-        raise ValueError(f"field must be one of {valid}, got {field!r}")
-
-    raw_scopes: dict[str, str | list[str] | None] = {
-        "city":           city,
-        "bank":           bank,
-        "borrower":       borrower,
-        "asset_category": asset_category,
-        "auction_type":   auction_type,
-        "branch":         branch,
-    }
-    # Filtering by the same dimension you're grouping on is a no-op; drop
-    # silently so agents can pass redundant scopes without an error.
-    active_scopes = {k: v for k, v in raw_scopes.items() if v and k != field}
-
-    params: dict = {"limit": int(limit)}
-
-    scope_matches: list[str] = []
-    where_clauses: list[str] = []
-    for scope_field, value in active_scopes.items():
-        scope_label, scope_rel = _DISTINCT_FIELDS[scope_field]
-        value_list = [value] if isinstance(value, str) else list(value)
-        var = f"n_{scope_field}"
-        scope_matches.append(f"(a)-[:{scope_rel}]->({var}:{scope_label})")
-        where_clauses.append(f"{var}.name IN ${scope_field}")
-        params[scope_field] = value_list
-
-    match_clauses = ["(a:AuctionProperty)"]
-    match_clauses.extend(scope_matches)
-    if field in _DISTINCT_NODE_PROPS:
-        # Property-grouped: no edge to walk — group on the node property and
-        # skip nulls so absent values don't surface as a bogus bucket.
-        value_expr = _DISTINCT_NODE_PROPS[field]
-        where_clauses.append(f"{value_expr} IS NOT NULL")
-    else:
-        label, rel = _DISTINCT_FIELDS[field]
-        match_clauses.append(f"(a)-[:{rel}]->(n:{label})")
-        value_expr = "n.name"
-    match_clause = ",\n                  ".join(match_clauses)
-    where_clause = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
-
-    cypher = f"""
-            MATCH {match_clause}
-            {where_clause}
-            RETURN {value_expr} AS value, count(DISTINCT a) AS auction_count
-            ORDER BY auction_count DESC
-            LIMIT $limit
-        """
-    results = run_read_query(cypher, params, max_rows=max(int(limit), 1))
-    return {
-        "field": field,
-        "filter_city": city,
-        "filter_bank": bank,
-        "filter_borrower": borrower,
-        "filter_asset_category": asset_category,
-        "filter_auction_type": auction_type,
-        "filter_branch": branch,
-        "results": results,
-    }
 
 
 def _compute_schema_dynamic() -> dict:

@@ -108,7 +108,6 @@ _TOOL_STATUS_LABELS = {
     "semantic_search": "Searching notices semantically…",
     "get_auction_detail": "Fetching auction details…",
     "select_properties": "Updating the matches panel…",
-    "list_distinct": "Computing the breakdown…",
     "describe_schema": "Reading the graph schema…",
     "run_cypher": "Querying the graph…",
     "internet_search": "Searching the web…",
@@ -508,7 +507,7 @@ def _strip_ui_rows_from_history(history: list[dict[str, Any]]) -> list[dict[str,
 # bump via env if a flow genuinely needs the prior turn's rows verbatim.
 _HISTORY_KEEP_FULL_TURNS = max(1, int(os.getenv("CHAT_HISTORY_KEEP_FULL_TURNS", "1")))
 # Only trim tool returns whose JSON is at least this many chars — leaves small
-# aggregate/stat results (list_distinct) untouched so the
+# aggregate/stat results (distributions) untouched so the
 # model keeps cheap-but-useful context, and avoids stubs larger than the
 # original payload.
 _HISTORY_TRIM_MIN_CHARS = int(os.getenv("CHAT_HISTORY_TRIM_MIN_CHARS", "600"))

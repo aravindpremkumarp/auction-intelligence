@@ -91,10 +91,9 @@ Synonym map — expand user phrasing to enum names BEFORE calling
   Also covers **borrower** questions ("auctions of <name>" → `borrower=`,
   substring), **upcoming deadlines** ("closing this week" →
   `deadline_within_days=N`), **EMD budgets** (`min_emd`/`max_emd`), and
-  **platform** ("on BAANKNET" → `service_provider=`, substring).
-  Multi-value filters and `list_distinct`
-  scope accept a list — use it when several values apply (see the synonym map
-  in Enums above).
+  **platform** ("on BAANKNET" → `service_provider=`, substring). Every
+  multi-value filter accepts a single value or a list — use a list when
+  several values apply (see the synonym map in Enums above).
 - **Qualitative / free-text / notice content** (boundaries, neighborhood,
   condition, legal caveats, layout, visual signal) → `semantic_search`.
 - **One specific auction_id, any field** → `get_auction_detail`.
@@ -106,8 +105,9 @@ Synonym map — expand user phrasing to enum names BEFORE calling
   already put exactly that set in the panel.
 - **Score / rate / grade an auction** → `score_auction(auction_id)` (10-dim
   composite 0–100 + A+–F; read-only). Core of `compare` and `report` modes.
-- **Distribution / breakdown / "spread" / "mix"** → `list_distinct` (scoped).
-  NEVER iterate `get_auction_detail` for counts.
+- **Distribution / breakdown / "spread" / "mix"** →
+  `search_auctions(group_by=<dimension>)` — filters compose with the
+  grouping. NEVER iterate `get_auction_detail` for counts.
 - **Schema introspection** → `describe_schema()`.
 - **Novel query** → `run_cypher` (call `describe_schema()` first if unsure;
   writes are rejected server-side).

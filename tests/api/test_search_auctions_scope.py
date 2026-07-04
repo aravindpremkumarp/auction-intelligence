@@ -292,3 +292,23 @@ def test_rows_carry_deadline_and_service_provider(monkeypatch) -> None:
     row_cypher, _ = calls[1]
     assert "AS application_deadline" in row_cypher
     assert "a.service_provider AS service_provider" in row_cypher
+
+
+def test_auction_type_and_branch_accept_lists(monkeypatch) -> None:
+    """The docstring promises every filter takes a single value OR a list —
+    auction_type and branch_name were the two that silently didn't, which
+    made a model-passed list fail schema validation and burn a retry."""
+    calls = _patch_run_query(monkeypatch, total_count=0)
+    from api.tools.cypher_tools import search_auctions
+
+    search_auctions(
+        auction_type=["SARFAESI Auction", "DRT Auction"],
+        branch_name="Anna Nagar Branch",
+        limit=0,
+    )
+
+    cypher, params = calls[0]
+    assert "at.name IN $auction_type" in cypher
+    assert "br.name IN $branch_name" in cypher
+    assert params["auction_type"] == ["SARFAESI Auction", "DRT Auction"]
+    assert params["branch_name"] == ["Anna Nagar Branch"]
