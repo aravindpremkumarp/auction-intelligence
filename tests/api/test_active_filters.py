@@ -269,3 +269,65 @@ def test_strip_dynamic_system_prompts_idempotent_when_no_refs() -> None:
     ]
     cleaned = _strip_dynamic_system_prompts_from_history(history)
     assert cleaned == history
+
+
+def test_new_session_filters_are_carried() -> None:
+    """Regression: the carry set went stale when search_auctions grew new
+    filters (borrower / EMD / platform / is_reauction / auction_type /
+    branch_name / deadline window) — scope in those args was silently
+    dropped from the "Active search scope" block on follow-up turns."""
+    from api.chat.router import _extract_active_filters
+    msgs = []
+    c1, r1 = _search_turn("a", {
+        "borrower": "Kumar",
+        "min_emd": 50_000,
+        "service_provider": "BAANKNET",
+        "is_reauction": True,
+        "auction_type": "DRT Auction",
+        "branch_name": "Anna Nagar Branch",
+        "deadline_within_days": 7,
+    }, 12)
+    msgs.extend([c1, r1])
+
+    filters, total = _extract_active_filters(msgs)
+
+    assert filters == {
+        "borrower": "Kumar",
+        "min_emd": 50_000,
+        "service_provider": "BAANKNET",
+        "is_reauction": True,
+        "auction_type": "DRT Auction",
+        "branch_name": "Anna Nagar Branch",
+        "deadline_within_days": 7,
+    }
+    assert total == 12
+
+
+def test_is_reauction_false_is_carried_not_dropped() -> None:
+    """is_reauction=False ("fresh listings") is real scope — the falsy value
+    must not be confused with the explicit-None clear signal."""
+    from api.chat.router import _extract_active_filters
+    msgs = []
+    c1, r1 = _search_turn("a", {"is_reauction": False, "city": "Chennai"}, 900)
+    msgs.extend([c1, r1])
+
+    filters, _ = _extract_active_filters(msgs)
+
+    assert filters["is_reauction"] is False
+    assert filters["city"] == "Chennai"
+
+
+def test_output_shape_args_never_carried() -> None:
+    """limit / order_by / group_by / aggregations / include_past shape one
+    call; they are not conversation scope."""
+    from api.chat.router import _extract_active_filters
+    msgs = []
+    c1, r1 = _search_turn("a", {
+        "city": "Chennai", "limit": 5, "order_by": "price_asc",
+        "group_by": "bank", "aggregations": ["avg"], "include_past": True,
+    }, 42)
+    msgs.extend([c1, r1])
+
+    filters, _ = _extract_active_filters(msgs)
+
+    assert filters == {"city": "Chennai"}

@@ -208,6 +208,7 @@ def search_auctions(
     auction_type: str | list[str] | None = None,
     branch_name: str | list[str] | None = None,
     service_provider: str | list[str] | None = None,
+    is_reauction: bool | None = None,
     starts_after: datetime | None = None,
     starts_before: datetime | None = None,
     deadline_within_days: int | None = None,
@@ -257,6 +258,15 @@ def search_auctions(
     if max_emd is not None:
         where.append("a.emd_num <= $max_emd")
         params["max_emd"] = max_emd
+    # A re-listing is a property with a SAME_PROPERTY_AS neighbour whose
+    # auction started EARLIER — same shape the row query uses to derive
+    # `is_reauction`, so the filter and the row flag can't disagree.
+    if is_reauction is not None:
+        exists_clause = (
+            "EXISTS { MATCH (a)-[:SAME_PROPERTY_AS]->(p:AuctionProperty) "
+            "WHERE p.auction_start_dt < a.auction_start_dt }"
+        )
+        where.append(exists_clause if is_reauction else f"NOT {exists_clause}")
     # Substring, not exact: live values are messy near-duplicates
     # ("Public Auction" vs "PublicAuction", "bankeauctions.com / C1 India"),
     # so exact enum matching would be a zero-result trap.

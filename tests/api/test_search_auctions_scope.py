@@ -312,3 +312,39 @@ def test_auction_type_and_branch_accept_lists(monkeypatch) -> None:
     assert "br.name IN $branch_name" in cypher
     assert params["auction_type"] == ["SARFAESI Auction", "DRT Auction"]
     assert params["branch_name"] == ["Anna Nagar Branch"]
+
+
+def test_is_reauction_true_filters_on_prior_listing_exists(monkeypatch) -> None:
+    """`is_reauction=True` keeps only properties with an EARLIER-starting
+    SAME_PROPERTY_AS neighbour — the same shape the row query uses to derive
+    the `is_reauction` flag, so filter and flag can't disagree."""
+    calls = _patch_run_query(monkeypatch, total_count=0)
+    from api.tools.cypher_tools import search_auctions
+
+    search_auctions(is_reauction=True, limit=0)
+
+    cypher, params = calls[0]
+    assert "EXISTS { MATCH (a)-[:SAME_PROPERTY_AS]->(p:AuctionProperty)" in cypher
+    assert "p.auction_start_dt < a.auction_start_dt" in cypher
+    assert "NOT EXISTS" not in cypher
+    assert "is_reauction" not in params  # structural clause, no param
+
+
+def test_is_reauction_false_negates_the_exists_clause(monkeypatch) -> None:
+    calls = _patch_run_query(monkeypatch, total_count=0)
+    from api.tools.cypher_tools import search_auctions
+
+    search_auctions(is_reauction=False, limit=0)
+
+    cypher, _ = calls[0]
+    assert "NOT EXISTS { MATCH (a)-[:SAME_PROPERTY_AS]->(p:AuctionProperty)" in cypher
+
+
+def test_is_reauction_omitted_adds_no_clause(monkeypatch) -> None:
+    calls = _patch_run_query(monkeypatch, total_count=0)
+    from api.tools.cypher_tools import search_auctions
+
+    search_auctions(city="Chennai", limit=0)
+
+    cypher, _ = calls[0]
+    assert "SAME_PROPERTY_AS]->(p" not in cypher
