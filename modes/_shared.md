@@ -16,6 +16,8 @@ Nodes (with key + notable props):
   `Branch(name)`
 - `AssetCategory(name)`, `PropertyType(name)`, `Borrower(name)`,
   `AuctionType(name)`
+- `Document` — the sale-notice file(s) behind each auction (PDF/image +
+  extracted markdown); `semantic_search` already reads their embeddings.
 
 Relationships (all start on `AuctionProperty` unless noted):
 
@@ -26,6 +28,7 @@ Relationships (all start on `AuctionProperty` unless noted):
 (a)-[:HAS_ASSET_CATEGORY]->(:AssetCategory)
 (a)-[:HAS_PROPERTY_TYPE]->(:PropertyType)        # one-to-many
 (a)-[:IS_AUCTION_TYPE]->(:AuctionType)
+(a)-[:HAS_DOCUMENT]->(:Document)
 (a)-[:SAME_PROPERTY_AS]->(:AuctionProperty)  # re-listing links, bidirectional
 (:Bank)-[:HAS_BRANCH]->(:Branch)
 (:Area)-[:PART_OF_CITY]->(:City)     (:City)-[:IN_STATE]->(:State)
@@ -35,34 +38,31 @@ Domain edges exist only FROM `AuctionProperty` — MATCH each off the `(a)`
 node and comma-join; never chain them from `Bank`/`City`/etc. (e.g.
 `(Bank)-[:HAS_PROPERTY_TYPE]` does not exist).
 
-## Enums
+## Enums (live snapshot 2026-07)
 
-**AssetCategory (7)**: `Residential`, `Commercial`, `Industrials`,
-`Scrap, Plant & Machinery` (comma is part of the name), `Vehicle Auctions`,
-`Gold Auctions`, `Others`. When the user says "residential" / "commercial" /
-"industrial", filter on `asset_category`, not `property_type`.
+**AssetCategory (3 — only these exist)**: `Residential`, `Commercial`,
+`Industrials`. When the user says "residential" / "commercial" /
+"industrial", filter on `asset_category`, not `property_type`. There are
+NO vehicle, gold, or scrap categories — if asked, say the platform lists
+none.
 
-**AuctionType (4)**: `SARFAESI Auction` (bank-led, SARFAESI Act, default),
-`DRT Auction`, `Liquidation Auction` (IBC), `Private Property`.
+**AuctionType (4)**: `SARFAESI Auction` (bank-led, ~98% of typed rows,
+the default), `DRT Auction`, `Liquidation Auction` (IBC),
+`Private Property`.
 
-**PropertyType by category** (verbatim casing — preserve `Machinary` typo
-and mixed-case `Factory land and Building`):
-- Residential: Plot, Land And Building, Land, Agricultural Land, Flat,
-  House, Non-Agricultural Land, Residential Unit, Bungalow, Villa
-- Commercial: Commercial Office, Commercial Property, Commercial Shop,
-  Commercial Building, Cold Storage Land And Building
-- Industrials: Factory land and Building, Shed, Industrial Land,
-  Industrial Land & Building, Godown, Land
-- Scrap, Plant & Machinery: Plant & Machinery, Machinary, Scrap
-- Vehicle Auctions: Car, Vehicle, Bus, Bike
-- Gold Auctions: (none) | Others: Others
+**PropertyType in live use (verbatim casing/spacing)**: `Land And
+Building`, `Land`, `Plot`, `Flat`, `House`, `Villa`, `Agricultural Land`,
+`Non- Agricultural Land` (note the space after "Non-"), `Factory land
+and Building`, `Industrial Land`, `Industrial Land & Building`, `Shed`,
+`Godown`, `Commercial Property`, `Commercial Building`, `Commercial
+Shop`, `Cold Storage Land And Building`.
 
 `property_types` on a row is a list — don't re-split a single value on
 commas. An AuctionProperty can have several types.
 
 Synonym map — expand user phrasing to enum names BEFORE calling
-`search_auctions`: "independent house" → ["House","Villa","Bungalow",
-"Land And Building"]; "plot" → ["Plot","Land","Non-Agricultural Land"];
+`search_auctions`: "independent house" → ["House","Villa","Land And
+Building"]; "plot" → ["Plot","Land","Non- Agricultural Land"];
 "shop" → ["Commercial Shop","Commercial Property"].
 
 ## Prices and dates
