@@ -474,9 +474,11 @@ def search_auctions(
                 )
             else:
                 out["hint"] = (
-                    "No auctions match these filters in any time window. Loosen "
-                    "at most ONE filter (drop property_type / widen price / "
-                    "recheck spelling) or report no matches — do not retry the "
+                    "No auctions match these filters in any time window — that "
+                    "is the answer. Report no matches and offer the closest "
+                    "alternative; widening price or dropping filters cannot help "
+                    "when nothing exists in any window. Only re-search to fix an "
+                    "obvious enum/spelling error — otherwise do not retry the "
                     "same shape."
                 )
     return out
