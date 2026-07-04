@@ -294,6 +294,7 @@ def search_auctions(
     auction_type: str | list[str] | None = None,
     branch_name: str | list[str] | None = None,
     service_provider: str | list[str] | None = None,
+    is_reauction: bool | None = None,
     starts_after: datetime | None = None, starts_before: datetime | None = None,
     deadline_within_days: int | None = None,
     limit: int = 10,
@@ -347,6 +348,12 @@ def search_auctions(
     all filters compose with it — e.g. bank mix under 30 lakhs =
     `group_by="bank", max_price=3000000`. NEVER loop `get_auction_detail`
     or per-value searches for counts.
+
+    Re-auctions — every row carries `is_reauction`, `reauction_count`, and
+    `previous_reserve_price` (vs `reserve_price` = the price-drop signal);
+    answer re-auction questions from these fields, never refuse. Filter
+    with `is_reauction=True` ("re-auctioned/relisted") or `False` ("fresh
+    listings"). Per-property timeline → `get_auction_detail.price_history`.
     """
     # UI overflow rows ride on ToolReturn metadata (never model-visible) —
     # see api/tool_returns.py for why a plain dict return leaked them into
@@ -359,6 +366,7 @@ def search_auctions(
         bank=bank, borrower=borrower,
         auction_type=auction_type, branch_name=branch_name,
         service_provider=service_provider,
+        is_reauction=is_reauction,
         starts_after=starts_after, starts_before=starts_before,
         deadline_within_days=deadline_within_days,
         limit=limit, order_by=order_by,

@@ -26,6 +26,7 @@ Relationships (all start on `AuctionProperty` unless noted):
 (a)-[:HAS_ASSET_CATEGORY]->(:AssetCategory)
 (a)-[:HAS_PROPERTY_TYPE]->(:PropertyType)        # one-to-many
 (a)-[:IS_AUCTION_TYPE]->(:AuctionType)
+(a)-[:SAME_PROPERTY_AS]->(:AuctionProperty)  # re-listing links, bidirectional
 (:Bank)-[:HAS_BRANCH]->(:Branch)
 (:Area)-[:PART_OF_CITY]->(:City)     (:City)-[:IN_STATE]->(:State)
 ```
@@ -128,28 +129,6 @@ they run in parallel and cost one round-trip instead of one per lookup. Only
 serialize when a later call needs an earlier one's result (e.g. search → then
 `get_auction_detail` on an id it returned). This applies in every mode —
 deep-research phase 2 is explicitly one batched parallel step.
-
-## Re-auction fields (on every search_auctions row)
-
-- `is_reauction` (bool) — true if any prior listing for the same property.
-- `reauction_count` (int) — number of prior listings (0 = first time).
-- `previous_reserve_price` (int | null) — highest prior reserve; null on
-  first-timers. Compare to the row's `reserve_price` for price-drop questions.
-
-Answer re-auction questions directly from the most recent `search_auctions`
-rows — filter/sort/count these fields yourself; do NOT loop
-`get_auction_detail` and do NOT refuse:
-- "fresh listings" → `is_reauction == false`
-- "re-auctioned >/≥/exactly N" → compare `reauction_count`
-- "most re-auctioned first" → sort desc on `reauction_count`
-- "price drop on re-auction" → `is_reauction AND previous_reserve_price IS
-  NOT NULL AND reserve_price < previous_reserve_price`; drop% =
-  `(previous_reserve_price - reserve_price) / previous_reserve_price * 100`
-
-For single-property timeline questions ("when was this first auctioned"),
-call `get_auction_detail` and read `price_history`. If a numeric filter
-yields zero matches, say so plainly — never "I cannot fulfill this
-request"; the fields are on every row.
 
 ## Filter carry-over
 
