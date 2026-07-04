@@ -84,31 +84,20 @@ Synonym map — expand user phrasing to enum names BEFORE calling
 
 ## Tool routing
 
-- **Structured filters** (price/EMD/city/area/type/category/bank/borrower/
-  platform/date/aggregations) → `search_auctions` (future-only by default).
-  Also covers **borrower** questions ("auctions of <name>" → `borrower=`,
-  substring), **upcoming deadlines** ("closing this week" →
-  `deadline_within_days=N`), **EMD budgets** (`min_emd`/`max_emd`), and
-  **platform** ("on BAANKNET" → `service_provider=`, substring). Every
-  multi-value filter accepts a single value or a list — use a list when
-  several values apply (see the synonym map in Enums above).
-- **Qualitative / free-text / notice content** (boundaries, neighborhood,
-  condition, legal caveats, layout, visual signal) → `semantic_search`.
-- **One specific auction_id, any field** → `get_auction_detail`; for
-  several known ids, batch the detail calls in one step (parallel).
-- **Re-presenting an already-found subset** ("top three of those", a
-  shortlist): no tool — cite the chosen auction_ids in your answer,
-  best-first. The system updates the matches panel from your citations
-  automatically.
-- **Distribution / breakdown / "spread" / "mix"** →
-  `search_auctions(group_by=<dimension>)` — filters compose with the
-  grouping. NEVER iterate `get_auction_detail` for counts.
-- **Schema introspection** → `describe_schema()`.
-- **Novel query** → `run_cypher` (call `describe_schema()` first if unsure;
-  writes are rejected server-side).
-- **Track / watch / alerts / save / score** → no chat tool does these.
-  Say so and point to the Save button on the property card (saved
-  properties get deadline alerts in the app UI).
+The boundaries between tools (each tool's own description says the rest):
+
+- **Structured / countable** — filters, counts, aggregates, `group_by`
+  breakdowns, deadlines, EMD, borrower, platform, re-auctions →
+  `search_auctions` (expand phrasing via the synonym map above).
+- **Qualitative free text** — boundaries, neighborhood, condition, legal
+  caveats, notice content → `semantic_search`.
+- **One specific auction_id, any field** → `get_auction_detail`; several
+  known ids → batch the calls in one step.
+- **Novel shapes** none of the above express → `run_cypher`
+  (`describe_schema()` first if unsure).
+- **Re-presenting an already-found subset** ("top three of those"): no
+  tool — cite the chosen auction_ids in your answer, best-first; the
+  system updates the matches panel from your citations automatically.
 
 ## Zero-result protocol
 
@@ -132,7 +121,7 @@ deep-research phase 2 is explicitly one batched parallel step.
 
 ## Filter carry-over
 
-Once the user scopes to a bank/city/area/property_type/asset_category, keep
-passing that filter on every follow-up `search_auctions` until they change
-or drop it. The runtime also appends the carried scope as an "Active search
-scope" block each turn.
+Once the user scopes a search (any filter — location, price, EMD, bank,
+borrower, platform, re-auction, dates), keep passing that filter on every
+follow-up `search_auctions` until they change or drop it. The runtime also
+appends the carried scope as an "Active search scope" block each turn.

@@ -63,15 +63,25 @@ router = APIRouter()
 # extraction still works on stored histories from before the rename.
 _SEARCH_TOOLS = {"search_auctions", "semantic_search", "semantic_property_search"}
 
-# Args that describe scope we want to carry across turns. Excludes output
-# controls (limit, order_by) and aggregate knobs — those don't narrow the
-# user's target set, they just shape the current call.
+# Args that describe scope we want to carry across turns — every filter
+# that narrows the user's target set. Excludes output controls (limit,
+# order_by) and aggregate/grouping knobs (they shape the current call, not
+# the scope), and `include_past` (a one-off retrospective retry shouldn't
+# stick to the whole conversation). Keep this in sync when search_auctions
+# grows a filter: a key missing here means the "Active search scope" block
+# silently drops that scope on follow-up turns (bit us when borrower/EMD/
+# platform/is_reauction were added without updating this set).
 _CARRY_FORWARD_FILTER_KEYS = {
     "min_price", "max_price",
+    "min_emd", "max_emd",
     "city", "area",
     "property_type", "asset_category",
-    "bank",
+    "bank", "borrower",
+    "auction_type", "branch_name",
+    "service_provider",
+    "is_reauction",
     "starts_after", "starts_before",
+    "deadline_within_days",
 }
 
 _GATED_MODES = {"deep-research"}
