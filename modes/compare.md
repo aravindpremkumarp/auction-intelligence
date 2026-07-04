@@ -17,8 +17,8 @@ table **in your reply**. There are no files to download.
    `area=<area>, aggregate_field="reserve_price_num",
    aggregations=["avg","median"], limit=0` — so each reserve can be framed
    against its local market.
-3. `select_properties([...])` with the ids in your recommended order so the
-   UI matches panel mirrors the comparison.
+3. Cite the auction_ids in your recommended order in the reply — the UI
+   matches panel follows your citations automatically (no tool call).
 
 ## Output (in chat)
 

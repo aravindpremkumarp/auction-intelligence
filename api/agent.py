@@ -223,7 +223,7 @@ def inject_panel_selection(ctx: RunContext[ChatDeps]) -> str:
     resolves to concrete ids instead of a blank search. The panel is browser
     state the model can't otherwise see. Only the ids ride in context (a few
     short strings); the model fetches full rows on demand via
-    `get_auction_detail` / `select_properties`. Returns "" when the panel is
+    `get_auction_detail`. Returns "" when the panel is
     empty so the cached prompt prefix stays byte-stable on those turns."""
     ids = ctx.deps.panel_auction_ids if ctx.deps else None
     if not ids:
@@ -235,8 +235,9 @@ def inject_panel_selection(ctx: RunContext[ChatDeps]) -> str:
         f"{shown}.\n"
         'When the user says "these", "those", "the matches", "all of them", '
         '"the ones above", or similar WITHOUT naming auction_ids, resolve the '
-        "reference to this list. To re-rank or show a subset in the panel, call "
-        "`select_properties` with the chosen auction_ids. Comparison handles "
+        "reference to this list. To re-rank or show a subset in the panel, "
+        "just cite the chosen auction_ids in your answer, best-first — the "
+        "panel follows your citations automatically. Comparison handles "
         "2-5 at a time: if the user asks to compare more of them than that, do "
         "NOT refuse — ask which 2-5 they want (or offer the top 5) and compare "
         "those."
@@ -412,24 +413,9 @@ def get_auction_detail(auction_id: str) -> dict | None:
     related city/area/state/bank/borrower/category/property_types and
     `price_history` (re-auction timeline). Call this before concluding
     a field is unavailable for a specific auction. Returns None if the
-    auction_id doesn't exist. For rows on SEVERAL known ids, one
-    `select_properties(ids)` call replaces N detail calls — only loop
-    detail when each id's deep fields/`price_history` are needed."""
+    auction_id doesn't exist. For several ids, batch the detail calls in
+    one step (they run in parallel)."""
     return T.get_auction_detail(auction_id)
-
-
-@agent.tool_plain
-def select_properties(auction_ids: list[str]) -> dict:
-    """Mirror a subset of already-found properties into the UI matches
-    panel — call it whenever you re-present earlier results WITHOUT a new
-    search ("top three of those", one locality, a comparison shortlist),
-    passing auction_ids in your ranked order. Also the ONE-call way to get
-    rows for several known ids (instead of a `get_auction_detail` loop,
-    unless each id's deep fields / `price_history` are needed). Returns
-    full search-shaped rows; unknown ids come back in `missing_ids`. Skip
-    it when a search/detail call this turn already returned exactly that
-    set."""
-    return T.get_auctions_by_ids(auction_ids)
 
 
 @agent.tool_plain

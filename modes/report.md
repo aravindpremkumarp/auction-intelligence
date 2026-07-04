@@ -23,7 +23,8 @@ PDF / file output.
    - balanced → best reserve-vs-median value;
    - aggressive → deepest re-auction price drops (`previous_reserve_price`
      vs `reserve_price`) and soonest deadlines (less competition time).
-4. `select_properties([...])` for the final shortlist in ranked order.
+4. Cite the shortlist's auction_ids in ranked order in the brief — the UI
+   matches panel follows your citations automatically (no tool call).
 
 ## Output (in chat)
 

@@ -125,10 +125,12 @@ def test_static_prompt_prefix_under_budget():
     # loses its docstring (or a rename that drops it from the decorated set)
     # should be noticed here, not silently shrink the "budget".
     assert "search_auctions" in tool_docs, "search_auctions tool not found"
-    # 7 always-on tools after the 2026-07 surface trim (match_pasted_listing,
+    # 6 always-on tools after the 2026-07 surface trim (match_pasted_listing,
     # upcoming_auctions, borrower_lookup, list_distinct folded/removed;
-    # score_auction, watch_property, list_alerts dropped from chat).
-    assert len(tool_docs) >= 7, f"expected >=7 tools, found {sorted(tool_docs)}"
+    # score_auction, watch_property, list_alerts dropped from chat;
+    # select_properties replaced by the router's programmatic panel sync —
+    # see api/chat/panel.py).
+    assert len(tool_docs) >= 6, f"expected >=6 tools, found {sorted(tool_docs)}"
     assert all(tool_docs.values()), (
         "every tool needs a docstring (it IS the tool description sent to the "
         f"model): missing for {[n for n, d in tool_docs.items() if not d]}"

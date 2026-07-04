@@ -8,6 +8,7 @@ the anonymous-chat throttle and per-turn latency observability.
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -37,6 +38,8 @@ from pydantic_ai.run import AgentRunResultEvent
 from pydantic_ai.usage import UsageLimits
 
 from api.agent import ChatDeps, agent, build_chat_run_overrides
+from api.chat.panel import panel_sync_ids
+from api.tools import cypher_tools as cypher_T
 from api.auth import get_optional_user
 from api.auth import repository as auth_repo
 from api.auth.schemas import UserOut
@@ -107,7 +110,6 @@ _TOOL_STATUS_LABELS = {
     "search_auctions": "Searching auctions…",
     "semantic_search": "Searching notices semantically…",
     "get_auction_detail": "Fetching auction details…",
-    "select_properties": "Updating the matches panel…",
     "describe_schema": "Reading the graph schema…",
     "run_cypher": "Querying the graph…",
     "internet_search": "Searching the web…",
@@ -782,11 +784,57 @@ async def _prepare_turn(
     return history, deps, mode, run_ctx
 
 
-def _build_chat_response(
-    result: Any, mode: str | None, usage: dict[str, Any], model: str | None = None
+def _tool_returns(messages) -> list[tuple[str, Any]]:
+    """(tool_name, content) for every ToolReturnPart, in order — the input
+    shape api.chat.panel works over."""
+    out: list[tuple[str, Any]] = []
+    for msg in messages:
+        for part in getattr(msg, "parts", []):
+            if isinstance(part, ToolReturnPart):
+                out.append((part.tool_name, part.content))
+    return out
+
+
+async def _synthesize_panel_artifact(
+    result: Any, deps: ChatDeps | None
+) -> ToolArtifact | None:
+    """Programmatic matches-panel sync (replaces the select_properties TOOL).
+
+    The model cites auction_ids in its answer (role rule 1); the system
+    extracts them, and when they re-present a subset/re-ranking, fetches
+    fresh rows and appends a synthetic select_properties artifact — the
+    frontend renders the last search-shaped artifact, so it needs no
+    changes. One Neo4j query, zero LLM round-trips. Best-effort: a failure
+    here must never fail the turn."""
+    try:
+        ids = panel_sync_ids(
+            result.output or "",
+            _tool_returns(result.new_messages()),
+            _tool_returns(result.all_messages()),
+            deps.panel_auction_ids if deps else None,
+        )
+        if not ids:
+            return None
+        rows = await asyncio.to_thread(cypher_T.get_auctions_by_ids, ids)
+        return ToolArtifact(
+            tool="select_properties",
+            args={"auction_ids": ids, "synthetic": True},
+            result=rows,
+        )
+    except Exception:  # noqa: BLE001 - panel sync is cosmetic, never fatal
+        logger.exception("panel sync failed — leaving panel as-is")
+        return None
+
+
+async def _build_chat_response(
+    result: Any, mode: str | None, usage: dict[str, Any],
+    model: str | None = None, deps: ChatDeps | None = None,
 ) -> ChatResponse:
     """Post-run packaging shared by /chat and /chat/stream."""
     artifacts = _extract_artifacts(result.new_messages())
+    panel_artifact = await _synthesize_panel_artifact(result, deps)
+    if panel_artifact is not None:
+        artifacts.append(panel_artifact)
     logger.info(
         "chat turn ok mode=%s model=%s tool_calls=%d answer_chars=%d "
         "llm_calls=%s in_tok=%s cached_tok=%s out_tok=%s",
@@ -852,7 +900,7 @@ async def chat(
         # upstream failure, not a bug in this service).
         logger.exception("agent.run failed for message=%r mode=%r", req.message, mode)
         raise HTTPException(status_code=502, detail="chat agent failed — please retry")
-    return _build_chat_response(result, mode, usage, run_ctx["model"])
+    return await _build_chat_response(result, mode, usage, run_ctx["model"], deps)
 
 
 def _sse(event: str, data: dict[str, Any]) -> str:
@@ -935,10 +983,8 @@ async def _stream_turn(
         logger.exception("agent stream failed for message=%r mode=%r", message, mode)
         yield _sse("error", {"detail": "chat agent failed — please retry"})
         return
-    yield _sse(
-        "final",
-        _build_chat_response(result, mode, usage, run_ctx["model"]).model_dump(mode="json"),
-    )
+    final = await _build_chat_response(result, mode, usage, run_ctx["model"], deps)
+    yield _sse("final", final.model_dump(mode="json"))
 
 
 @router.post("/chat/stream")

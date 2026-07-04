@@ -20,7 +20,6 @@ KNOWN_TOOLS: set[str] = {
     "search_auctions",
     "semantic_property_search",
     "get_auction_detail",
-    "select_properties",
     "describe_schema",
     "run_cypher",
 }
