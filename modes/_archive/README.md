@@ -8,6 +8,11 @@ can be brought back if needed, without cluttering the active `modes/` set.
 - `evaluate.md` — Deep score one property.
 - `track.md` — Move items through the 8-state pipeline.
 - `refresh.md` — Re-score after new data.
+- `compare.md` — Side-by-side of 2–5 auctions (parked 2026-07: low usage
+  vs. its per-turn prompt cost; the agent still compares fine in plain ask
+  mode when asked). Fact-based version — no score_auction dependency.
+- `report.md` — Profile-tuned investor brief (parked 2026-07, same
+  reasoning). Fact-based version — no score_auction dependency.
 
 ## Why they're inert
 

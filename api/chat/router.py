@@ -74,7 +74,7 @@ _CARRY_FORWARD_FILTER_KEYS = {
     "starts_after", "starts_before",
 }
 
-_GATED_MODES = {"deep-research", "report"}
+_GATED_MODES = {"deep-research"}
 
 # Upper bound on panel auction_ids forwarded into the agent's context per turn.
 # The panel rarely holds more than a shortlist, but a wide browse selection
@@ -277,6 +277,11 @@ class ChatRequest(BaseModel):
 
 # Whitelist of modes the agent will overlay. Each maps to a modes/<id>.md file.
 # Keeping this explicit prevents arbitrary file reads from the modes/ dir.
+# `compare` and `report` are parked in modes/_archive/ (2026-07) — an unknown
+# mode from a stale client falls back to plain ask, so removal is graceful.
+# Example ids use the REAL format (plain 6-digit strings like "750879") —
+# the old "AUC-12345" chips taught users an id shape that can't exist, so
+# copying them seeded guaranteed not-found lookups.
 _AVAILABLE_MODES: list[dict[str, Any]] = [
     {
         "id": "ask",
@@ -294,25 +299,9 @@ _AVAILABLE_MODES: list[dict[str, Any]] = [
     {
         "id": "deep-research",
         "label": "Deep research",
-        "description": "7-step due-diligence workflow on one auction_id.",
+        "description": "Full due-diligence workflow on one auction_id.",
         "examples": [
-            "Deep research on auction AUC-12345",
-        ],
-    },
-    {
-        "id": "compare",
-        "label": "Compare",
-        "description": "Side-by-side comparison of 2–5 auctions.",
-        "examples": [
-            "Compare AUC-12345 and AUC-67890",
-        ],
-    },
-    {
-        "id": "report",
-        "label": "Personalized report",
-        "description": "Investment report tuned to an investor profile.",
-        "examples": [
-            "Report on AUC-12345 for a conservative investor under 50 lakhs",
+            "Deep research on auction 750879",
         ],
     },
 ]

@@ -228,17 +228,16 @@ Dimensions (weights in `modes/_shared.md`):
 Markdown "mode" prompts the agent can switch into:
 - `_shared.md` — Loaded into the system prompt at boot. Defines the
   full Neo4j schema (node labels + key properties, relationships,
-  enum constraints), tool-choice rules, a Cypher cheat-sheet for
-  `run_cypher`, and the shared 10-dim scoring framework.
-- `compare.md` — Side-by-side comparison of 2–5 auctions (in-chat table;
-  attribute-based, via `get_auction_detail` + area aggregations).
-- `deep-research.md` — 7-step due diligence on one auction (in-chat report).
-- `report.md` — Personalised, profile-tuned investment brief (in-chat).
+  enum constraints), tool-choice rules, and a Cypher cheat-sheet for
+  `run_cypher`.
+- `deep-research.md` — 3-phase due diligence on one auction (in-chat
+  report): snapshot → one batched parallel evidence sweep → write-up.
 
-Only `compare`, `deep-research`, and `report` (plus the default `ask`) are
-wired into `_AVAILABLE_MODES` in `api/chat/router.py`. Five further specs —
-`scan`, `shortlist`, `evaluate`, `track`, `refresh` — are parked in
-`modes/_archive/` (inert; never loaded). See `modes/_archive/README.md`.
+Only `deep-research` (plus the default `ask`) is wired into
+`_AVAILABLE_MODES` in `api/chat/router.py`. Seven further specs — `scan`,
+`shortlist`, `evaluate`, `track`, `refresh`, `compare`, `report` — are
+parked in `modes/_archive/` (inert; never loaded). See
+`modes/_archive/README.md`.
 
 ## 8. Web UI (`web/`)
 

@@ -177,9 +177,9 @@ overlay** when the client requests one.
 | `run_cypher` | Read-only Cypher escape hatch — write clauses rejected, 10 s / 500-row caps. |
 | `internet_search` | Tavily web search for off-graph context (legal/RBI/locality). |
 
-**Modes** (`modes/*.md`): `compare`, `deep-research`, `report` (plus the
-default `ask`). `deep-research` and `report` are login-gated. Five further
-specs — `scan`, `shortlist`, `evaluate`, `track`, `refresh` — are parked in
+**Modes** (`modes/*.md`): `deep-research` (login-gated) plus the default
+`ask`. Seven further specs — `scan`, `shortlist`, `evaluate`, `track`,
+`refresh`, `compare`, `report` — are parked in
 [`modes/_archive/`](modes/_archive/) (not wired into the UI; see that folder's
 README to re-activate).
 

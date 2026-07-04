@@ -246,7 +246,7 @@ def inject_panel_selection(ctx: RunContext[ChatDeps]) -> str:
 
 @agent.instructions
 def inject_mode_overlay(ctx: RunContext[ChatDeps]) -> str:
-    """If the caller requested a mode (deep-research / compare / report),
+    """If the caller requested a mode (currently just deep-research),
     append the mode's markdown spec to the turn instructions."""
     mode = ctx.deps.mode if ctx.deps else None
     if not mode:

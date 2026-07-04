@@ -128,8 +128,8 @@ don't depend on each other's output ("Chennai vs Coimbatore prices", counts
 for 3 cities), issue those calls together in one step, not one at a time —
 they run in parallel and cost one round-trip instead of one per lookup. Only
 serialize when a later call needs an earlier one's result (e.g. search → then
-`get_auction_detail` on an id it returned). Ignore this in the step-ordered
-modes (deep-research / report), which set their own sequence.
+`get_auction_detail` on an id it returned). This applies in every mode —
+deep-research phase 2 is explicitly one batched parallel step.
 
 ## Re-auction fields (on every search_auctions row)
 
