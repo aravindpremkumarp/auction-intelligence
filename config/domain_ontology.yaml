@@ -206,22 +206,14 @@ agent_tools:
       location: {type: string}
       location_type: {type: string, enum: [city, area, state], default: city}
 
-  - name: upcoming_auctions
-    description: Auctions with application deadline within N days
-    parameters:
-      days: {type: int, default: 14}
-      limit: {type: int, default: 20}
-
+  # `upcoming_auctions` (deadline within N days) and `borrower_lookup` are now
+  # parameters of search_auctions (`deadline_within_days`, `borrower`), not
+  # standalone tools.
   - name: price_comparison
     description: Compare reserve prices for similar properties in the same area
     parameters:
       city: {type: string}
       property_type: {type: string}
-
-  - name: borrower_lookup
-    description: All properties tied to a borrower name (fuzzy match)
-    parameters:
-      borrower_name: {type: string}
 
   # ── Scoring & tracking tools (Phase 2-3) ──
   - name: score_auction

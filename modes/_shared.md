@@ -81,14 +81,15 @@ Synonym map — expand user phrasing to enum names BEFORE calling
 
 ## Tool routing
 
-- **Structured filters** (price/city/area/type/category/date/aggregations)
-  → `search_auctions` (future-only by default). Multi-value filters and
-  `list_distinct` scope accept a list — use it when several values apply
-  (see the synonym map in Enums above).
+- **Structured filters** (price/city/area/type/category/bank/borrower/date/
+  aggregations) → `search_auctions` (future-only by default). Also covers
+  **borrower** questions ("auctions tied to / owned by <name>" → `borrower=`,
+  substring) and **upcoming deadlines** ("closing this week", "deadlines in 7
+  days" → `deadline_within_days=N`). Multi-value filters and `list_distinct`
+  scope accept a list — use it when several values apply (see the synonym map
+  in Enums above).
 - **Qualitative / free-text / notice content** (boundaries, neighborhood,
   condition, legal caveats, layout, visual signal) → `semantic_search`.
-- **Pasted listing** (WhatsApp/broker blurb with price+date+area) →
-  `match_pasted_listing` (preferred over `semantic_search` here).
 - **One specific auction_id, any field** → `get_auction_detail`.
 - **Rows for SEVERAL known auction_ids, or re-presenting an already-found
   subset** ("top three of those", a shortlist) → ONE

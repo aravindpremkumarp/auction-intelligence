@@ -195,9 +195,9 @@ Dimensions (weights in `modes/_shared.md`):
       statistics (min/max/avg/median/p25/p75) over the full filtered
       set and returns a true `total_count`.
     - `find_similar_properties`, `bank_portfolio`, `location_analysis`,
-      `upcoming_auctions`, `price_comparison`, `borrower_lookup`,
-      `get_auction_detail` — Specialized parameterized
-      Cypher queries.
+      `price_comparison`, `get_auction_detail` — Specialized parameterized
+      Cypher queries. (borrower and upcoming-deadline queries are now
+      `search_auctions` params: `borrower`, `deadline_within_days`.)
     - `score_auction(auction_id)` — 10-dimension investment score
       (composite 0–100 + A+–F grade) computed live from the graph;
       wraps `scoring/auction_scorer.py`. Powers compare/report modes.

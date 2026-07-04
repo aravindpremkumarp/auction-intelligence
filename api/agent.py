@@ -88,7 +88,7 @@ Rules:
    Borrower, Bank, City, Area, Document, AssetCategory — and nothing else. No
    litigations, court cases, FIRs, credit history, ownership chains, market
    valuations, or external records. Frame borrower follow-ups as
-   `borrower_lookup` output, never "check legal records". Never offer or
+   `search_auctions(borrower=...)` output, never "check legal records". Never offer or
    agree to an action no tool performs — if you can't do it, say so plainly
    and name the closest tool that exists. The ONLY monitoring is
    auction-deadline alerts via `watch_property` / `list_alerts` (their
@@ -291,9 +291,11 @@ def search_auctions(
     property_type: str | list[str] | None = None,
     asset_category: str | list[str] | None = None,
     bank: str | list[str] | None = None,
+    borrower: str | list[str] | None = None,
     auction_type: str | None = None,
     branch_name: str | None = None,
     starts_after: datetime | None = None, starts_before: datetime | None = None,
+    deadline_within_days: int | None = None,
     limit: int = 10,
     order_by: str = "deadline_asc",
     aggregate_field: str | None = None,
@@ -301,7 +303,7 @@ def search_auctions(
     include_past: bool = False,
 ) -> dict | ToolReturn:
     """Filter auctions by price, city, area, property_type, asset_category,
-    bank, auction_type, branch, and date window.
+    bank, borrower, auction_type, branch, and date/deadline window.
 
     Returns {total_count, returned, limit, results}: `total_count` is the
     true match count (ignores `limit`); `results` is capped at `limit` and
@@ -312,13 +314,19 @@ def search_auctions(
     instead of retrying filter variations.
 
     Filters take a single value OR a list (OR within a list, AND across
-    filters). `city`: exact name; `area`: case-insensitive substring
-    (combine with `city` so same-named areas elsewhere don't match);
-    `property_type` / `asset_category` / `bank` / `branch_name` /
-    `auction_type`: exact enum names — expand user phrasing via the shared
-    synonym map BEFORE calling.
+    filters). `city`: exact name; `area` / `borrower`: case-insensitive
+    substring (combine `area` with `city` so same-named areas elsewhere
+    don't match); `property_type` / `asset_category` / `bank` /
+    `branch_name` / `auction_type`: exact enum names — expand user phrasing
+    via the shared synonym map BEFORE calling. Use `borrower` for "auctions
+    tied to / owned by <borrower>".
 
-    `order_by` ∈ "deadline_asc" (default), "deadline_desc", "price_asc",
+    `deadline_within_days=N` → auctions whose application deadline falls in
+    the next N days ("closing this week", "deadlines in 7 days"); it's its
+    own future window, so it isn't re-floored by the future-only default.
+
+    `order_by` ∈ "deadline_asc" (default) / "deadline_desc" (by application
+    deadline), "start_asc" / "start_desc" (by auction start), "price_asc" /
     "price_desc". For "cheapest/soonest/most-expensive N" use ordering +
     `limit=N`; never invent `min_price`/`max_price`/date thresholds.
 
@@ -335,25 +343,14 @@ def search_auctions(
         min_price=min_price, max_price=max_price,
         city=city, area=area,
         property_type=property_type, asset_category=asset_category,
-        bank=bank,
+        bank=bank, borrower=borrower,
         auction_type=auction_type, branch_name=branch_name,
         starts_after=starts_after, starts_before=starts_before,
+        deadline_within_days=deadline_within_days,
         limit=limit, order_by=order_by,
         aggregate_field=aggregate_field, aggregations=aggregations,
         include_past=include_past,
     ))
-
-
-@agent.tool_plain
-def upcoming_auctions(days: int = 14, limit: int = 20) -> list[dict]:
-    """Auctions with application deadline within N days."""
-    return T.upcoming_auctions(days, limit)
-
-
-@agent.tool_plain
-def borrower_lookup(borrower_name: str) -> list[dict]:
-    """Find properties tied to a borrower (substring match)."""
-    return T.borrower_lookup(borrower_name)
 
 
 @agent.tool_plain
@@ -373,8 +370,7 @@ def semantic_search(
     images (one gemini-embedding-2 call ranked across three indexes in the
     same vector space). Use for qualitative text — boundaries, neighborhood,
     legal caveats, condition, layout — present in free text or the notice
-    but absent from structured fields. For a PASTED listing (WhatsApp/broker
-    note with a price, date, or area) use `match_pasted_listing` instead.
+    but absent from structured fields.
 
     Optional `city`/`area`/`min_price`/`max_price`/`asset_category`/date
     window post-filter the hits. Future-only by default; `include_past=True`
@@ -394,26 +390,6 @@ def semantic_search(
         )
     except RuntimeError as e:
         return {"error": str(e), "results": [], "returned": 0, "limit": limit}
-
-
-@agent.tool_plain
-def match_pasted_listing(pasted_text: str) -> dict:
-    """Match a pasted property listing (WhatsApp forward, broker note, bank
-    circular) to an auction. Use whenever the user pastes a blurb with a
-    price / EMD / auction date / building / plot / area / PIN, even if messy.
-    Always preferred over `semantic_search` for this.
-
-    Anchors on reserve price ±2% AND auction date ±2 days, widening if
-    nothing strict-matches. Returns {match, confidence (0-1), candidates
-    (≤5), widening_reason, extracted}. Present by confidence:
-      - ≥ 0.85 → "Found it: <match>".
-      - 0.6–0.85 → "Very likely this property" + ask to confirm.
-      - < 0.6 (widened) → "Couldn't find this exact property; closest
-        matches (<widening_reason>):" — list candidates, quote
-        `widening_reason` verbatim.
-      - match None & candidates empty → say so; ask for auction_id or
-        clearer price/date."""
-    return T.match_pasted_listing(pasted_text)
 
 
 @agent.tool_plain

@@ -169,14 +169,11 @@ overlay** when the client requests one.
 
 | Tool | Purpose |
 | --- | --- |
-| `search_auctions` | Filter by price / city / area / type / category / bank / date; supports aggregates (min/max/avg/median/p25/p75) and true `total_count`. |
+| `search_auctions` | Filter by price / city / area / type / category / bank / borrower / date; `deadline_within_days` for upcoming deadlines; supports aggregates (min/max/avg/median/p25/p75) and true `total_count`. |
 | `semantic_search` | Vector search across description + notice-markdown + notice-image indexes in one call. |
-| `match_pasted_listing` | Anchor a pasted blurb to an auction by reserve price ±2% and date ±2 days. |
 | `get_auction_detail` | Full record for one `auction_id`, including re-auction `price_history`. |
 | `score_auction` | 10-dimension investment score (composite 0–100 + A+–F grade) for one `auction_id`; powers the `compare` / `report` modes. |
 | `list_distinct` | Distinct values + per-value counts for distribution / breakdown questions. |
-| `upcoming_auctions` | Auctions with a deadline within N days. |
-| `borrower_lookup` | Other auctions tied to a borrower. |
 | `describe_schema` | Live graph introspection (labels, rels, enums, ranges); 1-hour cache. |
 | `run_cypher` | Read-only Cypher escape hatch — write clauses rejected, 10 s / 500-row caps. |
 | `internet_search` | Tavily web search for off-graph context (legal/RBI/locality). |

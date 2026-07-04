@@ -100,11 +100,57 @@ def test_order_by_price_desc(monkeypatch) -> None:
 
 
 def test_order_by_default_is_deadline_asc(monkeypatch) -> None:
+    """The default `deadline_asc` now sorts by the application deadline — the
+    field it names — not `auction_start_dt` (the old mislabel)."""
     calls = _patch_run_query(monkeypatch, total_count=3)
     from api.tools.cypher_tools import search_auctions
     search_auctions(limit=3)
     row_cypher, _ = calls[1]
+    assert "ORDER BY a.application_deadline_dt ASC" in row_cypher
+
+
+def test_order_by_start_asc_sorts_by_auction_start(monkeypatch) -> None:
+    calls = _patch_run_query(monkeypatch, total_count=3)
+    from api.tools.cypher_tools import search_auctions
+    search_auctions(order_by="start_asc", limit=3)
+    row_cypher, _ = calls[1]
     assert "ORDER BY a.auction_start_dt ASC" in row_cypher
+
+
+def test_borrower_filter_adds_has_borrower_edge(monkeypatch) -> None:
+    """The absorbed `borrower_lookup` path: a `borrower` arg adds the
+    HAS_BORROWER edge and a case-insensitive substring match."""
+    calls = _patch_run_query(monkeypatch, total_count=0)
+    from api.tools.cypher_tools import search_auctions
+
+    search_auctions(borrower="XYZ Industries", limit=0)
+
+    cypher, params = calls[0]
+    assert "(a)-[:HAS_BORROWER]->(bor:Borrower)" in cypher
+    assert "any(x IN $borrower WHERE toLower(bor.name) CONTAINS toLower(x))" in cypher
+    assert params["borrower"] == ["XYZ Industries"]
+
+
+def test_deadline_within_days_windows_the_deadline_and_skips_future_floor(monkeypatch) -> None:
+    """The absorbed `upcoming_auctions` path: `deadline_within_days` bounds the
+    application-deadline window and, being its own future window, suppresses the
+    default future-only `auction_start_dt` floor (and its zero-result
+    diagnostic)."""
+    calls = _patch_run_query(monkeypatch, total_count=0)
+    from api.tools.cypher_tools import search_auctions
+
+    out = search_auctions(deadline_within_days=7, limit=0)
+
+    cypher, params = calls[0]
+    assert "a.application_deadline_dt >= $deadline_from" in cypher
+    assert "a.application_deadline_dt <= $deadline_to" in cypher
+    assert "deadline_from" in params and "deadline_to" in params
+    # No default future-only start floor when a deadline window is set.
+    assert "a.auction_start_dt >= $starts_after" not in cypher
+    assert "starts_after" not in params
+    # And no zero-result diagnostic (the window was explicit).
+    assert "hint" not in out and "past_matches" not in out
+    assert len(calls) == 1
 
 
 def test_order_by_rejects_unknown_value(monkeypatch) -> None:

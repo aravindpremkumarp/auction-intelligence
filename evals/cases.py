@@ -18,8 +18,6 @@ from dataclasses import dataclass, field
 # instead of silently never matching in the live eval.
 KNOWN_TOOLS: set[str] = {
     "search_auctions",
-    "upcoming_auctions",
-    "borrower_lookup",
     "semantic_property_search",
     "get_auction_detail",
     "select_properties",
@@ -128,15 +126,15 @@ GOLDEN: list[GoldenCase] = [
 
     # ─── Temporal ───────────────────────────────────────────────────────
     GoldenCase("temporal", "Auctions with deadline in the next 7 days",
-               ["upcoming_auctions"]),
+               ["search_auctions"]),
     GoldenCase("temporal", "Auctions starting in Q1 2026 in Chennai",
                ["search_auctions"]),
     GoldenCase("temporal", "Auctions closing this week",
-               ["upcoming_auctions"]),
+               ["search_auctions"]),
 
     # ─── Borrower lookup ────────────────────────────────────────────────
     GoldenCase("borrower", "Auctions tied to borrower XYZ Industries",
-               ["borrower_lookup"]),
+               ["search_auctions"]),
 
     # ─── Edge / negative cases ──────────────────────────────────────────
     # Zero-result and out-of-coverage questions: the agent must still ground
@@ -151,7 +149,7 @@ GOLDEN: list[GoldenCase] = [
     GoldenCase("edge", "Show me the details of auction id 999999999",
                ["get_auction_detail"]),
     GoldenCase("edge", "Which auctions does borrower Walter White have?",
-               ["borrower_lookup"]),
+               ["search_auctions"]),
 ]
 
 

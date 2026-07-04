@@ -106,9 +106,6 @@ def _usage_limits() -> UsageLimits:
 _TOOL_STATUS_LABELS = {
     "search_auctions": "Searching auctions…",
     "semantic_search": "Searching notices semantically…",
-    "upcoming_auctions": "Checking upcoming deadlines…",
-    "borrower_lookup": "Looking up borrower…",
-    "match_pasted_listing": "Matching your pasted listing…",
     "get_auction_detail": "Fetching auction details…",
     "select_properties": "Updating the matches panel…",
     "list_distinct": "Computing the breakdown…",

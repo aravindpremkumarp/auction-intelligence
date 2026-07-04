@@ -13,9 +13,9 @@ markdown report. No files are written.
    + `price_history`; `score_auction(auction_id)` for the 10-dim breakdown.
 2. **Legal framework** — read `auction_type` (SARFAESI / DRT / Liquidation /
    Private) from the detail and explain what it implies for the buyer.
-3. **Encumbrance / borrower risk** — `borrower_lookup(borrower_name)` for other
-   auctions tied to the same borrower; `semantic_search` over notice content
-   for charge / encumbrance / possession language.
+3. **Encumbrance / borrower risk** — `search_auctions(borrower=borrower_name)`
+   for other auctions tied to the same borrower; `semantic_search` over notice
+   content for charge / encumbrance / possession language.
 4. **Market comparables** — `search_auctions` scoped to the same area +
    property_type; weigh the reserve against peers and use the re-auction
    fields (`previous_reserve_price`) for any price-drop signal.
