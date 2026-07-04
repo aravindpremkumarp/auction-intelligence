@@ -216,10 +216,8 @@ agent_tools:
       property_type: {type: string}
 
   # ── Scoring & tracking tools (Phase 2-3) ──
-  - name: score_auction
-    description: Compute 10-dimensional investment score for an auction
-    parameters:
-      auction_id: {type: string}
+  # score_auction was removed from the chat agent (weak heuristics — see
+  # scoring/auction_scorer.py); the scorer module remains for offline use.
 
   - name: batch_score
     description: Score all auctions matching a filter criteria

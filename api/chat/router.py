@@ -111,8 +111,6 @@ _TOOL_STATUS_LABELS = {
     "describe_schema": "Reading the graph schema…",
     "run_cypher": "Querying the graph…",
     "internet_search": "Searching the web…",
-    "watch_property": "Setting up tracking…",
-    "list_alerts": "Checking your deadline alerts…",
 }
 
 

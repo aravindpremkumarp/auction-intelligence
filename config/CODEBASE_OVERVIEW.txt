@@ -198,9 +198,9 @@ Dimensions (weights in `modes/_shared.md`):
       `price_comparison`, `get_auction_detail` — Specialized parameterized
       Cypher queries. (borrower and upcoming-deadline queries are now
       `search_auctions` params: `borrower`, `deadline_within_days`.)
-    - `score_auction(auction_id)` — 10-dimension investment score
-      (composite 0–100 + A+–F grade) computed live from the graph;
-      wraps `scoring/auction_scorer.py`. Powers compare/report modes.
+    - (scoring, watch, and alerts are NOT chat tools — the 10-dim
+      scorer lives in `scoring/auction_scorer.py` and watchlist/alerts
+      are UI features served by their REST routers.)
     - `semantic_property_search` — Vector search over
       `AuctionProperty.embedding` via the `property_desc_idx` index,
       with optional city / price / asset-category post-filters.
@@ -231,7 +231,7 @@ Markdown "mode" prompts the agent can switch into:
   enum constraints), tool-choice rules, a Cypher cheat-sheet for
   `run_cypher`, and the shared 10-dim scoring framework.
 - `compare.md` — Side-by-side comparison of 2–5 auctions (in-chat table;
-  uses `score_auction` + `get_auction_detail`).
+  attribute-based, via `get_auction_detail` + area aggregations).
 - `deep-research.md` — 7-step due diligence on one auction (in-chat report).
 - `report.md` — Personalised, profile-tuned investment brief (in-chat).
 

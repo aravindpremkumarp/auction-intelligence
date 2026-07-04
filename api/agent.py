@@ -14,7 +14,7 @@ The system prompt is assembled from two parts:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 
 import httpx
@@ -32,14 +32,10 @@ from api.model_selection import (
     DEFAULT_PAID_MODEL,
     build_model_settings,
 )
-from api.alerts import repository as alerts_repo
-from api.alerts.service import build_alerts
 from api.dossier import dossiers_enabled, qa as dossier_qa
 from api.tool_returns import split_ui_overflow
 from api.tools import cypher_tools as T
 from api.tools import web_tools as W
-from api.watchlist import repository as watchlist_repo
-from scoring.auction_scorer import score_auction as _score_auction
 
 
 @dataclass
@@ -90,10 +86,11 @@ Rules:
    valuations, or external records. Frame borrower follow-ups as
    `search_auctions(borrower=...)` output, never "check legal records". Never offer or
    agree to an action no tool performs — if you can't do it, say so plainly
-   and name the closest tool that exists. The ONLY monitoring is
-   auction-deadline alerts via `watch_property` / `list_alerts` (their
-   docstrings are authoritative); confirm before the state-changing
-   `watch_property`.
+   and name the closest tool that exists. Chat has NO tracking, monitoring,
+   alerting, scoring, or saving actions: for "track/watch/alert/save/score
+   this" requests, say chat can't do that and point the user to the Save
+   button on the property card (saved properties get deadline alerts in
+   the app).
 5. Markdown only for genuine multi-section answers: open each section
    with `### <emoji> **Title**` (one emoji matching intent — 📍 location,
    🔍 search, 🏆 top, 📊 data, 📰 news, ⚡ insight, ⚠️ caveat, ✅, 💰, 📅).
@@ -422,18 +419,6 @@ def get_auction_detail(auction_id: str) -> dict | None:
 
 
 @agent.tool_plain
-def score_auction(auction_id: str) -> dict | None:
-    """Investment score for ONE auction_id: the 10-dimension framework
-    (price, location, legal clarity, bank, condition, timeline, DD-ease,
-    area trend, competition, yield) computed live from the graph. Returns
-    {composite_score 0-100, grade A+..F, dimensions:[{name, score, weight,
-    rationale}]}; None if the id doesn't exist. Use for "score/rate/grade
-    this auction" and inside the compare/report modes. Read-only."""
-    result = _score_auction(auction_id)
-    return result.to_dict() if result else None
-
-
-@agent.tool_plain
 def select_properties(auction_ids: list[str]) -> dict:
     """Mirror a subset of already-found properties into the UI matches
     panel — call it whenever you re-present earlier results WITHOUT a new
@@ -491,63 +476,9 @@ async def internet_search(query: str, max_results: int = 5) -> dict:
     return await W.internet_search(query, max_results=max_results)
 
 
-# Context-aware (RunContext) tools — they read the caller's supabase_id off
-# ChatDeps, so they're per-user. The user identity never reaches the model
-# (pydantic-ai strips RunContext from the tool schema); the model just calls
-# watch_property(auction_id) / list_alerts().
-@agent.tool
-async def watch_property(ctx: RunContext[ChatDeps], auction_id: str) -> dict:
-    """Save a property to the user's watchlist and turn on its auction-
-    deadline alerts. This is THE way to "track"/"monitor"/"watch"/"set up
-    alerts" for a property — call it when the user asks for any of those.
-
-    Idempotent: saving an already-saved property is fine. Covers deadline
-    timing only — it does NOT watch for price drops, status changes, or send
-    email/SMS.
-
-    Returns one of:
-      - {status: "watching", auction_id, alerts: [...]} — saved; `alerts` is
-        any deadline alert now active for it (empty if the deadline is more
-        than 7 days out). Tell the user it's being tracked and surface the
-        alert if present.
-      - {status: "not_found", auction_id} — no such auction_id; don't claim
-        it was saved.
-      - {status: "login_required"} — the user isn't signed in; tell them to
-        sign in to save and track properties."""
-    sub = ctx.deps.supabase_id if ctx.deps else None
-    if not sub:
-        return {"status": "login_required"}
-    saved = await watchlist_repo.add_saved(sub, auction_id)
-    if not saved:
-        return {"status": "not_found", "auction_id": auction_id}
-    rows = await alerts_repo.deadlines_for_ids([auction_id])
-    alerts = build_alerts(rows, datetime.now(timezone.utc))
-    return {"status": "watching", "auction_id": auction_id, "alerts": alerts}
-
-
-@agent.tool
-async def list_alerts(
-    ctx: RunContext[ChatDeps], auction_id: str | None = None
-) -> dict:
-    """List active auction-deadline alerts on the user's saved properties —
-    those whose application deadline is within 7 days (severity "urgent" ≤1d,
-    "soon" ≤3d, "upcoming" ≤7d). Pass `auction_id` to check a single saved
-    property. Use this for "what's coming up / due", "any deadlines on my
-    saved ones", or after `watch_property` to confirm.
-
-    Returns {status, alerts: [...], count}. {status: "login_required"} when
-    the user isn't signed in — tell them to sign in. An empty list means
-    nothing saved is due within 7 days (not an error)."""
-    sub = ctx.deps.supabase_id if ctx.deps else None
-    if not sub:
-        return {"status": "login_required", "alerts": [], "count": 0}
-    rows = await alerts_repo.deadlines_for_saved(sub)
-    if auction_id:
-        rows = [r for r in rows if r.get("auction_id") == auction_id]
-    alerts = build_alerts(rows, datetime.now(timezone.utc))
-    return {"status": "ok", "alerts": alerts, "count": len(alerts)}
-
-
+# Context-aware (RunContext) tool — reads the caller's supabase_id off
+# ChatDeps, so it's per-user. The user identity never reaches the model
+# (pydantic-ai strips RunContext from the tool schema).
 async def query_user_dossier(
     ctx: RunContext[ChatDeps],
     query: str,
