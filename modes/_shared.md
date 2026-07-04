@@ -1,19 +1,21 @@
 # Shared Agent Context
 
-Loaded into the system prompt at boot. Schema cheat-sheet + domain rules
-the chat agent leans on without calling `describe_schema()` every turn.
-
 ## Graph schema
 
 Nodes (with key + notable props):
 
 - `AuctionProperty(auction_id)` — `title`, `url`, `description`,
   `reserve_price_num` (INR), `emd_num` (INR), `auction_start_dt`,
-  `auction_end_dt`, `application_deadline_dt`, `total_area`, `village`,
-  `taluk`, `district`
-- `City(name)`, `Area(name)`, `State(name)`, `Bank(name)`, `Branch(name)`
+  `auction_end_dt` (same day as start on ~all rows),
+  `application_deadline_dt`, `service_provider` (e-auction platform, messy
+  free text — match by substring), `contact_details`,
+  `website_description`. No `total_area`/`village`/`taluk`/`district`
+  props exist — sizes and sub-locality live only in `description` text
+  (`semantic_search`); never filter on them in `run_cypher`.
+- `City(name)`, `Area(name)`, `State(name)` (Tamil Nadu only), `Bank(name)`,
+  `Branch(name)`
 - `AssetCategory(name)`, `PropertyType(name)`, `Borrower(name)`,
-  `AuctionType(name)`, `Feedback(id)`
+  `AuctionType(name)`
 
 Relationships (all start on `AuctionProperty` unless noted):
 
@@ -81,32 +83,31 @@ Synonym map — expand user phrasing to enum names BEFORE calling
 
 ## Tool routing
 
-- **Structured filters** (price/city/area/type/category/date/aggregations)
-  → `search_auctions` (future-only by default). Multi-value filters and
-  `list_distinct` scope accept a list — use it when several values apply
-  (see the synonym map in Enums above).
+- **Structured filters** (price/EMD/city/area/type/category/bank/borrower/
+  platform/date/aggregations) → `search_auctions` (future-only by default).
+  Also covers **borrower** questions ("auctions of <name>" → `borrower=`,
+  substring), **upcoming deadlines** ("closing this week" →
+  `deadline_within_days=N`), **EMD budgets** (`min_emd`/`max_emd`), and
+  **platform** ("on BAANKNET" → `service_provider=`, substring). Every
+  multi-value filter accepts a single value or a list — use a list when
+  several values apply (see the synonym map in Enums above).
 - **Qualitative / free-text / notice content** (boundaries, neighborhood,
   condition, legal caveats, layout, visual signal) → `semantic_search`.
-- **Pasted listing** (WhatsApp/broker blurb with price+date+area) →
-  `match_pasted_listing` (preferred over `semantic_search` here).
-- **One specific auction_id, any field** → `get_auction_detail`.
-- **Rows for SEVERAL known auction_ids, or re-presenting an already-found
-  subset** ("top three of those", a shortlist) → ONE
-  `select_properties(auction_ids=[...])` call — loop `get_auction_detail`
-  only when each id's deep fields / `price_history` are needed (the compare
-  and deep-research modes say when). Skip it when this turn's search/detail
-  already put exactly that set in the panel.
-- **Score / rate / grade an auction** → `score_auction(auction_id)` (10-dim
-  composite 0–100 + A+–F; read-only). Core of `compare` and `report` modes.
-- **Distribution / breakdown / "spread" / "mix"** → `list_distinct` (scoped).
-  NEVER iterate `get_auction_detail` for counts.
+- **One specific auction_id, any field** → `get_auction_detail`; for
+  several known ids, batch the detail calls in one step (parallel).
+- **Re-presenting an already-found subset** ("top three of those", a
+  shortlist): no tool — cite the chosen auction_ids in your answer,
+  best-first. The system updates the matches panel from your citations
+  automatically.
+- **Distribution / breakdown / "spread" / "mix"** →
+  `search_auctions(group_by=<dimension>)` — filters compose with the
+  grouping. NEVER iterate `get_auction_detail` for counts.
 - **Schema introspection** → `describe_schema()`.
 - **Novel query** → `run_cypher` (call `describe_schema()` first if unsure;
   writes are rejected server-side).
-- **Track / monitor / watch / alerts** → `watch_property(auction_id)`;
-  **what's due on saved properties** → `list_alerts`. Auction-deadline
-  timing ONLY — no price-drop, status-change, withdrawal, email, or SMS
-  alerts exist.
+- **Track / watch / alerts / save / score** → no chat tool does these.
+  Say so and point to the Save button on the property card (saved
+  properties get deadline alerts in the app UI).
 
 ## Zero-result protocol
 
@@ -125,8 +126,8 @@ don't depend on each other's output ("Chennai vs Coimbatore prices", counts
 for 3 cities), issue those calls together in one step, not one at a time —
 they run in parallel and cost one round-trip instead of one per lookup. Only
 serialize when a later call needs an earlier one's result (e.g. search → then
-`score_auction` on an id it returned). Ignore this in the step-ordered modes
-(deep-research / report), which set their own sequence.
+`get_auction_detail` on an id it returned). This applies in every mode —
+deep-research phase 2 is explicitly one batched parallel step.
 
 ## Re-auction fields (on every search_auctions row)
 

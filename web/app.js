@@ -16,7 +16,7 @@ const authFetch = (url, opts = {}) => {
   }
   return (window.Auth && window.Auth.fetchWithAuth ? window.Auth.fetchWithAuth(url, opts) : fetch(url, opts));
 };
-const GATED_MODES = new Set(['deep-research', 'report']);
+const GATED_MODES = new Set(['deep-research']);
 function _requireAuthForMode(mode) {
   if (!GATED_MODES.has(mode)) return true;
   const u = window.Auth && window.Auth.getUser && window.Auth.getUser();
@@ -768,15 +768,11 @@ document.querySelectorAll('#results-mobile-tabs button').forEach(b => {
 window.currentMode = 'ask';
 const MODE_DESC = {
   'ask': 'Search and ask questions across every auction.',
-  'deep-research': 'Seven-step due diligence on a single property.',
-  'compare': 'Weigh 2 to 5 properties side by side.',
-  'report': 'An investment report tuned to your profile.',
+  'deep-research': 'Full due diligence on a single property.',
 };
 let chatModeOpts = [
   { id: 'ask', label: 'Ask', description: MODE_DESC['ask'] },
   { id: 'deep-research', label: 'Deep research', description: MODE_DESC['deep-research'] },
-  { id: 'compare', label: 'Compare', description: MODE_DESC['compare'] },
-  { id: 'report', label: 'Personalized report', description: MODE_DESC['report'] },
 ];
 // (Re)render every mode picker from the current option list + selection.
 function renderModePickers() {

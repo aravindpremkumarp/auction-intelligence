@@ -195,16 +195,16 @@ Dimensions (weights in `modes/_shared.md`):
       statistics (min/max/avg/median/p25/p75) over the full filtered
       set and returns a true `total_count`.
     - `find_similar_properties`, `bank_portfolio`, `location_analysis`,
-      `upcoming_auctions`, `price_comparison`, `borrower_lookup`,
-      `get_auction_detail` — Specialized parameterized
-      Cypher queries.
-    - `score_auction(auction_id)` — 10-dimension investment score
-      (composite 0–100 + A+–F grade) computed live from the graph;
-      wraps `scoring/auction_scorer.py`. Powers compare/report modes.
+      `price_comparison`, `get_auction_detail` — Specialized parameterized
+      Cypher queries. (borrower and upcoming-deadline queries are now
+      `search_auctions` params: `borrower`, `deadline_within_days`.)
+    - (scoring, watch, and alerts are NOT chat tools — the 10-dim
+      scorer lives in `scoring/auction_scorer.py` and watchlist/alerts
+      are UI features served by their REST routers.)
     - `semantic_property_search` — Vector search over
       `AuctionProperty.embedding` via the `property_desc_idx` index,
       with optional city / price / asset-category post-filters.
-    - `list_distinct(field, limit, city=None, ...)` — Enum discovery
+    - distributions via `search_auctions(group_by=...)` — Enum discovery
       ("what cities do we cover", "which property types appear in
       Chennai", "what auction types do we have"). `field` ∈ {city,
       area, state, bank, branch, borrower, asset_category,
@@ -228,17 +228,16 @@ Dimensions (weights in `modes/_shared.md`):
 Markdown "mode" prompts the agent can switch into:
 - `_shared.md` — Loaded into the system prompt at boot. Defines the
   full Neo4j schema (node labels + key properties, relationships,
-  enum constraints), tool-choice rules, a Cypher cheat-sheet for
-  `run_cypher`, and the shared 10-dim scoring framework.
-- `compare.md` — Side-by-side comparison of 2–5 auctions (in-chat table;
-  uses `score_auction` + `get_auction_detail`).
-- `deep-research.md` — 7-step due diligence on one auction (in-chat report).
-- `report.md` — Personalised, profile-tuned investment brief (in-chat).
+  enum constraints), tool-choice rules, and a Cypher cheat-sheet for
+  `run_cypher`.
+- `deep-research.md` — 3-phase due diligence on one auction (in-chat
+  report): snapshot → one batched parallel evidence sweep → write-up.
 
-Only `compare`, `deep-research`, and `report` (plus the default `ask`) are
-wired into `_AVAILABLE_MODES` in `api/chat/router.py`. Five further specs —
-`scan`, `shortlist`, `evaluate`, `track`, `refresh` — are parked in
-`modes/_archive/` (inert; never loaded). See `modes/_archive/README.md`.
+Only `deep-research` (plus the default `ask`) is wired into
+`_AVAILABLE_MODES` in `api/chat/router.py`. Seven further specs — `scan`,
+`shortlist`, `evaluate`, `track`, `refresh`, `compare`, `report` — are
+parked in `modes/_archive/` (inert; never loaded). See
+`modes/_archive/README.md`.
 
 ## 8. Web UI (`web/`)
 
@@ -276,7 +275,7 @@ wired into `_AVAILABLE_MODES` in `api/chat/router.py`. Five further specs —
     - `test_describe_schema.py` — Validates `describe_schema()`
       output shape (labels + counts, relationships, enums,
       numeric/date ranges) against the stubbed queries.
-    - `test_list_distinct.py` — Verifies the Cypher shape + param
+    - `test_group_by.py` — Verifies the distribution Cypher shape + param
       wiring for enum discovery, including city-scoped variants.
     - `test_run_cypher_guardrails.py` — Rejects write clauses /
       overlong queries / unsupported params; confirms safe read
@@ -382,7 +381,7 @@ See `domain_ontology.yaml` for the full property-level schema.
   against prod to complete the migration.
 - PR #10 (`claude/analyze-career-ops-project-1T3uR`) landed
   "bulletproof Neo4j Q&A": `modes/_shared.md` is now loaded into the
-  system prompt, and the agent has `describe_schema`, `list_distinct`,
+  system prompt, and the agent has `describe_schema`,
   and the guarded `run_cypher` escape hatch.
 - PR #11 (`feature/mid-fi-ui`) replaced the Alpine.js / Tailwind UI
   with the vanilla-JS mid-fi 4-screen flow (landing / results /

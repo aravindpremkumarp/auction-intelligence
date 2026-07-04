@@ -18,12 +18,8 @@ from dataclasses import dataclass, field
 # instead of silently never matching in the live eval.
 KNOWN_TOOLS: set[str] = {
     "search_auctions",
-    "upcoming_auctions",
-    "borrower_lookup",
     "semantic_property_search",
     "get_auction_detail",
-    "select_properties",
-    "list_distinct",
     "describe_schema",
     "run_cypher",
 }
@@ -62,17 +58,17 @@ GOLDEN: list[GoldenCase] = [
     GoldenCase("aggregation", "How many auctions are there in Tamil Nadu?",
                ["search_auctions", "run_cypher"]),
     GoldenCase("aggregation", "Count of auctions per city, top 10",
-               ["run_cypher", "list_distinct"]),
+               ["run_cypher", "search_auctions"]),
     GoldenCase("aggregation", "Monthly auction volume in 2026",
                ["run_cypher"]),
     GoldenCase("aggregation", "Which cities have the most auctions?",
-               ["list_distinct", "run_cypher"]),
+               ["search_auctions", "run_cypher"]),
     GoldenCase("aggregation", "What is the 95th percentile reserve price?",
                ["search_auctions", "run_cypher", "describe_schema"]),
 
     # ─── Multi-hop / novel ──────────────────────────────────────────────
     GoldenCase("multi_hop", "Banks with more than 50 auctions in Tamil Nadu",
-               ["run_cypher", "list_distinct"]),
+               ["run_cypher", "search_auctions"]),
     GoldenCase("multi_hop", "Borrowers with multiple properties",
                ["run_cypher"]),
     GoldenCase("multi_hop", "Areas where EMD is more than 15% of reserve on average",
@@ -80,27 +76,27 @@ GOLDEN: list[GoldenCase] = [
     GoldenCase("multi_hop", "Which bank has the lowest average reserve price in Chennai?",
                ["run_cypher"]),
     GoldenCase("multi_hop", "Property types available in industrial asset category",
-               ["list_distinct", "run_cypher", "describe_schema"]),
+               ["search_auctions", "run_cypher", "describe_schema"]),
     GoldenCase("multi_hop", "Top 5 areas by auction count",
-               ["list_distinct", "run_cypher"]),
+               ["search_auctions", "run_cypher"]),
     GoldenCase("multi_hop", "Cities that appear in both residential and commercial auctions",
                ["run_cypher"]),
     GoldenCase("multi_hop", "Auctions where the borrower has more than one property",
                ["run_cypher"]),
     GoldenCase("multi_hop", "Banks active in Chennai sorted by portfolio size",
-               ["run_cypher", "list_distinct"]),
+               ["run_cypher", "search_auctions"]),
     GoldenCase("multi_hop", "Which banks have the highest median reserve price?",
                ["run_cypher"]),
 
     # ─── Schema / enum discovery ────────────────────────────────────────
     GoldenCase("schema", "What cities do you have data for?",
-               ["list_distinct"]),
+               ["search_auctions"]),
     GoldenCase("schema", "List all banks in the database",
-               ["list_distinct"]),
+               ["search_auctions"]),
     GoldenCase("schema", "What property types are available?",
-               ["list_distinct", "describe_schema"]),
+               ["search_auctions", "describe_schema"]),
     GoldenCase("schema", "What asset categories exist?",
-               ["list_distinct", "describe_schema"]),
+               ["search_auctions", "describe_schema"]),
     GoldenCase("schema", "What fields does an auction property have?",
                ["describe_schema"]),
 
@@ -128,15 +124,15 @@ GOLDEN: list[GoldenCase] = [
 
     # ─── Temporal ───────────────────────────────────────────────────────
     GoldenCase("temporal", "Auctions with deadline in the next 7 days",
-               ["upcoming_auctions"]),
+               ["search_auctions"]),
     GoldenCase("temporal", "Auctions starting in Q1 2026 in Chennai",
                ["search_auctions"]),
     GoldenCase("temporal", "Auctions closing this week",
-               ["upcoming_auctions"]),
+               ["search_auctions"]),
 
     # ─── Borrower lookup ────────────────────────────────────────────────
     GoldenCase("borrower", "Auctions tied to borrower XYZ Industries",
-               ["borrower_lookup"]),
+               ["search_auctions"]),
 
     # ─── Edge / negative cases ──────────────────────────────────────────
     # Zero-result and out-of-coverage questions: the agent must still ground
@@ -147,11 +143,11 @@ GOLDEN: list[GoldenCase] = [
     GoldenCase("edge", "Flats in Chennai under 1000 rupees",
                ["search_auctions"]),
     GoldenCase("edge", "Auctions conducted by the Bank of Narnia",
-               ["search_auctions", "list_distinct"]),
+               ["search_auctions"]),
     GoldenCase("edge", "Show me the details of auction id 999999999",
                ["get_auction_detail"]),
     GoldenCase("edge", "Which auctions does borrower Walter White have?",
-               ["borrower_lookup"]),
+               ["search_auctions"]),
 ]
 
 

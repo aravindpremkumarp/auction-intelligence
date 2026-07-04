@@ -80,7 +80,14 @@ _SHARED_MD = _REPO_ROOT / "modes" / "_shared.md"
 # dropped ("name the closest tool", "withdrawal" in the no-such-alerts list,
 # the compare-mode exception to the no-detail-loop rule). Measured ~17,811;
 # ceiling 17,900.
-BUDGET_CHARS = 17_900
+# 2026-07 (tool-surface reduction): the chat agent dropped from 12 tools to 7
+# — match_pasted_listing removed; upcoming_auctions, borrower_lookup, and
+# list_distinct folded into search_auctions (deadline_within_days, borrower,
+# group_by); score_auction, watch_property, and list_alerts removed (weak
+# heuristics / duplicated the UI's Save button — rule 4 now points there).
+# Measured ~15,972. Ceiling ratcheted down so the ~480 tokens/call saved
+# can't silently creep back; raise deliberately as always.
+BUDGET_CHARS = 16_200
 
 
 def _agent_module() -> ast.Module:
@@ -118,7 +125,12 @@ def test_static_prompt_prefix_under_budget():
     # loses its docstring (or a rename that drops it from the decorated set)
     # should be noticed here, not silently shrink the "budget".
     assert "search_auctions" in tool_docs, "search_auctions tool not found"
-    assert len(tool_docs) >= 9, f"expected >=9 tools, found {sorted(tool_docs)}"
+    # 6 always-on tools after the 2026-07 surface trim (match_pasted_listing,
+    # upcoming_auctions, borrower_lookup, list_distinct folded/removed;
+    # score_auction, watch_property, list_alerts dropped from chat;
+    # select_properties replaced by the router's programmatic panel sync —
+    # see api/chat/panel.py).
+    assert len(tool_docs) >= 6, f"expected >=6 tools, found {sorted(tool_docs)}"
     assert all(tool_docs.values()), (
         "every tool needs a docstring (it IS the tool description sent to the "
         f"model): missing for {[n for n, d in tool_docs.items() if not d]}"

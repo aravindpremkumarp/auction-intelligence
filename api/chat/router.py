@@ -8,6 +8,7 @@ the anonymous-chat throttle and per-turn latency observability.
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -37,6 +38,8 @@ from pydantic_ai.run import AgentRunResultEvent
 from pydantic_ai.usage import UsageLimits
 
 from api.agent import ChatDeps, agent, build_chat_run_overrides
+from api.chat.panel import panel_sync_ids
+from api.tools import cypher_tools as cypher_T
 from api.auth import get_optional_user
 from api.auth import repository as auth_repo
 from api.auth.schemas import UserOut
@@ -71,7 +74,7 @@ _CARRY_FORWARD_FILTER_KEYS = {
     "starts_after", "starts_before",
 }
 
-_GATED_MODES = {"deep-research", "report"}
+_GATED_MODES = {"deep-research"}
 
 # Upper bound on panel auction_ids forwarded into the agent's context per turn.
 # The panel rarely holds more than a shortlist, but a wide browse selection
@@ -106,17 +109,10 @@ def _usage_limits() -> UsageLimits:
 _TOOL_STATUS_LABELS = {
     "search_auctions": "Searching auctions…",
     "semantic_search": "Searching notices semantically…",
-    "upcoming_auctions": "Checking upcoming deadlines…",
-    "borrower_lookup": "Looking up borrower…",
-    "match_pasted_listing": "Matching your pasted listing…",
     "get_auction_detail": "Fetching auction details…",
-    "select_properties": "Updating the matches panel…",
-    "list_distinct": "Computing the breakdown…",
     "describe_schema": "Reading the graph schema…",
     "run_cypher": "Querying the graph…",
     "internet_search": "Searching the web…",
-    "watch_property": "Setting up tracking…",
-    "list_alerts": "Checking your deadline alerts…",
 }
 
 
@@ -281,6 +277,11 @@ class ChatRequest(BaseModel):
 
 # Whitelist of modes the agent will overlay. Each maps to a modes/<id>.md file.
 # Keeping this explicit prevents arbitrary file reads from the modes/ dir.
+# `compare` and `report` are parked in modes/_archive/ (2026-07) — an unknown
+# mode from a stale client falls back to plain ask, so removal is graceful.
+# Example ids use the REAL format (plain 6-digit strings like "750879") —
+# the old "AUC-12345" chips taught users an id shape that can't exist, so
+# copying them seeded guaranteed not-found lookups.
 _AVAILABLE_MODES: list[dict[str, Any]] = [
     {
         "id": "ask",
@@ -298,25 +299,9 @@ _AVAILABLE_MODES: list[dict[str, Any]] = [
     {
         "id": "deep-research",
         "label": "Deep research",
-        "description": "7-step due-diligence workflow on one auction_id.",
+        "description": "Full due-diligence workflow on one auction_id.",
         "examples": [
-            "Deep research on auction AUC-12345",
-        ],
-    },
-    {
-        "id": "compare",
-        "label": "Compare",
-        "description": "Side-by-side comparison of 2–5 auctions.",
-        "examples": [
-            "Compare AUC-12345 and AUC-67890",
-        ],
-    },
-    {
-        "id": "report",
-        "label": "Personalized report",
-        "description": "Investment report tuned to an investor profile.",
-        "examples": [
-            "Report on AUC-12345 for a conservative investor under 50 lakhs",
+            "Deep research on auction 750879",
         ],
     },
 ]
@@ -511,7 +496,7 @@ def _strip_ui_rows_from_history(history: list[dict[str, Any]]) -> list[dict[str,
 # bump via env if a flow genuinely needs the prior turn's rows verbatim.
 _HISTORY_KEEP_FULL_TURNS = max(1, int(os.getenv("CHAT_HISTORY_KEEP_FULL_TURNS", "1")))
 # Only trim tool returns whose JSON is at least this many chars — leaves small
-# aggregate/stat results (list_distinct) untouched so the
+# aggregate/stat results (distributions) untouched so the
 # model keeps cheap-but-useful context, and avoids stubs larger than the
 # original payload.
 _HISTORY_TRIM_MIN_CHARS = int(os.getenv("CHAT_HISTORY_TRIM_MIN_CHARS", "600"))
@@ -788,11 +773,57 @@ async def _prepare_turn(
     return history, deps, mode, run_ctx
 
 
-def _build_chat_response(
-    result: Any, mode: str | None, usage: dict[str, Any], model: str | None = None
+def _tool_returns(messages) -> list[tuple[str, Any]]:
+    """(tool_name, content) for every ToolReturnPart, in order — the input
+    shape api.chat.panel works over."""
+    out: list[tuple[str, Any]] = []
+    for msg in messages:
+        for part in getattr(msg, "parts", []):
+            if isinstance(part, ToolReturnPart):
+                out.append((part.tool_name, part.content))
+    return out
+
+
+async def _synthesize_panel_artifact(
+    result: Any, deps: ChatDeps | None
+) -> ToolArtifact | None:
+    """Programmatic matches-panel sync (replaces the select_properties TOOL).
+
+    The model cites auction_ids in its answer (role rule 1); the system
+    extracts them, and when they re-present a subset/re-ranking, fetches
+    fresh rows and appends a synthetic select_properties artifact — the
+    frontend renders the last search-shaped artifact, so it needs no
+    changes. One Neo4j query, zero LLM round-trips. Best-effort: a failure
+    here must never fail the turn."""
+    try:
+        ids = panel_sync_ids(
+            result.output or "",
+            _tool_returns(result.new_messages()),
+            _tool_returns(result.all_messages()),
+            deps.panel_auction_ids if deps else None,
+        )
+        if not ids:
+            return None
+        rows = await asyncio.to_thread(cypher_T.get_auctions_by_ids, ids)
+        return ToolArtifact(
+            tool="select_properties",
+            args={"auction_ids": ids, "synthetic": True},
+            result=rows,
+        )
+    except Exception:  # noqa: BLE001 - panel sync is cosmetic, never fatal
+        logger.exception("panel sync failed — leaving panel as-is")
+        return None
+
+
+async def _build_chat_response(
+    result: Any, mode: str | None, usage: dict[str, Any],
+    model: str | None = None, deps: ChatDeps | None = None,
 ) -> ChatResponse:
     """Post-run packaging shared by /chat and /chat/stream."""
     artifacts = _extract_artifacts(result.new_messages())
+    panel_artifact = await _synthesize_panel_artifact(result, deps)
+    if panel_artifact is not None:
+        artifacts.append(panel_artifact)
     logger.info(
         "chat turn ok mode=%s model=%s tool_calls=%d answer_chars=%d "
         "llm_calls=%s in_tok=%s cached_tok=%s out_tok=%s",
@@ -858,7 +889,7 @@ async def chat(
         # upstream failure, not a bug in this service).
         logger.exception("agent.run failed for message=%r mode=%r", req.message, mode)
         raise HTTPException(status_code=502, detail="chat agent failed — please retry")
-    return _build_chat_response(result, mode, usage, run_ctx["model"])
+    return await _build_chat_response(result, mode, usage, run_ctx["model"], deps)
 
 
 def _sse(event: str, data: dict[str, Any]) -> str:
@@ -941,10 +972,8 @@ async def _stream_turn(
         logger.exception("agent stream failed for message=%r mode=%r", message, mode)
         yield _sse("error", {"detail": "chat agent failed — please retry"})
         return
-    yield _sse(
-        "final",
-        _build_chat_response(result, mode, usage, run_ctx["model"]).model_dump(mode="json"),
-    )
+    final = await _build_chat_response(result, mode, usage, run_ctx["model"], deps)
+    yield _sse("final", final.model_dump(mode="json"))
 
 
 @router.post("/chat/stream")
