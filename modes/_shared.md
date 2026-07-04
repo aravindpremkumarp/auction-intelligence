@@ -1,8 +1,5 @@
 # Shared Agent Context
 
-Loaded into the system prompt at boot. Schema cheat-sheet + domain rules
-the chat agent leans on without calling `describe_schema()` every turn.
-
 ## Graph schema
 
 Nodes (with key + notable props):
@@ -18,7 +15,7 @@ Nodes (with key + notable props):
 - `City(name)`, `Area(name)`, `State(name)` (Tamil Nadu only), `Bank(name)`,
   `Branch(name)`
 - `AssetCategory(name)`, `PropertyType(name)`, `Borrower(name)`,
-  `AuctionType(name)`, `Feedback(id)`
+  `AuctionType(name)`
 
 Relationships (all start on `AuctionProperty` unless noted):
 
