@@ -55,6 +55,16 @@ let lastQuery = null;
 let currentResults = [];
 let currentTotalCount = null;
 let currentSort = 'date_asc';
+// True when the panel is showing an AI-produced ranking (e.g. the agent
+// answered "which has the largest land?" and re-ordered the matches). The
+// backend ships those rows already ordered via a synthetic select_properties
+// artifact; this flag tells the panel to preserve that order instead of
+// re-sorting by date/price, and unlocks the "Best match" sort option.
+let panelIsRanked = false;
+// The sort the user last chose explicitly for a non-ranked panel — restored
+// when a later turn drops back out of a ranking so we don't strand them on a
+// now-meaningless "relevance" order.
+let userSort = 'date_asc';
 // Index into chatHistory of the AI message whose matches the panel is
 // currently showing; null = following the live (most recent) result set.
 // Each turn's matches are re-derived from the artifacts already stored on
@@ -1279,7 +1289,24 @@ function _msgMatches(m) {
   if (!m || m.role !== 'ai' || !Array.isArray(m.artifacts)) return null;
   const ext = extractResultsFromArtifacts(m.artifacts);
   if (!ext.rows.length && !ext.tool) return null;
-  return { rows: ext.rows, total: (ext.total != null) ? ext.total : ext.rows.length };
+  return { rows: ext.rows, total: (ext.total != null) ? ext.total : ext.rows.length, tool: ext.tool };
+}
+
+// A synthetic select_properties artifact means the agent re-ranked the panel
+// to match its answer (see api/chat/panel.py). Those rows arrive pre-ordered,
+// so the panel must preserve that order rather than fall back to date/price.
+function _isRankedTool(tool) { return tool === 'select_properties'; }
+
+// Point the panel's sort at the source that just populated it. A ranking turn
+// forces the "relevance" (as-answered) order; anything else restores the sort
+// the user last picked, so switching away from a ranking doesn't strand them.
+function setPanelSource(tool) {
+  panelIsRanked = _isRankedTool(tool);
+  if (panelIsRanked) {
+    currentSort = 'relevance';
+  } else if (currentSort === 'relevance') {
+    currentSort = userSort;
+  }
 }
 
 async function askAI(userText, opts = {}) {
@@ -1291,6 +1318,7 @@ async function askAI(userText, opts = {}) {
     currentResults = [];
     currentTotalCount = null;
     panelSnapshotIndex = null;
+    setPanelSource(null);
     activeChatId = null;
     go('results');
   }
@@ -1337,6 +1365,7 @@ async function askAI(userText, opts = {}) {
       currentResults = extracted.rows;
       currentTotalCount = extracted.total;
       panelSnapshotIndex = null; // a new turn puts the panel back on "live"
+      setPanelSource(extracted.tool);
     }
     dropTransient();
     chatHistory.push({ role: 'ai', text: (resp.answer || '').trim(), artifacts: resp.artifacts || [], elapsedMs: performance.now() - startedAt });
@@ -1544,6 +1573,7 @@ function showMatchSnapshot(i) {
   currentResults = snap.rows;
   currentTotalCount = snap.total;
   panelSnapshotIndex = i;
+  setPanelSource(snap.tool);
   // Toggle the chip highlight in place — a full renderChat would yank the
   // log's scroll position to the bottom.
   document.querySelectorAll('#chat-log .matches-chip').forEach(b => {
@@ -1564,6 +1594,7 @@ function flashBtn(btn) {
 
 /* ====== RESULTS ====== */
 const SORT_LABEL = {
+  relevance:  'ranked by your question',
   date_asc:   'sorted by auction date (oldest first)',
   date_desc:  'sorted by auction date (newest first)',
   price_asc:  'sorted by price (low → high)',
@@ -1571,6 +1602,9 @@ const SORT_LABEL = {
 };
 function sortResults(rows, mode) {
   const copy = rows.slice();
+  // "relevance" is the order the backend already ranked the rows in (the
+  // agent's answer ordering) — keep it as-is, don't re-sort.
+  if (mode === 'relevance') return copy;
   const endIfMissing = (v) => v == null || v === '' || Number.isNaN(v);
   if (mode === 'price_asc' || mode === 'price_desc') {
     const dir = mode === 'price_asc' ? 1 : -1;
@@ -1620,6 +1654,7 @@ function renderResultsList() {
     _setMtabCount(0);
     return;
   }
+  _syncSortOptions();
   const sorted = sortResults(currentResults, currentSort);
   const cards = sorted.map(row => toCard(row)).filter(c => c.id);
   const shown = cards.length;
@@ -1631,6 +1666,25 @@ function renderResultsList() {
   wireCardClicks();
   _setMtabCount(total);
 }
+// The "Best match" option only makes sense while the panel holds an AI
+// ranking, so it's injected/removed on demand rather than living statically in
+// the markup. Keeps the dropdown's value in sync with currentSort either way.
+function _syncSortOptions() {
+  const sel = document.getElementById('results-sort');
+  if (!sel) return;
+  let opt = sel.querySelector('option[value="relevance"]');
+  if (panelIsRanked) {
+    if (!opt) {
+      opt = document.createElement('option');
+      opt.value = 'relevance';
+      opt.textContent = 'Best match (your question)';
+      sel.insertBefore(opt, sel.firstChild);
+    }
+  } else if (opt) {
+    opt.remove();
+  }
+  sel.value = currentSort;
+}
 function _setMtabCount(n) {
   const el = document.getElementById('mtab-count');
   if (el) el.textContent = String(n || 0);
@@ -1641,6 +1695,9 @@ function _setMtabCount(n) {
   sel.value = currentSort;
   sel.addEventListener('change', () => {
     currentSort = sel.value;
+    // Remember an explicit date/price pick so we can restore it after a
+    // ranking turn borrows the sort for "relevance".
+    if (currentSort !== 'relevance') userSort = currentSort;
     renderResultsList();
   });
 })();
@@ -2417,6 +2474,14 @@ async function loadConversation(id) {
     currentResults = Array.isArray(data.results) ? data.results : [];
     currentTotalCount = (typeof data.total_count === 'number') ? data.total_count : null;
     panelSnapshotIndex = null; // saved conversations restore the live set
+    // Re-derive whether the restored panel is an AI ranking from the last
+    // panel-touching message, so "Best match" order survives a reload.
+    let liveTool = null;
+    for (let k = chatHistory.length - 1; k >= 0; k--) {
+      const snap = _msgMatches(chatHistory[k]);
+      if (snap) { liveTool = snap.tool; break; }
+    }
+    setPanelSource(liveTool);
     // go('results') syncs the URL to /chat/{id} via pathForScreen; when already
     // on the chat screen go() is skipped, so push the deep link explicitly.
     if (currentScreen !== 'results') go('results');
@@ -2466,6 +2531,7 @@ async function deleteConversation(id) {
     currentResults = [];
     currentTotalCount = null;
     panelSnapshotIndex = null;
+    setPanelSource(null);
     activeChatId = null;
     renderChat();
     renderResultsList();
@@ -2479,6 +2545,7 @@ function newThread() {
   currentResults = [];
   currentTotalCount = null;
   panelSnapshotIndex = null;
+  setPanelSource(null);
   activeChatId = null;
   renderSidebar();
   renderChat();
