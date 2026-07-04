@@ -241,3 +241,54 @@ def test_search_auctions_derives_is_reauction_flag(monkeypatch) -> None:
     assert by_id["B"]["reauction_count"] == 0
     assert by_id["C"]["is_reauction"] is False
     assert by_id["C"]["reauction_count"] == 0
+
+
+def test_emd_range_filters_on_emd_num(monkeypatch) -> None:
+    calls = _patch_run_query(monkeypatch, total_count=0)
+    from api.tools.cypher_tools import search_auctions
+
+    search_auctions(min_emd=50_000, max_emd=200_000, limit=0)
+
+    cypher, params = calls[0]
+    assert "a.emd_num >= $min_emd" in cypher
+    assert "a.emd_num <= $max_emd" in cypher
+    assert params["min_emd"] == 50_000
+    assert params["max_emd"] == 200_000
+
+
+def test_service_provider_filters_by_substring(monkeypatch) -> None:
+    """Live values are messy near-duplicates ("Public Auction" vs
+    "PublicAuction"), so the platform filter matches by case-insensitive
+    substring, list-OR like `area`."""
+    calls = _patch_run_query(monkeypatch, total_count=0)
+    from api.tools.cypher_tools import search_auctions
+
+    search_auctions(service_provider="baanknet", limit=0)
+
+    cypher, params = calls[0]
+    assert (
+        "any(x IN $service_provider WHERE "
+        "toLower(a.service_provider) CONTAINS toLower(x))" in cypher
+    )
+    assert params["service_provider"] == ["baanknet"]
+
+
+def test_order_by_emd_asc(monkeypatch) -> None:
+    calls = _patch_run_query(monkeypatch, total_count=3)
+    from api.tools.cypher_tools import search_auctions
+    search_auctions(order_by="emd_asc", limit=3)
+    row_cypher, _ = calls[1]
+    assert "ORDER BY a.emd_num ASC" in row_cypher
+
+
+def test_rows_carry_deadline_and_service_provider(monkeypatch) -> None:
+    """The row RETURN exposes what the tool can filter/sort on: the
+    application deadline (default sort key) and the platform."""
+    calls = _patch_run_query(monkeypatch, total_count=1, rows=[{"auction_id": "a"}])
+    from api.tools.cypher_tools import search_auctions
+
+    search_auctions(city="Chennai", limit=5)
+
+    row_cypher, _ = calls[1]
+    assert "AS application_deadline" in row_cypher
+    assert "a.service_provider AS service_provider" in row_cypher

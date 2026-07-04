@@ -182,3 +182,32 @@ def test_list_distinct_drops_self_scope(monkeypatch):
     list_distinct("bank", bank="State Bank of India")
     _, params, _ = calls[0]
     assert "bank" not in params
+
+
+def test_list_distinct_service_provider_groups_off_node_property(monkeypatch):
+    """service_provider is an AuctionProperty property, not a reference node:
+    the query groups on a.service_provider (no edge walk), skips nulls, and
+    scope filters still apply as edge walks."""
+    calls = _patch_read_query(
+        monkeypatch, response=[{"value": "BAANKNET", "auction_count": 893}]
+    )
+    from api.tools.cypher_tools import list_distinct
+
+    out = list_distinct("service_provider", city="Chennai", limit=10)
+
+    assert out["field"] == "service_provider"
+    assert out["results"][0]["value"] == "BAANKNET"
+    cypher, params, _ = calls[0]
+    assert "a.service_provider AS value" in cypher
+    assert "a.service_provider IS NOT NULL" in cypher
+    assert "(n:" not in cypher  # no grouping edge walk
+    assert "(n_city:City)" in cypher  # scope still edge-walked
+    assert params["city"] == ["Chennai"]
+
+
+def test_list_distinct_unknown_field_lists_property_fields_too(monkeypatch):
+    _patch_read_query(monkeypatch)
+    from api.tools.cypher_tools import list_distinct
+
+    with pytest.raises(ValueError, match="service_provider"):
+        list_distinct("nope")

@@ -286,6 +286,7 @@ async def inject_graph_size() -> str:
 @agent.tool_plain
 def search_auctions(
     min_price: float | None = None, max_price: float | None = None,
+    min_emd: float | None = None, max_emd: float | None = None,
     city: str | list[str] | None = None,
     area: str | list[str] | None = None,
     property_type: str | list[str] | None = None,
@@ -294,6 +295,7 @@ def search_auctions(
     borrower: str | list[str] | None = None,
     auction_type: str | None = None,
     branch_name: str | None = None,
+    service_provider: str | list[str] | None = None,
     starts_after: datetime | None = None, starts_before: datetime | None = None,
     deadline_within_days: int | None = None,
     limit: int = 10,
@@ -302,8 +304,9 @@ def search_auctions(
     aggregations: list[str] | None = None,
     include_past: bool = False,
 ) -> dict | ToolReturn:
-    """Filter auctions by price, city, area, property_type, asset_category,
-    bank, borrower, auction_type, branch, and date/deadline window.
+    """Filter auctions by price, EMD, city, area, property_type,
+    asset_category, bank, borrower, auction_type, branch, auction platform
+    (`service_provider`), and date/deadline window.
 
     Returns {total_count, returned, limit, results}: `total_count` is the
     true match count (ignores `limit`); `results` is capped at `limit` and
@@ -314,12 +317,13 @@ def search_auctions(
     instead of retrying filter variations.
 
     Filters take a single value OR a list (OR within a list, AND across
-    filters). `city`: exact name; `area` / `borrower`: case-insensitive
-    substring (combine `area` with `city` so same-named areas elsewhere
-    don't match); `property_type` / `asset_category` / `bank` /
-    `branch_name` / `auction_type`: exact enum names — expand user phrasing
-    via the shared synonym map BEFORE calling. Use `borrower` for "auctions
-    tied to / owned by <borrower>".
+    filters). `city`: exact name; `area` / `borrower` / `service_provider`:
+    case-insensitive substring (combine `area` with `city` so same-named
+    areas elsewhere don't match); `property_type` / `asset_category` /
+    `bank` / `branch_name` / `auction_type`: exact enum names — expand user
+    phrasing via the shared synonym map BEFORE calling. `borrower` =
+    "auctions tied to <borrower>"; `min_emd`/`max_emd` = EMD (deposit)
+    budget; `service_provider` = e-auction platform ("BAANKNET").
 
     `deadline_within_days=N` → auctions whose application deadline falls in
     the next N days ("closing this week", "deadlines in 7 days"); it's its
@@ -327,8 +331,9 @@ def search_auctions(
 
     `order_by` ∈ "deadline_asc" (default) / "deadline_desc" (by application
     deadline), "start_asc" / "start_desc" (by auction start), "price_asc" /
-    "price_desc". For "cheapest/soonest/most-expensive N" use ordering +
-    `limit=N`; never invent `min_price`/`max_price`/date thresholds.
+    "price_desc", "emd_asc" / "emd_desc". For "cheapest/soonest/most-
+    expensive N" use ordering + `limit=N`; never invent
+    `min_price`/`max_price`/date thresholds.
 
     Aggregations — for "price range"/"median"/"average"/"spread": set
     `aggregate_field` to "reserve_price_num" or "emd_num" and `aggregations`
@@ -341,10 +346,12 @@ def search_auctions(
     # every same-turn round-trip.
     return split_ui_overflow(T.search_auctions(
         min_price=min_price, max_price=max_price,
+        min_emd=min_emd, max_emd=max_emd,
         city=city, area=area,
         property_type=property_type, asset_category=asset_category,
         bank=bank, borrower=borrower,
         auction_type=auction_type, branch_name=branch_name,
+        service_provider=service_provider,
         starts_after=starts_after, starts_before=starts_before,
         deadline_within_days=deadline_within_days,
         limit=limit, order_by=order_by,
@@ -445,7 +452,8 @@ def list_distinct(
     use for distribution / breakdown / "spread" / "mix" questions.
 
     `field` ∈ {"city","area","state","bank","branch","borrower",
-    "asset_category","property_type","auction_type"}.
+    "asset_category","property_type","auction_type","service_provider"
+    (e-auction platform)}.
 
     Optional scope filters narrow the count: `city`, `bank`, `borrower`,
     `asset_category`, `auction_type`, `branch` (each single str or list,

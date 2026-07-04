@@ -185,12 +185,16 @@ _ORDER_BY_CLAUSES = {
     "start_desc":    "a.auction_start_dt DESC",
     "price_asc":     "a.reserve_price_num ASC",
     "price_desc":    "a.reserve_price_num DESC",
+    "emd_asc":       "a.emd_num ASC",
+    "emd_desc":      "a.emd_num DESC",
 }
 
 
 def search_auctions(
     min_price: float | None = None,
     max_price: float | None = None,
+    min_emd: float | None = None,
+    max_emd: float | None = None,
     city: str | list[str] | None = None,
     area: str | list[str] | None = None,
     property_type: str | list[str] | None = None,
@@ -199,6 +203,7 @@ def search_auctions(
     borrower: str | list[str] | None = None,
     auction_type: str | None = None,
     branch_name: str | None = None,
+    service_provider: str | list[str] | None = None,
     starts_after: datetime | None = None,
     starts_before: datetime | None = None,
     deadline_within_days: int | None = None,
@@ -236,6 +241,24 @@ def search_auctions(
     if max_price is not None:
         where.append("a.reserve_price_num <= $max_price")
         params["max_price"] = max_price
+    if min_emd is not None:
+        where.append("a.emd_num >= $min_emd")
+        params["min_emd"] = min_emd
+    if max_emd is not None:
+        where.append("a.emd_num <= $max_emd")
+        params["max_emd"] = max_emd
+    # Substring, not exact: live values are messy near-duplicates
+    # ("Public Auction" vs "PublicAuction", "bankeauctions.com / C1 India"),
+    # so exact enum matching would be a zero-result trap.
+    if service_provider:
+        sp_list = (
+            [service_provider] if isinstance(service_provider, str)
+            else list(service_provider)
+        )
+        where.append(
+            "any(x IN $service_provider WHERE toLower(a.service_provider) CONTAINS toLower(x))"
+        )
+        params["service_provider"] = sp_list
     # `deadline_within_days` bounds the application-deadline window (now ..
     # now+N) — the "upcoming deadlines in N days" query. It's already an
     # explicit future window, so it stands in for the default future-only
@@ -338,6 +361,8 @@ def search_auctions(
             RETURN a.auction_id AS auction_id, a.title AS title, a.url AS url,
                    a.reserve_price_num AS reserve_price, a.emd_num AS emd,
                    toString(a.auction_start_dt) AS auction_start,
+                   toString(a.application_deadline_dt) AS application_deadline,
+                   a.service_provider AS service_provider,
                    city.name AS city, area.name AS area,
                    bank.name AS bank, bank.short_name AS bank_short,
                    ac.name AS asset_category,
@@ -449,6 +474,8 @@ def get_auctions_by_ids(auction_ids: list[str]) -> dict:
         RETURN a.auction_id AS auction_id, a.title AS title, a.url AS url,
                a.reserve_price_num AS reserve_price, a.emd_num AS emd,
                toString(a.auction_start_dt) AS auction_start,
+               toString(a.application_deadline_dt) AS application_deadline,
+               a.service_provider AS service_provider,
                city.name AS city, area.name AS area,
                bank.name AS bank, bank.short_name AS bank_short,
                ac.name AS asset_category,
@@ -838,6 +865,13 @@ _DISTINCT_FIELDS: dict[str, tuple[str, str]] = {
     "auction_type":   ("AuctionType",   "IS_AUCTION_TYPE"),
 }
 
+# Distinct-able AuctionProperty *properties* (no edge to walk — grouped
+# straight off the node). Kept separate from _DISTINCT_FIELDS, whose
+# (label, rel) tuples drive the edge-walk Cypher.
+_DISTINCT_NODE_PROPS: dict[str, str] = {
+    "service_provider": "a.service_provider",
+}
+
 _SCHEMA_CACHE: dict[str, tuple[float, dict]] = {}
 _SCHEMA_TTL_SECONDS = 3600.0
 
@@ -1060,22 +1094,23 @@ def list_distinct(
 ) -> dict:
     """List distinct values of a reference field with counts.
 
-    `field` must be one of the keys in _DISTINCT_FIELDS. Scope filters
-    (`city`, `bank`, `borrower`, `asset_category`, `auction_type`,
-    `branch`) narrow the count to auctions that match every provided
-    scope. Each scope accepts either a single string or a list of
-    strings (any-match within the list). A scope must differ from
-    `field` — you can't group by bank while filtering by bank.
+    `field` must be a key of _DISTINCT_FIELDS (edge-walked reference nodes)
+    or _DISTINCT_NODE_PROPS (grouped straight off the AuctionProperty node,
+    e.g. "service_provider"). Scope filters (`city`, `bank`, `borrower`,
+    `asset_category`, `auction_type`, `branch`) narrow the count to
+    auctions that match every provided scope. Each scope accepts either a
+    single string or a list of strings (any-match within the list). A
+    scope must differ from `field` — you can't group by bank while
+    filtering by bank.
 
     Use this for distribution / breakdown / "spread" questions
     ("property-type mix for SBI", "asset categories in Chennai",
     "auction-type breakdown for Canara Bank"). Never iterate
     `get_auction_detail` to compute a count.
     """
-    if field not in _DISTINCT_FIELDS:
-        raise ValueError(
-            f"field must be one of {sorted(_DISTINCT_FIELDS)}, got {field!r}"
-        )
+    if field not in _DISTINCT_FIELDS and field not in _DISTINCT_NODE_PROPS:
+        valid = sorted([*_DISTINCT_FIELDS, *_DISTINCT_NODE_PROPS])
+        raise ValueError(f"field must be one of {valid}, got {field!r}")
 
     raw_scopes: dict[str, str | list[str] | None] = {
         "city":           city,
@@ -1089,7 +1124,6 @@ def list_distinct(
     # silently so agents can pass redundant scopes without an error.
     active_scopes = {k: v for k, v in raw_scopes.items() if v and k != field}
 
-    label, rel = _DISTINCT_FIELDS[field]
     params: dict = {"limit": int(limit)}
 
     scope_matches: list[str] = []
@@ -1104,14 +1138,22 @@ def list_distinct(
 
     match_clauses = ["(a:AuctionProperty)"]
     match_clauses.extend(scope_matches)
-    match_clauses.append(f"(a)-[:{rel}]->(n:{label})")
+    if field in _DISTINCT_NODE_PROPS:
+        # Property-grouped: no edge to walk — group on the node property and
+        # skip nulls so absent values don't surface as a bogus bucket.
+        value_expr = _DISTINCT_NODE_PROPS[field]
+        where_clauses.append(f"{value_expr} IS NOT NULL")
+    else:
+        label, rel = _DISTINCT_FIELDS[field]
+        match_clauses.append(f"(a)-[:{rel}]->(n:{label})")
+        value_expr = "n.name"
     match_clause = ",\n                  ".join(match_clauses)
     where_clause = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
 
     cypher = f"""
             MATCH {match_clause}
             {where_clause}
-            RETURN n.name AS value, count(DISTINCT a) AS auction_count
+            RETURN {value_expr} AS value, count(DISTINCT a) AS auction_count
             ORDER BY auction_count DESC
             LIMIT $limit
         """

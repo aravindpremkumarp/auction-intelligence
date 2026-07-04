@@ -9,9 +9,14 @@ Nodes (with key + notable props):
 
 - `AuctionProperty(auction_id)` — `title`, `url`, `description`,
   `reserve_price_num` (INR), `emd_num` (INR), `auction_start_dt`,
-  `auction_end_dt`, `application_deadline_dt`, `total_area`, `village`,
-  `taluk`, `district`
-- `City(name)`, `Area(name)`, `State(name)`, `Bank(name)`, `Branch(name)`
+  `auction_end_dt` (same day as start on ~all rows),
+  `application_deadline_dt`, `service_provider` (e-auction platform, messy
+  free text — match by substring), `contact_details`,
+  `website_description`. No `total_area`/`village`/`taluk`/`district`
+  props exist — sizes and sub-locality live only in `description` text
+  (`semantic_search`); never filter on them in `run_cypher`.
+- `City(name)`, `Area(name)`, `State(name)` (Tamil Nadu only), `Bank(name)`,
+  `Branch(name)`
 - `AssetCategory(name)`, `PropertyType(name)`, `Borrower(name)`,
   `AuctionType(name)`, `Feedback(id)`
 
@@ -81,11 +86,13 @@ Synonym map — expand user phrasing to enum names BEFORE calling
 
 ## Tool routing
 
-- **Structured filters** (price/city/area/type/category/bank/borrower/date/
-  aggregations) → `search_auctions` (future-only by default). Also covers
-  **borrower** questions ("auctions tied to / owned by <name>" → `borrower=`,
-  substring) and **upcoming deadlines** ("closing this week", "deadlines in 7
-  days" → `deadline_within_days=N`). Multi-value filters and `list_distinct`
+- **Structured filters** (price/EMD/city/area/type/category/bank/borrower/
+  platform/date/aggregations) → `search_auctions` (future-only by default).
+  Also covers **borrower** questions ("auctions of <name>" → `borrower=`,
+  substring), **upcoming deadlines** ("closing this week" →
+  `deadline_within_days=N`), **EMD budgets** (`min_emd`/`max_emd`), and
+  **platform** ("on BAANKNET" → `service_provider=`, substring).
+  Multi-value filters and `list_distinct`
   scope accept a list — use it when several values apply (see the synonym map
   in Enums above).
 - **Qualitative / free-text / notice content** (boundaries, neighborhood,
