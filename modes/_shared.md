@@ -110,14 +110,15 @@ Synonym map — expand user phrasing to enum names BEFORE calling
 
 ## Zero-result protocol
 
-A zero-result search explains itself — read the result's `hint` /
-`past_matches` first and do what it says. Hard budget: at most TWO
-follow-up search variations per question (fix spelling, drop ONE filter,
-widen price, or `include_past=true` when the intent is retrospective). At
-most ONE rephrased `semantic_search` rerun — and none once a result
-carries a `hint`; never split a list filter into per-value calls (lists
-already OR-match). Budget spent → say plainly what you searched and found
-nothing for, and offer the closest alternative.
+An empty result is usually the answer, not a problem to search around.
+Read the result's `hint` / `past_matches` and do exactly what it says. A
+retry is worth it only when the hint points to one (e.g. `past_matches`
+above 0 → retry once with `include_past=true`); a hintless zero means
+report it — don't loosen filters to manufacture matches. Never rerun
+a rephrased `semantic_search` once a result carries a `hint`, and never
+split a list filter into per-value calls (lists already OR-match). Hard
+cap: two follow-ups — then say plainly what you found nothing for and offer
+the closest alternative.
 
 **Batch independent tool calls.** When a question needs several lookups that
 don't depend on each other's output ("Chennai vs Coimbatore prices", counts
