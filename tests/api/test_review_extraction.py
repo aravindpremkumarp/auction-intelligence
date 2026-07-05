@@ -41,6 +41,29 @@ def test_correction_is_merged_by_field_id():
     assert f.corrected_at == "2026-06-21"
 
 
+def test_detail_includes_source_metadata(monkeypatch):
+    """public_url/doc_type/content_type flow from the stored row to the response
+    so the UI can render the original notice next to the markdown."""
+    import api.review.extraction as ex
+    monkeypatch.setattr(ex, "get_extraction", lambda fn: {
+        "filename": fn, "markdown": "x", "extraction_json": "[]",
+        "corrections_json": "{}", "status": "pending",
+        "verified_by": None, "verified_at": None,
+        "public_url": "https://r2.example/notices/A1/n.jpg",
+        "doc_type": "image", "content_type": "image/jpeg"})
+    out = ex.extraction_detail("n.jpg", None)  # _admin unused past Depends
+    assert out.public_url == "https://r2.example/notices/A1/n.jpg"
+    assert out.doc_type == "image"
+    assert out.content_type == "image/jpeg"
+    # absent props (older Documents) must stay optional
+    monkeypatch.setattr(ex, "get_extraction", lambda fn: {
+        "filename": fn, "markdown": "x", "extraction_json": "[]",
+        "corrections_json": "{}", "status": "pending",
+        "verified_by": None, "verified_at": None})
+    out = ex.extraction_detail("n.jpg", None)
+    assert out.public_url is None and out.doc_type is None
+
+
 def test_robust_to_empty_and_malformed_json():
     assert _build_fields("", "") == []
     assert _build_fields("not json", "also not json") == []
