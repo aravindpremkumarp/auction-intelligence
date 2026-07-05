@@ -54,6 +54,11 @@ class ExtractionReviewOut(BaseModel):
     status: str = "pending"
     verified_by: str | None = None
     verified_at: str | None = None
+    # Source-notice location so the review UI can show the original document
+    # next to the markdown (Document props set by scripts/upload_downloads_to_r2).
+    public_url: str | None = None
+    doc_type: str | None = None  # "image" | "pdf" | "other"
+    content_type: str | None = None
     fields: list[ExtractionField] = []
 
 
@@ -95,7 +100,10 @@ def get_extraction(filename: str) -> dict | None:
                coalesce(d.extraction_corrections_json, '{}') AS corrections_json,
                coalesce(d.extraction_review_status, 'pending') AS status,
                d.extraction_verified_by                     AS verified_by,
-               toString(d.extraction_verified_at)           AS verified_at
+               toString(d.extraction_verified_at)           AS verified_at,
+               d.public_url                                 AS public_url,
+               d.doc_type                                   AS doc_type,
+               d.content_type                               AS content_type
         LIMIT 1
         """,
         {"fn": filename},
@@ -228,6 +236,8 @@ def extraction_detail(
         filename=row["filename"], markdown=row.get("markdown"),
         status=row.get("status", "pending"),
         verified_by=row.get("verified_by"), verified_at=row.get("verified_at"),
+        public_url=row.get("public_url"), doc_type=row.get("doc_type"),
+        content_type=row.get("content_type"),
         fields=_build_fields(row["extraction_json"], row["corrections_json"]),
     )
 

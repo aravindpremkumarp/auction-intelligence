@@ -3,6 +3,10 @@
 <title>Extraction review</title>
 <!--
   Editable grounded review surface for LangExtract output.
+  Three panes: original notice (image/pdf, via R2 public_url or the API's
+  /review/notice/{f}/source proxy) | highlighted markdown | editable fields.
+  Marks and cards share data-fid, so clicking either aligns the other, and the
+  ◀ ▶ bar buttons / arrow keys step through the highlights langextract-style.
   Talks to the admin-gated /review/extraction/* endpoints (api/review/extraction.py).
   Embedded as a same-origin iframe by web/review.html (the "extraction" stage pill).
   Auth: the API is bearer-token (Supabase), CORS allow_credentials=False — NOT cookies.
@@ -44,6 +48,17 @@
  .corr{color:#16a34a;font-size:11px;margin-top:3px}
  mark{border-radius:3px;padding:0 1px}
  #msg{font-size:12px;color:#64748b}
+ /* source-notice pane + highlight↔card linking */
+ #notice{flex:1;background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:8px;max-height:84vh;overflow:auto}
+ #notice img{width:100%;height:auto;display:block;cursor:zoom-in;border-radius:4px}
+ #notice img.zoom{width:180%;max-width:none;cursor:zoom-out}
+ #notice canvas{width:100%;height:auto;display:block;margin-bottom:6px}
+ mark[data-fid]{cursor:pointer}
+ .fld{cursor:pointer}.fld input{cursor:text}
+ mark.cur,.fld.cur{outline:2px solid #2563eb;box-shadow:0 0 0 3px rgba(37,99,235,.25)}
+ mark{scroll-margin:90px}.fld{scroll-margin:24px}
+ #pos{font-size:12px;color:#64748b;min-width:52px;text-align:center}
+ .navbtn{padding:6px 8px}
 </style>
 <div id="wrap">
   <div id="side"><h2>Extraction queue</h2><div id="nav"></div></div>
@@ -51,13 +66,17 @@
     <div id="bar">
       <h3 id="title" style="margin:0">Select a document</h3>
       <span id="status"></span>
+      <button class="navbtn" onclick="nav(-1)" title="previous highlight (←)">◀</button>
+      <span id="pos">– / –</span>
+      <button class="navbtn" onclick="nav(1)" title="next highlight (→)">▶</button>
       <span style="flex:1"></span>
+      <button id="imgBtn" onclick="toggleImgPane()">🖼 notice</button>
       <button class="primary" id="verifyBtn" onclick="doVerify()">✓ Verify</button>
       <button id="unverifyBtn" onclick="doUnverify()">Unverify</button>
       <span id="msg"></span>
     </div>
     <div id="legend" style="margin-bottom:8px"></div>
-    <div id="doc"><div id="src"></div><div id="fields"></div></div>
+    <div id="doc"><div id="notice" style="display:none"></div><div id="src"></div><div id="fields"></div></div>
   </div>
 </div>
 <script>
@@ -70,6 +89,11 @@ const COLORS={secured_creditor:"#fde68a",borrower:"#bbf7d0",contact:"#e9d5ff",pr
 // full_terms = the notice-level terms & conditions block (shared across lots).
 const CONTAINER_CLASSES=new Set(["full_description","full_terms"]);
 let CUR=null;
+// Linking state: curFid = the focused field id (mark+card pair); PAINTED = the
+// fids that actually got a <mark> this render, in document order — the prev/next
+// list. noticeFor = filename currently shown in the #notice pane (so save/verify
+// re-renders don't reload the image or reset its zoom).
+let curFid=null,PAINTED=[],noticeFor=null;
 // API base set on window by the bootstrap above (?api= from review.html, else
 // same-origin). Auth via the Supabase bearer token (window.Auth.fetchWithAuth),
 // matching review.html — the API is token-based with CORS allow_credentials=false,
@@ -121,7 +145,8 @@ async function loadDoc(fn,el){
   [...document.querySelectorAll(".nav")].forEach(n=>n.classList.remove("active"));if(el)el.classList.add("active");
   const r=await api("/review/extraction/"+encodeURIComponent(fn));
   if(!r.ok){setMsg("load failed "+r.status);return;}
-  CUR=await r.json();render();
+  CUR=await r.json();curFid=null;render();
+  document.getElementById("src").scrollTop=0;document.getElementById("fields").scrollTop=0;
 }
 function render(){
   const d=CUR;
@@ -130,19 +155,22 @@ function render(){
     (d.verified_by?` <span style="color:#64748b;font-size:12px">by ${esc(d.verified_by)}</span>`:"");
   const cls=[...new Set(d.fields.map(f=>f.cls))];
   document.getElementById("legend").innerHTML=cls.map(c=>`<span class=badge style="background:${COLORS[c]||'#e2e8f0'};color:#0f172a">${c}</span>`).join(" ");
+  // keep pane scroll across save/verify re-renders (loadDoc zeroes it for new docs)
+  const srcEl=document.getElementById("src"),fldEl=document.getElementById("fields");
+  const st=[srcEl.scrollTop,fldEl.scrollTop];
   // highlighted source (container classes excluded so they don't swallow inner spans)
-  const sp=d.fields.filter(f=>f.start!=null&&!CONTAINER_CLASSES.has(f.cls)).map(f=>({s:f.start,e:f.end,c:f.cls})).sort((a,b)=>a.s-b.s);
-  let out="",pos=0;const md=d.markdown||"";
-  for(const x of sp){if(x.s<pos)continue;out+=esc(md.slice(pos,x.s));
-    out+=`<mark style="background:${COLORS[x.c]||'#e2e8f0'}" title="${x.c}">${esc(md.slice(x.s,x.e))}</mark>`;pos=x.e;}
-  out+=esc(md.slice(pos));document.getElementById("src").innerHTML=out;
+  const sp=d.fields.filter(f=>f.start!=null&&!CONTAINER_CLASSES.has(f.cls)).map(f=>({s:f.start,e:f.end,c:f.cls,id:f.id})).sort((a,b)=>a.s-b.s);
+  let out="",pos=0;PAINTED=[];const md=d.markdown||"";
+  for(const x of sp){if(x.s<pos)continue;PAINTED.push(x.id);out+=esc(md.slice(pos,x.s));
+    out+=`<mark id="mk_${x.id}" data-fid="${x.id}" style="background:${COLORS[x.c]||'#e2e8f0'}" title="${x.c}">${esc(md.slice(x.s,x.e))}</mark>`;pos=x.e;}
+  out+=esc(md.slice(pos));srcEl.innerHTML=out;
   // editable fields
   let f="";
   d.fields.forEach(fl=>{
     const ung=fl.grounded?"":" <span class=ung>UNGROUNDED</span>";
     const attrs=Object.entries(fl.attrs).map(([k,v])=>`<b>${esc(k)}</b>: ${esc(String(v))}`).join(" · ");
     const val=esc(fl.corrected_value!=null?fl.corrected_value:fl.text);
-    f+=`<div class="fld"><div class="c">${fl.cls}${fl.lot_index?(" · lot "+fl.lot_index):""}${ung}</div>
+    f+=`<div class="fld" id="fld_${fl.id}" data-fid="${fl.id}"><div class="c">${fl.cls}${fl.lot_index?(" · lot "+fl.lot_index):""}${ung}</div>
       <div style="background:${COLORS[fl.cls]||'#f1f5f9'};display:inline-block;border-radius:3px;padding:0 3px;margin-bottom:4px">${esc(fl.text.slice(0,90))}</div>
       ${attrs?`<div style="color:#334155;font-size:12px;margin-bottom:4px">${attrs}</div>`:""}
       <input id="in_${fl.id}" value="${val}">
@@ -150,8 +178,98 @@ function render(){
       ${fl.corrected_value!=null?`<div class=corr>✓ corrected by ${esc(fl.corrected_by||"")}</div>`:""}
     </div>`;
   });
-  document.getElementById("fields").innerHTML=f;
+  fldEl.innerHTML=f;
+  srcEl.scrollTop=st[0];fldEl.scrollTop=st[1];
+  // re-apply the active pair (no scrolling) so corrections don't lose your place
+  if(curFid!=null&&document.getElementById("fld_"+curFid))setCur(curFid,{});
+  else{curFid=null;updatePos();}
+  applyImgPane();
 }
+// ── highlight ↔ card linking + prev/next (langextract-style review nav) ──────
+function updatePos(){const i=PAINTED.indexOf(curFid);
+  document.getElementById("pos").textContent=(i<0?"–":i+1)+" / "+PAINTED.length;}
+// scroll: {mark:bool,card:bool} — {} re-applies emphasis only (post-re-render)
+function setCur(fid,scroll){
+  document.querySelectorAll(".cur").forEach(el=>el.classList.remove("cur"));
+  curFid=fid;
+  const mk=document.getElementById("mk_"+fid),fl=document.getElementById("fld_"+fid);
+  if(mk)mk.classList.add("cur");
+  if(fl)fl.classList.add("cur");
+  if(scroll.mark&&mk)mk.scrollIntoView({block:"center",behavior:"smooth"});
+  if(scroll.card&&fl)fl.scrollIntoView({block:"center",behavior:"smooth"});
+  updatePos();}
+function nav(step){if(!PAINTED.length)return;
+  let i=PAINTED.indexOf(curFid);
+  i=i<0?(step>0?0:PAINTED.length-1):(i+step+PAINTED.length)%PAINTED.length;
+  setCur(PAINTED[i],{mark:true,card:true});}
+// Delegated on document so the handlers survive innerHTML swaps and mainNotice().
+document.addEventListener("click",e=>{
+  const m=e.target.closest("#src mark[data-fid]");
+  if(m){setCur(m.dataset.fid,{card:true});return;}          // mark → align card
+  if(e.target.closest("#fields input,#fields button"))return; // don't hijack edits
+  const c=e.target.closest("#fields .fld[data-fid]");
+  if(c)setCur(c.dataset.fid,{mark:true});});                 // card → align mark
+document.addEventListener("keydown",e=>{
+  if(!CUR||/INPUT|TEXTAREA|SELECT/.test((document.activeElement||{}).tagName||""))return;
+  if(e.key==="ArrowRight"){e.preventDefault();nav(1);}
+  else if(e.key==="ArrowLeft"){e.preventDefault();nav(-1);}});
+// ── source-notice pane ───────────────────────────────────────────────────────
+// Images load from the R2 public bucket (Document.public_url) with a one-shot
+// onerror fallback to the API's self-healing CORS proxy; PDFs always go through
+// the proxy (R2 sends no CORS headers, which pdf.js's XHR needs). NOTE: the
+// Vercel CSP img-src whitelists the Render API host — if API_BASE ever moves
+// (e.g. to api.auctionscope.in), vercel.json img-src must follow.
+const proxyUrl=fn=>API_BASE+"/review/notice/"+encodeURIComponent(fn)+"/source";
+const imgPaneOn=()=>localStorage.getItem("xr_img")!=="0";
+function toggleImgPane(){localStorage.setItem("xr_img",imgPaneOn()?"0":"1");applyImgPane();}
+function applyImgPane(){
+  const n=document.getElementById("notice");if(!n)return;
+  const on=imgPaneOn()&&!!CUR;
+  n.style.display=on?"":"none";
+  document.getElementById("imgBtn").textContent=imgPaneOn()?"🖼 hide notice":"🖼 show notice";
+  if(on&&noticeFor!==CUR.filename)loadNotice();}
+function loadNotice(){
+  const n=document.getElementById("notice");if(!n||!CUR)return;
+  const fn=noticeFor=CUR.filename;
+  const isPdf=(CUR.content_type||"").includes("pdf")||CUR.doc_type==="pdf"||/\.pdf$/i.test(fn);
+  const open=`<div style="text-align:right;margin-bottom:4px"><a href="${esc(CUR.public_url||proxyUrl(fn))}" target="_blank" rel="noopener" style="font-size:11px">open ↗</a></div>`;
+  if(isPdf){
+    n.innerHTML=open+'<div id="pdfbox" style="color:#64748b;font-size:12px">loading pdf…</div>';
+    renderPdf(n.querySelector("#pdfbox"),proxyUrl(fn))
+      .catch(()=>{const b=n.querySelector("#pdfbox");
+        if(noticeFor===fn&&b)b.textContent="pdf load failed — use open ↗";});
+    return;}
+  n.innerHTML=open;
+  const img=new Image();img.alt="sale notice";
+  img.onerror=()=>{
+    if(noticeFor!==fn)return;
+    if(!img.dataset.p){img.dataset.p="1";img.src=proxyUrl(fn);return;}
+    img.remove();
+    n.insertAdjacentHTML("beforeend",'<div style="color:#991b1b;font-size:12px;padding:8px">no source image (missing on R2 and via proxy)</div>');};
+  img.onclick=()=>img.classList.toggle("zoom");
+  img.src=CUR.public_url||proxyUrl(fn);
+  n.appendChild(img);}
+async function ensurePdfJs(){ // review.html idiom: legacy UMD build + explicit worker
+  if(window.pdfjsLib)return;
+  await new Promise((res,rej)=>{const s=document.createElement("script");
+    s.src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js";
+    s.onload=res;s.onerror=rej;document.head.appendChild(s);});
+  if(!window.pdfjsLib)throw new Error("pdf.js failed to load");
+  window.pdfjsLib.GlobalWorkerOptions.workerSrc=
+    "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js";}
+async function renderPdf(box,url){
+  await ensurePdfJs();
+  const doc=await pdfjsLib.getDocument(url).promise;
+  if(!box.isConnected)return; // reviewer switched docs mid-load
+  box.innerHTML="";
+  const pages=Math.min(doc.numPages,5);
+  for(let i=1;i<=pages;i++){
+    const page=await doc.getPage(i),vp=page.getViewport({scale:1.5});
+    const c=document.createElement("canvas");c.width=vp.width;c.height=vp.height;
+    box.appendChild(c);
+    await page.render({canvasContext:c.getContext("2d"),viewport:vp}).promise;}
+  if(doc.numPages>pages)box.insertAdjacentHTML("beforeend",
+    `<div style="color:#64748b;font-size:12px">+${doc.numPages-pages} more pages — use open ↗</div>`);}
 async function saveField(id){
   const v=document.getElementById("in_"+id).value;
   const r=await api(`/review/extraction/${encodeURIComponent(CUR.filename)}/field`,
@@ -167,5 +285,5 @@ async function doUnverify(){
   const r=await api(`/review/extraction/${encodeURIComponent(CUR.filename)}/unverify`,{method:"POST"});
   if(r.ok){CUR=await r.json();render();loadQueue();setMsg("unverified");}else setMsg("failed "+r.status);
 }
-loadQueue();
+loadQueue();applyImgPane();
 </script>
