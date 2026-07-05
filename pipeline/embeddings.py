@@ -29,6 +29,14 @@ import time
 GEMINI_EMBED_MODEL = "gemini-embedding-2"
 GEMINI_EMBED_DIM = 3072
 
+# Which gateway serves TEXT embeddings: "google" (direct Gemini API, needs
+# GOOGLE_API_KEY + its own quota/billing) or "openrouter" (OpenAI-compatible
+# /embeddings endpoint on the already-funded OpenRouter key — same underlying
+# gemini-embedding-2 model, same vector space). Image embeddings always go
+# direct to Google (OpenRouter's embeddings endpoint is text-first).
+EMBEDDINGS_PROVIDER = os.getenv("EMBEDDINGS_PROVIDER", "google").strip().lower()
+OPENROUTER_EMBED_MODEL = "google/gemini-embedding-2"
+
 # Gemini's input cap for text (8K tokens ≈ 30K chars). Documents longer than
 # this are truncated at embed time. For the auction corpus, only a handful of
 # multi-page batch notices exceed the cap; the structural / header signal is
@@ -69,9 +77,44 @@ def embed_file_gemini(file_bytes: bytes, mime_type: str) -> list[float]:
     return list(resp.embeddings[0].values)
 
 
+def _embed_text_openrouter(text: str) -> list[float]:
+    """Embed text via OpenRouter's OpenAI-compatible /embeddings endpoint,
+    routed to the same gemini-embedding-2 model. `dimensions` is pinned to
+    GEMINI_EMBED_DIM so vectors stay compatible with the direct-Google ones
+    already in the graph."""
+    import httpx
+
+    api_key = os.getenv("OPENROUTER_API_KEY")
+    if not api_key:
+        raise RuntimeError(
+            "EMBEDDINGS_PROVIDER=openrouter but OPENROUTER_API_KEY is not set."
+        )
+    truncated = text[:GEMINI_MAX_TEXT_CHARS]
+    resp = httpx.post(
+        "https://openrouter.ai/api/v1/embeddings",
+        headers={"Authorization": f"Bearer {api_key}"},
+        json={
+            "model": OPENROUTER_EMBED_MODEL,
+            "input": truncated,
+            "dimensions": GEMINI_EMBED_DIM,
+        },
+        timeout=60.0,
+    )
+    if resp.status_code == 429:
+        # Normalize to the quota phrasing embed_descriptions' retry loop
+        # already understands.
+        raise RuntimeError(f"429 RESOURCE_EXHAUSTED: {resp.text[:200]}")
+    resp.raise_for_status()
+    return list(resp.json()["data"][0]["embedding"])
+
+
 def embed_text_gemini(text: str) -> list[float]:
     """Embed a text document (description / markdown) into the
-    gemini-embedding-2 vector space. Truncates at GEMINI_MAX_TEXT_CHARS."""
+    gemini-embedding-2 vector space, via the configured provider
+    (EMBEDDINGS_PROVIDER: "google" direct, or "openrouter" — same model,
+    same space). Truncates at GEMINI_MAX_TEXT_CHARS."""
+    if EMBEDDINGS_PROVIDER == "openrouter":
+        return _embed_text_openrouter(text)
     client = _get_genai_client()
     truncated = text[:GEMINI_MAX_TEXT_CHARS] if len(text) > GEMINI_MAX_TEXT_CHARS else text
     resp = client.models.embed_content(
@@ -103,8 +146,10 @@ def embed_query_gemini(query_text: str) -> list[float]:
     so the query lives in the right sub-space relative to the raw-mode
     document embeddings.
     """
-    client = _get_genai_client()
     formatted = f"task: search result | query: {query_text}"
+    if EMBEDDINGS_PROVIDER == "openrouter":
+        return _embed_text_openrouter(formatted)
+    client = _get_genai_client()
     resp = client.models.embed_content(
         model=GEMINI_EMBED_MODEL,
         contents=formatted,
