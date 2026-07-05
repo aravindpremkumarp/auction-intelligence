@@ -27,7 +27,10 @@ import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from api.neo4j_client import run_read_query, session
+# run_query (not a raw Bolt session) so the script works both over Bolt and
+# over the HTTPS Query API (NEO4J_HTTP_API=1) — e.g. from environments where
+# port 7687 is blocked by an egress proxy.
+from api.neo4j_client import run_query, run_read_query
 from pipeline.embeddings import (
     GEMINI_EMBED_DIM, GEMINI_EMBED_MODEL, embed_text_gemini,
 )
@@ -59,23 +62,21 @@ def write_embeddings(rows: list[dict]) -> None:
         MATCH (p:AuctionProperty {auction_id: row.auction_id})
         SET p.description_embedding = row.embedding
     """
-    with session() as s:
-        s.run(cypher, {"rows": rows})
+    run_query(cypher, {"rows": rows})
 
 
 def drop_old_index_if_legacy() -> None:
     """If a property_desc_idx exists with the legacy 1536 dimensions
     (OpenAI text-embedding-3-small), drop it so we can recreate at 3072."""
-    with session() as s:
-        rows = list(s.run(
-            "SHOW INDEXES YIELD name, options "
-            "WHERE name = $name "
-            "RETURN options.indexConfig.`vector.dimensions` AS dim",
-            {"name": INDEX_NAME},
-        ))
-        if rows and rows[0]["dim"] != GEMINI_EMBED_DIM:
-            print(f"  dropping legacy {INDEX_NAME} (dim={rows[0]['dim']})")
-            s.run(f"DROP INDEX {INDEX_NAME} IF EXISTS")
+    rows = run_query(
+        "SHOW INDEXES YIELD name, options "
+        "WHERE name = $name "
+        "RETURN options.indexConfig.`vector.dimensions` AS dim",
+        {"name": INDEX_NAME},
+    )
+    if rows and rows[0]["dim"] != GEMINI_EMBED_DIM:
+        print(f"  dropping legacy {INDEX_NAME} (dim={rows[0]['dim']})")
+        run_query(f"DROP INDEX {INDEX_NAME} IF EXISTS")
 
 
 def ensure_vector_index() -> None:
@@ -87,8 +88,7 @@ def ensure_vector_index() -> None:
             `vector.similarity_function`: 'cosine'
         }} }}
     """
-    with session() as s:
-        s.run(cypher)
+    run_query(cypher)
 
 
 def _embed_one(auction_id: str, text: str) -> dict:

@@ -908,6 +908,43 @@ def get_auction_detail(auction_id: str) -> dict | None:
     }
 
 
+# Node fields that are pipeline bookkeeping, never answer material:
+# downloads_list holds scraper-workstation file paths (the clickable copies
+# live in `documents[].public_url`); downloads_complete is an ingest flag.
+_DETAIL_LLM_DROP_ALWAYS = ("downloads_list", "downloads_complete")
+
+
+def slim_detail_for_llm(detail: dict | None) -> dict | None:
+    """Strip fields from a get_auction_detail payload that carry no answer
+    value for the MODEL. Conditional by design — a field is only dropped
+    when its information provably survives elsewhere in the same payload:
+
+      - website_description: only when byte-identical to description
+        (~90% of rows) — differing copies are both kept.
+      - reserve_price_raw / emd_raw: only when the parsed numeric twin
+        exists — if the number failed to parse, the raw string is the only
+        price information and stays.
+      - downloads_list / downloads_complete: always (see above).
+
+    The REST /properties detail endpoint uses the unslimmed payload; this
+    filter applies only to the agent-tool copy. Mutates and returns
+    `detail`; None passes through (unknown auction_id)."""
+    if not detail:
+        return detail
+    fields = detail.get("fields")
+    if not isinstance(fields, dict):
+        return detail
+    for key in _DETAIL_LLM_DROP_ALWAYS:
+        fields.pop(key, None)
+    if fields.get("website_description") == fields.get("description"):
+        fields.pop("website_description", None)
+    if fields.get("reserve_price_num") is not None:
+        fields.pop("reserve_price_raw", None)
+    if fields.get("emd_num") is not None:
+        fields.pop("emd_raw", None)
+    return detail
+
+
 # ── Phase 1: schema introspection + escape-hatch tools ─────────────────────
 
 # Map a logical field name the agent might use to the (label, relationship)
