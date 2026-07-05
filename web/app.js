@@ -2474,12 +2474,21 @@ async function loadConversation(id) {
     currentResults = Array.isArray(data.results) ? data.results : [];
     currentTotalCount = (typeof data.total_count === 'number') ? data.total_count : null;
     panelSnapshotIndex = null; // saved conversations restore the live set
-    // Re-derive whether the restored panel is an AI ranking from the last
-    // panel-touching message, so "Best match" order survives a reload.
+    // Re-derive whether the restored panel is an AI ranking so "Best match"
+    // order survives a reload. Match the panel to the message that actually
+    // produced it (by auction_id order), not just the newest matches-bearing
+    // turn — a restored panel can be an older snapshot, and adopting a later
+    // ranking turn's tool would mislabel a plain search as "Best match" and
+    // freeze the wrong order. Only meaningful when there are rows to order.
+    const _panelKey = (rows) => (rows || [])
+      .map(r => String((r && (r.auction_id != null ? r.auction_id : r.id)) || '')).join(',');
     let liveTool = null;
-    for (let k = chatHistory.length - 1; k >= 0; k--) {
-      const snap = _msgMatches(chatHistory[k]);
-      if (snap) { liveTool = snap.tool; break; }
+    if (currentResults.length) {
+      const panelIds = _panelKey(currentResults);
+      for (let k = chatHistory.length - 1; k >= 0; k--) {
+        const snap = _msgMatches(chatHistory[k]);
+        if (snap && _panelKey(snap.rows) === panelIds) { liveTool = snap.tool; break; }
+      }
     }
     setPanelSource(liveTool);
     // go('results') syncs the URL to /chat/{id} via pathForScreen; when already
