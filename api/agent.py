@@ -420,7 +420,9 @@ def get_auction_detail(auction_id: str) -> dict | None:
     a field is unavailable for a specific auction. Returns None if the
     auction_id doesn't exist. For several ids, batch the detail calls in
     one step (they run in parallel)."""
-    return T.get_auction_detail(auction_id)
+    # Model copy is slimmed (duplicate/pipeline fields dropped); the REST
+    # /properties detail endpoint keeps the full payload.
+    return T.slim_detail_for_llm(T.get_auction_detail(auction_id))
 
 
 @agent.tool_plain
