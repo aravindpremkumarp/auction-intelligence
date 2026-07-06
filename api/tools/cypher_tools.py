@@ -787,7 +787,8 @@ def _semantic_search_cypher(
 def get_auction_detail(auction_id: str) -> dict | None:
     """Full record for ONE auction: every stored node property plus related
     entities. Uses properties(a) so new schema fields auto-surface with no
-    tool change."""
+    tool change; raw `*_embedding` vectors are stripped before return (they're
+    huge and unreadable to the model)."""
     cypher = """
         MATCH (a:AuctionProperty {auction_id: $auction_id})
         OPTIONAL MATCH (a)-[:LOCATED_IN_CITY]->(city:City)
@@ -841,6 +842,16 @@ def get_auction_detail(auction_id: str) -> dict | None:
     # related-node maps) to ISO strings up front so the response serializer
     # never sees a raw neo4j.time.* object.
     fields = _json_safe(dict(rows[0]["fields"]))
+
+    # `properties(a)` grabs EVERY node property, which includes the raw
+    # `description_embedding` vector the embed pipeline writes back onto the
+    # node (3072 gemini floats ≈ 40k chars / ~10k tokens). That array is
+    # meaningless to the model and dwarfs the useful fields, so drop any
+    # `*_embedding` key before the record ever reaches the agent. Matching by
+    # suffix (not a hardcoded name) also fences off markdown/image or any
+    # future vector field that might land on the node later.
+    for key in [k for k in fields if k.endswith("_embedding")]:
+        del fields[key]
 
     extras_raw = fields.get("extras")
     if isinstance(extras_raw, str) and extras_raw.strip().startswith(("{", "[")):

@@ -60,6 +60,37 @@ def test_detail_payload_is_json_serializable_with_temporal_values(monkeypatch) -
     assert out["relationships"]["property_types"] == ["Residential"]
 
 
+def test_detail_strips_embedding_vectors(monkeypatch) -> None:
+    """`properties(a)` surfaces the raw `description_embedding` vector the
+    embed pipeline writes onto the node — 3072 gemini floats (~40k chars /
+    ~10k tokens) that are meaningless to the chat model and dwarf every useful
+    field. get_auction_detail must drop any `*_embedding` key before returning,
+    while leaving normal fields intact.
+    """
+    _patch_detail(monkeypatch, [{
+        "fields": {
+            "auction_id": "emb",
+            "title": "Plot 7",
+            "description": "20 feet road on the north",
+            "description_embedding": [0.1, -0.2, 0.3] * 1024,  # 3072 floats
+            # Defensive: any future vector field must be dropped too.
+            "markdown_embedding": [0.0] * 3072,
+        },
+        "relationships": {"property_types": []},
+        "documents": [],
+        "siblings": [],
+    }])
+    from api.tools.cypher_tools import get_auction_detail
+
+    out = get_auction_detail("emb")
+    assert out is not None
+    assert "description_embedding" not in out["fields"]
+    assert "markdown_embedding" not in out["fields"]
+    # Useful fields survive the strip.
+    assert out["fields"]["title"] == "Plot 7"
+    assert out["fields"]["description"] == "20 feet road on the north"
+
+
 def test_auction_detail_route_returns_200_with_related_node_datetime(monkeypatch) -> None:
     """End-to-end: GET /auction/{id} must come back 200 even when a related
     node carries a raw neo4j datetime. This drives the real FastAPI pydantic-v2
