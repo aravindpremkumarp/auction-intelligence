@@ -29,6 +29,13 @@
      render() falls back to the raw escaped view, so the page still works. -->
 <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.11/dist/purify.min.js"></script>
+<!-- KaTeX renders LaTeX math in the OCR markdown (e.g. extents like
+     "742 $\frac{1}{2}$ sq ft") as real fractions. Same version review.html ships;
+     CSS/JS/woff2 all load from cdn.jsdelivr.net, already CSP-allowed for this
+     route. Optional: renderMathIn() no-ops if auto-render didn't load. -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.10/dist/katex.min.css">
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.10/dist/katex.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.10/dist/contrib/auto-render.min.js"></script>
 <script src="/auth.js"></script>
 <style>
  body{font-family:system-ui,Segoe UI,Arial;margin:0;color:#0f172a;background:#f1f5f9}
@@ -201,6 +208,7 @@ function render(){
   const rendered=mdMode()==="rendered"&&!!window.marked&&!!window.DOMPurify;
   srcEl.classList.toggle("rendered",rendered);
   srcEl.innerHTML=srcHtml(md,use,rendered);
+  if(rendered)renderMathIn(srcEl); // KaTeX on the live DOM, after sanitize+innerHTML
   // editable fields — <textarea> (not <input>) so long values wrap and autosize
   let f="";
   d.fields.forEach(fl=>{
@@ -260,6 +268,24 @@ function srcHtml(md,use,rendered){
     out+=`<mark data-fid="${x.id}" style="background:${COLORS[x.c]||'#e2e8f0'}" title="${x.c}">${esc(md.slice(x.s,x.e))}</mark>`;pos=x.e;}
   return out+esc(md.slice(pos));
 }
+// KaTeX pass over the live rendered markdown (review.html idiom). Runs after
+// sanitize+innerHTML on the DOM element; walks text nodes only so it recurses
+// into <mark> highlights without breaking them. No-op if auto-render didn't load.
+function renderMathIn(el){
+  if(!window.renderMathInElement)return;
+  try{
+    window.renderMathInElement(el,{
+      delimiters:[
+        {left:"$$",right:"$$",display:true},
+        {left:"\\[",right:"\\]",display:true},
+        {left:"\\(",right:"\\)",display:false},
+        {left:"$",right:"$",display:false},
+      ],
+      throwOnError:false,
+      ignoredTags:["script","noscript","style","textarea","pre","code"],
+    });
+  }catch(_){/* malformed LaTeX — leave as raw text */}
+}
 // autosize a textarea to its content (no library; grows on input via delegation)
 function autosize(el){el.style.height="auto";el.style.height=el.scrollHeight+"px";}
 document.addEventListener("input",e=>{if(e.target.matches("#fields textarea"))autosize(e.target);});
@@ -306,6 +332,26 @@ document.addEventListener("keydown",e=>{
 // Vercel CSP img-src whitelists the Render API host — if API_BASE ever moves
 // (e.g. to api.auctionscope.in), vercel.json img-src must follow.
 const proxyUrl=fn=>API_BASE+"/review/notice/"+encodeURIComponent(fn)+"/source";
+// Open the "annotate blocks" annotator for a document. This page runs as a
+// same-origin iframe inside review.html, so drive the parent in place: set its
+// hash (→ route()→loadAnnotator) and close the extraction overlay so the
+// annotator screen shows. Returns true if it drove the parent; false (standalone
+// / cross-origin) lets the anchor's href open review.html#notice/… in a new tab.
+function openAnnotatorInParent(fn){
+  if(!fn)return false;
+  try{
+    if(window.parent&&window.parent!==window&&window.parent.location){
+      window.parent.location.hash="notice/"+encodeURIComponent(fn);
+      if(typeof window.parent.closeExtractionPanel==="function")window.parent.closeExtractionPanel();
+      return true;
+    }
+  }catch(_){/* cross-origin parent — fall through to the href */}
+  return false;
+}
+document.addEventListener("click",e=>{
+  const a=e.target.closest("#notice .annlink");
+  if(a&&openAnnotatorInParent(CUR&&CUR.filename))e.preventDefault();
+});
 const imgPaneOn=()=>localStorage.getItem("xr_img")!=="0";
 function toggleImgPane(){localStorage.setItem("xr_img",imgPaneOn()?"0":"1");applyImgPane();}
 function applyImgPane(){
@@ -319,13 +365,15 @@ function loadNotice(){
   const fn=noticeFor=CUR.filename;
   BLOCKS=[];BLINK={};blocksFor=null;refreshBoxBtn();        // new doc → drop stale boxes
   const isPdf=(CUR.content_type||"").includes("pdf")||CUR.doc_type==="pdf"||/\.pdf$/i.test(fn);
-  const open=`<div style="text-align:right;margin-bottom:4px"><a href="${esc(CUR.public_url||proxyUrl(fn))}" target="_blank" rel="noopener" style="font-size:11px">open ↗</a></div>`;
+  // Link to the block annotator for this document (item 2) — not the raw image.
+  // The raw source stays reachable from the annotator's own "open source ↗".
+  const open=`<div style="text-align:right;margin-bottom:4px"><a class="annlink" href="review.html#notice/${encodeURIComponent(fn)}" target="_blank" rel="noopener" style="font-size:11px">annotate blocks ↗</a></div>`;
   if(isPdf){
     n.innerHTML=open+'<div id="pdfbox" style="color:#64748b;font-size:12px">loading pdf…</div>';
     renderPdf(n.querySelector("#pdfbox"),proxyUrl(fn))
       .then(()=>{if(noticeFor===fn)ensureBlocks(fn);})
       .catch(()=>{const b=n.querySelector("#pdfbox");
-        if(noticeFor===fn&&b)b.textContent="pdf load failed — use open ↗";});
+        if(noticeFor===fn&&b)b.textContent="pdf load failed — see annotate blocks ↗";});
     return;}
   n.innerHTML=open;
   // img + absolutely-positioned box overlay in one relatively-positioned wrapper;
@@ -364,7 +412,7 @@ async function renderPdf(box,url){
     pw.appendChild(c);pw.appendChild(ovl);box.appendChild(pw);
     await page.render({canvasContext:c.getContext("2d"),viewport:vp}).promise;}
   if(doc.numPages>pages)box.insertAdjacentHTML("beforeend",
-    `<div style="color:#64748b;font-size:12px">+${doc.numPages-pages} more pages — use open ↗</div>`);}
+    `<div style="color:#64748b;font-size:12px">+${doc.numPages-pages} more pages — see annotate blocks ↗</div>`);}
 // ── OCR bounding boxes (item 3) ──────────────────────────────────────────────
 // Boxes come from the same MinerU/annotator data the block editor uses
 // (GET /review/notice/{fn}/blocks): normalized [x0,y0,x1,y1] per page, so they
@@ -425,6 +473,7 @@ function paintBoxes(){
       const fid=rev[b.id];
       const el=document.createElement("div");
       el.className="bbx"+(fid?" link":"");el.id="bx_"+b.id;
+      el.title="OCR block — edit in annotate blocks ↗"; // these are the annotate-blocks regions, read-only here
       if(fid){el.dataset.fid=fid;if(fid===curFid)el.classList.add("cur");}
       el.style.left=(bb[0]*100)+"%";el.style.top=(bb[1]*100)+"%";
       el.style.width=((bb[2]-bb[0])*100)+"%";el.style.height=((bb[3]-bb[1])*100)+"%";
