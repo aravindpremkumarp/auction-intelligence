@@ -663,7 +663,18 @@ def semantic_search(
             results = run_read_query(cypher, params, timeout=15.0, max_rows=max_rows)
     else:
         results = run_read_query(cypher, params, timeout=15.0, max_rows=max_rows)
-    out = {"returned": len(results), "limit": limit, "results": results}
+
+    # LLM/UI split — same shape as search_auctions. The model only needs the
+    # top slice to reason and cite; the full ranked set (up to the fetched
+    # `limit`) rides on `_ui_results` for the matches panel, which the agent
+    # wrapper moves onto ToolReturn metadata so it never enters context. This
+    # is also what makes "raise the limit once for more recall" safe: a big
+    # limit feeds the UI without dumping dozens of rows into the model's
+    # replayed history.
+    llm_results = results[:_LLM_ROWS_HARD_CAP]
+    out: dict = {"returned": len(llm_results), "limit": limit, "results": llm_results}
+    if len(results) > len(llm_results):
+        out["_ui_results"] = results
     if not results and default_future_only:
         # Re-run WITHOUT the future-only floor, reusing the embedding already
         # computed above — one extra Neo4j query, no extra Gemini call. Tells
@@ -787,7 +798,8 @@ def _semantic_search_cypher(
 def get_auction_detail(auction_id: str) -> dict | None:
     """Full record for ONE auction: every stored node property plus related
     entities. Uses properties(a) so new schema fields auto-surface with no
-    tool change."""
+    tool change; raw `*_embedding` vectors are stripped before return (they're
+    huge and unreadable to the model)."""
     cypher = """
         MATCH (a:AuctionProperty {auction_id: $auction_id})
         OPTIONAL MATCH (a)-[:LOCATED_IN_CITY]->(city:City)
@@ -841,6 +853,16 @@ def get_auction_detail(auction_id: str) -> dict | None:
     # related-node maps) to ISO strings up front so the response serializer
     # never sees a raw neo4j.time.* object.
     fields = _json_safe(dict(rows[0]["fields"]))
+
+    # `properties(a)` grabs EVERY node property, which includes the raw
+    # `description_embedding` vector the embed pipeline writes back onto the
+    # node (3072 gemini floats ≈ 40k chars / ~10k tokens). That array is
+    # meaningless to the model and dwarfs the useful fields, so drop any
+    # `*_embedding` key before the record ever reaches the agent. Matching by
+    # suffix (not a hardcoded name) also fences off markdown/image or any
+    # future vector field that might land on the node later.
+    for key in [k for k in fields if k.endswith("_embedding")]:
+        del fields[key]
 
     extras_raw = fields.get("extras")
     if isinstance(extras_raw, str) and extras_raw.strip().startswith(("{", "[")):

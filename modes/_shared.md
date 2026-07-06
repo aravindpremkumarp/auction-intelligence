@@ -99,6 +99,16 @@ The boundaries between tools (each tool's own description says the rest):
   tool — cite the chosen auction_ids in your answer, best-first; the
   system updates the matches panel from your citations automatically.
 
+**One search per question — even on success.** `semantic_search` and
+`internet_search` rank by meaning, not surface wording: re-running the same
+question with quotes, ALL-CAPS, `OR`, synonyms, or extra keywords returns
+essentially the same results at real token + latency cost (each result set is
+replayed through every later step of the turn). A non-empty result is the
+answer — reason from it and cite it; don't re-query to "double-check"
+coverage. If you genuinely need broader recall from `semantic_search`, raise
+its `limit` ONCE rather than firing a second reworded call — the matches panel
+shows every hit regardless of how many rows come back to you.
+
 ## Zero-result protocol
 
 An empty result is usually the answer, not a problem to search around.

@@ -87,6 +87,16 @@ _SHARED_MD = _REPO_ROOT / "modes" / "_shared.md"
 # heuristics / duplicated the UI's Save button — rule 4 now points there).
 # Measured ~15,972. Ceiling ratcheted down so the ~480 tokens/call saved
 # can't silently creep back; raise deliberately as always.
+#
+# 2026-07 (anti-re-query on success): +~1.3k for guidance stopping the model
+# from re-running a SUCCESSFUL semantic_search/internet_search with reworded
+# queries (quotes/OR/case/synonyms) — telemetry showed dense-vector searches
+# fired 3× per turn with near-identical rankings, and each result set is
+# replayed through every later step of the turn. Added to both tool docstrings
+# and a "one search per question" note in modes/_shared.md; the existing
+# zero-result rules only covered the EMPTY case. One avoided re-query saves a
+# whole LLM round-trip plus a re-sent ~20k-char result block, so this earns its
+# per-call cost many times over. Measured ~14,615; ceiling held at 16,200.
 BUDGET_CHARS = 16_200
 
 

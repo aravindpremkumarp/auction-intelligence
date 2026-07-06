@@ -86,6 +86,42 @@ def test_semantic_search_unsearchable_query_skips_keyword(monkeypatch):
     assert "ft_query" not in captured["params"]
 
 
+def test_semantic_search_caps_llm_rows_and_offloads_overflow(monkeypatch):
+    """The model-visible slice is capped at _LLM_ROWS_HARD_CAP; the full
+    ranked set rides on _ui_results for the matches panel (same split as
+    search_auctions). This is what keeps a large `limit` from dumping dozens
+    of rows into the model's replayed history."""
+    n = ct._LLM_ROWS_HARD_CAP + 15
+    rows = [{"auction_id": f"a{i}", "score": 0.9, "hit_sources": ["desc"]}
+            for i in range(n)]
+
+    def fake_read(cypher, params=None, timeout=10.0, max_rows=200):
+        return list(rows)
+
+    monkeypatch.setattr(ct, "run_read_query", fake_read)
+    out = ct.semantic_search("north facing plot", limit=n)
+
+    # Model sees only the capped slice...
+    assert out["returned"] == ct._LLM_ROWS_HARD_CAP
+    assert len(out["results"]) == ct._LLM_ROWS_HARD_CAP
+    # ...while the UI side-channel carries the full ranked set.
+    assert len(out["_ui_results"]) == n
+    assert out["results"] == out["_ui_results"][:ct._LLM_ROWS_HARD_CAP]
+
+
+def test_semantic_search_no_overflow_key_when_within_cap(monkeypatch):
+    """At or below the LLM cap there's no overflow, so no _ui_results key is
+    attached (keeps the small-result payload clean)."""
+    rows = [{"auction_id": f"a{i}", "score": 0.9, "hit_sources": ["desc"]}
+            for i in range(5)]
+
+    monkeypatch.setattr(ct, "run_read_query",
+                        lambda c, p=None, timeout=10.0, max_rows=200: list(rows))
+    out = ct.semantic_search("north facing plot", limit=20)
+    assert out["returned"] == 5
+    assert "_ui_results" not in out
+
+
 def test_search_auctions_ui_fetch_clamped_to_hard_cap(monkeypatch):
     captured = {}
 
