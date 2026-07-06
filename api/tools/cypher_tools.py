@@ -663,7 +663,18 @@ def semantic_search(
             results = run_read_query(cypher, params, timeout=15.0, max_rows=max_rows)
     else:
         results = run_read_query(cypher, params, timeout=15.0, max_rows=max_rows)
-    out = {"returned": len(results), "limit": limit, "results": results}
+
+    # LLM/UI split — same shape as search_auctions. The model only needs the
+    # top slice to reason and cite; the full ranked set (up to the fetched
+    # `limit`) rides on `_ui_results` for the matches panel, which the agent
+    # wrapper moves onto ToolReturn metadata so it never enters context. This
+    # is also what makes "raise the limit once for more recall" safe: a big
+    # limit feeds the UI without dumping dozens of rows into the model's
+    # replayed history.
+    llm_results = results[:_LLM_ROWS_HARD_CAP]
+    out: dict = {"returned": len(llm_results), "limit": limit, "results": llm_results}
+    if len(results) > len(llm_results):
+        out["_ui_results"] = results
     if not results and default_future_only:
         # Re-run WITHOUT the future-only floor, reusing the embedding already
         # computed above — one extra Neo4j query, no extra Gemini call. Tells

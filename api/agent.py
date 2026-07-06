@@ -392,6 +392,14 @@ def semantic_search(
     legal caveats, condition, layout — present in free text or the notice
     but absent from structured fields.
 
+    ONE call per question. Results are dense-vector ranked by MEANING, so
+    re-phrasing the query — quotes, ALL-CAPS, `OR`, added synonyms, vastu/
+    direction words — returns the same ranking; a second variant just burns
+    tokens and latency without new hits. If you want broader recall, raise
+    `limit` ONCE (the UI shows every match regardless); do not re-search. A
+    non-empty result IS the answer — do not run a follow-up call to "double-
+    check" coverage.
+
     Optional `city`/`area`/`min_price`/`max_price`/`asset_category`/date
     window post-filter the hits. Future-only by default; `include_past=True`
     for retrospective queries. Each row carries `score` and `hit_sources`
@@ -401,13 +409,13 @@ def semantic_search(
     returns `{"error": ..., "results": []}` — fall back to `search_auctions`.
     """
     try:
-        return T.semantic_search(
+        return split_ui_overflow(T.semantic_search(
             query, city=city, area=area,
             min_price=min_price, max_price=max_price,
             asset_category=asset_category,
             starts_after=starts_after, starts_before=starts_before,
             limit=limit, include_past=include_past,
-        )
+        ))
     except RuntimeError as e:
         return {"error": str(e), "results": [], "returned": 0, "limit": limit}
 
@@ -457,8 +465,11 @@ async def internet_search(query: str, max_results: int = 5) -> dict:
     explainers, RBI/bank news, locality background, term definitions.
     NEVER for property listings, prices, auction_ids, or counts.
 
-    Retry at most once per turn; on `{error}` tell the user web search is
-    unavailable. Cite inline as [1], [2] matching the order of `sources`;
+    ONE search per distinct topic — never re-run a reformulation of the same
+    question (a reworded query returns near-identical results at extra token
+    and latency cost). Retry only on `{error}`, at most once per turn; then
+    tell the user web search is unavailable. Cite inline as [1], [2]
+    matching the order of `sources`;
     the UI renders the chip list automatically — do NOT print a "Sources:"
     footer.
 
