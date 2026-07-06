@@ -97,6 +97,14 @@ _SHARED_MD = _REPO_ROOT / "modes" / "_shared.md"
 # zero-result rules only covered the EMPTY case. One avoided re-query saves a
 # whole LLM round-trip plus a re-sent ~20k-char result block, so this earns its
 # per-call cost many times over. Measured ~14,615; ceiling held at 16,200.
+#
+# 2026-07 (reconcile-with-panel): +~915 for a modes/_shared.md rule telling the
+# model that a `semantic_search` result IS the matches panel — a similarity-
+# ranked CANDIDATE list, not an exact-match list — so when a user asks for a
+# specific attribute/wording it must state BOTH the candidate count (the panel
+# total) and how many actually match, instead of reporting "1" while the panel
+# shows 20. Fixes the count mismatch users see between prose and panel. Measured
+# ~15,529; ceiling held at 16,200.
 BUDGET_CHARS = 16_200
 
 
