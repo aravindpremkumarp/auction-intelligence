@@ -18,8 +18,11 @@ import argparse
 import json
 
 from api.neo4j_client import run_query, run_read_query
-from pipeline import langextract_examples as LX
 from pipeline.validators import normalize_identifier_kind
+
+# pipeline.langextract_examples is imported lazily inside run() — it pulls the
+# heavy `langextract` dependency, which isn't needed to import this module for
+# the batch-numbering helper (or its unit tests).
 
 
 def _fetch(limit: int | None, force: bool, filename: str | None) -> list[dict]:
@@ -60,9 +63,26 @@ def _entities(res) -> list[dict]:
     return out
 
 
+def _next_batch() -> int:
+    """Next global extraction batch number (B1, B2, …). Every document written by
+    a single `run()` shares this number, so the review queue can tag a run and the
+    reviewer can tell at a glance which notices came from the latest re-extraction."""
+    rows = run_read_query(
+        "MATCH (d:Document) WHERE d.extraction_batch IS NOT NULL "
+        "RETURN max(d.extraction_batch) AS m LIMIT 1")
+    cur = rows[0]["m"] if rows else None
+    return int(cur) + 1 if cur is not None else 1
+
+
 def run(limit: int | None, force: bool, filename: str | None) -> int:
+    from pipeline import langextract_examples as LX
     docs = _fetch(limit, force, filename)
     print(f"to extract: {len(docs)} document(s)")
+    if not docs:
+        print("done — wrote 0, failed 0")
+        return 0
+    batch = _next_batch()
+    print(f"batch B{batch}")
     ok = fail = 0
     for d in docs:
         fn = d["filename"]
@@ -78,14 +98,15 @@ def run(limit: int | None, force: bool, filename: str | None) -> int:
             MATCH (d:Document {filename:$fn})
             SET d.extraction_json = $j,
                 d.extraction_at    = datetime(),
+                d.extraction_batch = $batch,
                 d.extraction_review_status =
                     coalesce(d.extraction_review_status, 'pending')
             RETURN d.filename
             """,
-            {"fn": fn, "j": json.dumps(ents, ensure_ascii=False)})
+            {"fn": fn, "j": json.dumps(ents, ensure_ascii=False), "batch": batch})
         ok += 1
         print(f"  [{ok}] {fn}: {len(ents)} fields")
-    print(f"done — wrote {ok}, failed {fail}")
+    print(f"done — wrote {ok}, failed {fail} (batch B{batch})")
     return 0
 
 

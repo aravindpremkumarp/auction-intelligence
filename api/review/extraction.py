@@ -71,6 +71,10 @@ class ExtractionQueueRow(BaseModel):
     # None for rows extracted before this was tracked). Lets the review UI sort
     # newest-first so a freshly re-run batch clusters at the top of the queue.
     extraction_at: str | None = None
+    # Which extraction run produced this document — every doc from one
+    # load_extractions.py invocation shares this number (rendered "B7" in the UI).
+    # None for rows extracted before batches were tracked.
+    extraction_batch: int | None = None
 
 
 class ExtractionQueueOut(BaseModel):
@@ -118,13 +122,14 @@ def get_extraction(filename: str) -> dict | None:
 def list_extraction_queue(status: str | None, limit: int,
                           sort: str = "recent") -> list[dict]:
     clause = "AND coalesce(d.extraction_review_status,'pending') = $status" if status else ""
-    # "recent" (default): newest extraction first so a just-run batch groups at
-    # the top; docs missing extraction_at (extracted before it was tracked) fall
-    # to the bottom. "name": the original alphabetical order by filename.
+    # "recent" (default): latest batch first (then newest extraction within it) so
+    # a just-run batch groups at the top; docs missing extraction data (extracted
+    # before it was tracked) fall to the bottom. "name": alphabetical by filename.
     order = (
         "d.filename"
         if sort == "name"
-        else "d.extraction_at IS NULL, d.extraction_at DESC, d.filename"
+        else ("d.extraction_at IS NULL, coalesce(d.extraction_batch,-1) DESC, "
+              "d.extraction_at DESC, d.filename")
     )
     return run_read_query(
         f"""
@@ -133,6 +138,7 @@ def list_extraction_queue(status: str | None, limit: int,
         RETURN d.filename AS filename,
                coalesce(d.extraction_review_status,'pending') AS status,
                toString(d.extraction_at) AS extraction_at,
+               d.extraction_batch AS extraction_batch,
                d.extraction_json AS extraction_json
         ORDER BY {order}
         LIMIT $limit
@@ -233,10 +239,12 @@ def extraction_queue(
             ents = json.loads(r["extraction_json"] or "[]")
         except json.JSONDecodeError:
             ents = []
+        b = r.get("extraction_batch")
         out.append(ExtractionQueueRow(
             filename=r["filename"], status=r["status"], n_fields=len(ents),
             n_ungrounded=sum(1 for e in ents if e.get("start") is None),
-            extraction_at=r.get("extraction_at")))
+            extraction_at=r.get("extraction_at"),
+            extraction_batch=int(b) if b is not None else None))
     return ExtractionQueueOut(rows=out, total=len(out))
 
 

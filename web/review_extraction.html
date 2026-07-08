@@ -44,6 +44,7 @@
  #side h2{color:#fff;font-size:13px;padding:12px 14px 6px;margin:0}
  #qhead{display:flex;align-items:center;gap:6px;padding:0 14px 10px;border-bottom:1px solid #1e293b}
  #qhead .lbl{color:#64748b;font-size:11px}
+ #qhint{color:#4ade80;font-size:10px;font-weight:700;margin-left:auto}
  #sortBtn{background:#1e293b;color:#cbd5e1;border:1px solid #334155;border-radius:6px;padding:3px 9px;font-size:11px}
  #sortBtn:hover{background:#334155;color:#fff}
  .nav{padding:8px 14px;cursor:pointer;border-bottom:1px solid #1e293b;font-size:12px}
@@ -52,6 +53,12 @@
  .nav .when{color:#64748b;font-size:10px;margin-top:2px}
  .nav.active .when{color:#bfdbfe}
  .nav.fresh{border-left:3px solid #16a34a;padding-left:11px}
+ /* batch tag (B1, B2, …): one per extraction run, so a reviewer can see which
+    notices came from the same load_extractions.py invocation. The latest batch
+    is highlighted green; older batches are muted. */
+ .btag{display:inline-block;border-radius:5px;padding:0 6px;font-size:10px;font-weight:700;background:#334155;color:#cbd5e1;margin-right:5px;vertical-align:middle}
+ .btag.latest{background:#16a34a;color:#fff}
+ .nav.active .btag{background:#1e293b;color:#fff}
  .badge{border-radius:9px;padding:1px 7px;font-size:11px;font-weight:700}
  .b-pending{background:#475569;color:#e2e8f0}.b-edited{background:#d97706;color:#fff}.b-verified{background:#16a34a;color:#fff}
  #main{flex:1;overflow:auto;padding:16px 20px}
@@ -108,6 +115,7 @@
     <div id="qhead">
       <span class="lbl">sort</span>
       <button id="sortBtn" onclick="toggleQueueSort()" title="toggle between newest-extracted and A–Z"></button>
+      <span id="qhint" title="the most recent extraction run"></span>
     </div>
     <div id="nav"></div>
   </div>
@@ -210,16 +218,26 @@ async function loadQueue(){
     mainNotice("<b>No extractions to review yet.</b><br>This queue lists documents that have grounded LangExtract output. None have been loaded into the graph so far.<br><br>Populate it by running the loader over documents that already have markdown:<br><br><code style='background:#0f172a;color:#e2e8f0;border-radius:6px;padding:8px 10px;display:inline-block;font-size:12px'>NEO4J_HTTP_API=1 LANGEXTRACT_PROVIDER=openrouter \\<br>&nbsp;&nbsp;python -m pipeline.load_extractions --limit 50</code><br><br>Then reload this page.");
     return;
   }
-  // Newest extraction across the queue → mark every row within 10 min of it as
-  // "fresh" (a green rail). A batch run together shares an extraction time, so
-  // the latest ~30 documents you just re-extracted stand out at a glance.
+  // Latest run detection. Each load_extractions.py invocation stamps a batch
+  // number (B1, B2, …); the highest one present is the newest run, so every row
+  // in it gets the "B7" tag highlighted green + a green rail — that's the batch
+  // you just extracted. Fallback for rows predating batches: a 10-min window
+  // around the newest extraction_at, so older data still clusters sensibly.
+  const batches=q.rows.map(row=>row.extraction_batch).filter(b=>b!=null);
+  const maxBatch=batches.length?Math.max(...batches):null;
   const times=q.rows.map(row=>row.extraction_at?Date.parse(row.extraction_at):NaN).filter(t=>!isNaN(t));
   const maxT=times.length?Math.max(...times):NaN;
+  const freshCount=maxBatch!=null?q.rows.filter(row=>row.extraction_batch===maxBatch).length:0;
+  const hint=document.getElementById("qhint");
+  if(hint)hint.textContent=maxBatch!=null?`latest B${maxBatch} · ${freshCount} doc${freshCount===1?"":"s"}`:"";
   q.rows.forEach(row=>{const e=document.createElement("div");e.className="nav";
+    const isLatest=maxBatch!=null&&row.extraction_batch===maxBatch;
     const t=row.extraction_at?Date.parse(row.extraction_at):NaN;
-    if(!isNaN(t)&&!isNaN(maxT)&&(maxT-t)<=600000)e.classList.add("fresh");
+    // green rail: latest batch when batches exist, else the time-window fallback
+    if(isLatest||(maxBatch==null&&!isNaN(t)&&!isNaN(maxT)&&(maxT-t)<=600000))e.classList.add("fresh");
+    const tag=row.extraction_batch!=null?`<span class="btag${isLatest?" latest":""}" title="extraction batch ${row.extraction_batch}">B${row.extraction_batch}</span>`:"";
     const when=relTime(row.extraction_at);
-    e.innerHTML=`<div>${esc(row.filename)}</div><div class=meta>${row.n_fields} fields · ${row.n_ungrounded} ungrounded · <span class="badge b-${row.status}">${row.status}</span></div>`+
+    e.innerHTML=`<div>${tag}${esc(row.filename)}</div><div class=meta>${row.n_fields} fields · ${row.n_ungrounded} ungrounded · <span class="badge b-${row.status}">${row.status}</span></div>`+
       (when?`<div class=when>extracted ${when}</div>`:"");
     e.onclick=()=>loadDoc(row.filename,e);nav.appendChild(e);});
 }
