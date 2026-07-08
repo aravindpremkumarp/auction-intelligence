@@ -64,6 +64,65 @@ def test_detail_includes_source_metadata(monkeypatch):
     assert out.public_url is None and out.doc_type is None
 
 
+def test_queue_defaults_to_recent_and_passes_extraction_at(monkeypatch):
+    """The queue endpoint defaults to newest-first sorting and surfaces each
+    document's extraction_at so the UI can group a freshly re-run batch."""
+    import api.review.extraction as ex
+    seen = {}
+
+    def fake_list(status, limit, sort):
+        seen["sort"] = sort
+        return [
+            {"filename": "b.pdf", "status": "pending",
+             "extraction_at": "2026-07-08T10:00:00Z",
+             "extraction_json": json.dumps([{"id": "0", "start": 1},
+                                            {"id": "1", "start": None}])},
+            {"filename": "a.pdf", "status": "verified",
+             "extraction_at": None, "extraction_json": "[]"},
+        ]
+
+    monkeypatch.setattr(ex, "list_extraction_queue", fake_list)
+    out = ex.extraction_queue(status=None, limit=200, sort="recent", _admin=None)
+    assert seen["sort"] == "recent"                 # default forwarded to the query
+    assert out.total == 2
+    r0, r1 = out.rows
+    assert r0.filename == "b.pdf"
+    assert r0.extraction_at == "2026-07-08T10:00:00Z"
+    assert r0.n_fields == 2 and r0.n_ungrounded == 1
+    assert r1.extraction_at is None                 # untracked rows stay optional
+
+
+def test_queue_honours_name_sort(monkeypatch):
+    import api.review.extraction as ex
+    seen = {}
+    monkeypatch.setattr(ex, "list_extraction_queue",
+                        lambda status, limit, sort: seen.update(sort=sort) or [])
+    ex.extraction_queue(status=None, limit=200, sort="name", _admin=None)
+    assert seen["sort"] == "name"
+
+
+def test_queue_order_clause_selects_recent_vs_name():
+    """list_extraction_queue builds a newest-first ORDER BY for 'recent' and an
+    alphabetical one for 'name' — verified via the Cypher handed to the driver."""
+    import api.review.extraction as ex
+    captured = {}
+
+    def fake_run(cypher, params, **kw):
+        captured["cypher"] = cypher
+        return []
+
+    orig = ex.run_read_query
+    try:
+        ex.run_read_query = fake_run
+        ex.list_extraction_queue(None, 200, "recent")
+        assert "d.extraction_at DESC" in captured["cypher"]
+        ex.list_extraction_queue(None, 200, "name")
+        assert "ORDER BY d.filename" in captured["cypher"]
+        assert "extraction_at DESC" not in captured["cypher"]
+    finally:
+        ex.run_read_query = orig
+
+
 def test_robust_to_empty_and_malformed_json():
     assert _build_fields("", "") == []
     assert _build_fields("not json", "also not json") == []

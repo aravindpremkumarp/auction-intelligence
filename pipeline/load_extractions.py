@@ -77,6 +77,7 @@ def run(limit: int | None, force: bool, filename: str | None) -> int:
             """
             MATCH (d:Document {filename:$fn})
             SET d.extraction_json = $j,
+                d.extraction_at    = datetime(),
                 d.extraction_review_status =
                     coalesce(d.extraction_review_status, 'pending')
             RETURN d.filename
