@@ -67,6 +67,10 @@ class ExtractionQueueRow(BaseModel):
     status: str
     n_fields: int
     n_ungrounded: int
+    # When load_extractions.py last wrote this document's extraction (ISO string,
+    # None for rows extracted before this was tracked). Lets the review UI sort
+    # newest-first so a freshly re-run batch clusters at the top of the queue.
+    extraction_at: str | None = None
 
 
 class ExtractionQueueOut(BaseModel):
@@ -111,16 +115,26 @@ def get_extraction(filename: str) -> dict | None:
     return rows[0] if rows else None
 
 
-def list_extraction_queue(status: str | None, limit: int) -> list[dict]:
+def list_extraction_queue(status: str | None, limit: int,
+                          sort: str = "recent") -> list[dict]:
     clause = "AND coalesce(d.extraction_review_status,'pending') = $status" if status else ""
+    # "recent" (default): newest extraction first so a just-run batch groups at
+    # the top; docs missing extraction_at (extracted before it was tracked) fall
+    # to the bottom. "name": the original alphabetical order by filename.
+    order = (
+        "d.filename"
+        if sort == "name"
+        else "d.extraction_at IS NULL, d.extraction_at DESC, d.filename"
+    )
     return run_read_query(
         f"""
         MATCH (d:Document)
         WHERE d.extraction_json IS NOT NULL {clause}
         RETURN d.filename AS filename,
                coalesce(d.extraction_review_status,'pending') AS status,
+               toString(d.extraction_at) AS extraction_at,
                d.extraction_json AS extraction_json
-        ORDER BY d.filename
+        ORDER BY {order}
         LIMIT $limit
         """,
         {"status": status, "limit": limit},
@@ -209,9 +223,10 @@ def _build_fields(extraction_json: str, corrections_json: str) -> list[Extractio
 def extraction_queue(
     status: str | None = Query(default=None),
     limit: int = Query(default=200, le=2000),
+    sort: str = Query(default="recent", pattern="^(recent|name)$"),
     _admin: UserOut = Depends(get_current_admin),
 ) -> ExtractionQueueOut:
-    rows = list_extraction_queue(status, limit)
+    rows = list_extraction_queue(status, limit, sort)
     out = []
     for r in rows:
         try:
@@ -220,7 +235,8 @@ def extraction_queue(
             ents = []
         out.append(ExtractionQueueRow(
             filename=r["filename"], status=r["status"], n_fields=len(ents),
-            n_ungrounded=sum(1 for e in ents if e.get("start") is None)))
+            n_ungrounded=sum(1 for e in ents if e.get("start") is None),
+            extraction_at=r.get("extraction_at")))
     return ExtractionQueueOut(rows=out, total=len(out))
 
 
