@@ -26,7 +26,7 @@
 - A measurable funnel end to end (session → signup → activated search/evaluation → Pro).
 - A first real user cohort (from ~7 today) and a repeatable Pro-conversion motion tied to deeper research sessions.
 - An "auction alerts" email list as the compounding retention asset (currently nonexistent).
-- Founder-led LinkedIn as a credibility/inbound channel (brand assets already built, dormant).
+- A HyperFrames-powered social engine turning daily auction data into deal + evaluation content, cross-posted across all platforms (brand assets already built).
 - A trust surface (About/entity/data-sources/visible pricing) — currently anonymous.
 
 **90-day priorities:**
@@ -146,7 +146,7 @@ No marketing owner — correct at this stage. First "hire" is the marketing-skil
 ## 4. Acquisition
 
 ### Current state
-No acquisition engine. The app is the homepage; no content/listing/comparison pages; the SPA is barely crawlable; no analytics. In a category where buyers actively search, invisibility in organic is the biggest miss. Paid is off by choice. So Acquisition = organic = exploit the dataset + tell the evaluation story.
+No acquisition engine. The app is the homepage; no content/listing/comparison pages; the SPA is barely crawlable; no analytics. In a category where buyers actively search, invisibility in organic is the biggest miss. Paid is off by choice. So Acquisition = organic = exploit the dataset + tell the evaluation story + a HyperFrames-powered social engine (Move 7).
 
 ### The plan
 **Move 1 — Make the app crawlable (prerequisite).** SSR/prerender `web/`; one canonical host + 301 (content on non-www, sitemap on www today); per-route meta/OG. `/seo-audit`
@@ -161,7 +161,16 @@ No acquisition engine. The app is the homepage; no content/listing/comparison pa
 
 **Move 6 — Comparison pages.** "AuctionScope vs bankeauctions.com," "IBAPI alternative" — honest, high-intent SERPs. `/competitors`
 
-**Move 7 — Founder-led LinkedIn.** Assets exist. 2–3 posts/week: property evaluations ("this Kanchipuram plot — here's what the web says about water + connectivity"), SARFAESI explainers, build-in-public. `/social`
+**Move 7 — Social content engine (HyperFrames-powered).** The complementary distribution pillar to SEO — and a natural fit, because the whole product is already HTML/CSS with a clean design system and a daily stream of auction data to turn into content.
+
+*Production pipeline (reuses what's already in the repo):* social templates are HTML docs that inline the `:root` design tokens from `web/styles.css` (accent `#0052ff`, Inter / Bricolage Grotesque / JetBrains Mono) and reuse the on-brand property card from `web/card-variations.html` as the slide atom, rendered exactly like `brand/logo/render.py` (Playwright `set_content` → 2× screenshot, clipped to size). Reels render via the **`hyperframes` npm package** (Apache-2.0, from HeyGen — HTML/CSS/JS frames → MP4, `render({frames, width:1080, height:1920})`; no OAuth needed). Three canonical sizes cover every platform — **1080×1080** (square), **1080×1350** (portrait carousel), **1080×1920** (reel) — and per the founder's call, **one asset set is cross-posted to Instagram, Facebook, LinkedIn, X, and YouTube** (English-first).
+
+*Three content pillars:*
+1. **Deals (auto, data-driven)** — deal-of-the-day card, **price-drop** alerts (`is_reauction` + `previous_reserve_price`), "cheapest plots/flats in [city]" carousels (`/properties` + `sort=price_asc`), "new this week" / "closing soon," and inventory stat graphics (`/stats`, facets: 49 cities / 122 banks). Generated from the graph via a HyperFrames template + a small scheduled script.
+2. **Evaluate (the hero feature, in motion)** — screen-recorded reels + carousels of the AI answering real questions ("does this area flood?", "what's being built nearby?", "is the reserve fair vs market?"), cited. This is the differentiator most people can't see from a static listing — show it moving.
+3. **Educate / Founder** — how SARFAESI auctions work, EMD, "how to evaluate a location," build-in-public.
+
+*Cadence:* ~5 posts/week ≈ 3 auto (Deals) + 2 human (Evaluate/Educate), including ≥1 reel/week; repurpose one pillar into carousel + reel + static + text (per the `social` skill). *Honesty rule holds:* deal posts show reserve/EMD/date grounded in the notice; evaluation posts label web research "cited, approximate — not legal advice." *Distribution:* a scheduler (Buffer/Publer free tier) or manual. *Skills:* `content-strategy` (pillars) · `social` (calendar/hooks/repurposing) · `image` (sizes) · `video` + `hyperframes` (reels) · `ad-creative` (15-template static library) · `copywriting` (captions). *Optional later:* the HeyGen/HyperFrames **MCP** adds AI-avatar reels but needs OAuth authorization.
 
 **Move 8 — Directories + review sites + a launch moment.** Indian SaaS/AI directories for backlinks/DR; a considered Product Hunt launch tied to a real feature milestone. `/directory-submissions` + `/launch`
 
@@ -274,6 +283,7 @@ Every revenue projection in §10 is a range, not a promise — CAC and retention
 | Above-the-fold rewrite (evaluation + proof) | Act | Aravind |
 | Pricing page + About/trust page | Rev/Cross | Aravind |
 | First 2 educational/evaluation posts | Acq | Aravind |
+| Build 3 HyperFrames social templates (deal / price-drop / city-carousel) | Acq | Aravind |
 | Welcome email sequence | Ret | Aravind |
 
 ### Weeks 5–8 — Velocity
@@ -283,7 +293,8 @@ Every revenue projection in §10 is a range, not a promise — CAC and retention
 | 4 more posts; `llms.txt` | Acq | Aravind |
 | City auction-alert digest live | Ret | Aravind |
 | Real upgrade prompt (replace bare 429) | Rev | Aravind |
-| First 5 directory submissions; LinkedIn 2–3/wk | Acq | Aravind |
+| First 5 directory submissions | Acq | Aravind |
+| Social auto-gen off the graph + first Evaluate reel; ~5 posts/wk cross-post | Acq | Aravind |
 
 ### Weeks 9–12 — Compound
 | Move | Stage | Owner |
@@ -329,7 +340,7 @@ A single founder + the 47-skill marketing library + a few MCP/API connections ca
 ### Skills mapped to AARRR
 | Stage | Primary skills | Supporting |
 |---|---|---|
-| Acquisition | `programmatic-seo`, `seo-audit`, `schema`, `content-strategy`, `copywriting` | `ai-seo`, `site-architecture`, `competitors`, `social`, `directory-submissions`, `launch` |
+| Acquisition | `programmatic-seo`, `seo-audit`, `schema`, `content-strategy`, `copywriting` | `ai-seo`, `site-architecture`, `competitors`, `social`, `image`, `video`, `ad-creative`, `directory-submissions`, `launch` |
 | Activation | `onboarding`, `cro`, `copywriting` | `signup`, `popups`, `analytics`, `ab-testing` |
 | Retention | `emails`, `churn-prevention` | `sms`, `copywriting` |
 | Referral | `referrals` | `social`, `emails` |
@@ -342,7 +353,7 @@ A single founder + the 47-skill marketing library + a few MCP/API connections ca
 ### Capability unlocks by funding stage
 | Stage | Headcount | Tooling | Channels live |
 |---|---|---|---|
-| Bootstrapped (now) | Founder + skills | Free GA4/GSC/ESP | Organic SEO, content, founder LinkedIn, email |
+| Bootstrapped (now) | Founder + skills | Free GA4/GSC/ESP; `hyperframes` (HTML→MP4) + a post scheduler | Organic SEO, content, social (IG/FB/LinkedIn/X/YouTube), email |
 | Seed close | + part-time content/SEO contractor | Paid Ahrefs, paid ESP | + small Google Search test, + directories at volume |
 | Seed deployment | + π-shaped marketing Manager/Lead | Paid A/B, richer analytics | + paid scaling, + comparison/PR |
 
@@ -355,7 +366,7 @@ Sections 4–8 prescribe what's *being done*. This maps what's *possible* — th
 **Legend:** Now (Q1) · Q2 · Q3+ · Skip.
 
 ### 12.1 Acquisition
-**Now:** #2 SEO Audit (crawlability first) · #6 Proprietary Data Content (the graph — "cheapest live auctions in Chennai this week") · #7 Internal Linking · #1 Easy Keyword Ranking (long-tail auction terms) · #10 Parasite SEO · #36/#37 Quora/Reddit research (where buyers ask) · #39 LinkedIn Audience (founder) · #129 Review Sites.
+**Now:** #2 SEO Audit (crawlability first) · #6 Proprietary Data Content (the graph — "cheapest live auctions in Chennai this week") · #7 Internal Linking · #1 Easy Keyword Ranking (long-tail auction terms) · #10 Parasite SEO · #36/#37 Quora/Reddit research (where buyers ask) · #39 LinkedIn Audience (founder) · #42 Short-Form Video (deal + evaluate reels via HyperFrames) · #129 Review Sites.
 **Q2:** #4 Programmatic SEO (scaled) · #3 Glossary (SARFAESI/EMD/EC) · #11 Competitor Comparison · #5 Content Repurposing · #59 HARO (founder as auction/locality source).
 **Q3+:** #15 Engineering-as-Marketing (a "is this reserve fair?" or EMI calculator) · #78 Product Hunt (at a real milestone) · #127 YouTube · #131 second-geo.
 **Skip:** #83 Twitter Giveaways, #99 Graphic Novel, #112 Reality-TV, #118 Cameo, #122 Humor — off-brand for a grounded, trust-sensitive product. Paid ads (#23–34) held for budget, not skipped.
@@ -388,7 +399,7 @@ Sections 4–8 prescribe what's *being done*. This maps what's *possible* — th
 **Leading indicators:**
 | Stage | Indicators |
 |---|---|
-| Acquisition | Indexed pages, organic sessions, GSC impressions/clicks, rankings, LinkedIn reach |
+| Acquisition | Indexed pages, organic sessions, GSC impressions/clicks, rankings, social reach + per-pillar engagement, UTM'd link clicks → signups |
 | Activation | Signup rate, first-search rate, **web-enriched-question rate**, activation rate, email captures |
 | Retention | Alert open/click, week-2/week-4 return, list growth |
 | Referral | Shares per active user, referred signups (Q2+) |
