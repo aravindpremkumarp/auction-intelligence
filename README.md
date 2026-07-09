@@ -4,7 +4,8 @@
 
 An AI intelligence platform for Indian **SARFAESI** bank-auction property. It
 scrapes public auction listings, builds a **Neo4j knowledge graph** of Tamil
-Nadu auctions (~3,400 properties — the live count is at `GET /stats`), enriches
+Nadu auctions (~2,200 enriched; ~600 live at any time — the live count is at
+`GET /stats`), enriches
 each listing with OCR + vision-LLM extraction of the source sale notices, and
 serves a **PydanticAI agent** behind a chat UI that lets you find, compare,
 and analyze investment opportunities in natural language (saving/tracking
@@ -29,8 +30,15 @@ serve agent + web UI → human feedback + review loop
   (description, notice markdown, notice image) ranked in one embedding space.
 - **Paste-a-listing matching** — drop a WhatsApp forward or broker blurb and the
   agent anchors it to the right auction by reserve price + date.
-- **Specialised modes** — deep research (7-step due diligence on one auction),
-  side-by-side compare, and a personalised investment report.
+- **Web-search enrichment** — the agent can answer questions the sale notice
+  can't: locality water / groundwater, waterlogging & flood signals, existing +
+  upcoming govt/private projects, transport (metro/bus/connectivity), nearby
+  schools/hospitals, approximate location, and market price vs. the reserve —
+  via `internet_search`, cited. (Web-researched and approximate, not legal advice.)
+- **Deep-research mode** (login-gated) — a structured, cited research report on
+  one auction: market comparables, location intelligence, re-auction price
+  history, and notice red flags. (Seven further specs — scan/shortlist/evaluate/
+  track/refresh/compare/report — are archived, not live.)
 - **Accounts** — Supabase auth, a saved-property **watchlist**, and persisted
   **conversations** (including per-property chats).
 - **Re-auction awareness** — every result row carries `is_reauction`,
@@ -59,7 +67,7 @@ serve agent + web UI → human feedback + review loop
               │  routers: chat · properties · feedback · health    │
               │  auth-gated: auth · watchlist · conversations ·    │
               │              review                                │
-              │  PydanticAI agent ─▶ OpenRouter (Gemini 2.0 Flash) │
+              │  PydanticAI agent ─▶ OpenRouter (DeepSeek V4 Pro) │
               │  cypher tools · semantic search · web search       │
               └───┬───────────────┬───────────────┬───────────────┘
                   │               │               │
@@ -73,8 +81,9 @@ serve agent + web UI → human feedback + review loop
   OpenRouter, with its schema/tool-routing rules loaded from `modes/_shared.md`.
 - **Frontend** — single-page app, **no build step**: vanilla JS + hand-written
   CSS, split into `web/index.html` (markup), `web/styles.css`, `web/app.js`
-  (behaviour), and `web/auth.js` (Supabase auth). Plus `admin.html` and
-  `review.html` for the admin/review surfaces.
+  (behaviour), `web/auth.js` (Supabase auth), `web/billing.js` (Razorpay
+  checkout), and `web/dossiers.js` (dossier UI, dark by default). Plus
+  `admin.html` and `review.html` for the admin/review surfaces.
 - **Auth** — Supabase handles signup/login/reset on the client; the backend
   verifies each access token against Supabase JWKS and mirrors the user as a
   Neo4j `:User` node. Auth-gated routers are skipped entirely when
@@ -99,8 +108,9 @@ pipeline/     Enrichment pipeline: OCR/MinerU, vision-LLM extraction, notice
               embeddings (3 vector indexes), R2 storage helpers.
 scrapers/     Selenium scrapers for eauctionsindia.com (local only).
 scripts/      Data-prep, migration, backfill, and one-off maintenance scripts.
-scoring/      Ten-dimensional investment scoring (auction_scorer.py).
-tracking/     Eight-state investment-pipeline tracker.
+scoring/      Ten-dimensional investment scoring (auction_scorer.py) — offline
+              only; not wired into the live API.
+tracking/     Eight-state investment-pipeline tracker — offline only.
 modes/        Agent prompt files — _shared.md (schema + rules) + per-mode specs.
 evals/        pydantic-evals golden-question harness.
 web/          Single-page frontend (index/styles/app/auth) + admin + review UIs.
@@ -147,7 +157,7 @@ Copy `.env.example` → `.env`. Never commit the filled-in file. Key groups:
 
 | Group | Vars | Notes |
 | --- | --- | --- |
-| **LLM** | `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`, `OPENAI_API_KEY`, `GOOGLE_API_KEY` | OpenRouter (Gemini 2.0 Flash) runs the agent + OCR extraction; Google key powers `gemini-embedding-2` for semantic search. |
+| **LLM** | `OPENROUTER_API_KEY`, `OPENROUTER_CHAT_API_KEY`, `OPENROUTER_MODEL`, `OPENAI_API_KEY`, `GOOGLE_API_KEY` | OpenRouter runs the agent (**DeepSeek V4 Pro**, Flash on the free tier) and OCR extraction (`gemini-2.5-flash`); Google key powers `gemini-embedding-2` for semantic search. `OPENROUTER_CHAT_API_KEY` caps chat spend apart from the pipeline. |
 | **Graph** | `NEO4J_URI`, `NEO4J_USERNAME`, `NEO4J_PASSWORD`, `NEO4J_DATABASE` | Neo4j Aura. |
 | **Auth** | `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `AUTH_ENABLED`, `ADMIN_BOOTSTRAP_EMAIL` | Anon key is browser-safe; service-role key is server-only (admin bootstrap script). |
 | **Storage** | `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, `R2_PUBLIC_BASE_URL` | Public Cloudflare R2 bucket serving sale notices. |
@@ -162,9 +172,11 @@ Copy `.env.example` → `.env`. Never commit the filled-in file. Key groups:
 
 `api/agent.py` builds the PydanticAI agent. Its system prompt is a short role
 statement plus the whole of `modes/_shared.md` (graph schema, enum lists,
-tool-routing rules, a Cypher cheat-sheet). Two dynamic instructions augment each
-turn: the rolling **active search scope** carried across turns, and a **mode
-overlay** when the client requests one.
+tool-routing rules, a Cypher cheat-sheet). Four dynamic instructions augment each
+turn: the rolling **active search scope** carried across turns, the
+**matches-panel selection**, a **mode overlay** when the client requests one, and
+the **live graph size**. The agent runs **DeepSeek V4 Pro** by default (a Flash
+variant on the free tier).
 
 **Tools** (read-only against the graph + web):
 
@@ -175,7 +187,8 @@ overlay** when the client requests one.
 | `get_auction_detail` | Full record for one `auction_id`, including re-auction `price_history`. |
 | `describe_schema` | Live graph introspection (labels, rels, enums, ranges); 1-hour cache. |
 | `run_cypher` | Read-only Cypher escape hatch — write clauses rejected, 10 s / 500-row caps. |
-| `internet_search` | Tavily web search for off-graph context (legal/RBI/locality). |
+| `internet_search` | Tavily web search for off-graph context — locality water/flood signals, govt/private projects, connectivity, schools/hospitals, market context. Cited, approximate. |
+| `query_user_dossier` | (dossiers build only) Q&A over a signed-in user's own uploaded documents for one property. |
 
 **Modes** (`modes/*.md`): `deep-research` (login-gated) plus the default
 `ask`. Seven further specs — `scan`, `shortlist`, `evaluate`, `track`,
@@ -188,6 +201,31 @@ The graph is modelled around `AuctionProperty`, with `Bank`/`Branch`,
 `AuctionType` reference nodes, plus enrichment nodes (`Score`,
 `InvestmentTracker`, `Feedback`, `User`, `Document`). See
 [`config/domain_ontology.yaml`](config/domain_ontology.yaml) for the full schema.
+
+---
+
+## Accounts, tiers & billing
+
+- **Auth** — Supabase (client signup/login/reset; backend verifies each JWT via
+  JWKS and mirrors the user as a Neo4j `:User`).
+- **Tiers & quotas** (`api/model_selection.py`, `api/chat/router.py`):
+
+  | Tier | Chats/day | Chats/month | Model | Reasoning effort | Deep-research |
+  | --- | --- | --- | --- | --- | --- |
+  | Anonymous | 10 | 30 | Flash | low | — |
+  | Free (signed-in) | 20 | 100 | Flash | low | ✓ (login-gated) |
+  | Pro | 1,000 | unlimited | **Pro** | high / xhigh | ✓ |
+
+- **Billing** — Razorpay. Pro is a one-time **₹499**, **30-day** unlock
+  (`RAZORPAY_PLAN_AMOUNT` / `RAZORPAY_PLAN_DAYS`); the **webhook is the sole
+  activation path** (HMAC-verified, idempotent).
+- **Deadline alerts** — `GET|POST /alerts`: 7-day-window reminders for
+  saved/watchlisted properties, surfaced as a bell badge in the UI.
+- **Dossier** (ships dark; `DOSSIERS_ENABLED=false`) — a private per-property
+  **document locker**: a signed-in user uploads *their own* collected documents,
+  which the app OCRs and auto-classifies across a 9-category taxonomy with a
+  completeness tracker. It organises the user's documents; it is **not** automated
+  legal/title diligence.
 
 ---
 
@@ -236,6 +274,9 @@ Mounted in `api/main.py`. Selected endpoints:
 - `GET /auction/{id}` — full auction detail.
 - `POST /chat` — run an agent turn (returns answer, tool artifacts, and the
   message history to replay next turn).
+- `POST /chat/stream` — SSE streaming turn (tool progress + token streaming).
+- `GET /chat/models` — tier-aware model + reasoning-effort registry.
+- `GET|POST /alerts` — deadline alerts for saved/watchlisted properties.
 - `POST /feedback`, `GET /feedback/recent`, `PATCH /feedback/{id}/resolve`.
 
 **Authenticated** (Supabase JWT)
@@ -243,6 +284,10 @@ Mounted in `api/main.py`. Selected endpoints:
 - `GET|PATCH /auth/me`.
 - `GET /watchlist`, `POST|DELETE /watchlist/{id}`.
 - `GET|PUT|DELETE /conversations[/{id}]`.
+- `POST /billing/order`, `POST /billing/verify`, `POST /billing/webhook` —
+  Razorpay Pro unlock (the webhook is the sole activation path).
+- `GET|POST|DELETE /dossiers/*` — per-property document locker (mounted only
+  when `DOSSIERS_ENABLED=true`).
 
 **Admin**
 
