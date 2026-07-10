@@ -27,6 +27,14 @@ jobs:
     timeout-minutes: 30
     env:
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      # The chat agent authenticates with OPENROUTER_CHAT_API_KEY (see
+      # pipeline/config.py), falling back to OPENROUTER_API_KEY when unset.
+      # Production uses the chat key; wire it through here so the eval bills
+      # (and authenticates) against the same key production does. The nightly
+      # eval was failing with a 401 "User not found" because CI only had the
+      # stale OPENROUTER_API_KEY — set the OPENROUTER_CHAT_API_KEY repo secret
+      # to the valid chat key to fix it.
+      OPENROUTER_CHAT_API_KEY: ${{ secrets.OPENROUTER_CHAT_API_KEY }}
       OPENROUTER_MODEL:   ${{ secrets.OPENROUTER_MODEL }}
       NEO4J_URI:          ${{ secrets.NEO4J_URI }}
       NEO4J_USERNAME:     ${{ secrets.NEO4J_USERNAME }}
