@@ -48,7 +48,7 @@ def build_judge_model():
     avoid self-grading bias (e.g. ``anthropic/claude-sonnet-4.5``).
     """
     try:
-        from pydantic_ai.models.openai import OpenAIModel
+        from pydantic_ai.models.openai import OpenAIChatModel
         from pydantic_ai.providers.openai import OpenAIProvider
 
         from pipeline.config import (
@@ -62,7 +62,7 @@ def build_judge_model():
         return None
     model_id = os.getenv("EVAL_JUDGE_MODEL", OPENROUTER_MODEL)
     provider = OpenAIProvider(api_key=OPENROUTER_API_KEY, base_url=OPENROUTER_BASE_URL)
-    return OpenAIModel(model_id, provider=provider)
+    return OpenAIChatModel(model_id, provider=provider)
 
 
 def build_dataset(include_judge: bool = True) -> Dataset:

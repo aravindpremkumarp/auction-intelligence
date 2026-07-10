@@ -19,6 +19,11 @@ Env knobs:
     EVAL_MIN_CITATION_PASS    citation-discipline gate over the listing cases
                               (default 0 = report-only while it burns in)
     EVAL_MAX_CONCURRENCY      parallel agent runs (default 4)
+    EVAL_CHAT_MODEL           logical chat model to eval: "flash"/"pro"
+                              (default "flash" — the free-tier model is both
+                              the cheaper eval and the harder tool-routing
+                              bar; an unknown value falls back to "pro" via
+                              build_chat_run_overrides)
     EVAL_DISABLE_JUDGE=1      skip the LLM-as-judge quality score
     EVAL_JUDGE_MODEL          judge model id (default: OPENROUTER_MODEL)
 """
@@ -34,6 +39,7 @@ from evals.evaluators import CITES_AUCTION_IDS, GRACEFUL_REFUSAL, TOOL_TRAJECTOR
 MIN_TRAJECTORY_PASS = float(os.getenv("EVAL_MIN_TRAJECTORY_PASS", "0.85"))
 MIN_CITATION_PASS = float(os.getenv("EVAL_MIN_CITATION_PASS", "0"))
 MAX_CONCURRENCY = int(os.getenv("EVAL_MAX_CONCURRENCY", "4"))
+CHAT_MODEL = os.getenv("EVAL_CHAT_MODEL", "flash")
 
 
 async def _run_agent(question: str) -> ChatTaskOutput:
@@ -46,10 +52,14 @@ async def _run_agent(question: str) -> ChatTaskOutput:
     """
     from pydantic_ai.messages import ToolReturnPart
 
-    from api.agent import ChatDeps, agent
+    from api.agent import ChatDeps, agent, build_chat_run_overrides
     from api.chat.panel import cited_ids, known_auction_ids
 
-    result = await agent.run(question, deps=ChatDeps())
+    # Same per-request override path the chat router uses, so the eval runs
+    # the resolved EVAL_CHAT_MODEL instead of the agent's paid default.
+    result = await agent.run(
+        question, deps=ChatDeps(), **build_chat_run_overrides(CHAT_MODEL, None)
+    )
     seen: set[str] = set()
     tools: list[str] = []
     tool_returns: list[tuple[str, object]] = []

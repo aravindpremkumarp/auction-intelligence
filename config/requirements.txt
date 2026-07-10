@@ -28,15 +28,15 @@ neo4j>=5.26,<7
 boto3>=1.34,<2
 
 # API + Agent layer (Phase 1)
-fastapi>=0.115,<1.0
+fastapi>=0.115,<0.137  # capped: 0.137+ breaks app.routes introspection (see requirements.txt)
 uvicorn[standard]>=0.30,<1.0
-pydantic-ai>=1.0,<2
+pydantic-ai>=2.8,<3
 pyyaml>=6.0,<7
 
 # Observability + evaluation. logfire = OpenTelemetry tracing (prod + dev);
 # pydantic-evals = the golden-question eval harness (evals/, dev + CI only).
 logfire[fastapi]>=4,<5
-pydantic-evals>=1.0,<2
+pydantic-evals>=2.8,<3
 
 # Report generation (Phase 4)
 weasyprint>=60,<70

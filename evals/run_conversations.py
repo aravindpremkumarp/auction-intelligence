@@ -51,6 +51,8 @@ from evals.conversations import GOLDEN_CONVERSATIONS
 
 MIN_CONVO_PASS = float(os.getenv("EVAL_MIN_CONVO_PASS", "0.85"))
 CONCURRENCY = int(os.getenv("EVAL_CONVO_CONCURRENCY", "2"))
+# Which logical chat model to eval ("flash"/"pro"); mirrors run_golden's knob.
+CHAT_MODEL = os.getenv("EVAL_CHAT_MODEL", "flash")
 
 _CONVERSATIONS_BY_ID = {c.conv_id: c for c in GOLDEN_CONVERSATIONS}
 
@@ -104,11 +106,12 @@ async def _run_conversation(conv_id: str) -> ConversationOutput:
     functions are imported from `api/chat/panel.py`, not re-implemented."""
     from pydantic_ai.messages import ToolCallPart
 
-    from api.agent import ChatDeps, agent
+    from api.agent import ChatDeps, agent, build_chat_run_overrides
     from api.chat.panel import panel_sync_ids, turn_panel_ids
     from api.chat.router import _extract_active_filters, _tool_returns
 
     convo = _CONVERSATIONS_BY_ID[conv_id]
+    overrides = build_chat_run_overrides(CHAT_MODEL, None)
     history = None
     active_filters: dict = {}
     last_total: int | None = None
@@ -121,7 +124,9 @@ async def _run_conversation(conv_id: str) -> ConversationOutput:
             last_total_count=last_total,
             panel_auction_ids=panel or None,
         )
-        result = await agent.run(turn.message, message_history=history, deps=deps)
+        result = await agent.run(
+            turn.message, message_history=history, deps=deps, **overrides
+        )
         history = result.all_messages()
         # Re-derive the rolling scope + last count the SAME way the router does,
         # so the next turn's deps match production.

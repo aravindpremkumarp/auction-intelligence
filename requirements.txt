@@ -29,9 +29,13 @@ neo4j>=5.26,<7
 google-genai>=2.0,<3
 
 # API + Agent layer
-fastapi>=0.115,<1.0
+# fastapi capped below 0.137: it changes how include_router mounts appear in
+# `app.routes` (`_IncludedRouter` objects without `.path`), which breaks the
+# route-registration tests. Lift the cap in its own change once those tests
+# are adapted.
+fastapi>=0.115,<0.137
 uvicorn[standard]>=0.30,<1.0
-pydantic-ai>=1.0,<2
+pydantic-ai>=2.8,<3
 
 # Observability — Logfire/OpenTelemetry tracing of the agent + LLM + tool
 # calls. Tracing is a no-op unless LOGFIRE_TOKEN is set (see api/telemetry.py),

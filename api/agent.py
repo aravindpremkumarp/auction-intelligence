@@ -19,8 +19,9 @@ from pathlib import Path
 
 import httpx
 from pydantic_ai import Agent, RunContext
+from pydantic_ai.capabilities import Capability
 from pydantic_ai.messages import ToolReturn
-from pydantic_ai.models.openai import OpenAIModel
+from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 
 from pipeline.config import (
@@ -71,8 +72,8 @@ Rules:
 1. Ground every answer in tool output. Never invent auction_ids, prices,
    counts, enums, or filter thresholds. Cite by `auction_id`.
 2. Prefer the specialized tool that matches; fall back to `run_cypher` only
-   for novel queries (see Tool routing below). On zero results follow the
-   Zero-result protocol below.
+   for novel queries (load the `cypher` capability first — see Tool routing
+   below). On zero results follow the Zero-result protocol below.
 3. Use `internet_search` only for OFF-graph context (legal/RBI explainers,
    locality background, term definitions) — never for properties, prices,
    deadlines, auction_ids, or counts; for hybrid questions query the graph
@@ -141,10 +142,61 @@ _provider = OpenAIProvider(
 # provider. The chat router resolves a per-request model name (gating free users
 # to Flash) and passes the matching object to `agent.run(..., model=...)`, so a
 # single agent instance serves both models without rebuilding anything.
-CHAT_MODELS: dict[str, OpenAIModel] = {
-    name: OpenAIModel(slug, provider=_provider)
+# OpenAIChatModel = the Chat Completions API, which is what OpenRouter speaks;
+# pydantic-ai v2 reserves the old OpenAIModel name's `openai:` shorthand for
+# the Responses API, which OpenRouter does not serve.
+CHAT_MODELS: dict[str, OpenAIChatModel] = {
+    name: OpenAIChatModel(slug, provider=_provider)
     for name, slug in CHAT_MODEL_SLUGS.items()
 }
+
+# ── Deferred capability: raw Cypher ──────────────────────────────────────────
+# `run_cypher` + `describe_schema` ride behind pydantic-ai's on-demand
+# capability loading instead of the always-sent tool list. Their schemas (and
+# the Cypher rules moved out of modes/_shared.md into the instructions below)
+# used to be serialized into EVERY model call; deferred, they collapse to a
+# one-line catalog entry, and the model calls the framework-managed
+# `load_capability` tool only on the rare turn that needs raw Cypher — which
+# reveals the tools + instructions for the rest of the conversation (loaded
+# state is reconstructed from the `load_capability` call/return pairs in
+# stored history — see the router's history handling, which must never trim
+# those parts).
+#
+# Only the Cypher tools are deferred, deliberately. DeepSeek via OpenRouter
+# has no native tool-search surface, so a load costs one extra round-trip and
+# busts the automatic prompt-cache prefix once per conversation that uses it.
+# That pays off only for genuinely rare tools: production telemetry shows raw
+# Cypher on ~6% of turns (clear win) but `internet_search` on ~24% (the extra
+# round-trips would outweigh the prefix saving), so web search stays always-on.
+# Keep `description` to one line — the catalog entry rides on every call.
+_CYPHER_CAPABILITY = Capability(
+    id="cypher",
+    description=(
+        "Read-only Cypher escape hatch (describe_schema + run_cypher) for "
+        "novel graph queries the structured tools can't express."
+    ),
+    instructions=(
+        "Cypher rules (they exist because these mistakes silently return "
+        "zero rows):\n"
+        "- Call `describe_schema()` before composing a novel query and "
+        "follow its `cypher_patterns`.\n"
+        "- Domain edges exist only FROM `AuctionProperty` — MATCH each off "
+        "the `(a)` node and comma-join; never chain them from `Bank`/`City`/"
+        "etc. (e.g. `(Bank)-[:HAS_PROPERTY_TYPE]` does not exist).\n"
+        "- `auction_start_dt`, `auction_end_dt`, `application_deadline_dt` "
+        "are Neo4j ZONED DATETIME (UTC), NOT strings. Components: `.year "
+        ".month .day .hour .dayOfWeek (1=Mon..7=Sun) .quarter`. `datetime()` "
+        "= now; `datetime() + duration({days: 7})` for +7d. Gaps: "
+        "`duration.between(a, b).days` or `duration.inSeconds(a, b).seconds "
+        "/ 3600`. Calendar-day equality: `date(a.dt) = date($other)`.\n"
+        "- NEVER compare a DATETIME column to a raw ISO string (ZONED-vs-"
+        "LOCAL silently returns zero); wrap it: `WHERE a.auction_start_dt >= "
+        "datetime($iso)`.\n"
+        "- No `total_area`/`village`/`taluk`/`district` props exist — sizes "
+        "and sub-locality live only in `description` text (`semantic_search`)."
+    ),
+    defer_loading=True,
+)
 
 # OpenRouter-specific request extras ride in `model_settings["extra_body"]`,
 # built per request by `api.model_selection.build_model_settings`:
@@ -168,6 +220,7 @@ agent = Agent(
     deps_type=ChatDeps,
     system_prompt=SYSTEM_PROMPT,
     model_settings=build_model_settings(None),
+    capabilities=[_CYPHER_CAPABILITY],
 )
 
 
@@ -176,7 +229,7 @@ def build_chat_run_overrides(
 ) -> dict:
     """Per-request `agent.run` / `agent.run_stream_events` overrides for the
     resolved model + reasoning effort. Returns a dict to splat at the call site:
-    `{"model": <OpenAIModel>, "model_settings": {...}}`. An unknown `model_name`
+    `{"model": <OpenAIChatModel>, "model_settings": {...}}`. An unknown `model_name`
     falls back to the paid default so a bad value can never 500 a turn."""
     model = CHAT_MODELS.get(model_name or "", CHAT_MODELS[DEFAULT_PAID_MODEL])
     return {"model": model, "model_settings": build_model_settings(reasoning_effort)}
@@ -431,7 +484,7 @@ def get_auction_detail(auction_id: str) -> dict | None:
     return T.get_auction_detail(auction_id)
 
 
-@agent.tool_plain
+@_CYPHER_CAPABILITY.tool_plain
 def describe_schema(refresh: bool = False) -> dict:
     """Graph schema: labels, relationship types, enum values, numeric/
     date ranges, and `cypher_patterns` (must-know MATCH-shape rules,
@@ -440,7 +493,7 @@ def describe_schema(refresh: bool = False) -> dict:
     return T.describe_schema(refresh)
 
 
-@agent.tool_plain
+@_CYPHER_CAPABILITY.tool_plain
 def run_cypher(
     cypher: str,
     params: dict | None = None,
