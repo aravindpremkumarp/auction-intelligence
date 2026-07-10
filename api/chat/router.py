@@ -123,6 +123,10 @@ _TOOL_STATUS_LABELS = {
     "describe_schema": "Reading the graph schema…",
     "run_cypher": "Querying the graph…",
     "internet_search": "Searching the web…",
+    # pydantic-ai's framework tools for deferred capabilities (see
+    # api/agent.py): the model opens a tool bundle before first use.
+    "load_capability": "Loading extra tools…",
+    "search_tools": "Loading extra tools…",
 }
 
 
@@ -577,6 +581,13 @@ def _trim_old_tool_results(
         for part in msg.get("parts", []):
             if part.get("part_kind") != "tool-return":
                 continue
+            # Never touch pydantic-ai's capability-loading returns: the
+            # load_capability result IS the loaded capability's instructions,
+            # and the call/return pair is how the framework reconstructs
+            # which deferred capabilities are open when a stored conversation
+            # resumes (see api/agent.py).
+            if part.get("tool_name") in ("load_capability", "search_tools"):
+                continue
             content = part.get("content")
             if isinstance(content, dict) and content.get("_trimmed"):
                 continue
@@ -638,7 +649,7 @@ def _usage_fields(result: Any) -> dict[str, Any]:
     instead of 500-ing a chat turn; this is telemetry, never load-bearing.
     """
     try:
-        u = result.usage()
+        u = result.usage
     except Exception:  # noqa: BLE001 - telemetry must never break the turn
         return {}
 

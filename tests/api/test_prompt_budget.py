@@ -97,7 +97,22 @@ _SHARED_MD = _REPO_ROOT / "modes" / "_shared.md"
 # zero-result rules only covered the EMPTY case. One avoided re-query saves a
 # whole LLM round-trip plus a re-sent ~20k-char result block, so this earns its
 # per-call cost many times over. Measured ~14,615; ceiling held at 16,200.
-BUDGET_CHARS = 16_200
+#
+# 2026-07 (pydantic-ai v2 deferred capabilities): NET −1,634. The long-tail
+# tools (run_cypher + describe_schema behind the `cypher` capability,
+# internet_search behind `web-search`) no longer serialize their docstrings
+# (~1,376 chars) into every call — each collapses to a one-line catalog
+# description until the model loads it — and the Cypher-only blocks of
+# modes/_shared.md (DATETIME handling, MATCH-shape rule, ~600 chars) moved
+# into the cypher capability's load-time instructions. Costs counted against
+# that: the two catalog descriptions (~281 chars) and slightly longer role
+# rules 2-3. NOT captured by this static scan: pydantic-ai's own
+# load_capability/search_tools schemas + catalog boilerplate (a fixed ~150
+# tokens/call) — the net per-call saving is still solidly positive, and
+# conversations that never touch the long tail (most) keep a smaller, stable
+# cache prefix. Measured ~12,981; ceiling ratcheted to 13,200 so the savings
+# can't silently creep back.
+BUDGET_CHARS = 13_200
 
 
 def _agent_module() -> ast.Module:
@@ -114,39 +129,102 @@ def _role_prompt(mod: ast.Module) -> str:
     raise AssertionError("_ROLE_PROMPT not found in api/agent.py")
 
 
-def _tool_docstrings(mod: ast.Module) -> dict[str, str]:
-    """Docstrings of functions decorated with @agent.tool / @agent.tool_plain."""
-    docs: dict[str, str] = {}
+def _decorator_owner(dec: ast.expr) -> str | None:
+    """Name the object a @<owner>.tool / @<owner>.tool_plain decorator hangs
+    off ('agent', '_CYPHER_CAPABILITY', …); None for non-tool decorators."""
+    if isinstance(dec, ast.Call):
+        dec = dec.func
+    if (
+        isinstance(dec, ast.Attribute)
+        and dec.attr in ("tool", "tool_plain")
+        and isinstance(dec.value, ast.Name)
+    ):
+        return dec.value.id
+    return None
+
+
+def _tool_docstrings(mod: ast.Module) -> tuple[dict[str, str], dict[str, str]]:
+    """Docstrings of decorated tools, split into (always_on, deferred).
+
+    @agent.* tools are serialized into EVERY model call. Tools registered on
+    a deferred Capability (see api/agent.py) stay out of the prompt until the
+    model loads them, so only their capability's one-line catalog
+    `description` (measured separately below) rides per call.
+    """
+    always_on: dict[str, str] = {}
+    deferred: dict[str, str] = {}
     for node in ast.walk(mod):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and any(
-            "tool" in ast.dump(dec) for dec in node.decorator_list
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        owners = {o for o in map(_decorator_owner, node.decorator_list) if o}
+        if not owners:
+            continue
+        bucket = always_on if "agent" in owners else deferred
+        bucket[node.name] = ast.get_docstring(node) or ""
+    return always_on, deferred
+
+
+def _capability_descriptions(mod: ast.Module) -> dict[str, str]:
+    """`description=` literals of Capability(...) constructions — the
+    one-line catalog entries pydantic-ai appends to the instructions on every
+    call while the capability stays unloaded. (The `instructions=` payloads
+    deliberately do NOT count: they ride only after a load.)"""
+    descs: dict[str, str] = {}
+    for node in ast.walk(mod):
+        if not (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "Capability"
         ):
-            docs[node.name] = ast.get_docstring(node) or ""
-    return docs
+            continue
+        kw = {k.arg: k.value for k in node.keywords}
+        cap_id = kw["id"].value if isinstance(kw.get("id"), ast.Constant) else "?"
+        desc = kw.get("description")
+        assert isinstance(desc, ast.Constant), (
+            f"Capability {cap_id!r} needs a literal description — it is the "
+            "catalog line the model routes on"
+        )
+        descs[cap_id] = desc.value
+    return descs
 
 
 def test_static_prompt_prefix_under_budget():
     mod = _agent_module()
     role = _role_prompt(mod)
     shared = _SHARED_MD.read_text(encoding="utf-8")
-    tool_docs = _tool_docstrings(mod)
+    tool_docs, deferred_docs = _tool_docstrings(mod)
+    cap_descs = _capability_descriptions(mod)
 
     # Sanity: the prefix is actually assembled from these pieces. A tool that
     # loses its docstring (or a rename that drops it from the decorated set)
     # should be noticed here, not silently shrink the "budget".
     assert "search_auctions" in tool_docs, "search_auctions tool not found"
-    # 6 always-on tools after the 2026-07 surface trim (match_pasted_listing,
-    # upcoming_auctions, borrower_lookup, list_distinct folded/removed;
-    # score_auction, watch_property, list_alerts dropped from chat;
-    # select_properties replaced by the router's programmatic panel sync —
-    # see api/chat/panel.py).
-    assert len(tool_docs) >= 6, f"expected >=6 tools, found {sorted(tool_docs)}"
-    assert all(tool_docs.values()), (
+    # 3 always-on tools after the 2026-07 deferred-capability move: the
+    # long-tail run_cypher/describe_schema/internet_search ride behind the
+    # `cypher` and `web-search` deferred capabilities, out of the per-call
+    # prefix. (The earlier 12→6 surface trim is documented in the
+    # BUDGET_CHARS history above.)
+    assert len(tool_docs) >= 3, f"expected >=3 always-on tools, found {sorted(tool_docs)}"
+    assert {"run_cypher", "describe_schema", "internet_search"} <= set(deferred_docs), (
+        f"expected the long-tail tools on deferred capabilities, found {sorted(deferred_docs)}"
+    )
+    assert {"cypher", "web-search"} <= set(cap_descs), (
+        f"expected deferred capability catalog entries, found {sorted(cap_descs)}"
+    )
+    assert all(tool_docs.values()) and all(deferred_docs.values()), (
         "every tool needs a docstring (it IS the tool description sent to the "
-        f"model): missing for {[n for n, d in tool_docs.items() if not d]}"
+        f"model): missing for "
+        f"{[n for n, d in (tool_docs | deferred_docs).items() if not d]}"
     )
 
-    total = len(role) + len(shared) + sum(len(d) for d in tool_docs.values())
+    # Deferred tool docstrings don't ride per call, but their capability
+    # catalog descriptions do — count those.
+    total = (
+        len(role)
+        + len(shared)
+        + sum(len(d) for d in tool_docs.values())
+        + sum(len(d) for d in cap_descs.values())
+    )
     assert total <= BUDGET_CHARS, (
         f"static prompt prefix is {total} chars (~{total // 4} tokens), over the "
         f"{BUDGET_CHARS}-char budget. This text rides on every model call. Trim "

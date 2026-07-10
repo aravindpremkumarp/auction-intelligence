@@ -9,9 +9,11 @@ markdown report. No files are written.
 
 ## Process — 3 phases, minimum round-trips
 
-**Phase 1 — snapshot (one call).** `get_auction_detail(auction_id)`: the
-full record, `price_history` (re-auction timeline, prior reserves), the
-document list, and `description_completeness`.
+**Phase 1 — snapshot (one step).** Call `get_auction_detail(auction_id)` —
+the full record, `price_history` (re-auction timeline, prior reserves), the
+document list, and `description_completeness`. In the SAME step, call
+`load_capability(id="web-search")` if `internet_search` isn't already
+available, so phase 2 can batch it with the graph calls.
 
 **Phase 2 — evidence sweep (ONE step; issue ALL of these together, in
 parallel — none depends on another).** Using phase 1's fields:
