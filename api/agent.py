@@ -74,10 +74,10 @@ Rules:
 2. Prefer the specialized tool that matches; fall back to `run_cypher` only
    for novel queries (load the `cypher` capability first — see Tool routing
    below). On zero results follow the Zero-result protocol below.
-3. Use `internet_search` (load the `web-search` capability first) only for
-   OFF-graph context (legal/RBI explainers, locality background, term
-   definitions) — never for properties, prices, deadlines, auction_ids, or
-   counts; for hybrid questions query the graph first.
+3. Use `internet_search` only for OFF-graph context (legal/RBI explainers,
+   locality background, term definitions) — never for properties, prices,
+   deadlines, auction_ids, or counts; for hybrid questions query the graph
+   first.
 4. Stay on the tool surface. The PUBLIC graph holds exactly the nodes in
    the Graph schema below — nothing else. No litigations, court cases,
    FIRs, credit history, ownership chains, market valuations, or external
@@ -150,23 +150,25 @@ CHAT_MODELS: dict[str, OpenAIChatModel] = {
     for name, slug in CHAT_MODEL_SLUGS.items()
 }
 
-# ── Deferred capabilities ────────────────────────────────────────────────────
-# The long-tail tools ride behind pydantic-ai's on-demand capability loading
-# instead of the always-sent tool list. Most turns never touch them, but their
-# schemas used to be serialized into EVERY model call (and re-sent on each
-# tool round-trip). Deferred, each collapses to a one-line catalog entry; the
-# model calls the framework-managed `load_capability` tool when a turn
-# actually needs one, which reveals the bundle's tools + instructions for the
-# rest of the conversation (loaded state is reconstructed from the
-# `load_capability` call/return pairs in stored history — see the router's
-# history handling, which must never trim those parts).
+# ── Deferred capability: raw Cypher ──────────────────────────────────────────
+# `run_cypher` + `describe_schema` ride behind pydantic-ai's on-demand
+# capability loading instead of the always-sent tool list. Their schemas (and
+# the Cypher rules moved out of modes/_shared.md into the instructions below)
+# used to be serialized into EVERY model call; deferred, they collapse to a
+# one-line catalog entry, and the model calls the framework-managed
+# `load_capability` tool only on the rare turn that needs raw Cypher — which
+# reveals the tools + instructions for the rest of the conversation (loaded
+# state is reconstructed from the `load_capability` call/return pairs in
+# stored history — see the router's history handling, which must never trim
+# those parts).
 #
-# Trade-off, deliberately accepted: DeepSeek via OpenRouter has no native
-# tool-search surface, so a load changes the visible tool list and busts the
-# provider's automatic prompt-cache prefix ONCE per conversation that uses a
-# deferred tool. Cheaper stable prefix on the many conversations that never
-# load one; one cache-miss turn on the few that do. Keep each `description`
-# to one line — the catalog entry rides on every call.
+# Only the Cypher tools are deferred, deliberately. DeepSeek via OpenRouter
+# has no native tool-search surface, so a load costs one extra round-trip and
+# busts the automatic prompt-cache prefix once per conversation that uses it.
+# That pays off only for genuinely rare tools: production telemetry shows raw
+# Cypher on ~6% of turns (clear win) but `internet_search` on ~24% (the extra
+# round-trips would outweigh the prefix saving), so web search stays always-on.
+# Keep `description` to one line — the catalog entry rides on every call.
 _CYPHER_CAPABILITY = Capability(
     id="cypher",
     description=(
@@ -196,16 +198,6 @@ _CYPHER_CAPABILITY = Capability(
     defer_loading=True,
 )
 
-_WEB_CAPABILITY = Capability(
-    id="web-search",
-    description=(
-        "internet_search: public web search for OFF-graph context (legal/RBI "
-        "explainers, locality background, term definitions) — never for "
-        "properties, prices, or counts."
-    ),
-    defer_loading=True,
-)
-
 # OpenRouter-specific request extras ride in `model_settings["extra_body"]`,
 # built per request by `api.model_selection.build_model_settings`:
 #   * usage.include — return detailed usage accounting so the /chat obs log can
@@ -228,7 +220,7 @@ agent = Agent(
     deps_type=ChatDeps,
     system_prompt=SYSTEM_PROMPT,
     model_settings=build_model_settings(None),
-    capabilities=[_CYPHER_CAPABILITY, _WEB_CAPABILITY],
+    capabilities=[_CYPHER_CAPABILITY],
 )
 
 
@@ -520,7 +512,7 @@ def run_cypher(
     return T.run_cypher(cypher, params, description, max_rows)
 
 
-@_WEB_CAPABILITY.tool_plain
+@agent.tool_plain
 async def internet_search(query: str, max_results: int = 5) -> dict:
     """Public web search (Tavily) for OFF-graph context: SARFAESI/legal
     explainers, RBI/bank news, locality background, term definitions.

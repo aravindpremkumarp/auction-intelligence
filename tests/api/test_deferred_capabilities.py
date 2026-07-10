@@ -2,9 +2,12 @@
 tests/api/test_deferred_capabilities.py
 ---------------------------------------
 Guards the pydantic-ai v2 deferred-capability wiring in api/agent.py: the
-long-tail tools (`run_cypher`, `describe_schema`, `internet_search`) ride
-behind on-demand capabilities so their schemas stay out of the always-sent
-prompt prefix, and are revealed by the framework's `load_capability` tool.
+raw-Cypher tools (`run_cypher`, `describe_schema`) ride behind the on-demand
+`cypher` capability so their schemas stay out of the always-sent prompt
+prefix, and are revealed by the framework's `load_capability` tool. Only the
+rarely-used Cypher tools are deferred — `internet_search` is used often
+enough that the per-load round-trip would cost more than it saves, so it
+stays always-on (see api/agent.py).
 
 conftest replaces `api.agent` in sys.modules with a stub (so importing
 api.main never builds the real OpenRouter client), so this file loads the
@@ -34,8 +37,9 @@ from pydantic_ai.models.test import TestModel
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
-CORE_TOOLS = {"search_auctions", "semantic_search", "get_auction_detail"}
-DEFERRED_TOOLS = {"run_cypher", "describe_schema", "internet_search"}
+# internet_search is deliberately always-on (not deferred) — see module docstring.
+CORE_TOOLS = {"search_auctions", "semantic_search", "get_auction_detail", "internet_search"}
+DEFERRED_TOOLS = {"run_cypher", "describe_schema"}
 
 
 def _real_agent_module():
@@ -100,10 +104,10 @@ def test_catalog_rides_in_instructions():
     model = TestModel(call_tools=[])
     result = asyncio.run(mod.agent.run("hello", deps=mod.ChatDeps(), model=model))
     instructions = result.all_messages()[0].instructions or ""
-    for cap_id in ("cypher", "web-search"):
-        assert cap_id in instructions, (
-            f"capability {cap_id!r} missing from the deferred catalog"
-        )
+    assert "cypher" in instructions, "cypher capability missing from the deferred catalog"
+    # web-search is always-on, not a deferred capability — it must NOT appear
+    # as a catalog entry.
+    assert "web-search" not in instructions
 
 
 def test_loaded_capability_survives_history_replay():
@@ -116,8 +120,9 @@ def test_loaded_capability_survives_history_replay():
     assert {"run_cypher", "describe_schema"} <= visible, (
         f"cypher tools not restored from history: {visible}"
     )
-    # The web-search capability was never loaded and must stay hidden.
-    assert "internet_search" not in visible
+    # internet_search is always-on, so it is visible on every request whether
+    # or not any capability has been loaded.
+    assert "internet_search" in visible
 
 
 def test_load_capability_returns_cypher_instructions():

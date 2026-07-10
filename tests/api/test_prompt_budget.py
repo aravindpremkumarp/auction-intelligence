@@ -98,21 +98,22 @@ _SHARED_MD = _REPO_ROOT / "modes" / "_shared.md"
 # whole LLM round-trip plus a re-sent ~20k-char result block, so this earns its
 # per-call cost many times over. Measured ~14,615; ceiling held at 16,200.
 #
-# 2026-07 (pydantic-ai v2 deferred capabilities): NET −1,634. The long-tail
-# tools (run_cypher + describe_schema behind the `cypher` capability,
-# internet_search behind `web-search`) no longer serialize their docstrings
-# (~1,376 chars) into every call — each collapses to a one-line catalog
-# description until the model loads it — and the Cypher-only blocks of
-# modes/_shared.md (DATETIME handling, MATCH-shape rule, ~600 chars) moved
-# into the cypher capability's load-time instructions. Costs counted against
-# that: the two catalog descriptions (~281 chars) and slightly longer role
-# rules 2-3. NOT captured by this static scan: pydantic-ai's own
-# load_capability/search_tools schemas + catalog boilerplate (a fixed ~150
-# tokens/call) — the net per-call saving is still solidly positive, and
-# conversations that never touch the long tail (most) keep a smaller, stable
-# cache prefix. Measured ~12,981; ceiling ratcheted to 13,200 so the savings
-# can't silently creep back.
-BUDGET_CHARS = 13_200
+# 2026-07 (pydantic-ai v2 deferred Cypher capability): NET −1,155. The raw-
+# Cypher tools (run_cypher + describe_schema, behind the `cypher` capability)
+# no longer serialize their docstrings into every call — they collapse to a
+# one-line catalog description until the model loads them — and the Cypher-
+# only blocks of modes/_shared.md (DATETIME handling, MATCH-shape rule, ~600
+# chars) moved into the capability's load-time instructions. Only the Cypher
+# tools are deferred: production telemetry showed raw Cypher on ~6% of turns
+# (deferring wins) but internet_search on ~24% (deferring would cost more in
+# per-load round-trips on Flash than the prefix saving), so internet_search
+# stays always-on and its docstring still counts here. NOT captured by this
+# static scan: pydantic-ai's own load_capability/search_tools schemas (a fixed
+# per-call overhead) — the net per-call saving is still positive, and the many
+# turns that never touch raw Cypher keep a smaller, stable cache prefix.
+# Measured ~13,460; ceiling ratcheted to 13,700 so the savings can't silently
+# creep back.
+BUDGET_CHARS = 13_700
 
 
 def _agent_module() -> ast.Module:
@@ -199,17 +200,18 @@ def test_static_prompt_prefix_under_budget():
     # loses its docstring (or a rename that drops it from the decorated set)
     # should be noticed here, not silently shrink the "budget".
     assert "search_auctions" in tool_docs, "search_auctions tool not found"
-    # 3 always-on tools after the 2026-07 deferred-capability move: the
-    # long-tail run_cypher/describe_schema/internet_search ride behind the
-    # `cypher` and `web-search` deferred capabilities, out of the per-call
-    # prefix. (The earlier 12→6 surface trim is documented in the
-    # BUDGET_CHARS history above.)
-    assert len(tool_docs) >= 3, f"expected >=3 always-on tools, found {sorted(tool_docs)}"
-    assert {"run_cypher", "describe_schema", "internet_search"} <= set(deferred_docs), (
-        f"expected the long-tail tools on deferred capabilities, found {sorted(deferred_docs)}"
+    # 4 always-on tools after the 2026-07 deferred-capability move: raw Cypher
+    # (run_cypher + describe_schema) rides behind the deferred `cypher`
+    # capability, out of the per-call prefix; internet_search is deliberately
+    # kept always-on (used too often to defer — see api/agent.py). (The earlier
+    # 12→6 surface trim is documented in the BUDGET_CHARS history above.)
+    assert len(tool_docs) >= 4, f"expected >=4 always-on tools, found {sorted(tool_docs)}"
+    assert "internet_search" in tool_docs, "internet_search must be always-on, not deferred"
+    assert {"run_cypher", "describe_schema"} <= set(deferred_docs), (
+        f"expected the Cypher tools on the deferred capability, found {sorted(deferred_docs)}"
     )
-    assert {"cypher", "web-search"} <= set(cap_descs), (
-        f"expected deferred capability catalog entries, found {sorted(cap_descs)}"
+    assert set(cap_descs) == {"cypher"}, (
+        f"expected only the `cypher` deferred capability, found {sorted(cap_descs)}"
     )
     assert all(tool_docs.values()) and all(deferred_docs.values()), (
         "every tool needs a docstring (it IS the tool description sent to the "
