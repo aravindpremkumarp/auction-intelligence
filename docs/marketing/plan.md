@@ -172,6 +172,8 @@ No acquisition engine. The app is the homepage; no content/listing/comparison pa
 
 *Cadence:* ~5 posts/week ≈ 3 auto (Deals) + 2 human (Evaluate/Educate), including ≥1 reel/week; repurpose one pillar into carousel + reel + static + text (per the `social` skill). *Honesty rule holds:* deal posts show reserve/EMD/date grounded in the notice; evaluation posts label web research "cited, approximate — not legal advice." *Distribution:* a scheduler (Buffer/Publer free tier) or manual. *Skills:* `content-strategy` (pillars) · `social` (calendar/hooks/repurposing) · `image` (sizes) · `video` + `hyperframes` (reels) · `ad-creative` (15-template static library) · `copywriting` (captions). *Optional later:* the HeyGen/HyperFrames **MCP** adds AI-avatar reels but needs OAuth authorization.
 
+*Automation:* the Deals pillar runs as a scheduled "content-ops agent" that drafts + stages posts from the graph each morning (human still publishes) — full spec in `docs/marketing/content-agents.md`.
+
 **Move 8 — Directories + review sites + a launch moment.** Indian SaaS/AI directories for backlinks/DR; a considered Product Hunt launch tied to a real feature milestone. `/directory-submissions` + `/launch`
 
 **Move 9 — Paid — held.** Google Search on high-intent auction keywords is the obvious first test *when there's budget + instrumented conversion.* Not in this bootstrapped plan except an optional small test if budget appears. `/ads`
@@ -294,7 +296,7 @@ Every revenue projection in §10 is a range, not a promise — CAC and retention
 | City auction-alert digest live | Ret | Aravind |
 | Real upgrade prompt (replace bare 429) | Rev | Aravind |
 | First 5 directory submissions | Acq | Aravind |
-| Social auto-gen off the graph + first Evaluate reel; ~5 posts/wk cross-post | Acq | Aravind |
+| Social auto-gen agent off the graph (per content-agents.md) + first Evaluate reel; ~5 posts/wk cross-post | Acq | Aravind |
 
 ### Weeks 9–12 — Compound
 | Move | Stage | Owner |
@@ -302,6 +304,7 @@ Every revenue projection in §10 is a range, not a promise — CAC and retention
 | City × bank + first comparison pages | Acq | Aravind |
 | Deadline + price-drop alerts | Ret | Aravind |
 | First activation + conversion baseline read | Cross | Aravind |
+| Stand up Agent B (Friday marketing report) | Cross | Aravind |
 | 90-day review + recalibrate | Cross | Aravind |
 
 ---
@@ -353,7 +356,7 @@ A single founder + the 47-skill marketing library + a few MCP/API connections ca
 ### Capability unlocks by funding stage
 | Stage | Headcount | Tooling | Channels live |
 |---|---|---|---|
-| Bootstrapped (now) | Founder + skills | Free GA4/GSC/ESP; `hyperframes` (HTML→MP4) + a post scheduler | Organic SEO, content, social (IG/FB/LinkedIn/X/YouTube), email |
+| Bootstrapped (now) | Founder + skills | Free GA4/GSC/ESP; `hyperframes` (HTML→MP4) + a post scheduler; content-ops agents (GitHub Actions cron, per content-agents.md) | Organic SEO, content, social (IG/FB/LinkedIn/X/YouTube), email |
 | Seed close | + part-time content/SEO contractor | Paid Ahrefs, paid ESP | + small Google Search test, + directories at volume |
 | Seed deployment | + π-shaped marketing Manager/Lead | Paid A/B, richer analytics | + paid scaling, + comparison/PR |
 
@@ -384,7 +387,7 @@ Sections 4–8 prescribe what's *being done*. This maps what's *possible* — th
 **Now/Q2:** #91 In-App Upsells (limit-reached → upgrade for more research). **Skip:** #86 Lifetime Deals (damages subscription LTV).
 
 ### 12.6 Cross-cutting
-**Now:** #139 Customer Language (use verbatim buyer phrasing) · #114 Moneyball Marketing (measure everything once analytics is live).
+**Now:** #139 Customer Language (use verbatim buyer phrasing) · #114 Moneyball Marketing (measure everything once analytics is live). *The recurring content + report work is operationalized as scheduled `marketing-loops` agents — see `docs/marketing/content-agents.md`.*
 
 ### Idea-bank summary
 ~18 Acquisition ideas now/soon (the dominant stage — correct here), ~6 Activation, ~6 Retention, ~4 Referral (staged), ~2 Revenue, 2 cross-cutting; ~8 skipped for voice fit + the paid cluster held for budget. The 90-day plan activates ~15–20% of the surface area — the right slice for a bootstrapped, pre-traction product whose edge is a dataset + a genuinely useful AI feature.
