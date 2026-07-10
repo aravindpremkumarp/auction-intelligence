@@ -17,6 +17,11 @@ Usage (needs OpenRouter + Neo4j credentials in the environment):
 Env knobs:
     EVAL_MIN_TRAJECTORY_PASS  CI gate threshold (default 0.85)
     EVAL_MAX_CONCURRENCY      parallel agent runs (default 4)
+    EVAL_CHAT_MODEL           logical chat model to eval: "flash"/"pro"
+                              (default "flash" — the free-tier model is both
+                              the cheaper eval and the harder tool-routing
+                              bar; an unknown value falls back to "pro" via
+                              build_chat_run_overrides)
     EVAL_DISABLE_JUDGE=1      skip the LLM-as-judge quality score
     EVAL_JUDGE_MODEL          judge model id (default: OPENROUTER_MODEL)
 """
@@ -31,14 +36,19 @@ from evals.evaluators import TOOL_TRAJECTORY
 
 MIN_TRAJECTORY_PASS = float(os.getenv("EVAL_MIN_TRAJECTORY_PASS", "0.85"))
 MAX_CONCURRENCY = int(os.getenv("EVAL_MAX_CONCURRENCY", "4"))
+CHAT_MODEL = os.getenv("EVAL_CHAT_MODEL", "flash")
 
 
 async def _run_agent(question: str) -> ChatTaskOutput:
     """The eval 'task': run one question through the real agent and capture
     the answer + the tools it called along the way."""
-    from api.agent import ChatDeps, agent
+    from api.agent import ChatDeps, agent, build_chat_run_overrides
 
-    result = await agent.run(question, deps=ChatDeps())
+    # Same per-request override path the chat router uses, so the eval runs
+    # the resolved EVAL_CHAT_MODEL instead of the agent's paid default.
+    result = await agent.run(
+        question, deps=ChatDeps(), **build_chat_run_overrides(CHAT_MODEL, None)
+    )
     seen: set[str] = set()
     tools: list[str] = []
     for msg in result.all_messages():

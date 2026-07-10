@@ -34,10 +34,6 @@ Relationships (all start on `AuctionProperty` unless noted):
 (:Area)-[:PART_OF_CITY]->(:City)     (:City)-[:IN_STATE]->(:State)
 ```
 
-Domain edges exist only FROM `AuctionProperty` — MATCH each off the `(a)`
-node and comma-join; never chain them from `Bank`/`City`/etc. (e.g.
-`(Bank)-[:HAS_PROPERTY_TYPE]` does not exist).
-
 ## Enums (live snapshot 2026-07)
 
 **AssetCategory (3 — only these exist)**: `Residential`, `Commercial`,
@@ -68,17 +64,9 @@ Building"]; "plot" → ["Plot","Land","Non- Agricultural Land"];
 ## Prices and dates
 
 - Prices in INR. "30 lakhs" = 3_000_000; "1 crore" = 10_000_000.
-- `auction_start_dt`, `auction_end_dt`, `application_deadline_dt` are
-  Neo4j ZONED DATETIME (UTC) — NOT strings.
-- Components: `.year .month .day .hour .dayOfWeek (1=Mon..7=Sun) .quarter`.
-- `datetime()` = now; `datetime() + duration({days: 7})` for +7d.
-- Gaps: `duration.between(a, b).days` or
-  `duration.inSeconds(a, b).seconds / 3600`.
-- Calendar-day equality: `date(a.dt) = date($other)`.
-- **Never** compare a DATETIME column to a raw ISO string (ZONED-vs-LOCAL
-  silently returns zero); wrap it: `WHERE a.auction_start_dt >=
-  datetime($iso)`. Only matters in `run_cypher` — structured tools pass
-  real datetimes.
+- Date columns are Neo4j ZONED DATETIME — structured tools pass real
+  datetimes; the DATETIME handling rules for raw Cypher ride with the
+  `cypher` capability.
 - Cities are title-case. Areas match case-insensitively via
   `toLower(...) CONTAINS toLower($area)`.
 
@@ -93,8 +81,8 @@ The boundaries between tools (each tool's own description says the rest):
   caveats, notice content → `semantic_search`.
 - **One specific auction_id, any field** → `get_auction_detail`; several
   known ids → batch the calls in one step.
-- **Novel shapes** none of the above express → `run_cypher`
-  (`describe_schema()` first if unsure).
+- **Novel shapes** none of the above express → load the `cypher`
+  capability, then `run_cypher` (`describe_schema()` first if unsure).
 - **Re-presenting an already-found subset** ("top three of those"): no
   tool — cite the chosen auction_ids in your answer, best-first; the
   system updates the matches panel from your citations automatically.
