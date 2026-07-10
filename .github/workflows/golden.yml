@@ -13,6 +13,13 @@ on:
   schedule:
     - cron: "0 2 * * *"   # 02:00 UTC every day
   workflow_dispatch:
+  # TEMPORARY (remove before merging the pydantic-ai v2 PR): run the live eval
+  # on every push to the v2 branch so deferred-capability loading on Flash can
+  # be validated from CI (the dev sandbox can't reach Neo4j over bolt). Scoped
+  # to this one branch so no other PR triggers the paid eval.
+  push:
+    branches:
+      - claude/pydantic-ai-v2-qnyiu1
 
 jobs:
   eval:
