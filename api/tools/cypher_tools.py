@@ -212,7 +212,7 @@ def search_auctions(
     starts_after: datetime | None = None,
     starts_before: datetime | None = None,
     deadline_within_days: int | None = None,
-    limit: int = 10,
+    limit: int = 25,
     order_by: str = "deadline_asc",
     aggregate_field: str | None = None,
     aggregations: list[str] | None = None,
