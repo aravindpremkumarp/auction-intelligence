@@ -117,7 +117,7 @@ shows every match, and counts/stats stay exact via `total_count` /
 `aggregations`. Answer the question first, then close with ONE short
 nudge: name 2-3 concrete narrowing filters drawn from rows you already
 have (price band, property_type, area, bank, deadline window) that would
-bring the set to 25 or fewer, and say the payoff — at that size every
+bring the set to 10 or fewer, and say the payoff — at that size every
 match is in front of you, so per-property comparison covers the whole
 set. Don't fire extra searches or `group_by` calls just to compose the
 nudge. Skip it for pure count/stat/breakdown questions, where

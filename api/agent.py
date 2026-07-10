@@ -331,6 +331,15 @@ async def inject_graph_size() -> str:
     )
 
 
+# Rows a search hands the model. Deliberately small (the UI side-channel
+# shows every match regardless): rows re-serialize into every later
+# round-trip of the turn, so this is a per-turn cost knob, not a coverage
+# knob — counts/stats always come from total_count/aggregations. There is
+# no model-facing `limit` arg on purpose (see the wrapper comment below).
+# Keep the Broad-result nudge's "10 or fewer" in modes/_shared.md in sync.
+_SEARCH_ROWS_TO_MODEL = 10
+
+
 @agent.tool_plain
 def search_auctions(
     min_price: float | None = None, max_price: float | None = None,
@@ -358,7 +367,7 @@ def search_auctions(
     (`service_provider`), and date/deadline window.
 
     Returns {total_count, returned, results}: `total_count` is the true
-    match count; `results` is a sample capped at 25 rows to you (the UI
+    match count; `results` is a sample capped at 10 rows to you (the UI
     shows every match regardless — never re-call to "see more"). Use
     `total_count` for "how many", never `len(results)`. Future-only by
     default; pass `include_past=True` only for retrospective questions. A
@@ -408,11 +417,12 @@ def search_auctions(
     # see api/tool_returns.py for why a plain dict return leaked them into
     # every same-turn round-trip.
     #
-    # No model-facing `limit`: the model kept passing small limits (e.g. 10)
-    # that scoped its own view of broad browses, and the sample-vs-total gap
-    # leaked into answers ("14 properties" written from a 10-row sample).
-    # The model slice is pinned to the tools layer's LLM hard cap (25); the
-    # UI receives every match (up to 500) via `_ui_results` regardless.
+    # No model-facing `limit`: the model used to pass its own limits, and the
+    # sample-vs-total gap leaked into answers ("14 properties" written from a
+    # 10-row sample) with nothing telling the user. The slice is pinned to
+    # _SEARCH_ROWS_TO_MODEL (within the tools layer's 25-row hard cap), the
+    # UI receives every match (up to 500) via `_ui_results` regardless, and
+    # the Broad-result nudge (modes/_shared.md) owns the over-slice case.
     return split_ui_overflow(T.search_auctions(
         min_price=min_price, max_price=max_price,
         min_emd=min_emd, max_emd=max_emd,
@@ -424,7 +434,7 @@ def search_auctions(
         is_reauction=is_reauction,
         starts_after=starts_after, starts_before=starts_before,
         deadline_within_days=deadline_within_days,
-        limit=T._LLM_ROWS_HARD_CAP, order_by=order_by,
+        limit=_SEARCH_ROWS_TO_MODEL, order_by=order_by,
         aggregate_field=aggregate_field, aggregations=aggregations,
         group_by=group_by,
         include_past=include_past,
