@@ -22,7 +22,7 @@ Reusing these means: no new subscription, ~$5–30/month in LLM cost, and every 
 ## Agent A — "The Poster" (daily draft generator)
 *This is the automation half of the social content engine in plan §4 Move 7 — and the `marketing-loops` content-repurposing loop.*
 
-- **Runs:** weekday morning cron (+ manual "run now" button).
+- **Runs:** **after each data refresh (scrape), not on a fixed daily clock** — since the founder scrapes ~weekly/biweekly, fresh data in → content out. This avoids posting a "deal" that closed days ago. Trigger via manual "run now" right after a scrape, or a `workflow_dispatch` the scrape step fires.
 - **Reads:** `GET /stats` (live counts) and `GET /properties` for post fodder — new/upcoming auctions, **price drops** (`is_reauction` + `previous_reserve_price`), **cheapest-by-city** (`sort=price_asc`), "closing soon."
 - **Writes:** 3–5 post drafts + carousel copy in our voice (brand block pulled from `product-marketing.md`; taboo list = the honesty rule). Optionally renders the visuals via the existing HTML pipeline (`brand/logo/render.py` + `web/card-variations.html` + `web/styles.css` tokens; reels via the `hyperframes` npm package).
 - **Files output (Tier 1, staged only):** commits drafts to `marketing/outputs/YYYY-MM-DD/` and opens/refreshes a **"content review" GitHub issue** as the notification.

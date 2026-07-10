@@ -172,7 +172,7 @@ No acquisition engine. The app is the homepage; no content/listing/comparison pa
 
 *Cadence:* ~5 posts/week ≈ 3 auto (Deals) + 2 human (Evaluate/Educate), including ≥1 reel/week; repurpose one pillar into carousel + reel + static + text (per the `social` skill). *Honesty rule holds:* deal posts show reserve/EMD/date grounded in the notice; evaluation posts label web research "cited, approximate — not legal advice." *Distribution:* a scheduler (Buffer/Publer free tier) or manual. *Skills:* `content-strategy` (pillars) · `social` (calendar/hooks/repurposing) · `image` (sizes) · `video` + `hyperframes` (reels) · `ad-creative` (15-template static library) · `copywriting` (captions). *Optional later:* the HeyGen/HyperFrames **MCP** adds AI-avatar reels but needs OAuth authorization.
 
-*Automation:* the Deals pillar runs as a scheduled "content-ops agent" that drafts + stages posts from the graph each morning (human still publishes) — full spec in `docs/marketing/content-agents.md`.
+*Automation:* the Deals pillar runs as a "content-ops agent" that drafts + stages posts from the graph after each data refresh (human still publishes) — full spec in `docs/marketing/content-agents.md`.
 
 **Move 8 — Directories + review sites + a launch moment.** Indian SaaS/AI directories for backlinks/DR; a considered Product Hunt launch tied to a real feature milestone. `/directory-submissions` + `/launch`
 
@@ -421,7 +421,7 @@ Sections 4–8 prescribe what's *being done*. This maps what's *possible* — th
 | Pricing | Founder | Founder | `pricing` |
 
 ### Open decisions (ranked by impact)
-1. **Inventory freshness (highest impact).** Newest auction ends 2026-08-08 (~1 month). The scraper/enrichment pipeline must run on a cadence or live inventory (and the entire SEO + alerts engine) goes to zero. Confirm/automate the cadence before scaling SEO.
+1. **Inventory freshness (highest impact).** **Handled manually by the founder, ~weekly to biweekly.** This keeps live inventory from drying up (the SEO + alerts + social engine all depend on it). Watch-out: bank auction notices often give only ~2 weeks' notice, so a biweekly gap can let short-notice auctions appear *and* expire unseen — **weekly is meaningfully safer than fortnightly**. Content generation should trigger off each refresh, not a fixed clock (see `content-agents.md`).
 2. **CAC + funnel instrumentation.** Everything revenue-related is blocked until analytics is live. Week 1.
 3. **SSR/prerender approach.** Programmatic SEO depends on a crawlable app; pick the path (Vercel prerender vs SSR) early.
 4. **Proof points.** No testimonials/user counts. Start collecting 3–5 verbatim buyer quotes + a "found a good deal / avoided a bad one" story.
