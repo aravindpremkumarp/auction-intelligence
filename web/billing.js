@@ -20,6 +20,16 @@
   var RZP_SDK = 'https://checkout.razorpay.com/v1/checkout.js';
   var _sdkPromise = null;
 
+  // Analytics: fire the GA4 `upgrade_success` conversion once per confirmed
+  // activation — the plan can be confirmed by either the verify call or the
+  // webhook poll, so dedupe. No PII.
+  var _upgradeTracked = false;
+  function trackUpgradeSuccess() {
+    if (_upgradeTracked) return;
+    _upgradeTracked = true;
+    if (window.track) window.track('upgrade_success', { plan: 'pro' });
+  }
+
   function loadSdk() {
     if (window.Razorpay) return Promise.resolve();
     if (_sdkPromise) return _sdkPromise;
@@ -138,6 +148,7 @@
         var msg = (resp && resp.error && resp.error.description) || 'Please try again.';
         showResult('error', 'Payment failed', msg);
       });
+      if (window.track) window.track('checkout_start', { plan: 'pro' });
       rzp.open();
     } catch (e) {
       console.error('[billing] checkout', e);
@@ -160,6 +171,7 @@
       var data = await safeJson(r);
       if (r.ok && data && data.status === 'paid') {
         if (window.Auth && window.Auth.me) { try { await window.Auth.me(); } catch (_) {} }
+        trackUpgradeSuccess();
         showResult('ok', "You're Pro! ✦", 'Your upgrade is active. Enjoy the higher limits.');
         return;
       }
@@ -179,6 +191,7 @@
       var u = null;
       try { u = window.Auth && window.Auth.me ? await window.Auth.me() : null; } catch (_) {}
       if (u && u.tier === 'paid') {
+        trackUpgradeSuccess();
         showResult('ok', "You're Pro! ✦", 'Your upgrade is active. Enjoy the higher limits.');
         return;
       }
