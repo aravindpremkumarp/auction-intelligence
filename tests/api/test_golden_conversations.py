@@ -51,6 +51,17 @@ def test_conversations_well_formed() -> None:
                 # A topic-switch turn should assert *something* about the pivot:
                 # either the new scope or a dropped stale value.
                 assert turn.expect_filters or turn.forbid_tool_arg_values or turn.expected_tools
+            # expect_panel only takes the assertions PanelState implements.
+            unknown = set(turn.expect_panel) - {"max_ids", "cited"}
+            assert not unknown, (
+                f"unknown expect_panel key(s) {unknown} in {conv.conv_id}"
+            )
+            if turn.references_panel:
+                # A panel-reference turn needs a prior turn to have populated
+                # the panel — it can't be the conversation opener.
+                assert conv.turns.index(turn) > 0, (
+                    f"references_panel on the first turn of {conv.conv_id}"
+                )
 
 
 def test_has_refinement_and_topic_switch_coverage() -> None:
@@ -66,6 +77,14 @@ def test_has_refinement_and_topic_switch_coverage() -> None:
         t.forbid_tool_arg_values
         for c in GOLDEN_CONVERSATIONS for t in c.turns
     ), "need a scope-replacement pivot asserting a dropped stale filter"
+    # Panel coverage: a citation-driven panel assertion and a bare panel
+    # reference ("compare these") must both be exercised.
+    assert any(
+        t.expect_panel for c in GOLDEN_CONVERSATIONS for t in c.turns
+    ), "need at least one turn asserting panel state (expect_panel)"
+    assert any(
+        t.references_panel for c in GOLDEN_CONVERSATIONS for t in c.turns
+    ), "need at least one panel-reference turn (references_panel)"
 
 
 def test_carry_forward_keys_match_router() -> None:

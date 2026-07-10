@@ -6,7 +6,7 @@ eval. Every evaluator reads the whole `ConversationOutput` (all turns) and the
 matching per-turn expectations off `ctx.metadata["turns"]`, so it can assert
 across turns (narrowing, carry-over) rather than one answer at a time.
 
-All four are deterministic, pass/fail gates:
+All six are deterministic, pass/fail gates:
 
 - ``ConversationTrajectory`` — every turn that declares `expected_tools` called
   at least one of them.
@@ -17,6 +17,12 @@ All four are deterministic, pass/fail gates:
   any-value for the ``ANY`` sentinel).
 - ``NoStaleScope`` — on a topic-switch turn, the search args do NOT carry a
   value the pivot dropped (`forbid_tool_arg_values`) — the stale-filter bug.
+- ``PanelState`` — the UI matches panel after each turn (derived by the runner
+  with the real `api/chat/panel.py` sync functions) satisfies the turn's
+  `expect_panel` assertions (size cap; citation-driven).
+- ``PanelReferenceResolution`` — a turn flagged `references_panel` ("compare
+  these") resolves the bare reference to the panel's ids: a tool call carries
+  one of them, or the answer cites one — instead of running a blank search.
 
 Kept separate from `evals/evaluators.py` (the single-turn evaluators) because
 they read a fundamentally different output shape.
@@ -33,6 +39,8 @@ CONVERSATION_TRAJECTORY = "ConversationTrajectory"
 MONOTONIC_NARROWING = "MonotonicNarrowing"
 FILTER_CARRY_OVER = "FilterCarryOver"
 NO_STALE_SCOPE = "NoStaleScope"
+PANEL_STATE = "PanelState"
+PANEL_REFERENCE_RESOLUTION = "PanelReferenceResolution"
 
 # The gating assertions (all must pass for a conversation to count as passed).
 CONVERSATION_GATES = (
@@ -40,6 +48,8 @@ CONVERSATION_GATES = (
     MONOTONIC_NARROWING,
     FILTER_CARRY_OVER,
     NO_STALE_SCOPE,
+    PANEL_STATE,
+    PANEL_REFERENCE_RESOLUTION,
 )
 
 
@@ -57,6 +67,11 @@ class TurnOutput:
     total_count: int | None = None
     # The rolling scope AFTER this turn, re-derived exactly like the router.
     active_filters: dict = field(default_factory=dict)
+    # The UI matches panel BEFORE and AFTER this turn, derived by the runner
+    # with the real panel-sync functions (api/chat/panel.py): a citation-driven
+    # sync wins, else this turn's last search-shaped artifact, else unchanged.
+    panel_ids_before: list[str] = field(default_factory=list)
+    panel_ids: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -147,6 +162,68 @@ class FilterCarryOver(Evaluator):
                     continue
                 if not _values_match(val, scope[key]):
                     return False
+        return True
+
+
+@dataclass
+class PanelState(Evaluator):
+    """The derived matches panel satisfies each turn's `expect_panel`.
+
+    Supported assertions (see Turn.expect_panel in evals/conversations.py):
+      * ``max_ids`` — the panel holds at most N properties after the turn;
+      * ``cited``  — every panel id appears in the turn's answer text.
+    Both are vacuously satisfied by an empty panel, so a conversation can't
+    fail just because the live graph happened to have no matches that night.
+    """
+
+    def evaluate(self, ctx: EvaluatorContext) -> bool:
+        outs, specs = _turns_out(ctx), _turns_spec(ctx)
+        for spec, out in zip(specs, outs):
+            expected = spec.get("expect_panel") or {}
+            if not expected:
+                continue
+            panel = getattr(out, "panel_ids", []) or []
+            max_ids = expected.get("max_ids")
+            if max_ids is not None and len(panel) > max_ids:
+                return False
+            if expected.get("cited"):
+                answer = getattr(out, "answer", "") or ""
+                if any(pid not in answer for pid in panel):
+                    return False
+        return True
+
+
+@dataclass
+class PanelReferenceResolution(Evaluator):
+    """A `references_panel` turn resolves "these" to the seeded panel ids.
+
+    Passes when the turn either made a tool call whose args carry one of the
+    panel-before ids (e.g. `get_auction_detail` on a shown property, or a
+    search re-scoped to them) or cited one of those ids in the answer.
+    Fails when the panel was non-empty but the turn engaged none of its ids —
+    the "answered as if the conversation were empty" bug. Vacuous pass on an
+    empty panel (nothing to resolve against).
+    """
+
+    def evaluate(self, ctx: EvaluatorContext) -> bool:
+        outs, specs = _turns_out(ctx), _turns_spec(ctx)
+        for spec, out in zip(specs, outs):
+            if not spec.get("references_panel"):
+                continue
+            panel = set(getattr(out, "panel_ids_before", []) or [])
+            if not panel:
+                continue
+            answer = getattr(out, "answer", "") or ""
+            if any(pid in answer for pid in panel):
+                continue
+            engaged = False
+            for call in getattr(out, "tool_calls", []) or []:
+                args_text = str(call.get("args") or {})
+                if any(pid in args_text for pid in panel):
+                    engaged = True
+                    break
+            if not engaged:
+                return False
         return True
 
 

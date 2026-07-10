@@ -43,6 +43,8 @@ from evals.conversation_evaluators import (
     FilterCarryOver,
     MonotonicNarrowing,
     NoStaleScope,
+    PanelReferenceResolution,
+    PanelState,
     TurnOutput,
 )
 from evals.conversations import GOLDEN_CONVERSATIONS
@@ -61,6 +63,8 @@ def _turn_spec(turn) -> dict:
         "expect_filters": turn.expect_filters,
         "topic_switch": turn.topic_switch,
         "forbid_tool_arg_values": turn.forbid_tool_arg_values,
+        "expect_panel": turn.expect_panel,
+        "references_panel": turn.references_panel,
     }
 
 
@@ -81,28 +85,41 @@ def build_conversation_dataset() -> Dataset:
         MonotonicNarrowing(),
         FilterCarryOver(),
         NoStaleScope(),
+        PanelState(),
+        PanelReferenceResolution(),
     ]
     return Dataset(name="golden-conversations", cases=cases, evaluators=evaluators)
 
 
 async def _run_conversation(conv_id: str) -> ConversationOutput:
     """Play one scripted conversation through the real agent, capturing per-turn
-    tools, args, match count, and the re-derived rolling scope."""
+    tools, args, match count, the re-derived rolling scope, and the derived UI
+    matches panel.
+
+    The panel is threaded exactly like production: the browser's current panel
+    ids ride into `ChatDeps.panel_auction_ids` each turn, and after the turn the
+    panel becomes (in priority order) the citation-driven sync
+    (`panel_sync_ids`), else this turn's last search-shaped artifact
+    (`turn_panel_ids` — what the frontend renders), else unchanged. Both
+    functions are imported from `api/chat/panel.py`, not re-implemented."""
     from pydantic_ai.messages import ToolCallPart
 
     from api.agent import ChatDeps, agent
-    from api.chat.router import _extract_active_filters
+    from api.chat.panel import panel_sync_ids, turn_panel_ids
+    from api.chat.router import _extract_active_filters, _tool_returns
 
     convo = _CONVERSATIONS_BY_ID[conv_id]
     history = None
     active_filters: dict = {}
     last_total: int | None = None
+    panel: list[str] = []
     turns_out: list[TurnOutput] = []
 
     for turn in convo.turns:
         deps = ChatDeps(
             active_filters=active_filters or None,
             last_total_count=last_total,
+            panel_auction_ids=panel or None,
         )
         result = await agent.run(turn.message, message_history=history, deps=deps)
         history = result.all_messages()
@@ -125,13 +142,23 @@ async def _run_conversation(conv_id: str) -> ConversationOutput:
                         seen.add(part.tool_name)
                         tools.append(part.tool_name)
 
+        # Derive the panel after this turn with the real sync logic.
+        answer = result.output or ""
+        panel_before = list(panel)
+        turn_returns = _tool_returns(result.new_messages())
+        all_returns = _tool_returns(history)
+        synced = panel_sync_ids(answer, turn_returns, all_returns, panel_before)
+        panel = synced or turn_panel_ids(turn_returns) or panel_before
+
         turns_out.append(TurnOutput(
             message=turn.message,
-            answer=result.output or "",
+            answer=answer,
             tools_called=tools,
             tool_calls=calls,
             total_count=last_total,
             active_filters=dict(active_filters),
+            panel_ids_before=panel_before,
+            panel_ids=list(panel),
         ))
 
     return ConversationOutput(turns=turns_out)

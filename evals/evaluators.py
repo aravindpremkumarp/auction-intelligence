@@ -15,6 +15,13 @@ Three gating assertions (pass/fail) and one reported score:
   gate for refusal cases; a no-op pass on every other case.
 - ``NoWriteError`` (assertion) — did the final answer avoid leaking an internal
   read-only/write-rejection error to the user?
+- ``CitesAuctionIds`` (assertion) — on listing-style cases, did the answer cite
+  at least one auction_id the turn's tools surfaced (role rule 1)? This is the
+  behavior the UI matches-panel sync depends on (api/chat/panel.py extracts
+  cited ids from the answer text), so an uncited listing answer means the
+  panel silently stops following the conversation. Reported per case; its
+  aggregate pass rate is gated separately in the runner (env-tunable, report-
+  only by default while it burns in).
 - ``answer_quality`` (score, via :class:`LLMJudge`) — a 0–1 groundedness/quality
   score from a judge model. Reported and tracked, but *not* a CI gate by
   default, since it is softer and judge-model-dependent.
@@ -34,6 +41,7 @@ from pydantic_evals.evaluators import Evaluator, EvaluatorContext, LLMJudge
 TOOL_TRAJECTORY = "ToolTrajectory"
 GRACEFUL_REFUSAL = "GracefulRefusal"
 NO_WRITE_ERROR = "NoWriteError"
+CITES_AUCTION_IDS = "CitesAuctionIds"
 ANSWER_QUALITY = "answer_quality"
 
 # Substrings that mean an internal read-only guardrail error leaked into the
@@ -91,6 +99,31 @@ class GracefulRefusal(Evaluator):
             return False
         answer = (getattr(ctx.output, "answer", "") or "").lower()
         return any(marker.lower() in answer for marker in required)
+
+
+@dataclass
+class CitesAuctionIds(Evaluator):
+    """On listing-style cases, the answer must cite a surfaced auction_id.
+
+    The runner computes `surfaced_auction_ids` (every id the turn's tool
+    results returned) and `cited_auction_ids` (ids from that set appearing in
+    the answer text) using the REAL panel extractor (`api.chat.panel`), so
+    this asserts exactly what production's matches-panel sync would see.
+
+    Pass when the case doesn't set `expect_citations`, or when the turn
+    surfaced no ids at all (a zero-result answer legitimately cites nothing).
+    Fail only on the real regression: properties were found but the answer
+    named none of them — the panel-starving behavior.
+    """
+
+    def evaluate(self, ctx: EvaluatorContext) -> bool:
+        if not (ctx.metadata or {}).get("expect_citations"):
+            return True
+        surfaced = getattr(ctx.output, "surfaced_auction_ids", []) or []
+        if not surfaced:
+            return True
+        cited = getattr(ctx.output, "cited_auction_ids", []) or []
+        return bool(cited)
 
 
 @dataclass

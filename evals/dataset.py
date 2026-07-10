@@ -15,6 +15,7 @@ from pydantic_evals import Case, Dataset
 
 from evals.cases import GOLDEN
 from evals.evaluators import (
+    CitesAuctionIds,
     GracefulRefusal,
     NoWriteError,
     ToolTrajectory,
@@ -25,10 +26,17 @@ from evals.evaluators import (
 @dataclass
 class ChatTaskOutput:
     """What the eval task returns per case: the final answer plus the ordered,
-    de-duplicated list of tools the agent invoked on its way there."""
+    de-duplicated list of tools the agent invoked on its way there, and the
+    auction_ids the turn surfaced/cited (computed by the runner with the real
+    panel extractor — see CitesAuctionIds)."""
 
     answer: str
     tools_called: list[str] = field(default_factory=list)
+    # Every auction_id the turn's tool results returned (the panel "known" set).
+    surfaced_auction_ids: list[str] = field(default_factory=list)
+    # Surfaced ids that appear in the answer text, first-mention order — what
+    # production's matches-panel sync would extract from this answer.
+    cited_auction_ids: list[str] = field(default_factory=list)
 
 
 def build_judge_model():
@@ -74,11 +82,14 @@ def build_dataset(include_judge: bool = True) -> Dataset:
                 "must_not_mention_write_error": c.must_not_mention_write_error,
                 "expect_refusal": c.expect_refusal,
                 "refusal_required_any": c.refusal_required_any,
+                "expect_citations": c.expect_citations,
             },
         )
         for c in GOLDEN
     ]
-    evaluators = [ToolTrajectory(), GracefulRefusal(), NoWriteError()]
+    evaluators = [
+        ToolTrajectory(), GracefulRefusal(), NoWriteError(), CitesAuctionIds(),
+    ]
     if include_judge:
         evaluators.append(answer_quality_judge(build_judge_model()))
     return Dataset(name="golden-questions", cases=cases, evaluators=evaluators)

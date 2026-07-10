@@ -67,6 +67,16 @@ def test_catalogue_well_formed() -> None:
             assert c.acceptable_tools, f"{c.question!r} has no acceptable_tools"
             for t in c.acceptable_tools:
                 assert t in KNOWN_TOOLS, f"unknown tool {t!r} on {c.question!r}"
+        # Citation discipline is a listing-answer property; a refusal cites
+        # nothing by definition.
+        if c.expect_refusal:
+            assert not c.expect_citations, (
+                f"refusal case {c.question!r} can't expect citations"
+            )
+
+    # The citation gate must actually cover a meaningful slice of the
+    # catalogue (the bulk-flag loop in evals/cases.py ran).
+    assert sum(1 for c in GOLDEN if c.expect_citations) >= 20
 
 
 def test_known_tools_match_agent() -> None:

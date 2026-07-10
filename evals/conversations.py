@@ -75,6 +75,21 @@ class Turn:
     # call (e.g. the old city on a scope-replacement pivot). Maps arg key ->
     # forbidden value.
     forbid_tool_arg_values: dict = field(default_factory=dict)
+    # Assertions on the UI matches panel AFTER this turn, as derived by the
+    # runner with the REAL panel-sync functions (api/chat/panel.py). Keys:
+    #   "max_ids": int  — panel holds at most N properties (a "top 3 of those"
+    #                     turn must shrink the panel, not leave the full dump);
+    #   "cited": True   — every panel id appears in this turn's answer text
+    #                     (the panel is citation-driven, not a stale search
+    #                     dump). Vacuously true on an empty panel, so it never
+    #                     fails just because the live graph had no matches.
+    expect_panel: dict = field(default_factory=dict)
+    # This turn refers to the panel without naming ids ("compare these", "the
+    # matches"). The runner seeds ChatDeps.panel_auction_ids every turn from
+    # the derived panel (mirroring the browser); on a turn flagged here, the
+    # agent must resolve the reference to those ids — a tool call carrying one
+    # of them, or the answer citing one — instead of running a blank search.
+    references_panel: bool = False
 
 
 @dataclass
@@ -179,7 +194,43 @@ GOLDEN_CONVERSATIONS: list[GoldenConversation] = [
                  expect_filters={"city": "Chennai"}),
             Turn("Now list a few of those flats, cheapest first",
                  expected_tools=["search_auctions"],
-                 expect_filters={"city": "Chennai"}),
+                 expect_filters={"city": "Chennai"},
+                 # A listing answer must cite its properties — that's what the
+                 # panel follows.
+                 expect_panel={"cited": True}),
+        ],
+    ),
+
+    # ─── Re-presentation: panel follows the cited subset, no new search ──
+    GoldenConversation(
+        "represent_top3_panel",
+        "A 'top 3 of those' turn re-presents already-found rows: the answer "
+        "cites the chosen ids and the panel shrinks to exactly that cited "
+        "subset (the select_properties replacement path in api/chat/panel.py).",
+        [
+            Turn("Residential auctions in Chennai under 50 lakhs",
+                 expected_tools=["search_auctions"], narrows=True,
+                 expect_filters={"city": "Chennai", "max_price": 5000000}),
+            # Re-presenting a subset needs no tool (modes/_shared.md routing:
+            # cite the chosen ids; the system syncs the panel from citations).
+            # No expected_tools — a re-search isn't wrong, just unnecessary.
+            Turn("Just give me the top 3 of those",
+                 expect_panel={"max_ids": 3, "cited": True}),
+        ],
+    ),
+
+    # ─── Panel reference: "these" resolves to the seeded panel ids ───────
+    GoldenConversation(
+        "panel_reference_compare",
+        "A bare 'compare these' must resolve to the panel's auction_ids (the "
+        "browser state forwarded as panel_auction_ids), not run a blank search.",
+        [
+            Turn("Flats in Chennai under 40 lakhs",
+                 expected_tools=["search_auctions"],
+                 expect_filters={"city": "Chennai", "max_price": 4000000}),
+            Turn("Compare the first two of these on price and EMD",
+                 references_panel=True,
+                 expect_panel={"cited": True}),
         ],
     ),
 ]

@@ -66,6 +66,15 @@ class GoldenCase:
     # GracefulRefusal evaluator; ignored when expect_refusal is False.
     expect_refusal: bool = False
     refusal_required_any: list[str] = field(default_factory=list)
+    # Listing-style case: the answer presents specific properties, so it must
+    # cite at least one surfaced auction_id (role rule 1). This is what feeds
+    # the UI matches-panel sync (api/chat/panel.py extracts cited ids from the
+    # answer text) — an uncited listing answer means the panel silently stops
+    # following the conversation. Vacuously passes when the turn surfaced no
+    # ids (zero-result answers legitimately cite nothing). Checked by the
+    # CitesAuctionIds evaluator. Leave False for aggregate/count/schema/
+    # refusal answers, which correctly cite nothing.
+    expect_citations: bool = False
 
 
 GOLDEN: list[GoldenCase] = [
@@ -199,19 +208,21 @@ GOLDEN: list[GoldenCase] = [
 
     # ─── Re-auctions (is_reauction + price-drop fields) ─────────────────
     GoldenCase("reauction", "Show re-auctioned properties in Chennai",
-               ["search_auctions"]),
+               ["search_auctions"], expect_citations=True),
     GoldenCase("reauction", "Properties where the reserve price dropped from a previous auction",
-               ["search_auctions"]),
+               ["search_auctions"], expect_citations=True),
     GoldenCase("reauction", "Fresh listings only in Coimbatore, no re-auctions",
-               ["search_auctions"]),
+               ["search_auctions"], expect_citations=True),
+    # Count answer — correctly cites nothing, so no citation flag.
     GoldenCase("reauction", "How many auctions are re-auctions?",
                ["search_auctions", "run_cypher"]),
 
     # ─── Borrower lookup ────────────────────────────────────────────────
     GoldenCase("borrower", "Auctions tied to borrower XYZ Industries",
-               ["search_auctions"]),
+               ["search_auctions"], expect_citations=True),
     GoldenCase("borrower", "Show auctions for borrower Sri Lakshmi Enterprises",
-               ["search_auctions"]),
+               ["search_auctions"], expect_citations=True),
+    # Distribution answer (borrower → count buckets) — no property citations.
     GoldenCase("borrower", "Which borrowers have properties in Chennai?",
                ["search_auctions", "run_cypher"]),
 
@@ -261,3 +272,17 @@ EXPECTED_INTENTS: set[str] = {
     "specific_auction", "semantic", "temporal", "superlative", "reauction",
     "borrower", "off_graph", "edge", "refusal",
 }
+
+# Intents whose EVERY case is listing-style (the answer presents specific
+# properties and must cite auction_ids). Applied in bulk below; mixed intents
+# (reauction, borrower — which contain count/distribution questions) flag
+# their listing cases inline instead. `edge` is deliberately excluded: its
+# zero-result answers surface no ids, so the flag would only ever pass
+# vacuously — leaving it off keeps the flag meaningful.
+_CITATION_INTENTS: set[str] = {
+    "basic_filter", "superlative", "semantic", "temporal", "specific_auction",
+}
+for _case in GOLDEN:
+    if _case.intent in _CITATION_INTENTS:
+        _case.expect_citations = True
+del _case
