@@ -347,7 +347,6 @@ def search_auctions(
     is_reauction: bool | None = None,
     starts_after: datetime | None = None, starts_before: datetime | None = None,
     deadline_within_days: int | None = None,
-    limit: int = 25,
     order_by: str = "deadline_asc",
     aggregate_field: str | None = None,
     aggregations: list[str] | None = None,
@@ -358,9 +357,9 @@ def search_auctions(
     asset_category, bank, borrower, auction_type, branch, auction platform
     (`service_provider`), and date/deadline window.
 
-    Returns {total_count, returned, limit, results}: `total_count` is the
-    true match count (ignores `limit`); `results` is capped at `limit` and
-    never exceeds 25 rows to you (the UI shows every match). Use
+    Returns {total_count, returned, results}: `total_count` is the true
+    match count; `results` is a sample capped at 25 rows to you (the UI
+    shows every match regardless — never re-call to "see more"). Use
     `total_count` for "how many", never `len(results)`. Future-only by
     default; pass `include_past=True` only for retrospective questions. A
     zero-match result may carry `past_matches` + `hint` — follow the hint
@@ -382,14 +381,14 @@ def search_auctions(
     `order_by` ∈ "deadline_asc" (default) / "deadline_desc" (by application
     deadline), "start_asc" / "start_desc" (by auction start), "price_asc" /
     "price_desc", "emd_asc" / "emd_desc". For "cheapest/soonest/most-
-    expensive N" use ordering + `limit=N`; never invent
+    expensive N" use ordering and cite the top N rows; never invent
     `min_price`/`max_price`/date thresholds.
 
     Aggregations — for "price range"/"median"/"average"/"spread": set
     `aggregate_field` to "reserve_price_num" or "emd_num" and `aggregations`
-    to any subset of ["min","max","avg","median","p25","p75"]; pass
-    `limit=0` to skip the row fetch when only stats are needed. Results are
-    added under an `aggregations` key.
+    to any subset of ["min","max","avg","median","p25","p75"]. Stats are
+    added under an `aggregations` key (rows still come back so the panel
+    shows the matching properties).
 
     Distributions — for breakdown/"mix"/"how many per X" questions: set
     `group_by` ∈ {"city","area","state","bank","branch","borrower",
@@ -408,6 +407,12 @@ def search_auctions(
     # UI overflow rows ride on ToolReturn metadata (never model-visible) —
     # see api/tool_returns.py for why a plain dict return leaked them into
     # every same-turn round-trip.
+    #
+    # No model-facing `limit`: the model kept passing small limits (e.g. 10)
+    # that scoped its own view of broad browses, and the sample-vs-total gap
+    # leaked into answers ("14 properties" written from a 10-row sample).
+    # The model slice is pinned to the tools layer's LLM hard cap (25); the
+    # UI receives every match (up to 500) via `_ui_results` regardless.
     return split_ui_overflow(T.search_auctions(
         min_price=min_price, max_price=max_price,
         min_emd=min_emd, max_emd=max_emd,
@@ -419,7 +424,7 @@ def search_auctions(
         is_reauction=is_reauction,
         starts_after=starts_after, starts_before=starts_before,
         deadline_within_days=deadline_within_days,
-        limit=limit, order_by=order_by,
+        limit=T._LLM_ROWS_HARD_CAP, order_by=order_by,
         aggregate_field=aggregate_field, aggregations=aggregations,
         group_by=group_by,
         include_past=include_past,
