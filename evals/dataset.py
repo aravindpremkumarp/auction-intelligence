@@ -14,7 +14,12 @@ from dataclasses import dataclass, field
 from pydantic_evals import Case, Dataset
 
 from evals.cases import GOLDEN
-from evals.evaluators import NoWriteError, ToolTrajectory, answer_quality_judge
+from evals.evaluators import (
+    GracefulRefusal,
+    NoWriteError,
+    ToolTrajectory,
+    answer_quality_judge,
+)
 
 
 @dataclass
@@ -67,11 +72,13 @@ def build_dataset(include_judge: bool = True) -> Dataset:
                 "intent": c.intent,
                 "acceptable_tools": c.acceptable_tools,
                 "must_not_mention_write_error": c.must_not_mention_write_error,
+                "expect_refusal": c.expect_refusal,
+                "refusal_required_any": c.refusal_required_any,
             },
         )
         for c in GOLDEN
     ]
-    evaluators = [ToolTrajectory(), NoWriteError()]
+    evaluators = [ToolTrajectory(), GracefulRefusal(), NoWriteError()]
     if include_judge:
         evaluators.append(answer_quality_judge(build_judge_model()))
     return Dataset(name="golden-questions", cases=cases, evaluators=evaluators)

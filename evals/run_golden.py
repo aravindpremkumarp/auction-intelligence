@@ -27,7 +27,7 @@ import os
 import sys
 
 from evals.dataset import ChatTaskOutput, build_dataset
-from evals.evaluators import TOOL_TRAJECTORY
+from evals.evaluators import GRACEFUL_REFUSAL, TOOL_TRAJECTORY
 
 MIN_TRAJECTORY_PASS = float(os.getenv("EVAL_MIN_TRAJECTORY_PASS", "0.85"))
 MAX_CONCURRENCY = int(os.getenv("EVAL_MAX_CONCURRENCY", "4"))
@@ -65,22 +65,28 @@ async def main() -> int:
     )
     report.print(include_input=True, include_output=False)
 
-    # CI gate: the tool-trajectory assertion pass rate. The LLM-judge quality
-    # score is reported in the table above but intentionally not gated here.
+    # CI gate: each case's PRIMARY assertion. Tool-routing cases are gated on
+    # ToolTrajectory; out-of-scope refusal cases are gated on GracefulRefusal
+    # (their `acceptable_tools` is empty, so ToolTrajectory auto-passes and
+    # would inflate the rate — the refusal behavior is the real thing to gate).
+    # The LLM-judge quality score is reported in the table above but
+    # intentionally not gated here.
     total = len(report.cases)
-    passed = sum(
-        1
-        for c in report.cases
-        if (r := c.assertions.get(TOOL_TRAJECTORY)) is not None and r.value
-    )
+    passed = 0
+    for c in report.cases:
+        expect_refusal = bool((getattr(c, "metadata", None) or {}).get("expect_refusal"))
+        key = GRACEFUL_REFUSAL if expect_refusal else TOOL_TRAJECTORY
+        r = c.assertions.get(key)
+        if r is not None and r.value:
+            passed += 1
     rate = passed / total if total else 0.0
     print(
-        f"\nTool-trajectory pass rate: {passed}/{total} = {rate:.1%} "
-        f"(threshold {MIN_TRAJECTORY_PASS:.0%})"
+        f"\nPrimary-assertion pass rate (trajectory + refusal): "
+        f"{passed}/{total} = {rate:.1%} (threshold {MIN_TRAJECTORY_PASS:.0%})"
     )
     if rate < MIN_TRAJECTORY_PASS:
         print(
-            f"REGRESSION: trajectory pass rate {rate:.1%} below "
+            f"REGRESSION: primary pass rate {rate:.1%} below "
             f"threshold {MIN_TRAJECTORY_PASS:.0%}",
             file=sys.stderr,
         )

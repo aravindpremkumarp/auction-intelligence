@@ -4,11 +4,15 @@ evals/evaluators.py
 Custom `pydantic-evals` evaluators for the chat agent, plus the LLM-as-judge
 rubric used for answer-quality scoring.
 
-Two gating assertions (pass/fail) and one reported score:
+Three gating assertions (pass/fail) and one reported score:
 
 - ``ToolTrajectory`` (assertion) — did the agent call at least one of the
-  intent's `acceptable_tools`? This is the hard CI gate, mirroring the old
-  golden-question test.
+  intent's `acceptable_tools`? The hard CI gate for tool-routing cases,
+  mirroring the old golden-question test.
+- ``GracefulRefusal`` (assertion) — for out-of-scope cases (Rule 4), did the
+  answer decline gracefully (contain an expected decline/pointer phrase)
+  instead of fabricating data or promising an action no tool performs? The CI
+  gate for refusal cases; a no-op pass on every other case.
 - ``NoWriteError`` (assertion) — did the final answer avoid leaking an internal
   read-only/write-rejection error to the user?
 - ``answer_quality`` (score, via :class:`LLMJudge`) — a 0–1 groundedness/quality
@@ -28,6 +32,7 @@ from pydantic_evals.evaluators import Evaluator, EvaluatorContext, LLMJudge
 # Assertion names as they appear in the report — referenced by the runner's
 # CI gate, so keep them in sync with the class names below.
 TOOL_TRAJECTORY = "ToolTrajectory"
+GRACEFUL_REFUSAL = "GracefulRefusal"
 NO_WRITE_ERROR = "NoWriteError"
 ANSWER_QUALITY = "answer_quality"
 
@@ -55,6 +60,37 @@ class ToolTrajectory(Evaluator):
             return True
         called = getattr(ctx.output, "tools_called", []) or []
         return any(t in acceptable for t in called)
+
+
+@dataclass
+class GracefulRefusal(Evaluator):
+    """Gate out-of-scope (Rule 4) cases: the agent must decline gracefully.
+
+    A no-op pass on any case not flagged `expect_refusal` — so it can be
+    attached at the dataset level and only bites on refusal cases. For a
+    refusal case, passes when the answer contains at least one of the case's
+    `refusal_required_any` substrings (case-insensitive): either a pointer the
+    agent is required to give (e.g. "save" → the Save button for track/alert
+    requests) or a decline phrase for "we don't hold that data" requests
+    (litigation, market valuation, credit history). A fabricated answer that
+    never declines lacks all of them and fails.
+
+    This is deliberately a deterministic keyword check rather than an LLM judge:
+    like the trajectory gate it must be stable enough to block CI, and the
+    softer groundedness signal is already covered by `answer_quality`.
+    """
+
+    def evaluate(self, ctx: EvaluatorContext) -> bool:
+        meta = ctx.metadata or {}
+        if not meta.get("expect_refusal"):
+            return True
+        required = meta.get("refusal_required_any") or []
+        if not required:
+            # Flagged as a refusal case but given no acceptance lexicon — treat
+            # as misconfigured rather than silently passing everything.
+            return False
+        answer = (getattr(ctx.output, "answer", "") or "").lower()
+        return any(marker.lower() in answer for marker in required)
 
 
 @dataclass
