@@ -8,21 +8,48 @@ This module is intentionally **dependency-free** (stdlib only) so it can be
 imported by both the offline pytest shape test (`tests/api/test_golden_questions.py`)
 and the live `pydantic-evals` runner (`evals/run_golden.py`) without dragging in
 pydantic-ai / Neo4j. It is the single source of truth for the catalogue.
+
+Two kinds of case:
+
+- **Tool-trajectory cases** carry `acceptable_tools` (the tool[s] a passing
+  answer must route through). Gated live by the `ToolTrajectory` evaluator.
+- **Refusal cases** (`expect_refusal=True`) test the Rule-4 boundary — the
+  agent must decline an out-of-scope request gracefully instead of fabricating
+  or promising an action no tool performs. They carry no `acceptable_tools`
+  (the correct behavior is usually *no* data tool) and instead a
+  `refusal_required_any` lexicon; gated live by the `GracefulRefusal`
+  evaluator. See `evals/evaluators.py`.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-# Every tool the agent exposes (api/agent.py). `acceptable_tools` entries are
-# validated against this set so a renamed/removed tool fails the shape test
-# instead of silently never matching in the live eval.
+# The always-on, model-visible tools the agent exposes (api/agent.py). Every
+# `acceptable_tools` entry is validated against this set by the shape test, and
+# the set itself is cross-checked against api/agent.py's actually-decorated
+# tools (see tests/api/test_golden_questions.py::test_known_tools_match_agent)
+# so a renamed/removed tool fails the shape test instead of silently never
+# matching in the live eval. Excludes `query_user_dossier`, which ships dark
+# (registered conditionally, not via a decorator) and is not exercised here.
 KNOWN_TOOLS: set[str] = {
     "search_auctions",
-    "semantic_property_search",
+    "semantic_search",
     "get_auction_detail",
     "describe_schema",
     "run_cypher",
+    "internet_search",
 }
+
+# Decline lexicon for "we don't hold that data" refusals (litigation, market
+# valuation, ownership chains, …). A graceful refusal contains at least one of
+# these; kept broad so it tolerates phrasing variation while still failing an
+# answer that fabricates the data instead of declining.
+_DECLINE_MARKERS: list[str] = [
+    "don't have", "do not have", "not have", "no data", "not available",
+    "isn't available", "is not available", "not something", "no information",
+    "cannot", "can't", "unable", "not in the", "not part of", "outside",
+    "don't track", "do not track", "no litigation", "not cover", "beyond",
+]
 
 
 @dataclass
@@ -33,6 +60,21 @@ class GoldenCase:
     # When True, a passing answer must not leak an internal write-rejection /
     # error string to the user (the agent is read-only over the graph).
     must_not_mention_write_error: bool = True
+    # Refusal case: the request is out of scope (Rule 4) and the agent must
+    # decline gracefully. `refusal_required_any` = substrings, at least one of
+    # which a graceful refusal contains (case-insensitive). Checked by the
+    # GracefulRefusal evaluator; ignored when expect_refusal is False.
+    expect_refusal: bool = False
+    refusal_required_any: list[str] = field(default_factory=list)
+    # Listing-style case: the answer presents specific properties, so it must
+    # cite at least one surfaced auction_id (role rule 1). This is what feeds
+    # the UI matches-panel sync (api/chat/panel.py extracts cited ids from the
+    # answer text) — an uncited listing answer means the panel silently stops
+    # following the conversation. Vacuously passes when the turn surfaced no
+    # ids (zero-result answers legitimately cite nothing). Checked by the
+    # CitesAuctionIds evaluator. Leave False for aggregate/count/schema/
+    # refusal answers, which correctly cite nothing.
+    expect_citations: bool = False
 
 
 GOLDEN: list[GoldenCase] = [
@@ -46,6 +88,15 @@ GOLDEN: list[GoldenCase] = [
     GoldenCase("basic_filter", "Industrial properties in Kanchipuram",
                ["search_auctions"]),
     GoldenCase("basic_filter", "Agricultural land in Tamil Nadu",
+               ["search_auctions"]),
+    # Under-tested structured filters that have first-class tool args.
+    GoldenCase("basic_filter", "DRT auctions in Chennai",
+               ["search_auctions"]),
+    GoldenCase("basic_filter", "Liquidation auctions in Tamil Nadu",
+               ["search_auctions"]),
+    GoldenCase("basic_filter", "Auctions on the BAANKNET platform",
+               ["search_auctions"]),
+    GoldenCase("basic_filter", "Auctions listed by the Anna Nagar branch",
                ["search_auctions"]),
 
     # ─── Aggregations ───────────────────────────────────────────────────
@@ -63,8 +114,11 @@ GOLDEN: list[GoldenCase] = [
                ["run_cypher"]),
     GoldenCase("aggregation", "Which cities have the most auctions?",
                ["search_auctions", "run_cypher"]),
+    # p95 isn't a search_auctions aggregation (min/max/avg/median/p25/p75
+    # only) — the real path is run_cypher; describe_schema is preparatory, not
+    # an answer, so it's no longer accepted here.
     GoldenCase("aggregation", "What is the 95th percentile reserve price?",
-               ["search_auctions", "run_cypher", "describe_schema"]),
+               ["run_cypher"]),
 
     # ─── Multi-hop / novel ──────────────────────────────────────────────
     GoldenCase("multi_hop", "Banks with more than 50 auctions in Tamil Nadu",
@@ -75,8 +129,11 @@ GOLDEN: list[GoldenCase] = [
                ["run_cypher"]),
     GoldenCase("multi_hop", "Which bank has the lowest average reserve price in Chennai?",
                ["run_cypher"]),
+    # "Which property types appear in the industrial category" is a filtered
+    # graph query (types linked to Industrial auctions), not a static enum
+    # dump — describe_schema (global enums) doesn't answer it.
     GoldenCase("multi_hop", "Property types available in industrial asset category",
-               ["search_auctions", "run_cypher", "describe_schema"]),
+               ["search_auctions", "run_cypher"]),
     GoldenCase("multi_hop", "Top 5 areas by auction count",
                ["search_auctions", "run_cypher"]),
     GoldenCase("multi_hop", "Cities that appear in both residential and commercial auctions",
@@ -89,14 +146,19 @@ GOLDEN: list[GoldenCase] = [
                ["run_cypher"]),
 
     # ─── Schema / enum discovery ────────────────────────────────────────
+    # Enumerating all values of a node label is equally natural via a
+    # group_by search or a `MATCH (n:Label) RETURN n.name` run_cypher, so both
+    # are accepted (accepting only search_auctions scored a sensible run_cypher
+    # answer as a false negative).
     GoldenCase("schema", "What cities do you have data for?",
-               ["search_auctions"]),
+               ["search_auctions", "run_cypher"]),
     GoldenCase("schema", "List all banks in the database",
-               ["search_auctions"]),
+               ["search_auctions", "run_cypher"]),
+    # For a global enum list, describe_schema genuinely returns the answer.
     GoldenCase("schema", "What property types are available?",
-               ["search_auctions", "describe_schema"]),
+               ["search_auctions", "describe_schema", "run_cypher"]),
     GoldenCase("schema", "What asset categories exist?",
-               ["search_auctions", "describe_schema"]),
+               ["search_auctions", "describe_schema", "run_cypher"]),
     GoldenCase("schema", "What fields does an auction property have?",
                ["describe_schema"]),
 
@@ -113,14 +175,18 @@ GOLDEN: list[GoldenCase] = [
                ["get_auction_detail"]),
 
     # ─── Semantic / description ─────────────────────────────────────────
+    # NB: the tool is `semantic_search` (api/agent.py). It was catalogued under
+    # its pre-rename name `semantic_property_search` — a string the live agent
+    # never emits — so every one of these silently failed the trajectory gate
+    # nightly until this fix.
     GoldenCase("semantic", "Properties facing a main road",
-               ["semantic_property_search"]),
+               ["semantic_search"]),
     GoldenCase("semantic", "Plots with clear boundaries mentioned in the description",
-               ["semantic_property_search"]),
+               ["semantic_search"]),
     GoldenCase("semantic", "CMDA approved plots in Sriperumbudur",
-               ["semantic_property_search", "search_auctions"]),
+               ["semantic_search", "search_auctions"]),
     GoldenCase("semantic", "Properties with a channel or paddy field nearby",
-               ["semantic_property_search"]),
+               ["semantic_search"]),
 
     # ─── Temporal ───────────────────────────────────────────────────────
     GoldenCase("temporal", "Auctions with deadline in the next 7 days",
@@ -130,9 +196,43 @@ GOLDEN: list[GoldenCase] = [
     GoldenCase("temporal", "Auctions closing this week",
                ["search_auctions"]),
 
+    # ─── Superlatives (ordering + limit, never invented thresholds) ─────
+    GoldenCase("superlative", "Cheapest 5 flats in Chennai",
+               ["search_auctions"]),
+    GoldenCase("superlative", "Most expensive commercial auction in Coimbatore",
+               ["search_auctions"]),
+    GoldenCase("superlative", "Auctions with the soonest application deadline",
+               ["search_auctions"]),
+    GoldenCase("superlative", "Highest EMD auctions in Tamil Nadu",
+               ["search_auctions"]),
+
+    # ─── Re-auctions (is_reauction + price-drop fields) ─────────────────
+    GoldenCase("reauction", "Show re-auctioned properties in Chennai",
+               ["search_auctions"], expect_citations=True),
+    GoldenCase("reauction", "Properties where the reserve price dropped from a previous auction",
+               ["search_auctions"], expect_citations=True),
+    GoldenCase("reauction", "Fresh listings only in Coimbatore, no re-auctions",
+               ["search_auctions"], expect_citations=True),
+    # Count answer — correctly cites nothing, so no citation flag.
+    GoldenCase("reauction", "How many auctions are re-auctions?",
+               ["search_auctions", "run_cypher"]),
+
     # ─── Borrower lookup ────────────────────────────────────────────────
     GoldenCase("borrower", "Auctions tied to borrower XYZ Industries",
-               ["search_auctions"]),
+               ["search_auctions"], expect_citations=True),
+    GoldenCase("borrower", "Show auctions for borrower Sri Lakshmi Enterprises",
+               ["search_auctions"], expect_citations=True),
+    # Distribution answer (borrower → count buckets) — no property citations.
+    GoldenCase("borrower", "Which borrowers have properties in Chennai?",
+               ["search_auctions", "run_cypher"]),
+
+    # ─── Off-graph context (internet_search, per Rule 3) ────────────────
+    GoldenCase("off_graph", "What does SARFAESI mean?",
+               ["internet_search"]),
+    GoldenCase("off_graph", "Explain what EMD is in a bank auction",
+               ["internet_search"]),
+    GoldenCase("off_graph", "What are the RBI guidelines for e-auction of secured assets?",
+               ["internet_search"]),
 
     # ─── Edge / negative cases ──────────────────────────────────────────
     # Zero-result and out-of-coverage questions: the agent must still ground
@@ -148,10 +248,41 @@ GOLDEN: list[GoldenCase] = [
                ["get_auction_detail"]),
     GoldenCase("edge", "Which auctions does borrower Walter White have?",
                ["search_auctions"]),
+
+    # ─── Refusal / out-of-scope (Rule 4) ────────────────────────────────
+    # No tool performs these; a passing answer declines gracefully instead of
+    # fabricating data or promising an action the platform can't take. The
+    # track/save/alert requests must point the user at the Save button.
+    GoldenCase("refusal", "Track this auction and alert me before the deadline",
+               expect_refusal=True, refusal_required_any=["save"]),
+    GoldenCase("refusal", "Set up an alert for new auctions in Chennai",
+               expect_refusal=True, refusal_required_any=["save"]),
+    GoldenCase("refusal",
+               "Are there any court cases or pending litigation against borrower XYZ Industries?",
+               expect_refusal=True, refusal_required_any=_DECLINE_MARKERS),
+    GoldenCase("refusal", "What is the current market value of properties in Anna Nagar?",
+               expect_refusal=True, refusal_required_any=_DECLINE_MARKERS),
+    GoldenCase("refusal", "Give me the credit score and repayment history of borrower XYZ Industries",
+               expect_refusal=True, refusal_required_any=_DECLINE_MARKERS),
 ]
 
 
 EXPECTED_INTENTS: set[str] = {
     "basic_filter", "aggregation", "multi_hop", "schema",
-    "specific_auction", "semantic", "temporal", "borrower", "edge",
+    "specific_auction", "semantic", "temporal", "superlative", "reauction",
+    "borrower", "off_graph", "edge", "refusal",
 }
+
+# Intents whose EVERY case is listing-style (the answer presents specific
+# properties and must cite auction_ids). Applied in bulk below; mixed intents
+# (reauction, borrower — which contain count/distribution questions) flag
+# their listing cases inline instead. `edge` is deliberately excluded: its
+# zero-result answers surface no ids, so the flag would only ever pass
+# vacuously — leaving it off keeps the flag meaningful.
+_CITATION_INTENTS: set[str] = {
+    "basic_filter", "superlative", "semantic", "temporal", "specific_auction",
+}
+for _case in GOLDEN:
+    if _case.intent in _CITATION_INTENTS:
+        _case.expect_citations = True
+del _case
