@@ -1,6 +1,6 @@
 # AuctionScope — Content-Ops Agents (blueprint)
 
-*Companion to `docs/marketing/plan.md`. Status: spec for later build — nothing here is wired up yet.*
+*Companion to `docs/marketing/plan.md`. Status: **Agent A ("Poster") is built** — `marketing_agents/poster.py` + the manual-dispatch workflow `.github/workflows/content-poster.yml`. Agent B (Reporter) and Agent C (Replier) remain specs.*
 
 ## In one sentence
 Hire two tireless "interns" (scheduled Claude jobs) to do the repetitive marketing chores — one drafts daily social posts from our auction data, one writes a weekly report — so the founder's time goes to building, not busywork. **They draft and stage; a human always hits "publish."**
@@ -56,7 +56,9 @@ on: { schedule: [{cron: "0 3 * * 1-5"}], workflow_dispatch: {} }   # weekday mor
 env: { OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}, ... }
 run: python -m marketing_agents.poster      # (module to be written)
 ```
-…or the same logic as a scheduled Claude Code Routine. Either way it reuses existing env conventions and the `/properties` + `/stats` endpoints. **This doc is the spec; the build is a separate ticket.**
+…or the same logic as a scheduled Claude Code Routine. Either way it reuses existing env conventions and the `/properties` + `/stats` endpoints.
+
+**Agent A is now implemented this way:** `marketing_agents/poster.py` (data fetch → grounded LLM drafts → honesty-rule validation → staged outputs in `marketing/outputs/<date>/`) run by `.github/workflows/content-poster.yml` (manual **Run workflow** button; commits drafts `[skip ci]` and opens/refreshes a `content-review` issue). Unit tests: `tests/marketing_agents/`. Kill switch: repo Actions variable `AGENTS_ENABLED=false`.
 
 ## Parked idea: selling this as a service
 The thread's real pitch is running this *for other people* at a setup fee + monthly retainer. If our own two agents prove out over 2–3 months, packaging "content agents for property/finance experts" could be a later venture — but it is a **separate business**, and chasing it now (pre-traction, ~7 users) would split focus. Revisit post-traction. Not on any current roadmap.
