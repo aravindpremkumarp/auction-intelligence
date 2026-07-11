@@ -1028,7 +1028,11 @@ function _chatRequestBody(message) {
 }
 function _chatHttpError(res) {
   if (res.status === 401) { if (window.Auth) window.Auth.openLoginModal(); return new Error('login required'); }
-  if (res.status === 429) return new Error('rate limit reached — please sign in or try again later');
+  if (res.status === 429) {
+    // The daily-quota 429 is today's de-facto paywall/upgrade gate (plan §8).
+    if (window.track) window.track('paywall_view', { reason: 'rate_limit', surface: 'chat' });
+    return new Error('rate limit reached — please sign in or try again later');
+  }
   return new Error(`chat ${res.status}`);
 }
 // `prebuilt` lets askAI reuse the exact body from a failed streaming attempt
@@ -1335,7 +1339,15 @@ async function askAI(userText, opts = {}) {
     let resp;
     // Build the body once: _chatRequestBody consumes the one-shot
     // pendingChatScope, so the same object must serve stream AND fallback.
+    // (Throws for a gated mode when signed out — so the events below only fire
+    // for turns that actually run, never for a blocked attempt.)
     const reqBody = _chatRequestBody(userText);
+    if (window.track) {
+      const _src = opts.fromLanding ? 'landing' : 'chat';
+      const _mode = window.currentMode || 'ask';
+      window.track('search', { source: _src, mode: _mode });
+      if (_mode === 'deep-research') window.track('deep_research_open', { source: _src });
+    }
     try {
       resp = await apiChatStream(reqBody, (ev, data) => {
         const cur = chatHistory[chatHistory.length - 1];
@@ -1758,6 +1770,7 @@ function toggleSaved(id) {
     saved.add(id);
     const row = currentResults.find(r => r.auction_id === id);
     if (row) watchlistCache[id] = toCard(row);
+    if (window.track) window.track('watchlist_add', { source: currentScreen });
   } else {
     saved.delete(id);
   }
@@ -2219,6 +2232,9 @@ async function askAboutProperty(text) {
   text = (text || '').trim(); if (!text) return;
   const auctionId = currentDetailId;
   if (!auctionId) return;
+  // Per-property "ask about this property" agent turn — the funnel's
+  // web-enriched-question step (plan §13). No message text sent (no PII).
+  if (window.track) window.track('chat_send', { surface: 'property' });
   detailChatHistory.push({ role: 'user', text });
   detailChatHistory.push({ role: 'ai thinking', text: '' });
   renderDetailChat();
@@ -2889,6 +2905,18 @@ function _hasAnyBrowseFilter() {
   return MULTI_FILTER_KEYS.some(k => (browseState[k] || []).length > 0);
 }
 
+// Names of the currently-active filter dimensions (e.g. "bank,state,price") for
+// the browse_filter analytics event. Dimension keys only — never the selected
+// values (a free-text query could carry PII), so this is safe to send.
+function _activeBrowseDims() {
+  const dims = [];
+  if (browseState.q) dims.push('q');
+  if (browseState.price || browseState.priceMin || browseState.priceMax) dims.push('price');
+  if (browseState.dateFrom || browseState.dateTo) dims.push('date');
+  MULTI_FILTER_KEYS.forEach(k => { if ((browseState[k] || []).length) dims.push(k); });
+  return dims.join(',');
+}
+
 function _browseFiltersToScope() {
   // Translate browseState into the agent's search_auctions arg names so the
   // model carries them on its first tool call. Lists with one item are sent
@@ -3104,6 +3132,12 @@ async function applyBrowse({ append = false } = {}) {
 
   grid.setAttribute('aria-busy', 'true');
   const anyFilter = _hasAnyBrowseFilter();
+  // Log a browse_filter only for a fresh, user-initiated application that has at
+  // least one active filter — excludes the initial unfiltered load and the
+  // "load more" pagination (append), and is naturally debounced by applyBrowse.
+  if (!append && anyFilter && window.track) {
+    window.track('browse_filter', { filters: _activeBrowseDims(), sort: browseState.sort });
+  }
   clearBtn.disabled = !anyFilter;
   const chatBtn = document.getElementById('f-chat');
   if (chatBtn) {

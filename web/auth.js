@@ -18,6 +18,35 @@
   var SB_URL = (typeof window !== 'undefined' && window.SUPABASE_URL) || '';
   var SB_ANON = (typeof window !== 'undefined' && window.SUPABASE_ANON_KEY) || '';
 
+  // ── Analytics: signup / login funnel event ──────────────────────────────
+  // Detected synchronously, BEFORE the Supabase client consumes (and strips)
+  // the auth params from the URL, so we can tell an OAuth / magic-link redirect
+  // completion apart from a plain reload of a persisted session.
+  var _authRedirectInbound = false;
+  try {
+    var _q = new URLSearchParams(window.location.search);
+    _authRedirectInbound = _q.has('code') || _q.has('error_code') || /access_token=/.test(window.location.hash);
+  } catch (_) {}
+  var _authEventSent = false;
+  function _pendingAuthMethod(set) {
+    try {
+      if (set) { sessionStorage.setItem('ascope_auth_method', set); return set; }
+      return sessionStorage.getItem('ascope_auth_method') || '';
+    } catch (_) { return ''; }
+  }
+  // Fire the GA4 `signup` event on genuine auth success — deduped once per page
+  // load. NO PII: method + new-account flag only, never email/name.
+  function trackAuthSuccess(method, isNew) {
+    if (_authEventSent) return;
+    _authEventSent = true;
+    if (window.track) {
+      var p = { method: method || 'unknown' };
+      if (typeof isNew === 'boolean') p.new_account = isNew;
+      window.track('signup', p);
+    }
+    try { sessionStorage.removeItem('ascope_auth_method'); } catch (_) {}
+  }
+
   if (!window.supabase || !SB_URL || !SB_ANON) {
     console.error('[auth] Supabase client or env vars missing; auth disabled');
     return;
@@ -70,6 +99,7 @@
   async function login(email, password) {
     var r = await sb.auth.signInWithPassword({ email: email, password: password });
     if (r.error) throw new Error(r.error.message || 'login failed');
+    trackAuthSuccess('password', false);
     return await me();
   }
 
@@ -83,10 +113,12 @@
       },
     });
     if (r.error) throw new Error(r.error.message || 'signup failed');
+    trackAuthSuccess('password', true);
     return r.data;
   }
 
   async function loginMagicLink(email) {
+    _pendingAuthMethod('magic_link');
     var r = await sb.auth.signInWithOtp({
       email: email,
       options: { emailRedirectTo: window.location.origin },
@@ -96,6 +128,7 @@
   }
 
   async function loginGoogle() {
+    _pendingAuthMethod('google');
     var r = await sb.auth.signInWithOAuth({
       provider: 'google',
       options: { redirectTo: window.location.origin },
@@ -132,6 +165,13 @@
       return;
     }
     if (session) {
+      // Count a signup/login conversion only when this page load is the
+      // completion of an OAuth / magic-link redirect — never on a plain reload
+      // of a persisted session (which also emits a signed-in event). Deduped in
+      // trackAuthSuccess so it can't stack with the explicit password paths.
+      if (_authRedirectInbound && (event === 'SIGNED_IN' || event === 'INITIAL_SESSION')) {
+        trackAuthSuccess(_pendingAuthMethod() || 'email_link');
+      }
       me();
     } else {
       currentUser = null;

@@ -5,6 +5,62 @@
 <title>Auctionscope — AI-powered search for bank auctions</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="Search and track 3,000+ Tamil Nadu bank auction properties with an AI chat interface. Flats, plots, commercial — all auctions in one place.">
+
+<!-- ═══════════════════════ WEB ANALYTICS (Google Analytics 4) ═══════════════════════
+     Funnel measurement for the marketing plan (docs/marketing/plan.md §5, §13).
+     · GA_MEASUREMENT_ID below is the ONE place to swap the GA4 property. It is a
+       public, client-side id — safe to commit. NEVER put a secret key here.
+     · debug_mode is DEV-ONLY: on localhost + Vercel previews (*.vercel.app) events
+       stream to GA4 DebugView; on the production domain it is OFF automatically, so
+       test traffic never pollutes real data and there's no flag to remember to flip.
+     · window.track(name, params) is the thin, never-throws wrapper the rest of the
+       app (app.js / auth.js / billing.js) calls to log events. It auto-merges any
+       captured UTM params. HARD RULE: callers pass NO PII (no emails / names).
+     · Auto page_view is left on (gtag default). CSP allow-list lives in vercel.json.
+     ══════════════════════════════════════════════════════════════════════════════ -->
+<script>
+  window.GA_MEASUREMENT_ID = 'G-KB0TTY5XVB';
+  window.GA_DEBUG = (function () {
+    var h = location.hostname;
+    return h === 'localhost' || h === '127.0.0.1' || /\.vercel\.app$/.test(h);
+  })();
+</script>
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-KB0TTY5XVB"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag() { dataLayer.push(arguments); }
+  window.gtag = gtag;
+  gtag('js', new Date());
+  gtag('config', window.GA_MEASUREMENT_ID, { debug_mode: window.GA_DEBUG });
+
+  // Capture UTM / campaign params once per session (persists across the SPA's
+  // history rewrites) so every funnel event can be attributed to its source.
+  // These are campaign identifiers, not PII.
+  var _ascopeUTM = (function () {
+    var keys = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term'];
+    var out = {};
+    try {
+      var qs = new URLSearchParams(location.search), hit = false;
+      keys.forEach(function (k) { var v = qs.get(k); if (v) { out[k] = String(v).slice(0, 100); hit = true; } });
+      if (hit) sessionStorage.setItem('ascope_utm', JSON.stringify(out));
+      else out = JSON.parse(sessionStorage.getItem('ascope_utm') || '{}') || {};
+    } catch (e) { /* private mode / bad json — attribution is best-effort */ }
+    return out;
+  })();
+
+  // Single event entry point for the whole app. Never throws: analytics must
+  // never break the product. Merges captured UTMs into every event.
+  window.track = function (name, params) {
+    try {
+      if (typeof window.gtag !== 'function' || !name) return;
+      var p = {};
+      for (var k in _ascopeUTM) if (Object.prototype.hasOwnProperty.call(_ascopeUTM, k)) p[k] = _ascopeUTM[k];
+      if (params) for (var k2 in params) if (Object.prototype.hasOwnProperty.call(params, k2)) p[k2] = params[k2];
+      window.gtag('event', name, p);
+    } catch (e) { /* swallow — see the NO-PII / never-throws rule above */ }
+  };
+</script>
+
 <link rel="canonical" href="https://www.auctionscope.in/">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Auctionscope">
