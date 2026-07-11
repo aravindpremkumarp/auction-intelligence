@@ -11,7 +11,10 @@ from marketing_agents.poster import (
     MAX_POST_WORDS,
     build_prompt,
     parse_llm_json,
+    resolve_api_key,
     shape_candidates,
+    step_finalize,
+    step_generate,
     validate_drafts,
 )
 
@@ -92,9 +95,23 @@ class TestValidateDrafts:
         assert not kept and "banned wording" in rejected[0]
 
     def test_over_length_post_rejected(self):
+        # Include a figure so it passes "Prove It" and reaches the length gate.
         kept, rejected = validate_drafts(
-            [self._draft(post="word " * (MAX_POST_WORDS + 1))], self.CANDS)
+            [self._draft(post="₹40L " + "word " * (MAX_POST_WORDS + 1))], self.CANDS)
         assert not kept and "words" in rejected[0]
+
+    def test_post_without_a_figure_rejected(self):
+        # "Prove It": no price/date/digit is weak copy — dropped.
+        kept, rejected = validate_drafts(
+            [self._draft(post="a plot in Chennai worth a look. auctionscope.in")],
+            self.CANDS)
+        assert not kept and "prove it" in rejected[0]
+
+    def test_post_with_a_figure_kept(self):
+        kept, _ = validate_drafts(
+            [self._draft(post="reserve ₹40L, ends 1 Aug. auctionscope.in")],
+            self.CANDS)
+        assert len(kept) == 1
 
 
 class TestParseLlmJson:
@@ -112,6 +129,87 @@ class TestParseLlmJson:
             parse_llm_json("no json here at all")
 
 
+class TestResolveApiKey:
+    def test_prefers_chat_key(self):
+        env = {"OPENROUTER_CHAT_API_KEY": "chat", "OPENROUTER_API_KEY": "legacy"}
+        assert resolve_api_key(env) == "chat"
+
+    def test_falls_back_to_legacy_key(self):
+        assert resolve_api_key({"OPENROUTER_API_KEY": "legacy"}) == "legacy"
+
+    def test_empty_chat_key_falls_back(self):
+        env = {"OPENROUTER_CHAT_API_KEY": "", "OPENROUTER_API_KEY": "legacy"}
+        assert resolve_api_key(env) == "legacy"
+
+    def test_none_when_no_keys(self):
+        assert resolve_api_key({}) is None
+
+
+class TestStagedPipeline:
+    """--prepare writes candidates.json + prompt.txt; an engine (Claude Code
+    on Max by default, OpenRouter via --generate) writes response.txt;
+    --finalize validates and stages. These cover the file round-trip."""
+
+    # last_enriched is null in production /stats — exercise the generated_at fallback.
+    STATS = {"total_auctions": 2179, "upcoming_auctions": 616,
+             "generated_at": "now", "last_enriched": None}
+
+    def _work_dir(self, tmp_path, response_text):
+        work = tmp_path / "work"
+        work.mkdir()
+        cands = shape_candidates([_row("A1")], [], [])
+        (work / "candidates.json").write_text(json.dumps(
+            {"stats": self.STATS, "candidates": cands, "max_drafts": 5}),
+            encoding="utf-8")
+        (work / "response.txt").write_text(response_text, encoding="utf-8")
+        return work
+
+    def _response(self):
+        return json.dumps({"drafts": [{
+            "auction_id": "A1", "angle": "closing_soon",
+            "post": "reserve ₹40L, ends soon. auctionscope.in",
+            "hashtags": ["bankauction"], "needs_image": False,
+            "image_headline": ""}], "editor_notes": "ok"})
+
+    def test_finalize_stages_valid_response(self, tmp_path, monkeypatch):
+        work = self._work_dir(tmp_path, self._response())
+        monkeypatch.setenv("POSTER_OUT_DIR", str(tmp_path / "out"))
+        assert step_finalize(work) == 0
+        (out_dir,) = (tmp_path / "out").iterdir()
+        staged = json.loads((out_dir / "drafts.json").read_text())
+        assert staged["drafts"][0]["auction_id"] == "A1"
+        review = (out_dir / "review.md").read_text()
+        # last_enriched can be null from the API; fall back to generated_at.
+        assert "Data as of now" in review and "None" not in review
+
+    def test_finalize_tolerates_fenced_engine_output(self, tmp_path, monkeypatch):
+        work = self._work_dir(tmp_path, f"```json\n{self._response()}\n```")
+        monkeypatch.setenv("POSTER_OUT_DIR", str(tmp_path / "out"))
+        assert step_finalize(work) == 0
+
+    def test_finalize_fails_when_all_drafts_rejected(self, tmp_path, monkeypatch):
+        bad = json.dumps({"drafts": [{"auction_id": "A1", "angle": "closing_soon",
+                                      "post": "Guaranteed title-clear deal!"}]})
+        work = self._work_dir(tmp_path, bad)
+        monkeypatch.setenv("POSTER_OUT_DIR", str(tmp_path / "out"))
+        assert step_finalize(work) == 1
+        (out_dir,) = (tmp_path / "out").iterdir()
+        staged = json.loads((out_dir / "drafts.json").read_text())
+        assert staged["drafts"] == [] and staged["rejected"]
+
+    def test_finalize_honors_explicit_response_path(self, tmp_path, monkeypatch):
+        work = self._work_dir(tmp_path, "not used")
+        alt = tmp_path / "claude-reply.txt"
+        alt.write_text(self._response(), encoding="utf-8")
+        monkeypatch.setenv("POSTER_OUT_DIR", str(tmp_path / "out"))
+        assert step_finalize(work, alt) == 0
+
+    def test_generate_without_any_key_fails_cleanly(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("OPENROUTER_CHAT_API_KEY", raising=False)
+        monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+        assert step_generate(tmp_path) == 2
+
+
 class TestPrompt:
     def test_prompt_carries_data_and_rules(self):
         cands = shape_candidates([_row("A1")], [], [])
@@ -119,4 +217,6 @@ class TestPrompt:
                           "generated_at": "now", "last_enriched": "today"}, cands, 5)
         assert "A1" in p and "616" in p
         assert "due diligence" in p  # listed as banned
+        assert "HOOK LIBRARY" in p and "QUALITY BAR" in p  # playbook injected
+        assert "Prove It" in p  # the number-does-the-work gate is taught
         assert json.loads(json.dumps(cands))  # candidates serialize cleanly

@@ -7,16 +7,32 @@ always reflect fresh data. Spec: docs/marketing/content-agents.md.
 Tier-1 only: this module DRAFTS and STAGES. It never publishes anywhere.
 Output lands in marketing/outputs/YYYY-MM-DD/ for human review.
 
+Two engines can write the drafts (see the "pipeline steps" section below):
+  * Claude Code on the founder's Max subscription — the DEFAULT in CI
+    (no per-token API cost). The workflow runs --prepare, then `claude -p`
+    turns <work>/prompt.txt into <work>/response.txt, then --finalize.
+  * OpenRouter — the API fallback: --generate does prompt.txt -> response.txt,
+    or run with no stage flag for the original single-shot behavior.
+
 Env:
-    API_BASE            auction API base (default: production Render URL)
-    OPENROUTER_API_KEY  required unless --dry-run
-    OPENROUTER_MODEL    chat model (default: deepseek/deepseek-v4-flash)
-    AGENTS_ENABLED      kill switch — anything but "false" means enabled
-    POSTER_OUT_DIR      output root (default: marketing/outputs)
+    API_BASE                 auction API base (default: production Render URL)
+    OPENROUTER_CHAT_API_KEY  preferred key (the valid one production chat uses);
+                             falls back to OPENROUTER_API_KEY, matching
+                             api/main.py / pipeline/config.py. The plain
+                             OPENROUTER_API_KEY repo secret is stale (401) —
+                             see the comment in .github/workflows/golden.yml.
+                             Only needed for the OpenRouter engine.
+    OPENROUTER_MODEL         chat model (default: deepseek/deepseek-v4-flash)
+    AGENTS_ENABLED           kill switch — anything but "false" means enabled
+    POSTER_OUT_DIR           output root (default: marketing/outputs)
+    POSTER_WORK_DIR          staged-run scratch dir (default: .poster_work)
 
 Usage:
-    python -m marketing_agents.poster            # full run (needs API key)
-    python -m marketing_agents.poster --dry-run  # fetch + shape only, no LLM
+    python -m marketing_agents.poster --prepare   # stage 1: data -> prompt.txt
+    python -m marketing_agents.poster --generate  # stage 2 (OpenRouter fallback)
+    python -m marketing_agents.poster --finalize  # stage 3: validate + stage
+    python -m marketing_agents.poster             # single-shot (OpenRouter)
+    python -m marketing_agents.poster --dry-run   # fetch + shape only, no LLM
 """
 
 from __future__ import annotations
@@ -45,6 +61,11 @@ BANNED_PATTERNS = [
 ]
 
 MAX_POST_WORDS = 220
+
+# "Prove It" quality gate (docs/marketing/copy-playbook.md Part 3): the number
+# does the work, so a post with no concrete figure — a price, a date, a digit —
+# is weak copy and gets dropped. Matches any digit (₹40L, 15%, "1 Aug", "2024").
+HAS_FIGURE = re.compile(r"\d")
 
 
 # ---------------------------------------------------------------- data layer
@@ -116,6 +137,16 @@ def shape_candidates(closing: list[dict], drops: list[dict], cheapest: list[dict
     return ranked[:24]  # plenty for the model to choose from, small enough to ground
 
 
+def resolve_api_key(env: dict | None = None) -> str | None:
+    """Prefer the chat key production uses; fall back to the legacy key.
+
+    Mirrors api/main.py / pipeline/config.py. The plain OPENROUTER_API_KEY
+    repo secret is stale and 401s (documented in golden.yml).
+    """
+    env = env if env is not None else os.environ
+    return env.get("OPENROUTER_CHAT_API_KEY") or env.get("OPENROUTER_API_KEY")
+
+
 # ------------------------------------------------------------- prompt layer
 
 def load_brand_context() -> str:
@@ -150,15 +181,31 @@ HARD RULES:
 - English, under {MAX_POST_WORDS} words per post, no corporate cliches, no emoji spam
   (one emoji max). Each post ends with a soft pointer to auctionscope.in.
 
+HOOK LIBRARY (docs/marketing/copy-playbook.md) — the first line decides everything.
+Open with the auction's number, then pick the family that fits its angle:
+- price_drop:   "₹<prev>L → ₹<now>L. Same <city> <type>, <n>% lower reserve after
+                a failed auction." / "Reserve cut <n>% — re-auctions hide the deals."
+- closing_soon: "<city> <type>, reserve ₹<now>L. Bids close <date>." (honest urgency
+                — the deadline is a fact, never manufactured scarcity)
+- cheapest:     "₹<now>L for a <type> in <city>. Cheapest live bank auction there now."
+
+QUALITY BAR (every draft must pass):
+1. Clarity  — one idea, reads in one pass.
+2. Prove It — the post MUST contain a concrete figure (a ₹ price or a date). The
+              number does the work; adjectives do not.
+3. So What  — answer "so what?" for a bidder (e.g. "₹38L" → "₹7L under its last listing").
+4. Voice    — lowercase, calm, no hype, no brochure cliches.
+Avoid AI slop: no "amazing/incredible/unlock/don't miss out". Let the noun and the
+number carry it.
+
 SITE SNAPSHOT: {stats.get("upcoming_auctions")} live auctions of {stats.get("total_auctions")} tracked (as of {stats.get("generated_at")}).
 
 CANDIDATE AUCTIONS (JSON):
 {json.dumps(candidates, ensure_ascii=False, indent=1)}
 
 TASK: pick the {max_drafts} most interesting candidates (prefer price_drop angles,
-then closing_soon, then cheapest; vary cities) and write one post draft each.
-A good draft has: a concrete hook (the number does the work), one idea, and
-honest framing ("reserve price", "bank auction", "ends <date>").
+then closing_soon, then cheapest; vary cities) and write one post draft each,
+using the hook library and passing the quality bar above.
 
 OUTPUT — ONLY valid JSON, no prose, no code fences:
 {{
@@ -220,6 +267,9 @@ def validate_drafts(drafts: list[dict], candidates: list[dict]) -> tuple[list[di
         if hits:
             rejected.append(f"{aid}: banned wording ({', '.join(hits)})")
             continue
+        if not HAS_FIGURE.search(post):
+            rejected.append(f"{aid}: no concrete figure (fails 'prove it')")
+            continue
         if len(post.split()) > MAX_POST_WORDS:
             rejected.append(f"{aid}: over {MAX_POST_WORDS} words")
             continue
@@ -243,7 +293,7 @@ def write_outputs(out_root: Path, stats: dict, drafts: list[dict],
         f"# Content review — {date.today().isoformat()}",
         "",
         f"{stats.get('upcoming_auctions')} live auctions (of {stats.get('total_auctions')} tracked). "
-        f"Data as of {stats.get('last_enriched')}.",
+        f"Data as of {stats.get('last_enriched') or stats.get('generated_at') or 'unknown'}.",
         "",
         "**Staged drafts only — nothing is published.** Review, tweak, and post "
         "manually or via your scheduler. Verify each fact against the linked notice.",
@@ -273,6 +323,69 @@ def write_outputs(out_root: Path, stats: dict, drafts: list[dict],
     return out_dir
 
 
+# ------------------------------------------------------------ pipeline steps
+#
+# The Poster runs as three swappable stages so the "brain" can be either
+# Claude Code on the founder's Max subscription (default in CI) or a direct
+# OpenRouter call (fallback):
+#
+#   --prepare              fetch data, write <work>/candidates.json + prompt.txt
+#   (an engine writes <work>/response.txt from prompt.txt)
+#   --generate             the OpenRouter engine: prompt.txt -> response.txt
+#   --finalize             parse + validate response.txt, stage the outputs
+#
+# Running with no stage flag does prepare -> generate -> finalize in-process
+# (the original single-shot OpenRouter behavior, handy locally).
+
+def step_prepare(work_dir: Path, max_drafts: int) -> int:
+    api_base = os.environ.get("API_BASE", API_BASE_DEFAULT)
+    stats, candidates = fetch_pool(api_base)
+    n_drops = sum(1 for c in candidates if c["angle"] == "price_drop")
+    print(f"pool: {len(candidates)} candidates ({n_drops} price drops) · "
+          f"{stats.get('upcoming_auctions')} live auctions")
+    if not candidates:
+        print("No live candidates — nothing to draft (is the data fresh?).")
+        return 1
+    work_dir.mkdir(parents=True, exist_ok=True)
+    (work_dir / "candidates.json").write_text(
+        json.dumps({"stats": stats, "candidates": candidates,
+                    "max_drafts": max_drafts}, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    (work_dir / "prompt.txt").write_text(
+        build_prompt(stats, candidates, max_drafts), encoding="utf-8")
+    print(f"prepared {work_dir}/candidates.json + prompt.txt")
+    return 0
+
+
+def step_generate(work_dir: Path) -> int:
+    """The OpenRouter engine (fallback). Claude-Max runs replace this stage
+    with Claude Code writing response.txt from prompt.txt directly."""
+    api_key = resolve_api_key()
+    if not api_key:
+        print("OPENROUTER_CHAT_API_KEY (or OPENROUTER_API_KEY) is required "
+              "for --generate.", file=sys.stderr)
+        return 2
+    prompt = (work_dir / "prompt.txt").read_text(encoding="utf-8")
+    model = os.environ.get("OPENROUTER_MODEL", MODEL_DEFAULT)
+    (work_dir / "response.txt").write_text(
+        call_llm(prompt, api_key, model), encoding="utf-8")
+    print(f"wrote {work_dir}/response.txt via OpenRouter ({model})")
+    return 0
+
+
+def step_finalize(work_dir: Path, response_path: Path | None = None) -> int:
+    data = json.loads((work_dir / "candidates.json").read_text(encoding="utf-8"))
+    raw = (response_path or work_dir / "response.txt").read_text(encoding="utf-8")
+    parsed = parse_llm_json(raw)
+    drafts, rejected = validate_drafts(parsed.get("drafts", []), data["candidates"])
+    out_root = Path(os.environ.get("POSTER_OUT_DIR", "marketing/outputs"))
+    out_dir = write_outputs(out_root, data["stats"], drafts, rejected,
+                            parsed.get("editor_notes", ""))
+    print(f"wrote {len(drafts)} drafts ({len(rejected)} rejected) → {out_dir}/")
+    return 0 if drafts else 1
+
+
 # -------------------------------------------------------------------- main
 
 def main(argv: list[str] | None = None) -> int:
@@ -280,12 +393,30 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--dry-run", action="store_true",
                         help="fetch + shape data and print a summary; no LLM call")
     parser.add_argument("--max-drafts", type=int, default=5)
+    parser.add_argument("--prepare", action="store_true",
+                        help="stage 1: fetch data, write candidates.json + prompt.txt")
+    parser.add_argument("--generate", action="store_true",
+                        help="stage 2 (OpenRouter engine): prompt.txt -> response.txt")
+    parser.add_argument("--finalize", action="store_true",
+                        help="stage 3: validate response.txt and stage the outputs")
+    parser.add_argument("--response", type=Path, default=None,
+                        help="path to the engine's response (default: <work>/response.txt)")
+    parser.add_argument("--work-dir", type=Path,
+                        default=Path(os.environ.get("POSTER_WORK_DIR", ".poster_work")))
     args = parser.parse_args(argv)
 
     if os.environ.get("AGENTS_ENABLED", "true").lower() == "false":
         print("AGENTS_ENABLED=false — kill switch on, exiting without doing anything.")
         return 0
 
+    if args.prepare:
+        return step_prepare(args.work_dir, args.max_drafts)
+    if args.generate:
+        return step_generate(args.work_dir)
+    if args.finalize:
+        return step_finalize(args.work_dir, args.response)
+
+    # No stage flag: original single-shot behavior (in-process, OpenRouter).
     api_base = os.environ.get("API_BASE", API_BASE_DEFAULT)
     stats, candidates = fetch_pool(api_base)
     n_drops = sum(1 for c in candidates if c["angle"] == "price_drop")
@@ -301,9 +432,10 @@ def main(argv: list[str] | None = None) -> int:
         print("dry run — stopping before the LLM call.")
         return 0
 
-    api_key = os.environ.get("OPENROUTER_API_KEY")
+    api_key = resolve_api_key()
     if not api_key:
-        print("OPENROUTER_API_KEY is required (or use --dry-run).", file=sys.stderr)
+        print("OPENROUTER_CHAT_API_KEY (or OPENROUTER_API_KEY) is required "
+              "(or use --dry-run).", file=sys.stderr)
         return 2
 
     model = os.environ.get("OPENROUTER_MODEL", MODEL_DEFAULT)

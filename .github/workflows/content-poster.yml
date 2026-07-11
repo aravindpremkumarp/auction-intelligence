@@ -4,6 +4,15 @@
 # refresh (scrape), so drafts always reflect fresh auctions. No cron — content
 # generated from stale data would advertise closed auctions.
 #
+# Two engines write the drafts (marketing_agents/poster.py runs as staged
+# steps: --prepare -> <engine writes response.txt> -> --finalize):
+#   * claude-max (DEFAULT) — Claude Code authenticated with the founder's
+#     Claude Max subscription via the CLAUDE_CODE_OAUTH_TOKEN secret
+#     (generated locally with `claude setup-token`, valid ~1 year).
+#     No per-token API cost.
+#   * openrouter — the API fallback (--generate), kept for when the Max
+#     token is unavailable or we want a specific model.
+#
 # Tier-1 guardrail: this DRAFTS and STAGES only. It commits drafts to
 # marketing/outputs/<date>/ and opens/refreshes a "content-review" issue.
 # It never posts to any social platform. A human reviews and publishes.
@@ -19,6 +28,14 @@ on:
         description: "How many drafts to generate"
         default: "5"
         required: false
+      engine:
+        description: "LLM engine"
+        type: choice
+        options:
+          - claude-max
+          - openrouter
+        default: claude-max
+        required: false
 
 concurrency:
   group: content-poster
@@ -30,11 +47,13 @@ permissions:
 
 env:
   API_BASE: https://auction-api-w68b.onrender.com
+  AGENTS_ENABLED: ${{ vars.AGENTS_ENABLED || 'true' }}
+  POSTER_WORK_DIR: .poster_work
 
 jobs:
   draft:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     if: ${{ vars.AGENTS_ENABLED != 'false' }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -43,14 +62,45 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Generate staged drafts
-        env:
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          OPENROUTER_MODEL: ${{ vars.POSTER_MODEL || 'deepseek/deepseek-v4-flash' }}
-          AGENTS_ENABLED: ${{ vars.AGENTS_ENABLED || 'true' }}
+      - name: Prepare (fetch data, build prompt)
         run: |
           pip install --quiet "httpx>=0.27,<1"
-          python -m marketing_agents.poster --max-drafts "${{ inputs.max_drafts }}"
+          python -m marketing_agents.poster --prepare --max-drafts "${{ inputs.max_drafts }}"
+
+      - name: Generate with Claude Code (Max subscription — default)
+        if: ${{ inputs.engine != 'openrouter' }}
+        env:
+          # 1-year OAuth token from `claude setup-token` (needs Pro/Max).
+          # Add as a repo secret: Settings → Secrets and variables → Actions.
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          if [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
+            echo "::error::CLAUDE_CODE_OAUTH_TOKEN secret is missing. Run 'claude setup-token' locally (Max plan), add the token as a repo secret, or re-run this workflow with engine=openrouter."
+            exit 1
+          fi
+          npm install -g @anthropic-ai/claude-code
+          claude -p "Read the file $POSTER_WORK_DIR/prompt.txt and follow its instructions exactly. Write ONLY the raw JSON output it asks for (no prose, no markdown, no code fences) to the file $POSTER_WORK_DIR/response.txt. Do not modify any other file." \
+            --allowedTools "Read,Write" \
+            --permission-mode acceptEdits
+          if [ ! -s "$POSTER_WORK_DIR/response.txt" ]; then
+            echo "::error::Claude Code did not write $POSTER_WORK_DIR/response.txt"
+            exit 1
+          fi
+
+      - name: Generate with OpenRouter (API fallback)
+        if: ${{ inputs.engine == 'openrouter' }}
+        env:
+          # OPENROUTER_CHAT_API_KEY is the valid key production chat bills
+          # against; the plain OPENROUTER_API_KEY secret is stale and 401s
+          # (same trap golden.yml documents). The module prefers the chat
+          # key and falls back to the legacy one.
+          OPENROUTER_CHAT_API_KEY: ${{ secrets.OPENROUTER_CHAT_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_MODEL: ${{ vars.POSTER_MODEL || 'deepseek/deepseek-v4-flash' }}
+        run: python -m marketing_agents.poster --generate
+
+      - name: Finalize (validate + stage drafts)
+        run: python -m marketing_agents.poster --finalize
 
       - name: Commit staged drafts
         id: commit
@@ -81,7 +131,7 @@ jobs:
             } catch {
               body = `New drafts staged in \`${path}\` (review file missing).`;
             }
-            body += `\n\n---\n_Staged by the content-poster workflow. Nothing is published automatically._`;
+            body += `\n\n---\n_Staged by the content-poster workflow (engine: ${{ inputs.engine || 'claude-max' }}). Nothing is published automatically._`;
             const title = `Content review — ${today}`;
             const { data: issues } = await github.rest.issues.listForRepo({
               ...context.repo, state: "open", labels: "content-review",
