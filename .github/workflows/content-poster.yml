@@ -45,6 +45,11 @@ jobs:
 
       - name: Generate staged drafts
         env:
+          # OPENROUTER_CHAT_API_KEY is the valid key production chat bills
+          # against; the plain OPENROUTER_API_KEY secret is stale and 401s
+          # (same trap golden.yml documents). The module prefers the chat
+          # key and falls back to the legacy one.
+          OPENROUTER_CHAT_API_KEY: ${{ secrets.OPENROUTER_CHAT_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           OPENROUTER_MODEL: ${{ vars.POSTER_MODEL || 'deepseek/deepseek-v4-flash' }}
           AGENTS_ENABLED: ${{ vars.AGENTS_ENABLED || 'true' }}

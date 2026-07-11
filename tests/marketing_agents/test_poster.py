@@ -11,6 +11,7 @@ from marketing_agents.poster import (
     MAX_POST_WORDS,
     build_prompt,
     parse_llm_json,
+    resolve_api_key,
     shape_candidates,
     validate_drafts,
 )
@@ -110,6 +111,22 @@ class TestParseLlmJson:
     def test_garbage_raises(self):
         with pytest.raises(ValueError):
             parse_llm_json("no json here at all")
+
+
+class TestResolveApiKey:
+    def test_prefers_chat_key(self):
+        env = {"OPENROUTER_CHAT_API_KEY": "chat", "OPENROUTER_API_KEY": "legacy"}
+        assert resolve_api_key(env) == "chat"
+
+    def test_falls_back_to_legacy_key(self):
+        assert resolve_api_key({"OPENROUTER_API_KEY": "legacy"}) == "legacy"
+
+    def test_empty_chat_key_falls_back(self):
+        env = {"OPENROUTER_CHAT_API_KEY": "", "OPENROUTER_API_KEY": "legacy"}
+        assert resolve_api_key(env) == "legacy"
+
+    def test_none_when_no_keys(self):
+        assert resolve_api_key({}) is None
 
 
 class TestPrompt:

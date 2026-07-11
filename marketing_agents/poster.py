@@ -8,11 +8,15 @@ Tier-1 only: this module DRAFTS and STAGES. It never publishes anywhere.
 Output lands in marketing/outputs/YYYY-MM-DD/ for human review.
 
 Env:
-    API_BASE            auction API base (default: production Render URL)
-    OPENROUTER_API_KEY  required unless --dry-run
-    OPENROUTER_MODEL    chat model (default: deepseek/deepseek-v4-flash)
-    AGENTS_ENABLED      kill switch — anything but "false" means enabled
-    POSTER_OUT_DIR      output root (default: marketing/outputs)
+    API_BASE                 auction API base (default: production Render URL)
+    OPENROUTER_CHAT_API_KEY  preferred key (the valid one production chat uses);
+                             falls back to OPENROUTER_API_KEY, matching
+                             api/main.py / pipeline/config.py. The plain
+                             OPENROUTER_API_KEY repo secret is stale (401) —
+                             see the comment in .github/workflows/golden.yml.
+    OPENROUTER_MODEL         chat model (default: deepseek/deepseek-v4-flash)
+    AGENTS_ENABLED           kill switch — anything but "false" means enabled
+    POSTER_OUT_DIR           output root (default: marketing/outputs)
 
 Usage:
     python -m marketing_agents.poster            # full run (needs API key)
@@ -114,6 +118,16 @@ def shape_candidates(closing: list[dict], drops: list[dict], cheapest: list[dict
     order = {"price_drop": 0, "closing_soon": 1, "cheapest": 2}
     ranked = sorted(pool.values(), key=lambda c: (order[c["angle"]], c["auction_start"] or ""))
     return ranked[:24]  # plenty for the model to choose from, small enough to ground
+
+
+def resolve_api_key(env: dict | None = None) -> str | None:
+    """Prefer the chat key production uses; fall back to the legacy key.
+
+    Mirrors api/main.py / pipeline/config.py. The plain OPENROUTER_API_KEY
+    repo secret is stale and 401s (documented in golden.yml).
+    """
+    env = env if env is not None else os.environ
+    return env.get("OPENROUTER_CHAT_API_KEY") or env.get("OPENROUTER_API_KEY")
 
 
 # ------------------------------------------------------------- prompt layer
@@ -301,9 +315,10 @@ def main(argv: list[str] | None = None) -> int:
         print("dry run — stopping before the LLM call.")
         return 0
 
-    api_key = os.environ.get("OPENROUTER_API_KEY")
+    api_key = resolve_api_key()
     if not api_key:
-        print("OPENROUTER_API_KEY is required (or use --dry-run).", file=sys.stderr)
+        print("OPENROUTER_CHAT_API_KEY (or OPENROUTER_API_KEY) is required "
+              "(or use --dry-run).", file=sys.stderr)
         return 2
 
     model = os.environ.get("OPENROUTER_MODEL", MODEL_DEFAULT)
