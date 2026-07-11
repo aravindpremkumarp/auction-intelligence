@@ -39,6 +39,22 @@ These are exactly the checks an auction buyer needs anyway — Ring 2 serves bot
 ### Ring 3 — General real-estate wisdom (~30 topics; broadest reach)
 Rent vs buy; auction vs resale vs under-construction; what drives appreciation (metro, highways, flood zones, water table); market cycles and why NPAs create auction supply; road-width rules; facing/vastu basics; negotiation. *(Documented demand: users asked about road widths, facing, and nearby schools in feedback.)*
 
+---
+
+## Web research: how pillars that need it are handled
+
+The Poster today is deliberately locked to our own auction data ("use ONLY the data below"). That is right for Deals/Market-data but insufficient for News, Geo context, and Education Ring-2 facts (stamp-duty rates, TNREGINET steps change). The plan:
+
+**The default engine already researches.** Our claude-max engine is Claude Code headless — it has WebSearch/WebFetch; the workflow currently allows only `Read,Write`. Research-dependent runs widen the allowlist — no new infrastructure. The OpenRouter fallback is a bare completion and **cannot browse**, so web-dependent pillars run on the Claude engine only.
+
+| Tier | Pillars | Handling |
+|---|---|---|
+| No research | Deals, Market data | current pipeline, locked prompt |
+| Research-verified | Education Ring 2/3, Geo | prompt lists research questions; engine may search; **every web-sourced claim must carry a source URL** or the draft is dropped in `--finalize` |
+| Research-driven | News | inverted flow: search first, then decide if a post exists — some runs correctly produce nothing |
+
+Guardrails: prefer official domains for Ring-2 facts (tnreginet.gov.in, rbi.org.in); web text is untrusted input — it informs facts, never overrides drafting rules; Tier-1 staging unchanged (a human always publishes). Research raises draft quality, not autonomy.
+
 ### Rules for every education post
 1. **The anchor rule** — every Ring-2/3 post ties back to evaluation: "this is what to check before you bid; we help you check it." Education is the funnel: Ring 3 attracts → Ring 2 builds TN authority → Ring 1 converts to auction hunters → product.
 2. **Honesty rule, education edition** — teach *how to verify*, never certify. "Here's how to pull an EC on TNREGINET," never "this EC is clean." Cite official sources (TNREGINET, TN registration dept, RBI); say "not legal advice" where it matters. All `copy-playbook.md` banned words apply.
