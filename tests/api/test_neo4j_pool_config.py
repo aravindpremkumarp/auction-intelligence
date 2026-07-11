@@ -112,3 +112,101 @@ def test_pinned_driver_accepts_the_pool_kwargs(client):
         "bolt://localhost:7687", auth=("u", "p"), **client._POOL_KWARGS
     )
     drv.close()
+
+
+# ── transient-error retry ────────────────────────────────────────────────────
+# The pool config (above) prevents most Aura idle-drops; the retry catches the
+# residual — a connection that dies between the liveness probe and the query,
+# or a routing-table refresh against a stale connection. Both surfaced in
+# production as SessionExpired / ServiceUnavailable that took down a whole
+# request. These tests assert the helper retries the transient classes on a
+# fresh session and gives up cleanly, and that the real query helpers are wired
+# to it.
+from contextlib import contextmanager  # noqa: E402
+
+import pytest  # noqa: E402  (already imported above; explicit for this block)
+from neo4j.exceptions import ServiceUnavailable, SessionExpired  # noqa: E402
+
+
+@pytest.fixture
+def fast_retry(client, monkeypatch):
+    """Zero out the backoff so retry tests don't sleep."""
+    monkeypatch.setattr(client, "NEO4J_RETRY_BASE_DELAY_S", 0.0, raising=False)
+    monkeypatch.setattr(client, "USE_HTTP_API", False, raising=False)
+    return client
+
+
+def test_retry_recovers_after_transient(fast_retry):
+    calls = {"n": 0}
+
+    def work():
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise SessionExpired("Failed to read from defunct connection")
+        return ["ok"]
+
+    assert fast_retry._run_with_retry(work, op="t") == ["ok"]
+    assert calls["n"] == 3  # 2 transient failures, then success
+
+
+def test_retry_gives_up_after_max(fast_retry, monkeypatch):
+    monkeypatch.setattr(fast_retry, "NEO4J_MAX_QUERY_RETRIES", 2, raising=False)
+    calls = {"n": 0}
+
+    def work():
+        calls["n"] += 1
+        raise ServiceUnavailable("Unable to retrieve routing information")
+
+    with pytest.raises(ServiceUnavailable):
+        fast_retry._run_with_retry(work, op="t")
+    assert calls["n"] == 3  # attempts = retries + 1
+
+
+def test_retry_does_not_swallow_non_transient(fast_retry):
+    calls = {"n": 0}
+
+    def work():
+        calls["n"] += 1
+        raise ValueError("real bug — must not be retried")
+
+    with pytest.raises(ValueError):
+        fast_retry._run_with_retry(work, op="t")
+    assert calls["n"] == 1  # non-transient errors fail fast
+
+
+def test_run_read_query_retries_transient_on_fresh_session(fast_retry, monkeypatch):
+    """End-to-end through the real run_read_query: the first session's run
+    raises SessionExpired, the retry opens a fresh session and succeeds. Proves
+    the helper is wired to the retry, not just the retry helper in isolation."""
+    state = {"n": 0}
+
+    class _Sess:
+        def run(self, *_a, **_k):
+            state["n"] += 1
+            if state["n"] == 1:
+                raise SessionExpired("Failed to read from defunct connection")
+            return [{"auction_id": "A1"}, {"auction_id": "A2"}]
+
+    @contextmanager
+    def fake_read_session():
+        yield _Sess()
+
+    monkeypatch.setattr(fast_retry, "read_session", fake_read_session)
+    out = fast_retry.run_read_query("MATCH (n) RETURN n", max_rows=10)
+    assert out == [{"auction_id": "A1"}, {"auction_id": "A2"}]
+    assert state["n"] == 2  # one failure, one success
+
+
+def test_run_read_query_respects_max_rows_cap(fast_retry, monkeypatch):
+    """The retry rewrite must preserve the row cap (fetch stops at max_rows)."""
+    class _Sess:
+        def run(self, *_a, **_k):
+            return [{"auction_id": f"A{i}"} for i in range(100)]
+
+    @contextmanager
+    def fake_read_session():
+        yield _Sess()
+
+    monkeypatch.setattr(fast_retry, "read_session", fake_read_session)
+    out = fast_retry.run_read_query("MATCH (n) RETURN n", max_rows=5)
+    assert len(out) == 5

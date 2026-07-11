@@ -153,6 +153,16 @@ NEO4J_MAX_CONNECTION_LIFETIME_S = float(
 NEO4J_CONNECTION_ACQUISITION_TIMEOUT_S = float(
     os.getenv("NEO4J_CONNECTION_ACQUISITION_TIMEOUT_S", "60")
 )
+# How many times to retry a query that fails with a transient Neo4j error
+# (SessionExpired / ServiceUnavailable / TransientError) before giving up. The
+# production failures fail at connection-acquisition time (an idle-dropped
+# connection detected on acquire, or a routing-table refresh against dead
+# connections), so nothing has executed yet and re-acquiring on a fresh
+# connection succeeds. Attempts total = retries + 1. Belt to the liveness-check
+# suspenders: the liveness probe prevents most drops, the retry catches the
+# residual race where a connection dies between the probe and the query.
+NEO4J_MAX_QUERY_RETRIES = int(os.getenv("NEO4J_MAX_QUERY_RETRIES", "2"))
+NEO4J_RETRY_BASE_DELAY_S = float(os.getenv("NEO4J_RETRY_BASE_DELAY_S", "0.2"))
 
 # ── Tuning ───────────────────────────────────────────────────────────────────
 BATCH_SIZE       = 10    # concurrent LLM calls
