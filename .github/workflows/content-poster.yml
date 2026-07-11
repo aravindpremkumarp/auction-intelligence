@@ -1,0 +1,97 @@
+# Content-ops Agent A — "The Poster" (spec: docs/marketing/content-agents.md).
+#
+# Manual-dispatch ONLY, by design: the founder runs this right after each data
+# refresh (scrape), so drafts always reflect fresh auctions. No cron — content
+# generated from stale data would advertise closed auctions.
+#
+# Tier-1 guardrail: this DRAFTS and STAGES only. It commits drafts to
+# marketing/outputs/<date>/ and opens/refreshes a "content-review" issue.
+# It never posts to any social platform. A human reviews and publishes.
+#
+# Kill switch: set the repo Actions variable AGENTS_ENABLED to "false"
+# (Settings → Secrets and variables → Actions → Variables) to disable.
+name: Content poster (draft + stage)
+
+on:
+  workflow_dispatch:
+    inputs:
+      max_drafts:
+        description: "How many drafts to generate"
+        default: "5"
+        required: false
+
+concurrency:
+  group: content-poster
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  issues: write
+
+env:
+  API_BASE: https://auction-api-w68b.onrender.com
+
+jobs:
+  draft:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: ${{ vars.AGENTS_ENABLED != 'false' }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5
+        with:
+          python-version: "3.11"
+
+      - name: Generate staged drafts
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_MODEL: ${{ vars.POSTER_MODEL || 'deepseek/deepseek-v4-flash' }}
+          AGENTS_ENABLED: ${{ vars.AGENTS_ENABLED || 'true' }}
+        run: |
+          pip install --quiet "httpx>=0.27,<1"
+          python -m marketing_agents.poster --max-drafts "${{ inputs.max_drafts }}"
+
+      - name: Commit staged drafts
+        id: commit
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add marketing/outputs
+          if git diff --cached --quiet; then
+            echo "No new drafts to commit."
+            echo "committed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git commit -m "Stage content drafts $(date -u +%F) [skip ci]"
+          git push
+          echo "committed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Open or refresh the content-review issue
+        if: steps.commit.outputs.committed == 'true'
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            const fs = require("fs");
+            const today = new Date().toISOString().slice(0, 10);
+            const path = `marketing/outputs/${today}/review.md`;
+            let body;
+            try {
+              body = fs.readFileSync(path, "utf8");
+            } catch {
+              body = `New drafts staged in \`${path}\` (review file missing).`;
+            }
+            body += `\n\n---\n_Staged by the content-poster workflow. Nothing is published automatically._`;
+            const title = `Content review — ${today}`;
+            const { data: issues } = await github.rest.issues.listForRepo({
+              ...context.repo, state: "open", labels: "content-review",
+            });
+            if (issues.length > 0) {
+              await github.rest.issues.createComment({
+                ...context.repo, issue_number: issues[0].number, body,
+              });
+            } else {
+              await github.rest.issues.create({
+                ...context.repo, title, body, labels: ["content-review"],
+              });
+            }
