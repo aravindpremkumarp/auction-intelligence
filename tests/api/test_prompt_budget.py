@@ -113,7 +113,18 @@ _SHARED_MD = _REPO_ROOT / "modes" / "_shared.md"
 # turns that never touch raw Cypher keep a smaller, stable cache prefix.
 # Measured ~13,460; ceiling ratcheted to 13,700 so the savings can't silently
 # creep back.
-BUDGET_CHARS = 13_700
+#
+# 2026-07 (broad-result nudge): +~790 for a _shared.md section telling the
+# model what to do when `total_count` exceeds the rows it was handed — the
+# too-MANY-results twin of the zero-result protocol. The model-facing `limit`
+# param was removed in the same change (the model kept scoping broad browses
+# and writing breakdowns from the sample with nothing telling the user); the
+# slice is now pinned server-side (_SEARCH_ROWS_TO_MODEL, 10 rows), and above
+# it the model nudges the user toward 2-3 concrete narrowing filters instead
+# of silently reasoning over a slice; at or under it, it reads the whole set.
+# Composing the nudge costs no extra tool calls by rule.
+# Measured ~14,263; ceiling 14,400.
+BUDGET_CHARS = 14_400
 
 
 def _agent_module() -> ast.Module:

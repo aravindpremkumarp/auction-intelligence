@@ -133,11 +133,16 @@ def panel_sync_ids(
       alone);
     - cited exactly matches what the turn already put up (same ids, same
       order) → redundant, skip;
-    - a SINGLE cited id that this turn's artifacts already display → skip,
-      so a "which is cheapest?" answer doesn't yank a browsing list down
-      to one card;
-    - otherwise (a subset, a re-ranking, or ids resurrected from trimmed
-      history) → sync.
+    - cited is a strict subset of what THIS turn's own search already put on
+      the panel → skip. The user asked for that search, so keep its full
+      match set instead of collapsing a broad browse ("show me properties in
+      X") down to the handful of ids the answer happened to name. That
+      collapse is what desynced the panel — which then rendered only the
+      cited rows, carrying no total_count — from the answer's total_count
+      (the "chat says 14, panel shows 6" bug). Subsumes the old
+      single-cited-id skip.
+    - otherwise (a re-ranking of the same set, or ids resurrected from a
+      PRIOR turn / trimmed history — where this turn ran no search) → sync.
     """
     known = known_auction_ids(all_tool_returns, panel_ids)
     cited = cited_ids(answer, known)
@@ -146,6 +151,13 @@ def panel_sync_ids(
     current = turn_panel_ids(turn_tool_returns)
     if cited == current:
         return []
-    if len(cited) == 1 and cited[0] in current:
+    # A fresh same-turn search already populated the panel with its full match
+    # set (via _ui_results). If the answer only re-cites a subset of those same
+    # rows — naming a few examples or the "top few" — narrowing to that subset
+    # would shrink the visible matches and drop the panel count below the
+    # answer's total_count. Keep the search result. A genuine re-ranking has
+    # the same id SET (not a strict subset), so it still syncs; a recap of a
+    # prior turn has an empty `current`, so it still syncs.
+    if current and set(cited) <= set(current) and len(cited) < len(current):
         return []
     return cited

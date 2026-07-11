@@ -103,6 +103,21 @@ def test_single_cited_id_already_shown_skips():
     assert panel_sync_ids("Cheapest is 2222.", turn, turn) == []
 
 
+def test_subset_of_same_turn_search_stays_whole():
+    """The reported 'chat says 14, panel shows 6' bug: a fresh broad search
+    this turn found many rows; the answer names only a few as example
+    listings (+ an outlier). Narrowing the panel to that handful would
+    collapse the browse and drop the panel count below the answer's
+    total_count — so keep the full search result (no sync)."""
+    turn = [_search_return([f"{100000 + i}" for i in range(10)])]
+    answer = (
+        "Found **14 properties** in Ambattur. Sample listings: "
+        "100000, 100001, 100002, 100003, 100004. "
+        "One outlier: 100005."
+    )
+    assert panel_sync_ids(answer, turn, turn) == []
+
+
 def test_reranking_same_ids_syncs():
     """Same ids, different order = a re-ranking the panel should mirror."""
     turn = [_search_return(["1111", "2222"])]
