@@ -13,6 +13,8 @@ from marketing_agents.poster import (
     parse_llm_json,
     resolve_api_key,
     shape_candidates,
+    step_finalize,
+    step_generate,
     validate_drafts,
 )
 
@@ -127,6 +129,68 @@ class TestResolveApiKey:
 
     def test_none_when_no_keys(self):
         assert resolve_api_key({}) is None
+
+
+class TestStagedPipeline:
+    """--prepare writes candidates.json + prompt.txt; an engine (Claude Code
+    on Max by default, OpenRouter via --generate) writes response.txt;
+    --finalize validates and stages. These cover the file round-trip."""
+
+    STATS = {"total_auctions": 2179, "upcoming_auctions": 616,
+             "generated_at": "now", "last_enriched": "today"}
+
+    def _work_dir(self, tmp_path, response_text):
+        work = tmp_path / "work"
+        work.mkdir()
+        cands = shape_candidates([_row("A1")], [], [])
+        (work / "candidates.json").write_text(json.dumps(
+            {"stats": self.STATS, "candidates": cands, "max_drafts": 5}),
+            encoding="utf-8")
+        (work / "response.txt").write_text(response_text, encoding="utf-8")
+        return work
+
+    def _response(self):
+        return json.dumps({"drafts": [{
+            "auction_id": "A1", "angle": "closing_soon",
+            "post": "reserve ₹40L, ends soon. auctionscope.in",
+            "hashtags": ["bankauction"], "needs_image": False,
+            "image_headline": ""}], "editor_notes": "ok"})
+
+    def test_finalize_stages_valid_response(self, tmp_path, monkeypatch):
+        work = self._work_dir(tmp_path, self._response())
+        monkeypatch.setenv("POSTER_OUT_DIR", str(tmp_path / "out"))
+        assert step_finalize(work) == 0
+        (out_dir,) = (tmp_path / "out").iterdir()
+        staged = json.loads((out_dir / "drafts.json").read_text())
+        assert staged["drafts"][0]["auction_id"] == "A1"
+        assert (out_dir / "review.md").exists()
+
+    def test_finalize_tolerates_fenced_engine_output(self, tmp_path, monkeypatch):
+        work = self._work_dir(tmp_path, f"```json\n{self._response()}\n```")
+        monkeypatch.setenv("POSTER_OUT_DIR", str(tmp_path / "out"))
+        assert step_finalize(work) == 0
+
+    def test_finalize_fails_when_all_drafts_rejected(self, tmp_path, monkeypatch):
+        bad = json.dumps({"drafts": [{"auction_id": "A1", "angle": "closing_soon",
+                                      "post": "Guaranteed title-clear deal!"}]})
+        work = self._work_dir(tmp_path, bad)
+        monkeypatch.setenv("POSTER_OUT_DIR", str(tmp_path / "out"))
+        assert step_finalize(work) == 1
+        (out_dir,) = (tmp_path / "out").iterdir()
+        staged = json.loads((out_dir / "drafts.json").read_text())
+        assert staged["drafts"] == [] and staged["rejected"]
+
+    def test_finalize_honors_explicit_response_path(self, tmp_path, monkeypatch):
+        work = self._work_dir(tmp_path, "not used")
+        alt = tmp_path / "claude-reply.txt"
+        alt.write_text(self._response(), encoding="utf-8")
+        monkeypatch.setenv("POSTER_OUT_DIR", str(tmp_path / "out"))
+        assert step_finalize(work, alt) == 0
+
+    def test_generate_without_any_key_fails_cleanly(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("OPENROUTER_CHAT_API_KEY", raising=False)
+        monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+        assert step_generate(tmp_path) == 2
 
 
 class TestPrompt:
