@@ -95,9 +95,23 @@ class TestValidateDrafts:
         assert not kept and "banned wording" in rejected[0]
 
     def test_over_length_post_rejected(self):
+        # Include a figure so it passes "Prove It" and reaches the length gate.
         kept, rejected = validate_drafts(
-            [self._draft(post="word " * (MAX_POST_WORDS + 1))], self.CANDS)
+            [self._draft(post="₹40L " + "word " * (MAX_POST_WORDS + 1))], self.CANDS)
         assert not kept and "words" in rejected[0]
+
+    def test_post_without_a_figure_rejected(self):
+        # "Prove It": no price/date/digit is weak copy — dropped.
+        kept, rejected = validate_drafts(
+            [self._draft(post="a plot in Chennai worth a look. auctionscope.in")],
+            self.CANDS)
+        assert not kept and "prove it" in rejected[0]
+
+    def test_post_with_a_figure_kept(self):
+        kept, _ = validate_drafts(
+            [self._draft(post="reserve ₹40L, ends 1 Aug. auctionscope.in")],
+            self.CANDS)
+        assert len(kept) == 1
 
 
 class TestParseLlmJson:
@@ -200,4 +214,6 @@ class TestPrompt:
                           "generated_at": "now", "last_enriched": "today"}, cands, 5)
         assert "A1" in p and "616" in p
         assert "due diligence" in p  # listed as banned
+        assert "HOOK LIBRARY" in p and "QUALITY BAR" in p  # playbook injected
+        assert "Prove It" in p  # the number-does-the-work gate is taught
         assert json.loads(json.dumps(cands))  # candidates serialize cleanly

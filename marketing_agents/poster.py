@@ -62,6 +62,11 @@ BANNED_PATTERNS = [
 
 MAX_POST_WORDS = 220
 
+# "Prove It" quality gate (docs/marketing/copy-playbook.md Part 3): the number
+# does the work, so a post with no concrete figure — a price, a date, a digit —
+# is weak copy and gets dropped. Matches any digit (₹40L, 15%, "1 Aug", "2024").
+HAS_FIGURE = re.compile(r"\d")
+
 
 # ---------------------------------------------------------------- data layer
 
@@ -176,15 +181,31 @@ HARD RULES:
 - English, under {MAX_POST_WORDS} words per post, no corporate cliches, no emoji spam
   (one emoji max). Each post ends with a soft pointer to auctionscope.in.
 
+HOOK LIBRARY (docs/marketing/copy-playbook.md) — the first line decides everything.
+Open with the auction's number, then pick the family that fits its angle:
+- price_drop:   "₹<prev>L → ₹<now>L. Same <city> <type>, <n>% lower reserve after
+                a failed auction." / "Reserve cut <n>% — re-auctions hide the deals."
+- closing_soon: "<city> <type>, reserve ₹<now>L. Bids close <date>." (honest urgency
+                — the deadline is a fact, never manufactured scarcity)
+- cheapest:     "₹<now>L for a <type> in <city>. Cheapest live bank auction there now."
+
+QUALITY BAR (every draft must pass):
+1. Clarity  — one idea, reads in one pass.
+2. Prove It — the post MUST contain a concrete figure (a ₹ price or a date). The
+              number does the work; adjectives do not.
+3. So What  — answer "so what?" for a bidder (e.g. "₹38L" → "₹7L under its last listing").
+4. Voice    — lowercase, calm, no hype, no brochure cliches.
+Avoid AI slop: no "amazing/incredible/unlock/don't miss out". Let the noun and the
+number carry it.
+
 SITE SNAPSHOT: {stats.get("upcoming_auctions")} live auctions of {stats.get("total_auctions")} tracked (as of {stats.get("generated_at")}).
 
 CANDIDATE AUCTIONS (JSON):
 {json.dumps(candidates, ensure_ascii=False, indent=1)}
 
 TASK: pick the {max_drafts} most interesting candidates (prefer price_drop angles,
-then closing_soon, then cheapest; vary cities) and write one post draft each.
-A good draft has: a concrete hook (the number does the work), one idea, and
-honest framing ("reserve price", "bank auction", "ends <date>").
+then closing_soon, then cheapest; vary cities) and write one post draft each,
+using the hook library and passing the quality bar above.
 
 OUTPUT — ONLY valid JSON, no prose, no code fences:
 {{
@@ -245,6 +266,9 @@ def validate_drafts(drafts: list[dict], candidates: list[dict]) -> tuple[list[di
         hits = [p.pattern for p in banned if p.search(post)]
         if hits:
             rejected.append(f"{aid}: banned wording ({', '.join(hits)})")
+            continue
+        if not HAS_FIGURE.search(post):
+            rejected.append(f"{aid}: no concrete figure (fails 'prove it')")
             continue
         if len(post.split()) > MAX_POST_WORDS:
             rejected.append(f"{aid}: over {MAX_POST_WORDS} words")
