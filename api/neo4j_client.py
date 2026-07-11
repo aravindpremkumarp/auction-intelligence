@@ -30,12 +30,27 @@ from neo4j import AsyncDriver, AsyncGraphDatabase, GraphDatabase, Driver, Query,
 from api.observability import SLOW_QUERY_MS, timed
 from pipeline.config import (
     NEO4J_URI, NEO4J_USERNAME, NEO4J_PASSWORD, NEO4J_DATABASE,
+    NEO4J_LIVENESS_CHECK_TIMEOUT_S, NEO4J_MAX_CONNECTION_LIFETIME_S,
+    NEO4J_CONNECTION_ACQUISITION_TIMEOUT_S,
 )
 
 _driver: Driver | None = None
 _async_driver: AsyncDriver | None = None
 
 USE_HTTP_API = os.getenv("NEO4J_HTTP_API", "").strip().lower() in {"1", "true", "yes"}
+
+# Pool config shared by the sync + async drivers. Keeps Aura's idle-dropped
+# connections from surfacing as SessionExpired (see pipeline/config.py):
+# liveness-probe any connection idle past the threshold before reuse, cap
+# total connection age, and bound how long a caller waits for a free slot.
+# keep_alive rides on top (TCP keepalives) but doesn't defend against a load
+# balancer that closes idle connections outright — the liveness check does.
+_POOL_KWARGS = {
+    "liveness_check_timeout": NEO4J_LIVENESS_CHECK_TIMEOUT_S,
+    "max_connection_lifetime": NEO4J_MAX_CONNECTION_LIFETIME_S,
+    "connection_acquisition_timeout": NEO4J_CONNECTION_ACQUISITION_TIMEOUT_S,
+    "keep_alive": True,
+}
 
 
 def _http_query_url() -> str:
@@ -79,7 +94,7 @@ def get_driver() -> Driver:
     global _driver
     if _driver is None:
         _driver = GraphDatabase.driver(
-            NEO4J_URI, auth=(NEO4J_USERNAME, NEO4J_PASSWORD)
+            NEO4J_URI, auth=(NEO4J_USERNAME, NEO4J_PASSWORD), **_POOL_KWARGS
         )
     return _driver
 
@@ -88,7 +103,7 @@ def get_async_driver() -> AsyncDriver:
     global _async_driver
     if _async_driver is None:
         _async_driver = AsyncGraphDatabase.driver(
-            NEO4J_URI, auth=(NEO4J_USERNAME, NEO4J_PASSWORD)
+            NEO4J_URI, auth=(NEO4J_USERNAME, NEO4J_PASSWORD), **_POOL_KWARGS
         )
     return _async_driver
 
