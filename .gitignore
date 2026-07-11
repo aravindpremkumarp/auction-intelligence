@@ -57,3 +57,7 @@ node_modules/
 
 # Poster agent staged-run scratch dir (marketing_agents/poster.py)
 .poster_work/
+
+# HyperFrames video-production workspace (local: node_modules + renders;
+# production templates get promoted into tracked dirs when ready)
+videos/
