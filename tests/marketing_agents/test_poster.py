@@ -150,8 +150,9 @@ class TestStagedPipeline:
     on Max by default, OpenRouter via --generate) writes response.txt;
     --finalize validates and stages. These cover the file round-trip."""
 
+    # last_enriched is null in production /stats — exercise the generated_at fallback.
     STATS = {"total_auctions": 2179, "upcoming_auctions": 616,
-             "generated_at": "now", "last_enriched": "today"}
+             "generated_at": "now", "last_enriched": None}
 
     def _work_dir(self, tmp_path, response_text):
         work = tmp_path / "work"
@@ -177,7 +178,9 @@ class TestStagedPipeline:
         (out_dir,) = (tmp_path / "out").iterdir()
         staged = json.loads((out_dir / "drafts.json").read_text())
         assert staged["drafts"][0]["auction_id"] == "A1"
-        assert (out_dir / "review.md").exists()
+        review = (out_dir / "review.md").read_text()
+        # last_enriched can be null from the API; fall back to generated_at.
+        assert "Data as of now" in review and "None" not in review
 
     def test_finalize_tolerates_fenced_engine_output(self, tmp_path, monkeypatch):
         work = self._work_dir(tmp_path, f"```json\n{self._response()}\n```")

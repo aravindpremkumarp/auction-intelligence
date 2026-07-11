@@ -293,7 +293,7 @@ def write_outputs(out_root: Path, stats: dict, drafts: list[dict],
         f"# Content review — {date.today().isoformat()}",
         "",
         f"{stats.get('upcoming_auctions')} live auctions (of {stats.get('total_auctions')} tracked). "
-        f"Data as of {stats.get('last_enriched')}.",
+        f"Data as of {stats.get('last_enriched') or stats.get('generated_at') or 'unknown'}.",
         "",
         "**Staged drafts only — nothing is published.** Review, tweak, and post "
         "manually or via your scheduler. Verify each fact against the linked notice.",
