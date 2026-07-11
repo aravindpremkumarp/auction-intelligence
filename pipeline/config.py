@@ -130,6 +130,40 @@ NEO4J_URI = os.getenv("NEO4J_URI") or (
     f"neo4j+s://{NEO4J_USERNAME}.databases.neo4j.io" if NEO4J_USERNAME else ""
 )
 
+# ── Neo4j connection-pool tuning ─────────────────────────────────────────────
+# Aura (and its load balancer) silently close Bolt connections that have been
+# idle for a few minutes. The driver's defaults — liveness_check_timeout=None
+# (idle pooled connections are never probed before reuse) and
+# max_connection_lifetime=3600s — mean the first request after an idle gap can
+# hand a query a dead connection and raise
+# SessionExpired("Failed to read from defunct connection"). On this deploy the
+# 5s /health pings don't touch Neo4j, so real requests are sparse and the pool
+# sits idle between them. A liveness probe on idle connections plus a shorter
+# max lifetime make the pool self-heal instead of surfacing the drop as a 500
+# (auth/me) or "chat agent failed" (the agent's Neo4j tool calls).
+# LIVENESS is the primary knob: any connection idle longer than it is RESET-
+# probed before reuse and discarded if dead; MAX_LIFETIME bounds total age as
+# defense in depth. Both are seconds; env-tunable without a redeploy.
+NEO4J_LIVENESS_CHECK_TIMEOUT_S = float(
+    os.getenv("NEO4J_LIVENESS_CHECK_TIMEOUT_S", "30")
+)
+NEO4J_MAX_CONNECTION_LIFETIME_S = float(
+    os.getenv("NEO4J_MAX_CONNECTION_LIFETIME_S", "600")
+)
+NEO4J_CONNECTION_ACQUISITION_TIMEOUT_S = float(
+    os.getenv("NEO4J_CONNECTION_ACQUISITION_TIMEOUT_S", "60")
+)
+# How many times to retry a query that fails with a transient Neo4j error
+# (SessionExpired / ServiceUnavailable / TransientError) before giving up. The
+# production failures fail at connection-acquisition time (an idle-dropped
+# connection detected on acquire, or a routing-table refresh against dead
+# connections), so nothing has executed yet and re-acquiring on a fresh
+# connection succeeds. Attempts total = retries + 1. Belt to the liveness-check
+# suspenders: the liveness probe prevents most drops, the retry catches the
+# residual race where a connection dies between the probe and the query.
+NEO4J_MAX_QUERY_RETRIES = int(os.getenv("NEO4J_MAX_QUERY_RETRIES", "2"))
+NEO4J_RETRY_BASE_DELAY_S = float(os.getenv("NEO4J_RETRY_BASE_DELAY_S", "0.2"))
+
 # ── Tuning ───────────────────────────────────────────────────────────────────
 BATCH_SIZE       = 10    # concurrent LLM calls
 MAX_RETRIES      = 3

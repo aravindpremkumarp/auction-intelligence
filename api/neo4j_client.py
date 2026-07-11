@@ -21,21 +21,101 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import logging
 import os
+import time
 import urllib.request
 from contextlib import contextmanager
 
 from neo4j import AsyncDriver, AsyncGraphDatabase, GraphDatabase, Driver, Query, READ_ACCESS
+from neo4j.exceptions import ServiceUnavailable, SessionExpired, TransientError
 
 from api.observability import SLOW_QUERY_MS, timed
 from pipeline.config import (
     NEO4J_URI, NEO4J_USERNAME, NEO4J_PASSWORD, NEO4J_DATABASE,
+    NEO4J_LIVENESS_CHECK_TIMEOUT_S, NEO4J_MAX_CONNECTION_LIFETIME_S,
+    NEO4J_CONNECTION_ACQUISITION_TIMEOUT_S,
+    NEO4J_MAX_QUERY_RETRIES, NEO4J_RETRY_BASE_DELAY_S,
 )
+
+logger = logging.getLogger("api.neo4j_client")
 
 _driver: Driver | None = None
 _async_driver: AsyncDriver | None = None
 
 USE_HTTP_API = os.getenv("NEO4J_HTTP_API", "").strip().lower() in {"1", "true", "yes"}
+
+# Pool config shared by the sync + async drivers. Keeps Aura's idle-dropped
+# connections from surfacing as SessionExpired (see pipeline/config.py):
+# liveness-probe any connection idle past the threshold before reuse, cap
+# total connection age, and bound how long a caller waits for a free slot.
+# keep_alive rides on top (TCP keepalives) but doesn't defend against a load
+# balancer that closes idle connections outright — the liveness check does.
+_POOL_KWARGS = {
+    "liveness_check_timeout": NEO4J_LIVENESS_CHECK_TIMEOUT_S,
+    "max_connection_lifetime": NEO4J_MAX_CONNECTION_LIFETIME_S,
+    "connection_acquisition_timeout": NEO4J_CONNECTION_ACQUISITION_TIMEOUT_S,
+    "keep_alive": True,
+}
+
+# Transient Neo4j faults worth retrying on a fresh connection. In production
+# these fail at connection-acquisition time — SessionExpired("defunct
+# connection") when the pool hands out a connection Aura already dropped, and
+# ServiceUnavailable("Unable to retrieve routing information") when the driver
+# can't refresh its routing table against dead cached connections — so nothing
+# has executed yet and re-running the unit of work is safe. TransientError
+# covers the driver's general retryable class (deadlock, leader switch). Each
+# retry opens a new session, i.e. re-acquires from the pool; combined with the
+# liveness probe it lands on a validated connection instead of the dead one.
+# (Writes are re-run, so a mid-commit drop could in theory apply twice — the
+# same at-least-once caveat the driver's own execute_write carries. The app's
+# writes are MERGE/SET upserts, and the observed faults are pre-execution, so
+# in practice this is safe.)
+_RETRYABLE_NEO4J = (ServiceUnavailable, SessionExpired, TransientError)
+
+
+def _retry_delay(attempt: int) -> float:
+    """Exponential backoff for retry N (1-based): base, 2·base, 4·base…"""
+    return NEO4J_RETRY_BASE_DELAY_S * (2 ** (attempt - 1))
+
+
+def _run_with_retry(work, *, op: str):
+    """Run `work()` (a no-arg callable that opens its own session), retrying on
+    transient Neo4j faults with a fresh session each time. Non-transient errors
+    propagate immediately. Retries are logged at WARNING so an auto-recovered
+    blip is visible without tripping the obs status=error line."""
+    attempt = 0
+    while True:
+        try:
+            return work()
+        except _RETRYABLE_NEO4J as exc:
+            attempt += 1
+            if attempt > NEO4J_MAX_QUERY_RETRIES:
+                raise
+            delay = _retry_delay(attempt)
+            logger.warning(
+                "%s transient error (attempt %d/%d), retrying in %.2fs: %r",
+                op, attempt, NEO4J_MAX_QUERY_RETRIES, delay, exc,
+            )
+            time.sleep(delay)
+
+
+async def _run_with_retry_async(work, *, op: str):
+    """Async twin of `_run_with_retry`; `work` is an async no-arg callable."""
+    attempt = 0
+    while True:
+        try:
+            return await work()
+        except _RETRYABLE_NEO4J as exc:
+            attempt += 1
+            if attempt > NEO4J_MAX_QUERY_RETRIES:
+                raise
+            delay = _retry_delay(attempt)
+            logger.warning(
+                "%s transient error (attempt %d/%d), retrying in %.2fs: %r",
+                op, attempt, NEO4J_MAX_QUERY_RETRIES, delay, exc,
+            )
+            await asyncio.sleep(delay)
 
 
 def _http_query_url() -> str:
@@ -79,7 +159,7 @@ def get_driver() -> Driver:
     global _driver
     if _driver is None:
         _driver = GraphDatabase.driver(
-            NEO4J_URI, auth=(NEO4J_USERNAME, NEO4J_PASSWORD)
+            NEO4J_URI, auth=(NEO4J_USERNAME, NEO4J_PASSWORD), **_POOL_KWARGS
         )
     return _driver
 
@@ -88,7 +168,7 @@ def get_async_driver() -> AsyncDriver:
     global _async_driver
     if _async_driver is None:
         _async_driver = AsyncGraphDatabase.driver(
-            NEO4J_URI, auth=(NEO4J_USERNAME, NEO4J_PASSWORD)
+            NEO4J_URI, auth=(NEO4J_USERNAME, NEO4J_PASSWORD), **_POOL_KWARGS
         )
     return _async_driver
 
@@ -114,9 +194,11 @@ def run_query(cypher: str, params: dict | None = None) -> list[dict]:
         if USE_HTTP_API:
             rows = _http_run(cypher, params, access_mode="WRITE", timeout=120.0)
         else:
-            with session() as s:
-                result = s.run(cypher, params or {})
-                rows = [dict(r) for r in result]
+            def _work() -> list[dict]:
+                with session() as s:
+                    result = s.run(cypher, params or {})
+                    return [dict(r) for r in result]
+            rows = _run_with_retry(_work, op="neo4j.run_query")
         t["rows"] = len(rows)
         return rows
 
@@ -142,13 +224,16 @@ def run_read_query(
             out = _http_run(cypher, params, access_mode="READ",
                             timeout=max(timeout, 30.0))[:max_rows]
         else:
-            with read_session() as s:
-                result = s.run(Query(cypher, timeout=timeout), params or {})
-                out = []
-                for i, r in enumerate(result):
-                    if i >= max_rows:
-                        break
-                    out.append(dict(r))
+            def _work() -> list[dict]:
+                with read_session() as s:
+                    result = s.run(Query(cypher, timeout=timeout), params or {})
+                    rows: list[dict] = []
+                    for i, r in enumerate(result):
+                        if i >= max_rows:
+                            break
+                        rows.append(dict(r))
+                    return rows
+            out = _run_with_retry(_work, op="neo4j.run_read_query")
         t["rows"] = len(out)
         return out
 
@@ -162,10 +247,12 @@ async def run_query_async(cypher: str, params: dict | None = None) -> list[dict]
                 _http_run, cypher, params, "WRITE", 120.0
             )
         else:
-            drv = get_async_driver()
-            async with drv.session(database=NEO4J_DATABASE) as s:
-                result = await s.run(cypher, params or {})
-                rows = [dict(r) async for r in result]
+            async def _work() -> list[dict]:
+                drv = get_async_driver()
+                async with drv.session(database=NEO4J_DATABASE) as s:
+                    result = await s.run(cypher, params or {})
+                    return [dict(r) async for r in result]
+            rows = await _run_with_retry_async(_work, op="neo4j.run_query")
         t["rows"] = len(rows)
         return rows
 
@@ -185,15 +272,18 @@ async def run_read_query_async(
             )
             out = rows[:max_rows]
         else:
-            drv = get_async_driver()
-            async with drv.session(
-                database=NEO4J_DATABASE, default_access_mode=READ_ACCESS
-            ) as s:
-                result = await s.run(Query(cypher, timeout=timeout), params or {})
-                out = []
-                async for r in result:
-                    if len(out) >= max_rows:
-                        break
-                    out.append(dict(r))
+            async def _work() -> list[dict]:
+                drv = get_async_driver()
+                async with drv.session(
+                    database=NEO4J_DATABASE, default_access_mode=READ_ACCESS
+                ) as s:
+                    result = await s.run(Query(cypher, timeout=timeout), params or {})
+                    rows: list[dict] = []
+                    async for r in result:
+                        if len(rows) >= max_rows:
+                            break
+                        rows.append(dict(r))
+                    return rows
+            out = await _run_with_retry_async(_work, op="neo4j.run_read_query")
         t["rows"] = len(out)
         return out
