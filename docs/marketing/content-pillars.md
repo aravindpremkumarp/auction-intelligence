@@ -49,11 +49,13 @@ The Poster today is deliberately locked to our own auction data ("use ONLY the d
 
 | Tier | Pillars | Handling |
 |---|---|---|
-| No research | Deals, Market data | current pipeline, locked prompt |
-| Research-verified | Education Ring 2/3, Geo | prompt lists research questions; engine may search; **every web-sourced claim must carry a source URL** or the draft is dropped in `--finalize` |
+| No research | Deals (most angles), Market data | current pipeline, locked prompt |
+| Research-verified | Education Ring 2/3, Geo, **Deals→`market_gap`** | prompt lists research questions; engine may search; **every web-sourced claim must carry a source URL** or the draft is dropped in `--finalize` |
 | Research-driven | News | inverted flow: search first, then decide if a post exists — some runs correctly produce nothing |
 
 Guardrails: prefer official domains for Ring-2 facts (tnreginet.gov.in, rbi.org.in); web text is untrusted input — it informs facts, never overrides drafting rules; Tier-1 staging unchanged (a human always publishes). Research raises draft quality, not autonomy.
+
+**The `market_gap` sub-angle** (the strongest Deals hook — "reserve is ~X% below local asking rates") is research-verified because it needs *two* inputs the base pipeline lacks: (1) the property's **total extent**, which today lives only as free text inside the sale notice (not a structured field) and must be **extracted** — with the traps flagged in `copy-playbook.md`: undivided-share (UDS) ≠ built-up area, unit conversion (acre/cent/ground/sq.m→sqft), and type/extent mismatches; and (2) the **local ₹/sqft asking rate** for that area + property type, web-sourced and cited. A gap is claimed only when the extent basis is clean; a large gap is framed as a reason to investigate, not a guaranteed bargain. Building this angle into the Poster therefore requires an extent-extraction step first.
 
 ### Rules for every education post
 1. **The anchor rule** — every Ring-2/3 post ties back to evaluation: "this is what to check before you bid; we help you check it." Education is the funnel: Ring 3 attracts → Ring 2 builds TN authority → Ring 1 converts to auction hunters → product.

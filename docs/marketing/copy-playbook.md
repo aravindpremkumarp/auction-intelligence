@@ -38,6 +38,19 @@ The number leads, full stop.
 - `Lowest reserve in {city} this week: ₹{now}L. {type}, ends {date}.`
 - `{type} in {city}, reserve ₹{now}L. Here's what the sale notice says.`
 
+### Market-gap hooks (angle: `market_gap` — reserve ₹/sqft vs local asking rate)
+The single most attractive fact about an auction is that the reserve can sit **below local market rates**. But this is the biggest honesty trap in the whole playbook: it is a **claim only when computed**, never asserted. The reserve alone proves nothing — banks sometimes set reserves *above* what buyers will pay (that's *why* re-auctions exist). So we compute the gap on a per-sqft basis, then hook on the real number.
+- `₹{auction_rate}/sqft reserve. {area} {type}s list at ₹{mkt_low}–{mkt_high}/sqft. that's ~{gap}% under — and a gap that size is worth understanding before you bid.`
+- `This {area} {type}'s reserve works out to ₹{auction_rate}/sqft against a neighbourhood asking ~₹{mkt_mid}. big gaps are a reason to investigate, not to assume.`
+- `{gap}% below {area} asking rates, on paper. we show you the paper — and what the notice doesn't.`
+
+> **How the gap is computed (and when we do NOT claim one).**
+> `auction ₹/sqft = reserve_price ÷ total_extent` (extent from the notice). `market ₹/sqft = current listed asking rate for that area + property type` (web research, cited). `gap% = (market − auction) ÷ market`. Segment correctly: an Ambattur *flat* rate ≠ an Ambattur *land* rate.
+>
+> **Drop the gap (use another angle) when:** the extent is an **undivided share (UDS)**, not built-up/land area; the unit is ambiguous or unconverted (acre / cent / ground / sq.m must normalise to sqft); the property **type disagrees with the described asset** (a "flat" described as vacant land); or the market rate rests on a single stale listing.
+>
+> **Frame honestly, always:** say **"listed asking rates"** (portals show asking, not transacted prices), give a **range not a point**, and add **"approximate — verify extent, condition, and possession."** A *large* gap (say >40%) is a **reason to investigate** (possession type, UDS, encumbrances, litigation), not a guaranteed bargain — say so. This angle needs the **research-verified tier** (`content-pillars.md`): the market rate is web-sourced and must carry a source.
+
 ### Evaluation hooks (the hero feature — use for education/awareness posts)
 This is what actually makes AuctionScope different: ask the property anything, answered with web research. Don't sell the auction, sell the *checking*.
 - `Before you bid on a {city} plot: is there groundwater? does it flood? any metro coming? we check all three.`
