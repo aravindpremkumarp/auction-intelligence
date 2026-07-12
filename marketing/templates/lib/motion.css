@@ -1,0 +1,142 @@
+/* Auctionscope social motion kit — CSS recipes.
+ *
+ * Adapted from motion-anything (github.com/nexu-io/motion-anything, Apache-2.0)
+ * recipes: kinetic-headline, stagger-list, shine-border, attention-pulse,
+ * shiny-text. Re-tokened to the Auctionscope palette (web/styles.css) and
+ * trimmed to what the social templates use. See marketing/templates/ATTRIBUTION.md.
+ *
+ * Every effect is transform/opacity-only and reduced-motion safe. In render
+ * contexts (Playwright PNG) the render script waits for [data-render-ready],
+ * so mid-animation states never ship.
+ */
+
+/* ── kinetic-headline: words/letters stagger in ─────────────────────────── */
+[data-kinetic] { display: inline-block; }
+[data-kinetic] .k-unit {
+  display: inline-block;
+  opacity: 0;
+  transition: opacity 520ms cubic-bezier(0.16, 1, 0.3, 1),
+              transform 520ms cubic-bezier(0.16, 1, 0.3, 1);
+  transition-delay: var(--k-delay, 0ms);
+  will-change: opacity, transform;
+}
+[data-kinetic].is-in .k-unit { opacity: 1; transform: none; }
+[data-kinetic] .k-space { display: inline-block; width: 0.28em; }
+.k-anim-rise .k-unit { transform: translateY(0.5em); }
+.k-anim-pop  .k-unit { transform: scale(0.4);
+  transition-timing-function: cubic-bezier(0.34, 1.56, 0.64, 1); }
+
+/* ── stagger-list: direct children rise + fade in, staggered ────────────── */
+[data-stagger] > * {
+  opacity: 0;
+  transform: translateY(12px);
+  transition: opacity 440ms cubic-bezier(0.16, 1, 0.3, 1),
+              transform 440ms cubic-bezier(0.16, 1, 0.3, 1);
+  transition-delay: var(--st-delay, 0ms);
+  will-change: opacity, transform;
+}
+[data-stagger].is-in > * { opacity: 1; transform: none; }
+
+/* ── shine-border: light travels the card border (accent-tinted) ────────── */
+@property --shine-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+.shine {
+  --shine-angle: 0deg;
+  --shine-width: 2px;
+  --shine-color: var(--accent, #0052ff);
+  position: relative;
+  isolation: isolate;
+}
+.shine::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  padding: var(--shine-width);
+  background: conic-gradient(
+    from var(--shine-angle),
+    transparent 0%,
+    var(--shine-color) 12%,
+    transparent 28%,
+    transparent 100%
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  animation: shine-spin 4s linear infinite;
+}
+@keyframes shine-spin { to { --shine-angle: 360deg; } }
+
+/* ── attention-pulse: expanding ring for ONE urgent element ─────────────── */
+[data-pulse] { position: relative; }
+[data-pulse]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  border: 2px solid var(--pulse-color, var(--danger, #c81e1e));
+  opacity: 0;
+  transform: scale(1);
+  animation: as-pulse 2s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+@keyframes as-pulse {
+  0%   { opacity: 0.5; transform: scale(1); }
+  70%  { opacity: 0;   transform: scale(1.35); }
+  100% { opacity: 0;   transform: scale(1.35); }
+}
+
+/* ── shiny-text: shimmer sweep for eyebrow labels ───────────────────────── */
+.shiny-text {
+  background: linear-gradient(120deg,
+    currentColor 40%, rgba(255,255,255,0.85) 50%, currentColor 60%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: as-shine-sweep 2.6s linear infinite;
+}
+@keyframes as-shine-sweep {
+  from { background-position: 150% 0; }
+  to   { background-position: -50% 0; }
+}
+
+/* ── badge-pop: spring pop-in for badges/chips ──────────────────────────── */
+.badge-pop {
+  animation: as-badge-pop 480ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  animation-delay: var(--pop-delay, 200ms);
+}
+@keyframes as-badge-pop {
+  from { opacity: 0; transform: scale(0.4); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+/* Static-render freeze: once the page flags readiness for screenshotting,
+   park the looping effects in a clean resting state so a PNG never catches
+   a mid-sweep frame (washed-out text, stray border highlight). */
+html[data-render-ready] .shiny-text {
+  animation: none;
+  -webkit-text-fill-color: currentColor;
+  background: none;
+}
+html[data-render-ready] .shine::before { display: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  [data-kinetic] .k-unit, [data-stagger] > * {
+    opacity: 1 !important; transform: none !important; transition: none;
+  }
+  .shine::before, [data-pulse]::after { animation: none; }
+  [data-pulse]::after { display: none; }
+  .shiny-text {
+    animation: none;
+    -webkit-text-fill-color: currentColor;
+    background: none;
+  }
+  .badge-pop { animation: none; opacity: 1; }
+}
