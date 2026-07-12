@@ -45,11 +45,18 @@ The single most attractive fact about an auction is that the reserve can sit **b
 - `{gap}% below {area} asking rates, on paper. we show you the paper — and what the notice doesn't.`
 
 > **How the gap is computed (and when we do NOT claim one).**
-> `auction ₹/sqft = reserve_price ÷ total_extent` (extent from the notice). `market ₹/sqft = current listed asking rate for that area + property type` (web research, cited). `gap% = (market − auction) ÷ market`. Segment correctly: an Ambattur *flat* rate ≠ an Ambattur *land* rate.
 >
-> **Drop the gap (use another angle) when:** the extent is an **undivided share (UDS)**, not built-up/land area; the unit is ambiguous or unconverted (acre / cent / ground / sq.m must normalise to sqft); the property **type disagrees with the described asset** (a "flat" described as vacant land); or the market rate rests on a single stale listing.
+> **The denominator depends on property type — this is the crux.** A flat has *two* areas and they are not interchangeable:
+> - **Flat / apartment:** divide by the **built-up area** (or super-built-up, matching what the market quote uses) — **never the UDS**. A flat notice states *both*, e.g. *"built-up area 671 sq.ft … undivided share of the land admeasuring 393 sq.ft."* Market ₹/sqft for flats is quoted on built-up, so the denominator is **671, not 393**. Using the UDS here inflated one real case (`811123`, reserve ₹25.5L) from a true **₹3,800/sqft** to a false **₹6,489/sqft** — which would have hidden a genuine gap. Capture the UDS separately for context, but never divide by it. If a flat notice gives *only* UDS (no built-up), the built-up rate isn't computable → drop the gap.
+> - **Land / plot / land & building:** divide by the **land extent** directly.
 >
-> **Frame honestly, always:** say **"listed asking rates"** (portals show asking, not transacted prices), give a **range not a point**, and add **"approximate — verify extent, condition, and possession."** A *large* gap (say >40%) is a **reason to investigate** (possession type, UDS, encumbrances, litigation), not a guaranteed bargain — say so. This angle needs the **research-verified tier** (`content-pillars.md`): the market rate is web-sourced and must carry a source.
+> Then: `auction ₹/sqft = reserve ÷ (the right extent for the type)`. `market ₹/sqft = current listed asking rate for that area + property type` (web research, cited). `gap% = (market − auction) ÷ market`. Segment correctly: an Ambattur *flat* rate ≠ an Ambattur *land* rate.
+>
+> **Also drop the gap when:** the unit is ambiguous or unconverted (acre / cent / ground / sq.m must normalise to sqft); the property **type disagrees with the described asset** (a "flat" described as vacant land); or the market rate rests on a single stale listing.
+>
+> **Basis caveat:** portals often quote **super-built-up**, notices often give **built-up** or **carpet** — these differ ~10–30%, so treat every gap as approximate and never over-precise.
+>
+> **Frame honestly, always:** say **"listed asking rates"** (portals show asking, not transacted prices), give a **range not a point**, and add **"approximate — verify extent, condition, and possession."** Capture and surface **possession type** (symbolic vs physical) — a symbolic-possession flat with a big gap is the textbook "ask why." A *large* gap (say >40%) is a **reason to investigate** (possession, UDS-only sale, encumbrances, litigation), not a guaranteed bargain — say so. This angle needs the **research-verified tier** (`content-pillars.md`): the market rate is web-sourced and must carry a source.
 
 ### Evaluation hooks (the hero feature — use for education/awareness posts)
 This is what actually makes AuctionScope different: ask the property anything, answered with web research. Don't sell the auction, sell the *checking*.
