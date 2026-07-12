@@ -287,10 +287,11 @@ def inject_panel_selection(ctx: RunContext[ChatDeps]) -> str:
         '"the ones above", or similar WITHOUT naming auction_ids, resolve the '
         "reference to this list. To re-rank or show a subset in the panel, "
         "just cite the chosen auction_ids in your answer, best-first — the "
-        "panel follows your citations automatically. Comparison handles "
-        "2-5 at a time: if the user asks to compare more of them than that, do "
-        "NOT refuse — ask which 2-5 they want (or offer the top 5) and compare "
-        "those."
+        "panel follows your citations automatically. Deep side-by-side "
+        "comparison works best for 2-5. For more than that, do NOT refuse or "
+        "make the user pick a subset first — give a compact comparison TABLE "
+        "with one row per property (auction_id, price, area, deadline, type), "
+        "then offer to go deeper on any 2-5 they choose."
     )
 
 
@@ -371,8 +372,11 @@ def search_auctions(
     shows every match regardless — never re-call to "see more"). Use
     `total_count` for "how many", never `len(results)`. Future-only by
     default; pass `include_past=True` only for retrospective questions. A
-    zero-match result may carry `past_matches` + `hint` — follow the hint
-    instead of retrying filter variations.
+    zero-match result may carry `past_matches`, a `relax` list (which single
+    filter to drop, with the count it unlocks), and a `hint` — follow them
+    instead of retrying blind. A result far larger than the sample may carry
+    `refine` (top buckets per dimension) — use it to suggest concrete,
+    counted narrowing filters.
 
     Filters take a single value OR a list (OR within a list, AND across
     filters). `city`: exact name; `area` / `borrower` / `service_provider`:

@@ -13,6 +13,7 @@ import hashlib
 import json
 import logging
 import os
+import time
 from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 from typing import Any
@@ -39,6 +40,7 @@ from pydantic_ai.usage import UsageLimits
 
 from api.agent import ChatDeps, agent, build_chat_run_overrides
 from api.chat.panel import panel_sync_ids
+from api.chat.suggestions import build_suggestions
 from api.tools import cypher_tools as cypher_T
 from api.auth import get_optional_user
 from api.auth import repository as auth_repo
@@ -684,6 +686,58 @@ def list_modes() -> dict:
     suggestion chips. Mirrors the career-ops pattern of surfacing each
     markdown mode file as a user-facing entry point."""
     return {"modes": _AVAILABLE_MODES}
+
+
+# Live starter chips for the chat landing (see api/chat/suggestions.py). Built
+# from single-dimension `search_auctions(group_by=...)` distributions — which
+# are future-only by default, so a chip's count matches what a click returns
+# and no chip can dead-end. Cached in-process for _SUGGESTIONS_TTL_SECONDS: the
+# buckets only move when the loader ingests/expires auctions, so an hourly
+# refresh is plenty (same rationale as graph_property_count_async's cache) and
+# keeps the landing off the graph on every page load.
+_SUGGESTIONS_CACHE: dict[str, tuple[float, list[dict]]] = {}
+_SUGGESTIONS_TTL_SECONDS = 3600.0
+# One distribution query each; order here doesn't matter (the pure builder's
+# _PICK_ORDER decides the chip mix), but keep it to dimensions the builder
+# knows how to phrase.
+_SUGGESTION_DIMS = ("city", "property_type", "asset_category", "area")
+
+
+def _load_suggestion_distributions() -> dict[str, list[dict]]:
+    """Pull each dimension's live distribution. A single dimension's failure
+    degrades to fewer chips rather than none; a full outage returns {} and the
+    endpoint serves the last good set (or lets the UI keep its fallback)."""
+    out: dict[str, list[dict]] = {}
+    for dim in _SUGGESTION_DIMS:
+        try:
+            res = cypher_T.search_auctions(group_by=dim)
+        except Exception:  # noqa: BLE001 - one bad dim must not sink the rest
+            logger.exception("suggestions: distribution query failed for %r", dim)
+            continue
+        dist = res.get("distribution") if isinstance(res, dict) else None
+        if isinstance(dist, list) and dist:
+            out[dim] = dist
+    return out
+
+
+@router.get("/suggestions")
+def list_suggestions() -> dict:
+    """Data-driven starter chips for the chat landing, cached hourly. Sync (runs
+    in FastAPI's threadpool) because the underlying graph reads are blocking.
+    Best-effort throughout: on a cold cache + DB hiccup it returns an empty list
+    and the web UI keeps its hardcoded fallback chips."""
+    now = time.time()
+    cached = _SUGGESTIONS_CACHE.get("default")
+    if cached and (now - cached[0]) < _SUGGESTIONS_TTL_SECONDS:
+        return {"suggestions": cached[1]}
+    chips = build_suggestions(_load_suggestion_distributions())
+    if chips:
+        _SUGGESTIONS_CACHE["default"] = (now, chips)
+    elif cached:
+        # Refresh hit an empty/failed read — serve the last good set rather
+        # than blanking the landing.
+        return {"suggestions": cached[1]}
+    return {"suggestions": chips}
 
 
 @router.get("/chat/models")
