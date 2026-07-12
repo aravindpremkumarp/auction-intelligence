@@ -207,14 +207,30 @@ TASK: pick the {max_drafts} most interesting candidates (prefer price_drop angle
 then closing_soon, then cheapest; vary cities) and write one post draft each,
 using the hook library and passing the quality bar above.
 
+POST LAYERS (docs/marketing/copy-playbook.md Part 6) — write every layer:
+- post: the caption; its FIRST LINE is the hook (must land before "…more").
+- pinned_comment: the link (auctionscope.in) + an honest disclaimer ("not legal
+  advice — a SARFAESI bank e-auction; verify reserve, EMD, possession, encumbrances
+  with the bank before bidding") + one genuine engagement question. Same honesty
+  rules as the caption (no banned words).
+- alt_text: <=125 chars, plainly describes the deal card for screen readers.
+- video_title: <=70 chars, keyword-first, for Shorts/YouTube search.
+- location_tag: the city/area, for local discovery.
+- hashtags: 3-5, no # prefix — 1 category, 1-2 niche, 1 geo (matches location_tag),
+  1 branded (auctionscope).
+
 OUTPUT — ONLY valid JSON, no prose, no code fences:
 {{
   "drafts": [
     {{
       "auction_id": string,           // must match a candidate exactly
       "angle": string,                // price_drop | closing_soon | cheapest
-      "post": string,                 // the cross-platform caption
+      "post": string,                 // the cross-platform caption (line 1 = hook)
+      "pinned_comment": string,       // link + honest disclaimer + a question
       "hashtags": [string],           // 3-5, no # prefix
+      "alt_text": string,             // <=125 chars, describes the image
+      "video_title": string,          // <=70 chars, keyword-first (Shorts/YouTube)
+      "location_tag": string,         // city/area for local discovery
       "needs_image": boolean,
       "image_headline": string        // <=8 words, for the deal-card template
     }}
@@ -263,7 +279,10 @@ def validate_drafts(drafts: list[dict], candidates: list[dict]) -> tuple[list[di
         if aid not in by_id:
             rejected.append(f"{aid or '?'}: unknown auction_id")
             continue
-        hits = [p.pattern for p in banned if p.search(post)]
+        # Honesty rule covers the pinned comment too — it carries the
+        # disclaimer + link, so a banned word there is just as bad.
+        checked_text = f"{post}\n{d.get('pinned_comment') or ''}"
+        hits = [p.pattern for p in banned if p.search(checked_text)]
         if hits:
             rejected.append(f"{aid}: banned wording ({', '.join(hits)})")
             continue
@@ -315,6 +334,11 @@ def write_outputs(out_root: Path, stats: dict, drafts: list[dict],
             f"image: {'yes — ' + d.get('image_headline', '') if d.get('needs_image') else 'no'}",
             "",
         ]
+        if d.get("pinned_comment"):
+            lines += ["**pinned comment:**", "> " + d["pinned_comment"].replace("\n", "\n> "), ""]
+        meta = [f"{k}: {d[k]}" for k in ("video_title", "location_tag", "alt_text") if d.get(k)]
+        if meta:
+            lines += ["`" + "` · `".join(meta) + "`", ""]
     if rejected:
         lines += ["## Dropped by validation", *[f"- {r}" for r in rejected], ""]
     if editor_notes:

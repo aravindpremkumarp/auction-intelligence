@@ -107,6 +107,19 @@ class TestValidateDrafts:
             self.CANDS)
         assert not kept and "prove it" in rejected[0]
 
+    def test_banned_wording_in_pinned_comment_rejected(self):
+        # The honesty rule covers the pinned comment, not just the caption.
+        kept, rejected = validate_drafts(
+            [self._draft(pinned_comment="link here. guaranteed clean title!")],
+            self.CANDS)
+        assert not kept and "banned wording" in rejected[0]
+
+    def test_clean_pinned_comment_kept(self):
+        kept, _ = validate_drafts(
+            [self._draft(pinned_comment="details: auctionscope.in. not legal advice.")],
+            self.CANDS)
+        assert len(kept) == 1
+
     def test_post_with_a_figure_kept(self):
         kept, _ = validate_drafts(
             [self._draft(post="reserve ₹40L, ends 1 Aug. auctionscope.in")],
