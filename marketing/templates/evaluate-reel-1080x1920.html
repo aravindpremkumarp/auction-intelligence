@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1080, height=1920">
+<title>Auctionscope — Evaluate Reel (9:16, 15s)</title>
+<!--
+  "Ask before you bid" reel — shows the Evaluate feature answering a real
+  buyer question with citations. A HyperFrames composition — render with:
+  npx hyperframes render marketing/templates/evaluate-reel-1080x1920.html
+  Typewriter concept from motion-anything's fx-typewriter-multi and the
+  k-anim-typewriter kinetic preset (Apache-2.0, see ATTRIBUTION.md),
+  reimplemented as seek-safe staggered gsap.set() calls on the registered
+  timeline (the upstream setInterval typing is not deterministic under
+  frame-by-frame capture). Content comes from the #data island; answers must
+  be real product output — the honesty microcopy is part of the template.
+-->
+<!-- GSAP vendored in lib/ so renders never depend on CDN reachability -->
+<script src="lib/gsap.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700;12..96,800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+<noscript><link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700;12..96,800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"></noscript>
+<style>
+  :root {
+    --ink: #0a0b0d; --ink-soft: #33373e; --muted: #5b616e;
+    --paper: #f6f7f9; --paper-2: #eef0f3; --card: #ffffff;
+    --border: #dee0e4; --accent: #0052ff; --accent-soft: #e8f0ff;
+    --good: #047857; --good-soft: #ecfdf5;
+    --font-body: 'Inter', system-ui, sans-serif;
+    --font-display: 'Bricolage Grotesque', 'Inter', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #000; font-family: var(--font-body); }
+  #root {
+    position: relative; width: 1080px; height: 1920px;
+    overflow: hidden; background: var(--paper); color: var(--ink);
+  }
+  #root::before {
+    content: ""; position: absolute; inset: 0;
+    background:
+      radial-gradient(90% 60% at 85% -10%, var(--accent-soft) 0%, transparent 60%),
+      radial-gradient(70% 50% at -10% 110%, var(--accent-soft) 0%, transparent 55%);
+  }
+  .clip { position: absolute; inset: 0; padding: 120px 88px; }
+
+  .eyebrow {
+    font-family: var(--font-mono); font-size: 30px; font-weight: 600;
+    letter-spacing: 0.16em; text-transform: uppercase; color: var(--accent);
+    display: inline-flex; align-items: center; gap: 16px;
+  }
+  .eyebrow .dot { width: 16px; height: 16px; border-radius: 50%; background: var(--accent); }
+
+  /* S1 hook */
+  #s1 { display: flex; flex-direction: column; justify-content: center; gap: 44px; }
+  .hook {
+    font-family: var(--font-display); font-size: 122px; font-weight: 800;
+    letter-spacing: -0.03em; line-height: 1.04; margin: 0;
+  }
+  .hook .hl { color: var(--accent); }
+  .hook .word { display: inline-block; white-space: pre; }
+  .hook-sub { font-size: 40px; color: var(--ink-soft); }
+
+  /* S2 chat */
+  #s2 { display: flex; flex-direction: column; justify-content: center; gap: 36px; }
+  .bubble {
+    max-width: 780px; border-radius: 30px; padding: 40px 46px;
+    font-size: 38px; line-height: 1.45;
+  }
+  .bubble.user {
+    align-self: flex-end;
+    background: var(--accent); color: #fff;
+    border-bottom-right-radius: 8px;
+    font-weight: 500;
+  }
+  .bubble.ai {
+    align-self: flex-start;
+    background: var(--card); border: 1px solid var(--border);
+    border-bottom-left-radius: 8px;
+    box-shadow: 0 20px 50px -20px rgba(10,11,13,0.25);
+    max-width: 860px;
+  }
+  .ai-tag {
+    font-family: var(--font-mono); font-size: 24px; color: var(--accent);
+    text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 18px;
+    display: flex; align-items: center; gap: 12px;
+  }
+  .typing-dots { display: inline-flex; gap: 10px; }
+  .typing-dots i { width: 14px; height: 14px; border-radius: 50%; background: var(--muted); }
+  #answer .ch { visibility: hidden; }
+  .cites { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 26px; }
+  .cite {
+    font-family: var(--font-mono); font-size: 23px; color: var(--ink-soft);
+    background: var(--paper-2); border: 1px solid var(--border);
+    border-radius: 999px; padding: 12px 24px;
+  }
+  .honesty { font-size: 25px; color: var(--muted); line-height: 1.45; }
+
+  /* S3 outro */
+  #s3 { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 42px; text-align: center; }
+  .logo { width: 200px; height: 200px; }
+  .outro-title {
+    font-family: var(--font-display); font-size: 92px; font-weight: 800;
+    letter-spacing: -0.03em; line-height: 1.05; max-width: 860px; margin: 0;
+  }
+  .outro-title .hl { color: var(--accent); }
+  .outro-sub { font-size: 34px; color: var(--ink-soft); }
+  .url-pill {
+    font-family: var(--font-mono); font-size: 34px; font-weight: 600;
+    color: #fff; background: var(--accent); border-radius: 999px; padding: 24px 52px;
+  }
+</style>
+</head>
+<body>
+
+<script id="data" type="application/json">
+{
+  "question": "Does this area in Velachery flood during monsoon?",
+  "answer": "Parts of Velachery reported waterlogging in the 2023 and 2024 monsoons; this street sits near the lake's lower basin. Check the flood-zone note before bidding.",
+  "citations": ["The Hindu · Dec 2023", "GCC flood report 2024", "Storm-water project docs"],
+  "honesty_line": "Real product output. Web-cited and approximate — not legal advice. Verify with the notice and your own diligence."
+}
+</script>
+
+<div id="root" data-composition-id="main" data-width="1080" data-height="1920" data-duration="15">
+
+  <section id="s1" class="clip" data-start="0" data-duration="3" data-track-index="1">
+    <span class="eyebrow"><span class="dot"></span>Auctionscope · Evaluate</span>
+    <h1 class="hook" id="hook">Found a flat at auction? <span class="hl">Ask before you bid.</span></h1>
+    <div class="hook-sub">Our AI evaluates any listing — with sources.</div>
+  </section>
+
+  <section id="s2" class="clip" data-start="3" data-duration="8" data-track-index="1">
+    <span class="eyebrow"><span class="dot"></span>A real buyer question</span>
+    <div class="bubble user" id="q-bubble">Does this area in Velachery flood during monsoon?</div>
+    <div class="bubble ai" id="a-bubble">
+      <div class="ai-tag">Auctionscope AI<span class="typing-dots" id="dots"><i></i><i></i><i></i></span></div>
+      <div id="answer"></div>
+      <div class="cites" id="cites"></div>
+    </div>
+    <div class="honesty" id="honesty"></div>
+  </section>
+
+  <section id="s3" class="clip" data-start="11" data-duration="4" data-track-index="1">
+    <svg class="logo" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs><linearGradient id="tile" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3b74f2"/><stop offset="1" stop-color="#2a5fe6"/></linearGradient></defs><rect x="0" y="0" width="1024" height="1024" rx="232" fill="url(#tile)"/><g transform="translate(236 236) scale(23)" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="2" x2="5" y1="12" y2="12"/><line x1="19" x2="22" y1="12" y2="12"/><line x1="12" x2="12" y1="2" y2="5"/><line x1="12" x2="12" y1="19" y2="22"/><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="1.55" fill="#ffffff" stroke="none"/></g></svg>
+    <h2 class="outro-title">Every listing, <span class="hl">evaluated</span> before you bid</h2>
+    <div class="outro-sub">Floods · nearby construction · fair reserve vs market</div>
+    <div class="url-pill">auctionscope.in</div>
+  </section>
+
+</div>
+
+<script>
+  // ---- data + DOM build (synchronous, before the timeline is registered) ----
+  const DATA = JSON.parse(document.getElementById('data').textContent);
+
+  document.getElementById('q-bubble').textContent = DATA.question;
+  document.getElementById('honesty').textContent = DATA.honesty_line;
+
+  // split hook headline into word spans
+  (function splitWords(el) {
+    const frag = document.createDocumentFragment();
+    el.childNodes.forEach(node => {
+      if (node.nodeType === Node.TEXT_NODE) {
+        node.textContent.split(/(\s+)/).forEach(part => {
+          if (!part) return;
+          const s = document.createElement('span');
+          s.className = 'word';
+          s.textContent = part;
+          frag.appendChild(s);
+        });
+      } else {
+        const s = document.createElement('span');
+        s.className = 'word';
+        s.appendChild(node.cloneNode(true));
+        frag.appendChild(s);
+      }
+    });
+    el.textContent = '';
+    el.appendChild(frag);
+  })(document.getElementById('hook'));
+
+  // split the answer into character spans (typewriter targets)
+  const answerHost = document.getElementById('answer');
+  DATA.answer.split('').forEach(ch => {
+    const s = document.createElement('span');
+    s.className = 'ch';
+    s.textContent = ch;
+    answerHost.appendChild(s);
+  });
+
+  // citation chips
+  const citesHost = document.getElementById('cites');
+  DATA.citations.forEach(c => {
+    const s = document.createElement('span');
+    s.className = 'cite';
+    s.textContent = '📄 ' + c;
+    citesHost.appendChild(s);
+  });
+
+  // ---- the one paused, registered timeline (HyperFrames contract) ----
+  window.__timelines = window.__timelines || {};
+  const tl = gsap.timeline({ paused: true });
+
+  // S1 — hook (0–3s)
+  tl.from('#s1 .eyebrow', { y: 30, autoAlpha: 0, duration: 0.5, ease: 'power3.out' }, 0.15);
+  tl.from('#hook .word', { y: 80, autoAlpha: 0, duration: 0.65, ease: 'power3.out', stagger: 0.07 }, 0.4);
+  tl.from('#s1 .hook-sub', { y: 30, autoAlpha: 0, duration: 0.5, ease: 'power3.out' }, 1.7);
+
+  // S2 — chat (3–11s)
+  tl.from('#s2 .eyebrow', { y: 30, autoAlpha: 0, duration: 0.4, ease: 'power3.out' }, 3.15);
+  tl.from('#q-bubble', { scale: 0.6, y: 50, autoAlpha: 0, duration: 0.55, ease: 'back.out(1.5)' }, 3.4);
+  tl.from('#a-bubble', { y: 60, autoAlpha: 0, duration: 0.5, ease: 'power3.out' }, 4.1);
+
+  // typing indicator pulses (finite repeats — deterministic), then hides
+  document.querySelectorAll('#dots i').forEach((d, i) => {
+    tl.fromTo(d, { opacity: 0.25 }, {
+      opacity: 1, duration: 0.28, repeat: 3, yoyo: true, ease: 'sine.inOut'
+    }, 4.3 + i * 0.14);
+  });
+  tl.set('#dots', { display: 'none' }, 6.3);
+
+  // seek-safe typewriter: one staggered set() per character
+  const chars = document.querySelectorAll('#answer .ch');
+  const typeStart = 6.4, typeDur = 3.4;
+  chars.forEach((ch, i) => {
+    tl.set(ch, { visibility: 'visible' }, typeStart + (i / Math.max(chars.length - 1, 1)) * typeDur);
+  });
+
+  // citations + honesty line
+  tl.from('#cites .cite', { y: 26, autoAlpha: 0, duration: 0.4, ease: 'power3.out', stagger: 0.12 }, 10.0);
+  tl.from('#honesty', { autoAlpha: 0, duration: 0.4 }, 10.5);
+
+  // S3 — outro (11–15s)
+  tl.from('#s3 .logo', { scale: 0.3, autoAlpha: 0, duration: 0.6, ease: 'back.out(1.6)' }, 11.15);
+  tl.from('#s3 .outro-title', { y: 50, autoAlpha: 0, duration: 0.55, ease: 'power3.out' }, 11.45);
+  tl.from('#s3 .outro-sub', { y: 30, autoAlpha: 0, duration: 0.5, ease: 'power3.out' }, 11.8);
+  tl.from('#s3 .url-pill', { scale: 0.5, autoAlpha: 0, duration: 0.5, ease: 'back.out(1.7)' }, 12.15);
+
+  window.__timelines['main'] = tl;
+</script>
+</body>
+</html>

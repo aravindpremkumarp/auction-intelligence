@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1080, height=1920">
+<title>Auctionscope — Stats Reel (9:16, 12s)</title>
+<!--
+  Daily/weekly inventory stats reel (Reels/Shorts/TikTok). A HyperFrames
+  composition — render with:  npx hyperframes render marketing/templates/stats-reel-1080x1920.html
+  Structure adapted from motion-anything's HyperFrames templates
+  (hyperframes-money-counter-hype, hyperframes-logo-outro-cinematic) and its
+  count-up / kinetic-headline recipes (Apache-2.0, see ATTRIBUTION.md) —
+  reimplemented as seek-safe GSAP tweens on the registered timeline, because
+  the upstream rAF/IntersectionObserver recipes are not deterministic under
+  HyperFrames' frame-by-frame capture. Numbers come from GET /stats via the
+  #data island (the poster script rewrites the island only).
+-->
+<!-- GSAP vendored in lib/ so renders never depend on CDN reachability -->
+<script src="lib/gsap.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700;12..96,800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+<noscript><link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700;12..96,800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"></noscript>
+<style>
+  :root {
+    --ink: #0a0b0d; --paper: #f6f7f9; --card: #ffffff;
+    --ink-soft: #33373e; --muted: #5b616e; --border: #dee0e4;
+    --accent: #0052ff; --accent-soft: #e8f0ff;
+    --on-dark-muted: #9aa3b2;
+    --font-body: 'Inter', system-ui, sans-serif;
+    --font-display: 'Bricolage Grotesque', 'Inter', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #000; font-family: var(--font-body); }
+  #root {
+    position: relative; width: 1080px; height: 1920px;
+    overflow: hidden; background: var(--ink); color: #fff;
+  }
+  #root::before { /* brand wash + dot grid */
+    content: ""; position: absolute; inset: 0;
+    background:
+      radial-gradient(80% 50% at 50% -10%, rgba(0,82,255,0.28) 0%, transparent 65%),
+      radial-gradient(60% 40% at 50% 115%, rgba(0,82,255,0.18) 0%, transparent 60%),
+      radial-gradient(rgba(255,255,255,0.07) 1.5px, transparent 1.5px);
+    background-size: auto, auto, 44px 44px;
+  }
+  .clip { position: absolute; inset: 0; padding: 120px 88px; }
+
+  .eyebrow {
+    font-family: var(--font-mono); font-size: 30px; font-weight: 600;
+    letter-spacing: 0.16em; text-transform: uppercase; color: #7ea2ff;
+    display: inline-flex; align-items: center; gap: 16px;
+  }
+  .eyebrow .dot { width: 16px; height: 16px; border-radius: 50%; background: var(--accent); }
+
+  /* S1 hook */
+  #s1 { display: flex; flex-direction: column; justify-content: center; gap: 48px; }
+  .hook {
+    font-family: var(--font-display); font-size: 128px; font-weight: 800;
+    letter-spacing: -0.03em; line-height: 1.04;
+  }
+  .hook .hl { color: #7ea2ff; }
+  .hook .word { display: inline-block; white-space: pre; }
+  .date-chip {
+    align-self: flex-start; font-family: var(--font-mono); font-size: 30px;
+    color: #cdd6e4; background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.14);
+    border-radius: 999px; padding: 18px 36px;
+  }
+
+  /* S2 stats */
+  #s2 { display: flex; flex-direction: column; justify-content: center; gap: 30px; }
+  .stat-head {
+    font-family: var(--font-display); font-size: 62px; font-weight: 700;
+    letter-spacing: -0.02em; margin-bottom: 26px;
+  }
+  .stat-row {
+    background: rgba(255,255,255,0.055);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 28px; padding: 44px 52px;
+    display: flex; align-items: baseline; justify-content: space-between; gap: 24px;
+  }
+  .stat-num {
+    font-family: var(--font-display); font-size: 132px; font-weight: 800;
+    letter-spacing: -0.03em; line-height: 1; color: #7ea2ff;
+    font-variant-numeric: tabular-nums;
+  }
+  .stat-label { font-size: 36px; color: #cdd6e4; text-align: right; line-height: 1.3; }
+
+  /* S3 today's pick */
+  #s3 { display: flex; flex-direction: column; justify-content: center; gap: 44px; }
+  .pick-card {
+    background: var(--card); color: var(--ink);
+    border-radius: 32px; padding: 64px 60px;
+    display: flex; flex-direction: column; gap: 22px;
+    box-shadow: 0 30px 80px -20px rgba(0,0,0,0.55);
+  }
+  .pick-loc {
+    font-family: var(--font-mono); font-size: 27px; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.06em;
+  }
+  .pick-title {
+    font-family: var(--font-display); font-size: 66px; font-weight: 700;
+    letter-spacing: -0.02em; line-height: 1.05;
+  }
+  .pick-price-label { font-size: 26px; font-weight: 500; color: var(--muted); margin-top: 10px; }
+  .pick-price {
+    font-family: var(--font-display); font-size: 148px; font-weight: 800;
+    letter-spacing: -0.03em; line-height: 1; color: var(--accent);
+    font-variant-numeric: tabular-nums;
+  }
+  .pick-date {
+    align-self: flex-start; font-family: var(--font-mono); font-size: 26px;
+    color: var(--accent); background: var(--accent-soft);
+    border-radius: 999px; padding: 14px 30px; margin-top: 8px;
+  }
+  .honesty { font-size: 24px; color: var(--on-dark-muted); line-height: 1.4; }
+
+  /* S4 outro */
+  #s4 { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 44px; text-align: center; }
+  .logo { width: 220px; height: 220px; }
+  .wordmark { font-family: var(--font-display); font-size: 96px; font-weight: 800; letter-spacing: -0.03em; }
+  .wordmark .soft { color: #7ea2ff; }
+  .url-pill {
+    font-family: var(--font-mono); font-size: 34px; font-weight: 600;
+    color: #fff; background: var(--accent); border-radius: 999px; padding: 24px 52px;
+  }
+</style>
+</head>
+<body>
+
+<script id="data" type="application/json">
+{
+  "date_label": "12 Jul 2026",
+  "stats": [
+    { "value": 1284, "label": "live bank auctions tracked" },
+    { "value": 49,   "label": "cities" },
+    { "value": 122,  "label": "banks & institutions" }
+  ],
+  "pick": {
+    "title": "2BHK Flat, Velachery",
+    "loc": "Chennai · Indian Bank",
+    "reserve_price": 3850000,
+    "auction_date": "24 Jul 2026"
+  }
+}
+</script>
+
+<div id="root" data-composition-id="main" data-width="1080" data-height="1920" data-duration="12">
+
+  <section id="s1" class="clip" data-start="0" data-duration="3" data-track-index="1">
+    <span class="eyebrow"><span class="dot"></span>Auctionscope · daily</span>
+    <h1 class="hook" id="hook">India's <span class="hl">bank auctions</span>, decoded.</h1>
+    <span class="date-chip" id="date-chip">12 Jul 2026</span>
+  </section>
+
+  <section id="s2" class="clip" data-start="3" data-duration="4.5" data-track-index="1">
+    <span class="eyebrow"><span class="dot"></span>On the platform right now</span>
+    <div class="stat-head">Tracked live, from bank notices</div>
+    <div id="stat-rows"></div>
+  </section>
+
+  <section id="s3" class="clip" data-start="7.5" data-duration="3" data-track-index="1">
+    <span class="eyebrow"><span class="dot"></span>Today's pick</span>
+    <div class="pick-card" id="pick-card">
+      <div class="pick-loc" id="pick-loc">Chennai · Indian Bank</div>
+      <div class="pick-title" id="pick-title">2BHK Flat, Velachery</div>
+      <div class="pick-price-label">Reserve price</div>
+      <div class="pick-price" id="pick-price">₹0</div>
+      <span class="pick-date" id="pick-date">Auction 24 Jul 2026</span>
+    </div>
+    <div class="honesty">Reserve and date from the bank's auction notice.</div>
+  </section>
+
+  <section id="s4" class="clip" data-start="10.5" data-duration="1.5" data-track-index="1">
+    <svg class="logo" id="logo" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs><linearGradient id="tile" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3b74f2"/><stop offset="1" stop-color="#2a5fe6"/></linearGradient></defs><rect x="0" y="0" width="1024" height="1024" rx="232" fill="url(#tile)"/><g transform="translate(236 236) scale(23)" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="2" x2="5" y1="12" y2="12"/><line x1="19" x2="22" y1="12" y2="12"/><line x1="12" x2="12" y1="2" y2="5"/><line x1="12" x2="12" y1="19" y2="22"/><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="1.55" fill="#ffffff" stroke="none"/></g></svg>
+    <div class="wordmark">Auction<span class="soft">scope</span></div>
+    <div class="url-pill">auctionscope.in</div>
+  </section>
+
+</div>
+
+<script>
+  // ---- data + DOM build (synchronous, before the timeline is registered) ----
+  const DATA = JSON.parse(document.getElementById('data').textContent);
+
+  function trimNum(n) { return String(Math.round(n * 100) / 100); }
+  function formatINR(n) {
+    if (n >= 1e7) return '₹' + trimNum(n / 1e7) + ' Cr';
+    if (n >= 1e5) return '₹' + trimNum(n / 1e5) + ' L';
+    return '₹' + Math.round(n).toLocaleString('en-IN');
+  }
+
+  document.getElementById('date-chip').textContent = DATA.date_label;
+
+  // split hook headline into word spans for the kinetic stagger
+  (function splitWords(el) {
+    const frag = document.createDocumentFragment();
+    el.childNodes.forEach(node => {
+      if (node.nodeType === Node.TEXT_NODE) {
+        node.textContent.split(/(\s+)/).forEach(part => {
+          if (!part) return;
+          const s = document.createElement('span');
+          s.className = 'word';
+          s.textContent = part;
+          frag.appendChild(s);
+        });
+      } else {
+        const s = document.createElement('span');
+        s.className = 'word';
+        s.appendChild(node.cloneNode(true));
+        frag.appendChild(s);
+      }
+    });
+    el.textContent = '';
+    el.appendChild(frag);
+  })(document.getElementById('hook'));
+
+  // stat rows from data
+  const rowsHost = document.getElementById('stat-rows');
+  rowsHost.style.cssText = 'display:flex;flex-direction:column;gap:30px';
+  DATA.stats.forEach(s => {
+    const row = document.createElement('div');
+    row.className = 'stat-row';
+    row.innerHTML = '<span class="stat-num">0</span><span class="stat-label"></span>';
+    row.querySelector('.stat-label').textContent = s.label;
+    rowsHost.appendChild(row);
+  });
+
+  // today's pick
+  document.getElementById('pick-loc').textContent = DATA.pick.loc;
+  document.getElementById('pick-title').textContent = DATA.pick.title;
+  document.getElementById('pick-date').textContent = 'Auction ' + DATA.pick.auction_date;
+
+  // ---- the one paused, registered timeline (HyperFrames contract) ----
+  window.__timelines = window.__timelines || {};
+  const tl = gsap.timeline({ paused: true });
+
+  // S1 — hook (0–3s)
+  tl.from('#s1 .eyebrow', { y: 30, autoAlpha: 0, duration: 0.5, ease: 'power3.out' }, 0.15);
+  tl.from('#hook .word', {
+    y: 90, autoAlpha: 0, duration: 0.7, ease: 'power3.out', stagger: 0.09
+  }, 0.4);
+  tl.from('#date-chip', { scale: 0.4, autoAlpha: 0, duration: 0.5, ease: 'back.out(1.7)' }, 1.5);
+
+  // S2 — stats count-up (3–7.5s). Seek-safe counters: tween textContent with a
+  // render-time modifier — onUpdate callbacks are suppressed by seek(), so a
+  // callback-driven counter renders 0 under HyperFrames' frame capture.
+  tl.from('#s2 .eyebrow, #s2 .stat-head', {
+    y: 30, autoAlpha: 0, duration: 0.5, ease: 'power3.out', stagger: 0.12
+  }, 3.2);
+  document.querySelectorAll('#s2 .stat-row').forEach((row, i) => {
+    const numEl = row.querySelector('.stat-num');
+    tl.from(row, { y: 70, autoAlpha: 0, duration: 0.55, ease: 'power3.out' }, 3.6 + i * 0.45);
+    tl.fromTo(numEl, { textContent: 0 }, {
+      textContent: DATA.stats[i].value, duration: 1.1, ease: 'power2.out',
+      modifiers: {
+        textContent: v => Math.round(parseFloat(v)).toLocaleString('en-IN')
+      }
+    }, 3.75 + i * 0.45);
+  });
+
+  // S3 — today's pick (7.5–10.5s)
+  tl.from('#s3 .eyebrow', { y: 30, autoAlpha: 0, duration: 0.5, ease: 'power3.out' }, 7.7);
+  tl.from('#pick-card', { y: 160, autoAlpha: 0, duration: 0.7, ease: 'power3.out' }, 7.9);
+  tl.fromTo('#pick-price', { textContent: 0 }, {
+    textContent: DATA.pick.reserve_price, duration: 1.0, ease: 'power2.out',
+    modifiers: { textContent: v => formatINR(parseFloat(v)) }
+  }, 8.4);
+  tl.from('#s3 .honesty', { autoAlpha: 0, duration: 0.4 }, 9.4);
+
+  // S4 — logo outro (10.5–12s)
+  tl.from('#logo', { scale: 0.3, autoAlpha: 0, duration: 0.6, ease: 'back.out(1.6)' }, 10.6);
+  tl.from('#s4 .wordmark', { y: 40, autoAlpha: 0, duration: 0.5, ease: 'power3.out' }, 10.9);
+  tl.from('#s4 .url-pill', { scale: 0.5, autoAlpha: 0, duration: 0.5, ease: 'back.out(1.7)' }, 11.2);
+
+  window.__timelines['main'] = tl;
+</script>
+</body>
+</html>
