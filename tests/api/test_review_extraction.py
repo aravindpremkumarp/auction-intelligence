@@ -74,11 +74,12 @@ def test_queue_defaults_to_recent_and_passes_extraction_at(monkeypatch):
         seen["sort"] = sort
         return [
             {"filename": "b.pdf", "status": "pending",
-             "extraction_at": "2026-07-08T10:00:00Z",
+             "extraction_at": "2026-07-08T10:00:00Z", "extraction_batch": 7,
              "extraction_json": json.dumps([{"id": "0", "start": 1},
                                             {"id": "1", "start": None}])},
             {"filename": "a.pdf", "status": "verified",
-             "extraction_at": None, "extraction_json": "[]"},
+             "extraction_at": None, "extraction_batch": None,
+             "extraction_json": "[]"},
         ]
 
     monkeypatch.setattr(ex, "list_extraction_queue", fake_list)
@@ -88,8 +89,10 @@ def test_queue_defaults_to_recent_and_passes_extraction_at(monkeypatch):
     r0, r1 = out.rows
     assert r0.filename == "b.pdf"
     assert r0.extraction_at == "2026-07-08T10:00:00Z"
+    assert r0.extraction_batch == 7                 # batch tag flows to the UI
     assert r0.n_fields == 2 and r0.n_ungrounded == 1
     assert r1.extraction_at is None                 # untracked rows stay optional
+    assert r1.extraction_batch is None
 
 
 def test_queue_honours_name_sort(monkeypatch):
@@ -116,11 +119,23 @@ def test_queue_order_clause_selects_recent_vs_name():
         ex.run_read_query = fake_run
         ex.list_extraction_queue(None, 200, "recent")
         assert "d.extraction_at DESC" in captured["cypher"]
+        assert "d.extraction_batch" in captured["cypher"]   # batch tie-break + selected
         ex.list_extraction_queue(None, 200, "name")
         assert "ORDER BY d.filename" in captured["cypher"]
         assert "extraction_at DESC" not in captured["cypher"]
     finally:
         ex.run_read_query = orig
+
+
+def test_next_batch_increments_from_max(monkeypatch):
+    """load_extractions._next_batch returns max(existing)+1, or 1 when none exist."""
+    import pipeline.load_extractions as le
+    monkeypatch.setattr(le, "run_read_query", lambda *a, **k: [{"m": 6}])
+    assert le._next_batch() == 7
+    monkeypatch.setattr(le, "run_read_query", lambda *a, **k: [{"m": None}])
+    assert le._next_batch() == 1                     # first-ever run
+    monkeypatch.setattr(le, "run_read_query", lambda *a, **k: [])
+    assert le._next_batch() == 1                     # empty result
 
 
 def test_robust_to_empty_and_malformed_json():
