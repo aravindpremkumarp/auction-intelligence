@@ -8,8 +8,10 @@ import json
 import pytest
 
 from marketing_agents.poster import (
+    MAX_HOOK_CHARS,
     MAX_POST_WORDS,
     build_prompt,
+    extract_hook,
     parse_llm_json,
     resolve_api_key,
     shape_candidates,
@@ -114,6 +116,62 @@ class TestValidateDrafts:
         assert len(kept) == 1
 
 
+class TestHookGates:
+    """The stop test's objective slices (copy-playbook.md Part 1): hook length,
+    throat-clearing openers, and per-batch mechanism variety."""
+
+    CANDS = shape_candidates([_row("A1"), _row("A2"), _row("A3")], [], [])
+
+    def _draft(self, aid="A1", **kw):
+        d = {"auction_id": aid, "angle": "closing_soon",
+             "post": "reserve ₹40L, ends 1 Aug.\n\nthe body. auctionscope.in",
+             "hashtags": [], "needs_image": False, "image_headline": ""}
+        d.update(kw)
+        return d
+
+    def test_extract_hook_takes_first_line(self):
+        assert extract_hook("₹40L reserve.\n\nlong body here") == "₹40L reserve."
+
+    def test_extract_hook_falls_back_to_first_sentence(self):
+        post = "₹40L reserve in Chennai. " + "the notice says a lot more " * 8
+        assert extract_hook(post) == "₹40L reserve in Chennai."
+
+    def test_extract_hook_never_splits_decimals(self):
+        post = "reserve ₹40.1L, ends 1 Aug. " + "and quite a bit of body text " * 6
+        assert extract_hook(post) == "reserve ₹40.1L, ends 1 Aug."
+
+    def test_hook_over_budget_rejected(self):
+        # One unbroken 120+ char first line with no sentence break: dies at the fold.
+        kept, rejected = validate_drafts(
+            [self._draft(post="₹40L " + "x" * (MAX_HOOK_CHARS + 30))], self.CANDS)
+        assert not kept and "fold" in rejected[0]
+
+    def test_short_first_sentence_in_single_paragraph_kept(self):
+        kept, _ = validate_drafts(
+            [self._draft(post="₹40L reserve in Chennai. " + "more context here " * 10)],
+            self.CANDS)
+        assert len(kept) == 1
+
+    @pytest.mark.parametrize("opener", [
+        "Did you know ₹40L buys a plot here? details inside.",
+        "🚨 Don't miss this ₹40L reserve, ends 1 Aug.",
+        "Imagine owning this ₹40L plot in Chennai.",
+    ])
+    def test_throat_clearing_openers_rejected(self, opener):
+        kept, rejected = validate_drafts([self._draft(post=opener)], self.CANDS)
+        assert not kept and "throat-clearing" in rejected[0]
+
+    def test_mechanism_variety_rule_caps_at_two(self):
+        drafts = [self._draft(aid=a, hook_mechanism="contrast") for a in ("A1", "A2", "A3")]
+        kept, rejected = validate_drafts(drafts, self.CANDS)
+        assert [d["auction_id"] for d in kept] == ["A1", "A2"]
+        assert len(rejected) == 1 and "variety rule" in rejected[0]
+
+    def test_missing_mechanism_normalized_not_dropped(self):
+        kept, _ = validate_drafts([self._draft()], self.CANDS)
+        assert kept[0]["hook_mechanism"] == "unspecified"
+
+
 class TestParseLlmJson:
     def test_plain_json(self):
         assert parse_llm_json('{"drafts": []}') == {"drafts": []}
@@ -167,6 +225,9 @@ class TestStagedPipeline:
     def _response(self):
         return json.dumps({"drafts": [{
             "auction_id": "A1", "angle": "closing_soon",
+            "hook_mechanism": "countdown",
+            "hook_alternatives": ["₹40L reserve. would you check the flood map first?",
+                                  "a bank in Chennai wants ₹40L for this. here's why."],
             "post": "reserve ₹40L, ends soon. auctionscope.in",
             "hashtags": ["bankauction"], "needs_image": False,
             "image_headline": ""}], "editor_notes": "ok"})
@@ -181,6 +242,9 @@ class TestStagedPipeline:
         review = (out_dir / "review.md").read_text()
         # last_enriched can be null from the API; fall back to generated_at.
         assert "Data as of now" in review and "None" not in review
+        # The hook mechanism + runner-up hooks surface for the human editor.
+        assert "hook: `countdown` · alternatives:" in review
+        assert "- ₹40L reserve. would you check the flood map first?" in review
 
     def test_finalize_tolerates_fenced_engine_output(self, tmp_path, monkeypatch):
         work = self._work_dir(tmp_path, f"```json\n{self._response()}\n```")
@@ -217,6 +281,9 @@ class TestPrompt:
                           "generated_at": "now", "last_enriched": "today"}, cands, 5)
         assert "A1" in p and "616" in p
         assert "due diligence" in p  # listed as banned
-        assert "HOOK LIBRARY" in p and "QUALITY BAR" in p  # playbook injected
+        assert "HOOK SYSTEM" in p and "QUALITY BAR" in p  # playbook injected
+        assert "THE STOP TEST" in p  # hooks are engineered against the 4 gates
+        assert "hook_alternatives" in p and "hook_mechanism" in p  # 3-variant contract
+        assert "countdown" in p and "mistake" in p  # mechanism menu present
         assert "Prove It" in p  # the number-does-the-work gate is taught
         assert json.loads(json.dumps(cands))  # candidates serialize cleanly

@@ -67,6 +67,18 @@ MAX_POST_WORDS = 220
 # is weak copy and gets dropped. Matches any digit (₹40L, 15%, "1 Aug", "2024").
 HAS_FIGURE = re.compile(r"\d")
 
+# Hook gates (copy-playbook.md Part 1, "the stop test"). Objective slices only;
+# whether the hook actually opens a curiosity gap stays a human/model judgment.
+MAX_HOOK_CHARS = 100  # Instagram folds captions ~125 chars; hooks must survive it
+BANNED_OPENERS = (
+    "did you know", "attention", "imagine", "are you looking",
+    "introducing", "we're excited", "we are excited",
+    "don't miss", "dont miss", "hurry", "last chance",
+)
+HOOK_MECHANISMS = ("contrast", "question", "mistake", "hidden",
+                   "myth", "callout", "countdown", "process")
+MAX_PER_MECHANISM = 2  # variety rule: a batch may not lean on one mechanism
+
 
 # ---------------------------------------------------------------- data layer
 
@@ -181,13 +193,42 @@ HARD RULES:
 - English, under {MAX_POST_WORDS} words per post, no corporate cliches, no emoji spam
   (one emoji max). Each post ends with a soft pointer to auctionscope.in.
 
-HOOK LIBRARY (docs/marketing/copy-playbook.md) — the first line decides everything.
-Open with the auction's number, then pick the family that fits its angle:
-- price_drop:   "₹<prev>L → ₹<now>L. Same <city> <type>, <n>% lower reserve after
-                a failed auction." / "Reserve cut <n>% — re-auctions hide the deals."
-- closing_soon: "<city> <type>, reserve ₹<now>L. Bids close <date>." (honest urgency
-                — the deadline is a fact, never manufactured scarcity)
-- cheapest:     "₹<now>L for a <type> in <city>. Cheapest live bank auction there now."
+HOOK SYSTEM (docs/marketing/copy-playbook.md Part 1) — the first line is the hook,
+and it is engineered, not decorated. The winning formula is SPECIFIC BUT INCOMPLETE:
+give the concrete fact (credibility), hold back the why/how/cost (pull). Never
+resolve the hook inside the hook.
+
+THE STOP TEST — a hook passes all four or it is not a hook:
+1. STOP — breaks the feed pattern: a ₹ figure, a contrast, a sharp question. No warm-up.
+2. YOU  — the target buyer feels addressed (their city, budget, risk, identity).
+3. GAP  — opens ONE specific question that the body answers.
+4. TRUE — every word from the auction's data; deadlines are facts, never hype.
+          The body must close the loop the hook opened — if the facts can't cash
+          the hook's promise, shrink the hook; never inflate the body.
+
+FORM (enforced in code): the hook goes on its own first line, <=100 characters,
+then a blank line, then the body. Never open with: did you know / attention /
+imagine / are you looking for / introducing / we're excited / don't miss /
+hurry / last chance.
+
+MECHANISMS (rotate — max 2 drafts per mechanism per batch, code-enforced):
+- contrast:  "₹45L → ₹38L. same <city> plot, two months apart."          (price_drop)
+- question:  "would you bid ₹38L on a plot you've only seen as a PDF?"
+- mistake:   "a ₹38L plot is not a deal if the area floods every november."
+- hidden:    "banks in TN are selling <live> properties right now. the list is
+             public. almost nobody reads it."
+- myth:      "you don't need ₹38L in cash to bid — the EMD here is ₹3.8L."
+- callout:   "hunting a plot in <city> under ₹40L? a bank just listed one at ₹38L."  (cheapest)
+- countdown: "<n> days left. someone gets this <city> <type> at ₹<now>L. did
+             anyone check the flood map?"                                 (closing_soon)
+- process:   "why is this flat ₹7L cheaper the second time the bank auctions it?"  (re-auction)
+
+BODY after the hook + blank line: stakes (the "so what" for a bidder) -> the facts
+(numbers do the work) -> context (vs last listing / what to check) -> one soft CTA.
+
+PER POST: draft 3 candidate hooks using 3 DIFFERENT mechanisms, judge them against
+the stop test, lead with the winner, and return the two runners-up in
+hook_alternatives (they must also be grounded and honest — the editor may swap).
 
 QUALITY BAR (every draft must pass):
 1. Clarity  — one idea, reads in one pass.
@@ -204,8 +245,8 @@ CANDIDATE AUCTIONS (JSON):
 {json.dumps(candidates, ensure_ascii=False, indent=1)}
 
 TASK: pick the {max_drafts} most interesting candidates (prefer price_drop angles,
-then closing_soon, then cheapest; vary cities) and write one post draft each,
-using the hook library and passing the quality bar above.
+then closing_soon, then cheapest; vary cities AND vary hook mechanisms) and write
+one post draft each, using the hook system and passing the quality bar above.
 
 OUTPUT — ONLY valid JSON, no prose, no code fences:
 {{
@@ -213,10 +254,12 @@ OUTPUT — ONLY valid JSON, no prose, no code fences:
     {{
       "auction_id": string,           // must match a candidate exactly
       "angle": string,                // price_drop | closing_soon | cheapest
-      "post": string,                 // the cross-platform caption
+      "hook_mechanism": string,       // contrast | question | mistake | hidden | myth | callout | countdown | process
+      "hook_alternatives": [string],  // the 2 runner-up hooks (grounded, honest)
+      "post": string,                 // hook on line 1 (<=100 chars), blank line, body
       "hashtags": [string],           // 3-5, no # prefix
       "needs_image": boolean,
-      "image_headline": string        // <=8 words, for the deal-card template
+      "image_headline": string        // <=8 words: the hook compressed, same mechanism
     }}
   ],
   "editor_notes": string
@@ -229,7 +272,7 @@ def call_llm(prompt: str, api_key: str, model: str) -> str:
         headers={"Authorization": f"Bearer {api_key}"},
         json={
             "model": model,
-            "max_tokens": 3000,
+            "max_tokens": 4000,  # 3 candidate hooks per draft need headroom
             "temperature": 0.7,
             "messages": [{"role": "user", "content": prompt}],
         },
@@ -253,11 +296,23 @@ def parse_llm_json(raw: str) -> dict:
 
 # --------------------------------------------------------------- validation
 
+def extract_hook(post: str) -> str:
+    """The hook is the post's first line; for single-paragraph posts, its first
+    sentence. A dot needs trailing whitespace to end a sentence, so decimals
+    (₹40.1L) never split."""
+    first_line = post.strip().split("\n", 1)[0].strip()
+    if len(first_line) <= MAX_HOOK_CHARS:
+        return first_line
+    m = re.match(rf"(.{{1,{MAX_HOOK_CHARS}}}?[.!?])\s", first_line)
+    return m.group(1) if m else first_line
+
+
 def validate_drafts(drafts: list[dict], candidates: list[dict]) -> tuple[list[dict], list[str]]:
     """Enforce grounding + the honesty rule. Violators are dropped, not fixed."""
     by_id = {c["auction_id"]: c for c in candidates}
     banned = [re.compile(p, re.IGNORECASE) for p in BANNED_PATTERNS]
     kept, rejected = [], []
+    mech_counts: dict[str, int] = {}
     for d in drafts:
         aid, post = d.get("auction_id"), d.get("post") or ""
         if aid not in by_id:
@@ -273,6 +328,22 @@ def validate_drafts(drafts: list[dict], candidates: list[dict]) -> tuple[list[di
         if len(post.split()) > MAX_POST_WORDS:
             rejected.append(f"{aid}: over {MAX_POST_WORDS} words")
             continue
+        hook = extract_hook(post)
+        if len(hook) > MAX_HOOK_CHARS:
+            rejected.append(
+                f"{aid}: hook is {len(hook)} chars (>{MAX_HOOK_CHARS} — dies at the '…more' fold)")
+            continue
+        lead = re.sub(r"^[^0-9a-zA-Z₹]+", "", hook).lower()
+        if lead.startswith(BANNED_OPENERS):
+            rejected.append(f"{aid}: throat-clearing opener (fails the stop test)")
+            continue
+        mech = (d.get("hook_mechanism") or "unspecified").strip().lower()
+        if mech_counts.get(mech, 0) >= MAX_PER_MECHANISM:
+            rejected.append(
+                f"{aid}: hook mechanism '{mech}' already used {MAX_PER_MECHANISM}x in this batch (variety rule)")
+            continue
+        mech_counts[mech] = mech_counts.get(mech, 0) + 1
+        d["hook_mechanism"] = mech
         d["source"] = by_id[aid]  # attach facts for the reviewer
         kept.append(d)
     return kept, rejected
@@ -315,6 +386,12 @@ def write_outputs(out_root: Path, stats: dict, drafts: list[dict],
             f"image: {'yes — ' + d.get('image_headline', '') if d.get('needs_image') else 'no'}",
             "",
         ]
+        alts = [a for a in (d.get("hook_alternatives") or [])
+                if isinstance(a, str) and a.strip()]
+        lines.append(f"hook: `{d.get('hook_mechanism', 'unspecified')}`"
+                     + (" · alternatives:" if alts else ""))
+        lines += [f"- {a}" for a in alts[:2]]
+        lines.append("")
     if rejected:
         lines += ["## Dropped by validation", *[f"- {r}" for r in rejected], ""]
     if editor_notes:
