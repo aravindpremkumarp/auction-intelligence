@@ -67,6 +67,19 @@ MAX_POST_WORDS = 220
 # is weak copy and gets dropped. Matches any digit (₹40L, 15%, "1 Aug", "2024").
 HAS_FIGURE = re.compile(r"\d")
 
+# Hook gates (copy-playbook.md Part 1, "the stop test"). Objective slices only;
+# whether the hook actually opens a curiosity gap stays a human/model judgment.
+MAX_HOOK_CHARS = 100  # Instagram folds captions ~125 chars; hooks must survive it
+MAX_HEADLINE_CHARS = 64  # image_headline is burned onto the card; keep it on ~2 lines
+BANNED_OPENERS = (
+    "did you know", "attention", "imagine", "are you looking",
+    "introducing", "we're excited", "we are excited",
+    "don't miss", "dont miss", "hurry", "last chance",
+)
+HOOK_MECHANISMS = ("contrast", "question", "mistake", "hidden",
+                   "myth", "callout", "countdown", "process")
+MAX_PER_MECHANISM = 2  # variety rule: a batch may not lean on one mechanism
+
 
 # ---------------------------------------------------------------- data layer
 
@@ -128,6 +141,7 @@ def shape_candidates(closing: list[dict], drops: list[dict], cheapest: list[dict
             }
             if angle == "price_drop":
                 prev = row["previous_reserve_price"]
+                cand["previous_reserve_price"] = prev  # raw ₹, for the card island
                 cand["previous_reserve_lakhs"] = round(prev / 1e5, 1)
                 cand["drop_pct"] = round(100 * (prev - row["reserve_price"]) / prev, 1)
             pool[aid] = cand
@@ -181,13 +195,42 @@ HARD RULES:
 - English, under {MAX_POST_WORDS} words per post, no corporate cliches, no emoji spam
   (one emoji max). Each post ends with a soft pointer to auctionscope.in.
 
-HOOK LIBRARY (docs/marketing/copy-playbook.md) — the first line decides everything.
-Open with the auction's number, then pick the family that fits its angle:
-- price_drop:   "₹<prev>L → ₹<now>L. Same <city> <type>, <n>% lower reserve after
-                a failed auction." / "Reserve cut <n>% — re-auctions hide the deals."
-- closing_soon: "<city> <type>, reserve ₹<now>L. Bids close <date>." (honest urgency
-                — the deadline is a fact, never manufactured scarcity)
-- cheapest:     "₹<now>L for a <type> in <city>. Cheapest live bank auction there now."
+HOOK SYSTEM (docs/marketing/copy-playbook.md Part 1) — the first line is the hook,
+and it is engineered, not decorated. The winning formula is SPECIFIC BUT INCOMPLETE:
+give the concrete fact (credibility), hold back the why/how/cost (pull). Never
+resolve the hook inside the hook.
+
+THE STOP TEST — a hook passes all four or it is not a hook:
+1. STOP — breaks the feed pattern: a ₹ figure, a contrast, a sharp question. No warm-up.
+2. YOU  — the target buyer feels addressed (their city, budget, risk, identity).
+3. GAP  — opens ONE specific question that the body answers.
+4. TRUE — every word from the auction's data; deadlines are facts, never hype.
+          The body must close the loop the hook opened — if the facts can't cash
+          the hook's promise, shrink the hook; never inflate the body.
+
+FORM (enforced in code): the hook goes on its own first line, <=100 characters,
+then a blank line, then the body. Never open with: did you know / attention /
+imagine / are you looking for / introducing / we're excited / don't miss /
+hurry / last chance.
+
+MECHANISMS (rotate — max 2 drafts per mechanism per batch, code-enforced):
+- contrast:  "₹45L → ₹38L. same <city> plot, two months apart."          (price_drop)
+- question:  "would you bid ₹38L on a plot you've only seen as a PDF?"
+- mistake:   "a ₹38L plot is not a deal if the area floods every november."
+- hidden:    "banks in TN are selling <live> properties right now. the list is
+             public. almost nobody reads it."
+- myth:      "you don't need ₹38L in cash to bid — the EMD here is ₹3.8L."
+- callout:   "hunting a plot in <city> under ₹40L? a bank just listed one at ₹38L."  (cheapest)
+- countdown: "<n> days left. someone gets this <city> <type> at ₹<now>L. did
+             anyone check the flood map?"                                 (closing_soon)
+- process:   "why is this flat ₹7L cheaper the second time the bank auctions it?"  (re-auction)
+
+BODY after the hook + blank line: stakes (the "so what" for a bidder) -> the facts
+(numbers do the work) -> context (vs last listing / what to check) -> one soft CTA.
+
+PER POST: draft 3 candidate hooks using 3 DIFFERENT mechanisms, judge them against
+the stop test, lead with the winner, and return the two runners-up in
+hook_alternatives (they must also be grounded and honest — the editor may swap).
 
 QUALITY BAR (every draft must pass):
 1. Clarity  — one idea, reads in one pass.
@@ -204,15 +247,16 @@ CANDIDATE AUCTIONS (JSON):
 {json.dumps(candidates, ensure_ascii=False, indent=1)}
 
 TASK: pick the {max_drafts} most interesting candidates (prefer price_drop angles,
-then closing_soon, then cheapest; vary cities) and write one post draft each,
-using the hook library and passing the quality bar above.
+then closing_soon, then cheapest; vary cities AND vary hook mechanisms) and write
+one post draft each, using the hook system and passing the quality bar above.
 
 POST LAYERS (docs/marketing/copy-playbook.md Part 6) — write every layer:
 - post: the caption; its FIRST LINE is the hook (must land before "…more").
-- pinned_comment: the link (auctionscope.in) + an honest disclaimer ("not legal
-  advice — a SARFAESI bank e-auction; verify reserve, EMD, possession, encumbrances
-  with the bank before bidding") + one genuine engagement question. Same honesty
-  rules as the caption (no banned words).
+- pinned_comment: REQUIRED (a draft without it is dropped) — the link
+  (auctionscope.in) + an honest disclaimer ("not legal advice — a SARFAESI bank
+  e-auction; verify reserve, EMD, possession, encumbrances with the bank before
+  bidding") + one genuine engagement question. Same honesty rules as the caption
+  (no banned words).
 - alt_text: <=125 chars, plainly describes the deal card for screen readers.
 - video_title: <=70 chars, keyword-first, for Shorts/YouTube search.
 - location_tag: the city/area, for local discovery.
@@ -225,14 +269,16 @@ OUTPUT — ONLY valid JSON, no prose, no code fences:
     {{
       "auction_id": string,           // must match a candidate exactly
       "angle": string,                // price_drop | closing_soon | cheapest
-      "post": string,                 // the cross-platform caption (line 1 = hook)
+      "hook_mechanism": string,       // contrast | question | mistake | hidden | myth | callout | countdown | process
+      "hook_alternatives": [string],  // the 2 runner-up hooks (grounded, honest)
+      "post": string,                 // hook on line 1 (<=100 chars), blank line, body
       "pinned_comment": string,       // link + honest disclaimer + a question
       "hashtags": [string],           // 3-5, no # prefix
       "alt_text": string,             // <=125 chars, describes the image
       "video_title": string,          // <=70 chars, keyword-first (Shorts/YouTube)
       "location_tag": string,         // city/area for local discovery
       "needs_image": boolean,
-      "image_headline": string        // <=8 words, for the deal-card template
+      "image_headline": string        // <=8 words: the hook compressed, same mechanism
     }}
   ],
   "editor_notes": string
@@ -245,7 +291,7 @@ def call_llm(prompt: str, api_key: str, model: str) -> str:
         headers={"Authorization": f"Bearer {api_key}"},
         json={
             "model": model,
-            "max_tokens": 3000,
+            "max_tokens": 4000,  # 3 candidate hooks per draft need headroom
             "temperature": 0.7,
             "messages": [{"role": "user", "content": prompt}],
         },
@@ -269,19 +315,33 @@ def parse_llm_json(raw: str) -> dict:
 
 # --------------------------------------------------------------- validation
 
+def extract_hook(post: str) -> str:
+    """The hook is the post's first line; for single-paragraph posts, its first
+    sentence. A dot needs trailing whitespace to end a sentence, so decimals
+    (₹40.1L) never split."""
+    first_line = post.strip().split("\n", 1)[0].strip()
+    if len(first_line) <= MAX_HOOK_CHARS:
+        return first_line
+    m = re.match(rf"(.{{1,{MAX_HOOK_CHARS}}}?[.!?])\s", first_line)
+    return m.group(1) if m else first_line
+
+
 def validate_drafts(drafts: list[dict], candidates: list[dict]) -> tuple[list[dict], list[str]]:
     """Enforce grounding + the honesty rule. Violators are dropped, not fixed."""
     by_id = {c["auction_id"]: c for c in candidates}
     banned = [re.compile(p, re.IGNORECASE) for p in BANNED_PATTERNS]
     kept, rejected = [], []
+    mech_counts: dict[str, int] = {}
     for d in drafts:
         aid, post = d.get("auction_id"), d.get("post") or ""
+        headline = (d.get("image_headline") or "").strip()
         if aid not in by_id:
             rejected.append(f"{aid or '?'}: unknown auction_id")
             continue
-        # Honesty rule covers the pinned comment too — it carries the
-        # disclaimer + link, so a banned word there is just as bad.
-        checked_text = f"{post}\n{d.get('pinned_comment') or ''}"
+        # The honesty rule covers every published surface: the caption, the
+        # headline burned onto the card, AND the pinned comment (it carries
+        # the disclaimer + link, so a banned word there is just as bad).
+        checked_text = f"{post}\n{headline}\n{d.get('pinned_comment') or ''}"
         hits = [p.pattern for p in banned if p.search(checked_text)]
         if hits:
             rejected.append(f"{aid}: banned wording ({', '.join(hits)})")
@@ -292,9 +352,137 @@ def validate_drafts(drafts: list[dict], candidates: list[dict]) -> tuple[list[di
         if len(post.split()) > MAX_POST_WORDS:
             rejected.append(f"{aid}: over {MAX_POST_WORDS} words")
             continue
+        # The pinned comment is required, not optional: it carries the link +
+        # the honest disclaimer (and, for research posts, the source URLs).
+        # A draft without one is an incomplete post — drop it.
+        if not (d.get("pinned_comment") or "").strip():
+            rejected.append(f"{aid}: missing pinned_comment (link + disclaimer layer)")
+            continue
+        hook = extract_hook(post)
+        if len(hook) > MAX_HOOK_CHARS:
+            rejected.append(
+                f"{aid}: hook is {len(hook)} chars (>{MAX_HOOK_CHARS} — dies at the '…more' fold)")
+            continue
+        lead = re.sub(r"^[^0-9a-zA-Z₹]+", "", hook).lower()
+        if lead.startswith(BANNED_OPENERS):
+            rejected.append(f"{aid}: throat-clearing opener (fails the stop test)")
+            continue
+        mech = (d.get("hook_mechanism") or "unspecified").strip().lower()
+        if mech_counts.get(mech, 0) >= MAX_PER_MECHANISM:
+            rejected.append(
+                f"{aid}: hook mechanism '{mech}' already used {MAX_PER_MECHANISM}x in this batch (variety rule)")
+            continue
+        # A headline destined for the card must fit the card (it becomes the
+        # visual hook — see draft_to_island). Over-length headlines are dropped,
+        # not truncated, so we never silently cut a hook mid-word on the image.
+        if d.get("needs_image") and len(headline) > MAX_HEADLINE_CHARS:
+            rejected.append(
+                f"{aid}: image_headline is {len(headline)} chars "
+                f"(>{MAX_HEADLINE_CHARS} — won't fit the card)")
+            continue
+        mech_counts[mech] = mech_counts.get(mech, 0) + 1
+        d["hook_mechanism"] = mech
         d["source"] = by_id[aid]  # attach facts for the reviewer
         kept.append(d)
     return kept, rejected
+
+
+# -------------------------------------------------------- draft → card island
+#
+# The hook system doesn't stop at the caption: the SAME hook, compressed into
+# image_headline, is burned onto the static card as its scroll-stopping
+# headline. draft_to_island() maps a validated draft + its grounded source
+# fields into the exact #data island a marketing/templates/ template expects,
+# so `render_social.py --data <island>` renders a card whose headline IS the
+# hook. Every figure comes from the auction's own fields (honesty rule) — the
+# only free text is the honesty microcopy and image_headline (already
+# banned-word-scanned in validate_drafts).
+
+# angle → (template stem, honesty source_line for that card)
+ANGLE_TEMPLATE = {
+    "price_drop": ("price-drop-1080x1350",
+                   "Both prices from the bank's auction notices — earlier listing vs current re-auction."),
+    "closing_soon": ("deal-of-the-day-1080",
+                     "Reserve, EMD and date from the bank's auction notice."),
+    "cheapest": ("deal-of-the-day-1080",
+                 "Reserve, EMD and date from the bank's auction notice."),
+}
+
+_MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun",
+           "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+
+
+def _card_date(iso: str | None) -> str:
+    """ISO 'auction_start' → card date '24 Jul 2026'; '' if unparseable/missing,
+    so the template hides the chip rather than printing a wrong or half date."""
+    if not iso:
+        return ""
+    m = re.match(r"(\d{4})-(\d{2})-(\d{2})", str(iso))
+    if not m:
+        return ""
+    y, mo, day = int(m.group(1)), int(m.group(2)), int(m.group(3))
+    if not 1 <= mo <= 12:
+        return ""
+    return f"{day} {_MONTHS[mo - 1]} {y}"
+
+
+def _asset_type(source: dict) -> str:
+    types = source.get("property_types") or []
+    if types:
+        return ", ".join(t for t in types if t)
+    return source.get("asset_category") or ""
+
+
+def draft_to_island(draft: dict) -> tuple[str, dict] | None:
+    """Return (template_stem, island_dict) for a validated draft, or None if the
+    draft has no image or its angle has no card template. `source` is the
+    grounded candidate attached by validate_drafts()."""
+    if not draft.get("needs_image"):
+        return None
+    tpl = ANGLE_TEMPLATE.get(draft.get("angle"))
+    if not tpl:
+        return None
+    template, source_line = tpl
+    s = draft.get("source") or {}
+    headline = (draft.get("image_headline") or "").strip()
+    island: dict = {
+        "headline": headline,          # the hook, burned onto the card
+        "title": s.get("title") or "",
+        "city": s.get("city") or "",
+        "asset_type": _asset_type(s),
+        "bank": s.get("bank") or "",
+        "reserve_price": s.get("reserve_price"),
+        "emd": s.get("emd"),           # None → template hides the EMD chip
+        "auction_date": _card_date(s.get("auction_start")),
+        "source_line": source_line,
+    }
+    if template == "price-drop-1080x1350":
+        island["previous_reserve_price"] = s.get("previous_reserve_price")
+    else:
+        # deal-of-the-day has a "vs market" row; we hold no comparable, so blank
+        # it (the template hides an empty market_hint) — never invent a range.
+        island["market_hint"] = ""
+    return template, island
+
+
+def write_card_islands(out_dir: Path, drafts: list[dict]) -> list[dict]:
+    """Write one #data island JSON per image-bearing draft into out_dir/cards/.
+    Returns a manifest (one row per card) for review.md + drafts.json."""
+    manifest: list[dict] = []
+    cards_dir = out_dir / "cards"
+    for i, d in enumerate(drafts, 1):
+        made = draft_to_island(d)
+        if not made:
+            continue
+        template, island = made
+        cards_dir.mkdir(parents=True, exist_ok=True)
+        fname = f"{i:02d}-{d['auction_id']}.json"
+        (cards_dir / fname).write_text(
+            json.dumps(island, ensure_ascii=False, indent=2), encoding="utf-8")
+        manifest.append({"draft_index": i, "auction_id": d["auction_id"],
+                         "template": template, "data": f"cards/{fname}",
+                         "headline": island["headline"]})
+    return manifest
 
 
 # ------------------------------------------------------------------ output
@@ -303,9 +491,11 @@ def write_outputs(out_root: Path, stats: dict, drafts: list[dict],
                   rejected: list[str], editor_notes: str) -> Path:
     out_dir = out_root / date.today().isoformat()
     out_dir.mkdir(parents=True, exist_ok=True)
+    cards = write_card_islands(out_dir, drafts)
     (out_dir / "drafts.json").write_text(
-        json.dumps({"stats": stats, "drafts": drafts, "rejected": rejected,
-                    "editor_notes": editor_notes}, ensure_ascii=False, indent=2),
+        json.dumps({"stats": stats, "drafts": drafts, "cards": cards,
+                    "rejected": rejected, "editor_notes": editor_notes},
+                   ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
     lines = [
@@ -318,6 +508,17 @@ def write_outputs(out_root: Path, stats: dict, drafts: list[dict],
         "manually or via your scheduler. Verify each fact against the linked notice.",
         "",
     ]
+    if cards:
+        lines += [
+            f"**{len(cards)} card image(s) staged** — the hook is burned on as the "
+            "headline. Render them with:",
+            "```bash",
+            *[f"python marketing/render_social.py --template {c['template']} "
+              f"--data {(out_dir / c['data'])} --out {out_dir}" for c in cards],
+            "```",
+            "",
+        ]
+    card_by_index = {c["draft_index"]: c for c in cards}
     for i, d in enumerate(drafts, 1):
         s = d["source"]
         price = f"₹{s['reserve_lakhs']}L"
@@ -334,6 +535,16 @@ def write_outputs(out_root: Path, stats: dict, drafts: list[dict],
             f"image: {'yes — ' + d.get('image_headline', '') if d.get('needs_image') else 'no'}",
             "",
         ]
+        alts = [a for a in (d.get("hook_alternatives") or [])
+                if isinstance(a, str) and a.strip()]
+        lines.append(f"hook: `{d.get('hook_mechanism', 'unspecified')}`"
+                     + (" · alternatives:" if alts else ""))
+        lines += [f"- {a}" for a in alts[:2]]
+        card = card_by_index.get(i)
+        if card:
+            lines.append(f"card: `{card['template']}` · headline burned on: "
+                         f"*{card['headline'] or '(none — card shows the property title)'}*")
+        lines.append("")
         if d.get("pinned_comment"):
             lines += ["**pinned comment:**", "> " + d["pinned_comment"].replace("\n", "\n> "), ""]
         meta = [f"{k}: {d[k]}" for k in ("video_title", "location_tag", "alt_text") if d.get(k)]

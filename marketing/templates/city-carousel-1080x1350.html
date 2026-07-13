@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Auctionscope — City Carousel (1080×1350 × N slides)</title>
+<meta name="viewport" content="width=1080">
+<!--
+  "Cheapest <asset> in <city> this week" carousel. One cover + one slide per
+  property + a CTA slide; render_social.py screenshots every .stage in order
+  (carousel_01.png, carousel_02.png, …). Slides are built from the #data
+  island by the builder script below — the poster script only rewrites the
+  island (properties come from /properties?sort=price_asc).
+  Adapted from motion-anything recipes (kinetic-headline, stagger-list —
+  Apache-2.0, see ATTRIBUTION.md).
+  Render: python marketing/render_social.py --template city-carousel-1080x1350
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700;12..96,800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+<noscript><link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700;12..96,800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"></noscript>
+<link rel="stylesheet" href="lib/tokens.css">
+<link rel="stylesheet" href="lib/motion.css">
+<style>
+  /* cover */
+  .cover-body { padding: 0 84px; display: flex; flex-direction: column; gap: 44px; }
+  /* Optional hook headline for the cover (set from data.headline). When present
+     it leads and the formula title steps down to a supporting line. */
+  .cover-hook {
+    font-family: var(--font-display);
+    font-size: 100px; font-weight: 800;
+    letter-spacing: -0.03em; line-height: 1.02;
+    color: var(--ink);
+  }
+  .cover-title {
+    font-family: var(--font-display);
+    font-size: 108px; font-weight: 800;
+    letter-spacing: -0.03em; line-height: 1.02;
+  }
+  .cover-title.is-sub {
+    font-size: 44px; font-weight: 600;
+    letter-spacing: -0.01em; line-height: 1.25; color: var(--muted);
+  }
+  .cover-title .hl { color: var(--accent); }
+  .cover-title.is-sub .hl { color: var(--muted); }
+  .cover-sub { font-size: 34px; color: var(--ink-soft); line-height: 1.45; max-width: 800px; }
+  .swipe-hint {
+    font-family: var(--font-mono); font-size: 26px; font-weight: 600;
+    color: var(--accent); display: inline-flex; align-items: center; gap: 14px;
+  }
+
+  /* property slides */
+  .rank-row { display: flex; align-items: center; gap: 28px; padding: 0 64px; }
+  .rank {
+    font-family: var(--font-mono); font-size: 40px; font-weight: 600;
+    color: var(--accent); background: var(--accent-soft);
+    border-radius: var(--radius-pill); padding: 16px 34px;
+  }
+  .rank-context { font-size: 28px; color: var(--muted); }
+  .slide-card { margin: 44px 64px 0; border-radius: var(--radius-lg); }
+  .cta-body { flex: 1; }
+  .slide-card .price { color: var(--accent); font-size: 118px; }
+  .dots { display: flex; gap: 12px; }
+  .dots span { width: 16px; height: 16px; border-radius: 50%; background: var(--border-strong); }
+  .dots span.on { background: var(--accent); }
+
+  /* CTA slide */
+  .cta-body {
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 40px; text-align: center;
+  }
+  .cta-logo { width: 168px; height: 168px; }
+  .cta-title {
+    font-family: var(--font-display); font-size: 84px; font-weight: 800;
+    letter-spacing: -0.03em; line-height: 1.05; max-width: 820px;
+  }
+  .cta-sub { font-size: 32px; color: var(--ink-soft); }
+</style>
+</head>
+<body>
+
+<script id="data" type="application/json">
+{
+  "city": "Chennai",
+  "asset_label": "flats",
+  "week_label": "this week",
+  "headline": "5 Chennai flats the banks want gone this week",
+  "listing_note": "Live bank auctions, sorted by reserve price. Details from each bank's notice.",
+  "properties": [
+    { "title": "1BHK Flat, Ambattur",   "locality": "Ambattur · 620 sq ft",   "bank": "Indian Overseas Bank", "reserve_price": 1650000, "auction_date": "22 Jul 2026" },
+    { "title": "2BHK Flat, Avadi",      "locality": "Avadi · 840 sq ft",      "bank": "Bank of Baroda",       "reserve_price": 2240000, "auction_date": "25 Jul 2026" },
+    { "title": "2BHK Flat, Porur",      "locality": "Porur · 910 sq ft",      "bank": "Canara Bank",          "reserve_price": 2870000, "auction_date": "24 Jul 2026" },
+    { "title": "2BHK Flat, Velachery",  "locality": "Velachery · 980 sq ft",  "bank": "Indian Bank",          "reserve_price": 3850000, "auction_date": "24 Jul 2026" },
+    { "title": "3BHK Flat, Anna Nagar", "locality": "Anna Nagar · 1,240 sq ft","bank": "SBI",                 "reserve_price": 5460000, "auction_date": "29 Jul 2026" }
+  ]
+}
+</script>
+
+<!-- slide 1: cover -->
+<div class="stage stage-1080x1350">
+  <div class="s-head">
+    <span class="s-eyebrow"><span class="dot"></span><span id="cover-eyebrow">Live auctions · Chennai</span></span>
+    <span class="s-brand">
+      <svg viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs><linearGradient id="tile" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3b74f2"/><stop offset="1" stop-color="#2a5fe6"/></linearGradient></defs><rect x="0" y="0" width="1024" height="1024" rx="232" fill="url(#tile)"/><g transform="translate(236 236) scale(23)" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="2" x2="5" y1="12" y2="12"/><line x1="19" x2="22" y1="12" y2="12"/><line x1="12" x2="12" y1="2" y2="5"/><line x1="12" x2="12" y1="19" y2="22"/><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="1.55" fill="#ffffff" stroke="none"/></g></svg>
+      Auctionscope
+    </span>
+  </div>
+  <div class="s-mid cover-body">
+    <div class="cover-hook" id="cover-hook"></div>
+    <div class="cover-title" id="cover-title">The <span class="hl" id="cover-count">5</span> cheapest <span id="cover-asset">flats</span> at bank auction in <span class="hl" id="cover-city">Chennai</span> <span id="cover-week">this week</span></div>
+    <div class="cover-sub" data-field="listing_note">Live bank auctions, sorted by reserve price. Details from each bank's notice.</div>
+    <div class="swipe-hint">Swipe →</div>
+  </div>
+  <div class="s-foot">
+    <div class="s-honesty">Reserve prices and dates from the banks' auction notices.</div>
+    <div class="s-cta">auctionscope.in</div>
+  </div>
+</div>
+
+<!-- property slides are cloned from this template by the builder script -->
+<template id="slide-template">
+  <div class="stage stage-1080x1350">
+    <div class="s-mid">
+      <div class="rank-row">
+        <span class="rank">#<span class="t-rank"></span></span>
+        <span class="rank-context t-context"></span>
+        <span class="dots" style="margin-left:auto"></span>
+      </div>
+      <div class="sprop slide-card">
+        <div class="loc t-loc"></div>
+        <div class="title t-title"></div>
+        <div class="price-label">Reserve price</div>
+        <div class="price t-price"></div>
+        <div class="chips">
+          <span class="chip t-bank"></span>
+          <span class="chip is-accent t-date"></span>
+        </div>
+      </div>
+    </div>
+    <div class="s-foot">
+      <div class="s-honesty">Details from the bank's auction notice.</div>
+      <div class="s-cta">auctionscope.in</div>
+    </div>
+  </div>
+</template>
+
+<!-- final slide: CTA -->
+<div class="stage stage-1080x1350" id="cta-slide">
+  <div class="cta-body">
+    <svg class="cta-logo" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs><linearGradient id="tile2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3b74f2"/><stop offset="1" stop-color="#2a5fe6"/></linearGradient></defs><rect x="0" y="0" width="1024" height="1024" rx="232" fill="url(#tile2)"/><g transform="translate(236 236) scale(23)" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="2" x2="5" y1="12" y2="12"/><line x1="19" x2="22" y1="12" y2="12"/><line x1="12" x2="12" y1="2" y2="5"/><line x1="12" x2="12" y1="19" y2="22"/><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="1.55" fill="#ffffff" stroke="none"/></g></svg>
+    <div class="cta-title">Every live bank auction in <span id="cta-city">Chennai</span>, in one place</div>
+    <div class="cta-sub">Search, compare and evaluate before you bid</div>
+    <div class="s-cta">auctionscope.in</div>
+  </div>
+</div>
+
+<script src="lib/motion.js"></script>
+<script>
+  (function () {
+    var d = AS.data || AS.bind();
+    var props = d.properties || [];
+
+    document.getElementById('cover-eyebrow').textContent = 'Live auctions · ' + d.city;
+    document.getElementById('cover-count').textContent = props.length;
+    document.getElementById('cover-asset').textContent = d.asset_label;
+    document.getElementById('cover-city').textContent = d.city;
+    document.getElementById('cover-week').textContent = d.week_label;
+    document.getElementById('cta-city').textContent = d.city;
+
+    // Optional cover hook: when data.headline is set it leads the cover and the
+    // formula title steps down to a supporting sub-line; otherwise stay as-is.
+    var hook = (d.headline || '').trim();
+    var hookEl = document.getElementById('cover-hook');
+    if (hook) {
+      hookEl.textContent = hook;
+      document.getElementById('cover-title').classList.add('is-sub');
+    } else {
+      hookEl.style.display = 'none';
+    }
+
+    var tpl = document.getElementById('slide-template');
+    var ctaSlide = document.getElementById('cta-slide');
+    props.forEach(function (p, i) {
+      var s = tpl.content.cloneNode(true);
+      s.querySelector('.t-rank').textContent = i + 1;
+      s.querySelector('.t-context').textContent =
+        'of ' + props.length + ' · cheapest ' + d.asset_label + ' · ' + d.city;
+      s.querySelector('.t-loc').textContent = p.locality + ' · ' + d.city;
+      s.querySelector('.t-title').textContent = p.title;
+      s.querySelector('.t-price').textContent = AS.formatINR(p.reserve_price);
+      s.querySelector('.t-bank').innerHTML = '<b></b>';
+      s.querySelector('.t-bank b').textContent = p.bank;
+      s.querySelector('.t-date').innerHTML = 'Auction <b></b>';
+      s.querySelector('.t-date b').textContent = p.auction_date;
+      var dots = s.querySelector('.dots');
+      for (var j = 0; j < props.length; j++) {
+        var dot = document.createElement('span');
+        if (j === i) dot.className = 'on';
+        dots.appendChild(dot);
+      }
+      ctaSlide.parentNode.insertBefore(s, ctaSlide);
+    });
+  })();
+</script>
+</body>
+</html>

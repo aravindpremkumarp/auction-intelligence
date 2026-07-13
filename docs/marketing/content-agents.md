@@ -1,6 +1,6 @@
 # AuctionScope — Content-Ops Agents (blueprint)
 
-*Companion to `docs/marketing/plan.md`. Status: **Agent A ("Poster") is built** — `marketing_agents/poster.py` + the manual-dispatch workflow `.github/workflows/content-poster.yml`. Agent B (Reporter) and Agent C (Replier) remain specs.*
+*Companion to `docs/marketing/plan.md`. Status: **Agent A ("Poster") and Agent B ("Reporter") are built** — `marketing_agents/poster.py` and `marketing_agents/reporter.py`. Agent C (Replier) remains a spec.*
 
 ## In one sentence
 Hire two tireless "interns" (scheduled Claude jobs) to do the repetitive marketing chores — one drafts daily social posts from our auction data, one writes a weekly report — so the founder's time goes to building, not busywork. **They draft and stage; a human always hits "publish."**
@@ -24,18 +24,20 @@ Reusing these means: no new subscription, and every agent automatically inherits
 
 - **Runs:** **after each data refresh (scrape), not on a fixed daily clock** — since the founder scrapes ~weekly/biweekly, fresh data in → content out. This avoids posting a "deal" that closed days ago. Trigger via manual "run now" right after a scrape, or a `workflow_dispatch` the scrape step fires.
 - **Reads:** `GET /stats` (live counts) and `GET /properties` for post fodder — new/upcoming auctions, **price drops** (`is_reauction` + `previous_reserve_price`), **cheapest-by-city** (`sort=price_asc`), "closing soon."
-- **Writes:** 3–5 post drafts + carousel copy in our voice (brand block pulled from `product-marketing.md`; taboo list = the honesty rule). The copy craft — hook families by angle + the quality bar — comes from **`docs/marketing/copy-playbook.md`** (translated from the `social`, `copywriting`, and `copy-editing` skills into auction-specific swipe lines); its essentials are injected into `build_prompt()`, and the two objective gates (must contain a figure; no banned words) are enforced in `validate_drafts()`. Optionally renders the visuals via the existing HTML pipeline (`brand/logo/render.py` + `web/card-variations.html` + `web/styles.css` tokens; reels via the `hyperframes` npm package).
+- **Writes:** 3–5 post drafts + carousel copy in our voice (brand block pulled from `product-marketing.md`; taboo list = the honesty rule). The copy craft — the hook system (stop test + 8 mechanisms + 3-variant discipline) + the quality bar — comes from **`docs/marketing/copy-playbook.md`** (translated from the `social`, `copywriting`, and `copy-editing` skills into auction-specific swipe lines); its essentials are injected into `build_prompt()`, and the objective gates (must contain a figure; no banned words; hook ≤100 chars; no throat-clearing openers; mechanism variety) are enforced in `validate_drafts()`. Optionally renders the visuals via the existing HTML pipeline (`brand/logo/render.py` + `web/card-variations.html` + `web/styles.css` tokens; reels via the `hyperframes` npm package).
 - **Files output (Tier 1, staged only):** commits drafts to `marketing/outputs/YYYY-MM-DD/` and opens/refreshes a **"content review" GitHub issue** as the notification.
 - **Does NOT post.** A human reviews the folder, tweaks, and publishes via a scheduler (Buffer/Publer) or by hand.
 - **Prompt:** adapt the thread's Agent-1/Agent-2 prompts — same JSON output contract, but the brand/taboo/theme blocks come from `product-marketing.md`, and every "deal" claim must be grounded in the sale-notice fields (reserve/EMD/date), never invented.
 
-## Agent B — "The Reporter" (weekly marketing report)
-*The `marketing-loops` weekly-marketing-review loop.*
+## Agent B — "The Reporter" (weekly marketing report) — **built**
+*The `marketing-loops` weekly-marketing-review loop.* Implemented as `marketing_agents/reporter.py`; method distilled into `docs/marketing/analytics-playbook.md`.
 
-- **Runs:** Friday afternoon cron.
-- **Reads:** `GET /stats` + (once analytics ships) GA4 / Search Console exports + social metrics. Until analytics exists, it works from whatever numbers are available and says so.
-- **Writes:** a one-page report — what worked, what didn't (with a hypothesis), the week's pattern, and **3–4 concrete next-week actions** (not "post more" but "3 price-drop posts Tue–Thu"), plus a green/yellow/red flag. Rule: every observation ends in an action.
-- **Files output:** commits the report + opens a GitHub issue. Read-only on the outside world — safe to run unattended.
+- **Runs:** Friday afternoon cron (workflow shaped like the Poster's; not yet wired).
+- **Reads:** a **post-metrics CSV** you export from the platforms (`marketing/samples/post-metrics-example.csv` is the shape) + `GET /stats` for a site snapshot. Built to slot in GA4 / Search Console exports later; until then it works from the CSV and says so in the report's caveats.
+- **Writes:** a one-page report — what worked, what didn't (with a hypothesis), the week's pattern (per-angle/format/platform tables), and **3–4 concrete next-week actions** (not "post more" but "3 price-drop posts Tue–Thu"), plus a green/yellow/red flag. Rule: every observation ends in an action.
+- **Grounding (the analytics analog of the honesty rule):** every metric is computed in Python from the CSV; the LLM interprets but never invents a number, and `validate_report()` drops any claim citing a post that isn't in the data. Same hype-word ban as the Poster.
+- **The method** — reach/engagement/conversion tiers, own-baseline benchmarking (never industry vanity averages), observation→action — is distilled from the installed blacktwist `performance-analyzer-sms` / `content-pattern-analyzer-sms` / `optimization-advisor-sms` skills into `analytics-playbook.md`, the same way `copy-playbook.md` distils the writing skills for the Poster.
+- **Files output (Tier 1, staged only):** writes `marketing/outputs/YYYY-MM-DD/report.md` + `report.json`. Read-only on the outside world — safe to run unattended. Kill switch: `AGENTS_ENABLED=false`. Unit tests: `tests/marketing_agents/test_reporter.py`.
 
 ## Agent C — "The Replier" (parked)
 Comment/DM triage (classify → draft reply or escalate). Deferred until there's actual posting cadence and comment volume (Q2+). Sketch only; will also stage, never auto-post.

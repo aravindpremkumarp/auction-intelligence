@@ -178,6 +178,28 @@ _LLM_ROWS_HARD_CAP = 25
 # default). Distributions are value→count pairs, so 100 stays tiny in context.
 _GROUP_BY_MAX_BUCKETS = 100
 
+# ── narrowing diagnostics (attached to search_auctions results) ──────────────
+# Dimensions offered as counted "narrow it down" hints on a broad result, in
+# priority order; a dimension the search already constrains is skipped (it
+# can't narrow further). See the `refine` block in search_auctions.
+_REFINE_DIMS = ("property_type", "area", "asset_category", "bank")
+_MAX_REFINE_DIMS = 2       # at most this many dimensions per result
+_REFINE_BUCKETS = 4        # top buckets shown per dimension
+# Only attach refine hints once the match set is bigger than what the model
+# ever sees (the LLM row cap) — below that it already has the whole set.
+_REFINE_MIN_TOTAL = _LLM_ROWS_HARD_CAP
+
+# Substantive filters whose leave-one-out count diagnoses an over-constrained
+# zero ("drop max_price → 6 matches"). Date/window filters are deliberately
+# excluded: the future-only floor has its own past_matches diagnostic, and a
+# caller-set window is an intentional zero (see test_zero_result_hints).
+_RELAXABLE_FILTERS = (
+    "min_price", "max_price", "min_emd", "max_emd",
+    "city", "area", "property_type", "asset_category",
+    "bank", "borrower", "auction_type", "branch_name",
+    "service_provider", "is_reauction",
+)
+
 # `deadline_*` orders by the application deadline (the actionable bidding
 # cutoff); `start_*` by the auction start. Historically both `deadline_*`
 # keys pointed at `auction_start_dt` — a mislabel, since the row's deadline
@@ -192,6 +214,37 @@ _ORDER_BY_CLAUSES = {
     "emd_asc":       "a.emd_num ASC",
     "emd_desc":      "a.emd_num DESC",
 }
+
+
+def _distribution_query(
+    dim: str, matches: list[str], where: list[str], params: dict, limit: int,
+) -> list[dict]:
+    """value → auction_count buckets for one dimension under the given
+    match/where scope, ordered by count desc. Shared by `group_by`
+    distributions and the `refine` narrowing hints so both bucket the same
+    way. Walks an edge to the dimension node (or reads a node prop for
+    `service_provider`); `params` is passed through minus the row `limit`."""
+    dist_matches = list(matches)
+    dist_where = list(where)
+    if dim in _DISTINCT_NODE_PROPS:
+        value_expr = _DISTINCT_NODE_PROPS[dim]
+        dist_where.append(f"{value_expr} IS NOT NULL")
+    else:
+        g_label, g_rel = _DISTINCT_FIELDS[dim]
+        dist_matches.append(f"(a)-[:{g_rel}]->(g:{g_label})")
+        value_expr = "g.name"
+    dist_where_clause = ("WHERE " + " AND ".join(dist_where)) if dist_where else ""
+    dist_cypher = f"""
+        MATCH {', '.join(dist_matches)}
+        {dist_where_clause}
+        RETURN {value_expr} AS value, count(DISTINCT a) AS auction_count
+        ORDER BY auction_count DESC
+        LIMIT {limit}
+    """
+    return run_read_query(
+        dist_cypher, {k: v for k, v in params.items() if k != "limit"},
+        timeout=15.0, max_rows=limit,
+    )
 
 
 def search_auctions(
@@ -218,7 +271,23 @@ def search_auctions(
     aggregations: list[str] | None = None,
     group_by: str | None = None,
     include_past: bool = False,
+    _diagnose: bool = True,
 ) -> dict:
+    # Raw caller-supplied filters, captured before the future-only floor
+    # rewrites `starts_after` below. Drives the `refine` narrowing hints and
+    # the over-constrained-zero leave-one-out. `_diagnose=False` on the
+    # recursive probes those diagnostics spawn stops them recursing.
+    _user_filters: dict = {
+        "min_price": min_price, "max_price": max_price,
+        "min_emd": min_emd, "max_emd": max_emd,
+        "city": city, "area": area,
+        "property_type": property_type, "asset_category": asset_category,
+        "bank": bank, "borrower": borrower,
+        "auction_type": auction_type, "branch_name": branch_name,
+        "service_provider": service_provider, "is_reauction": is_reauction,
+        "starts_after": starts_after, "starts_before": starts_before,
+        "deadline_within_days": deadline_within_days,
+    }
     if group_by is not None and (
         group_by not in _DISTINCT_FIELDS and group_by not in _DISTINCT_NODE_PROPS
     ):
@@ -369,26 +438,8 @@ def search_auctions(
     # row fetch is skipped; the buckets are the answer.
     distribution: list[dict] | None = None
     if group_by is not None and total_count > 0:
-        dist_matches = list(matches)
-        dist_where = list(where)
-        if group_by in _DISTINCT_NODE_PROPS:
-            value_expr = _DISTINCT_NODE_PROPS[group_by]
-            dist_where.append(f"{value_expr} IS NOT NULL")
-        else:
-            g_label, g_rel = _DISTINCT_FIELDS[group_by]
-            dist_matches.append(f"(a)-[:{g_rel}]->(g:{g_label})")
-            value_expr = "g.name"
-        dist_where_clause = ("WHERE " + " AND ".join(dist_where)) if dist_where else ""
-        dist_cypher = f"""
-            MATCH {', '.join(dist_matches)}
-            {dist_where_clause}
-            RETURN {value_expr} AS value, count(DISTINCT a) AS auction_count
-            ORDER BY auction_count DESC
-            LIMIT {_GROUP_BY_MAX_BUCKETS}
-        """
-        distribution = run_read_query(
-            dist_cypher, {k: v for k, v in params.items() if k != "limit"},
-            timeout=15.0, max_rows=_GROUP_BY_MAX_BUCKETS,
+        distribution = _distribution_query(
+            group_by, matches, where, params, _GROUP_BY_MAX_BUCKETS,
         )
     elif group_by is not None:
         distribution = []
@@ -452,45 +503,121 @@ def search_auctions(
     if group_by is not None:
         out["group_by"] = group_by
         out["distribution"] = distribution or []
-    if total_count == 0 and default_future_only:
-        # Diagnose the zero: was it the implicit future-only floor? One cheap
-        # count with the floor dropped tells the model exactly what to do
-        # next (include_past or stop), instead of leaving it to guess-and-
-        # retry filter variations across many round-trips.
-        where_no_floor = [w for w in where if w != "a.auction_start_dt >= $starts_after"]
-        no_floor_clause = 'WHERE ' + ' AND '.join(where_no_floor) if where_no_floor else ''
-        try:
-            past_rows = run_read_query(
-                f"MATCH {match_clause} {no_floor_clause} RETURN count(a) AS total_count",
-                {k: v for k, v in params.items() if k not in ("limit", "starts_after")},
-                timeout=15.0, max_rows=1,
+
+    # Counted "narrow it down" hints (idea: refine). On a plain search whose
+    # match set is bigger than the model ever sees, attach top buckets for up
+    # to _MAX_REFINE_DIMS dimensions the search doesn't already constrain, so
+    # the broad-result nudge names concrete filters WITH live counts instead
+    # of guessing from its row sample. Reuses the group_by distribution query;
+    # skipped on the diagnostic-free probe path and when the caller asked for
+    # stats/distribution rather than rows.
+    if (
+        _diagnose and group_by is None and not aggregations
+        and total_count > _REFINE_MIN_TOTAL
+    ):
+        active = {k for k, v in _user_filters.items() if v is not None and v != []}
+        refine: dict[str, list[dict]] = {}
+        for dim in _REFINE_DIMS:
+            if len(refine) >= _MAX_REFINE_DIMS:
+                break
+            if dim in active:
+                continue
+            try:
+                raw = _distribution_query(dim, matches, where, params, _REFINE_BUCKETS)
+            except Exception:  # noqa: BLE001 - narrowing hints are best-effort
+                continue
+            buckets = [
+                {"value": b["value"], "count": b["auction_count"]}
+                for b in raw if b.get("value") and b.get("auction_count")
+            ]
+            if len(buckets) >= 2:  # a single bucket can't narrow anything
+                refine[dim] = buckets
+        if refine:
+            out["refine"] = refine
+
+    if _diagnose and total_count == 0:
+        # (a) Over-constrained? Leave-one-out over substantive filters: which
+        #     single filter, dropped, would let matches through ("drop
+        #     max_price → 6"). Date/window filters are excluded — the floor has
+        #     the past_matches diagnostic in (b) — so this needs >=2 of them.
+        relax: list[dict] = []
+        active_relaxable = [
+            k for k in _RELAXABLE_FILTERS
+            if _user_filters.get(k) is not None and _user_filters.get(k) != []
+        ]
+        if len(active_relaxable) >= 2:
+            for drop in active_relaxable:
+                probe = dict(_user_filters)
+                probe[drop] = None
+                try:
+                    sub = search_auctions(
+                        **probe, include_past=include_past, limit=0, _diagnose=False,
+                    )
+                except Exception:  # noqa: BLE001 - best-effort diagnostic
+                    continue
+                n = sub.get("total_count", 0) if isinstance(sub, dict) else 0
+                if n:
+                    relax.append({"filter": drop, "matches": n})
+            relax.sort(key=lambda r: r["matches"], reverse=True)
+            if relax:
+                out["relax"] = relax
+
+        # (b) Future-only floor the culprit? One cheap count with the floor
+        #     dropped — only when the floor was defaulted, never when the caller
+        #     set the window (that zero is intentional). `floor_probed` stays
+        #     False if the count fails, so a timed-out diagnostic yields a plain
+        #     zero (no confident "nothing anywhere" claim) rather than a wrong one.
+        past_total = 0
+        floor_probed = False
+        if default_future_only:
+            where_no_floor = [w for w in where if w != "a.auction_start_dt >= $starts_after"]
+            no_floor_clause = 'WHERE ' + ' AND '.join(where_no_floor) if where_no_floor else ''
+            try:
+                past_rows = run_read_query(
+                    f"MATCH {match_clause} {no_floor_clause} RETURN count(a) AS total_count",
+                    {k: v for k, v in params.items() if k not in ("limit", "starts_after")},
+                    timeout=15.0, max_rows=1,
+                )
+            except Exception:  # noqa: BLE001 - the hint is best-effort, never fatal
+                # The unfloored count is heavier than the indexed primary (no
+                # date anchor); a timeout must not fail a valid 0-match answer.
+                past_rows = None
+            if past_rows is not None:
+                floor_probed = True
+                past_total = past_rows[0].get("total_count", 0) if past_rows else 0
+                if past_total:
+                    out["past_matches"] = past_total
+
+        # (c) One coherent hint, most actionable diagnosis first.
+        if relax:
+            lead = relax[0]
+            tail = (
+                f" ({past_total} past auction(s) also match — include_past=true "
+                "for a retrospective view.)" if past_total else ""
             )
-        except Exception:  # noqa: BLE001 - the hint is best-effort, never fatal
-            # The unfloored count is strictly heavier than the indexed primary
-            # (no date-range anchor); a timeout here must not turn a valid
-            # 0-match answer into a failed turn. No hint — the model falls
-            # back to the zero-result protocol.
-            past_rows = None
-        if past_rows is not None:
-            past_total = past_rows[0].get("total_count", 0) if past_rows else 0
-            if past_total:
-                out["past_matches"] = past_total
-                out["hint"] = (
-                    f"0 upcoming auctions match, but {past_total} past auction(s) "
-                    "do — the future-only default excluded them. For a "
-                    "retrospective question retry once with include_past=true; "
-                    "otherwise report no upcoming matches. Do not retry other "
-                    "filter variations."
-                )
-            else:
-                out["hint"] = (
-                    "No auctions match these filters in any time window — that "
-                    "is the answer. Report no matches and offer the closest "
-                    "alternative; widening price or dropping filters cannot help "
-                    "when nothing exists in any window. Only re-search to fix an "
-                    "obvious enum/spelling error — otherwise do not retry the "
-                    "same shape."
-                )
+            out["hint"] = (
+                "0 matches with every filter combined, but relaxing one would "
+                f"help — see `relax` (e.g. drop {lead['filter']} → {lead['matches']} "
+                "match(es)). Tell the user which single constraint to loosen and "
+                f"confirm before widening; don't silently drop filters.{tail}"
+            )
+        elif past_total:
+            out["hint"] = (
+                f"0 upcoming auctions match, but {past_total} past auction(s) "
+                "do — the future-only default excluded them. For a "
+                "retrospective question retry once with include_past=true; "
+                "otherwise report no upcoming matches. Do not retry other "
+                "filter variations."
+            )
+        elif floor_probed:
+            out["hint"] = (
+                "No auctions match these filters in any time window — that "
+                "is the answer. Report no matches and offer the closest "
+                "alternative; widening price or dropping filters cannot help "
+                "when nothing exists in any window. Only re-search to fix an "
+                "obvious enum/spelling error — otherwise do not retry the "
+                "same shape."
+            )
     return out
 
 

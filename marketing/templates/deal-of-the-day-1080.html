@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Auctionscope — Deal of the Day (1080×1080)</title>
+<meta name="viewport" content="width=1080">
+<!--
+  Deal-of-the-day square (Instagram/Facebook/LinkedIn/X feed).
+  Adapted from motion-anything recipes (shine-border, count-up, shiny-text,
+  stagger-list — Apache-2.0, see ATTRIBUTION.md), re-built on Auctionscope
+  tokens. The poster script only rewrites the #data JSON island; every visible
+  number stays grounded in the auction notice (honesty rule).
+  Render: python marketing/render_social.py --template deal-of-the-day-1080
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700;12..96,800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+<noscript><link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700;12..96,800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"></noscript>
+<link rel="stylesheet" href="lib/tokens.css">
+<link rel="stylesheet" href="lib/motion.css">
+<style>
+  .deal-card {
+    margin: 0 64px;
+    border-radius: var(--radius-lg);
+  }
+  .deal-card .price { color: var(--accent); }
+  /* The hook (image_headline from the poster) is the card's scroll-stopper. */
+  .deal-hook {
+    font-family: var(--font-display);
+    font-size: 56px; font-weight: 800;
+    letter-spacing: -0.02em; line-height: 1.06;
+    color: var(--ink); margin-top: 2px;
+  }
+  .deal-hook:empty { display: none; }              /* no hook → fall back to title */
+  /* When a hook is present it leads; the property title becomes a sub-line. */
+  .deal-hook:not(:empty) ~ .title {
+    font-size: 30px; font-weight: 600;
+    letter-spacing: 0; color: var(--muted);
+  }
+  .market-row {
+    display: flex; align-items: baseline; gap: 16px;
+    font-size: 26px; color: var(--muted);
+  }
+  .market-row b { color: var(--ink-soft); font-weight: 600; }
+  .market-row:has(b:empty) { display: none; }      /* no comparable → hide row */
+  .chips .chip:has(b:empty) { display: none; }      /* missing fact → hide chip */
+</style>
+</head>
+<body>
+
+<script id="data" type="application/json">
+{
+  "headline": "₹38.5L in Velachery — but does it flood?",
+  "title": "2BHK Flat, Velachery",
+  "city": "Chennai",
+  "asset_type": "Residential flat",
+  "reserve_price": 3850000,
+  "market_hint": "similar flats listed nearby at ₹52–58 L",
+  "emd": 385000,
+  "auction_date": "24 Jul 2026",
+  "bank": "Indian Bank",
+  "source_line": "Reserve, EMD and date from the bank's auction notice."
+}
+</script>
+
+<div class="stage stage-1080" id="stage">
+  <div class="s-head">
+    <span class="s-eyebrow"><span class="dot"></span><span class="shiny-text">Deal of the day</span></span>
+    <span class="s-brand">
+      <svg viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs><linearGradient id="tile" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3b74f2"/><stop offset="1" stop-color="#2a5fe6"/></linearGradient></defs><rect x="0" y="0" width="1024" height="1024" rx="232" fill="url(#tile)"/><g transform="translate(236 236) scale(23)" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="2" x2="5" y1="12" y2="12"/><line x1="19" x2="22" y1="12" y2="12"/><line x1="12" x2="12" y1="2" y2="5"/><line x1="12" x2="12" y1="19" y2="22"/><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="1.55" fill="#ffffff" stroke="none"/></g></svg>
+      Auctionscope
+    </span>
+  </div>
+
+  <div class="s-mid">
+  <div class="sprop deal-card shine" data-stagger>
+    <div class="loc"><span data-field="asset_type">Residential flat</span> · <span data-field="city">Chennai</span> · <span data-field="bank">Indian Bank</span></div>
+    <div class="deal-hook" data-field="headline"></div>
+    <div class="title" data-field="title">2BHK Flat, Velachery</div>
+    <div class="price-label">Reserve price</div>
+    <div class="price" data-count="3850000" data-count-duration="900" data-field="reserve_price" data-field-format="inr">₹0</div>
+    <div class="market-row">vs market — <b data-field="market_hint">similar flats listed nearby at ₹52–58 L</b></div>
+    <div class="chips">
+      <span class="chip">EMD <b data-field="emd" data-field-format="inr">₹3.85 L</b></span>
+      <span class="chip is-accent">Auction <b data-field="auction_date">24 Jul 2026</b></span>
+    </div>
+  </div>
+  </div>
+
+  <div class="s-foot">
+    <div class="s-honesty" data-field="source_line">Reserve, EMD and date from the bank's auction notice.</div>
+    <div class="s-cta">auctionscope.in</div>
+  </div>
+</div>
+
+<script src="lib/motion.js"></script>
+</body>
+</html>

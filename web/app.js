@@ -1119,6 +1119,26 @@ async function hydrateModes() {
   } catch(e) { /* keep the seeded default mode list */ }
   renderModePickers();
 }
+// Swap the hardcoded starter chips for live, data-driven ones from
+// GET /suggestions (built from the current graph, so they can't point at zero
+// matches — see api/chat/suggestions.py). Best-effort: on any failure or an
+// empty payload the markup's hardcoded fallback chips stay in place. Both
+// `.landing-suggest` rows (landing screen + chat panel) get the same set.
+async function hydrateSuggestions() {
+  try {
+    const res = await authFetch(`${API_BASE}/suggestions`);
+    if (!res.ok) return;
+    const data = await res.json();
+    const items = Array.isArray(data?.suggestions) ? data.suggestions : [];
+    if (!items.length) return;  // keep the fallback chips
+    const html = items
+      .filter(s => s && s.q && s.label)
+      .map(s => `<span class="chip" data-q="${escapeHtml(s.q)}">${escapeHtml(s.label)}</span>`)
+      .join('');
+    if (!html) return;
+    document.querySelectorAll('.landing-suggest').forEach(row => { row.innerHTML = html; });
+  } catch (_) { /* best-effort; hardcoded chips remain */ }
+}
 // Populate the model + thinking-effort picker from the tier-aware
 // GET /chat/models. Re-run on auth change so upgrading to paid unlocks Pro
 // without a refresh. The picker shows its Model section only when 2+ models
@@ -3444,8 +3464,11 @@ document.getElementById('detail-share').addEventListener('click', async (e) => {
   }
 });
 
-document.querySelectorAll('.chip[data-q]').forEach(c => {
-  c.addEventListener('click', () => askAI(c.dataset.q, { fromLanding: true }));
+// Delegated so it also fires for chips swapped in later by hydrateSuggestions()
+// (feedback chips use data-tag, not data-q, so they're unaffected).
+document.addEventListener('click', (e) => {
+  const chip = e.target.closest('.chip[data-q]');
+  if (chip) askAI(chip.dataset.q, { fromLanding: true });
 });
 
 /* ====== DATA FRESHNESS ====== */
@@ -3485,6 +3508,7 @@ loadAlerts();
 renderSidebar();
 renderResultsList();
 hydrateModes();
+hydrateSuggestions();
 hydrateChatModels();
 // Re-hydrate the model/effort toggles on auth change so a fresh login (or an
 // upgrade to paid) unlocks Pro without a page refresh.

@@ -8,14 +8,19 @@ import json
 import pytest
 
 from marketing_agents.poster import (
+    MAX_HEADLINE_CHARS,
+    MAX_HOOK_CHARS,
     MAX_POST_WORDS,
     build_prompt,
+    draft_to_island,
+    extract_hook,
     parse_llm_json,
     resolve_api_key,
     shape_candidates,
     step_finalize,
     step_generate,
     validate_drafts,
+    write_card_islands,
 )
 
 
@@ -71,6 +76,7 @@ class TestValidateDrafts:
 
     def _draft(self, **kw):
         d = {"auction_id": "A1", "angle": "closing_soon", "post": "reserve ₹40L, ends soon. auctionscope.in",
+             "pinned_comment": "details: auctionscope.in. not legal advice.",
              "hashtags": ["bankauction"], "needs_image": False, "image_headline": ""}
         d.update(kw)
         return d
@@ -114,6 +120,12 @@ class TestValidateDrafts:
             self.CANDS)
         assert not kept and "banned wording" in rejected[0]
 
+    def test_missing_pinned_comment_rejected(self):
+        # Required layer: it carries the link + disclaimer. Absent/empty → drop.
+        kept, rejected = validate_drafts(
+            [self._draft(pinned_comment="  ")], self.CANDS)
+        assert not kept and "pinned_comment" in rejected[0]
+
     def test_clean_pinned_comment_kept(self):
         kept, _ = validate_drafts(
             [self._draft(pinned_comment="details: auctionscope.in. not legal advice.")],
@@ -125,6 +137,166 @@ class TestValidateDrafts:
             [self._draft(post="reserve ₹40L, ends 1 Aug. auctionscope.in")],
             self.CANDS)
         assert len(kept) == 1
+
+
+class TestHookGates:
+    """The stop test's objective slices (copy-playbook.md Part 1): hook length,
+    throat-clearing openers, and per-batch mechanism variety."""
+
+    CANDS = shape_candidates([_row("A1"), _row("A2"), _row("A3")], [], [])
+
+    def _draft(self, aid="A1", **kw):
+        d = {"auction_id": aid, "angle": "closing_soon",
+             "post": "reserve ₹40L, ends 1 Aug.\n\nthe body. auctionscope.in",
+             "pinned_comment": "details: auctionscope.in. not legal advice.",
+             "hashtags": [], "needs_image": False, "image_headline": ""}
+        d.update(kw)
+        return d
+
+    def test_extract_hook_takes_first_line(self):
+        assert extract_hook("₹40L reserve.\n\nlong body here") == "₹40L reserve."
+
+    def test_extract_hook_falls_back_to_first_sentence(self):
+        post = "₹40L reserve in Chennai. " + "the notice says a lot more " * 8
+        assert extract_hook(post) == "₹40L reserve in Chennai."
+
+    def test_extract_hook_never_splits_decimals(self):
+        post = "reserve ₹40.1L, ends 1 Aug. " + "and quite a bit of body text " * 6
+        assert extract_hook(post) == "reserve ₹40.1L, ends 1 Aug."
+
+    def test_hook_over_budget_rejected(self):
+        # One unbroken 120+ char first line with no sentence break: dies at the fold.
+        kept, rejected = validate_drafts(
+            [self._draft(post="₹40L " + "x" * (MAX_HOOK_CHARS + 30))], self.CANDS)
+        assert not kept and "fold" in rejected[0]
+
+    def test_short_first_sentence_in_single_paragraph_kept(self):
+        kept, _ = validate_drafts(
+            [self._draft(post="₹40L reserve in Chennai. " + "more context here " * 10)],
+            self.CANDS)
+        assert len(kept) == 1
+
+    @pytest.mark.parametrize("opener", [
+        "Did you know ₹40L buys a plot here? details inside.",
+        "🚨 Don't miss this ₹40L reserve, ends 1 Aug.",
+        "Imagine owning this ₹40L plot in Chennai.",
+    ])
+    def test_throat_clearing_openers_rejected(self, opener):
+        kept, rejected = validate_drafts([self._draft(post=opener)], self.CANDS)
+        assert not kept and "throat-clearing" in rejected[0]
+
+    def test_mechanism_variety_rule_caps_at_two(self):
+        drafts = [self._draft(aid=a, hook_mechanism="contrast") for a in ("A1", "A2", "A3")]
+        kept, rejected = validate_drafts(drafts, self.CANDS)
+        assert [d["auction_id"] for d in kept] == ["A1", "A2"]
+        assert len(rejected) == 1 and "variety rule" in rejected[0]
+
+    def test_missing_mechanism_normalized_not_dropped(self):
+        kept, _ = validate_drafts([self._draft()], self.CANDS)
+        assert kept[0]["hook_mechanism"] == "unspecified"
+
+
+class TestHeadlineGates:
+    """image_headline is burned onto the card, so it's a published surface:
+    honesty-scanned like the caption, and length-capped so it fits."""
+
+    CANDS = shape_candidates([_row("A1")], [], [])
+
+    def _draft(self, **kw):
+        d = {"auction_id": "A1", "angle": "closing_soon", "hook_mechanism": "callout",
+             "post": "reserve ₹40L, ends 1 Aug.\n\nbody. auctionscope.in",
+             "pinned_comment": "details: auctionscope.in. not legal advice.",
+             "needs_image": True, "image_headline": "₹40L in Chennai — worth a look?"}
+        d.update(kw)
+        return d
+
+    def test_banned_word_in_headline_drops_draft(self):
+        # Honesty rule covers the card headline, not just the caption.
+        kept, rejected = validate_drafts(
+            [self._draft(image_headline="Guaranteed title-clear plot, ₹40L")], self.CANDS)
+        assert not kept and "banned wording" in rejected[0]
+
+    def test_over_length_headline_with_image_dropped(self):
+        kept, rejected = validate_drafts(
+            [self._draft(image_headline="₹40L " + "x" * MAX_HEADLINE_CHARS)], self.CANDS)
+        assert not kept and "won't fit the card" in rejected[0]
+
+    def test_over_length_headline_without_image_kept(self):
+        # No card → the length cap doesn't apply (headline is just a caption note).
+        kept, _ = validate_drafts(
+            [self._draft(needs_image=False,
+                         image_headline="₹40L " + "x" * MAX_HEADLINE_CHARS)], self.CANDS)
+        assert len(kept) == 1
+
+
+class TestDraftToIsland:
+    """The poster→card bridge: a validated draft becomes a grounded #data
+    island whose headline IS the hook (copy-playbook Part 1, hook surfaces)."""
+
+    def _validated(self, **kw):
+        cands = shape_candidates(
+            [_row("A1")],
+            [_row("D1", reserve=3_800_000, prev=4_500_000, reauction=True)],
+            [_row("E1", reserve=900_000)],
+        )
+        base = {"auction_id": "A1", "angle": "closing_soon", "hook_mechanism": "callout",
+                "post": "reserve ₹40L, ends 1 Aug.\n\nbody.", "needs_image": True,
+                "pinned_comment": "details: auctionscope.in. not legal advice.",
+                "image_headline": "₹40L in Chennai — has it flooded?"}
+        base.update(kw)
+        kept, _ = validate_drafts([base], cands)
+        return kept[0]
+
+    def test_closing_soon_maps_to_deal_card_with_hook_headline(self):
+        template, island = draft_to_island(self._validated())
+        assert template == "deal-of-the-day-1080"
+        assert island["headline"] == "₹40L in Chennai — has it flooded?"
+        assert island["reserve_price"] == 4_000_000
+        assert island["auction_date"] == "1 Aug 2026"   # ISO → card date
+        assert island["market_hint"] == ""              # no comparable → blank, never invented
+
+    def test_price_drop_maps_to_drop_card_with_previous_reserve(self):
+        d = self._validated(auction_id="D1", angle="price_drop", hook_mechanism="contrast",
+                            image_headline="₹45L → ₹38L. same plot, two months on.")
+        template, island = draft_to_island(d)
+        assert template == "price-drop-1080x1350"
+        assert island["previous_reserve_price"] == 4_500_000
+        assert island["reserve_price"] == 3_800_000
+        assert island["headline"].startswith("₹45L → ₹38L")
+
+    def test_no_image_returns_none(self):
+        assert draft_to_island(self._validated(needs_image=False)) is None
+
+    def test_missing_emd_stays_none_never_invented(self):
+        # _row gives emd = reserve/10; force it absent to prove blanking.
+        cands = shape_candidates([_row("A1")], [], [])
+        cands[0]["emd"] = None
+        d = {"auction_id": "A1", "angle": "closing_soon", "hook_mechanism": "callout",
+             "post": "reserve ₹40L.\n\nbody.", "needs_image": True,
+             "image_headline": "₹40L in Chennai", "source": cands[0]}
+        _, island = draft_to_island(d)
+        assert island["emd"] is None   # template hides the chip; no stale number
+
+    def test_bad_auction_date_blanks_not_guesses(self):
+        cands = shape_candidates([_row("A1", start="garbage")], [], [])
+        d = {"auction_id": "A1", "angle": "closing_soon", "hook_mechanism": "callout",
+             "post": "reserve ₹40L.\n\nbody.", "needs_image": True,
+             "image_headline": "₹40L", "source": cands[0]}
+        _, island = draft_to_island(d)
+        assert island["auction_date"] == ""
+
+    def test_write_card_islands_emits_files_and_manifest(self, tmp_path):
+        drafts = [self._validated(),
+                  self._validated(auction_id="D1", angle="price_drop",
+                                  hook_mechanism="contrast",
+                                  image_headline="₹45L → ₹38L, two months on.")]
+        manifest = write_card_islands(tmp_path, drafts)
+        assert len(manifest) == 2
+        for row in manifest:
+            island_path = tmp_path / row["data"]
+            assert island_path.exists()
+            island = json.loads(island_path.read_text())
+            assert island["headline"] == row["headline"]
 
 
 class TestParseLlmJson:
@@ -180,7 +352,11 @@ class TestStagedPipeline:
     def _response(self):
         return json.dumps({"drafts": [{
             "auction_id": "A1", "angle": "closing_soon",
+            "hook_mechanism": "countdown",
+            "hook_alternatives": ["₹40L reserve. would you check the flood map first?",
+                                  "a bank in Chennai wants ₹40L for this. here's why."],
             "post": "reserve ₹40L, ends soon. auctionscope.in",
+            "pinned_comment": "details: auctionscope.in. not legal advice.",
             "hashtags": ["bankauction"], "needs_image": False,
             "image_headline": ""}], "editor_notes": "ok"})
 
@@ -194,6 +370,9 @@ class TestStagedPipeline:
         review = (out_dir / "review.md").read_text()
         # last_enriched can be null from the API; fall back to generated_at.
         assert "Data as of now" in review and "None" not in review
+        # The hook mechanism + runner-up hooks surface for the human editor.
+        assert "hook: `countdown` · alternatives:" in review
+        assert "- ₹40L reserve. would you check the flood map first?" in review
 
     def test_finalize_tolerates_fenced_engine_output(self, tmp_path, monkeypatch):
         work = self._work_dir(tmp_path, f"```json\n{self._response()}\n```")
@@ -230,6 +409,9 @@ class TestPrompt:
                           "generated_at": "now", "last_enriched": "today"}, cands, 5)
         assert "A1" in p and "616" in p
         assert "due diligence" in p  # listed as banned
-        assert "HOOK LIBRARY" in p and "QUALITY BAR" in p  # playbook injected
+        assert "HOOK SYSTEM" in p and "QUALITY BAR" in p  # playbook injected
+        assert "THE STOP TEST" in p  # hooks are engineered against the 4 gates
+        assert "hook_alternatives" in p and "hook_mechanism" in p  # 3-variant contract
+        assert "countdown" in p and "mistake" in p  # mechanism menu present
         assert "Prove It" in p  # the number-does-the-work gate is taught
         assert json.loads(json.dumps(cands))  # candidates serialize cleanly

@@ -124,7 +124,18 @@ _SHARED_MD = _REPO_ROOT / "modes" / "_shared.md"
 # of silently reasoning over a slice; at or under it, it reads the whole set.
 # Composing the nudge costs no extra tool calls by rule.
 # Measured ~14,263; ceiling 14,400.
-BUDGET_CHARS = 14_400
+#
+# 2026-07 (counted narrowing diagnostics): +~550 to teach the model two new
+# server-attached result keys. `refine` (top buckets per dimension on a broad
+# result) turns the broad-result nudge from "guess filters from your row
+# sample" into "offer these exact, live, non-empty buckets"; `relax` (on an
+# over-constrained zero, a leave-one-out naming which single filter to drop and
+# the count it unlocks) turns a dead-end zero into "loosen this one constraint
+# → 6 matches". Both are computed by search_auctions itself (reusing its own
+# distribution / count paths), so the guidance is a few lines in the tool
+# docstring + the zero-result / broad-result sections of _shared.md.
+# Measured ~14,949; ceiling 15,100.
+BUDGET_CHARS = 15_100
 
 
 def _agent_module() -> ast.Module:
