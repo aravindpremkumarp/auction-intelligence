@@ -78,11 +78,13 @@ Never keep the first hook. Write **3 candidate hooks using 3 different mechanism
 | Reel first frame | ≤ 8 words on screen at 0.5s | motion starts immediately (`lib/motion.js` handles this); the text IS the scroll-stopper |
 | Carousel slide 1 | one line + visual | slide 1 is a poster, not a paragraph; the gap resolves on slides 2+ |
 
+**This is wired, not aspirational.** The compressed hook (`image_headline`) is burned onto the card as its visual headline for **both static formats and the carousel cover** — not only reels. The static templates (`deal-of-the-day-1080`, `price-drop-1080x1350`) and the carousel (`city-carousel-1080x1350`) each render a `headline` field as the hero line, with the property title stepping down to a supporting line. When no hook is supplied the templates fall back to the old title-led layout, so nothing regresses. The Poster emits a ready-to-render card island per image draft (`marketing/outputs/<date>/cards/*.json`) and prints the exact `render_social.py` command in `review.md` — see "How the Poster uses this."
+
 ---
 
-## Part 2 — Headline Formulas (for the deal-card image, `image_headline` ≤ 8 words)
+## Part 2 — Headline Formulas (for the card image, `image_headline` ≤ 8 words)
 
-From the `copywriting` skill's headline families, cut to auction length. These go on the HyperFrames static/carousel card, not the caption.
+From the `copywriting` skill's headline families, cut to auction length. These become the `headline` field burned onto the static card and the carousel cover (same mechanism as the caption hook, compressed) — not the caption itself. Because it's a published surface, `image_headline` is honesty-scanned (banned words drop the draft) and length-capped (≤ 64 chars so it fits the card) in `validate_drafts()`.
 
 | Family | Formula | Auction example |
 |---|---|---|
@@ -164,4 +166,8 @@ Until analytics volume exists (~pre-traction), run the loop qualitatively: which
 ---
 
 ## How the Poster uses this
-`build_prompt()` injects a condensed version of Part 1 (the stop test, the 8 mechanisms with swipe lines, the 5-line skeleton, the 3-variant discipline) and Part 3 (the quality bar) so every automated draft is anchored on these structures. The objective ★ checks are enforced in `validate_drafts()` — a draft that fails is dropped, not fixed: Prove It (has a figure) · Honesty (no banned words) · hook length (first line ≤ 100 chars) · no throat-clearing openers · mechanism variety (max 2 per batch). Each draft carries `hook_mechanism` + two `hook_alternatives`, surfaced in `review.md` so the human editor can swap hooks in one glance. Everything else here is for the human reviewer and for writing by hand. Keep this file and the code in sync: if you add a mechanism here, add it to the prompt and the `HOOK_MECHANISMS` tuple.
+`build_prompt()` injects a condensed version of Part 1 (the stop test, the 8 mechanisms with swipe lines, the 5-line skeleton, the 3-variant discipline) and Part 3 (the quality bar) so every automated draft is anchored on these structures. The objective ★ checks are enforced in `validate_drafts()` — a draft that fails is dropped, not fixed: Prove It (has a figure) · Honesty (no banned words, caption **and** headline) · hook length (first line ≤ 100 chars) · headline length (≤ 64 chars when it needs an image) · no throat-clearing openers · mechanism variety (max 2 per batch). Each draft carries `hook_mechanism` + two `hook_alternatives`, surfaced in `review.md` so the human editor can swap hooks in one glance.
+
+**Caption → card, one hook.** For every image draft, `draft_to_island()` maps the draft + its grounded source fields into the exact `#data` island a `marketing/templates/` card expects, with the compressed hook as the `headline`. `--finalize` writes these to `marketing/outputs/<date>/cards/*.json` and prints the `render_social.py` command in `review.md`, so the same hook that leads the caption also leads the static card / carousel cover. Every figure on the card comes from the auction's own fields; missing facts (no EMD, no comparable) are blanked, never invented (the binder clears empty slots and the templates hide the wrappers).
+
+Everything else here is for the human reviewer and for writing by hand. Keep this file and the code in sync: if you add a mechanism here, add it to the prompt and the `HOOK_MECHANISMS` tuple; if you add a card template, map its angle in `ANGLE_TEMPLATE` and give it a `headline` slot.

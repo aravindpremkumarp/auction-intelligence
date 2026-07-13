@@ -20,6 +20,19 @@
 <link rel="stylesheet" href="lib/motion.css">
 <style>
   .drop-card { margin: 0 64px; border-radius: var(--radius-lg); }
+  /* The hook (image_headline from the poster) leads the card. */
+  .drop-hook {
+    font-family: var(--font-display);
+    font-size: 52px; font-weight: 800;
+    letter-spacing: -0.02em; line-height: 1.06;
+    color: var(--ink); margin-top: 2px;
+  }
+  .drop-hook:empty { display: none; }
+  .drop-hook:not(:empty) ~ .title {
+    font-size: 30px; font-weight: 600;
+    letter-spacing: 0; color: var(--muted);
+  }
+  .drop-card .chips .chip:has(b:empty) { display: none; }
   .was-row {
     display: flex; align-items: baseline; gap: 18px;
     font-size: 30px; color: var(--muted); margin-top: 10px;
@@ -40,6 +53,7 @@
 
 <script id="data" type="application/json">
 {
+  "headline": "Nobody bid at ₹96L. So the bank cut it.",
   "title": "Residential plot, Sarjapur Road",
   "city": "Bengaluru",
   "asset_type": "Plot · 2,400 sq ft",
@@ -64,6 +78,7 @@
   <div class="s-mid">
   <div class="sprop drop-card" data-stagger>
     <div class="loc"><span data-field="asset_type">Plot · 2,400 sq ft</span> · <span data-field="city">Bengaluru</span> · <span data-field="bank">Canara Bank</span></div>
+    <div class="drop-hook" data-field="headline"></div>
     <div class="title" data-field="title">Residential plot, Sarjapur Road</div>
     <div class="was-row">Earlier reserve <span class="was-price" data-field="previous_reserve_price" data-field-format="inr">₹96 L</span></div>
     <div class="price-label">Reserve now</div>

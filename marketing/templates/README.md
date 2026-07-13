@@ -10,6 +10,19 @@ Every template is a self-contained HTML doc on the Auctionscope tokens
 **The poster pipeline only ever rewrites the island** — layout, honesty
 microcopy, and computed figures (like the price-drop %) live in the template.
 
+### The `headline` field (the scroll-stopping hook)
+
+The static cards and the carousel cover each read an optional **`headline`**
+field — the compressed hook from the copy system (`copy-playbook.md` Part 1,
+"hook surfaces"). When present it leads the card as the hero line and the
+property title steps down to a supporting line; when absent the card falls
+back to its title-led layout (so old data files render unchanged). The Poster
+fills `headline` from each draft's `image_headline`
+(`marketing_agents/poster.py` → `draft_to_island()`), so the hook that leads
+the caption also leads the image. Grounding is preserved end to end: a field
+present but empty/null (e.g. a missing EMD) **clears** its slot and the wrapper
+hides — the card never shows a stale sample number (`lib/motion.js` binder).
+
 ## Static formats → PNG (`marketing/render_social.py`)
 
 | Template | Size | Post type |

@@ -24,17 +24,33 @@
     border-radius: var(--radius-lg);
   }
   .deal-card .price { color: var(--accent); }
+  /* The hook (image_headline from the poster) is the card's scroll-stopper. */
+  .deal-hook {
+    font-family: var(--font-display);
+    font-size: 56px; font-weight: 800;
+    letter-spacing: -0.02em; line-height: 1.06;
+    color: var(--ink); margin-top: 2px;
+  }
+  .deal-hook:empty { display: none; }              /* no hook → fall back to title */
+  /* When a hook is present it leads; the property title becomes a sub-line. */
+  .deal-hook:not(:empty) ~ .title {
+    font-size: 30px; font-weight: 600;
+    letter-spacing: 0; color: var(--muted);
+  }
   .market-row {
     display: flex; align-items: baseline; gap: 16px;
     font-size: 26px; color: var(--muted);
   }
   .market-row b { color: var(--ink-soft); font-weight: 600; }
+  .market-row:has(b:empty) { display: none; }      /* no comparable → hide row */
+  .chips .chip:has(b:empty) { display: none; }      /* missing fact → hide chip */
 </style>
 </head>
 <body>
 
 <script id="data" type="application/json">
 {
+  "headline": "₹38.5L in Velachery — but does it flood?",
   "title": "2BHK Flat, Velachery",
   "city": "Chennai",
   "asset_type": "Residential flat",
@@ -59,6 +75,7 @@
   <div class="s-mid">
   <div class="sprop deal-card shine" data-stagger>
     <div class="loc"><span data-field="asset_type">Residential flat</span> · <span data-field="city">Chennai</span> · <span data-field="bank">Indian Bank</span></div>
+    <div class="deal-hook" data-field="headline"></div>
     <div class="title" data-field="title">2BHK Flat, Velachery</div>
     <div class="price-label">Reserve price</div>
     <div class="price" data-count="3850000" data-count-duration="900" data-field="reserve_price" data-field-format="inr">₹0</div>

@@ -8,9 +8,11 @@ import json
 import pytest
 
 from marketing_agents.poster import (
+    MAX_HEADLINE_CHARS,
     MAX_HOOK_CHARS,
     MAX_POST_WORDS,
     build_prompt,
+    draft_to_island,
     extract_hook,
     parse_llm_json,
     resolve_api_key,
@@ -18,6 +20,7 @@ from marketing_agents.poster import (
     step_finalize,
     step_generate,
     validate_drafts,
+    write_card_islands,
 )
 
 
@@ -170,6 +173,107 @@ class TestHookGates:
     def test_missing_mechanism_normalized_not_dropped(self):
         kept, _ = validate_drafts([self._draft()], self.CANDS)
         assert kept[0]["hook_mechanism"] == "unspecified"
+
+
+class TestHeadlineGates:
+    """image_headline is burned onto the card, so it's a published surface:
+    honesty-scanned like the caption, and length-capped so it fits."""
+
+    CANDS = shape_candidates([_row("A1")], [], [])
+
+    def _draft(self, **kw):
+        d = {"auction_id": "A1", "angle": "closing_soon", "hook_mechanism": "callout",
+             "post": "reserve ₹40L, ends 1 Aug.\n\nbody. auctionscope.in",
+             "needs_image": True, "image_headline": "₹40L in Chennai — worth a look?"}
+        d.update(kw)
+        return d
+
+    def test_banned_word_in_headline_drops_draft(self):
+        # Honesty rule covers the card headline, not just the caption.
+        kept, rejected = validate_drafts(
+            [self._draft(image_headline="Guaranteed title-clear plot, ₹40L")], self.CANDS)
+        assert not kept and "banned wording" in rejected[0]
+
+    def test_over_length_headline_with_image_dropped(self):
+        kept, rejected = validate_drafts(
+            [self._draft(image_headline="₹40L " + "x" * MAX_HEADLINE_CHARS)], self.CANDS)
+        assert not kept and "won't fit the card" in rejected[0]
+
+    def test_over_length_headline_without_image_kept(self):
+        # No card → the length cap doesn't apply (headline is just a caption note).
+        kept, _ = validate_drafts(
+            [self._draft(needs_image=False,
+                         image_headline="₹40L " + "x" * MAX_HEADLINE_CHARS)], self.CANDS)
+        assert len(kept) == 1
+
+
+class TestDraftToIsland:
+    """The poster→card bridge: a validated draft becomes a grounded #data
+    island whose headline IS the hook (copy-playbook Part 1, hook surfaces)."""
+
+    def _validated(self, **kw):
+        cands = shape_candidates(
+            [_row("A1")],
+            [_row("D1", reserve=3_800_000, prev=4_500_000, reauction=True)],
+            [_row("E1", reserve=900_000)],
+        )
+        base = {"auction_id": "A1", "angle": "closing_soon", "hook_mechanism": "callout",
+                "post": "reserve ₹40L, ends 1 Aug.\n\nbody.", "needs_image": True,
+                "image_headline": "₹40L in Chennai — has it flooded?"}
+        base.update(kw)
+        kept, _ = validate_drafts([base], cands)
+        return kept[0]
+
+    def test_closing_soon_maps_to_deal_card_with_hook_headline(self):
+        template, island = draft_to_island(self._validated())
+        assert template == "deal-of-the-day-1080"
+        assert island["headline"] == "₹40L in Chennai — has it flooded?"
+        assert island["reserve_price"] == 4_000_000
+        assert island["auction_date"] == "1 Aug 2026"   # ISO → card date
+        assert island["market_hint"] == ""              # no comparable → blank, never invented
+
+    def test_price_drop_maps_to_drop_card_with_previous_reserve(self):
+        d = self._validated(auction_id="D1", angle="price_drop", hook_mechanism="contrast",
+                            image_headline="₹45L → ₹38L. same plot, two months on.")
+        template, island = draft_to_island(d)
+        assert template == "price-drop-1080x1350"
+        assert island["previous_reserve_price"] == 4_500_000
+        assert island["reserve_price"] == 3_800_000
+        assert island["headline"].startswith("₹45L → ₹38L")
+
+    def test_no_image_returns_none(self):
+        assert draft_to_island(self._validated(needs_image=False)) is None
+
+    def test_missing_emd_stays_none_never_invented(self):
+        # _row gives emd = reserve/10; force it absent to prove blanking.
+        cands = shape_candidates([_row("A1")], [], [])
+        cands[0]["emd"] = None
+        d = {"auction_id": "A1", "angle": "closing_soon", "hook_mechanism": "callout",
+             "post": "reserve ₹40L.\n\nbody.", "needs_image": True,
+             "image_headline": "₹40L in Chennai", "source": cands[0]}
+        _, island = draft_to_island(d)
+        assert island["emd"] is None   # template hides the chip; no stale number
+
+    def test_bad_auction_date_blanks_not_guesses(self):
+        cands = shape_candidates([_row("A1", start="garbage")], [], [])
+        d = {"auction_id": "A1", "angle": "closing_soon", "hook_mechanism": "callout",
+             "post": "reserve ₹40L.\n\nbody.", "needs_image": True,
+             "image_headline": "₹40L", "source": cands[0]}
+        _, island = draft_to_island(d)
+        assert island["auction_date"] == ""
+
+    def test_write_card_islands_emits_files_and_manifest(self, tmp_path):
+        drafts = [self._validated(),
+                  self._validated(auction_id="D1", angle="price_drop",
+                                  hook_mechanism="contrast",
+                                  image_headline="₹45L → ₹38L, two months on.")]
+        manifest = write_card_islands(tmp_path, drafts)
+        assert len(manifest) == 2
+        for row in manifest:
+            island_path = tmp_path / row["data"]
+            assert island_path.exists()
+            island = json.loads(island_path.read_text())
+            assert island["headline"] == row["headline"]
 
 
 class TestParseLlmJson:
