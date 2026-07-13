@@ -114,7 +114,7 @@ def main() -> None:
         if args.template in reels:
             sys.exit(
                 f"{args.template} is a HyperFrames composition — render it with:\n"
-                f"  npx hyperframes render marketing/templates/{args.template}.html"
+                f"  python marketing/render_reel.py --template {args.template} --data <island.json>"
             )
     out_dir = pathlib.Path(args.out)
     for name in names:

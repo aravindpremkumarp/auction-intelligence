@@ -45,12 +45,16 @@ so a screenshot never catches a mid-animation frame.
 
 | Template | Size | Content |
 |---|---|---|
+| `deal-reel-1080x1920.html` | 9:16, 12s | per-auction deal reel, all three angles branch inside (hook figure on frame 0 → curiosity gap → money reveal → proof card → engagement end-card + loop-back) |
 | `stats-reel-1080x1920.html` | 9:16, 12s | hook → live-inventory count-ups (`/stats`) → today's pick → logo outro |
 | `evaluate-reel-1080x1920.html` | 9:16, 15s | hook → real buyer question → AI answer typed with citations → CTA outro |
 
 ```bash
-npx hyperframes render marketing/templates/stats-reel-1080x1920.html
-npx hyperframes render marketing/templates/evaluate-reel-1080x1920.html
+python marketing/render_reel.py --data <island.json> [--template <stem>]
+python marketing/render_reel.py --manifest marketing/outputs/<date>/drafts.json --out .reel_renders
+# (render_reel.py stages a scratch HyperFrames project per render — the CLI
+#  needs a project dir, not a bare file — and runs lint + the motion-sidecar
+#  assertions before every render)
 ```
 
 These follow the HyperFrames composition contract (root `data-*`, clips,

@@ -36,6 +36,11 @@ on:
           - openrouter
         default: claude-max
         required: false
+      render_reels:
+        description: "Render staged reels to MP4 (uploaded as a workflow artifact)"
+        type: boolean
+        default: true
+        required: false
 
 concurrency:
   group: content-poster
@@ -53,7 +58,7 @@ env:
 jobs:
   draft:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 45  # drafting ~10min; reel renders ~2min each on top
     if: ${{ vars.AGENTS_ENABLED != 'false' }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -117,6 +122,59 @@ jobs:
           git push
           echo "committed=true" >> "$GITHUB_OUTPUT"
 
+# ---- Reel rendering (never blocks drafting: every step soft-fails) --------
+      # MP4s are delivered as a workflow ARTIFACT, not committed — binaries
+      # would grow the repo forever. Download from the run page, add trending
+      # audio in-app at publish. (Decision point: R2 upload later.)
+      - name: Set up Node for reel rendering
+        if: ${{ inputs.render_reels != false && steps.commit.outputs.committed == 'true' }}
+        continue-on-error: true
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install pinned HyperFrames toolchain
+        if: ${{ inputs.render_reels != false && steps.commit.outputs.committed == 'true' }}
+        continue-on-error: true
+        run: |
+          # --ignore-scripts: onnxruntime's postinstall (talking-head features
+          # we don't use) downloads binaries and is the flaky part; the
+          # version is pinned because bare `npx hyperframes` can resolve to an
+          # unpublished release (npm registry lag) and die silently.
+          mkdir -p videos
+          npm install --prefix videos --ignore-scripts --no-audit --no-fund \
+            hyperframes@0.7.52 ffprobe-static
+          npx playwright install chromium
+
+      - name: Render staged reels
+        id: reels
+        if: ${{ inputs.render_reels != false && steps.commit.outputs.committed == 'true' }}
+        continue-on-error: true
+        run: |
+          TODAY=$(date -u +%F)
+          MANIFEST="marketing/outputs/$TODAY/drafts.json"
+          if [ ! -f "$MANIFEST" ]; then
+            echo "::warning::no drafts.json for $TODAY — skipping reel renders"
+            exit 0
+          fi
+          python marketing/render_reel.py --manifest "$MANIFEST" \
+            --out .reel_renders --quality high \
+            || echo "::warning::one or more reels failed to render (drafts are unaffected)"
+          ls -la .reel_renders/ 2>/dev/null || true
+          if ls .reel_renders/*.mp4 >/dev/null 2>&1; then
+            echo "rendered=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload reels artifact
+        if: ${{ steps.reels.outputs.rendered == 'true' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: reels-${{ github.run_id }}
+          path: .reel_renders/*.mp4
+          retention-days: 14
+
+# ---------------------------------------------------------------------------
       - name: Open or refresh the content-review issue
         if: steps.commit.outputs.committed == 'true'
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
@@ -130,6 +188,11 @@ jobs:
               body = fs.readFileSync(path, "utf8");
             } catch {
               body = `New drafts staged in \`${path}\` (review file missing).`;
+            }
+            const rendered = `${{ steps.reels.outputs.rendered || 'false' }}` === 'true';
+            if (rendered) {
+              const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+              body += `\n\n**🎬 Reels rendered** — download the \`reels-${context.runId}\` artifact from [this run](${runUrl}) (kept 14 days). They render silent by design: **add trending audio in-app** when publishing — native audio is what drives reach.`;
             }
             body += `\n\n---\n_Staged by the content-poster workflow (engine: ${{ inputs.engine || 'claude-max' }}). Nothing is published automatically._`;
             const title = `Content review — ${today}`;
