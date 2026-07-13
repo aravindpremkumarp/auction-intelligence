@@ -23,12 +23,25 @@
 <style>
   /* cover */
   .cover-body { padding: 0 84px; display: flex; flex-direction: column; gap: 44px; }
+  /* Optional hook headline for the cover (set from data.headline). When present
+     it leads and the formula title steps down to a supporting line. */
+  .cover-hook {
+    font-family: var(--font-display);
+    font-size: 100px; font-weight: 800;
+    letter-spacing: -0.03em; line-height: 1.02;
+    color: var(--ink);
+  }
   .cover-title {
     font-family: var(--font-display);
     font-size: 108px; font-weight: 800;
     letter-spacing: -0.03em; line-height: 1.02;
   }
+  .cover-title.is-sub {
+    font-size: 44px; font-weight: 600;
+    letter-spacing: -0.01em; line-height: 1.25; color: var(--muted);
+  }
   .cover-title .hl { color: var(--accent); }
+  .cover-title.is-sub .hl { color: var(--muted); }
   .cover-sub { font-size: 34px; color: var(--ink-soft); line-height: 1.45; max-width: 800px; }
   .swipe-hint {
     font-family: var(--font-mono); font-size: 26px; font-weight: 600;
@@ -70,6 +83,7 @@
   "city": "Chennai",
   "asset_label": "flats",
   "week_label": "this week",
+  "headline": "5 Chennai flats the banks want gone this week",
   "listing_note": "Live bank auctions, sorted by reserve price. Details from each bank's notice.",
   "properties": [
     { "title": "1BHK Flat, Ambattur",   "locality": "Ambattur · 620 sq ft",   "bank": "Indian Overseas Bank", "reserve_price": 1650000, "auction_date": "22 Jul 2026" },
@@ -91,6 +105,7 @@
     </span>
   </div>
   <div class="s-mid cover-body">
+    <div class="cover-hook" id="cover-hook"></div>
     <div class="cover-title" id="cover-title">The <span class="hl" id="cover-count">5</span> cheapest <span id="cover-asset">flats</span> at bank auction in <span class="hl" id="cover-city">Chennai</span> <span id="cover-week">this week</span></div>
     <div class="cover-sub" data-field="listing_note">Live bank auctions, sorted by reserve price. Details from each bank's notice.</div>
     <div class="swipe-hint">Swipe →</div>
@@ -150,6 +165,17 @@
     document.getElementById('cover-city').textContent = d.city;
     document.getElementById('cover-week').textContent = d.week_label;
     document.getElementById('cta-city').textContent = d.city;
+
+    // Optional cover hook: when data.headline is set it leads the cover and the
+    // formula title steps down to a supporting sub-line; otherwise stay as-is.
+    var hook = (d.headline || '').trim();
+    var hookEl = document.getElementById('cover-hook');
+    if (hook) {
+      hookEl.textContent = hook;
+      document.getElementById('cover-title').classList.add('is-sub');
+    } else {
+      hookEl.style.display = 'none';
+    }
 
     var tpl = document.getElementById('slide-template');
     var ctaSlide = document.getElementById('cta-slide');

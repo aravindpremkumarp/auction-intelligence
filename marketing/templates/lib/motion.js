@@ -57,8 +57,17 @@
     var data = (AS.data = JSON.parse(island.textContent));
     (root || document).querySelectorAll('[data-field]').forEach(function (el) {
       var value = get(data, el.getAttribute('data-field'));
-      if (value === undefined || value === null) return;
+      // Absent field → keep the template's sample default (standalone preview).
+      if (value === undefined) return;
       var fmt = el.getAttribute('data-field-format');
+      // Explicit empty (null or "") → CLEAR the slot rather than leave the
+      // sample. This is a grounding guarantee: a card must never show a stale
+      // sample number for a fact the auction doesn't have (e.g. missing EMD).
+      // A cleared text slot becomes :empty, so CSS can hide its wrapper.
+      if (value === null || value === '') {
+        if (!el.hasAttribute('data-count')) el.textContent = '';
+        return;
+      }
       if (el.hasAttribute('data-count')) {
         // numeric slot animated by count-up: set the target, not the text
         el.setAttribute('data-count', value);

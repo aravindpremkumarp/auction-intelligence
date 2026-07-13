@@ -59,17 +59,20 @@ def render(template: str, data_file: str | None, out_dir: pathlib.Path) -> list[
 
     html = src.read_text(encoding="utf-8")
     page_url = src.as_uri()
+    out_dir.mkdir(parents=True, exist_ok=True)
     if data_file:
         island = json.dumps(json.loads(pathlib.Path(data_file).read_text(encoding="utf-8")),
                             ensure_ascii=False, indent=2)
         html, n = DATA_ISLAND.subn(rf"\g<1>\n{island}\n\g<2>", html)
         if n != 1:
             sys.exit(f"{template}: expected exactly one #data island, found {n}")
-        staged = out_dir / f".{template}.staged.html"
+        # Stage beside the real template so its relative lib/ asset paths
+        # (tokens.css, motion.css, motion.js) still resolve — otherwise the
+        # motion kit never loads and data-render-ready never fires.
+        staged = TEMPLATES / f".{template}.staged.html"
         staged.write_text(html, encoding="utf-8")
         page_url = staged.as_uri()
 
-    out_dir.mkdir(parents=True, exist_ok=True)
     written: list[pathlib.Path] = []
 
     with sync_playwright() as p:
