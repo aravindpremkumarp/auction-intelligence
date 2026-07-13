@@ -76,6 +76,7 @@ class TestValidateDrafts:
 
     def _draft(self, **kw):
         d = {"auction_id": "A1", "angle": "closing_soon", "post": "reserve ₹40L, ends soon. auctionscope.in",
+             "pinned_comment": "details: auctionscope.in. not legal advice.",
              "hashtags": ["bankauction"], "needs_image": False, "image_headline": ""}
         d.update(kw)
         return d
@@ -112,6 +113,25 @@ class TestValidateDrafts:
             self.CANDS)
         assert not kept and "prove it" in rejected[0]
 
+    def test_banned_wording_in_pinned_comment_rejected(self):
+        # The honesty rule covers the pinned comment, not just the caption.
+        kept, rejected = validate_drafts(
+            [self._draft(pinned_comment="link here. guaranteed clean title!")],
+            self.CANDS)
+        assert not kept and "banned wording" in rejected[0]
+
+    def test_missing_pinned_comment_rejected(self):
+        # Required layer: it carries the link + disclaimer. Absent/empty → drop.
+        kept, rejected = validate_drafts(
+            [self._draft(pinned_comment="  ")], self.CANDS)
+        assert not kept and "pinned_comment" in rejected[0]
+
+    def test_clean_pinned_comment_kept(self):
+        kept, _ = validate_drafts(
+            [self._draft(pinned_comment="details: auctionscope.in. not legal advice.")],
+            self.CANDS)
+        assert len(kept) == 1
+
     def test_post_with_a_figure_kept(self):
         kept, _ = validate_drafts(
             [self._draft(post="reserve ₹40L, ends 1 Aug. auctionscope.in")],
@@ -128,6 +148,7 @@ class TestHookGates:
     def _draft(self, aid="A1", **kw):
         d = {"auction_id": aid, "angle": "closing_soon",
              "post": "reserve ₹40L, ends 1 Aug.\n\nthe body. auctionscope.in",
+             "pinned_comment": "details: auctionscope.in. not legal advice.",
              "hashtags": [], "needs_image": False, "image_headline": ""}
         d.update(kw)
         return d
@@ -184,6 +205,7 @@ class TestHeadlineGates:
     def _draft(self, **kw):
         d = {"auction_id": "A1", "angle": "closing_soon", "hook_mechanism": "callout",
              "post": "reserve ₹40L, ends 1 Aug.\n\nbody. auctionscope.in",
+             "pinned_comment": "details: auctionscope.in. not legal advice.",
              "needs_image": True, "image_headline": "₹40L in Chennai — worth a look?"}
         d.update(kw)
         return d
@@ -219,6 +241,7 @@ class TestDraftToIsland:
         )
         base = {"auction_id": "A1", "angle": "closing_soon", "hook_mechanism": "callout",
                 "post": "reserve ₹40L, ends 1 Aug.\n\nbody.", "needs_image": True,
+                "pinned_comment": "details: auctionscope.in. not legal advice.",
                 "image_headline": "₹40L in Chennai — has it flooded?"}
         base.update(kw)
         kept, _ = validate_drafts([base], cands)
@@ -333,6 +356,7 @@ class TestStagedPipeline:
             "hook_alternatives": ["₹40L reserve. would you check the flood map first?",
                                   "a bank in Chennai wants ₹40L for this. here's why."],
             "post": "reserve ₹40L, ends soon. auctionscope.in",
+            "pinned_comment": "details: auctionscope.in. not legal advice.",
             "hashtags": ["bankauction"], "needs_image": False,
             "image_headline": ""}], "editor_notes": "ok"})
 

@@ -51,7 +51,29 @@ A mechanism is *why* a hook stops someone. The old hook families survive inside 
 | 7 | `countdown` — honest deadline | Time pressure that is a *fact*, plus an unanswered stake | `{n} days left. someone gets this {city} {type} at ₹{now}L. did anyone check the flood map?` |
 | 8 | `process` — how-it-works curiosity | A visible outcome with an invisible cause | `why is this flat ₹7L cheaper the second time the bank auctions it? (routine, not a glitch.)` |
 
-Angle mapping: `price_drop` → contrast / process · `closing_soon` → countdown / callout · `cheapest` → callout / hidden · evaluation & education posts → question / mistake / myth / hidden.
+Angle mapping: `price_drop` → contrast / process · `closing_soon` → countdown / callout · `cheapest` → callout / hidden · `market_gap` → contrast / myth *(computed stat only — see below)* · evaluation & education posts → question / mistake / myth / hidden.
+
+### The `market_gap` angle (reserve vs estimated fair value — computed, never asserted)
+The single most attractive fact about an auction is that the reserve can sit **below local market rates**. But this is the biggest honesty trap in the whole playbook: it is a **claim only when computed**. The reserve alone proves nothing — banks sometimes set reserves *above* what buyers will pay (that's *why* re-auctions exist). Swipe lines (feed the `contrast` / `myth` mechanisms):
+- `₹{fair}L is what an equivalent {area} flat pencils out to. this one's reserve: ₹{now}L.`
+- `{gap}% below our fair-value estimate for {area}. a gap that size is a reason to look closer, not to assume.`
+- `auction ≠ 50% off. here's the real gap for this {area} {type}, computed: {gap}%.`
+
+> **How the gap is computed (and when we do NOT claim one).** The method differs by property type.
+>
+> **Flat / apartment — value it as land + building (the summation method), not one ₹/sqft.** A flat is two assets: the **construction** (built-up area — a depreciating asset) and the **land** (its UDS — an appreciating asset). Estimate the fair value of an equivalent flat, then compare to the reserve:
+> `fair_value = built_up_sqft × construction_rate + uds_sqft × land_rate`
+> - `construction_rate` = current build cost/sqft — Chennai 2026 ≈ **basic ₹2,000 / standard ₹2,300–2,500 / premium ₹3,000** (source: Chennai construction-cost guides). **Depreciate for an older flat** — construction is not new-build.
+> - `land_rate` = the area's **land** ₹/sqft, web-sourced and cited — the *land* rate, **not** the new-flat asking rate.
+> - **Both built-up and UDS are used** (as multipliers), so UDS is essential here — just never a *divisor*. The notice states both, e.g. *"built-up area 671 sq.ft … undivided share of the land 393 sq.ft."* If built-up is absent (UDS only), construction can't be valued → drop the gap.
+> - Worked example (built-up 1000, UDS 300, standard build): `1000×₹2,300 + 300×₹5,000 = ₹23L + ₹15L =` **₹38L** fair value for an equivalent new flat.
+> `gap% = (fair_value − reserve) ÷ fair_value`. This beats "reserve ÷ built-up vs new-flat asking rate": asking rates bake in builder margin and overstate the gap (why the earlier per-sqft method spat out a suspicious ~60% on Ambattur).
+>
+> **Land / plot / land & building:** `fair_value = land_extent × area_land_rate` (web-sourced, cited); `gap% = (fair_value − reserve) ÷ fair_value`. Normalise units first (acre / cent / ground / sq.m → sqft). Segment correctly: an Ambattur *land* rate ≠ an Ambattur *flat* rate.
+>
+> **Drop the gap when:** the extent unit is ambiguous or unconverted; the property **type disagrees with the described asset** (a "flat" described as vacant land); for a flat, built-up is missing; or a rate rests on a single stale listing.
+>
+> **Frame honestly, always:** call it an **"estimated fair value vs reserve"**, give a **range not a point**, and add **"approximate — verify extent, age/condition, and possession."** Capture and surface **possession type** (symbolic vs physical) — a symbolic-possession flat with a big gap is the textbook "ask why." A *large* gap (say >40%) is a **reason to investigate** (possession, UDS-only sale, encumbrances, litigation, an old/depreciated building), not a guaranteed bargain — say so. This angle needs the **research-verified tier** (`content-pillars.md`): the land/construction rates are web-sourced and must carry a source.
 
 > **Grounding rule:** every `{placeholder}` must be filled from a real auction's fields. Never invent a number, city, date, or drop %. If the fact isn't in the data, don't write the hook.
 
@@ -152,7 +174,47 @@ The tell of AI slop is **adjectives doing the work** ("amazing", "incredible", "
 
 ---
 
-## Part 6 — The hook feedback loop (how we learn which hooks work)
+## Part 6 — The full post: every text layer (not just the caption)
+
+A published post is more than the image + a caption. Each layer is copy we must write. **Covered** = the Poster emits it today; **new** = add it.
+
+| Layer | Status | Rule |
+|---|---|---|
+| **Caption** | covered (`post`) | first line **is** the hook — it must land before the "…more" fold (IG ~125, LinkedIn ~210, YT ~100, X full-280 chars). One caption, trimmed per platform. |
+| **Hashtags** | covered (`hashtags`) | see the mix below; count per platform. |
+| **Pinned first comment** | **new** | the link + the honest disclaimer + an engagement question (details below). |
+| **Alt text** | **new** | ≤125 chars describing the image for screen readers — accessibility, and a small SEO signal. |
+| **Video / Shorts title** | **new** | ≤70 visible chars, keyword-first — Shorts/YouTube are *searchable* ("bank auction flat Kanchipuram ₹21.8L"). |
+| **Location / geo tag** | **new** | always tag the **city/area** — we are a *local* product; this is free local discovery. |
+| **Cover frame / slide-1** | **new** | name the scroll-stopper: the reel's cover frame (the reveal + badge) or carousel slide 1. |
+| **Link placement** | **new** | IG/LinkedIn suppress in-body links → link goes in the **pinned comment** (or bio); YouTube → description; X → inline is fine. |
+| **Audio track** (reels) | **new** | a trending/ambient track lifts reach; source via the HyperFrames `media-use` skill. |
+
+### Hashtag strategy (per platform)
+Counts from `social/references/platform-limits.md`: **Instagram/TikTok/Shorts 3–5 · LinkedIn 3–5 · Facebook/X 1–2 · YouTube 3–5** (first 3 show above the title). Build each set from four buckets: **1 category** (`#bankauction`), **1–2 niche** (`#chennairealestate`, `#sarfaesi`), **1 geo** (`#kanchipuram` — matches the location tag), **1 branded** (`#auctionscope`). No `#` prefix in the data; the publisher adds it. Never keyword-stuff — YouTube ignores *all* hashtags past 15.
+
+### Pinned first comment (the honest workhorse)
+The first comment we pin does three jobs the caption shouldn't carry:
+1. **The link** — `auctionscope.in/property/{id}` (and the sale-notice URL), because in-body links kill reach on IG/LinkedIn.
+2. **The honest disclaimer** — "not legal advice; a bank e-auction under SARFAESI — verify reserve, EMD, possession type and encumbrances with the bank before bidding." This is also where **education/market_gap posts carry their source URLs** (the research-verified tier's citation requirement).
+3. **An engagement prompt** — one genuine question ("seen a re-auction like this — did you bid or walk away?"). Comments in the first hour drive distribution.
+
+The pinned comment is bound by the **same honesty rule** as the caption (banned words, no legal certainty).
+
+### Worked example — the Kanchipuram price-drop, all layers
+- **Caption:** `₹27L → ₹21.8L. this kanchipuram flat didn't sell last round, so the bank cut the reserve 19%.\n\nre-auctions are where the quiet deals sit — but a cut that size is a reason to look closer, not to assume.\n\nbids close today (11 jul). check the sale notice, possession type, and the area's flood/water data first.\n\n→ details + link in the first comment.`
+- **Hashtags (IG/Shorts):** `bankauction · kanchipuram · sarfaesi · chennairealestate · auctionscope` → **(X/FB trim to)** `bankauction · kanchipuram`
+- **Pinned comment:** `full notice + details → auctionscope.in/property/800979\n\nnot legal advice — this is a SARFAESI bank e-auction; verify reserve, EMD, possession type and encumbrances with the bank before bidding.\n\nseen a re-auction like this — what made you bid or walk away?`
+- **Alt text:** `Deal card: a Kanchipuram flat, bank-auction reserve cut from ₹27 lakh to ₹21.8 lakh (19% lower), bids close 11 July.`
+- **Video title (Shorts):** `Bank auction flat in Kanchipuram — reserve ₹21.8L | AuctionScope`
+- **Location tag:** `Kanchipuram, Tamil Nadu` · **Cover frame:** the ₹21.8L reveal with the −19% badge.
+
+### Poster schema additions (to build these automatically)
+The draft JSON gains: `pinned_comment` (string, **required** — a draft without it is dropped, since it carries the link + disclaimer layer), `alt_text` (≤125), `video_title` (≤70), `location_tag` (string). `post` and `hashtags` already exist. `pinned_comment` is validated for banned words like `post` is.
+
+---
+
+## Part 7 — The hook feedback loop (how we learn which hooks work)
 
 A hook system without measurement is a style guide; with measurement it's a machine that improves. Every staged draft now records its `hook_mechanism`, so performance can be attributed to the *mechanism*, not just the post:
 

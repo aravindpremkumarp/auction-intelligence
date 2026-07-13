@@ -250,6 +250,19 @@ TASK: pick the {max_drafts} most interesting candidates (prefer price_drop angle
 then closing_soon, then cheapest; vary cities AND vary hook mechanisms) and write
 one post draft each, using the hook system and passing the quality bar above.
 
+POST LAYERS (docs/marketing/copy-playbook.md Part 6) — write every layer:
+- post: the caption; its FIRST LINE is the hook (must land before "…more").
+- pinned_comment: REQUIRED (a draft without it is dropped) — the link
+  (auctionscope.in) + an honest disclaimer ("not legal advice — a SARFAESI bank
+  e-auction; verify reserve, EMD, possession, encumbrances with the bank before
+  bidding") + one genuine engagement question. Same honesty rules as the caption
+  (no banned words).
+- alt_text: <=125 chars, plainly describes the deal card for screen readers.
+- video_title: <=70 chars, keyword-first, for Shorts/YouTube search.
+- location_tag: the city/area, for local discovery.
+- hashtags: 3-5, no # prefix — 1 category, 1-2 niche, 1 geo (matches location_tag),
+  1 branded (auctionscope).
+
 OUTPUT — ONLY valid JSON, no prose, no code fences:
 {{
   "drafts": [
@@ -259,7 +272,11 @@ OUTPUT — ONLY valid JSON, no prose, no code fences:
       "hook_mechanism": string,       // contrast | question | mistake | hidden | myth | callout | countdown | process
       "hook_alternatives": [string],  // the 2 runner-up hooks (grounded, honest)
       "post": string,                 // hook on line 1 (<=100 chars), blank line, body
+      "pinned_comment": string,       // link + honest disclaimer + a question
       "hashtags": [string],           // 3-5, no # prefix
+      "alt_text": string,             // <=125 chars, describes the image
+      "video_title": string,          // <=70 chars, keyword-first (Shorts/YouTube)
+      "location_tag": string,         // city/area for local discovery
       "needs_image": boolean,
       "image_headline": string        // <=8 words: the hook compressed, same mechanism
     }}
@@ -321,9 +338,11 @@ def validate_drafts(drafts: list[dict], candidates: list[dict]) -> tuple[list[di
         if aid not in by_id:
             rejected.append(f"{aid or '?'}: unknown auction_id")
             continue
-        # The honesty rule covers the caption AND the headline burned onto the
-        # card — both are published surfaces, so both are scanned.
-        hits = [p.pattern for p in banned if p.search(post) or p.search(headline)]
+        # The honesty rule covers every published surface: the caption, the
+        # headline burned onto the card, AND the pinned comment (it carries
+        # the disclaimer + link, so a banned word there is just as bad).
+        checked_text = f"{post}\n{headline}\n{d.get('pinned_comment') or ''}"
+        hits = [p.pattern for p in banned if p.search(checked_text)]
         if hits:
             rejected.append(f"{aid}: banned wording ({', '.join(hits)})")
             continue
@@ -332,6 +351,12 @@ def validate_drafts(drafts: list[dict], candidates: list[dict]) -> tuple[list[di
             continue
         if len(post.split()) > MAX_POST_WORDS:
             rejected.append(f"{aid}: over {MAX_POST_WORDS} words")
+            continue
+        # The pinned comment is required, not optional: it carries the link +
+        # the honest disclaimer (and, for research posts, the source URLs).
+        # A draft without one is an incomplete post — drop it.
+        if not (d.get("pinned_comment") or "").strip():
+            rejected.append(f"{aid}: missing pinned_comment (link + disclaimer layer)")
             continue
         hook = extract_hook(post)
         if len(hook) > MAX_HOOK_CHARS:
@@ -520,6 +545,11 @@ def write_outputs(out_root: Path, stats: dict, drafts: list[dict],
             lines.append(f"card: `{card['template']}` · headline burned on: "
                          f"*{card['headline'] or '(none — card shows the property title)'}*")
         lines.append("")
+        if d.get("pinned_comment"):
+            lines += ["**pinned comment:**", "> " + d["pinned_comment"].replace("\n", "\n> "), ""]
+        meta = [f"{k}: {d[k]}" for k in ("video_title", "location_tag", "alt_text") if d.get(k)]
+        if meta:
+            lines += ["`" + "` · `".join(meta) + "`", ""]
     if rejected:
         lines += ["## Dropped by validation", *[f"- {r}" for r in rejected], ""]
     if editor_notes:
