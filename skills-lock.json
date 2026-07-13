@@ -49,6 +49,12 @@
       "skillPath": "skills/aso/SKILL.md",
       "computedHash": "f84a1fb5cb1a8a7f7171bd60ae6850f24a82fa6af94bd5f12e5b3e9227480a34"
     },
+    "audience-growth-tracker-sms": {
+      "source": "blacktwist/social-media-skills",
+      "sourceType": "github",
+      "skillPath": "skills/audience-growth-tracker-sms/SKILL.md",
+      "computedHash": "8a5f0e3803982ae713cbce6f0234cab538fceeb622d632c15ffcd0ecfecc2401"
+    },
     "brandkit": {
       "source": "Leonxlnx/taste-skill",
       "sourceType": "github",
@@ -90,6 +96,12 @@
       "sourceType": "github",
       "skillPath": "skills/competitors/SKILL.md",
       "computedHash": "9e15de4d3b5e9a44f500124e2d2f57ba7fd3f4134912d9caf155ff6975215e99"
+    },
+    "content-pattern-analyzer-sms": {
+      "source": "blacktwist/social-media-skills",
+      "sourceType": "github",
+      "skillPath": "skills/content-pattern-analyzer-sms/SKILL.md",
+      "computedHash": "61144e3747c1e8b0cfbb18ac8063be1580a061f9ce904668b731be3230be16df"
     },
     "content-strategy": {
       "source": "coreyhaines31/marketingskills",
@@ -385,6 +397,12 @@
       "skillPath": "skills/onboarding/SKILL.md",
       "computedHash": "634b9ba0a4446d9358d3cbc316feefc2e9d618cd88d5a77f0bc6ec895ed5eb5f"
     },
+    "optimization-advisor-sms": {
+      "source": "blacktwist/social-media-skills",
+      "sourceType": "github",
+      "skillPath": "skills/optimization-advisor-sms/SKILL.md",
+      "computedHash": "bd68f4719cbd561324b3c5e200ae41e394a79009c6ba270f54c2a5af7b38ca35"
+    },
     "paywalls": {
       "source": "coreyhaines31/marketingskills",
       "sourceType": "github",
@@ -396,6 +414,12 @@
       "sourceType": "github",
       "skillPath": ".claude/skills/performance/SKILL.md",
       "computedHash": "817cb7b99578878409a8278e22bf7869971226435c69c7296b8ea5ef0af0716b"
+    },
+    "performance-analyzer-sms": {
+      "source": "blacktwist/social-media-skills",
+      "sourceType": "github",
+      "skillPath": "skills/performance-analyzer-sms/SKILL.md",
+      "computedHash": "4b2d2aa657222b46c46fcc767df58f9de55eee0eb2cffb62c52232b61e67ed80"
     },
     "popups": {
       "source": "coreyhaines31/marketingskills",
