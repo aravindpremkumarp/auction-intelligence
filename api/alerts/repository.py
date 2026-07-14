@@ -16,11 +16,47 @@ so the service never has to reason about nulls.
 """
 from __future__ import annotations
 
-from api.neo4j_client import run_read_query_async
+from api.neo4j_client import run_query_async, run_read_query_async
 
 # Bound the anonymous id set so a client can't ask us to scan an unbounded
 # list. A real watchlist is a handful of properties; 200 is generous.
 _MAX_IDS = 200
+
+
+async def upsert_subscriber(email: str, city: str | None, property_type: str | None,
+                            source: str | None, created_at: str) -> None:
+    """Idempotently record an auction-alert email subscriber.
+
+    MERGE on the normalized email so re-subscribing (e.g. from a different
+    landing page) updates the filter rather than creating a duplicate, and
+    re-activates a previously-unsubscribed address. The original created_at,
+    source, and unsubscribe token are set once (ON CREATE) so attribution and
+    the token survive a re-subscribe. No email is sent from here — this only
+    builds the list; the sending engine is a separate, later piece.
+    """
+    import secrets
+
+    await run_query_async(
+        """
+        MERGE (s:AlertSubscriber {email: $email})
+        ON CREATE SET s.created_at = datetime($created_at),
+                      s.source = $source,
+                      s.unsubscribe_token = $token
+        SET s.city = $city,
+            s.property_type = $property_type,
+            s.active = true,
+            s.updated_at = datetime($created_at)
+        RETURN s.email AS email
+        """,
+        {
+            "email": email,
+            "city": city,
+            "property_type": property_type,
+            "source": source,
+            "created_at": created_at,
+            "token": secrets.token_urlsafe(24),
+        },
+    )
 
 _RETURN = """
     RETURN a.auction_id AS auction_id, a.title AS title,

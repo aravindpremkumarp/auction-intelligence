@@ -149,8 +149,48 @@ h2{font-size:18px;margin:30px 0 12px}
 padding:6px 13px;font-size:13px}
 .cta{display:inline-block;background:var(--accent);color:#fff;border-radius:10px;
 padding:11px 20px;font-weight:600;margin:8px 0 4px}.cta:hover{text-decoration:none;opacity:.92}
+.capture{margin:34px 0 8px;padding:22px 24px;background:var(--accent-soft);
+border:1px solid var(--border);border-radius:var(--radius)}
+.capture h2{margin:0 0 4px}.capture p{margin:0 0 14px;color:var(--ink-soft);font-size:14px}
+.capture form{display:flex;gap:8px;flex-wrap:wrap}
+.capture input{flex:1 1 220px;min-width:0;padding:10px 13px;border:1px solid var(--border);
+border-radius:var(--radius-sm,8px);background:var(--card);color:var(--ink);font:inherit;font-size:14px}
+.capture input:focus{outline:none;border-color:var(--accent)}
+.capture button{padding:10px 18px;background:var(--accent);color:#fff;border:1px solid transparent;
+border-radius:var(--radius-sm,8px);font:inherit;font-size:14px;font-weight:600;cursor:pointer;white-space:nowrap}
+.capture button:disabled{opacity:.6;cursor:default}
+.capture-msg{margin:12px 0 0;font-size:13px}
 .note{color:var(--muted);font-size:12.5px;margin-top:28px;border-top:1px solid var(--border);padding-top:16px}
 """
+
+# Inline submit handler for the capture form. Standalone pages don't load
+# app.js, so this resolves the API base itself (same rule as web/index.html)
+# and posts to /alerts/subscribe. Guards on the form's presence, so it's a
+# no-op on any page without a form.
+CAPTURE_SCRIPT = """<script>
+(function(){
+  var h=location.hostname;
+  var API=(h==='localhost'||h==='127.0.0.1')?''
+    :(h==='auctionscope.in'||/\\.auctionscope\\.in$/.test(h))?'https://api.auctionscope.in'
+    :'https://auction-api-w68b.onrender.com';
+  var f=document.getElementById('ac-form'); if(!f) return;
+  var msg=document.getElementById('ac-msg'), btn=document.getElementById('ac-btn'), done=false;
+  function show(t){ if(msg){ msg.textContent=t; msg.hidden=false; } }
+  f.addEventListener('submit', function(e){
+    e.preventDefault(); if(done) return;
+    var email=(document.getElementById('ac-email').value||'').trim();
+    if(!email||email.indexOf('@')<1||email.indexOf('.')<0){ show('enter a valid email'); return; }
+    if(btn){ btn.disabled=true; btn.textContent='adding\\u2026'; }
+    fetch(API+'/alerts/subscribe',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({email:email,city:f.dataset.city||null,
+        property_type:f.dataset.ptype||null,source:f.dataset.source})})
+    .then(function(r){ if(!r.ok) throw 0; done=true; f.style.display='none';
+      show("you're on the list \\u2014 we'll email you when new "+(f.dataset.label||'auctions')+" list."); })
+    .catch(function(){ if(btn){ btn.disabled=false; btn.textContent='notify me'; }
+      show('could not add you just now \\u2014 please try again.'); });
+  });
+})();
+</script>"""
 
 
 def page_head(title: str, desc: str, url: str, jsonld: list[dict]) -> str:
@@ -189,7 +229,29 @@ PAGE_FOOT = """<p class="note">Auctionscope is an information platform only. Eve
 bank e-auction conducted under the SARFAESI Act — always verify the reserve price, EMD,
 possession type and encumbrances with the bank before bidding. Web-researched context is
 approximate and not legal advice.</p>
-</div></body></html>"""
+</div>""" + CAPTURE_SCRIPT + """</body></html>"""
+
+
+def capture_block(heading: str, city: str | None, property_type: str | None,
+                  source: str, label: str) -> str:
+    """Email-capture form, prefilled with the page's city/type so the alert is
+    already scoped to what the visitor is looking at. Behaviour: CAPTURE_SCRIPT."""
+    attrs = (f'data-source="{html.escape(source)}" data-label="{html.escape(label)}"'
+             + (f' data-city="{html.escape(city)}"' if city else "")
+             + (f' data-ptype="{html.escape(property_type)}"' if property_type else ""))
+    return (
+        '<section class="capture">'
+        f"<h2>{html.escape(heading)}</h2>"
+        "<p>new listings, price drops and closing deadlines — by email. "
+        "no spam, unsubscribe anytime.</p>"
+        f'<form id="ac-form" {attrs}>'
+        '<input id="ac-email" type="email" placeholder="you@email.com" '
+        'autocomplete="email" required aria-label="your email">'
+        '<button id="ac-btn" type="submit">notify me</button>'
+        "</form>"
+        '<p id="ac-msg" class="capture-msg" role="status" aria-live="polite" hidden></p>'
+        "</section>"
+    )
 
 
 def listing_card(row: dict) -> str:
@@ -301,6 +363,10 @@ def render_city_type(city: str, type_name: str, rows: list[dict],
         parts.append(f"<h2>{label} in other cities</h2><div class=\"chips\">"
                      + "".join(f'<a class="chip" href="{p}">{html.escape(n)}</a>'
                                for n, p in other_cities) + "</div>")
+    parts.append(capture_block(
+        heading=f"Get alerts for {re.sub('&amp;', '&', plural)} in {city}",
+        city=city, property_type=type_name,
+        source=f"landing:{city_slug}/{slug}", label=plural_txt))
     parts.append(PAGE_FOOT)
     return "".join(parts)
 
@@ -347,6 +413,10 @@ def render_city_hub(city: str, all_rows: list[dict],
         parts.append('<h2>Auctions in other cities</h2><div class="chips">'
                      + "".join(f'<a class="chip" href="{p}">{html.escape(n)}</a>'
                                for n, p in other_cities) + "</div>")
+    parts.append(capture_block(
+        heading=f"Get bank-auction alerts for {city}",
+        city=city, property_type=None,
+        source=f"landing:{city_slug}", label="auctions"))
     parts.append(PAGE_FOOT)
     return "".join(parts)
 
@@ -371,6 +441,9 @@ def render_top_hub(city_links: list[tuple[str, str, int]]) -> str:
     parts.append('<h2>Browse by city</h2><div class="chips">'
                  + "".join(f'<a class="chip" href="{p}">{html.escape(n)} ({c})</a>'
                            for n, p, c in city_links) + "</div>")
+    parts.append(capture_block(
+        heading="Get auction alerts for Tamil Nadu",
+        city=None, property_type=None, source="landing:hub", label="auctions"))
     parts.append(PAGE_FOOT)
     return "".join(parts)
 
