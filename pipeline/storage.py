@@ -238,6 +238,27 @@ def upload_bytes_private(key: str, body: bytes, content_type: Optional[str] = No
     return key
 
 
+def upload_file_private(local_path: Path | str, key: str, content_type: Optional[str] = None) -> str:
+    """Upload ``local_path`` to the PRIVATE bucket under ``key``. Returns the
+    object key (no public URL — reads go through :func:`presigned_get_url`).
+    Mirrors :func:`upload_file` for private objects streamed from disk
+    (channel-research media can be tens of MB, so no bytes-in-memory)."""
+    path = Path(local_path)
+    if not path.exists():
+        raise FileNotFoundError(path)
+    _require_private_config()
+    ct = content_type or guess_content_type(path.name)
+    client = r2_client()
+    with path.open("rb") as fh:
+        client.put_object(
+            Bucket=R2_PRIVATE_BUCKET,
+            Key=key,
+            Body=fh,
+            ContentType=ct,
+        )
+    return key
+
+
 def presigned_get_url(key: str, expires_in: int = 300) -> str:
     """Mint a short-TTL presigned GET URL for a private object. Callers MUST
     have already verified the requester owns the dossier this key belongs to."""
@@ -247,6 +268,32 @@ def presigned_get_url(key: str, expires_in: int = 300) -> str:
         "get_object",
         Params={"Bucket": R2_PRIVATE_BUCKET, "Key": key},
         ExpiresIn=expires_in,
+    )
+
+
+# ── Marketing channel-research storage ────────────────────────────────────────
+#
+# marketing/research/ pulls third-party social content (Instagram/X) for the
+# marketing team's content research. Scraped third-party media must never be
+# served publicly from our domain, so runs land in the PRIVATE bucket and are
+# shared via short-TTL presigned URLs.
+
+_RESEARCH_KEY_PREFIX = "marketing-research"
+
+
+def research_object_key(platform: str, channel: str, run_date: str, filename: str) -> str:
+    """Deterministic private key for one file of a channel-research run.
+
+    Shape: ``marketing-research/{platform}/{channel}/{run_date}/{filename}``
+    with path-unsafe characters replaced. ``filename`` may carry a single
+    ``media/`` subdirectory prefix (kept as a real key segment so a run's
+    media stays prefix-listable alongside its posts.csv/posts.json).
+    """
+    parts = filename.split("/", 1)
+    safe_name = "/".join(_safe_segment(p) for p in parts)
+    return (
+        f"{_RESEARCH_KEY_PREFIX}/{_safe_segment(platform)}/"
+        f"{_safe_segment(channel)}/{_safe_segment(run_date)}/{safe_name}"
     )
 
 

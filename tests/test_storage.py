@@ -138,6 +138,39 @@ def test_exists_reraises_on_other_errors(storage_module, monkeypatch):
         storage_module.exists("notices/a/x.pdf")
 
 
+def test_research_object_key_is_deterministic_and_safe(storage_module):
+    key = storage_module.research_object_key("instagram", "natgeo", "2026-07-14", "posts.csv")
+    assert key == "marketing-research/instagram/natgeo/2026-07-14/posts.csv"
+    # media/ subdir prefix survives as a real key segment.
+    key = storage_module.research_object_key("instagram", "natgeo", "2026-07-14", "media/Cxyz.mp4")
+    assert key == "marketing-research/instagram/natgeo/2026-07-14/media/Cxyz.mp4"
+    # Unsafe characters collapse to underscores.
+    key = storage_module.research_object_key("x", "@Space X", "2026-07-14", "a b.mp4")
+    assert " " not in key and "@" not in key
+
+
+def test_upload_file_private_streams_to_private_bucket(tmp_path, storage_module, monkeypatch):
+    monkeypatch.setenv("R2_PRIVATE_BUCKET", "private-bucket")
+    monkeypatch.setattr(storage_module, "R2_PRIVATE_BUCKET", "private-bucket")
+    client = _install_fake_client(storage_module, monkeypatch)
+    local = tmp_path / "clip.mp4"
+    local.write_bytes(b"fake video")
+
+    returned = storage_module.upload_file_private(local, "marketing-research/x/a/2026-07-14/media/clip.mp4")
+
+    assert returned == "marketing-research/x/a/2026-07-14/media/clip.mp4"
+    kwargs = client.put_object.call_args.kwargs
+    assert kwargs["Bucket"] == "private-bucket"
+    assert kwargs["Key"] == returned
+    assert kwargs["ContentType"] == "video/mp4"
+
+
+def test_upload_file_private_missing_path_raises(tmp_path, storage_module, monkeypatch):
+    _install_fake_client(storage_module, monkeypatch)
+    with pytest.raises(FileNotFoundError):
+        storage_module.upload_file_private(tmp_path / "nope.mp4", "marketing-research/x/a/d/nope.mp4")
+
+
 def test_missing_env_raises_configured_error(monkeypatch):
     # Clear every R2 var and reload the module.
     for var in ("R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY",

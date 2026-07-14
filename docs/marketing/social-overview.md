@@ -13,6 +13,7 @@ AuctionScope helps people **evaluate** bank-auction property — it never promis
 | `content-pillars.md` | the 8 content machines + feeds + mix + web-research tiers |
 | `copy-playbook.md` | how to write — hook library, quality bar, honesty rule, `market_gap` maths |
 | `content-agents.md` | the automation blueprint — the Poster + Reporter agents |
+| `channel-research.md` | the Instagram/X channel-research pull tool (`marketing/research/`) |
 | `marketing_agents/poster.py` | the built Poster module |
 | `.github/workflows/content-poster.yml` | the manual-dispatch workflow that runs it |
 
