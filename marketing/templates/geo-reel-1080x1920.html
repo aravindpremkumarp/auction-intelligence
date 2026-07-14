@@ -1,0 +1,408 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1080, height=1920">
+<title>Auctionscope — Geo Reel (9:16, 12s)</title>
+<!--
+  Geo reel (Reels/Shorts/TikTok) — the per-city live-board composition: how
+  many auctions are live in a city, three sample listings, and the "ask
+  anything about the area" beat. Render with:
+    python marketing/render_reel.py --data <island.json> --template geo-reel-1080x1920
+
+  The poster pipeline only ever rewrites the #data island. Root data-duration
+  is compile-time-locked at 12s by design — per-clip timing may vary, total
+  length may not.
+
+  Theme system: the island's "theme" ("light" | "dark") flips the semantic
+  --r-* variables on #root[data-theme]; every color in the stylesheet reads a
+  --r-* var (board rows carry border: 1px solid var(--r-card-border)), and
+  every color a GSAP tween touches comes from a JS const chosen by theme.
+
+  Retention architecture (docs/marketing/copy-playbook.md Part 1 + the
+  HyperFrames motion doctrine):
+    bg    0-12     dot-grid wash, scale-drift so frame 0 already moves
+    S1    0-2.2    HOOK — live_count VISIBLE ON FRAME 0 and counting up from
+                   ~60% of its value (seek-safe textContent modifiers,
+                   tabular-nums), line2 kinetic word-slam; the count's landing
+                   punch is the reel's single back.out
+    S2    2.2-4.2  CITY — the city name giant, underline sweep synced
+    S3    4.2-8.2  THE BOARD — 3 listing rows stagger in 0.5s apart
+                   ({type} · {area} | ₹ reserve mono | date under), then a
+                   subtle highlight sweep across row 1
+    S4    8.2-10.2 ASK — ask_line word reveal + three question chips
+    S5    10.2-12  END-CARD — engagement question, factual save-line, small
+                   url pill (no logo outro), and the live count re-enters
+                   small in the final 0.4s so the last frame rhymes with
+                   frame 0.
+  Exactly two transition treatments repeat through the piece: blur-crossfade
+  entrances and bottom push-slides. Eases are long-tail power3/power4; the
+  only overshoot is the S1 count landing punch.
+-->
+<!-- GSAP vendored in lib/ so renders never depend on CDN reachability -->
+<script src="lib/gsap.min.js"></script>
+<!-- Display font vendored for CI renders (Google Fonts is not reliably
+     reachable from a runner; a missing display font fail-closes the look).
+     Inter/JetBrains fall back to system stacks gracefully. -->
+<style>
+  @font-face {
+    font-family: 'Bricolage Grotesque';
+    src: url('lib/fonts/bricolage-grotesque-latin.woff2') format('woff2');
+    font-weight: 600 800;
+    font-display: block;
+  }
+</style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+<style>
+  :root {
+    --accent: #0052ff;
+    --font-body: 'Inter', system-ui, sans-serif;
+    --font-display: 'Bricolage Grotesque', 'Inter', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, Menlo, monospace;
+  }
+  /* Semantic theme variables — the island's "theme" picks the block. */
+  #root[data-theme="dark"] {
+    --r-bg: #0a0b0d; --r-fg: #f4f5f7; --r-muted: #9aa3b2; --r-hl: #7ea2ff;
+    --r-dots: rgba(255,255,255,0.06);
+    --r-wash-a: rgba(0,82,255,0.26); --r-wash-b: rgba(0,82,255,0.16);
+    --r-chip-bg: rgba(255,255,255,0.08); --r-chip-fg: #cdd6e4;
+    --r-card: #ffffff; --r-card-fg: #0a0b0d; --r-card-border: transparent;
+  }
+  #root[data-theme="light"] {
+    --r-bg: #f6f7f9; --r-fg: #0a0b0d; --r-muted: #5b616e; --r-hl: #0052ff;
+    --r-dots: rgba(10,11,13,0.07);
+    --r-wash-a: rgba(0,82,255,0.10); --r-wash-b: rgba(0,82,255,0.07);
+    --r-chip-bg: #e8f0ff; --r-chip-fg: #0052ff;
+    --r-card: #ffffff; --r-card-fg: #0a0b0d; --r-card-border: #dee0e4;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #000; font-family: var(--font-body); }
+  #root {
+    position: relative; width: 1080px; height: 1920px;
+    overflow: hidden; background: var(--r-bg); color: var(--r-fg);
+  }
+  /* Animated background is a real element (GSAP can't reach ::before). */
+  #bg {
+    position: absolute; inset: -60px; /* bleed so the scale drift never shows edges */
+    background:
+      radial-gradient(80% 50% at 50% -10%, var(--r-wash-a) 0%, transparent 65%),
+      radial-gradient(60% 40% at 50% 115%, var(--r-wash-b) 0%, transparent 60%),
+      radial-gradient(var(--r-dots) 1.5px, transparent 1.5px);
+    background-size: auto, auto, 44px 44px;
+    will-change: transform;
+  }
+  .clip { position: absolute; inset: 0; padding: 140px 88px; }
+  .word { display: inline-block; white-space: pre; }
+
+  /* S1 hook — the live count on frame 0, no branding */
+  #s1 { display: flex; flex-direction: column; justify-content: center; gap: 40px; }
+  .hook-l1 {
+    font-family: var(--font-mono); font-size: 150px; font-weight: 700;
+    letter-spacing: -0.04em; line-height: 1; color: var(--r-fg);
+    font-variant-numeric: tabular-nums; will-change: transform, filter;
+  }
+  .hook-l2 {
+    font-family: var(--font-display); font-size: 96px; font-weight: 800;
+    letter-spacing: -0.03em; line-height: 1.06; color: var(--r-hl);
+  }
+
+  /* S2 city name */
+  #s2 { display: flex; flex-direction: column; justify-content: center; gap: 30px; }
+  .city-line { position: relative; display: inline-block; align-self: flex-start; }
+  .city-name {
+    font-family: var(--font-display); font-size: 150px; font-weight: 800;
+    letter-spacing: -0.045em; line-height: 1; color: var(--r-fg);
+    will-change: transform;
+  }
+  .city-underline {
+    position: absolute; left: 4px; right: 4px; bottom: -26px; height: 10px;
+    border-radius: 999px; background: var(--accent);
+    transform-origin: left center; will-change: transform;
+  }
+
+  /* S3 the listings board */
+  #s3 { display: flex; flex-direction: column; justify-content: center; gap: 34px; }
+  .board-row {
+    position: relative; overflow: hidden;
+    background: var(--r-card); color: var(--r-card-fg);
+    border: 1px solid var(--r-card-border);
+    border-radius: 28px; padding: 44px 52px;
+    box-shadow: 0 24px 60px -24px rgba(0,0,0,0.35);
+    will-change: transform;
+  }
+  .row-main { display: flex; align-items: baseline; justify-content: space-between; gap: 24px; }
+  .row-left {
+    font-family: var(--font-display); font-size: 44px; font-weight: 700;
+    letter-spacing: -0.015em; color: var(--r-card-fg);
+  }
+  .row-price {
+    font-family: var(--font-mono); font-size: 50px; font-weight: 700;
+    letter-spacing: -0.03em; color: var(--accent);
+    font-variant-numeric: tabular-nums;
+  }
+  .row-date {
+    margin-top: 14px; font-family: var(--font-mono); font-size: 26px;
+    color: var(--r-muted);
+  }
+  .row-shine {
+    position: absolute; inset: 0; pointer-events: none;
+    background: linear-gradient(105deg, transparent 35%, var(--r-chip-bg) 50%, transparent 65%);
+    transform: translateX(-130%); will-change: transform;
+  }
+
+  /* S4 ask beat */
+  #s4 { display: flex; flex-direction: column; justify-content: center; gap: 48px; }
+  .ask-line {
+    font-family: var(--font-display); font-size: 68px; font-weight: 700;
+    letter-spacing: -0.02em; line-height: 1.18; color: var(--r-fg);
+  }
+  .q-chips { display: flex; flex-wrap: wrap; gap: 20px; }
+  .q-chip {
+    font-family: var(--font-mono); font-size: 30px; font-weight: 600;
+    color: var(--r-chip-fg); background: var(--r-chip-bg);
+    border-radius: 999px; padding: 16px 34px; will-change: transform;
+  }
+
+  /* S5 end-card */
+  #s5 { display: flex; flex-direction: column; justify-content: center; gap: 46px; }
+  .end-q {
+    font-family: var(--font-display); font-size: 96px; font-weight: 800;
+    letter-spacing: -0.03em; line-height: 1.08; color: var(--r-fg);
+    max-width: 13ch;
+  }
+  .save-line {
+    display: inline-flex; align-items: center; gap: 18px;
+    font-family: var(--font-mono); font-size: 33px; color: var(--r-muted);
+  }
+  .save-line .flag {
+    width: 30px; height: 38px; flex: 0 0 auto;
+    background: var(--r-hl);
+    clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 74%, 0 100%);
+  }
+  .url-pill {
+    align-self: flex-start; font-family: var(--font-mono); font-size: 32px;
+    font-weight: 600; color: var(--r-card); background: var(--accent);
+    border-radius: 999px; padding: 22px 48px;
+  }
+  .loop-echo {
+    position: absolute; right: 88px; bottom: 130px;
+    font-family: var(--font-mono); font-size: 58px; font-weight: 700;
+    letter-spacing: -0.03em; color: var(--r-muted); opacity: 0.55;
+    font-variant-numeric: tabular-nums;
+  }
+</style>
+</head>
+<body>
+
+<script id="data" type="application/json">
+{ "theme": "light",
+  "city": "Chennai",
+  "hook": { "line1": "104 live.", "line2": "bank auctions in chennai." },
+  "live_count": 104,
+  "listings": [
+    { "type": "Plot", "area": "Sivagangai", "reserve_price": 750000, "auction_date": "13 Jul 2026" },
+    { "type": "Flat", "area": "Sevvapet", "reserve_price": 1320000, "auction_date": "31 Jul 2026" },
+    { "type": "Land", "area": "Mylapore", "reserve_price": 1650000, "auction_date": "20 Jul 2026" }
+  ],
+  "ask_line": "ask any of them: flood risk, metro plans, market rate.",
+  "endcard": { "question": "which area would you check first?", "save_line": "save — the board changes weekly", "url": "auctionscope.in" } }
+</script>
+
+<div id="root" data-composition-id="main" data-width="1080" data-height="1920" data-start="0" data-duration="12" data-theme="light">
+
+  <div id="bg" class="clip" data-start="0" data-duration="12" data-track-index="0" style="padding:0"></div>
+
+  <section id="s1" class="clip" data-start="0" data-duration="2.2" data-track-index="1">
+    <div class="hook-l1" id="hook-l1"><span id="hook-count">104</span><span id="hook-suffix"> live.</span></div>
+    <div class="hook-l2" id="hook-l2">bank auctions in chennai.</div>
+  </section>
+
+  <section id="s2" class="clip" data-start="2.2" data-duration="2" data-track-index="1">
+    <div class="city-line">
+      <div class="city-name" id="city-name">Chennai</div>
+      <div class="city-underline" id="city-underline"></div>
+    </div>
+  </section>
+
+  <section id="s3" class="clip" data-start="4.2" data-duration="4" data-track-index="1">
+    <div id="board-rows" style="display:flex;flex-direction:column;gap:34px"></div>
+  </section>
+
+  <section id="s4" class="clip" data-start="8.2" data-duration="2" data-track-index="1">
+    <div class="ask-line" id="ask-line"></div>
+    <div class="q-chips" id="q-chips">
+      <span class="q-chip">flood?</span>
+      <span class="q-chip">metro?</span>
+      <span class="q-chip">rate?</span>
+    </div>
+  </section>
+
+  <section id="s5" class="clip" data-start="10.2" data-duration="1.8" data-track-index="1">
+    <div class="end-q" id="end-q">which area would you check first?</div>
+    <div class="save-line" id="save-line"><span class="flag"></span><span id="save-text"></span></div>
+    <div class="url-pill" id="url-pill">auctionscope.in</div>
+    <div class="loop-echo" id="loop-echo">104</div>
+  </section>
+
+</div>
+
+<script>
+  // ---- data + DOM build (synchronous, before the timeline is registered) ----
+  const DATA = JSON.parse(document.getElementById('data').textContent);
+
+  function trimNum(n) { return String(Math.round(n * 100) / 100); }
+  function formatINR(n) {
+    if (n >= 1e7) return '₹' + trimNum(n / 1e7) + ' Cr';
+    if (n >= 1e5) return '₹' + trimNum(n / 1e5) + ' L';
+    return '₹' + Math.round(n).toLocaleString('en-IN');
+  }
+  function setText(id, v) {
+    const el = document.getElementById(id);
+    if (v === null || v === undefined || v === '') { el.style.display = 'none'; }
+    else { el.textContent = v; }
+    return el;
+  }
+  function splitWords(el) {
+    const words = el.textContent.split(/(\s+)/).filter(Boolean);
+    el.textContent = '';
+    words.forEach(part => {
+      const s = document.createElement('span');
+      s.className = 'word';
+      s.textContent = part;
+      el.appendChild(s);
+    });
+  }
+
+  // Theme: the island picks the semantic --r-* block; any color a GSAP tween
+  // touches comes from a theme-chosen JS const (CSS vars don't reach tweens).
+  document.getElementById('root').dataset.theme = (DATA.theme === 'light') ? 'light' : 'dark';
+  const HL = (DATA.theme === 'light') ? '#0052ff' : '#7ea2ff';
+
+  // S1 — hook: the live count is the hero figure. It sits VISIBLE on frame 0
+  // at ~60% of its value and counts up (seek-safe: textContent + modifiers).
+  const liveCount = Number(DATA.live_count);
+  const hasCount = Number.isFinite(liveCount);
+  const countEl = document.getElementById('hook-count');
+  if (hasCount) {
+    const suffix = (DATA.hook.line1 || '').replace(/^[\d,.\s]+/, '');
+    countEl.textContent = String(Math.round(liveCount * 0.6));
+    setText('hook-suffix', suffix ? ' ' + suffix : null);
+  } else {
+    countEl.textContent = DATA.hook.line1 || '';
+    document.getElementById('hook-suffix').style.display = 'none';
+  }
+  setText('hook-l2', DATA.hook.line2);
+  splitWords(document.getElementById('hook-l2'));
+
+  // S2 — the city, giant
+  setText('city-name', DATA.city);
+
+  // S3 — the listings board (empty fields hide their slot; nothing invented)
+  const boardHost = document.getElementById('board-rows');
+  (DATA.listings || []).slice(0, 3).forEach((it, i) => {
+    const row = document.createElement('div');
+    row.className = 'board-row'; row.id = 'row-' + i;
+    const main = document.createElement('div'); main.className = 'row-main';
+    const left = document.createElement('span'); left.className = 'row-left';
+    left.textContent = [it.type, it.area].filter(Boolean).join(' · ');
+    main.appendChild(left);
+    if (it.reserve_price) {
+      const price = document.createElement('span'); price.className = 'row-price';
+      price.textContent = formatINR(it.reserve_price);
+      main.appendChild(price);
+    }
+    row.appendChild(main);
+    if (it.auction_date) {
+      const d = document.createElement('div'); d.className = 'row-date';
+      d.textContent = 'auction ' + it.auction_date;
+      row.appendChild(d);
+    }
+    if (i === 0) {
+      const sh = document.createElement('div'); sh.className = 'row-shine'; sh.id = 'row-shine';
+      row.appendChild(sh);
+    }
+    boardHost.appendChild(row);
+  });
+
+  // S4 — the ask beat
+  setText('ask-line', DATA.ask_line);
+  splitWords(document.getElementById('ask-line'));
+
+  // S5 — engagement end-card + loop echo (the live count, small)
+  setText('end-q', DATA.endcard.question);
+  if (DATA.endcard.save_line) { setText('save-text', DATA.endcard.save_line); }
+  else { document.getElementById('save-line').style.display = 'none'; }
+  setText('url-pill', DATA.endcard.url || 'auctionscope.in');
+  setText('loop-echo', hasCount ? String(liveCount) : DATA.hook.line1);
+
+  // ---- the one paused, registered timeline (HyperFrames contract) ----
+  // Doctrine: long-tail power3/power4 eases; sequential reveal continues into
+  // the back 50%; stillness + finite micro-drift during holds; the S1 count
+  // landing punch is the single overshoot. Counters tween textContent with
+  // render-time modifiers (onUpdate is suppressed under seek — a callback
+  // counter renders 0). No rAF/Date.now/Math.random; no repeat:-1.
+  window.__timelines = window.__timelines || {};
+  const tl = gsap.timeline({ paused: true });
+
+  // Background: frame 0 already moves (1-second retention signal), then a
+  // finite slow breath — never a static hold, never repeat:-1.
+  tl.fromTo('#bg', { scale: 1.06 }, { scale: 1.0, duration: 2.0, ease: 'power2.out' }, 0);
+  tl.to('#bg', { scale: 1.012, duration: 2.5, ease: 'sine.inOut', repeat: 3, yoyo: true }, 2.0);
+
+  // S1 HOOK — the count visible ON frame 0, settling hard while it counts up.
+  tl.fromTo('#hook-l1',
+    { scale: 1.18, autoAlpha: 0.9, filter: 'blur(6px)' },
+    { scale: 1, autoAlpha: 1, filter: 'blur(0px)', duration: 0.3, ease: 'power3.out' }, 0);
+  if (hasCount) {
+    tl.fromTo(countEl, { textContent: Math.round(liveCount * 0.6) }, {
+      textContent: liveCount, duration: 0.9, ease: 'power3.out',
+      modifiers: { textContent: v => Math.round(parseFloat(v)).toLocaleString('en-IN') }
+    }, 0);
+    // land: highlight shift + the single overshoot punch
+    tl.to(countEl, { color: HL, duration: 0.3, ease: 'power2.out' }, 0.9);
+    tl.to('#hook-l1', { scale: 1.04, duration: 0.12, ease: 'power2.in' }, 0.9);
+    tl.to('#hook-l1', { scale: 1, duration: 0.38, ease: 'back.out(2.5)' }, 1.02);
+  }
+  tl.from('#hook-l2 .word', { y: 70, autoAlpha: 0, duration: 0.42, ease: 'power4.out', stagger: 0.08 }, 0.45);
+  tl.to('#s1', { autoAlpha: 0, filter: 'blur(10px)', duration: 0.22, ease: 'power2.in' }, 1.98);
+  tl.set('#s1', { autoAlpha: 0 }, 2.2);
+
+  // S2 CITY — giant name, underline sweep synced to the settle.
+  tl.from('#city-name', { y: 60, autoAlpha: 0, duration: 0.5, ease: 'power4.out' }, 2.35);
+  tl.fromTo('#city-underline', { scaleX: 0 }, { scaleX: 1, duration: 0.7, ease: 'power3.out' }, 2.55);
+  tl.to('#s2', { y: -6, duration: 0.5, ease: 'sine.inOut', repeat: 1, yoyo: true }, 3.3);
+  tl.to('#s2', { autoAlpha: 0, filter: 'blur(10px)', duration: 0.22, ease: 'power2.in' }, 3.98);
+  tl.set('#s2', { autoAlpha: 0 }, 4.2);
+
+  // S3 THE BOARD — rows push-slide in 0.5s apart, then a subtle highlight
+  // sweep across row 1 (seek-safe transform tween on a real element).
+  (DATA.listings || []).slice(0, 3).forEach((_, i) => {
+    tl.from('#row-' + i, { y: 90, autoAlpha: 0, duration: 0.55, ease: 'power3.out' }, 4.35 + i * 0.5);
+  });
+  if (document.getElementById('row-shine')) {
+    tl.fromTo('#row-shine', { xPercent: -130 }, { xPercent: 130, duration: 0.7, ease: 'power2.inOut' }, 6.3);
+  }
+  tl.to('#s3', { y: -8, duration: 0.6, ease: 'sine.inOut', repeat: 1, yoyo: true }, 7.0);
+  tl.to('#s3', { autoAlpha: 0, filter: 'blur(10px)', duration: 0.22, ease: 'power2.in' }, 7.98);
+  tl.set('#s3', { autoAlpha: 0 }, 8.2);
+
+  // S4 ASK — word reveal, then the three question chips stagger in.
+  tl.from('#ask-line .word', { y: 50, autoAlpha: 0, duration: 0.45, ease: 'power4.out', stagger: 0.06 }, 8.35);
+  tl.from('#q-chips .q-chip', { y: 30, autoAlpha: 0, duration: 0.4, ease: 'power3.out', stagger: 0.1 }, 9.2);
+  tl.to('#s4', { autoAlpha: 0, filter: 'blur(10px)', duration: 0.22, ease: 'power2.in' }, 9.98);
+  tl.set('#s4', { autoAlpha: 0 }, 10.2);
+
+  // S5 END-CARD — the question does the work; no logo outro.
+  tl.from('#end-q', { y: 80, autoAlpha: 0, duration: 0.55, ease: 'power3.out' }, 10.35);
+  tl.from('#save-line', { y: 40, autoAlpha: 0, duration: 0.45, ease: 'power3.out' }, 10.85);
+  tl.from('#url-pill', { y: 40, autoAlpha: 0, duration: 0.45, ease: 'power3.out' }, 11.1);
+  // loop-back: the live count re-enters low-key so frame 359 rhymes with frame 0
+  tl.fromTo('#loop-echo', { y: 60, autoAlpha: 0 },
+    { y: 0, autoAlpha: 0.55, duration: 0.4, ease: 'power3.out' }, 11.6);
+
+  window.__timelines['main'] = tl;
+</script>
+</body>
+</html>

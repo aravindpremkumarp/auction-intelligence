@@ -1,0 +1,13 @@
+{
+  "assertions": [
+    { "kind": "appearsBy", "selector": "#hook-l1", "bySec": 0.3 },
+    { "kind": "appearsBy", "selector": "#headline-card", "bySec": 3.0 },
+    { "kind": "appearsBy", "selector": "#point-0", "bySec": 5.4 },
+    { "kind": "appearsBy", "selector": "#tiein-stat", "bySec": 8.6 },
+    { "kind": "before", "a": "#hook-l1", "b": "#headline-card" },
+    { "kind": "before", "a": "#headline-card", "b": "#point-0" },
+    { "kind": "before", "a": "#tiein-stat", "b": "#end-q" },
+    { "kind": "staysInFrame", "selector": "#url-pill" },
+    { "kind": "keepsMoving" }
+  ]
+}
