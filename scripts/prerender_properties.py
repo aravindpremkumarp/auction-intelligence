@@ -13,12 +13,20 @@ before it renders its own state (see the ssr-property hook near the end of
 app.js). This is a "real content first, then the app takes over" pattern,
 not dynamic rendering — bots and JS users see equivalent content.
 
-Scope (v1, pilot): live, description-complete auctions in a small set of
-pilot cities. Programmatic city/bank/type landing pages (Move 2 — new
-routes that don't exist in the SPA today) are a separate, larger follow-up;
-this script only prerenders the EXISTING /property/<id> route. Historical/
-expired-auction pages (real SEO value per the plan, price-history content)
-are also a deliberate follow-up, not v1 — this pass covers live inventory.
+Scope (v1, pilot): auctions with a real description in a small set of pilot
+cities, live inventory first. Programmatic city/bank/type landing pages
+(Move 2 — new routes that don't exist in the SPA today) are a separate,
+larger follow-up; this script only prerenders the EXISTING /property/<id>
+route.
+
+Content gate: fields.description, NOT fields.description_complete. The
+latter is an enrichment-pipeline judge flag (was the notice-PDF OCR
+extraction verified complete) that lags scraping by design — it measured
+~0% on live inventory in testing. fields.description itself already falls
+back to the site-scraped text before that judging ever runs (verified: 20/20
+live Chennai auctions had substantial description text despite
+description_complete being unset), so gating on real content length covers
+live inventory immediately instead of waiting on the enrichment backlog.
 
 Usage:
     python -m scripts.prerender_properties --city Chennai --city Kanchipuram
@@ -46,6 +54,10 @@ SITEMAP_PATH = WEB_DIR / "sitemap.xml"
 
 # Requests stay well under PUBLIC_READ_LIMIT ("60/minute", api/auth/rate_limit.py).
 REQUEST_INTERVAL_S = 1.1
+
+# Below this, a description is a stub/placeholder, not worth a page. Any real
+# scraped notice text clears this by a wide margin (median observed: ~800 chars).
+MIN_DESCRIPTION_LEN = 60
 
 _STATIC_SITEMAP_URLS = [
     ("/", "daily", "1.0"),
@@ -85,49 +97,31 @@ def fetch_json(client: httpx.Client, path: str, params: dict | None = None) -> d
     return resp.json()
 
 
-_PAGE_SIZE = 200         # API max per page (_PROPERTIES_MAX_LIMIT in api/properties/router.py)
-_LIVE_CHECK_BUDGET = 30  # small — live-range completeness measured ~0%, see below
+_PAGE_SIZE = 200  # API max per page (_PROPERTIES_MAX_LIMIT in api/properties/router.py)
 
 
 def iter_candidates(client: httpx.Client, city: str):
-    """Auctions in one city: a small live-range sample first, then the
-    expired range, paginated.
+    """Auctions in one city, paginated, live-first (the "upcoming" sort's
+    ordering — CASE WHEN in api/properties/router.py puts future
+    auction_start_dt before past, not a live-only filter, so this naturally
+    spills into expired auctions if a city needs more than its live count
+    to satisfy --limit).
 
-    Verified empirically: a 200-record live-only Chennai sample measured 0%
-    description_complete (the newest scrape batch hasn't reached the
-    offline OCR/enrichment pipeline yet), while the just-expired range
-    measured ~20% — enrichment lags scraping by design (see
-    docs/marketing/plan.md §13 open decision #1). So this checks only a
-    small budget of live candidates (cheap to include any that do qualify)
-    before moving to the expired range, which is where most of the yield
-    actually is. A v1 pilot needs pages from both anyway: live pages for
-    current inventory, expired ones for the "price-history" SEO value the
-    plan already calls out. build_ssr_block()/seo_title()/seo_description()
-    render expired ones honestly ("this auction has closed"), never as
-    still-biddable.
+    Real content (fields.description) is near-universal regardless of
+    enrichment status — see the module docstring — so a single pass here is
+    enough; no separate live/expired querying needed.
     """
-    from datetime import datetime, timezone
-    now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
-
-    live = fetch_json(client, "/properties", {
-        "district": city, "sort": "upcoming", "date_from": now_iso,
-        "limit": _LIVE_CHECK_BUDGET, "offset": 0,
-    })
-    yield from live.get("results", [])
-    time.sleep(REQUEST_INTERVAL_S)
-
     offset = 0
     while True:
-        expired = fetch_json(client, "/properties", {
-            "district": city, "sort": "date_desc", "date_to": now_iso,
-            "limit": _PAGE_SIZE, "offset": offset,
+        data = fetch_json(client, "/properties", {
+            "district": city, "sort": "upcoming", "limit": _PAGE_SIZE, "offset": offset,
         })
-        results = expired.get("results", [])
+        results = data.get("results", [])
         if not results:
             return
         yield from results
         offset += _PAGE_SIZE
-        if offset >= expired.get("total", 0):
+        if offset >= data.get("total", 0):
             return
         time.sleep(REQUEST_INTERVAL_S)
 
@@ -329,7 +323,7 @@ def main(argv: list[str] | None = None) -> int:
                     continue
                 fields = detail.get("fields", {})
                 rel = detail.get("relationships", {})
-                if not fields.get("description_complete"):
+                if len((fields.get("description") or "").strip()) < MIN_DESCRIPTION_LEN:
                     skipped_incomplete += 1
                     continue
                 page = render_page(template, auction_id, fields, rel)
@@ -345,7 +339,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  {found_for_city}/{args.limit} found after checking {checked} candidates")
 
     print(f"\n{len(generated)} pages generated, {skipped_incomplete} skipped "
-          f"(incomplete description), {skipped_error} skipped (fetch error)")
+          f"(description too short), {skipped_error} skipped (fetch error)")
 
     if not args.dry_run and generated:
         # Preserve any previously-generated property URLs already on disk so
