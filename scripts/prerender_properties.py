@@ -44,13 +44,14 @@ from pathlib import Path
 
 import httpx
 
+from scripts import seo_sitemap
+
 API_BASE = "https://auction-api-w68b.onrender.com"
 SITE_BASE = "https://www.auctionscope.in"
 REPO_ROOT = Path(__file__).resolve().parent.parent
 WEB_DIR = REPO_ROOT / "web"
 TEMPLATE_PATH = WEB_DIR / "index.html"
 OUT_ROOT = WEB_DIR / "property"
-SITEMAP_PATH = WEB_DIR / "sitemap.xml"
 
 # Requests stay well under PUBLIC_READ_LIMIT ("60/minute", api/auth/rate_limit.py).
 REQUEST_INTERVAL_S = 1.1
@@ -58,13 +59,6 @@ REQUEST_INTERVAL_S = 1.1
 # Below this, a description is a stub/placeholder, not worth a page. Any real
 # scraped notice text clears this by a wide margin (median observed: ~800 chars).
 MIN_DESCRIPTION_LEN = 60
-
-_STATIC_SITEMAP_URLS = [
-    ("/", "daily", "1.0"),
-    ("/privacy-policy", "yearly", "0.3"),
-    ("/terms-of-service", "yearly", "0.3"),
-    ("/disclaimer", "yearly", "0.3"),
-]
 
 
 def fmt_money(num: float | None) -> str | None:
@@ -271,19 +265,6 @@ def render_page(template: str, auction_id: str, fields: dict, rel: dict) -> str:
     return out
 
 
-def build_sitemap(generated_ids: list[str]) -> str:
-    lines = ['<?xml version="1.0" encoding="UTF-8"?>',
-             '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">']
-    for path, freq, prio in _STATIC_SITEMAP_URLS:
-        lines += ["  <url>", f"    <loc>{SITE_BASE}{path}</loc>",
-                  f"    <changefreq>{freq}</changefreq>", f"    <priority>{prio}</priority>", "  </url>"]
-    for aid in sorted(set(generated_ids)):
-        lines += ["  <url>", f"    <loc>{SITE_BASE}/property/{aid}</loc>",
-                  "    <changefreq>weekly</changefreq>", "    <priority>0.7</priority>", "  </url>"]
-    lines.append("</urlset>")
-    return "\n".join(lines) + "\n"
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--city", action="append", default=[],
@@ -342,11 +323,11 @@ def main(argv: list[str] | None = None) -> int:
           f"(description too short), {skipped_error} skipped (fetch error)")
 
     if not args.dry_run and generated:
-        # Preserve any previously-generated property URLs already on disk so
-        # re-running with a narrower --city list doesn't shrink the sitemap.
-        existing_ids = [p.parent.name for p in OUT_ROOT.glob("*/index.html")] if OUT_ROOT.exists() else []
-        SITEMAP_PATH.write_text(build_sitemap(sorted(set(existing_ids) | set(generated))), encoding="utf-8")
-        print(f"wrote {SITEMAP_PATH.relative_to(REPO_ROOT)}")
+        # Shared builder scans the whole tree (property + landing pages), so a
+        # narrow --city re-run never shrinks the sitemap or drops the
+        # bank-auctions/** landing pages another script generated.
+        count = seo_sitemap.write_sitemap(WEB_DIR)
+        print(f"sitemap.xml rebuilt — {count} URLs total")
 
     return 0
 
