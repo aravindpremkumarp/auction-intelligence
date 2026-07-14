@@ -64,3 +64,7 @@ node_modules/
 # HyperFrames video-production workspace (local: node_modules + renders;
 # production templates get promoted into tracked dirs when ready)
 videos/
+
+# Channel-research pulls (marketing/research/) — scraped media + CSVs.
+# (Already covered by the broad data/ rule above; listed for self-documentation.)
+marketing/research/data/
