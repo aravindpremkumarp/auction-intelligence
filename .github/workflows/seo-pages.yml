@@ -1,0 +1,112 @@
+# Regenerate the programmatic SEO pages off the live graph, then open a PR.
+#
+# Manual-dispatch ONLY, by design: the founder runs this right after each
+# weekly scrape, so generated pages reflect fresh inventory. A fixed schedule
+# could fire before the scrape and regenerate from stale data (a landing page
+# advertising a closed auction is worse than none) — same reasoning as
+# content-poster.yml.
+#
+# What it does: resets a bot-owned branch off main, regenerates the static
+# property pages (scripts/prerender_properties.py) and the /bank-auctions/**
+# landing pages + sitemap (scripts/build_landing_pages.py), commits, and opens
+# (or updates) a DRAFT PR. It never pushes to main — a human reviews and merges
+# (the Tier-1 "always stage, never auto-publish" rule from docs/marketing/).
+#
+# Kill switch: set the repo Actions variable AGENTS_ENABLED to "false".
+#
+# Note: the PR is opened with the built-in GITHUB_TOKEN, so GitHub suppresses
+# the recursive `pull_request` CI trigger on it. That's fine here — the pages
+# are generated static HTML and the test suite (pytest tests/api) is unrelated;
+# the human review is the gate. Re-run CI manually from the PR if you want it.
+name: SEO pages (regenerate + PR)
+
+on:
+  workflow_dispatch:
+    inputs:
+      cities:
+        description: "Cities to generate (space-separated, single word each). Start small; expand as pages index."
+        default: "Chennai Kanchipuram Coimbatore Salem Madurai"
+        required: false
+      property_limit:
+        description: "Max prerendered property pages per city"
+        default: "20"
+        required: false
+
+concurrency:
+  group: seo-pages
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+env:
+  AGENTS_ENABLED: ${{ vars.AGENTS_ENABLED || 'true' }}
+  SEO_BRANCH: automated/seo-pages
+
+jobs:
+  regenerate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    if: ${{ vars.AGENTS_ENABLED != 'false' }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0  # full history so we can branch cleanly off main
+
+      - uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5
+        with:
+          python-version: "3.11"
+
+      - name: Reset the automation branch onto main
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          git checkout -B "$SEO_BRANCH" origin/main
+
+      - name: Generate pages
+        env:
+          CITIES: ${{ inputs.cities }}
+          PROPERTY_LIMIT: ${{ inputs.property_limit }}
+        run: |
+          pip install --quiet "httpx>=0.27,<1"
+          # Build repeated --city flags from the space-separated input. Passed
+          # via env (not inlined) so the value can't inject shell into the script.
+          CITY_ARGS=""
+          for c in $CITIES; do CITY_ARGS="$CITY_ARGS --city $c"; done
+          echo "Generating for:$CITY_ARGS"
+          python -m scripts.prerender_properties $CITY_ARGS --limit "$PROPERTY_LIMIT"
+          python -m scripts.build_landing_pages $CITY_ARGS
+
+      - name: Commit regenerated pages
+        id: commit
+        run: |
+          git add web/property web/bank-auctions web/sitemap.xml
+          if git diff --cached --quiet; then
+            echo "No changes to the generated pages."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git commit -m "Regenerate SEO pages $(date -u +%F)"
+          git push --force-with-lease origin "$SEO_BRANCH"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Open or refresh the draft PR
+        if: steps.commit.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          open_count="$(gh pr list --head "$SEO_BRANCH" --state open --json number --jq 'length')"
+          if [ "$open_count" = "0" ]; then
+            gh pr create --base main --head "$SEO_BRANCH" --draft \
+              --title "Automated: regenerate SEO pages" \
+              --body "Regenerated static property pages and \`/bank-auctions/**\` landing pages off the live graph via the **SEO pages** workflow (\`scripts/prerender_properties.py\` + \`scripts/build_landing_pages.py\`).
+
+          Cities: \`${{ inputs.cities }}\` · property pages/city: \`${{ inputs.property_limit }}\`.
+
+          Review the diff (spot-check a page or two, confirm no empty/stale listings) and merge to publish. Nothing was pushed to main automatically."
+            echo "Opened a new draft PR for $SEO_BRANCH."
+          else
+            echo "Draft PR already open for $SEO_BRANCH — the push updated it."
+          fi
