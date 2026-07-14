@@ -34,6 +34,13 @@ def _detail_return(aid: str) -> tuple[str, dict]:
     return ("get_auction_detail", {"auction_id": aid, "title": "x"})
 
 
+def _semantic_return(ids: list[str]) -> tuple[str, dict]:
+    return ("semantic_search", {
+        "returned": len(ids), "limit": len(ids),
+        "results": [{"auction_id": i} for i in ids],
+    })
+
+
 # ── known-id gathering ─────────────────────────────────────────────────────
 
 def test_known_ids_cover_rows_stubs_details_and_panel():
@@ -138,3 +145,36 @@ def test_panel_ids_count_as_known():
     result in history carries them (restored conversations)."""
     ids = panel_sync_ids("Go with 9999.", [], [], panel_ids=["9999", "9998"])
     assert ids == ["9999"]
+
+
+def test_research_search_on_anchored_property_reanchors():
+    """The '1 match → 20 matches' bug. The user is viewing ONE property
+    (panel_ids=['794846']) and asks an analytical follow-up about it ("does
+    this land affected by any major development?"). The agent pulls the detail
+    and then fires a broad semantic_search purely to gather context — it
+    returns 20 rows that would hijack the single-property panel. The answer is
+    about the anchored property only, so re-anchor the panel to it instead of
+    letting the research search's rows take over."""
+    prev = ["794846"]
+    turn = [
+        _detail_return("794846"),
+        _semantic_return(["794846"] + [f"{800000 + i}" for i in range(19)]),
+    ]
+    answer = (
+        "Is Mariputhur (ID 794846) in the Global City zone? No — the land "
+        "itself isn't in the acquisition zone, but it's in the same area."
+    )
+    assert panel_sync_ids(answer, turn, turn, panel_ids=prev) == ["794846"]
+
+
+def test_browse_subset_keeps_whole_even_with_prior_panel():
+    """Guard the re-anchor rule from over-firing: when the answer names a few
+    examples of a fresh browse and those cited ids are NOT the pre-turn panel,
+    keep the full search result — the '14 vs 6' behaviour must survive even
+    when the client supplies an unrelated prior panel."""
+    prev = ["555555"]
+    turn = [_search_return([f"{100000 + i}" for i in range(10)])]
+    answer = (
+        "Found **14 properties** in Ambattur. Sample: 100000, 100001, 100002."
+    )
+    assert panel_sync_ids(answer, turn, turn, panel_ids=prev) == []

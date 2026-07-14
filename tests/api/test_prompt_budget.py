@@ -135,7 +135,19 @@ _SHARED_MD = _REPO_ROOT / "modes" / "_shared.md"
 # distribution / count paths), so the guidance is a few lines in the tool
 # docstring + the zero-result / broad-result sections of _shared.md.
 # Measured ~14,949; ceiling 15,100.
-BUDGET_CHARS = 15_100
+#
+# 2026-07 (panel-anchor guard): +~686 for a _shared.md routing note telling the
+# model that `search_auctions`/`semantic_search` REPLACE the matches panel, so
+# it must not fire a broad search purely to research an analytical follow-up
+# about ONE property the user is already viewing ("is this land affected by any
+# major development?") — that swaps the single-property panel out for unrelated
+# rows (the "1 match → 20 matches" desync; see api/chat/panel.py's re-anchor
+# rule for the server-side backstop). The model now answers such questions from
+# get_auction_detail + internet_search and keeps the panel anchored. Removing
+# that stray search also drops a whole tool round-trip plus a ~20-row result
+# block replayed through the rest of the turn, so it earns its per-call cost.
+# Measured ~15,786; ceiling 15,900.
+BUDGET_CHARS = 15_900
 
 
 def _agent_module() -> ast.Module:

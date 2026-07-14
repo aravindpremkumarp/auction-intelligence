@@ -133,6 +133,15 @@ def panel_sync_ids(
       alone);
     - cited exactly matches what the turn already put up (same ids, same
       order) → redundant, skip;
+    - cited is EXACTLY the pre-turn panel (`panel_ids`) but this turn's tools
+      would show something else → re-anchor to the pre-turn panel. This is the
+      inverse of the desync below: the user was viewing a specific property and
+      asked an analytical follow-up about it ("does this land affected by any
+      major development?"); the agent ran a broad `semantic_search` purely to
+      gather context, and its rows would otherwise hijack the single-property
+      panel. Since the answer re-cites only the anchored property, keep the
+      panel on what the user was actually looking at. Guarded to an EXACT set
+      match so a genuine browse never triggers it (see next rule).
     - cited is a strict subset of what THIS turn's own search already put on
       the panel → skip. The user asked for that search, so keep its full
       match set instead of collapsing a broad browse ("show me properties in
@@ -151,6 +160,17 @@ def panel_sync_ids(
     current = turn_panel_ids(turn_tool_returns)
     if cited == current:
         return []
+    # Re-anchor guard. The answer re-cites EXACTLY the property/properties the
+    # user was already viewing before this turn (the pre-turn panel), yet this
+    # turn's tools would put a different set up. That's the analytical-drill-down
+    # case: the agent fired a broad search only to research a question about the
+    # anchored property, so its rows must not replace the panel the user was
+    # actually looking at. Exact-set-match only — a browse whose answer names a
+    # few examples has cited ≠ pre-turn panel, so it falls through to the subset
+    # rule below and keeps its full match set (no regression to "14 vs 6").
+    prev_panel = set(panel_ids or [])
+    if prev_panel and set(cited) == prev_panel and set(cited) != set(current):
+        return cited
     # A fresh same-turn search already populated the panel with its full match
     # set (via _ui_results). If the answer only re-cites a subset of those same
     # rows — naming a few examples or the "top few" — narrowing to that subset
