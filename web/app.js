@@ -3551,6 +3551,11 @@ function applyURLState(replace) {
     go('landing');
   }
 }
+// Prerendered property pages (scripts/prerender_properties.py) ship a static,
+// crawlable content block for bots/no-JS — real users get it too, briefly,
+// as a fast-first-paint bonus, then the live app takes over here.
+var _ssrProperty = document.getElementById('ssr-property');
+if (_ssrProperty) _ssrProperty.remove();
 applyURLState(true);
 window.addEventListener('popstate', () => {
   const path = window.location.pathname;
