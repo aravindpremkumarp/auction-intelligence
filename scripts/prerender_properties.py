@@ -85,23 +85,51 @@ def fetch_json(client: httpx.Client, path: str, params: dict | None = None) -> d
     return resp.json()
 
 
-_CANDIDATE_POOL = 200  # API max per page (_PROPERTIES_MAX_LIMIT in api/properties/router.py)
+_PAGE_SIZE = 200         # API max per page (_PROPERTIES_MAX_LIMIT in api/properties/router.py)
+_LIVE_CHECK_BUDGET = 30  # small — live-range completeness measured ~0%, see below
 
 
-def list_candidates(client: httpx.Client, city: str) -> list[dict]:
-    """A wide pool of live auctions in one city, soonest-deadline first.
+def iter_candidates(client: httpx.Client, city: str):
+    """Auctions in one city: a small live-range sample first, then the
+    expired range, paginated.
 
-    Deliberately over-fetches: the newest-scraped batch (the front of the
-    "upcoming" sort) hasn't been through the offline OCR/enrichment pipeline
-    yet, so description_complete is near-0% right at the front. Complete
-    records are scattered through the rest of the pool (~20-30% overall,
-    matching the plan's "~31% complete" figure) — the caller filters and
-    stops once it has enough, so this just needs to fetch enough to find them.
+    Verified empirically: a 200-record live-only Chennai sample measured 0%
+    description_complete (the newest scrape batch hasn't reached the
+    offline OCR/enrichment pipeline yet), while the just-expired range
+    measured ~20% — enrichment lags scraping by design (see
+    docs/marketing/plan.md §13 open decision #1). So this checks only a
+    small budget of live candidates (cheap to include any that do qualify)
+    before moving to the expired range, which is where most of the yield
+    actually is. A v1 pilot needs pages from both anyway: live pages for
+    current inventory, expired ones for the "price-history" SEO value the
+    plan already calls out. build_ssr_block()/seo_title()/seo_description()
+    render expired ones honestly ("this auction has closed"), never as
+    still-biddable.
     """
-    data = fetch_json(client, "/properties", {
-        "district": city, "sort": "upcoming", "limit": _CANDIDATE_POOL, "offset": 0,
+    from datetime import datetime, timezone
+    now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+
+    live = fetch_json(client, "/properties", {
+        "district": city, "sort": "upcoming", "date_from": now_iso,
+        "limit": _LIVE_CHECK_BUDGET, "offset": 0,
     })
-    return data.get("results", [])
+    yield from live.get("results", [])
+    time.sleep(REQUEST_INTERVAL_S)
+
+    offset = 0
+    while True:
+        expired = fetch_json(client, "/properties", {
+            "district": city, "sort": "date_desc", "date_to": now_iso,
+            "limit": _PAGE_SIZE, "offset": offset,
+        })
+        results = expired.get("results", [])
+        if not results:
+            return
+        yield from results
+        offset += _PAGE_SIZE
+        if offset >= expired.get("total", 0):
+            return
+        time.sleep(REQUEST_INTERVAL_S)
 
 
 def fetch_detail(client: httpx.Client, auction_id: str) -> dict | None:
@@ -112,10 +140,26 @@ def fetch_detail(client: httpx.Client, auction_id: str) -> dict | None:
         return None
 
 
-def build_ssr_block(fields: dict, rel: dict) -> str:
+def is_ended(fields: dict) -> bool:
+    """Mirrors app.js's toCard() ended check (web/app.js) — auction_start_dt
+    in the past. Drives the honest "this auction has closed" framing below;
+    never state or imply an ended auction is still biddable."""
+    from datetime import datetime, timezone
+    start = fields.get("auction_start_dt")
+    if not start:
+        return False
+    try:
+        dt = datetime.fromisoformat(start.replace("Z", "+00:00"))
+        return dt < datetime.now(timezone.utc)
+    except (ValueError, TypeError):
+        return False
+
+
+def build_ssr_block(fields: dict, rel: dict, ended: bool) -> str:
     """The static, crawlable content block — real facts only, same honesty
     rule as the marketing copy (docs/marketing/copy-playbook.md): every
-    figure comes from the record, nothing invented."""
+    figure comes from the record, nothing invented. Ended auctions are
+    framed as closed/reference-only, never as still-biddable."""
     title = html.escape(fields.get("title") or "Bank auction property")
     city = html.escape((rel.get("city") or {}).get("name") or fields.get("district") or "")
     area = html.escape((rel.get("area") or {}).get("name") or "")
@@ -132,14 +176,25 @@ def build_ssr_block(fields: dict, rel: dict) -> str:
     if bank:
         facts.append(f"bank: {bank}")
     if reserve:
-        facts.append(f"reserve price: {html.escape(reserve)}")
+        facts.append(("closing reserve: " if ended else "reserve price: ") + html.escape(reserve))
     if emd:
         facts.append(f"EMD: {html.escape(emd)}")
     if deadline:
-        facts.append(f"deadline: {html.escape(deadline)}")
+        facts.append((f"auction date: {html.escape(deadline)}") if ended else f"deadline: {html.escape(deadline)}")
     facts_line = " &middot; ".join(facts)
 
     desc_html = f"<p>{description}</p>" if description else ""
+
+    status_line = (
+        '<p style="background:var(--paper-2,#eef0f3);padding:8px 12px;border-radius:8px;'
+        'font-size:13px;margin:0 0 16px;">'
+        "this auction has closed &mdash; kept here for reference. reserve price and terms "
+        "reflect that auction round; check auctionscope for current live listings in this area."
+        "</p>"
+        if ended else ""
+    )
+    cta_text = ("see current live tamil nadu bank auctions on auctionscope" if ended
+                else "browse all live Tamil Nadu bank auctions on Auctionscope")
 
     return (
         '<div id="ssr-property" style="max-width:720px;margin:0 auto;'
@@ -147,9 +202,10 @@ def build_ssr_block(fields: dict, rel: dict) -> str:
         'color:var(--ink,#0a0b0d);line-height:1.55;">'
         f"<h1 style=\"font-size:22px;margin:0 0 10px;\">{title}</h1>"
         f'<p style="color:var(--ink-soft,#33373e);font-size:14px;margin:0 0 16px;">{facts_line}</p>'
+        f"{status_line}"
         f"{desc_html}"
         '<p style="margin-top:20px;font-size:13px;">'
-        '<a href="/" style="color:var(--accent,#0052ff);">browse all live Tamil Nadu bank auctions on Auctionscope</a>'
+        f'<a href="/" style="color:var(--accent,#0052ff);">{cta_text}</a>'
         "</p>"
         '<p style="color:var(--muted,#5b616e);font-size:12px;margin-top:16px;">'
         "Auctionscope is an information platform only &mdash; always verify auction details, "
@@ -159,29 +215,31 @@ def build_ssr_block(fields: dict, rel: dict) -> str:
     )
 
 
-def seo_title(fields: dict, rel: dict) -> str:
+def seo_title(fields: dict, rel: dict, ended: bool) -> str:
     ptypes = (rel.get("property_types") or [None])[0] or "property"
     city = (rel.get("city") or {}).get("name") or ""
     reserve = fmt_money(fields.get("reserve_price_num"))
-    parts = [f"{ptypes} bank auction" + (f" in {city}" if city else "")]
+    label = "past bank auction" if ended else "bank auction"
+    parts = [f"{ptypes} {label}" + (f" in {city}" if city else "")]
     if reserve:
         parts.append(f"{reserve} reserve")
     title = " — ".join(parts) + " | Auctionscope"
     return title[:70]
 
 
-def seo_description(fields: dict, rel: dict) -> str:
+def seo_description(fields: dict, rel: dict, ended: bool) -> str:
     ptypes = (rel.get("property_types") or [None])[0] or "property"
     city = (rel.get("city") or {}).get("name") or ""
     bank = (rel.get("bank") or {}).get("name") or ""
     reserve = fmt_money(fields.get("reserve_price_num"))
     deadline = fmt_date(fields.get("application_deadline_dt") or fields.get("auction_start_dt"))
-    bits = [f"Bank auction {ptypes.lower()}" + (f" in {city}" if city else "")]
+    verb = "Closed bank auction" if ended else "Bank auction"
+    bits = [f"{verb} {ptypes.lower()}" + (f" in {city}" if city else "")]
     if bank:
         bits.append(f"conducted by {bank}")
     if reserve:
         bits.append(f"reserve {reserve}")
-    if deadline:
+    if deadline and not ended:
         bits.append(f"deadline {deadline}")
     desc = ", ".join(bits) + ". Ask AuctionScope's AI whether the location, price and paperwork check out."
     return desc[:158]
@@ -189,8 +247,9 @@ def seo_description(fields: dict, rel: dict) -> str:
 
 def render_page(template: str, auction_id: str, fields: dict, rel: dict) -> str:
     url = f"{SITE_BASE}/property/{auction_id}"
-    title = html.escape(seo_title(fields, rel))
-    desc = html.escape(seo_description(fields, rel))
+    ended = is_ended(fields)
+    title = html.escape(seo_title(fields, rel, ended))
+    desc = html.escape(seo_description(fields, rel, ended))
 
     out = template
     out = re.sub(r"<title>.*?</title>", f"<title>{title}</title>", out, count=1)
@@ -213,7 +272,7 @@ def render_page(template: str, auction_id: str, fields: dict, rel: dict) -> str:
     out = re.sub(r'<meta name="twitter:description" content="[^"]*">',
                  f'<meta name="twitter:description" content="{desc}">', out, count=1)
 
-    ssr_block = build_ssr_block(fields, rel)
+    ssr_block = build_ssr_block(fields, rel, ended)
     out = out.replace("<body>\n", f"<body>\n{ssr_block}\n", 1)
     return out
 
@@ -256,13 +315,12 @@ def main(argv: list[str] | None = None) -> int:
                   file=sys.stderr)
         for city in cities:
             print(f"== {city} ==")
-            time.sleep(REQUEST_INTERVAL_S)
-            candidates = list_candidates(client, city)
-            print(f"  {len(candidates)} live candidates in the pool")
             found_for_city = 0
-            for row in candidates:
+            checked = 0
+            for row in iter_candidates(client, city):
                 if found_for_city >= args.limit:
                     break
+                checked += 1
                 auction_id = row["auction_id"]
                 time.sleep(REQUEST_INTERVAL_S)
                 detail = fetch_detail(client, auction_id)
@@ -284,6 +342,7 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"  wrote {out_path.relative_to(REPO_ROOT)}")
                 generated.append(auction_id)
                 found_for_city += 1
+            print(f"  {found_for_city}/{args.limit} found after checking {checked} candidates")
 
     print(f"\n{len(generated)} pages generated, {skipped_incomplete} skipped "
           f"(incomplete description), {skipped_error} skipped (fetch error)")
