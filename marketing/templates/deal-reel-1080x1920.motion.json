@@ -1,0 +1,14 @@
+{
+  "assertions": [
+    { "kind": "appearsBy", "selector": "#hook-l1", "bySec": 0.3 },
+    { "kind": "appearsBy", "selector": "#money-value", "bySec": 5.4 },
+    { "kind": "appearsBy", "selector": "#facts-card", "bySec": 8.9 },
+    { "kind": "appearsBy", "selector": "#end-q", "bySec": 10.8 },
+    { "kind": "before", "a": "#hook-l1", "b": "#money-value" },
+    { "kind": "before", "a": "#money-value", "b": "#money-badge" },
+    { "kind": "before", "a": "#facts-card", "b": "#end-q" },
+    { "kind": "staysInFrame", "selector": "#url-pill" },
+    { "kind": "staysInFrame", "selector": "#money-value" },
+    { "kind": "keepsMoving" }
+  ]
+}

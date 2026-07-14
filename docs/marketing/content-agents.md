@@ -60,6 +60,8 @@ run: python -m marketing_agents.poster      # (module to be written)
 ```
 …or the same logic as a scheduled Claude Code Routine. Either way it reuses existing env conventions and the `/properties` + `/stats` endpoints.
 
+**Reels are auto-generated too:** every reel-bearing draft stages a `reels/NN-<id>.json` island (plus an LLM-free stats-reel island); `marketing/render_reel.py` renders them through the HyperFrames deal-reel template (retention-engineered: hook figure on frame 0, curiosity gap, seek-safe money count, engagement end-card with loop-back), and CI uploads the MP4s as a workflow artifact linked from the content-review issue. Reels render **silent by design** — the publisher adds trending audio in-app, which is what actually drives native reach.
+
 **Agent A is now implemented this way:** `marketing_agents/poster.py` (data fetch → grounded LLM drafts → honesty-rule validation → staged outputs in `marketing/outputs/<date>/`) run by `.github/workflows/content-poster.yml` (manual **Run workflow** button; commits drafts `[skip ci]` and opens/refreshes a `content-review` issue). Unit tests: `tests/marketing_agents/`. Kill switch: repo Actions variable `AGENTS_ENABLED=false`.
 
 ### Two engines, Max subscription by default

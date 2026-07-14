@@ -1,0 +1,369 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1080, height=1920">
+<title>Auctionscope — Education Reel (9:16, 12s)</title>
+<!--
+  Education / Q&A reel (Reels/Shorts/TikTok) — one parameterized composition
+  that teaches a two-term document check (e.g. patta chitta vs EC) and anchors
+  it back to bank auctions. Render with:
+    python marketing/render_reel.py --data <island.json> --template education-reel-1080x1920
+
+  The poster pipeline only ever rewrites the #data island. Root data-duration
+  is compile-time-locked at 12s by design — per-clip timing may vary, total
+  length may not.
+
+  Theme system: the island's "theme" ("light" | "dark") flips the semantic
+  --r-* variables on #root[data-theme]; every color in the stylesheet reads a
+  --r-* var (cards carry border: 1px solid var(--r-card-border)), and every
+  color a GSAP tween touches comes from a JS const chosen by theme.
+
+  Retention architecture (docs/marketing/copy-playbook.md Part 1 + the
+  HyperFrames motion doctrine):
+    bg    0-12     dot-grid wash, scale-drift so frame 0 already moves
+    S1    0-2.2    HOOK — line1 VISIBLE ON FRAME 0 (never fade-from-nothing,
+                   no branding), line2 kinetic word-slam
+    S2    2.2-5.4  THE TWO TERMS — term_a card push-slides up (mono eyebrow
+                   name + definition), then term_b card staggers in
+    S3    5.4-8.2  THE VS BEAT — both names re-shown small as chips, then the
+                   check_line reveals word-by-word + a small source chip
+                   (the reel's single back.out punch)
+    S4    8.2-10.2 ANCHOR — fixed line "the same checks apply to bank
+                   auctions." fades + rises
+    S5    10.2-12  END-CARD — engagement question, factual save-line, small
+                   url pill (no logo outro), and hook line1 re-enters small in
+                   the final 0.4s so the last frame rhymes with frame 0.
+  Exactly two transition treatments repeat through the piece: blur-crossfade
+  entrances and bottom push-slides. Eases are long-tail power3/power4; the
+  only overshoot is the S3 source-chip punch.
+-->
+<!-- GSAP vendored in lib/ so renders never depend on CDN reachability -->
+<script src="lib/gsap.min.js"></script>
+<!-- Display font vendored for CI renders (Google Fonts is not reliably
+     reachable from a runner; a missing display font fail-closes the look).
+     Inter/JetBrains fall back to system stacks gracefully. -->
+<style>
+  @font-face {
+    font-family: 'Bricolage Grotesque';
+    src: url('lib/fonts/bricolage-grotesque-latin.woff2') format('woff2');
+    font-weight: 600 800;
+    font-display: block;
+  }
+</style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+<style>
+  :root {
+    --accent: #0052ff;
+    --font-body: 'Inter', system-ui, sans-serif;
+    --font-display: 'Bricolage Grotesque', 'Inter', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, Menlo, monospace;
+  }
+  /* Semantic theme variables — the island's "theme" picks the block. */
+  #root[data-theme="dark"] {
+    --r-bg: #0a0b0d; --r-fg: #f4f5f7; --r-muted: #9aa3b2; --r-hl: #7ea2ff;
+    --r-dots: rgba(255,255,255,0.06);
+    --r-wash-a: rgba(0,82,255,0.26); --r-wash-b: rgba(0,82,255,0.16);
+    --r-chip-bg: rgba(255,255,255,0.08); --r-chip-fg: #cdd6e4;
+    --r-card: #ffffff; --r-card-fg: #0a0b0d; --r-card-muted: #5b616e;
+    --r-card-border: transparent;
+  }
+  #root[data-theme="light"] {
+    --r-bg: #f6f7f9; --r-fg: #0a0b0d; --r-muted: #5b616e; --r-hl: #0052ff;
+    --r-dots: rgba(10,11,13,0.07);
+    --r-wash-a: rgba(0,82,255,0.10); --r-wash-b: rgba(0,82,255,0.07);
+    --r-chip-bg: #e8f0ff; --r-chip-fg: #0052ff;
+    --r-card: #ffffff; --r-card-fg: #0a0b0d; --r-card-muted: #5b616e;
+    --r-card-border: #dee0e4;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #000; font-family: var(--font-body); }
+  #root {
+    position: relative; width: 1080px; height: 1920px;
+    overflow: hidden; background: var(--r-bg); color: var(--r-fg);
+  }
+  /* Animated background is a real element (GSAP can't reach ::before). */
+  #bg {
+    position: absolute; inset: -60px; /* bleed so the scale drift never shows edges */
+    background:
+      radial-gradient(80% 50% at 50% -10%, var(--r-wash-a) 0%, transparent 65%),
+      radial-gradient(60% 40% at 50% 115%, var(--r-wash-b) 0%, transparent 60%),
+      radial-gradient(var(--r-dots) 1.5px, transparent 1.5px);
+    background-size: auto, auto, 44px 44px;
+    will-change: transform;
+  }
+  .clip { position: absolute; inset: 0; padding: 140px 88px; }
+  .word { display: inline-block; white-space: pre; }
+
+  /* S1 hook — line1 on frame 0, no branding */
+  #s1 { display: flex; flex-direction: column; justify-content: center; gap: 42px; }
+  .hook-l1 {
+    font-family: var(--font-display); font-size: 136px; font-weight: 800;
+    letter-spacing: -0.03em; line-height: 1.02; color: var(--r-fg);
+    will-change: transform, filter;
+  }
+  .hook-l2 {
+    font-family: var(--font-display); font-size: 92px; font-weight: 800;
+    letter-spacing: -0.03em; line-height: 1.08; color: var(--r-hl);
+  }
+
+  /* S2 the two term cards */
+  #s2 { display: flex; flex-direction: column; justify-content: center; gap: 44px; }
+  .term-card {
+    background: var(--r-card); color: var(--r-card-fg);
+    border: 1px solid var(--r-card-border);
+    border-radius: 32px; padding: 56px 60px;
+    display: flex; flex-direction: column; gap: 22px;
+    box-shadow: 0 24px 60px -24px rgba(0,0,0,0.35);
+    will-change: transform;
+  }
+  .term-name {
+    font-family: var(--font-mono); font-size: 30px; font-weight: 600;
+    letter-spacing: 0.14em; text-transform: uppercase; color: var(--accent);
+  }
+  .term-def {
+    font-family: var(--font-display); font-size: 44px; font-weight: 600;
+    letter-spacing: -0.01em; line-height: 1.32; color: var(--r-card-fg);
+  }
+
+  /* S3 the vs beat */
+  #s3 { display: flex; flex-direction: column; justify-content: center; gap: 52px; }
+  .vs-row { display: flex; align-items: center; gap: 26px; flex-wrap: wrap; }
+  .vs-chip {
+    font-family: var(--font-mono); font-size: 30px; font-weight: 600;
+    color: var(--r-chip-fg); background: var(--r-chip-bg);
+    border-radius: 999px; padding: 16px 34px; will-change: transform;
+  }
+  .vs-mark {
+    font-family: var(--font-mono); font-size: 30px; font-weight: 600;
+    color: var(--r-muted); text-transform: uppercase; letter-spacing: 0.1em;
+  }
+  .check-line {
+    font-family: var(--font-display); font-size: 76px; font-weight: 700;
+    letter-spacing: -0.02em; line-height: 1.14; color: var(--r-fg);
+  }
+  .source-chip {
+    align-self: flex-start; font-family: var(--font-mono); font-size: 28px;
+    font-weight: 600; color: var(--r-chip-fg); background: var(--r-chip-bg);
+    border-radius: 999px; padding: 16px 34px; will-change: transform;
+  }
+
+  /* S4 anchor line (fixed text — the bridge back to bank auctions) */
+  #s4 { display: flex; flex-direction: column; justify-content: center; gap: 40px; }
+  .anchor-line {
+    font-family: var(--font-display); font-size: 88px; font-weight: 800;
+    letter-spacing: -0.03em; line-height: 1.12; color: var(--r-fg);
+    max-width: 16ch; will-change: transform;
+  }
+  .anchor-rule {
+    width: 220px; height: 10px; border-radius: 999px; background: var(--accent);
+    transform-origin: left center; will-change: transform;
+  }
+
+  /* S5 end-card */
+  #s5 { display: flex; flex-direction: column; justify-content: center; gap: 46px; }
+  .end-q {
+    font-family: var(--font-display); font-size: 96px; font-weight: 800;
+    letter-spacing: -0.03em; line-height: 1.08; color: var(--r-fg);
+    max-width: 13ch;
+  }
+  .save-line {
+    display: inline-flex; align-items: center; gap: 18px;
+    font-family: var(--font-mono); font-size: 33px; color: var(--r-muted);
+  }
+  .save-line .flag {
+    width: 30px; height: 38px; flex: 0 0 auto;
+    background: var(--r-hl);
+    clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 74%, 0 100%);
+  }
+  .url-pill {
+    align-self: flex-start; font-family: var(--font-mono); font-size: 32px;
+    font-weight: 600; color: var(--r-card); background: var(--accent);
+    border-radius: 999px; padding: 22px 48px;
+  }
+  .loop-echo {
+    position: absolute; right: 88px; bottom: 130px;
+    font-family: var(--font-display); font-size: 54px; font-weight: 800;
+    letter-spacing: -0.03em; color: var(--r-muted); opacity: 0.55;
+  }
+</style>
+</head>
+<body>
+
+<script id="data" type="application/json">
+{ "theme": "light",
+  "hook": { "line1": "2 documents.", "line2": "most check only one." },
+  "term_a": { "name": "patta chitta", "def": "who owns the land — and its type. merged into one document since 2015." },
+  "term_b": { "name": "EC", "def": "every sale, mortgage and charge on record since 1987." },
+  "check_line": "both are free to view at tnreginet.gov.in",
+  "source_label": "tnreginet.gov.in",
+  "endcard": { "question": "which one did you check last time?", "save_line": "save for your next site visit", "url": "auctionscope.in" } }
+</script>
+
+<div id="root" data-composition-id="main" data-width="1080" data-height="1920" data-start="0" data-duration="12" data-theme="light">
+
+  <div id="bg" class="clip" data-start="0" data-duration="12" data-track-index="0" style="padding:0"></div>
+
+  <section id="s1" class="clip" data-start="0" data-duration="2.2" data-track-index="1">
+    <div class="hook-l1" id="hook-l1">2 documents.</div>
+    <div class="hook-l2" id="hook-l2">most check only one.</div>
+  </section>
+
+  <section id="s2" class="clip" data-start="2.2" data-duration="3.2" data-track-index="1">
+    <div class="term-card" id="card-a">
+      <div class="term-name" id="term-a-name">term a</div>
+      <div class="term-def" id="term-a-def"></div>
+    </div>
+    <div class="term-card" id="card-b">
+      <div class="term-name" id="term-b-name">term b</div>
+      <div class="term-def" id="term-b-def"></div>
+    </div>
+  </section>
+
+  <section id="s3" class="clip" data-start="5.4" data-duration="2.8" data-track-index="1">
+    <div class="vs-row">
+      <span class="vs-chip" id="vs-a">term a</span>
+      <span class="vs-mark">vs</span>
+      <span class="vs-chip" id="vs-b">term b</span>
+    </div>
+    <div class="check-line" id="check-line"></div>
+    <span class="source-chip" id="source-chip"></span>
+  </section>
+
+  <section id="s4" class="clip" data-start="8.2" data-duration="2" data-track-index="1">
+    <div class="anchor-line" id="anchor-line">the same checks apply to bank auctions.</div>
+    <div class="anchor-rule" id="anchor-rule"></div>
+  </section>
+
+  <section id="s5" class="clip" data-start="10.2" data-duration="1.8" data-track-index="1">
+    <div class="end-q" id="end-q">which one did you check last time?</div>
+    <div class="save-line" id="save-line"><span class="flag"></span><span id="save-text"></span></div>
+    <div class="url-pill" id="url-pill">auctionscope.in</div>
+    <div class="loop-echo" id="loop-echo">2 documents.</div>
+  </section>
+
+</div>
+
+<script>
+  // ---- data + DOM build (synchronous, before the timeline is registered) ----
+  const DATA = JSON.parse(document.getElementById('data').textContent);
+
+  function trimNum(n) { return String(Math.round(n * 100) / 100); }
+  function formatINR(n) {
+    if (n >= 1e7) return '₹' + trimNum(n / 1e7) + ' Cr';
+    if (n >= 1e5) return '₹' + trimNum(n / 1e5) + ' L';
+    return '₹' + Math.round(n).toLocaleString('en-IN');
+  }
+  function setText(id, v) {
+    const el = document.getElementById(id);
+    if (v === null || v === undefined || v === '') { el.style.display = 'none'; }
+    else { el.textContent = v; }
+    return el;
+  }
+  function splitWords(el) {
+    const words = el.textContent.split(/(\s+)/).filter(Boolean);
+    el.textContent = '';
+    words.forEach(part => {
+      const s = document.createElement('span');
+      s.className = 'word';
+      s.textContent = part;
+      el.appendChild(s);
+    });
+  }
+
+  // Theme: the island picks the semantic --r-* block; any color a GSAP tween
+  // touches comes from a theme-chosen JS const (CSS vars don't reach tweens).
+  document.getElementById('root').dataset.theme = (DATA.theme === 'light') ? 'light' : 'dark';
+  const HL = (DATA.theme === 'light') ? '#0052ff' : '#7ea2ff';
+
+  const termA = DATA.term_a || {};
+  const termB = DATA.term_b || {};
+
+  // S1 — hook (validated upstream; no branding in scene 1)
+  setText('hook-l1', DATA.hook.line1);
+  setText('hook-l2', DATA.hook.line2);
+  splitWords(document.getElementById('hook-l2'));
+
+  // S2 — the two term cards (empty fields hide their slot; nothing invented)
+  setText('term-a-name', termA.name);
+  setText('term-a-def', termA.def);
+  setText('term-b-name', termB.name);
+  setText('term-b-def', termB.def);
+
+  // S3 — the vs beat: names re-shown small, check line word-by-word + source
+  setText('vs-a', termA.name);
+  setText('vs-b', termB.name);
+  setText('check-line', DATA.check_line);
+  splitWords(document.getElementById('check-line'));
+  setText('source-chip', DATA.source_label);
+
+  // S5 — engagement end-card + loop echo (hook line1, small)
+  setText('end-q', DATA.endcard.question);
+  if (DATA.endcard.save_line) { setText('save-text', DATA.endcard.save_line); }
+  else { document.getElementById('save-line').style.display = 'none'; }
+  setText('url-pill', DATA.endcard.url || 'auctionscope.in');
+  setText('loop-echo', DATA.hook.line1);
+
+  // ---- the one paused, registered timeline (HyperFrames contract) ----
+  // Doctrine: long-tail power3/power4 eases; sequential reveal continues into
+  // the back 50%; stillness + finite micro-drift during holds; the S3 source
+  // chip punch is the single overshoot. No onUpdate/rAF/Date.now/Math.random;
+  // no repeat:-1 (finite yoyo only) — every frame renders identically under seek.
+  window.__timelines = window.__timelines || {};
+  const tl = gsap.timeline({ paused: true });
+
+  // Background: frame 0 already moves (1-second retention signal), then a
+  // finite slow breath — never a static hold, never repeat:-1.
+  tl.fromTo('#bg', { scale: 1.06 }, { scale: 1.0, duration: 2.0, ease: 'power2.out' }, 0);
+  tl.to('#bg', { scale: 1.012, duration: 2.5, ease: 'sine.inOut', repeat: 3, yoyo: true }, 2.0);
+
+  // S1 HOOK — line1 visible ON frame 0: a visible from-state settling hard.
+  tl.fromTo('#hook-l1',
+    { scale: 1.18, autoAlpha: 0.9, filter: 'blur(6px)' },
+    { scale: 1, autoAlpha: 1, filter: 'blur(0px)', duration: 0.3, ease: 'power3.out' }, 0);
+  tl.from('#hook-l2 .word', { y: 70, autoAlpha: 0, duration: 0.42, ease: 'power4.out', stagger: 0.08 }, 0.5);
+  // micro-drift during the hold (finite, subtle)
+  tl.to('#s1', { y: -6, duration: 0.55, ease: 'sine.inOut', repeat: 1, yoyo: true }, 1.0);
+  // blur-crossfade out + hard kill at the boundary so a non-linear seek can
+  // never land on stale visibility state
+  tl.to('#s1', { autoAlpha: 0, filter: 'blur(10px)', duration: 0.22, ease: 'power2.in' }, 1.98);
+  tl.set('#s1', { autoAlpha: 0 }, 2.2);
+
+  // S2 THE TWO TERMS — push-slides, term_a first, term_b staggers in.
+  tl.from('#card-a', { y: 180, autoAlpha: 0, duration: 0.6, ease: 'power3.out' }, 2.35);
+  tl.from('#card-b', { y: 180, autoAlpha: 0, duration: 0.6, ease: 'power3.out' }, 3.05);
+  tl.to('#s2', { y: -8, duration: 0.6, ease: 'sine.inOut', repeat: 1, yoyo: true }, 4.0);
+  tl.to('#s2', { autoAlpha: 0, filter: 'blur(10px)', duration: 0.22, ease: 'power2.in' }, 5.18);
+  tl.set('#s2', { autoAlpha: 0 }, 5.4);
+
+  // S3 THE VS BEAT — names re-shown small, then the payoff line word-by-word.
+  tl.from('#s3 .vs-row > *', { y: 30, autoAlpha: 0, duration: 0.45, ease: 'power3.out', stagger: 0.1 }, 5.55);
+  tl.from('#check-line .word', { y: 50, autoAlpha: 0, duration: 0.42, ease: 'power4.out', stagger: 0.07 }, 6.1);
+  // land: the whole line shifts to the highlight color (theme-chosen const)
+  tl.to('#check-line', { color: HL, duration: 0.35, ease: 'power2.out' }, 7.0);
+  // the single overshoot: the source chip punches in
+  tl.from('#source-chip', { scale: 0.5, autoAlpha: 0, duration: 0.5, ease: 'back.out(2.2)' }, 7.15);
+  tl.to('#s3', { autoAlpha: 0, filter: 'blur(10px)', duration: 0.22, ease: 'power2.in' }, 7.98);
+  tl.set('#s3', { autoAlpha: 0 }, 8.2);
+
+  // S4 ANCHOR — fixed bridge line fades + rises; accent rule sweeps under it.
+  tl.from('#anchor-line', { y: 60, autoAlpha: 0, duration: 0.6, ease: 'power3.out' }, 8.35);
+  tl.fromTo('#anchor-rule', { scaleX: 0 }, { scaleX: 1, duration: 0.6, ease: 'power3.out' }, 8.7);
+  tl.to('#s4', { y: -6, duration: 0.45, ease: 'sine.inOut', repeat: 1, yoyo: true }, 9.05);
+  tl.to('#s4', { autoAlpha: 0, filter: 'blur(10px)', duration: 0.22, ease: 'power2.in' }, 9.98);
+  tl.set('#s4', { autoAlpha: 0 }, 10.2);
+
+  // S5 END-CARD — the question does the work; no logo outro.
+  tl.from('#end-q', { y: 80, autoAlpha: 0, duration: 0.55, ease: 'power3.out' }, 10.35);
+  tl.from('#save-line', { y: 40, autoAlpha: 0, duration: 0.45, ease: 'power3.out' }, 10.85);
+  tl.from('#url-pill', { y: 40, autoAlpha: 0, duration: 0.45, ease: 'power3.out' }, 11.1);
+  // loop-back: hook line1 re-enters low-key so frame 359 rhymes with frame 0
+  tl.fromTo('#loop-echo', { y: 60, autoAlpha: 0 },
+    { y: 0, autoAlpha: 0.55, duration: 0.4, ease: 'power3.out' }, 11.6);
+
+  window.__timelines['main'] = tl;
+</script>
+</body>
+</html>

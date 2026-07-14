@@ -1,0 +1,13 @@
+{
+  "assertions": [
+    { "kind": "appearsBy", "selector": "#hook-count", "bySec": 0.3 },
+    { "kind": "appearsBy", "selector": "#city-name", "bySec": 2.8 },
+    { "kind": "appearsBy", "selector": "#row-0", "bySec": 5.0 },
+    { "kind": "appearsBy", "selector": "#ask-line", "bySec": 8.8 },
+    { "kind": "before", "a": "#hook-count", "b": "#city-name" },
+    { "kind": "before", "a": "#city-name", "b": "#row-0" },
+    { "kind": "before", "a": "#row-0", "b": "#ask-line" },
+    { "kind": "staysInFrame", "selector": "#url-pill" },
+    { "kind": "keepsMoving" }
+  ]
+}

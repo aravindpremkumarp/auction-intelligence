@@ -1,0 +1,35 @@
+{
+  "theme": "light",
+  "city": "Chennai",
+  "hook": {
+    "line1": "9 under ₹20L.",
+    "line2": "bank auctions in chennai."
+  },
+  "live_count": 9,
+  "listings": [
+    {
+      "type": "Flat",
+      "area": "Sevvapet",
+      "reserve_price": 1325000,
+      "auction_date": "31 Jul 2026"
+    },
+    {
+      "type": "Land",
+      "area": "Mylapore",
+      "reserve_price": 1650000,
+      "auction_date": "20 Jul 2026"
+    },
+    {
+      "type": "Plot",
+      "area": "Koil Street",
+      "reserve_price": 1980000,
+      "auction_date": "24 Jul 2026"
+    }
+  ],
+  "ask_line": "ask any of them: flood risk, metro plans, market rate.",
+  "endcard": {
+    "question": "which area would you check first?",
+    "save_line": "save — the board changes weekly",
+    "url": "auctionscope.in"
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "theme": "dark",
+  "hook": {
+    "line1": "1 question.",
+    "line2": "“which are re-auctions?”"
+  },
+  "term_a": {
+    "name": "the question",
+    "def": "a user asked: which of these listings are re-auctions? it changes how you read the price."
+  },
+  "term_b": {
+    "name": "the answer",
+    "def": "re-listed after a failed auction — often at a lower reserve. we tag every one."
+  },
+  "check_line": "asked in the app · answered with live data",
+  "source_label": "auctionscope.in · user q&a",
+  "endcard": {
+    "question": "what would you ask first?",
+    "save_line": "save — ask it on your shortlist",
+    "url": "auctionscope.in"
+  }
+}

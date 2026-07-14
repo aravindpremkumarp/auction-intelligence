@@ -36,6 +36,9 @@ Our old hooks had one quiet flaw: they were **specific and complete**. `₹45L �
 - Never open with throat-clearing: *did you know · attention · imagine · are you looking for · introducing · we're excited · don't miss · hurry · last chance*. (Banned as openers in `validate_drafts()`.)
 - One emoji max, never as the opener.
 
+### The hook database (the arsenal)
+The curated per-pillar hook list lives in **`marketing/hooks.json`** (human rendering: `docs/marketing/hook-database.md`) — ~90 stop-test-passing concepts, each expressed on all three surfaces at once (caption / reel first-frame / card headline), tagged by mechanism, budget-checked and honesty-scanned in CI (`TestHookDatabase`). The Poster injects the relevant pillar's entries into its prompt as the HOOK ARSENAL and adapts from them before inventing; humans swipe from the same file. Edit the JSON, run `python marketing/gen_hook_doc.py`, and the tests keep every entry within the on-screen budgets.
+
 ### The 8 mechanisms (rotate — max 2 drafts per mechanism per batch)
 
 A mechanism is *why* a hook stops someone. The old hook families survive inside them as swipe lines. Vary mechanisms across a batch and across the week: any shape repeated daily becomes wallpaper, and wallpaper gets scrolled past.
@@ -210,7 +213,7 @@ The pinned comment is bound by the **same honesty rule** as the caption (banned 
 - **Location tag:** `Kanchipuram, Tamil Nadu` · **Cover frame:** the ₹21.8L reveal with the −19% badge.
 
 ### Poster schema additions (to build these automatically)
-The draft JSON gains: `pinned_comment` (string, **required** — a draft without it is dropped, since it carries the link + disclaimer layer), `alt_text` (≤125), `video_title` (≤70), `location_tag` (string). `post` and `hashtags` already exist. `pinned_comment` is validated for banned words like `post` is.
+The draft JSON gains: `pinned_comment` (string, **required** — a draft without it is dropped, since it carries the link + disclaimer layer), `alt_text` (≤125), `video_title` (≤70), `location_tag` (string). **Reel fields (built):** `needs_reel`, `reel_hook` {line1 ≤18 chars with a figure — the video's FIRST FRAME; line2 ≤28 chars — the gap}, `reel_context_lines` (exactly 2, ≤30 chars, must not resolve the gap), `engagement_question` (ends "?", mirrors the pinned comment's question), `save_line` (≤40 chars, factual save reason). The prompt scores the 3 hook candidates against the stop test and compresses the strongest into `reel_hook` — automatic hook selection. All reel lines pass the honesty scan; gates in `validate_drafts()` drop violations. `post` and `hashtags` already exist. `pinned_comment` is validated for banned words like `post` is.
 
 ---
 
@@ -223,7 +226,7 @@ A hook system without measurement is a style guide; with measurement it's a mach
 3. **Weekly (Agent B "Reporter", `content-agents.md`):** correlate mechanism ↔ stop-rate ↔ saves ↔ site visits. Output is an action, not a chart: *"`mistake` hooks doubled `contrast` on reels — next week 3 mistake-led education posts."*
 4. **Kill / scale rules** (from the `social` skill's iteration table): 5+ posts of one mechanism under the account median → bench that mechanism for 2 weeks. A mechanism that wins twice in a row → lead the next batch with it (variety cap still applies).
 
-Until analytics volume exists (~pre-traction), run the loop qualitatively: which drafts did the founder *choose to publish*, and which hook alternative did he swap in? `hook_alternatives` in each draft makes that choice visible — that editorial signal is the first training data.
+The report→prompt bias hook is live: `step_prepare` injects the newest `report.json`'s per-angle/format table into the drafting prompt ("bias toward what the report scales; variety cap still applies"). Until analytics volume exists (~pre-traction), run the loop qualitatively: which drafts did the founder *choose to publish*, and which hook alternative did he swap in? `hook_alternatives` in each draft makes that choice visible — that editorial signal is the first training data.
 
 ---
 

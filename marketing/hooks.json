@@ -1,0 +1,740 @@
+{
+  "version": 1,
+  "_readme": "The hook database (copy-playbook.md Part 1). One entry = one hook CONCEPT expressed on three surfaces: caption (post line 1, <=100 chars), reel.line1/line2 (the video's first frame, <=18/<=28 chars), headline (burned on the card, <=64 chars). {placeholders} are filled ONLY from real auction/graph fields — the honesty rule applies to every string here. Edit this file, then run: python marketing/gen_hook_doc.py  (regenerates docs/marketing/hook-database.md). The Poster injects the relevant pillar's entries into its prompt as the HOOK ARSENAL.",
+  "budgets": {
+    "caption": 100,
+    "reel_line1": 18,
+    "reel_line2": 28,
+    "headline": 64
+  },
+  "mechanisms": [
+    "contrast",
+    "question",
+    "mistake",
+    "hidden",
+    "myth",
+    "callout",
+    "countdown",
+    "process"
+  ],
+  "pillars": {
+    "deals": [
+      {
+        "mechanism": "contrast",
+        "caption": "₹{prev}L → ₹{now}L. same {city} {type}, two months apart.",
+        "reel": {
+          "line1": "₹{prev}L → ₹{now}L",
+          "line2": "same {type}. 2 months."
+        },
+        "headline": "₹{prev}L → ₹{now}L"
+      },
+      {
+        "mechanism": "process",
+        "caption": "the bank wanted ₹{prev}L for this {city} {type}. nobody bid. today: ₹{now}L.",
+        "reel": {
+          "line1": "₹{prev}L → ₹{now}L",
+          "line2": "nobody bid."
+        },
+        "headline": "nobody bid at ₹{prev}L. new reserve: ₹{now}L"
+      },
+      {
+        "mechanism": "myth",
+        "caption": "you don't need ₹{now}L in cash to bid on this — the EMD is ₹{emd}L.",
+        "reel": {
+          "line1": "₹{emd}L",
+          "line2": "that's the entry ticket."
+        },
+        "headline": "the EMD here is ₹{emd}L, not ₹{now}L"
+      },
+      {
+        "mechanism": "countdown",
+        "caption": "{n} days left. someone gets this {city} {type} at ₹{now}L. did anyone check the flood map?",
+        "reel": {
+          "line1": "{n} days.",
+          "line2": "one {type}. ₹{now}L."
+        },
+        "headline": "{n} days left on this ₹{now}L {type}"
+      },
+      {
+        "mechanism": "callout",
+        "caption": "hunting a {type} in {city} under ₹{cap}L? a bank just listed one at ₹{now}L.",
+        "reel": {
+          "line1": "₹{now}L",
+          "line2": "{type}. bank sale."
+        },
+        "headline": "a bank just listed a ₹{now}L {type} in {city}"
+      },
+      {
+        "mechanism": "hidden",
+        "caption": "this ₹{now}L {city} listing sits in a public list almost nobody reads.",
+        "reel": {
+          "line1": "₹{now}L",
+          "line2": "public list. few readers."
+        },
+        "headline": "the ₹{now}L listing nobody scrolled to"
+      },
+      {
+        "mechanism": "question",
+        "caption": "would you bid ₹{now}L on a {type} you've only seen as a PDF?",
+        "reel": {
+          "line1": "₹{now}L",
+          "line2": "seen only as a PDF."
+        },
+        "headline": "would you bid ₹{now}L on a PDF?"
+      },
+      {
+        "mechanism": "contrast",
+        "caption": "second auction, ₹{drop}L cheaper. the notice says why — most people never open it.",
+        "reel": {
+          "line1": "−₹{drop}L",
+          "line2": "the notice says why."
+        },
+        "headline": "round two: ₹{drop}L cheaper"
+      },
+      {
+        "mechanism": "mistake",
+        "caption": "win this at ₹{now}L, miss the payment window, forfeit ₹{emd}L. the timeline is in the notice.",
+        "reel": {
+          "line1": "₹{emd}L",
+          "line2": "gone, if you miss one date."
+        },
+        "headline": "one missed date costs ₹{emd}L"
+      },
+      {
+        "mechanism": "process",
+        "caption": "why banks cut reserves between auctions — and what {pct}% means on this {city} {type}.",
+        "reel": {
+          "line1": "−{pct}%",
+          "line2": "here's why banks cut."
+        },
+        "headline": "why this reserve fell {pct}%"
+      },
+      {
+        "mechanism": "callout",
+        "caption": "first-time bidder budget check: reserve ₹{now}L, EMD ₹{emd}L, close {date}.",
+        "reel": {
+          "line1": "₹{now}L all-in?",
+          "line2": "the 3 numbers to know."
+        },
+        "headline": "the 3 numbers on this {city} {type}"
+      },
+      {
+        "mechanism": "countdown",
+        "caption": "bids close {date}. the checklist for this {city} {type} takes 20 minutes. start now.",
+        "reel": {
+          "line1": "{date}.",
+          "line2": "20-min checklist first."
+        },
+        "headline": "closing {date} — check these first"
+      }
+    ],
+    "market_data": [
+      {
+        "mechanism": "hidden",
+        "caption": "banks in TN are selling {live} properties right now. the list is public. almost nobody reads it.",
+        "reel": {
+          "line1": "{live} live.",
+          "line2": "public. barely read."
+        },
+        "headline": "{live} live bank auctions in TN right now"
+      },
+      {
+        "mechanism": "contrast",
+        "caption": "{cheap_count} of today's {live} live auctions sit under ₹{cap}L. the cheapest: ₹{min}L.",
+        "reel": {
+          "line1": "₹{min}L",
+          "line2": "today's floor price."
+        },
+        "headline": "{cheap_count} auctions under ₹{cap}L today"
+      },
+      {
+        "mechanism": "process",
+        "caption": "{bank} alone lists {bank_count} properties this month. here's where they cluster.",
+        "reel": {
+          "line1": "{bank_count} lots.",
+          "line2": "one bank. one month."
+        },
+        "headline": "{bank}: {bank_count} auctions this month"
+      },
+      {
+        "mechanism": "question",
+        "caption": "{drop_count} reserves were cut this month. how many were in your city?",
+        "reel": {
+          "line1": "{drop_count} cuts.",
+          "line2": "any in your city?"
+        },
+        "headline": "{drop_count} reserve cuts this month"
+      },
+      {
+        "mechanism": "callout",
+        "caption": "watching {city}? {city_count} live auctions there this week, from ₹{min}L.",
+        "reel": {
+          "line1": "{city_count} live.",
+          "line2": "in {city}. from ₹{min}L."
+        },
+        "headline": "{city}: {city_count} live, from ₹{min}L"
+      },
+      {
+        "mechanism": "myth",
+        "caption": "auction ≠ metro-only. {district_count} TN districts have live bank listings today.",
+        "reel": {
+          "line1": "{district_count} districts.",
+          "line2": "not just chennai."
+        },
+        "headline": "live auctions in {district_count} TN districts"
+      },
+      {
+        "mechanism": "hidden",
+        "caption": "{closing_week} auctions close within 7 days. most will pass with two or three bidders.",
+        "reel": {
+          "line1": "{closing_week} close.",
+          "line2": "this week. few bidders."
+        },
+        "headline": "{closing_week} auctions close this week"
+      },
+      {
+        "mechanism": "contrast",
+        "caption": "reserve prices here run ₹{min}L to ₹{max}Cr. same law, same process, one list.",
+        "reel": {
+          "line1": "₹{min}L–₹{max}Cr",
+          "line2": "one public list."
+        },
+        "headline": "₹{min}L to ₹{max}Cr — one list"
+      },
+      {
+        "mechanism": "process",
+        "caption": "weekly tally of every TN bank notice: {new_count} new, {drop_count} cut, {closing_week} closing.",
+        "reel": {
+          "line1": "{new_count} new.",
+          "line2": "this week's tape."
+        },
+        "headline": "this week: {new_count} new · {drop_count} cut"
+      },
+      {
+        "mechanism": "question",
+        "caption": "{re_count} properties are on their second auction. what does a failed auction tell you?",
+        "reel": {
+          "line1": "{re_count} retries.",
+          "line2": "what failed round 1?"
+        },
+        "headline": "{re_count} properties back for round two"
+      }
+    ],
+    "education": [
+      {
+        "mechanism": "myth",
+        "caption": "patta chitta and EC are not the same document. checking only one is how buyers get surprised.",
+        "reel": {
+          "line1": "2 documents.",
+          "line2": "most check only one."
+        },
+        "headline": "patta chitta ≠ EC"
+      },
+      {
+        "mechanism": "mistake",
+        "caption": "a clean patta with a messy EC — or the reverse — is where deals go wrong. both, always.",
+        "reel": {
+          "line1": "1 clean, 1 not.",
+          "line2": "the gap costs lakhs."
+        },
+        "headline": "clean patta, messy EC — check both"
+      },
+      {
+        "mechanism": "process",
+        "caption": "EC records go back to 1987 and viewing them is free. tnreginet.gov.in, 10 minutes.",
+        "reel": {
+          "line1": "since 1987.",
+          "line2": "free to check. few do."
+        },
+        "headline": "every sale since 1987, free to view"
+      },
+      {
+        "mechanism": "myth",
+        "caption": "symbolic possession and physical possession are different purchases. the notice states which.",
+        "reel": {
+          "line1": "1 word.",
+          "line2": "changes what you buy."
+        },
+        "headline": "symbolic vs physical possession"
+      },
+      {
+        "mechanism": "question",
+        "caption": "what does \"as-is-where-is\" actually make you responsible for?",
+        "reel": {
+          "line1": "3 words.",
+          "line2": "as-is-where-is. decoded."
+        },
+        "headline": "as-is-where-is, decoded"
+      },
+      {
+        "mechanism": "process",
+        "caption": "EMD is ~10% of reserve, refunded if you lose. how it's paid, when it's forfeited:",
+        "reel": {
+          "line1": "10% first.",
+          "line2": "refunded — usually."
+        },
+        "headline": "EMD: the 10% that opens the door"
+      },
+      {
+        "mechanism": "hidden",
+        "caption": "the sale notice is one page. seven fields on it decide whether you should even visit.",
+        "reel": {
+          "line1": "7 fields.",
+          "line2": "one page decides it."
+        },
+        "headline": "7 notice fields to read first"
+      },
+      {
+        "mechanism": "mistake",
+        "caption": "guideline value ≠ market value. registering at the wrong one costs real stamp duty.",
+        "reel": {
+          "line1": "2 values.",
+          "line2": "duty follows one of them."
+        },
+        "headline": "guideline vs market value"
+      },
+      {
+        "mechanism": "myth",
+        "caption": "an auction sale doesn't erase every old due — power and tax arrears can follow the property.",
+        "reel": {
+          "line1": "2 bills follow.",
+          "line2": "even after the sale."
+        },
+        "headline": "which dues survive an auction sale?"
+      },
+      {
+        "mechanism": "process",
+        "caption": "cent, ground, ares, sqft — TN land maths in one card. 1 ground = 2,400 sqft.",
+        "reel": {
+          "line1": "2,400 sqft.",
+          "line2": "that's one ground."
+        },
+        "headline": "cent · ground · sqft, converted"
+      },
+      {
+        "mechanism": "question",
+        "caption": "UDS: you own 1000 sqft of flat but how much of the land under it?",
+        "reel": {
+          "line1": "1000 sqft flat.",
+          "line2": "how much land is yours?"
+        },
+        "headline": "UDS: the land share under your flat"
+      },
+      {
+        "mechanism": "callout",
+        "caption": "buying your first TN plot? DTCP approval is the word to learn before the site visit.",
+        "reel": {
+          "line1": "1 word: DTCP.",
+          "line2": "learn it before you visit."
+        },
+        "headline": "DTCP approval, before you visit"
+      }
+    ],
+    "news": [
+      {
+        "mechanism": "process",
+        "caption": "{headline_short} — here's what it changes for TN auction buyers.",
+        "reel": {
+          "line1": "{stat}",
+          "line2": "what it means for bids."
+        },
+        "headline": "{headline_short}: the buyer angle"
+      },
+      {
+        "mechanism": "contrast",
+        "caption": "{headline_short}. meanwhile {live} bank auctions in TN are live and mostly unwatched.",
+        "reel": {
+          "line1": "{stat}",
+          "line2": "the quieter market."
+        },
+        "headline": "{headline_short} vs the quiet list"
+      },
+      {
+        "mechanism": "question",
+        "caption": "{headline_short} — does it move reserve prices? here's the honest read.",
+        "reel": {
+          "line1": "{stat}",
+          "line2": "does it move reserves?"
+        },
+        "headline": "does {topic} move reserves?"
+      },
+      {
+        "mechanism": "hidden",
+        "caption": "everyone reads the {topic} headline. few connect it to the auction supply that follows.",
+        "reel": {
+          "line1": "{stat}",
+          "line2": "the second-order effect."
+        },
+        "headline": "{topic}: the second-order effect"
+      },
+      {
+        "mechanism": "callout",
+        "caption": "if you're waiting on {topic} before buying, these {n} numbers matter more.",
+        "reel": {
+          "line1": "{n} numbers.",
+          "line2": "louder than the headline."
+        },
+        "headline": "{n} numbers louder than {topic}"
+      },
+      {
+        "mechanism": "process",
+        "caption": "how {topic} flows into NPAs, and NPAs into next year's auction lists.",
+        "reel": {
+          "line1": "{stat}",
+          "line2": "news now, lists next year."
+        },
+        "headline": "from {topic} to auction supply"
+      },
+      {
+        "mechanism": "myth",
+        "caption": "\"{topic} means wait.\" sometimes. the auction calendar doesn't wait with you.",
+        "reel": {
+          "line1": "{stat}",
+          "line2": "the calendar won't wait."
+        },
+        "headline": "{topic} says wait. deadlines don't."
+      },
+      {
+        "mechanism": "countdown",
+        "caption": "{headline_short}. {closing_week} TN auctions still close this week regardless.",
+        "reel": {
+          "line1": "{closing_week} close.",
+          "line2": "news or no news."
+        },
+        "headline": "{closing_week} auctions close this week anyway"
+      }
+    ],
+    "geo": [
+      {
+        "mechanism": "callout",
+        "caption": "{city}: {city_count} live bank auctions this week, from ₹{min}L. here's the board.",
+        "reel": {
+          "line1": "{city}.",
+          "line2": "{city_count} live. from ₹{min}L."
+        },
+        "headline": "{city}: {city_count} live, from ₹{min}L"
+      },
+      {
+        "mechanism": "hidden",
+        "caption": "{area} shows up {area_count} times on this month's auction list. locals haven't noticed.",
+        "reel": {
+          "line1": "{area_count}x.",
+          "line2": "{area}, this month."
+        },
+        "headline": "{area} appears {area_count}x this month"
+      },
+      {
+        "mechanism": "question",
+        "caption": "which {city} areas flood in november? the auction map and the flood map overlap.",
+        "reel": {
+          "line1": "2 maps.",
+          "line2": "auctions vs flood zones."
+        },
+        "headline": "{city}: auction map vs flood map"
+      },
+      {
+        "mechanism": "contrast",
+        "caption": "same city, ₹{min}L to ₹{max}L. {city}'s auction spread this week.",
+        "reel": {
+          "line1": "₹{min}L–₹{max}L",
+          "line2": "one city. one week."
+        },
+        "headline": "{city}'s spread: ₹{min}L–₹{max}L"
+      },
+      {
+        "mechanism": "process",
+        "caption": "why {city} keeps topping the auction count — and which pockets drive it.",
+        "reel": {
+          "line1": "#1: {city}.",
+          "line2": "the pockets behind it."
+        },
+        "headline": "why {city} tops the auction count"
+      },
+      {
+        "mechanism": "callout",
+        "caption": "near the {metro_line} metro line? {metro_count} live auctions sit within its corridor.",
+        "reel": {
+          "line1": "{metro_count} lots.",
+          "line2": "on the metro corridor."
+        },
+        "headline": "{metro_count} auctions on the {metro_line} line"
+      },
+      {
+        "mechanism": "mistake",
+        "caption": "buying in {area} without checking groundwater is the local mistake. ask first.",
+        "reel": {
+          "line1": "{area}.",
+          "line2": "1 question locals skip."
+        },
+        "headline": "the {area} question locals skip"
+      },
+      {
+        "mechanism": "hidden",
+        "caption": "{district} isn't on most buyers' radar. {district_count} live auctions say it should be.",
+        "reel": {
+          "line1": "{district_count} live.",
+          "line2": "in {district}. off-radar."
+        },
+        "headline": "{district}: {district_count} live, off-radar"
+      },
+      {
+        "mechanism": "question",
+        "caption": "how far is {area} from your office, really? we measure it before you bid.",
+        "reel": {
+          "line1": "{km} km.",
+          "line2": "door to door, measured."
+        },
+        "headline": "{area} to your office: measured"
+      },
+      {
+        "mechanism": "countdown",
+        "caption": "{city} this week: {closing_count} auctions close by {date}. the shortlist:",
+        "reel": {
+          "line1": "{closing_count} close.",
+          "line2": "{city}, by {date}."
+        },
+        "headline": "{city}: {closing_count} close by {date}"
+      }
+    ],
+    "evaluation": [
+      {
+        "mechanism": "question",
+        "caption": "\"is ₹{now}L fair for this {area} {type}?\" — the one question every bidder should ask first.",
+        "reel": {
+          "line1": "₹{now}L fair?",
+          "line2": "ask before you bid."
+        },
+        "headline": "is ₹{now}L fair here?"
+      },
+      {
+        "mechanism": "hidden",
+        "caption": "a sale notice gives you the price. it won't tell you the area floods every november.",
+        "reel": {
+          "line1": "1 page.",
+          "line2": "what it won't tell you."
+        },
+        "headline": "what the notice won't tell you"
+      },
+      {
+        "mechanism": "process",
+        "caption": "we asked one live listing 4 questions: groundwater, flood, metro, market rate. answers inside.",
+        "reel": {
+          "line1": "4 questions.",
+          "line2": "one live listing. answered."
+        },
+        "headline": "4 questions, 1 listing, real answers"
+      },
+      {
+        "mechanism": "mistake",
+        "caption": "skipping the groundwater check on a ₹{now}L plot is a ₹{now}L mistake in summer.",
+        "reel": {
+          "line1": "₹{now}L plot.",
+          "line2": "dry borewell in may?"
+        },
+        "headline": "the groundwater check most skip"
+      },
+      {
+        "mechanism": "question",
+        "caption": "how long is the drive from this {area} plot to your office at 9am? we measured.",
+        "reel": {
+          "line1": "9am drive.",
+          "line2": "measured, not guessed."
+        },
+        "headline": "the 9am commute, measured"
+      },
+      {
+        "mechanism": "contrast",
+        "caption": "reserve ₹{now}L. nearby asking rates say ₹{mkt}L. the gap is the homework.",
+        "reel": {
+          "line1": "₹{now}L vs ₹{mkt}L",
+          "line2": "the gap is the homework."
+        },
+        "headline": "reserve ₹{now}L vs market ₹{mkt}L"
+      },
+      {
+        "mechanism": "process",
+        "caption": "watch us research one auction property live: notice → flood map → metro plan → verdict.",
+        "reel": {
+          "line1": "1 property.",
+          "line2": "researched on camera."
+        },
+        "headline": "one auction, researched live"
+      },
+      {
+        "mechanism": "myth",
+        "caption": "\"cheap means catch.\" sometimes it just means nobody looked. we look.",
+        "reel": {
+          "line1": "₹{min}L = catch?",
+          "line2": "or did nobody look?"
+        },
+        "headline": "cheap: catch, or just unseen?"
+      },
+      {
+        "mechanism": "callout",
+        "caption": "shortlisted a property? ask it these 5 questions before the site visit.",
+        "reel": {
+          "line1": "5 questions.",
+          "line2": "before the site visit."
+        },
+        "headline": "5 questions before you visit"
+      },
+      {
+        "mechanism": "hidden",
+        "caption": "the metro extension isn't in the notice. it's 900m from this listing.",
+        "reel": {
+          "line1": "900m away.",
+          "line2": "not in the notice."
+        },
+        "headline": "the 900m detail not in the notice"
+      }
+    ],
+    "qa": [
+      {
+        "mechanism": "callout",
+        "caption": "you asked: \"{question_short}\" — here's the straight answer.",
+        "reel": {
+          "line1": "1 question.",
+          "line2": "\"{question_short}\""
+        },
+        "headline": "you asked: {question_short}"
+      },
+      {
+        "mechanism": "question",
+        "caption": "\"which of these are re-auctions?\" a user asked. the answer changes how you bid.",
+        "reel": {
+          "line1": "asked 3x.",
+          "line2": "which are re-auctions?"
+        },
+        "headline": "which listings are re-auctions?"
+      },
+      {
+        "mechanism": "process",
+        "caption": "most-asked this week: \"{question_short}\". the answer, with sources:",
+        "reel": {
+          "line1": "#1 question.",
+          "line2": "\"{question_short}\""
+        },
+        "headline": "this week's #1 question, answered"
+      },
+      {
+        "mechanism": "myth",
+        "caption": "\"{misconception}\" — we get this weekly. here's what's actually true.",
+        "reel": {
+          "line1": "1 myth.",
+          "line2": "{misconception}"
+        },
+        "headline": "\"{misconception}\" — corrected"
+      },
+      {
+        "mechanism": "mistake",
+        "caption": "a user almost bid without checking {check}. their question saved them ₹{amount}L.",
+        "reel": {
+          "line1": "₹{amount}L saved.",
+          "line2": "by one question."
+        },
+        "headline": "the question that saved ₹{amount}L"
+      },
+      {
+        "mechanism": "hidden",
+        "caption": "the questions buyers ask us most aren't about price. they're about {theme}.",
+        "reel": {
+          "line1": "top 5 asks.",
+          "line2": "none are about price."
+        },
+        "headline": "what buyers actually ask about"
+      },
+      {
+        "mechanism": "callout",
+        "caption": "asked us something? your question might be next week's post — anonymised, always.",
+        "reel": {
+          "line1": "{n} answered.",
+          "line2": "yours could be next."
+        },
+        "headline": "ask us anything (auction edition)"
+      },
+      {
+        "mechanism": "process",
+        "caption": "\"how do I even start?\" — the 4-step first-auction path, from a real user thread.",
+        "reel": {
+          "line1": "4 steps.",
+          "line2": "from \"where do I start?\""
+        },
+        "headline": "your first auction in 4 steps"
+      }
+    ],
+    "build_in_public": [
+      {
+        "mechanism": "process",
+        "caption": "we track {total} TN auction notices with a graph database and one founder. here's this week's build.",
+        "reel": {
+          "line1": "{total} notices.",
+          "line2": "one founder. one graph."
+        },
+        "headline": "{total} notices, one founder"
+      },
+      {
+        "mechanism": "contrast",
+        "caption": "week 1: a scraper. now: {total} auctions, web research on every one. the build continues.",
+        "reel": {
+          "line1": "wk 1 → now.",
+          "line2": "scraper → research engine."
+        },
+        "headline": "from scraper to research engine"
+      },
+      {
+        "mechanism": "hidden",
+        "caption": "the hard part of auction data isn't scraping — notices are chaos. here's how we tame them.",
+        "reel": {
+          "line1": "1,192 PDFs.",
+          "line2": "pure chaos. tamed."
+        },
+        "headline": "taming auction-notice chaos"
+      },
+      {
+        "mechanism": "process",
+        "caption": "shipped: {feature}. why it exists and what it fixes, in 30 seconds.",
+        "reel": {
+          "line1": "ship {n}.",
+          "line2": "{feature}"
+        },
+        "headline": "shipped: {feature}"
+      },
+      {
+        "mechanism": "question",
+        "caption": "would you use {feature_idea}? we're deciding this week — honest opinions wanted.",
+        "reel": {
+          "line1": "1 decision.",
+          "line2": "build {feature_idea}?"
+        },
+        "headline": "build or skip: {feature_idea}?"
+      },
+      {
+        "mechanism": "mistake",
+        "caption": "we shipped a bug that {bug_effect}. here's the fix and what it taught us.",
+        "reel": {
+          "line1": "bug {n}.",
+          "line2": "{bug_effect}"
+        },
+        "headline": "the bug, the fix, the lesson"
+      },
+      {
+        "mechanism": "callout",
+        "caption": "solo founder, {n} users, real numbers: this month's honest update.",
+        "reel": {
+          "line1": "{n} users.",
+          "line2": "the honest monthly."
+        },
+        "headline": "the honest monthly: {n} users"
+      },
+      {
+        "mechanism": "myth",
+        "caption": "\"AI will do all of this.\" our robot drafts; a human still checks every claim. here's why.",
+        "reel": {
+          "line1": "0 unchecked.",
+          "line2": "robot drafts. human checks."
+        },
+        "headline": "robot drafts, human checks"
+      }
+    ]
+  }
+}

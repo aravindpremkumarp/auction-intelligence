@@ -1,0 +1,32 @@
+{
+  "angle": "price_drop",
+  "theme": "dark",
+  "hook": {
+    "line1": "₹45L → ₹38L",
+    "line2": "nobody bid."
+  },
+  "context_lines": [
+    "didn't sell last round",
+    "the bank cut the reserve"
+  ],
+  "money": {
+    "previous_reserve_price": 4500000,
+    "reserve_price": 3800000,
+    "drop_pct": 15.6
+  },
+  "facts": {
+    "title": "Residential Plot, Gnanamurthy Nagar",
+    "city": "Chennai",
+    "bank": "Canara Bank",
+    "asset_type": "Plot",
+    "emd": 380000,
+    "auction_date": "24 Jul 2026",
+    "days_left": 10
+  },
+  "endcard": {
+    "question": "would you bid on this?",
+    "save_line": "bids close 24 jul — save this",
+    "url": "auctionscope.in"
+  },
+  "honesty_line": "Both prices from the bank's auction notices — earlier listing vs current re-auction."
+}

@@ -1,0 +1,24 @@
+{
+  "theme": "dark",
+  "date_label": "14 Jul 2026",
+  "stats": [
+    {
+      "value": 728,
+      "label": "live bank auctions tracked"
+    },
+    {
+      "value": 2413,
+      "label": "auctions in the archive"
+    },
+    {
+      "value": 49,
+      "label": "cities"
+    }
+  ],
+  "pick": {
+    "title": "Land, Mylapore",
+    "loc": "Chennai · bank e-auction",
+    "reserve_price": 1650000,
+    "auction_date": "20 Jul 2026"
+  }
+}

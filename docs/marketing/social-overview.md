@@ -49,7 +49,7 @@ The most attractive auction fact — *below market price* — made a defensible 
 
 ## 4. The copy system (how every post is written)
 `copy-playbook.md`, translated from the installed `social` / `copywriting` / `copy-editing` skills into AuctionScope's data:
-- **Hook library** by angle (price-drop, closing-soon, cheapest, market-gap, evaluation).
+- **Hook database** — `marketing/hooks.json`: ~90 curated hooks across all 8 pillars, each on 3 surfaces (caption/reel/card), mechanism-tagged, budget- and honesty-gated in CI. Human swipe file: `hook-database.md`.
 - **Quality bar** — Clarity · Prove-It (a real figure) · So-What · Voice · Honesty.
 - **Honesty rule** — banned words (`due diligence`, `guaranteed`, `title-clear`…) enforced *in code* in `validate_drafts()`.
 
@@ -60,7 +60,7 @@ Rendered on the design system (cobalt `#0052ff`, Bricolage Grotesque / Inter / J
 |---|---|---|
 | **Static post** | 1080×1080 | HTML → Chromium screenshot |
 | **Carousel** | 4–5 × 1080×1080 | same, multi-slide |
-| **Reel** | 1080×1920 | **HyperFrames** (20 skills vendored) → GSAP motion graphics → MP4 |
+| **Reel** | 1080×1920 | **HyperFrames** → GSAP motion graphics → MP4 — **all 8 pillars covered by 6 templates** (deal / stats / education / geo / news / evaluate), each **dark + light themed** (islands carry `theme`; auto-generated deal reels alternate). Deals + stats auto-generate via the Poster; the rest are a 2-minute island edit (`marketing/samples/reels/`). CI renders to a workflow artifact (silent — add trending audio in-app) |
 
 Reels are genuine motion (animated counters, badge stamps, kinetic type), not slideshows. One asset set covers all platforms.
 
@@ -78,9 +78,9 @@ One asset set → cross-posted to Instagram, Facebook, LinkedIn, X, YouTube (Eng
 | Built & merged | Spec'd (not built) | Needs a human action |
 |---|---|---|
 | Poster module + workflow + tests | `market_gap` extractor (extent/UDS/possession) | add `CLAUDE_CODE_OAUTH_TOKEN` secret |
-| Copy playbook + 8 pillars | reel auto-gen from Poster draft JSON | land/plot quoting conventions |
-| HyperFrames skills (20) | Agent B "Reporter" (weekly report) | 4 CI env fixes for HyperFrames-in-CI |
-| Static / carousel / reel POCs | News monitoring feed | |
-| GA4 analytics | | |
+| Copy playbook + 8 pillars | evaluate-reel auto-fill (needs product Q&A) | land/plot quoting conventions |
+| HyperFrames skills (20) + hook system | News monitoring feed | wire Reporter metrics CSV export |
+| Static-card auto-render + **reel auto-gen** (deal + stats reels, CI artifact) | baked BGM / R2 hosting for reels | |
+| Agent B Reporter + GA4 analytics | `hook_mechanism` column in metrics CSV | |
 
-**The honest one-liner:** every *piece* is proven on real data — live data → honest copy → static/carousel/animated reels, across any angle. The remaining work is **stitching**: the `market_gap` extractor, and a template that turns one Poster draft into its full asset set automatically.
+**The honest one-liner:** the full chain is now automated — live data → honest copy with scored hooks → static cards + **retention-engineered reels rendered in CI** — and a human still publishes every post. The remaining stitching: the `market_gap` extractor and the evaluate-reel's product-Q&A feed.
