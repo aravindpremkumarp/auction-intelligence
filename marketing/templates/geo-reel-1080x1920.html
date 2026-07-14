@@ -144,10 +144,12 @@
   }
   .row-date {
     margin-top: 14px; font-family: var(--font-mono); font-size: 26px;
-    color: var(--r-muted);
+    /* on the (always-white) card: card-fg at reduced opacity keeps AA
+       contrast in both themes, unlike the on-background muted var */
+    color: var(--r-card-fg); opacity: 0.62;
   }
   .row-shine {
-    position: absolute; inset: 0; pointer-events: none;
+    position: absolute; inset: 0;
     background: linear-gradient(105deg, transparent 35%, var(--r-chip-bg) 50%, transparent 65%);
     transform: translateX(-130%); will-change: transform;
   }
@@ -321,6 +323,8 @@
     }
     if (i === 0) {
       const sh = document.createElement('div'); sh.className = 'row-shine'; sh.id = 'row-shine';
+      // the sweep intentionally starts/ends outside the (overflow:hidden) row
+      sh.setAttribute('data-layout-allow-overflow', '');
       row.appendChild(sh);
     }
     boardHost.appendChild(row);
