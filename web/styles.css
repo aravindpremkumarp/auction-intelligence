@@ -243,6 +243,46 @@ body {
 .landing-footer-note {
   font-size: 11px; color: var(--muted); max-width: 520px;
 }
+
+/* Auction-alert email capture bar (markup in index.html, behaviour in
+   alerts-capture.js). Sits between the browse grid and the footer. */
+.alert-capture {
+  max-width: 1280px; width: 100%; margin: 32px auto 0;
+  padding: 22px 24px; border: 1.5px solid var(--border);
+  border-radius: var(--radius-lg); background: var(--accent-soft);
+}
+.alert-capture .ac-inner {
+  display: flex; flex-wrap: wrap; align-items: center;
+  justify-content: space-between; gap: 16px;
+}
+.alert-capture .ac-copy { flex: 1 1 300px; }
+.alert-capture .ac-copy h2 {
+  margin: 0 0 4px; font-size: 18px; letter-spacing: -0.01em; color: var(--ink);
+}
+.alert-capture .ac-copy p {
+  margin: 0; font-size: 13px; color: var(--ink-soft); max-width: 46ch;
+}
+.alert-capture .ac-form { display: flex; gap: 8px; flex: 0 1 auto; }
+.alert-capture input[type="email"] {
+  flex: 1 1 200px; min-width: 0; padding: 10px 13px;
+  border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
+  background: var(--card); color: var(--ink); font-family: var(--font-body);
+  font-size: 14px;
+}
+.alert-capture input[type="email"]:focus {
+  outline: none; border-color: var(--accent); box-shadow: var(--shadow-focus);
+}
+.alert-capture button {
+  padding: 10px 18px; background: var(--accent); border: 1px solid transparent;
+  border-radius: var(--radius-sm); color: var(--on-accent);
+  font-family: var(--font-body); font-size: 14px; font-weight: 600; cursor: pointer;
+  white-space: nowrap;
+}
+.alert-capture button:hover { background: var(--accent-hover); }
+.alert-capture button:disabled { opacity: 0.6; cursor: default; }
+.alert-capture .ac-msg { margin: 12px 0 0; font-size: 13px; }
+.alert-capture .ac-msg.ok { color: var(--good); }
+.alert-capture .ac-msg.err { color: var(--danger); }
 .browse-head {
   display: flex; align-items: baseline; justify-content: space-between;
   flex-wrap: wrap; gap: 10px;
