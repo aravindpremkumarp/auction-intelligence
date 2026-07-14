@@ -50,6 +50,9 @@ REEL_TEMPLATES = [
     "deal-reel-1080x1920",
     "stats-reel-1080x1920",
     "evaluate-reel-1080x1920",
+    "education-reel-1080x1920",
+    "geo-reel-1080x1920",
+    "news-reel-1080x1920",
 ]
 
 DATA_ISLAND = re.compile(

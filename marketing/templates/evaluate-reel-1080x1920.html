@@ -31,6 +31,13 @@
     --font-display: 'Bricolage Grotesque', 'Inter', system-ui, sans-serif;
     --font-mono: 'JetBrains Mono', ui-monospace, Menlo, monospace;
   }
+  /* Theme system: island "theme" ("light" default here | "dark"); all rules
+     read the :root vars, so the dark palette just re-scopes them on #root. */
+  #root[data-theme="dark"] {
+    --paper: #0a0b0d; --paper-2: #14161a; --ink: #f4f5f7; --ink-soft: #cdd6e4;
+    --muted: #9aa3b2; --card: #16181d; --border: #2a2e35;
+    --accent-soft: #10254d; --good: #34d399; --good-soft: #06281d;
+  }
   * { box-sizing: border-box; }
   body { margin: 0; background: #000; font-family: var(--font-body); }
   #root {
@@ -123,7 +130,7 @@
 }
 </script>
 
-<div id="root" data-composition-id="main" data-width="1080" data-height="1920" data-duration="15">
+<div id="root" data-composition-id="main" data-width="1080" data-height="1920" data-start="0" data-duration="15">
 
   <section id="s1" class="clip" data-start="0" data-duration="3" data-track-index="1">
     <span class="eyebrow"><span class="dot"></span>Auctionscope · Evaluate</span>
@@ -154,6 +161,7 @@
 <script>
   // ---- data + DOM build (synchronous, before the timeline is registered) ----
   const DATA = JSON.parse(document.getElementById('data').textContent);
+  document.getElementById('root').dataset.theme = (DATA.theme === 'dark') ? 'dark' : 'light';
 
   document.getElementById('q-bubble').textContent = DATA.question;
   document.getElementById('honesty').textContent = DATA.honesty_line;

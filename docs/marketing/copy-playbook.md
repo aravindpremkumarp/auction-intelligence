@@ -36,6 +36,9 @@ Our old hooks had one quiet flaw: they were **specific and complete**. `₹45L �
 - Never open with throat-clearing: *did you know · attention · imagine · are you looking for · introducing · we're excited · don't miss · hurry · last chance*. (Banned as openers in `validate_drafts()`.)
 - One emoji max, never as the opener.
 
+### The hook database (the arsenal)
+The curated per-pillar hook list lives in **`marketing/hooks.json`** (human rendering: `docs/marketing/hook-database.md`) — ~90 stop-test-passing concepts, each expressed on all three surfaces at once (caption / reel first-frame / card headline), tagged by mechanism, budget-checked and honesty-scanned in CI (`TestHookDatabase`). The Poster injects the relevant pillar's entries into its prompt as the HOOK ARSENAL and adapts from them before inventing; humans swipe from the same file. Edit the JSON, run `python marketing/gen_hook_doc.py`, and the tests keep every entry within the on-screen budgets.
+
 ### The 8 mechanisms (rotate — max 2 drafts per mechanism per batch)
 
 A mechanism is *why* a hook stops someone. The old hook families survive inside them as swipe lines. Vary mechanisms across a batch and across the week: any shape repeated daily becomes wallpaper, and wallpaper gets scrolled past.

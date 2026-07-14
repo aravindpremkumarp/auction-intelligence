@@ -1,0 +1,24 @@
+{
+  "theme": "light",
+  "hook": {
+    "line1": "0 hands.",
+    "line2": "our reels make themselves."
+  },
+  "headline": "shipped: reels that render themselves from live auction data",
+  "source_label": "auctionscope · changelog",
+  "date_label": "Jul 2026",
+  "points": [
+    "every draft post now ships with a 12s reel — hooks scored, honesty-checked",
+    "a human still reviews and publishes every single post"
+  ],
+  "tie_in": {
+    "stat": "2413",
+    "label": "auction notices tracked by one founder and a graph"
+  },
+  "endcard": {
+    "question": "what should we build next?",
+    "save_line": "follow the build — weekly updates",
+    "url": "auctionscope.in"
+  },
+  "_note": "news-reel template doubles for build-in-public: a ship IS a headline."
+}

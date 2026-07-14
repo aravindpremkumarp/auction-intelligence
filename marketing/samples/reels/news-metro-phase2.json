@@ -1,0 +1,23 @@
+{
+  "theme": "dark",
+  "hook": {
+    "line1": "26 km open.",
+    "line2": "what it means for bids."
+  },
+  "headline": "Chennai Metro Phase 2: Poonamallee–Vadapalani stretch opens",
+  "source_label": "CMRL · metro rail news",
+  "date_label": "Jul 2026",
+  "points": [
+    "corridor areas get a connectivity re-price — porur, valasaravakkam, vadapalani",
+    "auction reserves near new stations rarely price the metro in yet"
+  ],
+  "tie_in": {
+    "stat": "104",
+    "label": "live Chennai bank auctions this week — some sit on this corridor"
+  },
+  "endcard": {
+    "question": "does the corridor change your shortlist?",
+    "save_line": "save — check the station map first",
+    "url": "auctionscope.in"
+  }
+}

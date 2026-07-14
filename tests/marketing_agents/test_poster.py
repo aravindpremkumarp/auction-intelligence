@@ -622,3 +622,132 @@ class TestStatsReelIsland:
         assert set(island.keys()) == set(sample.keys())
         assert set(island["pick"].keys()) == set(sample["pick"].keys())
         assert set(island["stats"][0].keys()) == set(sample["stats"][0].keys())
+
+
+class TestHookDatabase:
+    """marketing/hooks.json — the curated hook arsenal (copy-playbook Part 1).
+    Every string here is a candidate published surface, so it passes the same
+    objective gates the Poster enforces at draft time."""
+
+    DATA = json.loads(Path("marketing/hooks.json").read_text(encoding="utf-8"))
+    PILLARS = ("deals", "market_data", "education", "news", "geo",
+               "evaluation", "qa", "build_in_public")
+
+    def _all_hooks(self):
+        for pillar, hooks in self.DATA["pillars"].items():
+            for h in hooks:
+                yield pillar, h
+
+    def test_all_eight_pillars_present_with_depth(self):
+        assert set(self.DATA["pillars"].keys()) == set(self.PILLARS)
+        for pillar in self.PILLARS:
+            assert len(self.DATA["pillars"][pillar]) >= 8, pillar
+
+    # Budgets are on-screen budgets, so measure a REALISTIC EXPANSION of each
+    # {placeholder}, not the template string (placeholder names are long).
+    EXPANSIONS = {"city": "Coimbatore", "area": "Ambattur", "type": "flat",
+                  "district": "Tiruvallur", "metro_line": "blue",
+                  "bank": "Canara", "topic": "repo rate",
+                  "headline_short": "RBI holds the repo rate",
+                  "question_short": "which are re-auctions?",
+                  "misconception": "auctions mean court trouble",
+                  "feature": "price-drop alerts",
+                  "feature_idea": "saved searches",
+                  "bug_effect": "hid 12 listings", "theme": "possession",
+                  "check": "possession", "date": "24 Jul"}
+
+    def _expand(self, text):
+        return re.sub(r"\{(\w+)\}",
+                      lambda m: self.EXPANSIONS.get(m.group(1), "123"), text)
+
+    def test_budgets_respected_on_every_surface(self):
+        b = self.DATA["budgets"]
+        for pillar, h in self._all_hooks():
+            ident = f"{pillar}: {h['caption'][:40]}"
+            assert len(self._expand(h["caption"])) <= b["caption"], ident
+            assert len(self._expand(h["reel"]["line1"])) <= b["reel_line1"], ident
+            assert len(self._expand(h["reel"]["line2"])) <= b["reel_line2"], ident
+            assert len(self._expand(h["headline"])) <= b["headline"], ident
+
+    def test_reel_line1_carries_a_figure_or_placeholder(self):
+        # The number does the work on frame 0 — literal digit, ₹, or a
+        # {placeholder} that expands to one.
+        for pillar, h in self._all_hooks():
+            l1 = h["reel"]["line1"]
+            assert re.search(r"[\d₹{]", l1), f"{pillar}: {l1}"
+
+    def test_honesty_rule_on_every_string(self):
+        import marketing_agents.poster as p
+        banned = [re.compile(pat, re.IGNORECASE) for pat in p.BANNED_PATTERNS]
+        for pillar, h in self._all_hooks():
+            blob = " ".join([h["caption"], h["reel"]["line1"],
+                             h["reel"]["line2"], h["headline"]])
+            hits = [pat.pattern for pat in banned if pat.search(blob)]
+            assert not hits, f"{pillar}: {hits} in {blob[:60]}"
+
+    def test_no_throat_clearing_openers(self):
+        import marketing_agents.poster as p
+        for pillar, h in self._all_hooks():
+            for text in (h["caption"], h["reel"]["line2"]):
+                lead = re.sub(r"^[^0-9a-zA-Z₹]+", "", text).lower()
+                assert not lead.startswith(p.BANNED_OPENERS), f"{pillar}: {text}"
+
+    def test_mechanisms_are_valid(self):
+        valid = set(self.DATA["mechanisms"])
+        assert valid == set(poster.HOOK_MECHANISMS)
+        for pillar, h in self._all_hooks():
+            assert h["mechanism"] in valid, f"{pillar}: {h['mechanism']}"
+
+    def test_generated_doc_is_in_sync(self):
+        import subprocess
+        import sys as _sys
+        r = subprocess.run(
+            [_sys.executable, "marketing/gen_hook_doc.py", "--check"],
+            capture_output=True, text=True)
+        assert r.returncode == 0, r.stdout + r.stderr
+
+    def test_load_hooks_feeds_the_prompt(self):
+        arsenal = poster.load_hooks()
+        assert "[contrast]" in arsenal and "₹{prev}L → ₹{now}L" in arsenal
+        cands = shape_candidates([_row("A1")], [], [])
+        p = build_prompt({"total_auctions": 1, "upcoming_auctions": 1,
+                          "generated_at": "now"}, cands, 5)
+        assert "HOOK ARSENAL" in p and "marketing/hooks.json" in p
+
+    def test_load_hooks_missing_file_degrades(self, monkeypatch):
+        monkeypatch.setattr(poster, "HOOKS_PATH", Path("/nonexistent/hooks.json"))
+        assert poster.load_hooks() == ""
+
+
+class TestReelThemes:
+    def _drafts(self, n):
+        cands = shape_candidates([_row(f"A{i}") for i in range(1, n + 1)], [], [])
+        drafts = []
+        for i in range(1, n + 1):
+            drafts.append({
+                "auction_id": f"A{i}", "angle": "closing_soon",
+                "hook_mechanism": "callout",
+                "post": "reserve ₹40L.\n\nbody. auctionscope.in",
+                "pinned_comment": "details: auctionscope.in. not legal advice.",
+                "hashtags": [], "needs_image": False, "image_headline": "",
+                "needs_reel": True,
+                "reel_hook": {"line1": "₹40L", "line2": "one plot."},
+                "reel_context_lines": ["a bank set the date", "chennai"],
+                "engagement_question": "would you bid?",
+                "save_line": "", "source": cands[i - 1],
+            })
+        return drafts
+
+    def test_themes_alternate_across_the_batch(self, tmp_path):
+        from marketing_agents.poster import write_reel_islands
+        manifest = write_reel_islands(tmp_path, {}, self._drafts(3))
+        deal_rows = [r for r in manifest if r["auction_id"] != "stats"]
+        themes = [json.loads((tmp_path / r["data"]).read_text())["theme"]
+                  for r in deal_rows]
+        assert themes == ["dark", "light", "dark"]
+
+    def test_stats_island_stays_dark(self):
+        stats = {"total_auctions": 10, "upcoming_auctions": 5, "generated_at": "x"}
+        cands = shape_candidates([_row("A1")], [], [])
+        island = stats_reel_island(stats, [{"auction_id": "A1", "source": cands[0]}])
+        assert island["theme"] == "dark"

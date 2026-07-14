@@ -46,6 +46,9 @@ so a screenshot never catches a mid-animation frame.
 | Template | Size | Content |
 |---|---|---|
 | `deal-reel-1080x1920.html` | 9:16, 12s | per-auction deal reel, all three angles branch inside (hook figure on frame 0 → curiosity gap → money reveal → proof card → engagement end-card + loop-back) |
+| `education-reel-1080x1920.html` | 9:16, 12s | question hook → two term cards compared → how-to-check + source chip → anchor CTA (serves Education + Q&A) |
+| `geo-reel-1080x1920.html` | 9:16, 12s | city hook + live count → animated listings board → "ask any of them" → CTA (serves Geo) |
+| `news-reel-1080x1920.html` | 9:16, 12s | headline card + source/date chips → 2 buyer-impact points → our tie-in stat count-up → CTA (serves News + Build-in-public) |
 | `stats-reel-1080x1920.html` | 9:16, 12s | hook → live-inventory count-ups (`/stats`) → today's pick → logo outro |
 | `evaluate-reel-1080x1920.html` | 9:16, 15s | hook → real buyer question → AI answer typed with citations → CTA outro |
 
@@ -74,3 +77,7 @@ output** (the honesty line in the template says so and stays).
 - One accent per format: deal = accent blue, price-drop = green, urgency = red.
 - Fonts load non-blocking with system fallbacks, so an offline render degrades
   gracefully instead of hanging.
+
+
+## Themes
+Every reel island may carry `"theme": "dark" | "light"` — templates define both palettes as `#root[data-theme]` CSS-var blocks and the island picks one (deal/stats/news default dark; education/geo/evaluate default per their sample). The Poster alternates dark/light across auto-generated deal reels so the feed never looks like one repeated card. Sample islands for all 8 pillars: `marketing/samples/reels/`.

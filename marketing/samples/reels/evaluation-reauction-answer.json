@@ -1,0 +1,11 @@
+{
+  "theme": "light",
+  "question": "how many live Chennai auctions are re-auctions with a reduced reserve?",
+  "answer": "2 of the 3 live Chennai re-auctions have a reduced reserve: a Madhavaram flat, ₹36.1L → ₹34.3L (Canara Bank), and a Sholinganallur flat, ₹62.1L → ₹59L (Canara Bank). The third, in Velachery, is unchanged.",
+  "citations": [
+    "auction 802503 · Madhavaram",
+    "auction 801783 · Sholinganallur",
+    "live graph query · 14 Jul 2026"
+  ],
+  "honesty_line": "Real product output (14 Jul 2026). Grounded in bank notices — not legal advice. Verify with the bank and the notice."
+}

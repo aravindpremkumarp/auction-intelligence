@@ -171,6 +171,30 @@ def resolve_api_key(env: dict | None = None) -> str | None:
 
 # ------------------------------------------------------------- prompt layer
 
+HOOKS_PATH = Path("marketing/hooks.json")
+
+
+def load_hooks(pillars: tuple[str, ...] = ("deals", "market_data")) -> str:
+    """The HOOK ARSENAL (marketing/hooks.json — the curated per-pillar hook
+    database; docs/marketing/hook-database.md is its human rendering). The
+    model ADAPTS from these instead of inventing hooks from scratch — curated
+    beats improvised. Best-effort: absent/malformed file returns '' and the
+    prompt falls back to the mechanism swipe lines alone."""
+    try:
+        data = json.loads(HOOKS_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return ""
+    lines: list[str] = []
+    for pillar in pillars:
+        for h in data.get("pillars", {}).get(pillar, []):
+            reel = h.get("reel") or {}
+            lines.append(
+                f"- [{h.get('mechanism')}] caption: {h.get('caption')} | "
+                f"reel: {reel.get('line1')} / {reel.get('line2')} | "
+                f"headline: {h.get('headline')}")
+    return "\n".join(lines)
+
+
 def load_brand_context() -> str:
     """Brand voice + customer language from product-marketing.md (best effort)."""
     try:
@@ -249,6 +273,12 @@ BODY after the hook + blank line: stakes (the "so what" for a bidder) -> the fac
 PER POST: draft 3 candidate hooks using 3 DIFFERENT mechanisms, judge them against
 the stop test, lead with the winner, and return the two runners-up in
 hook_alternatives (they must also be grounded and honest — the editor may swap).
+
+HOOK ARSENAL (marketing/hooks.json — curated, stop-test-passing concepts; each
+gives the same idea as caption / reel first-frame / card headline). ADAPT one of
+these to the auction's real numbers BEFORE inventing your own; only invent when
+none fits. Fill every {{placeholder}} from the auction's actual fields:
+{load_hooks() or "(hooks.json unavailable — use the mechanism swipe lines above)"}
 
 QUALITY BAR (every draft must pass):
 1. Clarity  — one idea, reads in one pass.
@@ -627,6 +657,7 @@ def draft_to_reel_island(draft: dict) -> tuple[str, dict] | None:
     hook = draft.get("reel_hook") or {}
     island = {
         "angle": draft.get("angle"),
+        "theme": "dark",  # write_reel_islands rotates dark/light across the batch
         "hook": {"line1": hook.get("line1") or "",
                  "line2": hook.get("line2") or ""},
         "context_lines": list(draft.get("reel_context_lines") or [])[:2],
@@ -671,6 +702,7 @@ def stats_reel_island(stats: dict, drafts: list[dict]) -> dict | None:
     if stats.get("cities"):
         rows.append({"value": stats["cities"], "label": "cities"})
     return {
+        "theme": "dark",
         "date_label": _card_date(date.today().isoformat()),
         "stats": rows,
         "pick": {
@@ -700,11 +732,16 @@ def write_reel_islands(out_dir: Path, stats: dict, drafts: list[dict]) -> list[d
         manifest.append({"draft_index": 0, "auction_id": "stats",
                          "template": "stats-reel-1080x1920",
                          "data": "reels/00-stats.json"})
+    deal_reel_no = 0
     for i, d in enumerate(drafts, 1):
         made = draft_to_reel_island(d)
         if not made:
             continue
         template, island = made
+        # Theme mix: alternate dark/light across the batch so the feed never
+        # looks like one repeated card (wallpaper gets scrolled past).
+        island["theme"] = "dark" if deal_reel_no % 2 == 0 else "light"
+        deal_reel_no += 1
         fname = f"{i:02d}-{d['auction_id']}.json"
         _write(fname, island)
         manifest.append({"draft_index": i, "auction_id": d["auction_id"],

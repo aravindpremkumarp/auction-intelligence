@@ -1,0 +1,22 @@
+{
+  "theme": "light",
+  "hook": {
+    "line1": "2 documents.",
+    "line2": "most check only one."
+  },
+  "term_a": {
+    "name": "patta chitta",
+    "def": "who owns the land — and its type. merged into one document since 2015."
+  },
+  "term_b": {
+    "name": "EC",
+    "def": "every sale, mortgage and charge on record since 1987."
+  },
+  "check_line": "both are free to view at tnreginet.gov.in",
+  "source_label": "tnreginet.gov.in",
+  "endcard": {
+    "question": "which one did you check last time?",
+    "save_line": "save for your next site visit",
+    "url": "auctionscope.in"
+  }
+}

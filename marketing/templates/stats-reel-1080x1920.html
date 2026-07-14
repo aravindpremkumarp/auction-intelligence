@@ -31,18 +31,36 @@
     --font-display: 'Bricolage Grotesque', 'Inter', system-ui, sans-serif;
     --font-mono: 'JetBrains Mono', ui-monospace, Menlo, monospace;
   }
+  /* Theme system: island "theme" ("dark" default | "light"); JS sets
+     data-theme on #root before the timeline registers. */
+  #root[data-theme="dark"] {
+    --r-bg: var(--ink); --r-fg: #ffffff; --r-muted: #cdd6e4; --r-hl: #7ea2ff;
+    --r-soft: var(--on-dark-muted);
+    --r-chip-bg: rgba(255,255,255,0.08); --r-chip-border: rgba(255,255,255,0.14);
+    --r-row-bg: rgba(255,255,255,0.055); --r-row-border: rgba(255,255,255,0.12);
+    --r-dots: rgba(255,255,255,0.07);
+    --r-wash-a: rgba(0,82,255,0.28); --r-wash-b: rgba(0,82,255,0.18);
+  }
+  #root[data-theme="light"] {
+    --r-bg: var(--paper); --r-fg: var(--ink); --r-muted: var(--ink-soft); --r-hl: var(--accent);
+    --r-soft: var(--muted);
+    --r-chip-bg: var(--accent-soft); --r-chip-border: #dce8ff;
+    --r-row-bg: #ffffff; --r-row-border: var(--border);
+    --r-dots: rgba(10,11,13,0.07);
+    --r-wash-a: rgba(0,82,255,0.10); --r-wash-b: rgba(0,82,255,0.07);
+  }
   * { box-sizing: border-box; }
   body { margin: 0; background: #000; font-family: var(--font-body); }
   #root {
     position: relative; width: 1080px; height: 1920px;
-    overflow: hidden; background: var(--ink); color: #fff;
+    overflow: hidden; background: var(--r-bg); color: var(--r-fg);
   }
   #root::before { /* brand wash + dot grid */
     content: ""; position: absolute; inset: 0;
     background:
-      radial-gradient(80% 50% at 50% -10%, rgba(0,82,255,0.28) 0%, transparent 65%),
-      radial-gradient(60% 40% at 50% 115%, rgba(0,82,255,0.18) 0%, transparent 60%),
-      radial-gradient(rgba(255,255,255,0.07) 1.5px, transparent 1.5px);
+      radial-gradient(80% 50% at 50% -10%, var(--r-wash-a) 0%, transparent 65%),
+      radial-gradient(60% 40% at 50% 115%, var(--r-wash-b) 0%, transparent 60%),
+      radial-gradient(var(--r-dots) 1.5px, transparent 1.5px);
     background-size: auto, auto, 44px 44px;
   }
   .clip { position: absolute; inset: 0; padding: 120px 88px; }
@@ -60,12 +78,12 @@
     font-family: var(--font-display); font-size: 128px; font-weight: 800;
     letter-spacing: -0.03em; line-height: 1.04;
   }
-  .hook .hl { color: #7ea2ff; }
+  .hook .hl { color: var(--r-hl); }
   .hook .word { display: inline-block; white-space: pre; }
   .date-chip {
     align-self: flex-start; font-family: var(--font-mono); font-size: 30px;
-    color: #cdd6e4; background: rgba(255,255,255,0.08);
-    border: 1px solid rgba(255,255,255,0.14);
+    color: var(--r-muted); background: var(--r-chip-bg);
+    border: 1px solid var(--r-chip-border);
     border-radius: 999px; padding: 18px 36px;
   }
 
@@ -76,17 +94,17 @@
     letter-spacing: -0.02em; margin-bottom: 26px;
   }
   .stat-row {
-    background: rgba(255,255,255,0.055);
-    border: 1px solid rgba(255,255,255,0.12);
+    background: var(--r-row-bg);
+    border: 1px solid var(--r-row-border);
     border-radius: 28px; padding: 44px 52px;
     display: flex; align-items: baseline; justify-content: space-between; gap: 24px;
   }
   .stat-num {
     font-family: var(--font-display); font-size: 132px; font-weight: 800;
-    letter-spacing: -0.03em; line-height: 1; color: #7ea2ff;
+    letter-spacing: -0.03em; line-height: 1; color: var(--r-hl);
     font-variant-numeric: tabular-nums;
   }
-  .stat-label { font-size: 36px; color: #cdd6e4; text-align: right; line-height: 1.3; }
+  .stat-label { font-size: 36px; color: var(--r-muted); text-align: right; line-height: 1.3; }
 
   /* S3 today's pick */
   #s3 { display: flex; flex-direction: column; justify-content: center; gap: 44px; }
@@ -115,13 +133,13 @@
     color: var(--accent); background: var(--accent-soft);
     border-radius: 999px; padding: 14px 30px; margin-top: 8px;
   }
-  .honesty { font-size: 24px; color: var(--on-dark-muted); line-height: 1.4; }
+  .honesty { font-size: 24px; color: var(--r-soft); line-height: 1.4; }
 
   /* S4 outro */
   #s4 { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 44px; text-align: center; }
   .logo { width: 220px; height: 220px; }
   .wordmark { font-family: var(--font-display); font-size: 96px; font-weight: 800; letter-spacing: -0.03em; }
-  .wordmark .soft { color: #7ea2ff; }
+  .wordmark .soft { color: var(--r-hl); }
   .url-pill {
     font-family: var(--font-mono); font-size: 34px; font-weight: 600;
     color: #fff; background: var(--accent); border-radius: 999px; padding: 24px 52px;
@@ -132,6 +150,7 @@
 
 <script id="data" type="application/json">
 {
+  "theme": "dark",
   "date_label": "12 Jul 2026",
   "stats": [
     { "value": 1284, "label": "live bank auctions tracked" },
@@ -147,7 +166,7 @@
 }
 </script>
 
-<div id="root" data-composition-id="main" data-width="1080" data-height="1920" data-duration="12">
+<div id="root" data-composition-id="main" data-width="1080" data-height="1920" data-start="0" data-duration="12">
 
   <section id="s1" class="clip" data-start="0" data-duration="3" data-track-index="1">
     <span class="eyebrow"><span class="dot"></span>Auctionscope · daily</span>
@@ -184,6 +203,7 @@
 <script>
   // ---- data + DOM build (synchronous, before the timeline is registered) ----
   const DATA = JSON.parse(document.getElementById('data').textContent);
+  document.getElementById('root').dataset.theme = (DATA.theme === 'light') ? 'light' : 'dark';
 
   function trimNum(n) { return String(Math.round(n * 100) / 100); }
   function formatINR(n) {

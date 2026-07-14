@@ -49,7 +49,7 @@ The most attractive auction fact — *below market price* — made a defensible 
 
 ## 4. The copy system (how every post is written)
 `copy-playbook.md`, translated from the installed `social` / `copywriting` / `copy-editing` skills into AuctionScope's data:
-- **Hook library** by angle (price-drop, closing-soon, cheapest, market-gap, evaluation).
+- **Hook database** — `marketing/hooks.json`: ~90 curated hooks across all 8 pillars, each on 3 surfaces (caption/reel/card), mechanism-tagged, budget- and honesty-gated in CI. Human swipe file: `hook-database.md`.
 - **Quality bar** — Clarity · Prove-It (a real figure) · So-What · Voice · Honesty.
 - **Honesty rule** — banned words (`due diligence`, `guaranteed`, `title-clear`…) enforced *in code* in `validate_drafts()`.
 
@@ -60,7 +60,7 @@ Rendered on the design system (cobalt `#0052ff`, Bricolage Grotesque / Inter / J
 |---|---|---|
 | **Static post** | 1080×1080 | HTML → Chromium screenshot |
 | **Carousel** | 4–5 × 1080×1080 | same, multi-slide |
-| **Reel** | 1080×1920 | **HyperFrames** → GSAP motion graphics → MP4 — **auto-generated**: the Poster stages per-auction reel islands (deal-reel, all 3 angles + the stats reel), `render_reel.py`/CI renders them, MP4s land as a workflow artifact linked from the review issue (silent by design — add trending audio in-app at publish) |
+| **Reel** | 1080×1920 | **HyperFrames** → GSAP motion graphics → MP4 — **all 8 pillars covered by 6 templates** (deal / stats / education / geo / news / evaluate), each **dark + light themed** (islands carry `theme`; auto-generated deal reels alternate). Deals + stats auto-generate via the Poster; the rest are a 2-minute island edit (`marketing/samples/reels/`). CI renders to a workflow artifact (silent — add trending audio in-app) |
 
 Reels are genuine motion (animated counters, badge stamps, kinetic type), not slideshows. One asset set covers all platforms.
 
