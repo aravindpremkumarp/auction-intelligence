@@ -312,16 +312,19 @@ def main() -> int:
     os.environ.setdefault("LANGEXTRACT_API_KEY",
                           os.environ.get("GOOGLE_API_KEY", ""))
     os.environ.setdefault("LANGEXTRACT_PASSES", "1")
+    from pipeline.validators import full_description_coverage
     total = correct = 0
     misses = []
     multi_stats = []   # (aid, n_gold_lots, n_extracted_lots, count_ok)
+    fd_incomplete = []   # aids where full_description didn't cover all detail
     gold = load_gold()
     print(f"LangExtract eval — {len(gold)} notices "
           f"({len(GOLD)} seed + {len(gold) - len(GOLD)} reviewer-verified, "
           f"passes={os.environ['LANGEXTRACT_PASSES']})\n")
     for g in gold:
         md = (FIX / f"{g['aid']}.txt").read_text(encoding="utf-8")
-        records = _records(extract_robust(md))
+        res = extract_robust(md)
+        records = _records(res)
         rows, lot_stats = score_records(g, records)
         c = sum(1 for *_, ok in rows if ok)
         total += len(rows)
@@ -331,9 +334,26 @@ def main() -> int:
             n_gold, n_got, count_ok = lot_stats
             multi_stats.append((g["aid"], n_gold, n_got, count_ok))
             lot_note = f"  lots={n_got}/{n_gold}{'' if count_ok else ' ⚠'}"
-        print(f"  {g['aid']} ({g['notice_type']:6}): {c}/{len(rows)}{lot_note}")
+        # source-of-truth check: does full_description cover every descriptive span?
+        cov = full_description_coverage(res.extractions)
+        fd_note = ""
+        if cov["lots_incomplete"] or cov["lots_missing_full_description"]:
+            fd_incomplete.append((g["aid"], cov))
+            fd_note = "  fd⚠"
+        print(f"  {g['aid']} ({g['notice_type']:6}): {c}/{len(rows)}{lot_note}{fd_note}")
         misses += [(g["aid"], k, gd, got) for k, gd, got, ok in rows if not ok]
     print(f"\nOVERALL ACCURACY: {correct}/{total} = {correct/total*100:.1f}%")
+    complete = len(gold) - len(fd_incomplete)
+    print(f"FULL_DESCRIPTION complete (covers all descriptive spans): "
+          f"{complete}/{len(gold)}")
+    for aid, cov in fd_incomplete:
+        bits = []
+        if cov["lots_missing_full_description"]:
+            bits.append(f"missing on lot(s) {cov['lots_missing_full_description']}")
+        if cov["lots_incomplete"]:
+            bits.append("outside: " + ", ".join(
+                f"lot {li} {cls}" for li, cls in cov["lots_incomplete"].items()))
+        print(f"  {aid}: {'; '.join(bits)}")
     if multi_stats:
         lc_ok = sum(1 for *_, ok in multi_stats if ok)
         print(f"\nMULTI-LOT lot-count: {lc_ok}/{len(multi_stats)} notices correct")

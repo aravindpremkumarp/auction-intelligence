@@ -65,12 +65,90 @@ COVERAGE_FIELDS = (
 )
 _LOT_MARKER = re.compile(r"\b(S\.?\s?No|Sr\.?\s?No|Sl\.?\s?No|Item\s*No)\b", re.I)
 
+# Classes that make up a lot's property DESCRIPTION — every one of these must fall
+# INSIDE that lot's full_description span (full_description is their verbatim
+# union / source of truth). Parties, terms, and notice-level classes are excluded.
+_DESCRIPTION_CLASSES = frozenset(
+    {"property", "location", "extent", "boundary", "identifier", "schedule"})
+
 
 def _num(v):
     try:
         return float(re.sub(r"[^\d.]", "", str(v)))
     except (TypeError, ValueError):
         return None
+
+
+def _span_of(e):
+    """(start, end) char span of an extraction, or None when ungrounded.
+
+    Reads char_interval.start_pos/end_pos — present on live LangExtract results
+    and on the shim pipeline/extract_batch builds from stored extraction_json."""
+    ci = getattr(e, "char_interval", None)
+    if ci is None:
+        return None
+    s, t = getattr(ci, "start_pos", None), getattr(ci, "end_pos", None)
+    if s is None or t is None:
+        return None
+    return int(s), int(t)
+
+
+def _norm_ws(s) -> str:
+    return re.sub(r"\s+", " ", str(s or "")).strip().lower()
+
+
+def full_description_coverage(extractions) -> dict:
+    """Per-lot check that full_description is the complete source of truth.
+
+    Design rule: full_description is the verbatim union of a lot's descriptive
+    detail, so every survey/identifier, village/taluk/district, extent and
+    boundary must be DERIVABLE from it. A descriptive entity counts as covered
+    when its char span sits INSIDE that lot's full_description span OR its text
+    appears within the full_description text (the text arm forgives a value that
+    is merely repeated at a second position outside the block — still derivable).
+    An entity covered by neither means full_description was truncated before that
+    detail, so the field can no longer be derived from it.
+
+    Returns per-notice aggregates: lots that have descriptive spans but no
+    full_description, and lots with detail falling outside it (offending classes).
+    Entities with neither a span nor text are skipped (nothing to check).
+    """
+    fd_by_lot: dict = {}          # lot -> {"span": (s,e)|None, "text": str}
+    gran_by_lot: dict = {}        # lot -> [(span|None, text, cls), ...]
+    for e in extractions:
+        c = getattr(e, "extraction_class", None)
+        li = (getattr(e, "attributes", None) or {}).get("lot_index") or "1"
+        sp = _span_of(e)
+        txt = _norm_ws(getattr(e, "extraction_text", ""))
+        if c == "full_description":
+            slot = fd_by_lot.setdefault(li, {"span": None, "text": ""})
+            if sp:
+                slot["span"] = ((min(slot["span"][0], sp[0]), max(slot["span"][1], sp[1]))
+                                if slot["span"] else sp)
+            if txt:
+                slot["text"] = (slot["text"] + " " + txt).strip()
+        elif c in _DESCRIPTION_CLASSES and (sp or txt):
+            gran_by_lot.setdefault(li, []).append((sp, txt, c))
+
+    missing_fd, incomplete = [], {}
+    for li, spans in gran_by_lot.items():
+        fd = fd_by_lot.get(li)
+        if fd is None or (fd["span"] is None and not fd["text"]):
+            missing_fd.append(li)
+            continue
+        outside = set()
+        for sp, txt, cls in spans:
+            by_span = (sp and fd["span"] and fd["span"][0] <= sp[0] <= sp[1] <= fd["span"][1])
+            by_text = (txt and fd["text"] and txt in fd["text"])
+            if not (by_span or by_text):
+                outside.add(cls)
+        if outside:
+            incomplete[li] = sorted(outside)
+    return {
+        "lots_with_description": len(gran_by_lot),
+        "lots_missing_full_description": sorted(missing_fd),
+        "lots_incomplete": incomplete,
+    }
 
 
 def validate(extractions, source_text: str = "") -> dict:
@@ -165,6 +243,17 @@ def validate(extractions, source_text: str = "") -> dict:
             flag("lot_under_recall", "med",
                  f"{markers} lot markers in source but only {len(lots)} lot(s) extracted")
 
+    # ── full_description completeness (source-of-truth invariant) ─────────────
+    cov = full_description_coverage(extractions)
+    if cov["lots_missing_full_description"]:
+        flag("missing_full_description", "med",
+             f"lot(s) {cov['lots_missing_full_description']} have property details "
+             f"but no full_description block")
+    if cov["lots_incomplete"]:
+        detail = "; ".join(f"lot {li}: {cls}" for li, cls in cov["lots_incomplete"].items())
+        flag("full_description_incomplete", "med",
+             f"full_description does not cover all descriptive spans ({detail})")
+
     score = max(0, 100 - sum(_PENALTY[i["severity"]] for i in issues))
     return {
         "score": score,
@@ -176,5 +265,7 @@ def validate(extractions, source_text: str = "") -> dict:
             "lots": len(lots),
             "ungrounded": ungrounded,
             "null_values": nullvals,
+            "full_description_incomplete_lots": len(cov["lots_incomplete"]),
+            "lots_missing_full_description": len(cov["lots_missing_full_description"]),
         },
     }

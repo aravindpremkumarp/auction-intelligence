@@ -69,12 +69,22 @@ entities using EXACTLY these extraction classes (one span each, copied VERBATIM)
   title_deed_holder, branch_of_lot, address (full property address as written,
   when the notice states one), encumbrance (disclosed charges/dues, e.g. "Nil"
   or a specific charge), lot_index.
-- full_description : the COMPLETE property-description block for ONE lot, copied
-  verbatim as a SINGLE span — preamble + all items/schedules + boundaries +
-  trailing structural / registration detail, with section labels preserved.
-  EXCLUDE terms-of-sale boilerplate (price, EMD, dates, "as is where is"). This
-  span deliberately OVERLAPS the granular property/location/extent/boundary spans
-  (it is their union) — emit BOTH the block and the granular spans. attrs: lot_index.
+- full_description : the SINGLE SOURCE OF TRUTH for one lot's property — the
+  COMPLETE description block, copied verbatim as ONE span, from which every
+  descriptive field below must be derivable. It MUST contain, when the notice
+  states them: the property-type phrase; EVERY survey/plot/patta/flat/door/
+  identifier number; the village, taluk and district (and any registration
+  district / sub-district); the extent/area; ALL FOUR boundaries AND their
+  per-side measurements; and any other descriptive detail (title holder,
+  possession, encumbrance, schedules/items). Do NOT stop at the survey numbers —
+  run the span through to the end of the boundary/registration text. Copy it
+  verbatim with section labels preserved; EXCLUDE only terms-of-sale boilerplate
+  (price, EMD, dates, "as is where is"). This span deliberately OVERLAPS the
+  granular property/location/extent/boundary/identifier spans (it is their
+  UNION, so each of those must fall INSIDE it) — emit BOTH the block and the
+  granular spans. Classification attrs (asset_category, a normalised
+  property_type) are inferred FROM this text, not required to appear verbatim.
+  attrs: lot_index.
 - location         : the "Situated At ..." span. attrs: village, taluk, district,
   city, state, area, panchayat, municipality_corporation, ward_no, hobli,
   registration_district, registration_sub_district, landmark, latitude, longitude,
