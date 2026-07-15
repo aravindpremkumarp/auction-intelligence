@@ -105,6 +105,25 @@ OPENROUTER_MODEL_DESCRIPTION_SINGLE = os.getenv(
 OPENROUTER_MODEL_DESCRIPTION_MULTI = os.getenv(
     "OPENROUTER_MODEL_DESCRIPTION_MULTI", "deepseek/deepseek-v4-flash",
 )
+# LangExtract structured-extraction models, routed by notice type (see
+# pipeline/extract_routing.select_extract_model, applied in load_extractions).
+# Single-property notices are short and easy -> a cheap model; multi-property
+# notices are long and must hold the per-lot structure together -> a stronger
+# model. Both are OpenRouter slugs (the default LANGEXTRACT_PROVIDER); routing is
+# skipped on the gemini-direct path.
+OPENROUTER_MODEL_EXTRACT_SINGLE = os.getenv(
+    "OPENROUTER_MODEL_EXTRACT_SINGLE", "tencent/hy3-preview",
+)
+OPENROUTER_MODEL_EXTRACT_MULTI = os.getenv(
+    "OPENROUTER_MODEL_EXTRACT_MULTI", "deepseek/deepseek-v4-pro",
+)
+# Comma-separated substrings: any extraction model whose slug matches gets its
+# provider-side reasoning forced OFF ({"reasoning": {"enabled": false}}). DeepSeek
+# V4 is hybrid-reasoning, and extraction is a copy-the-spans task, so reasoning
+# tokens (billed as output) are pure cost. Empty string disables the override.
+LANGEXTRACT_REASONING_OFF_MODELS = os.getenv(
+    "LANGEXTRACT_REASONING_OFF_MODELS", "deepseek",
+)
 OPENROUTER_MODEL_CLASSIFY = os.getenv(
     "OPENROUTER_MODEL_CLASSIFY", "deepseek/deepseek-v4-flash",
 )
