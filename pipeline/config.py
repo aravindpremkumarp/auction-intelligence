@@ -137,6 +137,31 @@ OPENROUTER_MODEL_DOC_CLASSIFY = os.getenv(
     "OPENROUTER_MODEL_DOC_CLASSIFY", "google/gemini-2.5-flash",
 )
 
+# ── MinerU OCR ───────────────────────────────────────────────────────────────
+# Backend model the hosted MinerU API (https://mineru.net/api/v4) runs. The API
+# exposes three values via its `model_version` request field:
+#   - "pipeline" (default) — classic layout-analysis backend (PP-StructureV3):
+#       explicit per-region detection, so a notice segments into distinct
+#       title / text / table / image blocks. This is what the annotator's
+#       per-block review + re-extract workflow depends on.
+#   - "vlm"                 — the vision-language backend. mineru.net upgraded
+#       this in-place (2025-09-19, MinerU 2.5.2: dropped MinerU2.0-2505
+#       compatibility) and layered on aggressive table-merging
+#       (MINERU_TABLE_MERGE_ENABLE default-on, cross-page table merging). The
+#       upgraded VLM now collapses a heavily-bordered notice into ONE table
+#       block, destroying the block segmentation the reviewer UI relies on.
+#   - "MinerU-HTML"         — HTML inputs only.
+# We default to "pipeline" to keep multi-block segmentation. The hosted API
+# gives no way to pin the old VLM sub-version, so "pipeline" is the only lever
+# that restores layout blocks. Override via MINERU_MODEL_VERSION in .env (set
+# "vlm" to opt back into the vision model) — every OCR call (bulk, reviewer
+# re-ingest, single-block re-extract, backfill, dossier) reads this one value.
+MINERU_MODEL_VERSION = os.getenv("MINERU_MODEL_VERSION", "pipeline")
+# Provenance tag stamped on Document.markdown_model so reviewers can tell which
+# MinerU backend produced a notice. Derived from the model version so it stays
+# honest when the backend is switched (e.g. "mineru-pipeline" vs "mineru-vlm").
+MINERU_MARKDOWN_MODEL_TAG = f"mineru-{MINERU_MODEL_VERSION}"
+
 # ── Web search (Tavily) ──────────────────────────────────────────────────────
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")
 

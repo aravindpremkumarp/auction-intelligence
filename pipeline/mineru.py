@@ -19,7 +19,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from pipeline.config import DOWNLOADS_DIR, PIPELINE_DIR
+from pipeline.config import DOWNLOADS_DIR, MINERU_MODEL_VERSION, PIPELINE_DIR
 
 
 MINERU_MARKDOWN_DIR = PIPELINE_DIR / "cache" / "mineru_markdown"
@@ -46,7 +46,9 @@ MINERU_EXT_REMAP = {".jfif": ".jpg"}
 PRECLEAN_EXTS               = {".jpg", ".jpeg", ".png", ".webp", ".jfif"}
 PRECLEAN_LONG_EDGE_THRESHOLD = 1500
 PRECLEAN_FACTOR              = 2
-PRECLEAN_MODEL_TAG           = f"mineru-vlm-preclean{PRECLEAN_FACTOR}x"
+# Tag carries the active MinerU backend so provenance stays honest when the
+# model is switched (e.g. "mineru-pipeline-preclean2x").
+PRECLEAN_MODEL_TAG           = f"mineru-{MINERU_MODEL_VERSION}-preclean{PRECLEAN_FACTOR}x"
 
 
 # MinerU's content-list JSON uses lowercase snake-case block types. Map

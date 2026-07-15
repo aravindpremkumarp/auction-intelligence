@@ -1,7 +1,7 @@
 """MinerU API v4 client.
 
 Wraps the four HTTP calls needed to push files through MinerU's batched
-"vlm" model:
+OCR model (``config.MINERU_MODEL_VERSION``; "pipeline" by default):
 
   1. ``POST /file-urls/batch`` -> ``batch_id`` + signed OSS upload URLs
   2. ``PUT`` each file body to its signed URL
@@ -27,6 +27,7 @@ from pathlib import Path
 import requests
 from dotenv import load_dotenv
 
+from pipeline.config import MINERU_MODEL_VERSION
 from pipeline.mineru import (
     MINERU_BLOCKS_DIR,
     MINERU_BLOCKS_FILENAME_SUFFIXES,
@@ -61,12 +62,18 @@ def _api_name(filename: str) -> str:
 
 
 def request_batch(items: list[dict],
-                  *, model_version: str = "vlm") -> tuple[str, list[str]]:
+                  *, model_version: str = MINERU_MODEL_VERSION,
+                  ) -> tuple[str, list[str]]:
     """POST /file-urls/batch.
 
     Each ``item`` needs ``filename`` (for the API-side name) and
     ``file_path`` (used to derive the ``data_id`` we match results by).
     Returns ``(batch_id, signed_urls)`` in the same order as ``items``.
+
+    ``model_version`` defaults to ``config.MINERU_MODEL_VERSION`` ("pipeline"
+    unless overridden). The pipeline backend keeps a notice segmented into
+    distinct title/text/table/image blocks; the "vlm" backend now collapses a
+    bordered notice into one table block (see the config comment).
     """
     if not MINERU_API_KEY:
         raise MinerUError("MINERU_API_KEY not set")

@@ -35,6 +35,7 @@ import time
 from pathlib import Path
 
 from api.neo4j_client import run_query, run_read_query
+from pipeline.config import MINERU_MARKDOWN_MODEL_TAG
 from pipeline.mineru import (
     MINERU_BLOCKS_DIR,
     PRECLEAN_MODEL_TAG,
@@ -48,11 +49,11 @@ MD_DIR = REPO_ROOT / "pipeline" / "cache" / "mineru_markdown"
 BLOCKS_DIR = MINERU_BLOCKS_DIR
 
 # MinerU is the only producer of cached markdowns under MD_DIR. The model
-# tag mirrors MinerU's "model_version: vlm" request param in
-# scripts/ocr_with_mineru.py:107, so future backends can drop in a
-# different value via --markdown-model.
+# tag mirrors MinerU's active ``model_version`` request param
+# (config.MINERU_MODEL_VERSION, "pipeline" by default), so switching the
+# backend keeps provenance honest; override per-run via --markdown-model.
 DEFAULT_MARKDOWN_SOURCE = "mineru"
-DEFAULT_MARKDOWN_MODEL = "mineru-vlm"
+DEFAULT_MARKDOWN_MODEL = MINERU_MARKDOWN_MODEL_TAG
 
 
 def safe_name(file_path: str) -> str:

@@ -744,6 +744,9 @@ def _persist_reingest_result(filename: str, *, markdown: str, blocks_json: str,
     ``mineru_zip_url`` stamps the archived full-zip URL (and ``mineru_zip_at``)
     when this run archived to R2; None leaves any prior value untouched.
     """
+    # Lazy import (mirrors reingest_notice) so the DB-free isolation tests that
+    # load this module with a stubbed ``pipeline`` don't need pipeline.config.
+    from pipeline.config import MINERU_MARKDOWN_MODEL_TAG
     run_query(
         """
         MATCH (d:Document {filename: $filename})
@@ -759,14 +762,15 @@ def _persist_reingest_result(filename: str, *, markdown: str, blocks_json: str,
             d.blocks_revision     = coalesce(d.blocks_revision, 0) + 1,
             d.markdown_loaded_at  = datetime(),
             d.markdown_source     = 'mineru',
-            d.markdown_model      = 'mineru-vlm',
+            d.markdown_model      = $markdown_model,
             d.markdown_verified_at = NULL,
             d.markdown_verified_by = NULL,
             d.markdown_quality     = NULL
         """,
         {"filename": filename, "markdown": markdown, "blocks_json": blocks_json,
          "markdown_raw": markdown_raw, "blocks_raw": blocks_raw,
-         "mineru_zip_url": mineru_zip_url},
+         "mineru_zip_url": mineru_zip_url,
+         "markdown_model": MINERU_MARKDOWN_MODEL_TAG},
     )
 
 

@@ -2,7 +2,8 @@
 
 Pipeline:
   notice file (jpg/png/pdf)
-    -> MinerU API (https://mineru.net/api/v4) — vlm model, batched in groups of 20
+    -> MinerU API (https://mineru.net/api/v4) — model per config.MINERU_MODEL_VERSION
+       ("pipeline" by default, for per-block layout segmentation), batched
        1. POST /file-urls/batch  -> batch_id + signed OSS upload URLs
        2. PUT file content to each signed URL
        3. Poll GET /extract-results/batch/<batch_id> until done
