@@ -79,3 +79,30 @@ def test_select_returns_consistent_reasoning_flag(monkeypatch):
     for nt, pred in [("single", None), ("multi", None), (None, "multi")]:
         model, off = er.select_extract_model(nt, pred)
         assert off is er.reasoning_off_for(model)
+
+
+def test_reasoning_on_for_both_by_default(monkeypatch):
+    # Shipped default: empty suppression list -> reasoning stays ON (provider
+    # default) for both models; neither single nor multi is forced off.
+    monkeypatch.setattr(er, "LANGEXTRACT_REASONING_OFF_MODELS", "")
+    assert er.select_extract_model(None, "single")[1] is False
+    assert er.select_extract_model(None, "multi")[1] is False
+
+
+# ── dynamic chunk size ────────────────────────────────────────────────────────
+def test_char_buffer_scales_with_markdown():
+    # small notice -> base floor (one window, unchanged); medium -> the WHOLE
+    # notice in one window (so lots don't split across independent chunks); huge
+    # bundle -> capped at the ceiling so it still splits.
+    assert er.char_buffer_for("x" * 500, base=4000, ceil=30000) == 4000
+    assert er.char_buffer_for("x" * 12000, base=4000, ceil=30000) == 12000
+    assert er.char_buffer_for("x" * 50000, base=4000, ceil=30000) == 30000
+    assert er.char_buffer_for("", base=4000, ceil=30000) == 4000
+
+
+def test_char_buffer_reads_env(monkeypatch):
+    monkeypatch.setenv("LANGEXTRACT_MAX_CHAR_BUFFER", "5000")
+    monkeypatch.setenv("LANGEXTRACT_MAX_CHAR_BUFFER_CEILING", "20000")
+    assert er.char_buffer_for("x" * 100) == 5000       # below floor -> floor
+    assert er.char_buffer_for("x" * 12000) == 12000    # between -> whole notice
+    assert er.char_buffer_for("x" * 25000) == 20000    # above ceiling -> ceiling

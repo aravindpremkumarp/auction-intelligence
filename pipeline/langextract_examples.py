@@ -1060,10 +1060,11 @@ def extract(markdown: str, model_id: str | None = None,
     constrains — so evals would test different behaviour than production. Set
     LANGEXTRACT_USE_SCHEMA=1 to restore constrained generation on gemini.
     """
+    from pipeline.extract_routing import char_buffer_for
     common = dict(
         text_or_documents=markdown, prompt_description=PROMPT_DESCRIPTION,
         examples=EXAMPLES, extraction_passes=int(os.environ.get("LANGEXTRACT_PASSES", "2")),
-        max_char_buffer=4000, max_workers=4,
+        max_char_buffer=char_buffer_for(markdown), max_workers=4,
     )
     if os.environ.get("LANGEXTRACT_PROVIDER", "openrouter").lower() == "openrouter":
         return lx.extract(model=_openrouter_model(model_id, reasoning_off),

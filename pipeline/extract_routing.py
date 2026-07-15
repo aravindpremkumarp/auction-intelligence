@@ -19,11 +19,36 @@ We route on it first and fall back to notice_type only when it is absent.
 """
 from __future__ import annotations
 
+import os
+
 from pipeline.config import (
     LANGEXTRACT_REASONING_OFF_MODELS,
     OPENROUTER_MODEL_EXTRACT_MULTI,
     OPENROUTER_MODEL_EXTRACT_SINGLE,
 )
+
+
+def char_buffer_for(markdown: str, base: int | None = None,
+                    ceil: int | None = None) -> int:
+    """LangExtract chunk size (``max_char_buffer``), scaled to notice length.
+
+    LangExtract splits the document into windows of this size and extracts each
+    INDEPENDENTLY, so a long multi-lot notice spread over several windows loses
+    its global lot numbering — a later window can't see the lots that came
+    before it. Sizing the window to the markdown keeps a whole notice in ONE
+    window (up to a ceiling), so the model sees every lot at once and can number
+    and reason across all of them. Small single notices already fit the base
+    window, so they are unchanged.
+
+      base (LANGEXTRACT_MAX_CHAR_BUFFER, default 4000): floor for small notices.
+      ceil (LANGEXTRACT_MAX_CHAR_BUFFER_CEILING, default 30000): cap so a
+           pathologically long bundle still splits instead of one giant call.
+    """
+    if base is None:
+        base = int(os.environ.get("LANGEXTRACT_MAX_CHAR_BUFFER", "4000"))
+    if ceil is None:
+        ceil = int(os.environ.get("LANGEXTRACT_MAX_CHAR_BUFFER_CEILING", "30000"))
+    return max(base, min(len(markdown or ""), ceil))
 
 
 def _reasoning_off_substrings() -> list[str]:

@@ -117,12 +117,14 @@ OPENROUTER_MODEL_EXTRACT_SINGLE = os.getenv(
 OPENROUTER_MODEL_EXTRACT_MULTI = os.getenv(
     "OPENROUTER_MODEL_EXTRACT_MULTI", "deepseek/deepseek-v4-pro",
 )
-# Comma-separated substrings: any extraction model whose slug matches gets its
-# provider-side reasoning forced OFF ({"reasoning": {"enabled": false}}). DeepSeek
-# V4 is hybrid-reasoning, and extraction is a copy-the-spans task, so reasoning
-# tokens (billed as output) are pure cost. Empty string disables the override.
+# Reasoning stays ON for extraction by default (empty list = suppress nothing):
+# multi-lot disentangling benefits from the model thinking through which fields
+# belong to which lot, and the cost is accepted. This is an OPT-IN cost lever —
+# set it to comma-separated slug substrings (e.g. "deepseek") to force a
+# hybrid-reasoning model's reasoning OFF ({"reasoning": {"enabled": false}}) on
+# the copy-the-spans task if cost ever needs trimming.
 LANGEXTRACT_REASONING_OFF_MODELS = os.getenv(
-    "LANGEXTRACT_REASONING_OFF_MODELS", "deepseek",
+    "LANGEXTRACT_REASONING_OFF_MODELS", "",
 )
 OPENROUTER_MODEL_CLASSIFY = os.getenv(
     "OPENROUTER_MODEL_CLASSIFY", "deepseek/deepseek-v4-flash",
