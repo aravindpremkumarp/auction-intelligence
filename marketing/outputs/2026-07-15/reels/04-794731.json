@@ -1,0 +1,32 @@
+{
+  "angle": "closing_soon",
+  "theme": "light",
+  "hook": {
+    "line1": "₹0.42L",
+    "line2": "that's the entry ticket."
+  },
+  "context_lines": [
+    "reserve: ₹4.2L.",
+    "closes today."
+  ],
+  "money": {
+    "previous_reserve_price": null,
+    "reserve_price": 420000.0,
+    "drop_pct": null
+  },
+  "facts": {
+    "title": "Canara Bank Land And Building Auction in Virudhunagar, Virudhunagar",
+    "city": "Virudhunagar",
+    "bank": "Canara Bank",
+    "asset_type": "Land And Building",
+    "emd": 42000.0,
+    "auction_date": "15 Jul 2026",
+    "days_left": 0
+  },
+  "endcard": {
+    "question": "would a ₹0.42L emd change how you look at bank auctions?",
+    "save_line": "closes today — save this",
+    "url": "auctionscope.in"
+  },
+  "honesty_line": "Reserve, EMD and date from the bank's auction notice."
+}

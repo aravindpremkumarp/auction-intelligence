@@ -1,0 +1,353 @@
+{
+  "stats": {
+    "total_auctions": 2434,
+    "upcoming_auctions": 638,
+    "last_enriched": null,
+    "generated_at": "2026-07-15T17:45:38.303810Z"
+  },
+  "drafts": [
+    {
+      "auction_id": "798444",
+      "angle": "price_drop",
+      "hook_mechanism": "contrast",
+      "hook_alternatives": [
+        "the bank wanted ₹31.9L for this karur plot. today: ₹31L.",
+        "would you bid ₹31L on a karur plot on its second round?"
+      ],
+      "post": "₹31.9L → ₹31L. same karur plot, back up for auction.\n\na residential plot in karur's manmangalam taluk is back on the block. south indian bank cut the reserve from ₹31.9L to ₹31L — a 2.7% drop. emd to bid is ₹3.1L, and the auction opens 16 july. worth checking why the first round didn't clear before you place a number.\n\nmore research-ready listings like this on auctionscope.in.",
+      "pinned_comment": "full listing, reserve price breakdown and location checks: auctionscope.in. this is information only, not legal advice — it's a SARFAESI bank e-auction; verify the reserve, EMD, possession and encumbrances with the bank before bidding. would you bid on a plot that didn't sell the first time?",
+      "hashtags": [
+        "bankauction",
+        "sarfaesi",
+        "reauction",
+        "karur",
+        "auctionscope"
+      ],
+      "alt_text": "deal card: karur plot, reserve cut from ₹31.9L to ₹31L, south indian bank, emd ₹3.1L, auction 16 jul.",
+      "video_title": "karur plot reserve drops to ₹31L | south indian bank e-auction",
+      "location_tag": "Karur, Manmangalam Taluk",
+      "needs_image": true,
+      "image_headline": "₹31.9L → ₹31L: karur plot, round two",
+      "needs_reel": true,
+      "reel_hook": {
+        "line1": "₹31.9L → ₹31L",
+        "line2": "karur plot, round two."
+      },
+      "reel_context_lines": [
+        "reserve just moved.",
+        "first round didn't clear."
+      ],
+      "engagement_question": "would you bid on a plot that didn't sell the first time?",
+      "save_line": "auction opens 16 jul — save this",
+      "source": {
+        "auction_id": "798444",
+        "angle": "price_drop",
+        "title": "South Indian Bank Land Auction in ManmangalamTaluk, Karur",
+        "city": "Karur",
+        "area": "ManmangalamTaluk",
+        "bank": "South Indian Bank",
+        "property_types": [
+          "Land"
+        ],
+        "asset_category": "Residential",
+        "reserve_price": 3100000.0,
+        "reserve_lakhs": 31.0,
+        "emd": 310000.0,
+        "auction_start": "2026-07-16T11:30:00Z",
+        "url": "https://www.eauctionsindia.com/properties/798444",
+        "previous_reserve_price": 3187000.0,
+        "previous_reserve_lakhs": 31.9,
+        "drop_pct": 2.7
+      }
+    },
+    {
+      "auction_id": "802076",
+      "angle": "price_drop",
+      "hook_mechanism": "process",
+      "hook_alternatives": [
+        "₹45.6L → ₹41L. same vellore plot, re-listed.",
+        "you don't need ₹41L in cash for this — the emd is ₹4.1L."
+      ],
+      "post": "the bank wanted ₹45.6L for this vellore plot. today: ₹41L.\n\nbank of baroda cut the reserve on a residential plot in arakonam, vellore by 10% — from ₹45.6L to ₹41L. emd to bid is ₹4.1L. the auction opens 18 july, three days out. reserve cuts like this often follow a first round with no winning bid — worth reading the notice before you decide your number.\n\nmore of these on auctionscope.in.",
+      "pinned_comment": "full listing, reserve history and location checks: auctionscope.in. information only, not legal advice — this is a SARFAESI bank e-auction; verify reserve, EMD, possession and encumbrances with the bank before bidding. what would make you pass on a re-listed property?",
+      "hashtags": [
+        "bankauction",
+        "reauction",
+        "reserveprice",
+        "vellore",
+        "auctionscope"
+      ],
+      "alt_text": "deal card: vellore plot, reserve cut 10% from ₹45.6L to ₹41L, bank of baroda, emd ₹4.1L, auction 18 jul.",
+      "video_title": "vellore plot reserve cut 10% to ₹41L | bank of baroda e-auction",
+      "location_tag": "Vellore, Arakonam",
+      "needs_image": true,
+      "image_headline": "₹45.6L → ₹41L: vellore plot, 10% cut",
+      "needs_reel": true,
+      "reel_hook": {
+        "line1": "₹45.6L → ₹41L",
+        "line2": "10% cut. vellore plot."
+      },
+      "reel_context_lines": [
+        "reserve moved again.",
+        "three days to bid."
+      ],
+      "engagement_question": "what would make you pass on a re-listed property?",
+      "save_line": "bids open 18 jul — save this",
+      "source": {
+        "auction_id": "802076",
+        "angle": "price_drop",
+        "title": "Bank of Baroda Land Auction in Arakonam, Vellore",
+        "city": "Vellore",
+        "area": "Arakonam",
+        "bank": "Bank of Baroda",
+        "property_types": [
+          "Land"
+        ],
+        "asset_category": "Residential",
+        "reserve_price": 4100000.0,
+        "reserve_lakhs": 41.0,
+        "emd": 410000.0,
+        "auction_start": "2026-07-18T14:00:00Z",
+        "url": "https://www.eauctionsindia.com/properties/802076",
+        "previous_reserve_price": 4558000.0,
+        "previous_reserve_lakhs": 45.6,
+        "drop_pct": 10.0
+      }
+    },
+    {
+      "auction_id": "788297",
+      "angle": "closing_soon",
+      "hook_mechanism": "question",
+      "hook_alternatives": [
+        "auction closes today. ₹189L krishnagiri property, one shot.",
+        "hunting land and building in krishnagiri? canara bank has one at ₹189L today."
+      ],
+      "post": "would you bid ₹189L on a property you've only seen as a pdf?\n\ncanara bank's land-and-building auction in krishnagiri closes today, reserve ₹189L, emd ₹18.9L. it's a big number to commit to sight-unseen — the notice has the survey details, but groundwater, access and encumbrances are yours to check before you place a bid.\n\nlisting details on auctionscope.in.",
+      "pinned_comment": "full listing and location checks: auctionscope.in. information only, not legal advice — this is a SARFAESI bank e-auction; verify reserve, EMD, possession and encumbrances with the bank before bidding. would you bid ₹189L on a property you've only seen as a pdf?",
+      "hashtags": [
+        "bankauction",
+        "sarfaesi",
+        "landauction",
+        "krishnagiri",
+        "auctionscope"
+      ],
+      "alt_text": "deal card: krishnagiri land and building, reserve ₹189L, canara bank, emd ₹18.9L, auction closes today.",
+      "video_title": "₹189L krishnagiri property auction closes today | canara bank",
+      "location_tag": "Krishnagiri, Tamil Nadu",
+      "needs_image": true,
+      "image_headline": "would you bid ₹189L sight-unseen?",
+      "needs_reel": true,
+      "reel_hook": {
+        "line1": "₹189L",
+        "line2": "seen only as a pdf."
+      },
+      "reel_context_lines": [
+        "closes today.",
+        "no site visit yet?"
+      ],
+      "engagement_question": "would you bid ₹189L on a property you've only seen as a pdf?",
+      "save_line": "closes today — save this",
+      "source": {
+        "auction_id": "788297",
+        "angle": "closing_soon",
+        "title": "Canara Bank Land And Building Auction in krishnagiri, Krishnagiri",
+        "city": "Krishnagiri",
+        "area": "krishnagiri",
+        "bank": "Canara Bank",
+        "property_types": [
+          "Land And Building"
+        ],
+        "asset_category": "Residential",
+        "reserve_price": 18900000.0,
+        "reserve_lakhs": 189.0,
+        "emd": 1890000.0,
+        "auction_start": "2026-07-15T10:30:00Z",
+        "url": "https://www.eauctionsindia.com/properties/788297"
+      }
+    },
+    {
+      "auction_id": "794731",
+      "angle": "closing_soon",
+      "hook_mechanism": "myth",
+      "hook_alternatives": [
+        "hunting a cheap plot in virudhunagar? a bank just listed one at ₹4.2L.",
+        "₹4.2L reserve, ₹0.42L emd — the gap between looking and bidding."
+      ],
+      "post": "you don't need ₹4.2L in cash to bid — the emd here is ₹0.42L.\n\ncanara bank's land-and-building auction in virudhunagar closes today, reserve just ₹4.2L. the entry ticket — the emd — is ₹0.42L, not the full reserve. a low reserve doesn't mean low risk though; the notice will tell you what liens or occupants come with the property.\n\nmore entry-level listings on auctionscope.in.",
+      "pinned_comment": "full listing and checks: auctionscope.in. information only, not legal advice — this is a SARFAESI bank e-auction; verify reserve, EMD, possession and encumbrances with the bank before bidding. would a ₹0.42L emd change how you look at bank auctions?",
+      "hashtags": [
+        "bankauction",
+        "sarfaesi",
+        "emd",
+        "virudhunagar",
+        "auctionscope"
+      ],
+      "alt_text": "deal card: virudhunagar land and building, reserve ₹4.2L, canara bank, emd ₹0.42L, auction closes today.",
+      "video_title": "₹4.2L virudhunagar auction, emd just ₹0.42L | canara bank",
+      "location_tag": "Virudhunagar, Tamil Nadu",
+      "needs_image": true,
+      "image_headline": "emd here is just ₹0.42L",
+      "needs_reel": true,
+      "reel_hook": {
+        "line1": "₹0.42L",
+        "line2": "that's the entry ticket."
+      },
+      "reel_context_lines": [
+        "reserve: ₹4.2L.",
+        "closes today."
+      ],
+      "engagement_question": "would a ₹0.42L emd change how you look at bank auctions?",
+      "save_line": "closes today — save this",
+      "source": {
+        "auction_id": "794731",
+        "angle": "closing_soon",
+        "title": "Canara Bank Land And Building Auction in Virudhunagar, Virudhunagar",
+        "city": "Virudhunagar",
+        "area": "Virudhunagar",
+        "bank": "Canara Bank",
+        "property_types": [
+          "Land And Building"
+        ],
+        "asset_category": "Residential",
+        "reserve_price": 420000.0,
+        "reserve_lakhs": 4.2,
+        "emd": 42000.0,
+        "auction_start": "2026-07-15T11:00:00Z",
+        "url": "https://www.eauctionsindia.com/properties/794731"
+      }
+    },
+    {
+      "auction_id": "797758",
+      "angle": "cheapest",
+      "hook_mechanism": "callout",
+      "hook_alternatives": [
+        "would you bid ₹1.5L on a plot you've only seen as a pdf?",
+        "you don't need ₹1.5L in cash to start — the emd is just ₹15,000."
+      ],
+      "post": "hunting a plot under ₹2L? a bank just listed one at ₹1.5L.\n\nmotilal oswal home finance is auctioning a plot in mannargudi taluk, thiruvarur — reserve ₹1.5L, emd just ₹15,000. it's one of the smallest tickets on the list right now. auction opens 27 july, giving time to check access, encumbrances and the survey number before bidding.\n\nmore listings like this on auctionscope.in.",
+      "pinned_comment": "full listing and checks: auctionscope.in. information only, not legal advice — this is a SARFAESI bank e-auction; verify reserve, EMD, possession and encumbrances with the bank before bidding. would ₹15,000 be a low enough bar for you to look closer at a listing?",
+      "hashtags": [
+        "bankauction",
+        "sarfaesi",
+        "cheapestlisting",
+        "thiruvarur",
+        "auctionscope"
+      ],
+      "alt_text": "deal card: thiruvarur plot, reserve ₹1.5L, motilal oswal home finance, emd ₹15,000, auction 27 jul.",
+      "video_title": "₹1.5L thiruvarur plot auction | cheapest bank listing right now",
+      "location_tag": "Thiruvarur, Mannargudi Taluk",
+      "needs_image": true,
+      "image_headline": "₹1.5L plot: cheapest on the list",
+      "needs_reel": true,
+      "reel_hook": {
+        "line1": "₹1.5L",
+        "line2": "cheapest live listing."
+      },
+      "reel_context_lines": [
+        "emd: ₹15,000.",
+        "opens 27 jul."
+      ],
+      "engagement_question": "would ₹15,000 be a low enough bar for you to look closer at a listing?",
+      "save_line": "opens 27 jul — save this",
+      "source": {
+        "auction_id": "797758",
+        "angle": "cheapest",
+        "title": "Motilal Oswal Home Finance Ltd Plot Auction in Mannargudi Taluk, Thiruvarur",
+        "city": "Thiruvarur",
+        "area": "Mannargudi Taluk",
+        "bank": "Motilal Oswal Home Finance",
+        "property_types": [
+          "Plot"
+        ],
+        "asset_category": "Residential",
+        "reserve_price": 150000.0,
+        "reserve_lakhs": 1.5,
+        "emd": 15000.0,
+        "auction_start": "2026-07-27T11:00:00Z",
+        "url": "https://www.eauctionsindia.com/properties/797758"
+      }
+    }
+  ],
+  "cards": [
+    {
+      "draft_index": 1,
+      "auction_id": "798444",
+      "template": "price-drop-1080x1350",
+      "data": "cards/01-798444.json",
+      "headline": "₹31.9L → ₹31L: karur plot, round two"
+    },
+    {
+      "draft_index": 2,
+      "auction_id": "802076",
+      "template": "price-drop-1080x1350",
+      "data": "cards/02-802076.json",
+      "headline": "₹45.6L → ₹41L: vellore plot, 10% cut"
+    },
+    {
+      "draft_index": 3,
+      "auction_id": "788297",
+      "template": "deal-of-the-day-1080",
+      "data": "cards/03-788297.json",
+      "headline": "would you bid ₹189L sight-unseen?"
+    },
+    {
+      "draft_index": 4,
+      "auction_id": "794731",
+      "template": "deal-of-the-day-1080",
+      "data": "cards/04-794731.json",
+      "headline": "emd here is just ₹0.42L"
+    },
+    {
+      "draft_index": 5,
+      "auction_id": "797758",
+      "template": "deal-of-the-day-1080",
+      "data": "cards/05-797758.json",
+      "headline": "₹1.5L plot: cheapest on the list"
+    }
+  ],
+  "reels": [
+    {
+      "draft_index": 0,
+      "auction_id": "stats",
+      "template": "stats-reel-1080x1920",
+      "data": "reels/00-stats.json"
+    },
+    {
+      "draft_index": 1,
+      "auction_id": "798444",
+      "template": "deal-reel-1080x1920",
+      "data": "reels/01-798444.json",
+      "hook": "₹31.9L → ₹31L"
+    },
+    {
+      "draft_index": 2,
+      "auction_id": "802076",
+      "template": "deal-reel-1080x1920",
+      "data": "reels/02-802076.json",
+      "hook": "₹45.6L → ₹41L"
+    },
+    {
+      "draft_index": 3,
+      "auction_id": "788297",
+      "template": "deal-reel-1080x1920",
+      "data": "reels/03-788297.json",
+      "hook": "₹189L"
+    },
+    {
+      "draft_index": 4,
+      "auction_id": "794731",
+      "template": "deal-reel-1080x1920",
+      "data": "reels/04-794731.json",
+      "hook": "₹0.42L"
+    },
+    {
+      "draft_index": 5,
+      "auction_id": "797758",
+      "template": "deal-reel-1080x1920",
+      "data": "reels/05-797758.json",
+      "hook": "₹1.5L"
+    }
+  ],
+  "rejected": [],
+  "editor_notes": "picked 2 price_drop (karur, vellore), 2 closing_soon (krishnagiri, virudhunagar) and 1 cheapest (thiruvarur) to cover 5 distinct cities and 5 distinct hook mechanisms (contrast, process, question, myth, callout) with no repeats. skipped the three JM Financial ARC Periyakulam cheapest listings to avoid duplicating city/bank. closing_soon candidates all share an auction_start earlier on 2026-07-15 (today, per the snapshot timestamp) — flag for the editor to confirm posting time is still before the slot if scheduling slips."
+}

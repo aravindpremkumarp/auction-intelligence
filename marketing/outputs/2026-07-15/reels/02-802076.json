@@ -1,0 +1,32 @@
+{
+  "angle": "price_drop",
+  "theme": "light",
+  "hook": {
+    "line1": "₹45.6L → ₹41L",
+    "line2": "10% cut. vellore plot."
+  },
+  "context_lines": [
+    "reserve moved again.",
+    "three days to bid."
+  ],
+  "money": {
+    "previous_reserve_price": 4558000.0,
+    "reserve_price": 4100000.0,
+    "drop_pct": 10.0
+  },
+  "facts": {
+    "title": "Bank of Baroda Land Auction in Arakonam, Vellore",
+    "city": "Vellore",
+    "bank": "Bank of Baroda",
+    "asset_type": "Land",
+    "emd": 410000.0,
+    "auction_date": "18 Jul 2026",
+    "days_left": 3
+  },
+  "endcard": {
+    "question": "what would make you pass on a re-listed property?",
+    "save_line": "bids open 18 jul — save this",
+    "url": "auctionscope.in"
+  },
+  "honesty_line": "Both prices from the bank's auction notices — earlier listing vs current re-auction."
+}

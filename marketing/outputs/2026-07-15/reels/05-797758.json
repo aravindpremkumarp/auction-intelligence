@@ -1,0 +1,32 @@
+{
+  "angle": "cheapest",
+  "theme": "dark",
+  "hook": {
+    "line1": "₹1.5L",
+    "line2": "cheapest live listing."
+  },
+  "context_lines": [
+    "emd: ₹15,000.",
+    "opens 27 jul."
+  ],
+  "money": {
+    "previous_reserve_price": null,
+    "reserve_price": 150000.0,
+    "drop_pct": null
+  },
+  "facts": {
+    "title": "Motilal Oswal Home Finance Ltd Plot Auction in Mannargudi Taluk, Thiruvarur",
+    "city": "Thiruvarur",
+    "bank": "Motilal Oswal Home Finance",
+    "asset_type": "Plot",
+    "emd": 15000.0,
+    "auction_date": "27 Jul 2026",
+    "days_left": 12
+  },
+  "endcard": {
+    "question": "would ₹15,000 be a low enough bar for you to look closer at a listing?",
+    "save_line": "opens 27 jul — save this",
+    "url": "auctionscope.in"
+  },
+  "honesty_line": "Reserve, EMD and date from the bank's auction notice."
+}

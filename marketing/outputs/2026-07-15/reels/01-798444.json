@@ -1,0 +1,32 @@
+{
+  "angle": "price_drop",
+  "theme": "dark",
+  "hook": {
+    "line1": "₹31.9L → ₹31L",
+    "line2": "karur plot, round two."
+  },
+  "context_lines": [
+    "reserve just moved.",
+    "first round didn't clear."
+  ],
+  "money": {
+    "previous_reserve_price": 3187000.0,
+    "reserve_price": 3100000.0,
+    "drop_pct": 2.7
+  },
+  "facts": {
+    "title": "South Indian Bank Land Auction in ManmangalamTaluk, Karur",
+    "city": "Karur",
+    "bank": "South Indian Bank",
+    "asset_type": "Land",
+    "emd": 310000.0,
+    "auction_date": "16 Jul 2026",
+    "days_left": 1
+  },
+  "endcard": {
+    "question": "would you bid on a plot that didn't sell the first time?",
+    "save_line": "auction opens 16 jul — save this",
+    "url": "auctionscope.in"
+  },
+  "honesty_line": "Both prices from the bank's auction notices — earlier listing vs current re-auction."
+}

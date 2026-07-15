@@ -1,0 +1,20 @@
+{
+  "theme": "dark",
+  "date_label": "15 Jul 2026",
+  "stats": [
+    {
+      "value": 638,
+      "label": "live bank auctions tracked"
+    },
+    {
+      "value": 2434,
+      "label": "auctions in the archive"
+    }
+  ],
+  "pick": {
+    "title": "South Indian Bank Land Auction in ManmangalamTaluk, Karur",
+    "loc": "Karur · South Indian Bank",
+    "reserve_price": 3100000.0,
+    "auction_date": "16 Jul 2026"
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "angle": "closing_soon",
+  "theme": "dark",
+  "hook": {
+    "line1": "₹189L",
+    "line2": "seen only as a pdf."
+  },
+  "context_lines": [
+    "closes today.",
+    "no site visit yet?"
+  ],
+  "money": {
+    "previous_reserve_price": null,
+    "reserve_price": 18900000.0,
+    "drop_pct": null
+  },
+  "facts": {
+    "title": "Canara Bank Land And Building Auction in krishnagiri, Krishnagiri",
+    "city": "Krishnagiri",
+    "bank": "Canara Bank",
+    "asset_type": "Land And Building",
+    "emd": 1890000.0,
+    "auction_date": "15 Jul 2026",
+    "days_left": 0
+  },
+  "endcard": {
+    "question": "would you bid ₹189L on a property you've only seen as a pdf?",
+    "save_line": "closes today — save this",
+    "url": "auctionscope.in"
+  },
+  "honesty_line": "Reserve, EMD and date from the bank's auction notice."
+}
