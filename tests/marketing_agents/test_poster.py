@@ -273,15 +273,28 @@ class TestDraftToIsland:
     def test_no_image_returns_none(self):
         assert draft_to_island(self._validated(needs_image=False)) is None
 
-    def test_missing_emd_stays_none_never_invented(self):
-        # _row gives emd = reserve/10; force it absent to prove blanking.
-        cands = shape_candidates([_row("A1")], [], [])
-        cands[0]["emd"] = None
+    def test_card_omits_bank_and_emd_and_uses_locality(self):
+        # Bank + EMD are intentionally dropped from the card: EMD is ~always 10%
+        # of reserve (derivable, adds nothing) and the bank isn't a scroll-
+        # stopper. The sub-line is the locality (area), not the raw bank-led
+        # auction title.
+        cands = shape_candidates([_row("A1")], [], [])   # area="Somewhere", city="Chennai"
         d = {"auction_id": "A1", "angle": "closing_soon", "hook_mechanism": "callout",
              "post": "reserve ₹40L.\n\nbody.", "needs_image": True,
              "image_headline": "₹40L in Chennai", "source": cands[0]}
         _, island = draft_to_island(d)
-        assert island["emd"] is None   # template hides the chip; no stale number
+        assert "emd" not in island
+        assert "bank" not in island
+        assert island["title"] == "Somewhere"            # locality, not "Property A1"
+
+    def test_locality_blank_when_same_as_city(self):
+        cands = shape_candidates([_row("A1", city="Salem")], [], [])
+        cands[0]["area"] = "Salem"                        # area == city → redundant
+        d = {"auction_id": "A1", "angle": "closing_soon", "hook_mechanism": "callout",
+             "post": "reserve ₹40L.\n\nbody.", "needs_image": True,
+             "image_headline": "₹40L", "source": cands[0]}
+        _, island = draft_to_island(d)
+        assert island["title"] == ""                      # sub-line hidden
 
     def test_bad_auction_date_blanks_not_guesses(self):
         cands = shape_candidates([_row("A1", start="garbage")], [], [])
