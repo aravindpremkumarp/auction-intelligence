@@ -1,7 +1,7 @@
 """MinerU API v4 client.
 
 Wraps the four HTTP calls needed to push files through MinerU's batched
-OCR model (``config.MINERU_MODEL_VERSION``; "pipeline" by default):
+OCR model (``config.MINERU_MODEL_VERSION``; "vlm" by default):
 
   1. ``POST /file-urls/batch`` -> ``batch_id`` + signed OSS upload URLs
   2. ``PUT`` each file body to its signed URL
@@ -70,10 +70,11 @@ def request_batch(items: list[dict],
     ``file_path`` (used to derive the ``data_id`` we match results by).
     Returns ``(batch_id, signed_urls)`` in the same order as ``items``.
 
-    ``model_version`` defaults to ``config.MINERU_MODEL_VERSION`` ("pipeline"
-    unless overridden). The pipeline backend keeps a notice segmented into
-    distinct title/text/table/image blocks; the "vlm" backend now collapses a
-    bordered notice into one table block (see the config comment).
+    ``model_version`` defaults to ``config.MINERU_MODEL_VERSION`` ("vlm" unless
+    overridden; "pipeline" / "MinerU-HTML" also valid). NB: neither backend
+    currently segments a bordered auction notice into blocks — both return one
+    table (see the config comment); the knob only trades text completeness +
+    provenance, not segmentation.
     """
     if not MINERU_API_KEY:
         raise MinerUError("MINERU_API_KEY not set")
