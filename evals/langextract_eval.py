@@ -161,30 +161,189 @@ def score_notice(g: dict, flat: dict) -> list[tuple]:
     return rows
 
 
+# ── per-lot (multi-notice) scoring ────────────────────────────────────────────
+# Multi-lot quality can't be judged by the notice-level flatten (which collapses
+# every lot's reserve into ONE set and reads location/possession from lot 1). A
+# gold entry may carry a `lots` list — the per-lot truth, labelled against the
+# MARKDOWN (every lot present in the text), never the AuctionProperty count. The
+# scorer groups the extraction by lot_index, then matches each gold lot to an
+# extracted group by RESERVE PRICE (the one anchor that survives OCR-mangled
+# serials and per-branch numbering resets) — never by the model's own lot_index,
+# which is exactly what breaks. This measures whether each field is bound to the
+# RIGHT lot, plus whether the lot COUNT is correct.
+_LOC_SETS = (("village", "villages"), ("taluk", "taluks"),
+             ("district", "districts"),
+             ("registration_district", "reg_districts"),
+             ("registration_sub_district", "reg_subs"))
+# Classes that describe the notice as a whole, not one lot — never binned.
+_NOTICE_CLASSES = frozenset({"secured_creditor", "emd_account", "full_terms",
+                             "contact"})
+
+
+def _fnum(v):
+    try:
+        return float(str(v).replace(",", "").strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def group_by_lot(records: list[dict]) -> list[dict]:
+    """Bucket extracted entities into lots keyed by their lot_index.
+
+    Returns one dict per distinct lot_index seen on a per-lot entity, each
+    aggregating that lot's reserves/emds (sets), location values (sets), and
+    identifiers ({kind: set}). Notice-level classes are dropped; an entity with
+    no lot_index falls into bucket "1" (so a model that emits everything
+    unnumbered collapses to a single lot — correctly flagged as under-count).
+    """
+    from pipeline.validators import normalize_identifier_kind  # lazy (offline dep)
+    groups: dict[str, dict] = {}
+
+    def bucket(li: str) -> dict:
+        return groups.setdefault(li, {
+            "lot_index": li, "reserves": set(), "emds": set(), "villages": set(),
+            "taluks": set(), "districts": set(), "reg_districts": set(),
+            "reg_subs": set(), "identifiers": collections.defaultdict(set)})
+
+    for r in records:
+        c = r.get("cls")
+        if c in _NOTICE_CLASSES:
+            continue
+        a = r.get("attrs") or {}
+        grp = bucket(str(a.get("lot_index") or "1"))
+        if c == "auction_terms":
+            rp, em = _fnum(a.get("reserve_price_num")), _fnum(a.get("emd_num"))
+            if rp is not None:
+                grp["reserves"].add(rp)
+            if em is not None:
+                grp["emds"].add(em)
+        elif c == "location":
+            for key, setk in _LOC_SETS:
+                if a.get(key):
+                    grp[setk].add(a[key])
+        elif c == "identifier" and a.get("kind") and a.get("value") not in (None, ""):
+            kind, _ = normalize_identifier_kind(a["kind"])
+            grp["identifiers"][kind].add(str(a["value"]))
+    return list(groups.values())
+
+
+def _match_group(lot: dict, groups: list[dict], used: set) -> tuple:
+    """Find the extracted group for a gold lot: reserve price first, then (when
+    several lots share a reserve — e.g. two identical flats) an identifier
+    tiebreak. Returns (group_or_None, index_or_None)."""
+    res = _fnum(lot.get("reserve_price_num"))
+    cands = [(i, g) for i, g in enumerate(groups)
+             if i not in used and res is not None and res in g["reserves"]]
+    if not cands:
+        return None, None
+    if len(cands) == 1:
+        return cands[0][1], cands[0][0]
+    for i, g in cands:  # disambiguate on any labelled identifier
+        for kind, val in (lot.get("identifiers") or {}).items():
+            if any(_smatch(val, x) for x in g["identifiers"].get(kind, ())):
+                return g, i
+    return cands[0][1], cands[0][0]
+
+
+def _score_lot(tag: str, lot: dict, grp: dict | None) -> list[tuple]:
+    rows = []
+    res = _fnum(lot.get("reserve_price_num"))
+    rows.append((f"{tag}:reserve", res,
+                 sorted(grp["reserves"]) if grp else None,
+                 bool(grp) and res in grp["reserves"]))
+    if grp is None:  # unmatched lot — every labelled field misses
+        if lot.get("emd_num") is not None:
+            rows.append((f"{tag}:emd", _fnum(lot["emd_num"]), None, False))
+        for key, _ in _LOC_SETS:
+            if lot.get(key):
+                rows.append((f"{tag}:{key}", lot[key], None, False))
+        for kind, val in (lot.get("identifiers") or {}).items():
+            rows.append((f"{tag}:id:{kind}", val, None, False))
+        return rows
+    if lot.get("emd_num") is not None:
+        em = _fnum(lot["emd_num"])
+        rows.append((f"{tag}:emd", em, sorted(grp["emds"]), em in grp["emds"]))
+    for key, setk in _LOC_SETS:
+        if lot.get(key):
+            got = sorted(grp[setk])
+            rows.append((f"{tag}:{key}", lot[key], got,
+                         any(_smatch(lot[key], x) for x in grp[setk])))
+    for kind, val in (lot.get("identifiers") or {}).items():
+        got = sorted(grp["identifiers"].get(kind, ()))
+        rows.append((f"{tag}:id:{kind}", val, got,
+                     any(_smatch(val, x) for x in got)))
+    return rows
+
+
+def score_multi(g: dict, records: list[dict]) -> tuple:
+    """Per-lot scoring. Returns (rows, (n_gold_lots, n_extracted_lots, count_ok)).
+
+    An extracted "lot" is a group carrying a reserve price (the auction unit).
+    Each gold lot is matched by reserve price + identifier tiebreak; its fields
+    are scored against the matched group so a field bound to the WRONG lot fails.
+    """
+    groups = group_by_lot(records)
+    lot_groups = [gr for gr in groups if gr["reserves"]]
+    rows: list[tuple] = []
+    used: set = set()
+    for i, lot in enumerate(g["lots"], start=1):
+        grp, gi = _match_group(lot, lot_groups, used)
+        if gi is not None:
+            used.add(gi)
+        rows.extend(_score_lot(f"lot{i}", lot, grp))
+    n_gold, n_got = len(g["lots"]), len(lot_groups)
+    count_ok = n_got == n_gold
+    rows.append(("lot_count", n_gold, n_got, count_ok))
+    return rows, (n_gold, n_got, count_ok)
+
+
+def score_records(g: dict, records: list[dict]) -> tuple:
+    """Score one notice from its extracted records. Returns (rows, lot_stats);
+    lot_stats is None for single notices, else (n_gold, n_got, count_ok)."""
+    rows = score_notice(g, flatten_records(records))
+    lot_stats = None
+    if g.get("lots"):
+        lrows, lot_stats = score_multi(g, records)
+        rows = rows + lrows
+    return rows, lot_stats
+
+
 def main() -> int:
     os.environ.setdefault("LANGEXTRACT_API_KEY",
                           os.environ.get("GOOGLE_API_KEY", ""))
     os.environ.setdefault("LANGEXTRACT_PASSES", "1")
     total = correct = 0
     misses = []
+    multi_stats = []   # (aid, n_gold_lots, n_extracted_lots, count_ok)
     gold = load_gold()
     print(f"LangExtract eval — {len(gold)} notices "
           f"({len(GOLD)} seed + {len(gold) - len(GOLD)} reviewer-verified, "
           f"passes={os.environ['LANGEXTRACT_PASSES']})\n")
     for g in gold:
         md = (FIX / f"{g['aid']}.txt").read_text(encoding="utf-8")
-        flat = flatten(extract_robust(md))
-        rows = score_notice(g, flat)
+        records = _records(extract_robust(md))
+        rows, lot_stats = score_records(g, records)
         c = sum(1 for *_, ok in rows if ok)
         total += len(rows)
         correct += c
-        print(f"  {g['aid']} ({g['notice_type']:6}): {c}/{len(rows)}")
-        misses += [(g["aid"], k, gold, got) for k, gold, got, ok in rows if not ok]
+        lot_note = ""
+        if lot_stats is not None:
+            n_gold, n_got, count_ok = lot_stats
+            multi_stats.append((g["aid"], n_gold, n_got, count_ok))
+            lot_note = f"  lots={n_got}/{n_gold}{'' if count_ok else ' ⚠'}"
+        print(f"  {g['aid']} ({g['notice_type']:6}): {c}/{len(rows)}{lot_note}")
+        misses += [(g["aid"], k, gd, got) for k, gd, got, ok in rows if not ok]
     print(f"\nOVERALL ACCURACY: {correct}/{total} = {correct/total*100:.1f}%")
+    if multi_stats:
+        lc_ok = sum(1 for *_, ok in multi_stats if ok)
+        print(f"\nMULTI-LOT lot-count: {lc_ok}/{len(multi_stats)} notices correct")
+        for aid, n_gold, n_got, count_ok in multi_stats:
+            print(f"  {aid}: gold={n_gold} extracted={n_got} "
+                  f"{'OK' if count_ok else 'MISMATCH'}")
     if misses:
         print("\nMISSES (auction_id  field  gold -> got):")
-        for aid, key, gold, got in misses:
-            print(f"  {aid}  {key:26} {gold!r:24} -> {got!r}")
+        for aid, key, gd, got in misses:
+            print(f"  {aid}  {key:26} {gd!r:24} -> {got!r}")
     return 0
 
 

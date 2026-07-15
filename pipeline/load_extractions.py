@@ -16,8 +16,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+from collections import Counter
 
 from api.neo4j_client import run_query, run_read_query
+from pipeline.extract_routing import select_extract_model
 from pipeline.validators import normalize_identifier_kind
 
 # pipeline.langextract_examples is imported lazily inside run() — it pulls the
@@ -33,7 +36,10 @@ def _fetch(limit: int | None, force: bool, filename: str | None) -> list[dict]:
         where += " AND d.filename = $fn"
     return run_read_query(
         f"MATCH (d:Document) WHERE {where} "
-        "RETURN d.filename AS filename, d.markdown AS md ORDER BY d.filename"
+        "RETURN d.filename AS filename, d.markdown AS md, "
+        "       d.notice_type AS notice_type, "
+        "       d.notice_type_classifier_pred AS classifier_pred "
+        "ORDER BY d.filename"
         + (f" LIMIT {int(limit)}" if limit else ""),
         {"fn": filename} if filename else None,
         max_rows=20_000, timeout=120.0)
@@ -83,11 +89,21 @@ def run(limit: int | None, force: bool, filename: str | None) -> int:
         return 0
     batch = _next_batch()
     print(f"batch B{batch}")
+    # Per-notice-type model routing applies on the OpenRouter path only; the
+    # gemini-direct path keeps its single env-configured model.
+    route = os.environ.get("LANGEXTRACT_PROVIDER", "openrouter").lower() == "openrouter"
+    model_counts: Counter = Counter()
     ok = fail = 0
     for d in docs:
         fn = d["filename"]
+        if route:
+            model_id, reasoning_off = select_extract_model(
+                d.get("notice_type"), d.get("classifier_pred"))
+        else:
+            model_id, reasoning_off = None, False
+        model_counts[model_id or "default"] += 1
         try:
-            res = LX.extract(d["md"])
+            res = LX.extract(d["md"], model_id=model_id, reasoning_off=reasoning_off)
         except Exception as e:  # keep going; one bad doc shouldn't stop the load
             fail += 1
             print(f"  [fail] {fn}: {e}")
@@ -106,6 +122,9 @@ def run(limit: int | None, force: bool, filename: str | None) -> int:
             {"fn": fn, "j": json.dumps(ents, ensure_ascii=False), "batch": batch})
         ok += 1
         print(f"  [{ok}] {fn}: {len(ents)} fields")
+    if route:
+        routing = "  ".join(f"{m}={n}" for m, n in sorted(model_counts.items()))
+        print(f"model routing: {routing}")
     print(f"done — wrote {ok}, failed {fail} (batch B{batch})")
     return 0
 

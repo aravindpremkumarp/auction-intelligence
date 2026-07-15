@@ -981,36 +981,78 @@ EXAMPLES = [SINGLE_EXAMPLE, MULTI_EXAMPLE, APARTMENT_EXAMPLE, DRT_EXAMPLE,
 
 
 _MODEL_CACHE: dict = {}
+_REASONING_OFF_CLASS = None
 
 
-def _openrouter_model():
-    """Cached OpenAI-compatible model pointed at OpenRouter."""
+def _reasoning_off_model_cls():
+    """Lazily build (once) an OpenAILanguageModel subclass that injects a fixed
+    ``extra_body`` into every Chat Completions request.
+
+    langextract's OpenAI provider whitelists the params it forwards and drops
+    both ``extra_body`` and a ``reasoning`` object, so a hybrid-reasoning model
+    (DeepSeek V4) can't otherwise be told to turn reasoning OFF for this
+    copy-the-spans task. Overriding the request builder is the reliable seam
+    (``extra_body`` is a first-class OpenAI-SDK arg that OpenRouter honours)."""
+    global _REASONING_OFF_CLASS
+    if _REASONING_OFF_CLASS is None:
+        from langextract.providers.openai import OpenAILanguageModel
+
+        class _ReasoningOffOpenAI(OpenAILanguageModel):
+            def _build_chat_completions_params(self, prompt, config):
+                params = super()._build_chat_completions_params(prompt, config)
+                forced = getattr(self, "_forced_extra_body", None)
+                if forced:
+                    params["extra_body"] = {**params.get("extra_body", {}), **forced}
+                return params
+
+        _REASONING_OFF_CLASS = _ReasoningOffOpenAI
+    return _REASONING_OFF_CLASS
+
+
+def _openrouter_model(model_id: str | None = None, reasoning_off: bool = False):
+    """Cached OpenAI-compatible model pointed at OpenRouter.
+
+    ``model_id`` overrides the default (env LANGEXTRACT_MODEL_ID) so callers can
+    route per notice type; the cache is keyed by (model_id, reasoning_off) so
+    several models coexist in one process. ``reasoning_off`` forces provider-side
+    reasoning off for that model (see ``_reasoning_off_model_cls``)."""
     from langextract.providers.openai import OpenAILanguageModel
     key = os.environ.get("OPENROUTER_API_KEY")
     if not key:
         raise RuntimeError("OPENROUTER_API_KEY not set")
-    model_id = os.environ.get("LANGEXTRACT_MODEL_ID", "google/gemini-2.5-flash")
-    if model_id not in _MODEL_CACHE:
-        _MODEL_CACHE[model_id] = OpenAILanguageModel(
-            model_id=model_id, api_key=key,
-            base_url=os.environ.get("OPENROUTER_BASE_URL",
-                                    "https://openrouter.ai/api/v1"),
-            max_workers=4,
-        )
-    return _MODEL_CACHE[model_id]
+    model_id = model_id or os.environ.get("LANGEXTRACT_MODEL_ID",
+                                          "google/gemini-2.5-flash")
+    cache_key = (model_id, reasoning_off)
+    if cache_key not in _MODEL_CACHE:
+        base_url = os.environ.get("OPENROUTER_BASE_URL",
+                                  "https://openrouter.ai/api/v1")
+        if reasoning_off:
+            model = _reasoning_off_model_cls()(
+                model_id=model_id, api_key=key, base_url=base_url, max_workers=4)
+            model._forced_extra_body = {"reasoning": {"enabled": False}}
+        else:
+            model = OpenAILanguageModel(
+                model_id=model_id, api_key=key, base_url=base_url, max_workers=4)
+        _MODEL_CACHE[cache_key] = model
+    return _MODEL_CACHE[cache_key]
 
 
-def extract(markdown: str):
+def extract(markdown: str, model_id: str | None = None,
+            reasoning_off: bool = False):
     """Run LangExtract over one notice's MinerU markdown.
 
     Provider is env-driven via LANGEXTRACT_PROVIDER:
       'openrouter' (default) -> OpenRouter, OpenAI-compatible; model
-          LANGEXTRACT_MODEL_ID (default 'google/gemini-2.5-flash'), key
-          OPENROUTER_API_KEY. Shares the gateway/billing with the rest of the repo.
+          ``model_id`` if given else env LANGEXTRACT_MODEL_ID (default
+          'google/gemini-2.5-flash'), key OPENROUTER_API_KEY. Shares the
+          gateway/billing with the rest of the repo.
       'gemini'               -> Gemini API direct; model default 'gemini-2.5-flash',
           key LANGEXTRACT_API_KEY.
-    passes (LANGEXTRACT_PASSES, default 2) maximises multi-lot recall; results
-    carry char_interval source grounding either way.
+    ``model_id`` lets the caller route per notice type (single vs multi — see
+    pipeline/extract_routing); ``reasoning_off`` forces provider-side reasoning
+    off for hybrid-reasoning models (OpenRouter path only). passes
+    (LANGEXTRACT_PASSES, default 2) maximises multi-lot recall; results carry
+    char_interval source grounding either way.
 
     Both paths run WITHOUT schema constraints: on the gemini path langextract
     would otherwise derive a response schema from EXAMPLES and silently suppress
@@ -1018,19 +1060,21 @@ def extract(markdown: str):
     constrains — so evals would test different behaviour than production. Set
     LANGEXTRACT_USE_SCHEMA=1 to restore constrained generation on gemini.
     """
+    from pipeline.extract_routing import char_buffer_for
     common = dict(
         text_or_documents=markdown, prompt_description=PROMPT_DESCRIPTION,
         examples=EXAMPLES, extraction_passes=int(os.environ.get("LANGEXTRACT_PASSES", "2")),
-        max_char_buffer=4000, max_workers=4,
+        max_char_buffer=char_buffer_for(markdown), max_workers=4,
     )
     if os.environ.get("LANGEXTRACT_PROVIDER", "openrouter").lower() == "openrouter":
-        return lx.extract(model=_openrouter_model(), fence_output=True,
-                          use_schema_constraints=False, **common)
+        return lx.extract(model=_openrouter_model(model_id, reasoning_off),
+                          fence_output=True, use_schema_constraints=False, **common)
     use_schema = os.environ.get("LANGEXTRACT_USE_SCHEMA", "").strip() == "1"
-    return lx.extract(model_id=os.environ.get("LANGEXTRACT_MODEL_ID", "gemini-2.5-flash"),
-                      api_key=os.environ.get("LANGEXTRACT_API_KEY"),
-                      fence_output=not use_schema,
-                      use_schema_constraints=use_schema, **common)
+    return lx.extract(
+        model_id=model_id or os.environ.get("LANGEXTRACT_MODEL_ID", "gemini-2.5-flash"),
+        api_key=os.environ.get("LANGEXTRACT_API_KEY"),
+        fence_output=not use_schema,
+        use_schema_constraints=use_schema, **common)
 
 
 if __name__ == "__main__":
