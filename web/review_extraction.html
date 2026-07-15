@@ -237,7 +237,8 @@ async function loadQueue(){
     if(isLatest||(maxBatch==null&&!isNaN(t)&&!isNaN(maxT)&&(maxT-t)<=600000))e.classList.add("fresh");
     const tag=row.extraction_batch!=null?`<span class="btag${isLatest?" latest":""}" title="extraction batch ${row.extraction_batch}">B${row.extraction_batch}</span>`:"";
     const when=relTime(row.extraction_at);
-    e.innerHTML=`<div>${tag}${esc(row.filename)}</div><div class=meta>${row.n_fields} fields · ${row.n_ungrounded} ungrounded · <span class="badge b-${row.status}">${row.status}</span></div>`+
+    const staleTag=row.stale?` · <span class="badge" style="background:#f59e0b;color:#0f172a" title="Markdown re-ingested after this extraction — re-run required">⚠ re-run</span>`:"";
+    e.innerHTML=`<div>${tag}${esc(row.filename)}</div><div class=meta>${row.n_fields} fields · ${row.n_ungrounded} ungrounded · <span class="badge b-${row.status}">${row.status}</span>${staleTag}</div>`+
       (when?`<div class=when>extracted ${when}</div>`:"");
     e.onclick=()=>loadDoc(row.filename,e);nav.appendChild(e);});
 }
@@ -252,7 +253,8 @@ function render(){
   const d=CUR;
   document.getElementById("title").textContent=d.filename;
   document.getElementById("status").innerHTML=`<span class="badge b-${d.status}">${d.status}</span>`+
-    (d.verified_by?` <span style="color:#64748b;font-size:12px">by ${esc(d.verified_by)}</span>`:"");
+    (d.verified_by?` <span style="color:#64748b;font-size:12px">by ${esc(d.verified_by)}</span>`:"")+
+    (d.stale?` <span class="badge" style="background:#f59e0b;color:#0f172a" title="The markdown was re-ingested after this extraction ran, so these fields and their highlights no longer match the source. Re-run LangExtract: load_extractions --filename &quot;${esc(d.filename)}&quot; --force">⚠ markdown updated — re-run required</span>`:"");
   const cls=[...new Set(d.fields.map(f=>f.cls))];
   document.getElementById("legend").innerHTML=cls.map(c=>`<span class=badge style="background:${COLORS[c]||'#e2e8f0'};color:#0f172a">${c}</span>`).join(" ");
   // keep pane scroll across save/verify re-renders (loadDoc zeroes it for new docs)
