@@ -107,6 +107,25 @@ jobs:
       - name: Finalize (validate + stage drafts)
         run: python -m marketing_agents.poster --finalize
 
+      # Render the staged cards to PNGs BEFORE the commit, so they're committed
+      # alongside the drafts and viewable straight from the review issue. Unlike
+      # reels (large MP4s → artifact only), cards are small PNGs — committing a
+      # handful per run is cheap and the whole point is "see the post" without
+      # a download. Soft-fails so a render hiccup never blocks the drafts.
+      - name: Render card images
+        continue-on-error: true
+        run: |
+          TODAY=$(date -u +%F)
+          MANIFEST="marketing/outputs/$TODAY/drafts.json"
+          if [ ! -f "$MANIFEST" ]; then
+            echo "no drafts.json for $TODAY — nothing to render"
+            exit 0
+          fi
+          pip install --quiet playwright
+          python -m playwright install chromium
+          python marketing/render_social.py --render-staged "marketing/outputs/$TODAY" \
+            || echo "::warning::card render failed (drafts are unaffected)"
+
       - name: Commit staged drafts
         id: commit
         run: |
@@ -189,6 +208,18 @@ jobs:
             } catch {
               body = `New drafts staged in \`${path}\` (review file missing).`;
             }
+            // Rendered card images — committed alongside the drafts, so link
+            // each one. Tapping opens GitHub's image viewer (works on mobile,
+            // private repo); long-press to save before posting.
+            try {
+              const rdir = `marketing/outputs/${today}/rendered`;
+              const pngs = fs.readdirSync(rdir).filter((f) => f.endsWith(".png")).sort();
+              if (pngs.length) {
+                const base = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/blob/main/${rdir}`;
+                body += `\n\n**🖼️ ${pngs.length} card image(s) rendered** — tap to view, long-press to save:\n`
+                  + pngs.map((f) => `- [${f}](${base}/${f})`).join("\n");
+              }
+            } catch { /* no rendered dir — cards render is best-effort */ }
             const rendered = `${{ steps.reels.outputs.rendered || 'false' }}` === 'true';
             if (rendered) {
               const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
