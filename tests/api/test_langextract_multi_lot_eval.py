@@ -22,7 +22,7 @@ from pathlib import Path
 import pytest
 
 from evals import langextract_eval as LE
-from evals.langextract_gold import EXPECT_NULL, GOLD
+from evals.langextract_gold import GOLD
 
 _ROOT = Path(__file__).resolve().parents[2]
 _CANONICAL_KINDS = set(
