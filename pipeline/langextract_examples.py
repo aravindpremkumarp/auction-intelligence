@@ -160,6 +160,12 @@ SLOTTING RULES (avoid these common mistakes):
   leave them inside the property blob. A flat owns an UNDIVIDED SHARE (UDS) of
   land: put the share in extent undivided_share and the larger parcel it is carved
   from in extent uds_parent_extent; the flat's own area is built_up_area.
+  CRITICAL for flats: the parent-plot / Schedule-A land extent (e.g. "Plot No.3
+  measuring an extent of 2257 sq.ft") is the UDS PARENT — record it ONLY in
+  uds_parent_extent. NEVER put it in total_area or extent_sqft, and never emit a
+  separate extent for it: a flat's headline area is its built_up_area, not the
+  whole plot it sits on. total_area/extent_sqft describe the property's OWN land
+  (vacant land / a house plot), so a flat generally has neither.
 - "Admeasuring ... Northern/Southern/Eastern/Western Side N Feet" gives the
   per-side boundary MEASUREMENT (the dimension) — put N Feet in boundary
   measurement, distinct from adjacency (what abuts that side, e.g. a road/plot).

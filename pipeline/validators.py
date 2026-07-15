@@ -165,6 +165,8 @@ def validate(extractions, source_text: str = "") -> dict:
     sec: dict = {}
     ungrounded = nullvals = 0
     invalid_kinds: set = set()
+    uds_parent: dict = {}   # lot_index -> {parent-extent nums}
+    own_area: dict = {}     # lot_index -> {total_area/extent_sqft nums}
 
     for e in extractions:
         a = e.attributes or {}
@@ -197,6 +199,14 @@ def validate(extractions, source_text: str = "") -> dict:
                 reserves[li] = r
             if m is not None:
                 emds[li] = m
+        elif c == "extent":
+            p = _num(a.get("uds_parent_extent"))
+            if p is not None:
+                uds_parent.setdefault(li, set()).add(round(p, 2))
+            for k in ("total_area", "extent_sqft"):
+                v = _num(a.get(k))
+                if v is not None:
+                    own_area.setdefault(li, set()).add(round(v, 2))
 
     # ── core completeness ────────────────────────────────────────────────────
     if not classes.get("secured_creditor"):
@@ -234,6 +244,16 @@ def validate(extractions, source_text: str = "") -> dict:
         if m and r and not (_EMD_LO <= m / r <= _EMD_HI):
             flag("emd_ratio_off", "low",
                  f"lot {li} emd/reserve={m / r:.2f} (expect ~0.10)")
+    # A flat's UDS parent-plot extent must live ONLY in uds_parent_extent — never
+    # be echoed as the property's own area. Overlap means the whole plot got
+    # recorded as the flat's size (e.g. a 760 sq.ft flat shown as 2257 sq.ft).
+    for li, parents in uds_parent.items():
+        overlap = parents & own_area.get(li, set())
+        if overlap:
+            flag("uds_parent_as_own_area", "med",
+                 f"lot {li}: UDS parent extent {sorted(overlap)} also recorded as "
+                 f"the property's own area (total_area/extent_sqft) — for a flat "
+                 f"that value belongs only in uds_parent_extent")
 
     # ── multi-lot recall heuristic ───────────────────────────────────────────
     if source_text:
