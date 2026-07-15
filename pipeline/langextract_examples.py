@@ -69,12 +69,22 @@ entities using EXACTLY these extraction classes (one span each, copied VERBATIM)
   title_deed_holder, branch_of_lot, address (full property address as written,
   when the notice states one), encumbrance (disclosed charges/dues, e.g. "Nil"
   or a specific charge), lot_index.
-- full_description : the COMPLETE property-description block for ONE lot, copied
-  verbatim as a SINGLE span — preamble + all items/schedules + boundaries +
-  trailing structural / registration detail, with section labels preserved.
-  EXCLUDE terms-of-sale boilerplate (price, EMD, dates, "as is where is"). This
-  span deliberately OVERLAPS the granular property/location/extent/boundary spans
-  (it is their union) — emit BOTH the block and the granular spans. attrs: lot_index.
+- full_description : the SINGLE SOURCE OF TRUTH for one lot's property — the
+  COMPLETE description block, copied verbatim as ONE span, from which every
+  descriptive field below must be derivable. It MUST contain, when the notice
+  states them: the property-type phrase; EVERY survey/plot/patta/flat/door/
+  identifier number; the village, taluk and district (and any registration
+  district / sub-district); the extent/area; ALL FOUR boundaries AND their
+  per-side measurements; and any other descriptive detail (title holder,
+  possession, encumbrance, schedules/items). Do NOT stop at the survey numbers —
+  run the span through to the end of the boundary/registration text. Copy it
+  verbatim with section labels preserved; EXCLUDE only terms-of-sale boilerplate
+  (price, EMD, dates, "as is where is"). This span deliberately OVERLAPS the
+  granular property/location/extent/boundary/identifier spans (it is their
+  UNION, so each of those must fall INSIDE it) — emit BOTH the block and the
+  granular spans. Classification attrs (asset_category, a normalised
+  property_type) are inferred FROM this text, not required to appear verbatim.
+  attrs: lot_index.
 - location         : the "Situated At ..." span. attrs: village, taluk, district,
   city, state, area, panchayat, municipality_corporation, ward_no, hobli,
   registration_district, registration_sub_district, landmark, latitude, longitude,
@@ -150,6 +160,12 @@ SLOTTING RULES (avoid these common mistakes):
   leave them inside the property blob. A flat owns an UNDIVIDED SHARE (UDS) of
   land: put the share in extent undivided_share and the larger parcel it is carved
   from in extent uds_parent_extent; the flat's own area is built_up_area.
+  CRITICAL for flats: the parent-plot / Schedule-A land extent (e.g. "Plot No.3
+  measuring an extent of 2257 sq.ft") is the UDS PARENT — record it ONLY in
+  uds_parent_extent. NEVER put it in total_area or extent_sqft, and never emit a
+  separate extent for it: a flat's headline area is its built_up_area, not the
+  whole plot it sits on. total_area/extent_sqft describe the property's OWN land
+  (vacant land / a house plot), so a flat generally has neither.
 - "Admeasuring ... Northern/Southern/Eastern/Western Side N Feet" gives the
   per-side boundary MEASUREMENT (the dimension) — put N Feet in boundary
   measurement, distinct from adjacency (what abuts that side, e.g. a road/plot).

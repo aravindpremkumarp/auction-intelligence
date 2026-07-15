@@ -115,8 +115,12 @@ def _validate_persisted(entities: list[dict], md: str) -> dict:
     from types import SimpleNamespace
     shims = [SimpleNamespace(
         extraction_class=e.get("cls"),
+        extraction_text=e.get("text") or "",
         attributes=e.get("attrs") or {},
-        char_interval=None if e.get("start") is None else SimpleNamespace(),
+        # Carry char positions + text so full_description_coverage can check each
+        # descriptive detail is derivable from its lot's full_description.
+        char_interval=None if e.get("start") is None else SimpleNamespace(
+            start_pos=e.get("start"), end_pos=e.get("end")),
     ) for e in entities]
     return validate(shims, source_text=md)
 
