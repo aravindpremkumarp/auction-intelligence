@@ -59,6 +59,10 @@ class ExtractionReviewOut(BaseModel):
     public_url: str | None = None
     doc_type: str | None = None  # "image" | "pdf" | "other"
     content_type: str | None = None
+    # True when the markdown was re-ingested AFTER this extraction ran, so the
+    # stored fields (and their char offsets) no longer match the source text —
+    # the reviewer should re-run LangExtract (load_extractions --filename --force).
+    stale: bool = False
     fields: list[ExtractionField] = []
 
 
@@ -75,6 +79,8 @@ class ExtractionQueueRow(BaseModel):
     # load_extractions.py invocation shares this number (rendered "B7" in the UI).
     # None for rows extracted before batches were tracked.
     extraction_batch: int | None = None
+    # Markdown re-ingested after this extraction ran -> a re-run is required.
+    stale: bool = False
 
 
 class ExtractionQueueOut(BaseModel):
@@ -96,6 +102,22 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def extraction_stale(md_reextracted_at: str | None, md_loaded_at: str | None,
+                     extraction_at: str | None) -> bool:
+    """True when the markdown changed after LangExtract last ran on it.
+
+    Re-ingest stamps one of two markers depending on the path — a full MinerU
+    re-ingest sets ``markdown_loaded_at``, a single-block re-OCR sets
+    ``markdown_reextracted_at`` — so the extraction is stale when EITHER is newer
+    than ``extraction_at``. All three are Neo4j datetimes rendered as ISO-8601
+    UTC strings, which compare correctly lexicographically. Unknown extraction
+    time (legacy rows) -> not stale (nothing to compare against)."""
+    if not extraction_at:
+        return False
+    return any(t and t > extraction_at
+               for t in (md_reextracted_at, md_loaded_at))
+
+
 # ── query helpers (kept here so queries.py is untouched) ──────────────────────
 def get_extraction(filename: str) -> dict | None:
     rows = run_read_query(
@@ -111,7 +133,10 @@ def get_extraction(filename: str) -> dict | None:
                toString(d.extraction_verified_at)           AS verified_at,
                d.public_url                                 AS public_url,
                d.doc_type                                   AS doc_type,
-               d.content_type                               AS content_type
+               d.content_type                               AS content_type,
+               toString(d.extraction_at)                    AS extraction_at,
+               toString(d.markdown_reextracted_at)          AS markdown_reextracted_at,
+               toString(d.markdown_loaded_at)               AS markdown_loaded_at
         LIMIT 1
         """,
         {"fn": filename},
@@ -138,6 +163,8 @@ def list_extraction_queue(status: str | None, limit: int,
         RETURN d.filename AS filename,
                coalesce(d.extraction_review_status,'pending') AS status,
                toString(d.extraction_at) AS extraction_at,
+               toString(d.markdown_reextracted_at) AS markdown_reextracted_at,
+               toString(d.markdown_loaded_at) AS markdown_loaded_at,
                d.extraction_batch AS extraction_batch,
                d.extraction_json AS extraction_json
         ORDER BY {order}
@@ -244,7 +271,10 @@ def extraction_queue(
             filename=r["filename"], status=r["status"], n_fields=len(ents),
             n_ungrounded=sum(1 for e in ents if e.get("start") is None),
             extraction_at=r.get("extraction_at"),
-            extraction_batch=int(b) if b is not None else None))
+            extraction_batch=int(b) if b is not None else None,
+            stale=extraction_stale(r.get("markdown_reextracted_at"),
+                                   r.get("markdown_loaded_at"),
+                                   r.get("extraction_at"))))
     return ExtractionQueueOut(rows=out, total=len(out))
 
 
@@ -262,6 +292,9 @@ def extraction_detail(
         verified_by=row.get("verified_by"), verified_at=row.get("verified_at"),
         public_url=row.get("public_url"), doc_type=row.get("doc_type"),
         content_type=row.get("content_type"),
+        stale=extraction_stale(row.get("markdown_reextracted_at"),
+                               row.get("markdown_loaded_at"),
+                               row.get("extraction_at")),
         fields=_build_fields(row["extraction_json"], row["corrections_json"]),
     )
 
