@@ -488,7 +488,7 @@ nodes: [
   { id:'seo-landing', lane:'channels', label:'SEO landing pages', type:'channel', status:'live',
     sub:'13 pages · chennai + kanchipuram',
     progress:{ pct:4, label:'2 of 49 cities covered' },
-    summary:'/bank-auctions/** — city hubs + 5 property-type pages per city, generated from the graph with live counts, reserve ranges and bank mix. BreadcrumbList + ItemList JSON-LD. Thin-content gate: ≥5 listings per page.',
+    summary:'/bank-auctions/** — city hubs + 5 property-type pages per city, generated from the graph with live counts, reserve ranges and bank mix. BreadcrumbList + ItemList JSON-LD. Thin-content gate: ≥5 listings per page. Sitemap carries a per-URL <lastmod> (git date) so only changed pages get recrawled.',
     next:['Expand to Coimbatore · Salem · Madurai (workflow default is ready).'],
     links:[{t:'web/bank-auctions/', h: TREE+'web/bank-auctions'},{t:'live: chennai hub', h:'https://www.auctionscope.in/bank-auctions/chennai/'}], prs:[295] },
   { id:'ssr', lane:'channels', label:'property pages — SSR pilot', type:'channel', status:'live',
@@ -661,6 +661,7 @@ risks: [
 
 changelog: [
   { d:'2026-07-16', items:[
+    { t:'SEO sitemap: per-URL <lastmod> (git commit date, build-date fallback) so Google gets a real recrawl signal on the landing + property pages' },
     { t:'marketing plan: full 47-skill coverage table — every marketingskills skill mapped active/staged/held/N/A' },
     { t:'marketing dashboard v1 — this file becomes the living source of truth' },
     { t:'card improvements: cleaner design + PNG auto-render in the workflow', pr:302 },
