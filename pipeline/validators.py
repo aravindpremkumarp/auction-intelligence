@@ -19,7 +19,14 @@ import re
 from pathlib import Path
 
 # Penalty (0-100 scale) per severity; score = 100 - sum(penalties), floored at 0.
-_PENALTY = {"high": 25, "med": 10, "low": 4}
+# The priority fields a reviewer weights most — full_description, property_type,
+# possession, extent, UDS, borrower, reserve price (the fields that make a lot
+# usable and confirm it's a real lot) — carry the top tiers (critical/high).
+_PENALTY = {"critical": 30, "high": 20, "med": 10, "low": 4}
+# Valid committed possession values (Option A: penalise only present-but-invalid;
+# a blank possession is often correct — the "Constructive/Symbolic/Physical"
+# disjunction has no single answer — so absence is NOT penalised).
+_POSSESSION_VALID = {"physical", "symbolic", "constructive"}
 
 # ── identifier-kind normalization ────────────────────────────────────────────
 # The prompt instructs an exact enum for identifier `kind`, but models sometimes
@@ -167,6 +174,12 @@ def validate(extractions, source_text: str = "") -> dict:
     invalid_kinds: set = set()
     uds_parent: dict = {}   # lot_index -> {parent-extent nums}
     own_area: dict = {}     # lot_index -> {total_area/extent_sqft nums}
+    prop_lots: set = set()          # lots with a property entity
+    prop_type: dict = {}            # lot_index -> property_type
+    possession: dict = {}           # lot_index -> possession_type value
+    extent_lots: set = set()        # lots with any extent entity
+    uds_lots: set = set()           # lots whose extent carries an undivided_share
+    borrower_lots: set = set()      # lots with a borrower
 
     for e in extractions:
         a = e.attributes or {}
@@ -200,6 +213,9 @@ def validate(extractions, source_text: str = "") -> dict:
             if m is not None:
                 emds[li] = m
         elif c == "extent":
+            extent_lots.add(li)
+            if a.get("undivided_share"):
+                uds_lots.add(li)
             p = _num(a.get("uds_parent_extent"))
             if p is not None:
                 uds_parent.setdefault(li, set()).add(round(p, 2))
@@ -207,18 +223,58 @@ def validate(extractions, source_text: str = "") -> dict:
                 v = _num(a.get(k))
                 if v is not None:
                     own_area.setdefault(li, set()).add(round(v, 2))
+        elif c == "property":
+            prop_lots.add(li)
+            if a.get("property_type"):
+                prop_type[li] = a["property_type"]
+            if a.get("possession_type"):
+                possession[li] = a["possession_type"]
+        elif c == "borrower":
+            borrower_lots.add(li)
 
     # ── core completeness ────────────────────────────────────────────────────
     if not classes.get("secured_creditor"):
         flag("missing_secured_creditor", "high", "no secured_creditor entity")
     if not classes.get("borrower"):
-        flag("missing_borrower", "high", "no borrower entity")
+        flag("missing_borrower", "high", "no borrower entity")   # lot anchor
     if not classes.get("location"):
         flag("missing_location", "med", "no location entity")
     if not reserves:
-        flag("missing_reserve_price", "high", "no reserve_price_num in any auction_terms")
+        flag("missing_reserve_price", "high",                    # lot anchor
+             "no reserve_price_num in any auction_terms")
     if not classes.get("extent"):
-        flag("missing_extent", "low", "no extent entity")
+        flag("missing_extent", "high", "no extent entity")       # priority field
+
+    # ── priority fields (reviewer-weighted) ──────────────────────────────────
+    # property_type: high — a property block with no type is barely usable.
+    no_type = sorted(li for li in prop_lots if not prop_type.get(li))
+    if no_type:
+        flag("missing_property_type", "high",
+             f"property lot(s) {no_type} have no property_type")
+    # possession_type: high, but only when PRESENT and invalid (Option A).
+    bad_poss = sorted(li for li, p in possession.items()
+                      if str(p).strip().lower() not in _POSSESSION_VALID)
+    if bad_poss:
+        flag("possession_type_invalid", "high",
+             f"lot(s) {bad_poss} possession_type not one of {sorted(_POSSESSION_VALID)}")
+    # UDS: a flat owns an undivided share of land — high when it's missing.
+    flat_no_uds = sorted(li for li in prop_lots
+                         if "flat" in str(prop_type.get(li, "")).lower()
+                         and li not in uds_lots)
+    if flat_no_uds:
+        flag("missing_uds", "high",
+             f"flat lot(s) {flat_no_uds} have no undivided_share (UDS) extent")
+    # Lot anchors on a MULTI notice: every property lot needs its own reserve +
+    # borrower, else a lot isn't fully captured. Count-based (robust to lot_index
+    # mis-tagging): fewer anchors than property lots -> a lot is missing one.
+    n_prop_lots = len(prop_lots)
+    if n_prop_lots > 1:
+        if len(reserves) < n_prop_lots:
+            flag("lot_missing_reserve", "high",
+                 f"{n_prop_lots} property lots but only {len(reserves)} reserve price(s)")
+        if len(borrower_lots) < n_prop_lots:
+            flag("lot_missing_borrower", "high",
+                 f"{n_prop_lots} property lots but only {len(borrower_lots)} with a borrower")
 
     # ── grounding / cleanliness ──────────────────────────────────────────────
     if ungrounded:
@@ -250,7 +306,7 @@ def validate(extractions, source_text: str = "") -> dict:
     for li, parents in uds_parent.items():
         overlap = parents & own_area.get(li, set())
         if overlap:
-            flag("uds_parent_as_own_area", "med",
+            flag("uds_parent_as_own_area", "high",
                  f"lot {li}: UDS parent extent {sorted(overlap)} also recorded as "
                  f"the property's own area (total_area/extent_sqft) — for a flat "
                  f"that value belongs only in uds_parent_extent")
@@ -263,15 +319,15 @@ def validate(extractions, source_text: str = "") -> dict:
             flag("lot_under_recall", "med",
                  f"{markers} lot markers in source but only {len(lots)} lot(s) extracted")
 
-    # ── full_description completeness (source-of-truth invariant) ─────────────
+    # ── full_description completeness (the single most-weighted field) ────────
     cov = full_description_coverage(extractions)
     if cov["lots_missing_full_description"]:
-        flag("missing_full_description", "med",
+        flag("missing_full_description", "critical",
              f"lot(s) {cov['lots_missing_full_description']} have property details "
              f"but no full_description block")
     if cov["lots_incomplete"]:
         detail = "; ".join(f"lot {li}: {cls}" for li, cls in cov["lots_incomplete"].items())
-        flag("full_description_incomplete", "med",
+        flag("full_description_incomplete", "high",
              f"full_description does not cover all descriptive spans ({detail})")
 
     score = max(0, 100 - sum(_PENALTY[i["severity"]] for i in issues))
