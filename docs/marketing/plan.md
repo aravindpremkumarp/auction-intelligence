@@ -343,12 +343,67 @@ A single founder + the 47-skill marketing library + a few MCP/API connections ca
 ### Skills mapped to AARRR
 | Stage | Primary skills | Supporting |
 |---|---|---|
-| Acquisition | `programmatic-seo`, `seo-audit`, `schema`, `content-strategy`, `copywriting` | `ai-seo`, `site-architecture`, `competitors`, `social`, `image`, `video`, `ad-creative`, `directory-submissions`, `launch` |
-| Activation | `onboarding`, `cro`, `copywriting` | `signup`, `popups`, `analytics`, `ab-testing` |
+| Acquisition | `programmatic-seo`, `seo-audit`, `schema`, `content-strategy`, `copywriting` | `ai-seo`, `site-architecture`, `competitors`, `competitor-profiling`, `copy-editing`, `social`, `image`, `video`, `ad-creative`, `directory-submissions`, `free-tools`, `public-relations`, `launch` |
+| Activation | `onboarding`, `cro`, `copywriting` | `signup`, `popups`, `lead-magnets`, `analytics`, `ab-testing` |
 | Retention | `emails`, `churn-prevention` | `sms`, `copywriting` |
-| Referral | `referrals` | `social`, `emails` |
-| Revenue | `pricing`, `paywalls` | `ab-testing` |
-| Cross-cutting | `product-marketing`, `analytics`, `marketing-plan` | `customer-research`, `marketing-ideas`, `marketing-council`, `marketing-loops` |
+| Referral | `referrals` | `social`, `emails`, `community-marketing`, `co-marketing` |
+| Revenue | `pricing`, `paywalls`, `offers` | `ab-testing` |
+| Cross-cutting | `product-marketing`, `analytics`, `marketing-plan` | `customer-research`, `marketing-psychology`, `marketing-ideas`, `marketing-council`, `marketing-loops` |
+
+### Full skill coverage (all 47 marketing skills accounted for)
+Every skill in the `coreyhaines31/marketingskills` pack, with an honest status. **Active** = in use now (Q1). **Staged** = planned for a later quarter. **Held** = fits, but gated on budget. **N/A** = deliberately out of scope for a B2C, self-serve, bootstrapped product (kept here so nothing is silently omitted).
+
+| Skill | Status | Role in this plan |
+|---|---|---|
+| `product-marketing` | Active | Foundation — `.agents/product-marketing.md` (positioning/ICP/voice) that every skill reads first |
+| `marketing-plan` | Active | This document |
+| `marketing-ideas` | Active | §12 tactical idea bank (139-idea library, filtered) |
+| `marketing-loops` | Active | Scheduled content/report agents (`content-agents.md`) |
+| `marketing-council` | Active | Cross-cutting strategy review cadence |
+| `marketing-psychology` | Active | Backs copy + CRO with buyer psychology (trust-sensitive, deadline-driven) |
+| `customer-research` | Active | Proof-point + verbatim-language gathering (§13 open decision #4) |
+| `analytics` | Active | Week-1 instrumentation — GA4/GTM funnel |
+| `seo-audit` | Active | Crawlability audit — Acquisition Move 1 |
+| `site-architecture` | Active | URL/internal-linking structure for programmatic pages |
+| `programmatic-seo` | Active | The growth engine — pages off the graph (Move 2) |
+| `schema` | Active | Structured data on landing pages |
+| `content-strategy` | Active | Educational content plan (Move 3) |
+| `copywriting` | Active | Above-the-fold + page copy around the evaluation feature |
+| `copy-editing` | Active | Refresh/tighten existing app + page copy |
+| `competitors` | Active | Comparison / alternative pages |
+| `competitor-profiling` | Active | Research input feeding `competitors` (IBAPI, BAANKNET, etc.) |
+| `cro` | Active | Conversion optimization on key pages/forms |
+| `signup` | Active | One-click registration (idea #90) |
+| `onboarding` | Active | First-search activation |
+| `popups` | Active | Auction-alert email capture |
+| `lead-magnets` | Active | The "auction alerts" email list as the top-of-funnel magnet |
+| `emails` | Active | Lifecycle + alerts sequences |
+| `social` | Active | HyperFrames-powered social engine (Move 7) |
+| `image` | Active | Social/OG creative from auction data |
+| `video` | Active | Short-form deal + evaluate reels (idea #42) |
+| `referrals` | Staged Q2 | Two-sided Pro-days referral (idea #137) |
+| `offers` | Staged Q2 | Frame the ₹499 Pro offer + annual option (§13 decision #5) |
+| `pricing` | Staged Q2 | Pricing structure test — annual + value surfacing |
+| `paywalls` | Staged Q2 | Limit-reached → upgrade prompt |
+| `ab-testing` | Staged Q2 | Experiment layer once analytics is live |
+| `churn-prevention` | Staged Q2+ | Win-back / reactivation |
+| `sms` | Staged Q2+ | Deadline alerts channel (secondary to email) |
+| `ai-seo` | Staged Q3 | `llms.txt` + answer-shaped content for AI citations (Move 5) |
+| `launch` | Staged Q3 | Product Hunt / milestone launch moment |
+| `public-relations` | Staged Q3 | HARO — founder as auction/locality source (idea #59) |
+| `free-tools` | Staged Q3 | Engineering-as-marketing — "is this reserve fair?" / EMI calculator (idea #15) |
+| `community-marketing` | Staged Q2+ | Where buyers already ask (Quora/Reddit/WhatsApp) |
+| `co-marketing` | Staged Q3+ | Partner distribution with property/finance sites |
+| `directory-submissions` | Staged | Startup/AI directories at volume (post-seed) |
+| `ad-creative` | Held | Paid creative — gated on ad budget |
+| `ads` | Held | Paid acquisition — held for budget, revisited Q4 on LTV:CAC |
+| `aso` | N/A | No mobile app — web-only product |
+| `cold-email` | N/A | B2C retail buyers, not B2B outbound |
+| `prospecting` | N/A | B2B outbound motion — not applicable to self-serve |
+| `revops` | N/A | B2B revenue-operations tooling — no sales team |
+| `sales-enablement` | N/A | B2B sales-led collateral — self-serve product |
+
+**Coverage:** 26 Active · 14 Staged · 2 Held · 5 N/A = 47/47. The N/A set is deliberate: they encode a B2B/mobile motion this product doesn't run.
 
 ### A concrete example
 `/product-marketing` auto-drafted the positioning/ICP/voice context from the codebase in one pass; then a ground-truth audit (Neo4j MCP + code) corrected the numbers and stripped the over-promise before any copy shipped. That's the stack working: generate fast, verify against source, keep it honest.
