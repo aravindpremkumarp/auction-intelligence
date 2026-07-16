@@ -27,7 +27,8 @@ import pathlib
 import re
 import sys
 
-from playwright.sync_api import sync_playwright
+# playwright is imported lazily inside render() so the module stays importable
+# (for tests / --render-staged manifest logic) without the browser dep.
 
 ROOT = pathlib.Path(__file__).resolve().parent
 TEMPLATES = ROOT / "templates"
@@ -52,7 +53,8 @@ def chromium_path() -> str | None:
     return cands[0] if cands else None
 
 
-def render(template: str, data_file: str | None, out_dir: pathlib.Path) -> list[pathlib.Path]:
+def render(template: str, data_file: str | None, out_dir: pathlib.Path,
+           out_name: str | None = None) -> list[pathlib.Path]:
     src = TEMPLATES / f"{template}.html"
     if not src.exists():
         sys.exit(f"unknown template: {template} ({src} missing)")
@@ -75,6 +77,8 @@ def render(template: str, data_file: str | None, out_dir: pathlib.Path) -> list[
 
     written: list[pathlib.Path] = []
 
+    from playwright.sync_api import sync_playwright  # lazy: only needed to render
+
     with sync_playwright() as p:
         exe = chromium_path()
         browser = p.chromium.launch(**({"executable_path": exe} if exe else {}))
@@ -87,7 +91,10 @@ def render(template: str, data_file: str | None, out_dir: pathlib.Path) -> list[
             sys.exit(f"{template}: no .stage elements to screenshot")
         multi = len(stages) > 1
         for i, stage in enumerate(stages, start=1):
-            name = f"{template}_{i:02d}.png" if multi else f"{template}.png"
+            if out_name and not multi:
+                name = out_name                                  # caller-chosen unique name
+            else:
+                name = f"{template}_{i:02d}.png" if multi else f"{template}.png"
             path = out_dir / name
             stage.scroll_into_view_if_needed()
             stage.screenshot(path=str(path))
@@ -100,13 +107,41 @@ def render(template: str, data_file: str | None, out_dir: pathlib.Path) -> list[
     return written
 
 
+def render_staged(date_dir: pathlib.Path) -> list[pathlib.Path]:
+    """Render every card the Poster staged for one run to a UNIQUE PNG.
+
+    Reads the `cards` manifest from <date_dir>/drafts.json (each row carries
+    its template + data-island path + auction_id) and renders each into
+    <date_dir>/rendered/card-<NN>-<id>.png. This is what the content-poster
+    workflow calls so finished card images ship with every run — no per-card
+    command, no filename collisions (plain --template writes one file per
+    template and would overwrite same-template cards)."""
+    manifest = json.loads((date_dir / "drafts.json").read_text(encoding="utf-8"))
+    cards = manifest.get("cards", [])
+    out_dir = date_dir / "rendered"
+    written: list[pathlib.Path] = []
+    for c in cards:
+        data = date_dir / c["data"]                              # cards/NN-id.json
+        name = f"card-{c['draft_index']:02d}-{c['auction_id']}.png"
+        written += render(c["template"], str(data), out_dir, out_name=name)
+    if not cards:
+        print("no staged cards to render")
+    return written
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--template", help="template name (default: all static templates)")
     ap.add_argument("--data", help="JSON file replacing the template's #data island")
     ap.add_argument("--out", default=str(ROOT / "outputs" / "social"),
                     help="output directory (default: marketing/outputs/social)")
+    ap.add_argument("--render-staged", metavar="DATE_DIR",
+                    help="render every card staged in DATE_DIR/drafts.json to DATE_DIR/rendered/")
     args = ap.parse_args()
+
+    if args.render_staged:
+        render_staged(pathlib.Path(args.render_staged))
+        return
 
     names = [args.template] if args.template else STATIC_TEMPLATES
     if args.template and args.template not in STATIC_TEMPLATES:

@@ -527,9 +527,9 @@ ANGLE_TEMPLATE = {
     "price_drop": ("price-drop-1080x1350",
                    "Both prices from the bank's auction notices — earlier listing vs current re-auction."),
     "closing_soon": ("deal-of-the-day-1080",
-                     "Reserve, EMD and date from the bank's auction notice."),
+                     "Reserve and date from the bank's auction notice."),
     "cheapest": ("deal-of-the-day-1080",
-                 "Reserve, EMD and date from the bank's auction notice."),
+                 "Reserve and date from the bank's auction notice."),
 }
 
 _MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -569,14 +569,19 @@ def draft_to_island(draft: dict) -> tuple[str, dict] | None:
     template, source_line = tpl
     s = draft.get("source") or {}
     headline = (draft.get("image_headline") or "").strip()
+    # Sub-line = the specific locality (area), shown only when it adds detail
+    # beyond the eyebrow's city; blank otherwise (the template hides an empty
+    # .title). We deliberately do NOT use the raw auction title here — it leads
+    # with the bank and repeats the type/city already in the eyebrow.
+    area = (s.get("area") or "").strip()
+    city = (s.get("city") or "").strip()
+    locality = area if area and area.lower() != city.lower() else ""
     island: dict = {
         "headline": headline,          # the hook, burned onto the card
-        "title": s.get("title") or "",
-        "city": s.get("city") or "",
+        "title": locality,             # specific locality, or "" → hidden
+        "city": city,
         "asset_type": _asset_type(s),
-        "bank": s.get("bank") or "",
         "reserve_price": s.get("reserve_price"),
-        "emd": s.get("emd"),           # None → template hides the EMD chip
         "auction_date": _card_date(s.get("auction_start")),
         "source_line": source_line,
     }
