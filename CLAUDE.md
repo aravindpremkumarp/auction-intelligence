@@ -39,6 +39,27 @@ output; they do not apply to code, which must always be complete and correct.
 - Long-running or multi-step work → outcome first, then only the findings
   that affect what happens next.
 
+## Marketing dashboard (living)
+
+`marketing/dashboard.html` is the single source of truth for marketing-system
+state — a self-contained page (open it in any browser) rendering an
+interactive graph of channels, agents, workflows, KPIs, roadmap and changelog.
+
+Any PR that changes marketing — new channel/workflow/campaign, milestone
+shipped, KPI or roadmap movement, strategy change — MUST update it in the
+same PR:
+
+1. Edit only the `MARKETING_DATA` block in that file (`nodes` / `edges` /
+   `kpis` / `pillars` / `roadmap` / `metrics` / `risks`).
+2. Prepend a `changelog` entry and bump `meta.updated`.
+3. The renderer below the data block is generic — never edit it for content
+   changes; new nodes/lanes/edges lay out automatically.
+4. Verify: open the file in a browser (or Playwright-screenshot it) — no
+   console errors, graph renders, a node click opens the panel.
+
+Keep the data honest: statuses are live / building / ready / planned / held,
+and numbers are never invented (same rule as the copy playbook).
+
 ## Skill routing
 
 When the user's request matches an available skill, invoke it via the Skill tool. The
