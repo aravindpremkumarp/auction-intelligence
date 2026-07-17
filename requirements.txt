@@ -52,3 +52,10 @@ email-validator>=2.1,<3
 
 # Web search
 tavily-python>=0.5,<1.0
+
+# R2 archival — the OCR pipeline archives MinerU zips/images to Cloudflare R2
+# via its S3-compatible API (see pipeline/storage.py). boto3 is imported
+# lazily, so the API only pays the import cost when an archive actually runs,
+# but the package must be installed in prod or the upload silently fails with
+# ModuleNotFoundError. The R2_* env vars are set in render.yaml.
+boto3>=1.34,<2
