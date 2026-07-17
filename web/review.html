@@ -1295,6 +1295,19 @@
     return `<span class="pill ${cls}">score ${score}</span>`;
   }
 
+  // Intrinsic OCR-health verdict (pipeline/ocr_health.py): flags name the
+  // failure mode (repetition / token-leak / truncated) so a reviewer knows
+  // to re-OCR (e.g. with a crop) rather than hand-fix the text. Unlike
+  // `score` (coverage vs the scraped website description), this judges the
+  // image→markdown step itself.
+  function healthPill(row) {
+    const flags = row.ocr_health_flags;
+    if (flags == null) return '';                       // not yet scored
+    if (!flags.length) return '<span class="pill good" title="no OCR failure artifacts detected">ocr ✓</span>';
+    const label = flags.join(' + ');
+    return `<span class="pill danger" title="OCR failure artifacts detected (health ${row.ocr_health_score ?? '?'}): ${escapeHtml(label)} — consider a crop + re-ingest">ocr: ${escapeHtml(label)}</span>`;
+  }
+
   function mdStatusPill(row) {
     if (!row.verified) return '<span class="pill warn">pending</span>';
     if (row.quality === 'bad') return '<span class="pill danger">bad</span>';
@@ -1397,7 +1410,7 @@
     const summary = document.createElement('summary');
     summary.innerHTML = `
       <span class="nfile">${escapeHtml(filename)}</span>
-      ${typeBadge} ${scorePill(row.score)} ${mdStatusPill(row)} ${reextractedBadge} ${precleanBadge}
+      ${typeBadge} ${scorePill(row.score)} ${healthPill(row)} ${mdStatusPill(row)} ${reextractedBadge} ${precleanBadge}
       ${props} ${hlPill} ${len}
       <span class="nspacer"></span>
       <span class="nlinks">${annotateLink} ${openLink}</span>
