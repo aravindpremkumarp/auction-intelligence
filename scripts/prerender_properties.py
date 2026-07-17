@@ -31,7 +31,8 @@ live inventory immediately instead of waiting on the enrichment backlog.
 Usage:
     python -m scripts.prerender_properties --city Chennai --city Kanchipuram
     python -m scripts.prerender_properties --city Chennai --limit 10 --dry-run
-    python -m scripts.prerender_properties --all --limit 500   # full run, later
+    python -m scripts.prerender_properties --all            # every live auction, all cities
+    python -m scripts.prerender_properties --all --limit 200  # global safety cap
 """
 from __future__ import annotations
 
@@ -109,6 +110,33 @@ def iter_candidates(client: httpx.Client, city: str):
     while True:
         data = fetch_json(client, "/properties", {
             "district": city, "sort": "upcoming", "limit": _PAGE_SIZE, "offset": offset,
+        })
+        results = data.get("results", [])
+        if not results:
+            return
+        yield from results
+        offset += _PAGE_SIZE
+        if offset >= data.get("total", 0):
+            return
+        time.sleep(REQUEST_INTERVAL_S)
+
+
+def iter_all_live_candidates(client: httpx.Client):
+    """Every LIVE auction across all districts, paginated, soonest-first.
+
+    `date_from=now` filters to auctions whose auction_start_dt is still in the
+    future (the same live-only filter build_landing_pages uses); omitting
+    `district` spans all of Tamil Nadu, not just the pilot cities. This is what
+    `--all` walks: the full live inventory, so every upcoming auction with real
+    content gets a crawlable page — not a per-city sample.
+    """
+    from datetime import datetime, timezone
+    now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+    offset = 0
+    while True:
+        data = fetch_json(client, "/properties", {
+            "sort": "upcoming", "date_from": now_iso,
+            "limit": _PAGE_SIZE, "offset": offset,
         })
         results = data.get("results", [])
         if not results:
@@ -269,58 +297,75 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--city", action="append", default=[],
                          help="Pilot city to prerender (repeatable). Defaults to Chennai + Kanchipuram.")
-    parser.add_argument("--limit", type=int, default=25, help="Max properties per city.")
+    parser.add_argument("--limit", type=int, default=None,
+                         help="Max pages. Per-city default: 25. In --all mode a global cap; "
+                              "omit or pass 0 for unbounded (every live auction).")
     parser.add_argument("--all", action="store_true",
-                         help="Ignore --city; use every city seen live (full run — use once the pilot is validated).")
+                         help="Prerender ALL live inventory across every district (not just "
+                              "--city). Cityless + live-only; see iter_all_live_candidates.")
     parser.add_argument("--dry-run", action="store_true", help="Don't write files, just report what would happen.")
     args = parser.parse_args(argv)
 
-    cities = args.city or ["Chennai", "Kanchipuram"]
     template = TEMPLATE_PATH.read_text(encoding="utf-8")
 
     generated: list[str] = []
-    skipped_incomplete = 0
-    skipped_error = 0
+    counts = {"incomplete": 0, "error": 0}
+
+    def emit(client: httpx.Client, row: dict) -> bool:
+        """Fetch detail, gate on real content, and write the page. Returns True
+        only when a page was generated (so callers can count successes)."""
+        auction_id = row["auction_id"]
+        time.sleep(REQUEST_INTERVAL_S)
+        detail = fetch_detail(client, auction_id)
+        if detail is None:
+            counts["error"] += 1
+            return False
+        fields = detail.get("fields", {})
+        rel = detail.get("relationships", {})
+        if len((fields.get("description") or "").strip()) < MIN_DESCRIPTION_LEN:
+            counts["incomplete"] += 1
+            return False
+        page = render_page(template, auction_id, fields, rel)
+        out_path = OUT_ROOT / auction_id / "index.html"
+        if args.dry_run:
+            print(f"  [dry-run] would write {out_path.relative_to(REPO_ROOT)}")
+        else:
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_text(page, encoding="utf-8")
+            print(f"  wrote {out_path.relative_to(REPO_ROOT)}")
+        generated.append(auction_id)
+        return True
 
     with httpx.Client() as client:
         if args.all:
-            stats = fetch_json(client, "/stats")
-            print(f"--all requested but city enumeration isn't wired yet "
-                  f"({stats.get('total_auctions')} total auctions) — falling back to --city list.",
-                  file=sys.stderr)
-        for city in cities:
-            print(f"== {city} ==")
-            found_for_city = 0
+            cap = args.limit if (args.limit and args.limit > 0) else None
+            print(f"== all live inventory (all districts)"
+                  f"{f', cap {cap}' if cap else ''} ==")
             checked = 0
-            for row in iter_candidates(client, city):
-                if found_for_city >= args.limit:
+            for row in iter_all_live_candidates(client):
+                if cap is not None and len(generated) >= cap:
+                    print(f"  reached cap {cap} — stopping (more live inventory remains)")
                     break
                 checked += 1
-                auction_id = row["auction_id"]
-                time.sleep(REQUEST_INTERVAL_S)
-                detail = fetch_detail(client, auction_id)
-                if detail is None:
-                    skipped_error += 1
-                    continue
-                fields = detail.get("fields", {})
-                rel = detail.get("relationships", {})
-                if len((fields.get("description") or "").strip()) < MIN_DESCRIPTION_LEN:
-                    skipped_incomplete += 1
-                    continue
-                page = render_page(template, auction_id, fields, rel)
-                out_path = OUT_ROOT / auction_id / "index.html"
-                if args.dry_run:
-                    print(f"  [dry-run] would write {out_path.relative_to(REPO_ROOT)}")
-                else:
-                    out_path.parent.mkdir(parents=True, exist_ok=True)
-                    out_path.write_text(page, encoding="utf-8")
-                    print(f"  wrote {out_path.relative_to(REPO_ROOT)}")
-                generated.append(auction_id)
-                found_for_city += 1
-            print(f"  {found_for_city}/{args.limit} found after checking {checked} candidates")
+                emit(client, row)
+            print(f"  {len(generated)} generated after checking {checked} live candidates")
+        else:
+            per_city = args.limit if (args.limit and args.limit > 0) else 25
+            cities = args.city or ["Chennai", "Kanchipuram"]
+            for city in cities:
+                print(f"== {city} ==")
+                found_for_city = 0
+                checked = 0
+                for row in iter_candidates(client, city):
+                    if found_for_city >= per_city:
+                        break
+                    checked += 1
+                    if emit(client, row):
+                        found_for_city += 1
+                print(f"  {found_for_city}/{per_city} found after checking {checked} candidates")
 
-    print(f"\n{len(generated)} pages generated, {skipped_incomplete} skipped "
-          f"(description too short), {skipped_error} skipped (fetch error)")
+    print(f"\n{len(generated)} pages generated, {counts['incomplete']} skipped "
+          f"(description too short), {counts['error']} skipped (fetch error)")
 
     if not args.dry_run and generated:
         # Shared builder scans the whole tree (property + landing pages), so a

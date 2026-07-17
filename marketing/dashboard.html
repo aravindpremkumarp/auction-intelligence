@@ -381,7 +381,7 @@ const PULL = GH + '/pull/';
 
 const MARKETING_DATA = {
 meta: {
-  updated: '2026-07-16',
+  updated: '2026-07-17',
   situation: 'pre-traction: ~7 registered users. the whole marketing engine was built in one sprint (jul 9–16, 2026) and is <b>human-gated end-to-end</b> — agents draft and stage, the founder reviews, merges and publishes. nothing auto-posts. north star (proposed): <b>weekly activated users</b> — ≥1 grounded search plus a value action.',
 },
 
@@ -494,8 +494,8 @@ nodes: [
   { id:'ssr', lane:'channels', label:'property pages — SSR pilot', type:'channel', status:'live',
     sub:'60 prerendered pages',
     summary:'/property/<id>/ — prerendered shells with real title/description/OG/canonical so Google can finally read the SPA\'s inventory. Includes closed auctions for re-auction search demand.',
-    next:['Add per-property RealEstateListing JSON-LD (move 3 is only partial).'],
-    links:[{t:'web/property/', h: TREE+'web/property'},{t:'sitemap.xml', h: BLOB+'web/sitemap.xml'}], prs:[294] },
+    next:['Dispatch seo-pages.yml with all_live=true to expand 60 → all live inventory (~600, every district) — only 60 of 2,434 auctions are crawlable today.','Add per-property RealEstateListing JSON-LD (move 3 is only partial).'],
+    links:[{t:'web/property/', h: TREE+'web/property'},{t:'sitemap.xml', h: BLOB+'web/sitemap.xml'},{t:'seo-pages.yml', h: BLOB+'.github/workflows/seo-pages.yml'}], prs:[294] },
   { id:'site', lane:'channels', label:'website — auctionscope.in', type:'channel', status:'live',
     summary:'The SPA on Vercel: chat search, browse, watchlist, alerts, billing. Landing carries the email-capture bar; GA4 + minimal cookie banner are wired.',
     links:[{t:'auctionscope.in', h:'https://www.auctionscope.in'},{t:'web/', h: TREE+'web'}], prs:[292] },
@@ -660,6 +660,9 @@ risks: [
 ],
 
 changelog: [
+  { d:'2026-07-17', items:[
+    { t:'SSR prerender: real --all mode (cityless, live-only) + seo-pages.yml all_live toggle — coverage can now expand from the 60-page pilot to every live auction across all districts (~600), not just Chennai/Kanchipuram' },
+  ]},
   { d:'2026-07-16', items:[
     { t:'SEO sitemap: per-URL <lastmod> (git commit date, build-date fallback) so Google gets a real recrawl signal on the landing + property pages' },
     { t:'marketing plan: full 47-skill coverage table — every marketingskills skill mapped active/staged/held/N/A' },
