@@ -10,8 +10,10 @@ name: Golden-question eval
 # EVAL_JUDGE_MODEL.
 
 on:
-  schedule:
-    - cron: "0 2 * * *"   # 02:00 UTC every day
+  # Nightly schedule paused — run manually via workflow_dispatch when needed.
+  # Re-enable by uncommenting the schedule block below.
+  # schedule:
+  #   - cron: "0 2 * * *"   # 02:00 UTC every day
   workflow_dispatch:
 
 jobs:

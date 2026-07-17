@@ -9,8 +9,10 @@ name: Golden-conversation eval
 # also triggerable manually. Same secrets as the single-turn golden eval.
 
 on:
-  schedule:
-    - cron: "30 2 * * *"   # 02:30 UTC every day (after the single-turn eval)
+  # Nightly schedule paused — run manually via workflow_dispatch when needed.
+  # Re-enable by uncommenting the schedule block below.
+  # schedule:
+  #   - cron: "30 2 * * *"   # 02:30 UTC every day (after the single-turn eval)
   workflow_dispatch:
 
 jobs:
