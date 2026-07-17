@@ -694,8 +694,8 @@ async def re_extract_block(filename: str, block_id: str,
         """,
         {"filename": filename, "by": by_email},
     )
-    # The reassembled markdown changed; refresh the coverage score so the
-    # queue counters reflect the new state. Best-effort.
+    # The reassembled markdown changed; refresh the coverage + OCR-health
+    # scores so the queue counters reflect the new state. Best-effort.
     fp = meta.get("file_path")
     if fp:
         try:
@@ -705,6 +705,14 @@ async def re_extract_block(filename: str, block_id: str,
             import logging
             logging.getLogger(__name__).exception(
                 "re-scoring after re-extract failed for %s", filename
+            )
+        try:
+            from pipeline.ocr_health import score_freshly_loaded as score_health
+            score_health([fp])
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception(
+                "OCR-health scoring after re-extract failed for %s", filename
             )
     return blk
 
@@ -1064,12 +1072,17 @@ def reingest_notice(filename: str, by_email: str) -> dict:
         blocks_raw=blocks_raw,
         mineru_zip_url=archive_meta.get("zip_url"),
     )
-    # Refresh the coverage score: the markdown just changed, so any prior
-    # `markdown_quality_score` is stale. Best-effort — a scoring failure
-    # must not undo the successful re-ingest.
+    # Refresh the coverage + OCR-health scores: the markdown just changed,
+    # so any prior verdict is stale. Best-effort — a scoring failure must
+    # not undo the successful re-ingest.
     try:
         from pipeline.score_markdown import score_freshly_loaded
         score_freshly_loaded([fp])
     except Exception:
         log.exception("re-scoring after reingest failed for %s", filename)
+    try:
+        from pipeline.ocr_health import score_freshly_loaded as score_health
+        score_health([fp])
+    except Exception:
+        log.exception("OCR-health scoring after reingest failed for %s", filename)
     return get_blocks(filename)

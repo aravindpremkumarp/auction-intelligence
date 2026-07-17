@@ -334,6 +334,11 @@ def main() -> int:
             scored = score_freshly_loaded(written_file_paths)
         except Exception as e:
             print(f"  [score-fail] {type(e).__name__}: {e}")
+        try:
+            from pipeline.ocr_health import score_freshly_loaded as score_health
+            score_health(written_file_paths)
+        except Exception as e:
+            print(f"  [health-fail] {type(e).__name__}: {e}")
 
     print(f"\nLoaded {done} markdowns  missing_md={missing}  failed={failed}"
           f"  blocks_loaded={blocks_loaded}  blocks_missing={blocks_missing}"
