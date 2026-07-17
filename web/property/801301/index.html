@@ -319,6 +319,20 @@
         </div>
       </section>
 
+      <section class="alert-capture" aria-label="auction alerts signup">
+        <div class="ac-inner">
+          <div class="ac-copy">
+            <h2>get auction alerts</h2>
+            <p>new bank auctions, price drops and closing deadlines in tamil nadu — by email. no spam, unsubscribe anytime.</p>
+          </div>
+          <form class="ac-form" id="alert-capture-form">
+            <input type="email" id="alert-capture-email" name="email" placeholder="you@email.com" autocomplete="email" required aria-label="your email">
+            <button type="submit" id="alert-capture-btn">notify me</button>
+          </form>
+        </div>
+        <p class="ac-msg" id="alert-capture-msg" role="status" aria-live="polite" hidden></p>
+      </section>
+
       <footer class="landing-footer" aria-label="site footer">
         <nav class="landing-footer-links" aria-label="legal">
           <a href="/privacy-policy">privacy policy</a>
@@ -586,6 +600,7 @@
 <script src="/app.js"></script>
 <script src="/dossiers.js"></script>
 <script src="/consent.js"></script>
+<script src="/alerts-capture.js"></script>
 
 </body>
 </html>
