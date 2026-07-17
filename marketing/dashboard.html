@@ -388,13 +388,14 @@ meta: {
 kpis: [
   { label: 'registered users', value: '≈7', note: '12-mo goal: first real cohort' },
   { label: 'live auction inventory', value: '638', note: 'of 2,434 tracked TN · 2026-07-15' },
-  { label: 'SEO surface', value: '77', note: 'sitemap URLs · 2 of 49 cities' },
+  { label: 'SEO surface', value: '690', note: 'sitemap URLs · 664 property pages · all districts' },
   { label: 'email list', value: '0', note: 'capture live · Q1 target 100+' },
   { label: 'content staged', value: '1', note: 'batch: 5 posts · 5 cards · 6 reels' },
   { label: 'organic sessions / mo', value: '~0', note: '12-mo goal: low thousands' },
 ],
 
 nextActions: [
+  'in search console: watch the Pages report as google re-reads the expanded 690-URL sitemap (was 77 discovered) + request homepage indexing',
   'publish the staged 2026-07-15 batch — first real posts on instagram, then cross-post',
   'after the next scrape, dispatch seo-pages.yml with coimbatore · salem · madurai',
   'once ≥5 posts have 7-day metrics: export the CSV, run the reporter, wire its friday cron',
@@ -491,11 +492,11 @@ nodes: [
     summary:'/bank-auctions/** — city hubs + 5 property-type pages per city, generated from the graph with live counts, reserve ranges and bank mix. BreadcrumbList + ItemList JSON-LD. Thin-content gate: ≥5 listings per page. Sitemap carries a per-URL <lastmod> (git date) so only changed pages get recrawled.',
     next:['Expand to Coimbatore · Salem · Madurai (workflow default is ready).'],
     links:[{t:'web/bank-auctions/', h: TREE+'web/bank-auctions'},{t:'live: chennai hub', h:'https://www.auctionscope.in/bank-auctions/chennai/'}], prs:[295] },
-  { id:'ssr', lane:'channels', label:'property pages — SSR pilot', type:'channel', status:'live',
-    sub:'60 prerendered pages',
-    summary:'/property/<id>/ — prerendered shells with real title/description/OG/canonical so Google can finally read the SPA\'s inventory. Includes closed auctions for re-auction search demand.',
-    next:['Dispatch seo-pages.yml with all_live=true to expand 60 → all live inventory (~600, every district) — only 60 of 2,434 auctions are crawlable today.','Add per-property RealEstateListing JSON-LD (move 3 is only partial).'],
-    links:[{t:'web/property/', h: TREE+'web/property'},{t:'sitemap.xml', h: BLOB+'web/sitemap.xml'},{t:'seo-pages.yml', h: BLOB+'.github/workflows/seo-pages.yml'}], prs:[294] },
+  { id:'ssr', lane:'channels', label:'property pages — SSR', type:'channel', status:'live',
+    sub:'664 prerendered · all live inventory · every district',
+    summary:'/property/<id>/ — prerendered shells with real title/description/OG/canonical so Google can finally read the SPA\'s inventory. Expanded 2026-07-17 from the 60-page Chennai/Kanchipuram pilot to all live inventory across every district (664 pages). Includes closed auctions for re-auction search demand.',
+    next:['Add per-property RealEstateListing JSON-LD (move 3 is only partial).','Watch GSC re-read the expanded 690-URL sitemap — it last read 77 on 2026-07-16.'],
+    links:[{t:'web/property/', h: TREE+'web/property'},{t:'sitemap.xml', h: BLOB+'web/sitemap.xml'},{t:'seo-pages.yml', h: BLOB+'.github/workflows/seo-pages.yml'}], prs:[294,308,310] },
   { id:'site', lane:'channels', label:'website — auctionscope.in', type:'channel', status:'live',
     summary:'The SPA on Vercel: chat search, browse, watchlist, alerts, billing. Landing carries the email-capture bar; GA4 + minimal cookie banner are wired.',
     links:[{t:'auctionscope.in', h:'https://www.auctionscope.in'},{t:'web/', h: TREE+'web'}], prs:[292] },
@@ -547,6 +548,12 @@ nodes: [
     sub:'G-KB0TTY5XVB · 4 events + UTM',
     summary:'page_view, signup, checkout_start, upgrade_success, alert_subscribe via a never-throws track() wrapper with per-session UTM merge. Closed plan bet 3 ("instrument first, or fly blind forever").',
     links:[{t:'analytics-playbook.md', h: BLOB+'docs/marketing/analytics-playbook.md'},{t:'index.html · track()', h: BLOB+'web/index.html'}], prs:[279,292] },
+  { id:'search-console', lane:'measure', label:'google search console', type:'monitor', status:'live',
+    sub:'auctionscope.in · sitemap Success · 77 pages discovered',
+    summary:'Google\'s crawl / index / query surface for the SEO channels — the ground truth behind the "pages indexed" and organic-sessions metrics. Domain property (verified 2026-07-17 via GoDaddy DNS) covers www + non-www, http + https and every subdomain; the sitemap is submitted and reading Success.',
+    details:['Verification method: domain-name provider (GoDaddy TXT record) — leave the record in place or verification is lost.','Sitemap https://www.auctionscope.in/sitemap.xml now carries 690 URLs (664 property pages + landing) after the 2026-07-17 SSR --all regeneration; GSC last read it 2026-07-16 at 77 URLs and will re-read the expanded set. Status Success. Discovered ≠ indexed.','Performance data (queries / clicks / impressions) is ~0 pre-traction; populates ~2–3 days after crawl.'],
+    next:['Check the Pages (indexing) report for how many of the 77 are actually indexed vs excluded / thin.','Request indexing for the homepage to speed the first crawl.','Add a 2nd verification method (HTML tag or GA4) as a backup.'],
+    links:[{t:'search console', h:'https://search.google.com/search-console'},{t:'sitemap.xml', h: BLOB+'web/sitemap.xml'}] },
   { id:'metrics-csv', lane:'measure', label:'post-metrics export', type:'process', status:'planned', compact:true,
     summary:'Manual per-post CSV export from the platforms (impressions, likes, saves, link clicks…) — the Reporter\'s input. Schema is defined; a hook_mechanism column is a pending human action.',
     links:[{t:'example CSV', h: BLOB+'marketing/samples/post-metrics-example.csv'}] },
@@ -603,6 +610,9 @@ edges: [
   { from:'research', to:'hooks', kind:'loop', label:'hook mining', showLabel:true },
   { from:'feedback', to:'pillars', kind:'loop', label:'q&a fuel', showLabel:true },
   { from:'freshness', to:'scrape', kind:'loop', label:'stale >14d → issue', showLabel:true },
+  { from:'seo-landing', to:'search-console', label:'crawl + index' },
+  { from:'ssr', to:'search-console' },
+  { from:'search-console', to:'seo-landing', kind:'loop', label:'coverage → fix/expand', showLabel:true },
 ],
 
 pillars: [
@@ -644,7 +654,7 @@ metrics: [
   { m:'weekly activated users (north star, proposed)', now:'not yet measured', target:'define + wire the segment', src:'GA4' },
   { m:'registered users', now:'≈7', target:'first real cohort (12-mo)', src:'Supabase / Neo4j' },
   { m:'monthly organic sessions', now:'~0', target:'Q2: first few hundred · Q4: low-to-mid thousands', src:'GA4' },
-  { m:'pages indexed', now:'77 submitted', target:'Q1: 50–150 indexed', src:'Search Console' },
+  { m:'pages indexed', now:'sitemap expanded to 690 URLs (664 property pages); GSC read 77 on 2026-07-16, re-read pending; indexed count pending Pages report', target:'Q1: 50–150 indexed', src:'Search Console' },
   { m:'email captures', now:'0', target:'Q1: 100+ · Q2: low thousands', src:'Neo4j :AlertSubscriber' },
   { m:'content cadence', now:'1 staged batch', target:'1 batch per scrape (~weekly)', src:'marketing/outputs/' },
   { m:'funnel events wired', now:'4 + page_view', target:'keep: signup → checkout_start → upgrade_success (+ alert_subscribe)', src:'GA4' },
@@ -661,7 +671,9 @@ risks: [
 
 changelog: [
   { d:'2026-07-17', items:[
+    { t:'Google Search Console: auctionscope.in domain property verified (GoDaddy DNS auto-verification); sitemap reads Success with 77 pages discovered — organic-search measurement node now on the map, indexed-count tracking next' },
     { t:'SSR prerender: real --all mode (cityless, live-only) + seo-pages.yml all_live toggle — coverage can now expand from the 60-page pilot to every live auction across all districts (~600), not just Chennai/Kanchipuram' },
+    { t:'SEO regeneration ran: property SSR coverage 60 → 664 pages and sitemap 77 → 690 URLs — all live inventory across every district is now crawlable', pr:310 },
   ]},
   { d:'2026-07-16', items:[
     { t:'SEO sitemap: per-URL <lastmod> (git commit date, build-date fallback) so Google gets a real recrawl signal on the landing + property pages' },
