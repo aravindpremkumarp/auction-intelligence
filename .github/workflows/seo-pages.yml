@@ -28,9 +28,13 @@ on:
         default: "Chennai Kanchipuram Coimbatore Salem Madurai"
         required: false
       property_limit:
-        description: "Max prerendered property pages per city"
+        description: "Max prerendered property pages per city (per-city mode only)"
         default: "20"
         required: false
+      all_live:
+        description: "Prerender ALL live inventory across every district. Ignores 'cities' + 'property_limit' for property pages; landing pages still use 'cities'."
+        type: boolean
+        default: false
 
 concurrency:
   group: seo-pages
@@ -47,7 +51,8 @@ env:
 jobs:
   regenerate:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # Headroom for an all_live run: ~1.1s/property × the full live inventory.
+    timeout-minutes: 60
     if: ${{ vars.AGENTS_ENABLED != 'false' }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -69,14 +74,23 @@ jobs:
         env:
           CITIES: ${{ inputs.cities }}
           PROPERTY_LIMIT: ${{ inputs.property_limit }}
+          ALL_LIVE: ${{ inputs.all_live }}
         run: |
           pip install --quiet "httpx>=0.27,<1"
           # Build repeated --city flags from the space-separated input. Passed
           # via env (not inlined) so the value can't inject shell into the script.
           CITY_ARGS=""
           for c in $CITIES; do CITY_ARGS="$CITY_ARGS --city $c"; done
-          echo "Generating for:$CITY_ARGS"
-          python -m scripts.prerender_properties $CITY_ARGS --limit "$PROPERTY_LIMIT"
+          if [ "$ALL_LIVE" = "true" ]; then
+            # Every live auction across all districts (property_limit + cities do
+            # not apply to property pages here); --limit 0 = unbounded.
+            echo "Prerendering ALL live inventory (cityless, live-only)"
+            python -m scripts.prerender_properties --all --limit 0
+          else
+            echo "Prerendering per city:$CITY_ARGS (limit $PROPERTY_LIMIT)"
+            python -m scripts.prerender_properties $CITY_ARGS --limit "$PROPERTY_LIMIT"
+          fi
+          # Landing pages (city hubs) stay city-scoped regardless of mode.
           python -m scripts.build_landing_pages $CITY_ARGS
 
       - name: Commit regenerated pages
@@ -103,7 +117,7 @@ jobs:
               --title "Automated: regenerate SEO pages" \
               --body "Regenerated static property pages and \`/bank-auctions/**\` landing pages off the live graph via the **SEO pages** workflow (\`scripts/prerender_properties.py\` + \`scripts/build_landing_pages.py\`).
 
-          Cities: \`${{ inputs.cities }}\` · property pages/city: \`${{ inputs.property_limit }}\`.
+          Mode: \`${{ inputs.all_live == true && 'all live inventory (all districts)' || format('per-city · {0} · {1}/city', inputs.cities, inputs.property_limit) }}\`. Landing pages: \`${{ inputs.cities }}\`.
 
           Review the diff (spot-check a page or two, confirm no empty/stale listings) and merge to publish. Nothing was pushed to main automatically."
             echo "Opened a new draft PR for $SEO_BRANCH."
