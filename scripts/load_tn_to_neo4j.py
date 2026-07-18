@@ -203,6 +203,11 @@ def run_batch(session, batch: list[dict]) -> int:
     return len(batch)
 
 
+def get_existing_ids(session) -> set[str]:
+    print("Fetching existing auction IDs (with complete downloads) from Neo4j...")
+    result = session.run("MATCH (a:AuctionProperty) WHERE a.downloads_complete = true RETURN a.auction_id AS aid")
+    return {record["aid"] for record in result if record["aid"]}
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
@@ -211,12 +216,22 @@ def main():
 
     with driver.session(database=NEO4J_DATABASE) as session:
         create_constraints(session)
+        existing_ids = get_existing_ids(session)
 
     print(f"\nLoading records from {INPUT_FILE} ...")
     records = load_records(INPUT_FILE)
-    rows = [sanitise(r) for r in records if r.get('downloads_found')]
+    all_rows = [sanitise(r) for r in records if r.get('downloads_found')]
+    
+    # Filter for brand new ones only
+    rows = [r for r in all_rows if r.get('auction_id') not in existing_ids]
     total = len(rows)
-    print(f"  {total:,} records to ingest (batch size: {BATCH_SIZE})")
+    print(f"  {len(all_rows):,} valid records found in file.")
+    print(f"  {total:,} NEW records to ingest (batch size: {BATCH_SIZE})")
+    
+    if total == 0:
+        print("\nNo new records to ingest. Done.")
+        driver.close()
+        return
 
     ingested = 0
     errors   = 0

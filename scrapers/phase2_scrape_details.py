@@ -84,7 +84,7 @@ def normalise_url(href: str) -> str:
 
 
 # ── File Download ─────────────────────────────────────────────────────────────
-def download_file(url: str) -> str | None:
+def download_file(url: str, cookies: dict = None) -> str | None:
     """
     Download a sale notice / PDF to DOWNLOAD_DIR.
     Returns the local filename on success, None on failure.
@@ -105,7 +105,7 @@ def download_file(url: str) -> str | None:
             return local_filename  # Already on disk — link without re-downloading
 
         session = get_dl_session()
-        r = session.get(url, stream=True, timeout=20)
+        r = session.get(url, stream=True, timeout=20, cookies=cookies)
         if r.status_code == 200:
             with open(path, "wb") as f:
                 for chunk in r.iter_content(chunk_size=8192):
@@ -235,10 +235,11 @@ def scrape_detail(driver, url: str, worker_id: int) -> dict | None:
             data["Description"] = "N/A"
 
         # 4. Extract & download all document links
+        selenium_cookies = {c['name']: c['value'] for c in driver.get_cookies()}
         download_urls = extract_download_links(soup)
         filenames = []
         for dl_url in download_urls:
-            fname = download_file(dl_url)
+            fname = download_file(dl_url, cookies=selenium_cookies)
             if fname:
                 filenames.append(fname)
 
