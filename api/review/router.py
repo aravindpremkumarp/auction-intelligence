@@ -373,6 +373,10 @@ class BlocksDoc(BaseModel):
     backfill_required: bool = False
     crop_bbox: list[float] | None = None
     crop_page: int | None = None
+    # Multi-region crop list ``[{bbox, page}, ...]``; when saved it takes
+    # precedence over crop_bbox at re-ingest (each region OCR'd separately,
+    # results merged).
+    crop_regions: list[dict] | None = None
     # Degrees clockwise the source should be rotated when displayed and
     # before MinerU sees it. One of 0, 90, 180, 270.
     rotation: int = 0
@@ -385,6 +389,18 @@ class CropBody(BaseModel):
     # 1-indexed page the crop is drawn on. For multi-page PDFs this tells
     # re-ingest which page to crop. Defaults to 1 when omitted.
     page: int | None = None
+
+
+class CropRegion(BaseModel):
+    # Normalized to the FULL source image, [0,1] each axis.
+    bbox: list[float]
+    # 1-indexed page; all regions must share one page (v1 constraint).
+    page: int = 1
+
+
+class CropRegionsBody(BaseModel):
+    # ``None`` or ``[]`` clears the saved region list.
+    regions: list[CropRegion] | None = None
 
 
 class RotationBody(BaseModel):
@@ -877,6 +893,8 @@ def _ok_doc(doc: dict) -> BlocksDoc:
         backfill_required=bool(doc.get("backfill_required")),
         crop_bbox=crop_bbox,
         crop_page=crop_page,
+        crop_regions=(doc.get("crop_regions")
+                      if isinstance(doc.get("crop_regions"), list) else None),
         rotation=rotation,
     )
 
@@ -1014,6 +1032,26 @@ def review_notice_set_crop(
     clear a saved crop.
     """
     return _ok_doc(block_ops.set_crop(filename, body.bbox, body.page))
+
+
+@router.put("/notice/{filename}/crop-regions", response_model=BlocksDoc)
+@_wrap_block_errors
+def review_notice_set_crop_regions(
+    filename: str,
+    body: CropRegionsBody,
+    admin: UserOut = Depends(get_current_admin),
+) -> BlocksDoc:
+    """Save (or clear) the Document-level multi-region crop list.
+
+    Regions take precedence over the single crop at re-ingest: each is
+    cropped and OCR'd separately in one MinerU batch and the per-region
+    blocks are merged back into one document — how a bordered notice whose
+    full-page OCR collapses into one giant Table gets decomposed. Pass
+    ``regions: null`` (or ``[]``) to clear.
+    """
+    raw = ([r.model_dump() for r in body.regions]
+           if body.regions is not None else None)
+    return _ok_doc(block_ops.set_crop_regions(filename, raw))
 
 
 @router.put("/notice/{filename}/rotation", response_model=BlocksDoc)

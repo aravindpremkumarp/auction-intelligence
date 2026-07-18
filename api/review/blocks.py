@@ -106,6 +106,72 @@ def _clean_crop_bbox(raw: Any) -> list[float] | None:
     return [x0, y0, x1, y1]
 
 
+MAX_CROP_REGIONS = 12
+
+
+def _clean_crop_regions(raw: Any) -> list[dict] | None:
+    """Validate a multi-region crop list: ``[{bbox: [x0,y0,x1,y1], page: int}]``.
+
+    Returns ``None`` to clear (``None`` or ``[]`` input). Each bbox gets the
+    same 2%-per-axis floor as the single crop. v1 constraint: every region
+    must sit on the SAME page — re-ingest flattens the source to one page, so
+    cross-page regions would silently lose pages. Regions are returned sorted
+    top-to-bottom then left-to-right, which later defines document order.
+    """
+    if raw is None:
+        return None
+    if not isinstance(raw, (list, tuple)):
+        raise ValueError("crop regions must be a list of {bbox, page} or null")
+    if not raw:
+        return None
+    if len(raw) > MAX_CROP_REGIONS:
+        raise ValueError(f"at most {MAX_CROP_REGIONS} crop regions are supported")
+    out: list[dict] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            raise ValueError("each crop region must be an object {bbox, page}")
+        bbox = _clean_crop_bbox(item.get("bbox"))
+        if bbox is None:
+            raise ValueError("each crop region needs a bbox")
+        out.append({"bbox": bbox, "page": _clean_crop_page(item.get("page"))})
+    pages = {r["page"] for r in out}
+    if len(pages) > 1:
+        raise ValueError("all crop regions must be on the same page")
+    out.sort(key=lambda r: (r["bbox"][1], r["bbox"][0]))
+    return out
+
+
+def _merge_region_blocks(per_region: list[tuple[dict, list[dict]]],
+                         page: int) -> list[dict]:
+    """Merge per-region MinerU output into one document block list.
+
+    ``per_region`` is ``[(region, blocks), ...]`` where each region is
+    ``{"bbox": [x0,y0,x1,y1]}`` in full-image coords and its blocks carry
+    bboxes normalized WITHIN that region (0..1, as MinerU returned for the
+    crop). Region-local bboxes are remapped into full-image coords and
+    clamped to their region; ``reading_order`` is region-major
+    (``region_idx * 1000 + position``) so the reviewer's top-to-bottom
+    region order defines document order; every block lands on ``page``.
+    Pure — no DB access — so the remap math is unit-testable.
+    """
+    merged: list[dict] = []
+    for ri, (region, blocks) in enumerate(per_region):
+        rx0, ry0, rx1, ry1 = region["bbox"]
+        rw, rh = (rx1 - rx0), (ry1 - ry0)
+        for j, blk in enumerate(blocks):
+            bx0, by0, bx1, by1 = blk["bbox"]
+            blk["bbox"] = [
+                min(max(rx0 + bx0 * rw, rx0), rx1),
+                min(max(ry0 + by0 * rh, ry0), ry1),
+                min(max(rx0 + bx1 * rw, rx0), rx1),
+                min(max(ry0 + by1 * rh, ry0), ry1),
+            ]
+            blk["page"] = page
+            blk["reading_order"] = ri * 1000 + j
+            merged.append(blk)
+    return merged
+
+
 def _clean_crop_page(raw: Any) -> int:
     """Normalize a 1-indexed page number for ``crop_page``.
 
@@ -267,6 +333,7 @@ def _load_doc(filename: str) -> tuple[dict, int, dict]:
                d.markdown_model               AS markdown_model,
                d.crop_bbox                    AS crop_bbox,
                d.crop_page                    AS crop_page,
+               d.crop_regions                 AS crop_regions_json,
                d.rotation                     AS rotation
         """,
         {"filename": filename},
@@ -289,6 +356,14 @@ def _load_doc(filename: str) -> tuple[dict, int, dict]:
     except ValueError:
         # Stale/corrupt persisted value shouldn't brick the loader.
         rotation = 0
+    crop_regions: list[dict] | None = None
+    raw_regions = r.get("crop_regions_json")
+    if raw_regions:
+        try:
+            crop_regions = _clean_crop_regions(json.loads(raw_regions))
+        except (json.JSONDecodeError, ValueError, TypeError):
+            # A persisted-but-malformed region list shouldn't break loading.
+            crop_regions = None
     meta = {
         "filename":       r.get("filename"),
         "file_path":      r.get("file_path"),
@@ -299,6 +374,7 @@ def _load_doc(filename: str) -> tuple[dict, int, dict]:
         "markdown_model": r.get("markdown_model"),
         "crop_bbox":      crop_bbox,
         "crop_page":      crop_page,
+        "crop_regions":   crop_regions,
         "rotation":       rotation,
     }
     return doc, int(r.get("rev") or 0), meta
@@ -392,6 +468,43 @@ def set_crop(filename: str, raw_bbox: Any, raw_page: Any = None) -> dict:
             RETURN d.filename AS filename
             """,
             {"filename": filename, "crop_bbox": crop_bbox, "crop_page": crop_page},
+        )
+    if not rows:
+        raise BlocksNotFound(f"Document not found: {filename}")
+    return get_blocks(filename)
+
+
+def set_crop_regions(filename: str, raw_regions: Any) -> dict:
+    """Persist (or clear) the Document-level multi-region crop list.
+
+    Stored as a JSON string property (Neo4j can't hold nested lists), NOT in
+    the blocks JSON, so it doesn't churn ``blocks_revision`` — same contract
+    as the single ``crop_bbox``. When regions are saved they take precedence
+    over ``crop_bbox`` at re-ingest: each region is cropped and OCR'd
+    separately (one MinerU batch) and the per-region blocks are merged back
+    into one document. Pass ``null``/``[]`` to clear.
+    """
+    regions = _clean_crop_regions(raw_regions)
+    if regions is None:
+        rows = run_query(
+            """
+            MATCH (d:Document {filename: $filename})
+            REMOVE d.crop_regions
+            SET d.crop_regions_set_at = NULL
+            RETURN d.filename AS filename
+            """,
+            {"filename": filename},
+        )
+    else:
+        rows = run_query(
+            """
+            MATCH (d:Document {filename: $filename})
+            SET d.crop_regions        = $regions_json,
+                d.crop_regions_set_at = datetime()
+            RETURN d.filename AS filename
+            """,
+            {"filename": filename,
+             "regions_json": json.dumps(regions, ensure_ascii=False)},
         )
     if not rows:
         raise BlocksNotFound(f"Document not found: {filename}")
@@ -778,6 +891,157 @@ def _persist_reingest_result(filename: str, *, markdown: str, blocks_json: str,
     )
 
 
+def _reingest_multi_region(*, filename: str, fp: str, src_filename: str,
+                           disk, regions: list[dict],
+                           applied_rotation: int,
+                           effective_page: int) -> dict:
+    """OCR every crop region in one MinerU batch and merge the results.
+
+    ``disk`` is the source on local disk — the original image/PDF, or the
+    rotation-flattened PNG when ``applied_rotation`` is set (region bboxes
+    are already forward-rotated to match). Raises on any region failure so
+    the document is never left with a partial merge.
+    """
+    import json as _json
+    import logging
+    import os
+    import tempfile
+    from datetime import datetime, timezone
+    from pathlib import Path
+
+    from pipeline.load_markdowns_to_neo4j import _assign_block_ids
+    from pipeline.mineru import (
+        MINERU_BLOCKS_DIR, MINERU_MARKDOWN_DIR,
+        parse_mineru_content_list, safe_cache_name, write_mineru_meta,
+    )
+    from pipeline.mineru_api import (
+        archive_zip_to_r2, download_zip, parse_zip_payload,
+        poll, request_batch, upload_files,
+    )
+
+    log = logging.getLogger(__name__)
+    src_bytes = disk.read_bytes()
+    ext = ".png" if applied_rotation else Path(src_filename).suffix.lower()
+
+    # 1) Crop one PNG per region (regions are pre-sorted top-to-bottom).
+    items: list[dict] = []
+    crop_tmps: list[Path] = []
+    try:
+        for i, region in enumerate(regions):
+            if ext == ".pdf":
+                from pipeline.reextract import _pdf_crop_to_png
+                png = _pdf_crop_to_png(src_bytes, region["page"], region["bbox"])
+            else:
+                from pipeline.reextract import _image_crop_to_png
+                png = _image_crop_to_png(src_bytes, region["bbox"])
+            fd, tmp_name = tempfile.mkstemp(suffix=".png",
+                                            prefix=f"reingest_r{i}_")
+            with os.fdopen(fd, "wb") as out:
+                out.write(png)
+            crop_tmps.append(Path(tmp_name))
+            items.append({
+                # ``::r{i}`` namespaces each region's cache/archive key under
+                # the document without colliding with its main key.
+                "filename":  f"{Path(src_filename).stem}_r{i}.png",
+                "file_path": f"{fp}::r{i}",
+                "disk_path": Path(tmp_name),
+            })
+
+        # 2) One batch for all regions: one batch_id, one poll.
+        batch_id, urls = request_batch(items)
+        upload_files(items, urls)
+        results = poll(batch_id)
+
+        by_data_id = {r.get("data_id"): r for r in results}
+        per_region: list[tuple[dict, list[dict]]] = []
+        region_mds: list[str] = []
+        raw_lists: list[list] = []
+        merged_img_map: dict[str, str] = {}
+        for i, (region, item) in enumerate(zip(regions, items)):
+            row = by_data_id.get(safe_cache_name(item["file_path"])[:128])
+            if row is None or row.get("state") != "done":
+                err = row.get("err_msg") if row else "no result row"
+                raise RuntimeError(
+                    f"MinerU failed on crop region {i + 1}/{len(regions)}: {err}")
+            zip_url = row.get("full_zip_url")
+            zip_bytes = download_zip(zip_url) if zip_url else None
+            if not zip_bytes:
+                raise RuntimeError(
+                    f"could not download result zip for region {i + 1}")
+            # Keep the region's full output (zip + image crops) in R2 and
+            # collect its img_map so merged blocks resolve img_url.
+            meta = archive_zip_to_r2(item["file_path"], zip_bytes)
+            merged_img_map.update(meta.get("img_map") or {})
+            md_text, blocks_raw = parse_zip_payload(zip_bytes)
+            if blocks_raw is None:
+                raise RuntimeError(
+                    f"region {i + 1} returned no content-list JSON")
+            region_mds.append((md_text or "").strip())
+            raw_lists.append(blocks_raw)
+            per_region.append(
+                (region,
+                 parse_mineru_content_list(blocks_raw, img_map=merged_img_map)))
+    finally:
+        for p in crop_tmps:
+            try:
+                p.unlink()
+            except FileNotFoundError:
+                pass
+
+    # 3) Merge into full-image coords; un-rotate back to raw orientation.
+    blocks = _merge_region_blocks(per_region, page=effective_page)
+    if applied_rotation:
+        for blk in blocks:
+            blk["bbox"] = _un_rotate_bbox(blk["bbox"], applied_rotation)
+    _assign_block_ids(blocks)
+
+    # 4) Refresh the on-disk caches with the merged result so downstream
+    # cache readers (loader, description stages) see what Neo4j holds.
+    new_md = "\n\n".join(md for md in region_mds if md)
+    safe = safe_cache_name(fp)
+    try:
+        MINERU_MARKDOWN_DIR.mkdir(parents=True, exist_ok=True)
+        (MINERU_MARKDOWN_DIR / f"{safe}.md").write_text(
+            new_md, encoding="utf-8")
+        MINERU_BLOCKS_DIR.mkdir(parents=True, exist_ok=True)
+        (MINERU_BLOCKS_DIR / f"{safe}.json").write_text(
+            _json.dumps({"schema_version": 1, "blocks": blocks},
+                        ensure_ascii=False),
+            encoding="utf-8")
+        write_mineru_meta(fp, {
+            "zip_url": None,   # no single zip covers a multi-region run
+            "img_map": merged_img_map,
+            "archived_at": datetime.now(timezone.utc).isoformat(
+                timespec="seconds"),
+        })
+    except OSError:
+        log.exception("cache refresh failed for %s (multi-region)", filename)
+
+    doc = {"schema_version": 1, "blocks": blocks}
+    _persist_reingest_result(
+        filename,
+        markdown=new_md,
+        blocks_json=_json.dumps(doc, ensure_ascii=False),
+        markdown_raw=new_md,
+        blocks_raw=_json.dumps(
+            [b for lst in raw_lists for b in lst], ensure_ascii=False),
+        mineru_zip_url=None,
+    )
+    try:
+        from pipeline.score_markdown import score_freshly_loaded
+        score_freshly_loaded([fp])
+    except Exception:
+        log.exception("re-scoring after multi-region reingest failed for %s",
+                      filename)
+    try:
+        from pipeline.ocr_health import score_freshly_loaded as score_health
+        score_health([fp])
+    except Exception:
+        log.exception("OCR-health scoring after multi-region reingest failed "
+                      "for %s", filename)
+    return get_blocks(filename)
+
+
 def reingest_notice(filename: str, by_email: str) -> dict:
     """Re-run the full MinerU pipeline for a single Document.
 
@@ -792,12 +1056,13 @@ def reingest_notice(filename: str, by_email: str) -> dict:
     rows = run_read_query(
         """
         MATCH (d:Document {filename: $filename})
-        RETURN d.file_path  AS file_path,
-               d.filename   AS filename,
-               d.public_url AS public_url,
-               d.crop_bbox  AS crop_bbox,
-               d.crop_page  AS crop_page,
-               d.rotation   AS rotation
+        RETURN d.file_path    AS file_path,
+               d.filename     AS filename,
+               d.public_url   AS public_url,
+               d.crop_bbox    AS crop_bbox,
+               d.crop_page    AS crop_page,
+               d.crop_regions AS crop_regions_json,
+               d.rotation     AS rotation
         """,
         {"filename": filename},
         max_rows=1,
@@ -813,6 +1078,15 @@ def reingest_notice(filename: str, by_email: str) -> dict:
     except ValueError:
         crop_bbox = None
     crop_page = _clean_crop_page(rows[0].get("crop_page")) if crop_bbox else 1
+    # Multi-region crop list; when present it takes precedence over the
+    # single crop_bbox. Malformed persisted JSON degrades to None.
+    crop_regions: list[dict] | None = None
+    raw_regions = rows[0].get("crop_regions_json")
+    if raw_regions:
+        try:
+            crop_regions = _clean_crop_regions(json.loads(raw_regions))
+        except (json.JSONDecodeError, ValueError, TypeError):
+            crop_regions = None
     try:
         rotation = _clean_rotation(rows[0].get("rotation"))
     except ValueError:
@@ -872,7 +1146,9 @@ def reingest_notice(filename: str, by_email: str) -> dict:
     # to one page if they need rotation. The CSS rotation in the UI is
     # unaffected.
     applied_rotation: int = 0
-    applied_rotation_page: int = max(1, crop_page if crop_bbox else 1)
+    applied_rotation_page: int = max(
+        1, crop_regions[0]["page"] if crop_regions
+        else (crop_page if crop_bbox else 1))
     rotation_tmp_path: Path | None = None
     if rotation != 0:
         ext = Path(src_filename).suffix.lower()
@@ -883,7 +1159,8 @@ def reingest_notice(filename: str, by_email: str) -> dict:
                 from pipeline.reextract import _image_rotate_to_png
                 rotated_png = _image_rotate_to_png(src_bytes, rotation)
             elif ext == ".pdf":
-                if crop_bbox is None and _pdf_page_count(src_bytes) > 1:
+                if (crop_bbox is None and crop_regions is None
+                        and _pdf_page_count(src_bytes) > 1):
                     log.info(
                         "skipping rotation for %s: multi-page PDF without "
                         "crop would discard pages 2+ of OCR",
@@ -916,11 +1193,46 @@ def reingest_notice(filename: str, by_email: str) -> dict:
                 # but the post-process uses it to set ``blk['page']``.
                 if crop_bbox is not None:
                     crop_bbox = _rotate_bbox_forward(crop_bbox, applied_rotation)
+                # Same for every multi-crop region: crop + remap happen in
+                # the rotated frame; block bboxes are un-rotated back to
+                # raw coords after the merge. Region ORDER stays as saved
+                # (raw-frame top-to-bottom) so reading order is stable.
+                if crop_regions:
+                    crop_regions = [
+                        {**r, "bbox": _rotate_bbox_forward(r["bbox"],
+                                                           applied_rotation)}
+                        for r in crop_regions
+                    ]
         except Exception:
             log.exception(
                 "rotation apply failed for %s; falling back to unrotated",
                 filename,
             )
+
+    # Multi-region crop: each saved region is cropped and OCR'd separately in
+    # ONE MinerU batch, then the per-region block lists are remapped into
+    # full-image coords and merged. This is how a bordered notice whose
+    # full-page OCR collapses into a single giant Table (or degenerates into
+    # repetition loops) gets a faithful decomposition: prose regions come
+    # back as Text blocks, the table region as a clean Table. Takes
+    # precedence over the single crop_bbox. All-or-nothing: one failed
+    # region aborts the re-ingest so a band of the document can't silently
+    # vanish.
+    if crop_regions:
+        try:
+            return _reingest_multi_region(
+                filename=filename, fp=fp, src_filename=src_filename,
+                disk=disk, regions=crop_regions,
+                applied_rotation=applied_rotation,
+                effective_page=applied_rotation_page,
+            )
+        finally:
+            for p in (tmp_path, rotation_tmp_path):
+                if p is not None:
+                    try:
+                        p.unlink()
+                    except FileNotFoundError:
+                        pass
 
     # If a Document-level crop is set, apply it BEFORE shipping to MinerU.
     # Images crop straight through Pillow; PDFs crop via PyMuPDF rendering the
