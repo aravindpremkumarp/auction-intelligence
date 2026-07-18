@@ -366,6 +366,7 @@ See `domain_ontology.yaml` for the full property-level schema.
 
 ## Last Execution Status
 
+- Fixed missing `undetected-chromedriver` scraping dependency in `config/requirements.txt` to ensure Phase 1 scraper works out of the box.
 - Scraper (`scrapers/fast_eauctions_scraper.py`) was run and verified to
   be fully up-to-date: 0 new URLs were found against the existing 49,342
   extracted entries, meaning `live_eauction_data.jsonl` contains the most

@@ -236,18 +236,31 @@ graph data. Orchestrate it with `python -m pipeline.run_pipeline` (flags:
 `--pilot`, `--limit N`, `--skip-ocr`, `--skip-descriptions`, `--verify-only`,
 `--legacy`).
 
-A typical end-to-end run:
+**One command to run it all (weekly batch job):** `C:\Python314\python.exe
+scripts\run_weekly_pipeline.py` chains steps 1-7 below end-to-end, with
+logging to `logs\pipeline_run_<timestamp>.log`, pre-flight env-var checks, and
+stop-on-first-failure behavior. Scraping (steps 1-2) stays local and
+semi-manual — a visible Chrome window opens so a human can solve Cloudflare's
+CAPTCHA if it appears; the run pauses and waits, then continues automatically
+once solved. Pass `--skip-scrape` to start from step 3 using whatever is
+already in `data/live_eauction_data.jsonl` (e.g. if you already scraped
+manually earlier in the week). `scripts\run_weekly_pipeline.bat` wraps this
+for Windows Task Scheduler.
+
+The manual step list below is what `run_weekly_pipeline.py` does internally —
+useful as a reference, or for running any single stage by hand:
 
 ```bash
-python -m scrapers.fast_eauctions_scraper   # 1. Scrape eauctionsindia.com
+python scrapers/phase1_harvest_urls.py      # 1. Harvest listing URLs (Cloudflare may need a human)
+python -u scrapers/phase2_scrape_details.py # 1b. Scrape each URL's detail page + downloads
 python -m scripts.prepare_tn_data           # 2. Clean + filter the Tamil Nadu subset
 python -m scripts.load_tn_to_neo4j          # 3. Load the base graph
 python -m scripts.upload_downloads_to_r2    # 4. Push sale notices to R2
 python -m pipeline.run_pipeline             # 5. OCR → extract → classify →
                                             #    describe → verify → normalize → load
+                                            #    (also links re-auctioned properties internally)
 python -m pipeline.embed_descriptions       # 6. Embed + build the vector indexes
-python -m scripts.link_reauctions           # 7. Link re-auctioned properties
-uvicorn api.main:app --reload               # 8. Serve agent + web UI
+uvicorn api.main:app --reload               # 7. Serve agent + web UI
 ```
 
 Notable stages: **OCR/extraction** uses MinerU + a vision LLM

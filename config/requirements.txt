@@ -6,6 +6,7 @@
 # Scraping
 selenium>=4.20,<5
 webdriver-manager>=4.0,<5
+undetected-chromedriver>=3.5,<4
 
 # Core utilities
 python-dotenv>=1.0,<2
