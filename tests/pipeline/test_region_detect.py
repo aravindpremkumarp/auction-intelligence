@@ -98,3 +98,20 @@ def test_outer_border_line_suppressed():
 
 def test_garbage_bytes_return_none():
     assert detect_regions(b"not an image") is None
+
+
+def test_stray_header_rule_is_edge_trimmed():
+    # A single header-box border above the grid, closer than the global
+    # cluster ceiling but an outlier vs the grid's own row spacing — it must
+    # be trimmed so the prose band survives (real case: TATA notice whose
+    # header line at y=0.023 swallowed the cluster and forced no-split).
+    im = _page()
+    d = ImageDraw.Draw(im)
+    _rule(d, 0.03)                            # stray header-box border
+    for i in range(24):                       # dense grid 0.12 .. 0.81
+        _rule(d, 0.12 + i * 0.03)             # row gap 0.03 ≪ stray gap 0.09
+    regs = detect_regions(_png(im))
+    assert regs is not None
+    # Prose band exists and the grid starts at the grid, not the stray rule.
+    assert regs[0]["bbox"][3] == pytest.approx(0.13, abs=0.02)
+    assert regs[1]["bbox"][1] == pytest.approx(0.11, abs=0.02)

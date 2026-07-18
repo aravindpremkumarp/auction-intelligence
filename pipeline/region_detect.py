@@ -66,6 +66,11 @@ BAR_ADJACENCY = 0.012
 # thickness filter; their dark surroundings give them away.)
 NEIGHBORHOOD_WINDOW = 0.012
 NEIGHBORHOOD_MAX = 0.45
+# Edge-trim: an edge rule is dropped when its gap to the cluster exceeds
+# max(EDGE_TRIM_MIN_GAP, factor × median internal gap) — an outlier vs the
+# grid's own row spacing.
+EDGE_TRIM_MIN_GAP = 0.06
+EDGE_TRIM_FACTOR = 2.5
 # A prose/footer band must be at least this tall to be worth its own OCR.
 MIN_BAND_FRAC = 0.03
 # Adjacent bands overlap by this much so the boundary rule line lands in both.
@@ -152,7 +157,24 @@ def _densest_cluster(rules: list[float]) -> tuple[float, float] | None:
             start = i + 1
     if best is None or (best[1] - best[0]) + 1 < MIN_RULES:
         return None
-    return rules[best[0]], rules[best[1]]
+
+    # Edge-trim: a cluster edge must be gap-consistent with the cluster's
+    # interior. A stray header/footer line (e.g. a banner box border) can sit
+    # within the global ceiling of the grid top yet be separated from it by a
+    # gap that is an outlier against the grid's own row spacing — trimming it
+    # recovers the prose band that the swallowed cluster would have erased.
+    lo, hi = best
+    while hi - lo + 1 > MIN_RULES:
+        inner = [rules[i + 1] - rules[i] for i in range(lo, hi)]
+        med = sorted(inner)[len(inner) // 2]
+        limit = max(EDGE_TRIM_MIN_GAP, EDGE_TRIM_FACTOR * med)
+        if inner[0] > limit:
+            lo += 1
+        elif inner[-1] > limit:
+            hi -= 1
+        else:
+            break
+    return rules[lo], rules[hi]
 
 
 def detect_regions(image_bytes: bytes, *, page: int = 1) -> list[dict] | None:
