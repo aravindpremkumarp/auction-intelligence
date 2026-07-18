@@ -13,8 +13,14 @@ For each AssetCategory in NON_PROPERTY_CATEGORIES this script:
   2. Deletes Borrower nodes attached only to those auctions.
   3. DETACH DELETEs the AuctionProperty nodes themselves (also drops any
      SAVED watchlist edges, InvestmentTracker/DecisionTrace links, etc.).
-  4. DETACH DELETEs the AssetCategory nodes once they have no auctions left.
-  5. Cleans up orphan PropertyType nodes left with no incoming HAS_PROPERTY_TYPE.
+  4. Sweeps any Document node left with no incoming HAS_DOCUMENT edge. This
+     is a backstop for step 1, which only catches documents whose ownership
+     edges were present and exclusively bad when it ran; a document linked
+     after that step (or missed by it) is instead orphaned by step 3's
+     DETACH DELETE, which drops the edge but keeps the node. The sweep also
+     self-heals orphans left behind by earlier runs.
+  5. DETACH DELETEs the AssetCategory nodes once they have no auctions left.
+  6. Cleans up orphan PropertyType nodes left with no incoming HAS_PROPERTY_TYPE.
 
 Shared nodes (Bank, Branch, City, State, Area, AuctionType) are kept — they
 have edges from the remaining property auctions.
@@ -66,6 +72,17 @@ DETACH DELETE a
 RETURN count(a) AS deleted
 """
 
+# Backstop sweep: a Document is only meaningful while an AuctionProperty
+# points at it via HAS_DOCUMENT (the sole relationship Documents carry).
+# Once its last owner is gone, the node is dead weight, so remove any that
+# no property references — including orphans left by earlier runs.
+DELETE_ORPHAN_DOCUMENTS = """
+MATCH (d:Document)
+WHERE NOT (d)<-[:HAS_DOCUMENT]-(:AuctionProperty)
+DETACH DELETE d
+RETURN count(d) AS deleted
+"""
+
 DELETE_ASSET_CATEGORIES = """
 MATCH (ac:AssetCategory) WHERE ac.name IN $bad_cats
 DETACH DELETE ac
@@ -103,6 +120,9 @@ def main() -> None:
 
         auctions = session.run(DELETE_AUCTIONS, params).single()["deleted"]
         print(f"  Auctions deleted    : {auctions}")
+
+        orphan_docs = session.run(DELETE_ORPHAN_DOCUMENTS).single()["deleted"]
+        print(f"  Orphan Documents    : {orphan_docs}")
 
         cats = session.run(DELETE_ASSET_CATEGORIES, params).single()["deleted"]
         print(f"  Categories deleted  : {cats}")
