@@ -109,6 +109,16 @@ def main():
         from pipeline.load_enriched import load_verified_enriched
         load_verified_enriched()
 
+        # Stage 4.5: grounded extractions (Document.extraction_json, written by
+        # pipeline/load_extractions.py) override the blob-derived enrichment +
+        # description for every Document that has one. Runs after Stage 4 on
+        # purpose so the grounded per-lot values win.
+        print("\n" + "="*60)
+        print("STAGE 4.5: Apply grounded extractions to AuctionProperty")
+        print("="*60)
+        from pipeline.apply_extractions import run as run_apply_extractions
+        run_apply_extractions(limit=effective_limit)
+
     print("\n" + "="*60)
     print("STAGE 5: Link Re-auctioned Properties (:SAME_PROPERTY_AS)")
     print("="*60)
