@@ -23,6 +23,12 @@ MinerU's vlm model actually exhibits on full-page ruled notices:
   - **truncated**   — generation stopped mid-structure: an opened ``<table>``
     that never closes, output ending inside a tag, or a final table row
     padded with empty cells.
+  - **foreign-script** — characters from scripts that can never legitimately
+    appear in a Tamil Nadu auction notice (CJK, kana, hangul, Cyrillic,
+    Arabic, Thai). The vlm model's training prior leaks whole Chinese
+    phrases into low-confidence regions ("中国银行股份有" — Bank of China —
+    hallucinated into an HDB notice). Tamil, Devanagari and Latin are of
+    course fine and never flag.
 
 Score = 100 minus per-flag penalties, clamped to 0–100. A document with no
 flags scores 100. Fields written (additive — ``markdown_quality_score`` is
@@ -77,7 +83,24 @@ TRUNC_EMPTY_TAIL_RE = re.compile(
 # Output ends inside an unfinished tag ("…<td" / "…</ta").
 TRUNC_OPEN_TAG_RE = re.compile(r"<[a-z/][^>]*$", re.I)
 
-PENALTY = {"repetition": 0, "token-leak": 40, "truncated": 30}  # repetition scaled
+# ── foreign script ──────────────────────────────────────────────────────────
+# Scripts that never appear in a TN auction notice. Notices are English/Tamil
+# (occasionally Devanagari); those ranges are deliberately absent here. Any
+# hit is vlm prior-leakage — a corpus scan found 17/1190 documents carrying
+# hallucinated Chinese, up to 466 chars of it in one notice.
+FOREIGN_SCRIPT_RE = re.compile(
+    "["
+    "一-鿿㐀-䶿"   # CJK unified + extension A
+    "぀-ヿ"                # hiragana + katakana
+    "가-힯"                # hangul
+    "Ѐ-ӿ"                # cyrillic
+    "؀-ۿ"                # arabic
+    "฀-๿"                # thai
+    "]"
+)
+
+PENALTY = {"repetition": 0, "token-leak": 40, "truncated": 30,
+           "foreign-script": 40}  # repetition scaled
 
 
 def _norm_line(line: str) -> str:
@@ -149,6 +172,13 @@ def score_ocr_health(markdown: str | None) -> dict:
     if truncated:
         flags.append("truncated")
         penalty += PENALTY["truncated"]
+
+    foreign = FOREIGN_SCRIPT_RE.findall(text)
+    if foreign:
+        flags.append("foreign-script")
+        details["foreign_script_count"] = len(foreign)
+        details["foreign_script_sample"] = "".join(foreign[:10])
+        penalty += PENALTY["foreign-script"]
 
     return {"score": max(0, 100 - penalty), "flags": flags, "details": details}
 

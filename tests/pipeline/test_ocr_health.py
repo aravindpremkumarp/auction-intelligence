@@ -105,3 +105,31 @@ def test_empty_and_none_are_unscored():
     assert score_ocr_health("") == {"score": None, "flags": [], "details": {}}
     assert score_ocr_health(None) == {"score": None, "flags": [], "details": {}}
     assert score_ocr_health("   \n ")["score"] is None
+
+
+def test_cjk_hallucination_flags_foreign_script():
+    # Real leak observed in prod: Chinese bank boilerplate inside a TN notice.
+    md = "All that piece and parcel of land 年月日中国银行股份有 at Theni District"
+    h = score_ocr_health(md)
+    assert "foreign-script" in h["flags"]
+    assert h["details"]["foreign_script_count"] == 10
+    assert h["details"]["foreign_script_sample"].startswith("年月日")
+
+
+def test_single_stray_cjk_char_flags():
+    h = score_ocr_health("Reserve price Rs.10,71,000 六 EMD Rs.1,07,100")
+    assert "foreign-script" in h["flags"]
+
+
+def test_tamil_and_devanagari_do_not_flag():
+    md = ("தமிழ்நாடு தேனி மாவட்டம் — சொத்து விவரம்\n"
+          "संपत्ति का विवरण\n"
+          "All the piece and parcel of land at Periyakulam Registration District")
+    h = score_ocr_health(md)
+    assert h["flags"] == []
+    assert h["score"] == 100
+
+
+def test_latin_punctuation_and_symbols_do_not_flag():
+    md = "Rs.10,71,000/- @ 12% p.a. — “as is where is” • ₹ 1,07,100"
+    assert score_ocr_health(md)["flags"] == []
