@@ -297,17 +297,16 @@
   .ann-block.lab-Header      { border-color: #888; }
   .ann-block.lab-Footer      { border-color: #888; }
   .ann-block .ann-lbl { position: absolute; top: -18px; left: -2px; font-family: 'IBM Plex Mono', monospace; font-size: 10px; background: var(--ink); color: var(--paper); padding: 1px 6px; white-space: nowrap; pointer-events: none; }
-  .ann-block .resizer { position: absolute; width: 9px; height: 9px; background: #fff; border: 1.5px solid var(--ink); box-sizing: border-box; }
-  .ann-block.selected .resizer { display: block; }
-  .ann-block .resizer { display: none; }
-  .ann-block .resizer.tl { left: -5px;  top: -5px;    cursor: nwse-resize; }
-  .ann-block .resizer.tr { right: -5px; top: -5px;    cursor: nesw-resize; }
-  .ann-block .resizer.bl { left: -5px;  bottom: -5px; cursor: nesw-resize; }
-  .ann-block .resizer.br { right: -5px; bottom: -5px; cursor: nwse-resize; }
-  .ann-block .resizer.t  { left: 50%;  top: -5px;    transform: translateX(-50%); cursor: ns-resize; }
-  .ann-block .resizer.b  { left: 50%;  bottom: -5px; transform: translateX(-50%); cursor: ns-resize; }
-  .ann-block .resizer.l  { left: -5px; top: 50%;     transform: translateY(-50%); cursor: ew-resize; }
-  .ann-block .resizer.r  { right: -5px; top: 50%;    transform: translateY(-50%); cursor: ew-resize; }
+  .resizer { position: absolute; width: 9px; height: 9px; background: #fff; border: 1.5px solid var(--ink); box-sizing: border-box; display: none; }
+  .ann-block.selected .resizer, .ann-region.selected .resizer { display: block; }
+  .resizer.tl { left: -5px;  top: -5px;    cursor: nwse-resize; }
+  .resizer.tr { right: -5px; top: -5px;    cursor: nesw-resize; }
+  .resizer.bl { left: -5px;  bottom: -5px; cursor: nesw-resize; }
+  .resizer.br { right: -5px; bottom: -5px; cursor: nwse-resize; }
+  .resizer.t  { left: 50%;  top: -5px;    transform: translateX(-50%); cursor: ns-resize; }
+  .resizer.b  { left: 50%;  bottom: -5px; transform: translateX(-50%); cursor: ns-resize; }
+  .resizer.l  { left: -5px; top: 50%;     transform: translateY(-50%); cursor: ew-resize; }
+  .resizer.r  { right: -5px; top: 50%;    transform: translateY(-50%); cursor: ew-resize; }
   .ann-block .grid-row, .ann-block .grid-col { position: absolute; background: rgba(0,0,0,0.5); pointer-events: auto; }
   .ann-block .grid-row { left: 0; right: 0; height: 1px; cursor: row-resize; }
   .ann-block .grid-row::after { content: ''; position: absolute; inset: -4px 0; }
@@ -315,9 +314,15 @@
   .ann-block .grid-col::after { content: ''; position: absolute; inset: 0 -4px; }
   .ann-marquee { position: absolute; border: 1.5px dashed var(--danger); background: rgba(214,74,46,0.10); pointer-events: none; }
   .ann-page.crop { cursor: crosshair; }
-  /* Saved multi-crop regions: numbered dashed outlines; never intercept clicks. */
-  .ann-region { position: absolute; border: 2px dashed #7c3aed; background: rgba(124,58,237,0.06); pointer-events: none; z-index: 3; }
-  .ann-region-n { position: absolute; top: -1px; left: -1px; background: #7c3aed; color: #fff; font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 600; padding: 0 4px; }
+  /* Saved multi-crop regions: numbered dashed outlines. In select mode they
+     behave like blocks — click to select, drag body to move, drag handles to
+     resize. While drawing new regions (crop-multi) the JS ignores hits on them
+     so a marquee still starts, matching the old click-through behavior. */
+  .ann-region { position: absolute; border: 2px dashed #7c3aed; background: rgba(124,58,237,0.06); pointer-events: auto; cursor: move; z-index: 3; }
+  .ann-region.selected { border-style: solid; border-color: #5b21b6; background: rgba(124,58,237,0.14); box-shadow: 0 0 0 1px #5b21b6; }
+  .ann-region-n { position: absolute; top: -1px; left: -1px; background: #7c3aed; color: #fff; font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 600; padding: 0 4px; pointer-events: none; }
+  .ann-region-del { position: absolute; top: -1px; right: -1px; width: 16px; height: 16px; line-height: 14px; text-align: center; background: #5b21b6; color: #fff; font-family: 'IBM Plex Mono', monospace; font-size: 12px; font-weight: 700; cursor: pointer; display: none; }
+  .ann-region.selected .ann-region-del { display: block; }
   .ann-sidebar { border: 2px solid var(--ink); background: #fff; box-shadow: 2px 3px 0 rgba(0,0,0,0.9); padding: 10px; max-height: 85vh; overflow: auto; }
   .ann-sidebar h2 { margin: 0 0 8px; }
   .ann-banner { background: var(--accent); border: 1.5px solid var(--ink); padding: 8px 10px; margin-bottom: 10px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; }
@@ -2893,6 +2898,7 @@
     if (!$('screen-annotator').classList.contains('hidden') && !typing) {
       if (e.key === 'Delete' || e.key === 'Backspace') {
         if (ann.selectedIds.size) { e.preventDefault(); deleteSelectedBlocks(); }
+        else if (ann.selectedRegion != null) { e.preventDefault(); deleteRegion(ann.selectedRegion); }
         return;
       }
       if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z') && !e.shiftKey) {
@@ -2955,6 +2961,7 @@
     crop_bbox: null,   // [x0,y0,x1,y1] in [0,1] or null; FULL-image coords
     crop_page: null,   // 1-indexed PDF page the crop is drawn on; null if no crop
     crop_regions: [],  // [{bbox:[x0,y0,x1,y1], page}] multi-region crop; wins over crop_bbox at re-ingest
+    selectedRegion: null,  // index into crop_regions of the region being edited (move/resize), or null
     rotation: 0,       // degrees CW the source should be displayed at; 0|90|180|270
     dragSession: null,
     hintsDismissed: new Set(),  // block ids the reviewer has × dismissed this session
@@ -2991,6 +2998,7 @@
     ann.filename = filename;
     ann.selectedIds = new Set();
     ann.anchorId = null;
+    ann.selectedRegion = null;
     ann.mode = 'select';
     $('ann-filename').textContent = filename;
     $('ann-rows').innerHTML = '<div class="empty">loading…</div>';
@@ -3316,19 +3324,12 @@
       overlay.appendChild(renderBlockDiv(b, displayIdx.get(b.id)));
     }
     // Saved multi-crop regions: numbered dashed outlines over the page.
-    // Pointer-events off so they never block selecting the blocks beneath.
+    // In select mode they are draggable/resizable like blocks (see
+    // onStagePointerDown); the selected one grows resize handles + a delete ×.
     for (let i = 0; i < ann.crop_regions.length; i++) {
       const r = ann.crop_regions[i];
       if ((r.page || 1) !== (ann.page || 1)) continue;
-      const [x0, y0, x1, y1] = r.bbox;
-      const div = document.createElement('div');
-      div.className = 'ann-region';
-      div.style.left   = (x0 * 100) + '%';
-      div.style.top    = (y0 * 100) + '%';
-      div.style.width  = ((x1 - x0) * 100) + '%';
-      div.style.height = ((y1 - y0) * 100) + '%';
-      div.innerHTML = `<span class="ann-region-n">R${i + 1}</span>`;
-      overlay.appendChild(div);
+      overlay.appendChild(renderRegionDiv(r, i));
     }
     wrap.classList.toggle('draw', ann.mode === 'draw');
     wrap.classList.toggle('crop', ann.mode === 'crop' || ann.mode === 'crop-multi');
@@ -3397,6 +3398,35 @@
     content.style.height = r.height + 'px';
     content.style.left = (-cx0 * r.width)  + 'px';
     content.style.top  = (-cy0 * r.height) + 'px';
+  }
+
+  // Render one saved crop region. When it is the selected region we hang the
+  // same 8 resize handles blocks use, plus a delete ×, off it so the reviewer
+  // can fine-tune the box after drawing it.
+  function renderRegionDiv(r, i) {
+    const [x0, y0, x1, y1] = r.bbox;
+    const div = document.createElement('div');
+    div.className = 'ann-region' + (ann.selectedRegion === i ? ' selected' : '');
+    div.dataset.region = i;
+    div.style.left   = (x0 * 100) + '%';
+    div.style.top    = (y0 * 100) + '%';
+    div.style.width  = ((x1 - x0) * 100) + '%';
+    div.style.height = ((y1 - y0) * 100) + '%';
+    div.innerHTML = `<span class="ann-region-n">R${i + 1}</span>`;
+    if (ann.selectedRegion === i) {
+      for (const pos of ['tl','tr','bl','br','t','b','l','r']) {
+        const h = document.createElement('div');
+        h.className = 'resizer ' + pos;
+        h.dataset.handle = pos;
+        div.appendChild(h);
+      }
+      const del = document.createElement('div');
+      del.className = 'ann-region-del';
+      del.textContent = '×';
+      del.title = 'delete this region';
+      div.appendChild(del);
+    }
+    return div;
   }
 
   function renderBlockDiv(b, displayIdx) {
@@ -3808,14 +3838,28 @@
   function isSelected(id) { return ann.selectedIds.has(id); }
 
   function clearSelection() {
-    if (!ann.selectedIds.size && !ann.anchorId) return;
+    if (!ann.selectedIds.size && !ann.anchorId && ann.selectedRegion == null) return;
     ann.selectedIds = new Set();
     ann.anchorId = null;
+    ann.selectedRegion = null;
+    paintAnnAll();
+  }
+
+  // Select a crop region for editing. Mutually exclusive with block selection
+  // so only one overlay ever shows resize handles at a time.
+  function selectRegion(i) {
+    if (ann.selectedIds.size || ann.anchorId) {
+      ann.selectedIds = new Set();
+      ann.anchorId = null;
+    }
+    if (ann.selectedRegion === i) return;  // re-click selected region → no-op
+    ann.selectedRegion = i;
     paintAnnAll();
   }
 
   function selectBlock(id, opts) {
     opts = opts || {};
+    ann.selectedRegion = null;  // block selection clears any region selection
     if (opts.additive) {
       if (ann.selectedIds.has(id)) {
         ann.selectedIds.delete(id);
@@ -3843,11 +3887,14 @@
 
   // ── Pointer interactions (select / drag / resize / marquee) ──────────────
   function onStagePointerDown(ev) {
-    const target = ev.target.closest('.resizer, .grid-row, .grid-col, .ann-block');
+    const target = ev.target.closest('.resizer, .grid-row, .grid-col, .ann-block, .ann-region-del, .ann-region');
     const inCrop = ann.mode === 'crop' || ann.mode === 'crop-multi';
     const inDraw = ann.mode === 'draw';
+    // In draw/crop modes a marquee starts on empty canvas — and also when the
+    // pointer lands on an existing region, so drawing a new region over an old
+    // one still works (regions only become interactive in select mode).
     if ((inDraw || inCrop) &&
-        (!target || target.classList.contains('ann-overlay'))) {
+        (!target || target.classList.contains('ann-overlay') || target.closest('.ann-region'))) {
       return startMarquee(ev);
     }
     // Select mode + left-drag on empty canvas → rubber-band multi-select.
@@ -3855,6 +3902,24 @@
       return startSelectMarquee(ev);
     }
     if (!target) return;
+    // Region interaction (select mode): select, delete ×, resize handle, or
+    // drag-to-move. A region target never has a .ann-block ancestor, so this
+    // is checked before block handling below.
+    const regionEl = target.closest('.ann-region');
+    if (regionEl) {
+      const ri = parseInt(regionEl.dataset.region, 10);
+      if (target.classList.contains('ann-region-del')) {
+        ev.preventDefault();
+        return deleteRegion(ri);
+      }
+      selectRegion(ri);
+      if (target.classList.contains('resizer')) {
+        ev.preventDefault();
+        return startRegionResize(ev, ri, target.dataset.handle);
+      }
+      ev.preventDefault();
+      return startRegionMove(ev, ri);
+    }
     const blockEl = target.closest('.ann-block');
     if (!blockEl) return;
     const id = blockEl.dataset.id;
@@ -3980,6 +4045,103 @@
     window.addEventListener('pointerup', onUp);
   }
 
+  // ── Region move / resize (mirrors the block versions above) ──────────────
+  // Regions are a Document-level list (no per-region id), so on pointer-up we
+  // persist the whole list via saveCropRegionsOnServer and roll back the moved
+  // box on failure. A 2% floor matches the region-creation minimum.
+  function startRegionMove(ev, i) {
+    const reg = ann.crop_regions[i];
+    if (!reg) return;
+    const before = reg.bbox.slice();
+    const [startX, startY] = pointerToNorm(ev);
+    const [x0, y0, x1, y1] = reg.bbox;
+    const dx = startX - x0, dy = startY - y0;
+    const w = x1 - x0, h = y1 - y0;
+    const onMove = (e) => {
+      const [px, py] = pointerToNorm(e);
+      let nx0 = annClamp01(px - dx), ny0 = annClamp01(py - dy);
+      if (nx0 + w > 1) nx0 = 1 - w;
+      if (ny0 + h > 1) ny0 = 1 - h;
+      reg.bbox = [nx0, ny0, nx0 + w, ny0 + h];
+      paintAnnOverlay();
+    };
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      commitRegionEdit(i, before);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  }
+
+  function startRegionResize(ev, i, handle) {
+    const reg = ann.crop_regions[i];
+    if (!reg) return;
+    const before = reg.bbox.slice();
+    const onMove = (e) => {
+      const [nx, ny] = pointerToNorm(e);
+      let [x0, y0, x1, y1] = reg.bbox;
+      if (handle.includes('l')) x0 = Math.min(nx, x1 - 0.02);
+      if (handle.includes('r')) x1 = Math.max(nx, x0 + 0.02);
+      if (handle.includes('t')) y0 = Math.min(ny, y1 - 0.02);
+      if (handle.includes('b')) y1 = Math.max(ny, y0 + 0.02);
+      reg.bbox = [x0, y0, x1, y1];
+      paintAnnOverlay();
+    };
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      commitRegionEdit(i, before);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  }
+
+  // Persist a moved/resized region. Skips the network call when the box didn't
+  // actually change (a plain click), and restores the pre-drag box on failure.
+  async function commitRegionEdit(i, beforeBbox) {
+    const reg = ann.crop_regions[i];
+    if (!reg) return;
+    reg.bbox = annNormalizeBox(reg.bbox);
+    const finalBox = reg.bbox.slice();
+    if (beforeBbox && beforeBbox.length === 4 &&
+        beforeBbox.every((v, k) => Math.abs(v - finalBox[k]) < 1e-6)) {
+      paintAnnOverlay();  // click without a drag — nothing to save
+      return;
+    }
+    const ok = await saveCropRegionsOnServer(
+      ann.crop_regions.map(x => ({ bbox: x.bbox, page: x.page })));
+    if (!ok) {
+      if (beforeBbox && ann.crop_regions[i]) ann.crop_regions[i].bbox = beforeBbox.slice();
+    } else {
+      // The server re-sorts regions top-to-bottom, so this region's index may
+      // have shifted. Re-find it by bbox so the same one stays selected.
+      const j = ann.crop_regions.findIndex(r =>
+        r.bbox.every((v, k) => Math.abs(v - finalBox[k]) < 1e-4));
+      ann.selectedRegion = j >= 0 ? j : null;
+    }
+    paintAnnOverlay();
+  }
+
+  // Delete a single region. Passing null when the last one is removed matches
+  // the "clear regions" semantics the server already understands.
+  async function deleteRegion(i) {
+    if (!ann.crop_regions[i]) return;
+    const prev = ann.crop_regions;
+    const next = ann.crop_regions.filter((_, k) => k !== i);
+    ann.crop_regions = next;
+    ann.selectedRegion = null;
+    const ok = await saveCropRegionsOnServer(
+      next.length ? next.map(x => ({ bbox: x.bbox, page: x.page })) : null);
+    if (!ok) {
+      ann.crop_regions = prev;
+    } else if (next.length) {
+      annToast('region deleted');  // clear-all path toasts on its own
+    }
+    refreshRegionsButton();
+    paintAnnOverlay();
+  }
+
   function startMarquee(ev) {
     const wrap = $('ann-page-wrap-inner');
     const overlay = wrap.querySelector('.ann-overlay');
@@ -4033,6 +4195,7 @@
         const next = ann.crop_regions.concat([{ bbox, page }]);
         const prev = ann.crop_regions;
         ann.crop_regions = next;              // optimistic; server reconciles
+        ann.selectedRegion = null;
         if (!(await saveCropRegionsOnServer(next.map(r => ({ bbox: r.bbox, page: r.page }))))) {
           ann.crop_regions = prev;
         }
@@ -4110,6 +4273,7 @@
       const next = additive ? new Set(ann.selectedIds) : new Set();
       for (const b of hits) next.add(b.id);
       ann.selectedIds = next;
+      ann.selectedRegion = null;
       ann.anchorId = hits.length ? hits[hits.length - 1].id
                    : (additive ? ann.anchorId : null);
       paintAnnAll();
@@ -4598,6 +4762,7 @@
       ann.mode = 'select';
     } else {
       ann.mode = 'crop-multi';
+      ann.selectedRegion = null;
       $('ann-add').classList.remove('mode-on');
     }
     refreshCropButton();
@@ -4854,6 +5019,7 @@
   });
   $('ann-page').addEventListener('change', async (e) => {
     ann.page = parseInt(e.target.value, 10) || 1;
+    ann.selectedRegion = null;
     if (ann.sourceKind === 'pdf') await renderAnnPdfPage();
     paintAnnAll();
   });
