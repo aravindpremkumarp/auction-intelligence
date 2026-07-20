@@ -293,17 +293,19 @@ def jsonld_description(fields: dict, rel: dict, ended: bool, cap: int = 600) -> 
 
 
 def postal_address(fields: dict, rel: dict) -> dict | None:
-    """City-level PostalAddress from the record. Area (neighbourhood) is left in
-    the title/description rather than forced into a street field it doesn't fit."""
+    """PostalAddress from the record: area (neighbourhood) as the streetAddress
+    line above the city. Exact SARFAESI door/survey numbers aren't in the graph,
+    so streetAddress carries the locality name, not a fabricated street."""
     city = (rel.get("city") or {}).get("name") or fields.get("district")
-    if not city:
+    area = (rel.get("area") or {}).get("name")
+    if not city and not area:
         return None
-    return {
-        "@type": "PostalAddress",
-        "addressLocality": city,
-        "addressRegion": "Tamil Nadu",
-        "addressCountry": "IN",
-    }
+    addr: dict = {"@type": "PostalAddress", "addressRegion": "Tamil Nadu", "addressCountry": "IN"}
+    if area:
+        addr["streetAddress"] = area
+    if city:
+        addr["addressLocality"] = city
+    return addr
 
 
 def breadcrumb_trail(auction_id: str, fields: dict, rel: dict, name: str) -> dict:
