@@ -265,6 +265,14 @@ class MarkdownRow(BaseModel):
     markdown: str | None = None
     markdown_model: str | None = None
     score: float | None = None
+    # Intrinsic OCR-health verdict (pipeline/ocr_health.py). Distinct from
+    # `score` (coverage vs the scraped website description): these judge the
+    # image→markdown step itself. `list_markdown_queue` returns them; they must
+    # be declared here or FastAPI drops them and the review UI's health pill
+    # (incl. `table-collapse`) can never render — same bug class the highlights
+    # regression test guards.
+    ocr_health_score: int | None = None
+    ocr_health_flags: list[str] | None = None
     quality: Literal["good", "bad"] | None = None
     verified: bool = False
     verified_at: str | None = None
@@ -316,6 +324,10 @@ class MarkdownPropertyRow(BaseModel):
     notice_filename: str | None = None
     notice_type: str | None = None
     score: float | None = None
+    # OCR-health is the markdown stage's single score (see MarkdownRow); declared
+    # so FastAPI projects it into the by-property table too.
+    ocr_health_score: int | None = None
+    ocr_health_flags: list[str] | None = None
     quality: Literal["good", "bad"] | None = None
     verified: bool = False
     verified_at: str | None = None

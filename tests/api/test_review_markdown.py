@@ -97,3 +97,35 @@ def test_markdown_row_model_exposes_highlights() -> None:
     assert len(hl) == 1 and hl[0]["start"] == 3 and hl[0]["end"] == 9
     # default is an empty list, never missing
     assert MarkdownRow(filename="n.jpg").model_dump()["highlights"] == []
+
+
+def test_markdown_row_model_exposes_ocr_health() -> None:
+    # Regression: list_markdown_queue returns ocr_health_score/ocr_health_flags,
+    # but if MarkdownRow doesn't declare them FastAPI strips them from the JSON,
+    # so the review UI's healthPill() never sees a flag and the `table-collapse`
+    # pill can't render. Same failure mode as the highlights bug above.
+    from api.review.router import MarkdownRow
+    assert "ocr_health_score" in MarkdownRow.model_fields
+    assert "ocr_health_flags" in MarkdownRow.model_fields
+    row = MarkdownRow(filename="n.jpg", ocr_health_score=65,
+                      ocr_health_flags=["table-collapse"])
+    dumped = row.model_dump()
+    assert dumped["ocr_health_score"] == 65
+    assert dumped["ocr_health_flags"] == ["table-collapse"]
+    # absent/unscored stays null, not missing
+    bare = MarkdownRow(filename="n.jpg").model_dump()
+    assert bare["ocr_health_score"] is None
+    assert bare["ocr_health_flags"] is None
+
+
+def test_markdown_property_row_model_exposes_ocr_health() -> None:
+    # The by-property markdown table shows OCR-health as its score too, so the
+    # fields must survive MarkdownPropertyRow's response_model.
+    from api.review.router import MarkdownPropertyRow
+    assert "ocr_health_score" in MarkdownPropertyRow.model_fields
+    assert "ocr_health_flags" in MarkdownPropertyRow.model_fields
+    row = MarkdownPropertyRow(auction_id="a1", ocr_health_score=65,
+                              ocr_health_flags=["table-collapse"])
+    dumped = row.model_dump()
+    assert dumped["ocr_health_score"] == 65
+    assert dumped["ocr_health_flags"] == ["table-collapse"]
