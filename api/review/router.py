@@ -324,6 +324,10 @@ class MarkdownPropertyRow(BaseModel):
     notice_filename: str | None = None
     notice_type: str | None = None
     score: float | None = None
+    # OCR-health is the markdown stage's single score (see MarkdownRow); declared
+    # so FastAPI projects it into the by-property table too.
+    ocr_health_score: int | None = None
+    ocr_health_flags: list[str] | None = None
     quality: Literal["good", "bad"] | None = None
     verified: bool = False
     verified_at: str | None = None

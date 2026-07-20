@@ -116,3 +116,16 @@ def test_markdown_row_model_exposes_ocr_health() -> None:
     bare = MarkdownRow(filename="n.jpg").model_dump()
     assert bare["ocr_health_score"] is None
     assert bare["ocr_health_flags"] is None
+
+
+def test_markdown_property_row_model_exposes_ocr_health() -> None:
+    # The by-property markdown table shows OCR-health as its score too, so the
+    # fields must survive MarkdownPropertyRow's response_model.
+    from api.review.router import MarkdownPropertyRow
+    assert "ocr_health_score" in MarkdownPropertyRow.model_fields
+    assert "ocr_health_flags" in MarkdownPropertyRow.model_fields
+    row = MarkdownPropertyRow(auction_id="a1", ocr_health_score=65,
+                              ocr_health_flags=["table-collapse"])
+    dumped = row.model_dump()
+    assert dumped["ocr_health_score"] == 65
+    assert dumped["ocr_health_flags"] == ["table-collapse"]

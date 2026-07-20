@@ -1168,13 +1168,16 @@ def _markdown_where(
         where.append("d.markdown_verified_at IS NOT NULL")
         where.append("d.markdown_quality = 'bad'")
     # "all" → no extra filter
+    # The markdown stage's single score is OCR-health (pipeline/ocr_health.py) —
+    # the intrinsic image→markdown verdict — so the score filter targets it, not
+    # the coverage-vs-website markdown_quality_score.
     if score_min is not None:
-        where.append("d.markdown_quality_score IS NOT NULL")
-        where.append("d.markdown_quality_score >= $score_min")
+        where.append("d.ocr_health_score IS NOT NULL")
+        where.append("d.ocr_health_score >= $score_min")
         params["score_min"] = float(score_min)
     if score_max is not None:
-        where.append("d.markdown_quality_score IS NOT NULL")
-        where.append("d.markdown_quality_score <= $score_max")
+        where.append("d.ocr_health_score IS NOT NULL")
+        where.append("d.ocr_health_score <= $score_max")
         params["score_max"] = float(score_max)
     clause = _notice_type_clause(notice_type, alias="d")
     if clause:
@@ -1285,10 +1288,9 @@ def list_markdown_queue(
 ) -> dict:
     """Return a page of Documents for markdown-quality review.
 
-    Order: pending first, then lowest score first (so the worst OCR floats
-    to the top of the reviewer's queue). `score_min` lets the UI restrict
-    the queue to Documents at or above the auto-confirm threshold — what
-    the bulk-confirm button is about to clear.
+    Order: pending first, then lowest OCR-health first (so the worst OCR
+    floats to the top of the reviewer's queue). `score_min`/`score_max`
+    filter on ocr_health_score — the markdown stage's single score.
 
     date_from / date_to filter to Documents linked to any AuctionProperty
     whose auction_start_dt falls in the window.
@@ -1330,7 +1332,7 @@ def list_markdown_queue(
                toString(d.markdown_reextracted_at) AS reextracted_at,
                d.markdown_reextracted_by        AS reextracted_by
         ORDER BY (d.markdown_verified_at IS NULL) DESC,
-                 coalesce(d.markdown_quality_score, -1.0) ASC,
+                 coalesce(d.ocr_health_score, -1) ASC,
                  d.filename ASC
         SKIP $skip LIMIT $size
     """
@@ -1377,13 +1379,14 @@ def list_markdown_queue_by_property(
         where.append("d.markdown_quality = 'bad'")
     # "all" → no extra filter
 
+    # OCR-health is the markdown stage's single score (see list_markdown_queue).
     if score_min is not None:
-        where.append("d.markdown_quality_score IS NOT NULL")
-        where.append("d.markdown_quality_score >= $score_min")
+        where.append("d.ocr_health_score IS NOT NULL")
+        where.append("d.ocr_health_score >= $score_min")
         params["score_min"] = float(score_min)
     if score_max is not None:
-        where.append("d.markdown_quality_score IS NOT NULL")
-        where.append("d.markdown_quality_score <= $score_max")
+        where.append("d.ocr_health_score IS NOT NULL")
+        where.append("d.ocr_health_score <= $score_max")
         params["score_max"] = float(score_max)
 
     nt_clause = _notice_type_clause(notice_type, alias="d")
@@ -1415,11 +1418,13 @@ def list_markdown_queue_by_property(
                d.filename                         AS notice_filename,
                d.notice_type                      AS notice_type,
                d.markdown_quality_score           AS score,
+               d.ocr_health_score                 AS ocr_health_score,
+               d.ocr_health_flags                 AS ocr_health_flags,
                d.markdown_quality                 AS quality,
                (d.markdown_verified_at IS NOT NULL) AS verified,
                toString(d.markdown_verified_at)   AS verified_at
         ORDER BY verified ASC,
-                 coalesce(d.markdown_quality_score, -1.0) ASC,
+                 coalesce(d.ocr_health_score, -1) ASC,
                  a.title ASC
         SKIP $skip LIMIT $size
     """

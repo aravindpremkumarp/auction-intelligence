@@ -470,7 +470,7 @@
       <span class="meta" id="date-hint" style="color: var(--muted);"></span>
     </div>
     <div class="actions" id="score-bar">
-      <span>Score:</span>
+      <span id="score-label">Score:</span>
       <label class="meta" style="display:flex; gap:6px; align-items:center;">
         from <input type="number" id="score-from" min="0" max="100" step="1" value="0"
                     style="width:60px; padding:4px 6px; border:1.5px solid var(--ink);">
@@ -541,7 +541,7 @@
             <th>Auction date</th>
             <th>Reserve (₹)</th>
             <th>Notice</th>
-            <th>Markdown score</th>
+            <th>OCR health</th>
             <th>Quality</th>
             <th>Status</th>
           </tr>
@@ -945,6 +945,13 @@
     // the classifier confidence; markdown on the OCR-quality score.
     $('score-bar').classList.remove('hidden');
     $('bulk-confirm-bar').classList.remove('hidden');
+    // The markdown stage's score IS OCR-health; other stages keep their own
+    // confidence semantics (see comment above), so label the filter per stage.
+    const scoreLabel = $('score-label');
+    if (scoreLabel) {
+      scoreLabel.textContent =
+        queueState.stage === 'markdown' ? 'OCR health:' : 'Score:';
+    }
   }
 
   function syncDateInputs() {
@@ -1060,7 +1067,7 @@
         <td>${escapeHtml(row.auction_start || '—')}</td>
         <td>${row.reserve_price == null ? '—' : row.reserve_price.toLocaleString('en-IN')}</td>
         <td>${noticeLink}</td>
-        <td>${row.score == null ? '—' : Math.round(row.score)}</td>
+        <td title="${(Array.isArray(row.ocr_health_flags) && row.ocr_health_flags.length) ? escapeHtml(row.ocr_health_flags.join(', ')) : ''}">${row.ocr_health_score == null ? '—' : row.ocr_health_score}${(Array.isArray(row.ocr_health_flags) && row.ocr_health_flags.length) ? ' ⚠' : ''}</td>
         <td>${escapeHtml(row.quality || '—')}</td>
         <td>${escapeHtml(statusLabel)}</td>
       `;
@@ -1298,23 +1305,23 @@
     queueLoadedCount = (append ? queueLoadedCount : 0) + data.rows.length;
   }
 
-  function scorePill(score) {
-    if (score == null) return '<span class="pill off">unscored</span>';
-    const cls = score >= 80 ? 'good' : (score >= 50 ? 'warn' : 'danger');
-    return `<span class="pill ${cls}">score ${score}</span>`;
-  }
-
-  // Intrinsic OCR-health verdict (pipeline/ocr_health.py): flags name the
-  // failure mode (repetition / token-leak / truncated) so a reviewer knows
-  // to re-OCR (e.g. with a crop) rather than hand-fix the text. Unlike
-  // `score` (coverage vs the scraped website description), this judges the
-  // image→markdown step itself.
+  // The markdown stage's single score: the intrinsic OCR-health verdict
+  // (pipeline/ocr_health.py), 0–100, colored by band, with any failure-mode
+  // flags (repetition / truncated / foreign-script / table-collapse) inline.
+  // This judges the image→markdown step itself — unlike the old coverage
+  // score, it stays low when a notice collapses into one table.
   function healthPill(row) {
+    const score = row.ocr_health_score;
     const flags = row.ocr_health_flags;
-    if (flags == null) return '';                       // not yet scored
-    if (!flags.length) return '<span class="pill good" title="no OCR failure artifacts detected">ocr ✓</span>';
-    const label = flags.join(' + ');
-    return `<span class="pill danger" title="OCR failure artifacts detected (health ${row.ocr_health_score ?? '?'}): ${escapeHtml(label)} — consider a crop + re-ingest">ocr: ${escapeHtml(label)}</span>`;
+    if (score == null && flags == null) return '<span class="pill off">unscored</span>';
+    const cls = score == null ? 'off'
+      : (score >= 80 ? 'good' : (score >= 50 ? 'warn' : 'danger'));
+    const hasFlags = Array.isArray(flags) && flags.length > 0;
+    const suffix = hasFlags ? ` · ${flags.join(' + ')}` : '';
+    const title = hasFlags
+      ? `OCR failure artifacts: ${flags.join(', ')} — consider a crop + re-ingest`
+      : 'no OCR failure artifacts detected';
+    return `<span class="pill ${cls}" title="${escapeHtml(title)}">health ${score ?? '?'}${escapeHtml(suffix)}</span>`;
   }
 
   function mdStatusPill(row) {
@@ -1419,7 +1426,7 @@
     const summary = document.createElement('summary');
     summary.innerHTML = `
       <span class="nfile">${escapeHtml(filename)}</span>
-      ${typeBadge} ${scorePill(row.score)} ${healthPill(row)} ${mdStatusPill(row)} ${reextractedBadge} ${precleanBadge}
+      ${typeBadge} ${healthPill(row)} ${mdStatusPill(row)} ${reextractedBadge} ${precleanBadge}
       ${props} ${hlPill} ${len}
       <span class="nspacer"></span>
       <span class="nlinks">${annotateLink} ${openLink}</span>
