@@ -683,6 +683,7 @@
         <button id="ann-zoom-in" class="ghost zoom-btn" title="zoom in (or scroll wheel up)">+</button>
       </span>
       <button id="ann-reingest-btn" class="ghost" title="re-run MinerU layout extraction (applies saved rotation + crop / regions; regions win over a single crop)">Re-ingest</button>
+      <button id="ann-fix-flagged" class="ghost" title="re-run extraction on every block flagged with an OCR artifact (repetition / token-leak / foreign-script) in this notice" style="display:none;background:#fde7e7;border-color:#dc2626;color:#991b1b"></button>
       <button id="ann-reload" class="ghost">Reload</button>
       <a class="link" id="ann-open-src" target="_blank" rel="noopener" style="display:none">open source ↗</a>
     </div>
@@ -2973,6 +2974,7 @@
     dragSession: null,
     hintsDismissed: new Set(),  // block ids the reviewer has × dismissed this session
     reextractInflight: new Set(), // block ids currently being re-extracted
+    fixFlaggedRunning: false,   // "Fix flagged" batch re-extract in progress
   };
 
   function annToast(msg, kind) {
@@ -3318,6 +3320,53 @@
     paintAnnOverlay();
     paintAnnSidebar();
     paintAnnMarkdown();
+    updateFixFlaggedBtn();
+  }
+
+  // Blocks the server flagged with an OCR artifact (repetition / token-leak /
+  // foreign-script) in their own text — the ones the ⚠ tag is on.
+  function flaggedBlockIds() {
+    return ann.blocks
+      .filter(b => b.health && Array.isArray(b.health.flags) && b.health.flags.length)
+      .map(b => b.id);
+  }
+
+  function updateFixFlaggedBtn() {
+    const btn = $('ann-fix-flagged');
+    if (!btn) return;
+    if (ann.fixFlaggedRunning) return;   // leave the "Fixing i/N…" label alone
+    const n = flaggedBlockIds().length;
+    btn.style.display = n ? '' : 'none';
+    btn.disabled = false;
+    btn.textContent = `↻ Fix flagged (${n})`;
+  }
+
+  // One-click remediation: re-run extraction on every flagged block, in
+  // sequence (each re-extract does a blocks_revision CAS, so parallel calls
+  // would 409). reextractBlock refreshes ann state per block; because the
+  // re-extract response now carries fresh per-block health, a block that comes
+  // back still-looping keeps its ⚠ tag instead of silently clearing.
+  async function fixFlaggedBlocks() {
+    if (ann.fixFlaggedRunning) return;
+    const ids = flaggedBlockIds();
+    if (!ids.length) return;
+    ann.fixFlaggedRunning = true;
+    const btn = $('ann-fix-flagged');
+    if (btn) btn.disabled = true;
+    let fixed = 0, failed = 0;
+    for (let i = 0; i < ids.length; i++) {
+      if (btn) btn.textContent = `↻ Fixing ${i + 1}/${ids.length}…`;
+      try { await reextractBlock(ids[i], null); fixed++; }
+      catch (_) { failed++; }
+    }
+    ann.fixFlaggedRunning = false;
+    const remaining = flaggedBlockIds().length;
+    annToast(
+      `re-extracted ${fixed} block${fixed === 1 ? '' : 's'}`
+        + (failed ? `, ${failed} failed` : '')
+        + (remaining ? ` — ${remaining} still flagged (adjust the box, then Re-ingest)` : ''),
+      (failed || remaining) ? 'warn' : 'ok');
+    paintAnnAll();
   }
 
   function paintAnnOverlay() {
@@ -4794,6 +4843,7 @@
     paintAnnOverlay();
   });
   $('ann-reingest-btn').addEventListener('click', (e) => annReingest(e.currentTarget));
+  $('ann-fix-flagged').addEventListener('click', () => fixFlaggedBlocks());
   $('ann-reload').addEventListener('click', () => loadAnnotator(ann.filename));
 
   // ── Zoom ─────────────────────────────────────────────────────────────────
