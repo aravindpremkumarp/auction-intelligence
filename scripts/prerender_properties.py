@@ -5,8 +5,9 @@ Move 1 of the SEO plan (docs/marketing/plan.md §4) — "make the app crawlable.
 
 Generates static, crawlable HTML for individual property pages
 (web/property/<id>/index.html) by cloning web/index.html — the SPA shell —
-and swapping in per-property <title>/description/canonical/OG tags plus a
-small static content block. Everything else (every <script>, the entire app
+and swapping in per-property <title>/description/canonical/OG tags,
+schema.org JSON-LD (Move 3 — see property_jsonld), plus a small static
+content block. Everything else (every <script>, the entire app
 body) is byte-identical to the live shell, so the page is still the exact
 same interactive app once JS boots; app.js removes the static block right
 before it renders its own state (see the ssr-property hook near the end of
@@ -38,6 +39,7 @@ from __future__ import annotations
 
 import argparse
 import html
+import json
 import re
 import sys
 import time
@@ -82,6 +84,18 @@ def fmt_date(iso: str | None) -> str | None:
         from datetime import datetime
         dt = datetime.fromisoformat(iso.replace("Z", "+00:00"))
         return dt.strftime("%-d %b %Y")
+    except (ValueError, TypeError):
+        return None
+
+
+def iso_date(iso: str | None) -> str | None:
+    """YYYY-MM-DD for schema.org date fields (Offer.priceValidUntil). None if unparseable."""
+    if not iso:
+        return None
+    try:
+        from datetime import datetime
+        dt = datetime.fromisoformat(iso.replace("Z", "+00:00"))
+        return dt.strftime("%Y-%m-%d")
     except (ValueError, TypeError):
         return None
 
@@ -261,6 +275,82 @@ def seo_description(fields: dict, rel: dict, ended: bool) -> str:
     return desc[:158]
 
 
+def property_jsonld(auction_id: str, fields: dict, rel: dict, ended: bool) -> list[dict]:
+    """schema.org JSON-LD for a property page — Move 3 of the SEO plan
+    (docs/marketing/plan.md §4): structured data for price rich results and
+    AI-answer eligibility.
+
+    Honesty rule (docs/marketing/copy-playbook.md) carries into the markup:
+    every value comes from the record, nothing invented, and an ended auction
+    is never implied to still be biddable.
+
+      · LIVE auction with a reserve price → Product + Offer (the shape Google
+        renders a price for), additionally typed as a RealEstateListing. The
+        reserve is the Offer.price (the floor / minimum bid).
+      · ENDED auction (or one with no reserve figure) → a plain
+        RealEstateListing describing the historical page, with NO live Offer —
+        emitting an in-stock Offer on a closed round would misrepresent it.
+      · BreadcrumbList is always emitted.
+
+    Returns the list of top-level nodes; render_page serialises each into its
+    own <script type="application/ld+json"> block (same convention as the
+    landing-page builder, scripts/build_landing_pages.py).
+    """
+    url = f"{SITE_BASE}/property/{auction_id}"
+    name = fields.get("title") or "Bank auction property"
+    desc = seo_description(fields, rel, ended)
+    bank = (rel.get("bank") or {}).get("name") or ""
+    ptype = (rel.get("property_types") or [None])[0]
+    reserve = fields.get("reserve_price_num")
+
+    blocks: list[dict] = []
+
+    if not ended and reserve:
+        offer: dict = {
+            "@type": "Offer",
+            "price": int(reserve),
+            "priceCurrency": "INR",
+            "availability": "https://schema.org/InStock",
+            "url": url,
+        }
+        valid = iso_date(fields.get("application_deadline_dt") or fields.get("auction_start_dt"))
+        if valid:
+            offer["priceValidUntil"] = valid
+        if bank:
+            offer["seller"] = {"@type": "Organization", "name": bank}
+        product: dict = {
+            "@context": "https://schema.org",
+            "@type": "Product",
+            "additionalType": "https://schema.org/RealEstateListing",
+            "name": name,
+            "description": desc,
+            "url": url,
+            "image": f"{SITE_BASE}/og-image.png",
+            "offers": offer,
+        }
+        if ptype:
+            product["category"] = ptype
+        blocks.append(product)
+    else:
+        blocks.append({
+            "@context": "https://schema.org",
+            "@type": "RealEstateListing",
+            "name": name,
+            "description": desc,
+            "url": url,
+        })
+
+    blocks.append({
+        "@context": "https://schema.org",
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+            {"@type": "ListItem", "position": 1, "name": "Home", "item": f"{SITE_BASE}/"},
+            {"@type": "ListItem", "position": 2, "name": name, "item": url},
+        ],
+    })
+    return blocks
+
+
 def render_page(template: str, auction_id: str, fields: dict, rel: dict) -> str:
     url = f"{SITE_BASE}/property/{auction_id}"
     ended = is_ended(fields)
@@ -287,6 +377,14 @@ def render_page(template: str, auction_id: str, fields: dict, rel: dict) -> str:
                  f'<meta name="twitter:title" content="{title}">', out, count=1)
     out = re.sub(r'<meta name="twitter:description" content="[^"]*">',
                  f'<meta name="twitter:description" content="{desc}">', out, count=1)
+
+    # Move 3 — structured data. Inject one <script> per JSON-LD node just before
+    # </head> (json.dumps handles escaping, so this is not run through html.escape).
+    jsonld = "\n".join(
+        f'<script type="application/ld+json">{json.dumps(b, ensure_ascii=False)}</script>'
+        for b in property_jsonld(auction_id, fields, rel, ended)
+    )
+    out = out.replace("</head>", f"{jsonld}\n</head>", 1)
 
     ssr_block = build_ssr_block(fields, rel, ended)
     out = out.replace("<body>\n", f"<body>\n{ssr_block}\n", 1)
