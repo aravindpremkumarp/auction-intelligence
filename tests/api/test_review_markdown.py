@@ -129,3 +129,32 @@ def test_markdown_property_row_model_exposes_ocr_health() -> None:
     dumped = row.model_dump()
     assert dumped["ocr_health_score"] == 65
     assert dumped["ocr_health_flags"] == ["table-collapse"]
+
+
+def test_block_model_exposes_health() -> None:
+    # get_blocks attaches a read-time per-block health verdict; Block must
+    # declare it or FastAPI strips it (same bug class as the highlights guard).
+    from api.review.router import Block
+    assert "health" in Block.model_fields
+    blk = Block(id="b1", bbox=[0, 0, 1, 1], label="Text",
+                health={"score": 60, "flags": ["repetition"]})
+    dumped = blk.model_dump()
+    assert dumped["health"]["flags"] == ["repetition"]
+    assert dumped["health"]["score"] == 60
+    # absent health stays None, never missing
+    bare = Block(id="b2", bbox=[0, 0, 1, 1], label="Text").model_dump()
+    assert bare["health"] is None
+
+
+def test_block_auto_reextract_marker_and_flag() -> None:
+    # One-time auto-fix: the request carries an `auto` flag and the block
+    # persists an `auto_reextract_at` marker so it never re-fires.
+    from api.review.router import Block, ReExtractBody
+    assert ReExtractBody(auto=True).auto is True
+    assert ReExtractBody().auto is False           # defaults off
+    assert "auto_reextract_at" in Block.model_fields
+    b = Block(id="b1", bbox=[0, 0, 1, 1], label="Text",
+              auto_reextract_at="2026-07-20T18:00:00+00:00")
+    assert b.model_dump()["auto_reextract_at"] == "2026-07-20T18:00:00+00:00"
+    assert Block(id="b2", bbox=[0, 0, 1, 1], label="Text"
+                 ).model_dump()["auto_reextract_at"] is None

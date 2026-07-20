@@ -351,6 +351,11 @@ class TableShape(BaseModel):
     col_positions: list[float] | None = None
 
 
+class BlockHealth(BaseModel):
+    score: int | None = None
+    flags: list[str] = []
+
+
 class Block(BaseModel):
     id: str
     page: int = 1
@@ -363,6 +368,14 @@ class Block(BaseModel):
     table: TableShape | None = None
     edited_at: str | None = None
     edited_by: str | None = None
+    # Set once, the first time this block was auto re-extracted because it was
+    # flagged with an OCR artifact. Persisted, so the annotator's auto-fix fires
+    # at most once per block ever and never re-spends MinerU on later opens.
+    auto_reextract_at: str | None = None
+    # Read-time per-block OCR-health verdict (repetition / token-leak /
+    # foreign-script). Computed by get_blocks, never persisted — so a reviewer
+    # edit re-scores on the next fetch. Declared here or FastAPI drops it.
+    health: BlockHealth | None = None
 
 
 class SourceDim(BaseModel):
@@ -471,6 +484,9 @@ class ReExtractBody(BaseModel):
     page: int | None = None
     row_positions: list[float] | None = None
     col_positions: list[float] | None = None
+    # Set by the annotator's one-time auto-fix so the block records that its
+    # automatic attempt has happened (guards against re-spending on reopen).
+    auto: bool = False
 
 
 class ReingestStarted(BaseModel):
@@ -865,12 +881,26 @@ def review_markdown_verify(
 # ── Per-block annotator endpoints ───────────────────────────────────────────
 
 
+def _with_block_health(b: dict) -> dict:
+    """Return ``b`` with a read-time OCR-health verdict attached.
+
+    Computed on serialization (never persisted) so every block the API returns
+    — GET, create, edit, reorder, re-extract — carries an up-to-date per-block
+    ``{score, flags}`` for the annotator's ⚠ tag. Only the per-fragment
+    artifacts (repetition / token-leak / foreign-script) are scored; see
+    :func:`pipeline.ocr_health.score_block_health`.
+    """
+    from pipeline.ocr_health import score_block_health
+    h = score_block_health(b.get("text"))
+    return {**b, "health": {"score": h["score"], "flags": h["flags"]}}
+
+
 def _ok_block(b: dict) -> Block:
-    return Block(**b)
+    return Block(**_with_block_health(b))
 
 
 def _ok_doc(doc: dict) -> BlocksDoc:
-    blocks = [Block(**b) for b in (doc.get("blocks") or [])]
+    blocks = [Block(**_with_block_health(b)) for b in (doc.get("blocks") or [])]
     raw_crop = doc.get("crop_bbox")
     crop_bbox: list[float] | None = None
     if isinstance(raw_crop, (list, tuple)) and len(raw_crop) == 4:

@@ -683,6 +683,7 @@
         <button id="ann-zoom-in" class="ghost zoom-btn" title="zoom in (or scroll wheel up)">+</button>
       </span>
       <button id="ann-reingest-btn" class="ghost" title="re-run MinerU layout extraction (applies saved rotation + crop / regions; regions win over a single crop)">Re-ingest</button>
+      <button id="ann-fix-flagged" class="ghost" title="re-run extraction on every block flagged with an OCR artifact (repetition / token-leak / foreign-script) in this notice" style="display:none;background:#fde7e7;border-color:#dc2626;color:#991b1b"></button>
       <button id="ann-reload" class="ghost">Reload</button>
       <a class="link" id="ann-open-src" target="_blank" rel="noopener" style="display:none">open source ↗</a>
     </div>
@@ -2973,6 +2974,7 @@
     dragSession: null,
     hintsDismissed: new Set(),  // block ids the reviewer has × dismissed this session
     reextractInflight: new Set(), // block ids currently being re-extracted
+    fixFlaggedRunning: false,   // "Fix flagged" batch re-extract in progress
   };
 
   function annToast(msg, kind) {
@@ -3048,6 +3050,9 @@
       await loadAnnSource(doc.public_url);
       initHistory();
       paintAnnAll();
+      // Fire the one-time auto-fix in the background (not awaited) so the
+      // annotator is interactive immediately; it repaints as it clears blocks.
+      autoFixOnLoad();
     } catch (e) {
       console.error(e);
       $('ann-rows').innerHTML = `<div class="empty err">load failed (${escapeHtml(String(e))})</div>`;
@@ -3318,6 +3323,53 @@
     paintAnnOverlay();
     paintAnnSidebar();
     paintAnnMarkdown();
+    updateFixFlaggedBtn();
+  }
+
+  // Blocks the server flagged with an OCR artifact (repetition / token-leak /
+  // foreign-script) in their own text — the ones the ⚠ tag is on.
+  function flaggedBlockIds() {
+    return ann.blocks
+      .filter(b => b.health && Array.isArray(b.health.flags) && b.health.flags.length)
+      .map(b => b.id);
+  }
+
+  function updateFixFlaggedBtn() {
+    const btn = $('ann-fix-flagged');
+    if (!btn) return;
+    if (ann.fixFlaggedRunning) return;   // leave the "Fixing i/N…" label alone
+    const n = flaggedBlockIds().length;
+    btn.style.display = n ? '' : 'none';
+    btn.disabled = false;
+    btn.textContent = `↻ Fix flagged (${n})`;
+  }
+
+  // One-click remediation: re-run extraction on every flagged block, in
+  // sequence (each re-extract does a blocks_revision CAS, so parallel calls
+  // would 409). reextractBlock refreshes ann state per block; because the
+  // re-extract response now carries fresh per-block health, a block that comes
+  // back still-looping keeps its ⚠ tag instead of silently clearing.
+  async function fixFlaggedBlocks() {
+    if (ann.fixFlaggedRunning) return;
+    const ids = flaggedBlockIds();
+    if (!ids.length) return;
+    ann.fixFlaggedRunning = true;
+    const btn = $('ann-fix-flagged');
+    if (btn) btn.disabled = true;
+    let fixed = 0, failed = 0;
+    for (let i = 0; i < ids.length; i++) {
+      if (btn) btn.textContent = `↻ Fixing ${i + 1}/${ids.length}…`;
+      try { await reextractBlock(ids[i], null); fixed++; }
+      catch (_) { failed++; }
+    }
+    ann.fixFlaggedRunning = false;
+    const remaining = flaggedBlockIds().length;
+    annToast(
+      `re-extracted ${fixed} block${fixed === 1 ? '' : 's'}`
+        + (failed ? `, ${failed} failed` : '')
+        + (remaining ? ` — ${remaining} still flagged (adjust the box, then Re-ingest)` : ''),
+      (failed || remaining) ? 'warn' : 'ok');
+    paintAnnAll();
   }
 
   function paintAnnOverlay() {
@@ -3441,6 +3493,11 @@
     el.className = 'ann-block lab-' + (b.label || 'Text');
     el.dataset.id = b.id;
     if (isSelected(b.id)) el.classList.add('selected');
+    // Outline the box on the image when this block carries an OCR-health flag,
+    // so the guilty region is visible on the page, not just in the sidebar.
+    if (b.health && Array.isArray(b.health.flags) && b.health.flags.length) {
+      el.style.outline = '2px solid #dc2626';
+    }
     placeBlockEl(el, b.bbox);
     const lbl = document.createElement('div');
     lbl.className = 'ann-lbl';
@@ -3700,6 +3757,19 @@
     sourcePill.className = 'pill ' + (b.source === 'human' ? 'warn' : 'off');
     sourcePill.textContent = b.source || 'mineru';
     top.appendChild(sourcePill);
+
+    // Per-block OCR-health tag: a repetition loop / token-leak / foreign-script
+    // in THIS block's text (server-computed on read). Points the reviewer at the
+    // exact block to re-run extraction on, instead of a document-level verdict.
+    if (b.health && Array.isArray(b.health.flags) && b.health.flags.length) {
+      const hp = document.createElement('span');
+      hp.className = 'pill danger';
+      hp.textContent = '⚠ ' + b.health.flags.join(' + ');
+      hp.title = 'OCR artifact in this block: ' + b.health.flags.join(', ')
+        + ' — re-run extraction to fix';
+      top.appendChild(hp);
+      row.style.boxShadow = 'inset 3px 0 0 #dc2626';
+    }
 
     row.appendChild(top);
 
@@ -4630,7 +4700,44 @@
     } catch (e) { annToast('reorder error: ' + e, 'err'); }
   }
 
-  async function reextractBlock(id, btn) {
+  // Cap auto re-extracts per annotator open so a pathological notice can't
+  // silently fan out a pile of paid MinerU calls. Anything over the cap is
+  // left for the reviewer's "Fix flagged" button (or the next open).
+  const AUTO_FIX_MAX_PER_LOAD = 8;
+
+  // One-time auto-remediation: the first time a block is seen carrying an OCR
+  // artifact, re-extract it once. Bounded by the persisted `auto_reextract_at`
+  // marker (set server-side when opts.auto is passed), so reopening the notice
+  // never re-spends MinerU on the same block — even if it's still flagged.
+  // Runs silently, then reports a single summary toast. Manual controls (the
+  // per-block button and "Fix flagged") stay available for the rest.
+  async function autoFixOnLoad() {
+    if (ann.fixFlaggedRunning) return;
+    const targets = ann.blocks.filter(b =>
+      b.health && Array.isArray(b.health.flags) && b.health.flags.length
+      && !b.auto_reextract_at);
+    if (!targets.length) return;
+    const batch = targets.slice(0, AUTO_FIX_MAX_PER_LOAD);
+    ann.fixFlaggedRunning = true;
+    updateFixFlaggedBtn();
+    const before = flaggedBlockIds().length;
+    for (const b of batch) {
+      try { await reextractBlock(b.id, null, { auto: true, silent: true }); }
+      catch (_) {}
+    }
+    ann.fixFlaggedRunning = false;
+    const after = flaggedBlockIds().length;
+    const cleared = Math.max(0, before - after);
+    const overflow = targets.length - batch.length;
+    annToast(
+      `auto-fixed ${cleared} flagged block${cleared === 1 ? '' : 's'}`
+      + (after ? `, ${after} still flagged` : '')
+      + (overflow ? ` (${overflow} more — use “Fix flagged”)` : ''),
+      after ? 'warn' : 'ok');
+    paintAnnAll();
+  }
+
+  async function reextractBlock(id, btn, opts = {}) {
     const blk = ann.blocks.find(b => b.id === id);
     if (!blk) return;
     // Remember the text we started with so we can tell the reviewer whether the
@@ -4654,6 +4761,9 @@
     if (el) el.classList.add('reextracting');
     try {
       const body = {};
+      // Auto-fix marks the block server-side so it won't be auto re-extracted
+      // again on a later open (see re_extract_block).
+      if (opts.auto) body.auto = true;
       if (blk.label === 'Table' && blk.table) {
         // Send exactly the interior dividers the reviewer sees (count-1 lines,
         // even-default when not dragged) so the extracted grid matches the
@@ -4674,7 +4784,8 @@
         // timeout) instead of a bare status code.
         let msg = 're-extract failed (' + r.status + ')';
         try { const j = await r.json(); if (j && j.detail) msg = 're-extract: ' + j.detail; } catch (_) {}
-        annToast(msg, 'err'); return;
+        if (!opts.silent) annToast(msg, 'err');
+        return;
       }
       const updated = await r.json();
       mergeBlock(updated);
@@ -4686,17 +4797,19 @@
       //  * genuinely new text → success
       const newText = updated.text || '';
       const norm = (s) => (s || '').replace(/\s+/g, ' ').trim();
-      if (!newText.trim()) {
-        annToast('no text found — try a taller box or Re-ingest', 'warn');
-      } else if (norm(newText) === norm(prevText)) {
-        annToast('re-extracted — no change (same OCR result; adjust the box or table guides)', 'warn');
-      } else {
-        annToast('re-extracted', 'ok');
+      if (!opts.silent) {
+        if (!newText.trim()) {
+          annToast('no text found — try a taller box or Re-ingest', 'warn');
+        } else if (norm(newText) === norm(prevText)) {
+          annToast('re-extracted — no change (same OCR result; adjust the box or table guides)', 'warn');
+        } else {
+          annToast('re-extracted', 'ok');
+        }
       }
       refreshMarkdownAfterChange();
       pushHistory();
       paintAnnAll();
-    } catch (e) { annToast('re-extract error: ' + e, 'err'); }
+    } catch (e) { if (!opts.silent) annToast('re-extract error: ' + e, 'err'); }
     finally {
       ann.reextractInflight.delete(id);
       if (btn) {
@@ -4776,6 +4889,7 @@
     paintAnnOverlay();
   });
   $('ann-reingest-btn').addEventListener('click', (e) => annReingest(e.currentTarget));
+  $('ann-fix-flagged').addEventListener('click', () => fixFlaggedBlocks());
   $('ann-reload').addEventListener('click', () => loadAnnotator(ann.filename));
 
   // ── Zoom ─────────────────────────────────────────────────────────────────
