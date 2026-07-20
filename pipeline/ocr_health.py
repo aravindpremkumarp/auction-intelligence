@@ -29,6 +29,15 @@ MinerU's vlm model actually exhibits on full-page ruled notices:
     phrases into low-confidence regions ("中国银行股份有" — Bank of China —
     hallucinated into an HDB notice). Tamil, Devanagari and Latin are of
     course fine and never flag.
+  - **table-collapse** — the whole notice read as ONE giant HTML ``<table>``.
+    On a fully-bordered notice the vlm model swallows the prose above/below
+    the grid into table cells; the output is well-formed (closes cleanly, no
+    repetition, no leak) so every other check passes and it scores 100 — yet
+    most of the notice's text is lost to the reader and to downstream
+    extraction. Flagging it routes the doc to the auto-region re-ingest path
+    (``scripts/auto_region_reingest.py`` selects health-flagged docs), which
+    crops prose / grid / footer bands and OCRs them separately into distinct
+    Text/Table/Footer blocks.
 
 Score = 100 minus per-flag penalties, clamped to 0–100. A document with no
 flags scores 100. Fields written (additive — ``markdown_quality_score`` is
@@ -99,8 +108,22 @@ FOREIGN_SCRIPT_RE = re.compile(
     "]"
 )
 
+# ── single-table collapse ────────────────────────────────────────────────────
+# A fully-ruled notice comes back as a lone, well-formed <table> holding
+# essentially all of the document's text. We flag it when there is exactly one
+# table, that table is substantial, and almost none of the visible text lives
+# outside it. Thresholds favour precision: a faithfully decomposed notice keeps
+# its prose OUTSIDE the grid (markdown paragraphs) and often carries more than
+# one table, so it clears every gate below and never flags.
+TABLE_TAG_RE = re.compile(r"<table\b.*?</table>", re.I | re.S)
+_TAG_STRIP_RE = re.compile(r"<[^>]+>")
+# Below this share of visible text outside the lone table → collapse.
+COLLAPSE_MAX_OUTSIDE_RATIO = 0.15
+# ...but never flag a doc with a small table (legitimate short grids, tests).
+COLLAPSE_MIN_TABLE_CHARS = 500
+
 PENALTY = {"repetition": 0, "token-leak": 40, "truncated": 30,
-           "foreign-script": 40}  # repetition scaled
+           "foreign-script": 40, "table-collapse": 35}  # repetition scaled
 
 
 def _norm_line(line: str) -> str:
@@ -124,6 +147,45 @@ def _max_consecutive_run(markdown: str) -> int:
             prev = line
         best = max(best, run)
     return best
+
+
+def _visible_len(s: str) -> int:
+    """Non-whitespace character count after stripping HTML tags.
+
+    Approximates the reader-visible text of an HTML/markdown fragment so a
+    cell's worth of ``<td>`` wrapping doesn't count toward content length.
+    """
+    return len(re.sub(r"\s+", "", _TAG_STRIP_RE.sub(" ", s)))
+
+
+def _table_collapse(text: str) -> dict | None:
+    """Detect a single-table collapse. Returns detail dict or ``None``.
+
+    Collapse := exactly one closed ``<table>`` whose visible text is large
+    (``COLLAPSE_MIN_TABLE_CHARS``) and holds all but a tiny share
+    (``COLLAPSE_MAX_OUTSIDE_RATIO``) of the document's visible text. An
+    unclosed table won't match here — it is already caught by the truncation
+    check — so a truncated collapse still flags (as ``truncated``) and still
+    routes to re-ingest.
+    """
+    tables = TABLE_TAG_RE.findall(text)
+    if len(tables) != 1:
+        return None
+    table_visible = _visible_len(tables[0])
+    if table_visible < COLLAPSE_MIN_TABLE_CHARS:
+        return None
+    outside_visible = _visible_len(TABLE_TAG_RE.sub(" ", text))
+    total_visible = table_visible + outside_visible
+    if total_visible == 0:
+        return None
+    outside_ratio = outside_visible / total_visible
+    if outside_ratio >= COLLAPSE_MAX_OUTSIDE_RATIO:
+        return None
+    return {
+        "table_chars": table_visible,
+        "outside_chars": outside_visible,
+        "outside_ratio": round(outside_ratio, 3),
+    }
 
 
 def score_ocr_health(markdown: str | None) -> dict:
@@ -179,6 +241,12 @@ def score_ocr_health(markdown: str | None) -> dict:
         details["foreign_script_count"] = len(foreign)
         details["foreign_script_sample"] = "".join(foreign[:10])
         penalty += PENALTY["foreign-script"]
+
+    collapse = _table_collapse(text)
+    if collapse:
+        flags.append("table-collapse")
+        details["table_collapse"] = collapse
+        penalty += PENALTY["table-collapse"]
 
     return {"score": max(0, 100 - penalty), "flags": flags, "details": details}
 
