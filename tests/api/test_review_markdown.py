@@ -144,3 +144,17 @@ def test_block_model_exposes_health() -> None:
     # absent health stays None, never missing
     bare = Block(id="b2", bbox=[0, 0, 1, 1], label="Text").model_dump()
     assert bare["health"] is None
+
+
+def test_block_auto_reextract_marker_and_flag() -> None:
+    # One-time auto-fix: the request carries an `auto` flag and the block
+    # persists an `auto_reextract_at` marker so it never re-fires.
+    from api.review.router import Block, ReExtractBody
+    assert ReExtractBody(auto=True).auto is True
+    assert ReExtractBody().auto is False           # defaults off
+    assert "auto_reextract_at" in Block.model_fields
+    b = Block(id="b1", bbox=[0, 0, 1, 1], label="Text",
+              auto_reextract_at="2026-07-20T18:00:00+00:00")
+    assert b.model_dump()["auto_reextract_at"] == "2026-07-20T18:00:00+00:00"
+    assert Block(id="b2", bbox=[0, 0, 1, 1], label="Text"
+                 ).model_dump()["auto_reextract_at"] is None

@@ -799,6 +799,12 @@ async def re_extract_block(filename: str, block_id: str,
         blk["table"] = None
     blk["edited_at"] = _iso_now()
     blk["edited_by"] = by_email
+    # Stamp the auto-fix marker so the annotator's one-time auto re-extract
+    # never fires again on this block — even if it comes back still flagged
+    # (the reviewer then adjusts the box + Re-ingest). Manual re-runs leave it
+    # untouched, so a reviewer can always re-run by hand.
+    if body.get("auto"):
+        blk["auto_reextract_at"] = _iso_now()
     _save_doc(filename, doc, rev)
     # _save_doc left the doc in `pending` (the standard "blocks changed →
     # markdown verdict is stale" behaviour). Additionally stamp a

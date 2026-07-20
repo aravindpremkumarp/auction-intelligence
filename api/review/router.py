@@ -368,6 +368,10 @@ class Block(BaseModel):
     table: TableShape | None = None
     edited_at: str | None = None
     edited_by: str | None = None
+    # Set once, the first time this block was auto re-extracted because it was
+    # flagged with an OCR artifact. Persisted, so the annotator's auto-fix fires
+    # at most once per block ever and never re-spends MinerU on later opens.
+    auto_reextract_at: str | None = None
     # Read-time per-block OCR-health verdict (repetition / token-leak /
     # foreign-script). Computed by get_blocks, never persisted — so a reviewer
     # edit re-scores on the next fetch. Declared here or FastAPI drops it.
@@ -480,6 +484,9 @@ class ReExtractBody(BaseModel):
     page: int | None = None
     row_positions: list[float] | None = None
     col_positions: list[float] | None = None
+    # Set by the annotator's one-time auto-fix so the block records that its
+    # automatic attempt has happened (guards against re-spending on reopen).
+    auto: bool = False
 
 
 class ReingestStarted(BaseModel):
