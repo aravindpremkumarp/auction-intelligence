@@ -3441,6 +3441,11 @@
     el.className = 'ann-block lab-' + (b.label || 'Text');
     el.dataset.id = b.id;
     if (isSelected(b.id)) el.classList.add('selected');
+    // Outline the box on the image when this block carries an OCR-health flag,
+    // so the guilty region is visible on the page, not just in the sidebar.
+    if (b.health && Array.isArray(b.health.flags) && b.health.flags.length) {
+      el.style.outline = '2px solid #dc2626';
+    }
     placeBlockEl(el, b.bbox);
     const lbl = document.createElement('div');
     lbl.className = 'ann-lbl';
@@ -3700,6 +3705,19 @@
     sourcePill.className = 'pill ' + (b.source === 'human' ? 'warn' : 'off');
     sourcePill.textContent = b.source || 'mineru';
     top.appendChild(sourcePill);
+
+    // Per-block OCR-health tag: a repetition loop / token-leak / foreign-script
+    // in THIS block's text (server-computed on read). Points the reviewer at the
+    // exact block to re-run extraction on, instead of a document-level verdict.
+    if (b.health && Array.isArray(b.health.flags) && b.health.flags.length) {
+      const hp = document.createElement('span');
+      hp.className = 'pill danger';
+      hp.textContent = '⚠ ' + b.health.flags.join(' + ');
+      hp.title = 'OCR artifact in this block: ' + b.health.flags.join(', ')
+        + ' — re-run extraction to fix';
+      top.appendChild(hp);
+      row.style.boxShadow = 'inset 3px 0 0 #dc2626';
+    }
 
     row.appendChild(top);
 

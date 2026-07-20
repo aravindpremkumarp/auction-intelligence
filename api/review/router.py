@@ -351,6 +351,11 @@ class TableShape(BaseModel):
     col_positions: list[float] | None = None
 
 
+class BlockHealth(BaseModel):
+    score: int | None = None
+    flags: list[str] = []
+
+
 class Block(BaseModel):
     id: str
     page: int = 1
@@ -363,6 +368,10 @@ class Block(BaseModel):
     table: TableShape | None = None
     edited_at: str | None = None
     edited_by: str | None = None
+    # Read-time per-block OCR-health verdict (repetition / token-leak /
+    # foreign-script). Computed by get_blocks, never persisted — so a reviewer
+    # edit re-scores on the next fetch. Declared here or FastAPI drops it.
+    health: BlockHealth | None = None
 
 
 class SourceDim(BaseModel):

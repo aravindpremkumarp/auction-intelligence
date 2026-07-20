@@ -129,3 +129,18 @@ def test_markdown_property_row_model_exposes_ocr_health() -> None:
     dumped = row.model_dump()
     assert dumped["ocr_health_score"] == 65
     assert dumped["ocr_health_flags"] == ["table-collapse"]
+
+
+def test_block_model_exposes_health() -> None:
+    # get_blocks attaches a read-time per-block health verdict; Block must
+    # declare it or FastAPI strips it (same bug class as the highlights guard).
+    from api.review.router import Block
+    assert "health" in Block.model_fields
+    blk = Block(id="b1", bbox=[0, 0, 1, 1], label="Text",
+                health={"score": 60, "flags": ["repetition"]})
+    dumped = blk.model_dump()
+    assert dumped["health"]["flags"] == ["repetition"]
+    assert dumped["health"]["score"] == 60
+    # absent health stays None, never missing
+    bare = Block(id="b2", bbox=[0, 0, 1, 1], label="Text").model_dump()
+    assert bare["health"] is None

@@ -251,6 +251,60 @@ def score_ocr_health(markdown: str | None) -> dict:
     return {"score": max(0, 100 - penalty), "flags": flags, "details": details}
 
 
+# Flags that are meaningful for a single block: the intrinsic per-fragment
+# artifacts. `table-collapse` and `truncated` are whole-document / structure
+# concerns (one block being a table is normal), so they are not evaluated here.
+BLOCK_HEALTH_FLAGS = ("repetition", "token-leak", "foreign-script")
+
+
+def score_block_health(text: str | None) -> dict:
+    """Score one block's text for the per-fragment OCR artifacts.
+
+    Same detectors as :func:`score_ocr_health` for repetition, token-leak and
+    foreign-script, but scoped to a single block so the annotator can tag the
+    exact block a loop/leak/hallucination comes from. Document-structure flags
+    (table-collapse, truncated) are intentionally not evaluated per block.
+
+    Returns ``{"score": int|None, "flags": [str], "details": {…}}``; ``score``
+    is None when the block has no text.
+    """
+    if not text or not text.strip():
+        return {"score": None, "flags": [], "details": {}}
+    t = text[:MAX_SCAN_CHARS]
+
+    flags: list[str] = []
+    details: dict = {}
+    penalty = 0
+
+    run = _max_consecutive_run(t)
+    inline = None
+    if run < REP_RUN_THRESHOLD:
+        m = REP_INLINE_RE.search(t)
+        if m:
+            inline = m.group(1).strip()[:60]
+    if run >= REP_RUN_THRESHOLD or inline:
+        flags.append("repetition")
+        details["repetition_run"] = run
+        if inline:
+            details["repetition_inline"] = inline
+        penalty += min(50, 10 + 2 * run)
+
+    leak = TOKEN_LEAK_RE.search(t)
+    if leak:
+        flags.append("token-leak")
+        details["token_leak"] = leak.group(0)
+        penalty += PENALTY["token-leak"]
+
+    foreign = FOREIGN_SCRIPT_RE.findall(t)
+    if foreign:
+        flags.append("foreign-script")
+        details["foreign_script_count"] = len(foreign)
+        details["foreign_script_sample"] = "".join(foreign[:10])
+        penalty += PENALTY["foreign-script"]
+
+    return {"score": max(0, 100 - penalty), "flags": flags, "details": details}
+
+
 # ── Neo4j plumbing ──────────────────────────────────────────────────────────
 
 def _fetch_docs(file_paths: list[str] | None, force: bool) -> list[dict]:

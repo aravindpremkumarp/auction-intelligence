@@ -421,14 +421,33 @@ def _max_reading_order(blocks: list[dict]) -> int:
 
 # ── public API used by the router ───────────────────────────────────────────
 
+def _attach_block_health(blocks: list) -> None:
+    """Annotate each block in-place with a read-time ``health`` = {score, flags}.
+
+    Computed on read (never persisted) so it always reflects the block's current
+    text — a reviewer edit re-scores on the next fetch. Only the per-fragment
+    artifacts (repetition / token-leak / foreign-script) are evaluated; see
+    :func:`pipeline.ocr_health.score_block_health`. This is what lets the
+    annotator tag the exact block a repetition loop / leak comes from.
+    """
+    from pipeline.ocr_health import score_block_health
+    for b in blocks:
+        if not isinstance(b, dict):
+            continue
+        h = score_block_health(b.get("text"))
+        b["health"] = {"score": h["score"], "flags": h["flags"]}
+
+
 def get_blocks(filename: str) -> dict:
     """Return the full annotator payload for a notice."""
     doc, rev, meta = _load_doc(filename)
+    blocks = doc.get("blocks") or []
+    _attach_block_health(blocks)
     return {
         **meta,
         "schema_version":    int(doc.get("schema_version") or 1),
         "source_dims":       doc.get("source_dims") or [],
-        "blocks":            doc.get("blocks") or [],
+        "blocks":            blocks,
         "blocks_revision":   rev,
         "backfill_required": not bool(doc.get("blocks")),
     }

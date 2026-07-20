@@ -7,7 +7,7 @@ flag (per-lot boilerplate repeated *non*-consecutively).
 """
 from __future__ import annotations
 
-from pipeline.ocr_health import score_ocr_health
+from pipeline.ocr_health import score_block_health, score_ocr_health
 
 
 def test_clean_prose_scores_100():
@@ -203,3 +203,39 @@ def test_small_table_does_not_collapse_flag():
     h = score_ocr_health(md)
     assert "table-collapse" not in h["flags"]
     assert h["score"] == 100
+
+
+# ── per-block health (score_block_health) ───────────────────────────────────
+
+def test_block_health_flags_inline_repetition():
+    # The real "Guduvanchery, Guduvanchery, …" loop, isolated to one block.
+    h = score_block_health("Guduvanchery, " * 30)
+    assert "repetition" in h["flags"]
+    assert h["score"] < 100
+
+
+def test_block_health_clean_text_scores_100():
+    h = score_block_health("Place: Chennai\nDate: 07.07.2026")
+    assert h["flags"] == []
+    assert h["score"] == 100
+
+
+def test_block_health_token_leak_and_foreign_script():
+    assert "token-leak" in score_block_health("text <|content_end|> more")["flags"]
+    assert "foreign-script" in score_block_health("land at 中国银行 survey no 5")["flags"]
+
+
+def test_block_health_ignores_document_level_flags():
+    # table-collapse / truncated are whole-document verdicts — one block being a
+    # big (even unclosed) table is normal and must not flag at block level.
+    big = "<table>" + "".join(
+        f"<tr><td>lot {i} borrower survey extent village taluk district</td></tr>"
+        for i in range(60)) + "</table>"
+    assert score_block_health(big)["flags"] == []
+    assert score_block_health("<table><tr><td>row</td></tr>")["flags"] == []
+
+
+def test_block_health_empty_is_unscored():
+    assert score_block_health("")["score"] is None
+    assert score_block_health(None)["score"] is None
+    assert score_block_health("   ")["flags"] == []
