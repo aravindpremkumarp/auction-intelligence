@@ -275,6 +275,57 @@ def seo_description(fields: dict, rel: dict, ended: bool) -> str:
     return desc[:158]
 
 
+def slugify(name: str) -> str:
+    """Match scripts/build_landing_pages.slugify so a property's breadcrumb links
+    to the same /bank-auctions/<slug> hub the landing builder emits."""
+    s = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+    return re.sub(r"-{2,}", "-", s)
+
+
+def jsonld_description(fields: dict, rel: dict, ended: bool, cap: int = 600) -> str:
+    """Prefer the real notice text (richer for AI/snippets) over the 158-char
+    meta description, collapsed to one line and capped. Falls back to the meta
+    description when there's no usable notice text."""
+    raw = " ".join((fields.get("description") or "").split())
+    if len(raw) >= MIN_DESCRIPTION_LEN:
+        return raw[:cap].rstrip()
+    return seo_description(fields, rel, ended)
+
+
+def postal_address(fields: dict, rel: dict) -> dict | None:
+    """City-level PostalAddress from the record. Area (neighbourhood) is left in
+    the title/description rather than forced into a street field it doesn't fit."""
+    city = (rel.get("city") or {}).get("name") or fields.get("district")
+    if not city:
+        return None
+    return {
+        "@type": "PostalAddress",
+        "addressLocality": city,
+        "addressRegion": "Tamil Nadu",
+        "addressCountry": "IN",
+    }
+
+
+def breadcrumb_trail(auction_id: str, fields: dict, rel: dict, name: str) -> dict:
+    """Home › Bank Auctions › <City> (only when that hub page exists) › this page.
+    The top /bank-auctions hub always exists; the city crumb is added only when
+    web/bank-auctions/<slug>/ was generated, so no crumb ever links to a 404."""
+    url = f"{SITE_BASE}/property/{auction_id}"
+    crumbs = [("Home", f"{SITE_BASE}/"), ("Bank Auctions", f"{SITE_BASE}/bank-auctions")]
+    city = (rel.get("city") or {}).get("name") or fields.get("district")
+    if city and (WEB_DIR / "bank-auctions" / slugify(city)).is_dir():
+        crumbs.append((city, f"{SITE_BASE}/bank-auctions/{slugify(city)}"))
+    crumbs.append((name, url))
+    return {
+        "@context": "https://schema.org",
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+            {"@type": "ListItem", "position": i + 1, "name": n, "item": link}
+            for i, (n, link) in enumerate(crumbs)
+        ],
+    }
+
+
 def property_jsonld(auction_id: str, fields: dict, rel: dict, ended: bool) -> list[dict]:
     """schema.org JSON-LD for a property page — Move 3 of the SEO plan
     (docs/marketing/plan.md §4): structured data for price rich results and
@@ -298,56 +349,81 @@ def property_jsonld(auction_id: str, fields: dict, rel: dict, ended: bool) -> li
     """
     url = f"{SITE_BASE}/property/{auction_id}"
     name = fields.get("title") or "Bank auction property"
-    desc = seo_description(fields, rel, ended)
+    desc = jsonld_description(fields, rel, ended)
     bank = (rel.get("bank") or {}).get("name") or ""
     ptype = (rel.get("property_types") or [None])[0]
     reserve = fields.get("reserve_price_num")
+    emd = fields.get("emd_num")
+    address = postal_address(fields, rel)
+
+    # Honest extra facts that don't fit price/description — every value from the record.
+    extra: list[dict] = [{"@type": "PropertyValue", "name": "Sale type", "value": "SARFAESI bank e-auction"}]
+    if ptype:
+        extra.append({"@type": "PropertyValue", "name": "Property type", "value": ptype})
+    if emd:
+        extra.append({"@type": "PropertyValue", "name": "EMD (earnest money deposit)",
+                      "value": int(emd), "unitText": "INR"})
+    auction_date = fmt_date(fields.get("auction_start_dt"))
+    if auction_date:
+        extra.append({"@type": "PropertyValue", "name": "Auction date", "value": auction_date})
 
     blocks: list[dict] = []
 
     if not ended and reserve:
         offer: dict = {
             "@type": "Offer",
+            # The reserve is the floor / minimum bid, not a fixed sale price — said plainly.
+            "description": "Reserve price — the minimum bid for this bank e-auction.",
             "price": int(reserve),
             "priceCurrency": "INR",
             "availability": "https://schema.org/InStock",
             "url": url,
         }
-        valid = iso_date(fields.get("application_deadline_dt") or fields.get("auction_start_dt"))
-        if valid:
-            offer["priceValidUntil"] = valid
+        starts = iso_date(fields.get("auction_start_dt"))
+        ends = iso_date(fields.get("application_deadline_dt") or fields.get("auction_start_dt"))
+        if ends:
+            offer["priceValidUntil"] = ends
+            offer["availabilityEnds"] = ends
+        if starts:
+            offer["availabilityStarts"] = starts
         if bank:
             offer["seller"] = {"@type": "Organization", "name": bank}
+        if address:
+            offer["availableAtOrFrom"] = {"@type": "Place", "name": name, "address": address}
         product: dict = {
             "@context": "https://schema.org",
             "@type": "Product",
             "additionalType": "https://schema.org/RealEstateListing",
             "name": name,
             "description": desc,
+            "sku": auction_id,
             "url": url,
             "image": f"{SITE_BASE}/og-image.png",
+            "additionalProperty": extra,
             "offers": offer,
         }
         if ptype:
             product["category"] = ptype
         blocks.append(product)
     else:
-        blocks.append({
+        # Closed round (or no reserve figure): describe the historical listing with
+        # no live Offer. Location + facts still attach via about/additionalProperty.
+        listing: dict = {
             "@context": "https://schema.org",
             "@type": "RealEstateListing",
             "name": name,
             "description": desc,
             "url": url,
-        })
+            "additionalProperty": extra,
+        }
+        if reserve:
+            extra.insert(0, {"@type": "PropertyValue", "name": "Closing reserve price",
+                             "value": int(reserve), "unitText": "INR"})
+        if address:
+            listing["about"] = {"@type": "Place", "name": name, "address": address}
+        blocks.append(listing)
 
-    blocks.append({
-        "@context": "https://schema.org",
-        "@type": "BreadcrumbList",
-        "itemListElement": [
-            {"@type": "ListItem", "position": 1, "name": "Home", "item": f"{SITE_BASE}/"},
-            {"@type": "ListItem", "position": 2, "name": name, "item": url},
-        ],
-    })
+    blocks.append(breadcrumb_trail(auction_id, fields, rel, name))
     return blocks
 
 
