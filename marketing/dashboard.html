@@ -381,7 +381,7 @@ const PULL = GH + '/pull/';
 
 const MARKETING_DATA = {
 meta: {
-  updated: '2026-07-17',
+  updated: '2026-07-20',
   situation: 'pre-traction: ~7 registered users. the whole marketing engine was built in one sprint (jul 9–16, 2026) and is <b>human-gated end-to-end</b> — agents draft and stage, the founder reviews, merges and publishes. nothing auto-posts. north star (proposed): <b>weekly activated users</b> — ≥1 grounded search plus a value action.',
 },
 
@@ -494,8 +494,8 @@ nodes: [
     links:[{t:'web/bank-auctions/', h: TREE+'web/bank-auctions'},{t:'live: chennai hub', h:'https://www.auctionscope.in/bank-auctions/chennai/'}], prs:[295] },
   { id:'ssr', lane:'channels', label:'property pages — SSR', type:'channel', status:'live',
     sub:'664 prerendered · all live inventory · every district',
-    summary:'/property/<id>/ — prerendered shells with real title/description/OG/canonical so Google can finally read the SPA\'s inventory. Expanded 2026-07-17 from the 60-page Chennai/Kanchipuram pilot to all live inventory across every district (664 pages). Includes closed auctions for re-auction search demand.',
-    next:['Add per-property RealEstateListing JSON-LD (move 3 is only partial).','Watch GSC re-read the expanded 690-URL sitemap — it last read 77 on 2026-07-16.'],
+    summary:'/property/<id>/ — prerendered shells with real title/description/OG/canonical + schema.org JSON-LD so Google can finally read the SPA\'s inventory. Expanded 2026-07-17 from the 60-page Chennai/Kanchipuram pilot to all live inventory across every district (664 pages). Move 3 landed 2026-07-20: every page now carries structured data — live auctions emit Product + Offer (reserve as price, INR, deadline, seller bank), ended ones a RealEstateListing with no live Offer, plus a BreadcrumbList. Includes closed auctions for re-auction search demand.',
+    next:['Validate a sample in Google\'s Rich Results Test, then watch GSC for Product/Merchant listing eligibility.','Watch GSC re-read the 690-URL sitemap for indexed count.'],
     links:[{t:'web/property/', h: TREE+'web/property'},{t:'sitemap.xml', h: BLOB+'web/sitemap.xml'},{t:'seo-pages.yml', h: BLOB+'.github/workflows/seo-pages.yml'}], prs:[294,308,310] },
   { id:'site', lane:'channels', label:'website — auctionscope.in', type:'channel', status:'live',
     summary:'The SPA on Vercel: chat search, browse, watchlist, alerts, billing. Landing carries the email-capture bar; GA4 + minimal cookie banner are wired.',
@@ -636,7 +636,6 @@ roadmap: [
   { col:'next', items:[
     { t:'email sending + welcome sequence', d:'alert digests, welcome flow, SPF/DKIM/DMARC — turns the list into retention.', tag:'retention' },
     { t:'market_gap extractor', d:'extent/UDS/possession extraction so the below-market angle can automate.', tag:'pipeline' },
-    { t:'RealEstateListing JSON-LD', d:'per-property structured data — completes move 3.', tag:'move 3' },
     { t:'educational content hub', d:'long-form pages off the education syllabus.', tag:'move 4' },
     { t:'llms.txt + AI-SEO', d:'make the graph citable by AI search engines.', tag:'move 5' },
   ]},
@@ -670,6 +669,9 @@ risks: [
 ],
 
 changelog: [
+  { d:'2026-07-20', items:[
+    { t:'SEO Move 3 — structured data: per-property schema.org JSON-LD on every property page. Live auctions emit Product + Offer (reserve price, INR, priceValidUntil = deadline, seller = bank) additionally typed RealEstateListing; ended auctions emit a RealEstateListing with no live Offer (never implies a closed round is biddable); BreadcrumbList on all. Honest-numbers rule carried into the markup.' },
+  ]},
   { d:'2026-07-17', items:[
     { t:'Search Console: sitemap resubmitted (full URL — domain properties reject the relative path) and re-read same day — Discovered pages jumped 77 → 690, matching the committed sitemap; indexed-count tracking next' },
     { t:'Google Search Console: auctionscope.in domain property verified (GoDaddy DNS auto-verification); sitemap reads Success with 77 pages discovered — organic-search measurement node now on the map, indexed-count tracking next' },
