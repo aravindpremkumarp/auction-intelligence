@@ -133,3 +133,73 @@ def test_tamil_and_devanagari_do_not_flag():
 def test_latin_punctuation_and_symbols_do_not_flag():
     md = "Rs.10,71,000/- @ 12% p.a. — “as is where is” • ₹ 1,07,100"
     assert score_ocr_health(md)["flags"] == []
+
+
+def test_single_table_collapse_flags():
+    # The Motilal-Oswal failure mode: MinerU vlm read a fully-bordered notice
+    # as ONE big table, swallowing every prose paragraph into cells. Nothing
+    # survives outside the grid.
+    cells = (
+        "Motilal Oswal Home Finance Limited PUBLIC NOTICE FOR E-AUCTION CUM SALE. "
+        "E-Auction Sale Notice of 30 Days for Sale of Immovable Assets under the "
+        "Securitisation and Reconstruction of Financial Assets and Enforcement of "
+        "Security Interest Act 2002 read with provision to rule 8 and 9. Notice is "
+        "hereby given to the public and to the borrowers that the property mortgaged "
+        "to Motilal Oswal Home Finance Limited (earlier known as Aspire Home Finance "
+        "Corporation Limited) will be sold on As is where is, As is what is, and "
+        "Whatever there is basis for recovery of dues and further interest, charges "
+        "and costs. LAN LXMOTRICHY5424-250797933 Branch Trichy Borrower Aravinth S "
+        "Co-Borrower Tamilarasi Sakkarathan Reserve Price Rs.2448217 EMD Rs.244822 "
+        "Description Flat No 03 Block No A Ground Floor Area 740 Sq Feet At Iswar "
+        "Builder A Block Pichadarkovil Village Manachanallur Taluk Tiruchirappalli "
+        "District. Contact Rajasekaran 7045501738 and Arumugakumar 9677997577."
+    )
+    md = f"<table><tr><td>{cells}</td></tr></table>"
+    h = score_ocr_health(md)
+    assert "table-collapse" in h["flags"]
+    assert h["details"]["table_collapse"]["outside_chars"] == 0
+    assert h["score"] < 100
+
+
+def test_table_with_prose_outside_does_not_collapse_flag():
+    # Faithfully decomposed notice: substantial prose OUTSIDE the grid, a large
+    # auction-details table too. The prose keeps the outside-text share well
+    # above the collapse ceiling, so it must not flag.
+    prose = (
+        "# Motilal Oswal Home Finance Limited\n\n"
+        "E-Auction Sale Notice of 30 Days for Sale of Immovable Assets under the "
+        "Securitisation and Reconstruction of Financial Assets and Enforcement of "
+        "Security Interest Act 2002 read with provision to rule 8 and 9 of the "
+        "Security Interest (Enforcement) Rules 2002. Notice is hereby given to the "
+        "public in general and to the borrowers that the property mortgaged to "
+        "Motilal Oswal Home Finance Limited will be sold on As is where is basis "
+        "for recovery of dues and further interest, charges and costs. The auction "
+        "is conducted as per the terms and conditions of the bid document.\n\n"
+    )
+    rows = "".join(
+        f"<tr><td>Lot {i} borrower name and survey number {i} extent {i}00 "
+        f"sq ft village Manachanallur taluk Tiruchirappalli district</td></tr>"
+        for i in range(12)
+    )
+    md = prose + f"<table>{rows}</table>"
+    h = score_ocr_health(md)
+    assert "table-collapse" not in h["flags"]
+
+
+def test_multiple_tables_do_not_collapse_flag():
+    # Two tables means MinerU preserved layout structure — not a collapse.
+    big = "borrower name survey number extent village taluk district " * 12
+    md = (f"<table><tr><td>{big}</td></tr></table>\n\n"
+          f"<table><tr><td>{big}</td></tr></table>")
+    h = score_ocr_health(md)
+    assert "table-collapse" not in h["flags"]
+
+
+def test_small_table_does_not_collapse_flag():
+    # A short legitimate grid (below the min-table-size gate) never flags,
+    # even with no prose around it.
+    md = ("<table><tr><td>LAN</td><td>Reserve Price</td></tr>"
+          "<tr><td>LXMOTRICHY5424</td><td>Rs.2448217</td></tr></table>")
+    h = score_ocr_health(md)
+    assert "table-collapse" not in h["flags"]
+    assert h["score"] == 100
