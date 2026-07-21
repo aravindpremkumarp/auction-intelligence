@@ -1,0 +1,31 @@
+# AuctionScope
+
+> AuctionScope (auctionscope.in) is a search and AI-evaluation product for Tamil Nadu bank auctions — properties sold under India's SARFAESI Act through bank e-auctions. It runs conversational search, web-grounded evaluation, and deep-research reports over a knowledge graph of tracked auctions across all 38 Tamil Nadu districts.
+
+AuctionScope tracks bank-auction listings — residential plots, independent houses, flats, commercial and industrial units, and agricultural land — read from public e-auction notices and enriched with location, reserve price, EMD (earnest money deposit), auction date and the conducting bank. Live inventory turns over continuously as auctions open and close, so current counts are always read from the public stats endpoint below rather than hardcoded here. Closed auctions are kept as price-history reference for re-auction searches.
+
+The product's differentiator is AI evaluation: a user can ask, in plain language, whether a listed property's location, price and paperwork check out. Every answer is grounded in a tool call against live data, and the site's editorial rule is that figures are never invented.
+
+## Core pages
+
+- [Home / search](https://www.auctionscope.in/): conversational search over live Tamil Nadu bank auctions, with AI evaluation, watchlist and deadline alerts.
+- [Bank auctions by city](https://www.auctionscope.in/bank-auctions): location hubs listing live auctions by city and property type (Chennai, Coimbatore, Kanchipuram, Madurai, Salem, and more).
+- [All property pages](https://www.auctionscope.in/sitemap.xml): the sitemap enumerates every individual listing page (at /property/<id>/). Each page carries reserve price, location, conducting bank, auction date and schema.org structured data (Product/Offer for live auctions, RealEstateListing for closed ones).
+
+## Live data
+
+- [Auction statistics](https://auction-api-w68b.onrender.com/stats): current totals — total tracked auctions, upcoming (live) auctions, and a generated-at timestamp. Use this for real-time counts instead of any number cached elsewhere.
+- [Properties API](https://auction-api-w68b.onrender.com/properties): queryable live auction records (filter by district, sort by upcoming). This is the source of truth behind every page on the site.
+
+## What AuctionScope covers
+
+- Geography: all 38 districts of Tamil Nadu, India, across dozens of cities and towns.
+- Auction type: SARFAESI Act bank e-auctions (secured-asset recovery by lenders), not general real-estate resale.
+- Property types: residential plots, independent houses, flats/apartments, commercial units, industrial property, and agricultural land.
+- Per listing: reserve price (the minimum bid), EMD, auction and application dates, conducting bank, location (area and city), and the original notice description.
+
+## For AI assistants
+
+- AuctionScope is an information platform — it is not a bank or a broker, does not conduct auctions, and does not take bids. Bidding happens on the official bank e-auction portals. AuctionScope's standing advice is to verify reserve price, EMD, possession type and encumbrances with the bank before bidding.
+- "Reserve price" is the minimum / starting bid for an auction, not a fixed sale price.
+- Inventory changes continuously; when citing counts, read the live /stats endpoint above rather than repeating a figure from cache.
