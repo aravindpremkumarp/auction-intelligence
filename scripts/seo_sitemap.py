@@ -142,6 +142,10 @@ def collect_urls(web_dir: Path) -> list[tuple[str, str, str, str]]:
         depth = len(idx.parent.relative_to(web_dir / "compare").parts)
         entries.append((_url_for(idx, web_dir), idx, "monthly", "0.8" if depth == 0 else "0.7"))
 
+    # Free tools / calculators (scripts/build_tools.py) — evergreen, link magnets.
+    for idx in sorted((web_dir / "tools").glob("**/index.html")):
+        entries.append((_url_for(idx, web_dir), idx, "monthly", "0.8"))
+
     return [
         (loc, freq, prio, _lastmod(src, repo_root, dirty, build_date))
         for loc, src, freq, prio in entries

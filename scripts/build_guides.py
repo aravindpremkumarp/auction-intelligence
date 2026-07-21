@@ -1067,6 +1067,8 @@ register the sale certificate in your name — so a reserve that looks like a ba
 another tenth of the value in charges. Factor guideline value and these percentages into whether a
 listing is genuinely below market. AuctionScope helps you compare a reserve to local rates; the
 registration cost is the piece to add on top.</p>
+<p>Want the figure for a specific value? Use the free
+<a href="/tools/tamil-nadu-stamp-duty-calculator">Tamil Nadu stamp duty calculator</a>.</p>
 """,
         "faqs": [
             {"q": "What are the stamp duty and registration charges in Tamil Nadu?",
@@ -1190,6 +1192,8 @@ free — see the sources below.</p>
 duty and registration when you register the sale certificate — a real cost to add to your bid. And
 alongside the actual local market rate, it helps you judge whether a reserve is genuinely low. AuctionScope
 helps you compare a reserve to local rates; the guideline value is a second reference point to pull in.</p>
+<p>Estimate the duty on a value with the free
+<a href="/tools/tamil-nadu-stamp-duty-calculator">Tamil Nadu stamp duty calculator</a>.</p>
 """,
         "faqs": [
             {"q": "What is guideline value in Tamil Nadu?",
