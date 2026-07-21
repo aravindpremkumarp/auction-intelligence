@@ -1130,6 +1130,289 @@ legal advice — for a high-value purchase, have the documents reviewed by a pro
              "h": "https://eservices.tn.gov.in/eservicesnew/index.html"},
         ],
     },
+    {
+        "slug": "guideline-value-tamil-nadu",
+        "title": "Guideline value in Tamil Nadu — what it is and how to check it",
+        "h1": "Guideline value explained",
+        "description": ("Guideline value is the government's minimum value for a property, and the floor for "
+                        "stamp duty. What it is, how to check it free on TNREGINET, and why it matters at "
+                        "auction."),
+        "updated": "2026-07-21",
+        "answer": ("Guideline value is the minimum value the Tamil Nadu government fixes for every street and "
+                   "survey number — the legal floor below which a property cannot be registered. Stamp duty "
+                   "is charged on the higher of the sale price and the guideline value. You can look it up "
+                   "free on TNREGINET, without logging in."),
+        "body": """
+<h2>What it is</h2>
+<p>The guideline value — also called government value — is the minimum value the Registration Department
+assigns to each street, survey number and locality. No property can be registered below it during a
+sale, which is how the state guards against under-declaration. It is revised periodically; the
+department carried out an annual revision in January 2026.</p>
+
+<h2>Why it matters to a buyer</h2>
+<ul>
+<li><strong>It sets your tax floor.</strong> Stamp duty and registration are charged on the higher of the
+sale price and the guideline value — so even a low purchase price is taxed at least on the guideline
+value.</li>
+<li><strong>It is a price sanity-check.</strong> Comparing a property's asking or reserve price to its
+guideline value gives a rough read on whether the price is in a sensible range, though guideline value
+is a floor and not the true market rate.</li>
+</ul>
+
+<h2>How to check it</h2>
+<p>Go to the TNREGINET portal (tnreginet.gov.in), open the Guideline Value option, choose the zone and
+sub-registrar office, and search by street name or survey number. No login is needed and the lookup is
+free — see the sources below.</p>
+
+<h2>The bank-auction angle</h2>
+<p>At auction, guideline value works two ways. It tells you the minimum on which you will pay ~11% stamp
+duty and registration when you register the sale certificate — a real cost to add to your bid. And
+alongside the actual local market rate, it helps you judge whether a reserve is genuinely low. AuctionScope
+helps you compare a reserve to local rates; the guideline value is a second reference point to pull in.</p>
+""",
+        "faqs": [
+            {"q": "What is guideline value in Tamil Nadu?",
+             "a": ("The minimum value the government fixes for each street and survey number, below which a "
+                   "property cannot be registered. It is the floor used to calculate stamp duty and "
+                   "registration charges.")},
+            {"q": "How do I check the guideline value of a property?",
+             "a": ("On the TNREGINET portal (tnreginet.gov.in): open Guideline Value, pick the zone and "
+                   "sub-registrar office, and search by street name or survey number. It is free and needs "
+                   "no login.")},
+            {"q": "Is guideline value the same as market value?",
+             "a": ("No. Guideline value is a government-set floor for registration and tax; market value is "
+                   "what the property actually trades at, which can be higher. Use guideline value as a "
+                   "reference, not the market price.")},
+        ],
+        "related": ["stamp duty", "market value", "reserve price", "TNREGINET"],
+        "sources": [
+            {"t": "TNREGINET — Registration Department, Government of Tamil Nadu (official portal)",
+             "h": "https://tnreginet.gov.in/"},
+            {"t": "TNREGINET guideline value (2026) — ClearTax",
+             "h": "https://cleartax.in/s/tnreginet-guideline-value"},
+        ],
+    },
+    {
+        "slug": "sale-deed-and-parent-documents-tamil-nadu",
+        "title": "Sale deed and parent documents — the chain of title",
+        "h1": "Sale deed and parent documents",
+        "description": ("The sale deed transfers ownership; the parent documents show how title reached the "
+                        "seller. Why both matter, and how it works when you buy at auction."),
+        "updated": "2026-07-21",
+        "answer": ("A sale deed is the registered document that transfers ownership of a property to the "
+                   "buyer. Parent (or mother) documents are the earlier deeds that show how ownership passed "
+                   "down to the current seller — the chain of title. Checking that chain is unbroken is a "
+                   "core pre-purchase step."),
+        "body": """
+<h2>The two things you are checking</h2>
+<ul>
+<li><strong>The sale deed</strong> is the instrument that actually transfers ownership. To be valid it is
+executed on stamp paper and registered at the sub-registrar's office under the Registration Act.</li>
+<li><strong>Parent / mother documents</strong> are the earlier registered deeds — previous sale deeds,
+partition deeds, gift deeds, inheritance records — that trace ownership backwards over time. Together
+they form the <em>chain of title</em>.</li>
+</ul>
+
+<h2>Why the chain matters</h2>
+<p>A current sale deed tells you the last transfer; the parent documents tell you whether that transfer
+rested on solid ground. A gap or inconsistency in the chain — a missing link, an unexplained jump in
+ownership — is a warning sign worth resolving before you buy. This is where the encumbrance certificate
+helps too: it lists the registered transactions that should line up with the deeds.</p>
+
+<h2>How it works at a bank auction</h2>
+<p>At a SARFAESI auction you usually cannot get the seller's full document set — the bank shares a
+limited pack. What changes is the end state: once you win and pay in full, the bank issues a
+<strong>sale certificate</strong>, and that becomes your title document, which you register like a sale
+deed. Where the survey details allow, you can still pull the encumbrance certificate to sanity-check the
+history. Reading a limited document set under a deadline is exactly the situation AuctionScope is built
+to make faster.</p>
+""",
+        "faqs": [
+            {"q": "What is a parent document in a property sale?",
+             "a": ("A parent or mother document is an earlier registered deed — a previous sale, partition, "
+                   "gift or inheritance record — that shows how ownership passed down to the current seller. "
+                   "The set of them forms the chain of title.")},
+            {"q": "What is the difference between a sale deed and a sale certificate?",
+             "a": ("A sale deed transfers a property in an ordinary sale between buyer and seller. A sale "
+                   "certificate is what a bank issues to the winning bidder after a SARFAESI auction; you "
+                   "register it, and it serves as your title document.")},
+            {"q": "Why check the chain of title?",
+             "a": ("Because a valid current deed can still rest on a broken history. Tracing the parent "
+                   "documents, alongside the encumbrance certificate, is how you check ownership passed "
+                   "down cleanly to the seller.")},
+        ],
+        "related": ["encumbrance certificate", "patta", "sale certificate", "registration"],
+        "sources": [
+            {"t": "TNREGINET — Registration Department, Government of Tamil Nadu (official portal)",
+             "h": "https://tnreginet.gov.in/"},
+        ],
+    },
+    {
+        "slug": "patta-transfer-and-mutation-tamil-nadu",
+        "title": "Patta transfer (mutation) in Tamil Nadu — after you buy",
+        "h1": "Patta transfer and mutation",
+        "description": ("Registering a sale deed doesn't update the land record. Patta transfer — mutation — "
+                        "puts your name in the revenue record. How to do it, and why it matters after an "
+                        "auction."),
+        "updated": "2026-07-21",
+        "answer": ("Registering the sale deed transfers ownership, but it does not change the revenue "
+                   "record. Patta transfer, or mutation, updates the patta into the buyer's name. In Tamil "
+                   "Nadu you apply on the Revenue e-Services portal; a village officer inspects and the "
+                   "tahsildar approves. Skip it and utilities, tax and resale get complicated."),
+        "body": """
+<h2>Why registration alone isn't enough</h2>
+<p>A registered sale deed makes you the owner in the registration records — but the <em>revenue</em>
+record, the patta, still shows the previous owner until you apply to change it. That second step is
+mutation, or patta transfer.</p>
+
+<h2>What goes wrong if you skip it</h2>
+<ul>
+<li>Utility connections (electricity, water) can't move to your name.</li>
+<li>The property-tax demand stays against the seller.</li>
+<li>A future resale, building approval or loan against the property can stall.</li>
+</ul>
+
+<h2>How to apply</h2>
+<p>You apply through the Revenue Department's e-Services portal (eservices.tn.gov.in). A village
+administrative officer conducts a field inspection to verify the buyer, seller and boundaries, and the
+tahsildar reviews it and approves the mutation, issuing the updated patta. Documents usually needed
+include the registered sale deed (or sale certificate), the encumbrance certificate, property-tax
+receipts, ID proof and the existing patta. Routine transfers commonly close in a few weeks, though it
+varies; you can track the application status on the same portal. Confirm current fees and steps on the
+official portal — see the sources.</p>
+
+<h2>The bank-auction angle</h2>
+<p>After you win a SARFAESI auction, pay in full and register the sale certificate, patta transfer is the
+step that puts the land record in your name. Building it into your post-purchase plan — with the sale
+certificate and encumbrance certificate ready — avoids the utility and tax headaches later.</p>
+""",
+        "faqs": [
+            {"q": "Does patta change automatically after registration?",
+             "a": ("No. Registering the sale deed does not update the patta. You have to apply separately "
+                   "for patta transfer (mutation) to get the revenue record into your name.")},
+            {"q": "How do I apply for patta transfer in Tamil Nadu?",
+             "a": ("Through the Revenue e-Services portal (eservices.tn.gov.in). A village officer inspects "
+                   "and the tahsildar approves, using your sale deed or sale certificate, the encumbrance "
+                   "certificate, tax receipts, ID and existing patta. You can track status online.")},
+            {"q": "Do I need patta transfer after a bank auction?",
+             "a": ("Yes. Once you have paid in full and registered the sale certificate, apply for patta "
+                   "transfer so the land record reflects your ownership — otherwise utilities, tax and "
+                   "resale stay tied to the previous owner.")},
+        ],
+        "related": ["patta", "sale certificate", "encumbrance certificate", "property tax"],
+        "sources": [
+            {"t": "e-Services of Land Records — Revenue Department, Government of Tamil Nadu (official portal)",
+             "h": "https://eservices.tn.gov.in/eservicesnew/index.html"},
+            {"t": "Apply for Online Patta Transfer, Tamil Nadu — National Government Services Portal",
+             "h": "https://services.india.gov.in/service/detail/apply-for-online-patta-transfer-tamil-nadu"},
+        ],
+    },
+    {
+        "slug": "sale-agreement-vs-sale-deed",
+        "title": "Sale agreement vs sale deed — what's the difference?",
+        "h1": "Sale agreement vs sale deed",
+        "description": ("A sale agreement is a promise to sell; a sale deed is the actual transfer. Confusing "
+                        "the two is a common and costly mistake. How they differ, and where auctions fit."),
+        "updated": "2026-07-21",
+        "answer": ("A sale agreement (agreement to sell) is a promise to transfer a property on agreed terms "
+                   "in future — it does not make you the owner. A sale deed is the registered document that "
+                   "actually transfers ownership. Paying on an agreement without the deed being executed "
+                   "and registered is a common trap."),
+        "body": """
+<h2>The core difference</h2>
+<table class="kv">
+<tr><th></th><th>Sale agreement</th><th>Sale deed</th></tr>
+<tr><td>What it is</td><td>A promise to sell on agreed terms, often with a token/advance.</td><td>The
+actual transfer of ownership.</td></tr>
+<tr><td>Ownership</td><td>Stays with the seller.</td><td>Passes to the buyer.</td></tr>
+<tr><td>Registration</td><td>Not always registered.</td><td>Executed on stamp paper and registered at the
+sub-registrar's office.</td></tr>
+</table>
+
+<h2>Why the distinction matters</h2>
+<p>An agreement to sell sets out conditions — price, timeline, what happens if either side backs out — but
+you are not the owner until the sale deed is executed and registered. Handing over large sums on an
+agreement, without the deed following, is one of the more common ways buyers get into trouble. Treat the
+agreement as a step towards the deed, not a substitute for it.</p>
+
+<h2>Where auctions fit</h2>
+<p>A bank auction does not use a sale agreement in this sense. You bid, pay, and the bank issues a
+<strong>sale certificate</strong> that transfers the property to you — the certificate, once registered,
+plays the role the sale deed does in an ordinary sale. So at auction the thing to track is the payment
+timeline and the sale certificate, not an agreement to sell.</p>
+""",
+        "faqs": [
+            {"q": "Does a sale agreement transfer ownership?",
+             "a": ("No. A sale agreement is a promise to sell on agreed terms; ownership passes only when "
+                   "the sale deed is executed and registered. Until then the seller remains the owner.")},
+            {"q": "Is a sale agreement registered?",
+             "a": ("Not always — practices vary. The sale deed, by contrast, must be executed on stamp "
+                   "paper and registered at the sub-registrar's office to transfer ownership.")},
+            {"q": "Do bank auctions use a sale agreement?",
+             "a": ("No. At a SARFAESI auction you pay and receive a sale certificate, which — once "
+                   "registered — transfers the property. There is no separate agreement-to-sell step.")},
+        ],
+        "related": ["sale deed", "sale certificate", "registration", "EMD"],
+        "sources": [
+            {"t": "TNREGINET — Registration Department, Government of Tamil Nadu (official portal)",
+             "h": "https://tnreginet.gov.in/"},
+        ],
+    },
+    {
+        "slug": "how-to-check-rera-project-tamil-nadu",
+        "title": "How to check a RERA-registered project in Tamil Nadu (TNRERA)",
+        "h1": "Checking a project on TNRERA",
+        "description": ("For a new or under-construction project, TNRERA registration is a key check. How to "
+                        "verify a project and promoter free on the official TNRERA portal."),
+        "updated": "2026-07-21",
+        "answer": ("TNRERA is Tamil Nadu's real-estate regulator. Any project with more than 8 units or over "
+                   "500 sq m must register before it is marketed, and only registered projects can legally "
+                   "take booking amounts. You can verify a project and its promoter free on the official "
+                   "TNRERA portal, no login needed."),
+        "body": """
+<h2>What TNRERA registration tells you</h2>
+<p>Under the Real Estate (Regulation and Development) Act, a Tamil Nadu project with more than 8 units or
+a plot over 500 square metres must be registered with TNRERA before it is advertised or sold, and only
+a registered project can legally accept booking money. A valid registration is a baseline signal that a
+new project is on the regulator's record.</p>
+
+<h2>How to check</h2>
+<ol>
+<li>Go to the TNRERA portal (rera.tn.gov.in).</li>
+<li>Open Registered Projects / Project Status.</li>
+<li>Search by project name, promoter (developer) name, district, or registration number.</li>
+<li>Read the status — Registered, Pending, Rejected or Revoked — and the promoter's other projects and
+any orders against them.</li>
+</ol>
+<p>No login is needed for a basic search. See the official portal in the sources below.</p>
+
+<h2>How this relates to auctions — honestly</h2>
+<p>RERA is aimed at <strong>new and under-construction</strong> projects, so it is most useful when you
+are buying from a builder. Bank auctions are usually resale of an individual, already-built property, so
+TNRERA often will not apply to a specific auction listing. It belongs in your toolkit for the wider
+property search rather than for most auction lots — and knowing when a check does <em>not</em> apply is
+as useful as knowing when it does.</p>
+""",
+        "faqs": [
+            {"q": "How do I check if a project is RERA registered in Tamil Nadu?",
+             "a": ("On the TNRERA portal (rera.tn.gov.in), open Registered Projects or Project Status and "
+                   "search by project name, developer, district or registration number. The status shows "
+                   "as Registered, Pending, Rejected or Revoked.")},
+            {"q": "Which projects must register with TNRERA?",
+             "a": ("A Tamil Nadu project with more than 8 units or a plot over 500 square metres must "
+                   "register before it is marketed, and only registered projects can legally accept booking "
+                   "amounts.")},
+            {"q": "Does RERA apply to bank auction properties?",
+             "a": ("Usually not. RERA covers new and under-construction projects, while bank auctions are "
+                   "typically resale of an already-built individual property, so TNRERA often will not "
+                   "apply to a specific auction lot.")},
+        ],
+        "related": ["TNRERA", "builder verification", "sale deed", "guideline value"],
+        "sources": [
+            {"t": "TNRERA — Tamil Nadu Real Estate Regulatory Authority (official portal)",
+             "h": "https://rera.tn.gov.in/"},
+        ],
+    },
 ]
 
 
