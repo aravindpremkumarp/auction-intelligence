@@ -137,6 +137,34 @@ COMPETITORS = {
         "source": {"t": "bankeauctions.com — national bank e-auction service",
                     "h": "https://www.bankeauctions.com/"},
     },
+    "eauctionsindia": {
+        "name": "eAuctionsIndia",
+        "full": "eauctionsindia.com",
+        "url": "https://www.eauctionsindia.com/",
+        "one_line": ("a large national aggregator that collects bank e-auction listings from hundreds of "
+                     "banks into one searchable database"),
+        "about": ("eauctionsindia.com aggregates bank e-auction listings — NPA, DRT and foreclosure "
+                  "properties, plus vehicles and other assets — from hundreds of banks across India into a "
+                  "single searchable site. It offers filters by location, bank, category and price, and "
+                  "shows the key listing details: reserve price, EMD, auction date and bank contact."),
+        "strengths": [
+            "Very broad national inventory across hundreds of banks and many asset types",
+            "Search filters by location, bank, category and price",
+            "Shows the key listing details — reserve, EMD, auction date, bank contact",
+            "Updated regularly across the country",
+        ],
+        "gaps": [
+            "An aggregator of listings — no plain-English search or synthesis across auctions",
+            "No evaluation of a property's location, flood risk, connectivity or price-vs-market",
+            "You read and interpret each dense sale notice yourself",
+            "Breadth across the whole country rather than depth on one geography",
+        ],
+        "bids_where": ("You register and bid with the bank (KYC and EMD) on its e-auction platform; the "
+                       "site points you to the listing and the bank's details."),
+        "best_for": "browsing a very broad national pool of bank auctions across many banks and asset types",
+        "source": {"t": "eauctionsindia.com — national bank-auction listings aggregator",
+                    "h": "https://www.eauctionsindia.com/"},
+    },
 }
 
 # Shared "who AuctionScope is for / not for" so it stays consistent + honest.
