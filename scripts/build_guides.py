@@ -199,15 +199,15 @@ checks on a specific listing is what AuctionScope is built for.</p>
     },
     {
         "slug": "bank-auction-process-step-by-step",
-        "title": "The bank auction process, step by step",
-        "h1": "The bank auction process, step by step",
-        "description": ("From demand notice to possession: the full path a SARFAESI bank auction takes, "
-                        "and where a buyer enters it — notice, EMD, bid, pay, possession."),
+        "title": "How to buy a bank auction property — the process step by step",
+        "h1": "How to buy a bank auction property",
+        "description": ("How to buy a property at a bank auction, step by step — from the sale notice and "
+                        "EMD to bidding, payment and possession, and where a buyer enters."),
         "updated": "2026-07-21",
-        "answer": ("A bank auction runs in a fixed order: the bank issues a demand notice, takes possession "
-                   "of the property, values it and publishes a sale notice, then holds an online auction. "
-                   "The winning bidder pays a deposit, then the balance, and receives a sale certificate. "
-                   "A buyer usually enters at the sale-notice stage."),
+        "answer": ("To buy a bank auction property you go through a fixed process: the bank publishes a "
+                   "sale notice, you submit the EMD before its deadline, bid in the online auction, and — "
+                   "if you win — pay 25% immediately and the balance within 15 days, then receive the sale "
+                   "certificate. A buyer usually enters at the sale-notice stage; here is each step."),
         "body": """
 <h2>The steps</h2>
 <ol>
