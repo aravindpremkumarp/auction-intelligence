@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<script>(function(){try{var s=localStorage.getItem('theme');var d=window.matchMedia&&window.matchMedia('(prefers-color-scheme:dark)').matches;document.documentElement.setAttribute('data-theme',s||(d?'dark':'light'));}catch(e){}})();</script>
 <title>FMB sketch in Tamil Nadu — checking a property&#x27;s boundaries</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="The Field Measurement Book sketch is the official survey map of a land parcel&#x27;s shape and boundaries. What it is and why it matters before you buy.">
@@ -22,7 +23,13 @@
 <style>
 :root{--ink:#0a0b0d;--ink-soft:#33373e;--muted:#5b616e;--paper:#f6f7f9;
 --card:#fff;--border:#dee0e4;--accent:#0052ff;--accent-soft:#e8f0ff;--radius:12px}
-@media(prefers-color-scheme:dark){:root{--ink:#f5f7fa;--ink-soft:#c2c7d0;
+/* Match the main app: explicit theme via data-theme (set from localStorage by
+   the head script), with prefers-color-scheme only as a no-JS fallback so a
+   saved 'light' choice is never overridden by an OS dark preference. */
+[data-theme="dark"]{--ink:#f5f7fa;--ink-soft:#c2c7d0;
+--muted:#8b909b;--paper:#0a0b0d;--card:#16181d;--border:#2a2d34;--accent:#5b8bff;
+--accent-soft:#10203a}
+@media(prefers-color-scheme:dark){:root:not([data-theme]){--ink:#f5f7fa;--ink-soft:#c2c7d0;
 --muted:#8b909b;--paper:#0a0b0d;--card:#16181d;--border:#2a2d34;--accent:#5b8bff;
 --accent-soft:#10203a}}
 *{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);

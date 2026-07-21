@@ -34,7 +34,7 @@ import html
 import json
 from pathlib import Path
 
-from scripts.build_landing_pages import PAGE_CSS, CAPTURE_SCRIPT, SITE_BASE, slugify
+from scripts.build_landing_pages import PAGE_CSS, CAPTURE_SCRIPT, SITE_BASE, slugify, THEME_INIT
 from scripts import seo_sitemap
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -1940,6 +1940,7 @@ def _head(title: str, desc: str, url: str, jsonld: list[dict]) -> str:
 <html lang="en">
 <head>
 <meta charset="utf-8">
+{THEME_INIT}
 <title>{html.escape(title)}</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="{html.escape(desc)}">
