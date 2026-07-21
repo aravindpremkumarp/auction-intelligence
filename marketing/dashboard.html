@@ -551,8 +551,8 @@ nodes: [
 
   /* ---- measure & learn ---- */
   { id:'ga4', lane:'measure', label:'GA4 funnel', type:'monitor', status:'live',
-    sub:'G-KB0TTY5XVB · 4 events + UTM',
-    summary:'page_view, signup, checkout_start, upgrade_success, alert_subscribe via a never-throws track() wrapper with per-session UTM merge. Closed plan bet 3 ("instrument first, or fly blind forever").',
+    sub:'G-KB0TTY5XVB · 4 events + UTM · now on all SEO pages',
+    summary:'page_view, signup, checkout_start, upgrade_success, alert_subscribe via a never-throws track() wrapper with per-session UTM merge. Closed plan bet 3 ("instrument first, or fly blind forever"). Fixed 2026-07-21: the static SEO pages (43 guides, 5 comparisons, city landing pages) had no GA4 tag and were invisible in analytics — the shared page head now carries the same GA4 snippet + the cookie-notice, so their organic traffic finally reports.',
     links:[{t:'analytics-playbook.md', h: BLOB+'docs/marketing/analytics-playbook.md'},{t:'index.html · track()', h: BLOB+'web/index.html'}], prs:[279,292] },
   { id:'search-console', lane:'measure', label:'google search console', type:'monitor', status:'live',
     sub:'auctionscope.in · sitemap Success · 690 discovered',
@@ -676,6 +676,7 @@ risks: [
 
 changelog: [
   { d:'2026-07-21', items:[
+    { t:'Analytics fix: the static SEO pages (guides, comparisons, city landing pages) were rendered from a lean shared head that never included the GA4 tag — so ~50+ of the best organic-landing pages fired no page_view and were invisible in GA4. The shared head now carries the same GA4 snippet (G-KB0TTY5XVB, same debug rule as the app) and the /consent.js cookie-notice, so their traffic reports and consent is consistent site-wide. No Search Console change needed — the new URLs are already in the submitted sitemap and auto-discovered. All guide/compare/landing pages regenerated.' },
     { t:'SEO Move 6 — added an honest "Can ChatGPT or Gemini find bank auction properties?" Q&A page under /compare. Reframed (not a spec-sheet vs a chatbot): credits general AI for the informational groundwork, names the one specific gap — no live listings, can invent prices/dates — and positions AuctionScope as AI grounded in the live auction graph + cited web research (not a ChatGPT wrapper), with the not-legal-diligence rule intact. Doubles as move-5 AI-answer content. Draft, pending founder review of the framing.' },
     { t:'Guides hub readability: the /guides page now groups its 43 guides into six labelled sections (bank auction basics · documents & land records · money, tax & financing · title, ownership & inheritance · approvals & land literacy · after you buy & who can buy), each with a one-line intro and a divider, instead of one flat wall of cards. A build guard asserts every guide sits in exactly one group so none is ever dropped.' },
     { t:'SEO Move 4 — Ring 2 complete: +5 close-out guides — TDS on property (Sec 194-IA), land-area unit conversions (cent/ground/are/acre), undivided share (UDS) in flats, FSI/FAR, and building setbacks. Ring 2 now 30 guides covering all four syllabus buckets (documents, approvals, money, land literacy); 43 guides total. Sitemap 734 → 739. Rings 1 & 2 done; Ring 3 (general wisdom) remains.' },
