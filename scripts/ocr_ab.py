@@ -42,6 +42,8 @@ import argparse
 import html
 import json
 import os
+import re
+import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -83,15 +85,20 @@ def _item(disk: Path, file_path: str | None = None) -> dict:
 
 
 def _read_url_list(args) -> list[str]:
-    """Gather URLs from --urls and/or --urls-file (one per line or comma-sep;
-    blank lines and #comments ignored), de-duped in order."""
+    """Gather URLs from --urls and/or --urls-file, de-duped in order.
+
+    URLs may be separated by any whitespace (newlines OR spaces) or commas —
+    GitHub's workflow_dispatch inputs are single-line, so a pasted "one per
+    line" list actually arrives space-joined; splitting on whitespace handles
+    every paste shape. Comment lines (starting with #) and blanks are dropped.
+    """
     urls: list[str] = list(args.urls or [])
     if args.urls_file:
-        text = Path(args.urls_file).read_text(encoding="utf-8")
-        for line in text.replace(",", "\n").splitlines():
+        for line in Path(args.urls_file).read_text(encoding="utf-8").splitlines():
             line = line.strip()
-            if line and not line.startswith("#"):
-                urls.append(line)
+            if not line or line.startswith("#"):
+                continue
+            urls.extend(tok for tok in re.split(r"[\s,]+", line) if tok)
     seen: set[str] = set()
     return [u for u in urls if not (u in seen or seen.add(u))]
 
@@ -392,7 +399,7 @@ def main() -> None:
           f"engines={'MinerU ' if run_m else ''}{'Datalab' if run_d else ''}  "
           f"datalab_mode={args.mode}")
     if not items:
-        return
+        sys.exit("no notices collected — check the URL input (nothing downloaded)")
 
     rows: list[dict] = []
     with ThreadPoolExecutor(max_workers=max(1, args.concurrency)) as pool:

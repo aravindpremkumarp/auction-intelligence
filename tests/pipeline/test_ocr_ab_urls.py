@@ -32,6 +32,23 @@ def test_read_url_list_parses_and_dedupes(tmp_path):
     ]
 
 
+def test_read_url_list_splits_single_line_space_separated(tmp_path):
+    # The bug the workflow hit: workflow_dispatch inputs are single-line, so a
+    # "one per line" paste arrives as one space-joined line. Must still split.
+    f = tmp_path / "u.txt"
+    f.write_text("https://a/1.jpg https://a/2.png  https://a/3.pdf\n", encoding="utf-8")
+    args = _Args(urls_file=str(f))
+    assert AB._read_url_list(args) == [
+        "https://a/1.jpg", "https://a/2.png", "https://a/3.pdf",
+    ]
+
+
+def test_read_url_list_comment_line_does_not_leak_tokens(tmp_path):
+    f = tmp_path / "u.txt"
+    f.write_text("# these are notices\nhttps://a/1.jpg\n", encoding="utf-8")
+    assert AB._read_url_list(_Args(urls_file=str(f))) == ["https://a/1.jpg"]
+
+
 def test_collect_files_routes_urls(monkeypatch):
     seen = []
 
