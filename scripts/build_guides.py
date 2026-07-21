@@ -61,6 +61,9 @@ table.kv{border-collapse:collapse;margin:0 0 18px;width:100%}
 table.kv td,table.kv th{border:1px solid var(--border);padding:9px 12px;
 text-align:left;font-size:14.5px;vertical-align:top}
 table.kv th{background:var(--card);white-space:nowrap}
+.grouphead{margin:36px 0 4px;padding-top:18px;border-top:1px solid var(--border);font-size:19px}
+.grouphead:first-of-type{border-top:0;padding-top:0}
+.groupintro{color:var(--muted);font-size:13.5px;margin:0 0 14px;max-width:70ch}
 """
 
 
@@ -2670,25 +2673,86 @@ def render_guide(g: dict) -> str:
     return "\n".join(parts)
 
 
+# Hub layout: guides grouped into labelled sections so the /guides page reads as
+# a structured library, not a wall of cards. Order here is the display order.
+# Every guide slug must appear in exactly one group (main() asserts it), so a new
+# guide is never silently dropped from the hub.
+GUIDE_GROUPS = [
+    {"title": "Bank auction basics",
+     "intro": "Start here — how a SARFAESI bank auction works, from the sale notice to possession.",
+     "slugs": [
+        "what-is-a-sarfaesi-bank-auction", "bank-auction-process-step-by-step",
+        "what-is-emd-in-a-bank-auction", "what-is-reserve-price-in-a-bank-auction",
+        "symbolic-vs-physical-possession", "what-does-as-is-where-is-mean",
+        "how-to-read-a-bank-auction-sale-notice", "bank-auction-re-auctions-and-price-drops",
+        "how-to-pay-after-winning-a-bank-auction", "encumbrances-and-dues-in-a-bank-auction",
+        "is-buying-a-bank-auction-property-safe", "common-bank-auction-myths", "bank-auction-glossary"]},
+    {"title": "Documents & land records",
+     "intro": "The records that prove ownership, boundaries and history — and how to pull each in Tamil Nadu.",
+     "slugs": [
+        "patta-and-chitta-in-tamil-nadu", "adangal-and-a-register-tamil-nadu",
+        "encumbrance-certificate-tamil-nadu", "fmb-sketch-tamil-nadu",
+        "sale-deed-and-parent-documents-tamil-nadu", "town-survey-ts-number-urban-land-records",
+        "verify-property-documents-before-buying-tamil-nadu"]},
+    {"title": "Money, tax & financing",
+     "intro": "What a purchase really costs — guideline value, stamp duty, TDS and financing an auction win.",
+     "slugs": [
+        "guideline-value-tamil-nadu", "stamp-duty-and-registration-charges-tamil-nadu",
+        "tds-on-property-purchase", "home-loan-for-a-bank-auction-property"]},
+    {"title": "Title, ownership & inheritance",
+     "intro": "The chain-of-title checks — deeds, powers of attorney, co-owners, heirs and land you can't buy.",
+     "slugs": [
+        "sale-agreement-vs-sale-deed", "power-of-attorney-property-sales",
+        "co-ownership-and-joint-property", "selling-a-minors-property-court-permission",
+        "legal-heir-and-succession-certificate-tamil-nadu", "gift-and-settlement-deeds-tamil-nadu",
+        "prohibited-property-and-poramboke-land-tamil-nadu"]},
+    {"title": "Approvals & land literacy",
+     "intro": "What's approved and what can be built — plan approvals, area terms, UDS, FSI and setbacks.",
+     "slugs": [
+        "building-approval-and-occupancy-certificate-tamil-nadu", "how-to-check-rera-project-tamil-nadu",
+        "carpet-area-built-up-and-super-built-up", "undivided-share-uds-in-a-flat",
+        "fsi-far-in-tamil-nadu", "building-setbacks-tamil-nadu",
+        "land-area-units-and-conversions-tamil-nadu"]},
+    {"title": "After you buy & who can buy",
+     "intro": "Transfers once you own it, and the rules for NRI and agricultural-land buyers.",
+     "slugs": [
+        "patta-transfer-and-mutation-tamil-nadu", "property-tax-and-arrears-tamil-nadu",
+        "transfer-electricity-and-water-connection-tamil-nadu", "nri-buying-property-in-india",
+        "agricultural-land-purchase-rules-tamil-nadu"]},
+]
+
+
+def _guide_card(g: dict) -> str:
+    return (f'<a class="cardlink" href="/guides/{g["slug"]}">'
+            f'<div class="t">{html.escape(g["h1"])}</div>'
+            f'<div class="m">{html.escape(g["description"])}</div></a>')
+
+
 def render_hub(guides: list[dict]) -> str:
     url = f"{SITE_BASE}/guides"
     trail = [("Home", "/"), ("Guides", "/guides")]
     desc = ("Plain-language guides to Tamil Nadu bank auctions — how SARFAESI e-auctions work, "
             "EMD, reserve price, possession and what to check before you bid.")
     jsonld = [_breadcrumb_jsonld(trail)]
-    cards = "".join(
-        f'<a class="cardlink" href="/guides/{g["slug"]}"><div class="t">{html.escape(g["h1"])}</div>'
-        f'<div class="m">{html.escape(g["description"])}</div></a>'
-        for g in guides
-    )
+    by_slug = {g["slug"]: g for g in guides}
+
+    sections = []
+    for grp in GUIDE_GROUPS:
+        cards = "".join(_guide_card(by_slug[s]) for s in grp["slugs"] if s in by_slug)
+        sections.append(
+            f'<h2 class="grouphead">{html.escape(grp["title"])}</h2>'
+            f'<p class="groupintro">{html.escape(grp["intro"])}</p>'
+            f'<div class="grid">{cards}</div>'
+        )
+
     parts = [
         _head("Bank auction guides — Tamil Nadu", desc, url, jsonld),
         '<nav class="crumb"><a href="/">home</a> / guides</nav>',
         "<h1>Bank auction guides</h1>",
         '<p class="lede">Plain-language guides to buying property at Tamil Nadu bank auctions — '
-        'the process, the jargon, and what to check before you bid. '
+        'the process, the jargon, and what to check before you bid, grouped by topic. '
         'Looking for listings? <a href="/bank-auctions">Browse bank auctions by city</a>.</p>',
-        f'<div class="grid">{cards}</div>',
+        *sections,
         _cta_and_capture("guides-hub"),
         FOOT,
     ]
@@ -2703,6 +2767,15 @@ def main(argv: list[str] | None = None) -> int:
     # Guard: slugs must be unique and match the canonical slugify of the title's intent.
     slugs = [g["slug"] for g in GUIDES]
     assert len(slugs) == len(set(slugs)), "duplicate guide slug"
+
+    # Guard: every guide is placed in exactly one hub group (no orphans, no dupes,
+    # no group pointing at a slug that doesn't exist) — so the grouped hub always
+    # shows the full set. A new guide fails the build until it's grouped.
+    grouped = [s for grp in GUIDE_GROUPS for s in grp["slugs"]]
+    assert len(grouped) == len(set(grouped)), "a guide is listed in more than one hub group"
+    assert set(grouped) == set(slugs), (
+        f"hub grouping mismatch — ungrouped: {sorted(set(slugs) - set(grouped))}; "
+        f"unknown in groups: {sorted(set(grouped) - set(slugs))}")
 
     written = []
     pages = [(OUT_ROOT / "index.html", render_hub(GUIDES))]
