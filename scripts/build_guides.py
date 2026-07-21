@@ -1130,6 +1130,758 @@ legal advice — for a high-value purchase, have the documents reviewed by a pro
              "h": "https://eservices.tn.gov.in/eservicesnew/index.html"},
         ],
     },
+    {
+        "slug": "guideline-value-tamil-nadu",
+        "title": "Guideline value in Tamil Nadu — what it is and how to check it",
+        "h1": "Guideline value explained",
+        "description": ("Guideline value is the government's minimum value for a property, and the floor for "
+                        "stamp duty. What it is, how to check it free on TNREGINET, and why it matters at "
+                        "auction."),
+        "updated": "2026-07-21",
+        "answer": ("Guideline value is the minimum value the Tamil Nadu government fixes for every street and "
+                   "survey number — the legal floor below which a property cannot be registered. Stamp duty "
+                   "is charged on the higher of the sale price and the guideline value. You can look it up "
+                   "free on TNREGINET, without logging in."),
+        "body": """
+<h2>What it is</h2>
+<p>The guideline value — also called government value — is the minimum value the Registration Department
+assigns to each street, survey number and locality. No property can be registered below it during a
+sale, which is how the state guards against under-declaration. It is revised periodically; the
+department carried out an annual revision in January 2026.</p>
+
+<h2>Why it matters to a buyer</h2>
+<ul>
+<li><strong>It sets your tax floor.</strong> Stamp duty and registration are charged on the higher of the
+sale price and the guideline value — so even a low purchase price is taxed at least on the guideline
+value.</li>
+<li><strong>It is a price sanity-check.</strong> Comparing a property's asking or reserve price to its
+guideline value gives a rough read on whether the price is in a sensible range, though guideline value
+is a floor and not the true market rate.</li>
+</ul>
+
+<h2>How to check it</h2>
+<p>Go to the TNREGINET portal (tnreginet.gov.in), open the Guideline Value option, choose the zone and
+sub-registrar office, and search by street name or survey number. No login is needed and the lookup is
+free — see the sources below.</p>
+
+<h2>The bank-auction angle</h2>
+<p>At auction, guideline value works two ways. It tells you the minimum on which you will pay ~11% stamp
+duty and registration when you register the sale certificate — a real cost to add to your bid. And
+alongside the actual local market rate, it helps you judge whether a reserve is genuinely low. AuctionScope
+helps you compare a reserve to local rates; the guideline value is a second reference point to pull in.</p>
+""",
+        "faqs": [
+            {"q": "What is guideline value in Tamil Nadu?",
+             "a": ("The minimum value the government fixes for each street and survey number, below which a "
+                   "property cannot be registered. It is the floor used to calculate stamp duty and "
+                   "registration charges.")},
+            {"q": "How do I check the guideline value of a property?",
+             "a": ("On the TNREGINET portal (tnreginet.gov.in): open Guideline Value, pick the zone and "
+                   "sub-registrar office, and search by street name or survey number. It is free and needs "
+                   "no login.")},
+            {"q": "Is guideline value the same as market value?",
+             "a": ("No. Guideline value is a government-set floor for registration and tax; market value is "
+                   "what the property actually trades at, which can be higher. Use guideline value as a "
+                   "reference, not the market price.")},
+        ],
+        "related": ["stamp duty", "market value", "reserve price", "TNREGINET"],
+        "sources": [
+            {"t": "TNREGINET — Registration Department, Government of Tamil Nadu (official portal)",
+             "h": "https://tnreginet.gov.in/"},
+            {"t": "TNREGINET guideline value (2026) — ClearTax",
+             "h": "https://cleartax.in/s/tnreginet-guideline-value"},
+        ],
+    },
+    {
+        "slug": "sale-deed-and-parent-documents-tamil-nadu",
+        "title": "Sale deed and parent documents — the chain of title",
+        "h1": "Sale deed and parent documents",
+        "description": ("The sale deed transfers ownership; the parent documents show how title reached the "
+                        "seller. Why both matter, and how it works when you buy at auction."),
+        "updated": "2026-07-21",
+        "answer": ("A sale deed is the registered document that transfers ownership of a property to the "
+                   "buyer. Parent (or mother) documents are the earlier deeds that show how ownership passed "
+                   "down to the current seller — the chain of title. Checking that chain is unbroken is a "
+                   "core pre-purchase step."),
+        "body": """
+<h2>The two things you are checking</h2>
+<ul>
+<li><strong>The sale deed</strong> is the instrument that actually transfers ownership. To be valid it is
+executed on stamp paper and registered at the sub-registrar's office under the Registration Act.</li>
+<li><strong>Parent / mother documents</strong> are the earlier registered deeds — previous sale deeds,
+partition deeds, gift deeds, inheritance records — that trace ownership backwards over time. Together
+they form the <em>chain of title</em>.</li>
+</ul>
+
+<h2>Why the chain matters</h2>
+<p>A current sale deed tells you the last transfer; the parent documents tell you whether that transfer
+rested on solid ground. A gap or inconsistency in the chain — a missing link, an unexplained jump in
+ownership — is a warning sign worth resolving before you buy. This is where the encumbrance certificate
+helps too: it lists the registered transactions that should line up with the deeds.</p>
+
+<h2>How it works at a bank auction</h2>
+<p>At a SARFAESI auction you usually cannot get the seller's full document set — the bank shares a
+limited pack. What changes is the end state: once you win and pay in full, the bank issues a
+<strong>sale certificate</strong>, and that becomes your title document, which you register like a sale
+deed. Where the survey details allow, you can still pull the encumbrance certificate to sanity-check the
+history. Reading a limited document set under a deadline is exactly the situation AuctionScope is built
+to make faster.</p>
+""",
+        "faqs": [
+            {"q": "What is a parent document in a property sale?",
+             "a": ("A parent or mother document is an earlier registered deed — a previous sale, partition, "
+                   "gift or inheritance record — that shows how ownership passed down to the current seller. "
+                   "The set of them forms the chain of title.")},
+            {"q": "What is the difference between a sale deed and a sale certificate?",
+             "a": ("A sale deed transfers a property in an ordinary sale between buyer and seller. A sale "
+                   "certificate is what a bank issues to the winning bidder after a SARFAESI auction; you "
+                   "register it, and it serves as your title document.")},
+            {"q": "Why check the chain of title?",
+             "a": ("Because a valid current deed can still rest on a broken history. Tracing the parent "
+                   "documents, alongside the encumbrance certificate, is how you check ownership passed "
+                   "down cleanly to the seller.")},
+        ],
+        "related": ["encumbrance certificate", "patta", "sale certificate", "registration"],
+        "sources": [
+            {"t": "TNREGINET — Registration Department, Government of Tamil Nadu (official portal)",
+             "h": "https://tnreginet.gov.in/"},
+        ],
+    },
+    {
+        "slug": "patta-transfer-and-mutation-tamil-nadu",
+        "title": "Patta transfer (mutation) in Tamil Nadu — after you buy",
+        "h1": "Patta transfer and mutation",
+        "description": ("Registering a sale deed doesn't update the land record. Patta transfer — mutation — "
+                        "puts your name in the revenue record. How to do it, and why it matters after an "
+                        "auction."),
+        "updated": "2026-07-21",
+        "answer": ("Registering the sale deed transfers ownership, but it does not change the revenue "
+                   "record. Patta transfer, or mutation, updates the patta into the buyer's name. In Tamil "
+                   "Nadu you apply on the Revenue e-Services portal; a village officer inspects and the "
+                   "tahsildar approves. Skip it and utilities, tax and resale get complicated."),
+        "body": """
+<h2>Why registration alone isn't enough</h2>
+<p>A registered sale deed makes you the owner in the registration records — but the <em>revenue</em>
+record, the patta, still shows the previous owner until you apply to change it. That second step is
+mutation, or patta transfer.</p>
+
+<h2>What goes wrong if you skip it</h2>
+<ul>
+<li>Utility connections (electricity, water) can't move to your name.</li>
+<li>The property-tax demand stays against the seller.</li>
+<li>A future resale, building approval or loan against the property can stall.</li>
+</ul>
+
+<h2>How to apply</h2>
+<p>You apply through the Revenue Department's e-Services portal (eservices.tn.gov.in). A village
+administrative officer conducts a field inspection to verify the buyer, seller and boundaries, and the
+tahsildar reviews it and approves the mutation, issuing the updated patta. Documents usually needed
+include the registered sale deed (or sale certificate), the encumbrance certificate, property-tax
+receipts, ID proof and the existing patta. Routine transfers commonly close in a few weeks, though it
+varies; you can track the application status on the same portal. Confirm current fees and steps on the
+official portal — see the sources.</p>
+
+<h2>The bank-auction angle</h2>
+<p>After you win a SARFAESI auction, pay in full and register the sale certificate, patta transfer is the
+step that puts the land record in your name. Building it into your post-purchase plan — with the sale
+certificate and encumbrance certificate ready — avoids the utility and tax headaches later.</p>
+""",
+        "faqs": [
+            {"q": "Does patta change automatically after registration?",
+             "a": ("No. Registering the sale deed does not update the patta. You have to apply separately "
+                   "for patta transfer (mutation) to get the revenue record into your name.")},
+            {"q": "How do I apply for patta transfer in Tamil Nadu?",
+             "a": ("Through the Revenue e-Services portal (eservices.tn.gov.in). A village officer inspects "
+                   "and the tahsildar approves, using your sale deed or sale certificate, the encumbrance "
+                   "certificate, tax receipts, ID and existing patta. You can track status online.")},
+            {"q": "Do I need patta transfer after a bank auction?",
+             "a": ("Yes. Once you have paid in full and registered the sale certificate, apply for patta "
+                   "transfer so the land record reflects your ownership — otherwise utilities, tax and "
+                   "resale stay tied to the previous owner.")},
+        ],
+        "related": ["patta", "sale certificate", "encumbrance certificate", "property tax"],
+        "sources": [
+            {"t": "e-Services of Land Records — Revenue Department, Government of Tamil Nadu (official portal)",
+             "h": "https://eservices.tn.gov.in/eservicesnew/index.html"},
+            {"t": "Apply for Online Patta Transfer, Tamil Nadu — National Government Services Portal",
+             "h": "https://services.india.gov.in/service/detail/apply-for-online-patta-transfer-tamil-nadu"},
+        ],
+    },
+    {
+        "slug": "sale-agreement-vs-sale-deed",
+        "title": "Sale agreement vs sale deed — what's the difference?",
+        "h1": "Sale agreement vs sale deed",
+        "description": ("A sale agreement is a promise to sell; a sale deed is the actual transfer. Confusing "
+                        "the two is a common and costly mistake. How they differ, and where auctions fit."),
+        "updated": "2026-07-21",
+        "answer": ("A sale agreement (agreement to sell) is a promise to transfer a property on agreed terms "
+                   "in future — it does not make you the owner. A sale deed is the registered document that "
+                   "actually transfers ownership. Paying on an agreement without the deed being executed "
+                   "and registered is a common trap."),
+        "body": """
+<h2>The core difference</h2>
+<table class="kv">
+<tr><th></th><th>Sale agreement</th><th>Sale deed</th></tr>
+<tr><td>What it is</td><td>A promise to sell on agreed terms, often with a token/advance.</td><td>The
+actual transfer of ownership.</td></tr>
+<tr><td>Ownership</td><td>Stays with the seller.</td><td>Passes to the buyer.</td></tr>
+<tr><td>Registration</td><td>Not always registered.</td><td>Executed on stamp paper and registered at the
+sub-registrar's office.</td></tr>
+</table>
+
+<h2>Why the distinction matters</h2>
+<p>An agreement to sell sets out conditions — price, timeline, what happens if either side backs out — but
+you are not the owner until the sale deed is executed and registered. Handing over large sums on an
+agreement, without the deed following, is one of the more common ways buyers get into trouble. Treat the
+agreement as a step towards the deed, not a substitute for it.</p>
+
+<h2>Where auctions fit</h2>
+<p>A bank auction does not use a sale agreement in this sense. You bid, pay, and the bank issues a
+<strong>sale certificate</strong> that transfers the property to you — the certificate, once registered,
+plays the role the sale deed does in an ordinary sale. So at auction the thing to track is the payment
+timeline and the sale certificate, not an agreement to sell.</p>
+""",
+        "faqs": [
+            {"q": "Does a sale agreement transfer ownership?",
+             "a": ("No. A sale agreement is a promise to sell on agreed terms; ownership passes only when "
+                   "the sale deed is executed and registered. Until then the seller remains the owner.")},
+            {"q": "Is a sale agreement registered?",
+             "a": ("Not always — practices vary. The sale deed, by contrast, must be executed on stamp "
+                   "paper and registered at the sub-registrar's office to transfer ownership.")},
+            {"q": "Do bank auctions use a sale agreement?",
+             "a": ("No. At a SARFAESI auction you pay and receive a sale certificate, which — once "
+                   "registered — transfers the property. There is no separate agreement-to-sell step.")},
+        ],
+        "related": ["sale deed", "sale certificate", "registration", "EMD"],
+        "sources": [
+            {"t": "TNREGINET — Registration Department, Government of Tamil Nadu (official portal)",
+             "h": "https://tnreginet.gov.in/"},
+        ],
+    },
+    {
+        "slug": "how-to-check-rera-project-tamil-nadu",
+        "title": "How to check a RERA-registered project in Tamil Nadu (TNRERA)",
+        "h1": "Checking a project on TNRERA",
+        "description": ("For a new or under-construction project, TNRERA registration is a key check. How to "
+                        "verify a project and promoter free on the official TNRERA portal."),
+        "updated": "2026-07-21",
+        "answer": ("TNRERA is Tamil Nadu's real-estate regulator. Any project with more than 8 units or over "
+                   "500 sq m must register before it is marketed, and only registered projects can legally "
+                   "take booking amounts. You can verify a project and its promoter free on the official "
+                   "TNRERA portal, no login needed."),
+        "body": """
+<h2>What TNRERA registration tells you</h2>
+<p>Under the Real Estate (Regulation and Development) Act, a Tamil Nadu project with more than 8 units or
+a plot over 500 square metres must be registered with TNRERA before it is advertised or sold, and only
+a registered project can legally accept booking money. A valid registration is a baseline signal that a
+new project is on the regulator's record.</p>
+
+<h2>How to check</h2>
+<ol>
+<li>Go to the TNRERA portal (rera.tn.gov.in).</li>
+<li>Open Registered Projects / Project Status.</li>
+<li>Search by project name, promoter (developer) name, district, or registration number.</li>
+<li>Read the status — Registered, Pending, Rejected or Revoked — and the promoter's other projects and
+any orders against them.</li>
+</ol>
+<p>No login is needed for a basic search. See the official portal in the sources below.</p>
+
+<h2>How this relates to auctions — honestly</h2>
+<p>RERA is aimed at <strong>new and under-construction</strong> projects, so it is most useful when you
+are buying from a builder. Bank auctions are usually resale of an individual, already-built property, so
+TNRERA often will not apply to a specific auction listing. It belongs in your toolkit for the wider
+property search rather than for most auction lots — and knowing when a check does <em>not</em> apply is
+as useful as knowing when it does.</p>
+""",
+        "faqs": [
+            {"q": "How do I check if a project is RERA registered in Tamil Nadu?",
+             "a": ("On the TNRERA portal (rera.tn.gov.in), open Registered Projects or Project Status and "
+                   "search by project name, developer, district or registration number. The status shows "
+                   "as Registered, Pending, Rejected or Revoked.")},
+            {"q": "Which projects must register with TNRERA?",
+             "a": ("A Tamil Nadu project with more than 8 units or a plot over 500 square metres must "
+                   "register before it is marketed, and only registered projects can legally accept booking "
+                   "amounts.")},
+            {"q": "Does RERA apply to bank auction properties?",
+             "a": ("Usually not. RERA covers new and under-construction projects, while bank auctions are "
+                   "typically resale of an already-built individual property, so TNRERA often will not "
+                   "apply to a specific auction lot.")},
+        ],
+        "related": ["TNRERA", "builder verification", "sale deed", "guideline value"],
+        "sources": [
+            {"t": "TNRERA — Tamil Nadu Real Estate Regulatory Authority (official portal)",
+             "h": "https://rera.tn.gov.in/"},
+        ],
+    },
+    {
+        "slug": "home-loan-for-a-bank-auction-property",
+        "title": "Can you get a home loan for a bank auction property?",
+        "h1": "Financing a bank auction property",
+        "description": ("Yes, but it's harder than a normal purchase, and the clock is tight. How auction "
+                        "financing works, why possession type matters, and why pre-approval is essential."),
+        "updated": "2026-07-21",
+        "answer": ("You can finance a bank auction property, but it is harder than an ordinary purchase and "
+                   "the timeline is unforgiving. Lenders want a clear title, a sale certificate and usually "
+                   "physical possession; symbolic-possession lots are hard to fund. Because the balance is "
+                   "due in 15–30 days, arrange pre-approval before you bid."),
+        "body": """
+<h2>It's possible — but with stricter rules</h2>
+<p>Many lenders do finance auction purchases, but they apply tougher conditions than for a normal home
+loan. Common requirements include a clear title with no active tribunal or court case, a valid sale
+certificate from the selling bank, and a healthy credit score. Most lenders strongly prefer — and often
+require — that the property is in <strong>physical</strong> possession.</p>
+
+<h2>Possession type decides a lot</h2>
+<p>Very few lenders will fund a property held only under <strong>symbolic</strong> possession, because the
+occupancy risk is unresolved. The practical rule buyers use: treat a symbolic-possession lot as something
+to buy with your own funds, not a loan. This is one more reason the possession field on the notice
+matters before you bid.</p>
+
+<h2>The timeline problem</h2>
+<p>After you win, 25% is due almost immediately and the balance within 15–30 days. With a pre-approval in
+place, disbursal can complete inside that window; without one, loan processing can run longer and blow
+past the deadline — at which point your deposit is forfeited. So the financing has to be lined up
+<em>before</em> the auction, not started after you win.</p>
+
+<h2>A practical tip</h2>
+<p>The bank that is selling the property is often the most willing to finance it — it already knows the
+title and possession status and can move faster. Whatever the lender, confirm your eligibility and the
+exact timeline first. AuctionScope helps you weigh a listing's reserve, possession and location up front;
+the financing plan is the piece to have ready alongside it.</p>
+""",
+        "faqs": [
+            {"q": "Can I get a home loan to buy a bank auction property?",
+             "a": ("Often yes, but with stricter conditions than a normal purchase — a clear title, a sale "
+                   "certificate, usually physical possession, and a good credit score. Symbolic-possession "
+                   "properties are hard to finance and are best bought with your own funds.")},
+            {"q": "Why does pre-approval matter for an auction?",
+             "a": ("Because the balance is due within 15–30 days of winning. With pre-approval, disbursal "
+                   "can fit that window; without it, processing can run longer and cause you to miss the "
+                   "deadline and forfeit your deposit.")},
+            {"q": "Which lender is most likely to finance an auction property?",
+             "a": ("Frequently the bank selling the property — it already knows the title and possession "
+                   "status and can process faster. Confirm eligibility and timelines with any lender before "
+                   "you bid.")},
+        ],
+        "related": ["EMD", "symbolic vs physical possession", "sale certificate", "reserve price"],
+        "sources": [
+            {"t": "Will a bank give a loan on an auction property? — eauctionsindia.com",
+             "h": "https://www.eauctionsindia.com/blog-details/will-bank-give-loan-on-auction-property"},
+            {"t": "Buying a bank auction property in India (2026) — BasicHomeLoan",
+             "h": "https://www.basichomeloan.com/blog/home-loans/buy-bank-auction-property-in-india"},
+        ],
+    },
+    {
+        "slug": "power-of-attorney-property-sales",
+        "title": "Power of attorney in property sales — why a GPA is not a title",
+        "h1": "Power of attorney and property title",
+        "description": ("A general power of attorney does not transfer ownership — the Supreme Court settled "
+                        "this. Why GPA 'sales' are a red flag and what actually transfers title."),
+        "updated": "2026-07-21",
+        "answer": ("A general power of attorney (GPA) authorises someone to act for the owner — it does not "
+                   "transfer ownership. The Supreme Court held in the Suraj Lamp case (2011) that title to "
+                   "immovable property passes only by a registered sale deed. A property being 'sold' on a "
+                   "GPA is a title red flag to check carefully."),
+        "body": """
+<h2>What a power of attorney is — and isn't</h2>
+<p>A power of attorney lets an agent act on the owner's behalf, including signing a sale deed. It is a
+tool of agency, not a transfer of ownership. A common trap is a "GPA sale" — where property is handed
+over on a general power of attorney plus an agreement to sell, without a registered sale deed. That does
+not make the buyer the owner.</p>
+
+<h2>What the Supreme Court held</h2>
+<p>In <em>Suraj Lamp &amp; Industries v. State of Haryana</em> (2011), the Supreme Court held that a
+GPA / agreement-to-sell / will arrangement does <strong>not</strong> convey title or create an interest
+in immovable property. Under the Transfer of Property Act and the Registration Act, title passes only
+through a registered sale deed. The court has since reiterated these limits.</p>
+
+<h2>The risks of a GPA transaction</h2>
+<ul>
+<li><strong>No title.</strong> The buyer does not become the legal owner.</li>
+<li><strong>Revocation.</strong> A GPA can lapse — for instance on the principal's death — unless coupled
+with an interest.</li>
+<li><strong>Fraud.</strong> GPA chains are a known vector for misuse and disputed ownership.</li>
+</ul>
+
+<h2>Why it matters at auction</h2>
+<p>A bank auction itself transfers property through a sale certificate, not a GPA, so the mechanism is
+sound. But if a property's <em>history</em> — its chain of title — includes a GPA "sale", that is a weak
+link worth scrutinising, because ownership may never have passed cleanly. Spotting that kind of flag in
+the documents is part of the pre-bid homework AuctionScope is built to speed up. None of this is legal
+advice; for a high-value purchase, have the title examined by a professional.</p>
+""",
+        "faqs": [
+            {"q": "Can property be sold through a power of attorney?",
+             "a": ("A power of attorney can let an agent sign a sale deed, but a GPA by itself does not "
+                   "transfer ownership. The Supreme Court held in Suraj Lamp (2011) that title passes only "
+                   "through a registered sale deed.")},
+            {"q": "Is a GPA sale valid in India?",
+             "a": ("A 'GPA sale' does not convey title or create an interest in the property. It is a red "
+                   "flag — a registered sale deed is the instrument that actually transfers ownership.")},
+            {"q": "What are the risks of buying on a GPA?",
+             "a": ("You may not become the legal owner, the GPA can lapse (for example on the principal's "
+                   "death), and GPA chains carry a higher fraud and dispute risk. Insist on a registered "
+                   "sale deed.")},
+        ],
+        "related": ["sale deed", "chain of title", "sale certificate", "encumbrance certificate"],
+        "sources": [
+            {"t": "Agreement to sell, power of attorney and will — Supreme Court reiterates limits on transfer of title (SCC Online)",
+             "h": "https://www.scconline.com/blog/post/2025/10/07/agreement-to-sell-power-of-attorney-and-will-supreme-court-reiterates-limits-on-transfer-of-title/"},
+            {"t": "GPA in property sales: why they are not legally valid in India — BasicHomeLoan",
+             "h": "https://www.basichomeloan.com/blog/home-loans/gpa-in-property-sales"},
+        ],
+    },
+    {
+        "slug": "property-tax-and-arrears-tamil-nadu",
+        "title": "Property tax and arrears in Tamil Nadu — what a buyer checks",
+        "h1": "Property tax and arrears",
+        "description": ("Unpaid property tax can follow the property. How Tamil Nadu property tax works, how "
+                        "to check arrears online, and why it matters before you buy at auction."),
+        "updated": "2026-07-21",
+        "answer": ("Property tax in Tamil Nadu is charged by the urban local body — in Chennai, the Greater "
+                   "Chennai Corporation. It is due half-yearly, with a penalty for late payment. Unpaid "
+                   "arrears can end up as the buyer's problem in an as-is-where-is sale, so check them "
+                   "online before you bid."),
+        "body": """
+<h2>How it works</h2>
+<p>Urban local bodies levy property tax on buildings within their limits. In Chennai the Greater Chennai
+Corporation collects it, half-yearly, with due dates of 30 September and 31 March and a penalty
+(commonly 1% per month) on delayed payment after a short grace period. Other cities and towns have their
+own local-body portals.</p>
+
+<h2>Why it matters to a buyer</h2>
+<p>In an <em>as-is-where-is</em> auction sale, the notice often places outstanding dues — property tax
+included — on the buyer. So arrears against a property are effectively a hidden cost you could inherit,
+eating into any saving from a low reserve. Checking them before you bid turns a nasty surprise into a
+known number.</p>
+
+<h2>How to check arrears online</h2>
+<p>For a Chennai property, you can look up dues on the Greater Chennai Corporation's property-tax page
+using the zone, division and bill number (or the old property-tax number), which shows the arrears
+breakdown, penalty and total payable. For properties elsewhere in Tamil Nadu, use the relevant local
+body's portal. See the sources below, and confirm the current figures on the official site.</p>
+
+<h2>After you buy</h2>
+<p>Once you own the property, get the property-tax record transferred to your name (linked to patta
+transfer / mutation) so future demands come to you and the record is clean. AuctionScope helps you size
+up a listing's price and risks; outstanding tax is one of the dues to fold into that view.</p>
+""",
+        "faqs": [
+            {"q": "Do I inherit unpaid property tax on a bank auction property?",
+             "a": ("Often yes. As-is-where-is sale notices commonly place outstanding property tax on the "
+                   "buyer, so check the arrears before bidding and factor them into the price.")},
+            {"q": "How do I check property tax arrears in Chennai?",
+             "a": ("On the Greater Chennai Corporation property-tax page, using the zone, division and bill "
+                   "number (or the old property-tax number). It shows the arrears breakdown, penalty and "
+                   "total payable. Other Tamil Nadu cities use their own local-body portals.")},
+            {"q": "When is property tax due in Tamil Nadu?",
+             "a": ("Typically half-yearly — 30 September and 31 March in Chennai — with a penalty for late "
+                   "payment after a short grace period. Confirm current dates and rates on the local-body "
+                   "portal.")},
+        ],
+        "related": ["encumbrances", "patta transfer", "as-is-where-is", "sale certificate"],
+        "sources": [
+            {"t": "Property tax online payment — Greater Chennai Corporation (official)",
+             "h": "https://chennaicorporation.gov.in/gcc/online-payment/property-tax/"},
+        ],
+    },
+    {
+        "slug": "building-approval-and-occupancy-certificate-tamil-nadu",
+        "title": "Building approval and occupancy certificate in Tamil Nadu (CMDA / DTCP)",
+        "h1": "Building approval and the occupancy certificate",
+        "description": ("An unapproved building or missing occupancy certificate is a real risk — and blocks "
+                        "loans. What CMDA/DTCP approval and an OC mean, and how to check them."),
+        "updated": "2026-07-21",
+        "answer": ("In Tamil Nadu, building plans and layouts are approved by DTCP (statewide) or CMDA (the "
+                   "Chennai metro area), and an occupancy certificate confirms the building was completed to "
+                   "the approved plan. An unapproved layout or missing OC blocks home loans and can cause "
+                   "registration and regularisation trouble — so both are worth checking."),
+        "body": """
+<h2>Who approves what</h2>
+<p>The Directorate of Town and Country Planning (DTCP) handles planning approval across Tamil Nadu, while
+the Chennai Metropolitan Development Authority (CMDA) approves layouts and larger buildings within the
+Chennai metropolitan area. Approvals are handled through the state's online planning-permission portal.</p>
+
+<h2>What an occupancy certificate is</h2>
+<p>The occupancy certificate (OC), issued by the civic authority, confirms that a building was constructed
+in line with its approved plan and is legally safe to occupy. For a flat especially, the OC is a key
+document — its absence signals the building may deviate from what was sanctioned.</p>
+
+<h2>Why unapproved property is risky</h2>
+<ul>
+<li><strong>No loan.</strong> Banks routinely require verifiable DTCP or CMDA approval before sanctioning
+a home loan — no approval, no loan.</li>
+<li><strong>Registration and regularisation issues.</strong> An unauthorised layout can face building-
+permission refusal and, in disputed cases, registration hurdles.</li>
+<li><strong>Penalties and uncertainty.</strong> Deviations can attract regularisation costs later.</li>
+</ul>
+
+<h2>What to check — and the auction angle</h2>
+<p>Ask for certified copies of the layout approval, the building-plan sanction and the occupancy
+certificate, and cross-check them against the actual structure. At a bank auction you are buying
+<em>as-is-where-is</em>, and an unapproved building or missing OC is exactly the kind of issue the notice
+will not resolve for you — and it may also be why you cannot finance the purchase. Flagging it before you
+bid is part of the homework AuctionScope is built to make faster.</p>
+""",
+        "faqs": [
+            {"q": "What is the difference between CMDA and DTCP approval?",
+             "a": ("DTCP handles planning approval across Tamil Nadu, while CMDA approves layouts and larger "
+                   "buildings within the Chennai metropolitan area. Both signal that a layout or building "
+                   "plan is authorised.")},
+            {"q": "Why does an occupancy certificate matter?",
+             "a": ("The OC confirms a building was completed to its approved plan and is safe to occupy. Its "
+                   "absence suggests the structure may deviate from what was sanctioned, and it can block "
+                   "loans and cause disputes.")},
+            {"q": "Can I get a loan on an unapproved property?",
+             "a": ("Generally no. Banks routinely require verifiable DTCP or CMDA approval before "
+                   "sanctioning a home loan, so an unapproved layout or building usually cannot be "
+                   "financed.")},
+        ],
+        "related": ["occupancy certificate", "home loan", "as-is-where-is", "sale certificate"],
+        "sources": [
+            {"t": "Tamil Nadu Single Window Portal for Planning Permission (official)",
+             "h": "https://onlineppa.tn.gov.in/"},
+        ],
+    },
+    {
+        "slug": "prohibited-property-and-poramboke-land-tamil-nadu",
+        "title": "Prohibited property and poramboke land in Tamil Nadu",
+        "h1": "Prohibited property and poramboke land",
+        "description": ("Some land simply cannot be sold or registered — government, poramboke and "
+                        "prohibited-list property. What Section 22-A means and why it matters at auction."),
+        "updated": "2026-07-21",
+        "answer": ("Under Section 22-A of the Registration Act, Tamil Nadu maintains a list of prohibited "
+                   "properties — government and local-authority land, poramboke, and religious, wakf and "
+                   "Bhoodan land — that Sub-Registrars must refuse to register. Poramboke is government "
+                   "land for public use; a document over it does not create valid title, even if somehow "
+                   "registered."),
+        "body": """
+<h2>What Section 22-A does</h2>
+<p>Section 22-A of the Registration Act (as amended in Tamil Nadu) lets the government maintain a
+<strong>prohibited properties list</strong>. Sub-Registrars must refuse to register instruments relating
+to property belonging to the state or a local authority, poramboke land, and certain religious, wakf and
+Bhoodan properties, unless a competent authority's sanction is produced.</p>
+
+<h2>What poramboke means</h2>
+<p>Poramboke is government land set aside for public purposes — water bodies, tanks, roads, canals and
+the like. Most poramboke cannot be assigned or sold; some categories, such as Natham poramboke, may be
+regularised under specific rules. Courts in Tamil Nadu have repeatedly held that a patta granted over
+poramboke reserved for a public purpose is invalid.</p>
+
+<h2>Registration does not change classification</h2>
+<p>This is the key trap: even if a document over such land somehow gets registered, registration does not
+change the land's government classification. It stays poramboke, and the "owner" holds no valid title. A
+suspiciously cheap plot is exactly where this risk hides.</p>
+
+<h2>The bank-auction angle</h2>
+<p>Banks auction property they hold as security, which is normally private land — but the classification
+is still worth confirming, especially for a low-priced plot. The chitta and A-register show the land
+classification, and the prohibited-properties position can be checked with the registration department.
+Confirming a listing is ordinary, registrable private land before you bid is part of the homework
+AuctionScope is built to speed up.</p>
+""",
+        "faqs": [
+            {"q": "Can poramboke land be bought or sold?",
+             "a": ("Mostly no. Poramboke is government land for public use; most of it cannot be assigned or "
+                   "sold, and a patta granted over public-purpose poramboke has been held invalid. Some "
+                   "categories may be regularised under specific rules.")},
+            {"q": "What is Section 22-A of the Registration Act?",
+             "a": ("A provision under which Tamil Nadu maintains a prohibited-properties list — government, "
+                   "poramboke, and certain religious, wakf and Bhoodan land — that Sub-Registrars must "
+                   "refuse to register without competent sanction.")},
+            {"q": "Does registering a document make poramboke land mine?",
+             "a": ("No. Registration does not change the land's government classification. Even a registered "
+                   "document over poramboke does not create valid title.")},
+        ],
+        "related": ["land classification", "chitta", "A-register", "patta"],
+        "sources": [
+            {"t": "The Registration (Tamil Nadu Amendment) Act — Section 22-A (PRS India)",
+             "h": "https://prsindia.org/files/bills_acts/acts_states/tamil-nadu/2009/2009TN2.pdf"},
+            {"t": "TNREGINET — Registration Department, Government of Tamil Nadu (official portal)",
+             "h": "https://tnreginet.gov.in/"},
+        ],
+    },
+    {
+        "slug": "legal-heir-and-succession-certificate-tamil-nadu",
+        "title": "Legal heir certificate vs succession certificate in Tamil Nadu",
+        "h1": "Legal heir and succession certificates",
+        "description": ("For inherited property, which document do you need — a Varisu (legal heir) "
+                        "certificate or a court succession certificate? The difference, and the patta step "
+                        "that still remains."),
+        "updated": "2026-07-21",
+        "answer": ("A legal heir (Varisu) certificate, issued by the Tahsildar, identifies a deceased "
+                   "person's heirs and is used to transfer property, pensions and utilities. A succession "
+                   "certificate comes from a civil court and is needed for debts, securities and disputed "
+                   "cases. Neither, on its own, transfers land — the patta still has to be changed."),
+        "body": """
+<h2>The two certificates</h2>
+<table class="kv">
+<tr><th></th><th>Legal heir (Varisu) certificate</th><th>Succession certificate</th></tr>
+<tr><td>Issued by</td><td>Tahsildar / revenue authorities (via e-Sevai)</td><td>Civil court, under the
+Indian Succession Act, 1925</td></tr>
+<tr><td>Establishes</td><td>Who the legal heirs are</td><td>The heirs' authority over the deceased's
+debts and securities</td></tr>
+<tr><td>Typical use</td><td>Transfer of property, pension, PF, insurance, utilities</td><td>Bank
+securities, shares, contested or complex estates</td></tr>
+</table>
+<p>A legal heir certificate does not decide each heir's share or settle a dispute between heirs. Where a
+will is contested, an heir won't cooperate, or securities are involved, a succession certificate (or
+probate) is the route.</p>
+
+<h2>The step people miss for immovable property</h2>
+<p>Tamil Nadu keeps the heir certificate and the land record separate. Obtaining the Varisu certificate
+is only half the job — the <strong>patta still has to be transferred</strong> under the Tamil Nadu Patta
+Pass Book Act, 1983, and for a flat the undivided share and the apartment-association records must line
+up. So the certificate alone does not make an heir the owner of record.</p>
+
+<h2>Why a buyer cares — the auction angle</h2>
+<p>When property has passed by inheritance, <em>all</em> the legal heirs generally need to be party to a
+sale — a missing or disputing heir is a title risk. At a bank auction the borrower's ownership should be
+established, but if inheritance sits anywhere in a property's chain of title, it is worth checking the
+heirs are accounted for. Spotting that kind of gap is part of the pre-bid review AuctionScope is built to
+help with. This is general information, not legal advice.</p>
+""",
+        "faqs": [
+            {"q": "What is the difference between a legal heir certificate and a succession certificate?",
+             "a": ("A legal heir (Varisu) certificate, from the Tahsildar, identifies the heirs and is used "
+                   "for property, pension and utility transfers. A succession certificate, from a civil "
+                   "court, covers debts and securities and disputed or complex estates.")},
+            {"q": "Does a legal heir certificate make me the owner of the property?",
+             "a": ("No. In Tamil Nadu the heir certificate and the land record are separate — the patta "
+                   "still has to be transferred under the Patta Pass Book Act, 1983, and for a flat the "
+                   "UDS and association records must align.")},
+            {"q": "Why do all heirs matter when buying inherited property?",
+             "a": ("Because a sale of inherited property generally needs every legal heir as a party. A "
+                   "missing or disputing heir is a title risk, so confirm the heirs are accounted for "
+                   "before you buy.")},
+        ],
+        "related": ["chain of title", "patta transfer", "sale deed", "UDS"],
+        "sources": [
+            {"t": "Legal heir certificate in Tamil Nadu — process and eligibility (Nobroker, 2026)",
+             "h": "https://www.nobroker.in/blog/legal-heir-certificate-tamilnadu/"},
+            {"t": "Tamil Nadu e-Sevai — Government of Tamil Nadu citizen services (official portal)",
+             "h": "https://tnesevai.tn.gov.in/"},
+        ],
+    },
+    {
+        "slug": "agricultural-land-purchase-rules-tamil-nadu",
+        "title": "Agricultural land purchase rules in Tamil Nadu",
+        "h1": "Buying agricultural land in Tamil Nadu",
+        "description": ("Who can buy farmland in Tamil Nadu, the land-ceiling limits, and what it takes to "
+                        "use agricultural land for building — with the auction angle."),
+        "updated": "2026-07-21",
+        "answer": ("In Tamil Nadu any resident Indian, including a non-agriculturist, can buy agricultural "
+                   "land, subject to land-ceiling limits under the 1961 Land Reforms Act. NRIs and OCIs "
+                   "cannot buy farmland (they may inherit it). Using agricultural land for building needs a "
+                   "change-of-land-use conversion first."),
+        "body": """
+<h2>Who can buy</h2>
+<p>Unlike some states, Tamil Nadu does not bar non-agriculturists from buying farmland — any resident
+Indian can purchase agricultural land. NRIs and OCIs, however, cannot buy agricultural land under FEMA /
+RBI rules, though they may inherit it.</p>
+
+<h2>The ceiling limit</h2>
+<p>The Tamil Nadu Land Reforms (Fixation of Ceiling on Land) Act, 1961 caps how much agricultural land a
+person or family can hold — an individual limit in the region of 59.95 acres, and for a family of five
+around 15 standard acres. The "standard acre" is an equalised measure, so the raw acreage a ceiling
+allows varies with land quality.</p>
+
+<h2>Using farmland for building</h2>
+<p>Agricultural land cannot simply be built on. Converting it to non-agricultural use goes through the
+Tamil Nadu Change of Land Use Rules, 2017 — with a scrutiny fee and a conversion charge (reported around
+3% of the market value) — after which the authority issues a conversion order. Skipping this leaves any
+construction unauthorised.</p>
+
+<h2>The bank-auction angle</h2>
+<p>If an auction lot is agricultural land, two things matter: confirm the classification from the chitta
+and adangal, and factor in that turning it into a building plot needs conversion — a cost and a
+timeline, not a formality. A cheap agricultural parcel is not the same buy as a ready residential plot.
+Checking the classification before you bid is part of what AuctionScope helps you do; confirm current
+fees and rules on the official portal, and treat this as general information, not legal advice.</p>
+""",
+        "faqs": [
+            {"q": "Can a non-agriculturist buy agricultural land in Tamil Nadu?",
+             "a": ("Yes. Any resident Indian, including a non-agriculturist, can buy agricultural land in "
+                   "Tamil Nadu, subject to the land-ceiling limits. NRIs and OCIs cannot buy farmland, "
+                   "though they may inherit it.")},
+            {"q": "Is there a limit on how much farmland I can own?",
+             "a": ("Yes. Under the 1961 Land Reforms Act there is a ceiling — around 59.95 acres for an "
+                   "individual and about 15 standard acres for a family of five, measured in equalised "
+                   "'standard acres'.")},
+            {"q": "Can I build on agricultural land I buy at auction?",
+             "a": ("Not without converting it to non-agricultural use first, under the Change of Land Use "
+                   "Rules, 2017, which carries fees and a conversion charge. Factor that cost and time into "
+                   "the price of an agricultural lot.")},
+        ],
+        "related": ["land classification", "chitta", "adangal", "guideline value"],
+        "sources": [
+            {"t": "Land Reforms — Government of Tamil Nadu (official portal)",
+             "h": "https://landreforms.tn.gov.in/LandReforms.html"},
+            {"t": "Agriculture land purchase rules in Tamil Nadu (2026) — Nobroker",
+             "h": "https://www.nobroker.in/blog/agriculture-land-purchase-rules-in-tamil-nadu/"},
+        ],
+    },
+    {
+        "slug": "transfer-electricity-and-water-connection-tamil-nadu",
+        "title": "Transferring electricity and water connections after buying (Tamil Nadu)",
+        "h1": "Transferring utilities after you buy",
+        "description": ("After buying, move the electricity and water connections into your name. Why it "
+                        "matters, what you need, and the auction-arrears trap to check first."),
+        "updated": "2026-07-21",
+        "answer": ("Once you own a property in Tamil Nadu, transfer the electricity connection (TANGEDCO) "
+                   "and the water/sewer connection (the local body, or Chennai Metrowater in Chennai) into "
+                   "your name, using your sale deed or sale certificate and the patta/tax records. Clear "
+                   "any arrears first — at auction, unpaid utility dues can land on the buyer."),
+        "body": """
+<h2>Why transfer the connections</h2>
+<p>Utilities stay in the previous owner's name until you apply to change them. Transferring the
+electricity and water connections puts the billing — and the responsibility — in your name, and is
+usually needed alongside the property-tax and patta transfer for a clean record.</p>
+
+<h2>What you need</h2>
+<ul>
+<li><strong>Electricity (TANGEDCO / TNEB).</strong> Apply for a name transfer with your sale deed or sale
+certificate, proof of ownership (patta / tax receipt) and the latest paid bill.</li>
+<li><strong>Water and sewerage.</strong> In Chennai this is the Chennai Metropolitan Water Supply and
+Sewerage Board (Metrowater); elsewhere it is the local municipality or panchayat. The documents are
+similar.</li>
+</ul>
+
+<h2>The arrears trap — check before you buy</h2>
+<p>Unpaid electricity or water dues can attach to the service and become the new occupier's problem, and
+an <em>as-is-where-is</em> auction notice may place them on the buyer. So the time to check utility
+arrears is <strong>before</strong> you bid — an unexpectedly large backlog eats into a low reserve. After
+you buy, clear any dues and complete the transfers.</p>
+
+<h2>The bank-auction angle</h2>
+<p>Winning the auction is not the finish line: patta transfer, property-tax mutation and utility
+transfers are the steps that actually put the property fully in your name. Building them into your
+post-purchase plan — and checking arrears up front — avoids surprises. AuctionScope helps you weigh a
+listing's price and dues before you commit; confirm current procedures with the boards' official
+portals.</p>
+""",
+        "faqs": [
+            {"q": "How do I transfer the electricity connection after buying a property?",
+             "a": ("Apply to TANGEDCO (TNEB) for a name transfer with your sale deed or sale certificate, "
+                   "proof of ownership such as the patta or tax receipt, and the latest paid bill. Confirm "
+                   "the current process on the board's portal.")},
+            {"q": "Do unpaid utility bills pass to the buyer at auction?",
+             "a": ("They can. Utility arrears attach to the service, and an as-is-where-is auction notice "
+                   "may place them on the buyer — so check electricity and water dues before bidding and "
+                   "clear them after buying.")},
+            {"q": "Who handles water connection transfer in Chennai?",
+             "a": ("The Chennai Metropolitan Water Supply and Sewerage Board (Metrowater). Outside Chennai "
+                   "it is the local municipality or panchayat. The documents needed are similar to the "
+                   "electricity transfer.")},
+        ],
+        "related": ["property tax", "patta transfer", "encumbrances", "as-is-where-is"],
+        "sources": [
+            {"t": "TANGEDCO — Tamil Nadu Generation and Distribution Corporation (official portal)",
+             "h": "https://www.tangedco.gov.in/"},
+            {"t": "Chennai Metro Water Supply and Sewerage Board (official portal)",
+             "h": "https://chennaimetrowater.tn.gov.in/"},
+        ],
+    },
 ]
 
 
