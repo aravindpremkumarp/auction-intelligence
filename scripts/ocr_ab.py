@@ -10,9 +10,12 @@ Neo4j or the production MinerU caches — an A/B run can't disturb live data.
 The MinerU side *reads* the production cache when a notice was already OCR'd
 (free, no API call); only cache misses spend a MinerU call.
 
-Pick inputs one of three ways:
+Pick inputs one of several ways:
 
   --files A B C ...     explicit notice paths
+  --urls U1 U2 ...      notice URLs to download and A/B
+  --urls-file PATH      file of notice URLs (one per line or comma-sep) — the
+                        path CI uses (public R2/web URLs, only the OCR keys)
   --dir PATH            every supported file directly under PATH
   --from-worklist       Documents from Neo4j (reuses fetch_all_work);
                         --missing-only restricts to un-OCR'd ones
@@ -65,6 +68,7 @@ load_dotenv()
 AB_DIR         = PIPELINE_DIR / "cache" / "ab_ocr"
 AB_MINERU_DIR  = AB_DIR / "mineru"
 AB_DATALAB_DIR = AB_DIR / "datalab"
+AB_INPUTS_DIR  = AB_DIR / "inputs"   # notices downloaded from --urls / --urls-file
 
 
 # ── file selection ───────────────────────────────────────────────────────────
@@ -78,6 +82,50 @@ def _item(disk: Path, file_path: str | None = None) -> dict:
             "disk_path": disk}
 
 
+def _read_url_list(args) -> list[str]:
+    """Gather URLs from --urls and/or --urls-file (one per line or comma-sep;
+    blank lines and #comments ignored), de-duped in order."""
+    urls: list[str] = list(args.urls or [])
+    if args.urls_file:
+        text = Path(args.urls_file).read_text(encoding="utf-8")
+        for line in text.replace(",", "\n").splitlines():
+            line = line.strip()
+            if line and not line.startswith("#"):
+                urls.append(line)
+    seen: set[str] = set()
+    return [u for u in urls if not (u in seen or seen.add(u))]
+
+
+def _download_url(url: str, idx: int) -> dict | None:
+    """Download one notice URL into AB_INPUTS_DIR; return its input item.
+
+    The cache/report key stays the URL (stable identity); the on-disk name is
+    prefixed with ``idx`` so distinct URLs sharing a basename don't collide.
+    A download failure is logged and skipped (returns None) so one bad URL
+    can't abort the run. The A/B needs the bytes locally for both engines
+    (MinerU uploads them; Datalab could take a file_url but MinerU can't).
+    """
+    import mimetypes
+    import urllib.parse
+
+    import requests
+
+    AB_INPUTS_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        r = requests.get(url, timeout=120)
+        r.raise_for_status()
+    except Exception as e:
+        print(f"  [skip] download failed: {url} ({type(e).__name__}: {e})")
+        return None
+    base = Path(urllib.parse.urlparse(url).path).name or "notice"
+    if not Path(base).suffix:
+        ct = (r.headers.get("content-type") or "").split(";")[0].strip()
+        base += mimetypes.guess_extension(ct) or ".pdf"
+    disk = AB_INPUTS_DIR / f"{idx:03d}_{base}"
+    disk.write_bytes(r.content)
+    return _item(disk, file_path=url)
+
+
 def collect_files(args) -> list[dict]:
     items: list[dict] = []
     if args.files:
@@ -87,6 +135,11 @@ def collect_files(args) -> list[dict]:
                 items.append(_item(disk))
             else:
                 print(f"  [skip] not found: {p}")
+    elif args.urls or args.urls_file:
+        for i, url in enumerate(_read_url_list(args)):
+            it = _download_url(url, i)
+            if it is not None:
+                items.append(it)
     elif args.dir:
         root = Path(args.dir)
         for disk in sorted(root.iterdir()) if root.exists() else []:
@@ -100,7 +153,7 @@ def collect_files(args) -> list[dict]:
             if disk is not None and disk.suffix.lower() in MINERU_SUPPORTED_EXTS:
                 items.append(_item(disk, file_path=w["file_path"]))
     else:
-        raise SystemExit("pick an input: --files, --dir, or --from-worklist")
+        raise SystemExit("pick an input: --files, --urls, --urls-file, --dir, or --from-worklist")
 
     # De-dupe on cache key, keep order, apply --limit.
     seen: set[str] = set()
@@ -312,6 +365,9 @@ def main() -> None:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     src = p.add_mutually_exclusive_group(required=True)
     src.add_argument("--files", nargs="+", help="explicit notice paths")
+    src.add_argument("--urls", nargs="+", help="notice URLs to download and A/B")
+    src.add_argument("--urls-file",
+                     help="file with notice URLs (one per line or comma-sep)")
     src.add_argument("--dir", help="directory of notices")
     src.add_argument("--from-worklist", action="store_true",
                      help="pull Documents from Neo4j")
