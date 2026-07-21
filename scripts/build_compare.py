@@ -362,6 +362,107 @@ def render_vs(key: str, c: dict) -> str:
     return "\n".join(parts)
 
 
+AI_SLUG = "chatgpt-gemini-for-bank-auctions"
+
+
+def render_ai_page() -> str:
+    """A Q&A page, not a spec-sheet — answers "can I just use ChatGPT/Gemini?".
+    Honesty rules apply hard: general AI assistants are genuinely excellent and
+    are credited as such; the one real, specific limitation is grounding in
+    LIVE auction data (they can invent current listings, reserves and dates).
+    No disparagement, no invented numbers, and AuctionScope is described
+    accurately — it uses an LLM but grounds answers in the live graph + cited
+    web research, and does not do legal/title diligence."""
+    slug = AI_SLUG
+    url = f"{SITE_BASE}/compare/{slug}"
+    title = "Can ChatGPT or Gemini find and evaluate bank auction properties?"
+    desc = ("General AI assistants are great for learning how bank auctions work, but they don't have live "
+            "auction listings and can invent prices and dates. What they're good and bad at, and where a "
+            "grounded, auction-specific tool fits.")
+    trail = [("Home", "/"), ("Compare", "/compare"), ("ChatGPT / Gemini for auctions", f"/compare/{slug}")]
+    source = {"t": "OpenAI — ChatGPT", "h": "https://openai.com/chatgpt/"}
+
+    faqs = [
+        {"q": "Can ChatGPT or Gemini show me current bank auction listings?",
+         "a": ("Not reliably. A general assistant has no live feed of bank auctions, so it cannot list "
+               "today's properties, reserves or deadlines — and if pushed, it may produce plausible-looking "
+               "details that are not real. Use an auction data source for current listings.")},
+        {"q": "Will ChatGPT give me an accurate reserve price or auction date?",
+         "a": ("Treat any specific figure or date from a general assistant with caution — it can invent "
+               "them. Always confirm the reserve, EMD and dates against the actual sale notice and the "
+               "bank.")},
+        {"q": "So what are ChatGPT and Gemini genuinely good for here?",
+         "a": ("A lot — explaining how SARFAESI auctions, EMD, possession or stamp duty work, summarising a "
+               "sale notice you paste in, and drafting questions to ask the bank. They are excellent general "
+               "research and writing tools.")},
+        {"q": "Is AuctionScope just a ChatGPT wrapper?",
+         "a": ("No. It uses an AI model, but its answers are grounded in a live graph of Tamil Nadu auctions "
+               "and in cited web research — figures from the data are never invented, and the search is over "
+               "real, current listings rather than the model's memory.")},
+        {"q": "Should I trust AI for a property-buying decision?",
+         "a": ("Use it to research and narrow down, not to decide. Neither a general assistant nor "
+               "AuctionScope does legal or title diligence — verify a property with the bank, the sale "
+               "notice and a professional before you bid.")},
+    ]
+    jsonld = [_article_jsonld(title, desc, url, source), _faq_jsonld(faqs), _breadcrumb_jsonld(trail)]
+    faq_html = "".join(
+        f"<details><summary>{html.escape(f['q'])}</summary><p>{html.escape(f['a'])}</p></details>"
+        for f in faqs
+    )
+
+    parts = [
+        _head(title, desc, url, jsonld),
+        '<nav class="crumb"><a href="/">home</a> / <a href="/compare">compare</a> / chatgpt &amp; gemini</nav>',
+        f'<article class="guide"><h1>Can ChatGPT or Gemini find and evaluate bank auction properties?</h1>',
+        f'<p class="updated">last updated {UPDATED}</p>',
+        '<p class="tldr">Short answer: use them for learning, not for live listings. ChatGPT and Gemini are '
+        'excellent at explaining how auctions work and summarising a notice you paste in — but they have no '
+        'live feed of bank auctions, so they can\'t reliably show today\'s properties, and they can invent '
+        'reserve prices, EMD amounts and dates. For real, current listings and property-specific evaluation '
+        'you want a tool grounded in live auction data — and you still verify with the bank before bidding.</p>',
+        "<h2>What general AI assistants are genuinely good at</h2>",
+        "<p>ChatGPT and Gemini are powerful, and for a bank-auction buyer they earn their place:</p><ul>"
+        "<li>Explaining the concepts — how a SARFAESI auction works, what EMD or symbolic possession means, "
+        "how stamp duty is calculated.</li>"
+        "<li>Summarising or rephrasing a sale notice you paste in, in plain language.</li>"
+        "<li>Drafting the questions to ask the bank, or a checklist to work through.</li>"
+        "<li>General research on an area or a process.</li></ul>"
+        '<p>That is exactly the ground our <a href="/guides">bank auction guides</a> cover too — and for '
+        'those questions, a good assistant is a fine place to start.</p>',
+        "<h2>Where they fall short for auctions</h2>",
+        "<p>The gap is specific, and it is about <strong>live, structured data</strong>, not intelligence:</p><ul>"
+        "<li><strong>No live listings.</strong> A general assistant has no feed of current bank auctions, so "
+        "it can't tell you what is up for auction today, at what reserve, closing when.</li>"
+        "<li><strong>It can invent specifics.</strong> Asked for a reserve price, an EMD or an auction date, "
+        "a model may produce a confident but fabricated figure — dangerous when real money and deadlines are "
+        "involved.</li>"
+        "<li><strong>No property-level grounding.</strong> It isn't working from a structured record of the "
+        "actual property, so it can't reliably tie an answer to a specific listing's extent, bank or "
+        "location.</li></ul>",
+        "<h2>What “grounded” means, and why it matters here</h2>",
+        "<p>AuctionScope uses an AI model too — the difference is what the model is allowed to answer from. "
+        "Search and evaluation run against a live graph of Tamil Nadu SARFAESI auctions: figures like reserve, "
+        "EMD and dates come from the actual record, not the model's memory, and location or price questions "
+        "are researched from the web and <strong>cited</strong>. Numbers from the data are never invented. So "
+        "you get plain-English answers like a general assistant, but tied to real, current listings.</p>",
+        "<h2>How to use each well</h2>",
+        '<table class="kv">'
+        "<tr><th>Use ChatGPT / Gemini</th><td>to learn how auctions and property work, summarise a notice "
+        "you already have, and draft questions — the informational groundwork.</td></tr>"
+        "<tr><th>Use AuctionScope</th><td>to search live Tamil Nadu auctions in plain English and evaluate a "
+        "specific property (location, flood risk, connectivity, reserve vs market) before you bid.</td></tr>"
+        "<tr><th>Use the bank / official portal</th><td>to confirm the sale notice, place your bid, and "
+        "complete the purchase.</td></tr></table>"
+        "<p>None of these — general AI or AuctionScope — is legal or title diligence. Verify a property with "
+        "the bank, the official sale notice and a professional before bidding.</p>",
+        f'<h2>Frequently asked questions</h2><div class="faq">{faq_html}</div>',
+        "</article>",
+        _cta_and_capture("compare-ai"),
+        FOOT,
+    ]
+    return "\n".join(parts)
+
+
 def render_hub(keys: list[str]) -> str:
     url = f"{SITE_BASE}/compare"
     title = "AuctionScope vs the bank-auction portals — honest comparisons"
@@ -377,6 +478,10 @@ def render_hub(keys: list[str]) -> str:
          "a": ("It depends on what you need. For the official national list, IBAPI; to bid on public sector "
                "bank assets, BAANKNET; for a broad multi-bank pool, bankeauctions.com; and to search and "
                "evaluate Tamil Nadu auctions in plain English before bidding, AuctionScope alongside them.")},
+        {"q": "Can't I just use ChatGPT or Gemini for bank auctions?",
+         "a": ("They're great for learning how auctions work, but they have no live listings and can invent "
+               "prices and dates. See the ChatGPT / Gemini page below for what they're good and bad at, and "
+               "why a grounded, auction-specific tool fits alongside them.")},
     ]
     jsonld = [_faq_jsonld(faqs), _breadcrumb_jsonld(trail)]
     cards = "".join(
@@ -384,6 +489,12 @@ def render_hub(keys: list[str]) -> str:
         f'<div class="t">AuctionScope vs {html.escape(COMPETITORS[k]["name"])}</div>'
         f'<div class="m">{html.escape(COMPETITORS[k]["one_line"].capitalize())}.</div></a>'
         for k in keys
+    )
+    cards += (
+        f'<a class="cardlink" href="/compare/{AI_SLUG}">'
+        '<div class="t">ChatGPT / Gemini for bank auctions?</div>'
+        '<div class="m">Can a general AI assistant find and evaluate auction properties '
+        '— and where a grounded, auction-specific tool fits.</div></a>'
     )
     faq_html = "".join(
         f"<details><summary>{html.escape(f['q'])}</summary><p>{html.escape(f['a'])}</p></details>"
@@ -414,6 +525,7 @@ def main(argv: list[str] | None = None) -> int:
     keys = list(COMPETITORS)
     pages = [(OUT_ROOT / "index.html", render_hub(keys))]
     pages += [(OUT_ROOT / f"auctionscope-vs-{k}" / "index.html", render_vs(k, COMPETITORS[k])) for k in keys]
+    pages.append((OUT_ROOT / AI_SLUG / "index.html", render_ai_page()))
 
     for path, content in pages:
         if args.dry_run:
