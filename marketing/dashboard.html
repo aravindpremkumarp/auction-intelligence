@@ -513,10 +513,10 @@ nodes: [
     summary:'Brand assets are built (400×400 avatar, 1584×396 banner) and the plan marks the founder-led channel as ready — no posts yet. Pairs with the build-in-public pillar.',
     links:[{t:'brand/logo/', h: TREE+'brand/logo'}] },
   { id:'edu', lane:'channels', label:'educational content hub — move 4', type:'channel', status:'building',
-    progress:{ pct:8, label:'1 of ~25 Ring-1 guides' },
-    summary:'Long-form educational pages off the ~95-topic syllabus (patta/EC, EMD, possession types…). Scaffold shipped 2026-07-21: a generic guides builder (scripts/build_guides.py) renders /guides/<slug> pages with Article + FAQPage + BreadcrumbList JSON-LD, reusing the landing-page brand shell + email capture. First Ring-1 guide live: "what is EMD in a bank auction". Adding a topic is now one dict; ~24 Ring-1 topics remain.',
-    next:['Write the rest of Ring 1 (SARFAESI process, reserve vs market, possession types, reading a sale notice, glossary).','These double as the move-5 AI-answer pages — Q&A format is already in place (FAQPage).'],
-    links:[{t:'first guide · EMD', h: BLOB+'web/guides/what-is-emd-in-a-bank-auction/index.html'},{t:'build_guides.py', h: BLOB+'scripts/build_guides.py'},{t:'content-pillars.md · education', h: BLOB+'docs/marketing/content-pillars.md'}] },
+    progress:{ pct:52, label:'Ring 1 complete · 13 guides + hub' },
+    summary:'Long-form educational pages off the ~95-topic syllabus. Shipped 2026-07-21: a generic guides builder (scripts/build_guides.py, one dict per topic) renders /guides/<slug> pages with Article + FAQPage + BreadcrumbList JSON-LD, reusing the landing-page brand shell + email capture. Ring 1 (bank-auction core) is now complete — 13 guides + a /guides hub: SARFAESI, the step-by-step process, EMD, reserve price, symbolic vs physical possession, as-is-where-is, reading a sale notice, re-auctions/price drops, payment after winning, encumbrances/dues, is-it-safe, myths, and a glossary. Next rings: TN property essentials (Ring 2) and general buying (Ring 3).',
+    next:['Ring 2 — TN property essentials (patta/chitta/EC on TNREGINET, stamp duty): research-verified, every fact needs a source URL.','Link the /guides hub from the site nav/footer.'],
+    links:[{t:'/guides hub', h: BLOB+'web/guides/index.html'},{t:'build_guides.py', h: BLOB+'scripts/build_guides.py'},{t:'content-pillars.md · education', h: BLOB+'docs/marketing/content-pillars.md'}] },
   { id:'ai-seo', lane:'channels', label:'AI-SEO · llms.txt — move 5', type:'channel', status:'building',
     progress:{ pct:35, label:'llms.txt live · Q&A pages pending' },
     summary:'Make the graph\'s answers citable by AI search (ChatGPT / Perplexity / AI Overviews). Step 1 shipped 2026-07-21: /llms.txt — a machine-readable site brief (what AuctionScope is, core pages, the live /stats + /properties endpoints for real-time counts, and honesty notes for assistants). robots.txt already allows the AI crawlers. Still pending: answer-shaped Q&A pages (pairs with the education hub, move 4).',
@@ -640,7 +640,7 @@ roadmap: [
   { col:'next', items:[
     { t:'email sending + welcome sequence', d:'alert digests, welcome flow, SPF/DKIM/DMARC — turns the list into retention.', tag:'retention' },
     { t:'market_gap extractor', d:'extent/UDS/possession extraction so the below-market angle can automate.', tag:'pipeline' },
-    { t:'educational content hub', d:'scaffold + first Ring-1 guide (EMD) shipped 2026-07-21; ~24 Ring-1 topics remain. Doubles as move-5 AI-answer content.', tag:'move 4' },
+    { t:'educational content hub', d:'Ring 1 shipped 2026-07-21 (13 guides + hub). Next: Ring 2 TN essentials (research-verified). Doubles as move-5 AI-answer content.', tag:'move 4' },
     { t:'AI-SEO answer pages', d:'llms.txt shipped 2026-07-21; next is answer-shaped Q&A content so AI search engines cite the graph.', tag:'move 5' },
   ]},
   { col:'later', items:[
@@ -674,7 +674,7 @@ risks: [
 
 changelog: [
   { d:'2026-07-21', items:[
-    { t:'SEO Move 4 started — educational hub: a generic guides builder (scripts/build_guides.py) renders /guides/<slug> pages with Article + FAQPage + BreadcrumbList JSON-LD, reusing the landing-page brand shell + email capture. First Ring-1 guide live ("what is EMD in a bank auction"), plus a /guides hub. Content is data-driven — adding a topic is one dict. Sitemap 690 → 692. These pages double as the move-5 AI-answer content (Q&A / FAQPage already in place).' },
+    { t:'SEO Move 4 — educational hub, Ring 1 complete: a generic guides builder (scripts/build_guides.py, one dict per topic) renders /guides/<slug> pages with Article + FAQPage + BreadcrumbList JSON-LD, reusing the landing-page brand shell + email capture. 13 bank-auction-core guides + a /guides hub — SARFAESI, process, EMD, reserve price, possession types, as-is-where-is, reading a sale notice, re-auctions, payment, encumbrances, is-it-safe, myths, glossary. Honest by construction (verify-with-bank caveats, no banned words, Organization author). Sitemap 690 → 704. Pages double as move-5 AI-answer content.' },
     { t:'SEO Move 5 started — AI-SEO: shipped /llms.txt (llmstxt.org format), a machine-readable brief telling ChatGPT / Perplexity / AI Overviews what AuctionScope is, its core pages, and the live /stats + /properties endpoints to read real-time counts from (so cached numbers never go stale). Honesty notes included: reserve = minimum bid, information-platform-not-broker. robots.txt already allows the AI crawlers. Answer-shaped Q&A pages still to come (pairs with move 4).' },
   ]},
   { d:'2026-07-20', items:[
