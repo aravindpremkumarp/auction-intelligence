@@ -271,6 +271,21 @@
   .ann-resizer:hover { opacity: 0.4; }
   body.anngrid-resizing { cursor: col-resize !important; user-select: none; }
   body.anngrid-resizing .ann-resizer { opacity: 0.6; }
+  /* Fit the whole enrichment-review (annotator) view to the viewport so the
+     page itself never scrolls: header + toolbar + banner stay pinned at the
+     top and the image stage + blocks sidebar fill the rest, each scrolling
+     independently. Desktop only — narrow screens keep the normal single-column
+     scroll. Toggled by body.annotator-active in show(). */
+  @media (min-width: 1101px) {
+    body.annotator-active { height: 100vh; overflow: hidden; box-sizing: border-box; }
+    body.annotator-active .wrap { height: 100%; display: flex; flex-direction: column; min-height: 0; }
+    body.annotator-active #screen-annotator { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+    body.annotator-active .ann-toolbar,
+    body.annotator-active #ann-banner-wrap { flex: none; }
+    body.annotator-active .ann-grid { flex: 1 1 auto; min-height: 0; grid-template-rows: minmax(0, 1fr); }
+    body.annotator-active .ann-stage,
+    body.annotator-active .ann-sidebar { max-height: none; min-height: 0; height: 100%; box-sizing: border-box; }
+  }
   .ann-stage { border: 2px solid var(--ink); background: #2a2a2a; box-shadow: 2px 3px 0 rgba(0,0,0,0.9); overflow: auto; max-height: 85vh; min-height: 60vh; padding: 8px; text-align: center; overscroll-behavior: contain; }
   .ann-stage.panning { cursor: grabbing; }
   .ann-stage.panning * { cursor: grabbing !important; }
@@ -825,6 +840,7 @@
     $('screen-queue').classList.toggle('hidden', screen !== 'queue');
     $('screen-detail').classList.toggle('hidden', screen !== 'detail');
     $('screen-annotator').classList.toggle('hidden', screen !== 'annotator');
+    document.body.classList.toggle('annotator-active', screen === 'annotator');
   }
 
   async function route() {
