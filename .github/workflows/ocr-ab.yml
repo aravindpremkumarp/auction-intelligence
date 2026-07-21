@@ -9,7 +9,9 @@ on:
   workflow_dispatch:
     inputs:
       notice_urls:
-        description: "Notice URLs (one per line or comma-separated) — public R2/web URLs"
+        # workflow_dispatch inputs are single-line, so paste URLs space- or
+        # comma-separated (the harness splits on any whitespace or comma).
+        description: "Notice URLs — space- or comma-separated public R2/web URLs"
         required: true
         type: string
       mode:
@@ -48,9 +50,9 @@ jobs:
         env:
           NOTICE_URLS: ${{ inputs.notice_urls }}   # via env to avoid shell injection
         run: |
-          printf '%s\n' "$NOTICE_URLS" | tr ',' '\n' | sed '/^[[:space:]]*$/d' > notice_urls.txt
-          echo "Collected $(grep -c . notice_urls.txt) URL(s):"
-          cat notice_urls.txt
+          # Write the raw input; the harness splits on whitespace/commas.
+          printf '%s\n' "$NOTICE_URLS" > notice_urls.txt
+          echo "Input URL count: $(tr ', ' '\n\n' < notice_urls.txt | grep -c 'https\?://')"
 
       - name: Build harness flags
         id: flags
