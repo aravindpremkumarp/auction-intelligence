@@ -768,11 +768,373 @@ language rather than guessing.</p>
         ],
         "related": ["EMD", "reserve price", "as-is-where-is", "encumbrances", "UDS", "sale certificate"],
     },
+
+    # ---- Ring 2 — TN property-buying essentials (research-verified; sources cited) ----
+    {
+        "slug": "patta-and-chitta-in-tamil-nadu",
+        "title": "Patta and Chitta in Tamil Nadu — what they are and how to get them",
+        "h1": "Patta and Chitta explained",
+        "description": ("Patta and Chitta are the core land-ownership records in Tamil Nadu. What each one "
+                        "shows, the difference, and how to view them free on the Revenue e-Services portal."),
+        "updated": "2026-07-21",
+        "answer": ("Patta is a Tamil Nadu revenue record that establishes who owns a piece of land — the "
+                   "owner's name, patta number, survey and sub-division numbers, and extent. Chitta is a "
+                   "related extract showing the land's type (wet or dry) and area. Both can be viewed on "
+                   "the state's Revenue e-Services portal."),
+        "body": """
+<h2>What each record is</h2>
+<table class="kv">
+<tr><th>Record</th><th>What it shows</th></tr>
+<tr><td>Patta</td><td>A revenue document establishing ownership of a land parcel — owner name, patta
+number, survey number with sub-divisions, and the extent of the land.</td></tr>
+<tr><td>Chitta</td><td>An extract from the village revenue accounts giving ownership details and the
+land classification — whether it is <em>nanjai</em> (wet/irrigated) or <em>punjai</em> (dry).</td></tr>
+</table>
+<p>In Tamil Nadu these are now typically issued together, and are a first-line check that the person
+selling a piece of land is recorded as its owner.</p>
+
+<h2>How to get them</h2>
+<p>You can view and download Patta and Chitta from the Revenue Department's e-Services portal
+(eservices.tn.gov.in). You enter the district, taluk, village and survey/sub-division number, verify
+with an OTP, and the record is shown. The service is online and low-cost — see the sources below for the
+official portal.</p>
+
+<h2>What to watch for — especially at auction</h2>
+<ul>
+<li><strong>Land, not flats.</strong> Patta is a record of land. For a flat, the relevant land interest
+is the undivided share (UDS); an individual flat does not have its own patta the way a plot does.</li>
+<li><strong>Name match.</strong> Check the patta name against the seller — or, at a bank auction, against
+the borrower whose property is being sold.</li>
+<li><strong>One record among several.</strong> Patta shows ownership in the revenue records; it is not by
+itself proof of a clean chain of title. Pair it with the encumbrance certificate and the parent
+documents.</li>
+</ul>
+<p>At a bank auction the notice may give only limited documents, so cross-checking patta and the
+encumbrance certificate where you can is part of sizing up a listing — the kind of check AuctionScope is
+built to help you run.</p>
+""",
+        "faqs": [
+            {"q": "What is the difference between patta and chitta?",
+             "a": ("Patta establishes ownership of the land — owner, survey number and extent. Chitta is an "
+                   "extract showing the land's classification and area, such as whether it is wet or dry "
+                   "land. In Tamil Nadu they are usually issued together.")},
+            {"q": "How can I check patta online in Tamil Nadu?",
+             "a": ("Through the Revenue Department's e-Services portal at eservices.tn.gov.in — enter the "
+                   "district, taluk, village and survey number, verify with an OTP, and view the record. "
+                   "See the official link in the sources.")},
+            {"q": "Does a flat have a patta?",
+             "a": ("Not in the way a plot does. Patta records land; a flat owner holds an undivided share "
+                   "(UDS) of the land under the building rather than a separate patta for the flat itself.")},
+        ],
+        "related": ["chitta", "UDS", "encumbrance certificate", "FMB", "sale deed"],
+        "sources": [
+            {"t": "e-Services of Land Records — Revenue Department, Government of Tamil Nadu (official portal)",
+             "h": "https://eservices.tn.gov.in/eservicesnew/index.html"},
+        ],
+    },
+    {
+        "slug": "adangal-and-a-register-tamil-nadu",
+        "title": "Adangal and A-Register in Tamil Nadu — the land-use records",
+        "h1": "Adangal and the A-Register",
+        "description": ("Beyond patta, Tamil Nadu keeps cultivation and classification records — the Adangal "
+                        "and the A-Register. What they record and why a buyer checks them."),
+        "updated": "2026-07-21",
+        "answer": ("The Adangal (Village Account No. 2) is a Tamil Nadu revenue record of how a piece of land "
+                   "is used — cultivation, crops, irrigation and possession. The A-Register is the village's "
+                   "settlement record of land classification, extent and tax. Together they add detail that "
+                   "patta alone does not."),
+        "body": """
+<h2>What each record covers</h2>
+<ul>
+<li><strong>Adangal (Village Account No. 2).</strong> Maintained by the village administration, it records
+the actual use of the land — who is cultivating it, the crops grown, the source of irrigation, and the
+nature of possession. It is most relevant for agricultural land.</li>
+<li><strong>A-Register.</strong> The village's permanent settlement register, recording each survey
+number's classification, extent and the tax assessed on it — a reference for what the land officially
+is.</li>
+</ul>
+
+<h2>Why a buyer looks at them</h2>
+<p>Patta tells you who owns the land; the Adangal and A-Register tell you more about <em>what</em> the
+land is and how it is being used. For agricultural or semi-urban parcels that can matter — the
+classification affects what the land can be used for, and the possession entry can flag a gap between the
+recorded owner and whoever is actually on the ground. At a bank auction, where possession is already a
+key risk, that cross-check is useful.</p>
+
+<h2>How to get them</h2>
+<p>Both are available through the Revenue Department's e-Services portal (eservices.tn.gov.in), using the
+district, taluk, village and survey number. As with all these records, treat what you pull as one input
+and confirm anything material against the current official record — see the sources below.</p>
+""",
+        "faqs": [
+            {"q": "What is the Adangal?",
+             "a": ("The Adangal, also called Village Account No. 2, is a Tamil Nadu revenue record of land "
+                   "use — cultivation, crops, irrigation source and possession — maintained at the village "
+                   "level, and most relevant for agricultural land.")},
+            {"q": "What is the A-Register?",
+             "a": ("The A-Register is the village settlement record listing each survey number's "
+                   "classification, extent and assessed tax — a reference for what a parcel of land "
+                   "officially is.")},
+            {"q": "Where can I get the Adangal online?",
+             "a": ("From the Revenue Department's e-Services portal at eservices.tn.gov.in, using the "
+                   "district, taluk, village and survey number. See the official link in the sources.")},
+        ],
+        "related": ["patta", "chitta", "land classification", "possession"],
+        "sources": [
+            {"t": "e-Services of Land Records — Revenue Department, Government of Tamil Nadu (official portal)",
+             "h": "https://eservices.tn.gov.in/eservicesnew/index.html"},
+        ],
+    },
+    {
+        "slug": "encumbrance-certificate-tamil-nadu",
+        "title": "Encumbrance certificate (EC) in Tamil Nadu — how to get it on TNREGINET",
+        "h1": "The encumbrance certificate (EC)",
+        "description": ("An EC lists the registered transactions on a property — sales, mortgages, charges. "
+                        "What it shows, what it doesn't, and how to apply on TNREGINET."),
+        "updated": "2026-07-21",
+        "answer": ("An encumbrance certificate is an official record from the Sub-Registrar of every "
+                   "registered transaction on a property over a period — sales, mortgages, gifts and "
+                   "charges. In Tamil Nadu you apply for it on the TNREGINET portal. It is the core check "
+                   "for existing loans or claims, but it only covers registered documents."),
+        "body": """
+<h2>What an EC shows</h2>
+<p>The encumbrance certificate, issued by the Sub-Registrar's office, lists the registered transactions
+recorded against a property for the date range you request — sales, mortgages, gifts, leases and other
+charges. It is how you spot an existing home loan on the property, a prior sale, or a registered charge
+that could affect what you are buying.</p>
+
+<h2>What it does <em>not</em> show</h2>
+<ul>
+<li>Unregistered transactions or oral arrangements.</li>
+<li>Pending court cases or disputes.</li>
+<li>Unpaid property tax or utility arrears (those are separate checks).</li>
+</ul>
+<p>So a clean EC is reassuring but not the whole picture — read it alongside the parent documents, patta
+and, for dues, the local body and utilities.</p>
+
+<h2>How to apply on TNREGINET</h2>
+<ol>
+<li>Register and log in at the TNREGINET portal (tnreginet.gov.in).</li>
+<li>Go to <strong>E-Services → Encumbrance Certificate → Search and Apply EC</strong>.</li>
+<li>Enter the zone, district and sub-registrar office, the village and survey/sub-division number, the
+date range, and the property details.</li>
+<li>Pay the search fee and submit. Once the Sub-Registrar verifies the records, the signed EC is usually
+uploaded to your account within a few working days.</li>
+</ol>
+<p>Search fees are modest — a small charge per year searched plus a computerization fee for records from
+the late 1980s onward. Exact fees and processing times change, so confirm them on the portal (sources
+below).</p>
+
+<h2>The bank-auction angle</h2>
+<p>A SARFAESI sale notice lists known encumbrances only "to the best of the bank's knowledge". Pulling
+the EC yourself, where the survey details allow, is how you check that statement rather than take it on
+trust before committing an EMD — exactly the kind of verification AuctionScope is designed to support.</p>
+""",
+        "faqs": [
+            {"q": "How do I get an encumbrance certificate in Tamil Nadu?",
+             "a": ("Apply online on the TNREGINET portal: register, go to E-Services → Encumbrance "
+                   "Certificate → Search and Apply EC, enter the property and date range, pay the search "
+                   "fee, and the signed EC is uploaded to your account in a few working days.")},
+            {"q": "Does an EC guarantee a property is dispute-free?",
+             "a": ("No. An EC covers registered transactions only — it does not show unregistered deals, "
+                   "pending litigation, or unpaid tax and utility dues. Use it alongside the parent "
+                   "documents and other checks.")},
+            {"q": "How much does an EC cost in Tamil Nadu?",
+             "a": ("A small search fee per year of records requested, plus a computerization fee for "
+                   "post-1980s records. The exact amounts change, so confirm the current fee on TNREGINET.")},
+        ],
+        "related": ["patta", "sale deed", "encumbrances", "TNREGINET", "as-is-where-is"],
+        "sources": [
+            {"t": "TNREGINET — Registration Department, Government of Tamil Nadu (official portal)",
+             "h": "https://tnreginet.gov.in/"},
+        ],
+    },
+    {
+        "slug": "fmb-sketch-tamil-nadu",
+        "title": "FMB sketch in Tamil Nadu — checking a property's boundaries",
+        "h1": "The FMB sketch",
+        "description": ("The Field Measurement Book sketch is the official survey map of a land parcel's "
+                        "shape and boundaries. What it is and why it matters before you buy."),
+        "updated": "2026-07-21",
+        "answer": ("An FMB — Field Measurement Book — sketch is the Tamil Nadu survey department's scaled "
+                   "drawing of a land parcel, showing its actual shape, measurements and boundaries on all "
+                   "sides. Unlike patta or the EC, it is about the physical extent of the land, and it is "
+                   "how you check that the plot matches what is being sold."),
+        "body": """
+<h2>What the FMB is</h2>
+<p>The Field Measurement Book is a register maintained by the Tamil Nadu survey and settlement department
+holding ground measurements of every land parcel. The FMB <em>sketch</em> is the scaled map drawn from
+those measurements — typically at 1:1000 or 1:2000 — showing the parcel's shape, orientation and
+boundary lines on each side.</p>
+
+<h2>FMB vs EC vs patta — they answer different questions</h2>
+<table class="kv">
+<tr><th>Record</th><th>Answers</th></tr>
+<tr><td>Patta / Chitta</td><td>Who owns it, and what class of land it is.</td></tr>
+<tr><td>Encumbrance certificate</td><td>What registered transactions and charges sit on it.</td></tr>
+<tr><td>FMB sketch</td><td>Where its boundaries are and what shape and extent it actually has.</td></tr>
+</table>
+
+<h2>Why it matters before buying</h2>
+<p>The FMB is how you check that the boundaries and extent on paper match the ground — that the plot is
+the shape and size the sale describes, and that it is not encroached or mismatched with a neighbouring
+survey number. For a land or plot purchase at auction, where you are buying <em>as-is-where-is</em> and
+the notice states an extent, comparing that extent to the FMB is a direct sanity check on what you are
+paying for.</p>
+
+<h2>How to get it</h2>
+<p>The FMB sketch is available through the Tamil Nadu land-records e-Services, keyed to the district,
+taluk, village and survey number. Confirm the current access route and any fee on the official portal —
+see the sources below.</p>
+""",
+        "faqs": [
+            {"q": "What is an FMB sketch?",
+             "a": ("A Field Measurement Book sketch is the Tamil Nadu survey department's scaled drawing of "
+                   "a land parcel, showing its actual shape, measurements and boundaries. It reflects the "
+                   "physical layout of the land, not its ownership.")},
+            {"q": "How is the FMB different from the encumbrance certificate?",
+             "a": ("The FMB shows the parcel's measurements and boundaries; the EC shows its registered "
+                   "transaction and charge history. One is about the physical land, the other about its "
+                   "legal record — you check both.")},
+            {"q": "Why check the FMB before buying at auction?",
+             "a": ("Because an as-is-where-is sale states an extent without warranty. Comparing that extent "
+                   "and the boundaries to the FMB confirms the plot is the shape and size described and "
+                   "isn't encroached or mismatched.")},
+        ],
+        "related": ["patta", "extent", "survey number", "as-is-where-is"],
+        "sources": [
+            {"t": "e-Services of Land Records — Revenue Department, Government of Tamil Nadu (official portal)",
+             "h": "https://eservices.tn.gov.in/eservicesnew/index.html"},
+        ],
+    },
+    {
+        "slug": "stamp-duty-and-registration-charges-tamil-nadu",
+        "title": "Stamp duty and registration charges in Tamil Nadu",
+        "h1": "Stamp duty and registration charges",
+        "description": ("What it costs to register a property in Tamil Nadu — the stamp duty and registration "
+                        "percentages, how they're calculated on guideline value, and the auction angle."),
+        "updated": "2026-07-21",
+        "answer": ("In Tamil Nadu a sale is commonly charged 7% stamp duty plus 4% registration fee — about "
+                   "11% together — calculated on the higher of the sale value and the government guideline "
+                   "value. Rates and concessions change, so confirm the current figures and the guideline "
+                   "value on TNREGINET before you budget."),
+        "body": """
+<h2>The headline rates</h2>
+<table class="kv">
+<tr><th>Charge</th><th>Rate (as of 2026)</th></tr>
+<tr><td>Stamp duty</td><td>7% of the property value</td></tr>
+<tr><td>Registration fee</td><td>4% of the property value</td></tr>
+<tr><td>Combined</td><td>~11% of the property value</td></tr>
+</table>
+<p>These are among the higher property-transfer charges in the country, and they are a real cost on top
+of the price you pay — worth building into any purchase maths.</p>
+
+<h2>What the percentage is charged on</h2>
+<p>The charge is calculated on the <strong>higher</strong> of two figures: the actual sale/agreement
+value, and the <strong>guideline value</strong> — the government-fixed minimum value for that locality,
+which you can look up on TNREGINET. So even a low purchase price is taxed at least on the guideline
+value.</p>
+
+<h2>Concessions</h2>
+<p>From 1 April 2025, Tamil Nadu offers a registration concession for women buyers where the property
+value is below ₹10 lakh — 3% registration instead of 4%. Concessions and thresholds change, so verify
+current eligibility on the official portal.</p>
+
+<h2>The bank-auction angle</h2>
+<p>Winning a SARFAESI auction is not the end of the cost. Stamp duty and registration are payable to
+register the sale certificate in your name — so a reserve that looks like a bargain still carries roughly
+another tenth of the value in charges. Factor guideline value and these percentages into whether a
+listing is genuinely below market. AuctionScope helps you compare a reserve to local rates; the
+registration cost is the piece to add on top.</p>
+""",
+        "faqs": [
+            {"q": "What are the stamp duty and registration charges in Tamil Nadu?",
+             "a": ("As of 2026, commonly 7% stamp duty and 4% registration fee — about 11% combined — on "
+                   "the higher of the sale value and the guideline value. Confirm current rates on "
+                   "TNREGINET, as they change.")},
+            {"q": "What is guideline value?",
+             "a": ("The government-fixed minimum value for a locality, used as the floor for calculating "
+                   "stamp duty and registration. You can look it up for a specific property on the "
+                   "TNREGINET portal.")},
+            {"q": "Do I pay stamp duty on a bank auction property?",
+             "a": ("Yes. Stamp duty and registration are payable to register the sale certificate in your "
+                   "name after you win, so budget roughly another tenth of the value on top of your bid.")},
+        ],
+        "related": ["guideline value", "sale certificate", "reserve price", "TNREGINET"],
+        "sources": [
+            {"t": "TNREGINET — Registration Department, Government of Tamil Nadu (official portal)",
+             "h": "https://tnreginet.gov.in/"},
+            {"t": "Stamp duty and registration charges in Tamil Nadu (2026) — ClearTax",
+             "h": "https://cleartax.in/s/stamp-duty-and-registration-charges-in-tamil-nadu"},
+        ],
+    },
+    {
+        "slug": "verify-property-documents-before-buying-tamil-nadu",
+        "title": "How to verify property documents before buying in Tamil Nadu",
+        "h1": "Verifying property documents in Tamil Nadu",
+        "description": ("The document checklist for a Tamil Nadu property — sale deed and parent documents, "
+                        "patta, EC, FMB, guideline value and tax receipts — and how it applies at auction."),
+        "updated": "2026-07-21",
+        "answer": ("Before buying property in Tamil Nadu, check the chain of title through the sale deed and "
+                   "its parent documents, confirm ownership via patta/chitta, pull the encumbrance "
+                   "certificate for registered charges, verify boundaries against the FMB, look up the "
+                   "guideline value, and check tax receipts. At auction the same checks apply to the extent "
+                   "you can run them."),
+        "body": """
+<h2>The core checks</h2>
+<table class="kv">
+<tr><th>Document</th><th>What it confirms</th></tr>
+<tr><td>Sale deed + parent (mother) documents</td><td>The chain of title — how ownership passed down to
+the current owner over successive transactions.</td></tr>
+<tr><td>Patta / Chitta</td><td>That the seller is recorded as the owner, and the land class.</td></tr>
+<tr><td>Encumbrance certificate (EC)</td><td>Registered charges — existing loans, mortgages, prior
+sales.</td></tr>
+<tr><td>FMB sketch</td><td>That the boundaries and extent match the ground.</td></tr>
+<tr><td>Guideline value</td><td>A price sanity-check and the basis for stamp duty.</td></tr>
+<tr><td>Property tax and utility receipts</td><td>That dues are paid up, or what arrears exist.</td></tr>
+</table>
+
+<h2>How this changes at a bank auction</h2>
+<p>At a SARFAESI auction you are buying from the bank, and the sale notice usually gives only a limited
+document set. You often cannot get the seller's full paperwork — but you can still do a lot: pull the EC
+and patta from the survey details, compare the stated extent to the FMB, and look up the guideline
+value. After you win and pay in full, the <strong>sale certificate</strong> the bank issues becomes your
+title document, which you then register.</p>
+
+<h2>Turn a checklist into a decision</h2>
+<p>Each of these records answers one question — ownership, charges, boundaries, price, dues — and no
+single one is the whole story. The skill is pulling them together for a specific property under an
+auction deadline. That is exactly what AuctionScope is built to speed up: ask, in plain language, what a
+listing's documents and numbers say, so you go into a bid informed rather than rushed. None of this is
+legal advice — for a high-value purchase, have the documents reviewed by a professional too.</p>
+""",
+        "faqs": [
+            {"q": "What documents should I check before buying property in Tamil Nadu?",
+             "a": ("The sale deed and its parent documents for the chain of title, patta/chitta for "
+                   "ownership, the encumbrance certificate for registered charges, the FMB for boundaries, "
+                   "the guideline value for price, and tax receipts for dues.")},
+            {"q": "Can I verify documents for a bank auction property?",
+             "a": ("Partly. The bank usually shares a limited set, but from the survey details you can "
+                   "often still pull the EC and patta, compare the extent to the FMB, and check the "
+                   "guideline value. After winning, the sale certificate becomes your title document.")},
+            {"q": "Is a clean encumbrance certificate enough on its own?",
+             "a": ("No. An EC covers registered transactions only. Combine it with the parent documents, "
+                   "patta, FMB and tax receipts — and for a big purchase, a professional review — for a "
+                   "fuller picture.")},
+        ],
+        "related": ["sale deed", "patta", "encumbrance certificate", "FMB", "guideline value", "sale certificate"],
+        "sources": [
+            {"t": "TNREGINET — Registration Department, Government of Tamil Nadu (official portal)",
+             "h": "https://tnreginet.gov.in/"},
+            {"t": "e-Services of Land Records — Revenue Department, Government of Tamil Nadu (official portal)",
+             "h": "https://eservices.tn.gov.in/eservicesnew/index.html"},
+        ],
+    },
 ]
 
 
 def _article_jsonld(g: dict, url: str) -> dict:
-    return {
+    node = {
         "@context": "https://schema.org",
         "@type": "Article",
         "headline": g["title"],
@@ -785,6 +1147,13 @@ def _article_jsonld(g: dict, url: str) -> dict:
         "publisher": {"@type": "Organization", "name": "AuctionScope", "url": f"{SITE_BASE}/"},
         "mainEntityOfPage": url,
     }
+    # Ring 2/3 facts are research-verified — cite them (content-pillars.md). The
+    # cited sources also raise AI-search citation odds (the ai-seo skill).
+    if g.get("sources"):
+        node["citation"] = [
+            {"@type": "CreativeWork", "name": s["t"], "url": s["h"]} for s in g["sources"]
+        ]
+    return node
 
 
 def _faq_jsonld(g: dict) -> dict:
@@ -879,6 +1248,17 @@ def render_guide(g: dict) -> str:
     chips = "".join(f'<span class="chip">{html.escape(t)}</span>' for t in g.get("related", []))
     chips_block = f'<h2>Related terms</h2><div class="chips">{chips}</div>' if chips else ""
 
+    sources_block = ""
+    if g.get("sources"):
+        items = "".join(
+            f'<li><a href="{html.escape(s["h"])}" rel="nofollow noopener" target="_blank">'
+            f'{html.escape(s["t"])}</a></li>'
+            for s in g["sources"]
+        )
+        sources_block = ("<h2>Sources</h2><p class=\"updated\">Rates, fees and procedures change — "
+                         "confirm the current position on the official portals below before you act.</p>"
+                         f"<ul>{items}</ul>")
+
     parts = [
         _head(g["title"], g["description"], url, jsonld),
         '<nav class="crumb"><a href="/">home</a> / <a href="/guides">guides</a> / '
@@ -889,6 +1269,7 @@ def render_guide(g: dict) -> str:
         g["body"],
         f'<h2>Frequently asked questions</h2><div class="faq">{faq_html}</div>',
         chips_block,
+        sources_block,
         "</article>",
         _cta_and_capture(f"guide-{slug}"),
         FOOT,
