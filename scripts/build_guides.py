@@ -1643,6 +1643,245 @@ bid is part of the homework AuctionScope is built to make faster.</p>
              "h": "https://onlineppa.tn.gov.in/"},
         ],
     },
+    {
+        "slug": "prohibited-property-and-poramboke-land-tamil-nadu",
+        "title": "Prohibited property and poramboke land in Tamil Nadu",
+        "h1": "Prohibited property and poramboke land",
+        "description": ("Some land simply cannot be sold or registered — government, poramboke and "
+                        "prohibited-list property. What Section 22-A means and why it matters at auction."),
+        "updated": "2026-07-21",
+        "answer": ("Under Section 22-A of the Registration Act, Tamil Nadu maintains a list of prohibited "
+                   "properties — government and local-authority land, poramboke, and religious, wakf and "
+                   "Bhoodan land — that Sub-Registrars must refuse to register. Poramboke is government "
+                   "land for public use; a document over it does not create valid title, even if somehow "
+                   "registered."),
+        "body": """
+<h2>What Section 22-A does</h2>
+<p>Section 22-A of the Registration Act (as amended in Tamil Nadu) lets the government maintain a
+<strong>prohibited properties list</strong>. Sub-Registrars must refuse to register instruments relating
+to property belonging to the state or a local authority, poramboke land, and certain religious, wakf and
+Bhoodan properties, unless a competent authority's sanction is produced.</p>
+
+<h2>What poramboke means</h2>
+<p>Poramboke is government land set aside for public purposes — water bodies, tanks, roads, canals and
+the like. Most poramboke cannot be assigned or sold; some categories, such as Natham poramboke, may be
+regularised under specific rules. Courts in Tamil Nadu have repeatedly held that a patta granted over
+poramboke reserved for a public purpose is invalid.</p>
+
+<h2>Registration does not change classification</h2>
+<p>This is the key trap: even if a document over such land somehow gets registered, registration does not
+change the land's government classification. It stays poramboke, and the "owner" holds no valid title. A
+suspiciously cheap plot is exactly where this risk hides.</p>
+
+<h2>The bank-auction angle</h2>
+<p>Banks auction property they hold as security, which is normally private land — but the classification
+is still worth confirming, especially for a low-priced plot. The chitta and A-register show the land
+classification, and the prohibited-properties position can be checked with the registration department.
+Confirming a listing is ordinary, registrable private land before you bid is part of the homework
+AuctionScope is built to speed up.</p>
+""",
+        "faqs": [
+            {"q": "Can poramboke land be bought or sold?",
+             "a": ("Mostly no. Poramboke is government land for public use; most of it cannot be assigned or "
+                   "sold, and a patta granted over public-purpose poramboke has been held invalid. Some "
+                   "categories may be regularised under specific rules.")},
+            {"q": "What is Section 22-A of the Registration Act?",
+             "a": ("A provision under which Tamil Nadu maintains a prohibited-properties list — government, "
+                   "poramboke, and certain religious, wakf and Bhoodan land — that Sub-Registrars must "
+                   "refuse to register without competent sanction.")},
+            {"q": "Does registering a document make poramboke land mine?",
+             "a": ("No. Registration does not change the land's government classification. Even a registered "
+                   "document over poramboke does not create valid title.")},
+        ],
+        "related": ["land classification", "chitta", "A-register", "patta"],
+        "sources": [
+            {"t": "The Registration (Tamil Nadu Amendment) Act — Section 22-A (PRS India)",
+             "h": "https://prsindia.org/files/bills_acts/acts_states/tamil-nadu/2009/2009TN2.pdf"},
+            {"t": "TNREGINET — Registration Department, Government of Tamil Nadu (official portal)",
+             "h": "https://tnreginet.gov.in/"},
+        ],
+    },
+    {
+        "slug": "legal-heir-and-succession-certificate-tamil-nadu",
+        "title": "Legal heir certificate vs succession certificate in Tamil Nadu",
+        "h1": "Legal heir and succession certificates",
+        "description": ("For inherited property, which document do you need — a Varisu (legal heir) "
+                        "certificate or a court succession certificate? The difference, and the patta step "
+                        "that still remains."),
+        "updated": "2026-07-21",
+        "answer": ("A legal heir (Varisu) certificate, issued by the Tahsildar, identifies a deceased "
+                   "person's heirs and is used to transfer property, pensions and utilities. A succession "
+                   "certificate comes from a civil court and is needed for debts, securities and disputed "
+                   "cases. Neither, on its own, transfers land — the patta still has to be changed."),
+        "body": """
+<h2>The two certificates</h2>
+<table class="kv">
+<tr><th></th><th>Legal heir (Varisu) certificate</th><th>Succession certificate</th></tr>
+<tr><td>Issued by</td><td>Tahsildar / revenue authorities (via e-Sevai)</td><td>Civil court, under the
+Indian Succession Act, 1925</td></tr>
+<tr><td>Establishes</td><td>Who the legal heirs are</td><td>The heirs' authority over the deceased's
+debts and securities</td></tr>
+<tr><td>Typical use</td><td>Transfer of property, pension, PF, insurance, utilities</td><td>Bank
+securities, shares, contested or complex estates</td></tr>
+</table>
+<p>A legal heir certificate does not decide each heir's share or settle a dispute between heirs. Where a
+will is contested, an heir won't cooperate, or securities are involved, a succession certificate (or
+probate) is the route.</p>
+
+<h2>The step people miss for immovable property</h2>
+<p>Tamil Nadu keeps the heir certificate and the land record separate. Obtaining the Varisu certificate
+is only half the job — the <strong>patta still has to be transferred</strong> under the Tamil Nadu Patta
+Pass Book Act, 1983, and for a flat the undivided share and the apartment-association records must line
+up. So the certificate alone does not make an heir the owner of record.</p>
+
+<h2>Why a buyer cares — the auction angle</h2>
+<p>When property has passed by inheritance, <em>all</em> the legal heirs generally need to be party to a
+sale — a missing or disputing heir is a title risk. At a bank auction the borrower's ownership should be
+established, but if inheritance sits anywhere in a property's chain of title, it is worth checking the
+heirs are accounted for. Spotting that kind of gap is part of the pre-bid review AuctionScope is built to
+help with. This is general information, not legal advice.</p>
+""",
+        "faqs": [
+            {"q": "What is the difference between a legal heir certificate and a succession certificate?",
+             "a": ("A legal heir (Varisu) certificate, from the Tahsildar, identifies the heirs and is used "
+                   "for property, pension and utility transfers. A succession certificate, from a civil "
+                   "court, covers debts and securities and disputed or complex estates.")},
+            {"q": "Does a legal heir certificate make me the owner of the property?",
+             "a": ("No. In Tamil Nadu the heir certificate and the land record are separate — the patta "
+                   "still has to be transferred under the Patta Pass Book Act, 1983, and for a flat the "
+                   "UDS and association records must align.")},
+            {"q": "Why do all heirs matter when buying inherited property?",
+             "a": ("Because a sale of inherited property generally needs every legal heir as a party. A "
+                   "missing or disputing heir is a title risk, so confirm the heirs are accounted for "
+                   "before you buy.")},
+        ],
+        "related": ["chain of title", "patta transfer", "sale deed", "UDS"],
+        "sources": [
+            {"t": "Legal heir certificate in Tamil Nadu — process and eligibility (Nobroker, 2026)",
+             "h": "https://www.nobroker.in/blog/legal-heir-certificate-tamilnadu/"},
+            {"t": "Tamil Nadu e-Sevai — Government of Tamil Nadu citizen services (official portal)",
+             "h": "https://tnesevai.tn.gov.in/"},
+        ],
+    },
+    {
+        "slug": "agricultural-land-purchase-rules-tamil-nadu",
+        "title": "Agricultural land purchase rules in Tamil Nadu",
+        "h1": "Buying agricultural land in Tamil Nadu",
+        "description": ("Who can buy farmland in Tamil Nadu, the land-ceiling limits, and what it takes to "
+                        "use agricultural land for building — with the auction angle."),
+        "updated": "2026-07-21",
+        "answer": ("In Tamil Nadu any resident Indian, including a non-agriculturist, can buy agricultural "
+                   "land, subject to land-ceiling limits under the 1961 Land Reforms Act. NRIs and OCIs "
+                   "cannot buy farmland (they may inherit it). Using agricultural land for building needs a "
+                   "change-of-land-use conversion first."),
+        "body": """
+<h2>Who can buy</h2>
+<p>Unlike some states, Tamil Nadu does not bar non-agriculturists from buying farmland — any resident
+Indian can purchase agricultural land. NRIs and OCIs, however, cannot buy agricultural land under FEMA /
+RBI rules, though they may inherit it.</p>
+
+<h2>The ceiling limit</h2>
+<p>The Tamil Nadu Land Reforms (Fixation of Ceiling on Land) Act, 1961 caps how much agricultural land a
+person or family can hold — an individual limit in the region of 59.95 acres, and for a family of five
+around 15 standard acres. The "standard acre" is an equalised measure, so the raw acreage a ceiling
+allows varies with land quality.</p>
+
+<h2>Using farmland for building</h2>
+<p>Agricultural land cannot simply be built on. Converting it to non-agricultural use goes through the
+Tamil Nadu Change of Land Use Rules, 2017 — with a scrutiny fee and a conversion charge (reported around
+3% of the market value) — after which the authority issues a conversion order. Skipping this leaves any
+construction unauthorised.</p>
+
+<h2>The bank-auction angle</h2>
+<p>If an auction lot is agricultural land, two things matter: confirm the classification from the chitta
+and adangal, and factor in that turning it into a building plot needs conversion — a cost and a
+timeline, not a formality. A cheap agricultural parcel is not the same buy as a ready residential plot.
+Checking the classification before you bid is part of what AuctionScope helps you do; confirm current
+fees and rules on the official portal, and treat this as general information, not legal advice.</p>
+""",
+        "faqs": [
+            {"q": "Can a non-agriculturist buy agricultural land in Tamil Nadu?",
+             "a": ("Yes. Any resident Indian, including a non-agriculturist, can buy agricultural land in "
+                   "Tamil Nadu, subject to the land-ceiling limits. NRIs and OCIs cannot buy farmland, "
+                   "though they may inherit it.")},
+            {"q": "Is there a limit on how much farmland I can own?",
+             "a": ("Yes. Under the 1961 Land Reforms Act there is a ceiling — around 59.95 acres for an "
+                   "individual and about 15 standard acres for a family of five, measured in equalised "
+                   "'standard acres'.")},
+            {"q": "Can I build on agricultural land I buy at auction?",
+             "a": ("Not without converting it to non-agricultural use first, under the Change of Land Use "
+                   "Rules, 2017, which carries fees and a conversion charge. Factor that cost and time into "
+                   "the price of an agricultural lot.")},
+        ],
+        "related": ["land classification", "chitta", "adangal", "guideline value"],
+        "sources": [
+            {"t": "Land Reforms — Government of Tamil Nadu (official portal)",
+             "h": "https://landreforms.tn.gov.in/LandReforms.html"},
+            {"t": "Agriculture land purchase rules in Tamil Nadu (2026) — Nobroker",
+             "h": "https://www.nobroker.in/blog/agriculture-land-purchase-rules-in-tamil-nadu/"},
+        ],
+    },
+    {
+        "slug": "transfer-electricity-and-water-connection-tamil-nadu",
+        "title": "Transferring electricity and water connections after buying (Tamil Nadu)",
+        "h1": "Transferring utilities after you buy",
+        "description": ("After buying, move the electricity and water connections into your name. Why it "
+                        "matters, what you need, and the auction-arrears trap to check first."),
+        "updated": "2026-07-21",
+        "answer": ("Once you own a property in Tamil Nadu, transfer the electricity connection (TANGEDCO) "
+                   "and the water/sewer connection (the local body, or Chennai Metrowater in Chennai) into "
+                   "your name, using your sale deed or sale certificate and the patta/tax records. Clear "
+                   "any arrears first — at auction, unpaid utility dues can land on the buyer."),
+        "body": """
+<h2>Why transfer the connections</h2>
+<p>Utilities stay in the previous owner's name until you apply to change them. Transferring the
+electricity and water connections puts the billing — and the responsibility — in your name, and is
+usually needed alongside the property-tax and patta transfer for a clean record.</p>
+
+<h2>What you need</h2>
+<ul>
+<li><strong>Electricity (TANGEDCO / TNEB).</strong> Apply for a name transfer with your sale deed or sale
+certificate, proof of ownership (patta / tax receipt) and the latest paid bill.</li>
+<li><strong>Water and sewerage.</strong> In Chennai this is the Chennai Metropolitan Water Supply and
+Sewerage Board (Metrowater); elsewhere it is the local municipality or panchayat. The documents are
+similar.</li>
+</ul>
+
+<h2>The arrears trap — check before you buy</h2>
+<p>Unpaid electricity or water dues can attach to the service and become the new occupier's problem, and
+an <em>as-is-where-is</em> auction notice may place them on the buyer. So the time to check utility
+arrears is <strong>before</strong> you bid — an unexpectedly large backlog eats into a low reserve. After
+you buy, clear any dues and complete the transfers.</p>
+
+<h2>The bank-auction angle</h2>
+<p>Winning the auction is not the finish line: patta transfer, property-tax mutation and utility
+transfers are the steps that actually put the property fully in your name. Building them into your
+post-purchase plan — and checking arrears up front — avoids surprises. AuctionScope helps you weigh a
+listing's price and dues before you commit; confirm current procedures with the boards' official
+portals.</p>
+""",
+        "faqs": [
+            {"q": "How do I transfer the electricity connection after buying a property?",
+             "a": ("Apply to TANGEDCO (TNEB) for a name transfer with your sale deed or sale certificate, "
+                   "proof of ownership such as the patta or tax receipt, and the latest paid bill. Confirm "
+                   "the current process on the board's portal.")},
+            {"q": "Do unpaid utility bills pass to the buyer at auction?",
+             "a": ("They can. Utility arrears attach to the service, and an as-is-where-is auction notice "
+                   "may place them on the buyer — so check electricity and water dues before bidding and "
+                   "clear them after buying.")},
+            {"q": "Who handles water connection transfer in Chennai?",
+             "a": ("The Chennai Metropolitan Water Supply and Sewerage Board (Metrowater). Outside Chennai "
+                   "it is the local municipality or panchayat. The documents needed are similar to the "
+                   "electricity transfer.")},
+        ],
+        "related": ["property tax", "patta transfer", "encumbrances", "as-is-where-is"],
+        "sources": [
+            {"t": "TANGEDCO — Tamil Nadu Generation and Distribution Corporation (official portal)",
+             "h": "https://www.tangedco.gov.in/"},
+            {"t": "Chennai Metro Water Supply and Sewerage Board (official portal)",
+             "h": "https://chennaimetrowater.tn.gov.in/"},
+        ],
+    },
 ]
 
 
