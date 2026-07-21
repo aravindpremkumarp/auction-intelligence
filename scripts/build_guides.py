@@ -2231,6 +2231,297 @@ check reliable — the kind of groundwork AuctionScope helps you do quickly on a
              "h": "https://eservices.tn.gov.in/eservicesnew/index.html"},
         ],
     },
+
+    # ---- Ring 2 close-out: money (TDS) + land literacy (units, UDS, FSI, setbacks) ----
+    {
+        "slug": "tds-on-property-purchase",
+        "title": "TDS on a property purchase — the 1% the buyer deducts",
+        "h1": "TDS on a property purchase",
+        "description": ("Buy property over ₹50 lakh and you, the buyer, must deduct 1% TDS and file Form "
+                        "26QB. How Section 194-IA works, and how it applies to an auction win."),
+        "updated": "2026-07-21",
+        "answer": ("Under Section 194-IA, when you buy immovable property (other than agricultural land) for "
+                   "₹50 lakh or more, you — the buyer — must deduct 1% TDS from the payment, deposit it, and "
+                   "file Form 26QB. You need the seller's PAN and your own; no TAN is required. It applies "
+                   "to an auction purchase too."),
+        "body": """
+<h2>The rule in short</h2>
+<ul>
+<li><strong>Rate:</strong> 1% of the sale consideration or the stamp-duty (guideline) value, whichever is
+higher.</li>
+<li><strong>Threshold:</strong> the property value must be ₹50 lakh or more. Below that, no TDS.</li>
+<li><strong>Who deducts:</strong> the buyer, from the amount paid to the seller.</li>
+<li><strong>Excluded:</strong> agricultural land.</li>
+</ul>
+
+<h2>How you pay and file it</h2>
+<p>You deposit the deducted amount and file <strong>Form 26QB</strong> — an online challan-cum-statement —
+within seven days of the end of the month in which the deduction was made. You need the buyer's and the
+seller's PAN (no TAN is required). If the seller does not provide a PAN, TDS is deducted at a much higher
+rate. After depositing, you download <strong>Form 16B</strong> and give it to the seller as proof.</p>
+
+<h2>The bank-auction angle</h2>
+<p>Where a SARFAESI purchase crosses the ₹50 lakh threshold, the same obligation applies — the "seller"
+for TDS purposes is worked out per the transaction, so confirm how the bank handles it and who the
+payment is made to before you complete. It is a compliance step, not an extra tax on you (it counts
+towards the seller's tax), but missing it carries interest and penalties. Factor it into your post-win
+checklist alongside stamp duty and registration. This is general information, not tax advice — confirm
+your case with a professional and the Income Tax Department's portal.</p>
+""",
+        "faqs": [
+            {"q": "Who deducts TDS on a property purchase?",
+             "a": ("The buyer. Under Section 194-IA you deduct 1% from the payment to the seller when the "
+                   "property value is ₹50 lakh or more, deposit it, and file Form 26QB. You need PAN but "
+                   "not a TAN.")},
+            {"q": "Does TDS apply to a bank auction property?",
+             "a": ("Yes, where the purchase is ₹50 lakh or more and the property is not agricultural land. "
+                   "Confirm with the bank how it is handled and to whom payment is made before completing.")},
+            {"q": "What if the seller has no PAN?",
+             "a": ("Then TDS must be deducted at a much higher rate (20%), and the seller cannot claim "
+                   "credit for it. Always obtain the seller's PAN.")},
+        ],
+        "related": ["stamp duty", "guideline value", "sale certificate", "agricultural land"],
+        "sources": [
+            {"t": "TDS on purchase of immovable property (Section 194-IA) — Income Tax Department (official)",
+             "h": "https://www.incometaxindia.gov.in/w/tds-purchase-of-immovable-property"},
+            {"t": "Section 194-IA: how to file TDS on sale of property — ClearTax",
+             "h": "https://cleartax.in/s/how-to-file-tds-on-sale-property"},
+        ],
+    },
+    {
+        "slug": "land-area-units-and-conversions-tamil-nadu",
+        "title": "Land-area units in Tamil Nadu — cent, ground, are and how to convert",
+        "h1": "Land-area units and conversions",
+        "description": ("Sale notices mix cent, ground, are, acre and square feet. A conversion table and why "
+                        "getting the unit right is essential before comparing prices."),
+        "updated": "2026-07-21",
+        "answer": ("Tamil Nadu land is measured in a mix of units — cent, ground, are, acre and square feet. "
+                   "1 cent is 435.6 sq ft, 1 ground is 2,400 sq ft, 1 are is about 1,076 sq ft, and 1 acre "
+                   "is 43,560 sq ft (100 cents). Convert everything to a common unit before comparing a "
+                   "reserve to local ₹/sq ft rates."),
+        "body": """
+<h2>The common units</h2>
+<table class="kv">
+<tr><th>Unit</th><th>In square feet</th><th>Note</th></tr>
+<tr><td>1 square metre</td><td>10.76 sq ft</td><td>Metric; used in notices and FMB</td></tr>
+<tr><td>1 square yard (gaj)</td><td>9 sq ft</td><td></td></tr>
+<tr><td>1 cent</td><td>435.6 sq ft</td><td>One-hundredth of an acre — common across Tamil Nadu</td></tr>
+<tr><td>1 ground</td><td>2,400 sq ft</td><td>Common in Chennai (≈ 5.5 cents)</td></tr>
+<tr><td>1 are</td><td>1,076.4 sq ft</td><td>= 100 sq m</td></tr>
+<tr><td>1 acre</td><td>43,560 sq ft</td><td>= 100 cents</td></tr>
+<tr><td>1 hectare</td><td>1,07,639 sq ft</td><td>= 100 ares = 2.47 acres</td></tr>
+</table>
+
+<h2>Why the unit matters</h2>
+<p>A reserve price only tells you something once you put it on a per-square-foot basis and compare it to
+local rates. If a notice quotes the extent in <em>cents</em> or <em>grounds</em> and you compare it to a
+₹/sq ft rate without converting, the comparison is meaningless — and the errors are large (a ground is
+2,400 sq ft, a cent is 435.6). Older documents may also use traditional units that vary by locality, so
+confirm the exact unit the notice means.</p>
+
+<h2>The bank-auction angle</h2>
+<p>Auction notices routinely state extents in cent, ground or are, especially for land. Converting to a
+single unit is the first step before you judge whether a reserve is genuinely below the local market —
+the reserve-vs-rate check that decides whether a lot is worth bidding on. AuctionScope reads the extent a
+notice states so you are comparing like with like; if a unit is ambiguous, confirm it against the record.</p>
+""",
+        "faqs": [
+            {"q": "How many square feet is one cent?",
+             "a": ("One cent is 435.6 square feet — one-hundredth of an acre. An acre is 43,560 square feet, "
+                   "or 100 cents.")},
+            {"q": "How big is a ground in Tamil Nadu?",
+             "a": ("A ground is 2,400 square feet, a unit common in Chennai — roughly 5.5 cents. Convert it "
+                   "to square feet before comparing a price per square foot.")},
+            {"q": "Why do I need to convert units before comparing prices?",
+             "a": ("Because a reserve only means something per square foot. Comparing a cent- or "
+                   "ground-based extent to a ₹/sq ft rate without converting gives a wildly wrong answer, "
+                   "since the units differ by hundreds or thousands of square feet.")},
+        ],
+        "related": ["extent", "reserve price", "guideline value", "UDS"],
+        "sources": [
+            {"t": "e-Services of Land Records — Revenue Department, Government of Tamil Nadu (official portal)",
+             "h": "https://eservices.tn.gov.in/eservicesnew/index.html"},
+        ],
+    },
+    {
+        "slug": "undivided-share-uds-in-a-flat",
+        "title": "Undivided share (UDS) in a flat — the land you actually own",
+        "h1": "Undivided share (UDS) in a flat",
+        "description": ("When you buy a flat, you own the apartment plus an undivided share of the land. What "
+                        "UDS is, why a low UDS matters, and how it affects value."),
+        "updated": "2026-07-21",
+        "answer": ("The undivided share (UDS) is the portion of the land under a building that a flat owner "
+                   "holds — undivided, in common with the other owners. It is registered as part of the "
+                   "sale, sized roughly in proportion to the flat, and it is where a flat's land value and "
+                   "redevelopment potential actually sit."),
+        "body": """
+<h2>What UDS is</h2>
+<p>A flat is two things at once: the built apartment, and a share of the land the building stands on. That
+land share is the <strong>undivided share</strong> — "undivided" because no owner holds a marked-off
+piece of ground; each holds a fraction of the whole plot in common. It is recorded in the sale deed and
+is a real, registered land interest.</p>
+
+<h2>How it is sized — and why a low UDS matters</h2>
+<p>UDS is normally allocated in proportion to a flat's area against the total built area, so a bigger flat
+carries a larger share. Two flats that look identical inside can have different UDS if the builder
+allocated it differently. It matters because:</p>
+<ul>
+<li><strong>Land holds the value.</strong> Buildings depreciate; land appreciates. A higher UDS means you
+own more of the appreciating asset.</li>
+<li><strong>Redevelopment.</strong> If the building is ever redeveloped, compensation typically follows
+the UDS, not the flat's built area.</li>
+<li><strong>Valuation.</strong> A flat's fair value combines the built-up area (at a construction rate)
+and the UDS (at the land rate) — so UDS is half the sum.</li>
+</ul>
+
+<h2>The bank-auction angle</h2>
+<p>An auction notice for a flat usually states <em>both</em> the built-up area and the UDS — and confusing
+them, or ignoring a thin UDS, distorts any value comparison. Checking the UDS is central to deciding
+whether a flat's reserve is genuinely attractive. AuctionScope reads what the notice states so the
+built-up and land components are kept separate in the maths.</p>
+""",
+        "faqs": [
+            {"q": "What is undivided share (UDS) in a flat?",
+             "a": ("It is the portion of the land under a building that a flat owner holds in common with "
+                   "the other owners — undivided, registered as part of the sale, and sized roughly in "
+                   "proportion to the flat.")},
+            {"q": "Why does a low UDS matter?",
+             "a": ("Because land, not the building, holds and grows the value, and redevelopment "
+                   "compensation usually follows the UDS. A thin UDS means less of the appreciating asset "
+                   "and a weaker position in any redevelopment.")},
+            {"q": "How does UDS affect a flat's value?",
+             "a": ("A flat's fair value combines its built-up area at a construction rate with its UDS at "
+                   "the land rate. The UDS is the land half of that sum, so it is central to valuing the "
+                   "flat correctly.")},
+        ],
+        "related": ["carpet area", "built-up area", "reserve price", "sale deed"],
+        "sources": [
+            {"t": "TNREGINET — Registration Department, Government of Tamil Nadu (official portal)",
+             "h": "https://tnreginet.gov.in/"},
+            {"t": "TNRERA — Tamil Nadu Real Estate Regulatory Authority (official portal)",
+             "h": "https://rera.tn.gov.in/"},
+        ],
+    },
+    {
+        "slug": "fsi-far-in-tamil-nadu",
+        "title": "FSI / FAR in Tamil Nadu — how much you can build",
+        "h1": "FSI (Floor Space Index)",
+        "description": ("FSI decides how much floor area you can build on a plot. What it means, the Tamil "
+                        "Nadu limits, and why it affects a plot's value."),
+        "updated": "2026-07-21",
+        "answer": ("Floor Space Index (FSI), also called Floor Area Ratio (FAR), is the ratio of total "
+                   "buildable floor area to plot area. In Tamil Nadu, non-high-rise buildings up to 18.3 m "
+                   "are generally allowed an FSI of about 2 — so a 2,400 sq ft plot permits roughly 4,800 "
+                   "sq ft of construction, subject to setbacks."),
+        "body": """
+<h2>What FSI means</h2>
+<p>FSI (or FAR) is the total covered floor area you may build across all floors, divided by the plot area.
+An FSI of 2 on a 2,400 sq ft plot allows about 4,800 sq ft of floor space in total. It is set by the
+development rules and is the single number that caps how much building a plot can carry.</p>
+
+<h2>The Tamil Nadu position</h2>
+<p>For ordinary non-high-rise buildings (up to about 18.3 m in height), Tamil Nadu generally permits an
+FSI of around 2 under the Tamil Nadu Combined Development and Building Rules, administered by CMDA in the
+Chennai metropolitan area and by DTCP elsewhere. The exact permissible FSI varies with the building type,
+road width and zone, so treat 2 as a common benchmark, not a universal figure.</p>
+
+<h2>Why it affects value</h2>
+<p>Two plots of the same size can be worth different amounts if their permissible FSI differs — more FSI
+means more saleable floor area, which is why FSI feeds directly into what a plot is worth to a builder.
+And the headline FSI is only achievable after leaving the required setbacks, so the usable build is
+always a little less than the raw number suggests.</p>
+
+<h2>The bank-auction angle</h2>
+<p>For a plot or a redevelopment-minded purchase at auction, the permissible FSI shapes what you could do
+with it — and therefore what it is worth. It is not stated in the sale notice, so it is a check to run
+against the local rules for that zone. AuctionScope helps you weigh a listing's price and location;
+confirm the buildable potential with the planning authority. This is general information, not
+professional advice.</p>
+""",
+        "faqs": [
+            {"q": "What is FSI or FAR?",
+             "a": ("Floor Space Index (FSI), also called Floor Area Ratio (FAR), is the total buildable "
+                   "floor area divided by the plot area. An FSI of 2 means you can build twice the plot "
+                   "area in total floor space.")},
+            {"q": "What is the FSI limit in Tamil Nadu?",
+             "a": ("For non-high-rise buildings up to about 18.3 m, Tamil Nadu generally allows an FSI of "
+                   "around 2, under the Combined Development and Building Rules. The exact figure varies "
+                   "with building type, road width and zone.")},
+            {"q": "Why does FSI matter when buying a plot?",
+             "a": ("Because it caps how much can be built, and therefore what the plot is worth to develop. "
+                   "More permissible FSI means more saleable floor area — though the required setbacks mean "
+                   "you rarely build the full headline figure.")},
+        ],
+        "related": ["setbacks", "building approval", "guideline value", "reserve price"],
+        "sources": [
+            {"t": "Floor Space Index (FSI) in Tamil Nadu (TNCDBR / CMDA) — Chennai Realties",
+             "h": "https://www.chennairealties.in/floor-space-index-fsi-tamil-nadu/"},
+            {"t": "Tamil Nadu Single Window Portal for Planning Permission (official)",
+             "h": "https://onlineppa.tn.gov.in/"},
+        ],
+    },
+    {
+        "slug": "building-setbacks-tamil-nadu",
+        "title": "Building setbacks in Tamil Nadu — the open space you must leave",
+        "h1": "Building setbacks",
+        "description": ("Setbacks are the mandatory open space around a building. The Tamil Nadu front, side "
+                        "and rear requirements, and why deviations are a risk."),
+        "updated": "2026-07-21",
+        "answer": ("A setback is the open space you must leave between a building and the plot boundary. In "
+                   "Tamil Nadu the front setback runs from about 1.5 to 6 m depending on the road width, "
+                   "side setbacks about 1 to 1.5 m, and the rear setback about 1.5 m. They shape how much "
+                   "of a plot you can actually build on."),
+        "body": """
+<h2>What setbacks are for</h2>
+<p>Setbacks are the required gaps between a building and its plot boundaries, on the front, sides and
+rear. They exist for light, ventilation, privacy, emergency access and the look of the street, and they
+are part of what the planning authority checks when approving a building.</p>
+
+<h2>The Tamil Nadu requirements</h2>
+<table class="kv">
+<tr><th>Setback</th><th>Typical requirement</th></tr>
+<tr><td>Front</td><td>About 1.5 m to 6 m, depending on the width of the abutting road</td></tr>
+<tr><td>Side</td><td>About 1 m to 1.5 m, depending on plot width</td></tr>
+<tr><td>Rear</td><td>About 1.5 m</td></tr>
+</table>
+<p>These are common figures under the Tamil Nadu Combined Development and Building Rules; the exact
+requirement varies with plot size, building height and use, so confirm them for the specific plot.</p>
+
+<h2>Why they matter to a buyer</h2>
+<p>Setbacks reduce the footprint you can build on, so the permissible FSI is only achievable <em>after</em>
+leaving them — the usable build is always smaller than the plot suggests. They also flag risk: a building
+that has been constructed <strong>into</strong> its setbacks is a deviation from the approved plan, which
+can mean regularisation costs, penalties, or trouble with approvals and loans.</p>
+
+<h2>The bank-auction angle</h2>
+<p>For a built property at auction, setback deviations are one of the things an <em>as-is-where-is</em>
+sale will not warn you about — and they tie back to the occupancy-certificate and approval checks. For a
+plot, the setbacks decide how much you can actually build. Either way it is a check worth making before
+you bid. AuctionScope helps you weigh the listing; confirm the building's compliance with the planning
+authority. General information, not professional advice.</p>
+""",
+        "faqs": [
+            {"q": "What is a setback in building rules?",
+             "a": ("The mandatory open space you must leave between a building and its plot boundary — front, "
+                   "sides and rear — for light, ventilation, access and privacy. Planning authorities check "
+                   "setbacks when approving a building.")},
+            {"q": "What are the setback requirements in Tamil Nadu?",
+             "a": ("Commonly a front setback of about 1.5 to 6 m (by road width), side setbacks of about 1 "
+                   "to 1.5 m, and a rear setback of about 1.5 m — varying with plot size, height and use. "
+                   "Confirm for the specific plot.")},
+            {"q": "Why do setbacks matter when buying?",
+             "a": ("They reduce the buildable footprint, so the usable build is smaller than the plot "
+                   "suggests. A building constructed into its setbacks is a deviation from the approved "
+                   "plan, which can bring regularisation costs, penalties or loan and approval trouble.")},
+        ],
+        "related": ["FSI", "building approval", "occupancy certificate", "as-is-where-is"],
+        "sources": [
+            {"t": "Setback spaces for building plan approval (Tamil Nadu) — Chennai Realties",
+             "h": "https://www.chennairealties.in/setback-spaces-for-building-plan-approval/"},
+            {"t": "Tamil Nadu Single Window Portal for Planning Permission (official)",
+             "h": "https://onlineppa.tn.gov.in/"},
+        ],
+    },
 ]
 
 
