@@ -381,7 +381,7 @@ const PULL = GH + '/pull/';
 
 const MARKETING_DATA = {
 meta: {
-  updated: '2026-07-20',
+  updated: '2026-07-21',
   situation: 'pre-traction: ~7 registered users. the whole marketing engine was built in one sprint (jul 9–16, 2026) and is <b>human-gated end-to-end</b> — agents draft and stage, the founder reviews, merges and publishes. nothing auto-posts. north star (proposed): <b>weekly activated users</b> — ≥1 grounded search plus a value action.',
 },
 
@@ -515,9 +515,11 @@ nodes: [
   { id:'edu', lane:'channels', label:'educational content hub — move 4', type:'channel', status:'planned', compact:true,
     summary:'Long-form educational pages off the ~95-topic syllabus (patta/EC, EMD, possession types…). The syllabus exists; the pages don\'t.',
     links:[{t:'content-pillars.md · education', h: BLOB+'docs/marketing/content-pillars.md'}] },
-  { id:'ai-seo', lane:'channels', label:'AI-SEO · llms.txt — move 5', type:'channel', status:'planned', compact:true,
-    summary:'Make the graph\'s answers citable by AI search (llms.txt, Q&A-shaped pages). Not started.',
-    links:[{t:'plan.md · move 5', h: BLOB+'docs/marketing/plan.md'}] },
+  { id:'ai-seo', lane:'channels', label:'AI-SEO · llms.txt — move 5', type:'channel', status:'building',
+    progress:{ pct:35, label:'llms.txt live · Q&A pages pending' },
+    summary:'Make the graph\'s answers citable by AI search (ChatGPT / Perplexity / AI Overviews). Step 1 shipped 2026-07-21: /llms.txt — a machine-readable site brief (what AuctionScope is, core pages, the live /stats + /properties endpoints for real-time counts, and honesty notes for assistants). robots.txt already allows the AI crawlers. Still pending: answer-shaped Q&A pages (pairs with the education hub, move 4).',
+    next:['Write the first answer-shaped Q&A pages off the education syllabus (shared with move 4).','Spot-check citations in ChatGPT / Perplexity once the crawlers pick up llms.txt.'],
+    links:[{t:'llms.txt', h: BLOB+'web/llms.txt'},{t:'plan.md · move 5', h: BLOB+'docs/marketing/plan.md'}] },
   { id:'compare', lane:'channels', label:'comparison pages — move 6', type:'channel', status:'planned', compact:true,
     summary:'"auctionscope vs eauctionsindia" and alternative pages for high-intent searches. Not started.',
     links:[{t:'plan.md · move 6', h: BLOB+'docs/marketing/plan.md'}] },
@@ -637,7 +639,7 @@ roadmap: [
     { t:'email sending + welcome sequence', d:'alert digests, welcome flow, SPF/DKIM/DMARC — turns the list into retention.', tag:'retention' },
     { t:'market_gap extractor', d:'extent/UDS/possession extraction so the below-market angle can automate.', tag:'pipeline' },
     { t:'educational content hub', d:'long-form pages off the education syllabus.', tag:'move 4' },
-    { t:'llms.txt + AI-SEO', d:'make the graph citable by AI search engines.', tag:'move 5' },
+    { t:'AI-SEO answer pages', d:'llms.txt shipped 2026-07-21; next is answer-shaped Q&A content so AI search engines cite the graph.', tag:'move 5' },
   ]},
   { col:'later', items:[
     { t:'comparison / alternative pages', d:'high-intent "vs" searches.', tag:'move 6' },
@@ -669,6 +671,9 @@ risks: [
 ],
 
 changelog: [
+  { d:'2026-07-21', items:[
+    { t:'SEO Move 5 started — AI-SEO: shipped /llms.txt (llmstxt.org format), a machine-readable brief telling ChatGPT / Perplexity / AI Overviews what AuctionScope is, its core pages, and the live /stats + /properties endpoints to read real-time counts from (so cached numbers never go stale). Honesty notes included: reserve = minimum bid, information-platform-not-broker. robots.txt already allows the AI crawlers. Answer-shaped Q&A pages still to come (pairs with move 4).' },
+  ]},
   { d:'2026-07-20', items:[
     { t:'SEO Move 3 enriched: the property JSON-LD is no longer skeletal. Product/Offer now carry the full notice description, sku, structured location (Place + PostalAddress), the auction window (availabilityStarts/Ends), EMD + sale-type as additionalProperty, and an honest "reserve = minimum bid" offer note; breadcrumb deepened to Home › Bank Auctions › City › page (city crumb only when its hub exists).' },
     { t:'SEO Move 3 — structured data: per-property schema.org JSON-LD on every property page. Live auctions emit Product + Offer (reserve price, INR, priceValidUntil = deadline, seller = bank) additionally typed RealEstateListing; ended auctions emit a RealEstateListing with no live Offer (never implies a closed round is biddable); BreadcrumbList on all. Honest-numbers rule carried into the markup.' },
