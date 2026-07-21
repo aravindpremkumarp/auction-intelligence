@@ -1882,6 +1882,355 @@ portals.</p>
              "h": "https://chennaimetrowater.tn.gov.in/"},
         ],
     },
+    {
+        "slug": "carpet-area-built-up-and-super-built-up",
+        "title": "Carpet area vs built-up vs super built-up — what you're actually buying",
+        "h1": "Carpet, built-up and super built-up area",
+        "description": ("For a flat, the area quoted can mean very different things. What carpet, built-up "
+                        "and super built-up area are, and what RERA changed."),
+        "updated": "2026-07-21",
+        "answer": ("Carpet area is the net usable floor space inside a flat. Built-up area adds the walls "
+                   "and balcony (roughly 10–20% more), and super built-up area adds a share of common "
+                   "spaces (another 25–30%). Since RERA, new flats must be priced on carpet area — but an "
+                   "auction notice may still state built-up area and undivided share."),
+        "body": """
+<h2>The three areas</h2>
+<table class="kv">
+<tr><th>Term</th><th>What it covers</th></tr>
+<tr><td>Carpet area (RERA)</td><td>The net usable floor space you can actually use — inside the flat,
+excluding balcony and common areas. The most honest measure.</td></tr>
+<tr><td>Built-up area</td><td>Carpet area plus the walls and balcony — typically 10–20% more than carpet
+area.</td></tr>
+<tr><td>Super built-up area</td><td>Built-up area plus a share of common spaces (lift, lobby, stairs,
+amenities) — often 25–30% above built-up. The "saleable" area builders once quoted.</td></tr>
+</table>
+
+<h2>What RERA changed</h2>
+<p>Under the Real Estate (Regulation and Development) Act, 2016, builders must price and sell new flats on
+<strong>carpet area</strong>, not the inflated super built-up figure, and there are limits on how much
+the delivered carpet area may vary from what was promised. That transparency applies to new,
+RERA-registered projects.</p>
+
+<h2>Why it matters at auction</h2>
+<p>A bank-auction flat is usually a resale, and the sale notice often states the <strong>built-up
+area</strong> and the <strong>undivided share (UDS)</strong> of land rather than a RERA carpet area. If
+you compare that figure to a carpet-area price elsewhere, you are not comparing like with like — built-up
+overstates usable space. Knowing which area a notice quotes is essential to value a flat correctly, and
+it feeds directly into the flat-valuation method (built-up × construction rate + UDS × land rate).
+AuctionScope helps you read what a listing actually states so the comparison is honest.</p>
+""",
+        "faqs": [
+            {"q": "What is the difference between carpet area and built-up area?",
+             "a": ("Carpet area is the net usable floor space inside a flat, excluding walls, balcony and "
+                   "common areas. Built-up area adds the walls and balcony, so it is typically 10–20% "
+                   "larger than the carpet area.")},
+            {"q": "Does RERA require carpet-area pricing?",
+             "a": ("Yes. Under RERA, builders must price and sell new flats based on carpet area rather than "
+                   "super built-up area, with limits on how much the delivered carpet area may vary. This "
+                   "applies to RERA-registered projects.")},
+            {"q": "Which area does a bank auction notice use?",
+             "a": ("Often the built-up area and the undivided share of land, not a RERA carpet area. Check "
+                   "which one is stated before comparing the price to carpet-area figures elsewhere, or the "
+                   "comparison will be misleading.")},
+        ],
+        "related": ["UDS", "built-up area", "TNRERA", "reserve price"],
+        "sources": [
+            {"t": "RERA carpet area vs carpet area — Godrej Properties",
+             "h": "https://www.godrejproperties.com/blog/difference-between-rera-carpet-area-and-carpet-area"},
+            {"t": "TNRERA — Tamil Nadu Real Estate Regulatory Authority (official portal)",
+             "h": "https://rera.tn.gov.in/"},
+        ],
+    },
+    {
+        "slug": "gift-and-settlement-deeds-tamil-nadu",
+        "title": "Gift and settlement deeds in Tamil Nadu — the family-transfer route",
+        "h1": "Gift and settlement deeds",
+        "description": ("Family property transfers use gift or settlement deeds at concessional stamp duty. "
+                        "How they differ, the 1%+1% family rate, and what a buyer should watch for."),
+        "updated": "2026-07-21",
+        "answer": ("A gift deed transfers property without payment; a settlement deed does the same but can "
+                   "carry conditions, such as the giver keeping a life interest. Among family members in "
+                   "Tamil Nadu, both attract concessional stamp duty and registration of about 1% + 1% "
+                   "(with caps), versus the usual 7% + 4%."),
+        "body": """
+<h2>Gift vs settlement</h2>
+<ul>
+<li><strong>Gift deed</strong> — transfers ownership out of love and affection, with no money changing
+hands. Once registered and accepted, it is generally unconditional.</li>
+<li><strong>Settlement deed</strong> — also a no-consideration transfer, but it can attach conditions:
+for example, a parent settling a house on a child while retaining the right to live in it for life. It is
+often used to divide ancestral property or settle claims among heirs during the owner's lifetime.</li>
+</ul>
+
+<h2>The family concession</h2>
+<p>Gift, settlement, release and partition deeds executed <strong>among family members</strong> in Tamil
+Nadu are charged at a concessional rate — around 1% stamp duty and 1% registration fee (subject to caps)
+— against the standard 7% and 4% for a normal sale. The concession applies to close blood relatives
+(parents, children, siblings, spouse, grandparents); transfers outside that circle are taxed at the full
+rate.</p>
+
+<h2>What a buyer should watch for</h2>
+<p>When a property's chain of title includes a gift or settlement, two things are worth checking. First,
+that it was properly executed and registered — a valid deed is a clean link in the chain. Second, and
+especially for <strong>settlement deeds</strong>, whether any <em>condition or retained right</em> (like
+a life interest) survives, because that can limit what a later seller could actually pass on. At a bank
+auction the sale certificate transfers the property, but a conditional settlement in its history is the
+kind of flag worth reading carefully — which is what AuctionScope helps you do. This is general
+information, not legal advice.</p>
+""",
+        "faqs": [
+            {"q": "What is the difference between a gift deed and a settlement deed?",
+             "a": ("Both transfer property without payment. A gift deed is generally unconditional once "
+                   "registered; a settlement deed can carry conditions, such as the giver retaining a life "
+                   "interest, and is often used within families to divide property.")},
+            {"q": "What is the stamp duty on a family gift or settlement in Tamil Nadu?",
+             "a": ("For transfers among close family members, gift, settlement, release and partition deeds "
+                   "attract a concessional rate of about 1% stamp duty and 1% registration (with caps), "
+                   "versus 7% and 4% for a normal sale. Confirm current rates on TNREGINET.")},
+            {"q": "Should I worry about a settlement deed in a property's history?",
+             "a": ("Check whether it carried a condition or retained right, such as a life interest, that "
+                   "could limit what a later seller can pass on. A properly registered, unconditional "
+                   "transfer is a clean link in the chain of title.")},
+        ],
+        "related": ["sale deed", "chain of title", "stamp duty", "encumbrance certificate"],
+        "sources": [
+            {"t": "Gift deed vs settlement deed — key differences and stamp duty charges (VNCT Global)",
+             "h": "https://vnctglobal.com/gift-deed-vs-settlement-deed-key-differences/"},
+            {"t": "TNREGINET — Registration Department, Government of Tamil Nadu (official portal)",
+             "h": "https://tnreginet.gov.in/"},
+        ],
+    },
+    {
+        "slug": "selling-a-minors-property-court-permission",
+        "title": "Selling a minor's property — why court permission matters",
+        "h1": "A minor's property and court permission",
+        "description": ("A guardian cannot sell a minor's immovable property without the court's permission "
+                        "— and a sale that skips it is voidable. Why this is a title risk to check."),
+        "updated": "2026-07-21",
+        "answer": ("Under the Hindu Minority and Guardianship Act, 1956, a natural guardian cannot sell, "
+                   "gift or transfer a minor's immovable property without the prior permission of the "
+                   "court. A sale done without it is voidable at the minor's instance — they can challenge "
+                   "it even years later, after reaching majority."),
+        "body": """
+<h2>The rule</h2>
+<p>Section 8 of the Hindu Minority and Guardianship Act, 1956 lets a natural guardian manage a minor's
+estate for the minor's benefit — but bars the guardian from transferring the minor's immovable property
+by sale, gift or exchange <strong>without the previous permission of the court</strong>.</p>
+
+<h2>What happens if permission is skipped</h2>
+<p>A transfer made in breach of Section 8 is <strong>voidable at the instance of the minor</strong> or
+anyone claiming under them. The Supreme Court has been clear that a minor's property cannot be sold
+without prior court permission. Crucially, the minor can challenge such a sale within the limitation
+period that starts running only <em>after</em> they attain majority — so the risk can sit dormant in a
+property's history for years.</p>
+
+<h2>Why a buyer must care</h2>
+<p>If anywhere in a property's chain of title a minor's share was sold without court permission, that link
+is shaky — the now-adult former minor could seek to undo it. It is one of the latent title defects that a
+clean-looking recent deed does not reveal on its own; it surfaces only by tracing the parent documents
+and the ages of past owners.</p>
+
+<h2>The auction angle</h2>
+<p>A bank auction transfers the property by sale certificate, but it does not cleanse a defect buried in
+the earlier chain of title. Where a property's history hints at a minor's interest, it is worth
+scrutinising — the sort of flag AuctionScope helps you surface in the documents before you bid. For a
+high-value purchase, have the title examined by a professional; this is general information, not legal
+advice.</p>
+""",
+        "faqs": [
+            {"q": "Can a guardian sell a minor's property?",
+             "a": ("Not freely. Under the Hindu Minority and Guardianship Act, 1956, a natural guardian "
+                   "cannot sell, gift or transfer a minor's immovable property without the prior permission "
+                   "of the court.")},
+            {"q": "Is a sale of a minor's property without court permission valid?",
+             "a": ("It is voidable at the minor's instance — they can challenge it, within a limitation "
+                   "period that begins after they attain majority. So such a sale is not safely final.")},
+            {"q": "Why is a minor's interest a title risk when buying?",
+             "a": ("Because a past sale of a minor's share without court permission can be undone years "
+                   "later. It is a latent defect that a recent deed won't show — you find it only by "
+                   "tracing the chain of title.")},
+        ],
+        "related": ["chain of title", "sale deed", "parent documents", "legal heirs"],
+        "sources": [
+            {"t": "Section 8, The Hindu Minority and Guardianship Act, 1956 (Indian Kanoon)",
+             "h": "https://indiankanoon.org/doc/137252432/"},
+            {"t": "Permission for sale of a minor's property — LegalKart",
+             "h": "https://www.legalkart.com/legal-blog/permission-for-sale-of-minor-property"},
+        ],
+    },
+    {
+        "slug": "nri-buying-property-in-india",
+        "title": "NRIs and OCIs buying property in India — the FEMA rules",
+        "h1": "NRIs and OCIs buying property in India",
+        "description": ("NRIs and OCIs can buy residential and commercial property freely, but not "
+                        "agricultural land. The FEMA rules on what you can buy, funding and repatriation."),
+        "updated": "2026-07-21",
+        "answer": ("Under FEMA, an NRI or OCI can buy residential and commercial property in India without "
+                   "RBI approval, with no limit on how many. They cannot buy agricultural land, farmhouses "
+                   "or plantation property (they may inherit these). Funding must be through Indian banking "
+                   "channels, and repatriation on sale follows specific rules."),
+        "body": """
+<h2>What NRIs and OCIs can and can't buy</h2>
+<table class="kv">
+<tr><th>Allowed (general permission)</th><th>Not allowed (without RBI approval)</th></tr>
+<tr><td>Residential property; commercial property; any number of them</td><td>Agricultural land;
+farmhouses; plantation property</td></tr>
+</table>
+<p>Residential and commercial purchases need no prior RBI approval — they fall under the general-permission
+route of the Foreign Exchange Management Act. Agricultural land, farmhouses and plantations are off
+limits for purchase, though they can be inherited.</p>
+
+<h2>Funding and repatriation</h2>
+<p>Payment must come through normal Indian banking channels — an NRE, NRO or FCNR(B) account, not foreign
+cash. When you later sell, how much you can take back out of India depends on the source of the original
+funds: broadly, money brought in through NRE / FCNR(B) can be repatriated up to the amount originally
+invested, within limits on the number of residential properties. Compliance matters — FEMA penalties can
+run to several times the transaction value.</p>
+
+<h2>The bank-auction angle</h2>
+<p>An NRI or OCI can bid at a bank auction for a residential or commercial property on the same
+general-permission basis — but the agricultural-land bar still applies, so the lot's classification
+matters (see the agricultural-land guide). Fund the EMD and balance through the right account, and factor
+repatriation rules into the plan if you may sell later. AuctionScope helps you check a listing's type and
+numbers; the FEMA compliance is the layer to add. This is general information, not legal or tax advice.</p>
+""",
+        "faqs": [
+            {"q": "Can an NRI buy property in India?",
+             "a": ("Yes — an NRI or OCI can buy residential and commercial property under FEMA's "
+                   "general-permission route, with no RBI approval needed and no cap on the number. "
+                   "Agricultural land, farmhouses and plantations cannot be bought, only inherited.")},
+            {"q": "Can an NRI buy a bank auction property?",
+             "a": ("Yes, for residential or commercial lots, on the same general-permission basis — but not "
+                   "agricultural land. Fund the EMD and balance through an NRE/NRO/FCNR(B) account and keep "
+                   "to FEMA rules.")},
+            {"q": "Can an NRI take the sale proceeds out of India?",
+             "a": ("Within limits. Repatriation depends on the original source of funds — money brought in "
+                   "via NRE or FCNR(B) can broadly be repatriated up to the amount invested, subject to "
+                   "FEMA conditions. Take professional advice for your case.")},
+        ],
+        "related": ["agricultural land", "EMD", "reserve price", "sale certificate"],
+        "sources": [
+            {"t": "Reserve Bank of India — acquisition and transfer of immovable property (FEMA) (official)",
+             "h": "https://www.rbi.org.in/"},
+            {"t": "NRI guide to buying property in India — rules, taxes and FEMA (2026) — SBNRI",
+             "h": "https://sbnri.com/blog/real_estate/nri-guide-buying-property-india-rules-taxes-fema-2"},
+        ],
+    },
+    {
+        "slug": "co-ownership-and-joint-property",
+        "title": "Co-ownership and joint property — a co-owner can sell only their share",
+        "h1": "Co-ownership and joint property",
+        "description": ("A co-owner can sell only their own undivided share, not the whole property, without "
+                        "the others' consent. Why joint ownership is a title risk when you buy."),
+        "updated": "2026-07-21",
+        "answer": ("Under Section 44 of the Transfer of Property Act, 1882, a co-owner may sell only their "
+                   "own undivided share in a jointly owned property — not the whole property, and not a "
+                   "specific portion, without the other co-owners' consent or a formal partition. Buying "
+                   "from one co-owner alone gets you only their share."),
+        "body": """
+<h2>How co-ownership works</h2>
+<p>When several people jointly own a property, each holds an <strong>undivided share</strong> in the whole
+— no single co-owner owns a specific, marked-off portion until a lawful partition divides it. That is the
+key to what any one of them can sell.</p>
+
+<h2>What one co-owner can and can't do</h2>
+<ul>
+<li><strong>Can</strong> sell their own undivided share to someone else.</li>
+<li><strong>Cannot</strong> sell the entire property, or a specific demarcated part, without the consent
+of all the other co-owners or a completed partition.</li>
+</ul>
+<p>The Supreme Court has confirmed this: a co-owner selling the whole undivided property without the
+others' consent cannot bind them, and the non-consenting owners can seek cancellation of the sale deed,
+an injunction, or a partition suit.</p>
+
+<h2>Why this is a buyer's risk</h2>
+<p>If you buy a jointly owned property but only one co-owner signs, you may end up owning just that
+person's fractional share — not the whole property — and inherit a dispute with the rest. Confirming that
+<em>every</em> co-owner is a party to the sale, or that the seller's share was cleanly partitioned, is a
+core title check.</p>
+
+<h2>The auction angle</h2>
+<p>A bank auction sells the security the bank holds, and the sale certificate should reflect that — but
+if joint ownership sits in a property's chain of title, it is worth checking that past transfers had all
+co-owners on board. A half-signed sale upstream is exactly the kind of latent defect worth surfacing
+before you bid, which is what AuctionScope helps you do. This is general information, not legal advice.</p>
+""",
+        "faqs": [
+            {"q": "Can one co-owner sell a jointly owned property?",
+             "a": ("A co-owner can sell only their own undivided share, not the whole property, without the "
+                   "consent of all the other co-owners or a formal partition. Section 44 of the Transfer of "
+                   "Property Act governs this.")},
+            {"q": "What do I get if I buy from just one co-owner?",
+             "a": ("Only that co-owner's undivided share — not the whole property — and potentially a "
+                   "dispute with the remaining owners. Confirm every co-owner is a party to the sale before "
+                   "buying.")},
+            {"q": "What can other co-owners do if their share is sold without consent?",
+             "a": ("They can approach a civil court to cancel the sale deed, seek an injunction against "
+                   "further transfer, or file a partition suit to divide the property formally.")},
+        ],
+        "related": ["chain of title", "sale deed", "legal heirs", "partition"],
+        "sources": [
+            {"t": "Laws related to co-ownership of a joint property — LawRato",
+             "h": "https://lawrato.com/indian-kanoon/property-law/laws-related-to-co-ownership-of-a-joint-property-552"},
+            {"t": "Sale of undivided share in property under Indian law — Patra's Law Chambers",
+             "h": "https://patraslawchambers.com/sale-of-undivided-share-in-property-under-indian-law/"},
+        ],
+    },
+    {
+        "slug": "town-survey-ts-number-urban-land-records",
+        "title": "Town survey (TS) number and urban land records in Tamil Nadu",
+        "h1": "Town survey (TS) numbers",
+        "description": ("In towns and cities, land is identified by a TS number, not a rural survey number. "
+                        "What it is and why you need it to pull the right records."),
+        "updated": "2026-07-21",
+        "answer": ("In urban Tamil Nadu, land is identified by a Town Survey (TS) number under the Town "
+                   "Survey Land Register, the urban equivalent of the rural survey and sub-division number. "
+                   "You need the correct TS or survey number to pull the encumbrance certificate, patta and "
+                   "FMB for the right parcel."),
+        "body": """
+<h2>Rural vs urban identifiers</h2>
+<p>Rural land is identified by a <strong>survey number</strong> and sub-division. In surveyed towns and
+cities, the same role is played by the <strong>Town Survey (TS) number</strong>, recorded in the Town
+Survey Land Register — the urban land-record system. A single property may also carry an <em>old</em>
+survey number from before the town survey, which is why records sometimes ask for both.</p>
+
+<h2>Why the right number matters</h2>
+<p>Every record you pull is keyed to the survey identifier: the encumbrance certificate, the patta and the
+FMB sketch all need the correct TS or survey number to return the right parcel. Search with the wrong or
+outdated number and you either get nothing or, worse, records for the wrong plot. Sale notices and old
+deeds may quote an old survey number, so matching it to the current TS number is part of getting clean
+records.</p>
+
+<h2>How to find and use it</h2>
+<p>Urban land records, including those keyed to the TS number, are available through the Revenue
+Department's e-Services portal, using the district, taluk/town, village or ward and the survey details.
+Confirm the current identifier before you rely on any record — see the source below.</p>
+
+<h2>The auction angle</h2>
+<p>For an urban flat or plot at auction, the sale notice's survey details are your key to pulling the EC,
+patta and FMB independently. Getting the TS / survey number right is a small step that makes every other
+check reliable — the kind of groundwork AuctionScope helps you do quickly on a specific listing.</p>
+""",
+        "faqs": [
+            {"q": "What is a TS number in Tamil Nadu?",
+             "a": ("A Town Survey number — the identifier for a parcel of land in a surveyed town or city, "
+                   "recorded in the Town Survey Land Register. It is the urban equivalent of the rural "
+                   "survey and sub-division number.")},
+            {"q": "Why do I need the correct survey or TS number?",
+             "a": ("Because the encumbrance certificate, patta and FMB are all keyed to it. The wrong or "
+                   "outdated number returns nothing, or records for the wrong plot, so matching old and "
+                   "current numbers matters.")},
+            {"q": "Where can I look up urban land records?",
+             "a": ("Through the Revenue Department's e-Services portal, using the district, taluk/town, "
+                   "ward or village and the survey details. Confirm the current identifier before relying "
+                   "on a record.")},
+        ],
+        "related": ["survey number", "encumbrance certificate", "patta", "FMB"],
+        "sources": [
+            {"t": "e-Services of Land Records — Revenue Department, Government of Tamil Nadu (official portal)",
+             "h": "https://eservices.tn.gov.in/eservicesnew/index.html"},
+        ],
+    },
 ]
 
 
