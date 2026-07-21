@@ -2045,7 +2045,8 @@ def render_hub(guides: list[dict]) -> str:
         '<nav class="crumb"><a href="/">home</a> / guides</nav>',
         "<h1>Bank auction guides</h1>",
         '<p class="lede">Plain-language guides to buying property at Tamil Nadu bank auctions — '
-        'the process, the jargon, and what to check before you bid.</p>',
+        'the process, the jargon, and what to check before you bid. '
+        'Looking for listings? <a href="/bank-auctions">Browse bank auctions by city</a>.</p>',
         f'<div class="grid">{cards}</div>',
         _cta_and_capture("guides-hub"),
         FOOT,
