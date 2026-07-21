@@ -122,18 +122,37 @@ THEME_INIT = ("<script>(function(){try{var s=localStorage.getItem('theme');"
               "document.documentElement.setAttribute('data-theme',s||(d?'dark':'light'));}"
               "catch(e){}})();</script>")
 
+# Google Analytics 4 — same property and debug rule as web/index.html, so the
+# static marketing pages (guides, comparisons, landing pages) report page_view
+# like the rest of the site. GA fires unconditionally; the /consent.js banner
+# (loaded in the footer) is an informational notice, not a gate — see consent.js.
+ANALYTICS_SNIPPET = (
+    "<script>window.GA_MEASUREMENT_ID='G-KB0TTY5XVB';"
+    "window.GA_DEBUG=(function(){var h=location.hostname;"
+    "return h==='localhost'||h==='127.0.0.1'||/\\.vercel\\.app$/.test(h);})();</script>"
+    "<script async src=\"https://www.googletagmanager.com/gtag/js?id=G-KB0TTY5XVB\"></script>"
+    "<script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}"
+    "window.gtag=gtag;gtag('js',new Date());"
+    "gtag('config',window.GA_MEASUREMENT_ID,{debug_mode:window.GA_DEBUG});</script>")
+
+# Informational cookie notice, shared with the main app. Self-contained; only
+# needs the CSS vars defined in PAGE_CSS below.
+CONSENT_SCRIPT = '<script src="/consent.js"></script>'
+
 PAGE_CSS = """
 :root{--ink:#0a0b0d;--ink-soft:#33373e;--muted:#5b616e;--paper:#f6f7f9;
---card:#fff;--border:#dee0e4;--accent:#0052ff;--accent-soft:#e8f0ff;--radius:12px}
+--card:#fff;--border:#dee0e4;--accent:#0052ff;--accent-soft:#e8f0ff;--radius:12px;
+--radius-sm:8px;--accent-hover:#0042cc;--on-accent:#fff;
+--shadow-lg:0 8px 30px rgba(10,11,13,.14);--font-body:'Inter',system-ui,-apple-system,sans-serif}
 /* Match the main app: explicit theme via data-theme (set from localStorage by
    the head script), with prefers-color-scheme only as a no-JS fallback so a
    saved 'light' choice is never overridden by an OS dark preference. */
 [data-theme="dark"]{--ink:#f5f7fa;--ink-soft:#c2c7d0;
 --muted:#8b909b;--paper:#0a0b0d;--card:#16181d;--border:#2a2d34;--accent:#5b8bff;
---accent-soft:#10203a}
+--accent-hover:#7ba3ff;--shadow-lg:0 10px 34px rgba(0,0,0,.5);--accent-soft:#10203a}
 @media(prefers-color-scheme:dark){:root:not([data-theme]){--ink:#f5f7fa;--ink-soft:#c2c7d0;
 --muted:#8b909b;--paper:#0a0b0d;--card:#16181d;--border:#2a2d34;--accent:#5b8bff;
---accent-soft:#10203a}}
+--accent-hover:#7ba3ff;--shadow-lg:0 10px 34px rgba(0,0,0,.5);--accent-soft:#10203a}}
 *{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);
 font-family:'Inter',system-ui,-apple-system,Segoe UI,Roboto,sans-serif;line-height:1.55}
 a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
@@ -217,6 +236,7 @@ def page_head(title: str, desc: str, url: str, jsonld: list[dict]) -> str:
 <head>
 <meta charset="utf-8">
 {THEME_INIT}
+{ANALYTICS_SNIPPET}
 <title>{html.escape(title)}</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="{html.escape(desc)}">
@@ -244,7 +264,7 @@ PAGE_FOOT = """<p class="note">Auctionscope is an information platform only. Eve
 bank e-auction conducted under the SARFAESI Act — always verify the reserve price, EMD,
 possession type and encumbrances with the bank before bidding. Web-researched context is
 approximate and not legal advice.</p>
-</div>""" + CAPTURE_SCRIPT + """</body></html>"""
+</div>""" + CAPTURE_SCRIPT + CONSENT_SCRIPT + """</body></html>"""
 
 
 def capture_block(heading: str, city: str | None, property_type: str | None,

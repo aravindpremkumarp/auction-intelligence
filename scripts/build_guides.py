@@ -34,7 +34,8 @@ import html
 import json
 from pathlib import Path
 
-from scripts.build_landing_pages import PAGE_CSS, CAPTURE_SCRIPT, SITE_BASE, slugify, THEME_INIT
+from scripts.build_landing_pages import (
+    PAGE_CSS, CAPTURE_SCRIPT, SITE_BASE, slugify, THEME_INIT, ANALYTICS_SNIPPET, CONSENT_SCRIPT)
 from scripts import seo_sitemap
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -2584,6 +2585,7 @@ def _head(title: str, desc: str, url: str, jsonld: list[dict]) -> str:
 <head>
 <meta charset="utf-8">
 {THEME_INIT}
+{ANALYTICS_SNIPPET}
 <title>{html.escape(title)}</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="{html.escape(desc)}">
@@ -2612,7 +2614,7 @@ def _head(title: str, desc: str, url: str, jsonld: list[dict]) -> str:
 FOOT = ("""<p class="note">Auctionscope is an information platform, not a bank, broker or legal
 adviser. Bank e-auctions run under the SARFAESI Act; always verify the reserve price, EMD, possession
 type, encumbrances and payment terms in the official sale notice and with the bank before bidding.</p>
-</div>""" + CAPTURE_SCRIPT + "</body></html>")
+</div>""" + CAPTURE_SCRIPT + CONSENT_SCRIPT + "</body></html>")
 
 
 def _cta_and_capture(source: str) -> str:

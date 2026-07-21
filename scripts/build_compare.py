@@ -34,7 +34,8 @@ import html
 import json
 from pathlib import Path
 
-from scripts.build_landing_pages import PAGE_CSS, CAPTURE_SCRIPT, SITE_BASE, THEME_INIT
+from scripts.build_landing_pages import (
+    PAGE_CSS, CAPTURE_SCRIPT, SITE_BASE, THEME_INIT, ANALYTICS_SNIPPET, CONSENT_SCRIPT)
 from scripts.build_guides import GUIDE_CSS
 from scripts import seo_sitemap
 
@@ -243,6 +244,7 @@ def _head(title: str, desc: str, url: str, jsonld: list[dict]) -> str:
 <head>
 <meta charset="utf-8">
 {THEME_INIT}
+{ANALYTICS_SNIPPET}
 <title>{html.escape(title)}</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="{html.escape(desc)}">
@@ -271,7 +273,7 @@ correct to the best of our knowledge on the date shown; verify current features 
 Auctionscope is an information and research tool, not a bank, broker or legal adviser, and does not do
 legal or title diligence — always verify a property with the bank and the official sale notice before
 bidding.</p>
-</div>""" + CAPTURE_SCRIPT + "</body></html>")
+</div>""" + CAPTURE_SCRIPT + CONSENT_SCRIPT + "</body></html>")
 
 
 def _cta_and_capture(source: str) -> str:
