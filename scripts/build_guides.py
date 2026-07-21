@@ -955,10 +955,10 @@ trust before committing an EMD — exactly the kind of verification AuctionScope
     },
     {
         "slug": "fmb-sketch-tamil-nadu",
-        "title": "FMB sketch in Tamil Nadu — checking a property's boundaries",
-        "h1": "The FMB sketch",
-        "description": ("The Field Measurement Book sketch is the official survey map of a land parcel's "
-                        "shape and boundaries. What it is and why it matters before you buy."),
+        "title": "FMB sketch — what it is and how to check it (Tamil Nadu)",
+        "h1": "What is an FMB sketch?",
+        "description": ("An FMB sketch is the official survey map of a land parcel's shape and boundaries. "
+                        "What an FMB sketch is, how to read it, and how to get it in Tamil Nadu."),
         "updated": "2026-07-21",
         "answer": ("An FMB — Field Measurement Book — sketch is the Tamil Nadu survey department's scaled "
                    "drawing of a land parcel, showing its actual shape, measurements and boundaries on all "
@@ -986,16 +986,33 @@ survey number. For a land or plot purchase at auction, where you are buying <em>
 the notice states an extent, comparing that extent to the FMB is a direct sanity check on what you are
 paying for.</p>
 
-<h2>How to get it</h2>
+<h2>How to read an FMB sketch — what to check</h2>
+<p>You don't need to be a surveyor to get value from an FMB. Run through four things:</p>
+<ul>
+<li><strong>Survey / sub-division number</strong> — it must match the number on the patta and the sale
+notice. A mismatch means you may be looking at the wrong parcel.</li>
+<li><strong>Shape and boundaries</strong> — the four sides and the parcel's shape should match what's on
+the ground and what the seller describes.</li>
+<li><strong>Extent</strong> — the measured area should tally with the extent stated in the notice once
+you convert to a common unit. A gap here is a red flag.</li>
+<li><strong>Neighbours and encroachment</strong> — adjoining survey numbers are marked; check the plot
+isn't overlapping or encroached.</li>
+</ul>
+
+<h2>How to get an FMB sketch</h2>
 <p>The FMB sketch is available through the Tamil Nadu land-records e-Services, keyed to the district,
 taluk, village and survey number. Confirm the current access route and any fee on the official portal —
 see the sources below.</p>
 """,
         "faqs": [
             {"q": "What is an FMB sketch?",
-             "a": ("A Field Measurement Book sketch is the Tamil Nadu survey department's scaled drawing of "
-                   "a land parcel, showing its actual shape, measurements and boundaries. It reflects the "
-                   "physical layout of the land, not its ownership.")},
+             "a": ("A Field Measurement Book (FMB) sketch is the Tamil Nadu survey department's scaled "
+                   "drawing of a land parcel, showing its actual shape, measurements and boundaries. It "
+                   "reflects the physical layout of the land, not its ownership.")},
+            {"q": "How do I read an FMB sketch?",
+             "a": ("Check four things: the survey/sub-division number matches the patta and notice; the "
+                   "shape and boundaries match the ground; the measured extent tallies with the stated "
+                   "extent; and the plot isn't encroaching on or overlapping neighbouring survey numbers.")},
             {"q": "How is the FMB different from the encumbrance certificate?",
              "a": ("The FMB shows the parcel's measurements and boundaries; the EC shows its registered "
                    "transaction and charge history. One is about the physical land, the other about its "
@@ -2239,8 +2256,8 @@ check reliable — the kind of groundwork AuctionScope helps you do quickly on a
     # ---- Ring 2 close-out: money (TDS) + land literacy (units, UDS, FSI, setbacks) ----
     {
         "slug": "tds-on-property-purchase",
-        "title": "TDS on a property purchase — the 1% the buyer deducts",
-        "h1": "TDS on a property purchase",
+        "title": "TDS on property purchase — the 1% the buyer deducts (Sec 194-IA)",
+        "h1": "TDS on property purchase",
         "description": ("Buy property over ₹50 lakh and you, the buyer, must deduct 1% TDS and file Form "
                         "26QB. How Section 194-IA works, and how it applies to an auction win."),
         "updated": "2026-07-21",
@@ -2273,6 +2290,10 @@ checklist alongside stamp duty and registration. This is general information, no
 your case with a professional and the Income Tax Department's portal.</p>
 """,
         "faqs": [
+            {"q": "When is the TDS due after buying a property?",
+             "a": ("You must deposit the deducted 1% and file Form 26QB within seven days from the end of "
+                   "the month in which the deduction (payment to the seller) was made. Late filing attracts "
+                   "interest and a penalty, so don't leave it.")},
             {"q": "Who deducts TDS on a property purchase?",
              "a": ("The buyer. Under Section 194-IA you deduct 1% from the payment to the seller when the "
                    "property value is ₹50 lakh or more, deposit it, and file Form 26QB. You need PAN but "
