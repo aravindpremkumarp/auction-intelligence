@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<script>(function(){try{var s=localStorage.getItem('theme');var d=window.matchMedia&&window.matchMedia('(prefers-color-scheme:dark)').matches;document.documentElement.setAttribute('data-theme',s||(d?'dark':'light'));}catch(e){}})();</script>
+<title>AuctionScope vs IBAPI — an honest comparison</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="How AuctionScope&#x27;s AI search and evaluation compares to IBAPI. What each does best, who should use which, and why they work well together.">
+<link rel="canonical" href="https://www.auctionscope.in/compare/auctionscope-vs-ibapi">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Auctionscope">
+<meta property="og:title" content="AuctionScope vs IBAPI — an honest comparison">
+<meta property="og:description" content="How AuctionScope&#x27;s AI search and evaluation compares to IBAPI. What each does best, who should use which, and why they work well together.">
+<meta property="og:url" content="https://www.auctionscope.in/compare/auctionscope-vs-ibapi">
+<meta property="og:image" content="https://www.auctionscope.in/og-image.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--ink:#0a0b0d;--ink-soft:#33373e;--muted:#5b616e;--paper:#f6f7f9;
+--card:#fff;--border:#dee0e4;--accent:#0052ff;--accent-soft:#e8f0ff;--radius:12px}
+/* Match the main app: explicit theme via data-theme (set from localStorage by
+   the head script), with prefers-color-scheme only as a no-JS fallback so a
+   saved 'light' choice is never overridden by an OS dark preference. */
+[data-theme="dark"]{--ink:#f5f7fa;--ink-soft:#c2c7d0;
+--muted:#8b909b;--paper:#0a0b0d;--card:#16181d;--border:#2a2d34;--accent:#5b8bff;
+--accent-soft:#10203a}
+@media(prefers-color-scheme:dark){:root:not([data-theme]){--ink:#f5f7fa;--ink-soft:#c2c7d0;
+--muted:#8b909b;--paper:#0a0b0d;--card:#16181d;--border:#2a2d34;--accent:#5b8bff;
+--accent-soft:#10203a}}
+*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);
+font-family:'Inter',system-ui,-apple-system,Segoe UI,Roboto,sans-serif;line-height:1.55}
+a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
+.wrap{max-width:960px;margin:0 auto;padding:24px 20px 64px}
+header.top{display:flex;align-items:center;justify-content:space-between;
+padding:14px 20px;border-bottom:1px solid var(--border)}
+.brand{font-weight:700;font-size:19px;letter-spacing:-.01em;color:var(--ink)}
+nav.crumb{font-size:13px;color:var(--muted);margin:20px 0 8px}
+nav.crumb a{color:var(--muted)}
+h1{font-size:28px;line-height:1.2;letter-spacing:-.02em;margin:.2em 0 .4em}
+.lede{font-size:16px;color:var(--ink-soft);max-width:70ch}
+.stats{display:flex;flex-wrap:wrap;gap:12px;margin:22px 0}
+.stat{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);
+padding:12px 16px;min-width:130px}
+.stat .n{font-size:20px;font-weight:700}.stat .l{font-size:12px;color:var(--muted)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px;margin:8px 0 28px}
+.cardlink{display:block;background:var(--card);border:1px solid var(--border);
+border-radius:var(--radius);padding:14px 16px;color:var(--ink)}
+.cardlink:hover{border-color:var(--accent);text-decoration:none}
+.cardlink .t{font-weight:600;font-size:14px;margin-bottom:6px;display:-webkit-box;
+-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.cardlink .m{font-size:12.5px;color:var(--muted)}
+.cardlink .p{font-size:15px;font-weight:700;color:var(--accent);margin-top:6px}
+h2{font-size:18px;margin:30px 0 12px}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{background:var(--accent-soft);border:1px solid var(--border);border-radius:999px;
+padding:6px 13px;font-size:13px}
+.cta{display:inline-block;background:var(--accent);color:#fff;border-radius:10px;
+padding:11px 20px;font-weight:600;margin:8px 0 4px}.cta:hover{text-decoration:none;opacity:.92}
+.capture{margin:34px 0 8px;padding:22px 24px;background:var(--accent-soft);
+border:1px solid var(--border);border-radius:var(--radius)}
+.capture h2{margin:0 0 4px}.capture p{margin:0 0 14px;color:var(--ink-soft);font-size:14px}
+.capture form{display:flex;gap:8px;flex-wrap:wrap}
+.capture input{flex:1 1 220px;min-width:0;padding:10px 13px;border:1px solid var(--border);
+border-radius:var(--radius-sm,8px);background:var(--card);color:var(--ink);font:inherit;font-size:14px}
+.capture input:focus{outline:none;border-color:var(--accent)}
+.capture button{padding:10px 18px;background:var(--accent);color:#fff;border:1px solid transparent;
+border-radius:var(--radius-sm,8px);font:inherit;font-size:14px;font-weight:600;cursor:pointer;white-space:nowrap}
+.capture button:disabled{opacity:.6;cursor:default}
+.capture-msg{margin:12px 0 0;font-size:13px}
+.note{color:var(--muted);font-size:12.5px;margin-top:28px;border-top:1px solid var(--border);padding-top:16px}
+
+article.guide{max-width:72ch}
+article.guide p{margin:0 0 16px;font-size:16px}
+article.guide h2{font-size:20px;margin:32px 0 12px}
+article.guide h3{font-size:16px;margin:24px 0 8px}
+article.guide ul,article.guide ol{margin:0 0 16px;padding-left:22px}
+article.guide li{margin:0 0 8px}
+.answer{background:var(--accent-soft);border:1px solid var(--border);
+border-radius:var(--radius);padding:16px 18px;font-size:16px;margin:0 0 8px}
+.updated{color:var(--muted);font-size:12.5px;margin:6px 0 24px}
+.faq{margin:12px 0 8px}
+.faq details{border:1px solid var(--border);border-radius:var(--radius);
+background:var(--card);padding:2px 16px;margin:0 0 10px}
+.faq summary{font-weight:600;font-size:15px;cursor:pointer;padding:14px 0}
+.faq details p{margin:0 0 14px}
+table.kv{border-collapse:collapse;margin:0 0 18px;width:100%}
+table.kv td,table.kv th{border:1px solid var(--border);padding:9px 12px;
+text-align:left;font-size:14.5px;vertical-align:top}
+table.kv th{background:var(--card);white-space:nowrap}
+
+table.cmp{border-collapse:collapse;width:100%;margin:0 0 22px;font-size:14.5px}
+table.cmp th,table.cmp td{border:1px solid var(--border);padding:10px 12px;text-align:left;vertical-align:top}
+table.cmp thead th{background:var(--card);font-weight:700}
+table.cmp th[scope=row]{font-weight:600;white-space:nowrap}
+table.cmp .us{background:var(--accent-soft)}
+table.cmp thead th.us{color:var(--accent)}
+.tldr{background:var(--accent-soft);border:1px solid var(--border);border-radius:var(--radius);
+padding:16px 18px;font-size:16px;margin:0 0 8px}
+</style>
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "Article", "headline": "AuctionScope vs IBAPI — an honest comparison", "description": "How AuctionScope's AI search and evaluation compares to IBAPI. What each does best, who should use which, and why they work well together.", "datePublished": "2026-07-21", "dateModified": "2026-07-21", "author": {"@type": "Organization", "name": "AuctionScope"}, "publisher": {"@type": "Organization", "name": "AuctionScope", "url": "https://www.auctionscope.in/"}, "mainEntityOfPage": "https://www.auctionscope.in/compare/auctionscope-vs-ibapi", "citation": [{"@type": "CreativeWork", "name": "IBAPI — Indian Banks Auctions Mortgaged Properties Information (official portal)", "url": "https://ibapi.in/"}]}</script>
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [{"@type": "Question", "name": "Is AuctionScope an alternative to IBAPI?", "acceptedAnswer": {"@type": "Answer", "text": "Not a replacement — a complement. IBAPI is where you find (and, where applicable, bid on) listings; AuctionScope helps you search Tamil Nadu auctions in plain English and evaluate a property's location and price before you bid. Many buyers use both."}}, {"@type": "Question", "name": "Can I bid on a property through AuctionScope instead of IBAPI?", "acceptedAnswer": {"@type": "Answer", "text": "No. AuctionScope is a search and evaluation tool, not a bidding platform. You place the bid on the official portal; AuctionScope helps you decide which property is worth bidding on."}}, {"@type": "Question", "name": "Does AuctionScope cover the same properties as IBAPI?", "acceptedAnswer": {"@type": "Answer", "text": "AuctionScope focuses on Tamil Nadu SARFAESI auctions, while IBAPI is national. For a Tamil Nadu property you may see it in both; AuctionScope adds plain-English search and evaluation on top."}}, {"@type": "Question", "name": "Does AuctionScope do legal or title verification?", "acceptedAnswer": {"@type": "Answer", "text": "No. It researches location, connectivity and market context and surfaces what the sale notice says — it does not do legal or title diligence. Verify the title with the bank and a professional before bidding."}}]}</script>
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "BreadcrumbList", "itemListElement": [{"@type": "ListItem", "position": 1, "name": "Home", "item": "https://www.auctionscope.in/"}, {"@type": "ListItem", "position": 2, "name": "Compare", "item": "https://www.auctionscope.in/compare"}, {"@type": "ListItem", "position": 3, "name": "vs IBAPI", "item": "https://www.auctionscope.in/compare/auctionscope-vs-ibapi"}]}</script>
+</head>
+<body>
+<header class="top"><a class="brand" href="/">auctionscope</a><a href="/">search all auctions →</a></header>
+<div class="wrap">
+<nav class="crumb"><a href="/">home</a> / <a href="/compare">compare</a> / vs IBAPI</nav>
+<article class="guide"><h1>AuctionScope vs IBAPI</h1>
+<p class="updated">last updated 2026-07-21</p>
+<p class="tldr">IBAPI is the official, government-backed national portal that lists mortgaged properties banks have put up for e-auction across India. AuctionScope is a Tamil-Nadu-focused AI tool for searching auctions in plain English and evaluating a property (location, flood risk, connectivity, reserve vs market) before you bid. They are not either/or: evaluate on AuctionScope, then bid through IBAPI or the bank's official channel.</p>
+<h2>At a glance</h2>
+<table class="cmp"><thead><tr><th></th><th class="us" scope="col">AuctionScope</th><th scope="col">IBAPI</th></tr></thead><tbody><tr><th scope="row">Coverage</th><td class="us">Tamil Nadu SARFAESI auctions (all 38 districts)</td><td>National, many banks</td></tr><tr><th scope="row">Cost</th><td class="us">Free to search; optional Pro at &#8377;499 / 30 days for heavier AI use</td><td>Free to browse</td></tr><tr><th scope="row">Plain-English search</th><td class="us">Yes — ask in natural language</td><td>No — filters only</td></tr><tr><th scope="row">Evaluate location &amp; price (flood, connectivity, reserve vs market)</th><td class="us">Yes — AI researches the web and answers, cited</td><td>No</td></tr><tr><th scope="row">Where you place the bid</th><td class="us">On the official portal — AuctionScope is not a bidding platform</td><td>You use IBAPI to find properties, then bid on the bank&#x27;s designated e-auction platform.</td></tr><tr><th scope="row">Best for</th><td class="us">buyers focused on Tamil Nadu who want to search auctions in plain English and evaluate a specific property — location, flood risk, connectivity, and whether the reserve looks fair vs the local market — before they bid</td><td>buyers who want the authoritative national list of what banks are auctioning, straight from the source</td></tr></tbody></table>
+<h2>What IBAPI does well</h2>
+<p>IBAPI is an initiative of the Indian Banks&#x27; Association under the Department of Financial Services, Ministry of Finance — a common, official portal that displays mortgaged properties available for auction from banks across India. It is free to browse and register on, with filters by property type, state, district and city.</p><ul><li>Official and government-backed — an authoritative national source</li><li>Free to browse and register</li><li>Nationwide coverage across many banks</li><li>Filters by property type, state, district and city</li></ul>
+<h2>Where IBAPI isn't built to help</h2>
+<p>These aren't faults — they're just outside what a listing/auction portal sets out to do:</p><ul><li>Listings only — no plain-English search or synthesis across auctions</li><li>No help evaluating a property: nothing on flood risk, connectivity, nearby projects or whether the reserve is fair vs the local market</li><li>You read the dense sale notices yourself</li></ul>
+<h2>Where AuctionScope fits</h2>
+<p>AuctionScope sits a step earlier in the journey — the research and decision. You search Tamil Nadu auctions in plain English, and for any property you can ask the questions a sale notice can't answer: does the area flood, what's nearby, how far is it, and does the reserve look fair against local rates. The answers are researched from the web and cited, and every figure from our own data is grounded, never invented. It does not replace the official portal — you still bid there.</p>
+<h2>Who should use which</h2>
+<table class="kv"><tr><th>Use IBAPI</th><td>buyers who want the authoritative national list of what banks are auctioning, straight from the source.</td></tr><tr><th>Use AuctionScope</th><td>buyers focused on Tamil Nadu who want to search auctions in plain English and evaluate a specific property — location, flood risk, connectivity, and whether the reserve looks fair vs the local market — before they bid.</td></tr></table><p>Honestly: AuctionScope is not for buyers who need nationwide coverage today, or who want a single place to also place the bid — AuctionScope covers Tamil Nadu and is a research layer, not the bidding platform. For that, IBAPI is the right tool — and the two work well together.</p>
+<h2>Frequently asked questions</h2><div class="faq"><details><summary>Is AuctionScope an alternative to IBAPI?</summary><p>Not a replacement — a complement. IBAPI is where you find (and, where applicable, bid on) listings; AuctionScope helps you search Tamil Nadu auctions in plain English and evaluate a property&#x27;s location and price before you bid. Many buyers use both.</p></details><details><summary>Can I bid on a property through AuctionScope instead of IBAPI?</summary><p>No. AuctionScope is a search and evaluation tool, not a bidding platform. You place the bid on the official portal; AuctionScope helps you decide which property is worth bidding on.</p></details><details><summary>Does AuctionScope cover the same properties as IBAPI?</summary><p>AuctionScope focuses on Tamil Nadu SARFAESI auctions, while IBAPI is national. For a Tamil Nadu property you may see it in both; AuctionScope adds plain-English search and evaluation on top.</p></details><details><summary>Does AuctionScope do legal or title verification?</summary><p>No. It researches location, connectivity and market context and surfaces what the sale notice says — it does not do legal or title diligence. Verify the title with the bank and a professional before bidding.</p></details></div>
+<h2>Sources</h2><p class="updated">Verify current features on each provider's own site.</p><ul><li><a href="https://ibapi.in/" rel="nofollow noopener" target="_blank">IBAPI — Indian Banks Auctions Mortgaged Properties Information (official portal)</a></li></ul>
+</article>
+<p style="margin:28px 0 4px"><a class="cta" href="/">try a plain-English auction search →</a></p><section class="capture"><h2>get new Tamil Nadu auctions by email</h2><p>new listings, price drops and closing deadlines. no spam, unsubscribe anytime.</p><form id="ac-form" data-source="compare-ibapi" data-label="auctions"><input id="ac-email" type="email" placeholder="you@email.com" autocomplete="email" required aria-label="your email"><button id="ac-btn" type="submit">notify me</button></form><p id="ac-msg" class="capture-msg" role="status" aria-live="polite" hidden></p></section>
+<p class="note">Comparisons reflect publicly available information about each portal and were
+correct to the best of our knowledge on the date shown; verify current features on each provider's site.
+Auctionscope is an information and research tool, not a bank, broker or legal adviser, and does not do
+legal or title diligence — always verify a property with the bank and the official sale notice before
+bidding.</p>
+</div><script>
+(function(){
+  var h=location.hostname;
+  var API=(h==='localhost'||h==='127.0.0.1')?''
+    :(h==='auctionscope.in'||/\.auctionscope\.in$/.test(h))?'https://api.auctionscope.in'
+    :'https://auction-api-w68b.onrender.com';
+  var f=document.getElementById('ac-form'); if(!f) return;
+  var msg=document.getElementById('ac-msg'), btn=document.getElementById('ac-btn'), done=false;
+  function show(t){ if(msg){ msg.textContent=t; msg.hidden=false; } }
+  f.addEventListener('submit', function(e){
+    e.preventDefault(); if(done) return;
+    var email=(document.getElementById('ac-email').value||'').trim();
+    if(!email||email.indexOf('@')<1||email.indexOf('.')<0){ show('enter a valid email'); return; }
+    if(btn){ btn.disabled=true; btn.textContent='adding\u2026'; }
+    fetch(API+'/alerts/subscribe',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({email:email,city:f.dataset.city||null,
+        property_type:f.dataset.ptype||null,source:f.dataset.source})})
+    .then(function(r){ if(!r.ok) throw 0; done=true; f.style.display='none';
+      show("you're on the list \u2014 we'll email you when new "+(f.dataset.label||'auctions')+" list."); })
+    .catch(function(){ if(btn){ btn.disabled=false; btn.textContent='notify me'; }
+      show('could not add you just now \u2014 please try again.'); });
+  });
+})();
+</script></body></html>
