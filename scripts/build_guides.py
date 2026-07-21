@@ -1413,6 +1413,236 @@ as useful as knowing when it does.</p>
              "h": "https://rera.tn.gov.in/"},
         ],
     },
+    {
+        "slug": "home-loan-for-a-bank-auction-property",
+        "title": "Can you get a home loan for a bank auction property?",
+        "h1": "Financing a bank auction property",
+        "description": ("Yes, but it's harder than a normal purchase, and the clock is tight. How auction "
+                        "financing works, why possession type matters, and why pre-approval is essential."),
+        "updated": "2026-07-21",
+        "answer": ("You can finance a bank auction property, but it is harder than an ordinary purchase and "
+                   "the timeline is unforgiving. Lenders want a clear title, a sale certificate and usually "
+                   "physical possession; symbolic-possession lots are hard to fund. Because the balance is "
+                   "due in 15–30 days, arrange pre-approval before you bid."),
+        "body": """
+<h2>It's possible — but with stricter rules</h2>
+<p>Many lenders do finance auction purchases, but they apply tougher conditions than for a normal home
+loan. Common requirements include a clear title with no active tribunal or court case, a valid sale
+certificate from the selling bank, and a healthy credit score. Most lenders strongly prefer — and often
+require — that the property is in <strong>physical</strong> possession.</p>
+
+<h2>Possession type decides a lot</h2>
+<p>Very few lenders will fund a property held only under <strong>symbolic</strong> possession, because the
+occupancy risk is unresolved. The practical rule buyers use: treat a symbolic-possession lot as something
+to buy with your own funds, not a loan. This is one more reason the possession field on the notice
+matters before you bid.</p>
+
+<h2>The timeline problem</h2>
+<p>After you win, 25% is due almost immediately and the balance within 15–30 days. With a pre-approval in
+place, disbursal can complete inside that window; without one, loan processing can run longer and blow
+past the deadline — at which point your deposit is forfeited. So the financing has to be lined up
+<em>before</em> the auction, not started after you win.</p>
+
+<h2>A practical tip</h2>
+<p>The bank that is selling the property is often the most willing to finance it — it already knows the
+title and possession status and can move faster. Whatever the lender, confirm your eligibility and the
+exact timeline first. AuctionScope helps you weigh a listing's reserve, possession and location up front;
+the financing plan is the piece to have ready alongside it.</p>
+""",
+        "faqs": [
+            {"q": "Can I get a home loan to buy a bank auction property?",
+             "a": ("Often yes, but with stricter conditions than a normal purchase — a clear title, a sale "
+                   "certificate, usually physical possession, and a good credit score. Symbolic-possession "
+                   "properties are hard to finance and are best bought with your own funds.")},
+            {"q": "Why does pre-approval matter for an auction?",
+             "a": ("Because the balance is due within 15–30 days of winning. With pre-approval, disbursal "
+                   "can fit that window; without it, processing can run longer and cause you to miss the "
+                   "deadline and forfeit your deposit.")},
+            {"q": "Which lender is most likely to finance an auction property?",
+             "a": ("Frequently the bank selling the property — it already knows the title and possession "
+                   "status and can process faster. Confirm eligibility and timelines with any lender before "
+                   "you bid.")},
+        ],
+        "related": ["EMD", "symbolic vs physical possession", "sale certificate", "reserve price"],
+        "sources": [
+            {"t": "Will a bank give a loan on an auction property? — eauctionsindia.com",
+             "h": "https://www.eauctionsindia.com/blog-details/will-bank-give-loan-on-auction-property"},
+            {"t": "Buying a bank auction property in India (2026) — BasicHomeLoan",
+             "h": "https://www.basichomeloan.com/blog/home-loans/buy-bank-auction-property-in-india"},
+        ],
+    },
+    {
+        "slug": "power-of-attorney-property-sales",
+        "title": "Power of attorney in property sales — why a GPA is not a title",
+        "h1": "Power of attorney and property title",
+        "description": ("A general power of attorney does not transfer ownership — the Supreme Court settled "
+                        "this. Why GPA 'sales' are a red flag and what actually transfers title."),
+        "updated": "2026-07-21",
+        "answer": ("A general power of attorney (GPA) authorises someone to act for the owner — it does not "
+                   "transfer ownership. The Supreme Court held in the Suraj Lamp case (2011) that title to "
+                   "immovable property passes only by a registered sale deed. A property being 'sold' on a "
+                   "GPA is a title red flag to check carefully."),
+        "body": """
+<h2>What a power of attorney is — and isn't</h2>
+<p>A power of attorney lets an agent act on the owner's behalf, including signing a sale deed. It is a
+tool of agency, not a transfer of ownership. A common trap is a "GPA sale" — where property is handed
+over on a general power of attorney plus an agreement to sell, without a registered sale deed. That does
+not make the buyer the owner.</p>
+
+<h2>What the Supreme Court held</h2>
+<p>In <em>Suraj Lamp &amp; Industries v. State of Haryana</em> (2011), the Supreme Court held that a
+GPA / agreement-to-sell / will arrangement does <strong>not</strong> convey title or create an interest
+in immovable property. Under the Transfer of Property Act and the Registration Act, title passes only
+through a registered sale deed. The court has since reiterated these limits.</p>
+
+<h2>The risks of a GPA transaction</h2>
+<ul>
+<li><strong>No title.</strong> The buyer does not become the legal owner.</li>
+<li><strong>Revocation.</strong> A GPA can lapse — for instance on the principal's death — unless coupled
+with an interest.</li>
+<li><strong>Fraud.</strong> GPA chains are a known vector for misuse and disputed ownership.</li>
+</ul>
+
+<h2>Why it matters at auction</h2>
+<p>A bank auction itself transfers property through a sale certificate, not a GPA, so the mechanism is
+sound. But if a property's <em>history</em> — its chain of title — includes a GPA "sale", that is a weak
+link worth scrutinising, because ownership may never have passed cleanly. Spotting that kind of flag in
+the documents is part of the pre-bid homework AuctionScope is built to speed up. None of this is legal
+advice; for a high-value purchase, have the title examined by a professional.</p>
+""",
+        "faqs": [
+            {"q": "Can property be sold through a power of attorney?",
+             "a": ("A power of attorney can let an agent sign a sale deed, but a GPA by itself does not "
+                   "transfer ownership. The Supreme Court held in Suraj Lamp (2011) that title passes only "
+                   "through a registered sale deed.")},
+            {"q": "Is a GPA sale valid in India?",
+             "a": ("A 'GPA sale' does not convey title or create an interest in the property. It is a red "
+                   "flag — a registered sale deed is the instrument that actually transfers ownership.")},
+            {"q": "What are the risks of buying on a GPA?",
+             "a": ("You may not become the legal owner, the GPA can lapse (for example on the principal's "
+                   "death), and GPA chains carry a higher fraud and dispute risk. Insist on a registered "
+                   "sale deed.")},
+        ],
+        "related": ["sale deed", "chain of title", "sale certificate", "encumbrance certificate"],
+        "sources": [
+            {"t": "Agreement to sell, power of attorney and will — Supreme Court reiterates limits on transfer of title (SCC Online)",
+             "h": "https://www.scconline.com/blog/post/2025/10/07/agreement-to-sell-power-of-attorney-and-will-supreme-court-reiterates-limits-on-transfer-of-title/"},
+            {"t": "GPA in property sales: why they are not legally valid in India — BasicHomeLoan",
+             "h": "https://www.basichomeloan.com/blog/home-loans/gpa-in-property-sales"},
+        ],
+    },
+    {
+        "slug": "property-tax-and-arrears-tamil-nadu",
+        "title": "Property tax and arrears in Tamil Nadu — what a buyer checks",
+        "h1": "Property tax and arrears",
+        "description": ("Unpaid property tax can follow the property. How Tamil Nadu property tax works, how "
+                        "to check arrears online, and why it matters before you buy at auction."),
+        "updated": "2026-07-21",
+        "answer": ("Property tax in Tamil Nadu is charged by the urban local body — in Chennai, the Greater "
+                   "Chennai Corporation. It is due half-yearly, with a penalty for late payment. Unpaid "
+                   "arrears can end up as the buyer's problem in an as-is-where-is sale, so check them "
+                   "online before you bid."),
+        "body": """
+<h2>How it works</h2>
+<p>Urban local bodies levy property tax on buildings within their limits. In Chennai the Greater Chennai
+Corporation collects it, half-yearly, with due dates of 30 September and 31 March and a penalty
+(commonly 1% per month) on delayed payment after a short grace period. Other cities and towns have their
+own local-body portals.</p>
+
+<h2>Why it matters to a buyer</h2>
+<p>In an <em>as-is-where-is</em> auction sale, the notice often places outstanding dues — property tax
+included — on the buyer. So arrears against a property are effectively a hidden cost you could inherit,
+eating into any saving from a low reserve. Checking them before you bid turns a nasty surprise into a
+known number.</p>
+
+<h2>How to check arrears online</h2>
+<p>For a Chennai property, you can look up dues on the Greater Chennai Corporation's property-tax page
+using the zone, division and bill number (or the old property-tax number), which shows the arrears
+breakdown, penalty and total payable. For properties elsewhere in Tamil Nadu, use the relevant local
+body's portal. See the sources below, and confirm the current figures on the official site.</p>
+
+<h2>After you buy</h2>
+<p>Once you own the property, get the property-tax record transferred to your name (linked to patta
+transfer / mutation) so future demands come to you and the record is clean. AuctionScope helps you size
+up a listing's price and risks; outstanding tax is one of the dues to fold into that view.</p>
+""",
+        "faqs": [
+            {"q": "Do I inherit unpaid property tax on a bank auction property?",
+             "a": ("Often yes. As-is-where-is sale notices commonly place outstanding property tax on the "
+                   "buyer, so check the arrears before bidding and factor them into the price.")},
+            {"q": "How do I check property tax arrears in Chennai?",
+             "a": ("On the Greater Chennai Corporation property-tax page, using the zone, division and bill "
+                   "number (or the old property-tax number). It shows the arrears breakdown, penalty and "
+                   "total payable. Other Tamil Nadu cities use their own local-body portals.")},
+            {"q": "When is property tax due in Tamil Nadu?",
+             "a": ("Typically half-yearly — 30 September and 31 March in Chennai — with a penalty for late "
+                   "payment after a short grace period. Confirm current dates and rates on the local-body "
+                   "portal.")},
+        ],
+        "related": ["encumbrances", "patta transfer", "as-is-where-is", "sale certificate"],
+        "sources": [
+            {"t": "Property tax online payment — Greater Chennai Corporation (official)",
+             "h": "https://chennaicorporation.gov.in/gcc/online-payment/property-tax/"},
+        ],
+    },
+    {
+        "slug": "building-approval-and-occupancy-certificate-tamil-nadu",
+        "title": "Building approval and occupancy certificate in Tamil Nadu (CMDA / DTCP)",
+        "h1": "Building approval and the occupancy certificate",
+        "description": ("An unapproved building or missing occupancy certificate is a real risk — and blocks "
+                        "loans. What CMDA/DTCP approval and an OC mean, and how to check them."),
+        "updated": "2026-07-21",
+        "answer": ("In Tamil Nadu, building plans and layouts are approved by DTCP (statewide) or CMDA (the "
+                   "Chennai metro area), and an occupancy certificate confirms the building was completed to "
+                   "the approved plan. An unapproved layout or missing OC blocks home loans and can cause "
+                   "registration and regularisation trouble — so both are worth checking."),
+        "body": """
+<h2>Who approves what</h2>
+<p>The Directorate of Town and Country Planning (DTCP) handles planning approval across Tamil Nadu, while
+the Chennai Metropolitan Development Authority (CMDA) approves layouts and larger buildings within the
+Chennai metropolitan area. Approvals are handled through the state's online planning-permission portal.</p>
+
+<h2>What an occupancy certificate is</h2>
+<p>The occupancy certificate (OC), issued by the civic authority, confirms that a building was constructed
+in line with its approved plan and is legally safe to occupy. For a flat especially, the OC is a key
+document — its absence signals the building may deviate from what was sanctioned.</p>
+
+<h2>Why unapproved property is risky</h2>
+<ul>
+<li><strong>No loan.</strong> Banks routinely require verifiable DTCP or CMDA approval before sanctioning
+a home loan — no approval, no loan.</li>
+<li><strong>Registration and regularisation issues.</strong> An unauthorised layout can face building-
+permission refusal and, in disputed cases, registration hurdles.</li>
+<li><strong>Penalties and uncertainty.</strong> Deviations can attract regularisation costs later.</li>
+</ul>
+
+<h2>What to check — and the auction angle</h2>
+<p>Ask for certified copies of the layout approval, the building-plan sanction and the occupancy
+certificate, and cross-check them against the actual structure. At a bank auction you are buying
+<em>as-is-where-is</em>, and an unapproved building or missing OC is exactly the kind of issue the notice
+will not resolve for you — and it may also be why you cannot finance the purchase. Flagging it before you
+bid is part of the homework AuctionScope is built to make faster.</p>
+""",
+        "faqs": [
+            {"q": "What is the difference between CMDA and DTCP approval?",
+             "a": ("DTCP handles planning approval across Tamil Nadu, while CMDA approves layouts and larger "
+                   "buildings within the Chennai metropolitan area. Both signal that a layout or building "
+                   "plan is authorised.")},
+            {"q": "Why does an occupancy certificate matter?",
+             "a": ("The OC confirms a building was completed to its approved plan and is safe to occupy. Its "
+                   "absence suggests the structure may deviate from what was sanctioned, and it can block "
+                   "loans and cause disputes.")},
+            {"q": "Can I get a loan on an unapproved property?",
+             "a": ("Generally no. Banks routinely require verifiable DTCP or CMDA approval before "
+                   "sanctioning a home loan, so an unapproved layout or building usually cannot be "
+                   "financed.")},
+        ],
+        "related": ["occupancy certificate", "home loan", "as-is-where-is", "sale certificate"],
+        "sources": [
+            {"t": "Tamil Nadu Single Window Portal for Planning Permission (official)",
+             "h": "https://onlineppa.tn.gov.in/"},
+        ],
+    },
 ]
 
 
