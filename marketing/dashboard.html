@@ -512,9 +512,11 @@ nodes: [
     sub:'avatar + banner exported · unused',
     summary:'Brand assets are built (400×400 avatar, 1584×396 banner) and the plan marks the founder-led channel as ready — no posts yet. Pairs with the build-in-public pillar.',
     links:[{t:'brand/logo/', h: TREE+'brand/logo'}] },
-  { id:'edu', lane:'channels', label:'educational content hub — move 4', type:'channel', status:'planned', compact:true,
-    summary:'Long-form educational pages off the ~95-topic syllabus (patta/EC, EMD, possession types…). The syllabus exists; the pages don\'t.',
-    links:[{t:'content-pillars.md · education', h: BLOB+'docs/marketing/content-pillars.md'}] },
+  { id:'edu', lane:'channels', label:'educational content hub — move 4', type:'channel', status:'building',
+    progress:{ pct:20, label:'19 guides · Ring 1 done, Ring 2 started' },
+    summary:'Long-form educational pages off the ~95-topic syllabus. A generic guides builder (scripts/build_guides.py, one dict per topic) renders /guides/<slug> pages with Article + FAQPage + BreadcrumbList JSON-LD, reusing the landing-page brand shell + email capture. Ring 1 (bank-auction core) complete — 13 guides. Ring 2 (TN property essentials) started 2026-07-21 — 6 research-verified guides with a cited Sources section + schema.org citation: patta/chitta, adangal/A-register, encumbrance certificate (TNREGINET), FMB sketch, stamp duty & registration charges, and a document-verification checklist. Every Ring-2 fact carries an official-portal source (tnreginet.gov.in / eservices.tn.gov.in) per the honesty rule.',
+    next:['Continue Ring 2 (~34 topics left): sale deed & parent docs, guideline value, TS/town survey, khata, mutation, RERA, home-loan basics.','Link the /guides hub from the site nav/footer.'],
+    links:[{t:'/guides hub', h: BLOB+'web/guides/index.html'},{t:'build_guides.py', h: BLOB+'scripts/build_guides.py'},{t:'content-pillars.md · education', h: BLOB+'docs/marketing/content-pillars.md'}] },
   { id:'ai-seo', lane:'channels', label:'AI-SEO · llms.txt — move 5', type:'channel', status:'building',
     progress:{ pct:35, label:'llms.txt live · Q&A pages pending' },
     summary:'Make the graph\'s answers citable by AI search (ChatGPT / Perplexity / AI Overviews). Step 1 shipped 2026-07-21: /llms.txt — a machine-readable site brief (what AuctionScope is, core pages, the live /stats + /properties endpoints for real-time counts, and honesty notes for assistants). robots.txt already allows the AI crawlers. Still pending: answer-shaped Q&A pages (pairs with the education hub, move 4).',
@@ -638,7 +640,7 @@ roadmap: [
   { col:'next', items:[
     { t:'email sending + welcome sequence', d:'alert digests, welcome flow, SPF/DKIM/DMARC — turns the list into retention.', tag:'retention' },
     { t:'market_gap extractor', d:'extent/UDS/possession extraction so the below-market angle can automate.', tag:'pipeline' },
-    { t:'educational content hub', d:'long-form pages off the education syllabus.', tag:'move 4' },
+    { t:'educational content hub', d:'Ring 1 shipped 2026-07-21 (13 guides + hub). Next: Ring 2 TN essentials (research-verified). Doubles as move-5 AI-answer content.', tag:'move 4' },
     { t:'AI-SEO answer pages', d:'llms.txt shipped 2026-07-21; next is answer-shaped Q&A content so AI search engines cite the graph.', tag:'move 5' },
   ]},
   { col:'later', items:[
@@ -672,6 +674,8 @@ risks: [
 
 changelog: [
   { d:'2026-07-21', items:[
+    { t:'SEO Move 4 — Ring 2 started (TN property essentials): 6 research-verified guides — patta/chitta, adangal/A-register, encumbrance certificate (TNREGINET), FMB sketch, stamp duty & registration charges (7% + 4%), and a document-verification checklist. The builder now renders a cited Sources section + schema.org Article citation; every Ring-2 fact carries an official-portal source (tnreginet.gov.in / eservices.tn.gov.in). Sitemap 704 → 710.' },
+    { t:'SEO Move 4 — educational hub, Ring 1 complete: a generic guides builder (scripts/build_guides.py, one dict per topic) renders /guides/<slug> pages with Article + FAQPage + BreadcrumbList JSON-LD, reusing the landing-page brand shell + email capture. 13 bank-auction-core guides + a /guides hub — SARFAESI, process, EMD, reserve price, possession types, as-is-where-is, reading a sale notice, re-auctions, payment, encumbrances, is-it-safe, myths, glossary. Honest by construction (verify-with-bank caveats, no banned words, Organization author). Sitemap 690 → 704. Pages double as move-5 AI-answer content.' },
     { t:'SEO Move 5 started — AI-SEO: shipped /llms.txt (llmstxt.org format), a machine-readable brief telling ChatGPT / Perplexity / AI Overviews what AuctionScope is, its core pages, and the live /stats + /properties endpoints to read real-time counts from (so cached numbers never go stale). Honesty notes included: reserve = minimum bid, information-platform-not-broker. robots.txt already allows the AI crawlers. Answer-shaped Q&A pages still to come (pairs with move 4).' },
   ]},
   { d:'2026-07-20', items:[

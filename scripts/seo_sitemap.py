@@ -131,6 +131,12 @@ def collect_urls(web_dir: Path) -> list[tuple[str, str, str, str]]:
     for idx in sorted((web_dir / "property").glob("*/index.html")):
         entries.append((_url_for(idx, web_dir), idx, "weekly", "0.7"))
 
+    # Educational guides (scripts/build_guides.py) — evergreen, don't expire.
+    # /guides (hub) = depth 0, /guides/<slug> = 1.
+    for idx in sorted((web_dir / "guides").glob("**/index.html")):
+        depth = len(idx.parent.relative_to(web_dir / "guides").parts)
+        entries.append((_url_for(idx, web_dir), idx, "monthly", "0.8" if depth == 0 else "0.7"))
+
     return [
         (loc, freq, prio, _lastmod(src, repo_root, dirty, build_date))
         for loc, src, freq, prio in entries
