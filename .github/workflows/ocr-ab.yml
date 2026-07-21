@@ -1,0 +1,85 @@
+name: OCR A/B (MinerU vs Datalab)
+
+# Manual, on-demand comparison of the two OCR engines on real notices.
+# Fetches each notice by public URL (R2/web), runs both engines, and uploads
+# the side-by-side report as an artifact. Needs only the two OCR-key secrets:
+#   DATALAB_API_KEY, MINERU_API_KEY  (repo Settings → Secrets → Actions)
+# It never touches Neo4j or production data.
+on:
+  workflow_dispatch:
+    inputs:
+      notice_urls:
+        description: "Notice URLs (one per line or comma-separated) — public R2/web URLs"
+        required: true
+        type: string
+      mode:
+        description: "Datalab tier"
+        required: false
+        default: "fast"
+        type: choice
+        options: [fast, balanced, accurate]
+      engines:
+        description: "Which engines to run"
+        required: false
+        default: "both"
+        type: choice
+        options: [both, datalab-only, mineru-only]
+      native_markdown:
+        description: "Also fetch Datalab's native markdown (2nd call per file)"
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  ab:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install harness dependencies
+        # The A/B harness only needs these — not the full prod lock.
+        run: pip install "python-dotenv>=1.0,<2" "requests>=2.31" "Pillow>=10.4,<13"
+
+      - name: Collect notice URLs
+        env:
+          NOTICE_URLS: ${{ inputs.notice_urls }}   # via env to avoid shell injection
+        run: |
+          printf '%s\n' "$NOTICE_URLS" | tr ',' '\n' | sed '/^[[:space:]]*$/d' > notice_urls.txt
+          echo "Collected $(grep -c . notice_urls.txt) URL(s):"
+          cat notice_urls.txt
+
+      - name: Build harness flags
+        id: flags
+        env:
+          MODE: ${{ inputs.mode }}
+          ENGINES: ${{ inputs.engines }}
+          NATIVE: ${{ inputs.native_markdown }}
+        run: |
+          FLAGS="--mode $MODE"
+          [ "$NATIVE" = "true" ] && FLAGS="$FLAGS --native-markdown"
+          case "$ENGINES" in
+            datalab-only) FLAGS="$FLAGS --datalab-only" ;;
+            mineru-only)  FLAGS="$FLAGS --mineru-only" ;;
+          esac
+          echo "flags=$FLAGS" >> "$GITHUB_OUTPUT"
+
+      - name: Run A/B
+        env:
+          DATALAB_API_KEY: ${{ secrets.DATALAB_API_KEY }}
+          MINERU_API_KEY: ${{ secrets.MINERU_API_KEY }}
+        run: |
+          python -m scripts.ocr_ab --urls-file notice_urls.txt ${{ steps.flags.outputs.flags }}
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ocr-ab-report
+          path: |
+            pipeline/cache/ab_ocr/report.html
+            pipeline/cache/ab_ocr/report.json
+          if-no-files-found: warn
