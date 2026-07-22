@@ -372,8 +372,36 @@ def _mineru_one_shot_png(png_bytes: bytes, *, hint_name: str) -> list[dict]:
             pass
 
 
+def _datalab_one_shot_png(png_bytes: bytes, *, hint_name: str,
+                          mode: str = "fast") -> list[dict]:
+    """Submit one cropped PNG to Datalab, return the parsed canonical blocks.
+
+    Same contract as ``_mineru_one_shot_png`` (canonical block dicts), so the
+    downstream ``_merge_mineru_blocks`` — which is engine-agnostic — collapses
+    either engine's output identically. A single drawn region is small, so the
+    fast tier is enough; ``hint_name`` is accepted for signature parity.
+    """
+    from pipeline import datalab_api
+    from pipeline.datalab import parse_datalab_blocks
+
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
+        f.write(png_bytes)
+        tmp_path = Path(f.name)
+    try:
+        result = datalab_api.run_file(tmp_path, output_format="json", mode=mode)
+        _md, doc, _img = datalab_api.extract_payload(result)
+        return parse_datalab_blocks(doc)
+    except datalab_api.DatalabError as e:
+        raise ReExtractError(f"Datalab re-extract failed: {e}") from e
+    finally:
+        try:
+            tmp_path.unlink()
+        except FileNotFoundError:
+            pass
+
+
 def _merge_mineru_blocks(blocks: list[dict], label: str) -> dict:
-    """Collapse MinerU's per-region output into one block result."""
+    """Collapse a per-region block list (either engine) into one block result."""
     if not blocks:
         return {"text": "", "table": None, "confidence": None}
     # Prefer the largest block (likely the actual content vs page-number noise).
@@ -409,12 +437,18 @@ async def crop_and_reextract(
     public_url: str, page: int, bbox_norm: list[float], label: str,
     row_positions: list[float] | None = None,
     col_positions: list[float] | None = None,
+    engine: str = "mineru",
 ) -> dict[str, Any]:
-    """Re-extract a single bbox region.
+    """Re-extract a single bbox region with the chosen OCR ``engine``.
 
-    Returns ``{"text": str, "table": dict | None, "confidence": float | None}``.
+    ``engine`` is ``"datalab"`` or ``"mineru"`` (the reviewer's per-block choice
+    from the annotator). Returns
+    ``{"text": str, "table": dict | None, "confidence": float | None}``.
     Caller is responsible for persisting the result on the block.
     """
+    engine = (engine or "mineru").strip().lower()
+    if engine not in ("datalab", "mineru"):
+        engine = "mineru"
     import asyncio
 
     def _run() -> dict[str, Any]:
@@ -455,7 +489,10 @@ async def crop_and_reextract(
 
         hint = safe_cache_name(Path(urlparse(public_url).path).name or "crop")[:32] or "crop"
         try:
-            blocks = _mineru_one_shot_png(png_bytes, hint_name=hint)
+            if engine == "datalab":
+                blocks = _datalab_one_shot_png(png_bytes, hint_name=hint)
+            else:
+                blocks = _mineru_one_shot_png(png_bytes, hint_name=hint)
             return _merge_mineru_blocks(blocks, label)
         except ReExtractError:
             # Fall back to PyMuPDF text extraction for PDFs.

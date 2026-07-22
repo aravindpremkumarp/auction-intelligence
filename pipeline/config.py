@@ -137,6 +137,29 @@ OPENROUTER_MODEL_DOC_CLASSIFY = os.getenv(
     "OPENROUTER_MODEL_DOC_CLASSIFY", "google/gemini-2.5-flash",
 )
 
+# ── OCR engine (notice layout extraction) ────────────────────────────────────
+# Which backend the bulk pipeline (scripts/ocr_with_mineru.py stage 1) uses to
+# turn a notice image/PDF into layout-aware markdown + blocks. "datalab" is the
+# default (faster + cleaner on the raster notices that sent MinerU into
+# repetition loops); "mineru" keeps the original hosted MinerU path. This only
+# governs the BULK pipeline — the annotator's per-block re-extract picks its
+# engine per request (reviewer's choice), independent of this flag.
+DESCRIPTION_OCR_ENGINE = os.getenv("DESCRIPTION_OCR_ENGINE", "datalab").strip().lower()
+# Datalab tier routing by notice_type. Multi-property notices are long/dense and
+# the "fast" tier can silently drop them, so they default to "accurate"; single
+# notices stay on "fast" (≈5x faster, plenty for one property). Both env-tunable.
+DATALAB_MODE_SINGLE = os.getenv("DATALAB_MODE_SINGLE", "fast").strip().lower()
+DATALAB_MODE_MULTI  = os.getenv("DATALAB_MODE_MULTI", "accurate").strip().lower()
+# Concurrent Datalab calls in the bulk stage (per-file, unlike MinerU's batches).
+DATALAB_PIPELINE_CONCURRENCY = int(os.getenv("DATALAB_PIPELINE_CONCURRENCY", "4"))
+
+
+def datalab_mode_for(notice_type: str | None) -> str:
+    """Datalab tier for a notice_type: multi → accurate, everything else → fast."""
+    return DATALAB_MODE_MULTI if (notice_type or "").strip().lower() == "multi" \
+        else DATALAB_MODE_SINGLE
+
+
 # ── Web search (Tavily) ──────────────────────────────────────────────────────
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")
 

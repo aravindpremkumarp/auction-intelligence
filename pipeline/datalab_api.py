@@ -22,6 +22,7 @@ for harder documents at higher cost/latency.
 """
 from __future__ import annotations
 
+import json
 import mimetypes
 import os
 import time
@@ -130,3 +131,43 @@ def extract_payload(result: dict) -> tuple[str | None, object, dict]:
     return (result.get("markdown"),
             result.get("json"),
             result.get("images") or {})
+
+
+def run_and_cache(file_path: str, disk_path: str | Path, *,
+                  mode: str = DEFAULT_MODE, timeout_s: int = 420) -> tuple[Path, Path]:
+    """Run Datalab on ``disk_path`` and cache markdown + blocks for the pipeline.
+
+    Writes into the SAME on-disk cache the MinerU path uses so the Neo4j loader
+    reads Datalab output with no changes:
+
+      - ``mineru_markdown/<safe>.md``   — the markdown (native, else assembled)
+      - ``mineru_blocks/<safe>.json``   — ``{"blocks": [<canonical blocks>], ...}``
+
+    The blocks are stored pre-normalized (canonical shape, ``source="datalab"``)
+    wrapped in a dict, which ``load_markdowns_to_neo4j.load_blocks_for`` already
+    treats as "already normalized" (it assigns ids and skips re-parsing). Returns
+    ``(md_path, blocks_path)``.
+    """
+    # Local imports: keep this module importable without pulling the mineru
+    # cache constants / parser at import time, and avoid any import-order edge.
+    from pipeline.datalab import parse_datalab_blocks
+    from pipeline.mineru import (
+        MINERU_BLOCKS_DIR, MINERU_MARKDOWN_DIR, assemble_markdown, safe_cache_name,
+    )
+
+    result = run_file(disk_path, output_format="json", mode=mode, timeout_s=timeout_s)
+    md, doc, _images = extract_payload(result)
+    blocks = parse_datalab_blocks(doc)
+    markdown = md or assemble_markdown(blocks)
+
+    MINERU_MARKDOWN_DIR.mkdir(parents=True, exist_ok=True)
+    MINERU_BLOCKS_DIR.mkdir(parents=True, exist_ok=True)
+    safe = safe_cache_name(file_path)
+    md_path = MINERU_MARKDOWN_DIR / f"{safe}.md"
+    bl_path = MINERU_BLOCKS_DIR / f"{safe}.json"
+    md_path.write_text(markdown or "", encoding="utf-8")
+    bl_path.write_text(
+        json.dumps({"blocks": blocks, "engine": "datalab", "mode": mode},
+                   ensure_ascii=False),
+        encoding="utf-8")
+    return md_path, bl_path

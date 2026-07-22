@@ -697,6 +697,7 @@
         <span id="ann-zoom-pct" class="meta zoom-pct">Fit</span>
         <button id="ann-zoom-in" class="ghost zoom-btn" title="zoom in (or scroll wheel up)">+</button>
       </span>
+      <label class="meta" id="ann-engine-wrap" title="OCR engine used when you re-extract a drawn block. Datalab is the default (faster, cleaner on raster notices); MinerU segments dense multi-lot notices into finer blocks.">engine <select class="page-select" id="ann-engine"><option value="datalab">Datalab</option><option value="mineru">MinerU</option></select></label>
       <button id="ann-reingest-btn" class="ghost" title="re-run MinerU layout extraction (applies saved rotation + crop / regions; regions win over a single crop)">Re-ingest</button>
       <button id="ann-fix-flagged" class="ghost" title="re-run extraction on every block flagged with an OCR artifact (repetition / token-leak / foreign-script) in this notice" style="display:none;background:#fde7e7;border-color:#dc2626;color:#991b1b"></button>
       <button id="ann-reload" class="ghost">Reload</button>
@@ -2991,6 +2992,7 @@
     hintsDismissed: new Set(),  // block ids the reviewer has × dismissed this session
     reextractInflight: new Set(), // block ids currently being re-extracted
     fixFlaggedRunning: false,   // "Fix flagged" batch re-extract in progress
+    reextractEngine: 'datalab', // OCR engine for drawn-block re-extract (ann-engine select)
   };
 
   function annToast(msg, kind) {
@@ -4777,6 +4779,8 @@
     if (el) el.classList.add('reextracting');
     try {
       const body = {};
+      // Reviewer's engine choice (Datalab default / MinerU) from the toolbar.
+      body.engine = ann.reextractEngine;
       // Auto-fix marks the block server-side so it won't be auto re-extracted
       // again on a later open (see re_extract_block).
       if (opts.auto) body.auto = true;
@@ -4907,6 +4911,19 @@
   $('ann-reingest-btn').addEventListener('click', (e) => annReingest(e.currentTarget));
   $('ann-fix-flagged').addEventListener('click', () => fixFlaggedBlocks());
   $('ann-reload').addEventListener('click', () => loadAnnotator(ann.filename));
+  // Engine picker for drawn-block re-extract. Persist the choice so it sticks
+  // across notices/reloads within the browser.
+  (function initAnnEngine() {
+    const sel = $('ann-engine');
+    if (!sel) return;
+    const saved = localStorage.getItem('ann-reextract-engine');
+    if (saved === 'datalab' || saved === 'mineru') ann.reextractEngine = saved;
+    sel.value = ann.reextractEngine;
+    sel.addEventListener('change', () => {
+      ann.reextractEngine = sel.value === 'mineru' ? 'mineru' : 'datalab';
+      localStorage.setItem('ann-reextract-engine', ann.reextractEngine);
+    });
+  })();
 
   // ── Zoom ─────────────────────────────────────────────────────────────────
   // `ann.zoom == null` means "fit to viewport" (default). Otherwise the

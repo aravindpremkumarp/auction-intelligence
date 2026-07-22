@@ -750,6 +750,11 @@ async def re_extract_block(filename: str, block_id: str,
         (blk.get("table") or {}).get("col_positions") if blk.get("table") else None
     )
     page = int(body.get("page") or blk.get("page") or 1)
+    # Reviewer's per-block engine choice from the annotator; Datalab is the
+    # default (matches the bulk pipeline), MinerU is the opt-in alternate.
+    engine = (body.get("engine") or "datalab").strip().lower()
+    if engine not in ("datalab", "mineru"):
+        engine = "datalab"
 
     if not meta.get("public_url"):
         raise BlocksNotFound("Document has no public_url; cannot crop source")
@@ -764,6 +769,7 @@ async def re_extract_block(filename: str, block_id: str,
             label=label,
             row_positions=row_positions,
             col_positions=col_positions,
+            engine=engine,
         )
     except Exception as e:
         # MinerU error, network failure, timeout, or a bad crop — surface the
