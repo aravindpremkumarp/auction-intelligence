@@ -54,4 +54,15 @@ def test_skips_when_health_would_worsen(monkeypatch, tmp_path):
                         lambda *a, **k: {"json": DOC, "markdown": "中国银行 leaked text here"})
     r = M.reocr_one(_t(old=100))
     assert not r.get("ok_to_write")
-    assert "worse" in r["note"]
+    assert "no gain" in r["note"]
+
+
+def test_skips_when_no_health_gain(monkeypatch, tmp_path):
+    # Equal score (100 vs 100) must be skipped — strict improvement only, so a
+    # re-run never rewrites a doc Datalab can't actually improve.
+    monkeypatch.setattr(M, "fetch_source", lambda url: tmp_path / "x.jpg")
+    monkeypatch.setattr(M.datalab_api, "run_file",
+                        lambda *a, **k: {"json": DOC, "markdown": "clean notice text"})
+    r = M.reocr_one(_t(old=100))
+    assert not r.get("ok_to_write")
+    assert "no gain" in r["note"]

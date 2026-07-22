@@ -152,8 +152,11 @@ def reocr_one(t: dict) -> dict:
         out["new_flags"] = health["flags"]
         if not markdown.strip() or health["score"] is None:
             out["note"] = "empty result — skipped"
-        elif t["old_score"] is not None and health["score"] < t["old_score"]:
-            out["note"] = f"worse ({health['score']}<{t['old_score']}) — skipped"
+        elif t["old_score"] is not None and health["score"] <= t["old_score"]:
+            # Strict improvement only — equal-score docs (e.g. a dense multi-lot
+            # notice Datalab also reads as one collapsed table) must NOT be
+            # rewritten, or every re-run reprocesses them forever.
+            out["note"] = f"no gain ({health['score']}<={t['old_score']}) — skipped"
         else:
             out["ok_to_write"] = True
     except Exception as e:
