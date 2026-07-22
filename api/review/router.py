@@ -484,6 +484,10 @@ class ReExtractBody(BaseModel):
     page: int | None = None
     row_positions: list[float] | None = None
     col_positions: list[float] | None = None
+    # OCR engine for this re-extract: "datalab" (default) or "mineru". The
+    # annotator sends the reviewer's per-block choice; unknown values fall back
+    # to datalab server-side.
+    engine: str | None = None
     # Set by the annotator's one-time auto-fix so the block records that its
     # automatic attempt has happened (guards against re-spending on reopen).
     auto: bool = False
