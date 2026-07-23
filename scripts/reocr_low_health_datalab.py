@@ -86,21 +86,37 @@ def nq(statement: str, parameters: dict | None = None) -> list[list]:
 
 # ── selection ───────────────────────────────────────────────────────────────
 
-def select_targets(since_iso: str, health_below: int) -> list[dict]:
-    """Documents with ocr_health_score < threshold linked to an auction on/after
-    ``since_iso`` (a datetime), that have a fetchable public_url."""
+def select_targets(health_below: int, *, since_iso: str | None = None,
+                   notice_type: str | None = None) -> list[dict]:
+    """Documents with ocr_health_score < threshold and a fetchable public_url.
+
+    ``since_iso`` (a datetime) restricts to notices linked to an auction on/after
+    that cutoff; pass ``None`` to select across all dates (and notices with no
+    linked auction). ``notice_type`` ('single'/'multi') narrows to one tier;
+    ``None`` or 'all' selects both.
+    """
+    where = ["d.ocr_health_score < $h",
+             "d.public_url IS NOT NULL", "d.public_url <> ''"]
+    params: dict = {"h": health_below}
+    if since_iso:
+        match = "MATCH (a:AuctionProperty)-[:HAS_DOCUMENT]->(d:Document)"
+        where.append("a.auction_start_dt >= datetime($t)")
+        params["t"] = since_iso
+    else:
+        match = "MATCH (d:Document)"
+    if notice_type and notice_type != "all":
+        where.append("coalesce(d.notice_type,'unknown') = $nt")
+        params["nt"] = notice_type
     rows = nq(
-        """
-        MATCH (a:AuctionProperty)-[:HAS_DOCUMENT]->(d:Document)
-        WHERE d.ocr_health_score < $h
-          AND a.auction_start_dt >= datetime($t)
-          AND d.public_url IS NOT NULL AND d.public_url <> ''
+        f"""
+        {match}
+        WHERE {' AND '.join(where)}
         WITH DISTINCT d
         RETURN d.file_path, d.filename, coalesce(d.notice_type,'unknown'),
                d.public_url, d.ocr_health_score
         ORDER BY d.ocr_health_score ASC
         """,
-        {"h": health_below, "t": since_iso},
+        params,
     )
     return [{"file_path": r[0], "filename": r[1], "notice_type": r[2],
              "public_url": r[3], "old_score": r[4]} for r in rows]
@@ -217,9 +233,16 @@ def write_back(results: list[dict]) -> int:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--health-below", type=int, default=70)
+    ap.add_argument("--health-below", type=int, default=70,
+                    help="select docs with ocr_health_score strictly below this "
+                         "(e.g. 91 covers <=90)")
     ap.add_argument("--since", default=None,
                     help="auction_start_dt cutoff (YYYY-MM-DD); default = today (UTC)")
+    ap.add_argument("--all-dates", action="store_true",
+                    help="ignore the auction-date cutoff; select across all dates "
+                         "(and notices with no linked auction)")
+    ap.add_argument("--notice-type", choices=["single", "multi", "all"],
+                    default="all", help="restrict to one tier (cost staging)")
     ap.add_argument("--dry-run", action="store_true", help="select + preview only")
     ap.add_argument("--pilot", action="store_true",
                     help="re-OCR ~5 mixed docs (3 single + 2 multi) and write improved")
@@ -230,15 +253,21 @@ def main() -> int:
     if not os.environ.get("DATALAB_API_KEY") and not args.dry_run:
         return int(bool(print("DATALAB_API_KEY not set")))
 
-    since = args.since or _dt.datetime.now(_dt.timezone.utc).date().isoformat()
-    since_iso = f"{since}T00:00:00Z"
+    if args.all_dates:
+        since_iso = None
+        date_note = "all-dates"
+    else:
+        since = args.since or _dt.datetime.now(_dt.timezone.utc).date().isoformat()
+        since_iso = f"{since}T00:00:00Z"
+        date_note = f"auction>={since}"
 
-    targets = select_targets(since_iso, args.health_below)
+    targets = select_targets(args.health_below, since_iso=since_iso,
+                             notice_type=args.notice_type)
     by_type: dict[str, int] = {}
     for t in targets:
         by_type[t["notice_type"]] = by_type.get(t["notice_type"], 0) + 1
     print(f"Target: {len(targets)} Documents  health<{args.health_below}  "
-          f"auction_start_dt>={since}  by_type={by_type}")
+          f"{date_note}  notice_type={args.notice_type}  by_type={by_type}")
 
     if args.pilot:
         targets = pick_pilot(targets)
