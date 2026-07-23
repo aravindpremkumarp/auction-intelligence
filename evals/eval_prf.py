@@ -25,17 +25,28 @@ CACHE = Path(__file__).resolve().parent / ".prf_cache.json"
 
 
 def _extract_all(gold) -> dict[str, list[dict]]:
-    """Live-extract every fixture once, with usage/cost tracking."""
+    """Live-extract every fixture once, routing the model exactly like
+    production (pipeline/extract_routing) instead of LangExtract's default
+    LANGEXTRACT_MODEL_ID — so the eval scores the SAME model the pipeline runs
+    (single -> hy3, multi -> deepseek), not gemini."""
     from pipeline import langextract_run as LR
+    from pipeline import langextract_examples as LX
+    from pipeline.extract_routing import select_extract_model
     LR.install_usage_tracking()
-    from evals.langextract_eval import extract_robust
     out: dict[str, list[dict]] = {}
     for g in gold:
         md = (FIX / f"{g['aid']}.txt").read_text(encoding="utf-8")
+        # No classifier_pred in the fixture; route on the gold notice_type,
+        # which is what the classifier verdict resolves to for these cases.
+        model_id, reasoning_off = select_extract_model(g.get("notice_type"), None)
         LR.USAGE.docs += 1
-        res = extract_robust(md)
+        res = None
+        for _ in range(3):                      # retry transient empty response
+            res = LX.extract(md, model_id=model_id, reasoning_off=reasoning_off)
+            if res.extractions:
+                break
         out[g["aid"]] = _records(res)
-        print(f"  extracted {g['aid']}: {len(out[g['aid']])} entities")
+        print(f"  extracted {g['aid']} [{model_id}]: {len(out[g['aid']])} entities")
     print("\n=== EXTRACTION COST ===")
     print(LR.USAGE.report())
     return out

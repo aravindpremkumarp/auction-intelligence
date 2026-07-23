@@ -169,15 +169,28 @@ def score_prf(gold_entries: list[dict], records_by_aid: dict[str, list[dict]]) -
                 continue
             _score_scalar(prf, aid, fname, gval, scalars.get(fname, set()), scalars)
 
-        # money — single notice uses fields; multi uses the lots union
+        # money — single notice uses fields; multi uses the lots union.
+        # Honour the gold's None semantics: None = "not scored" (no opinion, skip
+        # precision entirely), EXPECT_NULL = "must be empty" (any value invented).
         if g.get("lots"):
-            gold_res = {_fnum(l.get("reserve_price_num")) for l in g["lots"]}
-            gold_emd = {_fnum(l.get("emd_num")) for l in g["lots"]}
+            gold_res = {_fnum(l.get("reserve_price_num")) for l in g["lots"]
+                        if l.get("reserve_price_num") is not None}
+            gold_emd = {_fnum(l.get("emd_num")) for l in g["lots"]
+                        if l.get("emd_num") is not None}
+            _score_money(prf, aid, "reserve_price_num", gold_res, res_x)
+            _score_money(prf, aid, "emd_num", gold_emd, emd_x)
         else:
-            gold_res = {_fnum(g["fields"].get("reserve_price_num"))}
-            gold_emd = {_fnum(g["fields"].get("emd_num"))}
-        _score_money(prf, aid, "reserve_price_num", gold_res, res_x)
-        _score_money(prf, aid, "emd_num", gold_emd, emd_x)
+            for label, extracted in (("reserve_price_num", res_x),
+                                     ("emd_num", emd_x)):
+                gv = g["fields"].get(label)
+                if gv is None:                      # not scored — no opinion
+                    continue
+                if gv is EXPECT_NULL:               # must be empty
+                    if extracted:
+                        prf.fp += len(extracted)
+                        prf.invented.append((aid, label, sorted(extracted)))
+                    continue
+                _score_money(prf, aid, label, {_fnum(gv)}, extracted)
     return prf
 
 
