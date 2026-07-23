@@ -35,7 +35,6 @@ silently re-baselining recall.
 """
 from __future__ import annotations
 
-import collections
 from dataclasses import dataclass, field
 
 from evals.langextract_gold import EXPECT_NULL
@@ -173,10 +172,10 @@ def score_prf(gold_entries: list[dict], records_by_aid: dict[str, list[dict]]) -
         # Honour the gold's None semantics: None = "not scored" (no opinion, skip
         # precision entirely), EXPECT_NULL = "must be empty" (any value invented).
         if g.get("lots"):
-            gold_res = {_fnum(l.get("reserve_price_num")) for l in g["lots"]
-                        if l.get("reserve_price_num") is not None}
-            gold_emd = {_fnum(l.get("emd_num")) for l in g["lots"]
-                        if l.get("emd_num") is not None}
+            gold_res = {_fnum(lot.get("reserve_price_num")) for lot in g["lots"]
+                        if lot.get("reserve_price_num") is not None}
+            gold_emd = {_fnum(lot.get("emd_num")) for lot in g["lots"]
+                        if lot.get("emd_num") is not None}
             _score_money(prf, aid, "reserve_price_num", gold_res, res_x)
             _score_money(prf, aid, "emd_num", gold_emd, emd_x)
         else:
