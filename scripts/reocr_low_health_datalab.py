@@ -283,19 +283,30 @@ def main() -> int:
 
     print(f"\nRe-OCR {len(targets)} notice(s) with Datalab "
           f"(concurrency={args.concurrency})…")
+    # Flush writes in small batches as docs complete, so a crash mid-run (a long
+    # accurate-tier pass can run 30+ min) loses at most FLUSH_EVERY docs' writes,
+    # not the whole batch. Everything not yet flushed is simply re-selectable.
+    FLUSH_EVERY = 10
     results: list[dict] = []
+    pending: list[dict] = []
+    wrote = 0
     with ThreadPoolExecutor(max_workers=max(1, args.concurrency)) as pool:
         futs = {pool.submit(reocr_one, t): t for t in targets}
         for i, fut in enumerate(as_completed(futs), 1):
             r = fut.result()
             results.append(r)
+            pending.append(r)
             verdict = ("WRITE" if r.get("ok_to_write")
                        else (r["note"] or "skip"))
             print(f"  [{i}/{len(targets)}] {r['notice_type']:<6} {r['mode']:<8} "
                   f"health {str(r['old_score']):>3}->{str(r['new_score']):>4}  "
                   f"{verdict}  {r['filename'][:44]}")
+            if len(pending) >= FLUSH_EVERY:
+                wrote += write_back(pending)
+                pending = []
+    if pending:
+        wrote += write_back(pending)
 
-    wrote = write_back(results)
     improved = sum(1 for r in results if r.get("ok_to_write"))
     print(f"\nDone. re-OCR'd={len(results)}  improved={improved}  written={wrote}  "
           f"skipped={len(results) - improved}")
