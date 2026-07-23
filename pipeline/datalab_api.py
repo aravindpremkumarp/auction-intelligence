@@ -43,9 +43,25 @@ DEFAULT_MODE        = "fast"
 _DONE_STATES   = {"complete"}
 _FAILED_STATES = {"failed", "error"}
 
+# Statuses worth retrying rather than failing: rate-limit + transient upstream.
+_RETRY_STATUSES = {429, 500, 502, 503, 504}
+_MAX_SUBMIT_RETRIES = 6
+
 
 class DatalabError(RuntimeError):
     """Raised when a Datalab API call fails or returns an unexpected payload."""
+
+
+def _retry_after(resp, attempt: int, *, base: float = 2.0, cap: float = 60.0) -> float:
+    """Seconds to wait before a retry — honour a ``Retry-After`` header if the
+    server sent one, else exponential backoff (base * 2**attempt, capped)."""
+    ra = resp.headers.get("Retry-After")
+    if ra:
+        try:
+            return min(cap, float(ra))
+        except ValueError:
+            pass
+    return min(cap, base * (2 ** attempt))
 
 
 def _headers() -> dict[str, str]:
@@ -72,18 +88,27 @@ def submit(disk_path: str | Path, *, output_format: str = "json",
     data: dict[str, str] = {"output_format": output_format, "mode": mode}
     if extra:
         data.update({k: str(v) for k, v in extra.items()})
-    with open(path, "rb") as f:
-        files = {"file": (path.name, f, _content_type(path))}
-        r = requests.post(DATALAB_CONVERT_URL, headers=_headers(),
-                          files=files, data=data, timeout=60)
-    r.raise_for_status()
-    body = r.json()
-    if not body.get("success", False):
-        raise DatalabError(f"Datalab submit failed: {body.get('error') or body}")
-    check_url = body.get("request_check_url")
-    if not check_url:
-        raise DatalabError(f"Datalab submit returned no request_check_url: {body}")
-    return body.get("request_id", ""), check_url
+    last_status: int | None = None
+    for attempt in range(_MAX_SUBMIT_RETRIES):
+        # Re-open per attempt: the multipart body is consumed on each POST.
+        with open(path, "rb") as f:
+            files = {"file": (path.name, f, _content_type(path))}
+            r = requests.post(DATALAB_CONVERT_URL, headers=_headers(),
+                              files=files, data=data, timeout=60)
+        if r.status_code in _RETRY_STATUSES and attempt < _MAX_SUBMIT_RETRIES - 1:
+            last_status = r.status_code
+            time.sleep(_retry_after(r, attempt))
+            continue
+        r.raise_for_status()
+        body = r.json()
+        if not body.get("success", False):
+            raise DatalabError(f"Datalab submit failed: {body.get('error') or body}")
+        check_url = body.get("request_check_url")
+        if not check_url:
+            raise DatalabError(f"Datalab submit returned no request_check_url: {body}")
+        return body.get("request_id", ""), check_url
+    raise DatalabError(f"Datalab submit rate-limited/unavailable after "
+                       f"{_MAX_SUBMIT_RETRIES} attempts (last status {last_status})")
 
 
 def poll(check_url: str, *, timeout_s: int = 300,
@@ -96,8 +121,15 @@ def poll(check_url: str, *, timeout_s: int = 300,
     """
     deadline = time.time() + timeout_s
     wait = interval_s
+    rl_attempt = 0
     while time.time() < deadline:
         r = requests.get(check_url, headers=_headers(), timeout=30)
+        if r.status_code in _RETRY_STATUSES:
+            # Rate-limited / transient: back off and keep polling, don't fail.
+            time.sleep(_retry_after(r, rl_attempt))
+            rl_attempt += 1
+            continue
+        rl_attempt = 0
         r.raise_for_status()
         body = r.json()
         status = str(body.get("status", "")).lower()

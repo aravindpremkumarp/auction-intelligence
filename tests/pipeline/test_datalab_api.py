@@ -12,11 +12,15 @@ import pipeline.datalab_api as DLA
 
 
 class _Resp:
-    def __init__(self, payload):
+    def __init__(self, payload, status_code=200, headers=None):
         self._payload = payload
+        self.status_code = status_code
+        self.headers = headers or {}
 
     def raise_for_status(self):
-        return None
+        if self.status_code >= 400:
+            import requests
+            raise requests.HTTPError(str(self.status_code))
 
     def json(self):
         return self._payload
@@ -56,6 +60,32 @@ def test_submit_sends_key_and_params(tmp_path, monkeypatch):
     assert captured["data"]["output_format"] == "json"
     assert captured["data"]["mode"] == "fast"
     assert captured["has_file"] is True
+
+
+def test_submit_retries_on_429(tmp_path, monkeypatch):
+    calls = {"n": 0}
+
+    def fake_post(*a, **k):
+        calls["n"] += 1
+        if calls["n"] < 3:            # rate-limited twice, then succeeds
+            return _Resp({}, status_code=429, headers={})
+        return _Resp({"success": True, "request_id": "r1",
+                      "request_check_url": "https://chk/r1"})
+
+    monkeypatch.setattr(DLA.requests, "post", fake_post)
+    _rid, url = DLA.submit(_tmp_pdf(tmp_path))
+    assert url == "https://chk/r1"
+    assert calls["n"] == 3            # retried, didn't fail on the 429s
+
+
+def test_poll_retries_on_429(monkeypatch):
+    seq = iter([
+        _Resp({}, status_code=429),
+        _Resp({"status": "complete", "success": True, "markdown": "# ok", "json": {}}),
+    ])
+    monkeypatch.setattr(DLA.requests, "get", lambda *a, **k: next(seq))
+    out = DLA.poll("https://chk/r1", timeout_s=30)
+    assert out["markdown"] == "# ok"
 
 
 def test_submit_raises_without_key(tmp_path, monkeypatch):
