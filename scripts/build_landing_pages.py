@@ -54,6 +54,19 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 WEB_DIR = REPO_ROOT / "web"
 OUT_ROOT = WEB_DIR / "bank-auctions"
 
+# Canonical publisher/author identity. Every Article across the site points its
+# author + publisher at the SAME Organization node (@id), which is described in
+# full on /about (name, logo, description, contact, areaServed). Tying the whole
+# site to one verified entity is the E-E-A-T signal a YMYL site needs; an
+# Organization author is the honest attribution (no fabricated person). The @id
+# is the site-root fragment (standard entity-graph anchor), not the /about URL.
+ORG_ID = f"{SITE_BASE}/#organization"
+ORG_AUTHOR = {"@type": "Organization", "@id": ORG_ID, "name": "Auctionscope",
+              "url": f"{SITE_BASE}/about"}
+ORG_PUBLISHER = {"@type": "Organization", "@id": ORG_ID, "name": "Auctionscope",
+                 "url": f"{SITE_BASE}/",
+                 "logo": {"@type": "ImageObject", "url": f"{SITE_BASE}/favicon.svg"}}
+
 REQUEST_INTERVAL_S = 1.1
 MIN_LISTINGS = 5          # thin-content gate: skip a page with fewer live listings
 MAX_LISTED = 48           # cap listings shown per page (keeps the page focused)

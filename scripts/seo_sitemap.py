@@ -33,6 +33,7 @@ SITE_BASE = "https://www.auctionscope.in"
 # (see tests/api/test_static_routes.py), so lastmod tracks that file.
 STATIC_ROUTES = [
     ("/", "index.html", "daily", "1.0"),
+    ("/about", "about.html", "monthly", "0.5"),
     ("/privacy-policy", "privacy-policy.html", "yearly", "0.3"),
     ("/terms-of-service", "terms-of-service.html", "yearly", "0.3"),
     ("/disclaimer", "disclaimer.html", "yearly", "0.3"),

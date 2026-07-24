@@ -381,7 +381,7 @@ const PULL = GH + '/pull/';
 
 const MARKETING_DATA = {
 meta: {
-  updated: '2026-07-21',
+  updated: '2026-07-24',
   situation: 'pre-traction: ~7 registered users. the whole marketing engine was built in one sprint (jul 9–16, 2026) and is <b>human-gated end-to-end</b> — agents draft and stage, the founder reviews, merges and publishes. nothing auto-posts. north star (proposed): <b>weekly activated users</b> — ≥1 grounded search plus a value action.',
 },
 
@@ -676,10 +676,13 @@ risks: [
   { t:'inventory freshness is founder-manual', d:'the scrape runs on a workstation ~weekly; every channel inherits staleness. watchdog exists (data-freshness.yml) but the plan calls weekly "meaningfully safer than fortnightly".' },
   { t:'publishing bottleneck', d:'nothing auto-posts (by design) — the founder is the gate for 5 platforms + PR merges. staged batches going stale unpublished is the failure mode to watch.' },
   { t:'zero proof points', d:'no testimonials or case studies captured yet — plan.md calls this the "highest-value gap" for conversion.' },
-  { t:'anonymous operator', d:'the trust/entity identity is undecided; it blocks the about page, PR, and directory submissions (E-E-A-T).' },
+  { t:'anonymous operator — org tier resolved', d:'the org-level identity is now shipped: an /about page + one canonical Organization entity (@id) that every page\'s author/publisher references, with logo, description, contact and areaServed. The remaining open decision is only whether to attach a NAMED person (founder/author + Person schema) — the strongest YMYL/E-E-A-T lever, still a founder call. Directory submissions are now unblocked (Organization identity exists).' },
 ],
 
 changelog: [
+  { d:'2026-07-24', items:[
+    { t:'SEO E-E-A-T — resolved the anonymous-operator cap at the organization tier (biggest lever on the ~60/100 audit). Shipped a real /about page (what Auctionscope is, who it is for, how facts are sourced — the honesty commitment as a trust signal — what it is NOT, area served, real contact support@auctionscope.in) and defined ONE canonical Organization entity (@id …/#organization, with logo, description, email contactPoint, areaServed Tamil Nadu, knowsAbout). Every Article across the site — 49 guides/compare/tools pages — now points its author + publisher at that single verified entity instead of a bare name, so Google sees one operator behind the whole library. No fabricated person and no invented facts (only the already-published support email + true TN/India scope). Named-founder upgrade left as a one-line, opt-in change. About wired into the sitemap (759 → 760) and homepage/legal footers.' },
+  ]},
   { d:'2026-07-21', items:[
     { t:'SEO free tool (engineering-as-marketing): shipped /tools/tamil-nadu-stamp-duty-calculator — a client-side stamp duty + registration calculator targeting the two confirmed-demand Keyword Planner queries "stamp duty calculator tamil nadu" and "guideline value calculator" (both 100-1K/mo, in autocomplete). Computes 7% stamp + 4%/3% registration (women-buyer concession under ₹10L) on the higher of sale vs guideline value, with a prominent "confirm current rates on TNREGINET" disclaimer, Article+FAQPage+BreadcrumbList JSON-LD, cited sources (TNREGINET + ClearTax), and an ungated link-magnet framing (no gate — pure SEO/links). New generator scripts/build_tools.py; cross-linked from the stamp-duty & guideline-value guides and the homepage footer. Sitemap 758 → 759.' },
     { t:'SEO: optimised the two highest-volume guides Keyword Planner flagged (fmb sketch and tds on property purchase, both 10K-100K/mo India). Exact-match H1/title ("What is an FMB sketch?", "TDS on property purchase"), plus depth — an FMB "how to read it" checklist and a TDS due-date FAQ. These are the biggest organic prizes in the library and we already had the pages.' },

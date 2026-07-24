@@ -35,7 +35,8 @@ import json
 from pathlib import Path
 
 from scripts.build_landing_pages import (
-    PAGE_CSS, CAPTURE_SCRIPT, SITE_BASE, THEME_INIT, ANALYTICS_SNIPPET, CONSENT_SCRIPT)
+    PAGE_CSS, CAPTURE_SCRIPT, SITE_BASE, THEME_INIT, ANALYTICS_SNIPPET, CONSENT_SCRIPT,
+    ORG_AUTHOR, ORG_PUBLISHER)
 from scripts.build_guides import GUIDE_CSS
 from scripts import seo_sitemap
 
@@ -206,8 +207,8 @@ def _article_jsonld(title: str, desc: str, url: str, source: dict) -> dict:
         "@context": "https://schema.org", "@type": "Article",
         "headline": title, "description": desc,
         "datePublished": UPDATED, "dateModified": UPDATED,
-        "author": {"@type": "Organization", "name": "AuctionScope"},
-        "publisher": {"@type": "Organization", "name": "AuctionScope", "url": f"{SITE_BASE}/"},
+        "author": ORG_AUTHOR,
+        "publisher": ORG_PUBLISHER,
         "mainEntityOfPage": url,
         "citation": [{"@type": "CreativeWork", "name": source["t"], "url": source["h"]}],
     }

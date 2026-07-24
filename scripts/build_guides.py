@@ -35,7 +35,8 @@ import json
 from pathlib import Path
 
 from scripts.build_landing_pages import (
-    PAGE_CSS, CAPTURE_SCRIPT, SITE_BASE, slugify, THEME_INIT, ANALYTICS_SNIPPET, CONSENT_SCRIPT)
+    PAGE_CSS, CAPTURE_SCRIPT, SITE_BASE, slugify, THEME_INIT, ANALYTICS_SNIPPET, CONSENT_SCRIPT,
+    ORG_AUTHOR, ORG_PUBLISHER)
 from scripts import seo_sitemap
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -2562,10 +2563,11 @@ def _article_jsonld(g: dict, url: str) -> dict:
         "description": g["description"],
         "datePublished": g["updated"],
         "dateModified": g["updated"],
-        # No named author (the operator identity is undecided — plan §13); an
-        # Organization author is the honest attribution rather than a fabricated person.
-        "author": {"@type": "Organization", "name": "AuctionScope"},
-        "publisher": {"@type": "Organization", "name": "AuctionScope", "url": f"{SITE_BASE}/"},
+        # Author + publisher reference the one canonical Organization node
+        # (described in full on /about) — one verified entity behind every page,
+        # the honest attribution (no fabricated person). See build_landing_pages.
+        "author": ORG_AUTHOR,
+        "publisher": ORG_PUBLISHER,
         "mainEntityOfPage": url,
     }
     # Ring 2/3 facts are research-verified — cite them (content-pillars.md). The
