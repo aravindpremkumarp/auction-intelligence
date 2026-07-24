@@ -267,10 +267,10 @@ if WEB_DIR.exists():
     def sitemap_xml() -> FileResponse:
         return FileResponse(str(WEB_DIR / "sitemap.xml"), media_type="application/xml")
 
-    # Standalone legal pages. The footer links these as clean URLs
-    # (/terms-of-service, …) — Vercel serves the .html by filename, but uvicorn
-    # 404s without an explicit route (seen in prod logs). Map each clean URL to
-    # its .html file; registered in a loop so the three identical routes stay
+    # Standalone content/legal pages. The footer links these as clean URLs
+    # (/about, /terms-of-service, …) — Vercel serves the .html by filename, but
+    # uvicorn 404s without an explicit route (seen in prod logs). Map each clean
+    # URL to its .html file; registered in a loop so the identical routes stay
     # DRY. `filename` is bound per-call, so the closure captures the right file.
     def _legal_page(filename: str):
         def _serve(request: Request) -> Response:
@@ -280,6 +280,7 @@ if WEB_DIR.exists():
         return _serve
 
     for _path, _file in (
+        ("/about", "about.html"),
         ("/terms-of-service", "terms-of-service.html"),
         ("/privacy-policy", "privacy-policy.html"),
         ("/disclaimer", "disclaimer.html"),
