@@ -30,6 +30,49 @@ hides — the card never shows a stale sample number (`lib/motion.js` binder).
 | `deal-of-the-day-1080.html` | 1080×1080 | Deal of the day card |
 | `price-drop-1080x1350.html` | 1080×1350 | Re-auction price drop (drop % computed from the two notice prices) |
 | `city-carousel-1080x1350.html` | 1080×1350 × N | "Cheapest X in [city] this week" — cover + slide per property + CTA |
+| `property-carousel-1080x1350.html` | 1080×1350 × 6 | ONE property explained: cover · money · property · to bid · check-before-you-bid · CTA |
+| `property-og-1200x630.html` | 1200×630 | the per-property Open Graph card (see below) |
+
+### `property-og-1200x630` — the only template with no copy in it
+
+Every other format here carries an authored hook. This one carries none: no
+headline, no caption, every glyph a field off the record. That is what makes it
+safe to generate for the whole inventory with no human review, which is the
+point — each `/property/<id>/` page needs its own picture so its `og:image`,
+`twitter:image` and **Product JSON-LD `image`** stop all pointing at the one
+generic site logo.
+
+```bash
+python scripts/generate_property_og.py --limit 5 --no-upload   # local smoke
+python scripts/generate_property_og.py --all                   # → R2 + web/og-manifest.json
+```
+
+It derives three things, all honestly: an ended auction goes neutral and reads
+"Auction closed" rather than biddable, a genuinely lower earlier reserve gets a
+strike-through plus a percentage computed in-template, and a locality that just
+repeats the city is blanked. Cards live in R2, not git (664 PNGs ≈ 65MB, and
+they churn whenever a reserve moves); `prerender_properties.py` reads the
+manifest and falls back to the site card for anything not in it.
+
+### `property-carousel-1080x1350` — the on-demand kit
+
+Produced only by `poster --auction-id <id>`, never by a normal batch: five
+drafts would mean five more 6-slide carousels per run, 30 extra slides through
+a review gate that publishes about five posts a week. It adds **no new model
+output** — the cover hook is the same `image_headline` that already leads the
+caption and the card, so it inherits that field's honesty scan and length cap.
+Slide 5 ("check before you bid") is fixed template copy and is never
+model-written: it is the honesty position, not marketing.
+
+The city carousel is the only **multi-property** template, so the Poster fills it
+differently: `select_carousel()` picks the city group and its 4–5 slides from
+the price-ascending live page *before* the model runs, and `carousel_island()`
+builds the island from those rows — the model contributes only the cover
+`headline` and the caption, both gated by `validate_carousel()` (must name the
+city on the slides, must not name another, may only quote figures that are
+actually on screen). It stages as `cards/00-carousel.json` in the same `cards`
+manifest as the single-property cards, so `--render-staged` picks it up with no
+special case and writes one PNG per slide (`card-00-carousel_01.png` …).
 
 ```bash
 python marketing/render_social.py                                  # all, sample data

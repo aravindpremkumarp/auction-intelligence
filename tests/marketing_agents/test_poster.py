@@ -318,6 +318,334 @@ class TestDraftToIsland:
             assert island["headline"] == row["headline"]
 
 
+def _carousel_rows(city="Salem", n=5, types=("Plot",), start="2027-08-01T10:00:00Z"):
+    """A price-ascending live page for one city — what fetch_pool hands
+    select_carousel. Reserves 15L, 16L, … so every figure is predictable."""
+    rows = []
+    for i in range(n):
+        row = _row(f"{city[:2].upper()}{i}", reserve=1_500_000 + i * 100_000,
+                   city=city, start=start)
+        row["property_types"] = list(types)
+        rows.append(row)
+    return rows
+
+
+class TestSelectCarousel:
+    """Slide selection is pure data — the model never picks a property. The
+    cover's "cheapest in <city>" claim rests on the page being price-ascending."""
+
+    def test_picks_the_city_with_most_lots_cheapest_first(self):
+        rows = _carousel_rows("Salem", 5) + _carousel_rows("Erode", 4)
+        facts = poster.select_carousel(rows)
+        assert facts["city"] == "Salem"
+        assert facts["asset_label"] == "plots"
+        assert facts["count"] == 5
+        assert [p["reserve_lakhs"] for p in facts["properties"]] == [15.0, 16.0, 17.0, 18.0, 19.0]
+
+    def test_caps_at_max_slides(self):
+        facts = poster.select_carousel(_carousel_rows("Salem", 9))
+        assert facts["count"] == poster.MAX_CAROUSEL_SLIDES
+        # …and keeps the cheapest ones, not the first nine.
+        assert facts["properties"][0]["reserve_lakhs"] == 15.0
+
+    def test_none_when_no_city_has_enough_lots(self):
+        rows = _carousel_rows("Salem", 3) + _carousel_rows("Erode", 2)
+        assert poster.select_carousel(rows) is None
+
+    def test_mixed_types_fall_back_to_a_generic_but_true_label(self):
+        # 2 plots + 3 flats in one city: no type reaches the minimum, so the
+        # claim widens to "properties" rather than becoming false.
+        rows = _carousel_rows("Salem", 2, types=("Plot",))
+        rows += _carousel_rows("Salem", 3, types=("Flat",))
+        facts = poster.select_carousel(rows)
+        assert facts["asset_label"] == poster.MIXED_ASSET_LABEL
+        assert facts["count"] == 5
+
+    def test_single_type_group_beats_a_bigger_mixed_one(self):
+        rows = _carousel_rows("Salem", 4, types=("Flat",)) + _carousel_rows("Salem", 2, types=("Shop",))
+        facts = poster.select_carousel(rows)
+        assert facts["asset_label"] == "flats"      # the sharper claim wins
+        assert facts["count"] == 4
+
+    def test_skips_rows_without_price_or_city(self):
+        rows = _carousel_rows("Salem", 5)
+        rows[0]["reserve_price"] = None
+        rows[1]["city"] = ""
+        assert poster.select_carousel(rows) is None   # only 3 usable left
+
+    def test_locality_blank_when_area_repeats_the_city(self):
+        rows = _carousel_rows("Salem", 4)
+        for r in rows:
+            r["area"] = "salem"
+        facts = poster.select_carousel(rows)
+        assert all(p["locality"] == "" for p in facts["properties"])
+
+    def test_figures_span_covers_reserves_and_emds(self):
+        facts = poster.select_carousel(_carousel_rows("Salem", 4))
+        figs = facts["figures_lakhs"]
+        assert min(figs) == 1.5 and max(figs) == 18.0   # emd of the cheapest → priciest reserve
+
+    def test_week_label_is_honest_about_timing(self):
+        from datetime import date, timedelta
+        soon = (date.today() + timedelta(days=3)).isoformat() + "T10:00:00Z"
+        assert poster.select_carousel(_carousel_rows("Salem", 4, start=soon))["week_label"] == "this week"
+        far = (date.today() + timedelta(days=40)).isoformat() + "T10:00:00Z"
+        assert poster.select_carousel(_carousel_rows("Salem", 4, start=far))["week_label"] == "right now"
+
+    def test_selection_is_deterministic(self):
+        rows = _carousel_rows("Salem", 4) + _carousel_rows("Erode", 4)
+        first = poster.select_carousel(rows)
+        assert poster.select_carousel(list(reversed(rows)))["city"] == first["city"]
+
+
+class TestCarouselIsland:
+    def test_island_matches_the_template_contract(self):
+        facts = poster.select_carousel(_carousel_rows("Salem", 4))
+        island = poster.carousel_island(facts, "4 plots under ₹19L in salem")
+        assert set(island) == {"city", "asset_label", "week_label", "headline",
+                               "listing_note", "properties"}
+        assert island["headline"] == "4 plots under ₹19L in salem"
+        assert len(island["properties"]) == 4
+        # Slides carry only what the template renders — no auction_id, no emd.
+        assert set(island["properties"][0]) == {"title", "locality", "bank",
+                                                "reserve_price", "auction_date"}
+        assert island["properties"][0]["title"] == "Residential Plot"
+        assert "Salem" in island["listing_note"]
+
+    def test_blank_headline_lets_the_cover_keep_its_formula_title(self):
+        facts = poster.select_carousel(_carousel_rows("Salem", 4))
+        assert poster.carousel_island(facts)["headline"] == ""
+
+
+class TestValidateCarousel:
+    """The slides are grounded by construction; this gates only what the model
+    wrote — same honesty/hook rules as a caption, plus carousel grounding."""
+
+    CITIES = {"Salem", "Chennai", "Erode"}
+
+    def _facts(self, **kw):
+        facts = poster.select_carousel(_carousel_rows("Salem", 5))
+        facts.update(kw)
+        return facts
+
+    def _copy(self, **kw):
+        base = {
+            "headline": "5 plots in salem, from ₹15L",
+            "post": ("5 plots in salem start at ₹15L.\n\n"
+                     "the cheapest is on slide 2. every reserve here comes "
+                     "from the bank's own notice. more on auctionscope.in."),
+            "pinned_comment": "full list: auctionscope.in. not legal advice — verify with the bank. which one would you check first?",
+            "hashtags": ["bankauction", "salem"], "hook_mechanism": "callout",
+        }
+        base.update(kw)
+        return base
+
+    def _run(self, **kw):
+        return poster.validate_carousel(self._copy(**kw), self._facts(), self.CITIES)
+
+    def test_clean_copy_kept(self):
+        copy, reasons = self._run()
+        assert reasons == [] and copy["hook_mechanism"] == "callout"
+
+    def test_absent_block_is_not_an_error(self):
+        assert poster.validate_carousel(None, self._facts()) == (None, [])
+
+    def test_no_facts_means_no_carousel(self):
+        assert poster.validate_carousel(self._copy(), None) == (None, [])
+
+    def test_banned_wording_drops_it(self):
+        copy, reasons = self._run(post="5 title-clear plots in salem from ₹15L.\n\nbody.")
+        assert copy is None and "banned wording" in reasons[0]
+
+    def test_must_name_the_city_it_shows(self):
+        copy, reasons = self._run(post="5 plots from ₹15L.\n\nbody.")
+        assert copy is None and "never names the city" in reasons[0]
+
+    def test_naming_another_city_drops_it(self):
+        copy, reasons = self._run(
+            post="5 plots in salem from ₹15L.\n\ncheaper than anything in Chennai.")
+        assert copy is None and "names another city (Chennai)" in reasons[0]
+
+    def test_figure_outside_the_slides_drops_it(self):
+        copy, reasons = self._run(post="5 plots in salem from ₹95L.\n\nbody.")
+        assert copy is None and "outside the slides" in reasons[0]
+
+    def test_rounded_figure_within_slack_is_kept(self):
+        # ₹1.5L is the cheapest EMD; the voice rounds, so the bound has slack.
+        copy, _ = self._run(post="5 plots in salem, emd from ₹1.5L.\n\nbody.")
+        assert copy is not None
+
+    def test_wrong_count_drops_it(self):
+        copy, reasons = self._run(post="7 plots in salem from ₹15L.\n\nbody.")
+        assert copy is None and "5 are on the slides" in reasons[0]
+
+    def test_over_length_cover_headline_drops_it(self):
+        copy, reasons = self._run(headline="x" * (MAX_HEADLINE_CHARS + 1))
+        assert copy is None and "won't fit slide 1" in reasons[0]
+
+    def test_missing_pinned_comment_drops_it(self):
+        copy, reasons = self._run(pinned_comment="")
+        assert copy is None and "missing pinned_comment" in reasons[0]
+
+    def test_throat_clearing_hook_drops_it(self):
+        copy, reasons = self._run(post="did you know salem has 5 plots from ₹15L?\n\nbody.")
+        assert copy is None and "throat-clearing" in reasons[0]
+
+    def test_post_without_a_figure_drops_it(self):
+        copy, reasons = self._run(post="plots in salem, cheap.\n\nbody.")
+        assert copy is None and "no concrete figure" in reasons[0]
+
+
+class TestFiguresInLakhs:
+    """The range check is only as good as the parser reading the copy's ₹."""
+
+    @pytest.mark.parametrize("text,expected", [
+        ("₹38.5L", [38.5]),
+        ("₹1.2 Cr", [120.0]),          # crore → lakhs
+        ("₹38,50,000", [38.5]),        # bare rupees, en-IN grouping
+        ("₹15 lakh", [15.0]),          # long unit, not a bare "l"
+        ("from ₹15L to ₹19L", [15.0, 19.0]),
+    ])
+    def test_reads_every_form_the_voice_uses(self, text, expected):
+        assert poster._figures_in_lakhs(text) == expected
+
+    @pytest.mark.parametrize("text", ["₹15 lots", "₹5", "5 plots, no rupees"])
+    def test_skips_what_it_cannot_read_rather_than_guessing(self, text):
+        # A guess here would invent an out-of-range figure and drop good copy.
+        assert poster._figures_in_lakhs(text) == []
+
+
+class TestWriteCarouselIsland:
+    def test_writes_island_and_manifest_row(self, tmp_path):
+        facts = poster.select_carousel(_carousel_rows("Salem", 4))
+        row = poster.write_carousel_island(tmp_path, facts, {"headline": "4 plots in salem"})
+        assert row["template"] == poster.CAROUSEL_TEMPLATE
+        assert row["draft_index"] == 0 and row["auction_id"] == "carousel"
+        assert row["slides"] == 6                      # cover + 4 + CTA
+        island = json.loads((tmp_path / row["data"]).read_text())
+        assert island["headline"] == "4 plots in salem"
+        assert len(island["properties"]) == 4
+
+    def test_no_copy_writes_nothing(self, tmp_path):
+        facts = poster.select_carousel(_carousel_rows("Salem", 4))
+        assert poster.write_carousel_island(tmp_path, facts, None) is None
+        assert not (tmp_path / "cards").exists()
+
+
+class TestCarouselPrompt:
+    def test_brief_lists_the_slides_and_the_allowed_figures(self):
+        facts = poster.select_carousel(_carousel_rows("Salem", 4))
+        block = poster.carousel_prompt_block(facts)
+        assert "CAROUSEL" in block and "Salem" in block
+        assert "₹15.0L" in block                       # slide figures are spelled out
+        assert 'Say "4"' in block                      # the count it must not invent
+
+    def test_no_qualifying_city_omits_the_brief(self):
+        assert poster.carousel_prompt_block(None) == ""
+        prompt = build_prompt({"upcoming_auctions": 1, "total_auctions": 2},
+                              shape_candidates([_row("A1")], [], []), 5)
+        assert "CAROUSEL (exactly one per batch" not in prompt
+        # The output schema still describes the optional key, and tells the
+        # model to omit it when no brief appeared — so a stray carousel object
+        # can't sneak in ungrounded.
+        assert "if no CAROUSEL brief appears above" in prompt
+
+
+class TestPropertyCarousel:
+    """The --auction-id kit's swipe post. It introduces NO new model output —
+    the cover hook is the image_headline that already led the caption and the
+    card, so it inherits that field's honesty scan and length cap."""
+
+    def _validated(self, **kw):
+        cands = shape_candidates(
+            [_row("A1")],
+            [_row("D1", reserve=3_800_000, prev=4_500_000, reauction=True)], [])
+        base = {"auction_id": "A1", "angle": "closing_soon", "hook_mechanism": "callout",
+                "post": "reserve ₹40L, ends 1 Aug.\n\nbody.", "needs_image": True,
+                "pinned_comment": "details: auctionscope.in. not legal advice.",
+                "image_headline": "₹40L in Chennai — has it flooded?"}
+        base.update(kw)
+        kept, _ = validate_drafts([base], cands)
+        return kept[0]
+
+    def test_reuses_the_caption_hook_as_the_cover(self):
+        template, island = poster.draft_to_property_carousel(self._validated())
+        assert template == poster.PROPERTY_CAROUSEL_TEMPLATE
+        assert island["headline"] == "₹40L in Chennai — has it flooded?"
+        assert island["eyebrow"] == "Live auction"
+        assert island["asset_type"] == "Residential Plot"
+        assert island["reserve_price"] == 4_000_000
+        assert island["emd"] == 400_000
+        assert island["auction_date"] == "1 Aug 2026"
+
+    def test_price_drop_flags_the_eyebrow_and_keeps_the_earlier_reserve(self):
+        d = self._validated(auction_id="D1", angle="price_drop",
+                            hook_mechanism="contrast", image_headline="₹45L → ₹38L")
+        _, island = poster.draft_to_property_carousel(d)
+        assert island["eyebrow"] == "Price drop · re-auction"
+        assert island["previous_reserve_price"] == 4_500_000
+
+    def test_earlier_reserve_not_lower_is_cleared(self):
+        d = self._validated()
+        d["source"] = {**d["source"], "previous_reserve_price": 1_000_000}  # went UP
+        _, island = poster.draft_to_property_carousel(d)
+        assert island["previous_reserve_price"] is None
+        assert island["eyebrow"] == "Live auction"
+
+    def test_locality_blank_when_it_repeats_the_city(self):
+        d = self._validated()
+        d["source"] = {**d["source"], "area": "chennai", "city": "Chennai"}
+        _, island = poster.draft_to_property_carousel(d)
+        assert island["locality"] == ""
+
+    def test_no_reserve_means_no_carousel(self):
+        d = self._validated()
+        d["source"] = {**d["source"], "reserve_price": None}
+        assert poster.draft_to_property_carousel(d) is None
+
+    def test_write_emits_island_and_manifest(self, tmp_path):
+        rows = poster.write_property_carousel(tmp_path, [self._validated()])
+        assert len(rows) == 1 and rows[0]["slides"] == 6
+        island = json.loads((tmp_path / rows[0]["data"]).read_text())
+        assert island["headline"] == rows[0]["headline"]
+        # Filename is distinct from the plain card's so they never collide.
+        assert rows[0]["data"].endswith("-carousel.json")
+
+
+class TestFullKitGating:
+    """A normal batch must NOT emit five property carousels — that is 30 extra
+    slides through a review gate that publishes about five posts a week."""
+
+    STATS = {"total_auctions": 10, "upcoming_auctions": 5, "generated_at": "now"}
+
+    def _drafts(self):
+        cands = shape_candidates([_row("A1")], [], [])
+        base = {"auction_id": "A1", "angle": "closing_soon", "hook_mechanism": "callout",
+                "post": "reserve ₹40L.\n\nbody.", "needs_image": True,
+                "pinned_comment": "auctionscope.in. not legal advice.",
+                "image_headline": "₹40L in Chennai"}
+        kept, _ = validate_drafts([base], cands)
+        return kept
+
+    def test_batch_mode_emits_no_property_carousel(self, tmp_path):
+        out = poster.write_outputs(tmp_path, self.STATS, self._drafts(), [], "")
+        staged = json.loads((out / "drafts.json").read_text())
+        assert all(not c["data"].endswith("-carousel.json") for c in staged["cards"])
+        assert "carousel:" not in (out / "review.md").read_text()
+
+    def test_full_kit_emits_it_alongside_the_card(self, tmp_path):
+        out = poster.write_outputs(tmp_path, self.STATS, self._drafts(), [], "",
+                                   full_kit=True)
+        staged = json.loads((out / "drafts.json").read_text())
+        templates = [c["template"] for c in staged["cards"]]
+        assert poster.PROPERTY_CAROUSEL_TEMPLATE in templates
+        assert "deal-of-the-day-1080" in templates      # the card still ships
+        review = (out / "review.md").read_text()
+        assert "check before you bid" in review
+        # Card and carousel share a draft_index but must both be reported.
+        assert "card: `deal-of-the-day-1080`" in review
+
+
 class TestParseLlmJson:
     def test_plain_json(self):
         assert parse_llm_json('{"drafts": []}') == {"drafts": []}
@@ -358,12 +686,13 @@ class TestStagedPipeline:
     STATS = {"total_auctions": 2179, "upcoming_auctions": 616,
              "generated_at": "now", "last_enriched": None}
 
-    def _work_dir(self, tmp_path, response_text):
+    def _work_dir(self, tmp_path, response_text, carousel=None):
         work = tmp_path / "work"
         work.mkdir()
         cands = shape_candidates([_row("A1")], [], [])
         (work / "candidates.json").write_text(json.dumps(
-            {"stats": self.STATS, "candidates": cands, "max_drafts": 5}),
+            {"stats": self.STATS, "candidates": cands, "carousel": carousel,
+             "max_drafts": 5}),
             encoding="utf-8")
         (work / "response.txt").write_text(response_text, encoding="utf-8")
         return work
@@ -414,6 +743,57 @@ class TestStagedPipeline:
         review = (out_dir / "review.md").read_text()
         assert "reel(s) staged" in review and "render_reel.py" in review
         assert "add trending audio in-app" in review
+
+    def _carousel_response(self, **copy):
+        block = {"headline": "5 plots in salem, from ₹15L",
+                 "post": ("5 plots in salem start at ₹15L.\n\nthe cheapest is on "
+                          "slide 2. reserves from each bank's notice. auctionscope.in."),
+                 "pinned_comment": "full list: auctionscope.in. not legal advice.",
+                 "hashtags": ["bankauction", "salem"], "location_tag": "Salem",
+                 "hook_mechanism": "callout"}
+        block.update(copy)
+        return json.dumps({**json.loads(self._response()), "carousel": block})
+
+    def test_finalize_stages_the_carousel(self, tmp_path, monkeypatch):
+        facts = poster.select_carousel(_carousel_rows("Salem", 5))
+        work = self._work_dir(tmp_path, self._carousel_response(), carousel=facts)
+        monkeypatch.setenv("POSTER_OUT_DIR", str(tmp_path / "out"))
+        assert step_finalize(work) == 0
+        (out_dir,) = (tmp_path / "out").iterdir()
+        staged = json.loads((out_dir / "drafts.json").read_text())
+        # It rides in the same `cards` manifest, first — so --render-staged
+        # picks it up with no special case.
+        row = staged["cards"][0]
+        assert row["template"] == poster.CAROUSEL_TEMPLATE and row["draft_index"] == 0
+        island = json.loads((out_dir / row["data"]).read_text())
+        assert island["city"] == "Salem" and len(island["properties"]) == 5
+        review = (out_dir / "review.md").read_text()
+        assert "## Carousel — 5 cheapest plots — Salem" in review
+        assert "7 slides (cover + 5 + CTA)" in review
+        assert "slides, cheapest first" in review
+
+    def test_finalize_drops_ungrounded_carousel_but_keeps_the_batch(self, tmp_path, monkeypatch):
+        facts = poster.select_carousel(_carousel_rows("Salem", 5))
+        work = self._work_dir(
+            tmp_path,
+            self._carousel_response(post="5 plots in salem from ₹95L.\n\nbody."),
+            carousel=facts)
+        monkeypatch.setenv("POSTER_OUT_DIR", str(tmp_path / "out"))
+        assert step_finalize(work) == 0            # the captions still ship
+        (out_dir,) = (tmp_path / "out").iterdir()
+        staged = json.loads((out_dir / "drafts.json").read_text())
+        assert staged["carousel"] is None
+        assert all(c["auction_id"] != "carousel" for c in staged["cards"])
+        assert any("outside the slides" in r for r in staged["rejected"])
+
+    def test_finalize_without_a_carousel_is_unchanged(self, tmp_path, monkeypatch):
+        work = self._work_dir(tmp_path, self._response())      # no carousel key
+        monkeypatch.setenv("POSTER_OUT_DIR", str(tmp_path / "out"))
+        assert step_finalize(work) == 0
+        (out_dir,) = (tmp_path / "out").iterdir()
+        staged = json.loads((out_dir / "drafts.json").read_text())
+        assert staged["carousel"] is None
+        assert "## Carousel" not in (out_dir / "review.md").read_text()
 
     def test_finalize_tolerates_fenced_engine_output(self, tmp_path, monkeypatch):
         work = self._work_dir(tmp_path, f"```json\n{self._response()}\n```")

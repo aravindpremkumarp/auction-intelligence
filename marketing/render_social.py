@@ -53,6 +53,93 @@ def chromium_path() -> str | None:
     return cands[0] if cands else None
 
 
+def stage_name(template: str, out_name: str | None, index: int, multi: bool) -> str:
+    """Filename for one .stage screenshot.
+
+    Multi-stage templates (the carousel renders one .stage per slide) always get
+    a numbered suffix — otherwise every slide overwrites the same PNG. When the
+    caller supplied a name it is the stem, so a staged carousel lands as
+    card-00-carousel_01.png … and never collides with another card.
+    """
+    if out_name and multi:
+        return f"{pathlib.Path(out_name).stem}_{index:02d}.png"
+    if out_name:
+        return out_name
+    return f"{template}_{index:02d}.png" if multi else f"{template}.png"
+
+
+def stage_html(template: str, island: dict | None) -> tuple[str, pathlib.Path]:
+    """Write <template>.html with `island` swapped into its #data script and
+    return (file_uri, staged_path). Staged beside the real template so the
+    relative lib/ asset paths (tokens.css, motion.css, motion.js) still
+    resolve — otherwise the motion kit never loads and data-render-ready
+    never fires."""
+    src = TEMPLATES / f"{template}.html"
+    if not src.exists():
+        sys.exit(f"unknown template: {template} ({src} missing)")
+    html = src.read_text(encoding="utf-8")
+    if island is None:
+        return src.as_uri(), src
+    blob = json.dumps(island, ensure_ascii=False, indent=2)
+    html, n = DATA_ISLAND.subn(rf"\g<1>\n{blob}\n\g<2>", html)
+    if n != 1:
+        sys.exit(f"{template}: expected exactly one #data island, found {n}")
+    staged = TEMPLATES / f".{template}.staged.html"
+    staged.write_text(html, encoding="utf-8")
+    return staged.as_uri(), staged
+
+
+def render_batch(template: str, items: list[tuple[dict, str]],
+                 out_dir: pathlib.Path, viewport: tuple[int, int] = (1240, 900),
+                 progress_every: int = 50) -> list[pathlib.Path]:
+    """Render many islands through ONE browser.
+
+    render() launches a browser per call, which is fine for the five cards a
+    content batch stages and hopeless for the whole property inventory (664
+    cold starts dominate the actual screenshots). This keeps one browser and
+    one page alive and re-navigates per item.
+
+    `items` is [(island_dict, out_name.png), …]. Single-stage templates only —
+    the per-property OG card is one .stage by construction; a multi-stage
+    template would need the numbering render() does and belongs there.
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+    written: list[pathlib.Path] = []
+    if not items:
+        print("render_batch: nothing to render")
+        return written
+
+    from playwright.sync_api import sync_playwright  # lazy: only needed to render
+
+    staged: pathlib.Path | None = None
+    with sync_playwright() as p:
+        exe = chromium_path()
+        browser = p.chromium.launch(**({"executable_path": exe} if exe else {}))
+        page = browser.new_page(viewport={"width": viewport[0], "height": viewport[1]})
+        try:
+            for i, (island, out_name) in enumerate(items, start=1):
+                url, staged = stage_html(template, island)
+                # Same file path every iteration, so force a real reload rather
+                # than trusting navigation to a URL the page is already on.
+                page.goto(url)
+                page.reload()
+                page.wait_for_selector("html[data-render-ready]", timeout=30_000)
+                stage = page.query_selector(".stage")
+                if not stage:
+                    sys.exit(f"{template}: no .stage element to screenshot")
+                path = out_dir / out_name
+                stage.screenshot(path=str(path))
+                written.append(path)
+                if progress_every and i % progress_every == 0:
+                    print(f"  rendered {i}/{len(items)}")
+        finally:
+            browser.close()
+            if staged is not None and staged.name.startswith("."):
+                staged.unlink(missing_ok=True)
+    print(f"rendered {len(written)} image(s) → {out_dir}")
+    return written
+
+
 def render(template: str, data_file: str | None, out_dir: pathlib.Path,
            out_name: str | None = None) -> list[pathlib.Path]:
     src = TEMPLATES / f"{template}.html"
@@ -91,11 +178,7 @@ def render(template: str, data_file: str | None, out_dir: pathlib.Path,
             sys.exit(f"{template}: no .stage elements to screenshot")
         multi = len(stages) > 1
         for i, stage in enumerate(stages, start=1):
-            if out_name and not multi:
-                name = out_name                                  # caller-chosen unique name
-            else:
-                name = f"{template}_{i:02d}.png" if multi else f"{template}.png"
-            path = out_dir / name
+            path = out_dir / stage_name(template, out_name, i, multi)
             stage.scroll_into_view_if_needed()
             stage.screenshot(path=str(path))
             written.append(path)
@@ -121,8 +204,13 @@ def render_staged(date_dir: pathlib.Path) -> list[pathlib.Path]:
     out_dir = date_dir / "rendered"
     written: list[pathlib.Path] = []
     for c in cards:
-        data = date_dir / c["data"]                              # cards/NN-id.json
-        name = f"card-{c['draft_index']:02d}-{c['auction_id']}.png"
+        data = date_dir / c["data"]                              # cards/NN-id[-carousel].json
+        # Name off the island's own stem, which the writers already keep unique
+        # (01-D1 vs 01-D1-carousel vs 00-carousel). Keying on draft_index +
+        # auction_id instead would give a draft's card and its property carousel
+        # the same stem — card-01-D1.png beside card-01-D1_01.png, which is
+        # unreadable and collides outright if the carousel is ever single-stage.
+        name = f"card-{data.stem}.png"
         written += render(c["template"], str(data), out_dir, out_name=name)
     if not cards:
         print("no staged cards to render")

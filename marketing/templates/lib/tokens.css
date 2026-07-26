@@ -67,6 +67,10 @@ body {
 }
 .stage-1080 { width: 1080px; height: 1080px; }
 .stage-1080x1350 { width: 1080px; height: 1350px; }
+/* Open Graph / Twitter card size. Landscape and SHORT — the shared chrome is
+   sized for a 1080-wide portrait canvas, so the property-og template scopes
+   its own tighter padding and type scale on top of this. */
+.stage-1200x630 { width: 1200px; height: 630px; }
 
 /* soft brand wash behind content */
 .stage::before {

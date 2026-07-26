@@ -1,9 +1,22 @@
-"""Generate the Open Graph / Twitter Card image for auctionscope.in.
+"""Generate the SITE-WIDE Open Graph / Twitter Card image for auctionscope.in.
 
 Run from repo root:
     python scripts/generate_og_image.py
 
-Produces web/og-image.png at 1200x630, the standard OG/Twitter size.
+Produces web/og-image.png at 1200x630, the standard OG/Twitter size. This is
+now only the FALLBACK card — the one a page gets when it has no card of its
+own. Individual property pages get their own picture from
+scripts/generate_property_og.py (see web/og-manifest.json).
+
+STALE PALETTE — do not run without reading this first. The colours below
+(cream #faf7f0 paper, yellow #ffd84d accent) predate the current brand, which
+is cobalt #0052ff on near-white with Bricolage Grotesque / Inter / JetBrains
+Mono (brand/, web/styles.css, marketing/templates/lib/tokens.css). Running
+this as-is would overwrite the committed og-image.png with an off-brand card
+that no longer matches the per-property ones. It also uses a second rendering
+stack (PIL + Liberation fonts) rather than the Playwright + HTML/tokens
+pipeline every other Auctionscope image goes through. Either port it onto the
+tokens (preferred — one stack, one palette) or leave the committed PNG alone.
 """
 from __future__ import annotations
 
