@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Auctionscope — Property OG card (1200×630)</title>
+<meta name="viewport" content="width=1200">
+<!--
+  The per-property Open Graph / Twitter card. Every /property/<id>/ page gets
+  one, so a shared link previews THAT property's price, city and date instead
+  of the generic site logo — and so the Product JSON-LD `image` stops pointing
+  all 664 pages at one picture.
+
+  Unlike the social formats this carries NO authored copy: there is no hook, no
+  headline, no caption. Every glyph is a field off the auction record, which is
+  why it can be generated for the whole inventory with no human review.
+
+  Legibility rule: OG previews render SMALL (WhatsApp shows ~400px wide, so
+  roughly a third of native). Type is sized so the price and city survive that;
+  do not add a fourth information row.
+
+  Render: python scripts/generate_property_og.py --limit 1
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700;12..96,800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+<noscript><link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700;12..96,800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"></noscript>
+<link rel="stylesheet" href="lib/tokens.css">
+<link rel="stylesheet" href="lib/motion.css">
+<style>
+  /* The shared chrome is built for a 1080-wide portrait canvas. 630px of
+     height is less than half that, so every vertical rhythm gets tightened. */
+  .stage-1200x630 .s-head { padding: 40px 56px 0; }
+  .stage-1200x630 .s-mid  { padding: 0 56px 74px; gap: 6px; }
+  .stage-1200x630 .s-foot { left: 56px; right: 56px; bottom: 34px; }
+
+  .og-loc {
+    font-family: var(--font-mono);
+    font-size: 24px; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.06em;
+  }
+  .og-title {
+    font-family: var(--font-display);
+    font-size: 56px; font-weight: 700;
+    letter-spacing: -0.02em; line-height: 1.04;
+    margin-top: 2px;
+  }
+  /* Locality is blanked when it just repeats the city — hide the line rather
+     than print an empty one (same rule as the social cards). */
+  .og-sub {
+    font-size: 27px; color: var(--ink-soft); line-height: 1.3;
+  }
+  .og-sub:empty { display: none; }
+
+  .og-price-label { font-size: 21px; color: var(--muted); margin-top: 18px; }
+  .og-price-row { display: flex; align-items: baseline; gap: 22px; flex-wrap: wrap; }
+  .og-price {
+    font-family: var(--font-display);
+    font-size: 104px; font-weight: 800;
+    letter-spacing: -0.03em; line-height: 1;
+    color: var(--accent);
+    font-variant-numeric: tabular-nums;
+  }
+  /* Price-drop treatment: the earlier reserve struck through + a computed %.
+     Both come from the two notices; the % is never authored. */
+  .og-was {
+    font-family: var(--font-mono);
+    font-size: 30px; font-weight: 500; color: var(--muted);
+    text-decoration: line-through;
+    text-decoration-color: var(--danger);
+  }
+  .og-drop {
+    font-family: var(--font-mono);
+    font-size: 26px; font-weight: 600;
+    color: var(--good); background: var(--good-soft, rgba(20,150,90,.12));
+    border-radius: var(--radius-pill); padding: 8px 20px;
+  }
+  .og-chips { display: flex; gap: 14px; margin-top: 20px; flex-wrap: wrap; }
+  .og-chips .chip { font-size: 23px; padding: 12px 24px; }
+  /* A fact we don't hold blanks its chip rather than printing a stray label. */
+  .og-chips .chip:has(b:empty) { display: none; }
+
+  /* Closed auctions must never read as biddable: price and eyebrow both go
+     neutral, so nothing on the card carries the live accent. Honesty rule,
+     same framing as the SSR block in prerender_properties.py. */
+  .stage-1200x630.is-ended .og-price { color: var(--ink-soft); }
+  .stage-1200x630.is-ended .s-eyebrow { color: var(--muted); }
+  .stage-1200x630.is-ended .s-eyebrow .dot { background: var(--muted); }
+  .stage-1200x630.is-ended .chip.is-accent { color: var(--muted); }
+</style>
+</head>
+<body>
+
+<script id="data" type="application/json">
+{
+  "eyebrow": "Live auction",
+  "state": "live",
+  "city": "Karur",
+  "asset_type": "Residential Land",
+  "locality": "Manmangalam Taluk",
+  "reserve_price": 3100000,
+  "previous_reserve_price": 3187000,
+  "auction_date": "16 Jul 2026",
+  "bank": "South Indian Bank",
+  "source_line": "Reserve price and date from the bank's auction notice."
+}
+</script>
+
+<div class="stage stage-1200x630" id="stage">
+  <div class="s-head">
+    <span class="s-eyebrow" id="eyebrow"><span class="dot"></span><span data-field="eyebrow">Live auction</span></span>
+    <span class="s-brand">
+      <svg viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs><linearGradient id="tile" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3b74f2"/><stop offset="1" stop-color="#2a5fe6"/></linearGradient></defs><rect x="0" y="0" width="1024" height="1024" rx="232" fill="url(#tile)"/><g transform="translate(236 236) scale(23)" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="2" x2="5" y1="12" y2="12"/><line x1="19" x2="22" y1="12" y2="12"/><line x1="12" x2="12" y1="2" y2="5"/><line x1="12" x2="12" y1="19" y2="22"/><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="1.55" fill="#ffffff" stroke="none"/></g></svg>
+      Auctionscope
+    </span>
+  </div>
+
+  <div class="s-mid">
+    <div class="og-loc"><span data-field="city">Karur</span></div>
+    <div class="og-title" data-field="asset_type">Residential Land</div>
+    <div class="og-sub" data-field="locality">Manmangalam Taluk</div>
+
+    <div class="og-price-label">Reserve price</div>
+    <div class="og-price-row">
+      <span class="og-price" data-field="reserve_price" data-field-format="inr">₹0</span>
+      <span class="og-was" id="og-was" data-field="previous_reserve_price" data-field-format="inr"></span>
+      <span class="og-drop" id="og-drop">↓ <span id="og-drop-pct">–</span></span>
+    </div>
+
+    <div class="og-chips chips">
+      <span class="chip"><b data-field="bank">South Indian Bank</b></span>
+      <span class="chip is-accent">Auction <b data-field="auction_date">16 Jul 2026</b></span>
+    </div>
+  </div>
+
+  <div class="s-foot">
+    <div class="s-honesty" data-field="source_line">Reserve price and date from the bank's auction notice.</div>
+    <div class="s-cta">auctionscope.in</div>
+  </div>
+</div>
+
+<script src="lib/motion.js"></script>
+<script>
+  (function () {
+    var d = AS.data || AS.bind();
+
+    // Ended auctions: neutral price, no "live" accent. The eyebrow text itself
+    // is supplied by the generator so the wording stays in one place.
+    if (d.state === 'ended') {
+      document.getElementById('stage').classList.add('is-ended');
+      document.getElementById('eyebrow').classList.remove('is-good');
+    } else if (d.state === 'price_drop') {
+      document.getElementById('eyebrow').classList.add('is-good');
+    }
+
+    // Drop % is computed from the two notice prices, never authored. Without a
+    // genuine earlier reserve both the strike-through and the badge disappear.
+    var prev = Number(d.previous_reserve_price), now = Number(d.reserve_price);
+    var badge = document.getElementById('og-drop');
+    if (prev > 0 && now > 0 && now < prev) {
+      document.getElementById('og-drop-pct').textContent =
+        (Math.round(((prev - now) / prev) * 1000) / 10) + '%';
+    } else {
+      badge.style.display = 'none';
+      document.getElementById('og-was').style.display = 'none';
+    }
+  })();
+</script>
+</body>
+</html>

@@ -184,7 +184,11 @@
       s.querySelector('.t-rank').textContent = i + 1;
       s.querySelector('.t-context').textContent =
         'of ' + props.length + ' · cheapest ' + d.asset_label + ' · ' + d.city;
-      s.querySelector('.t-loc').textContent = p.locality + ' · ' + d.city;
+      // Join only the parts we actually have — a property with no locality
+      // must read "Salem", never " · Salem" (the poster blanks a locality
+      // that just repeats the city).
+      s.querySelector('.t-loc').textContent =
+        [p.locality, d.city].filter(function (x) { return x; }).join(' · ');
       s.querySelector('.t-title').textContent = p.title;
       s.querySelector('.t-price').textContent = AS.formatINR(p.reserve_price);
       s.querySelector('.t-bank').innerHTML = '<b></b>';

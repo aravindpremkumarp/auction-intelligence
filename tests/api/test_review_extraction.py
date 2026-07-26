@@ -70,20 +70,23 @@ def test_queue_defaults_to_recent_and_passes_extraction_at(monkeypatch):
     import api.review.extraction as ex
     seen = {}
 
-    def fake_list(status, limit, sort):
+    def fake_list(status, limit, sort, score_min=None, score_max=None):
         seen["sort"] = sort
+        seen["score_min"] = score_min
+        seen["score_max"] = score_max
         return [
-            {"filename": "b.pdf", "status": "pending",
+            {"filename": "b.pdf", "status": "pending", "score": 72,
              "extraction_at": "2026-07-08T10:00:00Z", "extraction_batch": 7,
              "extraction_json": json.dumps([{"id": "0", "start": 1},
                                             {"id": "1", "start": None}])},
-            {"filename": "a.pdf", "status": "verified",
+            {"filename": "a.pdf", "status": "verified", "score": None,
              "extraction_at": None, "extraction_batch": None,
              "extraction_json": "[]"},
         ]
 
     monkeypatch.setattr(ex, "list_extraction_queue", fake_list)
-    out = ex.extraction_queue(status=None, limit=200, sort="recent", _admin=None)
+    out = ex.extraction_queue(status=None, limit=200, sort="recent",
+                              score_min=None, score_max=None, _admin=None)
     assert seen["sort"] == "recent"                 # default forwarded to the query
     assert out.total == 2
     r0, r1 = out.rows
@@ -91,17 +94,35 @@ def test_queue_defaults_to_recent_and_passes_extraction_at(monkeypatch):
     assert r0.extraction_at == "2026-07-08T10:00:00Z"
     assert r0.extraction_batch == 7                 # batch tag flows to the UI
     assert r0.n_fields == 2 and r0.n_ungrounded == 1
+    assert r0.score == 72                            # score flows to the UI
     assert r1.extraction_at is None                 # untracked rows stay optional
     assert r1.extraction_batch is None
+    assert r1.score is None                          # unscored rows stay optional
 
 
 def test_queue_honours_name_sort(monkeypatch):
     import api.review.extraction as ex
     seen = {}
     monkeypatch.setattr(ex, "list_extraction_queue",
-                        lambda status, limit, sort: seen.update(sort=sort) or [])
-    ex.extraction_queue(status=None, limit=200, sort="name", _admin=None)
+                        lambda status, limit, sort, score_min=None, score_max=None:
+                            seen.update(sort=sort) or [])
+    ex.extraction_queue(status=None, limit=200, sort="name",
+                        score_min=None, score_max=None, _admin=None)
     assert seen["sort"] == "name"
+
+
+def test_queue_forwards_score_bounds(monkeypatch):
+    """score_min/score_max on the endpoint reach list_extraction_queue unchanged,
+    so the review UI can filter the queue by extraction quality score."""
+    import api.review.extraction as ex
+    seen = {}
+    monkeypatch.setattr(ex, "list_extraction_queue",
+                        lambda status, limit, sort, score_min=None, score_max=None:
+                            seen.update(score_min=score_min, score_max=score_max) or [])
+    ex.extraction_queue(status=None, limit=200, sort="recent",
+                        score_min=40.0, score_max=79.0, _admin=None)
+    assert seen["score_min"] == 40.0
+    assert seen["score_max"] == 79.0
 
 
 def test_queue_order_clause_selects_recent_vs_name():
@@ -123,6 +144,32 @@ def test_queue_order_clause_selects_recent_vs_name():
         ex.list_extraction_queue(None, 200, "name")
         assert "ORDER BY d.filename" in captured["cypher"]
         assert "extraction_at DESC" not in captured["cypher"]
+    finally:
+        ex.run_read_query = orig
+
+
+def test_queue_score_bounds_add_where_clauses_and_params():
+    """score_min/score_max, when given, add a WHERE bound on d.extraction_score
+    and are passed through as query params — omitted bounds add no clause."""
+    import api.review.extraction as ex
+    captured = {}
+
+    def fake_run(cypher, params, **kw):
+        captured["cypher"] = cypher
+        captured["params"] = params
+        return []
+
+    orig = ex.run_read_query
+    try:
+        ex.run_read_query = fake_run
+        ex.list_extraction_queue(None, 200, "recent")
+        assert "d.extraction_score >=" not in captured["cypher"]
+        assert "d.extraction_score <=" not in captured["cypher"]
+        ex.list_extraction_queue(None, 200, "recent", score_min=40.0, score_max=79.0)
+        assert "d.extraction_score >= $score_min" in captured["cypher"]
+        assert "d.extraction_score <= $score_max" in captured["cypher"]
+        assert captured["params"]["score_min"] == 40.0
+        assert captured["params"]["score_max"] == 79.0
     finally:
         ex.run_read_query = orig
 

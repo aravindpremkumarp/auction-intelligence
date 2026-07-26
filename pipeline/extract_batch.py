@@ -32,7 +32,7 @@ from pathlib import Path
 
 from pipeline import langextract_examples as LX
 from pipeline.langextract_run import USAGE, install_usage_tracking
-from pipeline.validators import COVERAGE_FIELDS, validate
+from pipeline.validators import COVERAGE_FIELDS, validate, validate_stored
 
 OUT_ROOT = Path(__file__).resolve().parent / "output" / "batches"
 REVIEW_SCORE_THRESHOLD = 80   # docs at/under this get queued for human review
@@ -109,22 +109,6 @@ def load_from_graph(limit: int | None) -> list[tuple]:
     return out
 
 
-def _validate_persisted(entities: list[dict], md: str) -> dict:
-    """Validate stored dict-entities by shimming them to the attribute shape
-    validators.validate expects (extraction_class / attributes / char_interval)."""
-    from types import SimpleNamespace
-    shims = [SimpleNamespace(
-        extraction_class=e.get("cls"),
-        extraction_text=e.get("text") or "",
-        attributes=e.get("attrs") or {},
-        # Carry char positions + text so full_description_coverage can check each
-        # descriptive detail is derivable from its lot's full_description.
-        char_interval=None if e.get("start") is None else SimpleNamespace(
-            start_pos=e.get("start"), end_pos=e.get("end")),
-    ) for e in entities]
-    return validate(shims, source_text=md)
-
-
 def build_batch_report(records: list[dict]) -> dict:
     """Aggregate one batch's per-doc validations into actionable feedback."""
     n = len(records)
@@ -174,7 +158,7 @@ def run(docs: list, batch_size: int, from_graph: bool = False) -> None:
                     # Already-extracted entities from Document.extraction_json —
                     # validate (pure, no LLM) instead of re-extracting.
                     aid, md, entities = item
-                    v = _validate_persisted(entities, md)
+                    v = validate_stored(entities, source_text=md)
                 else:
                     aid, md = item
                     res = _extract_robust(md)

@@ -63,6 +63,28 @@ REQUEST_INTERVAL_S = 1.1
 # scraped notice text clears this by a wide margin (median observed: ~800 chars).
 MIN_DESCRIPTION_LEN = 60
 
+# Per-property OG cards (scripts/generate_property_og.py) publish a manifest of
+# auction_id -> R2 image URL. A property present here gets its own picture in
+# og:image / twitter:image AND in the JSON-LD `image` field; anything missing
+# falls back to the generic site card, so a page is never left pointing at a
+# 404 and this file still runs standalone with no manifest at all.
+OG_MANIFEST_PATH = WEB_DIR / "og-manifest.json"
+DEFAULT_OG_IMAGE = f"{SITE_BASE}/og-image.png"
+
+
+def load_og_manifest(path: Path | None = None) -> dict[str, str]:
+    try:
+        data = json.loads((path or OG_MANIFEST_PATH).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def og_image_for(auction_id: str, manifest: dict[str, str] | None) -> str:
+    """The property's own card URL, or the generic one when it has none yet."""
+    url = (manifest or {}).get(str(auction_id))
+    return url if isinstance(url, str) and url.startswith("http") else DEFAULT_OG_IMAGE
+
 
 def fmt_money(num: float | None) -> str | None:
     """Port of app.js's price formatter (₹ Cr / ₹ L) so copy matches the live app."""
@@ -328,7 +350,8 @@ def breadcrumb_trail(auction_id: str, fields: dict, rel: dict, name: str) -> dic
     }
 
 
-def property_jsonld(auction_id: str, fields: dict, rel: dict, ended: bool) -> list[dict]:
+def property_jsonld(auction_id: str, fields: dict, rel: dict, ended: bool,
+                    og_image: str = DEFAULT_OG_IMAGE) -> list[dict]:
     """schema.org JSON-LD for a property page — Move 3 of the SEO plan
     (docs/marketing/plan.md §4): structured data for price rich results and
     AI-answer eligibility.
@@ -400,7 +423,7 @@ def property_jsonld(auction_id: str, fields: dict, rel: dict, ended: bool) -> li
             "description": desc,
             "sku": auction_id,
             "url": url,
-            "image": f"{SITE_BASE}/og-image.png",
+            "image": og_image,
             "additionalProperty": extra,
             "offers": offer,
         }
@@ -416,6 +439,7 @@ def property_jsonld(auction_id: str, fields: dict, rel: dict, ended: bool) -> li
             "name": name,
             "description": desc,
             "url": url,
+            "image": og_image,
             "additionalProperty": extra,
         }
         if reserve:
@@ -429,7 +453,8 @@ def property_jsonld(auction_id: str, fields: dict, rel: dict, ended: bool) -> li
     return blocks
 
 
-def render_page(template: str, auction_id: str, fields: dict, rel: dict) -> str:
+def render_page(template: str, auction_id: str, fields: dict, rel: dict,
+                og_image: str = DEFAULT_OG_IMAGE) -> str:
     url = f"{SITE_BASE}/property/{auction_id}"
     ended = is_ended(fields)
     title = html.escape(seo_title(fields, rel, ended))
@@ -455,12 +480,19 @@ def render_page(template: str, auction_id: str, fields: dict, rel: dict) -> str:
                  f'<meta name="twitter:title" content="{title}">', out, count=1)
     out = re.sub(r'<meta name="twitter:description" content="[^"]*">',
                  f'<meta name="twitter:description" content="{desc}">', out, count=1)
+    # The property's own OG card. og:image:width/height in the shell are already
+    # 1200x630, which is exactly what property-og-1200x630 renders, so only the
+    # two URLs move. Falls back to the site card when this property has none.
+    out = re.sub(r'<meta property="og:image" content="[^"]*">',
+                 f'<meta property="og:image" content="{html.escape(og_image)}">', out, count=1)
+    out = re.sub(r'<meta name="twitter:image" content="[^"]*">',
+                 f'<meta name="twitter:image" content="{html.escape(og_image)}">', out, count=1)
 
     # Move 3 — structured data. Inject one <script> per JSON-LD node just before
     # </head> (json.dumps handles escaping, so this is not run through html.escape).
     jsonld = "\n".join(
         f'<script type="application/ld+json">{json.dumps(b, ensure_ascii=False)}</script>'
-        for b in property_jsonld(auction_id, fields, rel, ended)
+        for b in property_jsonld(auction_id, fields, rel, ended, og_image)
     )
     out = out.replace("</head>", f"{jsonld}\n</head>", 1)
 
@@ -483,6 +515,11 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     template = TEMPLATE_PATH.read_text(encoding="utf-8")
+    og_manifest = load_og_manifest()
+    print(f"og cards available for {len(og_manifest)} propert(ies)"
+          if og_manifest else
+          "no og-manifest.json — every page falls back to the generic site card "
+          "(run scripts/generate_property_og.py to populate it)")
 
     generated: list[str] = []
     counts = {"incomplete": 0, "error": 0}
@@ -501,7 +538,8 @@ def main(argv: list[str] | None = None) -> int:
         if len((fields.get("description") or "").strip()) < MIN_DESCRIPTION_LEN:
             counts["incomplete"] += 1
             return False
-        page = render_page(template, auction_id, fields, rel)
+        page = render_page(template, auction_id, fields, rel,
+                           og_image_for(auction_id, og_manifest))
         out_path = OUT_ROOT / auction_id / "index.html"
         if args.dry_run:
             print(f"  [dry-run] would write {out_path.relative_to(REPO_ROOT)}")

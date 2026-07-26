@@ -40,10 +40,13 @@ import aiohttp
 import requests
 from dotenv import load_dotenv
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 from api.neo4j_client import run_query, run_read_query
 from pipeline.config import (
     OPENROUTER_API_KEY, OPENROUTER_BASE_URL, OPENROUTER_MODEL,
     PROMPTS_DIR, MAX_RETRIES,
+    DESCRIPTION_OCR_ENGINE, DATALAB_PIPELINE_CONCURRENCY, datalab_mode_for,
 )
 from pipeline.mineru import (
     MINERU_BLOCKS_DIR,
@@ -231,6 +234,67 @@ def stage1_mineru(work: list[dict]) -> dict[str, str]:
     return md_by_path
 
 
+# ── Datalab stage (default engine) ───────────────────────────────────────────
+# Datalab replaces MinerU as the default OCR engine (DESCRIPTION_OCR_ENGINE).
+# Unlike MinerU (batched), Datalab is one convert call per file, tier-routed by
+# notice_type (single -> fast, multi -> accurate). Output is written to the same
+# markdown/blocks cache the loader reads (see datalab_api.run_and_cache), so the
+# LLM stage and Neo4j loader are unchanged.
+
+def stage1_datalab(work: list[dict]) -> dict[str, str]:
+    """{file_path: markdown} via Datalab. Cache hits skip the API.
+
+    Mirrors ``stage1_mineru``'s cache / disk / extension gating, then runs the
+    uncached notices through Datalab concurrently with per-notice tier routing.
+    """
+    from pipeline import datalab_api
+
+    md_by_path: dict[str, str] = {}
+    items_to_call: list[dict] = []
+    missing_disk = 0
+    unsupported_ext = 0
+
+    for w in work:
+        cache_path = MINERU_MD_DIR / f"{safe_cache_name(w['file_path'])}.md"
+        if cache_path.exists():
+            md_by_path[w["file_path"]] = cache_path.read_text(encoding="utf-8")
+            continue
+        disk = find_disk_path(w["filename"])
+        if disk is None:
+            missing_disk += 1
+            continue
+        if disk.suffix.lower() not in MINERU_SUPPORTED_EXTS:
+            unsupported_ext += 1
+            continue
+        items_to_call.append({**w, "disk_path": disk})
+
+    print(f"  [datalab] cached={len(md_by_path)}  to_call={len(items_to_call)}  "
+          f"missing_disk={missing_disk}  unsupported_ext={unsupported_ext}")
+    if not items_to_call:
+        return md_by_path
+
+    def _one(it: dict) -> tuple[str, str | None]:
+        mode = datalab_mode_for(it.get("notice_type"))
+        try:
+            md_path, _bl = datalab_api.run_and_cache(
+                it["file_path"], it["disk_path"], mode=mode)
+            md = md_path.read_text(encoding="utf-8") if md_path else None
+            print(f"    [{it['filename']}] datalab:{mode} -> "
+                  f"{len(md or '')} chars")
+            return it["file_path"], md
+        except Exception as e:
+            print(f"    [datalab-fail] {it['filename']}: {type(e).__name__}: {e}")
+            return it["file_path"], None
+
+    workers = max(1, DATALAB_PIPELINE_CONCURRENCY)
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        for fut in as_completed([pool.submit(_one, it) for it in items_to_call]):
+            fp, md = fut.result()
+            if md:
+                md_by_path[fp] = md
+    return md_by_path
+
+
 # ── LLM extraction stage (single-property only) ──────────────────────────────
 
 async def extract_description_from_md(
@@ -242,7 +306,7 @@ async def extract_description_from_md(
     full_prompt = (
         prompt
         + "\n\n---\nThe document text below was extracted by a layout-aware OCR "
-          "tool (MinerU) and is provided as Markdown that preserves the "
+          "tool and is provided as Markdown that preserves the "
           "original table structure. Read the Markdown to identify the "
           "property-description block.\n\n"
         + markdown
@@ -435,7 +499,12 @@ def main():
             if cache_path.exists():
                 mds[w["file_path"]] = cache_path.read_text(encoding="utf-8")
         print(f"  loaded {len(mds)} cached markdowns")
+    elif DESCRIPTION_OCR_ENGINE == "datalab":
+        print(f"  engine=datalab (single->{datalab_mode_for('single')}, "
+              f"multi->{datalab_mode_for('multi')})")
+        mds = stage1_datalab(work)
     else:
+        print("  engine=mineru")
         mds = stage1_mineru(work)
 
     print(f"\n[Stage 2] LLM extraction (single-property only)")

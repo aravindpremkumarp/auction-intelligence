@@ -21,7 +21,7 @@ from collections import Counter
 
 from api.neo4j_client import run_query, run_read_query
 from pipeline.extract_routing import select_extract_model
-from pipeline.validators import normalize_identifier_kind
+from pipeline.validators import normalize_identifier_kind, validate
 
 # pipeline.langextract_examples is imported lazily inside run() — it pulls the
 # heavy `langextract` dependency, which isn't needed to import this module for
@@ -109,19 +109,24 @@ def run(limit: int | None, force: bool, filename: str | None) -> int:
             print(f"  [fail] {fn}: {e}")
             continue
         ents = _entities(res)
+        # Label-free quality score (0-100, see pipeline/validators.py) — lets the
+        # review queue surface low-quality extractions first via score_min/max.
+        score = validate(res.extractions, source_text=d["md"])["score"]
         run_query(
             """
             MATCH (d:Document {filename:$fn})
             SET d.extraction_json = $j,
+                d.extraction_score = $score,
                 d.extraction_at    = datetime(),
                 d.extraction_batch = $batch,
                 d.extraction_review_status =
                     coalesce(d.extraction_review_status, 'pending')
             RETURN d.filename
             """,
-            {"fn": fn, "j": json.dumps(ents, ensure_ascii=False), "batch": batch})
+            {"fn": fn, "j": json.dumps(ents, ensure_ascii=False),
+             "score": score, "batch": batch})
         ok += 1
-        print(f"  [{ok}] {fn}: {len(ents)} fields")
+        print(f"  [{ok}] {fn}: {len(ents)} fields, score={score}")
     if route:
         routing = "  ".join(f"{m}={n}" for m, n in sorted(model_counts.items()))
         print(f"model routing: {routing}")
