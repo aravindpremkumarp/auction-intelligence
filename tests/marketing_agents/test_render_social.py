@@ -77,6 +77,27 @@ def test_render_staged_includes_the_carousel(tmp_path, monkeypatch):
     assert calls[0] == "card-00-carousel.png"
 
 
+def test_render_staged_separates_a_card_from_its_property_carousel(tmp_path, monkeypatch):
+    """A draft's card and its own carousel share draft_index and auction_id, so
+    names come off the island stem — otherwise both land on card-01-A1*.png."""
+    calls = []
+    monkeypatch.setattr(render_social, "render",
+                        lambda t, d, o, out_name=None: (calls.append(out_name), [o / out_name])[1])
+    date_dir = _stage(tmp_path)
+    manifest = json.loads((date_dir / "drafts.json").read_text())
+    manifest["cards"].append({
+        "draft_index": 1, "auction_id": "A1",
+        "template": "property-carousel-1080x1350",
+        "data": "cards/01-A1-carousel.json", "headline": "h", "slides": 6})
+    (date_dir / "cards" / "01-A1-carousel.json").write_text("{}", encoding="utf-8")
+    (date_dir / "drafts.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+    render_social.render_staged(date_dir)
+    assert "card-01-A1.png" in calls              # the static card
+    assert "card-01-A1-carousel.png" in calls     # its swipe post, distinctly named
+    assert len(calls) == len(set(calls))          # nothing overwrites anything
+
+
 class TestStageHtml:
     """stage_html swaps the #data island and stages the file BESIDE the real
     template — if it landed anywhere else the relative lib/ paths would break

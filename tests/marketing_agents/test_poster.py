@@ -551,6 +551,101 @@ class TestCarouselPrompt:
         assert "if no CAROUSEL brief appears above" in prompt
 
 
+class TestPropertyCarousel:
+    """The --auction-id kit's swipe post. It introduces NO new model output —
+    the cover hook is the image_headline that already led the caption and the
+    card, so it inherits that field's honesty scan and length cap."""
+
+    def _validated(self, **kw):
+        cands = shape_candidates(
+            [_row("A1")],
+            [_row("D1", reserve=3_800_000, prev=4_500_000, reauction=True)], [])
+        base = {"auction_id": "A1", "angle": "closing_soon", "hook_mechanism": "callout",
+                "post": "reserve ₹40L, ends 1 Aug.\n\nbody.", "needs_image": True,
+                "pinned_comment": "details: auctionscope.in. not legal advice.",
+                "image_headline": "₹40L in Chennai — has it flooded?"}
+        base.update(kw)
+        kept, _ = validate_drafts([base], cands)
+        return kept[0]
+
+    def test_reuses_the_caption_hook_as_the_cover(self):
+        template, island = poster.draft_to_property_carousel(self._validated())
+        assert template == poster.PROPERTY_CAROUSEL_TEMPLATE
+        assert island["headline"] == "₹40L in Chennai — has it flooded?"
+        assert island["eyebrow"] == "Live auction"
+        assert island["asset_type"] == "Residential Plot"
+        assert island["reserve_price"] == 4_000_000
+        assert island["emd"] == 400_000
+        assert island["auction_date"] == "1 Aug 2026"
+
+    def test_price_drop_flags_the_eyebrow_and_keeps_the_earlier_reserve(self):
+        d = self._validated(auction_id="D1", angle="price_drop",
+                            hook_mechanism="contrast", image_headline="₹45L → ₹38L")
+        _, island = poster.draft_to_property_carousel(d)
+        assert island["eyebrow"] == "Price drop · re-auction"
+        assert island["previous_reserve_price"] == 4_500_000
+
+    def test_earlier_reserve_not_lower_is_cleared(self):
+        d = self._validated()
+        d["source"] = {**d["source"], "previous_reserve_price": 1_000_000}  # went UP
+        _, island = poster.draft_to_property_carousel(d)
+        assert island["previous_reserve_price"] is None
+        assert island["eyebrow"] == "Live auction"
+
+    def test_locality_blank_when_it_repeats_the_city(self):
+        d = self._validated()
+        d["source"] = {**d["source"], "area": "chennai", "city": "Chennai"}
+        _, island = poster.draft_to_property_carousel(d)
+        assert island["locality"] == ""
+
+    def test_no_reserve_means_no_carousel(self):
+        d = self._validated()
+        d["source"] = {**d["source"], "reserve_price": None}
+        assert poster.draft_to_property_carousel(d) is None
+
+    def test_write_emits_island_and_manifest(self, tmp_path):
+        rows = poster.write_property_carousel(tmp_path, [self._validated()])
+        assert len(rows) == 1 and rows[0]["slides"] == 6
+        island = json.loads((tmp_path / rows[0]["data"]).read_text())
+        assert island["headline"] == rows[0]["headline"]
+        # Filename is distinct from the plain card's so they never collide.
+        assert rows[0]["data"].endswith("-carousel.json")
+
+
+class TestFullKitGating:
+    """A normal batch must NOT emit five property carousels — that is 30 extra
+    slides through a review gate that publishes about five posts a week."""
+
+    STATS = {"total_auctions": 10, "upcoming_auctions": 5, "generated_at": "now"}
+
+    def _drafts(self):
+        cands = shape_candidates([_row("A1")], [], [])
+        base = {"auction_id": "A1", "angle": "closing_soon", "hook_mechanism": "callout",
+                "post": "reserve ₹40L.\n\nbody.", "needs_image": True,
+                "pinned_comment": "auctionscope.in. not legal advice.",
+                "image_headline": "₹40L in Chennai"}
+        kept, _ = validate_drafts([base], cands)
+        return kept
+
+    def test_batch_mode_emits_no_property_carousel(self, tmp_path):
+        out = poster.write_outputs(tmp_path, self.STATS, self._drafts(), [], "")
+        staged = json.loads((out / "drafts.json").read_text())
+        assert all(not c["data"].endswith("-carousel.json") for c in staged["cards"])
+        assert "carousel:" not in (out / "review.md").read_text()
+
+    def test_full_kit_emits_it_alongside_the_card(self, tmp_path):
+        out = poster.write_outputs(tmp_path, self.STATS, self._drafts(), [], "",
+                                   full_kit=True)
+        staged = json.loads((out / "drafts.json").read_text())
+        templates = [c["template"] for c in staged["cards"]]
+        assert poster.PROPERTY_CAROUSEL_TEMPLATE in templates
+        assert "deal-of-the-day-1080" in templates      # the card still ships
+        review = (out / "review.md").read_text()
+        assert "check before you bid" in review
+        # Card and carousel share a draft_index but must both be reported.
+        assert "card: `deal-of-the-day-1080`" in review
+
+
 class TestParseLlmJson:
     def test_plain_json(self):
         assert parse_llm_json('{"drafts": []}') == {"drafts": []}

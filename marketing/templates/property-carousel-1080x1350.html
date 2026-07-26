@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Auctionscope — Property Carousel (1080×1350 × 6 slides)</title>
+<meta name="viewport" content="width=1080">
+<!--
+  ONE property, explained across six slides. The city carousel answers "what's
+  cheap in <city>"; this answers "what is this listing, and what would it take
+  to bid on it" — which is the post you want when a single auction is worth
+  talking about on its own.
+
+  Slide order is the buyer's own question order:
+    1 cover      the hook (the only line the model writes)
+    2 money      reserve now, and the earlier reserve when it was cut
+    3 property   what it is and where
+    4 to bid     EMD, auction date, bank — the entry requirements
+    5 check      what to verify BEFORE bidding (fixed template copy, never
+                 model-written: this is the honesty position, not marketing)
+    6 CTA
+
+  Everything except the cover hook is either a field off the auction record or
+  static copy in this file, so the poster only ever rewrites the #data island.
+
+  Render: python marketing/render_social.py --template property-carousel-1080x1350
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700;12..96,800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+<noscript><link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700;12..96,800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"></noscript>
+<link rel="stylesheet" href="lib/tokens.css">
+<link rel="stylesheet" href="lib/motion.css">
+<style>
+  .p-body { padding: 0 84px; display: flex; flex-direction: column; gap: 36px; }
+  .p-hook {
+    font-family: var(--font-display);
+    font-size: 96px; font-weight: 800;
+    letter-spacing: -0.03em; line-height: 1.03;
+  }
+  .p-hook:empty { display: none; }
+  /* No hook supplied → the property's own descriptor leads instead, so the
+     cover is never blank. */
+  .p-cover-fallback {
+    font-family: var(--font-display);
+    font-size: 88px; font-weight: 800;
+    letter-spacing: -0.03em; line-height: 1.05;
+  }
+  .p-hook:not(:empty) ~ .p-cover-fallback {
+    font-size: 40px; font-weight: 600; color: var(--muted); letter-spacing: -0.01em;
+  }
+  .p-eyebrow-loc { font-size: 34px; color: var(--ink-soft); }
+
+  .p-label {
+    font-family: var(--font-mono); font-size: 30px; font-weight: 600;
+    letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted);
+  }
+  /* Interior slides carry few elements against a tall canvas, so the type runs
+     large — a sparse slide with small type reads as an unfinished one. */
+  .p-big {
+    font-family: var(--font-display);
+    font-size: 184px; font-weight: 800;
+    letter-spacing: -0.04em; line-height: 1;
+    color: var(--accent); font-variant-numeric: tabular-nums;
+  }
+  .p-was {
+    font-family: var(--font-mono); font-size: 50px; color: var(--muted);
+    text-decoration: line-through; text-decoration-color: var(--danger);
+  }
+  .p-drop {
+    font-family: var(--font-mono); font-size: 38px; font-weight: 600;
+    color: var(--good); background: var(--accent-soft);
+    border-radius: var(--radius-pill); padding: 14px 32px;
+  }
+  .p-money-row { display: flex; align-items: baseline; gap: 26px; flex-wrap: wrap; }
+  /* The cut in rupees — plain arithmetic on the two notice figures, so the
+     slide says what the drop actually means instead of only a percentage. */
+  .p-delta { font-size: 44px; color: var(--ink-soft); line-height: 1.3; }
+  .p-delta:empty { display: none; }
+
+  .p-facts { display: flex; flex-direction: column; gap: 52px; }
+  .p-fact { display: flex; flex-direction: column; gap: 10px; }
+  .p-fact .v {
+    font-family: var(--font-display); font-size: 78px; font-weight: 700;
+    letter-spacing: -0.02em; line-height: 1.1;
+  }
+  .p-fact:has(.v:empty) { display: none; }   /* fact we don't hold → drop the row */
+
+  .p-check { display: flex; flex-direction: column; gap: 26px; }
+  .p-check li {
+    font-size: 40px; line-height: 1.35; color: var(--ink);
+    list-style: none; display: flex; gap: 22px; align-items: flex-start;
+  }
+  .p-check li::before {
+    content: ""; flex: none; width: 18px; height: 18px; margin-top: 16px;
+    border-radius: 5px; background: var(--accent);
+  }
+  .p-check ul { margin: 0; padding: 0; display: flex; flex-direction: column; gap: 26px; }
+
+  .cta-body {
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 40px; text-align: center;
+  }
+  .cta-logo { width: 168px; height: 168px; }
+  .cta-title {
+    font-family: var(--font-display); font-size: 80px; font-weight: 800;
+    letter-spacing: -0.03em; line-height: 1.05; max-width: 840px;
+  }
+  .cta-sub { font-size: 32px; color: var(--ink-soft); }
+  .dots { display: flex; gap: 12px; }
+  .dots span { width: 16px; height: 16px; border-radius: 50%; background: var(--border-strong); }
+  .dots span.on { background: var(--accent); }
+  .p-dotrow { padding: 0 84px; display: flex; }
+</style>
+</head>
+<body>
+
+<script id="data" type="application/json">
+{
+  "headline": "₹31.9L → ₹31L: karur plot, round two",
+  "eyebrow": "Price drop · re-auction",
+  "asset_type": "Residential Land",
+  "city": "Karur",
+  "locality": "Manmangalam Taluk",
+  "reserve_price": 3100000,
+  "previous_reserve_price": 3187000,
+  "emd": 310000,
+  "auction_date": "16 Jul 2026",
+  "bank": "South Indian Bank",
+  "source_line": "Reserve, EMD and date from the bank's auction notice."
+}
+</script>
+
+<!-- 1 — cover -->
+<div class="stage stage-1080x1350">
+  <div class="s-head">
+    <span class="s-eyebrow"><span class="dot"></span><span data-field="eyebrow">Live auction</span></span>
+    <span class="s-brand">
+      <svg viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs><linearGradient id="tile" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3b74f2"/><stop offset="1" stop-color="#2a5fe6"/></linearGradient></defs><rect x="0" y="0" width="1024" height="1024" rx="232" fill="url(#tile)"/><g transform="translate(236 236) scale(23)" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="2" x2="5" y1="12" y2="12"/><line x1="19" x2="22" y1="12" y2="12"/><line x1="12" x2="12" y1="2" y2="5"/><line x1="12" x2="12" y1="19" y2="22"/><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="1.55" fill="#ffffff" stroke="none"/></g></svg>
+      Auctionscope
+    </span>
+  </div>
+  <div class="s-mid p-body">
+    <div class="p-hook" data-field="headline"></div>
+    <div class="p-cover-fallback" id="cover-what"></div>
+    <div class="p-eyebrow-loc" id="cover-where"></div>
+    <div class="swipe-hint" style="font-family:var(--font-mono);font-size:26px;font-weight:600;color:var(--accent)">Swipe →</div>
+  </div>
+  <div class="s-foot">
+    <div class="s-honesty" data-field="source_line">Figures from the bank's auction notice.</div>
+    <div class="s-cta">auctionscope.in</div>
+  </div>
+</div>
+
+<!-- 2 — the money -->
+<div class="stage stage-1080x1350">
+  <div class="s-mid p-body">
+    <div class="p-dotrow" style="padding:0"><span class="dots" data-dots></span></div>
+    <div class="p-label">Reserve price</div>
+    <div class="p-money-row">
+      <span class="p-big" data-field="reserve_price" data-field-format="inr">₹0</span>
+    </div>
+    <div class="p-money-row" id="was-row">
+      <span class="p-label" style="align-self:center">Earlier reserve</span>
+      <span class="p-was" data-field="previous_reserve_price" data-field-format="inr"></span>
+      <span class="p-drop">↓ <span id="drop-pct">–</span></span>
+    </div>
+    <div class="p-delta" id="delta-line"></div>
+  </div>
+  <div class="s-foot">
+    <div class="s-honesty" data-field="source_line">Figures from the bank's auction notice.</div>
+    <div class="s-cta">auctionscope.in</div>
+  </div>
+</div>
+
+<!-- 3 — what and where -->
+<div class="stage stage-1080x1350">
+  <div class="s-mid p-body">
+    <div class="p-dotrow" style="padding:0"><span class="dots" data-dots></span></div>
+    <div class="p-label">The property</div>
+    <div class="p-facts">
+      <div class="p-fact"><span class="p-label">Type</span><span class="v" data-field="asset_type"></span></div>
+      <div class="p-fact"><span class="p-label">Locality</span><span class="v" data-field="locality"></span></div>
+      <div class="p-fact"><span class="p-label">City</span><span class="v" data-field="city"></span></div>
+    </div>
+  </div>
+  <div class="s-foot">
+    <div class="s-honesty">Location as described in the bank's auction notice.</div>
+    <div class="s-cta">auctionscope.in</div>
+  </div>
+</div>
+
+<!-- 4 — what it takes to bid -->
+<div class="stage stage-1080x1350">
+  <div class="s-mid p-body">
+    <div class="p-dotrow" style="padding:0"><span class="dots" data-dots></span></div>
+    <div class="p-label">To bid, you need</div>
+    <div class="p-facts">
+      <div class="p-fact"><span class="p-label">EMD (deposit)</span><span class="v" data-field="emd" data-field-format="inr"></span></div>
+      <div class="p-fact"><span class="p-label">Auction date</span><span class="v" data-field="auction_date"></span></div>
+      <div class="p-fact"><span class="p-label">Selling bank</span><span class="v" data-field="bank"></span></div>
+    </div>
+  </div>
+  <div class="s-foot">
+    <div class="s-honesty" data-field="source_line">Figures from the bank's auction notice.</div>
+    <div class="s-cta">auctionscope.in</div>
+  </div>
+</div>
+
+<!-- 5 — check before you bid. FIXED COPY. This is the honesty position; it is
+     never model-written and never softened into a promise. -->
+<div class="stage stage-1080x1350">
+  <div class="s-mid p-body">
+    <div class="p-dotrow" style="padding:0"><span class="dots" data-dots></span></div>
+    <div class="p-label">Check before you bid</div>
+    <div class="p-check">
+      <ul>
+        <li>Encumbrance certificate — any loan or charge still on the property</li>
+        <li>Possession status — physical or symbolic, and who is living there</li>
+        <li>The notice terms — EMD refund rules and the balance payment window</li>
+        <li>A site visit, and the local sub-registrar's records</li>
+      </ul>
+    </div>
+  </div>
+  <div class="s-foot">
+    <div class="s-honesty">A SARFAESI bank e-auction. Information only, not legal advice — verify everything with the bank.</div>
+    <div class="s-cta">auctionscope.in</div>
+  </div>
+</div>
+
+<!-- 6 — CTA -->
+<div class="stage stage-1080x1350">
+  <div class="cta-body">
+    <svg class="cta-logo" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs><linearGradient id="tile2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3b74f2"/><stop offset="1" stop-color="#2a5fe6"/></linearGradient></defs><rect x="0" y="0" width="1024" height="1024" rx="232" fill="url(#tile2)"/><g transform="translate(236 236) scale(23)" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="2" x2="5" y1="12" y2="12"/><line x1="19" x2="22" y1="12" y2="12"/><line x1="12" x2="12" y1="2" y2="5"/><line x1="12" x2="12" y1="19" y2="22"/><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="1.55" fill="#ffffff" stroke="none"/></g></svg>
+    <div class="cta-title">Research this one before you bid</div>
+    <div class="cta-sub">Every live Tamil Nadu bank auction, in one place</div>
+    <div class="s-cta">auctionscope.in</div>
+  </div>
+</div>
+
+<script src="lib/motion.js"></script>
+<script>
+  (function () {
+    var d = AS.data || AS.bind();
+    var SLIDES = 6;
+
+    // Cover: "Residential Land" + "Manmangalam Taluk, Karur". Built here rather
+    // than in the island so a blank locality can't leave a dangling comma.
+    document.getElementById('cover-what').textContent = d.asset_type || '';
+    document.getElementById('cover-where').textContent =
+      [d.locality, d.city].filter(function (x) { return x; }).join(', ');
+
+    // Drop % computed from the two notice prices, never authored. No genuine
+    // earlier reserve → the whole row goes, rather than showing an empty label.
+    var prev = Number(d.previous_reserve_price), now = Number(d.reserve_price);
+    if (prev > 0 && now > 0 && now < prev) {
+      document.getElementById('drop-pct').textContent =
+        (Math.round(((prev - now) / prev) * 1000) / 10) + '%';
+      document.getElementById('delta-line').textContent =
+        'The bank cut ' + AS.formatINR(prev - now) + ' off the first round.';
+    } else {
+      document.getElementById('was-row').style.display = 'none';
+    }
+
+    // Pagination dots, one row per interior slide (cover and CTA carry none).
+    var stages = document.querySelectorAll('.stage');
+    document.querySelectorAll('[data-dots]').forEach(function (row) {
+      var here = Array.prototype.indexOf.call(stages, row.closest('.stage'));
+      for (var i = 0; i < SLIDES; i++) {
+        var dot = document.createElement('span');
+        if (i === here) dot.className = 'on';
+        row.appendChild(dot);
+      }
+    });
+  })();
+</script>
+</body>
+</html>

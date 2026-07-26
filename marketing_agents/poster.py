@@ -97,6 +97,39 @@ def fetch_json(client: httpx.Client, path: str, params: dict | None = None) -> d
     return resp.json()
 
 
+def fetch_one(api_base: str, auction_id: str) -> tuple[dict, list[dict]]:
+    """Stats + a one-candidate pool for a single auction (the --auction-id kit).
+
+    /properties has no auction_id filter (api/properties/router.py takes
+    q/type/bank/district/price/date and nothing else), so this walks the live
+    pages and stops at the match rather than passing a parameter the API would
+    silently ignore. The angle is inferred the same way the batch infers it, so
+    the card template and the prompt's angle guidance still line up.
+    """
+    today = date.today().isoformat()
+    with httpx.Client(base_url=api_base, timeout=60) as client:
+        stats = fetch_json(client, "/stats")
+        offset, row = 0, None
+        while row is None:
+            page = fetch_json(client, "/properties", {
+                "date_from": today, "sort": "date_asc", "limit": 200, "offset": offset,
+            })
+            results = page.get("results", [])
+            if not results:
+                break
+            row = next((r for r in results
+                        if str(r.get("auction_id")) == str(auction_id)), None)
+            offset += len(results)
+            if offset >= page.get("total", 0):
+                break
+    if row is None:
+        raise SystemExit(f"auction {auction_id} is not in live inventory "
+                         "(already ended, or filtered out of /properties)")
+    drops = [row] if _is_price_drop(row) else []
+    closing = [] if drops else [row]
+    return stats, shape_candidates(closing, drops, [])
+
+
 def fetch_pool(api_base: str) -> tuple[dict, list[dict], dict | None]:
     """Pull /stats + the angle queries; return (stats, candidates, carousel).
 
@@ -648,6 +681,69 @@ def draft_to_island(draft: dict) -> tuple[str, dict] | None:
     return template, island
 
 
+# ------------------------------------------------- draft → property carousel
+#
+# The single-property swipe post, produced only by the --auction-id kit. It
+# deliberately introduces NO new model output: the cover hook is the same
+# image_headline that already leads the caption and the card, so it inherits
+# that field's honesty scan and length cap for free. Every other slide is
+# either a record field or fixed copy in the template (the "check before you
+# bid" list is the honesty position and is never model-written).
+#
+# It is off by default in a normal batch on purpose. Five drafts would mean
+# five more 6-slide carousels per run — 30 extra slides through a review gate
+# that already publishes about five posts a week.
+
+PROPERTY_CAROUSEL_TEMPLATE = "property-carousel-1080x1350"
+
+
+def draft_to_property_carousel(draft: dict) -> tuple[str, dict] | None:
+    """(template, island) for one validated draft, or None with no source."""
+    s = draft.get("source") or {}
+    if not s.get("reserve_price"):
+        return None
+    city = (s.get("city") or "").strip()
+    area = (s.get("area") or "").strip()
+    prev = s.get("previous_reserve_price")
+    dropped = bool(prev and prev > s["reserve_price"])
+    island = {
+        "headline": (draft.get("image_headline") or "").strip(),
+        "eyebrow": "Price drop · re-auction" if dropped else "Live auction",
+        "asset_type": asset_headline(s),
+        "city": city,
+        "locality": "" if area.lower() == city.lower() else area,
+        "reserve_price": s.get("reserve_price"),
+        # Only a genuinely higher earlier reserve; otherwise the template hides
+        # the whole row rather than drawing a negative "drop".
+        "previous_reserve_price": prev if dropped else None,
+        "emd": s.get("emd"),
+        "auction_date": _card_date(s.get("auction_start")),
+        "bank": s.get("bank") or "",
+        "source_line": ANGLE_TEMPLATE.get(
+            draft.get("angle"), (None, "Figures from the bank's auction notice."))[1],
+    }
+    return PROPERTY_CAROUSEL_TEMPLATE, island
+
+
+def write_property_carousel(out_dir: Path, drafts: list[dict]) -> list[dict]:
+    """Write one property-carousel island per draft (the --auction-id kit)."""
+    manifest: list[dict] = []
+    cards_dir = out_dir / "cards"
+    for i, d in enumerate(drafts, 1):
+        made = draft_to_property_carousel(d)
+        if not made:
+            continue
+        template, island = made
+        cards_dir.mkdir(parents=True, exist_ok=True)
+        fname = f"{i:02d}-{d['auction_id']}-carousel.json"
+        (cards_dir / fname).write_text(
+            json.dumps(island, ensure_ascii=False, indent=2), encoding="utf-8")
+        manifest.append({"draft_index": i, "auction_id": d["auction_id"],
+                         "template": template, "data": f"cards/{fname}",
+                         "headline": island["headline"], "slides": 6})
+    return manifest
+
+
 def write_card_islands(out_dir: Path, drafts: list[dict]) -> list[dict]:
     """Write one #data island JSON per image-bearing draft into out_dir/cards/.
     Returns a manifest (one row per card) for review.md + drafts.json."""
@@ -1075,7 +1171,8 @@ def write_carousel_island(out_dir: Path, facts: dict | None,
 def write_outputs(out_root: Path, stats: dict, drafts: list[dict],
                   rejected: list[str], editor_notes: str,
                   carousel_facts: dict | None = None,
-                  carousel_copy: dict | None = None) -> Path:
+                  carousel_copy: dict | None = None,
+                  full_kit: bool = False) -> Path:
     out_dir = out_root / date.today().isoformat()
     out_dir.mkdir(parents=True, exist_ok=True)
     carousel_row = write_carousel_island(out_dir, carousel_facts, carousel_copy)
@@ -1083,6 +1180,9 @@ def write_outputs(out_root: Path, stats: dict, drafts: list[dict],
     # cards (index 0, ahead of them) so render_social.py --render-staged picks
     # it up with no special case — it just screenshots more .stage elements.
     cards = ([carousel_row] if carousel_row else []) + write_card_islands(out_dir, drafts)
+    # --auction-id only: the per-property swipe post, alongside its card.
+    property_carousels = write_property_carousel(out_dir, drafts) if full_kit else []
+    cards += property_carousels
     reels = write_reel_islands(out_dir, stats, drafts)
     (out_dir / "drafts.json").write_text(
         json.dumps({"stats": stats, "drafts": drafts, "cards": cards,
@@ -1154,7 +1254,11 @@ def write_outputs(out_root: Path, stats: dict, drafts: list[dict],
         if meta:
             lines += ["`" + "` · `".join(meta) + "`", ""]
 
-    card_by_index = {c["draft_index"]: c for c in cards}
+    # The property carousel shares draft_index with its draft's card, so it is
+    # keyed separately rather than colliding in card_by_index.
+    pcar_by_index = {p["draft_index"]: p for p in property_carousels}
+    card_by_index = {c["draft_index"]: c for c in cards
+                     if c["auction_id"] != "carousel" and c not in property_carousels}
     reel_by_index = {r["draft_index"]: r for r in reels}
     for i, d in enumerate(drafts, 1):
         s = d["source"]
@@ -1181,6 +1285,12 @@ def write_outputs(out_root: Path, stats: dict, drafts: list[dict],
         if card:
             lines.append(f"card: `{card['template']}` · headline burned on: "
                          f"*{card['headline'] or '(none — card shows the property title)'}*")
+        pcar = pcar_by_index.get(i)
+        if pcar:
+            lines.append(
+                f"carousel: `{pcar['template']}` · {pcar['slides']} slides "
+                "(cover · money · property · to bid · check before you bid · CTA) "
+                f"· cover hook: *{pcar['headline'] or '(none — cover leads with the type)'}*")
         reel = reel_by_index.get(i)
         if reel:
             rh = d.get("reel_hook") or {}
@@ -1250,20 +1360,29 @@ def _describe_carousel(carousel: dict | None) -> str:
             f"in {carousel['city']} ({carousel['week_label']})")
 
 
-def step_prepare(work_dir: Path, max_drafts: int) -> int:
+def step_prepare(work_dir: Path, max_drafts: int, auction_id: str | None = None) -> int:
     api_base = os.environ.get("API_BASE", API_BASE_DEFAULT)
-    stats, candidates, carousel = fetch_pool(api_base)
-    n_drops = sum(1 for c in candidates if c["angle"] == "price_drop")
-    print(f"pool: {len(candidates)} candidates ({n_drops} price drops) · "
-          f"{stats.get('upcoming_auctions')} live auctions")
-    print(_describe_carousel(carousel))
+    if auction_id:
+        # The on-demand kit: one auction, one draft, plus its own swipe post.
+        # No city carousel — that is a batch-level format.
+        stats, candidates = fetch_one(api_base, auction_id)
+        carousel, max_drafts = None, 1
+        print(f"single property: {auction_id} "
+              f"({candidates[0]['angle']} · {candidates[0].get('city')})")
+    else:
+        stats, candidates, carousel = fetch_pool(api_base)
+        n_drops = sum(1 for c in candidates if c["angle"] == "price_drop")
+        print(f"pool: {len(candidates)} candidates ({n_drops} price drops) · "
+              f"{stats.get('upcoming_auctions')} live auctions")
+        print(_describe_carousel(carousel))
     if not candidates:
         print("No live candidates — nothing to draft (is the data fresh?).")
         return 1
     work_dir.mkdir(parents=True, exist_ok=True)
     (work_dir / "candidates.json").write_text(
         json.dumps({"stats": stats, "candidates": candidates,
-                    "carousel": carousel, "max_drafts": max_drafts},
+                    "carousel": carousel, "max_drafts": max_drafts,
+                    "full_kit": bool(auction_id)},
                    ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
@@ -1305,11 +1424,14 @@ def step_finalize(work_dir: Path, response_path: Path | None = None) -> int:
         {c.get("city") for c in data["candidates"] if c.get("city")})
     rejected += carousel_rejected
     out_root = Path(os.environ.get("POSTER_OUT_DIR", "marketing/outputs"))
+    full_kit = bool(data.get("full_kit"))
     out_dir = write_outputs(out_root, data["stats"], drafts, rejected,
                             parsed.get("editor_notes", ""),
-                            carousel_facts=facts, carousel_copy=copy)
+                            carousel_facts=facts, carousel_copy=copy,
+                            full_kit=full_kit)
     print(f"wrote {len(drafts)} drafts ({len(rejected)} rejected)"
-          f"{' + 1 carousel' if copy and facts else ''} → {out_dir}/")
+          f"{' + 1 carousel' if copy and facts else ''}"
+          f"{' + property carousel' if full_kit and drafts else ''} → {out_dir}/")
     return 0 if drafts else 1
 
 
@@ -1320,6 +1442,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--dry-run", action="store_true",
                         help="fetch + shape data and print a summary; no LLM call")
     parser.add_argument("--max-drafts", type=int, default=5)
+    parser.add_argument("--auction-id", default=None,
+                        help="on-demand kit for ONE property: its card, its own "
+                             "6-slide carousel and a caption (implies --max-drafts 1; "
+                             "no city carousel, that is a batch format)")
     parser.add_argument("--prepare", action="store_true",
                         help="stage 1: fetch data, write candidates.json + prompt.txt")
     parser.add_argument("--generate", action="store_true",
@@ -1337,7 +1463,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.prepare:
-        return step_prepare(args.work_dir, args.max_drafts)
+        return step_prepare(args.work_dir, args.max_drafts, args.auction_id)
     if args.generate:
         return step_generate(args.work_dir)
     if args.finalize:
@@ -1345,11 +1471,18 @@ def main(argv: list[str] | None = None) -> int:
 
     # No stage flag: original single-shot behavior (in-process, OpenRouter).
     api_base = os.environ.get("API_BASE", API_BASE_DEFAULT)
-    stats, candidates, carousel = fetch_pool(api_base)
-    n_drops = sum(1 for c in candidates if c["angle"] == "price_drop")
-    print(f"pool: {len(candidates)} candidates ({n_drops} price drops) · "
-          f"{stats.get('upcoming_auctions')} live auctions")
-    print(_describe_carousel(carousel))
+    max_drafts, full_kit = args.max_drafts, bool(args.auction_id)
+    if args.auction_id:
+        stats, candidates = fetch_one(api_base, args.auction_id)
+        carousel, max_drafts = None, 1
+        print(f"single property: {args.auction_id} "
+              f"({candidates[0]['angle']} · {candidates[0].get('city')})")
+    else:
+        stats, candidates, carousel = fetch_pool(api_base)
+        n_drops = sum(1 for c in candidates if c["angle"] == "price_drop")
+        print(f"pool: {len(candidates)} candidates ({n_drops} price drops) · "
+              f"{stats.get('upcoming_auctions')} live auctions")
+        print(_describe_carousel(carousel))
 
     if not candidates:
         print("No live candidates — nothing to draft (is the data fresh?).")
@@ -1369,7 +1502,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     model = os.environ.get("OPENROUTER_MODEL", MODEL_DEFAULT)
-    prompt = build_prompt(stats, candidates, args.max_drafts, carousel=carousel)
+    prompt = build_prompt(stats, candidates, max_drafts, carousel=carousel)
     raw = call_llm(prompt, api_key, model)
     try:
         parsed = parse_llm_json(raw)
@@ -1385,9 +1518,11 @@ def main(argv: list[str] | None = None) -> int:
     out_root = Path(os.environ.get("POSTER_OUT_DIR", "marketing/outputs"))
     out_dir = write_outputs(out_root, stats, drafts, rejected,
                             parsed.get("editor_notes", ""),
-                            carousel_facts=carousel, carousel_copy=copy)
+                            carousel_facts=carousel, carousel_copy=copy,
+                            full_kit=full_kit)
     print(f"wrote {len(drafts)} drafts ({len(rejected)} rejected)"
-          f"{' + 1 carousel' if copy and carousel else ''} → {out_dir}/")
+          f"{' + 1 carousel' if copy and carousel else ''}"
+          f"{' + property carousel' if full_kit and drafts else ''} → {out_dir}/")
     return 0 if drafts else 1
 
 

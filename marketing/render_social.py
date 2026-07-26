@@ -204,8 +204,13 @@ def render_staged(date_dir: pathlib.Path) -> list[pathlib.Path]:
     out_dir = date_dir / "rendered"
     written: list[pathlib.Path] = []
     for c in cards:
-        data = date_dir / c["data"]                              # cards/NN-id.json
-        name = f"card-{c['draft_index']:02d}-{c['auction_id']}.png"
+        data = date_dir / c["data"]                              # cards/NN-id[-carousel].json
+        # Name off the island's own stem, which the writers already keep unique
+        # (01-D1 vs 01-D1-carousel vs 00-carousel). Keying on draft_index +
+        # auction_id instead would give a draft's card and its property carousel
+        # the same stem — card-01-D1.png beside card-01-D1_01.png, which is
+        # unreadable and collides outright if the carousel is ever single-stage.
+        name = f"card-{data.stem}.png"
         written += render(c["template"], str(data), out_dir, out_name=name)
     if not cards:
         print("no staged cards to render")
