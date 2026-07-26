@@ -77,6 +77,43 @@ class TestShapeCandidates:
         assert out[0]["reserve_lakhs"] == 40.1
 
 
+class TestPriceDropFloor:
+    """A drop only counts as a price_drop angle when it is big enough to see."""
+
+    def test_trivial_drop_is_not_a_price_drop(self):
+        # The real 798444 case: ₹31.9L -> ₹31L, a 2.7% / ₹87k move that used to
+        # be handed to the model as its best contrast candidate.
+        assert not poster._is_price_drop(
+            _row("A1", reserve=3_100_000, prev=3_187_000, reauction=True))
+
+    def test_percentage_floor_admits_a_real_cut(self):
+        assert poster._is_price_drop(
+            _row("A1", reserve=3_800_000, prev=4_500_000, reauction=True))
+
+    def test_absolute_floor_admits_a_small_percentage_on_a_big_lot(self):
+        # ₹2.5L off ₹1Cr is 2.5% — under the percentage floor, still a real cut.
+        assert poster._is_price_drop(
+            _row("A1", reserve=9_750_000, prev=10_000_000, reauction=True))
+
+    def test_not_a_reauction_is_never_a_drop(self):
+        assert not poster._is_price_drop(
+            _row("A1", reserve=3_000_000, prev=4_000_000, reauction=False))
+
+    def test_price_rise_is_never_a_drop(self):
+        assert not poster._is_price_drop(
+            _row("A1", reserve=4_000_000, prev=3_000_000, reauction=True))
+
+    def test_trivial_drop_still_ships_under_an_honest_angle(self):
+        """Below the floor the lot is not dropped — it just stops claiming a
+        discount. fetch_pool would route it here via closing_soon."""
+        row = _row("A1", reserve=3_100_000, prev=3_187_000, reauction=True)
+        out = shape_candidates([row], [], [])
+        assert len(out) == 1
+        assert out[0]["angle"] == "closing_soon"
+        # and the card gets no strike-through it would have to justify
+        assert "previous_reserve_price" not in out[0]
+
+
 class TestValidateDrafts:
     CANDS = shape_candidates([_row("A1")], [], [])
 
@@ -1110,6 +1147,61 @@ class TestHookDatabase:
     def test_load_hooks_missing_file_degrades(self, monkeypatch):
         monkeypatch.setattr(poster, "HOOKS_PATH", Path("/nonexistent/hooks.json"))
         assert poster.load_hooks() == ""
+
+
+class TestPillarSelection:
+    """The arsenal is selected from the angles in the pool, not hardcoded."""
+
+    def test_base_pillars_always_present(self):
+        cands = shape_candidates([_row("A1")], [], [])
+        assert poster.pillars_for(cands)[:2] == ("deals", "market_data")
+
+    def test_cheapest_pulls_in_geo_and_evaluation(self):
+        cands = shape_candidates([], [], [_row("E1", reserve=500_000)])
+        assert set(poster.pillars_for(cands)) >= {"geo", "evaluation"}
+
+    def test_price_drop_pulls_in_education(self):
+        cands = shape_candidates(
+            [], [_row("D1", reserve=3_000_000, prev=4_000_000, reauction=True)], [])
+        assert "education" in poster.pillars_for(cands)
+
+    def test_pillars_are_unique_and_stable(self):
+        cands = shape_candidates(
+            [], [], [_row("E1", reserve=5e5), _row("E2", reserve=6e5)])
+        got = poster.pillars_for(cands)
+        assert len(got) == len(set(got))
+        assert got == poster.pillars_for(cands)
+
+    def test_placeholder_only_pillars_never_reach_the_prompt(self):
+        """news / qa / build_in_public interpolate fields a draft has no source
+        for ({headline_short}, {question_short}, {total}) — they must stay out."""
+        every_angle = shape_candidates(
+            [_row("C1")], [_row("D1", reserve=3e6, prev=4e6, reauction=True)],
+            [_row("E1", reserve=5e5)])
+        assert set(poster.pillars_for(every_angle)).isdisjoint(
+            {"news", "qa", "build_in_public"})
+
+    def test_geo_hooks_reach_the_prompt_for_a_cheapest_pool(self):
+        cands = shape_candidates([], [], [_row("E1", reserve=500_000)])
+        p = build_prompt({"total_auctions": 1, "upcoming_auctions": 1,
+                          "generated_at": "now"}, cands, 5)
+        assert "[geo]" in p or "{city_count}" in p
+
+
+class TestPromptCopyGuidance:
+    def _prompt(self):
+        return build_prompt({"total_auctions": 1, "upcoming_auctions": 1,
+                             "generated_at": "now"},
+                            shape_candidates([_row("A1")], [], []), 5)
+
+    def test_voice_does_not_license_flat_hooks(self):
+        p = self._prompt()
+        assert "constrains WORDS, not TENSION" in p
+        assert "failed the voice, not satisfied it" in p
+
+    def test_mechanism_fit_warns_off_small_contrast(self):
+        p = self._prompt()
+        assert "MECHANISM FIT" in p and "drop_pct >= 10" in p
 
 
 class TestReelThemes:

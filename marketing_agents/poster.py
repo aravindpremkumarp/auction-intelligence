@@ -162,9 +162,25 @@ def fetch_pool(api_base: str) -> tuple[dict, list[dict], dict | None]:
             select_carousel(cheapest_wide))
 
 
+# A price drop is a STORY, not an arithmetic fact. The old test passed any
+# re-auction whose reserve moved by a rupee, and because price_drop sorts first
+# ("best content", below) the model was handed those as its strongest
+# candidates: an ₹87,000 trim on a ₹31.9L plot became "₹31.9L → ₹31L", two
+# figures that read as the same number and a contrast hook with nothing to
+# contrast. Below the floor the row is NOT discarded — it falls through to
+# closing_soon / cheapest, which describe it honestly without claiming a
+# discount. The absolute floor is there because a big-ticket lot can move less
+# than 5% and still be a real cut.
+MIN_DROP_PCT = 5.0
+MIN_DROP_ABS = 200_000.0  # ₹2L
+
+
 def _is_price_drop(row: dict) -> bool:
     prev, cur = row.get("previous_reserve_price"), row.get("reserve_price")
-    return bool(row.get("is_reauction")) and prev and cur and prev > cur
+    if not (row.get("is_reauction") and prev and cur and prev > cur):
+        return False
+    delta = prev - cur
+    return delta >= MIN_DROP_ABS or (100 * delta / prev) >= MIN_DROP_PCT
 
 
 def shape_candidates(closing: list[dict], drops: list[dict], cheapest: list[dict]) -> list[dict]:
@@ -215,6 +231,30 @@ def resolve_api_key(env: dict | None = None) -> str | None:
 # ------------------------------------------------------------- prompt layer
 
 HOOKS_PATH = Path("marketing/hooks.json")
+
+# The arsenal is stored per pillar and the prompt only ever asked for two of the
+# eight, so 56 of the 78 curated hooks never reached the model — including every
+# geo and evaluation hook, which are exactly the ones that fit a plain live
+# listing (no drop, no deadline). Pillars are now selected from the angles
+# actually in the pool. news / qa / build_in_public stay out on purpose: their
+# hooks interpolate {headline_short}, {question_short}, {total} — fields a post
+# draft has no source for, so they could only be filled by inventing.
+BASE_PILLARS = ("deals", "market_data")
+ANGLE_PILLARS = {
+    "price_drop": ("education",),     # why a lot comes back, and what to re-check
+    "closing_soon": ("evaluation",),  # "is ₹X fair" — the question a deadline forces
+    "cheapest": ("geo", "evaluation"),
+}
+
+
+def pillars_for(candidates: list[dict]) -> tuple[str, ...]:
+    """Which hook pillars this batch should see, in a stable order."""
+    out = list(BASE_PILLARS)
+    for cand in candidates:
+        for pillar in ANGLE_PILLARS.get(cand.get("angle"), ()):
+            if pillar not in out:
+                out.append(pillar)
+    return tuple(out)
 
 
 def load_hooks(pillars: tuple[str, ...] = ("deals", "market_data")) -> str:
@@ -301,6 +341,12 @@ an AI research assistant for Indian bank-auction (SARFAESI) property in Tamil Na
 
 BRAND CONTEXT (follow the voice; respect words-to-avoid strictly):
 {load_brand_context()}
+
+The voice constrains WORDS, not TENSION. "calm, no hype" rules out hype
+adjectives, brochure cliches and manufactured urgency — it does NOT mean a flat
+opening line, and it is not permission to be boring. A calm hook is still a
+hook: "3 days left. nobody has checked the flood map." is calm AND stops the
+scroll. If a draft reads as safe, it has failed the voice, not satisfied it.
 {perf_block}
 
 HARD RULES:
@@ -343,6 +389,16 @@ MECHANISMS (rotate — max 2 drafts per mechanism per batch, code-enforced):
              anyone check the flood map?"                                 (closing_soon)
 - process:   "why is this flat ₹7L cheaper the second time the bank auctions it?"  (re-auction)
 
+MECHANISM FIT — the mechanism has to match the SIZE of the fact. `contrast`
+earns the first line only when the two figures look different at a glance
+(roughly drop_pct >= 10). A candidate carrying a smaller `drop_pct` is not a
+discount story: the small move IS the story, so lead with `process` ("the bank
+wanted ₹Xl. nobody bid. today: ₹Yl — ₹Z less.") or `mistake`. Never write a
+discount framing the numbers can't cash. Candidates below the floor never reach
+you tagged price_drop at all — they arrive as closing_soon or cheapest, and a
+lot with no drop and no deadline is a `hidden` / `question` / `myth` story
+about what the notice does and doesn't tell a bidder, not a deal story.
+
 BODY after the hook + blank line: stakes (the "so what" for a bidder) -> the facts
 (numbers do the work) -> context (vs last listing / what to check) -> one soft CTA.
 
@@ -354,7 +410,7 @@ HOOK ARSENAL (marketing/hooks.json — curated, stop-test-passing concepts; each
 gives the same idea as caption / reel first-frame / card headline). ADAPT one of
 these to the auction's real numbers BEFORE inventing your own; only invent when
 none fits. Fill every {{placeholder}} from the auction's actual fields:
-{load_hooks() or "(hooks.json unavailable — use the mechanism swipe lines above)"}
+{load_hooks(pillars_for(candidates)) or "(hooks.json unavailable — use the mechanism swipe lines above)"}
 
 QUALITY BAR (every draft must pass):
 1. Clarity  — one idea, reads in one pass.
