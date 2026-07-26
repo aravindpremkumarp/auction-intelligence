@@ -15,7 +15,8 @@
     "myth",
     "callout",
     "countdown",
-    "process"
+    "process",
+    "guess"
   ],
   "pillars": {
     "deals": [
@@ -126,6 +127,98 @@
           "line2": "20-min checklist first."
         },
         "headline": "closing {date} — check these first"
+      }
+    ],
+    "risk": [
+      {
+        "mechanism": "mistake",
+        "caption": "the ₹{now}L is the bank's floor, not your cost. arrears and dues sit on top.",
+        "reel": {
+          "line1": "₹{now}L",
+          "line2": "the floor. not the cost."
+        },
+        "headline": "₹{now}L is the floor, not the cost"
+      },
+      {
+        "mechanism": "mistake",
+        "caption": "\"as is where is\" is in this notice too. on a ₹{now}L {type} it costs the most.",
+        "reel": {
+          "line1": "₹{now}L",
+          "line2": "\"as is where is\""
+        },
+        "headline": "\"as is where is\" — three words, real money"
+      },
+      {
+        "mechanism": "myth",
+        "caption": "the emd is ₹{emd}L and refundable. right up until the day it isn't.",
+        "reel": {
+          "line1": "₹{emd}L",
+          "line2": "refundable, until it isn't"
+        },
+        "headline": "the emd is refundable — until it isn't"
+      },
+      {
+        "mechanism": "mistake",
+        "caption": "arrange the money before you bid. the balance window opens the day you win.",
+        "reel": {
+          "line1": "₹{now}L",
+          "line2": "the balance clock starts"
+        },
+        "headline": "the balance window opens the day you win"
+      },
+      {
+        "mechanism": "hidden",
+        "caption": "nobody loses money on the reserve. they lose it on what the notice left out.",
+        "reel": {
+          "line1": "₹{now}L",
+          "line2": "the notice left something"
+        },
+        "headline": "the risk isn't the price. it's the omission."
+      },
+      {
+        "mechanism": "callout",
+        "caption": "first-time bidders: this ₹{now}L {city} {type} is the kind that looks easy.",
+        "reel": {
+          "line1": "₹{now}L",
+          "line2": "looks easy. isn't."
+        },
+        "headline": "first-time bidders: this one looks easy"
+      },
+      {
+        "mechanism": "question",
+        "caption": "₹{now}L, {city}, closes {date}. the cheap part is the price, not the paperwork.",
+        "reel": {
+          "line1": "₹{now}L",
+          "line2": "cheap price. not cheap."
+        },
+        "headline": "cheap price. the paperwork isn't."
+      },
+      {
+        "mechanism": "myth",
+        "caption": "a ₹{now}L reserve is not a ₹{now}L property. ask what's still attached to it.",
+        "reel": {
+          "line1": "₹{now}L",
+          "line2": "reserve is not the cost"
+        },
+        "headline": "a ₹{now}L reserve is not a ₹{now}L property"
+      },
+      {
+        "mechanism": "process",
+        "caption": "the reserve is where bidding starts, not where it ends.",
+        "reel": {
+          "line1": "₹{now}L",
+          "line2": "where bidding starts"
+        },
+        "headline": "the reserve is a floor, not a price"
+      },
+      {
+        "mechanism": "mistake",
+        "caption": "the biggest mistake auction buyers make costs them the emd, not the lot.",
+        "reel": {
+          "line1": "₹{emd}L",
+          "line2": "the emd is what you lose"
+        },
+        "headline": "the mistake that costs the emd"
       }
     ],
     "market_data": [
@@ -494,6 +587,51 @@
           "line2": "{city}, by {date}."
         },
         "headline": "{city}: {closing_count} close by {date}"
+      },
+      {
+        "mechanism": "callout",
+        "caption": "{area}, {city}: a bank is selling a {type} here at ₹{now}L.",
+        "reel": {
+          "line1": "₹{now}L",
+          "line2": "{area}, {city}."
+        },
+        "headline": "{area}, {city}: a {type} at ₹{now}L"
+      },
+      {
+        "mechanism": "contrast",
+        "caption": "₹{now}L in {area}. {city}'s median auction reserve is ₹{median}L.",
+        "reel": {
+          "line1": "₹{now}L",
+          "line2": "median: ₹{median}L"
+        },
+        "headline": "₹{now}L vs {city}'s ₹{median}L median"
+      },
+      {
+        "mechanism": "hidden",
+        "caption": "only {cheaper} lots in {city} are cheaper than this ₹{now}L {type}.",
+        "reel": {
+          "line1": "₹{now}L",
+          "line2": "{cheaper} cheaper in {city}"
+        },
+        "headline": "only {cheaper} lots in {city} are cheaper"
+      },
+      {
+        "mechanism": "callout",
+        "caption": "this {type} is cheaper than {pct_cheaper}% of {city}'s live auctions.",
+        "reel": {
+          "line1": "{pct_cheaper}%",
+          "line2": "cheaper than {pct_cheaper}%"
+        },
+        "headline": "cheaper than {pct_cheaper}% of {city}"
+      },
+      {
+        "mechanism": "hidden",
+        "caption": "{area} shows up {area_count} times on {city}'s live auction list.",
+        "reel": {
+          "line1": "{area_count}×",
+          "line2": "{area}, again and again"
+        },
+        "headline": "{area}: {area_count} lots live"
       }
     ],
     "evaluation": [
@@ -586,6 +724,42 @@
           "line2": "not in the notice."
         },
         "headline": "the 900m detail not in the notice"
+      },
+      {
+        "mechanism": "guess",
+        "caption": "guess the reserve on this {area} {type} before you scroll.",
+        "reel": {
+          "line1": "₹?",
+          "line2": "the notice has a number"
+        },
+        "headline": "guess the reserve on this {area} {type}"
+      },
+      {
+        "mechanism": "guess",
+        "caption": "₹{now}L or ₹{median}L — one is this {type}, one is {city}'s median.",
+        "reel": {
+          "line1": "₹{now}L or ₹{median}L",
+          "line2": "one of these is the lot"
+        },
+        "headline": "₹{now}L or ₹{median}L — which?"
+      },
+      {
+        "mechanism": "guess",
+        "caption": "is ₹{now}L fair for a {type} in {area}? {city_total} live lots say maybe.",
+        "reel": {
+          "line1": "₹{now}L",
+          "line2": "fair, or not?"
+        },
+        "headline": "is ₹{now}L fair for {area}?"
+      },
+      {
+        "mechanism": "guess",
+        "caption": "₹{emd}L gets you in. guess the reserve that number is {emd_pct}% of.",
+        "reel": {
+          "line1": "₹{emd}L",
+          "line2": "guess the reserve"
+        },
+        "headline": "₹{emd}L in. guess the reserve."
       }
     ],
     "qa": [

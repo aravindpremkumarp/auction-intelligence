@@ -19,6 +19,7 @@ DOC = ROOT.parent / "docs" / "marketing" / "hook-database.md"
 
 PILLAR_TITLES = {
     "deals": "Deals (price drops · closing soon · cheapest · EMD)",
+    "risk": "Risk & what the price does not cover (the warning format)",
     "market_data": "Market data (our graph, nobody else has it)",
     "education": "Education (3-ring syllabus)",
     "news": "Real-estate & policy news (+ our auction tie-in)",

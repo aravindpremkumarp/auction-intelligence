@@ -4,7 +4,7 @@
 
 One entry = one hook **concept** on three surfaces: the **caption** (post line 1, ≤100 chars), the **reel first frame** (line1 ≤18 / line2 ≤28 chars), and the **card headline** (≤64 chars). `{placeholders}` are filled only from real auction/graph fields — the honesty rule applies to every string. The Poster injects the relevant pillar's entries into its prompt as the HOOK ARSENAL; humans swipe from here when posting manually.
 
-Mechanisms (copy-playbook.md Part 1): contrast · question · mistake · hidden · myth · callout · countdown · process
+Mechanisms (copy-playbook.md Part 1): contrast · question · mistake · hidden · myth · callout · countdown · process · guess
 
 ## Deals (price drops · closing soon · cheapest · EMD) — 12 hooks
 
@@ -22,6 +22,21 @@ Mechanisms (copy-playbook.md Part 1): contrast · question · mistake · hidden 
 | 10 | `process` | why banks cut reserves between auctions — and what {pct}% means on this {city} {type}. | −{pct}% / here's why banks cut. | why this reserve fell {pct}% |
 | 11 | `callout` | first-time bidder budget check: reserve ₹{now}L, EMD ₹{emd}L, close {date}. | ₹{now}L all-in? / the 3 numbers to know. | the 3 numbers on this {city} {type} |
 | 12 | `countdown` | bids close {date}. the checklist for this {city} {type} takes 20 minutes. start now. | {date}. / 20-min checklist first. | closing {date} — check these first |
+
+## Risk & what the price does not cover (the warning format) — 10 hooks
+
+| # | mechanism | caption (post line 1) | reel first frame | card headline |
+|---|---|---|---|---|
+| 1 | `mistake` | the ₹{now}L is the bank's floor, not your cost. arrears and dues sit on top. | ₹{now}L / the floor. not the cost. | ₹{now}L is the floor, not the cost |
+| 2 | `mistake` | "as is where is" is in this notice too. on a ₹{now}L {type} it costs the most. | ₹{now}L / "as is where is" | "as is where is" — three words, real money |
+| 3 | `myth` | the emd is ₹{emd}L and refundable. right up until the day it isn't. | ₹{emd}L / refundable, until it isn't | the emd is refundable — until it isn't |
+| 4 | `mistake` | arrange the money before you bid. the balance window opens the day you win. | ₹{now}L / the balance clock starts | the balance window opens the day you win |
+| 5 | `hidden` | nobody loses money on the reserve. they lose it on what the notice left out. | ₹{now}L / the notice left something | the risk isn't the price. it's the omission. |
+| 6 | `callout` | first-time bidders: this ₹{now}L {city} {type} is the kind that looks easy. | ₹{now}L / looks easy. isn't. | first-time bidders: this one looks easy |
+| 7 | `question` | ₹{now}L, {city}, closes {date}. the cheap part is the price, not the paperwork. | ₹{now}L / cheap price. not cheap. | cheap price. the paperwork isn't. |
+| 8 | `myth` | a ₹{now}L reserve is not a ₹{now}L property. ask what's still attached to it. | ₹{now}L / reserve is not the cost | a ₹{now}L reserve is not a ₹{now}L property |
+| 9 | `process` | the reserve is where bidding starts, not where it ends. | ₹{now}L / where bidding starts | the reserve is a floor, not a price |
+| 10 | `mistake` | the biggest mistake auction buyers make costs them the emd, not the lot. | ₹{emd}L / the emd is what you lose | the mistake that costs the emd |
 
 ## Market data (our graph, nobody else has it) — 10 hooks
 
@@ -68,7 +83,7 @@ Mechanisms (copy-playbook.md Part 1): contrast · question · mistake · hidden 
 | 7 | `myth` | "{topic} means wait." sometimes. the auction calendar doesn't wait with you. | {stat} / the calendar won't wait. | {topic} says wait. deadlines don't. |
 | 8 | `countdown` | {headline_short}. {closing_week} TN auctions still close this week regardless. | {closing_week} close. / news or no news. | {closing_week} auctions close this week anyway |
 
-## Geo spotlights (city / area / corridor) — 10 hooks
+## Geo spotlights (city / area / corridor) — 15 hooks
 
 | # | mechanism | caption (post line 1) | reel first frame | card headline |
 |---|---|---|---|---|
@@ -82,8 +97,13 @@ Mechanisms (copy-playbook.md Part 1): contrast · question · mistake · hidden 
 | 8 | `hidden` | {district} isn't on most buyers' radar. {district_count} live auctions say it should be. | {district_count} live. / in {district}. off-radar. | {district}: {district_count} live, off-radar |
 | 9 | `question` | how far is {area} from your office, really? we measure it before you bid. | {km} km. / door to door, measured. | {area} to your office: measured |
 | 10 | `countdown` | {city} this week: {closing_count} auctions close by {date}. the shortlist: | {closing_count} close. / {city}, by {date}. | {city}: {closing_count} close by {date} |
+| 11 | `callout` | {area}, {city}: a bank is selling a {type} here at ₹{now}L. | ₹{now}L / {area}, {city}. | {area}, {city}: a {type} at ₹{now}L |
+| 12 | `contrast` | ₹{now}L in {area}. {city}'s median auction reserve is ₹{median}L. | ₹{now}L / median: ₹{median}L | ₹{now}L vs {city}'s ₹{median}L median |
+| 13 | `hidden` | only {cheaper} lots in {city} are cheaper than this ₹{now}L {type}. | ₹{now}L / {cheaper} cheaper in {city} | only {cheaper} lots in {city} are cheaper |
+| 14 | `callout` | this {type} is cheaper than {pct_cheaper}% of {city}'s live auctions. | {pct_cheaper}% / cheaper than {pct_cheaper}% | cheaper than {pct_cheaper}% of {city} |
+| 15 | `hidden` | {area} shows up {area_count} times on {city}'s live auction list. | {area_count}× / {area}, again and again | {area}: {area_count} lots live |
 
-## Evaluation walkthroughs (the product demo as content) — 10 hooks
+## Evaluation walkthroughs (the product demo as content) — 14 hooks
 
 | # | mechanism | caption (post line 1) | reel first frame | card headline |
 |---|---|---|---|---|
@@ -97,6 +117,10 @@ Mechanisms (copy-playbook.md Part 1): contrast · question · mistake · hidden 
 | 8 | `myth` | "cheap means catch." sometimes it just means nobody looked. we look. | ₹{min}L = catch? / or did nobody look? | cheap: catch, or just unseen? |
 | 9 | `callout` | shortlisted a property? ask it these 5 questions before the site visit. | 5 questions. / before the site visit. | 5 questions before you visit |
 | 10 | `hidden` | the metro extension isn't in the notice. it's 900m from this listing. | 900m away. / not in the notice. | the 900m detail not in the notice |
+| 11 | `guess` | guess the reserve on this {area} {type} before you scroll. | ₹? / the notice has a number | guess the reserve on this {area} {type} |
+| 12 | `guess` | ₹{now}L or ₹{median}L — one is this {type}, one is {city}'s median. | ₹{now}L or ₹{median}L / one of these is the lot | ₹{now}L or ₹{median}L — which? |
+| 13 | `guess` | is ₹{now}L fair for a {type} in {area}? {city_total} live lots say maybe. | ₹{now}L / fair, or not? | is ₹{now}L fair for {area}? |
+| 14 | `guess` | ₹{emd}L gets you in. guess the reserve that number is {emd_pct}% of. | ₹{emd}L / guess the reserve | ₹{emd}L in. guess the reserve. |
 
 ## Q&A (real user questions, anonymised) — 8 hooks
 
@@ -124,4 +148,4 @@ Mechanisms (copy-playbook.md Part 1): contrast · question · mistake · hidden 
 | 7 | `callout` | solo founder, {n} users, real numbers: this month's honest update. | {n} users. / the honest monthly. | the honest monthly: {n} users |
 | 8 | `myth` | "AI will do all of this." our robot drafts; a human still checks every claim. here's why. | 0 unchecked. / robot drafts. human checks. | robot drafts, human checks |
 
-**78 hooks across 8 pillars.**
+**97 hooks across 9 pillars.**

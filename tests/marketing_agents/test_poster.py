@@ -114,6 +114,68 @@ class TestPriceDropFloor:
         assert "previous_reserve_price" not in out[0]
 
 
+class TestCityContext:
+    """Where ONE lot sits among the live lots of its own city. The city figure
+    is the yardstick for a property post; a post whose SUBJECT is the city is
+    the carousel's job."""
+
+    def _market(self):
+        # Chennai: 1L, 2L, 3L, 4L, 5L, 6L (median 3.5L). Salem: 3 rows, which
+        # is under the floor. Areas: A2/A4 share "Anna Nagar".
+        rows = [_row(f"C{i}", reserve=i * 100_000.0) for i in range(1, 7)]
+        rows[1]["area"] = rows[3]["area"] = "Anna Nagar"
+        rows += [_row(f"S{i}", reserve=i * 100_000.0, city="Salem") for i in range(1, 4)]
+        return rows
+
+    def test_ranks_the_lot_inside_its_own_city(self):
+        market = self._market()
+        ctx = poster.city_context(market[1], market)  # ₹2L, 2nd of 6
+        assert ctx["city_total"] == 6
+        assert (ctx["rank"], ctx["cheaper"], ctx["dearer"]) == (2, 1, 4)
+
+    def test_median_and_distance_from_it(self):
+        market = self._market()
+        ctx = poster.city_context(market[1], market)
+        assert ctx["median_lakhs"] == pytest.approx(3.5)
+        assert ctx["vs_median_lakhs"] == pytest.approx(-1.5)
+
+    def test_cheaper_than_pct_is_the_share_strictly_dearer(self):
+        market = self._market()
+        ctx = poster.city_context(market[1], market)
+        assert ctx["cheaper_than_pct"] == round(100 * 4 / 6)
+
+    def test_area_count_is_within_the_city(self):
+        market = self._market()
+        assert poster.city_context(market[1], market)["area_count"] == 2
+        assert poster.city_context(market[0], market)["area_count"] == 4
+
+    def test_other_cities_are_not_counted(self):
+        market = self._market()
+        assert poster.city_context(market[0], market)["city_total"] == 6
+
+    def test_thin_city_gets_no_context(self):
+        """A rank out of three lots is arithmetic, not a story."""
+        market = self._market()
+        salem = next(r for r in market if r["city"] == "Salem")
+        assert poster.city_context(salem, market) is None
+
+    def test_row_outside_the_market_gets_no_context(self):
+        """Otherwise `dearer` would silently be off by one."""
+        market = self._market()
+        stranger = _row("Z9", reserve=250_000.0)
+        assert poster.city_context(stranger, market) is None
+
+    def test_no_market_no_context(self):
+        assert poster.city_context(_row("C1"), []) is None
+
+    def test_shape_candidates_attaches_it_only_when_given_a_market(self):
+        market = self._market()
+        with_ctx = shape_candidates([market[1]], [], [], market=market)
+        assert with_ctx[0]["city_context"]["rank"] == 2
+        without = shape_candidates([market[1]], [], [])
+        assert "city_context" not in without[0]
+
+
 class TestValidateDrafts:
     CANDS = shape_candidates([_row("A1")], [], [])
 
@@ -1060,7 +1122,7 @@ class TestHookDatabase:
     objective gates the Poster enforces at draft time."""
 
     DATA = json.loads(Path("marketing/hooks.json").read_text(encoding="utf-8"))
-    PILLARS = ("deals", "market_data", "education", "news", "geo",
+    PILLARS = ("deals", "risk", "market_data", "education", "news", "geo",
                "evaluation", "qa", "build_in_public")
 
     def _all_hooks(self):
@@ -1068,7 +1130,7 @@ class TestHookDatabase:
             for h in hooks:
                 yield pillar, h
 
-    def test_all_eight_pillars_present_with_depth(self):
+    def test_all_pillars_present_with_depth(self):
         assert set(self.DATA["pillars"].keys()) == set(self.PILLARS)
         for pillar in self.PILLARS:
             assert len(self.DATA["pillars"][pillar]) >= 8, pillar
@@ -1084,7 +1146,11 @@ class TestHookDatabase:
                   "feature": "price-drop alerts",
                   "feature_idea": "saved searches",
                   "bug_effect": "hid 12 listings", "theme": "possession",
-                  "check": "possession", "date": "24 Jul"}
+                  "check": "possession", "date": "24 Jul",
+                  "now": "27.8", "prev": "31.9", "emd": "2.78",
+                  "median": "42.4", "cheaper": "11", "dearer": "57",
+                  "pct_cheaper": "83", "area_count": "11",
+                  "city_total": "69", "emd_pct": "10"}
 
     def _expand(self, text):
         return re.sub(r"\{(\w+)\}",
@@ -1154,7 +1220,14 @@ class TestPillarSelection:
 
     def test_base_pillars_always_present(self):
         cands = shape_candidates([_row("A1")], [], [])
-        assert poster.pillars_for(cands)[:2] == ("deals", "market_data")
+        assert poster.pillars_for(cands)[:3] == ("deals", "risk", "market_data")
+
+    def test_risk_pillar_reaches_every_batch(self):
+        """What the reserve does not cover is true of every lot, so the
+        warning hooks must not depend on an angle being present."""
+        for cands in (shape_candidates([_row("A1")], [], []),
+                      shape_candidates([], [], [_row("E1", reserve=5e5)])):
+            assert "risk" in poster.pillars_for(cands)
 
     def test_cheapest_pulls_in_geo_and_evaluation(self):
         cands = shape_candidates([], [], [_row("E1", reserve=500_000)])
@@ -1202,6 +1275,18 @@ class TestPromptCopyGuidance:
     def test_mechanism_fit_warns_off_small_contrast(self):
         p = self._prompt()
         assert "MECHANISM FIT" in p and "drop_pct >= 10" in p
+
+    def test_guess_is_a_registered_mechanism(self):
+        assert "guess" in poster.HOOK_MECHANISMS
+        assert "- guess:" in self._prompt()
+
+    def test_city_context_is_fenced_in_the_prompt(self):
+        """The aggregates are computed, so the model may quote them but never
+        round, recompute or extend them."""
+        p = self._prompt()
+        assert "CITY CONTEXT" in p
+        assert "QUOTE THESE FIGURES EXACTLY" in p
+        assert "the city number is only the ruler" in p
 
 
 class TestReelThemes:
