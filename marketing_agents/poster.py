@@ -41,6 +41,7 @@ import argparse
 import json
 import os
 import re
+import statistics
 import sys
 from datetime import date
 from pathlib import Path
@@ -77,7 +78,7 @@ BANNED_OPENERS = (
     "don't miss", "dont miss", "hurry", "last chance",
 )
 HOOK_MECHANISMS = ("contrast", "question", "mistake", "hidden",
-                   "myth", "callout", "countdown", "process")
+                   "myth", "callout", "countdown", "process", "guess")
 MAX_PER_MECHANISM = 2  # variety rule: a batch may not lean on one mechanism
 
 # Reel gates (copy-playbook.md Part 6; the deal-reel template's on-screen
@@ -130,6 +131,32 @@ def fetch_one(api_base: str, auction_id: str) -> tuple[dict, list[dict]]:
     return stats, shape_candidates(closing, drops, [])
 
 
+# The carousel used to be handed exactly one price_asc page. fetch_market()
+# now reads every live row so candidates can be ranked inside their own city,
+# so the carousel is explicitly re-sliced to its old width — a behaviour change
+# there would be an unrelated regression riding along on a hook change.
+CAROUSEL_POOL = 200
+MARKET_PAGE = 200
+MAX_MARKET_PAGES = 15  # ~3k rows; a backstop, not an expected limit
+
+
+def fetch_market(client: httpx.Client, today: str) -> list[dict]:
+    """Every live row, price-ascending. Paged, because the ranking claims
+    ("only 11 lots in this city are cheaper") are only true against the whole
+    live set — a single 200-row page would make every count a lower bound."""
+    rows: list[dict] = []
+    for _ in range(MAX_MARKET_PAGES):
+        page = fetch_json(client, "/properties", {
+            "date_from": today, "sort": "price_asc",
+            "limit": MARKET_PAGE, "offset": len(rows),
+        })
+        results = page.get("results", [])
+        rows += results
+        if not results or len(rows) >= page.get("total", 0):
+            break
+    return rows
+
+
 def fetch_pool(api_base: str) -> tuple[dict, list[dict], dict | None]:
     """Pull /stats + the angle queries; return (stats, candidates, carousel).
 
@@ -143,14 +170,12 @@ def fetch_pool(api_base: str) -> tuple[dict, list[dict], dict | None]:
             client, "/properties",
             {"date_from": today, "sort": "date_asc", "limit": 25},
         )["results"]
-        # Price-ascending prefix over the whole live set. Restricted to any one
-        # city its rows ARE that city's cheapest, in order — which is exactly
-        # what the carousel cover claims. The single-property "cheapest" angle
-        # reads the head of the same list, so this is one call, not two.
-        cheapest_wide = fetch_json(
-            client, "/properties",
-            {"date_from": today, "sort": "price_asc", "limit": 200},
-        )["results"]
+        # The whole live set, price-ascending. Restricted to any one city its
+        # rows ARE that city's cheapest, in order — which is exactly what the
+        # carousel cover claims. The "cheapest" angle reads the head of the
+        # same list, and city_context() ranks each candidate inside it, so one
+        # paged read serves three purposes.
+        market = fetch_market(client, today)
         # Wider upcoming page: source for price-drop (re-auction) candidates.
         upcoming = fetch_json(
             client, "/properties",
@@ -158,17 +183,86 @@ def fetch_pool(api_base: str) -> tuple[dict, list[dict], dict | None]:
         )["results"]
     drops = [r for r in upcoming if _is_price_drop(r)]
     return (stats,
-            shape_candidates(closing_soon, drops, cheapest_wide[:15]),
-            select_carousel(cheapest_wide))
+            shape_candidates(closing_soon, drops, market[:15], market=market),
+            # Sliced to the width the carousel has always seen, so widening the
+            # read for ranking can't silently change which city it picks.
+            select_carousel(market[:CAROUSEL_POOL]))
+
+
+# A price drop is a STORY, not an arithmetic fact. The old test passed any
+# re-auction whose reserve moved by a rupee, and because price_drop sorts first
+# ("best content", below) the model was handed those as its strongest
+# candidates: an ₹87,000 trim on a ₹31.9L plot became "₹31.9L → ₹31L", two
+# figures that read as the same number and a contrast hook with nothing to
+# contrast. Below the floor the row is NOT discarded — it falls through to
+# closing_soon / cheapest, which describe it honestly without claiming a
+# discount. The absolute floor is there because a big-ticket lot can move less
+# than 5% and still be a real cut.
+MIN_DROP_PCT = 5.0
+MIN_DROP_ABS = 200_000.0  # ₹2L
 
 
 def _is_price_drop(row: dict) -> bool:
     prev, cur = row.get("previous_reserve_price"), row.get("reserve_price")
-    return bool(row.get("is_reauction")) and prev and cur and prev > cur
+    if not (row.get("is_reauction") and prev and cur and prev > cur):
+        return False
+    delta = prev - cur
+    return delta >= MIN_DROP_ABS or (100 * delta / prev) >= MIN_DROP_PCT
 
 
-def shape_candidates(closing: list[dict], drops: list[dict], cheapest: list[dict]) -> list[dict]:
-    """Tag angles, dedupe by auction_id (first angle wins), keep prompt fields."""
+# Per-candidate market context. A hook like "only 11 lots in kanchipuram are
+# cheaper than this one" is about ONE property — the city figure is the ruler,
+# not the subject. (A hook whose subject is the city belongs to the carousel,
+# which is a city post.) Every number here is computed, never authored, and
+# goes into the prompt as the only aggregate the model may quote.
+#
+# Context is attached only when the row is itself in `market`, so `dearer`
+# can't be off by one, and only above a floor: a rank out of three lots is
+# arithmetic, not a story.
+MIN_CONTEXT_LOTS = 5
+
+
+def city_context(row: dict, market: list[dict]) -> dict | None:
+    """Where this lot sits among the live lots of its own city."""
+    city = (row.get("city") or "").strip()
+    price = row.get("reserve_price")
+    if not city or not price or not market:
+        return None
+    peers = [r for r in market
+             if (r.get("city") or "").strip().lower() == city.lower()
+             and r.get("reserve_price")]
+    if len(peers) < MIN_CONTEXT_LOTS:
+        return None
+    if not any(str(r.get("auction_id")) == str(row.get("auction_id")) for r in peers):
+        return None
+    prices = [r["reserve_price"] for r in peers]
+    cheaper = sum(1 for p in prices if p < price)
+    dearer = sum(1 for p in prices if p > price)
+    median = statistics.median(prices)
+    area = (row.get("area") or "").strip().lower()
+    return {
+        "city_total": len(prices),
+        "rank": cheaper + 1,
+        "cheaper": cheaper,
+        "dearer": dearer,
+        "median_lakhs": round(median / 1e5, 1),
+        "vs_median_lakhs": round((price - median) / 1e5, 1),
+        # "cheaper than N% of its city" — the share strictly dearer than it.
+        "cheaper_than_pct": round(100 * dearer / len(prices)),
+        "area_count": sum(
+            1 for r in peers
+            if (r.get("area") or "").strip().lower() == area) if area else 0,
+    }
+
+
+def shape_candidates(closing: list[dict], drops: list[dict], cheapest: list[dict],
+                     market: list[dict] | None = None) -> list[dict]:
+    """Tag angles, dedupe by auction_id (first angle wins), keep prompt fields.
+
+    `market` is the full live price-ascending set; when given, each candidate
+    also carries its city_context(). Omitted (or too thin) simply means the
+    ranking hooks have nothing to fill and the model uses the others.
+    """
     pool: dict[str, dict] = {}
     for angle, rows in (("price_drop", drops), ("closing_soon", closing), ("cheapest", cheapest)):
         for row in rows:
@@ -195,6 +289,9 @@ def shape_candidates(closing: list[dict], drops: list[dict], cheapest: list[dict
                 cand["previous_reserve_price"] = prev  # raw ₹, for the card island
                 cand["previous_reserve_lakhs"] = round(prev / 1e5, 1)
                 cand["drop_pct"] = round(100 * (prev - row["reserve_price"]) / prev, 1)
+            ctx = city_context(row, market or [])
+            if ctx:
+                cand["city_context"] = ctx
             pool[aid] = cand
     # Price drops first (best content), then soonest deadlines, then cheapest.
     order = {"price_drop": 0, "closing_soon": 1, "cheapest": 2}
@@ -215,6 +312,33 @@ def resolve_api_key(env: dict | None = None) -> str | None:
 # ------------------------------------------------------------- prompt layer
 
 HOOKS_PATH = Path("marketing/hooks.json")
+
+# The arsenal is stored per pillar and the prompt only ever asked for two of the
+# eight, so 56 of the 78 curated hooks never reached the model — including every
+# geo and evaluation hook, which are exactly the ones that fit a plain live
+# listing (no drop, no deadline). Pillars are now selected from the angles
+# actually in the pool. news / qa / build_in_public stay out on purpose: their
+# hooks interpolate {headline_short}, {question_short}, {total} — fields a post
+# draft has no source for, so they could only be filled by inventing.
+# `risk` is base, not angle-driven: what the reserve price doesn't cover is
+# true of every lot we list, drop or no drop, deadline or no deadline. It is
+# also the format that saves best, and the one only we can write honestly.
+BASE_PILLARS = ("deals", "risk", "market_data")
+ANGLE_PILLARS = {
+    "price_drop": ("education",),     # why a lot comes back, and what to re-check
+    "closing_soon": ("evaluation",),  # "is ₹X fair" — the question a deadline forces
+    "cheapest": ("geo", "evaluation"),
+}
+
+
+def pillars_for(candidates: list[dict]) -> tuple[str, ...]:
+    """Which hook pillars this batch should see, in a stable order."""
+    out = list(BASE_PILLARS)
+    for cand in candidates:
+        for pillar in ANGLE_PILLARS.get(cand.get("angle"), ()):
+            if pillar not in out:
+                out.append(pillar)
+    return tuple(out)
 
 
 def load_hooks(pillars: tuple[str, ...] = ("deals", "market_data")) -> str:
@@ -301,6 +425,12 @@ an AI research assistant for Indian bank-auction (SARFAESI) property in Tamil Na
 
 BRAND CONTEXT (follow the voice; respect words-to-avoid strictly):
 {load_brand_context()}
+
+The voice constrains WORDS, not TENSION. "calm, no hype" rules out hype
+adjectives, brochure cliches and manufactured urgency — it does NOT mean a flat
+opening line, and it is not permission to be boring. A calm hook is still a
+hook: "3 days left. nobody has checked the flood map." is calm AND stops the
+scroll. If a draft reads as safe, it has failed the voice, not satisfied it.
 {perf_block}
 
 HARD RULES:
@@ -342,6 +472,19 @@ MECHANISMS (rotate — max 2 drafts per mechanism per batch, code-enforced):
 - countdown: "<n> days left. someone gets this <city> <type> at ₹<now>L. did
              anyone check the flood map?"                                 (closing_soon)
 - process:   "why is this flat ₹7L cheaper the second time the bank auctions it?"  (re-auction)
+- guess:     "guess the reserve on this <area> <type>. it's ₹14.6L under the city median."
+             (state the real figure in the BODY — a guess hook that never
+             answers is bait, and the answer is public data anyway)
+
+MECHANISM FIT — the mechanism has to match the SIZE of the fact. `contrast`
+earns the first line only when the two figures look different at a glance
+(roughly drop_pct >= 10). A candidate carrying a smaller `drop_pct` is not a
+discount story: the small move IS the story, so lead with `process` ("the bank
+wanted ₹Xl. nobody bid. today: ₹Yl — ₹Z less.") or `mistake`. Never write a
+discount framing the numbers can't cash. Candidates below the floor never reach
+you tagged price_drop at all — they arrive as closing_soon or cheapest, and a
+lot with no drop and no deadline is a `hidden` / `question` / `myth` story
+about what the notice does and doesn't tell a bidder, not a deal story.
 
 BODY after the hook + blank line: stakes (the "so what" for a bidder) -> the facts
 (numbers do the work) -> context (vs last listing / what to check) -> one soft CTA.
@@ -354,7 +497,7 @@ HOOK ARSENAL (marketing/hooks.json — curated, stop-test-passing concepts; each
 gives the same idea as caption / reel first-frame / card headline). ADAPT one of
 these to the auction's real numbers BEFORE inventing your own; only invent when
 none fits. Fill every {{placeholder}} from the auction's actual fields:
-{load_hooks() or "(hooks.json unavailable — use the mechanism swipe lines above)"}
+{load_hooks(pillars_for(candidates)) or "(hooks.json unavailable — use the mechanism swipe lines above)"}
 
 QUALITY BAR (every draft must pass):
 1. Clarity  — one idea, reads in one pass.
@@ -366,6 +509,20 @@ Avoid AI slop: no "amazing/incredible/unlock/don't miss out". Let the noun and t
 number carry it.
 
 SITE SNAPSHOT: {stats.get("upcoming_auctions")} live auctions of {stats.get("total_auctions")} tracked (as of {stats.get("generated_at")}).
+
+CITY CONTEXT — a candidate may carry a `city_context` block: where that ONE lot
+sits among the live lots of its own city (city_total, rank, cheaper, dearer,
+median_lakhs, vs_median_lakhs, cheaper_than_pct, area_count). Use it to give the
+lot a yardstick — "only 11 lots in kanchipuram are cheaper than this ₹27.8L
+flat", "₹14.6L under the city median". Two rules, both hard:
+- QUOTE THESE FIGURES EXACTLY. They are computed from the live list. Do not
+  round them ("about 70" for 69), recompute them, or infer new ones from them.
+  A figure that is not in the candidate's own JSON does not exist.
+- The LOT is the subject; the city number is only the ruler. "69 lots are live
+  in kanchipuram" as the subject is a different post (the carousel). This post
+  is about one property, and the hook must promise that property.
+A candidate with no `city_context` has too few live neighbours to rank — write
+it without a yardstick rather than reaching for one.
 
 CANDIDATE AUCTIONS (JSON):
 {json.dumps(candidates, ensure_ascii=False, indent=1)}
