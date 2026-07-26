@@ -844,10 +844,14 @@ def _asset_label(row: dict) -> str:
     return ""
 
 
-def _carousel_title(row: dict) -> str:
-    """The slide's headline: what the thing IS ('Residential Land'). We never
-    use the raw auction title here — it leads with the bank and repeats the
-    city, both of which the slide already shows."""
+def asset_headline(row: dict) -> str:
+    """What the thing IS, from its own type fields ('Residential Land').
+
+    Used by the carousel slide and by the per-property OG card
+    (scripts/generate_property_og.py). We never use the raw auction title on
+    an image: it leads with the bank and repeats the city, both of which the
+    surrounding layout already shows.
+    """
     cat = (row.get("asset_category") or "").strip()
     types = _asset_type(row).strip()
     if cat and types and cat.lower() not in types.lower():
@@ -905,7 +909,7 @@ def select_carousel(rows: list[dict]) -> dict | None:
         area = (r.get("area") or "").strip()
         props.append({
             "auction_id": r["auction_id"],
-            "title": _carousel_title(r),
+            "title": asset_headline(r),
             "locality": "" if area.lower() == city.lower() else area,
             "bank": r.get("bank_short") or r.get("bank") or "",
             "reserve_price": r["reserve_price"],

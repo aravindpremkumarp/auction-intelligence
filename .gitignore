@@ -71,3 +71,6 @@ marketing/research/data/
 
 # LangExtract precision-eval extraction cache (regenerated on demand)
 evals/.prf_cache.json
+
+# Local scratch for scripts/generate_property_og.py (cards live in R2, not git)
+.og_renders/

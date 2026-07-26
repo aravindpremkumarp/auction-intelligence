@@ -5,6 +5,7 @@ filename (plain --template would overwrite same-template cards).
 """
 import importlib.util
 import json
+import pytest
 import sys
 from pathlib import Path
 
@@ -74,6 +75,45 @@ def test_render_staged_includes_the_carousel(tmp_path, monkeypatch):
 
     render_social.render_staged(date_dir)
     assert calls[0] == "card-00-carousel.png"
+
+
+class TestStageHtml:
+    """stage_html swaps the #data island and stages the file BESIDE the real
+    template — if it landed anywhere else the relative lib/ paths would break
+    and data-render-ready would never fire."""
+
+    def test_island_is_swapped_in(self):
+        url, staged = render_social.stage_html(
+            "property-og-1200x630", {"city": "Salem", "reserve_price": 1500000})
+        try:
+            html = staged.read_text(encoding="utf-8")
+            island = json.loads(render_social.DATA_ISLAND.search(html).group(0)
+                                .split(">", 1)[1].rsplit("<", 1)[0])
+            # The sample island is REPLACED, not merged — a leftover key would
+            # render a stale figure the record never had.
+            assert island == {"city": "Salem", "reserve_price": 1500000}
+            assert url.startswith("file://")
+            # The visible fallback markup is untouched; only the island moves.
+            assert 'data-field="city">Karur<' in html
+        finally:
+            staged.unlink(missing_ok=True)
+
+    def test_staged_beside_the_template_so_lib_paths_resolve(self):
+        _, staged = render_social.stage_html("property-og-1200x630", {"city": "X"})
+        try:
+            assert staged.parent == render_social.TEMPLATES
+            assert (staged.parent / "lib" / "motion.js").exists()
+        finally:
+            staged.unlink(missing_ok=True)
+
+    def test_no_island_uses_the_template_untouched(self):
+        url, staged = render_social.stage_html("property-og-1200x630", None)
+        assert staged == render_social.TEMPLATES / "property-og-1200x630.html"
+        assert url.endswith("property-og-1200x630.html")
+
+    def test_unknown_template_exits(self):
+        with pytest.raises(SystemExit):
+            render_social.stage_html("no-such-template", {})
 
 
 class TestStageName:
