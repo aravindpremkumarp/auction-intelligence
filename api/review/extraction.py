@@ -52,6 +52,9 @@ class ExtractionReviewOut(BaseModel):
     filename: str
     markdown: str | None = None
     status: str = "pending"
+    # Label-free quality score (0-100, pipeline/validators.py). None for
+    # extractions written before scoring was tracked.
+    score: int | None = None
     verified_by: str | None = None
     verified_at: str | None = None
     # Source-notice location so the review UI can show the original document
@@ -71,6 +74,9 @@ class ExtractionQueueRow(BaseModel):
     status: str
     n_fields: int
     n_ungrounded: int
+    # Label-free quality score (0-100, pipeline/validators.py). None for rows
+    # extracted before scoring was tracked.
+    score: int | None = None
     # When load_extractions.py last wrote this document's extraction (ISO string,
     # None for rows extracted before this was tracked). Lets the review UI sort
     # newest-first so a freshly re-run batch clusters at the top of the queue.
@@ -129,6 +135,7 @@ def get_extraction(filename: str) -> dict | None:
                d.extraction_json                            AS extraction_json,
                coalesce(d.extraction_corrections_json, '{}') AS corrections_json,
                coalesce(d.extraction_review_status, 'pending') AS status,
+               d.extraction_score                           AS score,
                d.extraction_verified_by                     AS verified_by,
                toString(d.extraction_verified_at)           AS verified_at,
                d.public_url                                 AS public_url,
@@ -144,9 +151,16 @@ def get_extraction(filename: str) -> dict | None:
     return rows[0] if rows else None
 
 
-def list_extraction_queue(status: str | None, limit: int,
-                          sort: str = "recent") -> list[dict]:
+def list_extraction_queue(status: str | None, limit: int, sort: str = "recent",
+                          score_min: float | None = None,
+                          score_max: float | None = None) -> list[dict]:
     clause = "AND coalesce(d.extraction_review_status,'pending') = $status" if status else ""
+    # Rows without a score (pre-scoring extractions) are excluded once either
+    # bound narrows the default 0-100 range — nothing to compare against.
+    if score_min is not None:
+        clause += " AND d.extraction_score >= $score_min"
+    if score_max is not None:
+        clause += " AND d.extraction_score <= $score_max"
     # "recent" (default): latest batch first (then newest extraction within it) so
     # a just-run batch groups at the top; docs missing extraction data (extracted
     # before it was tracked) fall to the bottom. "name": alphabetical by filename.
@@ -162,6 +176,7 @@ def list_extraction_queue(status: str | None, limit: int,
         WHERE d.extraction_json IS NOT NULL {clause}
         RETURN d.filename AS filename,
                coalesce(d.extraction_review_status,'pending') AS status,
+               d.extraction_score AS score,
                toString(d.extraction_at) AS extraction_at,
                toString(d.markdown_reextracted_at) AS markdown_reextracted_at,
                toString(d.markdown_loaded_at) AS markdown_loaded_at,
@@ -170,7 +185,8 @@ def list_extraction_queue(status: str | None, limit: int,
         ORDER BY {order}
         LIMIT $limit
         """,
-        {"status": status, "limit": limit},
+        {"status": status, "limit": limit,
+         "score_min": score_min, "score_max": score_max},
         max_rows=5000,
     )
 
@@ -257,9 +273,12 @@ def extraction_queue(
     status: str | None = Query(default=None),
     limit: int = Query(default=200, le=2000),
     sort: str = Query(default="recent", pattern="^(recent|name)$"),
+    score_min: float | None = Query(default=None, ge=0.0, le=100.0),
+    score_max: float | None = Query(default=None, ge=0.0, le=100.0),
     _admin: UserOut = Depends(get_current_admin),
 ) -> ExtractionQueueOut:
-    rows = list_extraction_queue(status, limit, sort)
+    rows = list_extraction_queue(status, limit, sort,
+                                 score_min=score_min, score_max=score_max)
     out = []
     for r in rows:
         try:
@@ -267,9 +286,11 @@ def extraction_queue(
         except json.JSONDecodeError:
             ents = []
         b = r.get("extraction_batch")
+        s = r.get("score")
         out.append(ExtractionQueueRow(
             filename=r["filename"], status=r["status"], n_fields=len(ents),
             n_ungrounded=sum(1 for e in ents if e.get("start") is None),
+            score=int(s) if s is not None else None,
             extraction_at=r.get("extraction_at"),
             extraction_batch=int(b) if b is not None else None,
             stale=extraction_stale(r.get("markdown_reextracted_at"),
@@ -288,7 +309,7 @@ def extraction_detail(
         raise HTTPException(status_code=404, detail="extraction not found")
     return ExtractionReviewOut(
         filename=row["filename"], markdown=row.get("markdown"),
-        status=row.get("status", "pending"),
+        status=row.get("status", "pending"), score=row.get("score"),
         verified_by=row.get("verified_by"), verified_at=row.get("verified_at"),
         public_url=row.get("public_url"), doc_type=row.get("doc_type"),
         content_type=row.get("content_type"),

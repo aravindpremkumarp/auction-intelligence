@@ -20,8 +20,9 @@ Two operations, gated independently so either can run alone:
                  on/after --since (default: today, UTC),
 
              writing the grounded entities back exactly as pipeline.load_extractions
-             does (extraction_json / extraction_at / extraction_batch /
-             extraction_review_status='pending'), all under one shared batch number.
+             does (extraction_json / extraction_score / extraction_at /
+             extraction_batch / extraction_review_status='pending'), all under one
+             shared batch number.
 
 Each document is written the moment its extraction returns, so a run that is
 interrupted leaves every completed notice persisted. Re-running with --resume
@@ -51,11 +52,13 @@ from datetime import datetime, timezone
 from api.neo4j_client import run_query, run_read_query
 from pipeline.extract_routing import select_extract_model
 from pipeline.load_extractions import _entities, _next_batch
+from pipeline.validators import validate
 
 # Every LangExtract-owned field on :Document. Clearing these returns a notice to
 # the "never extracted" state the /review/extraction surface treats as empty.
 LANGEXTRACT_FIELDS = (
     "extraction_json",
+    "extraction_score",
     "extraction_at",
     "extraction_batch",
     "extraction_review_status",
@@ -118,17 +121,20 @@ def _extract_one(d: dict, batch: int, route: bool):
         model_id, reasoning_off = None, False
     res = LX.extract(d["md"], model_id=model_id, reasoning_off=reasoning_off)
     ents = _entities(res)
+    score = validate(res.extractions, source_text=d["md"])["score"]
     run_query(
         """
         MATCH (d:Document {filename:$fn})
         SET d.extraction_json = $j,
+            d.extraction_score = $score,
             d.extraction_at    = datetime(),
             d.extraction_batch = $batch,
             d.extraction_review_status =
                 coalesce(d.extraction_review_status, 'pending')
         RETURN d.filename
         """,
-        {"fn": fn, "j": json.dumps(ents, ensure_ascii=False), "batch": batch})
+        {"fn": fn, "j": json.dumps(ents, ensure_ascii=False),
+         "score": score, "batch": batch})
     return fn, len(ents), model_id or "default"
 
 
