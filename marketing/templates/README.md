@@ -31,6 +31,16 @@ hides — the card never shows a stale sample number (`lib/motion.js` binder).
 | `price-drop-1080x1350.html` | 1080×1350 | Re-auction price drop (drop % computed from the two notice prices) |
 | `city-carousel-1080x1350.html` | 1080×1350 × N | "Cheapest X in [city] this week" — cover + slide per property + CTA |
 
+The carousel is the only **multi-property** template, so the Poster fills it
+differently: `select_carousel()` picks the city group and its 4–5 slides from
+the price-ascending live page *before* the model runs, and `carousel_island()`
+builds the island from those rows — the model contributes only the cover
+`headline` and the caption, both gated by `validate_carousel()` (must name the
+city on the slides, must not name another, may only quote figures that are
+actually on screen). It stages as `cards/00-carousel.json` in the same `cards`
+manifest as the single-property cards, so `--render-staged` picks it up with no
+special case and writes one PNG per slide (`card-00-carousel_01.png` …).
+
 ```bash
 python marketing/render_social.py                                  # all, sample data
 python marketing/render_social.py --template deal-of-the-day-1080 \

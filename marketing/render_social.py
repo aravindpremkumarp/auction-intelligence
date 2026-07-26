@@ -53,6 +53,21 @@ def chromium_path() -> str | None:
     return cands[0] if cands else None
 
 
+def stage_name(template: str, out_name: str | None, index: int, multi: bool) -> str:
+    """Filename for one .stage screenshot.
+
+    Multi-stage templates (the carousel renders one .stage per slide) always get
+    a numbered suffix — otherwise every slide overwrites the same PNG. When the
+    caller supplied a name it is the stem, so a staged carousel lands as
+    card-00-carousel_01.png … and never collides with another card.
+    """
+    if out_name and multi:
+        return f"{pathlib.Path(out_name).stem}_{index:02d}.png"
+    if out_name:
+        return out_name
+    return f"{template}_{index:02d}.png" if multi else f"{template}.png"
+
+
 def render(template: str, data_file: str | None, out_dir: pathlib.Path,
            out_name: str | None = None) -> list[pathlib.Path]:
     src = TEMPLATES / f"{template}.html"
@@ -91,11 +106,7 @@ def render(template: str, data_file: str | None, out_dir: pathlib.Path,
             sys.exit(f"{template}: no .stage elements to screenshot")
         multi = len(stages) > 1
         for i, stage in enumerate(stages, start=1):
-            if out_name and not multi:
-                name = out_name                                  # caller-chosen unique name
-            else:
-                name = f"{template}_{i:02d}.png" if multi else f"{template}.png"
-            path = out_dir / name
+            path = out_dir / stage_name(template, out_name, i, multi)
             stage.scroll_into_view_if_needed()
             stage.screenshot(path=str(path))
             written.append(path)

@@ -381,7 +381,7 @@ const PULL = GH + '/pull/';
 
 const MARKETING_DATA = {
 meta: {
-  updated: '2026-07-21',
+  updated: '2026-07-26',
   situation: 'pre-traction: ~7 registered users. the whole marketing engine was built in one sprint (jul 9–16, 2026) and is <b>human-gated end-to-end</b> — agents draft and stage, the founder reviews, merges and publishes. nothing auto-posts. north star (proposed): <b>weekly activated users</b> — ≥1 grounded search plus a value action.',
 },
 
@@ -455,8 +455,8 @@ nodes: [
   /* ---- engine & automation ---- */
   { id:'poster', lane:'engine', label:'poster — content agent A', type:'agent', status:'live',
     sub:'ran once: 2026-07-15 · claude-max engine',
-    summary:'Turns live rows into grounded social drafts: fetches /stats + /properties, shapes price-drop / cheapest / closing-soon candidates, injects hooks + playbook, then a validator drops any draft that breaks the honesty rules.',
-    details:['3 staged steps: --prepare → generate → --finalize (validate + stage).','Validator: must cite a real figure, no banned words, hook ≤100 chars, max 2 drafts per mechanism.','Reads the latest Reporter output to bias the next batch (the learning loop).','Engines: Claude Max default (₹0), OpenRouter fallback. Kill switch: AGENTS_ENABLED=false.'],
+    summary:'Turns live rows into grounded social drafts: fetches /stats + /properties, shapes price-drop / cheapest / closing-soon candidates plus one city carousel, injects hooks + playbook, then a validator drops any draft that breaks the honesty rules.',
+    details:['3 staged steps: --prepare → generate → --finalize (validate + stage).','Validator: must cite a real figure, no banned words, hook ≤100 chars, max 2 drafts per mechanism.','Carousel: slides picked from data before the model runs; its copy must name the right city and may only quote figures that are on screen.','Reads the latest Reporter output to bias the next batch (the learning loop).','Engines: Claude Max default (₹0), OpenRouter fallback. Kill switch: AGENTS_ENABLED=false.'],
     links:[{t:'poster.py', h: BLOB+'marketing_agents/poster.py'},{t:'content-agents.md', h: BLOB+'docs/marketing/content-agents.md'}], prs:[280,281] },
   { id:'wf-poster', lane:'engine', label:'content-poster workflow', type:'workflow', status:'live',
     sub:'manual dispatch only — stale-data guard',
@@ -466,7 +466,7 @@ nodes: [
   { id:'render', lane:'engine', label:'render stack — reels MP4 · cards PNG', type:'system', status:'live',
     sub:'6 reel + 3 static templates · dark/light',
     summary:'HyperFrames (HTML/GSAP → MP4, 9:16, ~12–15s) for reels; Playwright screenshots for statics/carousels. Templates adapted from motion-anything, themed with brand tokens.',
-    details:['Reels: deal · stats · education · geo · news · evaluate.','Statics: deal-of-the-day 1080² · price-drop 1080×1350 · city carousel.','Reels render silent — baked BGM is an open item.'],
+    details:['Reels: deal · stats · education · geo · news · evaluate.','Statics: deal-of-the-day 1080² · price-drop 1080×1350 · city carousel (all three now poster-driven).','Carousel renders one PNG per slide (cover + 4–5 + CTA) from the same staged manifest as the cards.','Reels render silent — baked BGM is an open item.'],
     links:[{t:'templates/README', h: BLOB+'marketing/templates/README.md'},{t:'render_reel.py', h: BLOB+'marketing/render_reel.py'},{t:'render_social.py', h: BLOB+'marketing/render_social.py'}], prs:[286,289,302] },
   { id:'wf-seo', lane:'engine', label:'seo-pages workflow', type:'workflow', status:'live',
     sub:'regenerate + draft PR · manual dispatch',
@@ -675,6 +675,9 @@ risks: [
 ],
 
 changelog: [
+  { d:'2026-07-26', items:[
+    { t:'Carousel wired into the Poster — the city-carousel template existed and rendered since the template pack landed, but nothing in the pipeline ever produced one, so every batch shipped statics + reels only. The Poster now emits one carousel per batch. Because a carousel is a city rather than a single auction, it inverts the usual split: select_carousel() picks the group and its 4–5 slides from the price-ascending live page BEFORE the model runs (city with the most live lots of one type; "cheapest" holds only because that page is price-sorted, and "this week" is computed from the real auction dates, falling back to "right now"), and the model writes only the cover hook and the caption. validate_carousel() gates that text with the caption rules plus four grounding checks — it must name the city on the slides, must not name another city from the pool, every ₹ it quotes must fall inside the span of figures actually on screen (±5% for rounding), and any count it states must be the real slide count. A failure drops the carousel only; the batch still ships. It stages as cards/00-carousel.json in the existing cards manifest, so the workflow renders it (one PNG per slide) with no workflow change.' },
+  ]},
   { d:'2026-07-21', items:[
     { t:'SEO: optimised the two highest-volume guides Keyword Planner flagged (fmb sketch and tds on property purchase, both 10K-100K/mo India). Exact-match H1/title ("What is an FMB sketch?", "TDS on property purchase"), plus depth — an FMB "how to read it" checklist and a TDS due-date FAQ. These are the biggest organic prizes in the library and we already had the pages.' },
     { t:'Keyword-driven SEO expansion (first real keyword pass — Google autocomplete, India geo): (1) added 6 city landing hubs the data showed demand for — Tiruchirappalli/Trichy, Tiruppur, Tiruvallur, Erode, Krishnagiri (Hosur), Vellore — taking /bank-auctions from 5 to 11 cities (21 → 39 pages, sitemap 740 → 758); (2) retitled the process guide to target the head term "how to buy a bank auction property" (was "the bank auction process, step by step"). Autocomplete also validated the existing guide topics map to real demand, and confirmed the "vs" comparison pages have low direct search volume (consideration/AI value, not head-term search).' },
