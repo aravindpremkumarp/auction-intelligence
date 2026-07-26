@@ -345,3 +345,23 @@ def validate(extractions, source_text: str = "") -> dict:
             "lots_missing_full_description": len(cov["lots_missing_full_description"]),
         },
     }
+
+
+def validate_stored(entities: list[dict], source_text: str = "") -> dict:
+    """validate() for entities already persisted as Document.extraction_json dicts
+    ({id, cls, text, start, end, attrs}), e.g. for a from-graph batch report
+    (pipeline/extract_batch.py --from-graph) or backfilling a score onto
+    Documents extracted before scoring was tracked (scripts/backfill_extraction_scores.py).
+
+    Shims each dict to the attribute shape validate() expects (extraction_class /
+    attributes / char_interval) — no LLM call, pure re-validation of stored output.
+    """
+    from types import SimpleNamespace
+    shims = [SimpleNamespace(
+        extraction_class=e.get("cls"),
+        extraction_text=e.get("text") or "",
+        attributes=e.get("attrs") or {},
+        char_interval=None if e.get("start") is None else SimpleNamespace(
+            start_pos=e.get("start"), end_pos=e.get("end")),
+    ) for e in entities]
+    return validate(shims, source_text=source_text)
