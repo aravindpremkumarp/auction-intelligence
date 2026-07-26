@@ -61,6 +61,14 @@
  .nav.active .btag{background:#1e293b;color:#fff}
  .badge{border-radius:9px;padding:1px 7px;font-size:11px;font-weight:700}
  .b-pending{background:#475569;color:#e2e8f0}.b-edited{background:#d97706;color:#fff}.b-verified{background:#16a34a;color:#fff}
+ /* extraction quality score (pipeline/validators.py, 0-100): green >=80 (the
+    extract_batch.py review threshold), amber 50-79, red <50. */
+ .sc{border-radius:9px;padding:1px 7px;font-size:11px;font-weight:700}
+ .sc-hi{background:#16a34a;color:#fff}.sc-mid{background:#d97706;color:#fff}.sc-lo{background:#dc2626;color:#fff}
+ #qfilter{display:flex;align-items:center;gap:5px;padding:6px 14px 10px;border-bottom:1px solid #1e293b;font-size:11px}
+ #qfilter input{width:38px;background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:5px;padding:2px 4px;font-size:11px}
+ #qfilter button{background:#1e293b;color:#cbd5e1;border:1px solid #334155;border-radius:5px;padding:2px 7px;font-size:11px;cursor:pointer}
+ #qfilter button:hover{background:#334155;color:#fff}
  #main{flex:1;overflow:auto;padding:16px 20px}
  #bar{display:flex;align-items:center;gap:10px;margin-bottom:8px}
  button{cursor:pointer;border:1px solid #cbd5e1;background:#fff;border-radius:7px;padding:6px 12px;font-size:13px}
@@ -116,6 +124,16 @@
       <span class="lbl">sort</span>
       <button id="sortBtn" onclick="toggleQueueSort()" title="toggle between newest-extracted and A–Z"></button>
       <span id="qhint" title="the most recent extraction run"></span>
+    </div>
+    <div id="qfilter">
+      <span class="lbl">score</span>
+      <input type="number" id="scoreMin" min="0" max="100" step="1" placeholder="0"
+             title="minimum quality score (pipeline/validators.py)">
+      <span style="color:#64748b">–</span>
+      <input type="number" id="scoreMax" min="0" max="100" step="1" placeholder="100"
+             title="maximum quality score">
+      <button onclick="applyScoreFilter()">apply</button>
+      <button onclick="clearScoreFilter()">clear</button>
     </div>
     <div id="nav"></div>
   </div>
@@ -183,6 +201,29 @@ function mainNotice(html){
 const queueSort=()=>localStorage.getItem("xr_sort")==="name"?"name":"recent";
 function refreshSortBtn(){const b=document.getElementById("sortBtn");if(b)b.textContent=queueSort()==="name"?"A–Z":"newest";}
 function toggleQueueSort(){localStorage.setItem("xr_sort",queueSort()==="name"?"recent":"name");refreshSortBtn();loadQueue();}
+// Score filter (pipeline/validators.py score, 0-100): persisted per reviewer,
+// drives score_min/score_max on the queue fetch. Empty = unbounded.
+function scoreMin(){const v=localStorage.getItem("xr_score_min");return v===null?null:Number(v);}
+function scoreMax(){const v=localStorage.getItem("xr_score_max");return v===null?null:Number(v);}
+function refreshScoreInputs(){
+  const mn=document.getElementById("scoreMin"),mx=document.getElementById("scoreMax");
+  if(mn)mn.value=scoreMin()===null?"":String(scoreMin());
+  if(mx)mx.value=scoreMax()===null?"":String(scoreMax());
+}
+function applyScoreFilter(){
+  const mn=document.getElementById("scoreMin").value.trim(),mx=document.getElementById("scoreMax").value.trim();
+  if(mn==="")localStorage.removeItem("xr_score_min");else localStorage.setItem("xr_score_min",String(Math.max(0,Math.min(100,+mn))));
+  if(mx==="")localStorage.removeItem("xr_score_max");else localStorage.setItem("xr_score_max",String(Math.max(0,Math.min(100,+mx))));
+  loadQueue();
+}
+function clearScoreFilter(){localStorage.removeItem("xr_score_min");localStorage.removeItem("xr_score_max");refreshScoreInputs();loadQueue();}
+// Score badge classes: >=80 green (the extract_batch.py review threshold), 50-79
+// amber, <50 red. null/undefined (pre-scoring rows) -> no badge.
+function scoreBadge(s){
+  if(s==null)return "";
+  const cls=s>=80?"sc-hi":s>=50?"sc-mid":"sc-lo";
+  return ` <span class="sc ${cls}" title="extraction quality score">${s}</span>`;
+}
 // Compact "3m ago" / "2h ago" / "5d ago" for an ISO extraction timestamp.
 function relTime(iso){
   if(!iso)return "";
@@ -195,10 +236,13 @@ function relTime(iso){
   return new Date(t).toLocaleDateString();
 }
 async function loadQueue(){
-  refreshSortBtn();
+  refreshSortBtn();refreshScoreInputs();
   const nav=document.getElementById("nav");
+  let qs="/review/extraction/queue?limit=500&sort="+queueSort();
+  if(scoreMin()!==null)qs+="&score_min="+scoreMin();
+  if(scoreMax()!==null)qs+="&score_max="+scoreMax();
   let r;
-  try{ r=await api("/review/extraction/queue?limit=500&sort="+queueSort()); }
+  try{ r=await api(qs); }
   catch(err){
     nav.innerHTML="<div class=nav>couldn't reach server</div>";
     mainNotice("<b>Couldn't load the extraction queue.</b><br>The request failed (network error). Make sure the API is running and reachable, then reload.");
@@ -213,9 +257,12 @@ async function loadQueue(){
     return;
   }
   const q=await r.json();nav.innerHTML="";
+  const filtered=scoreMin()!==null||scoreMax()!==null;
   if(!q.rows||!q.rows.length){
     nav.innerHTML="<div class=nav style='color:#94a3b8'>queue is empty</div>";
-    mainNotice("<b>No extractions to review yet.</b><br>This queue lists documents that have grounded LangExtract output. None have been loaded into the graph so far.<br><br>Populate it by running the loader over documents that already have markdown:<br><br><code style='background:#0f172a;color:#e2e8f0;border-radius:6px;padding:8px 10px;display:inline-block;font-size:12px'>NEO4J_HTTP_API=1 LANGEXTRACT_PROVIDER=openrouter \\<br>&nbsp;&nbsp;python -m pipeline.load_extractions --limit 50</code><br><br>Then reload this page.");
+    mainNotice(filtered
+      ? "<b>No extractions in that score range.</b><br>Widen or clear the score filter in the sidebar."
+      : "<b>No extractions to review yet.</b><br>This queue lists documents that have grounded LangExtract output. None have been loaded into the graph so far.<br><br>Populate it by running the loader over documents that already have markdown:<br><br><code style='background:#0f172a;color:#e2e8f0;border-radius:6px;padding:8px 10px;display:inline-block;font-size:12px'>NEO4J_HTTP_API=1 LANGEXTRACT_PROVIDER=openrouter \\<br>&nbsp;&nbsp;python -m pipeline.load_extractions --limit 50</code><br><br>Then reload this page.");
     return;
   }
   // Latest run detection. Each load_extractions.py invocation stamps a batch
@@ -238,7 +285,7 @@ async function loadQueue(){
     const tag=row.extraction_batch!=null?`<span class="btag${isLatest?" latest":""}" title="extraction batch ${row.extraction_batch}">B${row.extraction_batch}</span>`:"";
     const when=relTime(row.extraction_at);
     const staleTag=row.stale?` · <span class="badge" style="background:#f59e0b;color:#0f172a" title="Markdown re-ingested after this extraction — re-run required">⚠ re-run</span>`:"";
-    e.innerHTML=`<div>${tag}${esc(row.filename)}</div><div class=meta>${row.n_fields} fields · ${row.n_ungrounded} ungrounded · <span class="badge b-${row.status}">${row.status}</span>${staleTag}</div>`+
+    e.innerHTML=`<div>${tag}${esc(row.filename)}</div><div class=meta>${row.n_fields} fields · ${row.n_ungrounded} ungrounded · <span class="badge b-${row.status}">${row.status}</span>${scoreBadge(row.score)}${staleTag}</div>`+
       (when?`<div class=when>extracted ${when}</div>`:"");
     e.onclick=()=>loadDoc(row.filename,e);nav.appendChild(e);});
 }
@@ -252,7 +299,7 @@ async function loadDoc(fn,el){
 function render(){
   const d=CUR;
   document.getElementById("title").textContent=d.filename;
-  document.getElementById("status").innerHTML=`<span class="badge b-${d.status}">${d.status}</span>`+
+  document.getElementById("status").innerHTML=`<span class="badge b-${d.status}">${d.status}</span>`+scoreBadge(d.score)+
     (d.verified_by?` <span style="color:#64748b;font-size:12px">by ${esc(d.verified_by)}</span>`:"")+
     (d.stale?` <span class="badge" style="background:#f59e0b;color:#0f172a" title="The markdown was re-ingested after this extraction ran, so these fields and their highlights no longer match the source. Re-run LangExtract: load_extractions --filename &quot;${esc(d.filename)}&quot; --force">⚠ markdown updated — re-run required</span>`:"");
   const cls=[...new Set(d.fields.map(f=>f.cls))];
@@ -556,5 +603,5 @@ async function doUnverify(){
   const r=await api(`/review/extraction/${encodeURIComponent(CUR.filename)}/unverify`,{method:"POST"});
   if(r.ok){CUR=await r.json();render();loadQueue();setMsg("unverified");}else setMsg("failed "+r.status);
 }
-refreshMdBtn();refreshBoxBtn();loadQueue();applyImgPane();
+refreshMdBtn();refreshBoxBtn();refreshScoreInputs();loadQueue();applyImgPane();
 </script>
