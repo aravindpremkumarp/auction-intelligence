@@ -34,6 +34,7 @@ from api.health import router as health_router
 from api.properties import router as properties_router
 from api.review import router as review_router
 from api.review.extraction import router as review_extraction_router
+from api.social import router as social_router
 from api.telemetry import configure_telemetry
 from api.watchlist import router as watchlist_router
 
@@ -196,6 +197,7 @@ if os.environ.get("AUTH_ENABLED", "true").lower() != "false":
     app.include_router(conversations_router)
     app.include_router(review_router)
     app.include_router(review_extraction_router)
+    app.include_router(social_router)
     # Dossier feature ships dark for the public release — only mount its routes
     # when explicitly enabled (DOSSIERS_ENABLED). The frontend hides its entry
     # points to match; see api.dossier.dossiers_enabled.
@@ -293,6 +295,10 @@ if WEB_DIR.exists():
     @app.get("/review")
     def review_page(request: Request) -> Response:
         return _canonical_spa_redirect(request) or FileResponse(str(WEB_DIR / "review.html"))
+
+    @app.get("/social")
+    def social_page(request: Request) -> Response:
+        return _canonical_spa_redirect(request) or FileResponse(str(WEB_DIR / "social.html"))
 
     # review.html embeds the grounded extraction-review surface in an iframe
     # whose src is the relative "review_extraction.html"; from /review that

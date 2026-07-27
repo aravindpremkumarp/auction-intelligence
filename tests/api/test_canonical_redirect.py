@@ -21,7 +21,7 @@ CANONICAL = "https://www.auctionscope.in"
 client = TestClient(app)
 
 # Every route that hands back the SPA shell (index.html) or an admin page.
-PAGE_ROUTES = ["/", "/chat", "/chat/thread-abc123", "/property/abc123", "/admin", "/review"]
+PAGE_ROUTES = ["/", "/chat", "/chat/thread-abc123", "/property/abc123", "/admin", "/review", "/social"]
 # Hosts this same service answers on that are NOT the canonical frontend.
 API_HOSTS = ["api.auctionscope.in", "auction-api-w68b.onrender.com", "staging.onrender.com"]
 # The canonical frontend host plus local-dev hosts that must keep serving.
