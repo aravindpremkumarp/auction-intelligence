@@ -502,6 +502,7 @@
           planLine +
           (isAdmin ? '<a href="/admin">Admin</a>' : '') +
           (isAdmin ? '<a href="/review">Review</a>' : '') +
+          (isAdmin ? '<a href="/social">Social</a>' : '') +
           '<a data-act="feedback">Send feedback</a>' +
           '<a data-act="logout">Sign out</a>' +
         '</div>' +

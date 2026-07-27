@@ -381,7 +381,7 @@ const PULL = GH + '/pull/';
 
 const MARKETING_DATA = {
 meta: {
-  updated: '2026-07-26',
+  updated: '2026-07-27',
   situation: 'pre-traction: ~7 registered users. the whole marketing engine was built in one sprint (jul 9–16, 2026) and is <b>human-gated end-to-end</b> — agents draft and stage, the founder reviews, merges and publishes. nothing auto-posts. north star (proposed): <b>weekly activated users</b> — ≥1 grounded search plus a value action.',
 },
 
@@ -396,7 +396,7 @@ kpis: [
 
 nextActions: [
   'in search console: watch the Pages report for indexed count as google works through the 690 discovered URLs + request homepage indexing',
-  'publish the staged 2026-07-15 batch — first real posts on instagram, then cross-post',
+  'publish the staged 2026-07-15 batch — review it on /social, then first real posts on instagram, then cross-post',
   'after the next scrape, dispatch seo-pages.yml with coimbatore · salem · madurai',
   'once ≥5 posts have 7-day metrics: export the CSV, run the reporter, wire its friday cron',
 ],
@@ -461,7 +461,7 @@ nodes: [
   { id:'wf-poster', lane:'engine', label:'content-poster workflow', type:'workflow', status:'live',
     sub:'manual dispatch only — stale-data guard',
     summary:'GitHub Actions run: prepare → generate → finalize → render card PNGs → commit staged batch → render reel MP4s (14-day artifacts) → open/refresh the content-review issue. No cron by design.',
-    next:['Decision point: upload rendered reels to R2 instead of artifacts.'],
+    next:['Decision point: upload rendered reels to R2 instead of artifacts — it also unblocks video preview on /social.'],
     links:[{t:'content-poster.yml', h: BLOB+'.github/workflows/content-poster.yml'}], prs:[302] },
   { id:'render', lane:'engine', label:'render stack — reels MP4 · cards PNG', type:'system', status:'live',
     sub:'6 reel + 5 static templates · dark/light',
@@ -479,11 +479,17 @@ nodes: [
     summary:'The first (and so far only) staged content batch: 2 price-drops, 2 closing-soon, 1 cheapest across 5 cities and 5 hook mechanisms, with review.md carrying exact render commands and editor notes.',
     next:['Review, render if needed, and publish — this is next-action #1.'],
     links:[{t:'review.md', h: BLOB+'marketing/outputs/2026-07-15/review.md'},{t:'drafts.json', h: BLOB+'marketing/outputs/2026-07-15/drafts.json'}] },
+  { id:'social-review', lane:'gate', label:'social review page — /social', type:'system', status:'building',
+    sub:'admin-gated · batch browser + per-artifact status',
+    summary:'The review gate stops being invisible. An admin page beside /admin and /review that lists every staged batch, previews every card PNG and reel hook, copies each caption block, downloads assets (per file or as a per-draft zip), and records approved / rejected / posted against each artifact — so what has actually been published is a queryable fact instead of something only the founder remembers.',
+    details:['Reads the committed batch straight off marketing/outputs/<date>/ — the API never writes there; the Poster and the workflow stay its only authors.','Status lives on :SocialContent in Neo4j, keyed <date>/<kind>/<stem>. "pending" is the absence of a node, so clearing a decision deletes it.','Assets are served behind the admin dependency (unlike the notice proxy, whose bytes are already public) — the page fetches with its bearer token and renders blob: URLs.','Reels show the on-screen hook lines, not video: MP4s are 14-day workflow artifacts, never committed.'],
+    next:['Video preview lands with the reels-to-R2 decision on the content-poster workflow.','Once a few batches carry statuses, the posted set is the input the reporter has been waiting for.'],
+    links:[{t:'web/social.html', h: BLOB+'web/social.html'},{t:'api/social/', h: TREE+'api/social'}] },
   { id:'gate', lane:'gate', label:'founder review & publish', type:'gate', status:'live', risk:true,
     sub:'every public artifact passes through here',
     summary:'The deliberate tier-1 guardrail: agents never post. Content ships via the content-review issue → manual publish; SEO pages ship via draft PR → manual merge. Also the throughput bottleneck.',
-    details:['Nothing auto-posts to any platform.','Watch for staged batches piling up unpublished.'],
-    links:[{t:'content-poster.yml · guardrails', h: BLOB+'.github/workflows/content-poster.yml'}] },
+    details:['Nothing auto-posts to any platform.','Watch for staged batches piling up unpublished — /social now makes that visible instead of implicit.'],
+    links:[{t:'content-poster.yml · guardrails', h: BLOB+'.github/workflows/content-poster.yml'},{t:'/social review page', h: BLOB+'web/social.html'}] },
 
   /* ---- channels ---- */
   { id:'seo-landing', lane:'channels', label:'SEO landing pages', type:'channel', status:'live',
@@ -595,7 +601,8 @@ edges: [
   { from:'poster', to:'wf-poster' },
   { from:'render', to:'wf-poster' },
   { from:'wf-poster', to:'staged', label:'commit + artifacts' },
-  { from:'staged', to:'gate' },
+  { from:'staged', to:'social-review', label:'batch files' },
+  { from:'social-review', to:'gate', label:'approve / reject / posted' },
   { from:'wf-seo', to:'gate', label:'draft PR' },
   { from:'gate', to:'instagram', label:'manual publish' },
   { from:'gate', to:'crosspost' },
@@ -675,6 +682,11 @@ risks: [
 ],
 
 changelog: [
+  { d:'2026-07-27', items:[
+    { t:'A review page for staged social content — /social. The engine could stage a batch and open an issue about it, but reviewing that batch still meant a local checkout: read review.md in an editor, open the card PNGs from the repo, and remember what you published. Nothing recorded the outcome, which is why this dashboard could describe the review gate but never say how much had actually cleared it. The page lists every batch newest-first, and for each draft shows the caption blocks with copy buttons, the grounded source facts it was written from (next to the notice link, so a claim can be checked against its origin), the rendered card, and the reel\'s on-screen hook lines. Assets download individually or as a per-draft zip with a publish-ready caption.txt. Each artifact carries its own status — approved / rejected / posted, with an optional URL — because a draft\'s card and its reel are separate posting decisions.' },
+    { t:'The status model keeps the two halves honest about what they own. The filesystem holds what the Poster staged and the API never writes to marketing/outputs/; Neo4j holds what a human decided, as :SocialContent keyed <date>/<kind>/<stem>. "Pending" is the absence of a node rather than a stored value (the idiom already used for extraction review), so clearing a decision deletes it and there is exactly one representation of "nobody has decided yet". Two consequences worth stating: a status can only be set against an artifact that exists in the batch on disk, so a typo cannot mint a decision about something nobody can see; and the batch listing degrades honestly — a drafts.json that fails to parse is listed WITH its error rather than dropped, since a batch that will not load is precisely the thing a reviewer needs to be told about.' },
+    { t:'Staged content is pre-release, so the assets stay gated. The existing notice proxy is deliberately open because the bytes behind it are already-public auction paperwork; unpublished marketing copy is not, so /social/asset sits behind the admin dependency and the page fetches previews with its bearer token and renders them as blob: URLs — which needed no CSP change, img-src already allowed blob: and connect-src the API origin. The path handling is the other half: the date must match YYYY-MM-DD before it is ever joined, the resolved path must stay inside the batch directory, and the suffix must be one of .png/.json/.md — an allowlist, so a stray file in a batch dir cannot be read by asking for it. Every rejection returns the same flat 404 as a missing file.' },
+  ]},
   { d:'2026-07-26', items:[
     { t:'Hook arsenal, part two — new material plus the context to fill it. (1) A new `risk` pillar (10 hooks) covering what the reserve price does not cover: arrears and dues on top, "as is where is", the balance window opening the day you win, the emd you can lose. It is a BASE pillar, not angle-driven, because that is true of every lot we list — and per the research pass it is the format that saves best and the one only we can write honestly. (2) `guess` added as a ninth mechanism with 4 evaluation hooks, plus 5 new geo hooks; the arsenal goes 78 → 97 hooks. (3) The hooks that rank a lot against its city needed numbers we never computed, so city_context() now attaches city_total / rank / cheaper / dearer / median_lakhs / vs_median_lakhs / cheaper_than_pct / area_count to each candidate, verified live: auction 811103 (Kundrathur flat, ₹27.8L) comes back 12th of 69 Kanchipuram lots, ₹14.6L under the city median, cheaper than 83%, in an area that appears 11 times. fetch_market() pages the whole live set (463 rows) rather than one 200-row page, because a ranking claim against a prefix is only a lower bound; the carousel is explicitly re-sliced to its old 200-row width so widening the read cannot change which city it picks. The prompt fences all of it: quote exactly, never round or recompute, and the LOT is the subject while the city number is only the ruler — a hook whose subject is the city is a carousel post, not a property post.' },
     { t:'Hook quality: stopped feeding the model weak candidates and a quarter of the arsenal. Three findings from reading a real staged draft (auction 798444, "₹31.9L → ₹31L. same karur plot, back up for auction."): (1) _is_price_drop() had no magnitude floor, so ANY re-auction whose reserve moved a rupee was tagged price_drop — and price_drop sorts first — meaning an ₹87,000 / 2.7% trim was handed over as the batch\'s best contrast story, two figures that read as the same number. There is now a floor (≥5% or ≥₹2L); below it the lot is not discarded, it falls through to closing_soon / cheapest and gets described honestly instead of claiming a discount. (2) load_hooks() shipped a hardcoded 2 of 8 pillars, so 56 of the 78 curated hooks — every geo and evaluation one, i.e. exactly the ones that fit a plain live listing with no drop and no deadline — never reached the prompt; pillars are now selected from the angles actually in the pool (news/qa/build_in_public stay out: their hooks need fields a draft has no source for). (3) The prompt stated "calm, no hype" twice and the stop test once, with nothing saying which wins — so the model resolved the conflict by writing flat. It now says the voice constrains words, not tension, and adds a MECHANISM FIT rule: contrast needs a delta you can see at a glance, otherwise the small move IS the story and it leads with process.' },

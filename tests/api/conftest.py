@@ -72,11 +72,13 @@ def _install_stub_neo4j_client() -> None:
     users: dict[str, dict] = {}              # keyed by supabase_id
     webhook_events: dict[str, dict] = {}     # keyed by event_id (billing idempotency)
     anon_quota: dict[str, dict] = {}         # keyed by ip_hash (anon chat quota)
+    social: dict[str, dict] = {}             # keyed by key (staged-content review)
     mod._store = feedback  # back-compat for feedback tests
     mod._users = users
     mod._feedback = feedback
     mod._webhook_events = webhook_events
     mod._anon_quota = anon_quota
+    mod._social = social
 
     def _now() -> datetime:
         return datetime.now(timezone.utc)
@@ -242,6 +244,37 @@ def _install_stub_neo4j_client() -> None:
                 del webhook_events[k]
             return [{"deleted": len(stale)}]
 
+        # ── Staged social content review (:SocialContent) ───────────────
+        if c.startswith("MERGE (s:SocialContent {key: $key})"):
+            key = params["key"]
+            social[key] = {
+                "key": key,
+                "batch_date": params["batch_date"],
+                "kind": params["kind"],
+                "stem": params["stem"],
+                "auction_id": params.get("auction_id"),
+                "status": params["status"],
+                "note": params.get("note"),
+                "posted_url": params.get("posted_url"),
+                "updated_at": _now().isoformat(),
+                "updated_by": params.get("updated_by"),
+                "updated_by_email": params.get("updated_by_email"),
+            }
+            return [{"s": dict(social[key])}]
+        if c.startswith("MATCH (s:SocialContent {key: $key}) DELETE"):
+            existed = social.pop(params["key"], None)
+            return [{"deleted": 1 if existed else 0}]
+        if c.startswith("MATCH (s:SocialContent {batch_date: $batch_date})"):
+            return [{"s": dict(v)} for v in social.values()
+                    if v["batch_date"] == params["batch_date"]]
+        if c.startswith("MATCH (s:SocialContent)\n        RETURN s.batch_date"):
+            counts: dict[tuple[str, str], int] = {}
+            for v in social.values():
+                counts[(v["batch_date"], v["status"])] = \
+                    counts.get((v["batch_date"], v["status"]), 0) + 1
+            return [{"batch_date": d, "status": s, "n": n}
+                    for (d, s), n in counts.items()]
+
         # ── Schema init (idempotent constraints/indexes) ────────────────
         if c.startswith("CREATE CONSTRAINT") or c.startswith("CREATE INDEX"):
             return []
@@ -251,7 +284,12 @@ def _install_stub_neo4j_client() -> None:
     def run_read_query(cypher: str, params: dict | None = None,
                        timeout: float = 10.0, max_rows: int = 200) -> list[dict]:
         """Default stub — tests that exercise read-only tools should
-        monkeypatch api.tools.cypher_tools.run_read_query directly."""
+        monkeypatch api.tools.cypher_tools.run_read_query directly.
+
+        :SocialContent reads share the write store above so the review surface
+        round-trips (set a status → read it back on the batch)."""
+        if cypher.strip().startswith("MATCH (s:SocialContent"):
+            return run_query(cypher, params)
         return []
 
     async def run_query_async(cypher: str, params: dict | None = None) -> list[dict]:
