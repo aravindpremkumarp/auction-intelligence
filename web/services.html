@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>AI document intelligence for real estate — Auctionscope</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="We build AI document-extraction, property search and lead-qualification systems for real estate teams. Running in production across Tamil Nadu. ₹1.5L–₹12L, 2–12 weeks.">
+<link rel="canonical" href="https://www.auctionscope.in/services">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Auctionscope">
+<meta property="og:title" content="AI document intelligence for real estate — Auctionscope">
+<meta property="og:description" content="We build AI document-extraction, property search and lead-qualification systems for real estate teams. Running in production across Tamil Nadu.">
+<meta property="og:url" content="https://www.auctionscope.in/services">
+<meta property="og:image" content="https://www.auctionscope.in/og-image.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<meta name="theme-color" content="#f8fafc" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0b1120" media="(prefers-color-scheme: dark)">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script>
+  (function () {
+    var saved = localStorage.getItem('theme');
+    var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    document.documentElement.setAttribute('data-theme', saved || (prefersDark ? 'dark' : 'light'));
+  })();
+</script>
+<!-- /legal.css carries the shared theme tokens, .topbar header and
+     .site-footer used by every standalone (non-SPA) page. Only the
+     services-specific blocks below are page-scoped. -->
+<link rel="stylesheet" href="/legal.css">
+<style>
+/* Services page. Mobile-first: the base rules target a 390px phone (the
+   primary viewport — this page is handed out at events); the single
+   min-width breakpoint widens the card grid on desktop. */
+.svc { max-width: 800px; margin: 0 auto; padding: 32px 20px 56px; }
+
+/* Hero */
+.svc-hero { margin: 0 0 32px; }
+.svc-hero .eyebrow {
+  font-size: 13px; font-weight: 600; color: var(--accent);
+  letter-spacing: 0.02em; text-transform: uppercase;
+}
+.svc-hero h1 {
+  margin: 8px 0 12px;
+  font-size: clamp(28px, 7vw, 42px);
+  font-weight: 700; letter-spacing: -0.025em; line-height: 1.12;
+}
+.svc-hero p { margin: 0; font-size: 17px; color: var(--ink-soft); max-width: 46ch; }
+
+/* Service cards */
+.svc-cards {
+  display: grid; grid-template-columns: 1fr; gap: 14px;
+  margin: 0 0 32px;
+}
+.svc-card {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 12px; box-shadow: var(--shadow);
+  padding: 18px 20px;
+  display: flex; flex-direction: column;
+}
+.svc-card h2 {
+  margin: 0 0 8px; font-size: 17px; font-weight: 650; letter-spacing: -0.01em;
+}
+.svc-card p { margin: 0 0 16px; font-size: 14.5px; color: var(--ink-soft); flex: 1; }
+.svc-meta {
+  border-top: 1px solid var(--border); padding-top: 12px;
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px;
+}
+.svc-price { font-size: 16px; font-weight: 700; color: var(--accent); }
+.svc-time { font-size: 13px; color: var(--muted); }
+
+/* Proof strip */
+.svc-proof {
+  background: var(--accent-soft); border: 1px solid var(--border);
+  border-radius: 12px; padding: 18px 20px; margin: 0 0 32px;
+}
+.svc-proof p { margin: 0 0 10px; font-size: 16px; font-weight: 600; color: var(--ink); }
+.svc-proof a { font-size: 15px; font-weight: 600; }
+
+/* Contact */
+.svc-contact h2 { margin: 0 0 6px; font-size: 22px; font-weight: 700; letter-spacing: -0.02em; }
+.svc-contact .sub { margin: 0 0 18px; font-size: 15px; color: var(--ink-soft); }
+.svc-direct { display: flex; flex-direction: column; gap: 10px; margin: 0 0 22px; }
+.svc-direct a {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--card); border: 1px solid var(--border-strong);
+  border-radius: 10px; padding: 13px 16px;
+  font-size: 15px; font-weight: 600; color: var(--ink);
+  /* 48px tall so both targets are comfortably tappable on a phone. */
+  min-height: 48px;
+}
+.svc-direct a:hover { background: var(--paper-2); color: var(--accent); text-decoration: none; }
+.svc-direct .lbl {
+  font-size: 12px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.05em; color: var(--muted); min-width: 54px;
+}
+.svc-form { display: flex; flex-direction: column; gap: 12px; }
+.svc-field { display: flex; flex-direction: column; gap: 5px; }
+.svc-field label { font-size: 13px; font-weight: 600; color: var(--ink-soft); }
+.svc-field input, .svc-field textarea {
+  width: 100%; padding: 11px 13px;
+  border: 1px solid var(--border-strong); border-radius: 8px;
+  background: var(--card); color: var(--ink);
+  /* 16px prevents iOS Safari zooming the page on focus. */
+  font: inherit; font-size: 16px;
+}
+.svc-field textarea { min-height: 84px; resize: vertical; }
+.svc-field input:focus, .svc-field textarea:focus { outline: none; border-color: var(--accent); }
+.svc-form button {
+  padding: 13px 20px; border: 1px solid transparent; border-radius: 8px;
+  background: var(--accent); color: #fff;
+  font: inherit; font-size: 15px; font-weight: 600; cursor: pointer;
+}
+.svc-form button:hover { background: var(--accent-hover); }
+.svc-msg { margin: 10px 0 0; font-size: 13.5px; color: var(--ink-soft); }
+.svc-note {
+  color: var(--muted); font-size: 12.5px; margin-top: 32px;
+  border-top: 1px solid var(--border); padding-top: 16px;
+}
+
+@media (min-width: 760px) {
+  .svc { max-width: 1040px; padding: 48px 24px 72px; }
+  .svc-cards { grid-template-columns: repeat(3, 1fr); gap: 18px; }
+  .svc-card { padding: 22px 24px; }
+  .svc-proof { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+  .svc-proof p { margin: 0; }
+  .svc-direct { flex-direction: row; }
+  .svc-direct a { flex: 1; }
+  .svc-form { max-width: 560px; }
+  .svc-form button { align-self: flex-start; }
+}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <a class="brand" href="/">
+    <span class="brand-mark"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="5.5"/><circle cx="12" cy="12" r="1.6" fill="#fff" stroke="none"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></span>
+    <span class="brand-name"><b>Auction</b><span>scope</span></span>
+  </a>
+  <a class="topbar-link" href="#contact">Talk to us</a>
+</header>
+
+<main>
+  <div class="svc">
+
+    <section class="svc-hero">
+      <div class="eyebrow">Services</div>
+      <h1>Turn property paperwork into a searchable database.</h1>
+      <p>We build AI document-intelligence systems for real estate. Running in production across Tamil Nadu.</p>
+    </section>
+
+    <section class="svc-cards" aria-label="What we build">
+
+      <article class="svc-card">
+        <h2>Document Extraction Pipeline</h2>
+        <p>Sale deeds, encumbrance certificates, patta/chitta, approval letters and auction notices, read at scale.
+           Out comes structured, queryable data — every field traceable to the page it came from.</p>
+        <div class="svc-meta">
+          <span class="svc-price">₹3–8L build + AMC</span>
+          <span class="svc-time">Typical timeline: 6–10 weeks</span>
+        </div>
+      </article>
+
+      <article class="svc-card">
+        <h2>Property Intelligence Search</h2>
+        <p>Natural-language search over your own inventory, joined with public records.
+           Ask in plain English instead of filtering a spreadsheet.</p>
+        <div class="svc-meta">
+          <span class="svc-price">₹5–12L</span>
+          <span class="svc-time">Typical timeline: 8–12 weeks</span>
+        </div>
+      </article>
+
+      <article class="svc-card">
+        <h2>Lead Qualification Assistant</h2>
+        <p>Chat-based triage on your existing listings, answering buyer questions from your own data.
+           Serious buyers get routed to your sales team.</p>
+        <div class="svc-meta">
+          <span class="svc-price">₹1.5–3L</span>
+          <span class="svc-time">Typical timeline: 2–4 weeks</span>
+        </div>
+      </article>
+
+    </section>
+
+    <section class="svc-proof">
+      <p>5,600+ auction properties indexed. Live at auctionscope.in.</p>
+      <a href="/">See the live search →</a>
+    </section>
+
+    <section class="svc-contact" id="contact">
+      <h2>Tell us what you need</h2>
+      <p class="sub">We'll come back within one working day.</p>
+
+      <div class="svc-direct">
+        <a href="tel:+919999999999"><span class="lbl">Phone</span>+91 99999 99999</a>
+        <a href="mailto:support@auctionscope.in"><span class="lbl">Email</span>support@auctionscope.in</a>
+      </div>
+
+      <!-- No contact endpoint exists on the API (/feedback is chat-feedback
+           shaped, /alerts/subscribe takes an email only), so this composes a
+           prefilled mail draft instead. Done in JS rather than
+           action="mailto:" because vercel.json sets form-action 'self', which
+           blocks a mailto form submission. -->
+      <form class="svc-form" id="svc-form">
+        <div class="svc-field">
+          <label for="svc-name">Your name</label>
+          <input id="svc-name" name="name" type="text" autocomplete="name" required>
+        </div>
+        <div class="svc-field">
+          <label for="svc-company">Company</label>
+          <input id="svc-company" name="company" type="text" autocomplete="organization" required>
+        </div>
+        <div class="svc-field">
+          <label for="svc-need">What you need</label>
+          <textarea id="svc-need" name="need" rows="3" required></textarea>
+        </div>
+        <button type="submit">Send enquiry</button>
+      </form>
+      <p class="svc-msg" id="svc-msg" role="status" aria-live="polite" hidden></p>
+      <noscript>
+        <p class="svc-msg">Email us directly at
+          <a href="mailto:support@auctionscope.in?subject=Services%20enquiry">support@auctionscope.in</a>.</p>
+      </noscript>
+
+      <p class="svc-note">Auctionscope is an information and engineering platform, not a bank, broker or
+        legal adviser. Price bands are indicative and depend on document volume, source quality and
+        integration scope; timelines start from a signed scope.</p>
+    </section>
+
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="site-footer-inner">
+    <nav class="footer-links" aria-label="legal">
+      <a href="/">Home</a>
+      <a href="/services">Services</a>
+      <a href="/privacy-policy">Privacy Policy</a>
+      <a href="/terms-of-service">Terms of Service</a>
+      <a href="/disclaimer">Disclaimer</a>
+    </nav>
+    <div class="footer-copy">© 2026 Auctionscope</div>
+  </div>
+</footer>
+
+<script>
+(function () {
+  var CONTACT_EMAIL = 'support@auctionscope.in';
+  var form = document.getElementById('svc-form');
+  if (!form) return;
+  var msg = document.getElementById('svc-msg');
+
+  function show(text) { if (msg) { msg.textContent = text; msg.hidden = false; } }
+
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var name = (document.getElementById('svc-name').value || '').trim();
+    var company = (document.getElementById('svc-company').value || '').trim();
+    var need = (document.getElementById('svc-need').value || '').trim();
+    if (!name || !company || !need) { show('Please fill in all three fields.'); return; }
+
+    var subject = 'Services enquiry — ' + company;
+    var body = 'Name: ' + name + '\nCompany: ' + company + '\n\nWhat we need:\n' + need + '\n';
+    window.location.href = 'mailto:' + CONTACT_EMAIL +
+      '?subject=' + encodeURIComponent(subject) +
+      '&body=' + encodeURIComponent(body);
+    show('Opening your mail app. If nothing happens, email ' + CONTACT_EMAIL + ' directly.');
+  });
+})();
+</script>
+</body>
+</html>

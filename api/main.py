@@ -269,12 +269,13 @@ if WEB_DIR.exists():
     def sitemap_xml() -> FileResponse:
         return FileResponse(str(WEB_DIR / "sitemap.xml"), media_type="application/xml")
 
-    # Standalone legal pages. The footer links these as clean URLs
-    # (/terms-of-service, …) — Vercel serves the .html by filename, but uvicorn
-    # 404s without an explicit route (seen in prod logs). Map each clean URL to
-    # its .html file; registered in a loop so the three identical routes stay
-    # DRY. `filename` is bound per-call, so the closure captures the right file.
-    def _legal_page(filename: str):
+    # Standalone (non-SPA) pages: the legal set plus /services. The footer
+    # links these as clean URLs (/terms-of-service, …) — Vercel serves the
+    # .html by filename, but uvicorn 404s without an explicit route (seen in
+    # prod logs). Map each clean URL to its .html file; registered in a loop so
+    # the identical routes stay DRY. `filename` is bound per-call, so the
+    # closure captures the right file.
+    def _static_page(filename: str):
         def _serve(request: Request) -> Response:
             return _canonical_spa_redirect(request) or FileResponse(
                 str(WEB_DIR / filename), media_type="text/html"
@@ -285,8 +286,9 @@ if WEB_DIR.exists():
         ("/terms-of-service", "terms-of-service.html"),
         ("/privacy-policy", "privacy-policy.html"),
         ("/disclaimer", "disclaimer.html"),
+        ("/services", "services.html"),
     ):
-        app.add_api_route(_path, _legal_page(_file), methods=["GET"])
+        app.add_api_route(_path, _static_page(_file), methods=["GET"])
 
     @app.get("/admin")
     def admin_page(request: Request) -> Response:

@@ -381,7 +381,7 @@ const PULL = GH + '/pull/';
 
 const MARKETING_DATA = {
 meta: {
-  updated: '2026-07-27',
+  updated: '2026-07-30',
   situation: 'pre-traction: ~7 registered users. the whole marketing engine was built in one sprint (jul 9–16, 2026) and is <b>human-gated end-to-end</b> — agents draft and stage, the founder reviews, merges and publishes. nothing auto-posts. north star (proposed): <b>weekly activated users</b> — ≥1 grounded search plus a value action.',
 },
 
@@ -548,6 +548,12 @@ nodes: [
   { id:'email-send', lane:'capture', label:'alert sending + sequences', type:'feature', status:'planned', compact:true,
     summary:'The other half: alert digests, welcome sequence, win-back — plus deliverability groundwork (SPF/DKIM/DMARC). Plan-only today.',
     links:[{t:'plan.md · retention', h: BLOB+'docs/marketing/plan.md'}] },
+  { id:'services', lane:'capture', label:'/services — B2B lead capture', type:'feature', status:'live',
+    progress:{ pct:0, label:'0 enquiries — page live, none received yet' },
+    summary:'A standalone B2B page for the other side of the business: selling the document-intelligence build itself to developers, land aggregators and consultancies, rather than selling auction search to buyers. Three named offers with indicative price bands and timelines (extraction pipeline ₹3–8L / 6–10wk · property intelligence search ₹5–12L / 8–12wk · lead qualification assistant ₹1.5–3L / 2–4wk), a proof strip pointing at the live index, and a phone / email / 3-field contact block. Built for a phone at an industry event — 390px is the design viewport, not an afterthought.',
+    details:['No new backend: no contact endpoint exists (/feedback is chat-feedback shaped, /alerts/subscribe takes an email only), so the form composes a prefilled mail draft in JS. Not action="mailto:" — vercel.json sets form-action \'self\', which blocks that.','Reuses /legal.css wholesale for tokens, topbar and footer; only the service cards and contact block are page-scoped CSS. No new dependency, no new design system.','Deliberately out of scope for v1: demo video, case studies, testimonials, pricing calculator, analytics events.'],
+    next:['Swap the placeholder phone number for the real one before the page is handed out.','If enquiry volume justifies it, replace the mailto with a real contact endpoint so leads land in Neo4j instead of an inbox.'],
+    links:[{t:'services.html', h: BLOB+'web/services.html'}] },
   { id:'signup', lane:'capture', label:'signup → activation', type:'feature', status:'live',
     summary:'Supabase auth with the free tier as the hook (20 chats/day vs 10 anonymous, + deep-research access). GA4 signup event wired.',
     links:[{t:'auth.js', h: BLOB+'web/auth.js'}] },
@@ -611,6 +617,7 @@ edges: [
   { from:'gate', to:'ssr' },
   { from:'site', to:'email-capture', label:'signup bar' },
   { from:'seo-landing', to:'email-capture' },
+  { from:'site', to:'services', label:'footer link' },
   { from:'site', to:'signup' },
   { from:'signup', to:'pro' },
   { from:'email-capture', to:'email-send', kind:'planned', label:'list feeds sending' },
@@ -682,6 +689,11 @@ risks: [
 ],
 
 changelog: [
+  { d:'2026-07-30', items:[
+    { t:'/services — a B2B lead-capture page, and the first surface that sells the engine rather than the inventory. Every channel so far points a property buyer at auction search; this one points a developer, land aggregator or consultancy at the document-intelligence system underneath it, with three named offers, indicative price bands and timelines. The proof it leans on is the thing already running (5,600+ properties indexed, live at auctionscope.in) rather than case studies or testimonials, which we do not have and did not invent. Built for the actual usage: a phone, at an event, twenty seconds of attention — 390px is the design viewport, the two direct-contact rows are 48px tap targets, and the inputs are 16px so iOS does not zoom the page on focus.' },
+    { t:'The contact form takes the mailto path on purpose. There is no contact endpoint on the API — /feedback is shaped for chat feedback (it wants a session_id and a message index) and /alerts/subscribe stores an email and nothing else, so routing a name + company + requirement through either would either lose the fields or file B2B leads in the wrong place. Rather than stand up backend infrastructure for a page whose job is to survive one afternoon, the form composes a prefilled draft (subject carries the company, body carries all three fields) via JS — not action="mailto:", because vercel.json sets form-action \'self\' and would block the submission. Phone and email are also plain tappable links above the form, since most people at a stall will just call.' },
+    { t:'It reuses rather than adds: /legal.css supplies the theme tokens, topbar and footer already shared by the standalone pages, so only the service cards and contact block are page-scoped CSS — no new dependency and no second design system. The clean URL needed the same two registrations the legal pages have: an explicit route in api/main.py (Vercel serves the file by name, uvicorn 404s without one; the helper is now _static_page since the set is no longer only legal) and an entry in the sitemap generator\'s STATIC_ROUTES. Guarded by a test alongside the existing legal-page one.' },
+  ]},
   { d:'2026-07-27', items:[
     { t:'A review page for staged social content — /social. The engine could stage a batch and open an issue about it, but reviewing that batch still meant a local checkout: read review.md in an editor, open the card PNGs from the repo, and remember what you published. Nothing recorded the outcome, which is why this dashboard could describe the review gate but never say how much had actually cleared it. The page lists every batch newest-first, and for each draft shows the caption blocks with copy buttons, the grounded source facts it was written from (next to the notice link, so a claim can be checked against its origin), the rendered card, and the reel\'s on-screen hook lines. Assets download individually or as a per-draft zip with a publish-ready caption.txt. Each artifact carries its own status — approved / rejected / posted, with an optional URL — because a draft\'s card and its reel are separate posting decisions.' },
     { t:'The status model keeps the two halves honest about what they own. The filesystem holds what the Poster staged and the API never writes to marketing/outputs/; Neo4j holds what a human decided, as :SocialContent keyed <date>/<kind>/<stem>. "Pending" is the absence of a node rather than a stored value (the idiom already used for extraction review), so clearing a decision deletes it and there is exactly one representation of "nobody has decided yet". Two consequences worth stating: a status can only be set against an artifact that exists in the batch on disk, so a typo cannot mint a decision about something nobody can see; and the batch listing degrades honestly — a drafts.json that fails to parse is listed WITH its error rather than dropped, since a batch that will not load is precisely the thing a reviewer needs to be told about.' },
