@@ -42,6 +42,16 @@ def test_legal_pages_served() -> None:
         assert "<html" in r.text.lower(), path
 
 
+def test_services_page_served() -> None:
+    """/services is the B2B lead-capture page — another standalone file behind
+    a clean URL, so it needs the same explicit route as the legal pages."""
+    r = TestClient(app).get("/services")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("text/html")
+    # The services page itself, not the SPA shell fallback.
+    assert "Turn property paperwork into a searchable database." in r.text
+
+
 def test_legal_route_is_exact_not_catch_all() -> None:
     """The legal routes must be exact paths — a nested path must still 404, so
     they don't accidentally become an SPA-style catch-all."""

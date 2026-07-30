@@ -36,6 +36,7 @@ STATIC_ROUTES = [
     ("/privacy-policy", "privacy-policy.html", "yearly", "0.3"),
     ("/terms-of-service", "terms-of-service.html", "yearly", "0.3"),
     ("/disclaimer", "disclaimer.html", "yearly", "0.3"),
+    ("/services", "services.html", "monthly", "0.6"),
 ]
 
 
