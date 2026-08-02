@@ -332,13 +332,10 @@ async def inject_graph_size() -> str:
     )
 
 
-# Rows a search hands the model. Deliberately small (the UI side-channel
-# shows every match regardless): rows re-serialize into every later
-# round-trip of the turn, so this is a per-turn cost knob, not a coverage
-# knob — counts/stats always come from total_count/aggregations. There is
-# no model-facing `limit` arg on purpose (see the wrapper comment below).
-# Keep the Broad-result nudge's "10 or fewer" in modes/_shared.md in sync.
-_SEARCH_ROWS_TO_MODEL = 10
+# Rows a search hands the model. Defined in the tools layer next to
+# `_SEMANTIC_ROWS_TO_MODEL` so both per-turn context knobs live together and
+# can be compared without importing this module (which the test suite stubs).
+_SEARCH_ROWS_TO_MODEL = T.SEARCH_ROWS_TO_MODEL
 
 
 @agent.tool_plain
@@ -475,8 +472,9 @@ def semantic_search(
     Optional `city`/`area`/`min_price`/`max_price`/`asset_category`/date
     window post-filter the hits. Future-only by default; `include_past=True`
     for retrospective queries. Each row carries `score` and `hit_sources`
-    (subset of 'desc'/'markdown'/'image'). A zero-hit result carries a
-    `hint` (and `past_matches` when past auctions would have matched) —
+    (subset of 'desc'/'markdown'/'image'). `results` is a top-ranked sample;
+    use `total_ranked` for "how many", never `len(results)`. A zero-hit
+    result carries a `hint` (and `past_matches` when past would have matched) —
     follow it; do NOT rephrase and retry. On embedding-backend failure
     returns `{"error": ..., "results": []}` — fall back to `search_auctions`.
     """
@@ -489,7 +487,10 @@ def semantic_search(
             limit=limit, include_past=include_past,
         ))
     except RuntimeError as e:
-        return {"error": str(e), "results": [], "returned": 0, "limit": limit}
+        return {
+            "error": str(e), "results": [],
+            "returned": 0, "total_ranked": 0, "limit": limit,
+        }
 
 
 @agent.tool_plain

@@ -87,11 +87,11 @@ def test_semantic_search_unsearchable_query_skips_keyword(monkeypatch):
 
 
 def test_semantic_search_caps_llm_rows_and_offloads_overflow(monkeypatch):
-    """The model-visible slice is capped at _LLM_ROWS_HARD_CAP; the full
+    """The model-visible slice is capped at _SEMANTIC_ROWS_TO_MODEL; the full
     ranked set rides on _ui_results for the matches panel (same split as
     search_auctions). This is what keeps a large `limit` from dumping dozens
     of rows into the model's replayed history."""
-    n = ct._LLM_ROWS_HARD_CAP + 15
+    n = ct._SEMANTIC_ROWS_TO_MODEL + 15
     rows = [{"auction_id": f"a{i}", "score": 0.9, "hit_sources": ["desc"]}
             for i in range(n)]
 
@@ -102,11 +102,37 @@ def test_semantic_search_caps_llm_rows_and_offloads_overflow(monkeypatch):
     out = ct.semantic_search("north facing plot", limit=n)
 
     # Model sees only the capped slice...
-    assert out["returned"] == ct._LLM_ROWS_HARD_CAP
-    assert len(out["results"]) == ct._LLM_ROWS_HARD_CAP
+    assert out["returned"] == ct._SEMANTIC_ROWS_TO_MODEL
+    assert len(out["results"]) == ct._SEMANTIC_ROWS_TO_MODEL
     # ...while the UI side-channel carries the full ranked set.
     assert len(out["_ui_results"]) == n
-    assert out["results"] == out["_ui_results"][:ct._LLM_ROWS_HARD_CAP]
+    assert out["results"] == out["_ui_results"][:ct._SEMANTIC_ROWS_TO_MODEL]
+
+
+def test_semantic_search_reports_total_ranked_not_just_slice(monkeypatch):
+    """`returned` counts the slice the model can read; `total_ranked` counts
+    everything that matched. Without the second field, capping the slice
+    would silently shrink the model's idea of how many hits exist — the
+    "14 properties written from a 10-row sample" failure the search_auctions
+    docstring warns about."""
+    n = ct._SEMANTIC_ROWS_TO_MODEL + 7
+    rows = [{"auction_id": f"a{i}", "score": 0.9, "hit_sources": ["desc"]}
+            for i in range(n)]
+
+    monkeypatch.setattr(ct, "run_read_query",
+                        lambda c, p=None, timeout=10.0, max_rows=200: list(rows))
+    out = ct.semantic_search("north facing plot", limit=n)
+
+    assert out["returned"] == ct._SEMANTIC_ROWS_TO_MODEL
+    assert out["total_ranked"] == n
+
+
+def test_semantic_slice_is_not_wider_than_structured_search():
+    """Semantic rows carry a 300-char description excerpt, so they must never
+    put MORE rows in context than the structured search does — that inversion
+    is what made semantic_search the largest tool payload in production."""
+    assert ct._SEMANTIC_ROWS_TO_MODEL <= ct.SEARCH_ROWS_TO_MODEL
+    assert ct._SEMANTIC_ROWS_TO_MODEL <= ct._LLM_ROWS_HARD_CAP
 
 
 def test_semantic_search_no_overflow_key_when_within_cap(monkeypatch):
@@ -119,6 +145,7 @@ def test_semantic_search_no_overflow_key_when_within_cap(monkeypatch):
                         lambda c, p=None, timeout=10.0, max_rows=200: list(rows))
     out = ct.semantic_search("north facing plot", limit=20)
     assert out["returned"] == 5
+    assert out["total_ranked"] == 5
     assert "_ui_results" not in out
 
 

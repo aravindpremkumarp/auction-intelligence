@@ -174,6 +174,29 @@ _UI_ROWS_HARD_CAP = 500
 # come from `total_count`, never the row count, so capping rows loses no facts.
 _LLM_ROWS_HARD_CAP = 25
 
+# Rows `search_auctions` hands the model. Deliberately small (the UI
+# side-channel shows every match regardless): rows re-serialize into every
+# later round-trip of the turn, so this is a per-turn cost knob, not a
+# coverage knob — counts/stats always come from total_count/aggregations.
+# There is no model-facing `limit` arg on purpose (see api/agent.py).
+# Keep the Broad-result nudge's "10 or fewer" in modes/_shared.md in sync.
+SEARCH_ROWS_TO_MODEL = 10
+
+# Rows `semantic_search` hands the model. Lower than `_LLM_ROWS_HARD_CAP`
+# because semantic rows are far fatter than structured ones: each carries a
+# 300-char `description_excerpt` plus `score`/`hit_sources`, so 25 of them
+# ran ~16k chars at p95 (vs ~4.4k for a 10-row search_auctions result) and
+# made semantic_search the single largest model-visible tool payload in
+# production — ~224k tokens/week on first emission alone, before the ~3.3x
+# amplification from re-serializing into every later round-trip of the turn.
+#
+# 10 matches `SEARCH_ROWS_TO_MODEL` above, so both search tools now put the
+# same number of rows in context. Recall is unchanged: the UI still receives
+# every ranked hit (up to `_UI_ROWS_HARD_CAP`) via the `_ui_results`
+# side-channel, and ranking is unaffected — this only bounds how far down
+# the ranked list the model reads.
+_SEMANTIC_ROWS_TO_MODEL = 10
+
 # Bucket cap for `group_by` distributions (matches the old list_distinct
 # default). Distributions are value→count pairs, so 100 stays tiny in context.
 _GROUP_BY_MAX_BUCKETS = 100
@@ -726,9 +749,12 @@ def semantic_search(
     include_past=True for retrospective queries. If the fulltext index is
     missing the search silently degrades to vector-only.
 
-    Returns {returned, limit, results} where each result carries `score`
-    (higher is better) and `hit_sources` (list of 'desc' / 'markdown' /
-    'image' / 'keyword').
+    Returns {returned, total_ranked, limit, results} where each result
+    carries `score` (higher is better) and `hit_sources` (list of 'desc' /
+    'markdown' / 'image' / 'keyword'). `results` is the top
+    `_SEMANTIC_ROWS_TO_MODEL` slice; `total_ranked` is how many rows ranked
+    overall (the UI renders all of them), so use it — not `len(results)` —
+    for "how many matched".
     """
     qvec = embed_query_gemini(query)
     k = max(limit * 5, 50)
@@ -798,8 +824,13 @@ def semantic_search(
     # is also what makes "raise the limit once for more recall" safe: a big
     # limit feeds the UI without dumping dozens of rows into the model's
     # replayed history.
-    llm_results = results[:_LLM_ROWS_HARD_CAP]
-    out: dict = {"returned": len(llm_results), "limit": limit, "results": llm_results}
+    llm_results = results[:_SEMANTIC_ROWS_TO_MODEL]
+    out: dict = {
+        "returned": len(llm_results),
+        "total_ranked": len(results),
+        "limit": limit,
+        "results": llm_results,
+    }
     if len(results) > len(llm_results):
         out["_ui_results"] = results
     if not results and default_future_only:

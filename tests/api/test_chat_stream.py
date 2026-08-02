@@ -156,6 +156,7 @@ def test_chat_passes_usage_limits(monkeypatch: pytest.MonkeyPatch) -> None:
     limits = captured.get("usage_limits")
     assert limits is not None
     assert limits.request_limit == chat_router._CHAT_REQUEST_LIMIT_DEFAULT
+    assert limits.input_tokens_limit == chat_router._CHAT_INPUT_TOKEN_LIMIT_DEFAULT
 
 
 def test_usage_limit_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -166,6 +167,34 @@ def test_usage_limit_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
     assert chat_router._usage_limits().request_limit == 7
     monkeypatch.setenv("CHAT_REQUEST_LIMIT", "not-a-number")
     assert chat_router._usage_limits().request_limit == chat_router._CHAT_REQUEST_LIMIT_DEFAULT
+
+
+def test_input_token_limit_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`request_limit` bounds how many round-trips a turn takes but not how
+    big they get; input grows superlinearly because every step re-sends the
+    accumulated prefix. Production saw a 13-step turn bill 634,750 input
+    tokens for a 2,632-token answer, so the token ceiling is the one that
+    actually bounds a runaway turn."""
+    import importlib
+    chat_router = importlib.import_module("api.chat.router")
+
+    monkeypatch.setenv("CHAT_INPUT_TOKEN_LIMIT", "60000")
+    assert chat_router._usage_limits().input_tokens_limit == 60000
+    monkeypatch.setenv("CHAT_INPUT_TOKEN_LIMIT", "not-a-number")
+    assert (
+        chat_router._usage_limits().input_tokens_limit
+        == chat_router._CHAT_INPUT_TOKEN_LIMIT_DEFAULT
+    )
+
+
+def test_input_token_limit_clears_observed_p95(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The ceiling is a blast-radius guard, not a cost target: it must sit
+    above real traffic so ordinary long turns still complete. Observed p95
+    turn input was ~195k tokens over a week of production."""
+    import importlib
+    chat_router = importlib.import_module("api.chat.router")
+
+    assert chat_router._CHAT_INPUT_TOKEN_LIMIT_DEFAULT > 195_000
 
 
 def test_chat_usage_limit_maps_to_422(monkeypatch: pytest.MonkeyPatch) -> None:
