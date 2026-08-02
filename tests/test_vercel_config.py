@@ -50,3 +50,29 @@ def test_spa_fallback_404_exists():
     # at least exist and link users back into the app.
     page = (REPO_ROOT / "web" / "404.html").read_text(encoding="utf-8")
     assert 'href="/"' in page, "404.html must link back to the app root"
+
+
+def test_csp_allows_blob_media():
+    """The /social review page plays staged reels as blob: URLs.
+
+    The MP4s are admin-gated, so a <video src> can't carry the bearer token —
+    the page fetches with auth and plays the result locally. With only
+    `default-src 'self'` to fall back on, the browser blocks blob: media and
+    every reel silently fails to play. Every CSP header block needs media-src.
+    """
+    cfg = _load_config()
+    for block in cfg.get("headers", []):
+        for header in block.get("headers", []):
+            if header.get("key") != "Content-Security-Policy":
+                continue
+            directives = dict(
+                (d.strip().split(" ", 1) + [""])[:2]
+                for d in header["value"].split(";") if d.strip()
+            )
+            assert "media-src" in directives, (
+                f"CSP for {block['source']!r} has no media-src, so blob: video "
+                "is blocked by the default-src fallback"
+            )
+            assert "blob:" in directives["media-src"], (
+                f"CSP media-src for {block['source']!r} must allow blob:"
+            )

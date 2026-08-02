@@ -98,6 +98,11 @@ def _artifact(row: dict, batch_dir: Path, from_reels: bool) -> dict:
         "png_paths": pngs,
         "png_available": bool(pngs),
         "hook": row.get("hook"),
+        # Written back into the manifest by scripts/upload_reels_to_r2.py. The
+        # key is never sent to the client — it only tells the router which
+        # private object to stream.
+        "video_key": row.get("video_key"),
+        "video_bytes": row.get("video_bytes"),
         "draft_index": row.get("draft_index"),
     }
 
@@ -251,8 +256,17 @@ def _caption_text(draft: dict) -> str:
     return "\n\n".join(p for p in parts if p) + "\n"
 
 
-def bundle_draft(date: str, draft_index: int) -> tuple[str, bytes]:
+def bundle_draft(
+    date: str,
+    draft_index: int,
+    extra_files: dict[str, bytes] | None = None,
+) -> tuple[str, bytes]:
     """Zip one draft's caption + rendered images + islands for publishing.
+
+    `extra_files` is {arcname: bytes} for content that isn't on disk — the
+    router passes reel MP4s pulled from private R2, so the bundle contains
+    everything needed to publish rather than everything that happens to be
+    committed. Keeping the fetch in the caller leaves this module free of R2.
 
     Returns (filename, zip bytes). Raises ValueError if the batch or the draft
     index does not exist.
@@ -272,5 +286,20 @@ def bundle_draft(date: str, draft_index: int) -> tuple[str, bytes]:
                 src = batch_dir / rel
                 if src.is_file():
                     zf.write(src, arcname=rel)
+        for arcname, blob in (extra_files or {}).items():
+            zf.writestr(arcname, blob)
     aid = draft.get("auction_id") or "draft"
     return f"{date}-draft-{draft_index:02d}-{aid}.zip", buf.getvalue()
+
+
+def draft_reel_keys(date: str, draft_index: int) -> dict[str, str]:
+    """{arcname: r2 key} for the reels of one draft that have an uploaded MP4."""
+    batch = load_batch(date)
+    match = [d for d in batch["drafts"] if d["draft_index"] == draft_index]
+    if not match:
+        raise ValueError(f"no draft {draft_index} in batch {date}")
+    return {
+        f"reels/{a['stem']}.mp4": a["video_key"]
+        for a in match[0]["artifacts"]
+        if a["kind"] == "reel" and a.get("video_key")
+    }

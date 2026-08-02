@@ -297,6 +297,40 @@ def research_object_key(platform: str, channel: str, run_date: str, filename: st
     )
 
 
+# ── Staged reel storage ───────────────────────────────────────────────────────
+#
+# Rendered reel MP4s used to live only as 14-day workflow artifacts, so a batch
+# older than two weeks had no reviewable video at all. They now go to the
+# PRIVATE bucket: a staged reel is unpublished pre-release material, and the
+# /social review page it feeds is admin-only, so the bytes must not be fetchable
+# by URL. api/social streams them back through its own admin gate.
+
+_REEL_KEY_PREFIX = "marketing-reels"
+
+
+def reel_object_key(batch_date: str, stem: str) -> str:
+    """Deterministic private key for one staged reel's MP4.
+
+    Shape: ``marketing-reels/{batch_date}/{stem}.mp4``. ``stem`` is the reel
+    island's filename stem (``01-798444``, ``00-stats``), so re-running a
+    render for the same batch overwrites rather than accumulating.
+    """
+    return f"{_REEL_KEY_PREFIX}/{_safe_segment(batch_date)}/{_safe_segment(stem)}.mp4"
+
+
+def get_private_object(key: str):
+    """Fetch a private object for streaming.
+
+    Returns the raw boto3 ``get_object`` response — ``Body`` is a streaming
+    body the caller must close, alongside ``ContentType`` / ``ContentLength``.
+    Used instead of a presigned URL when the bytes are re-served through our
+    own auth gate rather than handed to the browser as a link.
+    """
+    _require_private_config()
+    client = r2_client()
+    return client.get_object(Bucket=R2_PRIVATE_BUCKET, Key=key)
+
+
 def delete_private_objects(keys: list[str]) -> None:
     """Delete the given private objects (cascade on dossier deletion).
 

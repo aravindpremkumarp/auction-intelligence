@@ -55,8 +55,14 @@ class ArtifactOut(BaseModel):
     png_paths: list[str] = []
     png_available: bool = False
     # Reel-only: the on-screen hook, so the page can show what the first frame
-    # says without an MP4. Reel MP4s are 14-day workflow artifacts, not committed.
+    # says even when the MP4 never rendered.
     hook: str | None = None
+    # Reel-only: set once the content-poster workflow has uploaded the rendered
+    # MP4 to private R2 (scripts/upload_reels_to_r2.py writes the key back into
+    # drafts.json). False for batches staged before that, or when the render
+    # step failed — the page falls back to the hook lines.
+    video_available: bool = False
+    video_bytes: int | None = None
     # Joined from :SocialContent.
     status: str = "pending"
     note: str | None = None

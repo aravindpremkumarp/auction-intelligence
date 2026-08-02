@@ -381,7 +381,7 @@ const PULL = GH + '/pull/';
 
 const MARKETING_DATA = {
 meta: {
-  updated: '2026-07-27',
+  updated: '2026-08-02',
   situation: 'pre-traction: ~7 registered users. the whole marketing engine was built in one sprint (jul 9–16, 2026) and is <b>human-gated end-to-end</b> — agents draft and stage, the founder reviews, merges and publishes. nothing auto-posts. north star (proposed): <b>weekly activated users</b> — ≥1 grounded search plus a value action.',
 },
 
@@ -460,9 +460,9 @@ nodes: [
     links:[{t:'poster.py', h: BLOB+'marketing_agents/poster.py'},{t:'content-agents.md', h: BLOB+'docs/marketing/content-agents.md'}], prs:[280,281] },
   { id:'wf-poster', lane:'engine', label:'content-poster workflow', type:'workflow', status:'live',
     sub:'manual dispatch only — stale-data guard',
-    summary:'GitHub Actions run: prepare → generate → finalize → render card PNGs → commit staged batch → render reel MP4s (14-day artifacts) → open/refresh the content-review issue. No cron by design.',
-    next:['Decision point: upload rendered reels to R2 instead of artifacts — it also unblocks video preview on /social.'],
-    links:[{t:'content-poster.yml', h: BLOB+'.github/workflows/content-poster.yml'}], prs:[302] },
+    summary:'GitHub Actions run: prepare → generate → finalize → render card PNGs → commit staged batch → render reel MP4s → upload them to private R2 and commit their keys → open/refresh the content-review issue. No cron by design.',
+    details:['Reels used to be 14-day artifacts only, so a batch older than two weeks had captions and cards but no watchable video. They now go to the private R2 bucket with the key written back into drafts.json, and the artifact upload is the fallback for when R2 is unconfigured.'],
+    links:[{t:'content-poster.yml', h: BLOB+'.github/workflows/content-poster.yml'},{t:'upload_reels_to_r2.py', h: BLOB+'scripts/upload_reels_to_r2.py'}], prs:[302] },
   { id:'render', lane:'engine', label:'render stack — reels MP4 · cards PNG', type:'system', status:'live',
     sub:'6 reel + 5 static templates · dark/light',
     summary:'HyperFrames (HTML/GSAP → MP4, 9:16, ~12–15s) for reels; Playwright screenshots for statics/carousels/OG cards. Templates adapted from motion-anything, themed with brand tokens.',
@@ -482,8 +482,8 @@ nodes: [
   { id:'social-review', lane:'gate', label:'social review page — /social', type:'system', status:'building',
     sub:'admin-gated · batch browser + per-artifact status',
     summary:'The review gate stops being invisible. An admin page beside /admin and /review that lists every staged batch, previews every card PNG and reel hook, copies each caption block, downloads assets (per file or as a per-draft zip), and records approved / rejected / posted against each artifact — so what has actually been published is a queryable fact instead of something only the founder remembers.',
-    details:['Reads the committed batch straight off marketing/outputs/<date>/ — the API never writes there; the Poster and the workflow stay its only authors.','Status lives on :SocialContent in Neo4j, keyed <date>/<kind>/<stem>. "pending" is the absence of a node, so clearing a decision deletes it.','Assets are served behind the admin dependency (unlike the notice proxy, whose bytes are already public) — the page fetches with its bearer token and renders blob: URLs.','Reels show the on-screen hook lines, not video: MP4s are 14-day workflow artifacts, never committed.'],
-    next:['Video preview lands with the reels-to-R2 decision on the content-poster workflow.','Once a few batches carry statuses, the posted set is the input the reporter has been waiting for.'],
+    details:['Reads the committed batch straight off marketing/outputs/<date>/ — the API never writes there; the Poster and the workflow stay its only authors.','Status lives on :SocialContent in Neo4j, keyed <date>/<kind>/<stem>. "pending" is the absence of a node, so clearing a decision deletes it.','Assets are served behind the admin dependency (unlike the notice proxy, whose bytes are already public) — the page fetches with its bearer token and renders blob: URLs.','Reels play in-page from private R2, click-to-load; the per-draft zip carries the MP4 too, so the download is publish-ready.'],
+    next:['Once a few batches carry statuses, the posted set is the input the reporter has been waiting for.'],
     links:[{t:'web/social.html', h: BLOB+'web/social.html'},{t:'api/social/', h: TREE+'api/social'}] },
   { id:'gate', lane:'gate', label:'founder review & publish', type:'gate', status:'live', risk:true,
     sub:'every public artifact passes through here',
@@ -682,6 +682,10 @@ risks: [
 ],
 
 changelog: [
+  { d:'2026-08-02', items:[
+    { t:'Reels are watchable again — rendered MP4s go to R2 instead of expiring. The gap only became obvious once /social existed: the 2026-07-15 batch still had its captions and five card PNGs committed, but its six reels were gone, because MP4s were only ever published as a 14-day GitHub artifact and that run now reports zero artifacts. The video half of every batch had a two-week shelf life. The workflow now uploads each rendered reel to R2 after the render step and commits the resulting key back into drafts.json — a second commit is required because the batch is committed before reels render, and without it the MP4s would sit in R2 with nothing pointing at them. The artifact upload stays as the fallback for when R2 credentials are absent, and the review issue links /social or the artifact depending on which actually happened.' },
+    { t:'They go to the PRIVATE bucket, and that decision follows from the one /social already made. A staged reel is unpublished pre-release material — the same reasoning that put the card PNGs behind the admin gate rather than serving them like the (already-public) notice documents. So the MP4s land beside dossier documents and channel research in the private bucket, and api/social streams them back through its own admin check rather than handing out a presigned URL: a presigned link works for anyone holding it for its whole TTL, which is precisely the property we were avoiding. The page fetches with its bearer token and plays the blob, click-to-load so six reels are not megabytes nobody asked for, and the only CSP change needed was media-src blob: — no new host. The per-draft zip now carries the MP4 as well, so "download all" is genuinely publish-ready instead of handing you everything except the video.' },
+  ]},
   { d:'2026-07-27', items:[
     { t:'A review page for staged social content — /social. The engine could stage a batch and open an issue about it, but reviewing that batch still meant a local checkout: read review.md in an editor, open the card PNGs from the repo, and remember what you published. Nothing recorded the outcome, which is why this dashboard could describe the review gate but never say how much had actually cleared it. The page lists every batch newest-first, and for each draft shows the caption blocks with copy buttons, the grounded source facts it was written from (next to the notice link, so a claim can be checked against its origin), the rendered card, and the reel\'s on-screen hook lines. Assets download individually or as a per-draft zip with a publish-ready caption.txt. Each artifact carries its own status — approved / rejected / posted, with an optional URL — because a draft\'s card and its reel are separate posting decisions.' },
     { t:'The status model keeps the two halves honest about what they own. The filesystem holds what the Poster staged and the API never writes to marketing/outputs/; Neo4j holds what a human decided, as :SocialContent keyed <date>/<kind>/<stem>. "Pending" is the absence of a node rather than a stored value (the idiom already used for extraction review), so clearing a decision deletes it and there is exactly one representation of "nobody has decided yet". Two consequences worth stating: a status can only be set against an artifact that exists in the batch on disk, so a typo cannot mint a decision about something nobody can see; and the batch listing degrades honestly — a drafts.json that fails to parse is listed WITH its error rather than dropped, since a batch that will not load is precisely the thing a reviewer needs to be told about.' },
