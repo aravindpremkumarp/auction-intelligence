@@ -74,3 +74,10 @@ evals/.prf_cache.json
 
 # Local scratch for scripts/generate_property_og.py (cards live in R2, not git)
 .og_renders/
+
+# Staged social media renders go to R2, not git — a weekly batch of card PNGs
+# accumulates forever (the same reason the property OG cards live in R2). Their
+# keys are recorded in the batch's drafts.json, which IS committed.
+# Already-committed batches stay tracked; this only stops new ones.
+marketing/outputs/*/rendered/
+.reel_renders/

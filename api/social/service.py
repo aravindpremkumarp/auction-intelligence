@@ -63,14 +63,26 @@ def _kind_for(template: str, stem: str, from_reels: bool) -> str:
     return "carousel" if "carousel" in blob else "card"
 
 
-def _rendered_pngs(batch_dir: Path, stem: str) -> list[str]:
+def _rendered_pngs(batch_dir: Path, stem: str, media_keys: dict[str, str]) -> list[str]:
     """Rendered PNGs for one island, batch-relative and sorted.
 
     `render_social.py --render-staged` writes `rendered/card-<stem>.png` for a
     single-stage template, and `rendered/card-<stem>_01.png`, `_02.png`, … for a
     multi-stage one (the carousel renders one PNG per slide). Match both so the
     UI shows every slide without special-casing carousels.
+
+    Since PNGs moved to R2 they are usually *not* on disk, so `media_keys` (the
+    manifest's {batch-relative path → R2 key} map) is the primary source and the
+    filesystem is the fallback for batches staged while renders were committed.
     """
+    prefix = f"rendered/card-{stem}"
+    from_r2 = sorted(
+        p for p in media_keys
+        if p.lower().endswith(".png")
+        and (p == f"{prefix}.png" or p.startswith(f"{prefix}_"))
+    )
+    if from_r2:
+        return from_r2
     rendered = batch_dir / "rendered"
     if not rendered.is_dir():
         return []
@@ -82,12 +94,17 @@ def _rendered_pngs(batch_dir: Path, stem: str) -> list[str]:
     return [f"rendered/{n}" for n in names]
 
 
-def _artifact(row: dict, batch_dir: Path, from_reels: bool) -> dict:
+def _artifact(row: dict, batch_dir: Path, from_reels: bool,
+              media_keys: dict[str, str], media_bytes: dict[str, int]) -> dict:
     """Normalise one `cards[]`/`reels[]` manifest row into an artifact dict."""
     island_path = str(row.get("data") or "")
     stem = Path(island_path).stem
     template = str(row.get("template") or "")
-    pngs = _rendered_pngs(batch_dir, stem) if not from_reels else []
+    pngs = [] if from_reels else _rendered_pngs(batch_dir, stem, media_keys)
+    # Reels are the one artifact with no on-disk fallback: MP4s were never
+    # committed, so a reel is playable only if the uploader recorded its key.
+    video_path = f"reels/{stem}.mp4" if from_reels else None
+    video_key = media_keys.get(video_path) if video_path else None
     return {
         "kind": _kind_for(template, stem, from_reels),
         "stem": stem,
@@ -98,11 +115,11 @@ def _artifact(row: dict, batch_dir: Path, from_reels: bool) -> dict:
         "png_paths": pngs,
         "png_available": bool(pngs),
         "hook": row.get("hook"),
-        # Written back into the manifest by scripts/upload_reels_to_r2.py. The
-        # key is never sent to the client — it only tells the router which
-        # private object to stream.
-        "video_key": row.get("video_key"),
-        "video_bytes": row.get("video_bytes"),
+        # The R2 key is an internal pointer — it tells the router which private
+        # object to stream and is never serialised to the client.
+        "video_path": video_path,
+        "video_key": video_key,
+        "video_bytes": media_bytes.get(video_path) if video_path else None,
         "draft_index": row.get("draft_index"),
     }
 
@@ -178,8 +195,12 @@ def load_batch(date: str) -> dict:
     except (OSError, json.JSONDecodeError, UnicodeDecodeError) as exc:
         raise ValueError(f"unreadable batch {date}: {exc}") from exc
 
-    artifacts = [_artifact(r, batch_dir, False) for r in (data.get("cards") or [])]
-    artifacts += [_artifact(r, batch_dir, True) for r in (data.get("reels") or [])]
+    media_keys: dict[str, str] = data.get("media_keys") or {}
+    media_bytes: dict[str, int] = data.get("media_bytes") or {}
+    artifacts = [_artifact(r, batch_dir, False, media_keys, media_bytes)
+                 for r in (data.get("cards") or [])]
+    artifacts += [_artifact(r, batch_dir, True, media_keys, media_bytes)
+                  for r in (data.get("reels") or [])]
 
     drafts_raw = data.get("drafts") or []
     drafts: list[dict] = []
@@ -218,7 +239,26 @@ def load_batch(date: str) -> dict:
         "drafts": drafts,
         "orphan_artifacts": orphans,
         "rejected": data.get("rejected") or [],
+        "media_keys": media_keys,
     }
+
+
+def media_key_for(date: str, relpath: str) -> str | None:
+    """R2 key for one batch-relative path, or None if it isn't in R2.
+
+    The path is validated against the manifest's own `media_keys` map rather
+    than derived from the caller's input, so an attacker-chosen path can never
+    become an attacker-chosen object key.
+    """
+    validate_date(date)
+    batch_dir = outputs_dir() / date
+    if not (batch_dir / "drafts.json").is_file():
+        raise ValueError(f"no staged batch for {date}")
+    try:
+        data = _read_drafts_json(batch_dir)
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise ValueError(f"unreadable batch {date}: {exc}") from exc
+    return (data.get("media_keys") or {}).get(relpath)
 
 
 def resolve_asset(date: str, relpath: str) -> Path:
@@ -292,14 +332,21 @@ def bundle_draft(
     return f"{date}-draft-{draft_index:02d}-{aid}.zip", buf.getvalue()
 
 
-def draft_reel_keys(date: str, draft_index: int) -> dict[str, str]:
-    """{arcname: r2 key} for the reels of one draft that have an uploaded MP4."""
+def draft_media_keys(date: str, draft_index: int) -> dict[str, str]:
+    """{arcname: r2 key} for every R2-hosted asset of one draft.
+
+    Covers card PNGs, carousel slides and reel MP4s alike — the bundle needs all
+    of them now that rendered media isn't committed. Assets still on disk are
+    absent here and get zipped straight from the filesystem instead.
+    """
     batch = load_batch(date)
     match = [d for d in batch["drafts"] if d["draft_index"] == draft_index]
     if not match:
         raise ValueError(f"no draft {draft_index} in batch {date}")
-    return {
-        f"reels/{a['stem']}.mp4": a["video_key"]
-        for a in match[0]["artifacts"]
-        if a["kind"] == "reel" and a.get("video_key")
-    }
+    keys = batch["media_keys"]
+    out: dict[str, str] = {}
+    for a in match[0]["artifacts"]:
+        for rel in [*a["png_paths"], a.get("video_path")]:
+            if rel and rel in keys:
+                out[rel] = keys[rel]
+    return out
