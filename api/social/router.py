@@ -17,10 +17,11 @@ with its bearer token and renders them as blob: URLs.
 """
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 
 from api.auth.dependencies import get_current_admin
 from api.auth.rate_limit import PUBLIC_READ_LIMIT, limiter
@@ -36,6 +37,8 @@ from api.social.schemas import (
     StatusIn,
 )
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/social", tags=["social"])
 
 _MEDIA_TYPES = {".png": "image/png", ".json": "application/json", ".md": "text/markdown"}
@@ -43,6 +46,31 @@ _MEDIA_TYPES = {".png": "image/png", ".json": "application/json", ".md": "text/m
 
 def _key(date: str, kind: str, stem: str) -> str:
     return f"{date}/{kind}/{stem}"
+
+
+def _fetch_reel_blobs(keys: dict[str, str]) -> dict[str, bytes]:
+    """Pull reel MP4s out of private R2 for the bundle, skipping any that fail.
+
+    A reel that can't be fetched (R2 unconfigured, object deleted) must not cost
+    the reviewer the rest of the download, so every failure is swallowed here
+    and simply omits that file.
+    """
+    if not keys:
+        return {}
+    from pipeline import storage
+
+    out: dict[str, bytes] = {}
+    for arcname, key in keys.items():
+        try:
+            obj = storage.get_private_object(key)
+            body = obj["Body"]
+            try:
+                out[arcname] = body.read()
+            finally:
+                body.close()
+        except Exception:  # noqa: BLE001 - best effort; the zip ships without it
+            logger.warning("reel %s (%s) unavailable for bundle", arcname, key)
+    return out
 
 
 def _statuses_for(date: str) -> dict[str, dict]:
@@ -69,6 +97,8 @@ def _apply_status(artifact: dict, stored: dict[str, dict], date: str) -> Artifac
         png_paths=artifact["png_paths"],
         png_available=artifact["png_available"],
         hook=artifact.get("hook"),
+        video_available=bool(artifact.get("video_key")),
+        video_bytes=artifact.get("video_bytes"),
         status=s.get("status") or "pending",
         note=s.get("note"),
         posted_url=s.get("posted_url"),
@@ -227,15 +257,79 @@ def get_asset(
     )
 
 
+@router.get("/reel/{date}/{stem}")
+def get_reel_video(
+    date: str,
+    stem: str,
+    _admin: UserOut = Depends(get_current_admin),
+) -> Response:
+    """Stream one staged reel's MP4 from the private R2 bucket.
+
+    Proxied rather than handed over as a presigned URL (the idiom api/dossier
+    uses) because a presigned link leaves our auth gate: it works for anyone
+    holding it, for its whole TTL. The page fetches this with its bearer token
+    and plays the result as a blob, so an unpublished reel is never reachable
+    without an admin session.
+    """
+    from botocore.exceptions import ClientError
+
+    from pipeline import storage
+
+    try:
+        batch = service.load_batch(date)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    every = [a for d in batch["drafts"] for a in d["artifacts"]] + batch["orphan_artifacts"]
+    match = [a for a in every if a["kind"] == "reel" and a["stem"] == stem]
+    if not match or not match[0].get("video_key"):
+        raise HTTPException(status_code=404, detail="no rendered reel for this stem")
+
+    try:
+        obj = storage.get_private_object(match[0]["video_key"])
+    except storage.R2ConfigError as exc:
+        raise HTTPException(status_code=503, detail="reel storage not configured") from exc
+    except ClientError as exc:
+        # The manifest records a key the bucket no longer has (lifecycle rule,
+        # manual cleanup). A 404 is the honest answer, not a 500.
+        raise HTTPException(status_code=404, detail="reel object missing") from exc
+
+    body = obj["Body"]
+
+    def _iter():
+        try:
+            for chunk in body.iter_chunks(chunk_size=65536):
+                if chunk:
+                    yield chunk
+        finally:
+            body.close()
+
+    headers = {"Cache-Control": "private, max-age=300"}
+    if obj.get("ContentLength") is not None:
+        headers["Content-Length"] = str(obj["ContentLength"])
+    return StreamingResponse(
+        _iter(),
+        media_type=obj.get("ContentType") or "video/mp4",
+        headers=headers,
+    )
+
+
 @router.get("/bundle/{date}/{draft_index}")
 def get_bundle(
     date: str,
     draft_index: int,
     _admin: UserOut = Depends(get_current_admin),
 ) -> Response:
-    """Zip of one draft's caption, islands and rendered images."""
+    """Zip of one draft's caption, islands, rendered images and reel MP4s.
+
+    The MP4s live in private R2 rather than on disk, so they're fetched here and
+    handed to the bundler. Best-effort: a reel whose object has gone missing is
+    left out rather than failing the whole download — the captions and card are
+    still worth having.
+    """
     try:
-        filename, blob = service.bundle_draft(date, draft_index)
+        extras = _fetch_reel_blobs(service.draft_reel_keys(date, draft_index))
+        filename, blob = service.bundle_draft(date, draft_index, extra_files=extras)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return Response(
