@@ -42,6 +42,11 @@ jobs:
         run: |
           pip install -r requirements.lock
           pip install pytest httpx
+      # tests/scripts and tests/test_vercel_config.py cover the build-time and
+      # deploy-config guards (property OG cards, the reel→R2 upload, the CSP
+      # directives the review page needs). They were never in CI, so those
+      # guards could rot silently — they're pure-stdlib and fast, so run them
+      # here rather than leaving them as local-only.
       - name: Run API tests
         env:
           SUPABASE_URL: https://fake.supabase.co
@@ -49,7 +54,7 @@ jobs:
           APP_ENV: test
           RATELIMIT_DISABLED: "1"
           AUTH_ENABLED: "true"
-        run: pytest tests/api -q
+        run: pytest tests/api tests/scripts tests/test_vercel_config.py -q
 
   # Live Razorpay test-mode E2E + real-Neo4j concurrency (design D4/D5).
   # REQUIRED: this job goes red when the RAZORPAY_* secrets are absent — the gate
