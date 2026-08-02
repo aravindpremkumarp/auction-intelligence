@@ -297,25 +297,34 @@ def research_object_key(platform: str, channel: str, run_date: str, filename: st
     )
 
 
-# ── Staged reel storage ───────────────────────────────────────────────────────
+# ── Staged batch media storage ────────────────────────────────────────────────
 #
-# Rendered reel MP4s used to live only as 14-day workflow artifacts, so a batch
-# older than two weeks had no reviewable video at all. They now go to the
-# PRIVATE bucket: a staged reel is unpublished pre-release material, and the
-# /social review page it feeds is admin-only, so the bytes must not be fetchable
-# by URL. api/social streams them back through its own admin gate.
+# Everything the content-poster renders — card PNGs, carousel slides, reel MP4s
+# — lives here rather than in git. Reels never could be committed (binaries grow
+# the repo forever, and as 14-day artifacts they simply vanished); card PNGs
+# could be, but a weekly batch of 5-8 images accumulates for the same reason the
+# 664 property OG cards went to R2.
+#
+# The bucket is the PRIVATE one: staged media is unpublished pre-release
+# material and the /social page it feeds is admin-only, so the bytes must not be
+# fetchable by URL. api/social streams them back through its own admin gate.
 
-_REEL_KEY_PREFIX = "marketing-reels"
+_BATCH_MEDIA_KEY_PREFIX = "marketing-media"
 
 
-def reel_object_key(batch_date: str, stem: str) -> str:
-    """Deterministic private key for one staged reel's MP4.
+def batch_media_key(batch_date: str, relpath: str) -> str:
+    """Deterministic private key for one staged file of a batch.
 
-    Shape: ``marketing-reels/{batch_date}/{stem}.mp4``. ``stem`` is the reel
-    island's filename stem (``01-798444``, ``00-stats``), so re-running a
-    render for the same batch overwrites rather than accumulating.
+    Shape: ``marketing-media/{batch_date}/{relpath}``, where ``relpath`` is the
+    file's path relative to the batch directory (``rendered/card-01-798444.png``,
+    ``reels/01-798444.mp4``). Each segment is sanitised separately so the
+    directory structure survives but nothing can escape the prefix. Keying off
+    the batch-relative path makes the mapping reversible: given a path the API
+    already knows, the key is derivable without a lookup.
     """
-    return f"{_REEL_KEY_PREFIX}/{_safe_segment(batch_date)}/{_safe_segment(stem)}.mp4"
+    parts = [p for p in relpath.split("/") if p not in ("", ".", "..")]
+    safe = "/".join(_safe_segment(p) for p in parts)
+    return f"{_BATCH_MEDIA_KEY_PREFIX}/{_safe_segment(batch_date)}/{safe}"
 
 
 def get_private_object(key: str):

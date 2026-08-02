@@ -107,11 +107,9 @@ jobs:
       - name: Finalize (validate + stage drafts)
         run: python -m marketing_agents.poster --finalize
 
-      # Render the staged cards to PNGs BEFORE the commit, so they're committed
-      # alongside the drafts and viewable straight from the review issue. Unlike
-      # reels (large MP4s → artifact only), cards are small PNGs — committing a
-      # handful per run is cheap and the whole point is "see the post" without
-      # a download. Soft-fails so a render hiccup never blocks the drafts.
+      # Render the staged cards + carousel slides to PNGs BEFORE the commit, so
+      # their R2 keys land in the same drafts.json commit as the drafts
+      # themselves. Soft-fails so a render hiccup never blocks the drafts.
       - name: Render card images
         continue-on-error: true
         run: |
@@ -125,6 +123,37 @@ jobs:
           python -m playwright install chromium
           python marketing/render_social.py --render-staged "marketing/outputs/$TODAY" \
             || echo "::warning::card render failed (drafts are unaffected)"
+
+      # Rendered PNGs go to R2, not git (marketing/outputs/*/rendered/ is
+      # gitignored): a weekly batch of 5-8 images accumulates forever, the same
+      # reason the property OG cards already live in R2. The keys are recorded
+      # in drafts.json so /social can resolve them. If R2 is unconfigured the
+      # script exits 2 and the PNGs simply stay local to this runner — the
+      # drafts still ship, the review page just has no card previews.
+      - name: Upload card images to R2
+        id: cards_r2
+        continue-on-error: true
+        env:
+          R2_ACCOUNT_ID:        ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID:     ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET:            ${{ secrets.R2_BUCKET }}
+          R2_PUBLIC_BASE_URL:   ${{ secrets.R2_PUBLIC_BASE_URL }}
+          R2_PRIVATE_BUCKET:    ${{ secrets.R2_PRIVATE_BUCKET || 'auction-dossiers' }}
+        run: |
+          pip install --quiet boto3 python-dotenv
+          TODAY=$(date -u +%F)
+          set +e
+          python scripts/upload_batch_media_to_r2.py --batch "marketing/outputs/$TODAY"
+          rc=$?
+          set -e
+          if [ "$rc" -eq 0 ]; then
+            echo "uploaded=true" >> "$GITHUB_OUTPUT"
+          elif [ "$rc" -eq 2 ]; then
+            echo "::warning::R2 not configured — card images will not be viewable on /social"
+          else
+            echo "::warning::card upload to R2 failed — images will not be viewable on /social"
+          fi
 
       - name: Commit staged drafts
         id: commit
@@ -197,7 +226,7 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           # storage.r2_client() builds one client for both buckets and validates
           # the PUBLIC config on the way, so these two are required even though
-          # the reels land in the private bucket.
+          # the media lands in the private bucket.
           R2_BUCKET:            ${{ secrets.R2_BUCKET }}
           R2_PUBLIC_BASE_URL:   ${{ secrets.R2_PUBLIC_BASE_URL }}
           # An unset secret arrives as "", which would override storage.py's
@@ -207,7 +236,7 @@ jobs:
           pip install --quiet boto3 python-dotenv
           TODAY=$(date -u +%F)
           set +e
-          python scripts/upload_reels_to_r2.py \
+          python scripts/upload_batch_media_to_r2.py \
             --batch "marketing/outputs/$TODAY" --renders .reel_renders
           rc=$?
           set -e
@@ -219,7 +248,7 @@ jobs:
             echo "::warning::reel upload to R2 failed — falling back to the artifact"
           fi
 
-      # Second commit: the upload wrote video_key into drafts.json after the
+      # Second commit: the upload wrote the reel keys into drafts.json after the
       # batch was already committed above. Without this the keys never reach
       # main and /social has no video to play.
       - name: Commit reel keys
@@ -263,16 +292,15 @@ jobs:
             } catch {
               body = `New drafts staged in \`${path}\` (review file missing).`;
             }
-            // Rendered card images — committed alongside the drafts, so link
-            // each one. Tapping opens GitHub's image viewer (works on mobile,
-            // private repo); long-press to save before posting.
+            // Rendered images live in R2, not git, so there are no blob links
+            // to hand out — /social is where you view them (and everything
+            // else about the batch) behind the admin gate.
             try {
               const rdir = `marketing/outputs/${today}/rendered`;
               const pngs = fs.readdirSync(rdir).filter((f) => f.endsWith(".png")).sort();
               if (pngs.length) {
-                const base = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/blob/main/${rdir}`;
-                body += `\n\n**🖼️ ${pngs.length} card image(s) rendered** — tap to view, long-press to save:\n`
-                  + pngs.map((f) => `- [${f}](${base}/${f})`).join("\n");
+                body += `\n\n**🖼️ ${pngs.length} image(s) rendered** — view them with the captions on `
+                  + `[/social](https://www.auctionscope.in/social).`;
               }
             } catch { /* no rendered dir — cards render is best-effort */ }
             const rendered = `${{ steps.reels.outputs.rendered || 'false' }}` === 'true';
