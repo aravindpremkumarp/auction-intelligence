@@ -34,7 +34,7 @@ def test_sitemap_xml_served() -> None:
 
 def test_legal_pages_served() -> None:
     client = TestClient(app)
-    for path in ("/terms-of-service", "/privacy-policy", "/disclaimer"):
+    for path in ("/about", "/terms-of-service", "/privacy-policy", "/disclaimer"):
         r = client.get(path)
         assert r.status_code == 200, f"{path} -> {r.status_code}"
         assert r.headers["content-type"].startswith("text/html"), path

@@ -33,6 +33,7 @@ SITE_BASE = "https://www.auctionscope.in"
 # (see tests/api/test_static_routes.py), so lastmod tracks that file.
 STATIC_ROUTES = [
     ("/", "index.html", "daily", "1.0"),
+    ("/about", "about.html", "monthly", "0.5"),
     ("/privacy-policy", "privacy-policy.html", "yearly", "0.3"),
     ("/terms-of-service", "terms-of-service.html", "yearly", "0.3"),
     ("/disclaimer", "disclaimer.html", "yearly", "0.3"),
@@ -141,6 +142,10 @@ def collect_urls(web_dir: Path) -> list[tuple[str, str, str, str]]:
     for idx in sorted((web_dir / "compare").glob("**/index.html")):
         depth = len(idx.parent.relative_to(web_dir / "compare").parts)
         entries.append((_url_for(idx, web_dir), idx, "monthly", "0.8" if depth == 0 else "0.7"))
+
+    # Free tools / calculators (scripts/build_tools.py) — evergreen, link magnets.
+    for idx in sorted((web_dir / "tools").glob("**/index.html")):
+        entries.append((_url_for(idx, web_dir), idx, "monthly", "0.8"))
 
     return [
         (loc, freq, prio, _lastmod(src, repo_root, dirty, build_date))
