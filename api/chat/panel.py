@@ -110,9 +110,11 @@ def turn_panel_ids(turn_tool_returns: list[tuple[str, Any]]) -> list[str]:
             last_search = _ids_from_content(content)
             last_search_idx = idx
         elif tool in _DETAIL_TOOLS:
-            ids = _ids_from_content(content)
-            if ids:
-                detail_ids.append((idx, ids[0]))
+            # A detail call may carry several records now (batched ids), so
+            # take every id it returned, not just the first. Stored
+            # single-record returns yield exactly one id, as before.
+            for i in _ids_from_content(content):
+                detail_ids.append((idx, i))
     later_details = [i for idx, i in detail_ids if idx > last_search_idx]
     if later_details:
         return later_details

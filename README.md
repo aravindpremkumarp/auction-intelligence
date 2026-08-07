@@ -184,7 +184,7 @@ variant on the free tier).
 | --- | --- |
 | `search_auctions` | Filter by price / EMD / city / area / type / category / bank / borrower / platform / date; `deadline_within_days` for upcoming deadlines; supports aggregates (min/max/avg/median/p25/p75), `group_by` distributions, and true `total_count`. |
 | `semantic_search` | Vector search across description + notice-markdown + notice-image indexes in one call. |
-| `get_auction_detail` | Full record for one `auction_id`, including re-auction `price_history`. |
+| `get_auction_detail` | Full records for one or a list of `auction_id`s (up to 10 per call), including re-auction `price_history`. |
 | `describe_schema` | Live graph introspection (labels, rels, enums, ranges); 1-hour cache. |
 | `run_cypher` | Read-only Cypher escape hatch — write clauses rejected, 10 s / 500-row caps. |
 | `internet_search` | Tavily web search for off-graph context — locality water/flood signals, govt/private projects, connectivity, schools/hospitals, market context. Cited, approximate. |

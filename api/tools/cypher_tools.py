@@ -922,13 +922,17 @@ def _semantic_search_cypher(
     """
 
 
-def get_auction_detail(auction_id: str) -> dict | None:
-    """Full record for ONE auction: every stored node property plus related
-    entities. Uses properties(a) so new schema fields auto-surface with no
-    tool change; raw `*_embedding` vectors are stripped before return (they're
-    huge and unreadable to the model)."""
-    cypher = """
-        MATCH (a:AuctionProperty {auction_id: $auction_id})
+# Cap on how many auction_ids one `get_auction_details` call resolves. Detail
+# records are heavy (full `properties(a)`, including `description`), so this is
+# a context-cost guard, not a graph one: ~10 full records is already more than
+# a reader can compare side by side, and the agent is told to use a table above
+# that. Ids beyond the cap come back under `dropped_ids` rather than being
+# silently ignored.
+_DETAIL_MAX_IDS = 10
+
+_DETAIL_CYPHER = """
+        MATCH (a:AuctionProperty)
+        WHERE a.auction_id IN $ids
         OPTIONAL MATCH (a)-[:LOCATED_IN_CITY]->(city:City)
         OPTIONAL MATCH (a)-[:LOCATED_IN_AREA]->(area:Area)
         OPTIONAL MATCH (a)-[:LOCATED_IN_STATE]->(state:State)
@@ -972,14 +976,18 @@ def get_auction_detail(auction_id: str) -> dict | None:
                } AS relationships,
                documents AS documents,
                siblings  AS siblings
-    """
-    rows = run_read_query(cypher, {"auction_id": auction_id}, max_rows=1)
-    if not rows:
-        return None
+"""
+
+
+def _detail_record(row: dict) -> dict:
+    """Shape one `_DETAIL_CYPHER` row into the agent/API-facing detail record."""
     # Coerce every neo4j temporal value (top-level fields AND nested
     # related-node maps) to ISO strings up front so the response serializer
     # never sees a raw neo4j.time.* object.
-    fields = _json_safe(dict(rows[0]["fields"]))
+    fields = _json_safe(dict(row["fields"]))
+    # `properties(a)` already carries auction_id, so the batch path reads the
+    # id off the built record rather than costing an extra RETURN column.
+    auction_id = str(fields.get("auction_id") or "")
 
     # `properties(a)` grabs EVERY node property, which includes the raw
     # `description_embedding` vector the embed pipeline writes back onto the
@@ -1004,7 +1012,7 @@ def get_auction_detail(auction_id: str) -> dict | None:
     # the graph briefly holds duplicate :Document nodes (issue #45).
     documents = []
     seen_doc_keys: set[str] = set()
-    for d in (rows[0].get("documents") or []):
+    for d in (row.get("documents") or []):
         if not d or not d.get("public_url"):
             continue
         key = d.get("public_url") or d.get("filename") or ""
@@ -1014,7 +1022,7 @@ def get_auction_detail(auction_id: str) -> dict | None:
         documents.append(d)
 
     siblings = [
-        s for s in (rows[0].get("siblings") or [])
+        s for s in (row.get("siblings") or [])
         if s and s.get("auction_id")
     ]
     price_history: list[dict] = []
@@ -1051,10 +1059,66 @@ def get_auction_detail(auction_id: str) -> dict | None:
     return {
         "auction_id":    auction_id,
         "fields":        fields,
-        "relationships": _json_safe(rows[0]["relationships"]),
+        "relationships": _json_safe(row["relationships"]),
         "documents":     documents,
         "price_history": price_history,
     }
+
+
+def get_auction_details(auction_ids: list[str]) -> dict:
+    """Full records for one or more auction_ids in ONE graph round-trip.
+
+    Returns `{results: [...], returned, requested}` with records in the
+    caller's id order, plus `missing_ids` for ids the graph doesn't hold and
+    `dropped_ids` for anything past `_DETAIL_MAX_IDS`. Both are reported
+    rather than silently dropped so the agent can correct itself instead of
+    concluding a property has no data.
+    """
+    ids: list[str] = []
+    for i in auction_ids or []:
+        s = str(i).strip()
+        if s and s not in ids:
+            ids.append(s)
+    requested = len(ids)
+    dropped = ids[_DETAIL_MAX_IDS:]
+    ids = ids[:_DETAIL_MAX_IDS]
+    if not ids:
+        return {"results": [], "returned": 0, "requested": requested}
+    rows = run_read_query(
+        _DETAIL_CYPHER, {"ids": ids}, timeout=15.0, max_rows=_DETAIL_MAX_IDS
+    )
+    records = [_detail_record(r) for r in rows]
+    by_id = {r["auction_id"]: r for r in records if r["auction_id"]}
+    ordered = [by_id[i] for i in ids if i in by_id]
+    out: dict = {
+        "results": ordered,
+        "returned": len(ordered),
+        "requested": requested,
+    }
+    missing = [i for i in ids if i not in by_id]
+    if missing:
+        out["missing_ids"] = missing
+    if dropped:
+        out["dropped_ids"] = dropped
+        out["_note"] = (
+            f"only the first {_DETAIL_MAX_IDS} ids were fetched; re-call with "
+            "the remaining ids if you genuinely need them"
+        )
+    return out
+
+
+def get_auction_detail(auction_id: str) -> dict | None:
+    """Full record for ONE auction (single-record view of
+    `get_auction_details`, kept for the REST property endpoint). Uses
+    properties(a) so new schema fields auto-surface with no tool change; raw
+    `*_embedding` vectors are stripped before return (they're huge and
+    unreadable to the model)."""
+    rows = run_read_query(
+        _DETAIL_CYPHER, {"ids": [auction_id]}, max_rows=1
+    )
+    if not rows:
+        return None
+    return _detail_record(rows[0])
 
 
 # ── Phase 1: schema introspection + escape-hatch tools ─────────────────────

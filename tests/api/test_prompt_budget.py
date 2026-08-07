@@ -147,6 +147,18 @@ _SHARED_MD = _REPO_ROOT / "modes" / "_shared.md"
 # that stray search also drops a whole tool round-trip plus a ~20-row result
 # block replayed through the rest of the turn, so it earns its per-call cost.
 # Measured ~15,786; ceiling 15,900.
+#
+# 2026-08 (batched get_auction_detail): NET +26 — deliberately flat. The tool
+# now takes `auction_id: str | list[str]` (up to 10 per call), so the docstring
+# gained "pass a LIST / never one call per id" and the `missing_ids` contract
+# while `modes/_shared.md` lost the routing bullet's "batch the calls in one
+# step" and the deep-research cross-reference. The win is NOT in this number:
+# Logfire showed `get_auction_detail` firing 3.73× per turn that used it (worst
+# 15), and since every extra LLM round-trip re-sends the whole accumulated
+# context, the top 20% of turns (6-10 calls each) burned 61% of all input
+# tokens. Collapsing an N-id fan-out to one call removes N-1 of those
+# round-trips — worth far more than the ~500 tokens/turn a prose trim of this
+# size could ever recover. Measured ~15,812; ceiling held at 15,900.
 BUDGET_CHARS = 15_900
 
 
