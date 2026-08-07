@@ -492,15 +492,26 @@ def semantic_search(
         return {"error": str(e), "results": [], "returned": 0, "limit": limit}
 
 
+# Name kept (not `get_auction_details`) so stored conversations, the panel
+# extractor, and the frontend's DETAIL_TOOLS list keep resolving; only the
+# arity widened. `auction_id` accepts a LIST so N properties cost one LLM
+# round-trip instead of N — production telemetry showed 3.7 detail calls per
+# turn that used it (worst: 15), each re-sending the whole accumulated
+# context. The old docstring asked the model to batch; the signature now
+# guarantees it.
 @agent.tool_plain
-def get_auction_detail(auction_id: str) -> dict | None:
-    """Full record for ONE auction_id — every stored property plus
+def get_auction_detail(auction_id: str | list[str]) -> dict:
+    """Full records for one or more auction_ids — every stored property plus
     related city/area/state/bank/borrower/category/property_types and
-    `price_history` (re-auction timeline). Call this before concluding
-    a field is unavailable for a specific auction. Returns None if the
-    auction_id doesn't exist. For several ids, batch the detail calls in
-    one step (they run in parallel)."""
-    return T.get_auction_detail(auction_id)
+    `price_history` (re-auction timeline). Pass a LIST to fetch several at
+    once (up to 10 per call); never issue one call per id. Call this before
+    concluding a field is unavailable for a specific auction.
+
+    Returns {results, returned, requested}; `missing_ids` lists any
+    auction_id the graph doesn't hold — report those as not found rather
+    than retrying them."""
+    ids = auction_id if isinstance(auction_id, list) else [auction_id]
+    return T.get_auction_details(ids)
 
 
 @_CYPHER_CAPABILITY.tool_plain

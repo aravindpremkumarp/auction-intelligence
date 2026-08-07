@@ -1183,8 +1183,17 @@ async function apiFeedback(payload) {
 }
 
 /* ====== CHAT ====== */
-function detailArtifactToRow(art) {
+// One detail artifact may carry several records now (get_auction_detail
+// accepts a list of ids), so callers get an array. Stored single-record
+// artifacts still yield exactly one row.
+function detailArtifactToRows(art) {
   const res = art && art.result;
+  if (!res) return [];
+  if (Array.isArray(res.results)) return res.results.map(detailRecordToRow).filter(Boolean);
+  const row = detailRecordToRow(res);
+  return row ? [row] : [];
+}
+function detailRecordToRow(res) {
   if (!res || !res.auction_id) return null;
   const f = res.fields || {};
   const rel = res.relationships || {};
@@ -1284,7 +1293,7 @@ function extractResultsFromArtifacts(artifacts) {
   const listIdx = listArt ? artifacts.indexOf(listArt) : -1;
   const lastDetailIdx = detailArts.length ? artifacts.indexOf(detailArts[detailArts.length - 1]) : -1;
   if (detailArts.length && lastDetailIdx > listIdx) {
-    const rows = detailArts.map(detailArtifactToRow).filter(Boolean);
+    const rows = detailArts.flatMap(detailArtifactToRows);
     return { rows, total: rows.length, tool: detailArts[0].tool };
   }
   if (!listArt) return { rows: [], total: null, tool: null };

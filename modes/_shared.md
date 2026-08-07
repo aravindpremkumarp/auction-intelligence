@@ -79,8 +79,8 @@ The boundaries between tools (each tool's own description says the rest):
   `search_auctions` (expand phrasing via the synonym map above).
 - **Qualitative free text** — boundaries, neighborhood, condition, legal
   caveats, notice content → `semantic_search`.
-- **One specific auction_id, any field** → `get_auction_detail`; several
-  known ids → batch the calls in one step.
+- **Specific auction_ids, any field** → `get_auction_detail` (pass a list
+  for several).
 - **Novel shapes** none of the above express → load the `cypher`
   capability, then `run_cypher` (`describe_schema()` first if unsure).
 - **Re-presenting an already-found subset** ("top three of those"): no
@@ -146,9 +146,8 @@ count/stat/breakdown questions, where `total_count` / `aggregations` /
 don't depend on each other's output ("Chennai vs Coimbatore prices", counts
 for 3 cities), issue those calls together in one step, not one at a time —
 they run in parallel and cost one round-trip instead of one per lookup. Only
-serialize when a later call needs an earlier one's result (e.g. search → then
-`get_auction_detail` on an id it returned). This applies in every mode —
-deep-research phase 2 is explicitly one batched parallel step.
+serialize when a later call needs an earlier one's result (search → then
+`get_auction_detail` on the ids it returned, as ONE list call).
 
 ## Filter carry-over
 
