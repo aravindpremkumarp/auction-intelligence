@@ -6,6 +6,11 @@ compact JSON array — the shape api/review/extraction.py reads:
 
   extraction_json = [{id, cls, text, start, end, attrs}, ...]
 
+Also stamps ``extraction_model`` — the model that actually produced the
+extraction, resolved through the same per-notice-type routing LX.extract uses.
+Without it a score change cannot be attributed to a model change, since the
+routing config is env/code state that is not recoverable after the fact.
+
 Idempotent-ish: by default skips Documents that already have extraction_json
 (use --force to re-extract). Review state (corrections / verified) is preserved.
 
@@ -80,6 +85,21 @@ def _next_batch() -> int:
     return int(cur) + 1 if cur is not None else 1
 
 
+def _effective_model(model_id: str | None, route: bool) -> str:
+    """The model LX.extract will actually use, for provenance stamping.
+
+    ``select_extract_model`` returns None on the gemini-direct path (and could
+    in principle return None on the OpenRouter path), in which case
+    ``langextract_examples.extract`` falls back to LANGEXTRACT_MODEL_ID — with a
+    different default per provider. Mirror that resolution here so
+    ``extraction_model`` records the model that ran, never None.
+    """
+    if model_id:
+        return model_id
+    default = "google/gemini-2.5-flash" if route else "gemini-2.5-flash"
+    return os.environ.get("LANGEXTRACT_MODEL_ID", default)
+
+
 def run(limit: int | None, force: bool, filename: str | None) -> int:
     from pipeline import langextract_examples as LX
     docs = _fetch(limit, force, filename)
@@ -101,6 +121,7 @@ def run(limit: int | None, force: bool, filename: str | None) -> int:
                 d.get("notice_type"), d.get("classifier_pred"))
         else:
             model_id, reasoning_off = None, False
+        effective_model = _effective_model(model_id, route)
         model_counts[model_id or "default"] += 1
         try:
             res = LX.extract(d["md"], model_id=model_id, reasoning_off=reasoning_off)
@@ -119,14 +140,16 @@ def run(limit: int | None, force: bool, filename: str | None) -> int:
                 d.extraction_score = $score,
                 d.extraction_at    = datetime(),
                 d.extraction_batch = $batch,
+                d.extraction_model = $model,
                 d.extraction_review_status =
                     coalesce(d.extraction_review_status, 'pending')
             RETURN d.filename
             """,
             {"fn": fn, "j": json.dumps(ents, ensure_ascii=False),
-             "score": score, "batch": batch})
+             "score": score, "batch": batch, "model": effective_model})
         ok += 1
-        print(f"  [{ok}] {fn}: {len(ents)} fields, score={score}")
+        print(f"  [{ok}] {fn}: {len(ents)} fields, score={score}, "
+              f"model={effective_model}")
     if route:
         routing = "  ".join(f"{m}={n}" for m, n in sorted(model_counts.items()))
         print(f"model routing: {routing}")
