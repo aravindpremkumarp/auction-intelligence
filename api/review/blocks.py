@@ -691,7 +691,10 @@ def _normalize_replacement_blocks(raw_blocks: Any, by_email: str) -> list[dict]:
             "label":         label,
             "text":          str(raw.get("text") or ""),
             "reading_order": int(raw.get("reading_order") or 0),
-            "source":        src if src in ("mineru", "human") else "human",
+            # Keep this allowlist in sync with Block.source in api/review/router.py.
+            # A value missing here is silently rewritten to "human", which brands
+            # machine OCR as human-verified — the opposite of the truth.
+            "source":        src if src in ("mineru", "datalab", "human") else "human",
             "confidence":    (float(conf)
                               if isinstance(conf, (int, float))
                               and not isinstance(conf, bool) else None),
@@ -788,7 +791,10 @@ async def re_extract_block(filename: str, block_id: str,
     blk["bbox"]   = bbox
     blk["label"]  = label
     blk["text"]   = result.get("text") or ""
-    blk["source"] = "mineru"
+    # Record the engine that actually ran, not a hardcoded one — `engine`
+    # defaults to datalab above, so hardcoding "mineru" mislabelled the
+    # provenance of every default re-extraction.
+    blk["source"] = engine
     if result.get("confidence") is not None:
         blk["confidence"] = float(result["confidence"])
     if label == "Table":
