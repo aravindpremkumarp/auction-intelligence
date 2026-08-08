@@ -8,7 +8,9 @@ from __future__ import annotations
 import os
 from typing import Literal
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi import (
+    APIRouter, BackgroundTasks, Body, Depends, HTTPException, Query,
+)
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -1131,20 +1133,26 @@ def review_notice_set_rotation(
 def review_notice_reingest(
     filename: str,
     background_tasks: BackgroundTasks,
+    body: dict | None = Body(default=None),
     admin: UserOut = Depends(get_current_admin),
 ) -> ReingestStarted:
-    """Schedule a single-document MinerU re-OCR.
+    """Schedule a single-document re-OCR with the reviewer's chosen engine.
 
-    The full pipeline — download from R2, MinerU upload + poll, zip parse,
+    The full pipeline — download from R2, OCR upload + poll, payload parse,
     Neo4j write — can take 30s-5min, well over Render's per-request
     timeout. Returning 202 immediately lets the connection close cleanly;
     the UI polls ``GET .../blocks`` and stops when ``blocks_revision``
     advances past the value we return here.
+
+    ``engine`` mirrors the per-block re-extract endpoint. It used to be
+    ignored here, so the annotator's engine selector silently had no effect
+    on whole-notice re-ingest and every run went to MinerU regardless.
     """
+    engine = block_ops._norm_engine((body or {}).get("engine"))
     # Validate the notice exists + capture the current rev before scheduling.
     doc = block_ops.get_blocks(filename)
     background_tasks.add_task(
-        block_ops.reingest_notice_safe, filename, admin.email,
+        block_ops.reingest_notice_safe, filename, admin.email, engine,
     )
     return ReingestStarted(
         filename=filename,

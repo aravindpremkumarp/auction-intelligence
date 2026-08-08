@@ -854,7 +854,8 @@ async def re_extract_block(filename: str, block_id: str,
     return blk
 
 
-def reingest_notice_safe(filename: str, by_email: str) -> None:
+def reingest_notice_safe(filename: str, by_email: str,
+                         engine: str = "mineru") -> None:
     """Background-task wrapper around :func:`reingest_notice`.
 
     Exceptions are logged and swallowed — the foreground request has
@@ -866,17 +867,31 @@ def reingest_notice_safe(filename: str, by_email: str) -> None:
     import logging
     log = logging.getLogger(__name__)
     try:
-        reingest_notice(filename, by_email)
-        log.info("reingest succeeded for %s", filename)
+        reingest_notice(filename, by_email, engine=engine)
+        log.info("reingest succeeded for %s (engine=%s)", filename, engine)
     except Exception:
-        log.exception("reingest background task failed for %s", filename)
+        log.exception("reingest background task failed for %s (engine=%s)",
+                      filename, engine)
+
+
+def _norm_engine(value: str | None, default: str = "mineru") -> str:
+    """Normalize a caller-supplied OCR engine name.
+
+    Unknown values fall back to ``default`` rather than raising: an engine
+    string arriving from the annotator is a display preference, not something
+    worth 400ing a long-running re-ingest over.
+    """
+    engine = (value or default).strip().lower()
+    return engine if engine in ("mineru", "datalab") else default
 
 
 def _persist_reingest_result(filename: str, *, markdown: str, blocks_json: str,
                              markdown_raw: str | None,
                              blocks_raw: str | None,
-                             mineru_zip_url: str | None = None) -> None:
-    """Persist a fresh full-document MinerU re-ingest.
+                             mineru_zip_url: str | None = None,
+                             engine: str = "mineru",
+                             model: str | None = None) -> None:
+    """Persist a fresh full-document re-ingest.
 
     Writes the working ``markdown`` + ``blocks`` AND the durable raw copy
     (``markdown_raw`` = full.md, ``blocks_raw`` = content_list.json). Bumps
@@ -888,7 +903,14 @@ def _persist_reingest_result(filename: str, *, markdown: str, blocks_json: str,
 
     ``mineru_zip_url`` stamps the archived full-zip URL (and ``mineru_zip_at``)
     when this run archived to R2; None leaves any prior value untouched.
+
+    ``engine``/``model`` stamp provenance. These were hardcoded to mineru, so a
+    Datalab re-ingest used to brand its output ``markdown_source='mineru'`` —
+    which then misroutes every downstream consumer that reads provenance
+    (re-OCR selection, health triage, the annotator's engine pill).
     """
+    source = _norm_engine(engine)
+    model = model or ("mineru-vlm" if source == "mineru" else "datalab")
     run_query(
         """
         MATCH (d:Document {filename: $filename})
@@ -903,28 +925,37 @@ def _persist_reingest_result(filename: str, *, markdown: str, blocks_json: str,
                                         THEN d.mineru_zip_at ELSE datetime() END,
             d.blocks_revision     = coalesce(d.blocks_revision, 0) + 1,
             d.markdown_loaded_at  = datetime(),
-            d.markdown_source     = 'mineru',
-            d.markdown_model      = 'mineru-vlm',
+            d.markdown_source     = $source,
+            d.markdown_model      = $model,
             d.markdown_verified_at = NULL,
             d.markdown_verified_by = NULL,
             d.markdown_quality     = NULL
         """,
         {"filename": filename, "markdown": markdown, "blocks_json": blocks_json,
          "markdown_raw": markdown_raw, "blocks_raw": blocks_raw,
-         "mineru_zip_url": mineru_zip_url},
+         "mineru_zip_url": mineru_zip_url, "source": source, "model": model},
     )
 
 
 def _reingest_multi_region(*, filename: str, fp: str, src_filename: str,
                            disk, regions: list[dict],
                            applied_rotation: int,
-                           effective_page: int) -> dict:
-    """OCR every crop region in one MinerU batch and merge the results.
+                           effective_page: int,
+                           engine: str = "mineru",
+                           mode: str = "accurate") -> dict:
+    """OCR every crop region with ``engine`` and merge the results.
 
     ``disk`` is the source on local disk — the original image/PDF, or the
     rotation-flattened PNG when ``applied_rotation`` is set (region bboxes
     are already forward-rotated to match). Raises on any region failure so
     the document is never left with a partial merge.
+
+    The two engines differ in shape, not in contract: MinerU takes all regions
+    in ONE batch (one batch_id, one poll) and returns a result zip per region
+    that is archived to R2 for its ``img_map``; Datalab is one request per
+    region with no zip, so there is nothing to archive and ``img_map`` stays
+    empty. Both produce canonical block dicts, so everything downstream of the
+    per-region loop — merge, un-rotate, cache refresh, persist — is shared.
     """
     import json as _json
     import logging
@@ -971,40 +1002,60 @@ def _reingest_multi_region(*, filename: str, fp: str, src_filename: str,
                 "disk_path": Path(tmp_name),
             })
 
-        # 2) One batch for all regions: one batch_id, one poll.
-        batch_id, urls = request_batch(items)
-        upload_files(items, urls)
-        results = poll(batch_id)
-
-        by_data_id = {r.get("data_id"): r for r in results}
         per_region: list[tuple[dict, list[dict]]] = []
         region_mds: list[str] = []
         raw_lists: list[list] = []
         merged_img_map: dict[str, str] = {}
-        for i, (region, item) in enumerate(zip(regions, items)):
-            row = by_data_id.get(safe_cache_name(item["file_path"])[:128])
-            if row is None or row.get("state") != "done":
-                err = row.get("err_msg") if row else "no result row"
-                raise RuntimeError(
-                    f"MinerU failed on crop region {i + 1}/{len(regions)}: {err}")
-            zip_url = row.get("full_zip_url")
-            zip_bytes = download_zip(zip_url) if zip_url else None
-            if not zip_bytes:
-                raise RuntimeError(
-                    f"could not download result zip for region {i + 1}")
-            # Keep the region's full output (zip + image crops) in R2 and
-            # collect its img_map so merged blocks resolve img_url.
-            meta = archive_zip_to_r2(item["file_path"], zip_bytes)
-            merged_img_map.update(meta.get("img_map") or {})
-            md_text, blocks_raw = parse_zip_payload(zip_bytes)
-            if blocks_raw is None:
-                raise RuntimeError(
-                    f"region {i + 1} returned no content-list JSON")
-            region_mds.append((md_text or "").strip())
-            raw_lists.append(blocks_raw)
-            per_region.append(
-                (region,
-                 parse_mineru_content_list(blocks_raw, img_map=merged_img_map)))
+
+        if engine == "datalab":
+            # One request per region — Datalab has no batch endpoint. Regions
+            # are few (MAX_CROP_REGIONS) and small, so serial is fine and keeps
+            # the all-or-nothing guarantee trivial: the first failure raises.
+            from pipeline.mineru import assemble_markdown
+            from pipeline.reextract import _datalab_one_shot_png
+
+            for i, (region, item) in enumerate(zip(regions, items)):
+                png_bytes = item["disk_path"].read_bytes()
+                region_blocks = _datalab_one_shot_png(
+                    png_bytes, hint_name=item["filename"], mode=mode)
+                if not region_blocks:
+                    raise RuntimeError(
+                        f"Datalab returned no blocks for crop region "
+                        f"{i + 1}/{len(regions)}")
+                region_mds.append((assemble_markdown(region_blocks) or "").strip())
+                raw_lists.append(region_blocks)
+                per_region.append((region, region_blocks))
+        else:
+            # 2) One batch for all regions: one batch_id, one poll.
+            batch_id, urls = request_batch(items)
+            upload_files(items, urls)
+            results = poll(batch_id)
+
+            by_data_id = {r.get("data_id"): r for r in results}
+            for i, (region, item) in enumerate(zip(regions, items)):
+                row = by_data_id.get(safe_cache_name(item["file_path"])[:128])
+                if row is None or row.get("state") != "done":
+                    err = row.get("err_msg") if row else "no result row"
+                    raise RuntimeError(
+                        f"MinerU failed on crop region {i + 1}/{len(regions)}: {err}")
+                zip_url = row.get("full_zip_url")
+                zip_bytes = download_zip(zip_url) if zip_url else None
+                if not zip_bytes:
+                    raise RuntimeError(
+                        f"could not download result zip for region {i + 1}")
+                # Keep the region's full output (zip + image crops) in R2 and
+                # collect its img_map so merged blocks resolve img_url.
+                meta = archive_zip_to_r2(item["file_path"], zip_bytes)
+                merged_img_map.update(meta.get("img_map") or {})
+                md_text, blocks_raw = parse_zip_payload(zip_bytes)
+                if blocks_raw is None:
+                    raise RuntimeError(
+                        f"region {i + 1} returned no content-list JSON")
+                region_mds.append((md_text or "").strip())
+                raw_lists.append(blocks_raw)
+                per_region.append(
+                    (region,
+                     parse_mineru_content_list(blocks_raw, img_map=merged_img_map)))
     finally:
         for p in crop_tmps:
             try:
@@ -1050,6 +1101,8 @@ def _reingest_multi_region(*, filename: str, fp: str, src_filename: str,
         blocks_raw=_json.dumps(
             [b for lst in raw_lists for b in lst], ensure_ascii=False),
         mineru_zip_url=None,
+        engine=engine,
+        model=f"datalab-{mode}" if engine == "datalab" else "mineru-vlm",
     )
     try:
         from pipeline.score_markdown import score_freshly_loaded
@@ -1066,8 +1119,9 @@ def _reingest_multi_region(*, filename: str, fp: str, src_filename: str,
     return get_blocks(filename)
 
 
-def reingest_notice(filename: str, by_email: str) -> dict:
-    """Re-run the full MinerU pipeline for a single Document.
+def reingest_notice(filename: str, by_email: str,
+                    engine: str = "mineru") -> dict:
+    """Re-run the full OCR pipeline for a single Document with ``engine``.
 
     Used for backfilling notices that predate the per-block JSON cache.
     On a local dev machine the source file is usually on disk under
@@ -1077,6 +1131,7 @@ def reingest_notice(filename: str, by_email: str) -> dict:
     the bulk pipeline helpers so the import only fires when the reviewer
     asks for it.
     """
+    engine = _norm_engine(engine)
     rows = run_read_query(
         """
         MATCH (d:Document {filename: $filename})
@@ -1086,13 +1141,19 @@ def reingest_notice(filename: str, by_email: str) -> dict:
                d.crop_bbox    AS crop_bbox,
                d.crop_page    AS crop_page,
                d.crop_regions AS crop_regions_json,
-               d.rotation     AS rotation
+               d.rotation     AS rotation,
+               d.notice_type  AS notice_type
         """,
         {"filename": filename},
         max_rows=1,
     )
     if not rows:
         raise BlocksNotFound(f"Document not found: {filename}")
+    # Datalab tier follows the corpus convention (single -> fast, multi ->
+    # accurate) instead of a flat default, so a batch notice re-ingested from
+    # the annotator gets the same tier the bulk pipeline would have given it.
+    from pipeline.config import datalab_mode_for
+    dl_mode = datalab_mode_for(rows[0].get("notice_type"))
     fp = rows[0]["file_path"]
     src_filename = rows[0]["filename"]
     public_url = rows[0].get("public_url")
@@ -1249,6 +1310,7 @@ def reingest_notice(filename: str, by_email: str) -> dict:
                 disk=disk, regions=crop_regions,
                 applied_rotation=applied_rotation,
                 effective_page=applied_rotation_page,
+                engine=engine, mode=dl_mode,
             )
         finally:
             for p in (tmp_path, rotation_tmp_path):
@@ -1313,23 +1375,48 @@ def reingest_notice(filename: str, by_email: str) -> dict:
             mineru_filename = Path(src_filename).stem + "_rot.png"
         else:
             mineru_filename = src_filename
-        item = {
-            "filename":  mineru_filename,
-            "file_path": fp,
-            "disk_path": disk,
-        }
-        batch_id, urls = request_batch([item])
-        upload_files([item], urls)
-        results = poll(batch_id)
-        if not results or results[0].get("state") != "done":
-            err = (results[0].get("err_msg") if results else "no rows")
-            raise RuntimeError(f"MinerU reingest failed: {err}")
-        zip_url = results[0].get("full_zip_url")
-        # archive_to_r2: a reviewer re-ingest is a full-document OCR run, so
-        # keep MinerU's complete output (zip + image crops) and the meta sidecar.
-        md_path, blocks_path = download_and_cache(fp, zip_url, archive_to_r2=True)
-        if md_path is None:
-            raise RuntimeError("reingest succeeded but no markdown was produced")
+        if engine == "datalab":
+            # Datalab returns parsed blocks directly — no batch, no zip, so
+            # none of the MinerU cache/archive plumbing below applies. Produce
+            # the same (blocks, markdown) the MinerU branch reconstructs from
+            # its cache files, and let the shared tail handle crop remapping,
+            # un-rotation and persistence.
+            from pipeline import datalab_api
+            from pipeline.datalab import parse_datalab_blocks
+            from pipeline.mineru import assemble_markdown
+            try:
+                result = datalab_api.run_file(
+                    disk, output_format="json", mode=dl_mode)
+            except datalab_api.DatalabError as e:
+                raise RuntimeError(f"Datalab reingest failed: {e}") from e
+            _md, dl_doc, _img = datalab_api.extract_payload(result)
+            dl_blocks = parse_datalab_blocks(dl_doc)
+            if not dl_blocks:
+                raise RuntimeError(
+                    "reingest succeeded but Datalab returned no blocks")
+            dl_markdown = (result.get("markdown")
+                           or assemble_markdown(dl_blocks) or "")
+            if not dl_markdown.strip():
+                raise RuntimeError(
+                    "reingest succeeded but no markdown was produced")
+        else:
+            item = {
+                "filename":  mineru_filename,
+                "file_path": fp,
+                "disk_path": disk,
+            }
+            batch_id, urls = request_batch([item])
+            upload_files([item], urls)
+            results = poll(batch_id)
+            if not results or results[0].get("state") != "done":
+                err = (results[0].get("err_msg") if results else "no rows")
+                raise RuntimeError(f"MinerU reingest failed: {err}")
+            zip_url = results[0].get("full_zip_url")
+            # archive_to_r2: a reviewer re-ingest is a full-document OCR run, so
+            # keep MinerU's complete output (zip + image crops) and the meta sidecar.
+            md_path, blocks_path = download_and_cache(fp, zip_url, archive_to_r2=True)
+            if md_path is None:
+                raise RuntimeError("reingest succeeded but no markdown was produced")
     finally:
         if tmp_path is not None:
             try:
@@ -1350,10 +1437,14 @@ def reingest_notice(filename: str, by_email: str) -> dict:
     # Reuse the loader's parsing so we share one code path. The archive meta
     # (written by download_and_cache above) carries the image map used to
     # resolve each block's img_url and the archived zip URL stamped below.
-    from pipeline.load_markdowns_to_neo4j import load_blocks_for
-    from pipeline.mineru import read_mineru_meta
-    archive_meta = read_mineru_meta(fp)
-    blocks = load_blocks_for(fp, img_map=archive_meta.get("img_map") or {}) or []
+    if engine == "datalab":
+        archive_meta = {}
+        blocks = dl_blocks
+    else:
+        from pipeline.load_markdowns_to_neo4j import load_blocks_for
+        from pipeline.mineru import read_mineru_meta
+        archive_meta = read_mineru_meta(fp)
+        blocks = load_blocks_for(fp, img_map=archive_meta.get("img_map") or {}) or []
 
     # The page the user was viewing when they set rotation/crop. Whenever
     # we flattened the source to a single-page PNG (via either step) the
@@ -1395,11 +1486,15 @@ def reingest_notice(filename: str, by_email: str) -> dict:
 
     doc = {"schema_version": 1, "blocks": blocks}
     blocks_json = json.dumps(doc, ensure_ascii=False)
-    new_md = md_path.read_text(encoding="utf-8")
-    try:
-        blocks_raw = blocks_path.read_text(encoding="utf-8") if blocks_path else None
-    except (OSError, UnicodeDecodeError):
-        blocks_raw = None
+    if engine == "datalab":
+        new_md = dl_markdown
+        blocks_raw = json.dumps(dl_blocks, ensure_ascii=False)
+    else:
+        new_md = md_path.read_text(encoding="utf-8")
+        try:
+            blocks_raw = blocks_path.read_text(encoding="utf-8") if blocks_path else None
+        except (OSError, UnicodeDecodeError):
+            blocks_raw = None
     _persist_reingest_result(
         filename,
         markdown=new_md,
@@ -1407,6 +1502,8 @@ def reingest_notice(filename: str, by_email: str) -> dict:
         markdown_raw=new_md,
         blocks_raw=blocks_raw,
         mineru_zip_url=archive_meta.get("zip_url"),
+        engine=engine,
+        model=f"datalab-{dl_mode}" if engine == "datalab" else "mineru-vlm",
     )
     # Refresh the coverage + OCR-health scores: the markdown just changed,
     # so any prior verdict is stale. Best-effort — a scoring failure must

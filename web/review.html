@@ -3166,7 +3166,7 @@
       if (btn.isConnected) btn.textContent = `re-ingesting… ${elapsed}s`;
     }, 1000);
 
-    // The server returns 202 immediately and runs the actual MinerU
+    // The server returns 202 immediately and runs the actual OCR
     // pipeline in a background task — Render's per-request timeout
     // would otherwise kill the connection mid-flight. We then poll
     // GET /blocks until blocks_revision advances past the rev the
@@ -3175,7 +3175,14 @@
     try {
       const r = await authFetch(
         API + '/review/notice/' + encodeURIComponent(filename) + '/reingest',
-        { method: 'POST' }
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          // Same toolbar selector the per-block re-extract uses. Without it
+          // the server defaulted to MinerU and the dropdown was decorative
+          // on this path.
+          body: JSON.stringify({ engine: ann.reextractEngine }),
+        }
       );
       if (!r.ok) {
         clearInterval(tickElapsed);
