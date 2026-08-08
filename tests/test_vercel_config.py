@@ -76,3 +76,36 @@ def test_csp_allows_blob_media():
             assert "blob:" in directives["media-src"], (
                 f"CSP media-src for {block['source']!r} must allow blob:"
             )
+
+
+def test_frame_src_allows_r2_for_pdf_notices():
+    """PDF sale notices render in an <iframe src="<R2 url>">.
+
+    web/review.html renders images with <img> but PDFs with an iframe
+    (renderGalleryRight / the markdown source card). R2 was listed in img-src
+    only, so images loaded and every PDF notice showed a broken frame — the
+    file itself was fine (200, application/pdf). object-src is 'none', so an
+    <object>/<embed> fallback is not an option: frame-src is the only route.
+
+    Every CSP block needs it, not just the site-wide one — /review_extraction
+    ships its own complete CSP that overrides the general rule.
+    """
+    cfg = _load_config()
+    r2 = "https://pub-69a65ab57d8845f09fe6384b980fbe0b.r2.dev"
+    seen = 0
+    for block in cfg.get("headers", []):
+        for header in block.get("headers", []):
+            if header.get("key") != "Content-Security-Policy":
+                continue
+            directives = dict(
+                (d.strip().split(" ", 1) + [""])[:2]
+                for d in header["value"].split(";") if d.strip()
+            )
+            if r2 not in directives.get("img-src", ""):
+                continue  # this block doesn't serve notice media at all
+            seen += 1
+            assert r2 in directives.get("frame-src", ""), (
+                f"CSP for {block['source']!r} allows R2 in img-src but not "
+                "frame-src, so PDF notices are blocked in the review viewer"
+            )
+    assert seen, "no CSP block references the R2 bucket — did the origin change?"

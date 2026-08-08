@@ -363,7 +363,11 @@ class Block(BaseModel):
     label: str
     text: str | None = None
     reading_order: int = 0
-    source: Literal["mineru", "human"] = "mineru"
+    # "datalab" is a real provenance, not a fallback: pipeline/datalab.py stamps
+    # every block it parses, and both scripts/reocr_low_health_datalab.py and the
+    # --engine datalab path of scripts/ocr_missing_markdowns.py write it. Omitting
+    # it here 400s the whole blocks response for any Datalab-OCR'd notice.
+    source: Literal["mineru", "datalab", "human"] = "mineru"
     confidence: float | None = None
     table: TableShape | None = None
     edited_at: str | None = None
