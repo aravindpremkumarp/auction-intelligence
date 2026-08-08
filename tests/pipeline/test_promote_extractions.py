@@ -50,7 +50,7 @@ def test_multi_lot_splits_by_lot_index():
         ent("property", "B", lot_index="2", property_type="flat"),
         ent("identifier", "S.No 1", lot_index="2", kind="survey_old", value="1/2"),
     ])
-    assert [l["lot_index"] for l in lots] == ["1", "2"]
+    assert [rec["lot_index"] for rec in lots] == ["1", "2"]
     assert len(lots[0]["identifiers"]) == 0
     assert len(lots[1]["identifiers"]) == 1
 
