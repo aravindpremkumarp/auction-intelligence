@@ -271,6 +271,42 @@ scraped fields against the PDF (PDF wins, original kept as `<field>_scraped`);
 and **embeddings** build three vector indexes (`property_desc_idx`,
 `notice_markdown_idx`, `notice_image_idx`) consumed by `semantic_search`.
 
+### The document extraction pipeline
+
+`run_pipeline` above orchestrates the **legacy** enrichment path (the flat
+`{verifiable, enrichment}` blob, the single/multi classifier, the description
+extractor). The **grounded** path that replaced it — span-anchored LangExtract
+entities, deterministic unit parsing, the `:Lot`/`:Parcel` spine — is
+orchestrated by its own entry point:
+
+```bash
+python -m pipeline.document_pipeline              # every stage, whole corpus
+python -m pipeline.document_pipeline --list       # the stage table
+python -m pipeline.document_pipeline --plan       # resolved plan + exact commands
+python -m pipeline.document_pipeline --limit 50   # first 50 documents
+python -m pipeline.document_pipeline --from extract          # restart mid-pipeline
+python -m pipeline.document_pipeline --only extract,promote  # just these stages
+python -m pipeline.document_pipeline --resume     # continue the last failed run
+```
+
+Ten stages, in dependency order: `ocr` → `load-markdown` → `ocr-health` →
+`score-markdown` → `extract` → `apply` → `places` → `promote` →
+`embed-markdown` → `embed-description`. Each is the module you would otherwise
+run by hand, launched as a subprocess so one stage's crash can't take the run
+down; every stage is idempotent and cached, so re-running is cheap.
+
+Two couplings are enforced in code rather than left to whoever is running it:
+**`places` always precedes `promote`** (phase A writes the canonical geography
+each `:Lot` resolves against), and **any narrowed run — `--limit` or
+`--filename` — forces `--skip-parcels`**, because parcel resolution (phase C) is
+a corpus-wide join and answering it from a slice merges parcels that are only
+unique within that slice. Pre-flight checks every credential the plan needs
+before the first stage starts, and each run writes a resumable manifest to
+`pipeline/output/runs/`.
+
+Full walkthrough, including what each stage reads and writes and how to debug
+one in isolation: [`docs/document-extraction-pipeline.md`](docs/document-extraction-pipeline.md).
+
 ---
 
 ## API surface
