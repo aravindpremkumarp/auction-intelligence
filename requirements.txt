@@ -3,6 +3,13 @@
 # generation (weasyprint, pdf2image) which are local-only features.
 # For full local dev requirements see config/requirements.txt.
 #
+# NOT ENOUGH TO RUN THE BATCH PIPELINE. The extraction stages
+# (pipeline/load_extractions.py, pipeline/extract_batch.py, evals/) need
+# langextract + openai, which live in config/requirements.txt only — they pull
+# pandas/google-cloud-storage/absl-py and the API server never imports them.
+# Provisioning a pipeline box (cloud runner, container, CI job)?
+#     pip install -r config/requirements.txt
+#
 # Versions use compatible-release ranges: a floor that includes a known-good
 # version and a ceiling at the next major to keep surprise breaking upgrades
 # out of deploys. For byte-for-byte reproducible installs use requirements.lock
