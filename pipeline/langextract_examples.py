@@ -38,7 +38,26 @@ import os
 import sys
 from pathlib import Path
 
-import langextract as lx
+try:
+    import langextract as lx
+except ModuleNotFoundError as e:  # pragma: no cover - environment guard
+    # langextract is a batch-pipeline dependency and lives in
+    # config/requirements.txt, NOT the top-level requirements.txt that Render
+    # installs: it pulls pandas, google-cloud-storage, absl-py and
+    # ml-collections, and the API server never imports it. That split is
+    # deliberate, but it means any box provisioned from requirements.txt (a
+    # cloud runner, a fresh container) looks fine until the first extraction
+    # and then dies on a bare "No module named 'langextract'". Say what to do
+    # instead.
+    if e.name != "langextract":
+        raise
+    raise ModuleNotFoundError(
+        "langextract is not installed. It is a batch-pipeline dependency kept "
+        "out of the production requirements.txt on purpose — install the "
+        "pipeline set instead:\n"
+        "    pip install -r config/requirements.txt\n"
+        "(or just `pip install 'langextract>=1.5,<2' 'openai>=2.0,<3'`)"
+    ) from e
 
 # --------------------------------------------------------------------------- #
 # C — prompt is derived from the canonical scheme file, not hand-maintained.
