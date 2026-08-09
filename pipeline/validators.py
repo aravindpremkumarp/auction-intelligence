@@ -22,6 +22,18 @@ from pathlib import Path
 # The priority fields a reviewer weights most — full_description, property_type,
 # possession, extent, UDS, borrower, reserve price (the fields that make a lot
 # usable and confirm it's a real lot) — carry the top tiers (critical/high).
+#
+# INVARIANT: one flag per DEFECT KIND, never one per affected lot. The score is
+# read as extraction quality, so it must not be a function of how many lots a
+# notice happens to contain. Emitting per-lot made a systematic defect multiply:
+# with high=20, a quirk recurring across 5 lots alone floored the document at 0.
+# A real case — 133 entities across 6 lots with only 6 issues total (a good
+# extraction) scored 0, identical to a 1-lot notice missing creditor, borrower,
+# location, reserve price AND extent (a broken one). That destroys review triage
+# and, worse, the improvement loop: a saturated metric has no gradient, so a
+# prompt change can't be told from a regression. Checks that span lots therefore
+# collect their lots and flag ONCE, listing them in the message (see
+# missing_property_type / possession_type_invalid / missing_uds).
 _PENALTY = {"critical": 30, "high": 20, "med": 10, "low": 4}
 # Valid committed possession values (Option A: penalise only present-but-invalid;
 # a blank possession is often correct — the "Constructive/Symbolic/Physical"
@@ -292,24 +304,30 @@ def validate(extractions, source_text: str = "") -> dict:
     lb = sec.get("legal_basis")
     if lb not in _LEGAL:
         flag("legal_basis_bad", "low", f"legal_basis={lb!r} missing/invalid")
-    for li, r in reserves.items():
-        if not (_RESERVE_MIN <= r <= _RESERVE_MAX):
-            flag("reserve_out_of_range", "med", f"lot {li} reserve={r:.0f} implausible")
-    for li, r in reserves.items():
-        m = emds.get(li)
-        if m and r and not (_EMD_LO <= m / r <= _EMD_HI):
-            flag("emd_ratio_off", "low",
-                 f"lot {li} emd/reserve={m / r:.2f} (expect ~0.10)")
+    bad_reserves = sorted((li, r) for li, r in reserves.items()
+                          if not (_RESERVE_MIN <= r <= _RESERVE_MAX))
+    if bad_reserves:
+        flag("reserve_out_of_range", "med", "implausible reserve(s): " + ", ".join(
+            f"lot {li}={r:.0f}" for li, r in bad_reserves))
+    bad_emd = sorted((li, emds[li] / r) for li, r in reserves.items()
+                     if emds.get(li) and r
+                     and not (_EMD_LO <= emds[li] / r <= _EMD_HI))
+    if bad_emd:
+        flag("emd_ratio_off", "low", "emd/reserve off (expect ~0.10): " + ", ".join(
+            f"lot {li}={ratio:.2f}" for li, ratio in bad_emd))
     # A flat's UDS parent-plot extent must live ONLY in uds_parent_extent — never
     # be echoed as the property's own area. Overlap means the whole plot got
     # recorded as the flat's size (e.g. a 760 sq.ft flat shown as 2257 sq.ft).
-    for li, parents in uds_parent.items():
-        overlap = parents & own_area.get(li, set())
-        if overlap:
-            flag("uds_parent_as_own_area", "high",
-                 f"lot {li}: UDS parent extent {sorted(overlap)} also recorded as "
-                 f"the property's own area (total_area/extent_sqft) — for a flat "
-                 f"that value belongs only in uds_parent_extent")
+    uds_overlap = {li: sorted(parents & own_area.get(li, set()))
+                   for li, parents in uds_parent.items()
+                   if parents & own_area.get(li, set())}
+    if uds_overlap:
+        flag("uds_parent_as_own_area", "high",
+             "lot(s) " + "; ".join(f"{li}: {vals}" for li, vals
+                                   in sorted(uds_overlap.items()))
+             + " record the UDS parent extent as the property's own area "
+               "(total_area/extent_sqft) — for a flat that value belongs only in "
+               "uds_parent_extent")
 
     # ── multi-lot recall heuristic ───────────────────────────────────────────
     if source_text:
