@@ -1049,6 +1049,21 @@ def _openrouter_model(model_id: str | None = None, reasoning_off: bool = False):
         else:
             model = OpenAILanguageModel(
                 model_id=model_id, api_key=key, base_url=base_url, max_workers=4)
+        # langextract constructs its OpenAI client with no timeout, so it inherits
+        # the SDK default (600s read x max_retries=2) — and with extraction_passes=2
+        # on top, ONE dead socket can hold a worker for the better part of an hour.
+        # When the connection dies for a reason that will never resolve (laptop
+        # sleep, network drop) the call never returns, and in a bounded thread pool
+        # each such worker is gone for good: throughput decays to zero while the run
+        # still looks alive. An explicit deadline turns that into a fast [fail] the
+        # resume pass picks up. Kwargs can't carry this — OpenAILanguageModel stores
+        # **kwargs in _extra_kwargs and never forwards them to the client — so
+        # rebuild the client instead.
+        import openai
+        model._client = openai.OpenAI(
+            api_key=key, base_url=base_url,
+            timeout=float(os.environ.get("LANGEXTRACT_REQUEST_TIMEOUT_S", "300")),
+            max_retries=1)
         _MODEL_CACHE[cache_key] = model
     return _MODEL_CACHE[cache_key]
 
