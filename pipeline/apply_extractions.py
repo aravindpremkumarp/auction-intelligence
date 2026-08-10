@@ -11,7 +11,8 @@ Per Document:
      a correction replaces the entity's text).
   2. Group entities by lot_index into per-lot records: description
      (full_description spans), location attrs, boundaries (adjacency +
-     measurement per side), extent/UDS, door numbers, reserve price.
+     measurement per side), extent/UDS, door numbers, reserve price, and the
+     normalized property type / asset category (pipeline.property_taxonomy).
   3. Match lots to the Document's linked AuctionProperty listings:
        - 1 lot        -> every listing (the 'single' case)
        - N lots       -> reserve price exact, then ±1%, then, if exactly one
@@ -38,6 +39,7 @@ from datetime import datetime, timezone
 
 from api.neo4j_client import run_query, run_read_query
 from pipeline.obs import get_logger
+from pipeline.property_taxonomy import asset_category, classify_property_type
 
 log = get_logger(__name__)
 
@@ -174,6 +176,15 @@ def group_lots(entities: list[dict]) -> dict[str, dict]:
                     rec["doors_old"].append(val)
                 elif kind == "door_new":
                     rec["doors_new"].append(val)
+
+        elif cls == "property":
+            v = attrs.get("property_type")
+            if v not in (None, "") and "property_type_raw" not in f:
+                raw = str(v).strip()
+                bucket = classify_property_type(raw)
+                f["property_type_raw"] = raw
+                f["property_type_norm"] = bucket
+                f["asset_category_norm"] = asset_category(bucket, raw)
 
         elif cls == "auction_terms":
             r = parse_money(attrs.get("reserve_price_num"))
