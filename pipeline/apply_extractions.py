@@ -20,9 +20,10 @@ Per Document:
                          price), then, if exactly one lot and one listing
                          remain, pair them
      Unmatched listings are logged to data/grounded_unmatched.csv.
-  4. Write fields onto AuctionProperty. The description write respects the
-     same human guard as apply_descriptions (never clobber description_source=
-     'human' or description_verified=true). Enrichment fields use the same
+  4. Write fields onto AuctionProperty. The description write treats the
+     grounded notice text as the sole source — it overwrites even the legacy
+     pipeline's human-verified rows (stashing them once into
+     description_human_backup). Enrichment fields use the same
      property names as pipeline/load_enriched.flatten_enrichment so the API
      and UI keep working unchanged; only non-null values are written (SET +=).
 
@@ -334,7 +335,11 @@ def write_fields(rows: list[dict]) -> int:
 
 
 def write_descriptions(rows: list[dict]) -> int:
-    """Description write with the same human guard as apply_descriptions."""
+    """LangExtract full_description is the sole description source: it
+    overwrites everything, including the legacy description pipeline's
+    human-verified rows (that pipeline is being scrapped). A human-entered
+    text is stashed once into description_human_backup before its first
+    overwrite so scrapping the old flow loses nothing."""
     if not rows:
         return 0
     written = 0
@@ -342,9 +347,12 @@ def write_descriptions(rows: list[dict]) -> int:
         res = run_query("""
             UNWIND $rows AS row
             MATCH (a:AuctionProperty {auction_id: row.aid})
-            WHERE coalesce(a.description_verified, false) = false
-              AND coalesce(a.description_source, '') <> 'human'
-            SET a.description = row.desc,
+            SET a.description_human_backup = CASE
+                    WHEN a.description_source = 'human'
+                         AND a.description_human_backup IS NULL
+                    THEN a.description
+                    ELSE a.description_human_backup END,
+                a.description = row.desc,
                 a.description_source = 'notice'
             RETURN a.auction_id AS aid
         """, {"rows": batch})
@@ -412,7 +420,7 @@ def run(limit: int | None = None, dry_run: bool = False) -> int:
     nf = write_fields(field_rows)
     nd = write_descriptions(desc_rows)
     print(f"  wrote fields to {nf} listings, descriptions to {nd} listings "
-          f"(human-verified rows skipped)")
+          f"(legacy human descriptions overwritten, backed up once)")
     return 0
 
 

@@ -220,9 +220,11 @@ def test_group_lots_captures_emd():
     assert lots["1"]["emd"] == 50000
 
 
-# ── write guards ─────────────────────────────────────────────────────────────
+# ── write behavior ───────────────────────────────────────────────────────────
 
-def test_write_descriptions_has_human_guard(monkeypatch):
+def test_write_descriptions_overwrites_all_but_backs_up_human(monkeypatch):
+    """Notice text is the sole source: no human/verified guard remains, and a
+    human-entered description is stashed once into description_human_backup."""
     captured = {}
 
     def _cap(cypher, params=None):
@@ -233,8 +235,10 @@ def test_write_descriptions_has_human_guard(monkeypatch):
     monkeypatch.setattr(AX, "run_query", _cap)
     n = AX.write_descriptions([{"aid": "a1", "desc": "D"}])
     assert n == 1
-    assert "description_verified" in captured["cypher"]
-    assert "'human'" in captured["cypher"]
+    assert "description_verified" not in captured["cypher"]
+    assert "description_human_backup" in captured["cypher"]
+    # backup only fills once — a second run must not clobber the stash
+    assert "description_human_backup IS NULL" in captured["cypher"]
 
 
 def test_write_fields_sets_provenance(monkeypatch):
