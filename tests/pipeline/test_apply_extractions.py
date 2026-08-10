@@ -121,8 +121,9 @@ def test_group_lots_first_non_null_wins():
 
 # ── match_lots_to_listings ───────────────────────────────────────────────────
 
-def _lot(reserve, desc="d"):
-    return {"description": desc, "fields": {"village": "V"}, "reserve": reserve}
+def _lot(reserve, desc="d", emd=None):
+    return {"description": desc, "fields": {"village": "V"},
+            "reserve": reserve, "emd": emd}
 
 
 def test_match_single_lot_applies_to_all_listings():
@@ -160,12 +161,63 @@ def test_match_unique_remainder_pairs_last_lot_and_listing():
     assert reasons["a2"] == "remainder"
 
 
-def test_match_no_price_multi_lot_unmatched():
+def test_match_no_price_no_emd_multi_lot_unmatched():
     lots = {"1": _lot(500000), "2": _lot(600000)}
     listings = [{"aid": "a1", "price": None}]
     matches, unmatched = AX.match_lots_to_listings(lots, listings)
     assert matches == []
     assert unmatched[0][1] == "no_listing_price"
+
+
+def test_match_emd_rescues_listing_without_reserve_price():
+    lots = {"1": _lot(500000, emd=50000), "2": _lot(600000, emd=60000)}
+    listings = [{"aid": "a1", "price": None, "emd": 60000}]
+    matches, unmatched = AX.match_lots_to_listings(lots, listings)
+    assert unmatched == []
+    assert matches[0][1]["reserve"] == 600000
+    assert matches[0][2] == "emd"
+
+
+def test_match_emd_tolerance():
+    lots = {"1": _lot(500000, emd=50000), "2": _lot(600000, emd=60000)}
+    listings = [{"aid": "a1", "price": None, "emd": 60300}]  # within 1%
+    matches, _ = AX.match_lots_to_listings(lots, listings)
+    assert matches[0][2] == "emd_tolerance"
+
+
+def test_match_emd_rescues_price_that_matches_no_lot():
+    # portal price is a 10x typo, but its EMD still pins the lot
+    lots = {"1": _lot(500000, emd=50000), "2": _lot(600000, emd=60000)}
+    listings = [{"aid": "a1", "price": 5_000_000, "emd": 50000}]
+    matches, _ = AX.match_lots_to_listings(lots, listings)
+    assert matches[0][1]["reserve"] == 500000
+    assert matches[0][2] == "emd"
+
+
+def test_match_equal_emds_stay_ambiguous():
+    lots = {"1": _lot(500000, emd=50000), "2": _lot(600000, emd=50000)}
+    listings = [{"aid": "a1", "price": None, "emd": 50000}]
+    matches, unmatched = AX.match_lots_to_listings(lots, listings)
+    assert matches == []
+    assert unmatched[0][1] == "ambiguous"
+
+
+def test_match_price_still_wins_over_emd():
+    # price matches lot 1 exactly; a misleading emd points at lot 2
+    lots = {"1": _lot(500000, emd=50000), "2": _lot(600000, emd=60000)}
+    listings = [{"aid": "a1", "price": 500000, "emd": 60000}]
+    matches, _ = AX.match_lots_to_listings(lots, listings)
+    assert matches[0][1]["reserve"] == 500000
+    assert matches[0][2] == "exact"
+
+
+def test_group_lots_captures_emd():
+    ents = [ent("auction_terms", "",
+                {"reserve_price_num": "500000", "emd_num": "50000",
+                 "lot_index": "1"})]
+    lots = AX.group_lots(ents)
+    assert lots["1"]["reserve"] == 500000
+    assert lots["1"]["emd"] == 50000
 
 
 # ── write guards ─────────────────────────────────────────────────────────────

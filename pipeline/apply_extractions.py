@@ -15,8 +15,10 @@ Per Document:
      normalized property type / asset category (pipeline.property_taxonomy).
   3. Match lots to the Document's linked AuctionProperty listings:
        - 1 lot        -> every listing (the 'single' case)
-       - N lots       -> reserve price exact, then ±1%, then, if exactly one
-                         lot and one listing remain, pair them
+       - N lots       -> reserve price exact, then ±1%, then EMD exact/±1%
+                         (for listings the portal shows without a reserve
+                         price), then, if exactly one lot and one listing
+                         remain, pair them
      Unmatched listings are logged to data/grounded_unmatched.csv.
   4. Write fields onto AuctionProperty. The description write respects the
      same human guard as apply_descriptions (never clobber description_source=
@@ -125,6 +127,7 @@ def group_lots(entities: list[dict]) -> dict[str, dict]:
             "description_parts": [],
             "fields": {},
             "reserve": None,
+            "emd": None,
             "doors_old": [],
             "doors_new": [],
         })
@@ -190,6 +193,9 @@ def group_lots(entities: list[dict]) -> dict[str, dict]:
             r = parse_money(attrs.get("reserve_price_num"))
             if r is not None and rec["reserve"] is None:
                 rec["reserve"] = r
+            m = parse_money(attrs.get("emd_num"))
+            if m is not None and rec["emd"] is None:
+                rec["emd"] = m
 
     # finalize
     out: dict[str, dict] = {}
@@ -203,20 +209,40 @@ def group_lots(entities: list[dict]) -> dict[str, dict]:
             "description": "\n\n".join(rec["description_parts"]) or None,
             "fields": f,
             "reserve": rec["reserve"],
+            "emd": rec["emd"],
         }
     return out
 
 
 # ── pure: lot ↔ listing matching ─────────────────────────────────────────────
 
+def _key_match(lot_list: list[dict], key: str, value) -> tuple[list[int], bool]:
+    """Indexes of lots whose `key` equals value, else within ±1%.
+    Second element: whether the hit was exact."""
+    exact = [i for i, lo in enumerate(lot_list)
+             if lo.get(key) is not None and lo[key] == value]
+    if exact:
+        return exact, True
+    tol = abs(value) * PRICE_TOLERANCE_PCT / 100.0
+    return [i for i, lo in enumerate(lot_list)
+            if lo.get(key) is not None and abs(lo[key] - value) <= tol], False
+
+
 def match_lots_to_listings(lots: dict[str, dict],
                            listings: list[dict]) -> tuple[list[tuple[dict, dict, str]],
                                                           list[tuple[dict, str]]]:
     """Assign each listing to at most one lot.
 
-    listings: [{aid, price}]. Returns (matches, unmatched) where matches is
-    [(listing, lot, reason)] and unmatched is [(listing, reason)].
-    reason ∈ 'single' | 'exact' | 'tolerance' | 'remainder' | 'ambiguous' | 'none'.
+    listings: [{aid, price, emd?}]. Returns (matches, unmatched) where matches
+    is [(listing, lot, reason)] and unmatched is [(listing, reason)].
+    reason ∈ 'single' | 'exact' | 'tolerance' | 'emd' | 'emd_tolerance' |
+    'remainder' | 'ambiguous' | 'none'.
+
+    Reserve price is the primary key; EMD is the fallback for listings the
+    portal shows without a reserve price (about 8% of the corpus) and for
+    prices that match no lot. EMD is nearly always 10% of the reserve, so it
+    separates lots exactly where the reserve does — and two lots with equal
+    EMDs stay ambiguous, same as two lots with equal reserves.
     """
     lot_list = list(lots.values())
     if not lot_list:
@@ -232,30 +258,33 @@ def match_lots_to_listings(lots: dict[str, dict],
 
     for listing in listings:
         price = listing.get("price")
-        if price is None:
+        emd = listing.get("emd")
+        if price is None and emd is None:
             unmatched.append((listing, "no_listing_price"))
             continue
-        exact = [i for i, lo in enumerate(lot_list)
-                 if lo["reserve"] is not None and lo["reserve"] == price]
-        if len(exact) == 1:
-            matches.append((listing, lot_list[exact[0]], "exact"))
-            taken.add(exact[0])
-            continue
-        if len(exact) > 1:
-            # identical reserve prices — assignment would be a guess
+
+        hit = None      # (lot index, reason) | 'ambiguous' | None
+        if price is not None:
+            idx, was_exact = _key_match(lot_list, "reserve", price)
+            if len(idx) == 1:
+                hit = (idx[0], "exact" if was_exact else "tolerance")
+            elif len(idx) > 1:
+                # identical reserve prices — assignment would be a guess
+                hit = "ambiguous"
+        if hit is None and emd is not None:
+            idx, was_exact = _key_match(lot_list, "emd", emd)
+            if len(idx) == 1:
+                hit = (idx[0], "emd" if was_exact else "emd_tolerance")
+            elif len(idx) > 1:
+                hit = "ambiguous"
+
+        if hit == "ambiguous":
             unmatched.append((listing, "ambiguous"))
-            continue
-        tol = abs(price) * PRICE_TOLERANCE_PCT / 100.0
-        near = [i for i, lo in enumerate(lot_list)
-                if lo["reserve"] is not None and abs(lo["reserve"] - price) <= tol]
-        if len(near) == 1:
-            matches.append((listing, lot_list[near[0]], "tolerance"))
-            taken.add(near[0])
-            continue
-        if len(near) > 1:
-            unmatched.append((listing, "ambiguous"))
-            continue
-        pending.append(listing)
+        elif hit is not None:
+            matches.append((listing, lot_list[hit[0]], hit[1]))
+            taken.add(hit[0])
+        else:
+            pending.append(listing)
 
     # unique remainder: exactly one unmatched listing and one untaken lot
     free = [i for i in range(len(lot_list)) if i not in taken]
@@ -277,7 +306,8 @@ def fetch_work(limit: int | None = None) -> list[dict]:
         "RETURN d.filename AS filename, "
         "       d.extraction_json AS extraction_json, "
         "       d.extraction_corrections_json AS corrections_json, "
-        "       collect({aid: a.auction_id, price: a.reserve_price_num}) AS listings "
+        "       collect({aid: a.auction_id, price: a.reserve_price_num, "
+        "                emd: a.emd_num}) AS listings "
         "ORDER BY d.filename"
         + (f" LIMIT {int(limit)}" if limit else ""),
         max_rows=20_000, timeout=120.0)
