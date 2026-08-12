@@ -256,6 +256,41 @@ def test_match_ocr_fused_borrower_name_still_hits():
     assert matches[0][2] == "borrower"
 
 
+def test_match_identifier_separates_lots_sharing_borrower_and_money():
+    # sibling lots: same borrower, same reserve — survey number decides
+    l1 = _lot(500000, borrowers="Ramayee")
+    l1["id_tokens"] = AX._id_tokens("S.F.No. 491/1")
+    l2 = _lot(500000, borrowers="Ramayee")
+    l2["id_tokens"] = AX._id_tokens("S.F.No. 203/2A")
+    lots = {"1": l1, "2": l2}
+    listings = [{"aid": "a1", "price": 500000, "borrowers": ["Ramayee"],
+                 "id_text": "Vacant land in S F No.203/2A Kanakkampalayam"}]
+    matches, unmatched = AX.match_lots_to_listings(lots, listings)
+    assert unmatched == []
+    assert matches[0][1] is l2
+    assert matches[0][2] == "identifier"
+
+
+def test_id_tokens_normalize_separators_and_drop_years_pincodes():
+    toks = AX._id_tokens("R.S. No. 32-12B, dated 12.05.2026, Cuddalore-608502")
+    assert "32/12b" in toks
+    assert not any(t in ("2026", "608502") for t in toks)
+    # date fragments normalize but full years/pincodes as bare tokens are gone
+    assert AX._id_tokens("built in 2019 pin 641604") == set()
+
+
+def test_match_identifier_does_not_fire_on_no_overlap():
+    l1 = _lot(500000)
+    l1["id_tokens"] = AX._id_tokens("491/1")
+    l2 = _lot(500000)
+    l2["id_tokens"] = AX._id_tokens("203/2A")
+    lots = {"1": l1, "2": l2}
+    listings = [{"aid": "a1", "price": 500000, "id_text": "no ids here"}]
+    matches, unmatched = AX.match_lots_to_listings(lots, listings)
+    assert matches == []
+    assert unmatched[0][1] == "ambiguous"
+
+
 def test_name_tokens_drop_honorifics_and_initials():
     toks = AX._name_tokens("Smt. P. Karnagi W/o. Mr. Pavadai (Borrower)")
     assert toks == {"karnagi", "pavadai"}

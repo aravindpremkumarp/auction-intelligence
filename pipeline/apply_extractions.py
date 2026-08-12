@@ -142,6 +142,27 @@ def _names_overlap(a: set[str], b: set[str]) -> bool:
     return False
 
 
+# Survey/door/plot identifiers as they appear in notices and portal text:
+# "491/1", "32-12B", "S.F.No. 203/2A". Separators vary per source, so they
+# normalize to '/'. Bare years and 6-digit pincodes match this shape too and
+# appear in almost every listing — they carry no lot identity and are dropped.
+_ID_SHAPE = re.compile(r"\b\d+(?:[/\-.]\d*[a-z]*\d*)+\b|\b\d+[a-z]\b")
+
+
+def _id_norm(v: str) -> str:
+    return re.sub(r"[\-.]", "/", str(v).strip().lower())
+
+
+def _id_tokens(text: str) -> set[str]:
+    out = set()
+    for m in _ID_SHAPE.finditer(str(text or "").lower()):
+        tok = _id_norm(m.group(0))
+        if re.fullmatch(r"(19|20)\d{2}|\d{6,}", tok):
+            continue
+        out.add(tok)
+    return out
+
+
 def group_lots(entities: list[dict]) -> dict[str, dict]:
     """Group grounded entities into per-lot records.
 
@@ -158,6 +179,7 @@ def group_lots(entities: list[dict]) -> dict[str, dict]:
             "reserve": None,
             "emd": None,
             "borrower_tokens": set(),
+            "id_tokens": set(),
             "doors_old": [],
             "doors_new": [],
         })
@@ -209,6 +231,7 @@ def group_lots(entities: list[dict]) -> dict[str, dict]:
                     rec["doors_old"].append(val)
                 elif kind == "door_new":
                     rec["doors_new"].append(val)
+                rec["id_tokens"] |= _id_tokens(val)
 
         elif cls == "borrower":
             rec["borrower_tokens"] |= _name_tokens(text)
@@ -244,6 +267,7 @@ def group_lots(entities: list[dict]) -> dict[str, dict]:
             "reserve": rec["reserve"],
             "emd": rec["emd"],
             "borrower_tokens": rec["borrower_tokens"],
+            "id_tokens": rec["id_tokens"],
         }
     return out
 
@@ -267,18 +291,21 @@ def match_lots_to_listings(lots: dict[str, dict],
                                                           list[tuple[dict, str]]]:
     """Assign each listing to at most one lot.
 
-    listings: [{aid, price, emd?, borrowers?}]. Returns (matches, unmatched)
-    where matches is [(listing, lot, reason)] and unmatched is
+    listings: [{aid, price, emd?, borrowers?, id_text?}]. Returns (matches,
+    unmatched) where matches is [(listing, lot, reason)] and unmatched is
     [(listing, reason)]. reason ∈ 'single' | 'exact' | 'tolerance' | 'emd' |
-    'emd_tolerance' | 'borrower' | 'remainder' | 'ambiguous' | 'none'.
+    'emd_tolerance' | 'borrower' | 'identifier' | 'remainder' | 'ambiguous' |
+    'none'.
 
     Keys narrow in order of trustworthiness: reserve price exact/±1%, then
     EMD exact/±1% (rescues listings the portal shows without a price, and 10x
-    price typos), then borrower-name overlap. Borrower is what separates lots
-    that tie on money — EMD cannot, being 10% of the reserve almost
-    everywhere. Every key must reduce to exactly one lot; a tie that survives
-    all keys stays 'ambiguous' rather than being guessed, and a listing none
-    of whose keys hit anything falls through to the unique-remainder rule.
+    price typos), then borrower-name overlap, then survey/door identifiers
+    found in the listing's own text (id_text: title + portal description).
+    Borrower and identifiers are what separate lots that tie on money — EMD
+    cannot, being 10% of the reserve almost everywhere. Every key must reduce
+    to exactly one lot; a tie that survives all keys stays 'ambiguous' rather
+    than being guessed, and a listing none of whose keys hit anything falls
+    through to the unique-remainder rule.
     """
     lot_list = list(lots.values())
     if not lot_list:
@@ -330,6 +357,17 @@ def match_lots_to_listings(lots: dict[str, dict],
                 if len(cands) == 1:
                     reason = "borrower"
 
+        if len(cands) > 1:
+            listing_ids = _id_tokens(listing.get("id_text") or "")
+            if listing_ids:
+                idx = [i for i in cands
+                       if listing_ids & (lot_list[i].get("id_tokens") or set())]
+                if idx and len(idx) < len(cands):
+                    cands = idx
+                    reason = reason or "identifier"
+                    if len(cands) == 1:
+                        reason = "identifier"
+
         if reason is None:
             # no key hit anything — leave for the unique-remainder rule
             pending.append(listing)
@@ -362,7 +400,8 @@ def fetch_work(limit: int | None = None) -> list[dict]:
         "       d.extraction_corrections_json AS corrections_json, "
         "       collect({aid: a.auction_id, price: a.reserve_price_num, "
         "                emd: a.emd_num, "
-        "                borrowers: [(a)-[:HAS_BORROWER]->(bo) | bo.name]}) "
+        "                borrowers: [(a)-[:HAS_BORROWER]->(bo) | bo.name], "
+        "                id_text: a.title + ' ' + coalesce(a.website_description, '')}) "
         "       AS listings "
         "ORDER BY d.filename"
         + (f" LIMIT {int(limit)}" if limit else ""),
