@@ -335,11 +335,12 @@ def write_fields(rows: list[dict]) -> int:
 
 
 def write_descriptions(rows: list[dict]) -> int:
-    """LangExtract full_description is the sole description source: it
-    overwrites everything, including the legacy description pipeline's
-    human-verified rows (that pipeline is being scrapped). A human-entered
-    text is stashed once into description_human_backup before its first
-    overwrite so scrapping the old flow loses nothing."""
+    """LangExtract full_description is the sole automated description source:
+    it overwrites everything, including the legacy description pipeline's
+    human-verified rows (that pipeline is being scrapped; those texts are
+    stashed once into description_human_backup). The one thing it never
+    touches is description_source='reviewer' — a correction someone made
+    after eyeballing the sale notice outranks any automated write."""
     if not rows:
         return 0
     written = 0
@@ -347,6 +348,7 @@ def write_descriptions(rows: list[dict]) -> int:
         res = run_query("""
             UNWIND $rows AS row
             MATCH (a:AuctionProperty {auction_id: row.aid})
+            WHERE coalesce(a.description_source, '') <> 'reviewer'
             SET a.description_human_backup = CASE
                     WHEN a.description_source = 'human'
                          AND a.description_human_backup IS NULL

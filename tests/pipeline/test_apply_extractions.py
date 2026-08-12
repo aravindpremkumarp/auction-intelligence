@@ -239,6 +239,8 @@ def test_write_descriptions_overwrites_all_but_backs_up_human(monkeypatch):
     assert "description_human_backup" in captured["cypher"]
     # backup only fills once — a second run must not clobber the stash
     assert "description_human_backup IS NULL" in captured["cypher"]
+    # a reviewer's correction outranks the automated write
+    assert "<> 'reviewer'" in captured["cypher"]
 
 
 def test_write_fields_sets_provenance(monkeypatch):
