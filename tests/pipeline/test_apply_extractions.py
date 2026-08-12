@@ -121,9 +121,10 @@ def test_group_lots_first_non_null_wins():
 
 # ── match_lots_to_listings ───────────────────────────────────────────────────
 
-def _lot(reserve, desc="d", emd=None):
+def _lot(reserve, desc="d", emd=None, borrowers=None):
     return {"description": desc, "fields": {"village": "V"},
-            "reserve": reserve, "emd": emd}
+            "reserve": reserve, "emd": emd,
+            "borrower_tokens": AX._name_tokens(borrowers or "")}
 
 
 def test_match_single_lot_applies_to_all_listings():
@@ -209,6 +210,62 @@ def test_match_price_still_wins_over_emd():
     matches, _ = AX.match_lots_to_listings(lots, listings)
     assert matches[0][1]["reserve"] == 500000
     assert matches[0][2] == "exact"
+
+
+def test_match_borrower_separates_equal_reserve_prices():
+    # two lots, same reserve — EMD ties too (10% of reserve); borrower decides
+    lots = {"1": _lot(500000, emd=50000, borrowers="Smt. J. Ida Priscilla"),
+            "2": _lot(500000, emd=50000, borrowers="Sri. E. Rajendran")}
+    listings = [{"aid": "a1", "price": 500000, "emd": 50000,
+                 "borrowers": ["Mrs Ida Priscilla W/o Moses"]},
+                {"aid": "a2", "price": 500000, "emd": 50000,
+                 "borrowers": ["Mr E Rajendran"]}]
+    matches, unmatched = AX.match_lots_to_listings(lots, listings)
+    assert unmatched == []
+    got = {m[0]["aid"]: (m[1]["reserve"], m[2]) for m in matches}
+    assert got["a1"][1] == "borrower"
+    assert got["a2"][1] == "borrower"
+    assert matches[0][1] is not matches[1][1]   # different lots
+
+
+def test_match_borrower_alone_can_pair_when_money_is_missing():
+    lots = {"1": _lot(None, borrowers="Musthafa M"),
+            "2": _lot(None, borrowers="Sabeena A")}
+    listings = [{"aid": "a1", "price": None, "emd": None,
+                 "borrowers": ["Mr/Mrs Musthafa M"]}]
+    matches, unmatched = AX.match_lots_to_listings(lots, listings)
+    assert unmatched == []
+    assert matches[0][2] == "borrower"
+
+
+def test_match_shared_borrower_stays_ambiguous():
+    # sibling lots of one borrower — same money, same name: never guess
+    lots = {"1": _lot(500000, borrowers="Ramayee Chellammal"),
+            "2": _lot(500000, borrowers="Ramayee Prakash")}
+    listings = [{"aid": "a1", "price": 500000, "borrowers": ["Ramayee"]}]
+    matches, unmatched = AX.match_lots_to_listings(lots, listings)
+    assert matches == []
+    assert unmatched[0][1] == "ambiguous"
+
+
+def test_match_ocr_fused_borrower_name_still_hits():
+    lots = {"1": _lot(500000, borrowers="SGayathri"),
+            "2": _lot(500000, borrowers="Karuppan")}
+    listings = [{"aid": "a1", "price": 500000, "borrowers": ["Mrs S Gayathri"]}]
+    matches, _ = AX.match_lots_to_listings(lots, listings)
+    assert matches[0][2] == "borrower"
+
+
+def test_name_tokens_drop_honorifics_and_initials():
+    toks = AX._name_tokens("Smt. P. Karnagi W/o. Mr. Pavadai (Borrower)")
+    assert toks == {"karnagi", "pavadai"}
+
+
+def test_group_lots_captures_borrower_tokens():
+    ents = [ent("borrower", "Sri. Ganeshkumar S/o. Mr. Pavadai",
+                {"role": "guarantor", "lot_index": "1"})]
+    lots = AX.group_lots(ents)
+    assert "ganeshkumar" in lots["1"]["borrower_tokens"]
 
 
 def test_group_lots_captures_emd():

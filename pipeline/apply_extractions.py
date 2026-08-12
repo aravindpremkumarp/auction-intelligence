@@ -17,8 +17,9 @@ Per Document:
        - 1 lot        -> every listing (the 'single' case)
        - N lots       -> reserve price exact, then ±1%, then EMD exact/±1%
                          (for listings the portal shows without a reserve
-                         price), then, if exactly one lot and one listing
-                         remain, pair them
+                         price), then borrower-name overlap (separates lots
+                         that tie on money), then, if exactly one lot and one
+                         listing remain, pair them
      Unmatched listings are logged to data/grounded_unmatched.csv.
   4. Write fields onto AuctionProperty. The description write treats the
      grounded notice text as the sole source — it overwrites even the legacy
@@ -114,6 +115,33 @@ def _first(d: dict, cur):
     return cur if cur not in (None, "") else d
 
 
+# Honorifics and relation markers carry no identity — "W/o. Pavadai" names the
+# husband, but the token "pavadai" still discriminates between lots, so only
+# the markers themselves are stripped.
+_HONORIFICS = re.compile(
+    r"\b(sri|smt|shri|mr|mrs|ms|thiru|tmt|selvi|dr|m/s|late|alias|"
+    r"s/o|w/o|d/o|h/o|borrower|guarantor|mortgagor|co-obligant)\b\.?", re.I)
+
+
+def _name_tokens(name: str) -> set[str]:
+    """Identity-bearing tokens of a person/firm name: lowercased words of 3+
+    chars, honorifics stripped. Initials are dropped — they collide across
+    family members far too often to discriminate lots."""
+    s = _HONORIFICS.sub(" ", str(name or "").lower())
+    s = re.sub(r"[^a-z0-9 ]", " ", s)
+    return {t for t in s.split() if len(t) >= 3}
+
+
+def _names_overlap(a: set[str], b: set[str]) -> bool:
+    """True when the token sets share a name. Exact token or containment
+    (len>=4) so OCR-fused variants like 'sgayathri' still hit 'gayathri'."""
+    for x in a:
+        for y in b:
+            if x == y or (len(x) >= 4 and len(y) >= 4 and (x in y or y in x)):
+                return True
+    return False
+
+
 def group_lots(entities: list[dict]) -> dict[str, dict]:
     """Group grounded entities into per-lot records.
 
@@ -129,6 +157,7 @@ def group_lots(entities: list[dict]) -> dict[str, dict]:
             "fields": {},
             "reserve": None,
             "emd": None,
+            "borrower_tokens": set(),
             "doors_old": [],
             "doors_new": [],
         })
@@ -181,6 +210,9 @@ def group_lots(entities: list[dict]) -> dict[str, dict]:
                 elif kind == "door_new":
                     rec["doors_new"].append(val)
 
+        elif cls == "borrower":
+            rec["borrower_tokens"] |= _name_tokens(text)
+
         elif cls == "property":
             v = attrs.get("property_type")
             if v not in (None, "") and "property_type_raw" not in f:
@@ -211,6 +243,7 @@ def group_lots(entities: list[dict]) -> dict[str, dict]:
             "fields": f,
             "reserve": rec["reserve"],
             "emd": rec["emd"],
+            "borrower_tokens": rec["borrower_tokens"],
         }
     return out
 
@@ -234,16 +267,18 @@ def match_lots_to_listings(lots: dict[str, dict],
                                                           list[tuple[dict, str]]]:
     """Assign each listing to at most one lot.
 
-    listings: [{aid, price, emd?}]. Returns (matches, unmatched) where matches
-    is [(listing, lot, reason)] and unmatched is [(listing, reason)].
-    reason ∈ 'single' | 'exact' | 'tolerance' | 'emd' | 'emd_tolerance' |
-    'remainder' | 'ambiguous' | 'none'.
+    listings: [{aid, price, emd?, borrowers?}]. Returns (matches, unmatched)
+    where matches is [(listing, lot, reason)] and unmatched is
+    [(listing, reason)]. reason ∈ 'single' | 'exact' | 'tolerance' | 'emd' |
+    'emd_tolerance' | 'borrower' | 'remainder' | 'ambiguous' | 'none'.
 
-    Reserve price is the primary key; EMD is the fallback for listings the
-    portal shows without a reserve price (about 8% of the corpus) and for
-    prices that match no lot. EMD is nearly always 10% of the reserve, so it
-    separates lots exactly where the reserve does — and two lots with equal
-    EMDs stay ambiguous, same as two lots with equal reserves.
+    Keys narrow in order of trustworthiness: reserve price exact/±1%, then
+    EMD exact/±1% (rescues listings the portal shows without a price, and 10x
+    price typos), then borrower-name overlap. Borrower is what separates lots
+    that tie on money — EMD cannot, being 10% of the reserve almost
+    everywhere. Every key must reduce to exactly one lot; a tie that survives
+    all keys stays 'ambiguous' rather than being guessed, and a listing none
+    of whose keys hit anything falls through to the unique-remainder rule.
     """
     lot_list = list(lots.values())
     if not lot_list:
@@ -260,32 +295,50 @@ def match_lots_to_listings(lots: dict[str, dict],
     for listing in listings:
         price = listing.get("price")
         emd = listing.get("emd")
-        if price is None and emd is None:
+        borrowers = set()
+        for name in listing.get("borrowers") or []:
+            borrowers |= _name_tokens(name)
+        if price is None and emd is None and not borrowers:
             unmatched.append((listing, "no_listing_price"))
             continue
 
-        hit = None      # (lot index, reason) | 'ambiguous' | None
+        # Each key either narrows the candidate set or is ignored; reason
+        # records the first key that produced a hit.
+        cands = list(range(len(lot_list)))
+        reason = None
+
         if price is not None:
             idx, was_exact = _key_match(lot_list, "reserve", price)
-            if len(idx) == 1:
-                hit = (idx[0], "exact" if was_exact else "tolerance")
-            elif len(idx) > 1:
-                # identical reserve prices — assignment would be a guess
-                hit = "ambiguous"
-        if hit is None and emd is not None:
-            idx, was_exact = _key_match(lot_list, "emd", emd)
-            if len(idx) == 1:
-                hit = (idx[0], "emd" if was_exact else "emd_tolerance")
-            elif len(idx) > 1:
-                hit = "ambiguous"
+            if idx:
+                cands = idx
+                reason = "exact" if was_exact else "tolerance"
 
-        if hit == "ambiguous":
-            unmatched.append((listing, "ambiguous"))
-        elif hit is not None:
-            matches.append((listing, lot_list[hit[0]], hit[1]))
-            taken.add(hit[0])
-        else:
+        if len(cands) > 1 and emd is not None:
+            sub = [lot_list[i] for i in cands]
+            idx, was_exact = _key_match(sub, "emd", emd)
+            if idx:
+                cands = [cands[i] for i in idx]
+                reason = reason or ("emd" if was_exact else "emd_tolerance")
+
+        if len(cands) > 1 and borrowers:
+            idx = [i for i in cands
+                   if _names_overlap(borrowers,
+                                     lot_list[i].get("borrower_tokens") or set())]
+            if idx and len(idx) < len(cands):
+                cands = idx
+                reason = reason or "borrower"
+                if len(cands) == 1:
+                    reason = "borrower"
+
+        if reason is None:
+            # no key hit anything — leave for the unique-remainder rule
             pending.append(listing)
+        elif len(cands) == 1:
+            matches.append((listing, lot_list[cands[0]], reason))
+            taken.add(cands[0])
+        else:
+            # a tie that survived every key — assignment would be a guess
+            unmatched.append((listing, "ambiguous"))
 
     # unique remainder: exactly one unmatched listing and one untaken lot
     free = [i for i in range(len(lot_list)) if i not in taken]
@@ -308,7 +361,9 @@ def fetch_work(limit: int | None = None) -> list[dict]:
         "       d.extraction_json AS extraction_json, "
         "       d.extraction_corrections_json AS corrections_json, "
         "       collect({aid: a.auction_id, price: a.reserve_price_num, "
-        "                emd: a.emd_num}) AS listings "
+        "                emd: a.emd_num, "
+        "                borrowers: [(a)-[:HAS_BORROWER]->(bo) | bo.name]}) "
+        "       AS listings "
         "ORDER BY d.filename"
         + (f" LIMIT {int(limit)}" if limit else ""),
         max_rows=20_000, timeout=120.0)

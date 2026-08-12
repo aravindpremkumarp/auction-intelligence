@@ -89,7 +89,9 @@ def fetch_work(limit: int | None = None) -> list[dict]:
         "       d.extraction_corrections_json AS corrections_json, "
         "       d.extraction_review_status AS review_status, "
         "       collect({aid: a.auction_id, price: a.reserve_price_num, "
-        "                emd: a.emd_num}) AS listings "
+        "                emd: a.emd_num, "
+        "                borrowers: [(a)-[:HAS_BORROWER]->(bo) | bo.name]}) "
+        "       AS listings "
         "ORDER BY d.filename"
         + (f" LIMIT {int(limit)}" if limit else ""),
         max_rows=20_000, timeout=120.0)
