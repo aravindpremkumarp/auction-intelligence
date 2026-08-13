@@ -21,6 +21,7 @@ mounted alongside the main review router without touching the large queries.py.
 from __future__ import annotations
 
 import json
+import threading
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -64,8 +65,14 @@ class ExtractionReviewOut(BaseModel):
     content_type: str | None = None
     # True when the markdown was re-ingested AFTER this extraction ran, so the
     # stored fields (and their char offsets) no longer match the source text —
-    # the reviewer should re-run LangExtract (load_extractions --filename --force).
+    # the reviewer should re-run LangExtract (the ▶ button, or
+    # load_extractions --filename --force from a shell).
     stale: bool = False
+    # A POST /rerun is in flight for this document; poll the detail endpoint
+    # until this clears, then re-render. rerun_error carries the last rerun's
+    # failure so the reviewer sees why nothing changed.
+    rerun_running: bool = False
+    rerun_error: str | None = None
     fields: list[ExtractionField] = []
 
 
@@ -267,6 +274,46 @@ def _build_fields(extraction_json: str, corrections_json: str) -> list[Extractio
     return out
 
 
+# ── single-document LangExtract rerun ────────────────────────────────────────
+# In-process job registry: one rerun per document at a time. Entries live only
+# for the server process — a restart forgets a finished error, which is fine;
+# the graph's extraction_at is the durable record of success.
+_RERUNS: dict[str, dict] = {}
+_RERUNS_LOCK = threading.Lock()
+
+
+def _rerun_state(filename: str) -> tuple[bool, str | None]:
+    with _RERUNS_LOCK:
+        st = _RERUNS.get(filename)
+        if not st:
+            return False, None
+        return st["status"] == "running", st.get("error")
+
+
+def _rerun_worker(filename: str) -> None:
+    """Run the canonical single-document LangExtract path (same code the batch
+    scripts use: per-notice-type model routing, validators score, load_extractions
+    write shape). Any failure — including langextract not being installed on
+    this server — lands in the registry for the UI to surface."""
+    try:
+        rows = run_read_query(
+            "MATCH (d:Document {filename: $fn}) "
+            "RETURN d.filename AS filename, d.markdown AS md, "
+            "       d.notice_type AS notice_type, "
+            "       d.notice_type_classifier_pred AS classifier_pred",
+            {"fn": filename})
+        if not rows or not (rows[0].get("md") or "").strip():
+            raise RuntimeError("document has no markdown to extract from")
+        from pipeline.load_extractions import _next_batch
+        from scripts.reset_langextract_and_extract import _extract_one
+        _extract_one(rows[0], _next_batch(), route=True)
+        with _RERUNS_LOCK:
+            _RERUNS.pop(filename, None)
+    except Exception as e:  # surfaced via rerun_error, never crashes the app
+        with _RERUNS_LOCK:
+            _RERUNS[filename] = {"status": "error", "error": f"{type(e).__name__}: {e}"}
+
+
 # ── endpoints ────────────────────────────────────────────────────────────────
 @router.get("/queue", response_model=ExtractionQueueOut)
 def extraction_queue(
@@ -307,6 +354,7 @@ def extraction_detail(
     row = get_extraction(filename)
     if row is None:
         raise HTTPException(status_code=404, detail="extraction not found")
+    running, error = _rerun_state(filename)
     return ExtractionReviewOut(
         filename=row["filename"], markdown=row.get("markdown"),
         status=row.get("status", "pending"), score=row.get("score"),
@@ -316,6 +364,7 @@ def extraction_detail(
         stale=extraction_stale(row.get("markdown_reextracted_at"),
                                row.get("markdown_loaded_at"),
                                row.get("extraction_at")),
+        rerun_running=running, rerun_error=error,
         fields=_build_fields(row["extraction_json"], row["corrections_json"]),
     )
 
@@ -329,6 +378,28 @@ def extraction_edit_field(
     if not save_field_correction(filename, body.field_id, body.value,
                                  admin.email, body.notes):
         raise HTTPException(status_code=404, detail="extraction not found")
+    return extraction_detail(filename, admin)
+
+
+@router.post("/{filename:path}/rerun", response_model=ExtractionReviewOut)
+def extraction_rerun(
+    filename: str,
+    admin: UserOut = Depends(get_current_admin),
+) -> ExtractionReviewOut:
+    """Re-run LangExtract for one document — the reviewer's follow-through
+    after fixing its markdown (re-ingest / block re-OCR). Kicks off a
+    background worker and returns immediately with rerun_running=true; the UI
+    polls the detail endpoint until it clears. One rerun per document at a
+    time; a second click while running is a 409."""
+    if get_extraction(filename) is None:
+        raise HTTPException(status_code=404, detail="extraction not found")
+    with _RERUNS_LOCK:
+        st = _RERUNS.get(filename)
+        if st and st["status"] == "running":
+            raise HTTPException(status_code=409, detail="rerun already running")
+        _RERUNS[filename] = {"status": "running"}
+    threading.Thread(target=_rerun_worker, args=(filename,),
+                     daemon=True, name=f"rerun-{filename[:40]}").start()
     return extraction_detail(filename, admin)
 
 
