@@ -13,7 +13,7 @@ lives in the app UI).
 
 ```
 scrape → filter TN → load Neo4j → OCR + vision-LLM extract → classify notices →
-extract descriptions → verify/enrich → normalize → embed (3 vector indexes) →
+verify/enrich → apply LangExtract descriptions → embed (3 vector indexes) →
 serve agent + web UI → human feedback + review loop
 ```
 
@@ -104,7 +104,7 @@ api/          FastAPI composition root (main.py) + routers:
               agent.py (PydanticAI agent), neo4j_client.py, telemetry.py,
               observability.py, tools/ (Cypher + web search).
 pipeline/     Enrichment pipeline: OCR/MinerU, vision-LLM extraction, notice
-              classification, description extraction, verify/enrich, normalize,
+              classification, verify/enrich, normalize,
               embeddings (3 vector indexes), R2 storage helpers.
 scrapers/     Selenium scrapers for eauctionsindia.com (local only).
 scripts/      Data-prep, migration, backfill, and one-off maintenance scripts.
@@ -256,8 +256,8 @@ python -u scrapers/phase2_scrape_details.py # 1b. Scrape each URL's detail page 
 python -m scripts.prepare_tn_data           # 2. Clean + filter the Tamil Nadu subset
 python -m scripts.load_tn_to_neo4j          # 3. Load the base graph
 python -m scripts.upload_downloads_to_r2    # 4. Push sale notices to R2
-python -m pipeline.run_pipeline             # 5. OCR → extract → classify →
-                                            #    describe → verify → normalize → load
+python -m pipeline.run_pipeline             # 5. OCR → classify → verify →
+                                            #    load → apply extractions
                                             #    (also links re-auctioned properties internally)
 python -m pipeline.embed_descriptions       # 6. Embed + build the vector indexes
 uvicorn api.main:app --reload               # 7. Serve agent + web UI
@@ -266,8 +266,8 @@ uvicorn api.main:app --reload               # 7. Serve agent + web UI
 Notable stages: **OCR/extraction** uses MinerU + a vision LLM
 (`ocr_extract.py`, `mineru.py`); **notice classification** splits single- vs
 multi-property notices by cluster count, corrected by human review
-(`classify_notice.py`); **description extraction** pulls
-the per-property blurb (`extract_descriptions.py`); **verify/enrich** reconciles
+(`classify_notice.py`); **descriptions** come from LangExtract's
+`full_description` spans (`apply_extractions.py`); **verify/enrich** reconciles
 scraped fields against the PDF (PDF wins, original kept as `<field>_scraped`);
 and **embeddings** build three vector indexes (`property_desc_idx`,
 `notice_markdown_idx`, `notice_image_idx`) consumed by `semantic_search`.

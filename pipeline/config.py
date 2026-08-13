@@ -18,8 +18,6 @@ DOWNLOADS_DIR = ROOT_DIR / "downloads"
 
 PIPELINE_DIR  = ROOT_DIR / "pipeline"
 CACHE_DIR     = PIPELINE_DIR / "cache" / "ocr_results"
-NOTICE_DESC_SINGLE_DIR = PIPELINE_DIR / "cache" / "notice_descriptions_v3"
-NOTICE_DESC_MULTI_DIR  = PIPELINE_DIR / "cache" / "notice_descriptions_v3_multi"
 OUTPUT_DIR    = PIPELINE_DIR / "output"
 LOOKUPS_DIR   = PIPELINE_DIR / "lookups"
 PROMPTS_DIR   = PIPELINE_DIR / "prompts"
@@ -91,18 +89,6 @@ OPENROUTER_CHAT_PROVIDER_MAX_PRICE = os.getenv(
     "OPENROUTER_CHAT_PROVIDER_MAX_PRICE", "0.9,1.8",
 )
 
-# Per-stage model overrides so the chat agent and the description pipeline
-# can pin different models. Each defaults to a value that has been pilot-
-# validated for that stage:
-#   - SINGLE: gemini-2.5-flash (cheap, accurate on one-property notices)
-#   - MULTI:  deepseek-v4-flash (non-reasoning sibling; clean per-lot splits)
-#   - CLASSIFY: deepseek-v4-flash (single-shot single/multi judgment)
-OPENROUTER_MODEL_DESCRIPTION_SINGLE = os.getenv(
-    "OPENROUTER_MODEL_DESCRIPTION_SINGLE", OPENROUTER_MODEL,
-)
-OPENROUTER_MODEL_DESCRIPTION_MULTI = os.getenv(
-    "OPENROUTER_MODEL_DESCRIPTION_MULTI", "deepseek/deepseek-v4-flash",
-)
 # LangExtract structured-extraction models, routed by notice type (see
 # pipeline/extract_routing.select_extract_model, applied in load_extractions).
 # Single-property notices are short and easy -> a cheap model; multi-property

@@ -87,278 +87,8 @@ def _sort_properties_by_markdown(row: dict) -> None:
     props.sort(key=sort_key)
 
 
-def list_queue(
-    status: ReviewStatus = "pending",
-    q: str | None = None,
-    page: int = 1,
-    size: int = 50,
-    date_from: str | None = None,
-    date_to: str | None = None,
-    notice_type: NoticeTypeFilter | None = None,
-    judge_min: float | None = None,
-    judge_max: float | None = None,
-) -> dict:
-    """Return a page of properties whose description came from a notice
-    extraction (or a human edit), filtered by review status.
-
-    Pending = description_source IN ['notice','human'] AND NOT description_verified.
-    Verified = description_verified = true AND description_source = 'notice'.
-    Edited = description_verified = true AND description_source = 'human'.
-
-    Optional date_from / date_to filter on auction_start_dt (ISO date strings,
-    YYYY-MM-DD). Property is included if its auction_start_dt falls in the
-    [date_from, date_to] window (inclusive). Properties with a null
-    auction_start_dt are excluded when either bound is set.
-    """
-    page = max(1, int(page))
-    size = max(1, min(200, int(size)))
-    skip = (page - 1) * size
-
-    where = ["a.description_source IN ['notice', 'human']", "a.description IS NOT NULL"]
-    if status == "pending":
-        where.append("coalesce(a.description_verified, false) = false")
-    elif status == "verified":
-        where.append("coalesce(a.description_verified, false) = true")
-        where.append("a.description_source = 'notice'")
-    elif status == "edited":
-        where.append("coalesce(a.description_verified, false) = true")
-        where.append("a.description_source = 'human'")
-    # "all" → no extra filter
-
-    params: dict = {"skip": skip, "size": size}
-    if q:
-        # `b` is collapsed into the `borrowers` collection before this WHERE
-        # runs, so the borrower search must go through the collection (an
-        # `ANY` over `borrowers`) rather than referencing `b.name` directly.
-        where.append(
-            "(toLower(coalesce(a.title, '')) CONTAINS toLower($q) "
-            "OR ANY(bn IN borrowers WHERE toLower(coalesce(bn, '')) CONTAINS toLower($q)))"
-        )
-        params["q"] = q
-    if judge_min is not None:
-        where.append("coalesce(a.description_judge_confidence, 0.0) >= $judge_min")
-        params["judge_min"] = float(judge_min)
-    if judge_max is not None:
-        where.append("coalesce(a.description_judge_confidence, 0.0) <= $judge_max")
-        params["judge_max"] = float(judge_max)
-    if date_from:
-        where.append("a.auction_start_dt IS NOT NULL AND date(a.auction_start_dt) >= date($date_from)")
-        params["date_from"] = date_from
-    if date_to:
-        where.append("a.auction_start_dt IS NOT NULL AND date(a.auction_start_dt) <= date($date_to)")
-        params["date_to"] = date_to
-
-    nt_clause = _notice_type_clause(notice_type, alias="d")
-    if nt_clause:
-        where.append(nt_clause)
-
-    where_clause = " AND ".join(where)
-
-    cypher = f"""
-        MATCH (a:AuctionProperty)
-        OPTIONAL MATCH (a)-[:HAS_BORROWER]->(b:Borrower)
-        OPTIONAL MATCH (a)-[:HAS_DOCUMENT]->(d:Document)
-        WITH a, collect(DISTINCT b.name) AS borrowers,
-             collect(DISTINCT d) AS docs
-        WITH a, borrowers, docs, head(docs) AS d
-        WHERE {where_clause}
-        RETURN a.auction_id                AS auction_id,
-               a.title                     AS title,
-               borrowers                   AS borrowers,
-               a.reserve_price_num         AS reserve_price,
-               a.description_completeness  AS completeness,
-               a.description_wrong_property AS wrong_property,
-               a.description_text_overlap  AS text_overlap,
-               a.description_source        AS source,
-               coalesce(a.description_verified, false) AS verified,
-               a.description_verified_at   AS verified_at,
-               a.description_verified_by   AS verified_by,
-               d.notice_type               AS notice_type,
-               (d.public_url IS NOT NULL AND d.public_url <> '') AS has_pdf
-        ORDER BY verified ASC,
-                 coalesce(a.description_completeness, 0.0) ASC,
-                 coalesce(a.description_text_overlap, 0.0) ASC,
-                 a.auction_id ASC
-        SKIP $skip LIMIT $size
-    """
-    rows = run_read_query(cypher, params, max_rows=size)
-
-    # Total count.  When a notice_type filter is active, we must join Document
-    # to apply it; otherwise strip d. predicates as before (the count query
-    # in the no-filter path doesn't pull docs for performance).
-    if notice_type:
-        count_cypher = f"""
-            MATCH (a:AuctionProperty)
-            OPTIONAL MATCH (a)-[:HAS_BORROWER]->(b:Borrower)
-            OPTIONAL MATCH (a)-[:HAS_DOCUMENT]->(d:Document)
-            WITH a, collect(DISTINCT b.name) AS borrowers,
-                 collect(DISTINCT d) AS docs
-            WITH a, borrowers, head(docs) AS d
-            WHERE {where_clause}
-            RETURN count(a) AS total
-        """
-    else:
-        count_where = [w for w in where if "d." not in w]
-        count_cypher = f"""
-            MATCH (a:AuctionProperty)
-            OPTIONAL MATCH (a)-[:HAS_BORROWER]->(b:Borrower)
-            WITH a, collect(DISTINCT b.name) AS borrowers
-            WHERE {' AND '.join(count_where)}
-            RETURN count(a) AS total
-        """
-    count_rows = run_read_query(count_cypher, params, max_rows=1)
-    total = count_rows[0]["total"] if count_rows else 0
-
-    return {"page": page, "size": size, "total": total, "rows": rows}
 
 
-def list_notice_queue(
-    status: ReviewStatus = "pending",
-    q: str | None = None,
-    page: int = 1,
-    size: int = 50,
-    date_from: str | None = None,
-    date_to: str | None = None,
-    notice_type: NoticeTypeFilter | None = None,
-    judge_min: float | None = None,
-    judge_max: float | None = None,
-) -> dict:
-    """Return a page of sales notices (Documents), each carrying the list of
-    AuctionProperty rows extracted from it.
-
-    Lets reviewers close 5–7 listings of a multi-property notice in one sitting
-    instead of jumping back to the queue after every verify.
-
-    Status semantics at the notice level:
-    - pending: notice has at least one property still pending review
-    - verified: every property under the notice has been verified
-    - edited: at least one property under the notice was human-edited
-    - all: every notice that backs any reviewable property
-
-    date_from / date_to filter linked properties by auction_start_dt. A notice
-    is surfaced if any property survives the date filter; aggregate counts
-    (total/pending/verified/edited) are computed over surviving properties only,
-    so filtered totals reflect what the reviewer can actually act on.
-    """
-    page = max(1, int(page))
-    size = max(1, min(200, int(size)))
-    skip = (page - 1) * size
-
-    if status == "pending":
-        notice_filter = "pending_count > 0"
-    elif status == "verified":
-        notice_filter = "pending_count = 0"
-    elif status == "edited":
-        notice_filter = "edited_count > 0"
-    else:
-        notice_filter = "true"
-
-    params: dict = {"skip": skip, "size": size}
-    search_filter = "true"
-    if q:
-        params["q"] = q
-        search_filter = (
-            "(toLower(coalesce(d.filename, '')) CONTAINS toLower($q) "
-            "OR ANY(p IN properties WHERE "
-            "  toLower(coalesce(p.title, '')) CONTAINS toLower($q) "
-            "  OR ANY(bb IN p.borrowers WHERE toLower(coalesce(bb, '')) CONTAINS toLower($q))))"
-        )
-
-    date_predicate = ""
-    if date_from:
-        date_predicate += " AND a.auction_start_dt IS NOT NULL AND date(a.auction_start_dt) >= date($date_from)"
-        params["date_from"] = date_from
-    if date_to:
-        date_predicate += " AND a.auction_start_dt IS NOT NULL AND date(a.auction_start_dt) <= date($date_to)"
-        params["date_to"] = date_to
-    # Score (completeness-judge confidence) filter — narrows the per-property
-    # rows that feed each notice's aggregate counts, so a notice surfaces only
-    # while it has reviewable properties inside the requested score band.
-    if judge_min is not None:
-        date_predicate += " AND coalesce(a.description_judge_confidence, 0.0) >= $judge_min"
-        params["judge_min"] = float(judge_min)
-    if judge_max is not None:
-        date_predicate += " AND coalesce(a.description_judge_confidence, 0.0) <= $judge_max"
-        params["judge_max"] = float(judge_max)
-    nt_clause = _notice_type_clause(notice_type, alias="d")
-    if nt_clause:
-        date_predicate += f" AND {nt_clause}"
-
-    cypher = f"""
-        MATCH (d:Document)<-[:HAS_DOCUMENT]-(a:AuctionProperty)
-        WHERE a.description_source IN ['notice', 'human']
-          AND a.description IS NOT NULL
-          {date_predicate}
-        OPTIONAL MATCH (a)-[:HAS_BORROWER]->(b:Borrower)
-        WITH d, a, collect(DISTINCT b.name) AS borrowers
-        WITH d, collect({{
-                auction_id:    a.auction_id,
-                title:         a.title,
-                borrowers:     borrowers,
-                reserve_price: a.reserve_price_num,
-                completeness:  a.description_completeness,
-                source:        a.description_source,
-                verified:      coalesce(a.description_verified, false),
-                verified_at:   a.description_verified_at,
-                verified_by:   a.description_verified_by
-             }}) AS properties
-        WITH d, properties,
-             size(properties) AS total_count,
-             size([p IN properties WHERE p.verified = false]) AS pending_count,
-             size([p IN properties WHERE p.verified = true AND p.source = 'notice']) AS verified_count,
-             size([p IN properties WHERE p.verified = true AND p.source = 'human']) AS edited_count
-        WHERE {notice_filter} AND {search_filter}
-        RETURN d.filename                       AS filename,
-               d.file_path                      AS file_path,
-               d.public_url                     AS public_url,
-               d.notice_type                    AS notice_type,
-               coalesce(d.property_count, total_count) AS doc_property_count,
-               total_count                      AS total_count,
-               pending_count                    AS pending_count,
-               verified_count                   AS verified_count,
-               edited_count                     AS edited_count,
-               properties                       AS properties,
-               d.markdown                       AS markdown
-        ORDER BY pending_count DESC,
-                 total_count DESC,
-                 filename ASC
-        SKIP $skip LIMIT $size
-    """
-    rows = run_read_query(cypher, params, max_rows=size, timeout=30.0)
-
-    count_cypher = f"""
-        MATCH (d:Document)<-[:HAS_DOCUMENT]-(a:AuctionProperty)
-        WHERE a.description_source IN ['notice', 'human']
-          AND a.description IS NOT NULL
-          {date_predicate}
-        OPTIONAL MATCH (a)-[:HAS_BORROWER]->(b:Borrower)
-        WITH d, a, collect(DISTINCT b.name) AS borrowers
-        WITH d, collect({{
-                auction_id:    a.auction_id,
-                title:         a.title,
-                borrowers:     borrowers,
-                reserve_price: a.reserve_price_num,
-                completeness:  a.description_completeness,
-                source:        a.description_source,
-                verified:      coalesce(a.description_verified, false)
-             }}) AS properties
-        WITH d, properties,
-             size([p IN properties WHERE p.verified = false]) AS pending_count,
-             size([p IN properties WHERE p.verified = true AND p.source = 'human']) AS edited_count
-        WHERE {notice_filter} AND {search_filter}
-        RETURN count(d) AS total
-    """
-    count_rows = run_read_query(count_cypher, params, max_rows=1, timeout=30.0)
-    total = count_rows[0]["total"] if count_rows else 0
-
-    for r in rows:
-        for p in r.get("properties") or []:
-            v = p.get("verified_at")
-            if v is not None and not isinstance(v, str):
-                p["verified_at"] = str(v)
-        _sort_properties_by_markdown(r)
-
-    return {"page": page, "size": size, "total": total, "rows": rows}
 
 
 def list_notice_siblings(auction_id: str) -> dict | None:
@@ -566,95 +296,6 @@ def unverify(auction_id: str) -> bool:
     return bool(rows)
 
 
-def auto_confirm_descriptions(
-    judge_min: float,
-    by_email: str,
-    notes: str | None = None,
-    dry_run: bool = False,
-    judge_max: float = 1.0,
-    notice_type: NoticeTypeFilter | None = None,
-    date_from: str | None = None,
-    date_to: str | None = None,
-    q: str | None = None,
-) -> dict:
-    """Bulk-verify every pending property whose description matches the
-    reviewer's current description-queue filter (completeness-judge score
-    range, notice_type, date window, title/borrower search).
-
-    Mirrors the pending-side WHERE of ``list_queue`` so the count advertised
-    on the "Confirm all N in range" button and the set actually verified stay
-    in lockstep. Only the verification audit fields are stamped — the
-    description text and source are left untouched (no re-extract).
-
-    Returns ``{"count": N, "dry_run": bool}``. When ``dry_run=True`` nothing
-    is written; the count reflects what *would* be confirmed.
-    """
-    where = [
-        "a.description_source IN ['notice', 'human']",
-        "a.description IS NOT NULL",
-        "coalesce(a.description_verified, false) = false",
-    ]
-    params: dict = {}
-    if q:
-        where.append(
-            "(toLower(coalesce(a.title, '')) CONTAINS toLower($q) "
-            "OR ANY(bn IN borrowers WHERE toLower(coalesce(bn, '')) CONTAINS toLower($q)))"
-        )
-        params["q"] = q
-    if judge_min is not None:
-        where.append("coalesce(a.description_judge_confidence, 0.0) >= $judge_min")
-        params["judge_min"] = float(judge_min)
-    if judge_max is not None:
-        where.append("coalesce(a.description_judge_confidence, 0.0) <= $judge_max")
-        params["judge_max"] = float(judge_max)
-    if date_from:
-        where.append("a.auction_start_dt IS NOT NULL AND date(a.auction_start_dt) >= date($date_from)")
-        params["date_from"] = date_from
-    if date_to:
-        where.append("a.auction_start_dt IS NOT NULL AND date(a.auction_start_dt) <= date($date_to)")
-        params["date_to"] = date_to
-    nt_clause = _notice_type_clause(notice_type, alias="d")
-    if nt_clause:
-        where.append(nt_clause)
-    where_clause = " AND ".join(where)
-
-    base_match = """
-        MATCH (a:AuctionProperty)
-        OPTIONAL MATCH (a)-[:HAS_BORROWER]->(b:Borrower)
-        OPTIONAL MATCH (a)-[:HAS_DOCUMENT]->(d:Document)
-        WITH a, collect(DISTINCT b.name) AS borrowers,
-             head(collect(DISTINCT d)) AS d
-    """
-
-    if dry_run:
-        rows = run_read_query(
-            f"""
-            {base_match}
-            WHERE {where_clause}
-            RETURN count(a) AS n
-            """,
-            params,
-            max_rows=1,
-        )
-        return {"count": int(rows[0]["n"]) if rows else 0, "dry_run": True}
-
-    params["by"] = by_email
-    params["notes"] = notes
-    rows = run_query(
-        f"""
-        {base_match}
-        WHERE {where_clause}
-        SET a.description_verified = true,
-            a.description_verified_by = $by,
-            a.description_verified_at = datetime(),
-            a.description_review_notes = CASE WHEN $notes IS NULL OR $notes = ''
-                                              THEN a.description_review_notes
-                                              ELSE $notes END
-        RETURN count(a) AS n
-        """,
-        params,
-    )
-    return {"count": int(rows[0]["n"]) if rows else 0, "dry_run": False}
 
 
 ClassificationStatus = Literal["pending", "verified", "edited", "all"]
@@ -753,7 +394,6 @@ def list_classification_queue(
                toString(d.notice_type_verified_at) AS verified_at,
                d.notice_type_verified_by        AS verified_by,
                d.notice_type_review_notes       AS review_notes,
-               d.description_extraction_status  AS extraction_status,
                [t IN titles WHERE t IS NOT NULL][0..3] AS sample_titles,
                size(auction_ids)                AS auction_id_count
         ORDER BY verified ASC,
@@ -910,12 +550,10 @@ def verify_classification(
     for 'multi' the count is stored only when given.
 
     Side effects when the new notice_type differs from the prior:
-      - description_extraction_status is set to 'needs_reextract' so the
-        next pipeline run regenerates the cache file and apply.
       - Every linked AuctionProperty whose description was NOT human-edited
         is unverified (description_verified=false; audit fields cleared).
         The description text stays in place — it gets overwritten by the
-        next pipeline run, after which the reviewer re-verifies.
+        next LangExtract apply, after which the reviewer re-verifies.
       - Human-edited rows (description_source='human') are NEVER touched;
         their edits stand regardless of classification flips.
 
@@ -944,11 +582,7 @@ def verify_classification(
             d.notice_type_review_notes     = CASE
                 WHEN $notes IS NULL OR $notes = ''
                 THEN d.notice_type_review_notes
-                ELSE $notes END,
-            d.description_extraction_status = CASE
-                WHEN prior = $nt
-                THEN d.description_extraction_status
-                ELSE 'needs_reextract' END
+                ELSE $notes END
         WITH d, prior
         OPTIONAL MATCH (d)<-[:HAS_DOCUMENT]-(a:AuctionProperty)
         WHERE prior <> $nt
@@ -965,7 +599,6 @@ def verify_classification(
                toString(d.notice_type_verified_at) AS verified_at,
                d.notice_type_verified_by           AS verified_by,
                d.notice_type_review_notes          AS review_notes,
-               d.description_extraction_status     AS extraction_status,
                size(to_invalidate)                 AS invalidated_count
     """, params)
     return rows[0] if rows else None
@@ -1040,85 +673,6 @@ def auto_confirm_classifications(
     return {"count": int(rows[0]["n"]) if rows else 0, "dry_run": False}
 
 
-def stats(
-    date_from: str | None = None,
-    date_to: str | None = None,
-    notice_type: NoticeTypeFilter | None = None,
-) -> dict:
-    """Counts for the queue header — pending / verified / edited / total.
-
-    Optional date_from / date_to filter properties by auction_start_dt so the
-    pills reflect the current date filter the reviewer has applied.
-
-    Optional notice_type filter scopes stats to properties backed by a
-    Document of the given type. When filtering, an OPTIONAL MATCH to Document
-    is added; properties with no Document have d.notice_type = NULL, so they
-    are excluded by single/multi filters and included by unclassified.
-    """
-    where = ["a.description_source IN ['notice', 'human']", "a.description IS NOT NULL"]
-    params: dict = {}
-    if date_from:
-        where.append("a.auction_start_dt IS NOT NULL AND date(a.auction_start_dt) >= date($date_from)")
-        params["date_from"] = date_from
-    if date_to:
-        where.append("a.auction_start_dt IS NOT NULL AND date(a.auction_start_dt) <= date($date_to)")
-        params["date_to"] = date_to
-
-    nt_clause = _notice_type_clause(notice_type, alias="d")
-    if nt_clause:
-        where.append(nt_clause)
-
-    where_str = ' AND '.join(where)
-
-    if nt_clause:
-        # Need to join Document to apply the filter; OPTIONAL MATCH so that
-        # properties without a document still participate (NULL d.notice_type
-        # satisfies `IS NULL` but fails `= 'single'/'multi'` — correct).
-        cypher = f"""
-            MATCH (a:AuctionProperty)
-            OPTIONAL MATCH (a)-[:HAS_DOCUMENT]->(d:Document)
-            WITH a, head(collect(d)) AS d
-            WHERE {where_str}
-            RETURN
-              count(*) AS total,
-              sum(CASE WHEN coalesce(a.description_verified, false) = false THEN 1 ELSE 0 END) AS pending,
-              sum(CASE WHEN coalesce(a.description_verified, false) = true
-                        AND a.description_source = 'notice' THEN 1 ELSE 0 END) AS verified,
-              sum(CASE WHEN coalesce(a.description_verified, false) = true
-                        AND a.description_source = 'human' THEN 1 ELSE 0 END) AS edited
-        """
-    else:
-        cypher = f"""
-            MATCH (a:AuctionProperty)
-            WHERE {where_str}
-            RETURN
-              count(*) AS total,
-              sum(CASE WHEN coalesce(a.description_verified, false) = false THEN 1 ELSE 0 END) AS pending,
-              sum(CASE WHEN coalesce(a.description_verified, false) = true
-                        AND a.description_source = 'notice' THEN 1 ELSE 0 END) AS verified,
-              sum(CASE WHEN coalesce(a.description_verified, false) = true
-                        AND a.description_source = 'human' THEN 1 ELSE 0 END) AS edited
-        """
-    rows = run_read_query(cypher, params, max_rows=1)
-    if not rows:
-        return {"total": 0, "pending": 0, "verified": 0, "edited": 0}
-    r = rows[0]
-    return {
-        "total": int(r.get("total") or 0),
-        "pending": int(r.get("pending") or 0),
-        "verified": int(r.get("verified") or 0),
-        "edited": int(r.get("edited") or 0),
-    }
-
-
-# ── Markdown-quality review ─────────────────────────────────────────────────
-# A :Document's `markdown` is OCR output. Coverage scoring
-# (pipeline/score_markdown.py) writes `markdown_quality_score` 0–100 per
-# Document; reviewers focus on the low end. Verify writes:
-#   - markdown_quality              ('good' | 'bad')
-#   - markdown_verified_at          (datetime)
-#   - markdown_verified_by          (admin email)
-#   - markdown_review_notes         (optional)
 
 
 MarkdownStatus = Literal["pending", "verified", "edited", "all"]

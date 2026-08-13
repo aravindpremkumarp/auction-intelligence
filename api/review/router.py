@@ -22,29 +22,6 @@ from api.review import queries as q
 router = APIRouter(prefix="/review", tags=["review"])
 
 
-class ReviewQueueRow(BaseModel):
-    auction_id: str
-    title: str | None = None
-    borrowers: list[str] = []
-    reserve_price: float | None = None
-    completeness: float | None = None
-    wrong_property: bool | None = None
-    text_overlap: float | None = None
-    source: str | None = None
-    verified: bool = False
-    verified_at: str | None = None
-    verified_by: str | None = None
-    notice_type: str | None = None
-    has_pdf: bool = False
-
-
-class ReviewQueueOut(BaseModel):
-    page: int
-    size: int
-    total: int
-    rows: list[ReviewQueueRow]
-
-
 class ReviewNoticeProperty(BaseModel):
     auction_id: str
     title: str | None = None
@@ -55,26 +32,6 @@ class ReviewNoticeProperty(BaseModel):
     verified: bool = False
     verified_at: str | None = None
     verified_by: str | None = None
-
-
-class ReviewNoticeRow(BaseModel):
-    filename: str | None = None
-    file_path: str | None = None
-    public_url: str | None = None
-    notice_type: str | None = None
-    doc_property_count: int | None = None
-    total_count: int = 0
-    pending_count: int = 0
-    verified_count: int = 0
-    edited_count: int = 0
-    properties: list[ReviewNoticeProperty] = []
-
-
-class ReviewNoticeQueueOut(BaseModel):
-    page: int
-    size: int
-    total: int
-    rows: list[ReviewNoticeRow]
 
 
 class ReviewSiblingsOut(BaseModel):
@@ -145,13 +102,6 @@ class EditBody(BaseModel):
     notes: str | None = Field(default=None, max_length=2000)
 
 
-class ReviewStats(BaseModel):
-    total: int
-    pending: int
-    verified: int
-    edited: int
-
-
 class ClassificationRow(BaseModel):
     filename: str | None = None
     file_path: str | None = None
@@ -164,7 +114,6 @@ class ClassificationRow(BaseModel):
     verified_at: str | None = None
     verified_by: str | None = None
     review_notes: str | None = None
-    extraction_status: str | None = None
     sample_titles: list[str] = []
     auction_id_count: int = 0
 
@@ -198,7 +147,6 @@ class ClassifyResult(BaseModel):
     verified_at: str | None = None
     verified_by: str | None = None
     review_notes: str | None = None
-    extraction_status: str | None = None
     invalidated_count: int = 0
 
 
@@ -214,19 +162,6 @@ class BulkConfirmBody(BaseModel):
 class BulkConfirmResult(BaseModel):
     count: int
     dry_run: bool
-
-
-class DescriptionBulkConfirmBody(BaseModel):
-    # Completeness-judge confidence band (0–1). The review UI's 0–100 score
-    # inputs are divided by 100 before they reach here.
-    judge_min: float = Field(ge=0.0, le=1.0)
-    judge_max: float = Field(default=1.0, ge=0.0, le=1.0)
-    notice_type: Literal["all", "single", "multi", "unclassified"] = "all"
-    date_from: str | None = Field(default=None, max_length=20)
-    date_to:   str | None = Field(default=None, max_length=20)
-    q:         str | None = Field(default=None, max_length=200)
-    notes: str | None = Field(default=None, max_length=2000)
-    dry_run: bool = False
 
 
 class ClassificationPropertyRow(BaseModel):
@@ -515,65 +450,6 @@ def _row_to_str(row: dict) -> dict:
     return out
 
 
-@router.get("/stats", response_model=ReviewStats)
-def review_stats(
-    date_from: str | None = Query(default=None, max_length=20),
-    date_to: str | None = Query(default=None, max_length=20),
-    notice_type: Literal["all", "single", "multi", "unclassified"] = Query(default="all"),
-    _admin: UserOut = Depends(get_current_admin),
-) -> ReviewStats:
-    return ReviewStats(**q.stats(
-        date_from=date_from, date_to=date_to,
-        notice_type=notice_type if notice_type != "all" else None,
-    ))
-
-
-@router.get("/queue", response_model=ReviewQueueOut)
-def review_queue(
-    status: Literal["pending", "verified", "edited", "all"] = "pending",
-    q_search: str | None = Query(default=None, alias="q", max_length=200),
-    page: int = Query(default=1, ge=1),
-    size: int = Query(default=50, ge=1, le=200),
-    date_from: str | None = Query(default=None, max_length=20),
-    date_to: str | None = Query(default=None, max_length=20),
-    notice_type: Literal["all", "single", "multi", "unclassified"] = Query(default="all"),
-    judge_min: float | None = Query(default=None, ge=0.0, le=1.0),
-    judge_max: float | None = Query(default=None, ge=0.0, le=1.0),
-    _admin: UserOut = Depends(get_current_admin),
-) -> ReviewQueueOut:
-    result = q.list_queue(
-        status=status, q=q_search, page=page, size=size,
-        date_from=date_from, date_to=date_to,
-        notice_type=notice_type if notice_type != "all" else None,
-        judge_min=judge_min, judge_max=judge_max,
-    )
-    rows = [ReviewQueueRow(**_row_to_str(r)) for r in result["rows"]]
-    return ReviewQueueOut(page=result["page"], size=result["size"], total=result["total"], rows=rows)
-
-
-@router.get("/notices", response_model=ReviewNoticeQueueOut)
-def review_notices(
-    status: Literal["pending", "verified", "edited", "all"] = "pending",
-    q_search: str | None = Query(default=None, alias="q", max_length=200),
-    page: int = Query(default=1, ge=1),
-    size: int = Query(default=50, ge=1, le=200),
-    date_from: str | None = Query(default=None, max_length=20),
-    date_to: str | None = Query(default=None, max_length=20),
-    notice_type: Literal["all", "single", "multi", "unclassified"] = Query(default="all"),
-    judge_min: float | None = Query(default=None, ge=0.0, le=1.0),
-    judge_max: float | None = Query(default=None, ge=0.0, le=1.0),
-    _admin: UserOut = Depends(get_current_admin),
-) -> ReviewNoticeQueueOut:
-    result = q.list_notice_queue(
-        status=status, q=q_search, page=page, size=size,
-        date_from=date_from, date_to=date_to,
-        notice_type=notice_type if notice_type != "all" else None,
-        judge_min=judge_min, judge_max=judge_max,
-    )
-    rows = [ReviewNoticeRow(**r) for r in result["rows"]]
-    return ReviewNoticeQueueOut(page=result["page"], size=result["size"], total=result["total"], rows=rows)
-
-
 @router.get("/property/{auction_id}", response_model=ReviewPropertyOut)
 def review_property(
     auction_id: str,
@@ -642,25 +518,6 @@ def review_unverify(
         raise HTTPException(status_code=404, detail="property not found")
     row = q.get_property(auction_id)
     return ReviewPropertyOut(**_row_to_str(row))
-
-
-@router.post("/bulk-confirm", response_model=BulkConfirmResult)
-def review_description_bulk_confirm(
-    body: DescriptionBulkConfirmBody,
-    admin: UserOut = Depends(get_current_admin),
-) -> BulkConfirmResult:
-    result = q.auto_confirm_descriptions(
-        judge_min=body.judge_min,
-        judge_max=body.judge_max,
-        notice_type=body.notice_type if body.notice_type != "all" else None,
-        date_from=body.date_from,
-        date_to=body.date_to,
-        q=body.q,
-        by_email=admin.email,
-        notes=body.notes,
-        dry_run=body.dry_run,
-    )
-    return BulkConfirmResult(**result)
 
 
 # ── Classification review ───────────────────────────────────────────────────
