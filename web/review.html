@@ -166,6 +166,10 @@
   .notice-card > summary::-webkit-details-marker { display: none; }
   .notice-card > summary::before { content: '▸'; font-family: 'IBM Plex Mono', monospace; font-size: 11px; width: 12px; display: inline-block; transition: transform 0.15s; }
   .notice-card[open] > summary::before { transform: rotate(90deg); }
+  /* Extraction cards don't expand — the card IS the link into the workspace —
+     so drop the disclosure triangle and the pointer that promise otherwise. */
+  .notice-card.static > summary { cursor: default; }
+  .notice-card.static > summary::before { content: none; }
   .notice-card > summary .nfile { font-family: 'IBM Plex Mono', monospace; font-size: 13px; font-weight: 600; }
   .notice-card > summary .nspacer { flex: 1; }
   .notice-card > summary .nlinks { display: inline-flex; gap: 10px; }
@@ -260,11 +264,22 @@
   .ann-toolbar .zoom-btn { padding: 2px 8px; min-height: 0; font-size: 13px; }
   .ann-toolbar .zoom-pct { min-width: 36px; text-align: center; font-family: 'IBM Plex Mono', monospace; font-size: 11px; }
   .ann-toolbar .ann-badges { display: inline-flex; gap: 5px; align-items: center; flex-wrap: wrap; }
-  /* Extraction workspace. Sized to the viewport so the grounded-review tool
-     inside gets the same "fills the screen, page never scrolls" treatment the
-     annotator has, with the shared filter bar still visible above it. */
-  #queue-by-extraction { border: 2px solid var(--ink); background: #fff; box-shadow: 2px 3px 0 rgba(0,0,0,0.9); overflow: hidden; }
-  #queue-by-extraction iframe { border: 0; width: 100%; height: 72vh; min-height: 460px; display: block; }
+  /* Extraction workspace (one notice). Mirrors the annotator: the masthead
+     collapses and the tool fills the viewport, so the page itself never
+     scrolls and the iframe gets every pixel below the toolbar. */
+  #screen-extraction iframe { width: 100%; height: 78vh; min-height: 480px; display: block; border: 2px solid var(--ink); box-shadow: 2px 3px 0 rgba(0,0,0,0.9); background: #fff; box-sizing: border-box; }
+  body.extraction-active { padding-top: 8px; padding-bottom: 8px; }
+  body.extraction-active .wrap > h1,
+  body.extraction-active .wrap > .actions { display: none; }
+  body.extraction-active .wrap > #msg:empty { display: none; }
+  body.extraction-active .ann-toolbar { gap: 6px; margin-bottom: 6px; }
+  @media (min-width: 1101px) {
+    body.extraction-active { height: 100vh; overflow: hidden; box-sizing: border-box; }
+    body.extraction-active .wrap { height: 100%; display: flex; flex-direction: column; min-height: 0; }
+    body.extraction-active #screen-extraction { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+    body.extraction-active #screen-extraction .ann-toolbar { flex: none; }
+    body.extraction-active #screen-extraction iframe { flex: 1 1 auto; height: auto; min-height: 0; }
+  }
   /* The annotator is a workspace, not a browse screen. The masthead, the global
      nav row and the queue-level stats are all context the reviewer already had
      before drilling in, and on a laptop they cost ~90px of the image area. Hide
@@ -514,13 +529,10 @@
     <div id="queue-by-classification" class="notice-list"></div>
     <div id="queue-by-classification-gallery" class="gallery-grid hidden"></div>
     <div id="queue-by-markdown" class="notice-list hidden"></div>
-    <!-- Extraction stage: the shell (header, filter bar, hash state) is native
-         like every other stage; the grounded-review workspace itself is hosted
-         in an iframe (web/review_extraction.html) and receives the filter state
-         on its query string. -->
-    <div id="queue-by-extraction" class="hidden">
-      <iframe id="extraction-frame" title="Extraction review"></iframe>
-    </div>
+    <!-- Extraction stage: a card list, exactly like the markdown stage. The
+         grounded-review workspace opens per notice via #extraction/<filename>
+         (see #screen-extraction), the same way a card here opens the annotator. -->
+    <div id="queue-by-extraction" class="notice-list hidden"></div>
     <div id="queue-by-classification-by-property" class="table-scroll hidden">
       <table>
         <thead>
@@ -719,6 +731,21 @@
       </div>
     </div>
   </section>
+
+  <!-- Extraction workspace for ONE notice (#extraction/<filename>), opened from
+       a card in the extraction stage — the same list-then-drill-in shape the
+       markdown stage uses to reach the annotator. The grounded-review tool is
+       hosted in an iframe; it hides its own queue sidebar in this mode. -->
+  <section id="screen-extraction" class="hidden">
+    <div class="ann-toolbar">
+      <a class="link" href="#" id="xr-back">← Back to queue</a>
+      <span class="filename" id="xr-filename"></span>
+      <span class="ann-badges" id="xr-badges"></span>
+      <span style="flex:1"></span>
+      <a class="link" id="xr-annotate" title="edit this notice's OCR blocks">annotate blocks ↗</a>
+    </div>
+    <iframe id="extraction-frame" title="Extraction review"></iframe>
+  </section>
 </div>
 
 <script>
@@ -779,6 +806,7 @@
     if (h.startsWith('detail/'))  return { screen: 'detail',   id: decodeURIComponent(h.slice('detail/'.length)) };
     if (h.startsWith('property/')) return { screen: 'detail',  id: decodeURIComponent(h.slice('property/'.length)) };
     if (h.startsWith('notice/'))   return { screen: 'annotator', filename: decodeURIComponent(h.slice('notice/'.length)) };
+    if (h.startsWith('extraction/')) return { screen: 'extraction', filename: decodeURIComponent(h.slice('extraction/'.length)) };
     if (h.startsWith('gallery/')) {
       // Legacy deep-link: jump into the classification gallery for a specific notice.
       const fn = decodeURIComponent(h.slice('gallery/'.length));
@@ -812,6 +840,16 @@
   }
 
   function writeHash() {
+    const next = '#' + buildQueueHash();
+    if (location.hash !== next) {
+      history.replaceState(null, '', next);
+    }
+  }
+
+  // The queue's filter state as a hash string. Split out of writeHash() so the
+  // per-notice workspaces can point "← Back to queue" at the exact filters the
+  // reviewer came from instead of dumping them back on the defaults.
+  function buildQueueHash() {
     const p = new URLSearchParams();
     p.set('stage', queueState.stage);
     p.set('group', queueState.group);
@@ -822,17 +860,16 @@
     if (queueState.dateTo)   p.set('date_to',   queueState.dateTo);
     if (queueState.scoreFrom !== 0)   p.set('score_from', String(queueState.scoreFrom));
     if (queueState.scoreTo   !== 100) p.set('score_to',   String(queueState.scoreTo));
-    const next = '#' + p.toString();
-    if (location.hash !== next) {
-      history.replaceState(null, '', next);
-    }
+    return p.toString();
   }
 
   function show(screen) {
     $('screen-queue').classList.toggle('hidden', screen !== 'queue');
     $('screen-detail').classList.toggle('hidden', screen !== 'detail');
     $('screen-annotator').classList.toggle('hidden', screen !== 'annotator');
+    $('screen-extraction').classList.toggle('hidden', screen !== 'extraction');
     document.body.classList.toggle('annotator-active', screen === 'annotator');
+    document.body.classList.toggle('extraction-active', screen === 'extraction');
   }
 
   async function route() {
@@ -845,6 +882,8 @@
       await loadStats(); await loadQueue();
     } else if (r.screen === 'annotator') {
       await loadAnnotator(r.filename);
+    } else if (r.screen === 'extraction') {
+      openExtractionDoc(r.filename);
     } else {
       await loadDetail(r.id);
     }
@@ -1003,33 +1042,119 @@
         await loadMarkdownQueue(append);
       }
     } else if (queueState.stage === 'extraction') {
-      loadExtractionFrame();
+      await loadExtractionQueue();
     }
     updateLoadMore();
     updateBulkConfirmButton();
   }
 
-  // The extraction workspace lives in an iframe, so "loading the queue" here
-  // means handing the frame the current filter state on its query string. The
-  // frame re-reads it on load, so only reassign src when the filters actually
-  // changed — otherwise every unrelated repaint would reload the frame and
-  // throw away the reviewer's selected document.
-  let extractionFrameQS = null;
-  function loadExtractionFrame() {
+  // ─── Extraction stage: list, then drill into one notice ─────────────────
+  // Same shape as the markdown stage — a card per notice here, and the
+  // grounded-review workspace opens per notice at #extraction/<filename>.
+
+  // The validators.py quality score, banded like the extraction tool's own
+  // badge: >=80 green (the review threshold), 50-79 amber, <50 red.
+  function extractionScorePill(row) {
+    if (row.score == null) return '<span class="pill off">unscored</span>';
+    const cls = row.score >= 80 ? 'good' : (row.score >= 50 ? 'warn' : 'danger');
+    return `<span class="pill ${cls}" title="extraction quality score (pipeline/validators.py)">score ${row.score}</span>`;
+  }
+
+  function extractionStatusPill(row) {
+    if (row.status === 'verified') return '<span class="pill good">verified</span>';
+    if (row.status === 'edited') return '<span class="pill good">edited</span>';
+    return '<span class="pill warn">pending</span>';
+  }
+
+  async function loadExtractionQueue() {
+    const list = $('queue-by-extraction');
+    list.innerHTML = '<div class="empty">loading…</div>';
+    const params = new URLSearchParams({ limit: '500', sort: 'recent' });
+    if (queueState.status && queueState.status !== 'all') params.set('status', queueState.status);
+    if (queueState.q) params.set('q', queueState.q);
+    appendCommonParams(params);
+    appendScoreParams(params);
+    const r = await authFetch(API + '/review/extraction/queue?' + params.toString());
+    if (r.status === 401 || r.status === 403) {
+      list.innerHTML = '<div class="empty"><span class="err">not authorised — sign in as admin</span></div>';
+      return;
+    }
+    if (!r.ok) {
+      list.innerHTML = `<div class="empty"><span class="err">error ${r.status}</span></div>`;
+      return;
+    }
+    const data = await r.json();
+    queueTotal = data.total || 0;
+    queueLoadedCount = (data.rows || []).length;
+    if (!queueLoadedCount) {
+      list.innerHTML = '<div class="empty">no extractions match this filter.</div>';
+      return;
+    }
+    list.innerHTML = '';
+    const batches = data.rows.map(x => x.extraction_batch).filter(b => b != null);
+    const maxBatch = batches.length ? Math.max(...batches) : null;
+    for (const row of data.rows) list.appendChild(renderExtractionCard(row, maxBatch));
+  }
+
+  function renderExtractionCard(row, maxBatch) {
+    const card = document.createElement('div');
+    card.className = 'notice-card static';
+    const filename = row.filename || '(unnamed notice)';
+    const batch = row.extraction_batch != null
+      ? `<span class="pill ${row.extraction_batch === maxBatch ? 'on' : 'off'}" title="extraction batch ${row.extraction_batch}${row.extraction_batch === maxBatch ? ' — the latest run' : ''}">B${row.extraction_batch}</span>`
+      : '';
+    const fields = `<span class="pill off">${row.n_fields} field${row.n_fields === 1 ? '' : 's'}</span>`;
+    const ungrounded = row.n_ungrounded
+      ? `<span class="pill warn" title="${row.n_ungrounded} extraction(s) with no character span in the source">${row.n_ungrounded} ungrounded</span>`
+      : '';
+    // The lot-count checksum from the classification gate (see expected_lot_count).
+    const lots = row.lot_count_mismatch
+      ? `<span class="pill danger" title="a reviewer counted ${row.expected_lot_count} lot(s) at classification; this extraction has ${row.extracted_lot_count}">⚠ lots ${row.extracted_lot_count}/${row.expected_lot_count}</span>`
+      : ((row.expected_lot_count != null && row.extracted_lot_count != null)
+          ? `<span class="pill good" title="extracted lot count matches the reviewer's count">✓ ${row.extracted_lot_count} lot${row.extracted_lot_count === 1 ? '' : 's'}</span>`
+          : '');
+    const stale = row.stale
+      ? '<span class="pill warn" title="markdown was re-ingested after this extraction ran — re-run required">⚠ re-run</span>'
+      : '';
+    const when = row.extraction_at
+      ? `<span class="meta" style="color:var(--muted)">extracted ${escapeHtml(fmtWhen(row.extraction_at))}</span>`
+      : '';
+    const href = '#extraction/' + encodeURIComponent(row.filename || '');
+    const summary = document.createElement('summary');
+    summary.innerHTML = `
+      <span class="nfile">${escapeHtml(filename)}</span>
+      ${batch} ${extractionScorePill(row)} ${extractionStatusPill(row)} ${lots} ${ungrounded} ${stale} ${fields}
+      <span class="nspacer"></span>
+      <span class="nlinks">
+        <a class="link" href="${href}">review extraction ↗</a>
+        <a class="link" href="#notice/${encodeURIComponent(row.filename || '')}">annotate blocks ↗</a>
+      </span>
+    `;
+    card.appendChild(summary);
+    if (when) {
+      const foot = document.createElement('div');
+      foot.style.cssText = 'padding:0 12px 8px; font-size:11px;';
+      foot.innerHTML = when;
+      card.appendChild(foot);
+    }
+    return card;
+  }
+
+  // Open ONE notice in the grounded-review workspace. The iframe hides its own
+  // queue sidebar in this mode (?doc=), so the card list above is the only queue.
+  function openExtractionDoc(filename) {
     const frame = $('extraction-frame');
+    $('xr-filename').textContent = filename || '';
+    $('xr-back').setAttribute('href', '#' + buildQueueHash());
+    $('xr-annotate').setAttribute('href', '#notice/' + encodeURIComponent(filename || ''));
     if (!frame) return;
     const base = (typeof window.API_BASE === 'string') ? window.API_BASE : '';
     const p = new URLSearchParams();
     p.set('api', base);
-    p.set('embedded', '1');          // tells the frame the parent owns filters
-    if (queueState.status && queueState.status !== 'all') p.set('status', queueState.status);
-    if (queueState.q) p.set('q', queueState.q);
-    appendCommonParams(p);           // notice_type + auction date window
-    appendScoreParams(p);            // extraction quality score band
-    const qs = p.toString();
-    if (qs === extractionFrameQS) return;
-    extractionFrameQS = qs;
-    frame.setAttribute('src', 'review_extraction.html?' + qs);
+    p.set('embedded', '1');
+    p.set('doc', filename || '');
+    const src = 'review_extraction.html?' + p.toString();
+    if (frame.getAttribute('src') !== src) frame.setAttribute('src', src);
   }
 
   async function loadClassificationByPropertyQueue(append) {
