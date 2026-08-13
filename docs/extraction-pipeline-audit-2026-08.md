@@ -9,7 +9,83 @@ of this document covers what that review did not — storage identity, the
 review/annotation surfaces, the serving API, and the public UI.
 
 Every claim below was verified by direct code read; citations are
-`file:line`.
+`file:line`. The body of this document describes the code as of commit
+`ca7c45a` (2026-08-09). **Read the addendum below first** — #366 landed on
+2026-08-13 and moved four of these findings.
+
+---
+
+## 0. Addendum — what changed in #366 (2026-08-13)
+
+#366 merged after this audit was written and before it was merged. It
+resolves three findings and escalates a fourth. The body below is otherwise
+unchanged; treat this section as the correction layer.
+
+### Resolved — do not action these as written
+
+| Finding | Body says | Actual state after #366 |
+|---|---|---|
+| **R5** — multi-signal lot↔listing matching | "reserve price only"; recommends adding EMD, identifiers, borrower, extent | **Largely implemented.** `match_lots_to_listings` narrows through four keys in trust order — reserve exact/±1% → EMD exact/±1% → borrower-name token overlap → survey/door identifiers parsed from the listing's own title + `website_description` (`apply_extractions.py`). Each key must narrow to exactly one lot; surviving ties still stay `ambiguous` rather than being guessed. Remaining gap from the original recommendation: no `{method, confidence}` is persisted on the listing↔lot link — the winning key exists only as a `reason` string in run stats and the unmatched CSV. |
+| **R17** — "stale extraction remediation is CLI-only" | reviewer is told to run `load_extractions --filename … --force` by hand | **Fixed.** `POST /review/extraction/{filename}/rerun` (api/review/extraction.py:384) runs the canonical single-document path in a background thread; the detail response carries `rerun_running`/`rerun_error` and the page polls until it lands. One rerun per document (409 on the second). |
+| **§8.3 R12/normalization** — property type is an unnormalized portal value | not covered | **New.** `pipeline/property_taxonomy.py` collapses both the notice's free-text type and the portal dropdown into one 10-bucket taxonomy; `apply_extractions.group_lots` writes `property_type_raw` + `property_type_norm` + `asset_category_norm`. The portal value is kept for provenance and disagreement detection, never to fill a gap — an unresolved listing is written `UNKNOWN` with source `none`. This is the raw-plus-normalized-plus-method pattern §3 praises on the promote path, now applied to a second field. |
+
+### Changed — a claim in the body is now inverted
+
+§3 lists "human-override protection on descriptions" under *what is genuinely
+good*, and §5/§6 describe the `description_source='human'` guard as the model
+the other writers should copy. **That guard was deliberately removed.**
+`write_descriptions` now treats grounded notice text as the sole automated
+description source and overwrites legacy `'human'` rows, stashing each into
+`description_human_backup` once before the first overwrite. A new
+`description_source='reviewer'` tier — a correction made by someone who
+eyeballed the notice — is the one thing it never touches.
+
+This is a defensible call (it retires the legacy description pipeline the
+audit's own R4 argues for retiring), and it changes the recommendation rather
+than defeating it: **R8's "guard all writers with the human check" should now
+read "guard all writers with the `reviewer` check."** `write_fields` still
+has no guard of any tier, which was R8's actual defect and remains open.
+
+### Escalated — R2 is now the top priority, above R1
+
+R2 (stable entity IDs) was filed as Critical on the reasoning that positional
+correction keys corrupt reviewer work *when someone runs `--force`*. Verified
+against current `main`, all three preconditions still hold:
+
+- entity IDs are still the list index — `"id": str(i)` (load_extractions.py:76)
+- corrections are still keyed by that ID and overlaid at apply/promote time
+  (`entities_with_corrections`, apply_extractions.py:99-103)
+- the rerun path rewrites `extraction_json` and preserves
+  `extraction_review_status` via `coalesce`, and **nothing clears
+  `extraction_corrections_json`** (load_extractions.py:136-149)
+
+What changed is the trigger. The corruption path used to require a deliberate
+CLI invocation; #366 put a **Re-run LangExtract button in the reviewer's own
+UI**, adjacent to the correction textareas. A reviewer who corrects a field,
+notices the markdown is stale, and clicks re-run has now silently re-pointed
+every prior correction on that document at whatever entity happens to occupy
+that index in the new extraction.
+
+**Recommended sequencing change:** do R2 before R1. It is a small change —
+content-derived IDs (`sha1(cls|start|end|text)[:12]`) plus a re-anchor-or-orphan
+pass when corrections no longer match — and it now guards a one-click action
+rather than an expert one.
+
+### Unaffected
+
+R1 (content-addressed document identity, source URLs, checksums), R3
+(grounding through promotion — `group_lots` still reads only `cls`/`attrs`/
+`text`, so no span, page, or bbox reaches `AuctionProperty`), R4 (single
+canonical extraction pass — in progress; #366 states the legacy description
+pipeline is being scrapped), R6 (Datalab metadata bleed), R7 (lots never
+linked to `:RevenueVillage`, so parcel merging stays dead), R9 (serving API
+and public UI expose no provenance), R10 (lakh/crore parsing), and R11–R22.
+
+**Corpus counts in §5 and the field-coverage table are stale.** They were
+taken from `docs/SCHEMA.md` (245 of 1,348 documents extracted); #364 and #366
+report ~658 then 1,518 extracted notices against 2,822 listings, with
+notice-grounded descriptions at 2,609 and property-type unknowns down to 214.
+Re-derive from the graph before citing.
 
 ---
 
