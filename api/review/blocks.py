@@ -322,6 +322,8 @@ def _load_doc(filename: str) -> tuple[dict, int, dict]:
     rows = run_read_query(
         """
         MATCH (d:Document {filename: $filename})
+        OPTIONAL MATCH (d)<-[:HAS_DOCUMENT]-(a:AuctionProperty)
+        WITH d, count(DISTINCT a) AS prop_count
         RETURN d.blocks                       AS blocks_json,
                coalesce(d.blocks_revision, 0) AS rev,
                d.filename                     AS filename,
@@ -334,7 +336,14 @@ def _load_doc(filename: str) -> tuple[dict, int, dict]:
                d.crop_bbox                    AS crop_bbox,
                d.crop_page                    AS crop_page,
                d.crop_regions                 AS crop_regions_json,
-               d.rotation                     AS rotation
+               d.rotation                     AS rotation,
+               prop_count                     AS property_count,
+               size(d.markdown)               AS markdown_length,
+               d.ocr_health_score             AS ocr_health_score,
+               d.ocr_health_flags             AS ocr_health_flags,
+               d.markdown_quality             AS markdown_quality,
+               (d.markdown_verified_at IS NOT NULL) AS markdown_verified,
+               toString(d.markdown_reextracted_at)  AS markdown_reextracted_at
         """,
         {"filename": filename},
         max_rows=1,
@@ -372,6 +381,16 @@ def _load_doc(filename: str) -> tuple[dict, int, dict]:
         "notice_type":    r.get("notice_type"),
         "markdown":       r.get("markdown"),
         "markdown_model": r.get("markdown_model"),
+        # Queue-parity metadata: the annotator renders the same badge strip the
+        # markdown queue does, so a reviewer who opened a notice can still see
+        # its type / OCR health / lot count without going back.
+        "property_count":          r.get("property_count"),
+        "markdown_length":         r.get("markdown_length"),
+        "ocr_health_score":        r.get("ocr_health_score"),
+        "ocr_health_flags":        r.get("ocr_health_flags"),
+        "markdown_quality":        r.get("markdown_quality"),
+        "markdown_verified":       bool(r.get("markdown_verified")),
+        "markdown_reextracted_at": r.get("markdown_reextracted_at"),
         "crop_bbox":      crop_bbox,
         "crop_page":      crop_page,
         "crop_regions":   crop_regions,

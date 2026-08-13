@@ -70,7 +70,7 @@ def test_queue_defaults_to_recent_and_passes_extraction_at(monkeypatch):
     import api.review.extraction as ex
     seen = {}
 
-    def fake_list(status, limit, sort, score_min=None, score_max=None):
+    def fake_list(status, limit, sort, score_min=None, score_max=None, **kw):
         seen["sort"] = sort
         seen["score_min"] = score_min
         seen["score_max"] = score_max
@@ -104,7 +104,7 @@ def test_queue_honours_name_sort(monkeypatch):
     import api.review.extraction as ex
     seen = {}
     monkeypatch.setattr(ex, "list_extraction_queue",
-                        lambda status, limit, sort, score_min=None, score_max=None:
+                        lambda status, limit, sort, score_min=None, score_max=None, **kw:
                             seen.update(sort=sort) or [])
     ex.extraction_queue(status=None, limit=200, sort="name",
                         score_min=None, score_max=None, _admin=None)
@@ -117,7 +117,7 @@ def test_queue_forwards_score_bounds(monkeypatch):
     import api.review.extraction as ex
     seen = {}
     monkeypatch.setattr(ex, "list_extraction_queue",
-                        lambda status, limit, sort, score_min=None, score_max=None:
+                        lambda status, limit, sort, score_min=None, score_max=None, **kw:
                             seen.update(score_min=score_min, score_max=score_max) or [])
     ex.extraction_queue(status=None, limit=200, sort="recent",
                         score_min=40.0, score_max=79.0, _admin=None)
@@ -352,3 +352,86 @@ def test_queue_row_lot_count_match_and_unknown(monkeypatch):
     # no reviewer count -> no claim, never flagged
     assert unknown.lot_count_mismatch is False
     assert unknown.expected_lot_count is None
+
+
+# ── stage-parity filters (notice type / auction date / search) ──────────────
+
+
+def _capture_cypher(fn, *a, **kw):
+    """Run a queue/stats call against a stubbed driver, returning (cypher, params)."""
+    import api.review.extraction as ex
+    captured = {}
+
+    def fake_run(cypher, params, **k):
+        captured["cypher"] = cypher
+        captured["params"] = params
+        return [{"total": 0, "pending": 0, "verified": 0, "edited": 0}]
+
+    orig = ex.run_read_query
+    try:
+        ex.run_read_query = fake_run
+        fn(*a, **kw)
+    finally:
+        ex.run_read_query = orig
+    return captured["cypher"], captured["params"]
+
+
+def test_queue_filters_by_notice_type():
+    import api.review.extraction as ex
+    cy, _ = _capture_cypher(ex.list_extraction_queue, None, 200, "recent",
+                            notice_type="multi")
+    assert "d.notice_type = 'multi'" in cy
+    cy, _ = _capture_cypher(ex.list_extraction_queue, None, 200, "recent",
+                            notice_type="unclassified")
+    assert "d.notice_type IS NULL" in cy
+    # no filter -> no clause
+    cy, _ = _capture_cypher(ex.list_extraction_queue, None, 200, "recent")
+    assert "d.notice_type" not in cy.split("RETURN")[0]
+
+
+def test_queue_filters_by_auction_date_window():
+    import api.review.extraction as ex
+    cy, params = _capture_cypher(ex.list_extraction_queue, None, 200, "recent",
+                                 date_from="2026-08-01", date_to="2026-08-31")
+    assert "auction_start_dt" in cy
+    assert params["date_from"] == "2026-08-01"
+    assert params["date_to"] == "2026-08-31"
+
+
+def test_queue_search_covers_filename_title_and_borrower():
+    """One search box, three places a reviewer might remember the notice from."""
+    import api.review.extraction as ex
+    cy, params = _capture_cypher(ex.list_extraction_queue, None, 200, "recent",
+                                 q="hinduja")
+    assert "d.filename" in cy
+    assert "_p.title" in cy
+    assert "_b.name" in cy
+    assert params["q"] == "hinduja"
+
+
+def test_stats_counts_by_status_and_ignores_status_filter():
+    """The pills ARE the status breakdown, so stats must not filter by status."""
+    import api.review.extraction as ex
+    cy, _ = _capture_cypher(ex.extraction_stats, notice_type="single")
+    assert "d.notice_type = 'single'" in cy
+    assert "extraction_review_status,'pending') = $status" not in cy
+    assert "AS pending" in cy and "AS verified" in cy and "AS edited" in cy
+
+
+def test_no_all_maps_sentinel_to_none():
+    """The shared filter bar sends 'all' to mean no filter."""
+    from api.review.extraction import _no_all
+    assert _no_all("all") is None
+    assert _no_all("") is None
+    assert _no_all(None) is None
+    assert _no_all("multi") == "multi"
+
+
+def test_stats_route_registered_before_filename_catchall():
+    """/stats must resolve as its own route, not as a filename for the
+    `/{filename:path}` catch-all declared after it."""
+    from api.main import app
+    paths = [r.path for r in app.routes]
+    assert "/review/extraction/stats" in paths
+    assert (paths.index("/review/extraction/stats")
+            < paths.index("/review/extraction/{filename:path}"))

@@ -326,6 +326,17 @@ class BlocksDoc(BaseModel):
     storage_key: str | None = None
     notice_type: str | None = None
     markdown: str | None = None
+    markdown_model: str | None = None
+    # Queue-parity badge data. The annotator shows the same strip as the
+    # markdown queue (type · OCR health · quality · lot count · size), so a
+    # reviewer who has drilled into one notice keeps that context on screen.
+    property_count: int | None = None
+    markdown_length: int | None = None
+    ocr_health_score: int | None = None
+    ocr_health_flags: list[str] | None = None
+    markdown_quality: Literal["good", "bad"] | None = None
+    markdown_verified: bool = False
+    markdown_reextracted_at: str | None = None
     schema_version: int = 1
     source_dims: list[SourceDim] = []
     blocks: list[Block] = []
@@ -754,6 +765,16 @@ def _ok_block(b: dict) -> Block:
     return Block(**_with_block_health(b))
 
 
+def _opt_int(v) -> int | None:
+    """Coerce a Neo4j numeric to int, or None when absent/unparseable."""
+    if v is None:
+        return None
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return None
+
+
 def _ok_doc(doc: dict) -> BlocksDoc:
     blocks = [Block(**_with_block_health(b)) for b in (doc.get("blocks") or [])]
     raw_crop = doc.get("crop_bbox")
@@ -775,6 +796,10 @@ def _ok_doc(doc: dict) -> BlocksDoc:
         rotation = 0
     if rotation not in (0, 90, 180, 270):
         rotation = 0
+    quality = doc.get("markdown_quality")
+    if quality not in ("good", "bad"):
+        quality = None
+    flags = doc.get("ocr_health_flags")
     return BlocksDoc(
         filename=doc.get("filename"),
         file_path=doc.get("file_path"),
@@ -782,6 +807,14 @@ def _ok_doc(doc: dict) -> BlocksDoc:
         storage_key=doc.get("storage_key"),
         notice_type=doc.get("notice_type"),
         markdown=doc.get("markdown"),
+        markdown_model=doc.get("markdown_model"),
+        property_count=_opt_int(doc.get("property_count")),
+        markdown_length=_opt_int(doc.get("markdown_length")),
+        ocr_health_score=_opt_int(doc.get("ocr_health_score")),
+        ocr_health_flags=[str(f) for f in flags] if isinstance(flags, list) else None,
+        markdown_quality=quality,
+        markdown_verified=bool(doc.get("markdown_verified")),
+        markdown_reextracted_at=doc.get("markdown_reextracted_at"),
         schema_version=int(doc.get("schema_version") or 1),
         source_dims=[SourceDim(**d) for d in (doc.get("source_dims") or [])
                      if isinstance(d, dict) and "page" in d],

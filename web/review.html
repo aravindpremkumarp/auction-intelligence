@@ -166,6 +166,10 @@
   .notice-card > summary::-webkit-details-marker { display: none; }
   .notice-card > summary::before { content: '▸'; font-family: 'IBM Plex Mono', monospace; font-size: 11px; width: 12px; display: inline-block; transition: transform 0.15s; }
   .notice-card[open] > summary::before { transform: rotate(90deg); }
+  /* Extraction cards don't expand — the card IS the link into the workspace —
+     so drop the disclosure triangle and the pointer that promise otherwise. */
+  .notice-card.static > summary { cursor: default; }
+  .notice-card.static > summary::before { content: none; }
   .notice-card > summary .nfile { font-family: 'IBM Plex Mono', monospace; font-size: 13px; font-weight: 600; }
   .notice-card > summary .nspacer { flex: 1; }
   .notice-card > summary .nlinks { display: inline-flex; gap: 10px; }
@@ -259,6 +263,35 @@
   .ann-toolbar .zoom-group { display: inline-flex; gap: 4px; align-items: center; padding: 0 6px; border-left: 1px solid var(--muted); border-right: 1px solid var(--muted); }
   .ann-toolbar .zoom-btn { padding: 2px 8px; min-height: 0; font-size: 13px; }
   .ann-toolbar .zoom-pct { min-width: 36px; text-align: center; font-family: 'IBM Plex Mono', monospace; font-size: 11px; }
+  .ann-toolbar .ann-badges { display: inline-flex; gap: 5px; align-items: center; flex-wrap: wrap; }
+  /* Extraction workspace (one notice). Mirrors the annotator: the masthead
+     collapses and the tool fills the viewport, so the page itself never
+     scrolls and the iframe gets every pixel below the toolbar. */
+  #screen-extraction iframe { width: 100%; height: 78vh; min-height: 480px; display: block; border: 2px solid var(--ink); box-shadow: 2px 3px 0 rgba(0,0,0,0.9); background: #fff; box-sizing: border-box; }
+  body.extraction-active { padding-top: 8px; padding-bottom: 8px; }
+  body.extraction-active .wrap > h1,
+  body.extraction-active .wrap > .actions { display: none; }
+  body.extraction-active .wrap > #msg:empty { display: none; }
+  body.extraction-active .ann-toolbar { gap: 6px; margin-bottom: 6px; }
+  @media (min-width: 1101px) {
+    body.extraction-active { height: 100vh; overflow: hidden; box-sizing: border-box; }
+    body.extraction-active .wrap { height: 100%; display: flex; flex-direction: column; min-height: 0; }
+    body.extraction-active #screen-extraction { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+    body.extraction-active #screen-extraction .ann-toolbar { flex: none; }
+    body.extraction-active #screen-extraction iframe { flex: 1 1 auto; height: auto; min-height: 0; }
+  }
+  /* The annotator is a workspace, not a browse screen. The masthead, the global
+     nav row and the queue-level stats are all context the reviewer already had
+     before drilling in, and on a laptop they cost ~90px of the image area. Hide
+     them here only — "← Back to queue" in the toolbar is the way out — and
+     tighten the toolbar so it wraps to fewer rows. */
+  body.annotator-active { padding-top: 8px; padding-bottom: 8px; }
+  body.annotator-active .wrap > h1,
+  body.annotator-active .wrap > .actions { display: none; }
+  body.annotator-active .wrap > #msg:empty { display: none; }
+  body.annotator-active .ann-toolbar { gap: 6px; margin-bottom: 6px; }
+  body.annotator-active .ann-toolbar button { padding: 3px 8px; min-height: 26px; }
+  body.annotator-active .ann-toolbar .zoom-btn { padding: 2px 7px; }
   .ann-grid { display: grid; grid-template-columns: minmax(0, var(--anngrid-left-fr, 1.4fr)) 6px minmax(280px, var(--anngrid-right-fr, 1fr)); gap: 4px; }
   @media (max-width: 1100px) { .ann-grid { grid-template-columns: 1fr; gap: 14px; } .ann-resizer { display: none; } }
   .ann-resizer { cursor: col-resize; background: var(--ink); opacity: 0.18; border-radius: 2px; align-self: stretch; user-select: none; touch-action: none; }
@@ -422,18 +455,6 @@
   </div>
   <div id="msg"></div>
 
-  <!-- Extraction-review overlay (LangExtract grounded review). Isolated from the
-       stage machinery: shown by a capture-phase handler when the "extraction"
-       pill is clicked; an embedded iframe hosts web/review_extraction.html. -->
-  <div id="extraction-panel" style="display:none;position:fixed;inset:0;background:#fff;z-index:60">
-    <div style="display:flex;align-items:center;gap:10px;padding:6px 12px;background:#0f172a;color:#fff;font-size:13px">
-      <b>Extraction review</b>
-      <span style="flex:1"></span>
-      <button onclick="closeExtractionPanel()" style="background:#1e293b;color:#fff;border:0;border-radius:6px;padding:4px 12px;cursor:pointer">← back to review</button>
-    </div>
-    <iframe id="extraction-frame" style="border:0;width:100%;height:calc(100% - 33px)"></iframe>
-  </div>
-
   <!-- Queue screen -->
   <section id="screen-queue">
     <div class="actions">
@@ -445,7 +466,7 @@
       </span>
     </div>
     <div class="actions">
-      <span>Group:</span>
+      <span id="group-label">Group:</span>
       <span class="group-toggle" id="group-tabs">
         <button class="pill" data-group="property">property</button>
         <button class="pill" data-group="notice">sales notice</button>
@@ -508,6 +529,10 @@
     <div id="queue-by-classification" class="notice-list"></div>
     <div id="queue-by-classification-gallery" class="gallery-grid hidden"></div>
     <div id="queue-by-markdown" class="notice-list hidden"></div>
+    <!-- Extraction stage: a card list, exactly like the markdown stage. The
+         grounded-review workspace opens per notice via #extraction/<filename>
+         (see #screen-extraction), the same way a card here opens the annotator. -->
+    <div id="queue-by-extraction" class="notice-list hidden"></div>
     <div id="queue-by-classification-by-property" class="table-scroll hidden">
       <table>
         <thead>
@@ -654,6 +679,7 @@
       <span class="filename" id="ann-filename"></span>
       <span class="pill" id="ann-rev"></span>
       <span class="pill" id="ann-preclean" title="Source image was upscaled + sharpened before OCR (long edge was below 1500 px)" style="display:none;background:#dff5e3;color:#1b6b3c;border-color:#9bd2af">preclean 2×</span>
+      <span class="ann-badges" id="ann-badges"></span>
       <span style="flex:1"></span>
       <label class="meta" style="display:none" id="ann-page-wrap">page <select class="page-select" id="ann-page"></select></label>
       <button id="ann-add" class="ghost">+ Add block</button>
@@ -705,6 +731,21 @@
       </div>
     </div>
   </section>
+
+  <!-- Extraction workspace for ONE notice (#extraction/<filename>), opened from
+       a card in the extraction stage — the same list-then-drill-in shape the
+       markdown stage uses to reach the annotator. The grounded-review tool is
+       hosted in an iframe; it hides its own queue sidebar in this mode. -->
+  <section id="screen-extraction" class="hidden">
+    <div class="ann-toolbar">
+      <a class="link" href="#" id="xr-back">← Back to queue</a>
+      <span class="filename" id="xr-filename"></span>
+      <span class="ann-badges" id="xr-badges"></span>
+      <span style="flex:1"></span>
+      <a class="link" id="xr-annotate" title="edit this notice's OCR blocks">annotate blocks ↗</a>
+    </div>
+    <iframe id="extraction-frame" title="Extraction review"></iframe>
+  </section>
 </div>
 
 <script>
@@ -750,9 +791,10 @@
     }
   }
   function appendScoreParams(params) {
-    // The markdown API takes 0–100 (OCR-quality score). Classification has
-    // no score — it is a cluster-count + human-review stage.
-    if (queueState.stage === 'markdown') {
+    // Markdown (OCR-health) and extraction (validators.py quality) both score
+    // 0–100. Classification has no score — it is a cluster-count + human-review
+    // stage.
+    if (queueState.stage === 'markdown' || queueState.stage === 'extraction') {
       if (queueState.scoreFrom !== 0)   params.set('score_min', String(queueState.scoreFrom));
       if (queueState.scoreTo   !== 100) params.set('score_max', String(queueState.scoreTo));
     }
@@ -764,6 +806,7 @@
     if (h.startsWith('detail/'))  return { screen: 'detail',   id: decodeURIComponent(h.slice('detail/'.length)) };
     if (h.startsWith('property/')) return { screen: 'detail',  id: decodeURIComponent(h.slice('property/'.length)) };
     if (h.startsWith('notice/'))   return { screen: 'annotator', filename: decodeURIComponent(h.slice('notice/'.length)) };
+    if (h.startsWith('extraction/')) return { screen: 'extraction', filename: decodeURIComponent(h.slice('extraction/'.length)) };
     if (h.startsWith('gallery/')) {
       // Legacy deep-link: jump into the classification gallery for a specific notice.
       const fn = decodeURIComponent(h.slice('gallery/'.length));
@@ -779,11 +822,13 @@
       // Retired stages in bookmarked hashes (e.g. 'description') fall back
       // to classification.
       const st0 = p.get('stage');
-      queueState.stage      = (st0 === 'classification' || st0 === 'markdown')
-                                ? st0 : queueState.stage;
+      queueState.stage      = STAGES.includes(st0) ? st0 : queueState.stage;
       queueState.group      = p.get('group')       || queueState.group;
       queueState.status     = p.get('status')      || queueState.status;
       queueState.noticeType = p.get('notice_type') || queueState.noticeType;
+      // Restored so a refresh keeps the reviewer's search instead of silently
+      // widening the queue back out; the input is synced in syncDateInputs().
+      queueState.q          = p.get('q')           || '';
       queueState.dateFrom   = p.get('date_from')   ?? queueState.dateFrom;
       queueState.dateTo     = p.get('date_to')     ?? queueState.dateTo;
       const sf = parseInt(p.get('score_from'), 10);
@@ -795,26 +840,36 @@
   }
 
   function writeHash() {
+    const next = '#' + buildQueueHash();
+    if (location.hash !== next) {
+      history.replaceState(null, '', next);
+    }
+  }
+
+  // The queue's filter state as a hash string. Split out of writeHash() so the
+  // per-notice workspaces can point "← Back to queue" at the exact filters the
+  // reviewer came from instead of dumping them back on the defaults.
+  function buildQueueHash() {
     const p = new URLSearchParams();
     p.set('stage', queueState.stage);
     p.set('group', queueState.group);
     p.set('status', queueState.status);
     p.set('notice_type', queueState.noticeType);
+    if (queueState.q) p.set('q', queueState.q);
     if (queueState.dateFrom) p.set('date_from', queueState.dateFrom);
     if (queueState.dateTo)   p.set('date_to',   queueState.dateTo);
     if (queueState.scoreFrom !== 0)   p.set('score_from', String(queueState.scoreFrom));
     if (queueState.scoreTo   !== 100) p.set('score_to',   String(queueState.scoreTo));
-    const next = '#' + p.toString();
-    if (location.hash !== next) {
-      history.replaceState(null, '', next);
-    }
+    return p.toString();
   }
 
   function show(screen) {
     $('screen-queue').classList.toggle('hidden', screen !== 'queue');
     $('screen-detail').classList.toggle('hidden', screen !== 'detail');
     $('screen-annotator').classList.toggle('hidden', screen !== 'annotator');
+    $('screen-extraction').classList.toggle('hidden', screen !== 'extraction');
     document.body.classList.toggle('annotator-active', screen === 'annotator');
+    document.body.classList.toggle('extraction-active', screen === 'extraction');
   }
 
   async function route() {
@@ -827,6 +882,8 @@
       await loadStats(); await loadQueue();
     } else if (r.screen === 'annotator') {
       await loadAnnotator(r.filename);
+    } else if (r.screen === 'extraction') {
+      openExtractionDoc(r.filename);
     } else {
       await loadDetail(r.id);
     }
@@ -844,6 +901,10 @@
       // The markdown stats endpoint also computes `auto_confirmable` over a score
       // range — feed it the current score from/to so the count reflects the filter.
       appendScoreParams(params);
+    } else if (queueState.stage === 'extraction') {
+      url = API + '/review/extraction/stats';
+      appendScoreParams(params);
+      if (queueState.q) params.set('q', queueState.q);
     } else {
       url = API + '/review/classifications/stats';
     }
@@ -865,8 +926,9 @@
   const PAGE_SIZE_CLASSIFICATION = 50;
   const PAGE_SIZE_GALLERY = 100;
   const savedCView = (() => { try { return localStorage.getItem('cView'); } catch { return null; } })();
+  const STAGES = ['classification', 'markdown', 'extraction'];
   let queueState = {
-    stage: 'classification',      // 'classification' | 'markdown'
+    stage: 'classification',      // 'classification' | 'markdown' | 'extraction'
     group: 'notice',              // 'property' | 'notice'
     status: 'pending',            // 'pending' | 'verified' | 'edited' | 'all'
     cview: (savedCView === 'cards' ? 'cards' : 'gallery'),
@@ -880,6 +942,9 @@
   const DEFAULT_GROUP_FOR_STAGE = {
     classification: 'notice',
     markdown: 'notice',
+    // Extraction is inherently per-notice (one LangExtract run per Document),
+    // so it has no property-grouped view and the Group toggle hides.
+    extraction: 'notice',
   };
   const PAGE_SIZE_MARKDOWN = 50;
   let queueLoadedCount = 0;
@@ -905,6 +970,7 @@
 
     const isClass = queueState.stage === 'classification';
     const isMd = queueState.stage === 'markdown';
+    const isExtract = queueState.stage === 'extraction';
     const isProperty = queueState.group === 'property';
     const isNotice = queueState.group === 'notice';
 
@@ -917,26 +983,31 @@
         !(isClass && isProperty));
     $('queue-by-markdown-by-property').classList.toggle('hidden',
         !(isMd && isProperty));
+    $('queue-by-extraction').classList.toggle('hidden', !isExtract);
 
     // The classification stage has a gallery/cards toggle, but only when
     // looking at the sales-notice sub-group.
     $('cview-toggle').classList.toggle('hidden', !(isClass && isNotice));
+    // Extraction runs once per Document, so there is no property-grouped view —
+    // hide the label with the toggle so no orphan "Group:" is left behind.
+    $('group-tabs').classList.toggle('hidden', isExtract);
+    $('group-label').classList.toggle('hidden', isExtract);
 
-    // Bulk-confirm is available in every stage. The score row applies to
-    // description (completeness-judge confidence) and markdown (OCR-quality
-    // score); classification has no score, so the row hides there.
+    // The score row applies to markdown (OCR health) and extraction (the
+    // validators.py quality score); classification has no score.
     $('score-bar').classList.toggle('hidden', isClass);
-    $('bulk-confirm-bar').classList.remove('hidden');
-    // The markdown stage's score IS OCR-health; other stages keep their own
-    // confidence semantics (see comment above), so label the filter per stage.
+    // Bulk-confirm exists for classification and markdown only — extraction is
+    // reviewed field by field, so there is nothing safe to confirm in bulk.
+    $('bulk-confirm-bar').classList.toggle('hidden', isExtract);
     const scoreLabel = $('score-label');
     if (scoreLabel) {
       scoreLabel.textContent =
-        queueState.stage === 'markdown' ? 'OCR health:' : 'Score:';
+        isMd ? 'OCR health:' : (isExtract ? 'Extraction score:' : 'Score:');
     }
   }
 
   function syncDateInputs() {
+    if ($('q').value !== queueState.q) $('q').value = queueState.q || '';
     $('date-from').value = queueState.dateFrom || '';
     $('date-to').value = queueState.dateTo || '';
     const hint = !queueState.dateFrom && !queueState.dateTo
@@ -970,9 +1041,120 @@
       } else {
         await loadMarkdownQueue(append);
       }
+    } else if (queueState.stage === 'extraction') {
+      await loadExtractionQueue();
     }
     updateLoadMore();
     updateBulkConfirmButton();
+  }
+
+  // ─── Extraction stage: list, then drill into one notice ─────────────────
+  // Same shape as the markdown stage — a card per notice here, and the
+  // grounded-review workspace opens per notice at #extraction/<filename>.
+
+  // The validators.py quality score, banded like the extraction tool's own
+  // badge: >=80 green (the review threshold), 50-79 amber, <50 red.
+  function extractionScorePill(row) {
+    if (row.score == null) return '<span class="pill off">unscored</span>';
+    const cls = row.score >= 80 ? 'good' : (row.score >= 50 ? 'warn' : 'danger');
+    return `<span class="pill ${cls}" title="extraction quality score (pipeline/validators.py)">score ${row.score}</span>`;
+  }
+
+  function extractionStatusPill(row) {
+    if (row.status === 'verified') return '<span class="pill good">verified</span>';
+    if (row.status === 'edited') return '<span class="pill good">edited</span>';
+    return '<span class="pill warn">pending</span>';
+  }
+
+  async function loadExtractionQueue() {
+    const list = $('queue-by-extraction');
+    list.innerHTML = '<div class="empty">loading…</div>';
+    const params = new URLSearchParams({ limit: '500', sort: 'recent' });
+    if (queueState.status && queueState.status !== 'all') params.set('status', queueState.status);
+    if (queueState.q) params.set('q', queueState.q);
+    appendCommonParams(params);
+    appendScoreParams(params);
+    const r = await authFetch(API + '/review/extraction/queue?' + params.toString());
+    if (r.status === 401 || r.status === 403) {
+      list.innerHTML = '<div class="empty"><span class="err">not authorised — sign in as admin</span></div>';
+      return;
+    }
+    if (!r.ok) {
+      list.innerHTML = `<div class="empty"><span class="err">error ${r.status}</span></div>`;
+      return;
+    }
+    const data = await r.json();
+    queueTotal = data.total || 0;
+    queueLoadedCount = (data.rows || []).length;
+    if (!queueLoadedCount) {
+      list.innerHTML = '<div class="empty">no extractions match this filter.</div>';
+      return;
+    }
+    list.innerHTML = '';
+    const batches = data.rows.map(x => x.extraction_batch).filter(b => b != null);
+    const maxBatch = batches.length ? Math.max(...batches) : null;
+    for (const row of data.rows) list.appendChild(renderExtractionCard(row, maxBatch));
+  }
+
+  function renderExtractionCard(row, maxBatch) {
+    const card = document.createElement('div');
+    card.className = 'notice-card static';
+    const filename = row.filename || '(unnamed notice)';
+    const batch = row.extraction_batch != null
+      ? `<span class="pill ${row.extraction_batch === maxBatch ? 'on' : 'off'}" title="extraction batch ${row.extraction_batch}${row.extraction_batch === maxBatch ? ' — the latest run' : ''}">B${row.extraction_batch}</span>`
+      : '';
+    const fields = `<span class="pill off">${row.n_fields} field${row.n_fields === 1 ? '' : 's'}</span>`;
+    const ungrounded = row.n_ungrounded
+      ? `<span class="pill warn" title="${row.n_ungrounded} extraction(s) with no character span in the source">${row.n_ungrounded} ungrounded</span>`
+      : '';
+    // The lot-count checksum from the classification gate (see expected_lot_count).
+    const lots = row.lot_count_mismatch
+      ? `<span class="pill danger" title="a reviewer counted ${row.expected_lot_count} lot(s) at classification; this extraction has ${row.extracted_lot_count}">⚠ lots ${row.extracted_lot_count}/${row.expected_lot_count}</span>`
+      : ((row.expected_lot_count != null && row.extracted_lot_count != null)
+          ? `<span class="pill good" title="extracted lot count matches the reviewer's count">✓ ${row.extracted_lot_count} lot${row.extracted_lot_count === 1 ? '' : 's'}</span>`
+          : '');
+    const stale = row.stale
+      ? '<span class="pill warn" title="markdown was re-ingested after this extraction ran — re-run required">⚠ re-run</span>'
+      : '';
+    const when = row.extraction_at
+      ? `<span class="meta" style="color:var(--muted)">extracted ${escapeHtml(fmtWhen(row.extraction_at))}</span>`
+      : '';
+    const href = '#extraction/' + encodeURIComponent(row.filename || '');
+    const summary = document.createElement('summary');
+    summary.innerHTML = `
+      <span class="nfile">${escapeHtml(filename)}</span>
+      ${batch} ${extractionScorePill(row)} ${extractionStatusPill(row)} ${lots} ${ungrounded} ${stale} ${fields}
+      <span class="nspacer"></span>
+      <span class="nlinks">
+        <a class="link" href="${href}">review extraction ↗</a>
+        <a class="link" href="#notice/${encodeURIComponent(row.filename || '')}">annotate blocks ↗</a>
+      </span>
+    `;
+    card.appendChild(summary);
+    if (when) {
+      const foot = document.createElement('div');
+      foot.style.cssText = 'padding:0 12px 8px; font-size:11px;';
+      foot.innerHTML = when;
+      card.appendChild(foot);
+    }
+    return card;
+  }
+
+  // Open ONE notice in the grounded-review workspace. The iframe hides its own
+  // queue sidebar in this mode (?doc=), so the card list above is the only queue.
+  function openExtractionDoc(filename) {
+    const frame = $('extraction-frame');
+    $('xr-filename').textContent = filename || '';
+    $('xr-back').setAttribute('href', '#' + buildQueueHash());
+    $('xr-annotate').setAttribute('href', '#notice/' + encodeURIComponent(filename || ''));
+    if (!frame) return;
+    const base = (typeof window.API_BASE === 'string') ? window.API_BASE : '';
+    const p = new URLSearchParams();
+    p.set('api', base);
+    p.set('embedded', '1');
+    p.set('doc', filename || '');
+    const src = 'review_extraction.html?' + p.toString();
+    if (frame.getAttribute('src') !== src) frame.setAttribute('src', src);
   }
 
   async function loadClassificationByPropertyQueue(append) {
@@ -2831,6 +3013,7 @@
       $('ann-rev').textContent = 'rev ' + ann.rev;
       $('ann-preclean').style.display =
         (doc.markdown_model === 'mineru-vlm-preclean2x') ? '' : 'none';
+      annRenderBadges(doc);
       const openLink = $('ann-open-src');
       if (doc.public_url) {
         openLink.href = doc.public_url;
@@ -4624,6 +4807,34 @@
     }
   }
 
+  // The markdown queue's badge strip, rendered on the annotator toolbar so a
+  // reviewer who drilled into a notice keeps the type / OCR-health / lot-count
+  // context instead of having to go back to see it. Reuses healthPill and
+  // mdStatusPill verbatim, so the two screens can never drift apart.
+  function annRenderBadges(doc) {
+    const el = $('ann-badges');
+    if (!el) return;
+    if (!doc) { el.innerHTML = ''; return; }
+    const row = {
+      ocr_health_score: doc.ocr_health_score,
+      ocr_health_flags: doc.ocr_health_flags,
+      verified: !!doc.markdown_verified,
+      quality: doc.markdown_quality,
+    };
+    const type = doc.notice_type
+      ? `<span class="pill">${escapeHtml(doc.notice_type)}</span>`
+      : '<span class="pill off">unclassified</span>';
+    const n = doc.property_count;
+    const props = n != null
+      ? `<span class="pill off">${n} prop${n === 1 ? '' : 's'}</span>` : '';
+    const chars = doc.markdown_length != null
+      ? `<span class="pill off">${doc.markdown_length.toLocaleString()} chars</span>` : '';
+    const reext = doc.markdown_reextracted_at
+      ? `<span class="pill warn" title="re-extracted ${escapeHtml(doc.markdown_reextracted_at)}">re-extracted</span>`
+      : '';
+    el.innerHTML = `${type} ${healthPill(row)} ${mdStatusPill(row)} ${reext} ${props} ${chars}`;
+  }
+
   // After any mutation, refresh ann.doc.markdown via a fresh GET so the
   // collapsible regenerated-markdown preview reflects the server's view.
   let mdRefreshTimer = null;
@@ -4637,6 +4848,9 @@
         ann.doc = doc;
         ann.rev = doc.blocks_revision || ann.rev;
         $('ann-rev').textContent = 'rev ' + ann.rev;
+        // Editing blocks rewrites the markdown, so size / health / verified
+        // state all move — repaint the strip rather than leaving stale numbers.
+        annRenderBadges(doc);
         paintAnnMarkdown();
       } catch {}
     }, 400);
@@ -5792,36 +6006,6 @@
     paintTbledTex();
     paintTbledStatus();
   }
-
-  // ─── Extraction-review tab (isolated overlay) ───────────────────────────
-  // Capture-phase listener: for the "extraction" pill, show the overlay and
-  // stop the event before the normal stage handler runs (so queueState is never
-  // set to an unknown stage). For any other pill, just hide the overlay.
-  function closeExtractionPanel() {
-    const p = document.getElementById('extraction-panel');
-    if (p) p.style.display = 'none';
-    document.querySelectorAll('button.pill[data-stage="extraction"]')
-      .forEach(b => b.classList.remove('on'));
-  }
-  document.addEventListener('click', function (ev) {
-    const pill = ev.target.closest && ev.target.closest('button.pill[data-stage]');
-    if (!pill) return;
-    const panel = document.getElementById('extraction-panel');
-    if (pill.getAttribute('data-stage') === 'extraction') {
-      document.querySelectorAll('button.pill[data-stage]')
-        .forEach(b => b.classList.toggle('on', b === pill));
-      const frame = document.getElementById('extraction-frame');
-      if (frame && !frame.getAttribute('src')) {
-        const base = (typeof window.API_BASE === 'string') ? window.API_BASE : '';
-        frame.setAttribute('src', 'review_extraction.html?api=' + encodeURIComponent(base));
-      }
-      if (panel) panel.style.display = 'block';
-      ev.stopImmediatePropagation();   // keep the normal stage handler from firing
-      ev.preventDefault();
-    } else if (panel) {
-      panel.style.display = 'none';    // leaving extraction; let normal flow run
-    }
-  }, true);
 
   // Boot
   route();

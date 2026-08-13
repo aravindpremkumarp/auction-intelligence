@@ -352,6 +352,26 @@ where consumers look · **S4** presentation loss.
 
 ## 5. Status of the July 2026 review (P1–P9)
 
+> **Update, 2026-08-13 (#368, #369).** The table below is the snapshot as
+> audited; two rows have since moved and are left in place for the record:
+>
+> - **P3 (four LLM passes) — now largely closed.** Two of the four passes are
+>   gone: `classify_notice`'s LLM pass (classification is cluster count +
+>   human review) and the whole description pipeline
+>   (`extract_descriptions` / `apply_descriptions`, plus stages 1.4/1.45).
+>   `ocr_extract` and LangExtract remain.
+> - **P7 (hand-rolled JSON parsing) — narrowed, not fixed.** The
+>   `classify_notice` and `extract_descriptions` parsers cited as evidence
+>   were deleted with those stages; `ocr_extract.py` and
+>   `classify_document.py` still fence-strip + brace-slice, and the missing
+>   `finish_reason` check is still missing.
+>
+> P1/P2 also lose their "Stages 1.3/1.4/1.45 write first" and
+> "apply_descriptions still guesses" clauses for the same reason; the rest of
+> both findings stands. A new guard landed alongside: the reviewer-confirmed
+> lot count (`Document.expected_lot_count`) primes the LangExtract prompt and
+> is checked against the extracted lots in the review queue.
+
 | # | Finding | Status | Evidence |
 |---|---|---|---|
 | P1 | Grounded path isn't canonical | **Partial** | Stage 4.5 now applies grounded fields/descriptions to `AuctionProperty` (run_pipeline.py:112-120) and the Lot/Parcel spine landed (#360). But Stage 1 blob + Stages 1.3/1.4/1.45 still run and still write first; grounded writes bypass normalization (apply_extractions.py:147) and carry no human guard on fields (write_fields, :275-292). |
