@@ -274,8 +274,7 @@ def test_rerun_worker_failure_surfaces_in_detail(monkeypatch):
     land in rerun_error, not vanish or kill the app."""
     import api.review.extraction as ex
     monkeypatch.setattr(ex, "run_read_query", lambda *a, **k: [
-        {"filename": "n.jpg", "md": "", "notice_type": None,
-         "classifier_pred": None}])
+        {"filename": "n.jpg", "md": "", "notice_type": None}])
     ex._RERUNS.clear()
     ex._RERUNS["n.jpg"] = {"status": "running"}
     ex._rerun_worker("n.jpg")           # md empty -> RuntimeError inside
@@ -284,3 +283,72 @@ def test_rerun_worker_failure_surfaces_in_detail(monkeypatch):
     assert out.rerun_running is False
     assert "no markdown" in out.rerun_error
     ex._RERUNS.clear()
+
+
+# ── lot-count checksum (expected vs extracted) ──────────────────────────────
+
+
+def test_count_extracted_lots_empty_is_none():
+    from api.review.extraction import count_extracted_lots
+    assert count_extracted_lots([]) is None
+
+
+def test_count_extracted_lots_no_lot_index_is_one_lot():
+    from api.review.extraction import count_extracted_lots
+    ents = [{"cls": "property", "attrs": {}},
+            {"cls": "borrower", "attrs": None},
+            {"cls": "identifier"}]
+    assert count_extracted_lots(ents) == 1
+
+
+def test_count_extracted_lots_distinct_indices():
+    from api.review.extraction import count_extracted_lots
+    ents = [{"attrs": {"lot_index": 1}},
+            {"attrs": {"lot_index": "1"}},   # same lot, str vs int
+            {"attrs": {"lot_index": 2}},
+            {"attrs": {"lot_index": 3}},
+            {"attrs": {}}]                   # unindexed entity doesn't add a lot
+    assert count_extracted_lots(ents) == 3
+
+
+def test_queue_row_lot_count_mismatch(monkeypatch):
+    """expected=2 but the extraction only has lot 1 -> the checksum fires."""
+    import json as _json
+    import api.review.extraction as ex
+    row = {"filename": "n.jpg", "status": "pending", "score": 80,
+           "extraction_at": None, "markdown_reextracted_at": None,
+           "markdown_loaded_at": None, "extraction_batch": 1,
+           "expected_lot_count": 2,
+           "extraction_json": _json.dumps([{"attrs": {"lot_index": 1}}])}
+    monkeypatch.setattr(ex, "list_extraction_queue", lambda *a, **k: [row])
+    out = ex.extraction_queue(None, 200, "recent", None, None, None)
+    r = out.rows[0]
+    assert r.expected_lot_count == 2
+    assert r.extracted_lot_count == 1
+    assert r.lot_count_mismatch is True
+
+
+def test_queue_row_lot_count_match_and_unknown(monkeypatch):
+    import json as _json
+    import api.review.extraction as ex
+    rows = [
+        {"filename": "match.jpg", "status": "pending", "score": None,
+         "extraction_at": None, "markdown_reextracted_at": None,
+         "markdown_loaded_at": None, "extraction_batch": None,
+         "expected_lot_count": 2,
+         "extraction_json": _json.dumps([{"attrs": {"lot_index": 1}},
+                                          {"attrs": {"lot_index": 2}}])},
+        {"filename": "unknown.jpg", "status": "pending", "score": None,
+         "extraction_at": None, "markdown_reextracted_at": None,
+         "markdown_loaded_at": None, "extraction_batch": None,
+         "expected_lot_count": None,
+         "extraction_json": _json.dumps([{"attrs": {"lot_index": 1}}])},
+    ]
+    monkeypatch.setattr(ex, "list_extraction_queue", lambda *a, **k: rows)
+    out = ex.extraction_queue(None, 200, "recent", None, None, None)
+    match, unknown = out.rows
+    assert match.lot_count_mismatch is False
+    assert match.extracted_lot_count == 2
+    # no reviewer count -> no claim, never flagged
+    assert unknown.lot_count_mismatch is False
+    assert unknown.expected_lot_count is None

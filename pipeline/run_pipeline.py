@@ -60,7 +60,7 @@ def main():
         print("STAGE 1.3: Classify notices (single / multi)")
         print("="*60)
         from pipeline.classify_notice import run as run_classify
-        run_classify(limit=effective_limit)
+        run_classify()
 
         print("\n" + "="*60)
         print("STAGE 1.4: Extract per-property descriptions")

@@ -265,7 +265,8 @@ uvicorn api.main:app --reload               # 7. Serve agent + web UI
 
 Notable stages: **OCR/extraction** uses MinerU + a vision LLM
 (`ocr_extract.py`, `mineru.py`); **notice classification** splits single- vs
-multi-property notices (`classify_notice.py`); **description extraction** pulls
+multi-property notices by cluster count, corrected by human review
+(`classify_notice.py`); **description extraction** pulls
 the per-property blurb (`extract_descriptions.py`); **verify/enrich** reconciles
 scraped fields against the PDF (PDF wins, original kept as `<field>_scraped`);
 and **embeddings** build three vector indexes (`property_desc_idx`,

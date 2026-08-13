@@ -97,8 +97,7 @@ def select_docs(since: str, min_ocr: int, resume: bool,
         f"WHERE {' AND '.join(where)} "
         "WITH DISTINCT d "
         "RETURN d.filename AS filename, d.markdown AS md, "
-        "       d.notice_type AS notice_type, "
-        "       d.notice_type_classifier_pred AS classifier_pred "
+        "       d.notice_type AS notice_type "
         "ORDER BY d.filename"
         + (f" LIMIT {int(limit)}" if limit else "")
     )
@@ -115,8 +114,7 @@ def _extract_one(d: dict, batch: int, route: bool):
     from pipeline import langextract_examples as LX  # heavy import, defer
     fn = d["filename"]
     if route:
-        model_id, reasoning_off = select_extract_model(
-            d.get("notice_type"), d.get("classifier_pred"))
+        model_id, reasoning_off = select_extract_model(d.get("notice_type"))
     else:
         model_id, reasoning_off = None, False
     res = LX.extract(d["md"], model_id=model_id, reasoning_off=reasoning_off)

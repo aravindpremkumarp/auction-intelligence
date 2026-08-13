@@ -206,16 +206,13 @@
   /* Classification cards */
   .class-card { border: 2px solid var(--ink); background: #fff; box-shadow: 2px 3px 0 rgba(0,0,0,0.9); padding: 12px 14px; display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
   @media (max-width: 1100px) { .class-card { grid-template-columns: 1fr; } }
-  .class-card.disagree { border-color: var(--danger); }
   .class-card .cfile { font-family: 'IBM Plex Mono', monospace; font-size: 13px; font-weight: 600; margin-bottom: 6px; word-break: break-all; }
   .class-card .crow { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 6px; }
-  .class-card .creason { font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--ink); background: #f3f0e7; padding: 6px 8px; border: 1px dashed rgba(0,0,0,0.2); margin-top: 6px; }
-  .class-card .cdisagree-banner { background: #ffe1c2; border: 1px solid var(--danger); padding: 6px 8px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; margin-bottom: 8px; }
   .class-card .cactions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
   .class-card .cnotes { flex: 1; min-width: 160px; padding: 6px 10px; border: 1.5px solid var(--ink); font-family: 'IBM Plex Mono', monospace; font-size: 12px; }
+  .clots-wrap { display: inline-flex; gap: 6px; align-items: center; font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--muted); }
+  .clots-wrap .clots { width: 64px; padding: 6px 8px; border: 1.5px solid var(--ink); font-family: 'IBM Plex Mono', monospace; font-size: 12px; }
   .class-card .ctitles { font-family: 'Kalam', cursive; font-size: 13px; color: var(--muted); margin-top: 4px; }
-  .class-card .cconfidence { display: inline-block; width: 60px; height: 8px; background: #eee; border: 1px solid var(--ink); position: relative; vertical-align: middle; }
-  .class-card .cconfidence > span { display: block; height: 100%; background: var(--accent); }
   /* Classification gallery view */
   .gallery-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 14px; align-items: start; }
   @media (max-width: 1100px) { .gallery-grid { grid-template-columns: 1fr; } }
@@ -225,7 +222,6 @@
   .gallery-right .gr-title { font-family: 'IBM Plex Mono', monospace; font-size: 13px; font-weight: 600; word-break: break-all; margin-bottom: 6px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
   .gallery-right .gr-title .gr-fname { flex: 1; min-width: 0; }
   .gallery-right .gr-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-bottom: 4px; }
-  .gallery-right .gr-reason { font-family: 'IBM Plex Mono', monospace; font-size: 12px; background: #f3f0e7; padding: 6px 8px; border: 1px dashed rgba(0,0,0,0.2); margin: 6px 0; }
   .gallery-right .gr-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
   .gallery-right .gr-actions .cnotes { flex: 1; min-width: 120px; padding: 6px 10px; border: 1.5px solid var(--ink); font-family: 'IBM Plex Mono', monospace; font-size: 12px; }
   .gallery-right .gr-body { flex: 1; min-height: 50vh; display: flex; }
@@ -239,8 +235,6 @@
   .thumb { border: 2px solid var(--ink); background: #fff; box-shadow: 2px 3px 0 rgba(0,0,0,0.9); cursor: pointer; display: flex; flex-direction: column; height: 220px; overflow: hidden; position: relative; }
   .thumb:hover { transform: translate(-1px, -1px); box-shadow: 3px 4px 0 rgba(0,0,0,0.9); }
   .thumb.selected { border-color: var(--accent); border-width: 3px; height: 218px; }
-  .thumb.disagree { border-color: var(--danger); }
-  .thumb.disagree.selected { border-color: var(--accent); box-shadow: 0 0 0 2px var(--danger), 3px 4px 0 rgba(0,0,0,0.9); }
   .thumb-body { flex: 1; display: flex; justify-content: center; align-items: center; overflow: hidden; background: #f3f0e7; position: relative; }
   .thumb-body img { width: 100%; height: 100%; object-fit: cover; }
   .thumb-body .pdf-icon { font-family: 'Caveat', cursive; font-size: 42px; color: var(--muted); font-weight: 700; }
@@ -541,8 +535,7 @@
             <th>Auction date</th>
             <th>Reserve (₹)</th>
             <th>Notice</th>
-            <th>Predicted type</th>
-            <th>Confidence</th>
+            <th>Type</th>
             <th>Status</th>
           </tr>
         </thead>
@@ -776,12 +769,10 @@
     }
   }
   function appendScoreParams(params) {
-    // The classification API takes 0–1 floats; markdown API takes 0–100;
-    // description filters the completeness-judge confidence (0–1 floats).
-    if (queueState.stage === 'classification') {
-      if (queueState.scoreFrom !== 0)   params.set('confidence_min', String(queueState.scoreFrom / 100));
-      if (queueState.scoreTo   !== 100) params.set('confidence_max', String(queueState.scoreTo   / 100));
-    } else if (queueState.stage === 'markdown') {
+    // The markdown API takes 0–100; description filters the
+    // completeness-judge confidence (0–1 floats). Classification has no
+    // score — it is a cluster-count + human-review stage.
+    if (queueState.stage === 'markdown') {
       if (queueState.scoreFrom !== 0)   params.set('score_min', String(queueState.scoreFrom));
       if (queueState.scoreTo   !== 100) params.set('score_max', String(queueState.scoreTo));
     } else if (queueState.stage === 'description') {
@@ -959,10 +950,10 @@
     // looking at the sales-notice sub-group.
     $('cview-toggle').classList.toggle('hidden', !(isClass && isNotice));
 
-    // Score row + bulk-confirm are available in every stage. Description
-    // filters/acts on the completeness-judge confidence; classification on
-    // the classifier confidence; markdown on the OCR-quality score.
-    $('score-bar').classList.remove('hidden');
+    // Bulk-confirm is available in every stage. The score row applies to
+    // description (completeness-judge confidence) and markdown (OCR-quality
+    // score); classification has no score, so the row hides there.
+    $('score-bar').classList.toggle('hidden', isClass);
     $('bulk-confirm-bar').classList.remove('hidden');
     // The markdown stage's score IS OCR-health; other stages keep their own
     // confidence semantics (see comment above), so label the filter per stage.
@@ -1039,7 +1030,6 @@
       const tr = document.createElement('tr');
       tr.className = row.verified ? (row.overridden ? 'edited' : 'verified') : 'pending';
       const statusLabel = row.verified ? (row.overridden ? 'edited' : 'verified') : 'pending';
-      const conf = row.notice_type_confidence == null ? '—' : (Math.round(row.notice_type_confidence * 100) + '%');
       const noticeLink = row.notice_filename
         ? `<a href="#notice/${encodeURIComponent(row.notice_filename)}">${escapeHtml(row.notice_filename)}</a>`
         : '—';
@@ -1049,7 +1039,6 @@
         <td>${row.reserve_price == null ? '—' : row.reserve_price.toLocaleString('en-IN')}</td>
         <td>${noticeLink}</td>
         <td>${escapeHtml(row.notice_type || '—')}</td>
-        <td>${conf}</td>
         <td>${escapeHtml(statusLabel)}</td>
       `;
       tbody.appendChild(tr);
@@ -1676,7 +1665,7 @@
 
   function renderClassificationCard(n) {
     const card = document.createElement('div');
-    card.className = 'class-card' + (n.disagreement ? ' disagree' : '');
+    card.className = 'class-card';
 
     const left = document.createElement('div');
     const right = document.createElement('div');
@@ -1688,45 +1677,37 @@
     const currentBadge = n.notice_type
       ? `<span class="pill on">current: ${escapeHtml(n.notice_type)}</span>`
       : '<span class="pill off">no classification</span>';
-    const predBadge = n.classifier_pred
-      ? `<span class="pill">classifier: ${escapeHtml(n.classifier_pred)}</span>`
-      : '<span class="pill off">classifier: —</span>';
-    const conf = (typeof n.classifier_confidence === 'number')
-      ? Math.round(n.classifier_confidence * 100)
-      : null;
-    const confBar = (conf != null)
-      ? `<span class="cconfidence" title="${conf}% confident"><span style="width:${conf}%"></span></span> <span class="meta" style="font-size:11px;">${conf}%</span>`
-      : '';
     const statusBadge = n.verified
       ? `<span class="pill good">verified</span>`
-      : (n.disagreement ? `<span class="pill warn">disagreement</span>` : `<span class="pill warn">pending</span>`);
+      : `<span class="pill warn">pending</span>`;
     const overriddenBadge = n.overridden
       ? `<span class="pill good">human-set</span>`
       : '';
     const propCountBadge = `<span class="pill off">${n.property_count} prop${n.property_count === 1 ? '' : 's'}</span>`;
+    const lotCountBadge = n.expected_lot_count != null
+      ? `<span class="pill on" title="reviewer-confirmed lot count">lots: ${n.expected_lot_count}</span>`
+      : '';
     const extractBadge = n.extraction_status
       ? `<span class="pill ${n.extraction_status === 'applied' ? 'good' : (n.extraction_status === 'needs_reextract' ? 'warn' : '')}">extract: ${escapeHtml(n.extraction_status)}</span>`
       : '';
 
     left.innerHTML = `
       <div class="cfile">${escapeHtml(filename)}</div>
-      <div class="crow">${currentBadge} ${overriddenBadge} ${propCountBadge} ${statusBadge}</div>
-      <div class="crow">${predBadge} ${confBar} ${extractBadge}</div>
-      ${n.disagreement ? `<div class="cdisagree-banner">⚠ classifier disagrees with cluster-count — pick one</div>` : ''}
+      <div class="crow">${currentBadge} ${overriddenBadge} ${propCountBadge} ${lotCountBadge} ${statusBadge}</div>
+      <div class="crow">${extractBadge}</div>
       ${(n.sample_titles && n.sample_titles.length) ? `<div class="ctitles">${escapeHtml(n.sample_titles.filter(Boolean).join(' · '))}${(n.auction_id_count > n.sample_titles.length) ? ' · +' + (n.auction_id_count - n.sample_titles.length) + ' more' : ''}</div>` : ''}
       ${openLink ? `<div style="margin-top:8px;">${openLink}</div>` : ''}
     `;
 
     const altType = n.notice_type === 'single' ? 'multi' : 'single';
-    const reasoning = n.classifier_reasoning
-      ? `<div class="creason">${escapeHtml(n.classifier_reasoning)}</div>`
-      : '';
     const verifiedFooter = n.verified
       ? `<div class="audit">verified by <code>${escapeHtml(n.verified_by || '?')}</code> at <code>${escapeHtml(fmtWhen(n.verified_at))}</code></div>`
       : '<div class="audit">not yet verified</div>';
+    const lotsPrefill = n.expected_lot_count ?? n.property_count ?? 1;
     right.innerHTML = `
-      ${reasoning}
       <div class="cactions">
+        <label class="clots-wrap" title="how many lots does this notice sell? (the downstream extraction checksum)">lots
+          <input type="number" class="clots" min="1" max="500" value="${lotsPrefill}"></label>
         <input type="text" class="cnotes" placeholder="notes (optional)">
         <button class="primary" data-act="confirm">Confirm as ${escapeHtml(n.notice_type || 'single')}</button>
         <button class="" data-act="flip">Flip to ${escapeHtml(altType)}</button>
@@ -1739,14 +1720,32 @@
 
     const filenameForApi = n.filename || '';
     right.querySelector('button[data-act="confirm"]').addEventListener('click', () =>
-      submitClassification(card, filenameForApi, n.notice_type, right.querySelector('.cnotes').value || null));
+      submitClassification(card, filenameForApi, n.notice_type, right.querySelector('.cnotes').value || null,
+                           readLotCount(right, n.notice_type)));
     right.querySelector('button[data-act="flip"]').addEventListener('click', () =>
-      submitClassification(card, filenameForApi, altType, right.querySelector('.cnotes').value || null));
+      submitClassification(card, filenameForApi, altType, right.querySelector('.cnotes').value || null,
+                           readLotCount(right, altType)));
 
     return card;
   }
 
-  async function submitClassification(card, filename, noticeType, notes) {
+  // The reviewer's lot count for one classification decision. 'single' IS a
+  // count of 1, so the input is ignored there; for 'multi' an out-of-range or
+  // blank input returns null (the server then keeps whatever count exists).
+  function readLotCount(scope, noticeType) {
+    if (noticeType === 'single') return 1;
+    const inp = scope ? scope.querySelector('.clots') : null;
+    const v = inp ? parseInt(inp.value, 10) : NaN;
+    return (Number.isInteger(v) && v >= 2 && v <= 500) ? v : null;
+  }
+
+  function classifyBody(noticeType, notes, lotCount) {
+    const body = { notice_type: noticeType, notes: notes };
+    if (lotCount != null) body.expected_lot_count = lotCount;
+    return body;
+  }
+
+  async function submitClassification(card, filename, noticeType, notes, lotCount) {
     if (!filename) { setMsg('<span class="err">notice has no filename — cannot save</span>', 3000); return; }
     const buttons = $$('button', card);
     buttons.forEach(b => b.disabled = true);
@@ -1754,7 +1753,7 @@
       const r = await authFetch(API + '/review/notice/' + encodeURIComponent(filename) + '/classify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ notice_type: noticeType, notes: notes }),
+        body: JSON.stringify(classifyBody(noticeType, notes, lotCount)),
       });
       if (r.status === 401 || r.status === 403) { setMsg('<span class="err">not authorised</span>', 3000); return; }
       if (r.status === 404) { setMsg('<span class="err">notice not found</span>', 3000); return; }
@@ -1825,7 +1824,7 @@
 
   function renderThumb(n, idx) {
     const t = document.createElement('div');
-    t.className = 'thumb' + (n.disagreement ? ' disagree' : '');
+    t.className = 'thumb';
     t.dataset.index = String(idx);
     if (idx === gallery.selectedIndex) t.classList.add('selected');
 
@@ -1857,9 +1856,8 @@
     badges.className = 'thumb-badges';
     const currentBadge = n.notice_type
       ? `<span class="pill on">${escapeHtml(n.notice_type)}</span>` : '';
-    const disBadge = n.disagreement ? `<span class="pill danger">⚠</span>` : '';
     const verifiedBadge = n.verified ? `<span class="pill good">✓</span>` : '';
-    badges.innerHTML = currentBadge + disBadge + verifiedBadge;
+    badges.innerHTML = currentBadge + verifiedBadge;
     body.appendChild(badges);
 
     const footer = document.createElement('div');
@@ -1903,22 +1901,14 @@
     const currentBadge = n.notice_type
       ? `<span class="pill on">current: ${escapeHtml(n.notice_type)}</span>`
       : '<span class="pill off">no classification</span>';
-    const predBadge = n.classifier_pred
-      ? `<span class="pill">classifier: ${escapeHtml(n.classifier_pred)}</span>`
-      : '<span class="pill off">classifier: —</span>';
-    const conf = (typeof n.classifier_confidence === 'number') ? Math.round(n.classifier_confidence * 100) : null;
-    const confBar = (conf != null)
-      ? `<span class="cconfidence" title="${conf}% confident"><span style="width:${conf}%"></span></span> <span class="meta" style="font-size:11px;">${conf}%</span>`
-      : '';
     const statusBadge = n.verified
       ? `<span class="pill good">verified</span>`
-      : (n.disagreement ? `<span class="pill warn">disagreement</span>` : `<span class="pill warn">pending</span>`);
+      : `<span class="pill warn">pending</span>`;
     const overriddenBadge = n.overridden ? `<span class="pill good">human-set</span>` : '';
     const propCountBadge = `<span class="pill off">${n.property_count} prop${n.property_count === 1 ? '' : 's'}</span>`;
-    const reasoning = n.classifier_reasoning
-      ? `<div class="gr-reason">${escapeHtml(n.classifier_reasoning)}</div>` : '';
-    const disagreeBanner = n.disagreement
-      ? `<div class="cdisagree-banner">⚠ classifier disagrees with cluster-count — pick one</div>` : '';
+    const lotCountBadge = n.expected_lot_count != null
+      ? `<span class="pill on" title="reviewer-confirmed lot count">lots: ${n.expected_lot_count}</span>`
+      : '';
     const altType = n.notice_type === 'single' ? 'multi' : 'single';
     const auditFooter = n.verified
       ? `<div class="gr-audit">verified by <code>${escapeHtml(n.verified_by || '?')}</code> at <code>${escapeHtml(fmtWhen(n.verified_at))}</code></div>`
@@ -1928,11 +1918,10 @@
     header.className = 'gr-header';
     header.innerHTML = `
       <div class="gr-title"><span class="gr-fname">${escapeHtml(filename)}</span>${openLink}</div>
-      <div class="gr-row">${currentBadge} ${overriddenBadge} ${propCountBadge} ${statusBadge}</div>
-      <div class="gr-row">${predBadge} ${confBar}</div>
-      ${reasoning}
-      ${disagreeBanner}
+      <div class="gr-row">${currentBadge} ${overriddenBadge} ${propCountBadge} ${lotCountBadge} ${statusBadge}</div>
       <div class="gr-actions">
+        <label class="clots-wrap" title="how many lots does this notice sell? (the downstream extraction checksum)">lots
+          <input type="number" class="clots" min="1" max="500" value="${n.expected_lot_count ?? n.property_count ?? 1}"></label>
         <input type="text" class="cnotes" placeholder="notes (optional)">
         <button class="primary" data-act="confirm">Confirm as ${escapeHtml(n.notice_type || 'single')} <span class="kbd">V</span></button>
         <button data-act="flip">Flip to ${escapeHtml(altType)} <span class="kbd">F</span></button>
@@ -1966,13 +1955,15 @@
     const filenameForApi = n.filename || '';
     header.querySelector('button[data-act="confirm"]').addEventListener('click', () =>
       submitClassificationFromGallery(filenameForApi, n.notice_type || 'single',
-                                       header.querySelector('.cnotes').value || null));
+                                       header.querySelector('.cnotes').value || null,
+                                       readLotCount(header, n.notice_type || 'single')));
     header.querySelector('button[data-act="flip"]').addEventListener('click', () =>
       submitClassificationFromGallery(filenameForApi, altType,
-                                       header.querySelector('.cnotes').value || null));
+                                       header.querySelector('.cnotes').value || null,
+                                       readLotCount(header, altType)));
   }
 
-  async function submitClassificationFromGallery(filename, noticeType, notes) {
+  async function submitClassificationFromGallery(filename, noticeType, notes, lotCount) {
     if (!filename) { setMsg('<span class="err">notice has no filename — cannot save</span>', 3000); return; }
     const right = $('gallery-right');
     const buttons = right ? $$('button', right) : [];
@@ -1981,7 +1972,7 @@
       const r = await authFetch(API + '/review/notice/' + encodeURIComponent(filename) + '/classify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ notice_type: noticeType, notes: notes }),
+        body: JSON.stringify(classifyBody(noticeType, notes, lotCount)),
       });
       if (r.status === 401 || r.status === 403) { setMsg('<span class="err">not authorised</span>', 3000); return; }
       if (r.status === 404) { setMsg('<span class="err">notice not found</span>', 3000); return; }
@@ -2046,7 +2037,8 @@
     if (gallery.selectedIndex < 0) return;
     const n = gallery.notices[gallery.selectedIndex];
     if (!n) return;
-    submitClassificationFromGallery(n.filename || '', targetType, galleryNotesValue());
+    submitClassificationFromGallery(n.filename || '', targetType, galleryNotesValue(),
+                                    readLotCount($('gallery-right'), targetType));
   }
 
   // ─── Pill handlers ──────────────────────────────────────────────────────
@@ -2126,8 +2118,6 @@
     };
     const body = stage === 'classification'
       ? {
-          confidence_min: queueState.scoreFrom / 100,
-          confidence_max: queueState.scoreTo   / 100,
           ...commonFilters,
         }
       : stage === 'markdown'

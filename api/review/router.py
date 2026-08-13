@@ -158,18 +158,13 @@ class ClassificationRow(BaseModel):
     public_url: str | None = None
     notice_type: str | None = None
     property_count: int | None = None
-    classifier_pred: str | None = None
-    classifier_confidence: float | None = None
-    classifier_reasoning: str | None = None
-    classifier_model: str | None = None
-    classified_at: str | None = None
+    expected_lot_count: int | None = None
     overridden: bool = False
     verified: bool = False
     verified_at: str | None = None
     verified_by: str | None = None
     review_notes: str | None = None
     extraction_status: str | None = None
-    disagreement: bool = False
     sample_titles: list[str] = []
     auction_id_count: int = 0
 
@@ -190,12 +185,16 @@ class ClassificationStats(BaseModel):
 
 class ClassifyBody(BaseModel):
     notice_type: Literal["single", "multi"]
+    # Reviewer's lot count — the downstream LangExtract checksum. 'single'
+    # implies 1 (server fills it in); for 'multi' it must be >= 2 when given.
+    expected_lot_count: int | None = Field(default=None, ge=1, le=500)
     notes: str | None = Field(default=None, max_length=2000)
 
 
 class ClassifyResult(BaseModel):
     filename: str | None = None
     notice_type: str | None = None
+    expected_lot_count: int | None = None
     verified_at: str | None = None
     verified_by: str | None = None
     review_notes: str | None = None
@@ -204,8 +203,6 @@ class ClassifyResult(BaseModel):
 
 
 class BulkConfirmBody(BaseModel):
-    confidence_min: float = Field(ge=0.0, le=1.0)
-    confidence_max: float = Field(default=1.0, ge=0.0, le=1.0)
     notice_type: Literal["all", "single", "multi", "unclassified"] = "all"
     date_from: str | None = Field(default=None, max_length=20)
     date_to:   str | None = Field(default=None, max_length=20)
@@ -239,7 +236,6 @@ class ClassificationPropertyRow(BaseModel):
     reserve_price: float | None = None
     notice_filename: str | None = None
     notice_type: str | None = None
-    notice_type_confidence: float | None = None
     overridden: bool = False
     verified: bool = False
     verified_at: str | None = None
@@ -676,9 +672,6 @@ def review_classifications(
     q_search: str | None = Query(default=None, alias="q", max_length=200),
     page: int = Query(default=1, ge=1),
     size: int = Query(default=50, ge=1, le=200),
-    confidence_min: float | None = Query(default=None, ge=0.0, le=1.0),
-    confidence_max: float | None = Query(default=None, ge=0.0, le=1.0),
-    agrees_only: bool = Query(default=False),
     notice_type: Literal["all", "single", "multi", "unclassified"] = Query(default="all"),
     date_from: str | None = Query(default=None, max_length=20),
     date_to: str | None = Query(default=None, max_length=20),
@@ -686,8 +679,6 @@ def review_classifications(
 ) -> ClassificationQueueOut:
     result = q.list_classification_queue(
         status=status, q=q_search, page=page, size=size,
-        confidence_min=confidence_min, confidence_max=confidence_max,
-        agrees_only=agrees_only,
         notice_type=notice_type if notice_type != "all" else None,
         date_from=date_from, date_to=date_to,
     )
@@ -707,8 +698,6 @@ def review_classifications_by_property(
     q_search: str | None = Query(default=None, alias="q", max_length=200),
     page: int = Query(default=1, ge=1),
     size: int = Query(default=100, ge=1, le=200),
-    confidence_min: float | None = Query(default=None, ge=0.0, le=1.0),
-    confidence_max: float | None = Query(default=None, ge=0.0, le=1.0),
     notice_type: Literal["all", "single", "multi", "unclassified"] = Query(default="all"),
     date_from: str | None = Query(default=None, max_length=20),
     date_to: str | None = Query(default=None, max_length=20),
@@ -716,7 +705,6 @@ def review_classifications_by_property(
 ) -> ClassificationPropertyQueueOut:
     result = q.list_classification_queue_by_property(
         status=status, q=q_search, page=page, size=size,
-        confidence_min=confidence_min, confidence_max=confidence_max,
         notice_type=notice_type if notice_type != "all" else None,
         date_from=date_from, date_to=date_to,
     )
@@ -733,8 +721,6 @@ def review_bulk_confirm(
     admin: UserOut = Depends(get_current_admin),
 ) -> BulkConfirmResult:
     result = q.auto_confirm_classifications(
-        confidence_min=body.confidence_min,
-        confidence_max=body.confidence_max,
         notice_type=body.notice_type if body.notice_type != "all" else None,
         date_from=body.date_from,
         date_to=body.date_to,
@@ -765,10 +751,14 @@ def review_classify(
     body: ClassifyBody,
     admin: UserOut = Depends(get_current_admin),
 ) -> ClassifyResult:
-    row = q.verify_classification(
-        filename=filename, notice_type=body.notice_type,
-        by_email=admin.email, notes=body.notes,
-    )
+    try:
+        row = q.verify_classification(
+            filename=filename, notice_type=body.notice_type,
+            by_email=admin.email, notes=body.notes,
+            expected_lot_count=body.expected_lot_count,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
     if row is None:
         raise HTTPException(status_code=404, detail="notice not found")
     return ClassifyResult(**row)

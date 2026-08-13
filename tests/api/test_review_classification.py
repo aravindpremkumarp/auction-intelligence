@@ -82,18 +82,13 @@ def test_classifications_row_shape(client, monkeypatch) -> None:
         "public_url": "https://r2/abc.pdf",
         "notice_type": "single",
         "property_count": 1,
-        "classifier_pred": "multi",
-        "classifier_confidence": 0.92,
-        "classifier_reasoning": "found two distinct reserve prices",
-        "classifier_model": "deepseek/deepseek-v4-flash",
-        "classified_at": "2026-05-15T10:00:00+00:00",
+        "expected_lot_count": 1,
         "overridden": False,
         "verified": False,
         "verified_at": None,
         "verified_by": None,
         "review_notes": None,
         "extraction_status": "applied",
-        "disagreement": True,
         "sample_titles": ["Property in chennai"],
         "auction_id_count": 1,
     }
@@ -118,9 +113,86 @@ def test_classifications_row_shape(client, monkeypatch) -> None:
     assert body["total"] == 1
     assert len(body["rows"]) == 1
     row = body["rows"][0]
-    assert row["disagreement"] is True
-    assert row["classifier_pred"] == "multi"
-    assert row["classifier_confidence"] == pytest.approx(0.92)
+    assert row["notice_type"] == "single"
+    assert row["property_count"] == 1
+    assert row["expected_lot_count"] == 1
+
+
+def test_classify_rejects_inconsistent_lot_count(client) -> None:
+    """'single' means exactly 1 lot; 'multi' means at least 2."""
+    _ensure_admin_user()
+    r = client.post("/review/notice/foo.pdf/classify",
+                    json={"notice_type": "single", "expected_lot_count": 3},
+                    headers=_admin_header())
+    assert r.status_code == 422
+    r = client.post("/review/notice/foo.pdf/classify",
+                    json={"notice_type": "multi", "expected_lot_count": 1},
+                    headers=_admin_header())
+    assert r.status_code == 422
+
+
+def test_classify_rejects_out_of_range_lot_count(client) -> None:
+    _ensure_admin_user()
+    for bad in (0, -1, 501):
+        r = client.post("/review/notice/foo.pdf/classify",
+                        json={"notice_type": "multi", "expected_lot_count": bad},
+                        headers=_admin_header())
+        assert r.status_code == 422, f"expected_lot_count={bad} accepted"
+
+
+def test_classify_single_defaults_lot_count_to_one(client, monkeypatch) -> None:
+    """Confirming 'single' without a count must still stamp expected_lot_count=1."""
+    _ensure_admin_user()
+    captured: dict = {}
+
+    def fake_query(cypher, params=None):
+        if (cypher or "").strip().startswith("MATCH (d:Document {filename: $filename})"):
+            captured.update(params or {})
+            return [{"filename": "abc.pdf", "notice_type": "single",
+                     "expected_lot_count": 1,
+                     "verified_at": None, "verified_by": None,
+                     "review_notes": None, "extraction_status": None,
+                     "invalidated_count": 0}]
+        return []
+
+    import api.neo4j_client as nm
+    monkeypatch.setattr(nm, "run_query", fake_query)
+    import api.review.queries as q
+    monkeypatch.setattr(q, "run_query", fake_query)
+
+    r = client.post("/review/notice/abc.pdf/classify",
+                    json={"notice_type": "single"},
+                    headers=_admin_header())
+    assert r.status_code == 200
+    assert captured["elc"] == 1
+    assert r.json()["expected_lot_count"] == 1
+
+
+def test_classify_multi_passes_lot_count_through(client, monkeypatch) -> None:
+    _ensure_admin_user()
+    captured: dict = {}
+
+    def fake_query(cypher, params=None):
+        if (cypher or "").strip().startswith("MATCH (d:Document {filename: $filename})"):
+            captured.update(params or {})
+            return [{"filename": "abc.pdf", "notice_type": "multi",
+                     "expected_lot_count": 4,
+                     "verified_at": None, "verified_by": None,
+                     "review_notes": None, "extraction_status": None,
+                     "invalidated_count": 0}]
+        return []
+
+    import api.neo4j_client as nm
+    monkeypatch.setattr(nm, "run_query", fake_query)
+    import api.review.queries as q
+    monkeypatch.setattr(q, "run_query", fake_query)
+
+    r = client.post("/review/notice/abc.pdf/classify",
+                    json={"notice_type": "multi", "expected_lot_count": 4},
+                    headers=_admin_header())
+    assert r.status_code == 200
+    assert captured["elc"] == 4
+    assert r.json()["expected_lot_count"] == 4
 
 
 def test_classify_rejects_invalid_notice_type(client) -> None:
@@ -216,48 +288,12 @@ def test_match_schedule_no_match() -> None:
     assert sched is None
 
 
-def test_classifier_normalize_verdict_valid() -> None:
-    from pipeline.classify_notice import normalize_verdict
-    v = normalize_verdict({"classification": "MULTI", "confidence": 0.83,
-                            "reasoning": "two prices"})
-    assert v is not None
-    assert v["classification"] == "multi"
-    assert v["confidence"] == pytest.approx(0.83)
-
-
-def test_classifier_normalize_verdict_clamps_confidence() -> None:
-    from pipeline.classify_notice import normalize_verdict
-    v = normalize_verdict({"classification": "single", "confidence": 1.7,
-                            "reasoning": "one"})
-    assert v is not None
-    assert v["confidence"] == 1.0
-
-
-def test_classifier_normalize_verdict_rejects_bad_label() -> None:
-    from pipeline.classify_notice import normalize_verdict
-    assert normalize_verdict({"classification": "maybe", "confidence": 0.9}) is None
-
-
-def test_classifier_normalize_verdict_rejects_missing_label() -> None:
-    from pipeline.classify_notice import normalize_verdict
-    assert normalize_verdict({"confidence": 0.9, "reasoning": "x"}) is None
-
-
 def test_classifications_accepts_uniform_status_values(client) -> None:
     """status=pending/verified/edited/all must be accepted (canonical 4-value set)."""
     _ensure_admin_user()
     for s in ("pending", "verified", "edited", "all"):
         r = client.get(f"/review/classifications?status={s}", headers=_admin_header())
         assert r.status_code == 200, f"status={s} rejected: {r.text}"
-
-
-def test_classifications_accepts_confidence_max(client) -> None:
-    _ensure_admin_user()
-    r = client.get(
-        "/review/classifications?confidence_min=0.5&confidence_max=0.9",
-        headers=_admin_header(),
-    )
-    assert r.status_code == 200
 
 
 def test_extractor_normalize_schedules_drops_blank() -> None:

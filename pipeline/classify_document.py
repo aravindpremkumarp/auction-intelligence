@@ -19,12 +19,12 @@ classifier with no doc-type taxonomy scaffolding (design doc, "Classify").
 from __future__ import annotations
 
 import asyncio
+import json
 
 import aiohttp
 from dotenv import load_dotenv
 
 from api.dossier import taxonomy as tax
-from pipeline.classify_notice import parse_llm_json  # shared JSON extractor
 from pipeline.config import (
     MAX_RETRIES,
     OPENROUTER_API_KEY,
@@ -48,6 +48,32 @@ MAX_TEXT_CHARS = 12_000
 
 class DocClassifyError(RuntimeError):
     """Raised when the classifier cannot be run (missing key / fatal API error)."""
+
+
+def parse_llm_json(text: str | None) -> dict | None:
+    """Lenient JSON extractor for LLM replies: strips ``` fences, then falls
+    back to the outermost {...} slice. Returns None when no object parses.
+    (Previously lived in pipeline/classify_notice.py.)"""
+    if not text:
+        return None
+    text = text.strip()
+    if not text:
+        return None
+    if text.startswith("```"):
+        lines = [l for l in text.split("\n") if not l.strip().startswith("```")]
+        text = "\n".join(lines).strip()
+    try:
+        obj = json.loads(text)
+    except json.JSONDecodeError:
+        try:
+            s, e = text.find("{"), text.rfind("}") + 1
+            if s >= 0 and e > s:
+                obj = json.loads(text[s:e])
+            else:
+                return None
+        except json.JSONDecodeError:
+            return None
+    return obj if isinstance(obj, dict) else None
 
 
 def _build_prompt(markdown: str, filename: str) -> str:

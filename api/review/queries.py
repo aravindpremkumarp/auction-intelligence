@@ -663,12 +663,9 @@ ClassificationStatus = Literal["pending", "verified", "edited", "all"]
 def _classification_where(
     status: ClassificationStatus,
     q: str | None = None,
-    confidence_min: float | None = None,
-    confidence_max: float | None = None,
     notice_type: NoticeTypeFilter | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
-    agrees_only: bool = False,
 ) -> tuple[list[str], dict]:
     """Shared filter clause for the classification queue + bulk-confirm.
 
@@ -691,15 +688,6 @@ def _classification_where(
     if q:
         where.append("toLower(coalesce(d.filename, '')) CONTAINS toLower($q)")
         params["q"] = q
-    if confidence_min is not None:
-        where.append("coalesce(d.notice_type_confidence, 0.0) >= $confidence_min")
-        params["confidence_min"] = float(confidence_min)
-    if confidence_max is not None:
-        where.append("coalesce(d.notice_type_confidence, 0.0) <= $confidence_max")
-        params["confidence_max"] = float(confidence_max)
-    if agrees_only:
-        where.append("d.notice_type_classifier_pred IS NOT NULL")
-        where.append("d.notice_type = d.notice_type_classifier_pred")
 
     nt_clause = _notice_type_clause(notice_type, alias="d")
     if nt_clause:
@@ -719,9 +707,6 @@ def list_classification_queue(
     q: str | None = None,
     page: int = 1,
     size: int = 50,
-    confidence_min: float | None = None,
-    confidence_max: float | None = None,
-    agrees_only: bool = False,
     notice_type: NoticeTypeFilter | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
@@ -734,11 +719,6 @@ def list_classification_queue(
       - edited:   human overrode the type (notice_type_overridden = true)
       - all:      every Document with a notice_type
 
-    confidence_min / agrees_only are independent filters layered on top of
-    status — used by the "auto-confirm" UI to surface unverified notices
-    whose classifier prediction already matches notice_type at or above a
-    chosen confidence threshold.
-
     date_from / date_to filter to Documents linked to any AuctionProperty
     whose auction_start_dt falls in the window.
     """
@@ -748,10 +728,8 @@ def list_classification_queue(
 
     where, params = _classification_where(
         status=status, q=q,
-        confidence_min=confidence_min, confidence_max=confidence_max,
         notice_type=notice_type,
         date_from=date_from, date_to=date_to,
-        agrees_only=agrees_only,
     )
     params["skip"] = skip
     params["size"] = size
@@ -769,24 +747,16 @@ def list_classification_queue(
                d.public_url                     AS public_url,
                d.notice_type                    AS notice_type,
                coalesce(d.property_count, size(auction_ids)) AS property_count,
-               d.notice_type_classifier_pred    AS classifier_pred,
-               d.notice_type_confidence         AS classifier_confidence,
-               d.notice_type_reasoning          AS classifier_reasoning,
-               d.notice_type_model              AS classifier_model,
-               toString(d.notice_type_classified_at) AS classified_at,
+               d.expected_lot_count             AS expected_lot_count,
                coalesce(d.notice_type_overridden, false) AS overridden,
                (d.notice_type_verified_at IS NOT NULL) AS verified,
                toString(d.notice_type_verified_at) AS verified_at,
                d.notice_type_verified_by        AS verified_by,
                d.notice_type_review_notes       AS review_notes,
                d.description_extraction_status  AS extraction_status,
-               (d.notice_type_classifier_pred IS NOT NULL
-                AND d.notice_type <> d.notice_type_classifier_pred) AS disagreement,
                [t IN titles WHERE t IS NOT NULL][0..3] AS sample_titles,
                size(auction_ids)                AS auction_id_count
-        ORDER BY disagreement DESC,
-                 verified ASC,
-                 coalesce(d.notice_type_confidence, 0.0) ASC,
+        ORDER BY verified ASC,
                  d.filename ASC
         SKIP $skip LIMIT $size
     """
@@ -808,8 +778,6 @@ def list_classification_queue_by_property(
     q: str | None = None,
     page: int = 1,
     size: int = 50,
-    confidence_min: float | None = None,
-    confidence_max: float | None = None,
     notice_type: NoticeTypeFilter | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
@@ -832,13 +800,6 @@ def list_classification_queue_by_property(
         where.append("d.notice_type_verified_at IS NOT NULL")
         where.append("coalesce(d.notice_type_overridden, false) = true")
     # "all" → no extra filter
-
-    if confidence_min is not None:
-        where.append("coalesce(d.notice_type_confidence, 0.0) >= $confidence_min")
-        params["confidence_min"] = float(confidence_min)
-    if confidence_max is not None:
-        where.append("coalesce(d.notice_type_confidence, 0.0) <= $confidence_max")
-        params["confidence_max"] = float(confidence_max)
 
     nt_clause = _notice_type_clause(notice_type, alias="d")
     if nt_clause:
@@ -868,7 +829,6 @@ def list_classification_queue_by_property(
                a.reserve_price_num                AS reserve_price,
                d.filename                         AS notice_filename,
                d.notice_type                      AS notice_type,
-               d.notice_type_confidence           AS notice_type_confidence,
                coalesce(d.notice_type_overridden, false) AS overridden,
                (d.notice_type_verified_at IS NOT NULL) AS verified,
                toString(d.notice_type_verified_at) AS verified_at
@@ -940,8 +900,14 @@ def verify_classification(
     notice_type: str,
     by_email: str,
     notes: str | None,
+    expected_lot_count: int | None = None,
 ) -> dict | None:
     """Set a Document's notice_type from human review.
+
+    ``expected_lot_count`` is the reviewer's count of lots in the notice —
+    the downstream checksum for LangExtract (extracted lots must match).
+    'single' implies 1, so it is stamped even when the reviewer omits it;
+    for 'multi' the count is stored only when given.
 
     Side effects when the new notice_type differs from the prior:
       - description_extraction_status is set to 'needs_reextract' so the
@@ -957,12 +923,21 @@ def verify_classification(
     """
     if notice_type not in ("single", "multi"):
         raise ValueError("notice_type must be 'single' or 'multi'")
+    if expected_lot_count is not None:
+        if notice_type == "single" and expected_lot_count != 1:
+            raise ValueError("a 'single' notice has exactly 1 lot")
+        if notice_type == "multi" and expected_lot_count < 2:
+            raise ValueError("a 'multi' notice has at least 2 lots")
+    if expected_lot_count is None and notice_type == "single":
+        expected_lot_count = 1
     params = {"filename": filename, "nt": notice_type,
-              "by": by_email, "notes": notes}
+              "by": by_email, "notes": notes,
+              "elc": expected_lot_count}
     rows = run_query("""
         MATCH (d:Document {filename: $filename})
         WITH d, d.notice_type AS prior
         SET d.notice_type                  = $nt,
+            d.expected_lot_count           = coalesce($elc, d.expected_lot_count),
             d.notice_type_overridden       = true,
             d.notice_type_verified_at      = datetime(),
             d.notice_type_verified_by      = $by,
@@ -986,6 +961,7 @@ def verify_classification(
         )
         RETURN d.filename                          AS filename,
                d.notice_type                       AS notice_type,
+               d.expected_lot_count                AS expected_lot_count,
                toString(d.notice_type_verified_at) AS verified_at,
                d.notice_type_verified_by           AS verified_by,
                d.notice_type_review_notes          AS review_notes,
@@ -996,18 +972,16 @@ def verify_classification(
 
 
 def auto_confirm_classifications(
-    confidence_min: float,
     by_email: str,
     notes: str | None = None,
     dry_run: bool = False,
-    confidence_max: float = 1.0,
     notice_type: NoticeTypeFilter | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
     q: str | None = None,
 ) -> dict:
     """Bulk-verify every pending Document that matches the reviewer's current
-    queue filter (confidence range, notice_type, date window, filename search).
+    queue filter (notice_type, date window, filename search).
 
     The reviewer's click on "Confirm all N in range" means "I've eyeballed
     the visible gallery and approve them all" — so we mirror the exact
@@ -1025,8 +999,6 @@ def auto_confirm_classifications(
     where, params = _classification_where(
         status="pending",
         q=q,
-        confidence_min=confidence_min,
-        confidence_max=confidence_max,
         notice_type=notice_type,
         date_from=date_from,
         date_to=date_to,
@@ -1056,7 +1028,11 @@ def auto_confirm_classifications(
             d.notice_type_review_notes = CASE
                 WHEN $notes IS NULL OR $notes = ''
                 THEN d.notice_type_review_notes
-                ELSE $notes END
+                ELSE $notes END,
+            d.expected_lot_count = CASE
+                WHEN d.notice_type = 'single'
+                THEN coalesce(d.expected_lot_count, 1)
+                ELSE d.expected_lot_count END
         RETURN count(d) AS n
         """,
         params,

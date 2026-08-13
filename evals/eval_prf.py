@@ -36,9 +36,8 @@ def _extract_all(gold) -> dict[str, list[dict]]:
     out: dict[str, list[dict]] = {}
     for g in gold:
         md = (FIX / f"{g['aid']}.txt").read_text(encoding="utf-8")
-        # No classifier_pred in the fixture; route on the gold notice_type,
-        # which is what the classifier verdict resolves to for these cases.
-        model_id, reasoning_off = select_extract_model(g.get("notice_type"), None)
+        # Route on the gold notice_type.
+        model_id, reasoning_off = select_extract_model(g.get("notice_type"))
         LR.USAGE.docs += 1
         res = None
         for _ in range(3):                      # retry transient empty response
