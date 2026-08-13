@@ -259,6 +259,19 @@
   .ann-toolbar .zoom-group { display: inline-flex; gap: 4px; align-items: center; padding: 0 6px; border-left: 1px solid var(--muted); border-right: 1px solid var(--muted); }
   .ann-toolbar .zoom-btn { padding: 2px 8px; min-height: 0; font-size: 13px; }
   .ann-toolbar .zoom-pct { min-width: 36px; text-align: center; font-family: 'IBM Plex Mono', monospace; font-size: 11px; }
+  .ann-toolbar .ann-badges { display: inline-flex; gap: 5px; align-items: center; flex-wrap: wrap; }
+  /* The annotator is a workspace, not a browse screen. The masthead, the global
+     nav row and the queue-level stats are all context the reviewer already had
+     before drilling in, and on a laptop they cost ~90px of the image area. Hide
+     them here only — "← Back to queue" in the toolbar is the way out — and
+     tighten the toolbar so it wraps to fewer rows. */
+  body.annotator-active { padding-top: 8px; padding-bottom: 8px; }
+  body.annotator-active .wrap > h1,
+  body.annotator-active .wrap > .actions { display: none; }
+  body.annotator-active .wrap > #msg:empty { display: none; }
+  body.annotator-active .ann-toolbar { gap: 6px; margin-bottom: 6px; }
+  body.annotator-active .ann-toolbar button { padding: 3px 8px; min-height: 26px; }
+  body.annotator-active .ann-toolbar .zoom-btn { padding: 2px 7px; }
   .ann-grid { display: grid; grid-template-columns: minmax(0, var(--anngrid-left-fr, 1.4fr)) 6px minmax(280px, var(--anngrid-right-fr, 1fr)); gap: 4px; }
   @media (max-width: 1100px) { .ann-grid { grid-template-columns: 1fr; gap: 14px; } .ann-resizer { display: none; } }
   .ann-resizer { cursor: col-resize; background: var(--ink); opacity: 0.18; border-radius: 2px; align-self: stretch; user-select: none; touch-action: none; }
@@ -654,6 +667,7 @@
       <span class="filename" id="ann-filename"></span>
       <span class="pill" id="ann-rev"></span>
       <span class="pill" id="ann-preclean" title="Source image was upscaled + sharpened before OCR (long edge was below 1500 px)" style="display:none;background:#dff5e3;color:#1b6b3c;border-color:#9bd2af">preclean 2×</span>
+      <span class="ann-badges" id="ann-badges"></span>
       <span style="flex:1"></span>
       <label class="meta" style="display:none" id="ann-page-wrap">page <select class="page-select" id="ann-page"></select></label>
       <button id="ann-add" class="ghost">+ Add block</button>
@@ -2831,6 +2845,7 @@
       $('ann-rev').textContent = 'rev ' + ann.rev;
       $('ann-preclean').style.display =
         (doc.markdown_model === 'mineru-vlm-preclean2x') ? '' : 'none';
+      annRenderBadges(doc);
       const openLink = $('ann-open-src');
       if (doc.public_url) {
         openLink.href = doc.public_url;
@@ -4624,6 +4639,34 @@
     }
   }
 
+  // The markdown queue's badge strip, rendered on the annotator toolbar so a
+  // reviewer who drilled into a notice keeps the type / OCR-health / lot-count
+  // context instead of having to go back to see it. Reuses healthPill and
+  // mdStatusPill verbatim, so the two screens can never drift apart.
+  function annRenderBadges(doc) {
+    const el = $('ann-badges');
+    if (!el) return;
+    if (!doc) { el.innerHTML = ''; return; }
+    const row = {
+      ocr_health_score: doc.ocr_health_score,
+      ocr_health_flags: doc.ocr_health_flags,
+      verified: !!doc.markdown_verified,
+      quality: doc.markdown_quality,
+    };
+    const type = doc.notice_type
+      ? `<span class="pill">${escapeHtml(doc.notice_type)}</span>`
+      : '<span class="pill off">unclassified</span>';
+    const n = doc.property_count;
+    const props = n != null
+      ? `<span class="pill off">${n} prop${n === 1 ? '' : 's'}</span>` : '';
+    const chars = doc.markdown_length != null
+      ? `<span class="pill off">${doc.markdown_length.toLocaleString()} chars</span>` : '';
+    const reext = doc.markdown_reextracted_at
+      ? `<span class="pill warn" title="re-extracted ${escapeHtml(doc.markdown_reextracted_at)}">re-extracted</span>`
+      : '';
+    el.innerHTML = `${type} ${healthPill(row)} ${mdStatusPill(row)} ${reext} ${props} ${chars}`;
+  }
+
   // After any mutation, refresh ann.doc.markdown via a fresh GET so the
   // collapsible regenerated-markdown preview reflects the server's view.
   let mdRefreshTimer = null;
@@ -4637,6 +4680,9 @@
         ann.doc = doc;
         ann.rev = doc.blocks_revision || ann.rev;
         $('ann-rev').textContent = 'rev ' + ann.rev;
+        // Editing blocks rewrites the markdown, so size / health / verified
+        // state all move — repaint the strip rather than leaving stale numbers.
+        annRenderBadges(doc);
         paintAnnMarkdown();
       } catch {}
     }, 400);
