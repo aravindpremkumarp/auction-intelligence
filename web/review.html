@@ -210,6 +210,8 @@
   .class-card .crow { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 6px; }
   .class-card .cactions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
   .class-card .cnotes { flex: 1; min-width: 160px; padding: 6px 10px; border: 1.5px solid var(--ink); font-family: 'IBM Plex Mono', monospace; font-size: 12px; }
+  .clots-wrap { display: inline-flex; gap: 6px; align-items: center; font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--muted); }
+  .clots-wrap .clots { width: 64px; padding: 6px 8px; border: 1.5px solid var(--ink); font-family: 'IBM Plex Mono', monospace; font-size: 12px; }
   .class-card .ctitles { font-family: 'Kalam', cursive; font-size: 13px; color: var(--muted); margin-top: 4px; }
   /* Classification gallery view */
   .gallery-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 14px; align-items: start; }
@@ -1682,13 +1684,16 @@
       ? `<span class="pill good">human-set</span>`
       : '';
     const propCountBadge = `<span class="pill off">${n.property_count} prop${n.property_count === 1 ? '' : 's'}</span>`;
+    const lotCountBadge = n.expected_lot_count != null
+      ? `<span class="pill on" title="reviewer-confirmed lot count">lots: ${n.expected_lot_count}</span>`
+      : '';
     const extractBadge = n.extraction_status
       ? `<span class="pill ${n.extraction_status === 'applied' ? 'good' : (n.extraction_status === 'needs_reextract' ? 'warn' : '')}">extract: ${escapeHtml(n.extraction_status)}</span>`
       : '';
 
     left.innerHTML = `
       <div class="cfile">${escapeHtml(filename)}</div>
-      <div class="crow">${currentBadge} ${overriddenBadge} ${propCountBadge} ${statusBadge}</div>
+      <div class="crow">${currentBadge} ${overriddenBadge} ${propCountBadge} ${lotCountBadge} ${statusBadge}</div>
       <div class="crow">${extractBadge}</div>
       ${(n.sample_titles && n.sample_titles.length) ? `<div class="ctitles">${escapeHtml(n.sample_titles.filter(Boolean).join(' · '))}${(n.auction_id_count > n.sample_titles.length) ? ' · +' + (n.auction_id_count - n.sample_titles.length) + ' more' : ''}</div>` : ''}
       ${openLink ? `<div style="margin-top:8px;">${openLink}</div>` : ''}
@@ -1698,8 +1703,11 @@
     const verifiedFooter = n.verified
       ? `<div class="audit">verified by <code>${escapeHtml(n.verified_by || '?')}</code> at <code>${escapeHtml(fmtWhen(n.verified_at))}</code></div>`
       : '<div class="audit">not yet verified</div>';
+    const lotsPrefill = n.expected_lot_count ?? n.property_count ?? 1;
     right.innerHTML = `
       <div class="cactions">
+        <label class="clots-wrap" title="how many lots does this notice sell? (the downstream extraction checksum)">lots
+          <input type="number" class="clots" min="1" max="500" value="${lotsPrefill}"></label>
         <input type="text" class="cnotes" placeholder="notes (optional)">
         <button class="primary" data-act="confirm">Confirm as ${escapeHtml(n.notice_type || 'single')}</button>
         <button class="" data-act="flip">Flip to ${escapeHtml(altType)}</button>
@@ -1712,14 +1720,32 @@
 
     const filenameForApi = n.filename || '';
     right.querySelector('button[data-act="confirm"]').addEventListener('click', () =>
-      submitClassification(card, filenameForApi, n.notice_type, right.querySelector('.cnotes').value || null));
+      submitClassification(card, filenameForApi, n.notice_type, right.querySelector('.cnotes').value || null,
+                           readLotCount(right, n.notice_type)));
     right.querySelector('button[data-act="flip"]').addEventListener('click', () =>
-      submitClassification(card, filenameForApi, altType, right.querySelector('.cnotes').value || null));
+      submitClassification(card, filenameForApi, altType, right.querySelector('.cnotes').value || null,
+                           readLotCount(right, altType)));
 
     return card;
   }
 
-  async function submitClassification(card, filename, noticeType, notes) {
+  // The reviewer's lot count for one classification decision. 'single' IS a
+  // count of 1, so the input is ignored there; for 'multi' an out-of-range or
+  // blank input returns null (the server then keeps whatever count exists).
+  function readLotCount(scope, noticeType) {
+    if (noticeType === 'single') return 1;
+    const inp = scope ? scope.querySelector('.clots') : null;
+    const v = inp ? parseInt(inp.value, 10) : NaN;
+    return (Number.isInteger(v) && v >= 2 && v <= 500) ? v : null;
+  }
+
+  function classifyBody(noticeType, notes, lotCount) {
+    const body = { notice_type: noticeType, notes: notes };
+    if (lotCount != null) body.expected_lot_count = lotCount;
+    return body;
+  }
+
+  async function submitClassification(card, filename, noticeType, notes, lotCount) {
     if (!filename) { setMsg('<span class="err">notice has no filename — cannot save</span>', 3000); return; }
     const buttons = $$('button', card);
     buttons.forEach(b => b.disabled = true);
@@ -1727,7 +1753,7 @@
       const r = await authFetch(API + '/review/notice/' + encodeURIComponent(filename) + '/classify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ notice_type: noticeType, notes: notes }),
+        body: JSON.stringify(classifyBody(noticeType, notes, lotCount)),
       });
       if (r.status === 401 || r.status === 403) { setMsg('<span class="err">not authorised</span>', 3000); return; }
       if (r.status === 404) { setMsg('<span class="err">notice not found</span>', 3000); return; }
@@ -1880,6 +1906,9 @@
       : `<span class="pill warn">pending</span>`;
     const overriddenBadge = n.overridden ? `<span class="pill good">human-set</span>` : '';
     const propCountBadge = `<span class="pill off">${n.property_count} prop${n.property_count === 1 ? '' : 's'}</span>`;
+    const lotCountBadge = n.expected_lot_count != null
+      ? `<span class="pill on" title="reviewer-confirmed lot count">lots: ${n.expected_lot_count}</span>`
+      : '';
     const altType = n.notice_type === 'single' ? 'multi' : 'single';
     const auditFooter = n.verified
       ? `<div class="gr-audit">verified by <code>${escapeHtml(n.verified_by || '?')}</code> at <code>${escapeHtml(fmtWhen(n.verified_at))}</code></div>`
@@ -1889,8 +1918,10 @@
     header.className = 'gr-header';
     header.innerHTML = `
       <div class="gr-title"><span class="gr-fname">${escapeHtml(filename)}</span>${openLink}</div>
-      <div class="gr-row">${currentBadge} ${overriddenBadge} ${propCountBadge} ${statusBadge}</div>
+      <div class="gr-row">${currentBadge} ${overriddenBadge} ${propCountBadge} ${lotCountBadge} ${statusBadge}</div>
       <div class="gr-actions">
+        <label class="clots-wrap" title="how many lots does this notice sell? (the downstream extraction checksum)">lots
+          <input type="number" class="clots" min="1" max="500" value="${n.expected_lot_count ?? n.property_count ?? 1}"></label>
         <input type="text" class="cnotes" placeholder="notes (optional)">
         <button class="primary" data-act="confirm">Confirm as ${escapeHtml(n.notice_type || 'single')} <span class="kbd">V</span></button>
         <button data-act="flip">Flip to ${escapeHtml(altType)} <span class="kbd">F</span></button>
@@ -1924,13 +1955,15 @@
     const filenameForApi = n.filename || '';
     header.querySelector('button[data-act="confirm"]').addEventListener('click', () =>
       submitClassificationFromGallery(filenameForApi, n.notice_type || 'single',
-                                       header.querySelector('.cnotes').value || null));
+                                       header.querySelector('.cnotes').value || null,
+                                       readLotCount(header, n.notice_type || 'single')));
     header.querySelector('button[data-act="flip"]').addEventListener('click', () =>
       submitClassificationFromGallery(filenameForApi, altType,
-                                       header.querySelector('.cnotes').value || null));
+                                       header.querySelector('.cnotes').value || null,
+                                       readLotCount(header, altType)));
   }
 
-  async function submitClassificationFromGallery(filename, noticeType, notes) {
+  async function submitClassificationFromGallery(filename, noticeType, notes, lotCount) {
     if (!filename) { setMsg('<span class="err">notice has no filename — cannot save</span>', 3000); return; }
     const right = $('gallery-right');
     const buttons = right ? $$('button', right) : [];
@@ -1939,7 +1972,7 @@
       const r = await authFetch(API + '/review/notice/' + encodeURIComponent(filename) + '/classify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ notice_type: noticeType, notes: notes }),
+        body: JSON.stringify(classifyBody(noticeType, notes, lotCount)),
       });
       if (r.status === 401 || r.status === 403) { setMsg('<span class="err">not authorised</span>', 3000); return; }
       if (r.status === 404) { setMsg('<span class="err">notice not found</span>', 3000); return; }
@@ -2004,7 +2037,8 @@
     if (gallery.selectedIndex < 0) return;
     const n = gallery.notices[gallery.selectedIndex];
     if (!n) return;
-    submitClassificationFromGallery(n.filename || '', targetType, galleryNotesValue());
+    submitClassificationFromGallery(n.filename || '', targetType, galleryNotesValue(),
+                                    readLotCount($('gallery-right'), targetType));
   }
 
   // ─── Pill handlers ──────────────────────────────────────────────────────

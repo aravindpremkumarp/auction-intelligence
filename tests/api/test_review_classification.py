@@ -82,6 +82,7 @@ def test_classifications_row_shape(client, monkeypatch) -> None:
         "public_url": "https://r2/abc.pdf",
         "notice_type": "single",
         "property_count": 1,
+        "expected_lot_count": 1,
         "overridden": False,
         "verified": False,
         "verified_at": None,
@@ -114,6 +115,84 @@ def test_classifications_row_shape(client, monkeypatch) -> None:
     row = body["rows"][0]
     assert row["notice_type"] == "single"
     assert row["property_count"] == 1
+    assert row["expected_lot_count"] == 1
+
+
+def test_classify_rejects_inconsistent_lot_count(client) -> None:
+    """'single' means exactly 1 lot; 'multi' means at least 2."""
+    _ensure_admin_user()
+    r = client.post("/review/notice/foo.pdf/classify",
+                    json={"notice_type": "single", "expected_lot_count": 3},
+                    headers=_admin_header())
+    assert r.status_code == 422
+    r = client.post("/review/notice/foo.pdf/classify",
+                    json={"notice_type": "multi", "expected_lot_count": 1},
+                    headers=_admin_header())
+    assert r.status_code == 422
+
+
+def test_classify_rejects_out_of_range_lot_count(client) -> None:
+    _ensure_admin_user()
+    for bad in (0, -1, 501):
+        r = client.post("/review/notice/foo.pdf/classify",
+                        json={"notice_type": "multi", "expected_lot_count": bad},
+                        headers=_admin_header())
+        assert r.status_code == 422, f"expected_lot_count={bad} accepted"
+
+
+def test_classify_single_defaults_lot_count_to_one(client, monkeypatch) -> None:
+    """Confirming 'single' without a count must still stamp expected_lot_count=1."""
+    _ensure_admin_user()
+    captured: dict = {}
+
+    def fake_query(cypher, params=None):
+        if (cypher or "").strip().startswith("MATCH (d:Document {filename: $filename})"):
+            captured.update(params or {})
+            return [{"filename": "abc.pdf", "notice_type": "single",
+                     "expected_lot_count": 1,
+                     "verified_at": None, "verified_by": None,
+                     "review_notes": None, "extraction_status": None,
+                     "invalidated_count": 0}]
+        return []
+
+    import api.neo4j_client as nm
+    monkeypatch.setattr(nm, "run_query", fake_query)
+    import api.review.queries as q
+    monkeypatch.setattr(q, "run_query", fake_query)
+
+    r = client.post("/review/notice/abc.pdf/classify",
+                    json={"notice_type": "single"},
+                    headers=_admin_header())
+    assert r.status_code == 200
+    assert captured["elc"] == 1
+    assert r.json()["expected_lot_count"] == 1
+
+
+def test_classify_multi_passes_lot_count_through(client, monkeypatch) -> None:
+    _ensure_admin_user()
+    captured: dict = {}
+
+    def fake_query(cypher, params=None):
+        if (cypher or "").strip().startswith("MATCH (d:Document {filename: $filename})"):
+            captured.update(params or {})
+            return [{"filename": "abc.pdf", "notice_type": "multi",
+                     "expected_lot_count": 4,
+                     "verified_at": None, "verified_by": None,
+                     "review_notes": None, "extraction_status": None,
+                     "invalidated_count": 0}]
+        return []
+
+    import api.neo4j_client as nm
+    monkeypatch.setattr(nm, "run_query", fake_query)
+    import api.review.queries as q
+    monkeypatch.setattr(q, "run_query", fake_query)
+
+    r = client.post("/review/notice/abc.pdf/classify",
+                    json={"notice_type": "multi", "expected_lot_count": 4},
+                    headers=_admin_header())
+    assert r.status_code == 200
+    assert captured["elc"] == 4
+    assert r.json()["expected_lot_count"] == 4
 
 
 def test_classify_rejects_invalid_notice_type(client) -> None:

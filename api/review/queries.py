@@ -747,6 +747,7 @@ def list_classification_queue(
                d.public_url                     AS public_url,
                d.notice_type                    AS notice_type,
                coalesce(d.property_count, size(auction_ids)) AS property_count,
+               d.expected_lot_count             AS expected_lot_count,
                coalesce(d.notice_type_overridden, false) AS overridden,
                (d.notice_type_verified_at IS NOT NULL) AS verified,
                toString(d.notice_type_verified_at) AS verified_at,
@@ -899,8 +900,14 @@ def verify_classification(
     notice_type: str,
     by_email: str,
     notes: str | None,
+    expected_lot_count: int | None = None,
 ) -> dict | None:
     """Set a Document's notice_type from human review.
+
+    ``expected_lot_count`` is the reviewer's count of lots in the notice —
+    the downstream checksum for LangExtract (extracted lots must match).
+    'single' implies 1, so it is stamped even when the reviewer omits it;
+    for 'multi' the count is stored only when given.
 
     Side effects when the new notice_type differs from the prior:
       - description_extraction_status is set to 'needs_reextract' so the
@@ -916,12 +923,21 @@ def verify_classification(
     """
     if notice_type not in ("single", "multi"):
         raise ValueError("notice_type must be 'single' or 'multi'")
+    if expected_lot_count is not None:
+        if notice_type == "single" and expected_lot_count != 1:
+            raise ValueError("a 'single' notice has exactly 1 lot")
+        if notice_type == "multi" and expected_lot_count < 2:
+            raise ValueError("a 'multi' notice has at least 2 lots")
+    if expected_lot_count is None and notice_type == "single":
+        expected_lot_count = 1
     params = {"filename": filename, "nt": notice_type,
-              "by": by_email, "notes": notes}
+              "by": by_email, "notes": notes,
+              "elc": expected_lot_count}
     rows = run_query("""
         MATCH (d:Document {filename: $filename})
         WITH d, d.notice_type AS prior
         SET d.notice_type                  = $nt,
+            d.expected_lot_count           = coalesce($elc, d.expected_lot_count),
             d.notice_type_overridden       = true,
             d.notice_type_verified_at      = datetime(),
             d.notice_type_verified_by      = $by,
@@ -945,6 +961,7 @@ def verify_classification(
         )
         RETURN d.filename                          AS filename,
                d.notice_type                       AS notice_type,
+               d.expected_lot_count                AS expected_lot_count,
                toString(d.notice_type_verified_at) AS verified_at,
                d.notice_type_verified_by           AS verified_by,
                d.notice_type_review_notes          AS review_notes,
@@ -1011,7 +1028,11 @@ def auto_confirm_classifications(
             d.notice_type_review_notes = CASE
                 WHEN $notes IS NULL OR $notes = ''
                 THEN d.notice_type_review_notes
-                ELSE $notes END
+                ELSE $notes END,
+            d.expected_lot_count = CASE
+                WHEN d.notice_type = 'single'
+                THEN coalesce(d.expected_lot_count, 1)
+                ELSE d.expected_lot_count END
         RETURN count(d) AS n
         """,
         params,

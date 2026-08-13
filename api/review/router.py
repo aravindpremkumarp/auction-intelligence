@@ -158,6 +158,7 @@ class ClassificationRow(BaseModel):
     public_url: str | None = None
     notice_type: str | None = None
     property_count: int | None = None
+    expected_lot_count: int | None = None
     overridden: bool = False
     verified: bool = False
     verified_at: str | None = None
@@ -184,12 +185,16 @@ class ClassificationStats(BaseModel):
 
 class ClassifyBody(BaseModel):
     notice_type: Literal["single", "multi"]
+    # Reviewer's lot count — the downstream LangExtract checksum. 'single'
+    # implies 1 (server fills it in); for 'multi' it must be >= 2 when given.
+    expected_lot_count: int | None = Field(default=None, ge=1, le=500)
     notes: str | None = Field(default=None, max_length=2000)
 
 
 class ClassifyResult(BaseModel):
     filename: str | None = None
     notice_type: str | None = None
+    expected_lot_count: int | None = None
     verified_at: str | None = None
     verified_by: str | None = None
     review_notes: str | None = None
@@ -746,10 +751,14 @@ def review_classify(
     body: ClassifyBody,
     admin: UserOut = Depends(get_current_admin),
 ) -> ClassifyResult:
-    row = q.verify_classification(
-        filename=filename, notice_type=body.notice_type,
-        by_email=admin.email, notes=body.notes,
-    )
+    try:
+        row = q.verify_classification(
+            filename=filename, notice_type=body.notice_type,
+            by_email=admin.email, notes=body.notes,
+            expected_lot_count=body.expected_lot_count,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
     if row is None:
         raise HTTPException(status_code=404, detail="notice not found")
     return ClassifyResult(**row)

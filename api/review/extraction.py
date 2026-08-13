@@ -94,6 +94,13 @@ class ExtractionQueueRow(BaseModel):
     extraction_batch: int | None = None
     # Markdown re-ingested after this extraction ran -> a re-run is required.
     stale: bool = False
+    # Reviewer's lot count from the classification gate (Document.
+    # expected_lot_count) vs distinct lot_index values in this extraction.
+    # mismatch=True is the checksum firing: LangExtract missed lots or
+    # invented extras. Either count None -> mismatch stays False (no claim).
+    expected_lot_count: int | None = None
+    extracted_lot_count: int | None = None
+    lot_count_mismatch: bool = False
 
 
 class ExtractionQueueOut(BaseModel):
@@ -188,6 +195,7 @@ def list_extraction_queue(status: str | None, limit: int, sort: str = "recent",
                toString(d.markdown_reextracted_at) AS markdown_reextracted_at,
                toString(d.markdown_loaded_at) AS markdown_loaded_at,
                d.extraction_batch AS extraction_batch,
+               d.expected_lot_count AS expected_lot_count,
                d.extraction_json AS extraction_json
         ORDER BY {order}
         LIMIT $limit
@@ -248,6 +256,27 @@ def unverify_extraction(filename: str) -> bool:
 
 
 # ── shaping ──────────────────────────────────────────────────────────────────
+def count_extracted_lots(ents: list[dict]) -> int | None:
+    """Distinct lots in one extraction, from entity ``lot_index`` attributes.
+
+    Multi-notice extractions stamp every entity with its lot's index
+    (pipeline/langextract_examples.py); single-notice extractions usually
+    carry none, so any entities without a single lot_index count as 1 lot.
+    Returns None for an empty extraction — no entities is "no claim", not
+    "zero lots".
+    """
+    if not ents:
+        return None
+    idxs = set()
+    for e in ents:
+        attrs = e.get("attrs")
+        if isinstance(attrs, dict):
+            li = attrs.get("lot_index")
+            if li not in (None, ""):
+                idxs.add(str(li))
+    return len(idxs) if idxs else 1
+
+
 def _build_fields(extraction_json: str, corrections_json: str) -> list[ExtractionField]:
     try:
         ents = json.loads(extraction_json or "[]")
@@ -333,6 +362,9 @@ def extraction_queue(
             ents = []
         b = r.get("extraction_batch")
         s = r.get("score")
+        elc = r.get("expected_lot_count")
+        expected = int(elc) if elc is not None else None
+        extracted = count_extracted_lots(ents)
         out.append(ExtractionQueueRow(
             filename=r["filename"], status=r["status"], n_fields=len(ents),
             n_ungrounded=sum(1 for e in ents if e.get("start") is None),
@@ -341,7 +373,12 @@ def extraction_queue(
             extraction_batch=int(b) if b is not None else None,
             stale=extraction_stale(r.get("markdown_reextracted_at"),
                                    r.get("markdown_loaded_at"),
-                                   r.get("extraction_at"))))
+                                   r.get("extraction_at")),
+            expected_lot_count=expected,
+            extracted_lot_count=extracted,
+            lot_count_mismatch=(expected is not None
+                                and extracted is not None
+                                and expected != extracted)))
     return ExtractionQueueOut(rows=out, total=len(out))
 
 
