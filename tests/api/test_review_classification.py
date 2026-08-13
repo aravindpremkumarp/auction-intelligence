@@ -88,7 +88,6 @@ def test_classifications_row_shape(client, monkeypatch) -> None:
         "verified_at": None,
         "verified_by": None,
         "review_notes": None,
-        "extraction_status": "applied",
         "sample_titles": ["Property in chennai"],
         "auction_id_count": 1,
     }
@@ -151,7 +150,7 @@ def test_classify_single_defaults_lot_count_to_one(client, monkeypatch) -> None:
             return [{"filename": "abc.pdf", "notice_type": "single",
                      "expected_lot_count": 1,
                      "verified_at": None, "verified_by": None,
-                     "review_notes": None, "extraction_status": None,
+                     "review_notes": None,
                      "invalidated_count": 0}]
         return []
 
@@ -178,7 +177,7 @@ def test_classify_multi_passes_lot_count_through(client, monkeypatch) -> None:
             return [{"filename": "abc.pdf", "notice_type": "multi",
                      "expected_lot_count": 4,
                      "verified_at": None, "verified_by": None,
-                     "review_notes": None, "extraction_status": None,
+                     "review_notes": None,
                      "invalidated_count": 0}]
         return []
 
@@ -221,7 +220,6 @@ def test_classify_returns_result(client, monkeypatch) -> None:
         "verified_at": "2026-05-15T11:22:33+00:00",
         "verified_by": "admin@example.com",
         "review_notes": "split by hand",
-        "extraction_status": "needs_reextract",
         "invalidated_count": 2,
     }
 
@@ -245,47 +243,10 @@ def test_classify_returns_result(client, monkeypatch) -> None:
     assert r.status_code == 200
     body = r.json()
     assert body["notice_type"] == "multi"
-    assert body["extraction_status"] == "needs_reextract"
     assert body["invalidated_count"] == 2
 
 
 # ── Pure-function tests for pipeline modules ────────────────────────────────
-
-
-def test_match_schedule_exact() -> None:
-    from pipeline.apply_descriptions import match_schedule
-    schedules = [
-        {"reserve_price_num": 1_000_000, "property_description_full": "lot A"},
-        {"reserve_price_num": 2_000_000, "property_description_full": "lot B"},
-    ]
-    sched, reason = match_schedule(2_000_000, schedules)
-    assert reason == "exact"
-    assert sched["property_description_full"] == "lot B"
-
-
-def test_match_schedule_tolerance() -> None:
-    from pipeline.apply_descriptions import match_schedule
-    schedules = [
-        {"reserve_price_num": 1_005_000, "property_description_full": "near"},
-    ]
-    sched, reason = match_schedule(1_000_000, schedules)
-    assert reason == "tolerance"
-    assert sched is not None
-
-
-def test_match_schedule_no_listing_price() -> None:
-    from pipeline.apply_descriptions import match_schedule
-    sched, reason = match_schedule(None, [{"reserve_price_num": 1, "property_description_full": "x"}])
-    assert reason == "no_listing_price"
-    assert sched is None
-
-
-def test_match_schedule_no_match() -> None:
-    from pipeline.apply_descriptions import match_schedule
-    schedules = [{"reserve_price_num": 5_000_000, "property_description_full": "lot"}]
-    sched, reason = match_schedule(1_000_000, schedules)
-    assert reason == "none"
-    assert sched is None
 
 
 def test_classifications_accepts_uniform_status_values(client) -> None:
@@ -294,18 +255,6 @@ def test_classifications_accepts_uniform_status_values(client) -> None:
     for s in ("pending", "verified", "edited", "all"):
         r = client.get(f"/review/classifications?status={s}", headers=_admin_header())
         assert r.status_code == 200, f"status={s} rejected: {r.text}"
-
-
-def test_extractor_normalize_schedules_drops_blank() -> None:
-    from pipeline.extract_descriptions import normalize_schedules
-    out = normalize_schedules({"schedules": [
-        {"reserve_price_num": 1, "property_description_full": "ok"},
-        {"reserve_price_num": 2, "property_description_full": ""},
-        {"reserve_price_num": 3},  # no description
-    ]})
-    assert out is not None
-    assert len(out) == 1
-    assert out[0]["reserve_price_num"] == 1
 
 
 def test_classifications_accepts_notice_type(client) -> None:

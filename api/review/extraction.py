@@ -328,7 +328,8 @@ def _rerun_worker(filename: str) -> None:
         rows = run_read_query(
             "MATCH (d:Document {filename: $fn}) "
             "RETURN d.filename AS filename, d.markdown AS md, "
-            "       d.notice_type AS notice_type",
+            "       d.notice_type AS notice_type, "
+            "       d.expected_lot_count AS expected_lot_count",
             {"fn": filename})
         if not rows or not (rows[0].get("md") or "").strip():
             raise RuntimeError("document has no markdown to extract from")

@@ -441,7 +441,6 @@
       <span class="group-toggle" id="stage-tabs">
         <button class="pill" data-stage="classification">classification</button>
         <button class="pill" data-stage="markdown">markdown</button>
-        <button class="pill" data-stage="description">description</button>
         <button class="pill" data-stage="extraction">extraction</button>
       </span>
     </div>
@@ -506,25 +505,7 @@
       <span style="flex:1"></span>
       <button id="bulk-confirm-btn" class="primary" disabled>Confirm all 0 in range</button>
     </div>
-    <div id="queue-by-property" class="table-scroll">
-      <table>
-        <thead>
-          <tr>
-            <th>Title</th>
-            <th>Borrower</th>
-            <th>Reserve (₹)</th>
-            <th>Completeness</th>
-            <th>Notice</th>
-            <th>Source</th>
-            <th>Status</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody id="queue-rows"></tbody>
-      </table>
-    </div>
-    <div id="queue-by-notice" class="notice-list hidden"></div>
-    <div id="queue-by-classification" class="notice-list hidden"></div>
+    <div id="queue-by-classification" class="notice-list"></div>
     <div id="queue-by-classification-gallery" class="gallery-grid hidden"></div>
     <div id="queue-by-markdown" class="notice-list hidden"></div>
     <div id="queue-by-classification-by-property" class="table-scroll hidden">
@@ -769,15 +750,11 @@
     }
   }
   function appendScoreParams(params) {
-    // The markdown API takes 0–100; description filters the
-    // completeness-judge confidence (0–1 floats). Classification has no
-    // score — it is a cluster-count + human-review stage.
+    // The markdown API takes 0–100 (OCR-quality score). Classification has
+    // no score — it is a cluster-count + human-review stage.
     if (queueState.stage === 'markdown') {
       if (queueState.scoreFrom !== 0)   params.set('score_min', String(queueState.scoreFrom));
       if (queueState.scoreTo   !== 100) params.set('score_max', String(queueState.scoreTo));
-    } else if (queueState.stage === 'description') {
-      if (queueState.scoreFrom !== 0)   params.set('judge_min', String(queueState.scoreFrom / 100));
-      if (queueState.scoreTo   !== 100) params.set('judge_max', String(queueState.scoreTo   / 100));
     }
   }
 
@@ -799,7 +776,11 @@
     // New hash format: kv-pairs separated by `&`.
     const p = new URLSearchParams(h);
     if (p.has('stage')) {
-      queueState.stage      = p.get('stage')       || queueState.stage;
+      // Retired stages in bookmarked hashes (e.g. 'description') fall back
+      // to classification.
+      const st0 = p.get('stage');
+      queueState.stage      = (st0 === 'classification' || st0 === 'markdown')
+                                ? st0 : queueState.stage;
       queueState.group      = p.get('group')       || queueState.group;
       queueState.status     = p.get('status')      || queueState.status;
       queueState.noticeType = p.get('notice_type') || queueState.noticeType;
@@ -858,15 +839,13 @@
     const params = new URLSearchParams();
     appendCommonParams(params);
     let url;
-    if (queueState.stage === 'classification') {
-      url = API + '/review/classifications/stats';
-    } else if (queueState.stage === 'markdown') {
+    if (queueState.stage === 'markdown') {
       url = API + '/review/markdown/stats';
       // The markdown stats endpoint also computes `auto_confirmable` over a score
       // range — feed it the current score from/to so the count reflects the filter.
       appendScoreParams(params);
     } else {
-      url = API + '/review/stats';
+      url = API + '/review/classifications/stats';
     }
     if (params.toString()) url += '?' + params.toString();
     const r = await authFetch(url);
@@ -883,13 +862,12 @@
   // ─── Queue ──────────────────────────────────────────────────────────────
   // Default to "upcoming auctions" — past auctions are mostly archival.
   const PAGE_SIZE_PROPERTY = 100;
-  const PAGE_SIZE_NOTICE = 50;
   const PAGE_SIZE_CLASSIFICATION = 50;
   const PAGE_SIZE_GALLERY = 100;
   const savedCView = (() => { try { return localStorage.getItem('cView'); } catch { return null; } })();
   let queueState = {
-    stage: 'description',         // 'classification' | 'markdown' | 'description'
-    group: 'property',            // 'property' | 'notice'
+    stage: 'classification',      // 'classification' | 'markdown'
+    group: 'notice',              // 'property' | 'notice'
     status: 'pending',            // 'pending' | 'verified' | 'edited' | 'all'
     cview: (savedCView === 'cards' ? 'cards' : 'gallery'),
     noticeType: 'all',            // 'all' | 'single' | 'multi' | 'unclassified'
@@ -902,7 +880,6 @@
   const DEFAULT_GROUP_FOR_STAGE = {
     classification: 'notice',
     markdown: 'notice',
-    description: 'property',
   };
   const PAGE_SIZE_MARKDOWN = 50;
   let queueLoadedCount = 0;
@@ -928,14 +905,9 @@
 
     const isClass = queueState.stage === 'classification';
     const isMd = queueState.stage === 'markdown';
-    const isDesc = queueState.stage === 'description';
     const isProperty = queueState.group === 'property';
     const isNotice = queueState.group === 'notice';
 
-    // Body panels — description reuses the legacy IDs; classification + markdown
-    // now have an extra "by-property" panel that we'll wire up in later tasks.
-    $('queue-by-property').classList.toggle('hidden', !(isDesc && isProperty));
-    $('queue-by-notice').classList.toggle('hidden', !(isDesc && isNotice));
     $('queue-by-classification').classList.toggle('hidden',
         !(isClass && isNotice && queueState.cview === 'cards'));
     $('queue-by-classification-gallery').classList.toggle('hidden',
@@ -997,13 +969,6 @@
         await loadMarkdownByPropertyQueue(append);
       } else {
         await loadMarkdownQueue(append);
-      }
-    } else {
-      // description stage
-      if (queueState.group === 'notice') {
-        await loadNoticeQueue(append);
-      } else {
-        await loadPropertyQueue(append);
       }
     }
     updateLoadMore();
@@ -1097,15 +1062,9 @@
     const btn = $('bulk-confirm-btn');
     if (!btn) return;
     const active = queueState.stage === 'classification'
-                || queueState.stage === 'markdown'
-                || queueState.stage === 'description';
+                || queueState.stage === 'markdown';
     const n = active ? (queueTotal || 0) : 0;
-    // In the description stage the count reflects whatever the queue is grouped
-    // by (properties, or notices when grouped by sales notice) — the confirm
-    // itself always verifies the matching pending properties.
-    const unit = queueState.stage === 'description' && queueState.group === 'notice'
-      ? 'notices' : 'in range';
-    btn.textContent = `Confirm all ${n} ${unit}`;
+    btn.textContent = `Confirm all ${n} in range`;
     btn.disabled = !active || n === 0 || queueState.status !== 'pending';
   }
 
@@ -1119,163 +1078,6 @@
     }
   }
 
-  async function loadPropertyQueue(append) {
-    const tbody = $('queue-rows');
-    if (!append) {
-      tbody.innerHTML = '<tr><td colspan="8"><div class="empty">loading…</div></td></tr>';
-    }
-    const params = new URLSearchParams({
-      status: queueState.status,
-      page: String(queueState.page),
-      size: String(PAGE_SIZE_PROPERTY),
-    });
-    if (queueState.q) params.set('q', queueState.q);
-    appendCommonParams(params);
-    appendScoreParams(params);
-    const r = await authFetch(API + '/review/queue?' + params.toString());
-    if (r.status === 401 || r.status === 403) {
-      tbody.innerHTML = '<tr><td colspan="8"><div class="empty"><span class="err">not authorised — sign in as admin from the main app</span></div></td></tr>';
-      return;
-    }
-    if (!r.ok) {
-      tbody.innerHTML = `<tr><td colspan="8"><div class="empty"><span class="err">error ${r.status}</span></div></td></tr>`;
-      return;
-    }
-    const data = await r.json();
-    if (!append && !data.rows.length) {
-      tbody.innerHTML = '<tr><td colspan="8"><div class="empty">no rows match this filter — nice.</div></td></tr>';
-      queueTotal = data.total || 0;
-      queueLoadedCount = 0;
-      return;
-    }
-    if (!append) tbody.innerHTML = '';
-    for (const row of data.rows) {
-      const tr = document.createElement('tr');
-      tr.className = row.verified ? (row.source === 'human' ? 'edited' : 'verified') : 'pending';
-      const borrower = (row.borrowers || []).filter(Boolean).join(', ') || '—';
-      const noticeBadge = row.notice_type
-        ? `<span class="pill">${escapeHtml(row.notice_type)}</span>${row.has_pdf ? '' : ' <span class="pill off">no pdf</span>'}`
-        : '<span class="pill off">none</span>';
-      tr.innerHTML = `
-        <td>${escapeHtml(row.title || '—')}</td>
-        <td>${escapeHtml(borrower)}</td>
-        <td>${fmtPrice(row.reserve_price)}</td>
-        <td>${fmtPct(row.completeness)}${row.wrong_property ? ' <span class="pill bad">wrong?</span>' : ''}</td>
-        <td>${noticeBadge}</td>
-        <td><span class="pill ${row.source === 'human' ? 'good' : ''}">${escapeHtml(row.source || '—')}</span></td>
-        <td>${statusPill(row)}</td>
-        <td class="row-actions"><a class="link" href="#property/${encodeURIComponent(row.auction_id)}">open →</a></td>
-      `;
-      tbody.appendChild(tr);
-    }
-    queueTotal = data.total || 0;
-    queueLoadedCount = (append ? queueLoadedCount : 0) + data.rows.length;
-  }
-
-  async function loadNoticeQueue(append) {
-    const list = $('queue-by-notice');
-    if (!append) {
-      list.innerHTML = '<div class="empty">loading…</div>';
-    }
-    const params = new URLSearchParams({
-      status: queueState.status,
-      page: String(queueState.page),
-      size: String(PAGE_SIZE_NOTICE),
-    });
-    if (queueState.q) params.set('q', queueState.q);
-    appendCommonParams(params);
-    appendScoreParams(params);
-    const r = await authFetch(API + '/review/notices?' + params.toString());
-    if (r.status === 401 || r.status === 403) {
-      list.innerHTML = '<div class="empty"><span class="err">not authorised — sign in as admin from the main app</span></div>';
-      return;
-    }
-    if (!r.ok) {
-      list.innerHTML = `<div class="empty"><span class="err">error ${r.status}</span></div>`;
-      return;
-    }
-    const data = await r.json();
-    if (!append && !data.rows.length) {
-      list.innerHTML = '<div class="empty">no sales notices match this filter — nice.</div>';
-      queueTotal = data.total || 0;
-      queueLoadedCount = 0;
-      return;
-    }
-    if (!append) list.innerHTML = '';
-    for (const notice of data.rows) {
-      list.appendChild(renderNoticeCard(notice));
-    }
-    queueTotal = data.total || 0;
-    queueLoadedCount = (append ? queueLoadedCount : 0) + data.rows.length;
-  }
-
-  function renderNoticeCard(notice) {
-    const card = document.createElement('details');
-    card.className = 'notice-card';
-    if ((notice.pending_count || 0) > 0) card.open = true;
-
-    const filename = notice.filename || notice.file_path || '(unnamed notice)';
-    const typeBadge = notice.notice_type
-      ? `<span class="pill">${escapeHtml(notice.notice_type)}</span>`
-      : '<span class="pill off">unclassified</span>';
-    const counts = [
-      notice.pending_count ? `<span class="pill warn">${notice.pending_count} pending</span>` : '',
-      notice.verified_count ? `<span class="pill good">${notice.verified_count} verified</span>` : '',
-      notice.edited_count ? `<span class="pill good">${notice.edited_count} edited</span>` : '',
-    ].filter(Boolean).join(' ');
-    const totalBadge = `<span class="pill off">${notice.total_count} total</span>`;
-    const openLink = notice.public_url
-      ? `<a class="link" href="${escapeHtml(notice.public_url)}" target="_blank" rel="noopener">open notice ↗</a>`
-      : '';
-
-    const summary = document.createElement('summary');
-    summary.innerHTML = `
-      <span class="nfile">${escapeHtml(filename)}</span>
-      ${typeBadge}
-      ${counts} ${totalBadge}
-      <span class="nspacer"></span>
-      <span class="nlinks">${openLink}</span>
-    `;
-    card.appendChild(summary);
-
-    const table = document.createElement('table');
-    table.className = 'ntable';
-    table.innerHTML = `
-      <thead>
-        <tr>
-          <th>Title</th>
-          <th>Borrower</th>
-          <th>Reserve (₹)</th>
-          <th>Completeness</th>
-          <th>Source</th>
-          <th>Status</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody></tbody>
-    `;
-    const tbody = table.querySelector('tbody');
-    const props = notice.properties || [];
-    for (const p of props) {
-      const tr = document.createElement('tr');
-      tr.className = p.verified ? (p.source === 'human' ? 'edited' : 'verified') : 'pending';
-      const borrower = (p.borrowers || []).filter(Boolean).join(', ') || '—';
-      tr.innerHTML = `
-        <td>${escapeHtml(p.title || '—')}</td>
-        <td>${escapeHtml(borrower)}</td>
-        <td>${fmtPrice(p.reserve_price)}</td>
-        <td>${fmtPct(p.completeness)}</td>
-        <td><span class="pill ${p.source === 'human' ? 'good' : ''}">${escapeHtml(p.source || '—')}</span></td>
-        <td>${statusPill(p)}</td>
-        <td class="row-actions"><a class="link" href="#property/${encodeURIComponent(p.auction_id)}">open →</a></td>
-      `;
-      tbody.appendChild(tr);
-    }
-    card.appendChild(table);
-    return card;
-  }
-
-  // ─── Markdown-quality queue ─────────────────────────────────────────────
   async function loadMarkdownQueue(append) {
     const list = $('queue-by-markdown');
     if (!append) {
@@ -1687,14 +1489,9 @@
     const lotCountBadge = n.expected_lot_count != null
       ? `<span class="pill on" title="reviewer-confirmed lot count">lots: ${n.expected_lot_count}</span>`
       : '';
-    const extractBadge = n.extraction_status
-      ? `<span class="pill ${n.extraction_status === 'applied' ? 'good' : (n.extraction_status === 'needs_reextract' ? 'warn' : '')}">extract: ${escapeHtml(n.extraction_status)}</span>`
-      : '';
-
     left.innerHTML = `
       <div class="cfile">${escapeHtml(filename)}</div>
       <div class="crow">${currentBadge} ${overriddenBadge} ${propCountBadge} ${lotCountBadge} ${statusBadge}</div>
-      <div class="crow">${extractBadge}</div>
       ${(n.sample_titles && n.sample_titles.length) ? `<div class="ctitles">${escapeHtml(n.sample_titles.filter(Boolean).join(' · '))}${(n.auction_id_count > n.sample_titles.length) ? ' · +' + (n.auction_id_count - n.sample_titles.length) + ' more' : ''}</div>` : ''}
       ${openLink ? `<div style="margin-top:8px;">${openLink}</div>` : ''}
     `;
@@ -2101,14 +1898,12 @@
 
   $('bulk-confirm-btn').addEventListener('click', async () => {
     const stage = queueState.stage;
-    if (stage !== 'classification' && stage !== 'markdown' && stage !== 'description') return;
+    if (stage !== 'classification' && stage !== 'markdown') return;
     const btn = $('bulk-confirm-btn');
     btn.disabled = true;
     const url = API + (stage === 'classification'
       ? '/review/classifications/bulk-confirm'
-      : stage === 'markdown'
-        ? '/review/markdown/bulk-confirm'
-        : '/review/bulk-confirm');
+      : '/review/markdown/bulk-confirm');
     const commonFilters = {
       notice_type: queueState.noticeType || 'all',
       date_from:   queueState.dateFrom || null,
@@ -2120,16 +1915,9 @@
       ? {
           ...commonFilters,
         }
-      : stage === 'markdown'
-      ? {
+      : {
           score_min: queueState.scoreFrom,
           score_max: queueState.scoreTo,
-          ...commonFilters,
-        }
-      : {
-          // description → completeness-judge confidence band (0–1)
-          judge_min: queueState.scoreFrom / 100,
-          judge_max: queueState.scoreTo   / 100,
           ...commonFilters,
         };
     let result = null;
