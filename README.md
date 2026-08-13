@@ -44,9 +44,11 @@ serve agent + web UI → human feedback + review loop
 - **Re-auction awareness** — every result row carries `is_reauction`,
   `reauction_count`, and `previous_reserve_price` so price-drop questions are
   answered from the rows directly.
-- **Enrichment review surface** — an admin UI to verify/edit the LLM-extracted
-  description of each property against its source notice, re-extract regions,
-  and grade notice/markdown quality.
+- **Enrichment review surface** — an admin UI with a gate per pipeline stage:
+  confirm each notice's type and lot count (classification), grade OCR/markdown
+  quality, and check LangExtract's output — where a lot-count mismatch against
+  the reviewer's count is flagged. Plus per-property description verify/edit,
+  block-level annotation, and region re-extract.
 - **Feedback loop** — thumbs up/down on any reply flows into Neo4j and is
   auto-synced into the repo for triage.
 
@@ -233,8 +235,8 @@ The graph is modelled around `AuctionProperty`, with `Bank`/`Branch`,
 
 The pipeline (`pipeline/`, run locally) turns raw scraped listings into enriched
 graph data. Orchestrate it with `python -m pipeline.run_pipeline` (flags:
-`--pilot`, `--limit N`, `--skip-ocr`, `--skip-descriptions`, `--verify-only`,
-`--legacy`).
+`--pilot`, `--limit N`, `--skip-ocr`, `--skip-descriptions` (skips the
+notice-classification stage), `--verify-only`, `--legacy`).
 
 **One command to run it all (weekly batch job):** `C:\Python314\python.exe
 scripts\run_weekly_pipeline.py` chains steps 1-7 below end-to-end, with
@@ -272,6 +274,41 @@ scraped fields against the PDF (PDF wins, original kept as `<field>_scraped`);
 and **embeddings** build three vector indexes (`property_desc_idx`,
 `notice_markdown_idx`, `notice_image_idx`) consumed by `semantic_search`.
 
+### Sale notice → graph: the review workflow
+
+Turning one sale notice into graph rows runs through three human gates in
+`web/review.html`. Machines do the volume; a person confirms the few facts
+everything downstream depends on.
+
+| # | Step | Who | Where |
+|---|------|-----|-------|
+| 1 | Classify the notice: single- vs multi-property, from the scraped cluster count | machine | `pipeline/classify_notice.py` |
+| 2 | **Gate 1** — confirm the type **and the lot count** | human | review UI, *classification* stage |
+| 3 | OCR the notice into markdown (Datalab or MinerU) | machine | `scripts/ocr_with_mineru.py` |
+| 4 | **Gate 2** — check OCR quality, re-OCR or annotate blocks if poor | human | review UI, *markdown* stage |
+| 5 | Extract entities from the markdown with LangExtract | machine | `pipeline/load_extractions.py` |
+| 6 | **Gate 3** — review the extraction; a lot-count mismatch is flagged | human | review UI, *extraction* stage |
+| 7 | Resolve entities into the `:Lot` / `:Parcel` spine | machine | `pipeline/promote_extractions.py` |
+| 8 | Apply grounded fields + descriptions to `:AuctionProperty` | machine | `pipeline/apply_extractions.py` |
+
+**The lot count is the thread tying gates 1 and 6 together.** At gate 1 the
+reviewer confirms how many lots the notice actually sells; it is stored as
+`Document.expected_lot_count` (confirming "single" implies 1, so most notices
+cost no extra clicks). That number then does two jobs:
+
+- **Before extraction** — it is injected into the LangExtract prompt, so the
+  model is told how many lots to find and number (`lot_index` 1..N) instead of
+  guessing.
+- **After extraction** — gate 6 compares it against the distinct lots actually
+  extracted and flags any mismatch, which is how a missed or invented lot gets
+  caught instead of quietly reaching the graph.
+
+Notices without a confirmed count are never flagged: no count means no claim.
+
+The graph model these steps write into — `:Document` → `:Lot` → `:Parcel`,
+and where each extracted field lands — is documented in
+[`docs/SCHEMA.md`](docs/SCHEMA.md).
+
 ---
 
 ## API surface
@@ -306,10 +343,10 @@ Mounted in `api/main.py`. Selected endpoints:
 **Admin**
 
 - `GET|PATCH /admin/users[/{id}]`, `GET /admin/feedback`.
-- `GET /review/*` — the enrichment-review surface: property/notice/markdown/
-  classification queues, `verify` / `edit` / `unverify`, block-level annotation
-  (`/notice/{file}/blocks…`), region re-extract, crop/rotation, reingest, and
-  source streaming.
+- `GET /review/*` — the enrichment-review surface: classification, markdown and
+  extraction queues, `classify` (notice type + lot count), `verify` / `edit` /
+  `unverify`, block-level annotation (`/notice/{file}/blocks…`), region
+  re-extract, crop/rotation, reingest, and source streaming.
 
 ---
 

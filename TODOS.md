@@ -69,7 +69,7 @@ Two separate fixes:
 Same class of bug as the OpenRouter key below — silent credential failure
 reported as success.
 
-### `OPENROUTER_API_KEY` malformed in `.env`; classifier fails silently
+### `OPENROUTER_API_KEY` malformed in `.env`; batch stages fail silently
 
 **Priority:** P0
 **Noticed:** 2026-08-09
@@ -80,13 +80,15 @@ variable name is duplicated inside its own value, so every request sends
 "Missing Authentication header". `OPENROUTER_CHAT_API_KEY` is well-formed, which
 is why chat works and the pipeline does not.
 
-`pipeline/classify_notice.py` pass 2 failed **1192 of 1192** documents this way
-with no error line printed: a non-200/404/403 response retries `MAX_RETRIES`,
-falls out of the loop, returns `None`, and increments `failed` without logging
-the status or body. Add the status code to that path.
+It fails **silently**: a non-200/404/403 response retries `MAX_RETRIES`, falls
+out of the loop, returns `None`, and increments `failed` without logging the
+status or body. Add the status code to that path.
 
-Blocks `pipeline/extract_descriptions.py` and `pipeline/load_extractions.py`
-too — same key.
+Blocks every OpenRouter batch stage — `pipeline/ocr_extract.py` and
+`pipeline/load_extractions.py` (LangExtract) — since they share the key.
+(First diagnosed via `classify_notice.py`'s LLM pass, which failed 1192 of 1192
+documents this way; that pass has since been removed — classification is now
+cluster count + human review.)
 
 ### Two truncated notice JPEGs in R2
 

@@ -194,6 +194,28 @@ value, the scraped side stays linked: where the two resolve to different
 villages, that is a scraper-bug or wrong-property-match detector — the same
 class of signal as the existing `description_wrong_property`.
 
+### `Document.expected_lot_count` — the human's lot count
+
+A reviewer confirms how many lots a notice sells at the classification gate,
+and it lands on the `:Document` as `expected_lot_count` (confirming a notice
+as `single` implies 1). It is deliberately a **human** number, not a derived
+one: the count cannot be read reliably off the notice, because lots routinely
+share a reserve price and a borrower, and tables survive OCR unevenly.
+
+It earns its place by being used twice:
+
+- **Into extraction** — the count is written into the LangExtract prompt, so
+  the model is told how many lots to find and how to number them
+  (`lot_index` 1..N).
+- **Back out of extraction** — the review queue compares it against the
+  distinct `lot_index` values actually extracted; a mismatch is how a missed
+  or invented lot surfaces before it reaches `:Lot` / `:Parcel`.
+
+Null means no claim: a document without a confirmed count is never flagged.
+Priming does soften the second use — once the model is told "5 lots", a
+matching count is weaker evidence than an independent agreement would be —
+but it still catches the hard failure, where the model cannot find them.
+
 ---
 
 ## Parcel resolution is a second pass
