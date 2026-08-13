@@ -150,6 +150,7 @@
       <button id="boxBtn" onclick="toggleBoxes()" title="show/hide OCR bounding boxes">▦ boxes</button>
       <button class="primary" id="verifyBtn" onclick="doVerify()">✓ Verify</button>
       <button id="unverifyBtn" onclick="doUnverify()">Unverify</button>
+      <button id="rerunBtn" onclick="doRerun()" title="Re-run LangExtract on the current markdown — use after fixing the markdown via re-ingest or block re-OCR">▶ Re-run LangExtract</button>
       <span id="msg"></span>
     </div>
     <div id="legend" style="margin-bottom:8px"></div>
@@ -301,7 +302,24 @@ function render(){
   document.getElementById("title").textContent=d.filename;
   document.getElementById("status").innerHTML=`<span class="badge b-${d.status}">${d.status}</span>`+scoreBadge(d.score)+
     (d.verified_by?` <span style="color:#64748b;font-size:12px">by ${esc(d.verified_by)}</span>`:"")+
-    (d.stale?` <span class="badge" style="background:#f59e0b;color:#0f172a" title="The markdown was re-ingested after this extraction ran, so these fields and their highlights no longer match the source. Re-run LangExtract: load_extractions --filename &quot;${esc(d.filename)}&quot; --force">⚠ markdown updated — re-run required</span>`:"");
+    (d.stale?` <span class="badge" style="background:#f59e0b;color:#0f172a" title="The markdown was re-ingested after this extraction ran, so these fields and their highlights no longer match the source. Press ▶ Re-run LangExtract.">⚠ markdown updated — re-run required</span>`:"")+
+    (d.rerun_running?` <span class="badge" style="background:#3b82f6;color:#fff">⏳ LangExtract running…</span>`:"")+
+    (d.rerun_error?` <span class="badge" style="background:#dc2626;color:#fff" title="${esc(d.rerun_error)}">✗ re-run failed — hover for reason</span>`:"");
+  const rb=document.getElementById("rerunBtn");
+  if(rb){rb.disabled=!!d.rerun_running;rb.textContent=d.rerun_running?"⏳ Running…":"▶ Re-run LangExtract";}
+  if(d.rerun_running&&!RERUN_POLL){
+    RERUN_POLL=setInterval(async()=>{
+      const r=await api(`/review/extraction/${encodeURIComponent(d.filename)}`);
+      if(!r.ok)return;
+      const fresh=await r.json();
+      if(fresh.filename!==CUR.filename){clearInterval(RERUN_POLL);RERUN_POLL=null;return;}
+      if(!fresh.rerun_running){
+        clearInterval(RERUN_POLL);RERUN_POLL=null;
+        CUR=fresh;render();loadQueue();
+        setMsg(fresh.rerun_error?"re-run failed":"re-run complete — fields refreshed");
+      }
+    },5000);
+  }
   const cls=[...new Set(d.fields.map(f=>f.cls))];
   document.getElementById("legend").innerHTML=cls.map(c=>`<span class=badge style="background:${COLORS[c]||'#e2e8f0'};color:#0f172a">${c}</span>`).join(" ");
   // keep pane scroll across save/verify re-renders (loadDoc zeroes it for new docs)
@@ -602,6 +620,14 @@ async function doVerify(){
 async function doUnverify(){
   const r=await api(`/review/extraction/${encodeURIComponent(CUR.filename)}/unverify`,{method:"POST"});
   if(r.ok){CUR=await r.json();render();loadQueue();setMsg("unverified");}else setMsg("failed "+r.status);
+}
+let RERUN_POLL=null;
+async function doRerun(){
+  if(!confirm("Re-run LangExtract on the current markdown?\nThis replaces the stored fields (reviewer field corrections are kept but may no longer line up)."))return;
+  const r=await api(`/review/extraction/${encodeURIComponent(CUR.filename)}/rerun`,{method:"POST"});
+  if(r.ok){CUR=await r.json();render();setMsg("LangExtract started — this takes a minute or two");}
+  else if(r.status===409){setMsg("a re-run is already in progress");}
+  else setMsg("re-run failed to start "+r.status);
 }
 refreshMdBtn();refreshBoxBtn();refreshScoreInputs();loadQueue();applyImgPane();
 </script>

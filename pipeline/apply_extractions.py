@@ -11,15 +11,20 @@ Per Document:
      a correction replaces the entity's text).
   2. Group entities by lot_index into per-lot records: description
      (full_description spans), location attrs, boundaries (adjacency +
-     measurement per side), extent/UDS, door numbers, reserve price.
+     measurement per side), extent/UDS, door numbers, reserve price, and the
+     normalized property type / asset category (pipeline.property_taxonomy).
   3. Match lots to the Document's linked AuctionProperty listings:
        - 1 lot        -> every listing (the 'single' case)
-       - N lots       -> reserve price exact, then ±1%, then, if exactly one
-                         lot and one listing remain, pair them
+       - N lots       -> reserve price exact, then ±1%, then EMD exact/±1%
+                         (for listings the portal shows without a reserve
+                         price), then borrower-name overlap (separates lots
+                         that tie on money), then, if exactly one lot and one
+                         listing remain, pair them
      Unmatched listings are logged to data/grounded_unmatched.csv.
-  4. Write fields onto AuctionProperty. The description write respects the
-     same human guard as apply_descriptions (never clobber description_source=
-     'human' or description_verified=true). Enrichment fields use the same
+  4. Write fields onto AuctionProperty. The description write treats the
+     grounded notice text as the sole source — it overwrites even the legacy
+     pipeline's human-verified rows (stashing them once into
+     description_human_backup). Enrichment fields use the same
      property names as pipeline/load_enriched.flatten_enrichment so the API
      and UI keep working unchanged; only non-null values are written (SET +=).
 
@@ -38,6 +43,7 @@ from datetime import datetime, timezone
 
 from api.neo4j_client import run_query, run_read_query
 from pipeline.obs import get_logger
+from pipeline.property_taxonomy import asset_category, classify_property_type
 
 log = get_logger(__name__)
 
@@ -109,6 +115,54 @@ def _first(d: dict, cur):
     return cur if cur not in (None, "") else d
 
 
+# Honorifics and relation markers carry no identity — "W/o. Pavadai" names the
+# husband, but the token "pavadai" still discriminates between lots, so only
+# the markers themselves are stripped.
+_HONORIFICS = re.compile(
+    r"\b(sri|smt|shri|mr|mrs|ms|thiru|tmt|selvi|dr|m/s|late|alias|"
+    r"s/o|w/o|d/o|h/o|borrower|guarantor|mortgagor|co-obligant)\b\.?", re.I)
+
+
+def _name_tokens(name: str) -> set[str]:
+    """Identity-bearing tokens of a person/firm name: lowercased words of 3+
+    chars, honorifics stripped. Initials are dropped — they collide across
+    family members far too often to discriminate lots."""
+    s = _HONORIFICS.sub(" ", str(name or "").lower())
+    s = re.sub(r"[^a-z0-9 ]", " ", s)
+    return {t for t in s.split() if len(t) >= 3}
+
+
+def _names_overlap(a: set[str], b: set[str]) -> bool:
+    """True when the token sets share a name. Exact token or containment
+    (len>=4) so OCR-fused variants like 'sgayathri' still hit 'gayathri'."""
+    for x in a:
+        for y in b:
+            if x == y or (len(x) >= 4 and len(y) >= 4 and (x in y or y in x)):
+                return True
+    return False
+
+
+# Survey/door/plot identifiers as they appear in notices and portal text:
+# "491/1", "32-12B", "S.F.No. 203/2A". Separators vary per source, so they
+# normalize to '/'. Bare years and 6-digit pincodes match this shape too and
+# appear in almost every listing — they carry no lot identity and are dropped.
+_ID_SHAPE = re.compile(r"\b\d+(?:[/\-.]\d*[a-z]*\d*)+\b|\b\d+[a-z]\b")
+
+
+def _id_norm(v: str) -> str:
+    return re.sub(r"[\-.]", "/", str(v).strip().lower())
+
+
+def _id_tokens(text: str) -> set[str]:
+    out = set()
+    for m in _ID_SHAPE.finditer(str(text or "").lower()):
+        tok = _id_norm(m.group(0))
+        if re.fullmatch(r"(19|20)\d{2}|\d{6,}", tok):
+            continue
+        out.add(tok)
+    return out
+
+
 def group_lots(entities: list[dict]) -> dict[str, dict]:
     """Group grounded entities into per-lot records.
 
@@ -123,6 +177,9 @@ def group_lots(entities: list[dict]) -> dict[str, dict]:
             "description_parts": [],
             "fields": {},
             "reserve": None,
+            "emd": None,
+            "borrower_tokens": set(),
+            "id_tokens": set(),
             "doors_old": [],
             "doors_new": [],
         })
@@ -174,11 +231,27 @@ def group_lots(entities: list[dict]) -> dict[str, dict]:
                     rec["doors_old"].append(val)
                 elif kind == "door_new":
                     rec["doors_new"].append(val)
+                rec["id_tokens"] |= _id_tokens(val)
+
+        elif cls == "borrower":
+            rec["borrower_tokens"] |= _name_tokens(text)
+
+        elif cls == "property":
+            v = attrs.get("property_type")
+            if v not in (None, "") and "property_type_raw" not in f:
+                raw = str(v).strip()
+                bucket = classify_property_type(raw)
+                f["property_type_raw"] = raw
+                f["property_type_norm"] = bucket
+                f["asset_category_norm"] = asset_category(bucket, raw)
 
         elif cls == "auction_terms":
             r = parse_money(attrs.get("reserve_price_num"))
             if r is not None and rec["reserve"] is None:
                 rec["reserve"] = r
+            m = parse_money(attrs.get("emd_num"))
+            if m is not None and rec["emd"] is None:
+                rec["emd"] = m
 
     # finalize
     out: dict[str, dict] = {}
@@ -192,20 +265,47 @@ def group_lots(entities: list[dict]) -> dict[str, dict]:
             "description": "\n\n".join(rec["description_parts"]) or None,
             "fields": f,
             "reserve": rec["reserve"],
+            "emd": rec["emd"],
+            "borrower_tokens": rec["borrower_tokens"],
+            "id_tokens": rec["id_tokens"],
         }
     return out
 
 
 # ── pure: lot ↔ listing matching ─────────────────────────────────────────────
 
+def _key_match(lot_list: list[dict], key: str, value) -> tuple[list[int], bool]:
+    """Indexes of lots whose `key` equals value, else within ±1%.
+    Second element: whether the hit was exact."""
+    exact = [i for i, lo in enumerate(lot_list)
+             if lo.get(key) is not None and lo[key] == value]
+    if exact:
+        return exact, True
+    tol = abs(value) * PRICE_TOLERANCE_PCT / 100.0
+    return [i for i, lo in enumerate(lot_list)
+            if lo.get(key) is not None and abs(lo[key] - value) <= tol], False
+
+
 def match_lots_to_listings(lots: dict[str, dict],
                            listings: list[dict]) -> tuple[list[tuple[dict, dict, str]],
                                                           list[tuple[dict, str]]]:
     """Assign each listing to at most one lot.
 
-    listings: [{aid, price}]. Returns (matches, unmatched) where matches is
-    [(listing, lot, reason)] and unmatched is [(listing, reason)].
-    reason ∈ 'single' | 'exact' | 'tolerance' | 'remainder' | 'ambiguous' | 'none'.
+    listings: [{aid, price, emd?, borrowers?, id_text?}]. Returns (matches,
+    unmatched) where matches is [(listing, lot, reason)] and unmatched is
+    [(listing, reason)]. reason ∈ 'single' | 'exact' | 'tolerance' | 'emd' |
+    'emd_tolerance' | 'borrower' | 'identifier' | 'remainder' | 'ambiguous' |
+    'none'.
+
+    Keys narrow in order of trustworthiness: reserve price exact/±1%, then
+    EMD exact/±1% (rescues listings the portal shows without a price, and 10x
+    price typos), then borrower-name overlap, then survey/door identifiers
+    found in the listing's own text (id_text: title + portal description).
+    Borrower and identifiers are what separate lots that tie on money — EMD
+    cannot, being 10% of the reserve almost everywhere. Every key must reduce
+    to exactly one lot; a tie that survives all keys stays 'ambiguous' rather
+    than being guessed, and a listing none of whose keys hit anything falls
+    through to the unique-remainder rule.
     """
     lot_list = list(lots.values())
     if not lot_list:
@@ -221,30 +321,62 @@ def match_lots_to_listings(lots: dict[str, dict],
 
     for listing in listings:
         price = listing.get("price")
-        if price is None:
+        emd = listing.get("emd")
+        borrowers = set()
+        for name in listing.get("borrowers") or []:
+            borrowers |= _name_tokens(name)
+        if price is None and emd is None and not borrowers:
             unmatched.append((listing, "no_listing_price"))
             continue
-        exact = [i for i, lo in enumerate(lot_list)
-                 if lo["reserve"] is not None and lo["reserve"] == price]
-        if len(exact) == 1:
-            matches.append((listing, lot_list[exact[0]], "exact"))
-            taken.add(exact[0])
-            continue
-        if len(exact) > 1:
-            # identical reserve prices — assignment would be a guess
+
+        # Each key either narrows the candidate set or is ignored; reason
+        # records the first key that produced a hit.
+        cands = list(range(len(lot_list)))
+        reason = None
+
+        if price is not None:
+            idx, was_exact = _key_match(lot_list, "reserve", price)
+            if idx:
+                cands = idx
+                reason = "exact" if was_exact else "tolerance"
+
+        if len(cands) > 1 and emd is not None:
+            sub = [lot_list[i] for i in cands]
+            idx, was_exact = _key_match(sub, "emd", emd)
+            if idx:
+                cands = [cands[i] for i in idx]
+                reason = reason or ("emd" if was_exact else "emd_tolerance")
+
+        if len(cands) > 1 and borrowers:
+            idx = [i for i in cands
+                   if _names_overlap(borrowers,
+                                     lot_list[i].get("borrower_tokens") or set())]
+            if idx and len(idx) < len(cands):
+                cands = idx
+                reason = reason or "borrower"
+                if len(cands) == 1:
+                    reason = "borrower"
+
+        if len(cands) > 1:
+            listing_ids = _id_tokens(listing.get("id_text") or "")
+            if listing_ids:
+                idx = [i for i in cands
+                       if listing_ids & (lot_list[i].get("id_tokens") or set())]
+                if idx and len(idx) < len(cands):
+                    cands = idx
+                    reason = reason or "identifier"
+                    if len(cands) == 1:
+                        reason = "identifier"
+
+        if reason is None:
+            # no key hit anything — leave for the unique-remainder rule
+            pending.append(listing)
+        elif len(cands) == 1:
+            matches.append((listing, lot_list[cands[0]], reason))
+            taken.add(cands[0])
+        else:
+            # a tie that survived every key — assignment would be a guess
             unmatched.append((listing, "ambiguous"))
-            continue
-        tol = abs(price) * PRICE_TOLERANCE_PCT / 100.0
-        near = [i for i, lo in enumerate(lot_list)
-                if lo["reserve"] is not None and abs(lo["reserve"] - price) <= tol]
-        if len(near) == 1:
-            matches.append((listing, lot_list[near[0]], "tolerance"))
-            taken.add(near[0])
-            continue
-        if len(near) > 1:
-            unmatched.append((listing, "ambiguous"))
-            continue
-        pending.append(listing)
 
     # unique remainder: exactly one unmatched listing and one untaken lot
     free = [i for i in range(len(lot_list)) if i not in taken]
@@ -266,7 +398,11 @@ def fetch_work(limit: int | None = None) -> list[dict]:
         "RETURN d.filename AS filename, "
         "       d.extraction_json AS extraction_json, "
         "       d.extraction_corrections_json AS corrections_json, "
-        "       collect({aid: a.auction_id, price: a.reserve_price_num}) AS listings "
+        "       collect({aid: a.auction_id, price: a.reserve_price_num, "
+        "                emd: a.emd_num, "
+        "                borrowers: [(a)-[:HAS_BORROWER]->(bo) | bo.name], "
+        "                id_text: a.title + ' ' + coalesce(a.website_description, '')}) "
+        "       AS listings "
         "ORDER BY d.filename"
         + (f" LIMIT {int(limit)}" if limit else ""),
         max_rows=20_000, timeout=120.0)
@@ -293,7 +429,12 @@ def write_fields(rows: list[dict]) -> int:
 
 
 def write_descriptions(rows: list[dict]) -> int:
-    """Description write with the same human guard as apply_descriptions."""
+    """LangExtract full_description is the sole automated description source:
+    it overwrites everything, including the legacy description pipeline's
+    human-verified rows (that pipeline is being scrapped; those texts are
+    stashed once into description_human_backup). The one thing it never
+    touches is description_source='reviewer' — a correction someone made
+    after eyeballing the sale notice outranks any automated write."""
     if not rows:
         return 0
     written = 0
@@ -301,9 +442,13 @@ def write_descriptions(rows: list[dict]) -> int:
         res = run_query("""
             UNWIND $rows AS row
             MATCH (a:AuctionProperty {auction_id: row.aid})
-            WHERE coalesce(a.description_verified, false) = false
-              AND coalesce(a.description_source, '') <> 'human'
-            SET a.description = row.desc,
+            WHERE coalesce(a.description_source, '') <> 'reviewer'
+            SET a.description_human_backup = CASE
+                    WHEN a.description_source = 'human'
+                         AND a.description_human_backup IS NULL
+                    THEN a.description
+                    ELSE a.description_human_backup END,
+                a.description = row.desc,
                 a.description_source = 'notice'
             RETURN a.auction_id AS aid
         """, {"rows": batch})
@@ -371,7 +516,7 @@ def run(limit: int | None = None, dry_run: bool = False) -> int:
     nf = write_fields(field_rows)
     nd = write_descriptions(desc_rows)
     print(f"  wrote fields to {nf} listings, descriptions to {nd} listings "
-          f"(human-verified rows skipped)")
+          f"(legacy human descriptions overwritten, backed up once)")
     return 0
 
 

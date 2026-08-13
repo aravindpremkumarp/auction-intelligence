@@ -220,3 +220,67 @@ def test_load_gold_falls_back_to_seed_without_reviewed_file():
     from evals.langextract_eval import GOLD, load_gold
     # No reviewed file present in CI -> load_gold == seed
     assert len(load_gold()) >= len(GOLD)
+
+
+# ── single-document LangExtract rerun ─────────────────────────────────────────
+
+def _doc_row(fn):
+    return {"filename": fn, "markdown": "x", "extraction_json": "[]",
+            "corrections_json": "{}", "status": "pending",
+            "verified_by": None, "verified_at": None}
+
+
+def test_rerun_starts_worker_and_reports_running(monkeypatch):
+    import api.review.extraction as ex
+    monkeypatch.setattr(ex, "get_extraction", lambda fn: _doc_row(fn))
+    started = {}
+    monkeypatch.setattr(ex.threading, "Thread",
+                        lambda **kw: type("T", (), {"start": lambda s: started.update(kw)})())
+    ex._RERUNS.clear()
+    out = ex.extraction_rerun("n.jpg", None)
+    assert out.rerun_running is True
+    assert out.rerun_error is None
+    assert started["args"] == ("n.jpg",)
+    ex._RERUNS.clear()
+
+
+def test_rerun_twice_is_conflict(monkeypatch):
+    import pytest
+    from fastapi import HTTPException
+    import api.review.extraction as ex
+    monkeypatch.setattr(ex, "get_extraction", lambda fn: _doc_row(fn))
+    monkeypatch.setattr(ex.threading, "Thread",
+                        lambda **kw: type("T", (), {"start": lambda s: None})())
+    ex._RERUNS.clear()
+    ex.extraction_rerun("n.jpg", None)
+    with pytest.raises(HTTPException) as e:
+        ex.extraction_rerun("n.jpg", None)
+    assert e.value.status_code == 409
+    ex._RERUNS.clear()
+
+
+def test_rerun_unknown_doc_is_404(monkeypatch):
+    import pytest
+    from fastapi import HTTPException
+    import api.review.extraction as ex
+    monkeypatch.setattr(ex, "get_extraction", lambda fn: None)
+    with pytest.raises(HTTPException) as e:
+        ex.extraction_rerun("missing.jpg", None)
+    assert e.value.status_code == 404
+
+
+def test_rerun_worker_failure_surfaces_in_detail(monkeypatch):
+    """A worker crash (e.g. langextract not installed on the web host) must
+    land in rerun_error, not vanish or kill the app."""
+    import api.review.extraction as ex
+    monkeypatch.setattr(ex, "run_read_query", lambda *a, **k: [
+        {"filename": "n.jpg", "md": "", "notice_type": None,
+         "classifier_pred": None}])
+    ex._RERUNS.clear()
+    ex._RERUNS["n.jpg"] = {"status": "running"}
+    ex._rerun_worker("n.jpg")           # md empty -> RuntimeError inside
+    monkeypatch.setattr(ex, "get_extraction", lambda fn: _doc_row(fn))
+    out = ex.extraction_detail("n.jpg", None)
+    assert out.rerun_running is False
+    assert "no markdown" in out.rerun_error
+    ex._RERUNS.clear()
