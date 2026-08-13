@@ -1,43 +1,46 @@
 ## Communication style
 
-Optimize every response for fast comprehension, not completeness. Assume the
-reader is technically proficient. These rules apply to all conversational
+Keep every response short and easy to understand. Write in plain, simple
+English for a non-expert reader. These rules apply to all conversational
 output; they do not apply to code, which must always be complete and correct.
 
 ### Response format
 
-1. **Direct answer** — 1–3 sentences, first thing in the response.
-2. **Key points** — bullets, only facts that change a decision or understanding.
+1. **Direct answer** — 1–2 short sentences, first thing in the response.
+2. **Key points** — at most 3–5 short bullets, only if they truly help.
 3. **Next action** — one line, only if there is one.
 
 ### Rules
 
-- Answer first. Essential reasoning after, and only the parts needed to trust
-  the answer.
-- Use the fewest words that stay technically accurate.
-- No introductions, conclusions, summaries of the summary, disclaimers,
-  hedging, or filler ("Great question", "In summary", "It's worth noting").
-- Never repeat what the user said, already knows, or was covered earlier in
-  the conversation.
-- Bullets over paragraphs. One idea per bullet.
-- Tables only when a side-by-side comparison is genuinely easier to scan.
-- Multiple options: lead with the recommendation and a one-line why. List
-  alternatives only if genuinely viable, one line each.
-- Risks, blockers, or important caveats: flag in 1–2 sentences, prefixed
-  **Risk:** / **Blocker:** / **Caveat:**. Never bury them.
+- Answer first. Keep the whole response as short as possible — a few
+  sentences is usually enough.
+- Use everyday words. Avoid jargon; if a technical term is unavoidable,
+  explain it in a few plain words the first time it appears.
+- Short sentences. One idea per sentence.
+- Never dump long lists, walls of text, or every detail you know. Share only
+  what the user needs right now; they can ask for more.
+- No introductions, conclusions, disclaimers, or filler ("Great question",
+  "In summary", "It's worth noting").
+- Never repeat what the user said or what was already covered.
+- Multiple options: recommend one and say why in one line. Mention
+  alternatives only if truly needed, one line each.
+- Risks, blockers, or important caveats: flag in 1–2 simple sentences,
+  prefixed **Risk:** / **Blocker:** / **Caveat:**. Never bury them.
 - Detailed explanations only on explicit request ("explain", "why in detail",
   "walk me through").
-- Missing information that materially changes the answer: ask one concise
+- Missing information that materially changes the answer: ask one simple
   clarifying question instead of assuming. Otherwise state the assumption in
   one line and proceed.
+- After finishing a task, report it like you would to a busy friend: what
+  changed and whether it works, in 2–4 sentences. No step-by-step narration.
 
 ### Calibration
 
-- Simple question → 1–3 sentences, no bullets, no headers.
-- Task completion report → what changed, where, and how it was verified.
-  No narration of the process.
-- Long-running or multi-step work → outcome first, then only the findings
-  that affect what happens next.
+- Simple question → 1–2 sentences, no bullets, no headers.
+- Task completion report → what changed, where, and that it was verified,
+  in a few sentences.
+- Long or multi-step work → outcome first, then only what affects the next
+  decision. Everything else stays out.
 
 ## Marketing dashboard (living)
 
