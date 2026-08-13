@@ -239,6 +239,32 @@ catalogue's nested paths onto entity attrs like this:
 PROMPT_DESCRIPTION = _LANGEXTRACT_GUIDE + load_canonical_scheme()
 
 
+def prompt_description_for(expected_lot_count: int | None) -> str:
+    """The per-notice prompt: the shared guide + scheme, plus the reviewer's
+    lot count when one exists (Document.expected_lot_count, stamped at the
+    classification review gate). Priming the model with the confirmed count
+    is the recall lever for multi-lot notices — it knows when it has found
+    them all and when it has invented extras. None -> unchanged prompt."""
+    if expected_lot_count is None:
+        return PROMPT_DESCRIPTION
+    n = int(expected_lot_count)
+    if n <= 1:
+        hint = (
+            "\n\nA human reviewer confirmed this notice sells EXACTLY ONE lot. "
+            "Extract every entity for that single lot; multiple schedules or "
+            "items sharing one reserve price are parts of the same lot, not "
+            "separate lots."
+        )
+    else:
+        hint = (
+            f"\n\nA human reviewer confirmed this notice sells EXACTLY {n} "
+            f"lots. Extract entities for ALL {n} lots, stamping lot_index 1 "
+            f"through {n} — do not merge distinct lots and do not invent "
+            "extras beyond the confirmed count."
+        )
+    return PROMPT_DESCRIPTION + hint
+
+
 def E(cls, text, **attrs):
     """Terse Extraction builder."""
     return lx.data.Extraction(extraction_class=cls, extraction_text=text,
@@ -1088,8 +1114,13 @@ def _openrouter_model(model_id: str | None = None, reasoning_off: bool = False):
 
 
 def extract(markdown: str, model_id: str | None = None,
-            reasoning_off: bool = False):
+            reasoning_off: bool = False,
+            expected_lot_count: int | None = None):
     """Run LangExtract over one notice's MinerU markdown.
+
+    ``expected_lot_count`` — the reviewer-confirmed lot count from the
+    classification gate, injected into the prompt so the model knows how many
+    lots to find (see prompt_description_for). None leaves the prompt as-is.
 
     Provider is env-driven via LANGEXTRACT_PROVIDER:
       'openrouter' (default) -> OpenRouter, OpenAI-compatible; model
@@ -1112,7 +1143,8 @@ def extract(markdown: str, model_id: str | None = None,
     """
     from pipeline.extract_routing import char_buffer_for
     common = dict(
-        text_or_documents=markdown, prompt_description=PROMPT_DESCRIPTION,
+        text_or_documents=markdown,
+        prompt_description=prompt_description_for(expected_lot_count),
         examples=EXAMPLES, extraction_passes=int(os.environ.get("LANGEXTRACT_PASSES", "2")),
         max_char_buffer=char_buffer_for(markdown), max_workers=4,
     )
