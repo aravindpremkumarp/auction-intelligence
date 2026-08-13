@@ -82,18 +82,12 @@ def test_classifications_row_shape(client, monkeypatch) -> None:
         "public_url": "https://r2/abc.pdf",
         "notice_type": "single",
         "property_count": 1,
-        "classifier_pred": "multi",
-        "classifier_confidence": 0.92,
-        "classifier_reasoning": "found two distinct reserve prices",
-        "classifier_model": "deepseek/deepseek-v4-flash",
-        "classified_at": "2026-05-15T10:00:00+00:00",
         "overridden": False,
         "verified": False,
         "verified_at": None,
         "verified_by": None,
         "review_notes": None,
         "extraction_status": "applied",
-        "disagreement": True,
         "sample_titles": ["Property in chennai"],
         "auction_id_count": 1,
     }
@@ -118,9 +112,8 @@ def test_classifications_row_shape(client, monkeypatch) -> None:
     assert body["total"] == 1
     assert len(body["rows"]) == 1
     row = body["rows"][0]
-    assert row["disagreement"] is True
-    assert row["classifier_pred"] == "multi"
-    assert row["classifier_confidence"] == pytest.approx(0.92)
+    assert row["notice_type"] == "single"
+    assert row["property_count"] == 1
 
 
 def test_classify_rejects_invalid_notice_type(client) -> None:
@@ -216,48 +209,12 @@ def test_match_schedule_no_match() -> None:
     assert sched is None
 
 
-def test_classifier_normalize_verdict_valid() -> None:
-    from pipeline.classify_notice import normalize_verdict
-    v = normalize_verdict({"classification": "MULTI", "confidence": 0.83,
-                            "reasoning": "two prices"})
-    assert v is not None
-    assert v["classification"] == "multi"
-    assert v["confidence"] == pytest.approx(0.83)
-
-
-def test_classifier_normalize_verdict_clamps_confidence() -> None:
-    from pipeline.classify_notice import normalize_verdict
-    v = normalize_verdict({"classification": "single", "confidence": 1.7,
-                            "reasoning": "one"})
-    assert v is not None
-    assert v["confidence"] == 1.0
-
-
-def test_classifier_normalize_verdict_rejects_bad_label() -> None:
-    from pipeline.classify_notice import normalize_verdict
-    assert normalize_verdict({"classification": "maybe", "confidence": 0.9}) is None
-
-
-def test_classifier_normalize_verdict_rejects_missing_label() -> None:
-    from pipeline.classify_notice import normalize_verdict
-    assert normalize_verdict({"confidence": 0.9, "reasoning": "x"}) is None
-
-
 def test_classifications_accepts_uniform_status_values(client) -> None:
     """status=pending/verified/edited/all must be accepted (canonical 4-value set)."""
     _ensure_admin_user()
     for s in ("pending", "verified", "edited", "all"):
         r = client.get(f"/review/classifications?status={s}", headers=_admin_header())
         assert r.status_code == 200, f"status={s} rejected: {r.text}"
-
-
-def test_classifications_accepts_confidence_max(client) -> None:
-    _ensure_admin_user()
-    r = client.get(
-        "/review/classifications?confidence_min=0.5&confidence_max=0.9",
-        headers=_admin_header(),
-    )
-    assert r.status_code == 200
 
 
 def test_extractor_normalize_schedules_drops_blank() -> None:

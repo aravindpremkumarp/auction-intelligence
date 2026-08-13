@@ -52,8 +52,7 @@ def _fetch(limit: int | None, force: bool, filename: str | None) -> list[dict]:
     return run_read_query(
         f"MATCH (d:Document) WHERE {where} "
         "RETURN d.filename AS filename, d.markdown AS md, "
-        "       d.notice_type AS notice_type, "
-        "       d.notice_type_classifier_pred AS classifier_pred "
+        "       d.notice_type AS notice_type "
         "ORDER BY d.filename"
         + (f" LIMIT {int(limit)}" if limit else ""),
         {"fn": filename} if filename else None,
@@ -120,8 +119,7 @@ def _extract_one(d: dict, batch: int, route: bool, LX) -> tuple[bool, str | None
     """
     fn = d["filename"]
     if route:
-        model_id, reasoning_off = select_extract_model(
-            d.get("notice_type"), d.get("classifier_pred"))
+        model_id, reasoning_off = select_extract_model(d.get("notice_type"))
     else:
         model_id, reasoning_off = None, False
     effective_model = _effective_model(model_id, route)

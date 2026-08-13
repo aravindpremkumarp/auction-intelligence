@@ -274,8 +274,7 @@ def test_rerun_worker_failure_surfaces_in_detail(monkeypatch):
     land in rerun_error, not vanish or kill the app."""
     import api.review.extraction as ex
     monkeypatch.setattr(ex, "run_read_query", lambda *a, **k: [
-        {"filename": "n.jpg", "md": "", "notice_type": None,
-         "classifier_pred": None}])
+        {"filename": "n.jpg", "md": "", "notice_type": None}])
     ex._RERUNS.clear()
     ex._RERUNS["n.jpg"] = {"status": "running"}
     ex._rerun_worker("n.jpg")           # md empty -> RuntimeError inside
