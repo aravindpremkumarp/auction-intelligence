@@ -30,6 +30,7 @@ from pydantic import BaseModel, Field
 from api.auth.dependencies import get_current_admin
 from api.auth.schemas import UserOut
 from api.neo4j_client import run_query, run_read_query
+from api.review.queries import _date_exists_clause, _notice_type_clause
 
 router = APIRouter(prefix="/review/extraction", tags=["review-extraction"])
 
@@ -165,9 +166,23 @@ def get_extraction(filename: str) -> dict | None:
     return rows[0] if rows else None
 
 
-def list_extraction_queue(status: str | None, limit: int, sort: str = "recent",
-                          score_min: float | None = None,
-                          score_max: float | None = None) -> list[dict]:
+def _extraction_filter_clause(
+    status: str | None,
+    score_min: float | None,
+    score_max: float | None,
+    notice_type: str | None,
+    date_from: str | None,
+    date_to: str | None,
+    q: str | None,
+) -> str:
+    """Shared WHERE tail for the extraction queue and its stats.
+
+    Keeping list + stats on one clause builder stops the header pills from
+    counting a different set than the queue shows — the same trap
+    ``_classification_where`` exists to avoid on the other stages. The
+    notice_type / date helpers are imported from ``queries`` rather than
+    re-written so every stage filters a notice identically.
+    """
     clause = "AND coalesce(d.extraction_review_status,'pending') = $status" if status else ""
     # Rows without a score (pre-scoring extractions) are excluded once either
     # bound narrows the default 0-100 range — nothing to compare against.
@@ -175,6 +190,35 @@ def list_extraction_queue(status: str | None, limit: int, sort: str = "recent",
         clause += " AND d.extraction_score >= $score_min"
     if score_max is not None:
         clause += " AND d.extraction_score <= $score_max"
+    nt = _notice_type_clause(notice_type, alias="d")
+    if nt:
+        clause += f" AND {nt}"
+    dt = _date_exists_clause(date_from, date_to, alias="d")
+    if dt:
+        clause += f" AND {dt}"
+    if q:
+        # Filename OR any linked listing's title/borrower, so the one search box
+        # works whether the reviewer remembers the file or the property.
+        clause += (
+            " AND (toLower(coalesce(d.filename, '')) CONTAINS toLower($q)"
+            " OR EXISTS { MATCH (d)<-[:HAS_DOCUMENT]-(_p:AuctionProperty)"
+            "   WHERE toLower(coalesce(_p.title, '')) CONTAINS toLower($q) }"
+            " OR EXISTS { MATCH (d)<-[:HAS_DOCUMENT]-(:AuctionProperty)"
+            "   -[:HAS_BORROWER]->(_b:Borrower)"
+            "   WHERE toLower(coalesce(_b.name, '')) CONTAINS toLower($q) })"
+        )
+    return clause
+
+
+def list_extraction_queue(status: str | None, limit: int, sort: str = "recent",
+                          score_min: float | None = None,
+                          score_max: float | None = None,
+                          notice_type: str | None = None,
+                          date_from: str | None = None,
+                          date_to: str | None = None,
+                          q: str | None = None) -> list[dict]:
+    clause = _extraction_filter_clause(status, score_min, score_max,
+                                       notice_type, date_from, date_to, q)
     # "recent" (default): latest batch first (then newest extraction within it) so
     # a just-run batch groups at the top; docs missing extraction data (extracted
     # before it was tracked) fall to the bottom. "name": alphabetical by filename.
@@ -201,9 +245,44 @@ def list_extraction_queue(status: str | None, limit: int, sort: str = "recent",
         LIMIT $limit
         """,
         {"status": status, "limit": limit,
-         "score_min": score_min, "score_max": score_max},
+         "score_min": score_min, "score_max": score_max,
+         "date_from": date_from, "date_to": date_to, "q": q},
         max_rows=5000,
     )
+
+
+def extraction_stats(score_min: float | None = None,
+                     score_max: float | None = None,
+                     notice_type: str | None = None,
+                     date_from: str | None = None,
+                     date_to: str | None = None,
+                     q: str | None = None) -> dict:
+    """Header pill counts for the extraction stage, under the reviewer's
+    current filters (status is deliberately NOT applied — the pills ARE the
+    status breakdown)."""
+    clause = _extraction_filter_clause(None, score_min, score_max,
+                                       notice_type, date_from, date_to, q)
+    rows = run_read_query(
+        f"""
+        MATCH (d:Document)
+        WHERE d.extraction_json IS NOT NULL {clause}
+        WITH coalesce(d.extraction_review_status,'pending') AS st
+        RETURN count(*) AS total,
+               sum(CASE WHEN st = 'pending'  THEN 1 ELSE 0 END) AS pending,
+               sum(CASE WHEN st = 'verified' THEN 1 ELSE 0 END) AS verified,
+               sum(CASE WHEN st = 'edited'   THEN 1 ELSE 0 END) AS edited
+        """,
+        {"score_min": score_min, "score_max": score_max,
+         "date_from": date_from, "date_to": date_to, "q": q},
+        max_rows=1, timeout=30.0,
+    )
+    r = rows[0] if rows else {}
+    return {
+        "total":    int(r.get("total") or 0),
+        "pending":  int(r.get("pending") or 0),
+        "verified": int(r.get("verified") or 0),
+        "edited":   int(r.get("edited") or 0),
+    }
 
 
 def save_field_correction(filename: str, field_id: str, value: str,
@@ -344,6 +423,38 @@ def _rerun_worker(filename: str) -> None:
 
 
 # ── endpoints ────────────────────────────────────────────────────────────────
+def _no_all(v: str | None) -> str | None:
+    """The shared filter bar sends 'all' to mean "no filter"; the query layer
+    expects None. Blank strings collapse the same way."""
+    return None if v in (None, "", "all") else v
+
+
+class ExtractionStats(BaseModel):
+    total: int
+    pending: int
+    verified: int
+    edited: int
+
+
+# NOTE: declared before the `/{filename:path}` catch-all below, or that route
+# swallows it and /stats resolves as a filename.
+@router.get("/stats", response_model=ExtractionStats)
+def extraction_stats_endpoint(
+    score_min: float | None = Query(default=None, ge=0.0, le=100.0),
+    score_max: float | None = Query(default=None, ge=0.0, le=100.0),
+    notice_type: str | None = Query(default=None),
+    date_from: str | None = Query(default=None, max_length=20),
+    date_to: str | None = Query(default=None, max_length=20),
+    q: str | None = Query(default=None, max_length=200),
+    _admin: UserOut = Depends(get_current_admin),
+) -> ExtractionStats:
+    return ExtractionStats(**extraction_stats(
+        score_min=score_min, score_max=score_max,
+        notice_type=_no_all(notice_type),
+        date_from=date_from, date_to=date_to, q=q,
+    ))
+
+
 @router.get("/queue", response_model=ExtractionQueueOut)
 def extraction_queue(
     status: str | None = Query(default=None),
@@ -351,10 +462,16 @@ def extraction_queue(
     sort: str = Query(default="recent", pattern="^(recent|name)$"),
     score_min: float | None = Query(default=None, ge=0.0, le=100.0),
     score_max: float | None = Query(default=None, ge=0.0, le=100.0),
+    notice_type: str | None = Query(default=None),
+    date_from: str | None = Query(default=None, max_length=20),
+    date_to: str | None = Query(default=None, max_length=20),
+    q: str | None = Query(default=None, max_length=200),
     _admin: UserOut = Depends(get_current_admin),
 ) -> ExtractionQueueOut:
-    rows = list_extraction_queue(status, limit, sort,
-                                 score_min=score_min, score_max=score_max)
+    rows = list_extraction_queue(_no_all(status), limit, sort,
+                                 score_min=score_min, score_max=score_max,
+                                 notice_type=_no_all(notice_type),
+                                 date_from=date_from, date_to=date_to, q=q)
     out = []
     for r in rows:
         try:

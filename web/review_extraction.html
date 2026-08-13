@@ -236,12 +236,33 @@ function relTime(iso){
   if(s<2592000)return Math.floor(s/86400)+"d ago";
   return new Date(t).toLocaleDateString();
 }
+// Filters owned by the parent review.html shell (status / score / notice type /
+// auction date / search), handed down on this frame's query string. When the
+// parent is driving, the sidebar's own score box is hidden so there is exactly
+// one place to filter — see PARENT_FILTERS wiring at the bottom of this file.
+const PARENT_QS = new URLSearchParams(location.search);
+const PARENT_KEYS = ["status", "score_min", "score_max", "notice_type",
+                     "date_from", "date_to", "q"];
+const PARENT_DRIVEN = PARENT_QS.get("embedded") === "1";
+function parentFilterQS(){
+  let s = "";
+  for (const k of PARENT_KEYS){
+    const v = PARENT_QS.get(k);
+    if (v !== null && v !== "" && v !== "all") s += "&" + k + "=" + encodeURIComponent(v);
+  }
+  return s;
+}
+
 async function loadQueue(){
   refreshSortBtn();refreshScoreInputs();
   const nav=document.getElementById("nav");
   let qs="/review/extraction/queue?limit=500&sort="+queueSort();
-  if(scoreMin()!==null)qs+="&score_min="+scoreMin();
-  if(scoreMax()!==null)qs+="&score_max="+scoreMax();
+  if(PARENT_DRIVEN){
+    qs+=parentFilterQS();
+  }else{
+    if(scoreMin()!==null)qs+="&score_min="+scoreMin();
+    if(scoreMax()!==null)qs+="&score_max="+scoreMax();
+  }
   let r;
   try{ r=await api(qs); }
   catch(err){
@@ -633,6 +654,15 @@ async function doRerun(){
   if(r.ok){CUR=await r.json();render();setMsg("LangExtract started — this takes a minute or two");}
   else if(r.status===409){setMsg("a re-run is already in progress");}
   else setMsg("re-run failed to start "+r.status);
+}
+// Embedded in the review shell: the parent renders the full filter bar above
+// this frame, so hide the sidebar's duplicate score box and let its heading say
+// where filtering now lives.
+if(PARENT_DRIVEN){
+  const f=document.getElementById("qfilter");
+  if(f)f.style.display="none";
+  const h=document.querySelector("#side h2");
+  if(h)h.title="filters are in the toolbar above";
 }
 refreshMdBtn();refreshBoxBtn();refreshScoreInputs();loadQueue();applyImgPane();
 </script>

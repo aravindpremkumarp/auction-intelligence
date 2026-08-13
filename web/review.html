@@ -260,6 +260,11 @@
   .ann-toolbar .zoom-btn { padding: 2px 8px; min-height: 0; font-size: 13px; }
   .ann-toolbar .zoom-pct { min-width: 36px; text-align: center; font-family: 'IBM Plex Mono', monospace; font-size: 11px; }
   .ann-toolbar .ann-badges { display: inline-flex; gap: 5px; align-items: center; flex-wrap: wrap; }
+  /* Extraction workspace. Sized to the viewport so the grounded-review tool
+     inside gets the same "fills the screen, page never scrolls" treatment the
+     annotator has, with the shared filter bar still visible above it. */
+  #queue-by-extraction { border: 2px solid var(--ink); background: #fff; box-shadow: 2px 3px 0 rgba(0,0,0,0.9); overflow: hidden; }
+  #queue-by-extraction iframe { border: 0; width: 100%; height: 72vh; min-height: 460px; display: block; }
   /* The annotator is a workspace, not a browse screen. The masthead, the global
      nav row and the queue-level stats are all context the reviewer already had
      before drilling in, and on a laptop they cost ~90px of the image area. Hide
@@ -435,18 +440,6 @@
   </div>
   <div id="msg"></div>
 
-  <!-- Extraction-review overlay (LangExtract grounded review). Isolated from the
-       stage machinery: shown by a capture-phase handler when the "extraction"
-       pill is clicked; an embedded iframe hosts web/review_extraction.html. -->
-  <div id="extraction-panel" style="display:none;position:fixed;inset:0;background:#fff;z-index:60">
-    <div style="display:flex;align-items:center;gap:10px;padding:6px 12px;background:#0f172a;color:#fff;font-size:13px">
-      <b>Extraction review</b>
-      <span style="flex:1"></span>
-      <button onclick="closeExtractionPanel()" style="background:#1e293b;color:#fff;border:0;border-radius:6px;padding:4px 12px;cursor:pointer">← back to review</button>
-    </div>
-    <iframe id="extraction-frame" style="border:0;width:100%;height:calc(100% - 33px)"></iframe>
-  </div>
-
   <!-- Queue screen -->
   <section id="screen-queue">
     <div class="actions">
@@ -458,7 +451,7 @@
       </span>
     </div>
     <div class="actions">
-      <span>Group:</span>
+      <span id="group-label">Group:</span>
       <span class="group-toggle" id="group-tabs">
         <button class="pill" data-group="property">property</button>
         <button class="pill" data-group="notice">sales notice</button>
@@ -521,6 +514,13 @@
     <div id="queue-by-classification" class="notice-list"></div>
     <div id="queue-by-classification-gallery" class="gallery-grid hidden"></div>
     <div id="queue-by-markdown" class="notice-list hidden"></div>
+    <!-- Extraction stage: the shell (header, filter bar, hash state) is native
+         like every other stage; the grounded-review workspace itself is hosted
+         in an iframe (web/review_extraction.html) and receives the filter state
+         on its query string. -->
+    <div id="queue-by-extraction" class="hidden">
+      <iframe id="extraction-frame" title="Extraction review"></iframe>
+    </div>
     <div id="queue-by-classification-by-property" class="table-scroll hidden">
       <table>
         <thead>
@@ -764,9 +764,10 @@
     }
   }
   function appendScoreParams(params) {
-    // The markdown API takes 0–100 (OCR-quality score). Classification has
-    // no score — it is a cluster-count + human-review stage.
-    if (queueState.stage === 'markdown') {
+    // Markdown (OCR-health) and extraction (validators.py quality) both score
+    // 0–100. Classification has no score — it is a cluster-count + human-review
+    // stage.
+    if (queueState.stage === 'markdown' || queueState.stage === 'extraction') {
       if (queueState.scoreFrom !== 0)   params.set('score_min', String(queueState.scoreFrom));
       if (queueState.scoreTo   !== 100) params.set('score_max', String(queueState.scoreTo));
     }
@@ -793,11 +794,13 @@
       // Retired stages in bookmarked hashes (e.g. 'description') fall back
       // to classification.
       const st0 = p.get('stage');
-      queueState.stage      = (st0 === 'classification' || st0 === 'markdown')
-                                ? st0 : queueState.stage;
+      queueState.stage      = STAGES.includes(st0) ? st0 : queueState.stage;
       queueState.group      = p.get('group')       || queueState.group;
       queueState.status     = p.get('status')      || queueState.status;
       queueState.noticeType = p.get('notice_type') || queueState.noticeType;
+      // Restored so a refresh keeps the reviewer's search instead of silently
+      // widening the queue back out; the input is synced in syncDateInputs().
+      queueState.q          = p.get('q')           || '';
       queueState.dateFrom   = p.get('date_from')   ?? queueState.dateFrom;
       queueState.dateTo     = p.get('date_to')     ?? queueState.dateTo;
       const sf = parseInt(p.get('score_from'), 10);
@@ -814,6 +817,7 @@
     p.set('group', queueState.group);
     p.set('status', queueState.status);
     p.set('notice_type', queueState.noticeType);
+    if (queueState.q) p.set('q', queueState.q);
     if (queueState.dateFrom) p.set('date_from', queueState.dateFrom);
     if (queueState.dateTo)   p.set('date_to',   queueState.dateTo);
     if (queueState.scoreFrom !== 0)   p.set('score_from', String(queueState.scoreFrom));
@@ -858,6 +862,10 @@
       // The markdown stats endpoint also computes `auto_confirmable` over a score
       // range — feed it the current score from/to so the count reflects the filter.
       appendScoreParams(params);
+    } else if (queueState.stage === 'extraction') {
+      url = API + '/review/extraction/stats';
+      appendScoreParams(params);
+      if (queueState.q) params.set('q', queueState.q);
     } else {
       url = API + '/review/classifications/stats';
     }
@@ -879,8 +887,9 @@
   const PAGE_SIZE_CLASSIFICATION = 50;
   const PAGE_SIZE_GALLERY = 100;
   const savedCView = (() => { try { return localStorage.getItem('cView'); } catch { return null; } })();
+  const STAGES = ['classification', 'markdown', 'extraction'];
   let queueState = {
-    stage: 'classification',      // 'classification' | 'markdown'
+    stage: 'classification',      // 'classification' | 'markdown' | 'extraction'
     group: 'notice',              // 'property' | 'notice'
     status: 'pending',            // 'pending' | 'verified' | 'edited' | 'all'
     cview: (savedCView === 'cards' ? 'cards' : 'gallery'),
@@ -894,6 +903,9 @@
   const DEFAULT_GROUP_FOR_STAGE = {
     classification: 'notice',
     markdown: 'notice',
+    // Extraction is inherently per-notice (one LangExtract run per Document),
+    // so it has no property-grouped view and the Group toggle hides.
+    extraction: 'notice',
   };
   const PAGE_SIZE_MARKDOWN = 50;
   let queueLoadedCount = 0;
@@ -919,6 +931,7 @@
 
     const isClass = queueState.stage === 'classification';
     const isMd = queueState.stage === 'markdown';
+    const isExtract = queueState.stage === 'extraction';
     const isProperty = queueState.group === 'property';
     const isNotice = queueState.group === 'notice';
 
@@ -931,26 +944,31 @@
         !(isClass && isProperty));
     $('queue-by-markdown-by-property').classList.toggle('hidden',
         !(isMd && isProperty));
+    $('queue-by-extraction').classList.toggle('hidden', !isExtract);
 
     // The classification stage has a gallery/cards toggle, but only when
     // looking at the sales-notice sub-group.
     $('cview-toggle').classList.toggle('hidden', !(isClass && isNotice));
+    // Extraction runs once per Document, so there is no property-grouped view —
+    // hide the label with the toggle so no orphan "Group:" is left behind.
+    $('group-tabs').classList.toggle('hidden', isExtract);
+    $('group-label').classList.toggle('hidden', isExtract);
 
-    // Bulk-confirm is available in every stage. The score row applies to
-    // description (completeness-judge confidence) and markdown (OCR-quality
-    // score); classification has no score, so the row hides there.
+    // The score row applies to markdown (OCR health) and extraction (the
+    // validators.py quality score); classification has no score.
     $('score-bar').classList.toggle('hidden', isClass);
-    $('bulk-confirm-bar').classList.remove('hidden');
-    // The markdown stage's score IS OCR-health; other stages keep their own
-    // confidence semantics (see comment above), so label the filter per stage.
+    // Bulk-confirm exists for classification and markdown only — extraction is
+    // reviewed field by field, so there is nothing safe to confirm in bulk.
+    $('bulk-confirm-bar').classList.toggle('hidden', isExtract);
     const scoreLabel = $('score-label');
     if (scoreLabel) {
       scoreLabel.textContent =
-        queueState.stage === 'markdown' ? 'OCR health:' : 'Score:';
+        isMd ? 'OCR health:' : (isExtract ? 'Extraction score:' : 'Score:');
     }
   }
 
   function syncDateInputs() {
+    if ($('q').value !== queueState.q) $('q').value = queueState.q || '';
     $('date-from').value = queueState.dateFrom || '';
     $('date-to').value = queueState.dateTo || '';
     const hint = !queueState.dateFrom && !queueState.dateTo
@@ -984,9 +1002,34 @@
       } else {
         await loadMarkdownQueue(append);
       }
+    } else if (queueState.stage === 'extraction') {
+      loadExtractionFrame();
     }
     updateLoadMore();
     updateBulkConfirmButton();
+  }
+
+  // The extraction workspace lives in an iframe, so "loading the queue" here
+  // means handing the frame the current filter state on its query string. The
+  // frame re-reads it on load, so only reassign src when the filters actually
+  // changed — otherwise every unrelated repaint would reload the frame and
+  // throw away the reviewer's selected document.
+  let extractionFrameQS = null;
+  function loadExtractionFrame() {
+    const frame = $('extraction-frame');
+    if (!frame) return;
+    const base = (typeof window.API_BASE === 'string') ? window.API_BASE : '';
+    const p = new URLSearchParams();
+    p.set('api', base);
+    p.set('embedded', '1');          // tells the frame the parent owns filters
+    if (queueState.status && queueState.status !== 'all') p.set('status', queueState.status);
+    if (queueState.q) p.set('q', queueState.q);
+    appendCommonParams(p);           // notice_type + auction date window
+    appendScoreParams(p);            // extraction quality score band
+    const qs = p.toString();
+    if (qs === extractionFrameQS) return;
+    extractionFrameQS = qs;
+    frame.setAttribute('src', 'review_extraction.html?' + qs);
   }
 
   async function loadClassificationByPropertyQueue(append) {
@@ -5838,36 +5881,6 @@
     paintTbledTex();
     paintTbledStatus();
   }
-
-  // ─── Extraction-review tab (isolated overlay) ───────────────────────────
-  // Capture-phase listener: for the "extraction" pill, show the overlay and
-  // stop the event before the normal stage handler runs (so queueState is never
-  // set to an unknown stage). For any other pill, just hide the overlay.
-  function closeExtractionPanel() {
-    const p = document.getElementById('extraction-panel');
-    if (p) p.style.display = 'none';
-    document.querySelectorAll('button.pill[data-stage="extraction"]')
-      .forEach(b => b.classList.remove('on'));
-  }
-  document.addEventListener('click', function (ev) {
-    const pill = ev.target.closest && ev.target.closest('button.pill[data-stage]');
-    if (!pill) return;
-    const panel = document.getElementById('extraction-panel');
-    if (pill.getAttribute('data-stage') === 'extraction') {
-      document.querySelectorAll('button.pill[data-stage]')
-        .forEach(b => b.classList.toggle('on', b === pill));
-      const frame = document.getElementById('extraction-frame');
-      if (frame && !frame.getAttribute('src')) {
-        const base = (typeof window.API_BASE === 'string') ? window.API_BASE : '';
-        frame.setAttribute('src', 'review_extraction.html?api=' + encodeURIComponent(base));
-      }
-      if (panel) panel.style.display = 'block';
-      ev.stopImmediatePropagation();   // keep the normal stage handler from firing
-      ev.preventDefault();
-    } else if (panel) {
-      panel.style.display = 'none';    // leaving extraction; let normal flow run
-    }
-  }, true);
 
   // Boot
   route();
