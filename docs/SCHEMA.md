@@ -1,8 +1,14 @@
 # Auction graph schema
 
-The Neo4j model that unifies two sources: **scraped listings** (2,464
-`:AuctionProperty`) and **LangExtract notice extractions** (245 of 1,348
-`:Document` extracted so far).
+The Neo4j model that unifies two sources: **scraped listings** (2,822
+`:AuctionProperty`) and **LangExtract notice extractions** (1,530 of 1,532
+`:Document` extracted; counts verified 2026-08-14).
+
+> **Status: designed, not yet built.** `:Lot` and `:Parcel` are 0 nodes in the
+> live graph — the promotion below has never been run against it. Everything
+> from here to *Provenance* describes the target model and the migration that
+> creates it, not what a query would find today. `:AuctionProperty`,
+> `:Document` and the existing geography edges are live and unchanged.
 
 One rule decides every modelling call: *anything you search or join by becomes
 a node; everything else is a property.*
@@ -93,7 +99,9 @@ from four levels at once:
 
 But they are also the **only** geography 82% of properties have, so they keep
 their labels and edges and merely gain a `:PlaceAlias` label plus one
-`ALIAS_OF` edge. Dropping them would blind 2,014 of 2,464 properties.
+`ALIAS_OF` edge. Dropping them would blind 2,014 of 2,464 properties (measured
+when this model was drafted, at 2,464 properties; the corpus has since grown to
+2,822 — the ratio, not the absolute count, is the point).
 
 ### Resolution is bottom-up and district-scoped
 
@@ -180,8 +188,8 @@ frontage remain unreconstructable for most lots.
 ## Provenance
 
 Promotion is gated on `extraction_json IS NOT NULL`, **not** on review status —
-all 245 extracted documents are still `extraction_review_status = 'pending'`,
-so gating on `'verified'` would promote nothing. Verification is instead
+all 1,530 extracted documents are still `extraction_review_status = 'pending'`
+(verified 2026-08-14), so gating on `'verified'` would promote nothing. Verification is instead
 recorded per node (`verified_at` / `verified_by`) so a trusted-subset query
 stays possible.
 
@@ -238,9 +246,12 @@ edge: reversing one is a `DELETE`, not a rebuild.
 
 ---
 
-## Field coverage (245 extracted documents)
+## Field coverage (sampled on 245 extracted documents)
 
-What is safe to build on today.
+What is safe to build on. Measured on the first 245 extractions, before the
+corpus reached 1,530 — the denominators below are entity counts within that
+sample, so treat these as ratios rather than current totals. Re-run
+`pipeline/validators.py` over the full corpus to refresh them.
 
 | field | coverage | |
 |---|---|---|

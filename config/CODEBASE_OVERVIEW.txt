@@ -9,8 +9,9 @@ and captures user feedback on investment opportunities.
 ## High-Level Flow
 
     scrape → clean/filter TN → load Neo4j → OCR+extract →
-    verify/enrich → lexical graph → normalize → load enriched →
-    embed descriptions → score/track → serve via API → feedback loop
+    classify notices → verify/enrich → load enriched →
+    apply LangExtract extractions → embed descriptions →
+    score/track → serve via API → human review + feedback loop
 
 ## Top-Level Layout
 
@@ -101,24 +102,40 @@ data.
 - `config.py` — Central config: OpenRouter keys/model, Neo4j creds, scoring
   weights, decision thresholds, path constants, tracking TSV location.
 - `run_pipeline.py` — Orchestrator. Runs the stages sequentially. Flags:
-  `--limit N` (OCR subset), `--skip-ocr`.
+  `--limit N` (OCR subset), `--skip-ocr`, `--skip-descriptions` (skips the
+  notice-classification stage), `--verify-only`, `--legacy` (the Stage 2/3/4
+  lexical path instead of the verify path).
 - `ocr_extract.py` — Stage 1: OCRs PDFs and calls a vision LLM
   (OpenRouter / Gemini 2.0 Flash) with `prompts/extract_auction.txt` to
   extract structured auction fields. Caches per-file results under
   `cache/ocr_results/` and writes `output/extracted.jsonl`.
+- `classify_notice.py` — Stage 1.3: Tags each `:Document` `single` or `multi`
+  from its cluster count (how many `:AuctionProperty` rows link to it) and
+  stores `property_count`. Human review in `web/review.html` corrects it and
+  records `expected_lot_count`; a reviewer override is never overwritten.
 - `verify_and_enrich.py` — Stage 1.5: Verifies scraped fields against PDF
   extractions per auction. PDF wins on conflicts (original preserved as
   `<field>_scraped`, name added to `field_conflicts`); `enrichment.*` is
   merged, open-ended `extras` is shallow-merged. Outputs
   `output/verified_enriched.jsonl` + `output/extras_key_frequency.json`.
-- `lexical_graph.py` — Stage 2: Builds a lexical graph over extracted text
-  (chunks + entity mentions). Writes `output/lexical.jsonl`.
-- `normalize.py` — Stage 3: Normalizes entity names (banks, locations,
-  property types) against `lookups/bank_names.json`, `locations.json`,
-  `property_types.json`. Writes `output/normalized.jsonl` +
+- `lexical_graph.py` — Stage 2, LEGACY (only on `--legacy`): Builds a lexical
+  graph over extracted text (chunks + entity mentions). Writes
+  `output/lexical.jsonl`.
+- `normalize.py` — Stage 3, LEGACY (only on `--legacy`): Normalizes entity names
+  (banks, locations, property types) against `lookups/bank_names.json`,
+  `locations.json`, `property_types.json`. Writes `output/normalized.jsonl` +
   `output/normalization_report.txt`.
 - `load_enriched.py` — Stage 4: Merges enriched properties, survey details,
   possession info, and geographic hierarchy into Neo4j.
+- `langextract_examples.py` / `load_extractions.py` — Grounded per-lot
+  extraction. `load_extractions.py` runs LangExtract over each `:Document`'s
+  markdown and stores `extraction_json` + a `validators.py` quality score;
+  the prompt is primed with the reviewer's `expected_lot_count` when one
+  exists (`extract_routing.py` picks the model by notice type).
+- `apply_extractions.py` — Stage 4.5: Applies grounded extractions over the
+  blob-derived enrichment. LangExtract's `full_description` is the SOLE
+  automated source of `AuctionProperty.description`; a reviewer's edit
+  (`description_source='reviewer'`) always wins.
 - `embeddings.py` — Shared text-embedding helper (batched OpenAI embeddings,
   exports `EMBED_DIM`).
 - `embed_descriptions.py` — One-shot backfill: embeds
@@ -347,8 +364,9 @@ See `domain_ontology.yaml` for the full property-level schema.
     python -m scrapers.fast_eauctions_scraper    # 1. Scrape
     python -m scripts.prepare_tn_data            # 2. Clean TN subset
     python -m scripts.load_tn_to_neo4j           # 3. Load base graph
-    python -m pipeline.run_pipeline              # 4. Enrich (OCR→verify→
-                                                 #    lexical→normalize→load)
+    python -m pipeline.run_pipeline              # 4. Enrich (OCR→classify→
+                                                 #    verify→load→apply
+                                                 #    extractions)
     python -m pipeline.embed_descriptions        # 5. Backfill embeddings
     uvicorn api.main:app --reload                # 6. Serve agent + web UI
 

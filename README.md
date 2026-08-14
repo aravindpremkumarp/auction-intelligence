@@ -288,8 +288,13 @@ everything downstream depends on.
 | 4 | **Gate 2** — check OCR quality, re-OCR or annotate blocks if poor | human | review UI, *markdown* stage |
 | 5 | Extract entities from the markdown with LangExtract | machine | `pipeline/load_extractions.py` |
 | 6 | **Gate 3** — review the extraction; a lot-count mismatch is flagged | human | review UI, *extraction* stage |
-| 7 | Resolve entities into the `:Lot` / `:Parcel` spine | machine | `pipeline/promote_extractions.py` |
+| 7 | Resolve entities into the `:Lot` / `:Parcel` spine — *written, not yet run* | machine | `pipeline/promote_extractions.py` |
 | 8 | Apply grounded fields + descriptions to `:AuctionProperty` | machine | `pipeline/apply_extractions.py` |
+
+Step 7 has not been run against the live graph yet — `:Lot` and `:Parcel` are
+still 0 nodes there, so today the workflow effectively ends at step 8, which
+writes onto `:AuctionProperty` directly. See the status note at the top of
+[`docs/SCHEMA.md`](docs/SCHEMA.md).
 
 **The lot count is the thread tying gates 1 and 6 together.** At gate 1 the
 reviewer confirms how many lots the notice actually sells; it is stored as
