@@ -1020,9 +1020,10 @@
     // The score row applies to markdown (OCR health) and extraction (the
     // validators.py quality score); classification has no score.
     $('score-bar').classList.toggle('hidden', isClass);
-    // Bulk-confirm exists for classification and markdown only — extraction is
-    // reviewed field by field, so there is nothing safe to confirm in bulk.
-    $('bulk-confirm-bar').classList.toggle('hidden', isExtract);
+    // Bulk-confirm is available in every stage. On extraction it pairs with the
+    // score filter: confirm the high-scoring tail in one action, spend the time
+    // on the low scores.
+    $('bulk-confirm-bar').classList.remove('hidden');
     const scoreLabel = $('score-label');
     if (scoreLabel) {
       scoreLabel.textContent =
@@ -1267,8 +1268,7 @@
   function updateBulkConfirmButton() {
     const btn = $('bulk-confirm-btn');
     if (!btn) return;
-    const active = queueState.stage === 'classification'
-                || queueState.stage === 'markdown';
+    const active = STAGES.includes(queueState.stage);
     const n = active ? (queueTotal || 0) : 0;
     btn.textContent = `Confirm all ${n} in range`;
     btn.disabled = !active || n === 0 || queueState.status !== 'pending';
@@ -2104,12 +2104,14 @@
 
   $('bulk-confirm-btn').addEventListener('click', async () => {
     const stage = queueState.stage;
-    if (stage !== 'classification' && stage !== 'markdown') return;
+    if (!STAGES.includes(stage)) return;
     const btn = $('bulk-confirm-btn');
     btn.disabled = true;
     const url = API + (stage === 'classification'
       ? '/review/classifications/bulk-confirm'
-      : '/review/markdown/bulk-confirm');
+      : stage === 'markdown'
+        ? '/review/markdown/bulk-confirm'
+        : '/review/extraction/bulk-confirm');
     const commonFilters = {
       notice_type: queueState.noticeType || 'all',
       date_from:   queueState.dateFrom || null,
@@ -2117,10 +2119,9 @@
       q:           queueState.q || null,
       dry_run: false,
     };
+    // Classification has no score; markdown and extraction both band 0-100.
     const body = stage === 'classification'
-      ? {
-          ...commonFilters,
-        }
+      ? { ...commonFilters }
       : {
           score_min: queueState.scoreFrom,
           score_max: queueState.scoreTo,
