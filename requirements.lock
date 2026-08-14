@@ -11,8 +11,16 @@
 #     python3.11 -m venv /tmp/lock && . /tmp/lock/bin/activate
 #     pip install -r requirements.txt && pip freeze > requirements.lock
 #
+# That resolves everything fresh and moves every transitive pin. To *add* a
+# dependency without dragging the rest of the tree forward, seed the venv from
+# this file first, then install only the new package and freeze:
+#
+#     pip install -r requirements.lock && pip install 'newpkg>=1,<2'
+#     pip check && pip freeze > requirements.lock
+#
 # requirements.txt stays the source of truth for *intended* version ranges;
 # this file pins the exact transitive set those ranges resolved to.
+absl-py==2.5.0
 aiofile==3.11.1
 aiohappyeyeballs==2.7.1
 aiohttp==3.14.3
@@ -23,6 +31,7 @@ anthropic==0.116.0
 anyio==4.14.1
 argcomplete==3.7.0
 asgiref==3.11.1
+async-timeout==5.0.1
 attrs==26.1.0
 Authlib==1.7.2
 backports.tarfile==1.2.0
@@ -48,8 +57,13 @@ fastapi==0.136.3
 fastmcp-slim==3.4.4
 frozenlist==1.8.0
 genai-prices==0.0.71
+google-api-core==2.34.0
 google-auth==2.55.2
+google-cloud-core==2.6.1
+google-cloud-storage==3.13.1
+google-crc32c==1.8.0
 google-genai==2.11.0
+google-resumable-media==2.10.1
 googleapis-common-protos==1.75.0
 griffelib==2.1.0
 h11==0.16.0
@@ -71,15 +85,18 @@ joserfc==1.7.3
 jsonschema==4.26.0
 jsonschema-specifications==2025.9.1
 keyring==25.7.0
+langextract==1.6.0
 limits==5.8.0
 logfire==4.37.0
 logfire-api==4.37.0
 markdown-it-py==4.2.0
 mcp==1.28.1
 mdurl==0.1.2
+ml_collections==1.1.0
 more-itertools==11.1.0
 multidict==6.7.1
 neo4j==6.2.0
+numpy==2.4.6
 openai==2.45.0
 opentelemetry-api==1.42.1
 opentelemetry-exporter-otlp-proto-common==1.42.1
@@ -93,10 +110,12 @@ opentelemetry-sdk==1.42.1
 opentelemetry-semantic-conventions==0.63b1
 opentelemetry-util-http==0.63b1
 packaging==26.2
+pandas==3.0.5
 pillow==12.3.0
 platformdirs==4.10.0
 prompt_toolkit==3.0.52
 propcache==0.5.2
+proto-plus==1.28.3
 protobuf==6.33.6
 py-key-value-aio==0.4.5
 pyasn1==0.6.4
