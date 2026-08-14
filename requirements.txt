@@ -3,11 +3,12 @@
 # generation (weasyprint, pdf2image) which are local-only features.
 # For full local dev requirements see config/requirements.txt.
 #
-# NOT ENOUGH TO RUN THE BATCH PIPELINE. The extraction stages
-# (pipeline/load_extractions.py, pipeline/extract_batch.py, evals/) need
-# langextract + openai, which live in config/requirements.txt only — they pull
-# pandas/google-cloud-storage/absl-py and the API server never imports them.
-# Provisioning a pipeline box (cloud runner, container, CI job)?
+# Runs the single-document extraction rerun, not the full batch pipeline. The
+# reviewer's ▶ Re-run button (api/review/extraction.py) executes the canonical
+# LangExtract path in-process on this server, so langextract + openai are
+# installed here too. The batch scripts and evals/ need the wider local set
+# (selenium, weasyprint, pydantic-evals, …). Provisioning a pipeline box
+# (cloud runner, container, CI job)?
 #     pip install -r config/requirements.txt
 #
 # Versions use compatible-release ranges: a floor that includes a known-good
@@ -34,6 +35,16 @@ neo4j>=5.26,<7
 
 # LLM clients
 google-genai>=2.0,<3
+
+# Structured extraction. LangExtract does the few-shot extraction with source
+# grounding; `openai` is its OpenAI-compatible client, pointed at OpenRouter
+# (LANGEXTRACT_PROVIDER=openrouter, the default — OPENROUTER_API_KEY is set in
+# render.yaml). Needed in prod because the reviewer's ▶ Re-run button runs the
+# extraction in-process; without it the rerun worker dies with
+# ModuleNotFoundError. Both are lazy imports, so ordinary API requests never
+# pay the (pandas/absl-py) import cost.
+langextract>=1.5,<2
+openai>=2.0,<3
 
 # API + Agent layer
 # fastapi capped below 0.137: it changes how include_router mounts appear in
