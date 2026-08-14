@@ -251,6 +251,68 @@ def list_extraction_queue(status: str | None, limit: int, sort: str = "recent",
     )
 
 
+def count_extraction_queue(status: str | None,
+                           score_min: float | None = None,
+                           score_max: float | None = None,
+                           notice_type: str | None = None,
+                           date_from: str | None = None,
+                           date_to: str | None = None,
+                           q: str | None = None) -> int:
+    """How many documents match the queue filters, ignoring the row limit."""
+    clause = _extraction_filter_clause(status, score_min, score_max,
+                                       notice_type, date_from, date_to, q)
+    rows = run_read_query(
+        f"MATCH (d:Document) WHERE d.extraction_json IS NOT NULL {clause} "
+        "RETURN count(d) AS n",
+        {"status": status, "score_min": score_min, "score_max": score_max,
+         "date_from": date_from, "date_to": date_to, "q": q},
+        max_rows=1, timeout=30.0)
+    return int(rows[0]["n"]) if rows else 0
+
+
+def bulk_verify_extractions(by_email: str,
+                            score_min: float | None = None,
+                            score_max: float | None = None,
+                            notice_type: str | None = None,
+                            date_from: str | None = None,
+                            date_to: str | None = None,
+                            q: str | None = None,
+                            dry_run: bool = False) -> dict:
+    """Mark every PENDING extraction matching the reviewer's current filters as
+    verified.
+
+    Shares ``_extraction_filter_clause`` with the queue and the stats, so the
+    "Confirm all N" button acts on exactly the set it counted. Status is pinned
+    to 'pending' rather than taken from the caller: re-verifying something
+    already verified is a no-op, and sweeping 'edited' rows back to 'verified'
+    would silently discard the fact that a human changed fields there.
+
+    The intended use is with the score filter — confirm the high-scoring tail in
+    one action and spend review time on the low scores.
+    """
+    clause = _extraction_filter_clause("pending", score_min, score_max,
+                                       notice_type, date_from, date_to, q)
+    params = {"status": "pending", "score_min": score_min, "score_max": score_max,
+              "date_from": date_from, "date_to": date_to, "q": q, "by": by_email}
+    if dry_run:
+        rows = run_read_query(
+            f"MATCH (d:Document) WHERE d.extraction_json IS NOT NULL {clause} "
+            "RETURN count(d) AS n",
+            params, max_rows=1, timeout=30.0)
+        return {"count": int(rows[0]["n"]) if rows else 0, "dry_run": True}
+    rows = run_query(
+        f"""
+        MATCH (d:Document)
+        WHERE d.extraction_json IS NOT NULL {clause}
+        SET d.extraction_review_status = 'verified',
+            d.extraction_verified_by   = $by,
+            d.extraction_verified_at   = datetime()
+        RETURN count(d) AS n
+        """,
+        params)
+    return {"count": int(rows[0]["n"]) if rows else 0, "dry_run": False}
+
+
 def extraction_stats(score_min: float | None = None,
                      score_max: float | None = None,
                      notice_type: str | None = None,
@@ -423,10 +485,19 @@ def _rerun_worker(filename: str) -> None:
 
 
 # ── endpoints ────────────────────────────────────────────────────────────────
-def _no_all(v: str | None) -> str | None:
-    """The shared filter bar sends 'all' to mean "no filter"; the query layer
-    expects None. Blank strings collapse the same way."""
-    return None if v in (None, "", "all") else v
+def _no_all(v) -> str | None:
+    """Normalise an optional filter value to a real string or None.
+
+    The shared filter bar sends 'all' to mean "no filter"; the query layer
+    expects None, and blank strings collapse the same way. Anything that is not
+    a string also becomes None — calling an endpoint function directly (as the
+    tests do) leaves FastAPI's ``Query(default=None)`` sentinel in place, and
+    passing that object down reaches `_notice_type_clause` as an unknown filter.
+    """
+    if not isinstance(v, str):
+        return None
+    v = v.strip()
+    return None if v in ("", "all") else v
 
 
 class ExtractionStats(BaseModel):
@@ -451,7 +522,37 @@ def extraction_stats_endpoint(
     return ExtractionStats(**extraction_stats(
         score_min=score_min, score_max=score_max,
         notice_type=_no_all(notice_type),
-        date_from=date_from, date_to=date_to, q=q,
+        date_from=_no_all(date_from), date_to=_no_all(date_to), q=_no_all(q),
+    ))
+
+
+class ExtractionBulkConfirmBody(BaseModel):
+    score_min: float | None = Field(default=None, ge=0.0, le=100.0)
+    score_max: float | None = Field(default=None, ge=0.0, le=100.0)
+    notice_type: str | None = Field(default=None, max_length=20)
+    date_from: str | None = Field(default=None, max_length=20)
+    date_to: str | None = Field(default=None, max_length=20)
+    q: str | None = Field(default=None, max_length=200)
+    dry_run: bool = False
+
+
+class ExtractionBulkConfirmResult(BaseModel):
+    count: int
+    dry_run: bool
+
+
+# Declared before the `/{filename:path}` catch-all, like /stats.
+@router.post("/bulk-confirm", response_model=ExtractionBulkConfirmResult)
+def extraction_bulk_confirm(
+    body: ExtractionBulkConfirmBody,
+    admin: UserOut = Depends(get_current_admin),
+) -> ExtractionBulkConfirmResult:
+    return ExtractionBulkConfirmResult(**bulk_verify_extractions(
+        by_email=admin.email,
+        score_min=body.score_min, score_max=body.score_max,
+        notice_type=_no_all(body.notice_type),
+        date_from=body.date_from, date_to=body.date_to, q=body.q,
+        dry_run=body.dry_run,
     ))
 
 
@@ -468,9 +569,11 @@ def extraction_queue(
     q: str | None = Query(default=None, max_length=200),
     _admin: UserOut = Depends(get_current_admin),
 ) -> ExtractionQueueOut:
-    rows = list_extraction_queue(_no_all(status), limit, sort,
+    status, notice_type = _no_all(status), _no_all(notice_type)
+    date_from, date_to, q = _no_all(date_from), _no_all(date_to), _no_all(q)
+    rows = list_extraction_queue(status, limit, sort,
                                  score_min=score_min, score_max=score_max,
-                                 notice_type=_no_all(notice_type),
+                                 notice_type=notice_type,
                                  date_from=date_from, date_to=date_to, q=q)
     out = []
     for r in rows:
@@ -497,7 +600,14 @@ def extraction_queue(
             lot_count_mismatch=(expected is not None
                                 and extracted is not None
                                 and expected != extracted)))
-    return ExtractionQueueOut(rows=out, total=len(out))
+    # A genuine count, not len(out): the row list is capped by $limit, and the
+    # "Confirm all N in range" button acts on the whole matching set — so a
+    # capped total would understate what the button is about to verify.
+    total = count_extraction_queue(status, score_min=score_min,
+                                   score_max=score_max,
+                                   notice_type=notice_type,
+                                   date_from=date_from, date_to=date_to, q=q)
+    return ExtractionQueueOut(rows=out, total=total)
 
 
 @router.get("/{filename:path}", response_model=ExtractionReviewOut)

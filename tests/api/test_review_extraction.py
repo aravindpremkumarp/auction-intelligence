@@ -88,7 +88,9 @@ def test_queue_defaults_to_recent_and_passes_extraction_at(monkeypatch):
     out = ex.extraction_queue(status=None, limit=200, sort="recent",
                               score_min=None, score_max=None, _admin=None)
     assert seen["sort"] == "recent"                 # default forwarded to the query
-    assert out.total == 2
+    # `total` is a separate count query now (see the row-cap test below), so it
+    # is deliberately NOT asserted against len(rows) here.
+    assert len(out.rows) == 2
     r0, r1 = out.rows
     assert r0.filename == "b.pdf"
     assert r0.extraction_at == "2026-07-08T10:00:00Z"
@@ -358,21 +360,25 @@ def test_queue_row_lot_count_match_and_unknown(monkeypatch):
 
 
 def _capture_cypher(fn, *a, **kw):
-    """Run a queue/stats call against a stubbed driver, returning (cypher, params)."""
+    """Run a queue/stats/bulk call against a stubbed driver, returning
+    (cypher, params). Both run_read_query and run_query are stubbed — the bulk
+    path writes, so it goes through run_query."""
     import api.review.extraction as ex
     captured = {}
 
-    def fake_run(cypher, params, **k):
+    def fake_run(cypher, params=None, **k):
         captured["cypher"] = cypher
         captured["params"] = params
-        return [{"total": 0, "pending": 0, "verified": 0, "edited": 0}]
+        return [{"total": 0, "pending": 0, "verified": 0, "edited": 0, "n": 0}]
 
-    orig = ex.run_read_query
+    orig_read, orig_write = ex.run_read_query, ex.run_query
     try:
         ex.run_read_query = fake_run
+        ex.run_query = fake_run
         fn(*a, **kw)
     finally:
-        ex.run_read_query = orig
+        ex.run_read_query = orig_read
+        ex.run_query = orig_write
     return captured["cypher"], captured["params"]
 
 
@@ -434,4 +440,75 @@ def test_stats_route_registered_before_filename_catchall():
     paths = [r.path for r in app.routes]
     assert "/review/extraction/stats" in paths
     assert (paths.index("/review/extraction/stats")
+            < paths.index("/review/extraction/{filename:path}"))
+
+
+# ── bulk confirm ────────────────────────────────────────────────────────────
+
+
+def test_bulk_confirm_pins_status_to_pending():
+    """Verified rows are a no-op; 'edited' rows must NOT be swept back to
+    'verified' — that would erase the fact a human changed fields."""
+    import api.review.extraction as ex
+    cy, params = _capture_cypher(ex.bulk_verify_extractions, "me@example.com",
+                                 score_min=80)
+    assert params["status"] == "pending"
+    assert "extraction_review_status,'pending') = $status" in cy
+    assert "SET d.extraction_review_status = 'verified'" in cy
+    assert "d.extraction_verified_by   = $by" in cy
+
+
+def test_bulk_confirm_honours_every_queue_filter():
+    import api.review.extraction as ex
+    cy, params = _capture_cypher(ex.bulk_verify_extractions, "me@example.com",
+                                 score_min=50, score_max=90, notice_type="multi",
+                                 date_from="2026-08-01", date_to="2026-08-31",
+                                 q="hinduja")
+    assert "d.extraction_score >= $score_min" in cy
+    assert "d.extraction_score <= $score_max" in cy
+    assert "d.notice_type = 'multi'" in cy
+    assert "auction_start_dt" in cy
+    assert params["q"] == "hinduja"
+
+
+def test_bulk_confirm_dry_run_does_not_write():
+    import api.review.extraction as ex
+    cy, _ = _capture_cypher(ex.bulk_verify_extractions, "me@example.com",
+                            dry_run=True)
+    assert "count(d) AS n" in cy
+    assert "SET" not in cy
+
+
+def test_queue_total_is_a_real_count_not_the_row_cap():
+    """The 'Confirm all N in range' button acts on the whole matching set, so a
+    total capped by $limit would understate what it is about to verify."""
+    import api.review.extraction as ex
+    calls = {"n": 0}
+
+    def fake_list(*a, **kw):
+        calls["n"] += 1
+        return [{"filename": f"{i}.jpg", "status": "pending", "score": 90,
+                 "extraction_at": None, "extraction_batch": None,
+                 "expected_lot_count": None, "extraction_json": "[]"}
+                for i in range(3)]          # 3 rows returned...
+
+    orig_count = ex.count_extraction_queue
+    try:
+        ex.list_extraction_queue = fake_list
+        ex.count_extraction_queue = lambda *a, **kw: 1530   # ...of 1530 matching
+        out = ex.extraction_queue(status="pending", limit=3, sort="recent",
+                                  score_min=None, score_max=None,
+                                  notice_type=None, date_from=None,
+                                  date_to=None, q=None, _admin=None)
+        assert len(out.rows) == 3
+        assert out.total == 1530
+    finally:
+        ex.count_extraction_queue = orig_count
+
+
+def test_bulk_confirm_route_registered_before_catchall():
+    from api.main import app
+    paths = [r.path for r in app.routes]
+    assert "/review/extraction/bulk-confirm" in paths
+    assert (paths.index("/review/extraction/bulk-confirm")
             < paths.index("/review/extraction/{filename:path}"))
