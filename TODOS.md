@@ -5,48 +5,40 @@ move to the bottom section with the version they shipped in.
 
 ## Test suite
 
-### Pre-existing test failures on `main` (8)
+### Pre-existing test failure on `main` (1, was 8)
 
-**Priority:** P0
+**Priority:** P2 (was P0)
 **Noticed:** 2026-08-09, on branch `claude/pull-latest-main-f081ff` (gstack /ship)
+**Updated:** 2026-08-14 — 7 of the 8 now pass; only the leak check remains.
 
-Eight tests fail on clean `main`. Confirmed pre-existing by stashing the branch
-diff and re-running — identical failure set, so they are not caused by the
-review/pipeline fixes shipped on that branch.
-
-They matter beyond their own coverage: a permanently red suite means the next
-regression is indistinguishable from the standing noise.
+One test still fails on clean `main`:
 
 | Test | File |
 |---|---|
-| `test_chat_stream_happy_path` | `tests/api/test_chat_stream.py` |
 | `test_deferred_tools_hidden_on_first_request` | `tests/api/test_deferred_capabilities.py` |
-| `test_catalog_rides_in_instructions` | `tests/api/test_deferred_capabilities.py` |
-| `test_loaded_capability_survives_history_replay` | `tests/api/test_deferred_capabilities.py` |
-| `test_load_capability_returns_cypher_instructions` | `tests/api/test_deferred_capabilities.py` |
-| `test_agent_tool_accepts_str_or_list` | `tests/api/test_detail_batching.py` |
-| `TestBuildIsland::test_live_auction` | `tests/scripts/test_property_og.py` |
-| `test_missing_env_raises_configured_error` | `tests/test_storage.py` |
 
-Lead on the chat/capabilities cluster (5 of the 8) — they share one error:
+It asserts that deferred tools stay out of the always-sent tool surface, and
+fails because `run_cypher` and `describe_schema` are present on the first
+request:
 
 ```
-chat.agent_run status=error mode=ask model=flash
-err=TypeError("'async_generator' object does not support the asynchronous
-context manager protocol (missed __aexit__ method)")
-agent stream failed for message='auctions in chennai'
+AssertionError: deferred tools leaked into the always-sent surface:
+{'run_cypher', 'describe_schema'}
 ```
 
-That reads like an `async with` applied to a bare async generator — most likely
-agent-SDK drift where a helper stopped being an async context manager. Fixing
-that one shape probably clears the chat_stream, deferred_capabilities, and
-detail_batching failures together. `test_property_og` and `test_storage` look
-independent.
+So this is no longer the async-context-manager drift the original entry
+diagnosed — that cluster (chat_stream, the other three deferred_capabilities
+tests, detail_batching) is fixed, as are `test_property_og` and `test_storage`.
+Either the two tools were deliberately promoted to always-sent and the test was
+not updated, or the deferral genuinely regressed. Answering that is the task.
+
+Priority drops from P0 to P2: one known-red test is still noise against the next
+regression, but the suite is legible again (1,155 passing).
 
 Repro:
 
 ```bash
-python -m pytest tests/api/test_chat_stream.py tests/api/test_deferred_capabilities.py tests/api/test_detail_batching.py tests/scripts/test_property_og.py tests/test_storage.py -q
+python -m pytest tests/api/test_deferred_capabilities.py -q
 ```
 
 ## Pipeline

@@ -371,6 +371,17 @@ where consumers look · **S4** presentation loss.
 > both findings stands. A new guard landed alongside: the reviewer-confirmed
 > lot count (`Document.expected_lot_count`) primes the LangExtract prompt and
 > is checked against the extracted lots in the review queue.
+>
+> **Update, 2026-08-14 (#370).** One R17 item is done: the extraction overlay is
+> routed through the hash router. It is a first-class stage now — a card list
+> plus `#extraction/<filename>` for one notice — sharing the filter bar with the
+> other stages, so its "no filters, state lost on refresh" behaviour is gone.
+> The rest of R17 stands.
+>
+> Still true as audited, and worth restating because it is easy to misread the
+> P1 row: the `:Lot` / `:Parcel` spine landed *as code* (#360) but has never been
+> run against the live graph — both labels are 0 nodes there (checked
+> 2026-08-14). See the status note atop `docs/SCHEMA.md`.
 
 | # | Finding | Status | Evidence |
 |---|---|---|---|
