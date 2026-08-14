@@ -19,8 +19,18 @@ and wall-clock. Tokens are the cost proxy — the two models are priced differen
 neither is in litellm's price map, so this prints usage rather than inventing a dollar
 figure.
 
-Run:  python -m evals.contextgem_eval            (needs OPENROUTER_API_KEY)
-      python -m evals.contextgem_eval 750348     (a subset of auction ids)
+REPEATS, and why they are not optional
+--------------------------------------
+Both engines are noisy on the same input. Two runs of the identical LangExtract config
+(deepseek-v4-pro, 2 passes) over notice 750348 returned 141 and 90 entities and scored
+48% and 88% — the difference between "rewrite the pipeline" and "leave it alone" is
+inside one engine's run-to-run spread. So every notice is run REPEATS times per engine
+and the summary reports the spread, not a single number. Treat any comparison run with
+--repeats 1 as an anecdote.
+
+Run:  python -m evals.contextgem_eval                    (needs OPENROUTER_API_KEY)
+      python -m evals.contextgem_eval 750348             (a subset of auction ids)
+      python -m evals.contextgem_eval --repeats 5        (tighter spread, 5x the cost)
 """
 from __future__ import annotations
 
@@ -127,6 +137,29 @@ def _score(g: dict, records: list[dict]) -> tuple[int, int, tuple]:
     return sum(1 for *_, ok in rows if ok), len(rows), (rows, lot_stats)
 
 
+def _pct(runs: list[float]) -> str:
+    """mean, with the spread when repeats disagree — the spread is the point."""
+    if not runs:
+        return "n/a"
+    mean = sum(runs) / len(runs)
+    if len(runs) == 1:
+        return f"{mean * 100:.1f}%"
+    return f"{mean * 100:.1f}% [{min(runs) * 100:.0f}-{max(runs) * 100:.0f}]"
+
+
+def _parse_args(argv: list[str]) -> tuple[set[str], int]:
+    aids, repeats = set(), 3
+    it = iter(argv)
+    for arg in it:
+        if arg == "--repeats":
+            repeats = int(next(it))
+        elif arg.startswith("--repeats="):
+            repeats = int(arg.split("=", 1)[1])
+        else:
+            aids.add(arg)
+    return aids, max(1, repeats)
+
+
 def main(argv: list[str]) -> int:
     global _ACTIVE
     if not os.environ.get("OPENROUTER_API_KEY"):
@@ -134,7 +167,7 @@ def main(argv: list[str]) -> int:
         return 2
     install_tracking()
 
-    wanted = set(argv)
+    wanted, repeats = _parse_args(argv)
     gold = [g for g in load_gold() if g.get("lots")]
     if wanted:
         gold = [g for g in gold if g["aid"] in wanted]
@@ -144,59 +177,65 @@ def main(argv: list[str]) -> int:
 
     from evals.contextgem_pipeline import build_llm_group
     group = build_llm_group()
-    lx_usage, cg_usage = Usage("langextract"), Usage("contextgem")
-    totals = {"langextract": [0, 0], "contextgem": [0, 0]}
-    lot_ok = {"langextract": 0, "contextgem": 0}
+    usages = {"langextract": Usage("langextract"), "contextgem": Usage("contextgem")}
+    # engine -> list of per-run accuracy fractions / lot-count hits, across all notices
+    accs: dict[str, list[float]] = {k: [] for k in usages}
+    lot_hits: dict[str, list[float]] = {k: [] for k in usages}
     misses: list[tuple] = []
 
-    print(f"multi-lot A/B — {len(gold)} notices, "
-          f"passes={os.environ.get('LANGEXTRACT_PASSES', '2')}\n")
-    header = f"{'aid':8} {'engine':12} {'fields':>9}  {'lots':>7}  {'calls':>5} {'tok in':>9} {'tok out':>8} {'sec':>6}"
+    print(f"multi-lot A/B — {len(gold)} notices x {repeats} run(s) per engine, "
+          f"passes={os.environ.get('LANGEXTRACT_PASSES', '2')}\n", flush=True)
+    header = (f"{'aid':8} {'engine':12} {'run':>3} {'fields':>9}  {'lots':>7}  "
+              f"{'calls':>5} {'tok in':>9} {'tok out':>8} {'sec':>6}")
     print(header)
-    print("-" * len(header))
+    print("-" * len(header), flush=True)
 
     for g in gold:
         md = (FIX / f"{g['aid']}.txt").read_text(encoding="utf-8")
-        for name, usage, runner in (
-            ("langextract", lx_usage, lambda: run_langextract(md, g.get("notice_type"))),
-            ("contextgem", cg_usage, lambda: run_contextgem(md, group)),
+        for name, runner in (
+            ("langextract", lambda: run_langextract(md, g.get("notice_type"))),
+            ("contextgem", lambda: run_contextgem(md, group)),
         ):
-            _ACTIVE = usage
-            snap, t0 = usage.snapshot(), time.time()
-            try:
-                records = runner()
-            except Exception as e:  # keep the other engine's numbers usable
-                print(f"{g['aid']:8} {name:12} FAILED: {type(e).__name__}: {e}")
-                continue
-            finally:
-                _ACTIVE = None
-            elapsed = time.time() - t0
-            usage.seconds += elapsed
-            correct, total, (rows, lot_stats) = _score(g, records)
-            totals[name][0] += correct
-            totals[name][1] += total
-            n_gold, n_got, count_ok = lot_stats
-            lot_ok[name] += bool(count_ok)
-            calls, tin, _cached, tout = usage.since(snap)
-            print(f"{g['aid']:8} {name:12} {correct:4}/{total:<4} "
-                  f"{n_got:3}/{n_gold:<3}{'' if count_ok else '⚠'} "
-                  f"{calls:5} {tin:9,} {tout:8,} {elapsed:6.1f}")
-            misses += [(g["aid"], name, k, gd, got) for k, gd, got, ok in rows if not ok]
+            usage = usages[name]
+            for run_i in range(1, repeats + 1):
+                _ACTIVE = usage
+                snap, t0 = usage.snapshot(), time.time()
+                try:
+                    records = runner()
+                except Exception as e:  # keep every other cell usable
+                    print(f"{g['aid']:8} {name:12} {run_i:3} FAILED: "
+                          f"{type(e).__name__}: {e}", flush=True)
+                    continue
+                finally:
+                    _ACTIVE = None
+                elapsed = time.time() - t0
+                usage.seconds += elapsed
+                correct, total, (rows, lot_stats) = _score(g, records)
+                n_gold, n_got, count_ok = lot_stats
+                accs[name].append(correct / total if total else 0.0)
+                lot_hits[name].append(1.0 if count_ok else 0.0)
+                calls, tin, _cached, tout = usage.since(snap)
+                print(f"{g['aid']:8} {name:12} {run_i:3} {correct:4}/{total:<4} "
+                      f"{n_got:3}/{n_gold:<3}{'' if count_ok else '!'} "
+                      f"{calls:5} {tin:9,} {tout:8,} {elapsed:6.1f}", flush=True)
+                misses += [(g["aid"], name, run_i, k, gd, got)
+                           for k, gd, got, ok in rows if not ok]
 
     print()
-    for name, usage in (("langextract", lx_usage), ("contextgem", cg_usage)):
-        c, t = totals[name]
-        acc = f"{c / t * 100:.1f}%" if t else "n/a"
-        print(f"{name:12} accuracy {c:4}/{t:<4} = {acc:>6}   "
-              f"lot-count {lot_ok[name]}/{len(gold)}   "
-              f"calls={usage.calls} in={usage.input_tokens:,} "
-              f"(+{usage.cached_tokens:,} cached) out={usage.output_tokens:,} "
-              f"{usage.seconds:.0f}s")
+    for name, usage in usages.items():
+        runs = accs[name]
+        n = len(runs) or 1
+        print(f"{name:12} accuracy {_pct(runs):>18}   "
+              f"lot-count {_pct(lot_hits[name]):>18}   "
+              f"per run: calls={usage.calls / n:.0f} "
+              f"in={usage.input_tokens / n:,.0f} "
+              f"(+{usage.cached_tokens / n:,.0f} cached) "
+              f"out={usage.output_tokens / n:,.0f} {usage.seconds / n:.0f}s")
 
     if misses:
-        print("\nMISSES (aid  engine  field  gold -> got):")
-        for aid, name, key, gd, got in misses:
-            print(f"  {aid}  {name:12} {key:26} {gd!r:22} -> {got!r}")
+        print("\nMISSES (aid  engine  run  field  gold -> got):")
+        for aid, name, run_i, key, gd, got in misses:
+            print(f"  {aid}  {name:12} {run_i}  {key:26} {gd!r:22} -> {got!r}")
     return 0
 
 
