@@ -164,3 +164,19 @@ def test_hallucinated_extra_lot_flags_count():
                  "attrs": {"reserve_price_num": "9999999", "lot_index": "2"}})
     _, (n_gold, n_got, count_ok) = LE.score_records(g, recs)
     assert n_gold == 1 and n_got == 2 and not count_ok
+
+
+def test_mixed_type_lot_index_does_not_crash_the_run():
+    # Models emit lot_index inconsistently — "2" from one call, 2 from the next.
+    # flatten_records used to sort borrowers on that raw value, so one numeric
+    # attribute raised TypeError and killed a whole eval run (after the API spend,
+    # before any score printed) instead of costing a single field.
+    g = _by_aid("750348")
+    recs = _perfect_records(g) + [
+        {"cls": "borrower", "text": "M/s. Poojas Enterprises", "attrs": {"lot_index": "1"}},
+        {"cls": "borrower", "text": "Mrs. Pooja B", "attrs": {"lot_index": 2}},
+        {"cls": "borrower", "text": "Mr. Balagopal", "attrs": {"lot_index": None}},
+    ]
+    rows, (_, _, count_ok) = LE.score_records(g, recs)
+    assert count_ok
+    assert rows
