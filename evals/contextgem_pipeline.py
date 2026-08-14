@@ -80,9 +80,11 @@ _POSSESSION_RULE = (
     "return null: not the raw disjunction, not a guess."
 )
 _MONEY_RULE = (
-    "Return a plain number: strip 'Rs.', commas, '/-' and any trailing words. "
-    "Indian digit grouping and OCR noise are common ('35.15,000/-' is 3515000). "
-    "Never convert lakhs/crores wording into a different unit than the digits state."
+    "Return integer rupees: strip 'Rs.', commas and '/-'. Indian digit grouping and OCR "
+    "noise are common ('35.15,000/-' is 3515000). APPLY THE UNIT when the notice states "
+    "one, in the value itself or in a column header: x100000 for Lakh, x10000000 for "
+    "Crore — 'Rs.70.00 Lakhs' is 7000000, 'Rs. 45 lakh' is 4500000, "
+    "'Reserve Price (In Lakhs) 572.34' is 57234000."
 )
 
 LOT_ASPECT_DESCRIPTION = """\
