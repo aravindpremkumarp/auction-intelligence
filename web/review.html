@@ -30,6 +30,25 @@
   .link { color: var(--ink); text-decoration: underline; }
   .actions { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
   .actions input[type="search"] { padding: 6px 10px; border: 1.5px solid var(--ink); background: #fff; min-width: 220px; }
+  /* Dense filter rows. The queue previously spent six stacked rows — over half
+     a laptop viewport — on controls, pushing the actual work below the fold.
+     Same controls, three rows, tighter metrics. */
+  .actions.filters { gap: 7px; margin-bottom: 6px; }
+  .actions.filters .fgroup { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .actions.filters .flabel { font-size: 13px; }
+  .actions.filters .fsep { color: var(--muted); margin: 0 2px; }
+  .actions.filters .fdash { color: var(--muted); }
+  .actions.filters .fhint { color: var(--muted); font-size: 11px; }
+  .actions.filters button { padding: 3px 9px; min-height: 26px; }
+  .actions.filters input[type="date"],
+  .actions.filters input[type="number"] { padding: 3px 6px; border: 1.5px solid var(--ink); background: #fff; }
+  .actions.filters input[type="number"] { width: 52px; }
+  .actions.filters input[type="search"] { padding: 3px 8px; min-width: 190px; }
+  /* The masthead is fixed chrome on every screen — trim it too, since the
+     complaint is total space above the first row of work. */
+  h1 { margin-bottom: 6px; }
+  .wrap > .actions:not(.filters) { margin-bottom: 8px; }
+  #msg:empty { display: none; }
   .pill { display: inline-block; padding: 1px 6px; border: 1px solid var(--ink); font-size: 11px; font-family: 'IBM Plex Mono', monospace; }
   .pill.on { background: var(--accent); font-weight: 600; }
   .pill.off { background: #eee; color: var(--muted); }
@@ -457,74 +476,79 @@
 
   <!-- Queue screen -->
   <section id="screen-queue">
-    <div class="actions">
-      <span>Stage:</span>
+    <!-- Filter bar, three dense rows: what you're reviewing / how it's scoped /
+         what narrows it. Each control keeps its own id so the per-stage
+         show-hide logic in syncStatusButtons() works on the group, not the row
+         — that is what lets six rows collapse into three without any stage
+         showing a filter it doesn't have. -->
+    <div class="actions filters">
+      <span class="flabel">Stage:</span>
       <span class="group-toggle" id="stage-tabs">
         <button class="pill" data-stage="classification">classification</button>
         <button class="pill" data-stage="markdown">markdown</button>
         <button class="pill" data-stage="extraction">extraction</button>
       </span>
-    </div>
-    <div class="actions">
-      <span id="group-label">Group:</span>
-      <span class="group-toggle" id="group-tabs">
-        <button class="pill" data-group="property">property</button>
-        <button class="pill" data-group="notice">sales notice</button>
+      <span class="fgroup" id="group-wrap">
+        <span class="fsep">·</span>
+        <span class="flabel" id="group-label">Group:</span>
+        <span class="group-toggle" id="group-tabs">
+          <button class="pill" data-group="property">property</button>
+          <button class="pill" data-group="notice">sales notice</button>
+        </span>
       </span>
-      <span style="width:14px"></span>
-      <span>Status:</span>
+      <span id="cview-toggle" class="fgroup hidden">
+        <span class="fsep">·</span>
+        <span class="flabel">View:</span>
+        <span class="group-toggle">
+          <button class="pill" data-cview="gallery">gallery</button>
+          <button class="pill" data-cview="cards">cards</button>
+        </span>
+      </span>
+    </div>
+    <div class="actions filters">
+      <span class="flabel">Status:</span>
       <span id="status-buttons" class="group-toggle">
         <button class="pill" data-status="pending">pending</button>
         <button class="pill" data-status="verified">verified</button>
         <button class="pill" data-status="edited">edited</button>
         <button class="pill" data-status="all">all</button>
       </span>
-      <span id="cview-toggle" class="group-toggle hidden">
-        <span style="margin:0 4px; color: var(--muted);">·</span>
-        <span>View:</span>
-        <button class="pill" data-cview="gallery">gallery</button>
-        <button class="pill" data-cview="cards">cards</button>
-      </span>
       <input type="search" id="q" placeholder="search title or borrower">
       <button id="reload" class="primary">Reload</button>
-    </div>
-    <div class="actions">
-      <span>Auction date:</span>
-      <label class="meta" style="display:flex; gap:6px; align-items:center;">
-        from <input type="date" id="date-from" style="padding:4px 6px; border:1.5px solid var(--ink);">
-      </label>
-      <label class="meta" style="display:flex; gap:6px; align-items:center;">
-        to <input type="date" id="date-to" style="padding:4px 6px; border:1.5px solid var(--ink);">
-      </label>
-      <button id="date-clear" class="ghost" title="show all dates">clear dates</button>
-      <span class="meta" id="date-hint" style="color: var(--muted);"></span>
-    </div>
-    <div class="actions" id="score-bar">
-      <span id="score-label">Score:</span>
-      <label class="meta" style="display:flex; gap:6px; align-items:center;">
-        from <input type="number" id="score-from" min="0" max="100" step="1" value="0"
-                    style="width:60px; padding:4px 6px; border:1.5px solid var(--ink);">
-      </label>
-      <label class="meta" style="display:flex; gap:6px; align-items:center;">
-        to <input type="number" id="score-to" min="0" max="100" step="1" value="100"
-                  style="width:60px; padding:4px 6px; border:1.5px solid var(--ink);">
-      </label>
-      <button id="score-clear" class="ghost" title="reset to 0–100">clear</button>
-      <span class="meta" id="score-hint" style="color: var(--muted);"></span>
-    </div>
-    <div class="actions" id="notice-type-bar">
-      <span>Notice type:</span>
-      <span class="group-toggle" id="notice-type-tabs">
-        <button class="pill" data-ntype="all">all</button>
-        <button class="pill" data-ntype="single">single</button>
-        <button class="pill" data-ntype="multi">multi</button>
-        <button class="pill" data-ntype="unclassified">unclassified</button>
+      <span style="flex:1"></span>
+      <span id="bulk-confirm-bar" class="fgroup hidden">
+        <button id="bulk-confirm-btn" class="primary" disabled
+                title="marks every visible pending item as verified (no re-extract)">Confirm all 0 in range</button>
       </span>
     </div>
-    <div id="bulk-confirm-bar" class="actions hidden">
-      <span class="meta" id="bulk-confirm-hint" style="color: var(--muted);">marks every visible pending item as verified (no re-extract)</span>
-      <span style="flex:1"></span>
-      <button id="bulk-confirm-btn" class="primary" disabled>Confirm all 0 in range</button>
+    <div class="actions filters">
+      <span class="fgroup" id="notice-type-bar">
+        <span class="flabel">Type:</span>
+        <span class="group-toggle" id="notice-type-tabs">
+          <button class="pill" data-ntype="all">all</button>
+          <button class="pill" data-ntype="single">single</button>
+          <button class="pill" data-ntype="multi">multi</button>
+          <button class="pill" data-ntype="unclassified">unclassified</button>
+        </span>
+      </span>
+      <span class="fgroup">
+        <span class="fsep">·</span>
+        <span class="flabel">Date:</span>
+        <input type="date" id="date-from" title="auction date from">
+        <span class="fdash">–</span>
+        <input type="date" id="date-to" title="auction date to">
+        <button id="date-clear" class="ghost" title="show all dates">clear</button>
+        <span class="meta fhint" id="date-hint"></span>
+      </span>
+      <span class="fgroup" id="score-bar">
+        <span class="fsep">·</span>
+        <span class="flabel" id="score-label">Score:</span>
+        <input type="number" id="score-from" min="0" max="100" step="1" value="0" title="minimum score">
+        <span class="fdash">–</span>
+        <input type="number" id="score-to" min="0" max="100" step="1" value="100" title="maximum score">
+        <button id="score-clear" class="ghost" title="reset to 0–100">clear</button>
+        <span class="meta fhint" id="score-hint"></span>
+      </span>
     </div>
     <div id="queue-by-classification" class="notice-list"></div>
     <div id="queue-by-classification-gallery" class="gallery-grid hidden"></div>
@@ -990,8 +1014,8 @@
     $('cview-toggle').classList.toggle('hidden', !(isClass && isNotice));
     // Extraction runs once per Document, so there is no property-grouped view —
     // hide the label with the toggle so no orphan "Group:" is left behind.
-    $('group-tabs').classList.toggle('hidden', isExtract);
-    $('group-label').classList.toggle('hidden', isExtract);
+    // One wrapper so the leading separator hides with the label and tabs.
+    $('group-wrap').classList.toggle('hidden', isExtract);
 
     // The score row applies to markdown (OCR health) and extraction (the
     // validators.py quality score); classification has no score.
