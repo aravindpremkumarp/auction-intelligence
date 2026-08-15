@@ -140,6 +140,54 @@ def build_rows(jsonl_path: Path) -> list[dict]:
     return rows
 
 
+def pick_canonical_keys(r2_keys: set[str],
+                        existing_doc_keys: dict[str, str]) -> dict[str, str]:
+    """filename -> the one R2 key that should represent it.
+
+    A file can sit in R2 under several auction_ids, because the uploader's
+    filename->auction_id map used to keep only the last writer. Prefer the key
+    an existing Document already points at: choosing a different copy makes
+    MERGE create a second, empty Document beside the one carrying the
+    extraction output. With no Document to defer to, pick the lowest key so the
+    choice is stable across runs.
+    """
+    canonical: dict[str, str] = {}
+    for k in sorted(r2_keys):
+        name = k.rsplit("/", 1)[-1]
+        if existing_doc_keys.get(name) == k:
+            canonical[name] = k
+        elif name not in canonical:
+            canonical[name] = k
+    return canonical
+
+
+def resolve_storage_keys(rows: list[dict], r2_keys: set[str],
+                         existing_doc_keys: dict[str, str]
+                         ) -> tuple[list[dict], int, int]:
+    """Point every row at a storage_key that exists in R2.
+
+    build_rows() optimistically assumes notices/<this aid>/<file>, but a batch
+    notice is stored once, so every other property sharing it would fail the R2
+    gate and be dropped. Returns (rows, dropped, remapped).
+    """
+    canonical = pick_canonical_keys(r2_keys, existing_doc_keys)
+    resolved: list[dict] = []
+    dropped = remapped = 0
+    for r in rows:
+        if r["storage_key"] in r2_keys:
+            resolved.append(r)
+            continue
+        key = canonical.get(r["filename"])
+        if not key:
+            dropped += 1
+            continue
+        r["storage_key"] = key
+        r["public_url"] = f"{PUBLIC_BASE}/{key}"
+        resolved.append(r)
+        remapped += 1
+    return resolved, dropped, remapped
+
+
 def fetch_existing_doc_keys() -> dict[str, str]:
     """filename -> storage_key for Documents already in the graph.
 
@@ -198,41 +246,8 @@ def main():
         r2_keys = fetch_r2_keys()
         print(f"  R2 objects found: {len(r2_keys):,}")
 
-        # A batch sale notice covers many properties but is stored in R2 ONCE,
-        # under whichever auction_id won upload_tn_to_r2's filename->auction_id
-        # map. build_rows() optimistically assumes notices/<this aid>/<file>, so
-        # every other property sharing that notice used to fail the gate and get
-        # dropped. Resolve to the key that actually exists instead: one object,
-        # one Document, linked from all N properties.
-        # A file can sit in R2 under several auction_ids (the uploader's
-        # filename->auction_id map keeps only the last writer). Prefer the key an
-        # existing Document already uses — picking a different one would MERGE a
-        # second, empty Document beside the one holding the extraction output.
         existing = fetch_existing_doc_keys()
-        canonical: dict[str, str] = {}
-        for k in r2_keys:
-            name = k.rsplit("/", 1)[-1]
-            if existing.get(name) == k:
-                canonical[name] = k          # an extracted Document lives here
-            elif name not in canonical or (
-                existing.get(name) != canonical[name] and k < canonical[name]
-            ):
-                canonical[name] = k          # else deterministic fallback
-
-        resolved, dropped, remapped = [], 0, 0
-        for r in rows:
-            if r["storage_key"] in r2_keys:
-                resolved.append(r)
-                continue
-            key = canonical.get(r["filename"])
-            if not key:
-                dropped += 1
-                continue
-            r["storage_key"] = key
-            r["public_url"] = f"{PUBLIC_BASE}/{key}"
-            resolved.append(r)
-            remapped += 1
-        rows = resolved
+        rows, dropped, remapped = resolve_storage_keys(rows, r2_keys, existing)
 
         if remapped:
             print(f"  Remapped {remapped:,} rows to a shared notice's existing R2 key")
