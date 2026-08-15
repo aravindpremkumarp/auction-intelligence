@@ -86,6 +86,50 @@ def nq(statement: str, parameters: dict | None = None) -> list[list]:
 
 # ── selection ───────────────────────────────────────────────────────────────
 
+def select_shadow_targets(limit: int | None) -> list[dict]:
+    """Backfilled Documents — Datalab blocks over MinerU markdown.
+
+    Re-measurable with no API call (blocks and image are both to hand), which
+    matters whenever the coverage rules change: their stored
+    ``shadow_ink_uncovered_ratio`` would otherwise keep an outdated verdict.
+    """
+    rows = nq(
+        f"""
+        MATCH (d:Document)
+        WHERE d.blocks_source = 'datalab-backfill'
+          AND d.blocks IS NOT NULL AND d.blocks <> ''
+          AND d.public_url IS NOT NULL AND d.public_url <> ''
+        RETURN d.file_path, d.filename, d.public_url, d.blocks, d.markdown,
+               d.ocr_health_score
+        ORDER BY d.filename
+        {'LIMIT $lim' if limit else ''}
+        """,
+        {"lim": limit} if limit else {},
+    )
+    return [{"file_path": r[0], "filename": r[1], "public_url": r[2],
+             "blocks_json": r[3], "markdown": r[4], "old_score": r[5]}
+            for r in rows]
+
+
+def write_shadow(results: list[dict]) -> int:
+    """Persist re-measured coverage for backfilled docs. Health is untouched —
+    the blocks and the markdown come from different engines."""
+    rows = [{"file_path": r["file_path"], "ratio": r["ratio"]}
+            for r in results if r.get("ratio") is not None]
+    if not rows:
+        return 0
+    nq(
+        """
+        UNWIND $rows AS row
+        MATCH (d:Document {file_path: row.file_path})
+        SET d.shadow_ink_uncovered_ratio = row.ratio,
+            d.shadow_at                  = datetime()
+        """,
+        {"rows": rows},
+    )
+    return len(rows)
+
+
 def select_targets(*, since_iso: str | None, limit: int | None,
                    only_unscored: bool) -> list[dict]:
     """Documents that have both blocks and a fetchable image.
@@ -95,7 +139,13 @@ def select_targets(*, since_iso: str | None, limit: int | None,
     """
     where = ["d.blocks IS NOT NULL", "d.blocks <> ''",
              "d.public_url IS NOT NULL", "d.public_url <> ''",
-             "toLower(d.public_url) =~ '.*\\\\.(png|jpg|jpeg|webp)$'"]
+             "toLower(d.public_url) =~ '.*\\\\.(png|jpg|jpeg|webp)$'",
+             # Documents backfilled by scripts/backfill_blocks_datalab.py carry
+             # Datalab blocks over MinerU markdown. Coverage there measures the
+             # Datalab parse, not the text we actually store, so folding it into
+             # ocr_health would attribute one engine's miss to the other's
+             # output. Their reading lives in shadow_* instead.
+             "coalesce(d.blocks_source,'') <> 'datalab-backfill'"]
     params: dict = {}
     if only_unscored:
         where.append("d.ink_uncovered_ratio IS NULL")
@@ -184,15 +234,24 @@ def main() -> int:
                     help="skip Documents that already carry ink_uncovered_ratio")
     ap.add_argument("--dry-run", action="store_true",
                     help="measure and print, write nothing")
+    ap.add_argument("--shadow", action="store_true",
+                    help="re-measure backfilled docs (Datalab blocks over MinerU "
+                         "markdown) into shadow_ink_uncovered_ratio; never touches "
+                         "ocr_health")
     ap.add_argument("--concurrency", type=int, default=6)
     args = ap.parse_args()
 
-    since_iso = f"{args.since}T00:00:00Z" if args.since else None
-    targets = select_targets(since_iso=since_iso,
-                             limit=None if args.all else args.limit,
-                             only_unscored=args.only_unscored)
-    print(f"Selected {len(targets)} Document(s) with blocks + a raster source "
-          f"(threshold {MISSING_REGION_MIN_RATIO:.0%} unread ink)")
+    limit = None if args.all else args.limit
+    if args.shadow:
+        targets = select_shadow_targets(limit)
+        print(f"Selected {len(targets)} backfilled Document(s) to re-measure "
+              f"(shadow only — ocr_health untouched)")
+    else:
+        since_iso = f"{args.since}T00:00:00Z" if args.since else None
+        targets = select_targets(since_iso=since_iso, limit=limit,
+                                 only_unscored=args.only_unscored)
+        print(f"Selected {len(targets)} Document(s) with blocks + a raster source "
+              f"(threshold {MISSING_REGION_MIN_RATIO:.0%} unread ink)")
     if not targets:
         return 0
 
@@ -224,7 +283,9 @@ def main() -> int:
     if args.dry_run:
         print("[dry-run] nothing written")
         return 0
-    print(f"Wrote {write_back(results)} Document(s)")
+    wrote = write_shadow(results) if args.shadow else write_back(results)
+    print(f"Wrote {wrote} Document(s)"
+          + (" (shadow ratio only)" if args.shadow else ""))
     return 0
 
 

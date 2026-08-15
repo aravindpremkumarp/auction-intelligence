@@ -75,8 +75,41 @@ def _tile_ink(image_bytes: bytes) -> tuple[list[float], int, int]:
         return [v / 255.0 for v in small.getdata()], tw, th
 
 
+# An Image block covering more than this share of the page is the parser
+# giving up — "the page is a picture" — not a figure it actually handled.
+IMAGE_MAX_AREA = 0.5
+
+
+def _covers(block: dict) -> bool:
+    """Does this block represent content we actually read?
+
+    Area alone is not enough. Datalab can return a single ``Text`` block spanning
+    the whole page with **empty text**: it claims every tile, so naive coverage
+    reports 0% unread on a notice where literally nothing was read. Five such
+    documents turned up in the corpus, each with a page-sized empty block and a
+    perfect-looking score.
+
+    So a block covers ink only when it carries text (table HTML counts — the
+    canonical shape stores it in ``text``), or when it is a genuine embedded
+    figure. Figures are exempt because a logo or photo is legitimately ink we
+    are not expected to transcribe — but a page-sized one is the same giving-up
+    case, so it does not count either.
+    """
+    if (block.get("text") or "").strip():
+        return True
+    if block.get("label") == "Image":
+        bbox = block.get("bbox")
+        if isinstance(bbox, (list, tuple)) and len(bbox) >= 4:
+            try:
+                area = (float(bbox[2]) - float(bbox[0])) * (float(bbox[3]) - float(bbox[1]))
+            except (TypeError, ValueError):
+                return False
+            return 0 < area < IMAGE_MAX_AREA
+    return False
+
+
 def _covered_tiles(blocks: list[dict], tw: int, th: int, page: int) -> bytearray:
-    """Flat tw×th mask of tiles overlapped by a block bbox on ``page``.
+    """Flat tw×th mask of tiles overlapped by a *content-bearing* block on ``page``.
 
     Block bboxes are normalized 0..1 by both engines (see pipeline/datalab.py
     and pipeline/mineru.py), so they scale straight onto the tile grid.
@@ -86,6 +119,8 @@ def _covered_tiles(blocks: list[dict], tw: int, th: int, page: int) -> bytearray
         if not isinstance(b, dict):
             continue
         if int(b.get("page") or 1) != page:
+            continue
+        if not _covers(b):
             continue
         bbox = b.get("bbox")
         if not (isinstance(bbox, (list, tuple)) and len(bbox) >= 4):
@@ -157,6 +192,9 @@ def score_ink_coverage(image_bytes: bytes | None, blocks: list[dict] | None,
                for b in blocks):
         out["details"]["skipped"] = "no-blocks-on-page"
         return out
+    # Blocks that exist but carry nothing (the page-sized empty block above) are
+    # a total parse failure, and reporting ~100% unread is the honest reading —
+    # so this deliberately does NOT bail out the way "no blocks" does.
 
     try:
         ink, tw, th = _tile_ink(image_bytes)

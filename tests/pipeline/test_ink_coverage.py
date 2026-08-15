@@ -68,6 +68,29 @@ def test_small_bbox_slop_stays_under_the_threshold():
     assert r["flag"] is False
 
 
+def test_page_sized_empty_block_does_not_mask_a_failed_parse():
+    """The corpus turned up five notices where Datalab returned one page-sized
+    block with empty text. Counting area alone, they scored 0% unread — a
+    perfect result on a page where nothing at all was read."""
+    page = _page([(0.1, 0.1, 0.9, 0.9)])
+    empty_full_page = {"page": 1, "bbox": [0.0, 0.0, 1.0, 1.0],
+                       "label": "Text", "text": ""}
+    r = score_ink_coverage(page, [empty_full_page])
+    assert r["flag"] is True
+    assert r["uncovered_ratio"] == pytest.approx(1.0, abs=0.01)
+
+
+def test_figures_count_as_read_but_a_page_sized_one_does_not():
+    # A logo is ink we are not expected to transcribe, so a real figure block
+    # counts as handled...
+    page = _page([(0.1, 0.1, 0.4, 0.3)])
+    fig = {"page": 1, "bbox": [0.05, 0.05, 0.45, 0.35], "label": "Image", "text": ""}
+    assert score_ink_coverage(page, [fig])["flag"] is False
+    # ...but "the whole page is a picture" is the parser giving up.
+    whole = {"page": 1, "bbox": [0.0, 0.0, 1.0, 1.0], "label": "Image", "text": ""}
+    assert score_ink_coverage(_page([(0.1, 0.1, 0.9, 0.9)]), [whole])["flag"] is True
+
+
 def test_unscorable_inputs_never_flag():
     page = _page([(0.1, 0.1, 0.9, 0.9)])
     # No blocks is a different failure (nothing parsed at all) and must not be
