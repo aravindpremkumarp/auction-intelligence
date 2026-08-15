@@ -204,6 +204,11 @@ class MarkdownRow(BaseModel):
     # regression test guards.
     ocr_health_score: int | None = None
     ocr_health_flags: list[str] | None = None
+    # Datalab's own parse verdict, 0–5 (pipeline/datalab_api.parse_quality).
+    # Complements health rather than duplicating it: health reads only the text
+    # we got, so it cannot see dropped content; this is the engine's own read of
+    # the page. NULL on MinerU docs and on anything not yet re-parsed.
+    parse_quality_score: float | None = None
     quality: Literal["good", "bad"] | None = None
     verified: bool = False
     verified_at: str | None = None
@@ -259,6 +264,7 @@ class MarkdownPropertyRow(BaseModel):
     # so FastAPI projects it into the by-property table too.
     ocr_health_score: int | None = None
     ocr_health_flags: list[str] | None = None
+    parse_quality_score: float | None = None
     quality: Literal["good", "bad"] | None = None
     verified: bool = False
     verified_at: str | None = None
@@ -334,6 +340,7 @@ class BlocksDoc(BaseModel):
     markdown_length: int | None = None
     ocr_health_score: int | None = None
     ocr_health_flags: list[str] | None = None
+    parse_quality_score: float | None = None
     markdown_quality: Literal["good", "bad"] | None = None
     markdown_verified: bool = False
     markdown_reextracted_at: str | None = None
@@ -660,6 +667,9 @@ def review_markdown_queue(
     size: int = Query(default=50, ge=1, le=200),
     score_min: float | None = Query(default=None, ge=0.0, le=100.0),
     score_max: float | None = Query(default=None, ge=0.0, le=100.0),
+    # Datalab parse quality is a 0–5 scale, not 0–100 like OCR health.
+    pq_min: float | None = Query(default=None, ge=0.0, le=5.0),
+    pq_max: float | None = Query(default=None, ge=0.0, le=5.0),
     notice_type: Literal["all", "single", "multi", "unclassified"] = Query(default="all"),
     date_from: str | None = Query(default=None, max_length=20),
     date_to: str | None = Query(default=None, max_length=20),
@@ -668,6 +678,7 @@ def review_markdown_queue(
     result = q.list_markdown_queue(
         status=status, q=q_search, page=page, size=size,
         score_min=score_min, score_max=score_max,
+        pq_min=pq_min, pq_max=pq_max,
         notice_type=notice_type if notice_type != "all" else None,
         date_from=date_from, date_to=date_to,
     )
@@ -689,6 +700,8 @@ def review_markdown_by_property(
     size: int = Query(default=100, ge=1, le=200),
     score_min: float | None = Query(default=None, ge=0.0, le=100.0),
     score_max: float | None = Query(default=None, ge=0.0, le=100.0),
+    pq_min: float | None = Query(default=None, ge=0.0, le=5.0),
+    pq_max: float | None = Query(default=None, ge=0.0, le=5.0),
     notice_type: Literal["all", "single", "multi", "unclassified"] = Query(default="all"),
     date_from: str | None = Query(default=None, max_length=20),
     date_to: str | None = Query(default=None, max_length=20),
@@ -697,6 +710,7 @@ def review_markdown_by_property(
     result = q.list_markdown_queue_by_property(
         status=status, q=q_search, page=page, size=size,
         score_min=score_min, score_max=score_max,
+        pq_min=pq_min, pq_max=pq_max,
         notice_type=notice_type if notice_type != "all" else None,
         date_from=date_from, date_to=date_to,
     )
@@ -775,6 +789,20 @@ def _opt_int(v) -> int | None:
         return None
 
 
+def _opt_float(v) -> float | None:
+    """Coerce a Neo4j numeric to float, or None when absent/unparseable.
+
+    Parse quality is fractional (3.0, 4.5 …), so it must not go through
+    ``_opt_int`` — that would silently truncate the reviewer's signal.
+    """
+    if v is None:
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
 def _ok_doc(doc: dict) -> BlocksDoc:
     blocks = [Block(**_with_block_health(b)) for b in (doc.get("blocks") or [])]
     raw_crop = doc.get("crop_bbox")
@@ -812,6 +840,7 @@ def _ok_doc(doc: dict) -> BlocksDoc:
         markdown_length=_opt_int(doc.get("markdown_length")),
         ocr_health_score=_opt_int(doc.get("ocr_health_score")),
         ocr_health_flags=[str(f) for f in flags] if isinstance(flags, list) else None,
+        parse_quality_score=_opt_float(doc.get("parse_quality_score")),
         markdown_quality=quality,
         markdown_verified=bool(doc.get("markdown_verified")),
         markdown_reextracted_at=doc.get("markdown_reextracted_at"),

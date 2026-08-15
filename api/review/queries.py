@@ -678,6 +678,34 @@ def auto_confirm_classifications(
 MarkdownStatus = Literal["pending", "verified", "edited", "all"]
 
 
+def _parse_quality_where(pq_min: float | None,
+                         pq_max: float | None) -> tuple[list[str], dict]:
+    """WHERE fragments for the Datalab parse-quality filter (0–5, higher is
+    better).
+
+    Distinct from OCR health on purpose: health is our own text-only verdict
+    (``pipeline/ocr_health.py``) and cannot see content the engine dropped,
+    while parse quality is Datalab's own read on the *page*. A notice that
+    lost a third of its text scores 100 health and ~3 parse quality, so the
+    two filters answer different questions and compose.
+
+    Documents with no stored score are excluded once either bound is set —
+    same rule as the health filter, and the honest one here since a missing
+    score means "never measured", not "fine".
+    """
+    where: list[str] = []
+    params: dict = {}
+    if pq_min is not None:
+        where.append("d.parse_quality_score IS NOT NULL")
+        where.append("d.parse_quality_score >= $pq_min")
+        params["pq_min"] = float(pq_min)
+    if pq_max is not None:
+        where.append("d.parse_quality_score IS NOT NULL")
+        where.append("d.parse_quality_score <= $pq_max")
+        params["pq_max"] = float(pq_max)
+    return where, params
+
+
 def _markdown_where(
     status: MarkdownStatus,
     score_min: float | None,
@@ -686,6 +714,8 @@ def _markdown_where(
     date_from: str | None = None,
     date_to: str | None = None,
     q: str | None = None,
+    pq_min: float | None = None,
+    pq_max: float | None = None,
 ) -> tuple[list[str], dict]:
     where = ["d.markdown IS NOT NULL", "d.markdown <> ''"]
     params: dict = {}
@@ -709,6 +739,9 @@ def _markdown_where(
         where.append("d.ocr_health_score IS NOT NULL")
         where.append("d.ocr_health_score <= $score_max")
         params["score_max"] = float(score_max)
+    pq_where, pq_params = _parse_quality_where(pq_min, pq_max)
+    where.extend(pq_where)
+    params.update(pq_params)
     clause = _notice_type_clause(notice_type, alias="d")
     if clause:
         where.append(clause)
@@ -815,12 +848,15 @@ def list_markdown_queue(
     notice_type: NoticeTypeFilter | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
+    pq_min: float | None = None,
+    pq_max: float | None = None,
 ) -> dict:
     """Return a page of Documents for markdown-quality review.
 
     Order: pending first, then lowest OCR-health first (so the worst OCR
     floats to the top of the reviewer's queue). `score_min`/`score_max`
     filter on ocr_health_score — the markdown stage's single score.
+    `pq_min`/`pq_max` filter on Datalab's parse_quality_score (0–5).
 
     date_from / date_to filter to Documents linked to any AuctionProperty
     whose auction_start_dt falls in the window.
@@ -832,6 +868,7 @@ def list_markdown_queue(
     where, params = _markdown_where(
         status, score_min, score_max, notice_type,
         date_from=date_from, date_to=date_to, q=q,
+        pq_min=pq_min, pq_max=pq_max,
     )
     params.update({"skip": skip, "size": size})
     where_clause = " AND ".join(where)
@@ -854,6 +891,7 @@ def list_markdown_queue(
                d.markdown_quality_score         AS score,
                d.ocr_health_score               AS ocr_health_score,
                d.ocr_health_flags               AS ocr_health_flags,
+               d.parse_quality_score            AS parse_quality_score,
                d.markdown_quality               AS quality,
                (d.markdown_verified_at IS NOT NULL) AS verified,
                toString(d.markdown_verified_at) AS verified_at,
@@ -889,6 +927,8 @@ def list_markdown_queue_by_property(
     notice_type: NoticeTypeFilter | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
+    pq_min: float | None = None,
+    pq_max: float | None = None,
 ) -> dict:
     """One row per AuctionProperty projected with its Document's
     markdown-quality status."""
@@ -918,6 +958,10 @@ def list_markdown_queue_by_property(
         where.append("d.ocr_health_score IS NOT NULL")
         where.append("d.ocr_health_score <= $score_max")
         params["score_max"] = float(score_max)
+
+    pq_where, pq_params = _parse_quality_where(pq_min, pq_max)
+    where.extend(pq_where)
+    params.update(pq_params)
 
     nt_clause = _notice_type_clause(notice_type, alias="d")
     if nt_clause:
@@ -950,6 +994,7 @@ def list_markdown_queue_by_property(
                d.markdown_quality_score           AS score,
                d.ocr_health_score                 AS ocr_health_score,
                d.ocr_health_flags                 AS ocr_health_flags,
+               d.parse_quality_score              AS parse_quality_score,
                d.markdown_quality                 AS quality,
                (d.markdown_verified_at IS NOT NULL) AS verified,
                toString(d.markdown_verified_at)   AS verified_at
@@ -999,6 +1044,7 @@ def verify_markdown(
                d.markdown_quality_score         AS score,
                d.ocr_health_score               AS ocr_health_score,
                d.ocr_health_flags               AS ocr_health_flags,
+               d.parse_quality_score            AS parse_quality_score,
                d.markdown_quality               AS quality,
                true                             AS verified,
                toString(d.markdown_verified_at) AS verified_at,

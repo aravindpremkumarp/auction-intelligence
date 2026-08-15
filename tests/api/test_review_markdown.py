@@ -131,6 +131,48 @@ def test_markdown_property_row_model_exposes_ocr_health() -> None:
     assert dumped["ocr_health_flags"] == ["table-collapse"]
 
 
+def test_markdown_accepts_parse_quality_bounds(client) -> None:
+    _ensure_admin_user()
+    for path in ("/review/markdown", "/review/markdown/by-property"):
+        r = client.get(f"{path}?pq_min=1&pq_max=3.5", headers=_admin_header())
+        assert r.status_code == 200, f"{path} rejected pq bounds: {r.text}"
+
+
+def test_markdown_rejects_parse_quality_above_scale(client) -> None:
+    # Parse quality is 0–5, not 0–100 — a 100 here would be an OCR-health value
+    # pasted into the wrong filter and must not silently match everything.
+    _ensure_admin_user()
+    r = client.get("/review/markdown?pq_min=100", headers=_admin_header())
+    assert r.status_code == 422
+
+
+def test_markdown_row_models_expose_parse_quality() -> None:
+    # Same response_model trap as ocr_health above: undeclared fields are
+    # stripped, and the UI's parse pill / filter would silently show nothing.
+    from api.review.router import BlocksDoc, MarkdownPropertyRow, MarkdownRow
+    for model, kwargs in ((MarkdownRow, {"filename": "n.jpg"}),
+                          (MarkdownPropertyRow, {"auction_id": "a1"}),
+                          (BlocksDoc, {"filename": "n.jpg"})):
+        assert "parse_quality_score" in model.model_fields, model.__name__
+        assert model(**kwargs).model_dump()["parse_quality_score"] is None
+        # Fractional scores must survive as floats, not truncate to int.
+        assert model(**kwargs, parse_quality_score=3.5).model_dump()[
+            "parse_quality_score"] == 3.5
+
+
+def test_parse_quality_where_requires_a_stored_score() -> None:
+    # An unscored Document means "never measured", not "fine" — it must drop out
+    # of the queue once the reviewer sets either bound.
+    from api.review.queries import _parse_quality_where
+    where, params = _parse_quality_where(None, None)
+    assert where == [] and params == {}
+    where, params = _parse_quality_where(2.0, 4.0)
+    assert "d.parse_quality_score IS NOT NULL" in where
+    assert "d.parse_quality_score >= $pq_min" in where
+    assert "d.parse_quality_score <= $pq_max" in where
+    assert params == {"pq_min": 2.0, "pq_max": 4.0}
+
+
 def test_block_model_exposes_health() -> None:
     # get_blocks attaches a read-time per-block health verdict; Block must
     # declare it or FastAPI strips it (same bug class as the highlights guard).

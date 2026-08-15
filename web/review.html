@@ -549,6 +549,21 @@
         <button id="score-clear" class="ghost" title="reset to 0–100">clear</button>
         <span class="meta fhint" id="score-hint"></span>
       </span>
+      <!-- Datalab's own 0–5 verdict on the parse. Separate from OCR health
+           because it catches the failure health cannot see: content the engine
+           silently dropped. Blank inputs = no filter (docs with no score stay
+           visible); set either bound and only scored docs match. -->
+      <span class="fgroup hidden" id="pq-bar">
+        <span class="fsep">·</span>
+        <span class="flabel">Parse quality:</span>
+        <input type="number" id="pq-from" min="0" max="5" step="0.5"
+               placeholder="0" title="minimum Datalab parse quality (0–5)">
+        <span class="fdash">–</span>
+        <input type="number" id="pq-to" min="0" max="5" step="0.5"
+               placeholder="5" title="maximum Datalab parse quality (0–5)">
+        <button id="pq-clear" class="ghost" title="remove the parse-quality filter">clear</button>
+        <span class="meta fhint" id="pq-hint"></span>
+      </span>
     </div>
     <div id="queue-by-classification" class="notice-list"></div>
     <div id="queue-by-classification-gallery" class="gallery-grid hidden"></div>
@@ -581,6 +596,7 @@
             <th>Reserve (₹)</th>
             <th>Notice</th>
             <th>OCR health</th>
+            <th title="Datalab's own 0–5 verdict on the page read">Parse</th>
             <th>Quality</th>
             <th>Status</th>
           </tr>
@@ -822,6 +838,12 @@
       if (queueState.scoreFrom !== 0)   params.set('score_min', String(queueState.scoreFrom));
       if (queueState.scoreTo   !== 100) params.set('score_max', String(queueState.scoreTo));
     }
+    // Parse quality is a markdown-stage signal only — the extraction stage
+    // scores the fields, not the page read.
+    if (queueState.stage === 'markdown') {
+      if (queueState.pqFrom != null) params.set('pq_min', String(queueState.pqFrom));
+      if (queueState.pqTo   != null) params.set('pq_max', String(queueState.pqTo));
+    }
   }
 
   // ─── Routing ────────────────────────────────────────────────────────────
@@ -859,6 +881,10 @@
       const st = parseInt(p.get('score_to'),   10);
       if (!isNaN(sf)) queueState.scoreFrom = sf;
       if (!isNaN(st)) queueState.scoreTo   = st;
+      const pf = parseFloat(p.get('pq_from'));
+      const pt = parseFloat(p.get('pq_to'));
+      queueState.pqFrom = isNaN(pf) ? null : pf;
+      queueState.pqTo   = isNaN(pt) ? null : pt;
     }
     return { screen: 'queue' };
   }
@@ -884,6 +910,8 @@
     if (queueState.dateTo)   p.set('date_to',   queueState.dateTo);
     if (queueState.scoreFrom !== 0)   p.set('score_from', String(queueState.scoreFrom));
     if (queueState.scoreTo   !== 100) p.set('score_to',   String(queueState.scoreTo));
+    if (queueState.pqFrom != null) p.set('pq_from', String(queueState.pqFrom));
+    if (queueState.pqTo   != null) p.set('pq_to',   String(queueState.pqTo));
     return p.toString();
   }
 
@@ -960,6 +988,9 @@
     q: '',
     dateFrom: todayISO(), dateTo: '',
     scoreFrom: 0, scoreTo: 100,
+    // Datalab parse quality, 0–5. null = unset, and unset means "no filter" —
+    // unlike the 0–100 health range, a 0 bound here is a real (worst) value.
+    pqFrom: null, pqTo: null,
     page: 1,
   };
   // Per-stage default sub-group (remembers reviewer's last choice in localStorage).
@@ -1020,6 +1051,8 @@
     // The score row applies to markdown (OCR health) and extraction (the
     // validators.py quality score); classification has no score.
     $('score-bar').classList.toggle('hidden', isClass);
+    // Parse quality only exists for the markdown stage (it scores the page read).
+    $('pq-bar').classList.toggle('hidden', !isMd);
     // Bulk-confirm is available in every stage. On extraction it pairs with the
     // score filter: confirm the high-scoring tail in one action, spend the time
     // on the low scores.
@@ -1248,6 +1281,7 @@
         <td>${row.reserve_price == null ? '—' : row.reserve_price.toLocaleString('en-IN')}</td>
         <td>${noticeLink}</td>
         <td title="${(Array.isArray(row.ocr_health_flags) && row.ocr_health_flags.length) ? escapeHtml(row.ocr_health_flags.join(', ')) : ''}">${row.ocr_health_score == null ? '—' : row.ocr_health_score}${(Array.isArray(row.ocr_health_flags) && row.ocr_health_flags.length) ? ' ⚠' : ''}</td>
+        <td title="Datalab parse quality (0–5)">${row.parse_quality_score == null ? '—' : (Number.isInteger(row.parse_quality_score) ? row.parse_quality_score : row.parse_quality_score.toFixed(1)) + '/5'}</td>
         <td>${escapeHtml(row.quality || '—')}</td>
         <td>${escapeHtml(statusLabel)}</td>
       `;
@@ -1263,6 +1297,20 @@
     if (hint) {
       const def = queueState.scoreFrom === 0 && queueState.scoreTo === 100;
       hint.textContent = def ? '(no score filter)' : '';
+    }
+    syncParseQualityInputs();
+  }
+
+  // Parse-quality inputs stay blank when unset, so the reviewer can tell "no
+  // filter" from "min 0" — the latter would drop every unscored Document.
+  function syncParseQualityInputs() {
+    const pf = $('pq-from'), pt = $('pq-to');
+    if (pf) pf.value = queueState.pqFrom == null ? '' : String(queueState.pqFrom);
+    if (pt) pt.value = queueState.pqTo   == null ? '' : String(queueState.pqTo);
+    const hint = $('pq-hint');
+    if (hint) {
+      const off = queueState.pqFrom == null && queueState.pqTo == null;
+      hint.textContent = off ? '(no parse-quality filter)' : '(scored docs only)';
     }
   }
   function updateBulkConfirmButton() {
@@ -1338,6 +1386,20 @@
       ? `OCR failure artifacts: ${flags.join(', ')} — consider a crop + re-ingest`
       : 'no OCR failure artifacts detected';
     return `<span class="pill ${cls}" title="${escapeHtml(title)}">health ${score ?? '?'}${escapeHtml(suffix)}</span>`;
+  }
+
+  // Datalab's own 0–5 read on the parse, shown next to health because the two
+  // disagree in the case that matters: a notice whose bottom third never made
+  // it into the text scores health 100 (nothing wrong with what we got) and
+  // parse quality ~3. Renders nothing when unscored — MinerU docs and anything
+  // not re-parsed since this shipped have no value, and an "unscored" pill on
+  // most of the queue would be noise.
+  function parseQualityPill(row) {
+    const pq = row.parse_quality_score;
+    if (pq == null) return '';
+    const cls = pq >= 4 ? 'good' : (pq >= 3 ? 'warn' : 'danger');
+    const shown = Number.isInteger(pq) ? pq : pq.toFixed(1);
+    return `<span class="pill ${cls}" title="Datalab parse quality ${shown}/5 — the engine's own verdict on how much of the page it read">parse ${escapeHtml(String(shown))}/5</span>`;
   }
 
   function mdStatusPill(row) {
@@ -1442,7 +1504,7 @@
     const summary = document.createElement('summary');
     summary.innerHTML = `
       <span class="nfile">${escapeHtml(filename)}</span>
-      ${typeBadge} ${healthPill(row)} ${mdStatusPill(row)} ${reextractedBadge} ${precleanBadge}
+      ${typeBadge} ${healthPill(row)} ${parseQualityPill(row)} ${mdStatusPill(row)} ${reextractedBadge} ${precleanBadge}
       ${props} ${hlPill} ${len}
       <span class="nspacer"></span>
       <span class="nlinks">${annotateLink} ${openLink}</span>
@@ -2189,6 +2251,28 @@
   $('score-clear').addEventListener('click', () => {
     queueState.scoreFrom = 0;
     queueState.scoreTo = 100;
+    writeHash();
+    loadStats(); loadQueue();
+  });
+  // An empty input clears the bound rather than snapping to 0 / 5 — with a
+  // 0–5 scale those are meaningful values, not "off".
+  function pqBound(raw) {
+    const v = parseFloat(raw);
+    return isNaN(v) ? null : Math.max(0, Math.min(5, v));
+  }
+  $('pq-from').addEventListener('change', (e) => {
+    queueState.pqFrom = pqBound(e.target.value);
+    writeHash();
+    loadStats(); loadQueue();
+  });
+  $('pq-to').addEventListener('change', (e) => {
+    queueState.pqTo = pqBound(e.target.value);
+    writeHash();
+    loadStats(); loadQueue();
+  });
+  $('pq-clear').addEventListener('click', () => {
+    queueState.pqFrom = null;
+    queueState.pqTo = null;
     writeHash();
     loadStats(); loadQueue();
   });
@@ -4843,6 +4927,7 @@
     const row = {
       ocr_health_score: doc.ocr_health_score,
       ocr_health_flags: doc.ocr_health_flags,
+      parse_quality_score: doc.parse_quality_score,
       verified: !!doc.markdown_verified,
       quality: doc.markdown_quality,
     };
@@ -4857,7 +4942,7 @@
     const reext = doc.markdown_reextracted_at
       ? `<span class="pill warn" title="re-extracted ${escapeHtml(doc.markdown_reextracted_at)}">re-extracted</span>`
       : '';
-    el.innerHTML = `${type} ${healthPill(row)} ${mdStatusPill(row)} ${reext} ${props} ${chars}`;
+    el.innerHTML = `${type} ${healthPill(row)} ${parseQualityPill(row)} ${mdStatusPill(row)} ${reext} ${props} ${chars}`;
   }
 
   // After any mutation, refresh ann.doc.markdown via a fresh GET so the
