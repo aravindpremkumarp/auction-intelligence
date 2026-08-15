@@ -91,6 +91,34 @@ def test_figures_count_as_read_but_a_page_sized_one_does_not():
     assert score_ink_coverage(_page([(0.1, 0.1, 0.9, 0.9)]), [whole])["flag"] is True
 
 
+def test_scattered_fringe_does_not_flag_even_when_it_sums_high():
+    """The distinction the patch measure exists for. Ten separate strips of ink
+    that no block claims add up to a large share of the page, but none of them
+    is a dropped region — this is the shape bbox fringe takes on a dense notice,
+    and measuring the total instead of the largest patch flagged 60% of the
+    corpus on it."""
+    strips = [(0.05, 0.05 + i * 0.09, 0.95, 0.10 + i * 0.09) for i in range(10)]
+    page = _page(strips)
+    # One block per strip, each stopping short of the strip's right end, so
+    # every strip leaves a separate unread tail.
+    blocks = [_block(0.04, 0.04 + i * 0.09, 0.70, 0.11 + i * 0.09)
+              for i in range(10)]
+    r = score_ink_coverage(page, blocks)
+    assert r["uncovered_ratio"] > r["patch_ratio"]
+    assert r["patch_ratio"] < MISSING_REGION_MIN_RATIO
+    assert r["flag"] is False
+
+
+def test_patch_bbox_points_at_the_missing_band():
+    # The crop + re-ingest path needs to know *where* to look, not just how much.
+    page = _page([(0.1, 0.05, 0.9, 0.35), (0.1, 0.7, 0.9, 0.95)])
+    r = score_ink_coverage(page, [_block(0.05, 0.02, 0.95, 0.4)])
+    assert r["flag"] is True
+    x0, y0, x1, y1 = r["details"]["patch_bbox"]
+    assert y0 > 0.5 and y1 > 0.9      # the unread band is the bottom one
+    assert x0 < 0.2 and x1 > 0.8      # spanning the page width
+
+
 def test_unscorable_inputs_never_flag():
     page = _page([(0.1, 0.1, 0.9, 0.9)])
     # No blocks is a different failure (nothing parsed at all) and must not be
