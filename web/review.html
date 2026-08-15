@@ -1382,8 +1382,16 @@
       : (score >= 80 ? 'good' : (score >= 50 ? 'warn' : 'danger'));
     const hasFlags = Array.isArray(flags) && flags.length > 0;
     const suffix = hasFlags ? ` · ${flags.join(' + ')}` : '';
+    // `missing-region` is the one flag whose severity varies wildly — 16% of a
+    // page unread is a clipped footer, 38% is a whole dropped column — so the
+    // measured share goes in the tooltip rather than leaving the reviewer to
+    // open the notice to find out.
+    const unread = (hasFlags && flags.includes('missing-region')
+                    && row.ink_uncovered_ratio != null)
+      ? ` (${Math.round(row.ink_uncovered_ratio * 100)}% of the page's ink was never read)`
+      : '';
     const title = hasFlags
-      ? `OCR failure artifacts: ${flags.join(', ')} — consider a crop + re-ingest`
+      ? `OCR failure artifacts: ${flags.join(', ')}${unread} — consider a crop + re-ingest`
       : 'no OCR failure artifacts detected';
     return `<span class="pill ${cls}" title="${escapeHtml(title)}">health ${score ?? '?'}${escapeHtml(suffix)}</span>`;
   }
@@ -4935,6 +4943,7 @@
       ocr_health_score: doc.ocr_health_score,
       ocr_health_flags: doc.ocr_health_flags,
       parse_quality_score: doc.parse_quality_score,
+      ink_uncovered_ratio: doc.ink_uncovered_ratio,
       verified: !!doc.markdown_verified,
       quality: doc.markdown_quality,
     };

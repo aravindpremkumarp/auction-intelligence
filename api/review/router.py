@@ -209,6 +209,10 @@ class MarkdownRow(BaseModel):
     # we got, so it cannot see dropped content; this is the engine's own read of
     # the page. NULL on MinerU docs and on anything not yet re-parsed.
     parse_quality_score: float | None = None
+    # Share of the page's ink no block covered (pipeline/ink_coverage.py). Set
+    # alongside the `missing-region` flag; carried here so the health pill can
+    # say *how much* was dropped, not just that something was.
+    ink_uncovered_ratio: float | None = None
     quality: Literal["good", "bad"] | None = None
     verified: bool = False
     verified_at: str | None = None
@@ -346,6 +350,7 @@ class BlocksDoc(BaseModel):
     ocr_health_score: int | None = None
     ocr_health_flags: list[str] | None = None
     parse_quality_score: float | None = None
+    ink_uncovered_ratio: float | None = None
     markdown_quality: Literal["good", "bad"] | None = None
     markdown_verified: bool = False
     markdown_reextracted_at: str | None = None
@@ -848,6 +853,7 @@ def _ok_doc(doc: dict) -> BlocksDoc:
         ocr_health_score=_opt_int(doc.get("ocr_health_score")),
         ocr_health_flags=[str(f) for f in flags] if isinstance(flags, list) else None,
         parse_quality_score=_opt_float(doc.get("parse_quality_score")),
+        ink_uncovered_ratio=_opt_float(doc.get("ink_uncovered_ratio")),
         markdown_quality=quality,
         markdown_verified=bool(doc.get("markdown_verified")),
         markdown_reextracted_at=doc.get("markdown_reextracted_at"),

@@ -892,6 +892,7 @@ def list_markdown_queue(
                d.ocr_health_score               AS ocr_health_score,
                d.ocr_health_flags               AS ocr_health_flags,
                d.parse_quality_score            AS parse_quality_score,
+               d.ink_uncovered_ratio            AS ink_uncovered_ratio,
                d.markdown_quality               AS quality,
                (d.markdown_verified_at IS NOT NULL) AS verified,
                toString(d.markdown_verified_at) AS verified_at,

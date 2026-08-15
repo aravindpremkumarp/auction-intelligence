@@ -160,6 +160,19 @@ def test_markdown_row_models_expose_parse_quality() -> None:
             "parse_quality_score"] == 3.5
 
 
+def test_row_models_expose_ink_uncovered_ratio() -> None:
+    # Feeds the health pill's "N% of the page's ink was never read" tooltip;
+    # undeclared here it would be stripped and the pill could only say that
+    # something was dropped, not how much.
+    from api.review.router import BlocksDoc, MarkdownRow
+    for model, kwargs in ((MarkdownRow, {"filename": "n.jpg"}),
+                          (BlocksDoc, {"filename": "n.jpg"})):
+        assert "ink_uncovered_ratio" in model.model_fields, model.__name__
+        assert model(**kwargs).model_dump()["ink_uncovered_ratio"] is None
+        assert model(**kwargs, ink_uncovered_ratio=0.3834).model_dump()[
+            "ink_uncovered_ratio"] == 0.3834
+
+
 def test_bulk_confirm_carries_parse_quality_bounds(monkeypatch, client) -> None:
     # The button is labelled with the parse-quality-filtered queue's count, so
     # the bounds must reach auto_confirm_markdown — otherwise bulk-confirm
