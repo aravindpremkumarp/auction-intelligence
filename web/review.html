@@ -2182,11 +2182,18 @@
       dry_run: false,
     };
     // Classification has no score; markdown and extraction both band 0-100.
+    // The markdown stage also carries the 0-5 parse-quality bounds — the button
+    // says "Confirm all N in range", where N came from the parse-quality-filtered
+    // queue, so omitting them here would confirm notices the reviewer never saw.
     const body = stage === 'classification'
       ? { ...commonFilters }
       : {
           score_min: queueState.scoreFrom,
           score_max: queueState.scoreTo,
+          ...(stage === 'markdown' ? {
+            pq_min: queueState.pqFrom,
+            pq_max: queueState.pqTo,
+          } : {}),
           ...commonFilters,
         };
     let result = null;

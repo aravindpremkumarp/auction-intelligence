@@ -244,6 +244,11 @@ class VerifyMarkdownBody(BaseModel):
 class MarkdownBulkConfirmBody(BaseModel):
     score_min: float = Field(ge=0.0, le=100.0)
     score_max: float = Field(default=100.0, ge=0.0, le=100.0)
+    # Must mirror the queue's parse-quality filter: the button is labelled with
+    # the filtered queue's count, so dropping these bounds here would verify
+    # documents the reviewer never saw.
+    pq_min: float | None = Field(default=None, ge=0.0, le=5.0)
+    pq_max: float | None = Field(default=None, ge=0.0, le=5.0)
     notice_type: Literal["all", "single", "multi", "unclassified"] = "all"
     date_from: str | None = Field(default=None, max_length=20)
     date_to:   str | None = Field(default=None, max_length=20)
@@ -729,6 +734,8 @@ def review_markdown_bulk_confirm(
     result = q.auto_confirm_markdown(
         score_min=body.score_min,
         score_max=body.score_max,
+        pq_min=body.pq_min,
+        pq_max=body.pq_max,
         notice_type=body.notice_type if body.notice_type != "all" else None,
         date_from=body.date_from,
         date_to=body.date_to,

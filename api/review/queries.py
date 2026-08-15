@@ -1068,11 +1068,15 @@ def auto_confirm_markdown(
     date_from: str | None = None,
     date_to: str | None = None,
     q: str | None = None,
+    pq_min: float | None = None,
+    pq_max: float | None = None,
 ) -> dict:
     """Bulk-verify (quality='good') every pending Document that matches the
-    reviewer's current queue filter (score range, notice_type, date window,
-    filename search). Mirrors `list_markdown_queue` via the shared
-    `_markdown_where` helper so the count and the action stay aligned.
+    reviewer's current queue filter (score range, parse-quality range,
+    notice_type, date window, filename search). Mirrors `list_markdown_queue`
+    via the shared `_markdown_where` helper so the count and the action stay
+    aligned — the parse-quality bounds MUST be threaded through here too, or
+    the button confirms a wider set than the queue it is labelled with.
 
     Returns ``{"count": N, "dry_run": bool}``.
     """
@@ -1084,6 +1088,8 @@ def auto_confirm_markdown(
         date_from=date_from,
         date_to=date_to,
         q=q,
+        pq_min=pq_min,
+        pq_max=pq_max,
     )
     params["by"] = by_email
     params["notes"] = notes

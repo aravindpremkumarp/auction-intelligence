@@ -160,6 +160,31 @@ def test_markdown_row_models_expose_parse_quality() -> None:
             "parse_quality_score"] == 3.5
 
 
+def test_bulk_confirm_carries_parse_quality_bounds(monkeypatch, client) -> None:
+    # The button is labelled with the parse-quality-filtered queue's count, so
+    # the bounds must reach auto_confirm_markdown — otherwise bulk-confirm
+    # verifies documents the reviewer never saw.
+    _ensure_admin_user()
+    import api.review.queries as queries
+
+    seen: dict = {}
+
+    def fake_auto_confirm(**kwargs):
+        seen.update(kwargs)
+        return {"count": 0, "dry_run": True}
+
+    monkeypatch.setattr(queries, "auto_confirm_markdown", fake_auto_confirm)
+    r = client.post(
+        "/review/markdown/bulk-confirm",
+        json={"score_min": 0, "score_max": 100, "pq_min": 2, "pq_max": 4,
+              "dry_run": True},
+        headers=_admin_header(),
+    )
+    assert r.status_code == 200, r.text
+    assert seen["pq_min"] == 2.0
+    assert seen["pq_max"] == 4.0
+
+
 def test_parse_quality_where_requires_a_stored_score() -> None:
     # An unscored Document means "never measured", not "fine" — it must drop out
     # of the queue once the reviewer sets either bound.
