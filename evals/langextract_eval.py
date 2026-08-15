@@ -114,7 +114,11 @@ def flatten_records(records: list[dict]) -> dict:
     out["reserve_set"] = {float(t["reserve_price_num"]) for t in terms
                           if t.get("reserve_price_num")}
     out["emd_set"] = {float(t["emd_num"]) for t in terms if t.get("emd_num")}
-    b1 = sorted(borrowers, key=lambda x: (x[0] or "1"))
+    # lot_index arrives as whatever the model emitted — "2" from one call, 2 from
+    # the next — and sorting a mixed list raises TypeError, killing the whole eval
+    # run over one numeric attribute. Coerce before comparing (group_by_lot below
+    # already does the same).
+    b1 = sorted(borrowers, key=lambda x: str(x[0] if x[0] is not None else "1"))
     out["borrower_primary"] = b1[0][1] if b1 else None
     return out
 
