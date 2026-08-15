@@ -706,6 +706,19 @@ def _parse_quality_where(pq_min: float | None,
     return where, params
 
 
+def _health_flags_where(flags: list[str] | None) -> tuple[list[str], dict]:
+    """WHERE fragment matching Documents carrying ANY of ``flags``.
+
+    OR, not AND: the reviewer picking `missing-region` + `repetition` wants the
+    queue of everything broken in either way, not the rare doc broken in both.
+    An empty/None list is no filter at all.
+    """
+    if not flags:
+        return [], {}
+    return (["any(f IN coalesce(d.ocr_health_flags, []) WHERE f IN $health_flags)"],
+            {"health_flags": list(flags)})
+
+
 def _markdown_where(
     status: MarkdownStatus,
     score_min: float | None,
@@ -716,6 +729,7 @@ def _markdown_where(
     q: str | None = None,
     pq_min: float | None = None,
     pq_max: float | None = None,
+    flags: list[str] | None = None,
 ) -> tuple[list[str], dict]:
     where = ["d.markdown IS NOT NULL", "d.markdown <> ''"]
     params: dict = {}
@@ -742,6 +756,9 @@ def _markdown_where(
     pq_where, pq_params = _parse_quality_where(pq_min, pq_max)
     where.extend(pq_where)
     params.update(pq_params)
+    fl_where, fl_params = _health_flags_where(flags)
+    where.extend(fl_where)
+    params.update(fl_params)
     clause = _notice_type_clause(notice_type, alias="d")
     if clause:
         where.append(clause)
@@ -850,6 +867,7 @@ def list_markdown_queue(
     date_to: str | None = None,
     pq_min: float | None = None,
     pq_max: float | None = None,
+    flags: list[str] | None = None,
 ) -> dict:
     """Return a page of Documents for markdown-quality review.
 
@@ -868,7 +886,7 @@ def list_markdown_queue(
     where, params = _markdown_where(
         status, score_min, score_max, notice_type,
         date_from=date_from, date_to=date_to, q=q,
-        pq_min=pq_min, pq_max=pq_max,
+        pq_min=pq_min, pq_max=pq_max, flags=flags,
     )
     params.update({"skip": skip, "size": size})
     where_clause = " AND ".join(where)
@@ -930,6 +948,7 @@ def list_markdown_queue_by_property(
     date_to: str | None = None,
     pq_min: float | None = None,
     pq_max: float | None = None,
+    flags: list[str] | None = None,
 ) -> dict:
     """One row per AuctionProperty projected with its Document's
     markdown-quality status."""
@@ -963,6 +982,10 @@ def list_markdown_queue_by_property(
     pq_where, pq_params = _parse_quality_where(pq_min, pq_max)
     where.extend(pq_where)
     params.update(pq_params)
+
+    fl_where, fl_params = _health_flags_where(flags)
+    where.extend(fl_where)
+    params.update(fl_params)
 
     nt_clause = _notice_type_clause(notice_type, alias="d")
     if nt_clause:
@@ -1071,10 +1094,11 @@ def auto_confirm_markdown(
     q: str | None = None,
     pq_min: float | None = None,
     pq_max: float | None = None,
+    flags: list[str] | None = None,
 ) -> dict:
     """Bulk-verify (quality='good') every pending Document that matches the
-    reviewer's current queue filter (score range, parse-quality range,
-    notice_type, date window, filename search). Mirrors `list_markdown_queue`
+    reviewer's current queue filter (score range, parse-quality range, health
+    flags, notice_type, date window, filename search). Mirrors `list_markdown_queue`
     via the shared `_markdown_where` helper so the count and the action stay
     aligned — the parse-quality bounds MUST be threaded through here too, or
     the button confirms a wider set than the queue it is labelled with.
@@ -1091,6 +1115,7 @@ def auto_confirm_markdown(
         q=q,
         pq_min=pq_min,
         pq_max=pq_max,
+        flags=flags,
     )
     params["by"] = by_email
     params["notes"] = notes

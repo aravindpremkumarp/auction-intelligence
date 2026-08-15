@@ -137,6 +137,14 @@ PENALTY = {"repetition": 0, "token-leak": 40, "truncated": 30,
            # above table-collapse, which at least keeps the text.
            "missing-region": 45}  # repetition scaled
 
+# The canonical failure vocabulary, in severity order. The review API validates
+# its flag filter against this, so a renamed or added flag reaches the UI by
+# changing this module alone — no second list to drift out of sync.
+HEALTH_FLAGS: tuple[str, ...] = (
+    "missing-region", "table-collapse", "truncated",
+    "repetition", "token-leak", "foreign-script",
+)
+
 
 def _norm_line(line: str) -> str:
     return re.sub(r"\s+", " ", line).strip().lower()

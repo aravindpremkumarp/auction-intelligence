@@ -17,6 +17,7 @@ from api.auth.schemas import UserOut
 from api.neo4j_client import run_read_query
 from api.review import blocks as block_ops
 from api.review import queries as q
+from pipeline.ocr_health import HEALTH_FLAGS
 
 
 router = APIRouter(prefix="/review", tags=["review"])
@@ -253,6 +254,9 @@ class MarkdownBulkConfirmBody(BaseModel):
     # documents the reviewer never saw.
     pq_min: float | None = Field(default=None, ge=0.0, le=5.0)
     pq_max: float | None = Field(default=None, ge=0.0, le=5.0)
+    # Same reasoning as the bounds above: the flag filter narrows the queue the
+    # count is taken from, so it has to narrow the action too.
+    flags: list[str] | None = Field(default=None)
     notice_type: Literal["all", "single", "multi", "unclassified"] = "all"
     date_from: str | None = Field(default=None, max_length=20)
     date_to:   str | None = Field(default=None, max_length=20)
@@ -680,6 +684,9 @@ def review_markdown_queue(
     # Datalab parse quality is a 0–5 scale, not 0–100 like OCR health.
     pq_min: float | None = Query(default=None, ge=0.0, le=5.0),
     pq_max: float | None = Query(default=None, ge=0.0, le=5.0),
+    # Repeatable: ?flags=missing-region&flags=repetition — matches docs carrying
+    # ANY of them, so a reviewer can work one failure mode at a time.
+    flags: list[str] | None = Query(default=None),
     notice_type: Literal["all", "single", "multi", "unclassified"] = Query(default="all"),
     date_from: str | None = Query(default=None, max_length=20),
     date_to: str | None = Query(default=None, max_length=20),
@@ -688,7 +695,7 @@ def review_markdown_queue(
     result = q.list_markdown_queue(
         status=status, q=q_search, page=page, size=size,
         score_min=score_min, score_max=score_max,
-        pq_min=pq_min, pq_max=pq_max,
+        pq_min=pq_min, pq_max=pq_max, flags=_clean_health_flags(flags),
         notice_type=notice_type if notice_type != "all" else None,
         date_from=date_from, date_to=date_to,
     )
@@ -712,6 +719,7 @@ def review_markdown_by_property(
     score_max: float | None = Query(default=None, ge=0.0, le=100.0),
     pq_min: float | None = Query(default=None, ge=0.0, le=5.0),
     pq_max: float | None = Query(default=None, ge=0.0, le=5.0),
+    flags: list[str] | None = Query(default=None),
     notice_type: Literal["all", "single", "multi", "unclassified"] = Query(default="all"),
     date_from: str | None = Query(default=None, max_length=20),
     date_to: str | None = Query(default=None, max_length=20),
@@ -720,7 +728,7 @@ def review_markdown_by_property(
     result = q.list_markdown_queue_by_property(
         status=status, q=q_search, page=page, size=size,
         score_min=score_min, score_max=score_max,
-        pq_min=pq_min, pq_max=pq_max,
+        pq_min=pq_min, pq_max=pq_max, flags=_clean_health_flags(flags),
         notice_type=notice_type if notice_type != "all" else None,
         date_from=date_from, date_to=date_to,
     )
@@ -741,6 +749,7 @@ def review_markdown_bulk_confirm(
         score_max=body.score_max,
         pq_min=body.pq_min,
         pq_max=body.pq_max,
+        flags=_clean_health_flags(body.flags),
         notice_type=body.notice_type if body.notice_type != "all" else None,
         date_from=body.date_from,
         date_to=body.date_to,
@@ -799,6 +808,25 @@ def _opt_int(v) -> int | None:
         return int(v)
     except (TypeError, ValueError):
         return None
+
+
+def _clean_health_flags(flags: list[str] | None) -> list[str] | None:
+    """Keep only flags pipeline/ocr_health.py actually emits.
+
+    An unknown value would silently match nothing and hand the reviewer an
+    empty queue that looks like "no failures of this kind" — so it is a 422,
+    not a silent no-op.
+    """
+    if not flags:
+        return None
+    unknown = sorted({f for f in flags if f not in HEALTH_FLAGS})
+    if unknown:
+        raise HTTPException(
+            status_code=422,
+            detail=f"unknown health flag(s): {', '.join(unknown)}; "
+                   f"expected any of: {', '.join(HEALTH_FLAGS)}")
+    # De-duplicate, preserving the canonical severity order.
+    return [f for f in HEALTH_FLAGS if f in set(flags)]
 
 
 def _opt_float(v) -> float | None:

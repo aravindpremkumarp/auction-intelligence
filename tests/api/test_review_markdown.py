@@ -198,6 +198,64 @@ def test_bulk_confirm_carries_parse_quality_bounds(monkeypatch, client) -> None:
     assert seen["pq_max"] == 4.0
 
 
+def test_markdown_accepts_health_flag_filter(client) -> None:
+    _ensure_admin_user()
+    for path in ("/review/markdown", "/review/markdown/by-property"):
+        r = client.get(f"{path}?flags=missing-region&flags=repetition",
+                       headers=_admin_header())
+        assert r.status_code == 200, f"{path} rejected flags: {r.text}"
+
+
+def test_markdown_rejects_unknown_health_flag(client) -> None:
+    # A typo'd flag would match nothing and read as "no failures of this kind",
+    # which is worse than an error.
+    _ensure_admin_user()
+    r = client.get("/review/markdown?flags=missing-regions", headers=_admin_header())
+    assert r.status_code == 422
+    assert "missing-regions" in r.text
+
+
+def test_clean_health_flags_dedupes_into_severity_order() -> None:
+    from api.review.router import _clean_health_flags
+    from pipeline.ocr_health import HEALTH_FLAGS
+
+    assert _clean_health_flags(None) is None
+    assert _clean_health_flags([]) is None
+    assert _clean_health_flags(["repetition", "missing-region", "repetition"]) == [
+        "missing-region", "repetition"]
+    # Every emitted flag must be selectable, or a failure mode becomes invisible.
+    assert _clean_health_flags(list(HEALTH_FLAGS)) == list(HEALTH_FLAGS)
+
+
+def test_health_flags_where_matches_any_selected_flag() -> None:
+    from api.review.queries import _health_flags_where
+    where, params = _health_flags_where(None)
+    assert where == [] and params == {}
+    where, params = _health_flags_where(["missing-region", "repetition"])
+    assert where == [
+        "any(f IN coalesce(d.ocr_health_flags, []) WHERE f IN $health_flags)"]
+    assert params == {"health_flags": ["missing-region", "repetition"]}
+
+
+def test_bulk_confirm_carries_health_flags(monkeypatch, client) -> None:
+    # Same alignment rule as the score bounds: the button's count comes from the
+    # flag-filtered queue, so the action must be flag-filtered too.
+    _ensure_admin_user()
+    import api.review.queries as queries
+
+    seen: dict = {}
+    monkeypatch.setattr(queries, "auto_confirm_markdown",
+                        lambda **kw: (seen.update(kw), {"count": 0, "dry_run": True})[1])
+    r = client.post(
+        "/review/markdown/bulk-confirm",
+        json={"score_min": 0, "score_max": 100,
+              "flags": ["missing-region"], "dry_run": True},
+        headers=_admin_header(),
+    )
+    assert r.status_code == 200, r.text
+    assert seen["flags"] == ["missing-region"]
+
+
 def test_parse_quality_where_requires_a_stored_score() -> None:
     # An unscored Document means "never measured", not "fine" — it must drop out
     # of the queue once the reviewer sets either bound.

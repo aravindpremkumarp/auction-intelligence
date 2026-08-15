@@ -564,6 +564,27 @@
         <button id="pq-clear" class="ghost" title="remove the parse-quality filter">clear</button>
         <span class="meta fhint" id="pq-hint"></span>
       </span>
+      <!-- Work one failure mode at a time: every notice carrying any selected
+           flag (OR, not AND). Order matches pipeline/ocr_health.HEALTH_FLAGS. -->
+      <span class="fgroup hidden" id="flag-bar">
+        <span class="fsep">·</span>
+        <span class="flabel">Failures:</span>
+        <span class="group-toggle" id="flag-tabs">
+          <button class="pill" data-flag="missing-region"
+                  title="ink on the page that no parsed block covers — content we never read">missing region</button>
+          <button class="pill" data-flag="table-collapse"
+                  title="the whole notice read as one giant table">table collapse</button>
+          <button class="pill" data-flag="truncated"
+                  title="generation stopped mid-structure">truncated</button>
+          <button class="pill" data-flag="repetition"
+                  title="the same line or phrase emitted over and over">repetition</button>
+          <button class="pill" data-flag="token-leak"
+                  title="raw model control tokens leaked into the text">token leak</button>
+          <button class="pill" data-flag="foreign-script"
+                  title="hallucinated CJK/Cyrillic/etc. in a Tamil Nadu notice">foreign script</button>
+        </span>
+        <button id="flag-clear" class="ghost" title="show all notices again">clear</button>
+      </span>
     </div>
     <div id="queue-by-classification" class="notice-list"></div>
     <div id="queue-by-classification-gallery" class="gallery-grid hidden"></div>
@@ -843,6 +864,8 @@
     if (queueState.stage === 'markdown') {
       if (queueState.pqFrom != null) params.set('pq_min', String(queueState.pqFrom));
       if (queueState.pqTo   != null) params.set('pq_max', String(queueState.pqTo));
+      // Repeated key, one per flag — FastAPI reads these as a list.
+      for (const f of (queueState.flags || [])) params.append('flags', f);
     }
   }
 
@@ -885,6 +908,7 @@
       const pt = parseFloat(p.get('pq_to'));
       queueState.pqFrom = isNaN(pf) ? null : pf;
       queueState.pqTo   = isNaN(pt) ? null : pt;
+      queueState.flags = (p.get('flags') || '').split(',').filter(Boolean);
     }
     return { screen: 'queue' };
   }
@@ -912,6 +936,8 @@
     if (queueState.scoreTo   !== 100) p.set('score_to',   String(queueState.scoreTo));
     if (queueState.pqFrom != null) p.set('pq_from', String(queueState.pqFrom));
     if (queueState.pqTo   != null) p.set('pq_to',   String(queueState.pqTo));
+    // Comma-joined in the hash (one readable key) but repeated on the wire.
+    if ((queueState.flags || []).length) p.set('flags', queueState.flags.join(','));
     return p.toString();
   }
 
@@ -991,6 +1017,8 @@
     // Datalab parse quality, 0–5. null = unset, and unset means "no filter" —
     // unlike the 0–100 health range, a 0 bound here is a real (worst) value.
     pqFrom: null, pqTo: null,
+    // Selected ocr_health failure flags; empty = no filter, multiple = OR.
+    flags: [],
     page: 1,
   };
   // Per-stage default sub-group (remembers reviewer's last choice in localStorage).
@@ -1022,6 +1050,10 @@
     $$('button.pill[data-cview]').forEach(b => {
       b.classList.toggle('on', b.getAttribute('data-cview') === queueState.cview);
     });
+    // Multi-select, unlike the toggles above: any number of flags can be on.
+    $$('button.pill[data-flag]').forEach(b => {
+      b.classList.toggle('on', queueState.flags.includes(b.getAttribute('data-flag')));
+    });
 
     const isClass = queueState.stage === 'classification';
     const isMd = queueState.stage === 'markdown';
@@ -1051,8 +1083,9 @@
     // The score row applies to markdown (OCR health) and extraction (the
     // validators.py quality score); classification has no score.
     $('score-bar').classList.toggle('hidden', isClass);
-    // Parse quality only exists for the markdown stage (it scores the page read).
+    // Parse quality and the OCR failure flags are markdown-stage signals.
     $('pq-bar').classList.toggle('hidden', !isMd);
+    $('flag-bar').classList.toggle('hidden', !isMd);
     // Bulk-confirm is available in every stage. On extraction it pairs with the
     // score filter: confirm the high-scoring tail in one action, spend the time
     // on the low scores.
@@ -2161,6 +2194,25 @@
     });
   });
 
+  // Flags toggle independently — clicking a second one widens the queue to
+  // "either failure" rather than replacing the first.
+  $$('button.pill[data-flag]').forEach(b => {
+    b.addEventListener('click', () => {
+      const f = b.getAttribute('data-flag');
+      queueState.flags = queueState.flags.includes(f)
+        ? queueState.flags.filter(x => x !== f)
+        : [...queueState.flags, f];
+      writeHash();
+      loadStats(); loadQueue();
+    });
+  });
+  $('flag-clear').addEventListener('click', () => {
+    if (!queueState.flags.length) return;
+    queueState.flags = [];
+    writeHash();
+    loadStats(); loadQueue();
+  });
+
   $$('button.pill[data-cview]').forEach(b => {
     b.addEventListener('click', () => {
       const next = b.getAttribute('data-cview');
@@ -2201,6 +2253,7 @@
           ...(stage === 'markdown' ? {
             pq_min: queueState.pqFrom,
             pq_max: queueState.pqTo,
+            flags: queueState.flags.length ? queueState.flags : null,
           } : {}),
           ...commonFilters,
         };
