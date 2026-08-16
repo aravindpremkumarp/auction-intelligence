@@ -1149,3 +1149,97 @@ def auto_confirm_markdown(
         params,
     )
     return {"count": int(rows[0]["n"]) if rows else 0, "dry_run": False}
+
+
+# ── Pipeline overview ───────────────────────────────────────────────────────
+
+# The workflow a notice moves through, in order. Each entry is the Cypher
+# predicate for clearing that stage, and counts are CUMULATIVE — a document
+# counts at stage N only if it also cleared 1..N-1. Without that, the numbers
+# are not a funnel: extraction has run on notices nobody verified, so a naive
+# per-stage count shows more documents extracted (1,553) than verified (1,489)
+# and every "drop" between stages becomes meaningless.
+#
+# Block layer and coverage are deliberately absent: they are measurements taken
+# alongside the workflow, not steps in it, and they surface under "attention".
+PIPELINE_STAGES: list[tuple[str, str, str]] = [
+    ("ingested",   "Ingested",            "true"),
+    ("ocr",        "OCR'd",               "d.markdown IS NOT NULL AND d.markdown <> ''"),
+    ("classified", "Type confirmed",      "d.notice_type_verified_at IS NOT NULL"),
+    ("md_ok",      "Markdown verified",   "d.markdown_verified_at IS NOT NULL"),
+    ("extracted",  "Extracted",           "d.extraction_json IS NOT NULL"),
+    ("extract_ok", "Extraction verified",
+     "coalesce(d.extraction_review_status,'pending') = 'verified'"),
+]
+
+
+def _stage_counts(scope_match: str, scope_where: str, params: dict) -> list[dict]:
+    """Count Documents clearing each stage AND all stages before it."""
+    parts = []
+    for i, (key, _label, _pred) in enumerate(PIPELINE_STAGES):
+        chain = " AND ".join(f"({p})" for _k, _l, p in PIPELINE_STAGES[: i + 1])
+        parts.append(f"sum(CASE WHEN {chain} THEN 1 ELSE 0 END) AS {key}")
+    rows = run_read_query(
+        f"{scope_match} {scope_where} WITH DISTINCT d RETURN {', '.join(parts)}",
+        params, max_rows=1, timeout=30.0)
+    r = rows[0] if rows else {}
+    return [{"key": key, "label": label, "count": int(r.get(key) or 0)}
+            for key, label, _pred in PIPELINE_STAGES]
+
+
+def pipeline_overview() -> dict:
+    """Corpus-wide funnel plus the same funnel for upcoming auctions only.
+
+    Two scopes because they answer different questions: the whole corpus says
+    where the pipeline leaks, while the upcoming slice says what is at risk for
+    an auction that has not happened yet — the only backlog with a deadline.
+    """
+    all_stages = _stage_counts("MATCH (d:Document)", "", {})
+    upcoming = _stage_counts(
+        "MATCH (a:AuctionProperty)-[:HAS_DOCUMENT]->(d:Document)",
+        "WHERE a.auction_start_dt >= datetime()", {})
+
+    flag_rows = run_read_query(
+        """
+        MATCH (d:Document)
+        WHERE size(coalesce(d.ocr_health_flags, [])) > 0
+        UNWIND d.ocr_health_flags AS f
+        WITH f, count(*) AS n
+        OPTIONAL MATCH (a:AuctionProperty)-[:HAS_DOCUMENT]->(d2:Document)
+        WHERE f IN coalesce(d2.ocr_health_flags, [])
+          AND a.auction_start_dt >= datetime()
+        RETURN f AS flag, n AS total, count(DISTINCT d2) AS upcoming
+        ORDER BY n DESC
+        """,
+        max_rows=20, timeout=30.0)
+
+    extra_rows = run_read_query(
+        """
+        MATCH (d:Document)
+        WITH d, (d.markdown IS NOT NULL AND d.markdown <> '') AS has_md
+        RETURN sum(CASE WHEN coalesce(d.extraction_review_status,'') = 'pending'
+                         AND d.extraction_json IS NOT NULL THEN 1 ELSE 0 END)
+                   AS extraction_pending,
+               sum(CASE WHEN d.extraction_stale_at IS NOT NULL THEN 1 ELSE 0 END)
+                   AS extraction_stale,
+               sum(CASE WHEN has_md AND d.ink_uncovered_ratio IS NULL
+                        THEN 1 ELSE 0 END) AS unmeasured,
+               sum(CASE WHEN has_md AND (d.blocks IS NULL OR d.blocks = '')
+                        THEN 1 ELSE 0 END) AS no_blocks,
+               sum(CASE WHEN d.parse_quality_score IS NOT NULL THEN 1 ELSE 0 END)
+                   AS parse_quality_scored
+        """,
+        max_rows=1, timeout=30.0)
+    extra = extra_rows[0] if extra_rows else {}
+
+    return {
+        "stages": all_stages,
+        "upcoming_stages": upcoming,
+        "flags": [{"flag": r["flag"], "total": int(r["total"] or 0),
+                   "upcoming": int(r["upcoming"] or 0)} for r in flag_rows],
+        "extraction_pending": int(extra.get("extraction_pending") or 0),
+        "extraction_stale": int(extra.get("extraction_stale") or 0),
+        "unmeasured": int(extra.get("unmeasured") or 0),
+        "no_blocks": int(extra.get("no_blocks") or 0),
+        "parse_quality_scored": int(extra.get("parse_quality_scored") or 0),
+    }

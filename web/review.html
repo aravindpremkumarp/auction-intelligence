@@ -49,6 +49,33 @@
   h1 { margin-bottom: 6px; }
   .wrap > .actions:not(.filters) { margin-bottom: 8px; }
   #msg:empty { display: none; }
+  /* Pipeline overview. A funnel is a comparison, so every bar shares one
+     baseline (the widest stage) and carries its own count — no colour coding
+     beyond "this stage is where work stops". */
+  .ov-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
+  .ov-panel { border: 1.5px solid var(--ink); background: #fff; padding: 12px 14px; }
+  .ov-head { display: flex; justify-content: space-between; align-items: baseline;
+             gap: 10px; font-weight: 600; font-size: 13px; text-transform: uppercase;
+             letter-spacing: .06em; border-bottom: 1px solid var(--ink);
+             padding-bottom: 6px; margin-bottom: 10px; }
+  .ov-head span { font-weight: 400; font-size: 11px; letter-spacing: 0; text-transform: none; }
+  .ov-row { display: grid; grid-template-columns: 150px 1fr 92px; gap: 10px;
+            align-items: center; padding: 4px 0; }
+  .ov-row .ov-label { font-size: 13px; }
+  .ov-track { background: #f0efe9; height: 16px; position: relative; }
+  .ov-bar { background: var(--accent); height: 100%; }
+  .ov-bar.drop { background: #e8b4ae; }
+  .ov-num { font-family: 'IBM Plex Mono', monospace; font-size: 12px; text-align: right;
+            font-variant-numeric: tabular-nums; }
+  .ov-num small { color: var(--muted); }
+  .ov-callout { border: 1.5px solid var(--ink); border-left-width: 6px; background: #fff;
+                padding: 10px 14px; margin-bottom: 16px; font-size: 14px; }
+  .ov-callout b { font-family: 'IBM Plex Mono', monospace; }
+  .ov-line { display: flex; justify-content: space-between; align-items: center;
+             gap: 12px; padding: 6px 0; border-bottom: 1px solid #eee; font-size: 13px; }
+  .ov-line:last-child { border-bottom: none; }
+  .ov-line a { color: var(--ink); }
+  .ov-line .ov-num { min-width: 120px; }
   .pill { display: inline-block; padding: 1px 6px; border: 1px solid var(--ink); font-size: 11px; font-family: 'IBM Plex Mono', monospace; }
   .pill.on { background: var(--accent); font-weight: 600; }
   .pill.off { background: #eee; color: var(--muted); }
@@ -467,12 +494,44 @@
   <h1><em>Review</em> · enrichment</h1>
   <div class="actions">
     <a class="link" href="/">← Back to app</a>
+    <a class="link" href="#overview" id="overview-link">Pipeline</a>
     <a class="link" href="/admin">Admin</a>
     <a class="link" href="/social">Social</a>
     <span style="flex:1"></span>
     <span class="stats" id="stats"></span>
   </div>
   <div id="msg"></div>
+
+  <!-- Pipeline overview: where the corpus is stuck. Read-only, and every row
+       links into the queue already filtered to the work it names, so the
+       dashboard is a way in rather than a separate reporting surface. -->
+  <section id="screen-overview" class="hidden">
+    <div class="actions">
+      <h2 style="margin:0; font-size:1.1rem;">Pipeline</h2>
+      <span class="meta" id="ov-sub" style="color:var(--muted)"></span>
+      <span style="flex:1"></span>
+      <button id="ov-reload" class="ghost">Reload</button>
+    </div>
+    <div id="ov-blockage" class="ov-callout"></div>
+    <div class="ov-grid">
+      <div class="ov-panel">
+        <div class="ov-head">Whole corpus<span id="ov-total"></span></div>
+        <div id="ov-funnel"></div>
+      </div>
+      <div class="ov-panel">
+        <div class="ov-head">Upcoming auctions only<span id="ov-uptotal"></span></div>
+        <div id="ov-funnel-up"></div>
+      </div>
+    </div>
+    <div class="ov-panel" style="margin-top:16px;">
+      <div class="ov-head">OCR failures<span class="meta" style="color:var(--muted)">click to open that queue</span></div>
+      <div id="ov-flags"></div>
+    </div>
+    <div class="ov-panel" style="margin-top:16px;">
+      <div class="ov-head">Attention</div>
+      <div id="ov-attention"></div>
+    </div>
+  </section>
 
   <!-- Queue screen -->
   <section id="screen-queue">
@@ -872,6 +931,7 @@
   // ─── Routing ────────────────────────────────────────────────────────────
   function parseHash() {
     const h = (location.hash || '').replace(/^#/, '');
+    if (h === 'overview') return { screen: 'overview' };
     if (h.startsWith('detail/'))  return { screen: 'detail',   id: decodeURIComponent(h.slice('detail/'.length)) };
     if (h.startsWith('property/')) return { screen: 'detail',  id: decodeURIComponent(h.slice('property/'.length)) };
     if (h.startsWith('notice/'))   return { screen: 'annotator', filename: decodeURIComponent(h.slice('notice/'.length)) };
@@ -942,6 +1002,7 @@
   }
 
   function show(screen) {
+    $('screen-overview').classList.toggle('hidden', screen !== 'overview');
     $('screen-queue').classList.toggle('hidden', screen !== 'queue');
     $('screen-detail').classList.toggle('hidden', screen !== 'detail');
     $('screen-annotator').classList.toggle('hidden', screen !== 'annotator');
@@ -953,7 +1014,9 @@
   async function route() {
     const r = parseHash();
     show(r.screen);
-    if (r.screen === 'queue') {
+    if (r.screen === 'overview') {
+      await loadOverview();
+    } else if (r.screen === 'queue') {
       if (r.gallery) {
         try { localStorage.setItem('cView', 'gallery'); } catch {}
       }
@@ -968,6 +1031,86 @@
   }
 
   window.addEventListener('hashchange', route);
+
+  // ─── Pipeline overview ──────────────────────────────────────────────────
+  // Answers one question: where is the corpus stuck? Each stage counts the
+  // Documents that have cleared it, so the funnel only ever narrows, and the
+  // biggest single drop between consecutive stages is the blockage worth
+  // naming at the top.
+  function ovFunnel(el, stages) {
+    if (!stages.length) { el.innerHTML = ''; return 0; }
+    const top = Math.max(...stages.map(s => s.count), 1);
+    let worst = { drop: -1 };
+    stages.forEach((s, i) => {
+      const prev = i === 0 ? s.count : stages[i - 1].count;
+      const drop = prev - s.count;
+      if (drop > worst.drop) worst = { drop, label: s.label, prev: stages[i - 1], stage: s };
+    });
+    el.innerHTML = stages.map((s, i) => {
+      const prev = i === 0 ? s.count : stages[i - 1].count;
+      const lost = prev - s.count;
+      const pct = Math.round((s.count / top) * 100);
+      const isWorst = i > 0 && lost === worst.drop && lost > 0;
+      return `<div class="ov-row">
+        <span class="ov-label">${escapeHtml(s.label)}</span>
+        <span class="ov-track"><span class="ov-bar${isWorst ? ' drop' : ''}"
+              style="width:${pct}%"></span></span>
+        <span class="ov-num">${s.count.toLocaleString()}${
+          lost > 0 ? `<small> −${lost.toLocaleString()}</small>` : ''}</span>
+      </div>`;
+    }).join('');
+    return worst;
+  }
+
+  async function loadOverview() {
+    const sub = $('ov-sub');
+    sub.textContent = 'loading…';
+    const r = await authFetch(API + '/review/pipeline');
+    if (!r.ok) {
+      sub.textContent = '';
+      $('ov-blockage').textContent = `error ${r.status}`;
+      return;
+    }
+    const d = await r.json();
+    const total = d.stages[0]?.count || 0;
+    const upTotal = d.upcoming_stages[0]?.count || 0;
+    $('ov-total').textContent = `${total.toLocaleString()} notices`;
+    $('ov-uptotal').textContent = `${upTotal.toLocaleString()} notices`;
+    sub.textContent = 'counts are documents that cleared each stage';
+
+    const worst = ovFunnel($('ov-funnel'), d.stages);
+    ovFunnel($('ov-funnel-up'), d.upcoming_stages);
+
+    $('ov-blockage').innerHTML = worst && worst.drop > 0
+      ? `Biggest blockage: <b>${worst.drop.toLocaleString()}</b> notices reach
+         “${escapeHtml(worst.prev.label)}” but not “${escapeHtml(worst.label)}”.`
+      : 'No stage is holding work back.';
+
+    // Flags link into the markdown queue with that failure preselected, so the
+    // dashboard hands over the exact worklist it just counted.
+    $('ov-flags').innerHTML = d.flags.length
+      ? d.flags.map(f => `<div class="ov-line">
+          <a href="#stage=markdown&group=notice&status=all&notice_type=all&flags=${
+            encodeURIComponent(f.flag)}">${escapeHtml(f.flag)}</a>
+          <span class="ov-num">${f.total.toLocaleString()}${
+            f.upcoming ? `<small> · ${f.upcoming} upcoming</small>` : ''}</span>
+        </div>`).join('')
+      : '<div class="ov-line">no OCR failures flagged</div>';
+
+    const att = [
+      ['extractions awaiting review', d.extraction_pending,
+       '#stage=extraction&group=notice&status=pending'],
+      ['extractions stale — markdown changed since', d.extraction_stale, null],
+      ['not yet checked for missing content', d.unmeasured, null],
+      ['notices with no block layer (cannot be checked)', d.no_blocks, null],
+      ['notices carrying a Datalab parse-quality score', d.parse_quality_scored, null],
+    ].filter(([, n]) => n > 0);
+    $('ov-attention').innerHTML = att.length
+      ? att.map(([label, n, href]) => `<div class="ov-line">
+          ${href ? `<a href="${href}">${escapeHtml(label)}</a>` : escapeHtml(label)}
+          <span class="ov-num">${n.toLocaleString()}</span></div>`).join('')
+      : '<div class="ov-line">nothing waiting</div>';
+  }
 
   // ─── Stats ──────────────────────────────────────────────────────────────
   async function loadStats() {
@@ -2282,6 +2425,7 @@
       alert(`Confirmed ${result.count} ${stage} items.`);
     }
   });
+  $('ov-reload').addEventListener('click', () => loadOverview());
   $('reload').addEventListener('click', () => { loadStats(); loadQueue(); });
   $('q').addEventListener('input', (e) => {
     queueState.q = e.target.value.trim();

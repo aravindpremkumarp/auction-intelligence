@@ -296,3 +296,50 @@ def test_block_auto_reextract_marker_and_flag() -> None:
     assert b.model_dump()["auto_reextract_at"] == "2026-07-20T18:00:00+00:00"
     assert Block(id="b2", bbox=[0, 0, 1, 1], label="Text"
                  ).model_dump()["auto_reextract_at"] is None
+
+
+def test_pipeline_overview_endpoint(client) -> None:
+    # Call it rather than introspecting app.routes: route objects differ across
+    # FastAPI versions, and a request proves registration on any of them.
+    _ensure_admin_user()
+    r = client.get("/review/pipeline", headers=_admin_header())
+    assert r.status_code == 200, r.text
+    body = r.json()
+    for key in ("stages", "upcoming_stages", "flags", "extraction_pending",
+                "unmeasured"):
+        assert key in body, key
+
+
+def test_pipeline_overview_model_defaults() -> None:
+    # The dashboard must render before any counter has data.
+    from api.review.router import PipelineOverview
+    blank = PipelineOverview(stages=[], upcoming_stages=[], flags=[]).model_dump()
+    assert blank["extraction_pending"] == 0 and blank["unmeasured"] == 0
+
+
+def test_pipeline_stage_counts_are_cumulative() -> None:
+    # A funnel only means something if each stage is a subset of the one before.
+    # Counted independently the corpus reports more documents extracted (1,553)
+    # than markdown-verified (1,489), because extraction ran on unverified
+    # notices — so every "drop" would be fiction.
+    from api.review import queries as q
+
+    captured: dict = {}
+
+    def fake_read(cypher, params=None, **kw):
+        captured["cypher"] = cypher
+        return [{k: 0 for k, _l, _p in q.PIPELINE_STAGES}]
+
+    orig = q.run_read_query
+    q.run_read_query = fake_read
+    try:
+        stages = q._stage_counts("MATCH (d:Document)", "", {})
+    finally:
+        q.run_read_query = orig
+
+    assert [s["key"] for s in stages] == [k for k, _l, _p in q.PIPELINE_STAGES]
+    cypher = captured["cypher"]
+    # The last stage's CASE must carry every earlier predicate.
+    for _k, _l, pred in q.PIPELINE_STAGES:
+        assert f"({pred})" in cypher, pred
+    assert cypher.count("d.markdown_verified_at IS NOT NULL") >= 3

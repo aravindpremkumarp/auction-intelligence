@@ -653,6 +653,40 @@ def review_classify(
     return ClassifyResult(**row)
 
 
+# ── Pipeline overview ───────────────────────────────────────────────────────
+
+
+class PipelineStage(BaseModel):
+    key: str
+    label: str
+    count: int
+
+
+class PipelineFlag(BaseModel):
+    flag: str
+    total: int
+    upcoming: int
+
+
+class PipelineOverview(BaseModel):
+    stages: list[PipelineStage]
+    upcoming_stages: list[PipelineStage]
+    flags: list[PipelineFlag]
+    extraction_pending: int = 0
+    extraction_stale: int = 0
+    unmeasured: int = 0
+    no_blocks: int = 0
+    parse_quality_scored: int = 0
+
+
+@router.get("/pipeline", response_model=PipelineOverview)
+def review_pipeline_overview(
+    _admin: UserOut = Depends(get_current_admin),
+) -> PipelineOverview:
+    """Stage-by-stage counts for the review dashboard."""
+    return PipelineOverview(**q.pipeline_overview())
+
+
 # ── Markdown-quality review ─────────────────────────────────────────────────
 
 
