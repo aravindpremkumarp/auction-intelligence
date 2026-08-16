@@ -62,6 +62,9 @@
   .ov-row { display: grid; grid-template-columns: 150px 1fr 92px; gap: 10px;
             align-items: center; padding: 4px 0; }
   .ov-row .ov-label { font-size: 13px; }
+  a.ov-label { color: var(--ink); text-decoration: none; border-bottom: 1px dotted var(--muted); }
+  a.ov-label:hover, a.ov-label:focus-visible { border-bottom-style: solid; }
+  .ov-planned a.ov-label { border-bottom: none; }
   .ov-track { background: #f0efe9; height: 16px; position: relative; }
   .ov-bar { background: var(--accent); height: 100%; }
   .ov-bar.drop { background: #e8b4ae; }
@@ -535,6 +538,18 @@
     </div>
   </section>
 
+  <!-- One stage in depth, reached by clicking a funnel row. -->
+  <section id="screen-stage" class="hidden">
+    <div class="actions">
+      <a class="link" href="#overview">&larr; Pipeline</a>
+      <h2 id="stg-title" style="margin:0; font-size:1.1rem;"></h2>
+      <span class="meta" id="stg-sub" style="color:var(--muted)"></span>
+      <span style="flex:1"></span>
+      <button id="stg-reload" class="ghost">Reload</button>
+    </div>
+    <div id="stg-panels" class="ov-grid"></div>
+  </section>
+
   <!-- Queue screen -->
   <section id="screen-queue">
     <!-- Filter bar, three dense rows: what you're reviewing / how it's scoped /
@@ -934,6 +949,8 @@
   function parseHash() {
     const h = (location.hash || '').replace(/^#/, '');
     if (h === 'overview') return { screen: 'overview' };
+    if (h.startsWith('stage/')) return { screen: 'stage',
+                                         key: decodeURIComponent(h.slice('stage/'.length)) };
     if (h.startsWith('detail/'))  return { screen: 'detail',   id: decodeURIComponent(h.slice('detail/'.length)) };
     if (h.startsWith('property/')) return { screen: 'detail',  id: decodeURIComponent(h.slice('property/'.length)) };
     if (h.startsWith('notice/'))   return { screen: 'annotator', filename: decodeURIComponent(h.slice('notice/'.length)) };
@@ -1005,6 +1022,7 @@
 
   function show(screen) {
     $('screen-overview').classList.toggle('hidden', screen !== 'overview');
+    $('screen-stage').classList.toggle('hidden', screen !== 'stage');
     $('screen-queue').classList.toggle('hidden', screen !== 'queue');
     $('screen-detail').classList.toggle('hidden', screen !== 'detail');
     $('screen-annotator').classList.toggle('hidden', screen !== 'annotator');
@@ -1018,6 +1036,8 @@
     show(r.screen);
     if (r.screen === 'overview') {
       await loadOverview();
+    } else if (r.screen === 'stage') {
+      await loadStageDetail(r.key);
     } else if (r.screen === 'queue') {
       if (r.gallery) {
         try { localStorage.setItem('cView', 'gallery'); } catch {}
@@ -1058,7 +1078,8 @@
       const pct = Math.round((s.count / top) * 100);
       const isWorst = lost > 0 && lost === worst.drop;
       return `<div class="ov-row">
-        <span class="ov-label">${escapeHtml(s.label)}</span>
+        <a class="ov-label" href="#stage/${encodeURIComponent(s.key)}"
+           title="open ${escapeHtml(s.label)} in detail">${escapeHtml(s.label)}</a>
         <span class="ov-track"><span class="ov-bar${isWorst ? ' drop' : ''}"
               style="width:${pct}%"></span></span>
         <span class="ov-num">${s.count.toLocaleString()}${
@@ -1121,6 +1142,44 @@
           ${href ? `<a href="${href}">${escapeHtml(label)}</a>` : escapeHtml(label)}
           <span class="ov-num">${n.toLocaleString()}</span></div>`).join('')
       : '<div class="ov-line">nothing waiting</div>';
+  }
+
+  // A stage page is whatever panels the API says it has: {title, note, rows}.
+  // Keeping the renderer generic means a new stage needs no UI work, and the
+  // bar length is always a share of that panel's own largest row — panels
+  // measure different things and must not be compared to each other.
+  function stgPanel(p) {
+    const top = Math.max(...p.rows.map(r => r.count), 1);
+    const rows = p.rows.length ? p.rows.map(r => `<div class="ov-row">
+        ${r.href ? `<a class="ov-label" href="${r.href}">${escapeHtml(r.label)}</a>`
+                 : `<span class="ov-label">${escapeHtml(r.label)}</span>`}
+        <span class="ov-track"><span class="ov-bar"
+              style="width:${Math.round((r.count / top) * 100)}%"></span></span>
+        <span class="ov-num">${r.count.toLocaleString()}${
+          p.kind === 'lines' ? '' : `<small> ${r.pct}%</small>`}</span>
+      </div>`).join('') : '<div class="ov-line">nothing to show</div>';
+    return `<div class="ov-panel">
+      <div class="ov-head">${escapeHtml(p.title)}</div>
+      ${p.note ? `<p class="meta" style="margin:-4px 0 10px; color:var(--muted)">${
+        escapeHtml(p.note)}</p>` : ''}
+      ${rows}
+    </div>`;
+  }
+
+  async function loadStageDetail(key) {
+    $('stg-title').textContent = '';
+    $('stg-sub').textContent = 'loading…';
+    $('stg-panels').innerHTML = '';
+    const r = await authFetch(API + '/review/pipeline/' + encodeURIComponent(key));
+    if (!r.ok) {
+      $('stg-sub').textContent = '';
+      $('stg-panels').innerHTML = `<div class="ov-panel">error ${r.status}</div>`;
+      return;
+    }
+    const d = await r.json();
+    $('stg-title').textContent = d.label;
+    $('stg-sub').textContent = '';
+    $('stg-panels').innerHTML = d.panels.map(stgPanel).join('');
   }
 
   // ─── Stats ──────────────────────────────────────────────────────────────
@@ -2437,6 +2496,10 @@
     }
   });
   $('ov-reload').addEventListener('click', () => loadOverview());
+  $('stg-reload').addEventListener('click', () => {
+    const h = (location.hash || '').replace(/^#/, '');
+    if (h.startsWith('stage/')) loadStageDetail(decodeURIComponent(h.slice(6)));
+  });
   $('reload').addEventListener('click', () => { loadStats(); loadQueue(); });
   $('q').addEventListener('input', (e) => {
     queueState.q = e.target.value.trim();
