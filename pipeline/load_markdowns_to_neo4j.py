@@ -128,6 +128,32 @@ def load_blocks_for(file_path: str,
     return None
 
 
+def read_parse_quality(file_path: str) -> float | None:
+    """Datalab's own parse-quality score (0–5) from the cached blocks sidecar.
+
+    ``pipeline.datalab_api.run_and_cache`` stores it next to the blocks; the
+    MinerU path writes a bare list and has no equivalent signal, so this
+    returns ``None`` there (and for any pre-existing sidecar written before
+    the field was added). ``None`` never overwrites a stored score.
+    """
+    p = BLOCKS_DIR / f"{safe_name(file_path)}.json"
+    if not p.exists():
+        return None
+    try:
+        raw = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(raw, dict):
+        return None
+    v = raw.get("parse_quality_score")
+    if isinstance(v, bool) or v is None:
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
 def fetch_pending(force: bool) -> list[dict]:
     if force:
         cypher = """
@@ -157,11 +183,18 @@ def write_markdowns(rows: list[dict], source: str, model: str) -> None:
     (or ``NULL``) — we never clobber blocks the reviewer may have edited.
     Optional ``mineru_zip_url`` stamps the archived MinerU zip URL (and
     ``mineru_zip_at``); absent/None leaves any existing value untouched.
+    Optional ``parse_quality_score`` (Datalab only) is stamped the same way —
+    a row without one keeps whatever score the Document already carries, so a
+    MinerU re-load never wipes a Datalab verdict.
     """
     cypher = """
         UNWIND $rows AS row
         MATCH (d:Document {file_path: row.file_path})
         SET d.markdown            = row.markdown,
+            d.parse_quality_score = coalesce(row.parse_quality_score,
+                                             d.parse_quality_score),
+            d.parse_quality_at    = CASE WHEN row.parse_quality_score IS NULL
+                                        THEN d.parse_quality_at ELSE datetime() END,
             d.markdown_source     = $source,
             d.markdown_model      = coalesce(row.model, $model),
             d.markdown_loaded_at  = datetime(),
@@ -306,6 +339,7 @@ def main() -> int:
             "blocks_json":    blocks_json,
             "model":          PRECLEAN_MODEL_TAG if is_precleaned(fp) else None,
             "mineru_zip_url": meta.get("zip_url"),
+            "parse_quality_score": read_parse_quality(fp),
         })
         done += 1
 

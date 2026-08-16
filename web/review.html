@@ -49,6 +49,35 @@
   h1 { margin-bottom: 6px; }
   .wrap > .actions:not(.filters) { margin-bottom: 8px; }
   #msg:empty { display: none; }
+  /* Pipeline overview. A funnel is a comparison, so every bar shares one
+     baseline (the widest stage) and carries its own count — no colour coding
+     beyond "this stage is where work stops". */
+  .ov-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
+  .ov-panel { border: 1.5px solid var(--ink); background: #fff; padding: 12px 14px; }
+  .ov-head { display: flex; justify-content: space-between; align-items: baseline;
+             gap: 10px; font-weight: 600; font-size: 13px; text-transform: uppercase;
+             letter-spacing: .06em; border-bottom: 1px solid var(--ink);
+             padding-bottom: 6px; margin-bottom: 10px; }
+  .ov-head span { font-weight: 400; font-size: 11px; letter-spacing: 0; text-transform: none; }
+  .ov-row { display: grid; grid-template-columns: 150px 1fr 92px; gap: 10px;
+            align-items: center; padding: 4px 0; }
+  .ov-row .ov-label { font-size: 13px; }
+  .ov-track { background: #f0efe9; height: 16px; position: relative; }
+  .ov-bar { background: var(--accent); height: 100%; }
+  .ov-bar.drop { background: #e8b4ae; }
+  .ov-planned { opacity: .55; }
+  .ov-planned .ov-track { border: 1px dashed var(--muted); background: transparent; }
+  .ov-num { font-family: 'IBM Plex Mono', monospace; font-size: 12px; text-align: right;
+            font-variant-numeric: tabular-nums; }
+  .ov-num small { color: var(--muted); }
+  .ov-callout { border: 1.5px solid var(--ink); border-left-width: 6px; background: #fff;
+                padding: 10px 14px; margin-bottom: 16px; font-size: 14px; }
+  .ov-callout b { font-family: 'IBM Plex Mono', monospace; }
+  .ov-line { display: flex; justify-content: space-between; align-items: center;
+             gap: 12px; padding: 6px 0; border-bottom: 1px solid #eee; font-size: 13px; }
+  .ov-line:last-child { border-bottom: none; }
+  .ov-line a { color: var(--ink); }
+  .ov-line .ov-num { min-width: 120px; }
   .pill { display: inline-block; padding: 1px 6px; border: 1px solid var(--ink); font-size: 11px; font-family: 'IBM Plex Mono', monospace; }
   .pill.on { background: var(--accent); font-weight: 600; }
   .pill.off { background: #eee; color: var(--muted); }
@@ -467,12 +496,44 @@
   <h1><em>Review</em> · enrichment</h1>
   <div class="actions">
     <a class="link" href="/">← Back to app</a>
+    <a class="link" href="#overview" id="overview-link">Pipeline</a>
     <a class="link" href="/admin">Admin</a>
     <a class="link" href="/social">Social</a>
     <span style="flex:1"></span>
     <span class="stats" id="stats"></span>
   </div>
   <div id="msg"></div>
+
+  <!-- Pipeline overview: where the corpus is stuck. Read-only, and every row
+       links into the queue already filtered to the work it names, so the
+       dashboard is a way in rather than a separate reporting surface. -->
+  <section id="screen-overview" class="hidden">
+    <div class="actions">
+      <h2 style="margin:0; font-size:1.1rem;">Pipeline</h2>
+      <span class="meta" id="ov-sub" style="color:var(--muted)"></span>
+      <span style="flex:1"></span>
+      <button id="ov-reload" class="ghost">Reload</button>
+    </div>
+    <div id="ov-blockage" class="ov-callout"></div>
+    <div class="ov-grid">
+      <div class="ov-panel">
+        <div class="ov-head">Whole corpus<span id="ov-total"></span></div>
+        <div id="ov-funnel"></div>
+      </div>
+      <div class="ov-panel">
+        <div class="ov-head">Upcoming auctions only<span id="ov-uptotal"></span></div>
+        <div id="ov-funnel-up"></div>
+      </div>
+    </div>
+    <div class="ov-panel" style="margin-top:16px;">
+      <div class="ov-head">OCR failures<span class="meta" style="color:var(--muted)">click to open that queue</span></div>
+      <div id="ov-flags"></div>
+    </div>
+    <div class="ov-panel" style="margin-top:16px;">
+      <div class="ov-head">Attention</div>
+      <div id="ov-attention"></div>
+    </div>
+  </section>
 
   <!-- Queue screen -->
   <section id="screen-queue">
@@ -549,6 +610,42 @@
         <button id="score-clear" class="ghost" title="reset to 0–100">clear</button>
         <span class="meta fhint" id="score-hint"></span>
       </span>
+      <!-- Datalab's own 0–5 verdict on the parse. Separate from OCR health
+           because it catches the failure health cannot see: content the engine
+           silently dropped. Blank inputs = no filter (docs with no score stay
+           visible); set either bound and only scored docs match. -->
+      <span class="fgroup hidden" id="pq-bar">
+        <span class="fsep">·</span>
+        <span class="flabel">Parse quality:</span>
+        <input type="number" id="pq-from" min="0" max="5" step="0.5"
+               placeholder="0" title="minimum Datalab parse quality (0–5)">
+        <span class="fdash">–</span>
+        <input type="number" id="pq-to" min="0" max="5" step="0.5"
+               placeholder="5" title="maximum Datalab parse quality (0–5)">
+        <button id="pq-clear" class="ghost" title="remove the parse-quality filter">clear</button>
+        <span class="meta fhint" id="pq-hint"></span>
+      </span>
+      <!-- Work one failure mode at a time: every notice carrying any selected
+           flag (OR, not AND). Order matches pipeline/ocr_health.HEALTH_FLAGS. -->
+      <span class="fgroup hidden" id="flag-bar">
+        <span class="fsep">·</span>
+        <span class="flabel">Failures:</span>
+        <span class="group-toggle" id="flag-tabs">
+          <button class="pill" data-flag="missing-region"
+                  title="ink on the page that no parsed block covers — content we never read">missing region</button>
+          <button class="pill" data-flag="table-collapse"
+                  title="the whole notice read as one giant table">table collapse</button>
+          <button class="pill" data-flag="truncated"
+                  title="generation stopped mid-structure">truncated</button>
+          <button class="pill" data-flag="repetition"
+                  title="the same line or phrase emitted over and over">repetition</button>
+          <button class="pill" data-flag="token-leak"
+                  title="raw model control tokens leaked into the text">token leak</button>
+          <button class="pill" data-flag="foreign-script"
+                  title="hallucinated CJK/Cyrillic/etc. in a Tamil Nadu notice">foreign script</button>
+        </span>
+        <button id="flag-clear" class="ghost" title="show all notices again">clear</button>
+      </span>
     </div>
     <div id="queue-by-classification" class="notice-list"></div>
     <div id="queue-by-classification-gallery" class="gallery-grid hidden"></div>
@@ -581,6 +678,7 @@
             <th>Reserve (₹)</th>
             <th>Notice</th>
             <th>OCR health</th>
+            <th title="Datalab's own 0–5 verdict on the page read">Parse</th>
             <th>Quality</th>
             <th>Status</th>
           </tr>
@@ -822,11 +920,20 @@
       if (queueState.scoreFrom !== 0)   params.set('score_min', String(queueState.scoreFrom));
       if (queueState.scoreTo   !== 100) params.set('score_max', String(queueState.scoreTo));
     }
+    // Parse quality is a markdown-stage signal only — the extraction stage
+    // scores the fields, not the page read.
+    if (queueState.stage === 'markdown') {
+      if (queueState.pqFrom != null) params.set('pq_min', String(queueState.pqFrom));
+      if (queueState.pqTo   != null) params.set('pq_max', String(queueState.pqTo));
+      // Repeated key, one per flag — FastAPI reads these as a list.
+      for (const f of (queueState.flags || [])) params.append('flags', f);
+    }
   }
 
   // ─── Routing ────────────────────────────────────────────────────────────
   function parseHash() {
     const h = (location.hash || '').replace(/^#/, '');
+    if (h === 'overview') return { screen: 'overview' };
     if (h.startsWith('detail/'))  return { screen: 'detail',   id: decodeURIComponent(h.slice('detail/'.length)) };
     if (h.startsWith('property/')) return { screen: 'detail',  id: decodeURIComponent(h.slice('property/'.length)) };
     if (h.startsWith('notice/'))   return { screen: 'annotator', filename: decodeURIComponent(h.slice('notice/'.length)) };
@@ -859,6 +966,11 @@
       const st = parseInt(p.get('score_to'),   10);
       if (!isNaN(sf)) queueState.scoreFrom = sf;
       if (!isNaN(st)) queueState.scoreTo   = st;
+      const pf = parseFloat(p.get('pq_from'));
+      const pt = parseFloat(p.get('pq_to'));
+      queueState.pqFrom = isNaN(pf) ? null : pf;
+      queueState.pqTo   = isNaN(pt) ? null : pt;
+      queueState.flags = (p.get('flags') || '').split(',').filter(Boolean);
     }
     return { screen: 'queue' };
   }
@@ -884,10 +996,15 @@
     if (queueState.dateTo)   p.set('date_to',   queueState.dateTo);
     if (queueState.scoreFrom !== 0)   p.set('score_from', String(queueState.scoreFrom));
     if (queueState.scoreTo   !== 100) p.set('score_to',   String(queueState.scoreTo));
+    if (queueState.pqFrom != null) p.set('pq_from', String(queueState.pqFrom));
+    if (queueState.pqTo   != null) p.set('pq_to',   String(queueState.pqTo));
+    // Comma-joined in the hash (one readable key) but repeated on the wire.
+    if ((queueState.flags || []).length) p.set('flags', queueState.flags.join(','));
     return p.toString();
   }
 
   function show(screen) {
+    $('screen-overview').classList.toggle('hidden', screen !== 'overview');
     $('screen-queue').classList.toggle('hidden', screen !== 'queue');
     $('screen-detail').classList.toggle('hidden', screen !== 'detail');
     $('screen-annotator').classList.toggle('hidden', screen !== 'annotator');
@@ -899,7 +1016,9 @@
   async function route() {
     const r = parseHash();
     show(r.screen);
-    if (r.screen === 'queue') {
+    if (r.screen === 'overview') {
+      await loadOverview();
+    } else if (r.screen === 'queue') {
       if (r.gallery) {
         try { localStorage.setItem('cView', 'gallery'); } catch {}
       }
@@ -914,6 +1033,95 @@
   }
 
   window.addEventListener('hashchange', route);
+
+  // ─── Pipeline overview ──────────────────────────────────────────────────
+  // Answers one question: where is the corpus stuck? Each stage counts the
+  // Documents that have cleared it, so the funnel only ever narrows, and the
+  // biggest single drop between consecutive stages is the blockage worth
+  // naming at the top.
+  function ovFunnel(el, allStages) {
+    // Planned stages carry no count — they're drawn as an empty track so the
+    // whole intended pipeline is visible, and they take no part in the
+    // blockage maths (nothing is stuck at a stage that doesn't exist).
+    const stages = allStages.filter(s => !s.planned);
+    const planned = allStages.filter(s => s.planned);
+    if (!stages.length) { el.innerHTML = ''; return { drop: -1 }; }
+    const top = Math.max(...stages.map(s => s.count), 1);
+    let worst = { drop: -1 };
+    stages.forEach((s, i) => {
+      if (i === 0) return;
+      const drop = stages[i - 1].count - s.count;
+      if (drop > worst.drop) worst = { drop, label: s.label, prev: stages[i - 1] };
+    });
+    const rows = stages.map((s, i) => {
+      const lost = i === 0 ? 0 : stages[i - 1].count - s.count;
+      const pct = Math.round((s.count / top) * 100);
+      const isWorst = lost > 0 && lost === worst.drop;
+      return `<div class="ov-row">
+        <span class="ov-label">${escapeHtml(s.label)}</span>
+        <span class="ov-track"><span class="ov-bar${isWorst ? ' drop' : ''}"
+              style="width:${pct}%"></span></span>
+        <span class="ov-num">${s.count.toLocaleString()}${
+          lost > 0 ? `<small> −${lost.toLocaleString()}</small>` : ''}</span>
+      </div>`;
+    }).concat(planned.map(s => `<div class="ov-row ov-planned">
+        <span class="ov-label">${escapeHtml(s.label)}</span>
+        <span class="ov-track"></span>
+        <span class="ov-num"><small>not built yet</small></span>
+      </div>`));
+    el.innerHTML = rows.join('');
+    return worst;
+  }
+
+  async function loadOverview() {
+    const sub = $('ov-sub');
+    sub.textContent = 'loading…';
+    const r = await authFetch(API + '/review/pipeline');
+    if (!r.ok) {
+      sub.textContent = '';
+      $('ov-blockage').textContent = `error ${r.status}`;
+      return;
+    }
+    const d = await r.json();
+    const total = d.stages[0]?.count || 0;
+    const upTotal = d.upcoming_stages[0]?.count || 0;
+    $('ov-total').textContent = `${total.toLocaleString()} notices`;
+    $('ov-uptotal').textContent = `${upTotal.toLocaleString()} notices`;
+    sub.textContent = 'each stage counts notices that cleared it and every stage before it';
+
+    const worst = ovFunnel($('ov-funnel'), d.stages);
+    ovFunnel($('ov-funnel-up'), d.upcoming_stages);
+
+    $('ov-blockage').innerHTML = worst && worst.drop > 0
+      ? `Biggest blockage: <b>${worst.drop.toLocaleString()}</b> notices reach
+         “${escapeHtml(worst.prev.label)}” but not “${escapeHtml(worst.label)}”.`
+      : 'No stage is holding work back.';
+
+    // Flags link into the markdown queue with that failure preselected, so the
+    // dashboard hands over the exact worklist it just counted.
+    $('ov-flags').innerHTML = d.flags.length
+      ? d.flags.map(f => `<div class="ov-line">
+          <a href="#stage=markdown&group=notice&status=all&notice_type=all&flags=${
+            encodeURIComponent(f.flag)}">${escapeHtml(f.flag)}</a>
+          <span class="ov-num">${f.total.toLocaleString()}${
+            f.upcoming ? `<small> · ${f.upcoming} upcoming</small>` : ''}</span>
+        </div>`).join('')
+      : '<div class="ov-line">no OCR failures flagged</div>';
+
+    const att = [
+      ['extractions awaiting review', d.extraction_pending,
+       '#stage=extraction&group=notice&status=pending'],
+      ['extractions stale — markdown changed since', d.extraction_stale, null],
+      ['not yet checked for missing content', d.unmeasured, null],
+      ['notices with no block layer (cannot be checked)', d.no_blocks, null],
+      ['notices carrying a Datalab parse-quality score', d.parse_quality_scored, null],
+    ].filter(([, n]) => n > 0);
+    $('ov-attention').innerHTML = att.length
+      ? att.map(([label, n, href]) => `<div class="ov-line">
+          ${href ? `<a href="${href}">${escapeHtml(label)}</a>` : escapeHtml(label)}
+          <span class="ov-num">${n.toLocaleString()}</span></div>`).join('')
+      : '<div class="ov-line">nothing waiting</div>';
+  }
 
   // ─── Stats ──────────────────────────────────────────────────────────────
   async function loadStats() {
@@ -960,6 +1168,11 @@
     q: '',
     dateFrom: todayISO(), dateTo: '',
     scoreFrom: 0, scoreTo: 100,
+    // Datalab parse quality, 0–5. null = unset, and unset means "no filter" —
+    // unlike the 0–100 health range, a 0 bound here is a real (worst) value.
+    pqFrom: null, pqTo: null,
+    // Selected ocr_health failure flags; empty = no filter, multiple = OR.
+    flags: [],
     page: 1,
   };
   // Per-stage default sub-group (remembers reviewer's last choice in localStorage).
@@ -991,6 +1204,10 @@
     $$('button.pill[data-cview]').forEach(b => {
       b.classList.toggle('on', b.getAttribute('data-cview') === queueState.cview);
     });
+    // Multi-select, unlike the toggles above: any number of flags can be on.
+    $$('button.pill[data-flag]').forEach(b => {
+      b.classList.toggle('on', queueState.flags.includes(b.getAttribute('data-flag')));
+    });
 
     const isClass = queueState.stage === 'classification';
     const isMd = queueState.stage === 'markdown';
@@ -1020,6 +1237,9 @@
     // The score row applies to markdown (OCR health) and extraction (the
     // validators.py quality score); classification has no score.
     $('score-bar').classList.toggle('hidden', isClass);
+    // Parse quality and the OCR failure flags are markdown-stage signals.
+    $('pq-bar').classList.toggle('hidden', !isMd);
+    $('flag-bar').classList.toggle('hidden', !isMd);
     // Bulk-confirm is available in every stage. On extraction it pairs with the
     // score filter: confirm the high-scoring tail in one action, spend the time
     // on the low scores.
@@ -1248,6 +1468,7 @@
         <td>${row.reserve_price == null ? '—' : row.reserve_price.toLocaleString('en-IN')}</td>
         <td>${noticeLink}</td>
         <td title="${(Array.isArray(row.ocr_health_flags) && row.ocr_health_flags.length) ? escapeHtml(row.ocr_health_flags.join(', ')) : ''}">${row.ocr_health_score == null ? '—' : row.ocr_health_score}${(Array.isArray(row.ocr_health_flags) && row.ocr_health_flags.length) ? ' ⚠' : ''}</td>
+        <td title="Datalab parse quality (0–5)">${row.parse_quality_score == null ? '—' : (Number.isInteger(row.parse_quality_score) ? row.parse_quality_score : row.parse_quality_score.toFixed(1)) + '/5'}</td>
         <td>${escapeHtml(row.quality || '—')}</td>
         <td>${escapeHtml(statusLabel)}</td>
       `;
@@ -1263,6 +1484,20 @@
     if (hint) {
       const def = queueState.scoreFrom === 0 && queueState.scoreTo === 100;
       hint.textContent = def ? '(no score filter)' : '';
+    }
+    syncParseQualityInputs();
+  }
+
+  // Parse-quality inputs stay blank when unset, so the reviewer can tell "no
+  // filter" from "min 0" — the latter would drop every unscored Document.
+  function syncParseQualityInputs() {
+    const pf = $('pq-from'), pt = $('pq-to');
+    if (pf) pf.value = queueState.pqFrom == null ? '' : String(queueState.pqFrom);
+    if (pt) pt.value = queueState.pqTo   == null ? '' : String(queueState.pqTo);
+    const hint = $('pq-hint');
+    if (hint) {
+      const off = queueState.pqFrom == null && queueState.pqTo == null;
+      hint.textContent = off ? '(no parse-quality filter)' : '(scored docs only)';
     }
   }
   function updateBulkConfirmButton() {
@@ -1334,10 +1569,32 @@
       : (score >= 80 ? 'good' : (score >= 50 ? 'warn' : 'danger'));
     const hasFlags = Array.isArray(flags) && flags.length > 0;
     const suffix = hasFlags ? ` · ${flags.join(' + ')}` : '';
+    // `missing-region` is the one flag whose severity varies wildly — 16% of a
+    // page unread is a clipped footer, 38% is a whole dropped column — so the
+    // measured share goes in the tooltip rather than leaving the reviewer to
+    // open the notice to find out.
+    const unread = (hasFlags && flags.includes('missing-region')
+                    && row.ink_uncovered_ratio != null)
+      ? ` (${Math.round(row.ink_uncovered_ratio * 100)}% of the page's ink was never read)`
+      : '';
     const title = hasFlags
-      ? `OCR failure artifacts: ${flags.join(', ')} — consider a crop + re-ingest`
+      ? `OCR failure artifacts: ${flags.join(', ')}${unread} — consider a crop + re-ingest`
       : 'no OCR failure artifacts detected';
     return `<span class="pill ${cls}" title="${escapeHtml(title)}">health ${score ?? '?'}${escapeHtml(suffix)}</span>`;
+  }
+
+  // Datalab's own 0–5 read on the parse, shown next to health because the two
+  // disagree in the case that matters: a notice whose bottom third never made
+  // it into the text scores health 100 (nothing wrong with what we got) and
+  // parse quality ~3. Renders nothing when unscored — MinerU docs and anything
+  // not re-parsed since this shipped have no value, and an "unscored" pill on
+  // most of the queue would be noise.
+  function parseQualityPill(row) {
+    const pq = row.parse_quality_score;
+    if (pq == null) return '';
+    const cls = pq >= 4 ? 'good' : (pq >= 3 ? 'warn' : 'danger');
+    const shown = Number.isInteger(pq) ? pq : pq.toFixed(1);
+    return `<span class="pill ${cls}" title="Datalab parse quality ${shown}/5 — the engine's own verdict on how much of the page it read">parse ${escapeHtml(String(shown))}/5</span>`;
   }
 
   function mdStatusPill(row) {
@@ -1442,7 +1699,7 @@
     const summary = document.createElement('summary');
     summary.innerHTML = `
       <span class="nfile">${escapeHtml(filename)}</span>
-      ${typeBadge} ${healthPill(row)} ${mdStatusPill(row)} ${reextractedBadge} ${precleanBadge}
+      ${typeBadge} ${healthPill(row)} ${parseQualityPill(row)} ${mdStatusPill(row)} ${reextractedBadge} ${precleanBadge}
       ${props} ${hlPill} ${len}
       <span class="nspacer"></span>
       <span class="nlinks">${annotateLink} ${openLink}</span>
@@ -2091,6 +2348,25 @@
     });
   });
 
+  // Flags toggle independently — clicking a second one widens the queue to
+  // "either failure" rather than replacing the first.
+  $$('button.pill[data-flag]').forEach(b => {
+    b.addEventListener('click', () => {
+      const f = b.getAttribute('data-flag');
+      queueState.flags = queueState.flags.includes(f)
+        ? queueState.flags.filter(x => x !== f)
+        : [...queueState.flags, f];
+      writeHash();
+      loadStats(); loadQueue();
+    });
+  });
+  $('flag-clear').addEventListener('click', () => {
+    if (!queueState.flags.length) return;
+    queueState.flags = [];
+    writeHash();
+    loadStats(); loadQueue();
+  });
+
   $$('button.pill[data-cview]').forEach(b => {
     b.addEventListener('click', () => {
       const next = b.getAttribute('data-cview');
@@ -2120,11 +2396,19 @@
       dry_run: false,
     };
     // Classification has no score; markdown and extraction both band 0-100.
+    // The markdown stage also carries the 0-5 parse-quality bounds — the button
+    // says "Confirm all N in range", where N came from the parse-quality-filtered
+    // queue, so omitting them here would confirm notices the reviewer never saw.
     const body = stage === 'classification'
       ? { ...commonFilters }
       : {
           score_min: queueState.scoreFrom,
           score_max: queueState.scoreTo,
+          ...(stage === 'markdown' ? {
+            pq_min: queueState.pqFrom,
+            pq_max: queueState.pqTo,
+            flags: queueState.flags.length ? queueState.flags : null,
+          } : {}),
           ...commonFilters,
         };
     let result = null;
@@ -2152,6 +2436,7 @@
       alert(`Confirmed ${result.count} ${stage} items.`);
     }
   });
+  $('ov-reload').addEventListener('click', () => loadOverview());
   $('reload').addEventListener('click', () => { loadStats(); loadQueue(); });
   $('q').addEventListener('input', (e) => {
     queueState.q = e.target.value.trim();
@@ -2189,6 +2474,28 @@
   $('score-clear').addEventListener('click', () => {
     queueState.scoreFrom = 0;
     queueState.scoreTo = 100;
+    writeHash();
+    loadStats(); loadQueue();
+  });
+  // An empty input clears the bound rather than snapping to 0 / 5 — with a
+  // 0–5 scale those are meaningful values, not "off".
+  function pqBound(raw) {
+    const v = parseFloat(raw);
+    return isNaN(v) ? null : Math.max(0, Math.min(5, v));
+  }
+  $('pq-from').addEventListener('change', (e) => {
+    queueState.pqFrom = pqBound(e.target.value);
+    writeHash();
+    loadStats(); loadQueue();
+  });
+  $('pq-to').addEventListener('change', (e) => {
+    queueState.pqTo = pqBound(e.target.value);
+    writeHash();
+    loadStats(); loadQueue();
+  });
+  $('pq-clear').addEventListener('click', () => {
+    queueState.pqFrom = null;
+    queueState.pqTo = null;
     writeHash();
     loadStats(); loadQueue();
   });
@@ -4843,6 +5150,8 @@
     const row = {
       ocr_health_score: doc.ocr_health_score,
       ocr_health_flags: doc.ocr_health_flags,
+      parse_quality_score: doc.parse_quality_score,
+      ink_uncovered_ratio: doc.ink_uncovered_ratio,
       verified: !!doc.markdown_verified,
       quality: doc.markdown_quality,
     };
@@ -4857,7 +5166,7 @@
     const reext = doc.markdown_reextracted_at
       ? `<span class="pill warn" title="re-extracted ${escapeHtml(doc.markdown_reextracted_at)}">re-extracted</span>`
       : '';
-    el.innerHTML = `${type} ${healthPill(row)} ${mdStatusPill(row)} ${reext} ${props} ${chars}`;
+    el.innerHTML = `${type} ${healthPill(row)} ${parseQualityPill(row)} ${mdStatusPill(row)} ${reext} ${props} ${chars}`;
   }
 
   // After any mutation, refresh ann.doc.markdown via a fresh GET so the

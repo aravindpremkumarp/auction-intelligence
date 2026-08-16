@@ -166,7 +166,8 @@ def datalab_one(m: dict, *, mode: str) -> dict:
             return out
         health = score_ocr_health(markdown)
         out.update(markdown=markdown, blocks=blocks,
-                   score=health["score"], flags=health["flags"], ok=True)
+                   score=health["score"], flags=health["flags"], ok=True,
+                   parse_quality=datalab_api.parse_quality(result))
     except Exception as e:
         out["note"] = f"{type(e).__name__}: {e}"
     return out
@@ -184,6 +185,7 @@ def write_datalab(results: list[dict], mode: str) -> int:
         "model":       f"datalab-{mode}",
         "score":       r["score"],
         "flags":       r["flags"],
+        "parse_quality": r.get("parse_quality"),
     } for r in results if r.get("ok")]
     if not rows:
         return 0
@@ -203,7 +205,11 @@ def write_datalab(results: list[dict], mode: str) -> int:
                 d.blocks_revision    = coalesce(d.blocks_revision, 0) + 1,
                 d.ocr_health_score   = row.score,
                 d.ocr_health_flags   = row.flags,
-                d.ocr_health_at      = datetime()
+                d.ocr_health_at      = datetime(),
+                d.parse_quality_score = coalesce(row.parse_quality,
+                                                 d.parse_quality_score),
+                d.parse_quality_at    = CASE WHEN row.parse_quality IS NULL
+                                            THEN d.parse_quality_at ELSE datetime() END
             """,
             {"rows": rows[i:i + 200]},
         )

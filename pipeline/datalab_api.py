@@ -153,6 +153,29 @@ def run_file(disk_path: str | Path, *, output_format: str = "json",
     return poll(check_url, timeout_s=timeout_s)
 
 
+def parse_quality(result: dict) -> float | None:
+    """Datalab's own verdict on the parse, 0–5 (higher is better), or ``None``.
+
+    This is the engine's self-assessment of how faithfully it read the page —
+    the signal ``pipeline.ocr_health`` structurally cannot give, since that
+    module only inspects the text we *did* get and never sees the image. A
+    notice with a third of its content silently dropped still scores 100 on
+    health while Datalab rates the parse ~3/5.
+
+    Returns ``None`` when the field is absent or non-numeric. The common cause
+    is a **cache hit**: Datalab replays a previous conversion (``runtime`` ≈ 0,
+    ``total_cost`` 0) without re-scoring it, so ``parse_quality_score`` comes
+    back null. Submit with ``skip_cache="true"`` when the score matters.
+    """
+    v = result.get("parse_quality_score")
+    if isinstance(v, bool) or v is None:
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
 def extract_payload(result: dict) -> tuple[str | None, object, dict]:
     """Split a completed payload into ``(markdown, json_block_tree, images)``.
 
@@ -174,6 +197,10 @@ def run_and_cache(file_path: str, disk_path: str | Path, *,
 
       - ``mineru_markdown/<safe>.md``   — the markdown (native, else assembled)
       - ``mineru_blocks/<safe>.json``   — ``{"blocks": [<canonical blocks>], ...}``
+
+    The sidecar also carries ``parse_quality_score`` (see :func:`parse_quality`)
+    so ``pipeline.load_markdowns_to_neo4j`` can stamp it on the Document
+    alongside the blocks.
 
     The blocks are stored pre-normalized (canonical shape, ``source="datalab"``)
     wrapped in a dict, which ``load_markdowns_to_neo4j.load_blocks_for`` already
@@ -199,7 +226,8 @@ def run_and_cache(file_path: str, disk_path: str | Path, *,
     bl_path = MINERU_BLOCKS_DIR / f"{safe}.json"
     md_path.write_text(markdown or "", encoding="utf-8")
     bl_path.write_text(
-        json.dumps({"blocks": blocks, "engine": "datalab", "mode": mode},
+        json.dumps({"blocks": blocks, "engine": "datalab", "mode": mode,
+                    "parse_quality_score": parse_quality(result)},
                    ensure_ascii=False),
         encoding="utf-8")
     return md_path, bl_path

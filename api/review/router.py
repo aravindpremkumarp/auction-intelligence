@@ -17,6 +17,7 @@ from api.auth.schemas import UserOut
 from api.neo4j_client import run_read_query
 from api.review import blocks as block_ops
 from api.review import queries as q
+from pipeline.ocr_health import HEALTH_FLAGS
 
 
 router = APIRouter(prefix="/review", tags=["review"])
@@ -204,6 +205,15 @@ class MarkdownRow(BaseModel):
     # regression test guards.
     ocr_health_score: int | None = None
     ocr_health_flags: list[str] | None = None
+    # Datalab's own parse verdict, 0–5 (pipeline/datalab_api.parse_quality).
+    # Complements health rather than duplicating it: health reads only the text
+    # we got, so it cannot see dropped content; this is the engine's own read of
+    # the page. NULL on MinerU docs and on anything not yet re-parsed.
+    parse_quality_score: float | None = None
+    # Share of the page's ink no block covered (pipeline/ink_coverage.py). Set
+    # alongside the `missing-region` flag; carried here so the health pill can
+    # say *how much* was dropped, not just that something was.
+    ink_uncovered_ratio: float | None = None
     quality: Literal["good", "bad"] | None = None
     verified: bool = False
     verified_at: str | None = None
@@ -239,6 +249,14 @@ class VerifyMarkdownBody(BaseModel):
 class MarkdownBulkConfirmBody(BaseModel):
     score_min: float = Field(ge=0.0, le=100.0)
     score_max: float = Field(default=100.0, ge=0.0, le=100.0)
+    # Must mirror the queue's parse-quality filter: the button is labelled with
+    # the filtered queue's count, so dropping these bounds here would verify
+    # documents the reviewer never saw.
+    pq_min: float | None = Field(default=None, ge=0.0, le=5.0)
+    pq_max: float | None = Field(default=None, ge=0.0, le=5.0)
+    # Same reasoning as the bounds above: the flag filter narrows the queue the
+    # count is taken from, so it has to narrow the action too.
+    flags: list[str] | None = Field(default=None)
     notice_type: Literal["all", "single", "multi", "unclassified"] = "all"
     date_from: str | None = Field(default=None, max_length=20)
     date_to:   str | None = Field(default=None, max_length=20)
@@ -259,6 +277,7 @@ class MarkdownPropertyRow(BaseModel):
     # so FastAPI projects it into the by-property table too.
     ocr_health_score: int | None = None
     ocr_health_flags: list[str] | None = None
+    parse_quality_score: float | None = None
     quality: Literal["good", "bad"] | None = None
     verified: bool = False
     verified_at: str | None = None
@@ -334,6 +353,8 @@ class BlocksDoc(BaseModel):
     markdown_length: int | None = None
     ocr_health_score: int | None = None
     ocr_health_flags: list[str] | None = None
+    parse_quality_score: float | None = None
+    ink_uncovered_ratio: float | None = None
     markdown_quality: Literal["good", "bad"] | None = None
     markdown_verified: bool = False
     markdown_reextracted_at: str | None = None
@@ -632,6 +653,43 @@ def review_classify(
     return ClassifyResult(**row)
 
 
+# ── Pipeline overview ───────────────────────────────────────────────────────
+
+
+class PipelineStage(BaseModel):
+    key: str
+    label: str
+    # None for a stage the pipeline does not have yet — distinct from 0, which
+    # would read as "built, nothing reached it".
+    count: int | None = None
+    planned: bool = False
+
+
+class PipelineFlag(BaseModel):
+    flag: str
+    total: int
+    upcoming: int
+
+
+class PipelineOverview(BaseModel):
+    stages: list[PipelineStage]
+    upcoming_stages: list[PipelineStage]
+    flags: list[PipelineFlag]
+    extraction_pending: int = 0
+    extraction_stale: int = 0
+    unmeasured: int = 0
+    no_blocks: int = 0
+    parse_quality_scored: int = 0
+
+
+@router.get("/pipeline", response_model=PipelineOverview)
+def review_pipeline_overview(
+    _admin: UserOut = Depends(get_current_admin),
+) -> PipelineOverview:
+    """Stage-by-stage counts for the review dashboard."""
+    return PipelineOverview(**q.pipeline_overview())
+
+
 # ── Markdown-quality review ─────────────────────────────────────────────────
 
 
@@ -660,6 +718,12 @@ def review_markdown_queue(
     size: int = Query(default=50, ge=1, le=200),
     score_min: float | None = Query(default=None, ge=0.0, le=100.0),
     score_max: float | None = Query(default=None, ge=0.0, le=100.0),
+    # Datalab parse quality is a 0–5 scale, not 0–100 like OCR health.
+    pq_min: float | None = Query(default=None, ge=0.0, le=5.0),
+    pq_max: float | None = Query(default=None, ge=0.0, le=5.0),
+    # Repeatable: ?flags=missing-region&flags=repetition — matches docs carrying
+    # ANY of them, so a reviewer can work one failure mode at a time.
+    flags: list[str] | None = Query(default=None),
     notice_type: Literal["all", "single", "multi", "unclassified"] = Query(default="all"),
     date_from: str | None = Query(default=None, max_length=20),
     date_to: str | None = Query(default=None, max_length=20),
@@ -668,6 +732,7 @@ def review_markdown_queue(
     result = q.list_markdown_queue(
         status=status, q=q_search, page=page, size=size,
         score_min=score_min, score_max=score_max,
+        pq_min=pq_min, pq_max=pq_max, flags=_clean_health_flags(flags),
         notice_type=notice_type if notice_type != "all" else None,
         date_from=date_from, date_to=date_to,
     )
@@ -689,6 +754,9 @@ def review_markdown_by_property(
     size: int = Query(default=100, ge=1, le=200),
     score_min: float | None = Query(default=None, ge=0.0, le=100.0),
     score_max: float | None = Query(default=None, ge=0.0, le=100.0),
+    pq_min: float | None = Query(default=None, ge=0.0, le=5.0),
+    pq_max: float | None = Query(default=None, ge=0.0, le=5.0),
+    flags: list[str] | None = Query(default=None),
     notice_type: Literal["all", "single", "multi", "unclassified"] = Query(default="all"),
     date_from: str | None = Query(default=None, max_length=20),
     date_to: str | None = Query(default=None, max_length=20),
@@ -697,6 +765,7 @@ def review_markdown_by_property(
     result = q.list_markdown_queue_by_property(
         status=status, q=q_search, page=page, size=size,
         score_min=score_min, score_max=score_max,
+        pq_min=pq_min, pq_max=pq_max, flags=_clean_health_flags(flags),
         notice_type=notice_type if notice_type != "all" else None,
         date_from=date_from, date_to=date_to,
     )
@@ -715,6 +784,9 @@ def review_markdown_bulk_confirm(
     result = q.auto_confirm_markdown(
         score_min=body.score_min,
         score_max=body.score_max,
+        pq_min=body.pq_min,
+        pq_max=body.pq_max,
+        flags=_clean_health_flags(body.flags),
         notice_type=body.notice_type if body.notice_type != "all" else None,
         date_from=body.date_from,
         date_to=body.date_to,
@@ -775,6 +847,39 @@ def _opt_int(v) -> int | None:
         return None
 
 
+def _clean_health_flags(flags: list[str] | None) -> list[str] | None:
+    """Keep only flags pipeline/ocr_health.py actually emits.
+
+    An unknown value would silently match nothing and hand the reviewer an
+    empty queue that looks like "no failures of this kind" — so it is a 422,
+    not a silent no-op.
+    """
+    if not flags:
+        return None
+    unknown = sorted({f for f in flags if f not in HEALTH_FLAGS})
+    if unknown:
+        raise HTTPException(
+            status_code=422,
+            detail=f"unknown health flag(s): {', '.join(unknown)}; "
+                   f"expected any of: {', '.join(HEALTH_FLAGS)}")
+    # De-duplicate, preserving the canonical severity order.
+    return [f for f in HEALTH_FLAGS if f in set(flags)]
+
+
+def _opt_float(v) -> float | None:
+    """Coerce a Neo4j numeric to float, or None when absent/unparseable.
+
+    Parse quality is fractional (3.0, 4.5 …), so it must not go through
+    ``_opt_int`` — that would silently truncate the reviewer's signal.
+    """
+    if v is None:
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
 def _ok_doc(doc: dict) -> BlocksDoc:
     blocks = [Block(**_with_block_health(b)) for b in (doc.get("blocks") or [])]
     raw_crop = doc.get("crop_bbox")
@@ -812,6 +917,8 @@ def _ok_doc(doc: dict) -> BlocksDoc:
         markdown_length=_opt_int(doc.get("markdown_length")),
         ocr_health_score=_opt_int(doc.get("ocr_health_score")),
         ocr_health_flags=[str(f) for f in flags] if isinstance(flags, list) else None,
+        parse_quality_score=_opt_float(doc.get("parse_quality_score")),
+        ink_uncovered_ratio=_opt_float(doc.get("ink_uncovered_ratio")),
         markdown_quality=quality,
         markdown_verified=bool(doc.get("markdown_verified")),
         markdown_reextracted_at=doc.get("markdown_reextracted_at"),

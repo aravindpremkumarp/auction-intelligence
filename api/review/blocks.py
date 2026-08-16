@@ -341,6 +341,8 @@ def _load_doc(filename: str) -> tuple[dict, int, dict]:
                size(d.markdown)               AS markdown_length,
                d.ocr_health_score             AS ocr_health_score,
                d.ocr_health_flags             AS ocr_health_flags,
+               d.parse_quality_score          AS parse_quality_score,
+               d.ink_uncovered_ratio          AS ink_uncovered_ratio,
                d.markdown_quality             AS markdown_quality,
                (d.markdown_verified_at IS NOT NULL) AS markdown_verified,
                toString(d.markdown_reextracted_at)  AS markdown_reextracted_at
@@ -388,6 +390,8 @@ def _load_doc(filename: str) -> tuple[dict, int, dict]:
         "markdown_length":         r.get("markdown_length"),
         "ocr_health_score":        r.get("ocr_health_score"),
         "ocr_health_flags":        r.get("ocr_health_flags"),
+        "parse_quality_score":     r.get("parse_quality_score"),
+        "ink_uncovered_ratio":     r.get("ink_uncovered_ratio"),
         "markdown_quality":        r.get("markdown_quality"),
         "markdown_verified":       bool(r.get("markdown_verified")),
         "markdown_reextracted_at": r.get("markdown_reextracted_at"),

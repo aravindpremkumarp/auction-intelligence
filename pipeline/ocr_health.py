@@ -39,6 +39,14 @@ MinerU's vlm model actually exhibits on full-page ruled notices:
     crops prose / grid / footer bands and OCRs them separately into distinct
     Text/Table/Footer blocks.
 
+  - **missing-region** — ink on the page that no parsed block covers. This is
+    the one failure mode the text alone cannot reveal: the checks above all
+    judge what we *did* read, so a notice whose entire right-hand column never
+    reached the markdown passes every one of them and scores 100. Measured by
+    ``pipeline/ink_coverage.py`` (which needs the source image, so it is passed
+    in via the ``region`` argument rather than computed here) and flagged above
+    ``MISSING_REGION_MIN_RATIO`` of unread ink.
+
 Score = 100 minus per-flag penalties, clamped to 0–100. A document with no
 flags scores 100. Fields written (additive — ``markdown_quality_score`` is
 untouched):
@@ -123,7 +131,19 @@ COLLAPSE_MAX_OUTSIDE_RATIO = 0.15
 COLLAPSE_MIN_TABLE_CHARS = 500
 
 PENALTY = {"repetition": 0, "token-leak": 40, "truncated": 30,
-           "foreign-script": 40, "table-collapse": 35}  # repetition scaled
+           "foreign-script": 40, "table-collapse": 35,
+           # Lost content is the worst outcome for downstream extraction: the
+           # properties in an unread column simply do not exist for us. Priced
+           # above table-collapse, which at least keeps the text.
+           "missing-region": 45}  # repetition scaled
+
+# The canonical failure vocabulary, in severity order. The review API validates
+# its flag filter against this, so a renamed or added flag reaches the UI by
+# changing this module alone — no second list to drift out of sync.
+HEALTH_FLAGS: tuple[str, ...] = (
+    "missing-region", "table-collapse", "truncated",
+    "repetition", "token-leak", "foreign-script",
+)
 
 
 def _norm_line(line: str) -> str:
@@ -188,11 +208,17 @@ def _table_collapse(text: str) -> dict | None:
     }
 
 
-def score_ocr_health(markdown: str | None) -> dict:
+def score_ocr_health(markdown: str | None, *, region: dict | None = None) -> dict:
     """Score one document's OCR markdown.
 
     Returns ``{"score": int|None, "flags": [str], "details": {…}}``.
     ``score`` is None when there is no markdown to judge.
+
+    ``region`` is an optional :func:`pipeline.ink_coverage.score_ink_coverage`
+    result. It is passed in rather than computed here because it needs the
+    source image, which this module (pure text, called in bulk over Neo4j rows)
+    deliberately never fetches. Omitted or unscorable → no ``missing-region``
+    flag, and every existing caller keeps its exact behaviour.
     """
     if not markdown or not markdown.strip():
         return {"score": None, "flags": [], "details": {}}
@@ -247,6 +273,12 @@ def score_ocr_health(markdown: str | None) -> dict:
         flags.append("table-collapse")
         details["table_collapse"] = collapse
         penalty += PENALTY["table-collapse"]
+
+    if region and region.get("flag"):
+        flags.append("missing-region")
+        details["missing_region"] = region.get("details") or {
+            "uncovered_ratio": region.get("uncovered_ratio")}
+        penalty += PENALTY["missing-region"]
 
     return {"score": max(0, 100 - penalty), "flags": flags, "details": details}
 

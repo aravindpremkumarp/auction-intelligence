@@ -108,6 +108,34 @@ def select_docs(since: str, min_ocr: int, resume: bool,
         max_rows=20_000, timeout=120.0)
 
 
+def select_stale_docs(min_ocr: int, limit: int | None) -> list[dict]:
+    """Documents whose markdown was rewritten after they were last extracted.
+
+    ``scripts/fix_missing_regions.py`` stamps ``extraction_stale_at`` when it
+    recovers a dropped region: the stored entities were read off text that was
+    missing content, so they under-report the notice. These are exactly the
+    documents ``--resume`` must NOT skip — they already have
+    ``extraction_json``, and that is the problem rather than the reason to leave
+    them alone.
+
+    ``min_ocr`` still applies: a notice whose region could only be partly
+    recovered is not worth spending an extraction on yet.
+    """
+    q = (
+        "MATCH (d:Document) "
+        "WHERE d.extraction_stale_at IS NOT NULL "
+        "  AND d.markdown IS NOT NULL AND d.markdown <> '' "
+        "  AND d.ocr_health_score > $min_ocr "
+        "RETURN d.filename AS filename, d.markdown AS md, "
+        "       d.notice_type AS notice_type, "
+        "       d.expected_lot_count AS expected_lot_count "
+        "ORDER BY d.filename"
+        + (f" LIMIT {int(limit)}" if limit else "")
+    )
+    return run_read_query(q, {"min_ocr": int(min_ocr)},
+                          max_rows=20_000, timeout=120.0)
+
+
 def _extract_one(d: dict, batch: int, route: bool):
     """Extract + write one document. Returns (filename, n_entities, model_id) on
     success or raises. Safe to call from a worker thread: LX.extract builds its
@@ -130,7 +158,11 @@ def _extract_one(d: dict, batch: int, route: bool):
             d.extraction_at    = datetime(),
             d.extraction_batch = $batch,
             d.extraction_review_status =
-                coalesce(d.extraction_review_status, 'pending')
+                coalesce(d.extraction_review_status, 'pending'),
+            // Fresh entities now reflect the current markdown, so the staleness
+            // marker fix_missing_regions left behind is cleared here — the flag
+            // must not outlive the condition it describes.
+            d.extraction_stale_at = NULL
         RETURN d.filename
         """,
         {"fn": fn, "j": json.dumps(ents, ensure_ascii=False),
@@ -201,6 +233,11 @@ def main() -> int:
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--concurrency", type=int, default=1,
                     help="documents to extract in parallel (default 1)")
+    ap.add_argument("--stale", action="store_true",
+                    help="re-extract Documents whose markdown was rewritten "
+                         "after their last extraction (extraction_stale_at set "
+                         "by scripts.fix_missing_regions); ignores --since and "
+                         "--resume, since these already have extraction_json")
     ap.add_argument("--count-only", action="store_true",
                     help="print how many documents match and exit")
     args = ap.parse_args()
@@ -212,11 +249,16 @@ def main() -> int:
         if args.clear_only:
             return 0
 
-    docs = select_docs(since, args.min_ocr, resume=not args.no_resume,
-                       limit=args.limit)
-    print(f"matched {len(docs)} document(s) "
-          f"(ocr>{args.min_ocr}, auction_start >= {since}, "
-          f"resume={not args.no_resume})")
+    if args.stale:
+        docs = select_stale_docs(args.min_ocr, limit=args.limit)
+        print(f"matched {len(docs)} document(s) with stale extractions "
+              f"(ocr>{args.min_ocr}; markdown rewritten since last extract)")
+    else:
+        docs = select_docs(since, args.min_ocr, resume=not args.no_resume,
+                           limit=args.limit)
+        print(f"matched {len(docs)} document(s) "
+              f"(ocr>{args.min_ocr}, auction_start >= {since}, "
+              f"resume={not args.no_resume})")
     if args.count_only:
         return 0
     return extract_docs(docs, concurrency=max(1, args.concurrency))

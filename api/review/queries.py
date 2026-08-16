@@ -678,6 +678,47 @@ def auto_confirm_classifications(
 MarkdownStatus = Literal["pending", "verified", "edited", "all"]
 
 
+def _parse_quality_where(pq_min: float | None,
+                         pq_max: float | None) -> tuple[list[str], dict]:
+    """WHERE fragments for the Datalab parse-quality filter (0–5, higher is
+    better).
+
+    Distinct from OCR health on purpose: health is our own text-only verdict
+    (``pipeline/ocr_health.py``) and cannot see content the engine dropped,
+    while parse quality is Datalab's own read on the *page*. A notice that
+    lost a third of its text scores 100 health and ~3 parse quality, so the
+    two filters answer different questions and compose.
+
+    Documents with no stored score are excluded once either bound is set —
+    same rule as the health filter, and the honest one here since a missing
+    score means "never measured", not "fine".
+    """
+    where: list[str] = []
+    params: dict = {}
+    if pq_min is not None:
+        where.append("d.parse_quality_score IS NOT NULL")
+        where.append("d.parse_quality_score >= $pq_min")
+        params["pq_min"] = float(pq_min)
+    if pq_max is not None:
+        where.append("d.parse_quality_score IS NOT NULL")
+        where.append("d.parse_quality_score <= $pq_max")
+        params["pq_max"] = float(pq_max)
+    return where, params
+
+
+def _health_flags_where(flags: list[str] | None) -> tuple[list[str], dict]:
+    """WHERE fragment matching Documents carrying ANY of ``flags``.
+
+    OR, not AND: the reviewer picking `missing-region` + `repetition` wants the
+    queue of everything broken in either way, not the rare doc broken in both.
+    An empty/None list is no filter at all.
+    """
+    if not flags:
+        return [], {}
+    return (["any(f IN coalesce(d.ocr_health_flags, []) WHERE f IN $health_flags)"],
+            {"health_flags": list(flags)})
+
+
 def _markdown_where(
     status: MarkdownStatus,
     score_min: float | None,
@@ -686,6 +727,9 @@ def _markdown_where(
     date_from: str | None = None,
     date_to: str | None = None,
     q: str | None = None,
+    pq_min: float | None = None,
+    pq_max: float | None = None,
+    flags: list[str] | None = None,
 ) -> tuple[list[str], dict]:
     where = ["d.markdown IS NOT NULL", "d.markdown <> ''"]
     params: dict = {}
@@ -709,6 +753,12 @@ def _markdown_where(
         where.append("d.ocr_health_score IS NOT NULL")
         where.append("d.ocr_health_score <= $score_max")
         params["score_max"] = float(score_max)
+    pq_where, pq_params = _parse_quality_where(pq_min, pq_max)
+    where.extend(pq_where)
+    params.update(pq_params)
+    fl_where, fl_params = _health_flags_where(flags)
+    where.extend(fl_where)
+    params.update(fl_params)
     clause = _notice_type_clause(notice_type, alias="d")
     if clause:
         where.append(clause)
@@ -815,12 +865,16 @@ def list_markdown_queue(
     notice_type: NoticeTypeFilter | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
+    pq_min: float | None = None,
+    pq_max: float | None = None,
+    flags: list[str] | None = None,
 ) -> dict:
     """Return a page of Documents for markdown-quality review.
 
     Order: pending first, then lowest OCR-health first (so the worst OCR
     floats to the top of the reviewer's queue). `score_min`/`score_max`
     filter on ocr_health_score — the markdown stage's single score.
+    `pq_min`/`pq_max` filter on Datalab's parse_quality_score (0–5).
 
     date_from / date_to filter to Documents linked to any AuctionProperty
     whose auction_start_dt falls in the window.
@@ -832,6 +886,7 @@ def list_markdown_queue(
     where, params = _markdown_where(
         status, score_min, score_max, notice_type,
         date_from=date_from, date_to=date_to, q=q,
+        pq_min=pq_min, pq_max=pq_max, flags=flags,
     )
     params.update({"skip": skip, "size": size})
     where_clause = " AND ".join(where)
@@ -854,6 +909,8 @@ def list_markdown_queue(
                d.markdown_quality_score         AS score,
                d.ocr_health_score               AS ocr_health_score,
                d.ocr_health_flags               AS ocr_health_flags,
+               d.parse_quality_score            AS parse_quality_score,
+               d.ink_uncovered_ratio            AS ink_uncovered_ratio,
                d.markdown_quality               AS quality,
                (d.markdown_verified_at IS NOT NULL) AS verified,
                toString(d.markdown_verified_at) AS verified_at,
@@ -889,6 +946,9 @@ def list_markdown_queue_by_property(
     notice_type: NoticeTypeFilter | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
+    pq_min: float | None = None,
+    pq_max: float | None = None,
+    flags: list[str] | None = None,
 ) -> dict:
     """One row per AuctionProperty projected with its Document's
     markdown-quality status."""
@@ -918,6 +978,14 @@ def list_markdown_queue_by_property(
         where.append("d.ocr_health_score IS NOT NULL")
         where.append("d.ocr_health_score <= $score_max")
         params["score_max"] = float(score_max)
+
+    pq_where, pq_params = _parse_quality_where(pq_min, pq_max)
+    where.extend(pq_where)
+    params.update(pq_params)
+
+    fl_where, fl_params = _health_flags_where(flags)
+    where.extend(fl_where)
+    params.update(fl_params)
 
     nt_clause = _notice_type_clause(notice_type, alias="d")
     if nt_clause:
@@ -950,6 +1018,7 @@ def list_markdown_queue_by_property(
                d.markdown_quality_score           AS score,
                d.ocr_health_score                 AS ocr_health_score,
                d.ocr_health_flags                 AS ocr_health_flags,
+               d.parse_quality_score              AS parse_quality_score,
                d.markdown_quality                 AS quality,
                (d.markdown_verified_at IS NOT NULL) AS verified,
                toString(d.markdown_verified_at)   AS verified_at
@@ -999,6 +1068,7 @@ def verify_markdown(
                d.markdown_quality_score         AS score,
                d.ocr_health_score               AS ocr_health_score,
                d.ocr_health_flags               AS ocr_health_flags,
+               d.parse_quality_score            AS parse_quality_score,
                d.markdown_quality               AS quality,
                true                             AS verified,
                toString(d.markdown_verified_at) AS verified_at,
@@ -1022,11 +1092,16 @@ def auto_confirm_markdown(
     date_from: str | None = None,
     date_to: str | None = None,
     q: str | None = None,
+    pq_min: float | None = None,
+    pq_max: float | None = None,
+    flags: list[str] | None = None,
 ) -> dict:
     """Bulk-verify (quality='good') every pending Document that matches the
-    reviewer's current queue filter (score range, notice_type, date window,
-    filename search). Mirrors `list_markdown_queue` via the shared
-    `_markdown_where` helper so the count and the action stay aligned.
+    reviewer's current queue filter (score range, parse-quality range, health
+    flags, notice_type, date window, filename search). Mirrors `list_markdown_queue`
+    via the shared `_markdown_where` helper so the count and the action stay
+    aligned — the parse-quality bounds MUST be threaded through here too, or
+    the button confirms a wider set than the queue it is labelled with.
 
     Returns ``{"count": N, "dry_run": bool}``.
     """
@@ -1038,6 +1113,9 @@ def auto_confirm_markdown(
         date_from=date_from,
         date_to=date_to,
         q=q,
+        pq_min=pq_min,
+        pq_max=pq_max,
+        flags=flags,
     )
     params["by"] = by_email
     params["notes"] = notes
@@ -1071,3 +1149,122 @@ def auto_confirm_markdown(
         params,
     )
     return {"count": int(rows[0]["n"]) if rows else 0, "dry_run": False}
+
+
+# ── Pipeline overview ───────────────────────────────────────────────────────
+
+# The workflow a notice moves through, in the order it actually runs: each
+# machine step is followed by the human gate that accepts it. Classification
+# comes before OCR because notice_type routes the OCR tier (single -> fast,
+# multi -> accurate, see pipeline.config.datalab_mode_for), so a notice whose
+# type nobody confirmed has not really cleared the step that feeds the parser.
+#
+# Counts are CUMULATIVE — a document counts at stage N only if it cleared
+# 1..N-1. Counted independently the corpus reports more notices extracted
+# (1,553) than markdown-verified (1,489), because extraction has run ahead of
+# review; every "drop" between stages would then be fiction.
+#
+# Block layer and ink coverage are deliberately absent: they are measurements
+# taken alongside the workflow, not steps in it, and they surface under
+# "attention" instead.
+PIPELINE_STAGES: list[tuple[str, str, str]] = [
+    ("scraped",       "Scraped",              "true"),
+    ("classified",    "Classified single/multi",
+     "d.notice_type IS NOT NULL"),
+    ("class_ok",      "Classification reviewed",
+     "d.notice_type_verified_at IS NOT NULL"),
+    ("ocr",           "OCR'd",
+     "d.markdown IS NOT NULL AND d.markdown <> ''"),
+    ("ocr_ok",        "OCR reviewed",
+     "d.markdown_verified_at IS NOT NULL"),
+    ("extracted",     "Entities extracted",
+     "d.extraction_json IS NOT NULL"),
+    ("extract_ok",    "Extraction reviewed",
+     "coalesce(d.extraction_review_status,'pending') = 'verified'"),
+]
+
+# Stages the pipeline will grow but does not have yet. Carried here so the
+# dashboard shows the whole intended path — a funnel that stops at extraction
+# implies the work ends there. They report no count rather than a zero, because
+# "nothing has reached this stage" and "this stage does not exist" are different
+# facts and a 0 would read as the first.
+PIPELINE_PLANNED: list[tuple[str, str]] = [
+    ("entity_resolution", "Entity resolution"),
+    ("graph_loaded",      "Loaded into the graph"),
+]
+
+
+def _stage_counts(scope_match: str, scope_where: str, params: dict) -> list[dict]:
+    """Count Documents clearing each stage AND all stages before it."""
+    parts = []
+    for i, (key, _label, _pred) in enumerate(PIPELINE_STAGES):
+        chain = " AND ".join(f"({p})" for _k, _l, p in PIPELINE_STAGES[: i + 1])
+        parts.append(f"sum(CASE WHEN {chain} THEN 1 ELSE 0 END) AS {key}")
+    rows = run_read_query(
+        f"{scope_match} {scope_where} WITH DISTINCT d RETURN {', '.join(parts)}",
+        params, max_rows=1, timeout=30.0)
+    r = rows[0] if rows else {}
+    out = [{"key": key, "label": label, "count": int(r.get(key) or 0),
+            "planned": False}
+           for key, label, _pred in PIPELINE_STAGES]
+    out += [{"key": key, "label": label, "count": None, "planned": True}
+            for key, label in PIPELINE_PLANNED]
+    return out
+
+
+def pipeline_overview() -> dict:
+    """Corpus-wide funnel plus the same funnel for upcoming auctions only.
+
+    Two scopes because they answer different questions: the whole corpus says
+    where the pipeline leaks, while the upcoming slice says what is at risk for
+    an auction that has not happened yet — the only backlog with a deadline.
+    """
+    all_stages = _stage_counts("MATCH (d:Document)", "", {})
+    upcoming = _stage_counts(
+        "MATCH (a:AuctionProperty)-[:HAS_DOCUMENT]->(d:Document)",
+        "WHERE a.auction_start_dt >= datetime()", {})
+
+    flag_rows = run_read_query(
+        """
+        MATCH (d:Document)
+        WHERE size(coalesce(d.ocr_health_flags, [])) > 0
+        UNWIND d.ocr_health_flags AS f
+        WITH f, count(*) AS n
+        OPTIONAL MATCH (a:AuctionProperty)-[:HAS_DOCUMENT]->(d2:Document)
+        WHERE f IN coalesce(d2.ocr_health_flags, [])
+          AND a.auction_start_dt >= datetime()
+        RETURN f AS flag, n AS total, count(DISTINCT d2) AS upcoming
+        ORDER BY n DESC
+        """,
+        max_rows=20, timeout=30.0)
+
+    extra_rows = run_read_query(
+        """
+        MATCH (d:Document)
+        WITH d, (d.markdown IS NOT NULL AND d.markdown <> '') AS has_md
+        RETURN sum(CASE WHEN coalesce(d.extraction_review_status,'') = 'pending'
+                         AND d.extraction_json IS NOT NULL THEN 1 ELSE 0 END)
+                   AS extraction_pending,
+               sum(CASE WHEN d.extraction_stale_at IS NOT NULL THEN 1 ELSE 0 END)
+                   AS extraction_stale,
+               sum(CASE WHEN has_md AND d.ink_uncovered_ratio IS NULL
+                        THEN 1 ELSE 0 END) AS unmeasured,
+               sum(CASE WHEN has_md AND (d.blocks IS NULL OR d.blocks = '')
+                        THEN 1 ELSE 0 END) AS no_blocks,
+               sum(CASE WHEN d.parse_quality_score IS NOT NULL THEN 1 ELSE 0 END)
+                   AS parse_quality_scored
+        """,
+        max_rows=1, timeout=30.0)
+    extra = extra_rows[0] if extra_rows else {}
+
+    return {
+        "stages": all_stages,
+        "upcoming_stages": upcoming,
+        "flags": [{"flag": r["flag"], "total": int(r["total"] or 0),
+                   "upcoming": int(r["upcoming"] or 0)} for r in flag_rows],
+        "extraction_pending": int(extra.get("extraction_pending") or 0),
+        "extraction_stale": int(extra.get("extraction_stale") or 0),
+        "unmeasured": int(extra.get("unmeasured") or 0),
+        "no_blocks": int(extra.get("no_blocks") or 0),
+        "parse_quality_scored": int(extra.get("parse_quality_scored") or 0),
+    }
