@@ -350,3 +350,30 @@ def test_pipeline_stage_counts_are_cumulative() -> None:
     for _k, _l, pred in q.PIPELINE_STAGES:
         assert f"({pred})" in cypher, pred
     assert cypher.count("d.markdown_verified_at IS NOT NULL") >= 3
+
+
+def test_pipeline_stage_detail_endpoint(client) -> None:
+    _ensure_admin_user()
+    r = client.get("/review/pipeline/extracted", headers=_admin_header())
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["key"] == "extracted" and body["label"]
+    for panel in body["panels"]:
+        assert "title" in panel and isinstance(panel["rows"], list)
+
+
+def test_pipeline_stage_detail_rejects_unknown_stage(client) -> None:
+    # A typo'd stage must 404 rather than render an empty page that reads as
+    # "this stage has no data".
+    _ensure_admin_user()
+    r = client.get("/review/pipeline/not-a-stage", headers=_admin_header())
+    assert r.status_code == 404
+
+
+def test_planned_stage_detail_says_so(client) -> None:
+    _ensure_admin_user()
+    r = client.get("/review/pipeline/entity_resolution", headers=_admin_header())
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["panels"] and body["panels"][0]["rows"] == []
+    assert "planned" in body["panels"][0]["note"]

@@ -1268,3 +1268,276 @@ def pipeline_overview() -> dict:
         "no_blocks": int(extra.get("no_blocks") or 0),
         "parse_quality_scored": int(extra.get("parse_quality_scored") or 0),
     }
+
+
+# ── Per-stage detail ────────────────────────────────────────────────────────
+#
+# Each stage of the funnel opens its own page. The endpoint returns *panels* in
+# a small generic shape — a title, a note, and rows of {label, count, pct,
+# href} — so the renderer stays one function and a new stage only has to
+# describe what it knows. Rows carry an optional href into the queue already
+# filtered, keeping the dashboard a way in rather than a dead end.
+
+# Entity-coverage is computed from stored extraction_json, which means pulling
+# ~13 KB per document; the full corpus is ~20 MB and too slow to fetch on every
+# page load. The panel therefore scans the most recent N extractions and says
+# so — for "is the extractor capturing the fields we need", recent behaviour is
+# the honest sample anyway.
+ENTITY_COVERAGE_SAMPLE = 600
+
+_stage_cache: dict = {}
+_STAGE_CACHE_TTL_S = 300.0
+
+
+def _rows(pairs, total, href=None) -> list[dict]:
+    """[(label, count)] -> panel rows carrying their share of ``total``."""
+    return [{"label": label, "count": int(count or 0),
+             "pct": round((count or 0) / total * 100, 1) if total else 0.0,
+             "href": href(label) if href else None}
+            for label, count in pairs]
+
+
+def _count_query(cypher: str, params: dict | None = None) -> dict:
+    rows = run_read_query(cypher, params or {}, max_rows=1, timeout=30.0)
+    return rows[0] if rows else {}
+
+
+def _panel(title: str, rows: list[dict], note: str = "", kind: str = "bars") -> dict:
+    return {"kind": kind, "title": title, "note": note, "rows": rows}
+
+
+def _entity_coverage_panels(sample: int) -> list[dict]:
+    """Field coverage + score bands + validator issues over recent extractions."""
+    import collections
+    import json as _json
+    import time as _time
+
+    cached = _stage_cache.get("entity_coverage")
+    if cached and (_time.monotonic() - cached[0]) < _STAGE_CACHE_TTL_S:
+        return cached[1]
+
+    from pipeline.validators import COVERAGE_FIELDS, validate_stored
+
+    rows = run_read_query(
+        """
+        MATCH (d:Document)
+        WHERE d.extraction_json IS NOT NULL
+        RETURN d.filename AS filename, d.extraction_json AS ej,
+               d.extraction_score AS score
+        ORDER BY d.extraction_at DESC
+        LIMIT $lim
+        """,
+        {"lim": int(sample)}, max_rows=int(sample), timeout=120.0)
+
+    cov = collections.Counter()
+    issues = collections.Counter()
+    ent_counts: list[int] = []
+    n = len(rows)
+    for r in rows:
+        try:
+            ents = _json.loads(r.get("ej") or "[]")
+        except (TypeError, ValueError):
+            continue
+        ent_counts.append(len(ents))
+        report = validate_stored(ents)
+        for f in report.get("fields") or []:
+            cov[f] += 1
+        for iss in report.get("issues") or []:
+            issues[iss.get("code") or "?"] += 1
+
+    field_rows = sorted(
+        _rows([(f, cov[f]) for f in COVERAGE_FIELDS], n),
+        key=lambda r: r["pct"])
+    issue_rows = _rows(issues.most_common(12), n)
+    ent_counts.sort()
+    median_ents = ent_counts[len(ent_counts) // 2] if ent_counts else 0
+
+    panels = [
+        _panel("Entity coverage", field_rows,
+               f"share of the last {n} extractions carrying each field — "
+               "lowest first, because that is where the extractor is losing "
+               "information"),
+        _panel("Validator issues", issue_rows,
+               "how often each check fires across those extractions"),
+        _panel("Entities per notice", _rows([
+            ("fewest", ent_counts[0] if ent_counts else 0),
+            ("median", median_ents),
+            ("most", ent_counts[-1] if ent_counts else 0),
+        ], 0), "raw counts, not percentages", kind="lines"),
+    ]
+    _stage_cache["entity_coverage"] = (_time.monotonic(), panels)
+    return panels
+
+
+def pipeline_stage_detail(key: str, sample: int = ENTITY_COVERAGE_SAMPLE) -> dict:
+    """Panels describing one pipeline stage in depth."""
+    labels = {k: label for k, label, _p in PIPELINE_STAGES}
+    labels.update({k: label for k, label in PIPELINE_PLANNED})
+    if key not in labels:
+        raise ValueError(f"unknown stage: {key}")
+    out = {"key": key, "label": labels[key], "panels": []}
+
+    if key in {k for k, _l in PIPELINE_PLANNED}:
+        out["panels"] = [_panel(
+            "Not built yet",
+            [], f"{labels[key]} is planned; nothing reports on it yet.")]
+        return out
+
+    if key == "scraped":
+        c = _count_query("""
+            MATCH (d:Document)
+            RETURN count(d) AS total,
+                   sum(CASE WHEN d.public_url IS NULL OR d.public_url = ''
+                            THEN 1 ELSE 0 END) AS no_url,
+                   sum(CASE WHEN d.markdown IS NULL OR d.markdown = ''
+                            THEN 1 ELSE 0 END) AS no_text,
+                   sum(CASE WHEN NOT EXISTS {
+                            MATCH (:AuctionProperty)-[:HAS_DOCUMENT]->(d) }
+                            THEN 1 ELSE 0 END) AS orphan
+        """)
+        total = int(c.get("total") or 0)
+        out["panels"] = [
+            _panel("Source material", _rows([
+                ("notices scraped", total),
+                ("no source URL — cannot be re-read", c.get("no_url")),
+                ("no text yet", c.get("no_text")),
+                ("not linked to any auction", c.get("orphan")),
+            ], total), "everything downstream starts from these"),
+            _panel("By file type", _rows([
+                (r["t"], r["n"]) for r in run_read_query(
+                    "MATCH (d:Document) RETURN coalesce(d.file_type,'unknown') AS t, "
+                    "count(*) AS n ORDER BY n DESC", max_rows=20, timeout=30.0)
+            ], total), "PDFs cannot be checked for missing content"),
+        ]
+
+    elif key in ("classified", "class_ok"):
+        total = int(_count_query("MATCH (d:Document) RETURN count(d) AS n").get("n") or 0)
+        type_rows = run_read_query(
+            "MATCH (d:Document) RETURN coalesce(d.notice_type,'unclassified') AS t, "
+            "count(*) AS n ORDER BY n DESC", max_rows=10, timeout=30.0)
+        c = _count_query("""
+            MATCH (d:Document)
+            RETURN sum(CASE WHEN d.notice_type_verified_at IS NOT NULL
+                            THEN 1 ELSE 0 END) AS verified,
+                   sum(CASE WHEN coalesce(d.notice_type_overridden,false)
+                            THEN 1 ELSE 0 END) AS overridden,
+                   sum(CASE WHEN d.notice_type = 'multi'
+                             AND d.expected_lot_count IS NULL
+                            THEN 1 ELSE 0 END) AS multi_no_lots
+        """)
+        out["panels"] = [
+            _panel("Type mix", _rows([(r["t"], r["n"]) for r in type_rows], total),
+                   "single routes OCR to the fast tier, multi to accurate",
+                   ),
+            _panel("Review", _rows([
+                ("confirmed by a human", c.get("verified")),
+                ("still to confirm", total - int(c.get("verified") or 0)),
+                ("human overrode the machine", c.get("overridden")),
+                ("multi notices with no expected lot count",
+                 c.get("multi_no_lots")),
+            ], total), "the lot count is the checksum extraction is judged against"),
+        ]
+
+    elif key in ("ocr", "ocr_ok"):
+        total = int(_count_query(
+            "MATCH (d:Document) WHERE d.markdown IS NOT NULL AND d.markdown <> '' "
+            "RETURN count(d) AS n").get("n") or 0)
+        engine_rows = run_read_query(
+            "MATCH (d:Document) WHERE d.markdown IS NOT NULL AND d.markdown <> '' "
+            "RETURN coalesce(d.markdown_model,'unknown') AS t, count(*) AS n "
+            "ORDER BY n DESC", max_rows=12, timeout=30.0)
+        health = _count_query("""
+            MATCH (d:Document) WHERE d.ocr_health_score IS NOT NULL
+            RETURN sum(CASE WHEN d.ocr_health_score = 100 THEN 1 ELSE 0 END) AS clean,
+                   sum(CASE WHEN d.ocr_health_score < 100
+                             AND d.ocr_health_score >= 60 THEN 1 ELSE 0 END) AS mid,
+                   sum(CASE WHEN d.ocr_health_score < 60 THEN 1 ELSE 0 END) AS bad
+        """)
+        flags = run_read_query("""
+            MATCH (d:Document) WHERE size(coalesce(d.ocr_health_flags,[])) > 0
+            UNWIND d.ocr_health_flags AS f
+            RETURN f AS t, count(*) AS n ORDER BY n DESC
+        """, max_rows=12, timeout=30.0)
+        # ink_uncovered_ratio is the page TOTAL; the missing-region flag fires on
+        # the largest contiguous patch. They are different measures and a doc can
+        # carry 20% scattered without being flagged, so the flagged count is read
+        # from the flag itself rather than re-derived from the ratio.
+        ink = _count_query("""
+            MATCH (d:Document) WHERE d.ink_uncovered_ratio IS NOT NULL
+            RETURN count(d) AS measured,
+                   sum(CASE WHEN d.ink_uncovered_ratio < 0.05 THEN 1 ELSE 0 END) AS tight,
+                   sum(CASE WHEN 'missing-region' IN coalesce(d.ocr_health_flags,[])
+                            THEN 1 ELSE 0 END) AS flagged
+        """)
+        review = _count_query("""
+            MATCH (d:Document) WHERE d.markdown IS NOT NULL AND d.markdown <> ''
+            RETURN sum(CASE WHEN d.markdown_verified_at IS NOT NULL
+                        AND d.markdown_quality = 'good' THEN 1 ELSE 0 END) AS good,
+                   sum(CASE WHEN d.markdown_verified_at IS NOT NULL
+                        AND d.markdown_quality = 'bad' THEN 1 ELSE 0 END) AS bad,
+                   sum(CASE WHEN d.markdown_verified_at IS NULL THEN 1 ELSE 0 END) AS pending,
+                   sum(CASE WHEN d.markdown_reextracted_at IS NOT NULL
+                            THEN 1 ELSE 0 END) AS reextracted
+        """)
+        out["panels"] = [
+            _panel("Engine", _rows([(r["t"], r["n"]) for r in engine_rows], total),
+                   "which parser produced the text on file"),
+            _panel("Health", _rows([
+                ("clean (100)", health.get("clean")),
+                ("60–99", health.get("mid")),
+                ("below 60", health.get("bad")),
+            ], total), "score after every failure-mode penalty"),
+            _panel("Failures", _rows(
+                [(r["t"], r["n"]) for r in flags], total,
+                href=lambda f: f"#stage=markdown&group=notice&status=all"
+                               f"&notice_type=all&flags={f}"),
+                "click a failure to open that queue"),
+            _panel("Missing content", _rows([
+                ("checked for missing content", ink.get("measured")),
+                ("under 5% of ink unread in total", ink.get("tight")),
+                ("flagged: one solid patch never read", ink.get("flagged")),
+                ("never checked", total - int(ink.get("measured") or 0)),
+            ], total),
+                   "the flag fires on the largest single gap, not the page total — "
+                   "scattered slivers are bbox slop, one solid patch is lost content"),
+            _panel("Review", _rows([
+                ("accepted", review.get("good")),
+                ("marked bad", review.get("bad")),
+                ("not yet reviewed", review.get("pending")),
+                ("re-extracted by a reviewer", review.get("reextracted")),
+            ], total), ""),
+        ]
+
+    elif key in ("extracted", "extract_ok"):
+        total = int(_count_query(
+            "MATCH (d:Document) WHERE d.extraction_json IS NOT NULL "
+            "RETURN count(d) AS n").get("n") or 0)
+        status = run_read_query(
+            "MATCH (d:Document) WHERE d.extraction_json IS NOT NULL "
+            "RETURN coalesce(d.extraction_review_status,'pending') AS t, "
+            "count(*) AS n ORDER BY n DESC", max_rows=10, timeout=30.0)
+        score = _count_query("""
+            MATCH (d:Document) WHERE d.extraction_score IS NOT NULL
+            RETURN sum(CASE WHEN d.extraction_score >= 90 THEN 1 ELSE 0 END) AS top,
+                   sum(CASE WHEN d.extraction_score >= 70
+                             AND d.extraction_score < 90 THEN 1 ELSE 0 END) AS mid,
+                   sum(CASE WHEN d.extraction_score < 70 THEN 1 ELSE 0 END) AS low,
+                   sum(CASE WHEN d.extraction_stale_at IS NOT NULL THEN 1 ELSE 0 END)
+                       AS stale
+        """)
+        out["panels"] = [
+            _panel("Extraction score", _rows([
+                ("90 or above", score.get("top")),
+                ("70–89", score.get("mid")),
+                ("below 70 — worth a look", score.get("low")),
+            ], total), "validators.py score over the stored entities"),
+            _panel("Review", _rows(
+                [(r["t"], r["n"]) for r in status], total,
+                href=lambda s: f"#stage=extraction&group=notice&status={s}"),
+                "click a status to open that queue"),
+            _panel("Rerun needed", _rows([
+                ("markdown changed since extraction", score.get("stale")),
+            ], total), "their entities were read off text that has been replaced"),
+        ] + _entity_coverage_panels(sample)
+
+    return out

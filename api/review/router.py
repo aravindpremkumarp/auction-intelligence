@@ -682,6 +682,39 @@ class PipelineOverview(BaseModel):
     parse_quality_scored: int = 0
 
 
+class PipelineRow(BaseModel):
+    label: str
+    count: int
+    pct: float = 0.0
+    href: str | None = None
+
+
+class PipelinePanel(BaseModel):
+    kind: str = "bars"
+    title: str
+    note: str = ""
+    rows: list[PipelineRow] = []
+
+
+class PipelineStageDetail(BaseModel):
+    key: str
+    label: str
+    panels: list[PipelinePanel] = []
+
+
+@router.get("/pipeline/{stage_key}", response_model=PipelineStageDetail)
+def review_pipeline_stage(
+    stage_key: str,
+    sample: int = Query(default=q.ENTITY_COVERAGE_SAMPLE, ge=50, le=3000),
+    _admin: UserOut = Depends(get_current_admin),
+) -> PipelineStageDetail:
+    """Detail panels for one pipeline stage."""
+    try:
+        return PipelineStageDetail(**q.pipeline_stage_detail(stage_key, sample=sample))
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
 @router.get("/pipeline", response_model=PipelineOverview)
 def review_pipeline_overview(
     _admin: UserOut = Depends(get_current_admin),
