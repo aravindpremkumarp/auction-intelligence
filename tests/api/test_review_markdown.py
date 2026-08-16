@@ -337,7 +337,14 @@ def test_pipeline_stage_counts_are_cumulative() -> None:
     finally:
         q.run_read_query = orig
 
-    assert [s["key"] for s in stages] == [k for k, _l, _p in q.PIPELINE_STAGES]
+    built = [s for s in stages if not s["planned"]]
+    planned = [s for s in stages if s["planned"]]
+    assert [s["key"] for s in built] == [k for k, _l, _p in q.PIPELINE_STAGES]
+    assert [s["key"] for s in planned] == [k for k, _l in q.PIPELINE_PLANNED]
+    # A stage that does not exist reports no count. A 0 would read as "built,
+    # nothing reached it" — a different and misleading fact.
+    assert all(s["count"] is None for s in planned)
+    assert all(isinstance(s["count"], int) for s in built)
     cypher = captured["cypher"]
     # The last stage's CASE must carry every earlier predicate.
     for _k, _l, pred in q.PIPELINE_STAGES:

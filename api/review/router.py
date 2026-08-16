@@ -659,7 +659,10 @@ def review_classify(
 class PipelineStage(BaseModel):
     key: str
     label: str
-    count: int
+    # None for a stage the pipeline does not have yet — distinct from 0, which
+    # would read as "built, nothing reached it".
+    count: int | None = None
+    planned: bool = False
 
 
 class PipelineFlag(BaseModel):

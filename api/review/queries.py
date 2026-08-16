@@ -1153,23 +1153,44 @@ def auto_confirm_markdown(
 
 # ── Pipeline overview ───────────────────────────────────────────────────────
 
-# The workflow a notice moves through, in order. Each entry is the Cypher
-# predicate for clearing that stage, and counts are CUMULATIVE — a document
-# counts at stage N only if it also cleared 1..N-1. Without that, the numbers
-# are not a funnel: extraction has run on notices nobody verified, so a naive
-# per-stage count shows more documents extracted (1,553) than verified (1,489)
-# and every "drop" between stages becomes meaningless.
+# The workflow a notice moves through, in the order it actually runs: each
+# machine step is followed by the human gate that accepts it. Classification
+# comes before OCR because notice_type routes the OCR tier (single -> fast,
+# multi -> accurate, see pipeline.config.datalab_mode_for), so a notice whose
+# type nobody confirmed has not really cleared the step that feeds the parser.
 #
-# Block layer and coverage are deliberately absent: they are measurements taken
-# alongside the workflow, not steps in it, and they surface under "attention".
+# Counts are CUMULATIVE — a document counts at stage N only if it cleared
+# 1..N-1. Counted independently the corpus reports more notices extracted
+# (1,553) than markdown-verified (1,489), because extraction has run ahead of
+# review; every "drop" between stages would then be fiction.
+#
+# Block layer and ink coverage are deliberately absent: they are measurements
+# taken alongside the workflow, not steps in it, and they surface under
+# "attention" instead.
 PIPELINE_STAGES: list[tuple[str, str, str]] = [
-    ("ingested",   "Ingested",            "true"),
-    ("ocr",        "OCR'd",               "d.markdown IS NOT NULL AND d.markdown <> ''"),
-    ("classified", "Type confirmed",      "d.notice_type_verified_at IS NOT NULL"),
-    ("md_ok",      "Markdown verified",   "d.markdown_verified_at IS NOT NULL"),
-    ("extracted",  "Extracted",           "d.extraction_json IS NOT NULL"),
-    ("extract_ok", "Extraction verified",
+    ("scraped",       "Scraped",              "true"),
+    ("classified",    "Classified single/multi",
+     "d.notice_type IS NOT NULL"),
+    ("class_ok",      "Classification reviewed",
+     "d.notice_type_verified_at IS NOT NULL"),
+    ("ocr",           "OCR'd",
+     "d.markdown IS NOT NULL AND d.markdown <> ''"),
+    ("ocr_ok",        "OCR reviewed",
+     "d.markdown_verified_at IS NOT NULL"),
+    ("extracted",     "Entities extracted",
+     "d.extraction_json IS NOT NULL"),
+    ("extract_ok",    "Extraction reviewed",
      "coalesce(d.extraction_review_status,'pending') = 'verified'"),
+]
+
+# Stages the pipeline will grow but does not have yet. Carried here so the
+# dashboard shows the whole intended path — a funnel that stops at extraction
+# implies the work ends there. They report no count rather than a zero, because
+# "nothing has reached this stage" and "this stage does not exist" are different
+# facts and a 0 would read as the first.
+PIPELINE_PLANNED: list[tuple[str, str]] = [
+    ("entity_resolution", "Entity resolution"),
+    ("graph_loaded",      "Loaded into the graph"),
 ]
 
 
@@ -1183,8 +1204,12 @@ def _stage_counts(scope_match: str, scope_where: str, params: dict) -> list[dict
         f"{scope_match} {scope_where} WITH DISTINCT d RETURN {', '.join(parts)}",
         params, max_rows=1, timeout=30.0)
     r = rows[0] if rows else {}
-    return [{"key": key, "label": label, "count": int(r.get(key) or 0)}
-            for key, label, _pred in PIPELINE_STAGES]
+    out = [{"key": key, "label": label, "count": int(r.get(key) or 0),
+            "planned": False}
+           for key, label, _pred in PIPELINE_STAGES]
+    out += [{"key": key, "label": label, "count": None, "planned": True}
+            for key, label in PIPELINE_PLANNED]
+    return out
 
 
 def pipeline_overview() -> dict:

@@ -65,6 +65,8 @@
   .ov-track { background: #f0efe9; height: 16px; position: relative; }
   .ov-bar { background: var(--accent); height: 100%; }
   .ov-bar.drop { background: #e8b4ae; }
+  .ov-planned { opacity: .55; }
+  .ov-planned .ov-track { border: 1px dashed var(--muted); background: transparent; }
   .ov-num { font-family: 'IBM Plex Mono', monospace; font-size: 12px; text-align: right;
             font-variant-numeric: tabular-nums; }
   .ov-num small { color: var(--muted); }
@@ -1037,20 +1039,24 @@
   // Documents that have cleared it, so the funnel only ever narrows, and the
   // biggest single drop between consecutive stages is the blockage worth
   // naming at the top.
-  function ovFunnel(el, stages) {
-    if (!stages.length) { el.innerHTML = ''; return 0; }
+  function ovFunnel(el, allStages) {
+    // Planned stages carry no count — they're drawn as an empty track so the
+    // whole intended pipeline is visible, and they take no part in the
+    // blockage maths (nothing is stuck at a stage that doesn't exist).
+    const stages = allStages.filter(s => !s.planned);
+    const planned = allStages.filter(s => s.planned);
+    if (!stages.length) { el.innerHTML = ''; return { drop: -1 }; }
     const top = Math.max(...stages.map(s => s.count), 1);
     let worst = { drop: -1 };
     stages.forEach((s, i) => {
-      const prev = i === 0 ? s.count : stages[i - 1].count;
-      const drop = prev - s.count;
-      if (drop > worst.drop) worst = { drop, label: s.label, prev: stages[i - 1], stage: s };
+      if (i === 0) return;
+      const drop = stages[i - 1].count - s.count;
+      if (drop > worst.drop) worst = { drop, label: s.label, prev: stages[i - 1] };
     });
-    el.innerHTML = stages.map((s, i) => {
-      const prev = i === 0 ? s.count : stages[i - 1].count;
-      const lost = prev - s.count;
+    const rows = stages.map((s, i) => {
+      const lost = i === 0 ? 0 : stages[i - 1].count - s.count;
       const pct = Math.round((s.count / top) * 100);
-      const isWorst = i > 0 && lost === worst.drop && lost > 0;
+      const isWorst = lost > 0 && lost === worst.drop;
       return `<div class="ov-row">
         <span class="ov-label">${escapeHtml(s.label)}</span>
         <span class="ov-track"><span class="ov-bar${isWorst ? ' drop' : ''}"
@@ -1058,7 +1064,12 @@
         <span class="ov-num">${s.count.toLocaleString()}${
           lost > 0 ? `<small> −${lost.toLocaleString()}</small>` : ''}</span>
       </div>`;
-    }).join('');
+    }).concat(planned.map(s => `<div class="ov-row ov-planned">
+        <span class="ov-label">${escapeHtml(s.label)}</span>
+        <span class="ov-track"></span>
+        <span class="ov-num"><small>not built yet</small></span>
+      </div>`));
+    el.innerHTML = rows.join('');
     return worst;
   }
 
@@ -1076,7 +1087,7 @@
     const upTotal = d.upcoming_stages[0]?.count || 0;
     $('ov-total').textContent = `${total.toLocaleString()} notices`;
     $('ov-uptotal').textContent = `${upTotal.toLocaleString()} notices`;
-    sub.textContent = 'counts are documents that cleared each stage';
+    sub.textContent = 'each stage counts notices that cleared it and every stage before it';
 
     const worst = ovFunnel($('ov-funnel'), d.stages);
     ovFunnel($('ov-funnel-up'), d.upcoming_stages);
