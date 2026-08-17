@@ -1588,104 +1588,60 @@ def pipeline_stage_detail(key: str, sample: int = ENTITY_COVERAGE_SAMPLE) -> dic
             _panel("Most spelling variants", _rows(
                 [(r["t"], r["n"]) for r in spelt], total),
                    "how many different spellings each lender arrived under"),
-        ]
-
-    elif key == "resolved":
-        total = int(_count_query(
-            "MATCH (d:Document) WHERE d.bank_canonical IS NOT NULL "
-            "RETURN count(d) AS n").get("n") or 0)
-        state = _count_query(
-            "MATCH (s:PipelineState {key:'entity_resolution'}) "
-            "RETURN s.raw_values AS raw, s.entities AS entities, "
-            "       s.merged_spellings AS merged, s.proposals_open AS proposals, "
-            "       s.proposals_json AS proposals_json")
-        top = run_read_query(
-            "MATCH (d:Document) WHERE d.bank_canonical IS NOT NULL "
-            "RETURN d.bank_canonical AS t, count(*) AS n ORDER BY n DESC LIMIT 12",
-            max_rows=12, timeout=30.0)
-        spelt = run_read_query(
-            """
-            MATCH (d:Document)
-            WHERE d.bank_canonical IS NOT NULL AND d.bank_name_raw IS NOT NULL
-              AND d.bank_name_raw <> d.bank_canonical
-            RETURN d.bank_canonical AS t, count(DISTINCT d.bank_name_raw) AS n
-            ORDER BY n DESC LIMIT 10
-            """, max_rows=10, timeout=30.0)
-        proposals: list[dict] = []
-        try:
-            import json as _json
-            proposals = _json.loads(state.get("proposals_json") or "[]")
-        except (TypeError, ValueError):
-            proposals = []
-        out["panels"] = [
-            _panel("Lenders", _rows([
-                ("name strings extracted", state.get("raw")),
-                ("distinct lenders after resolution", state.get("entities")),
-                ("spellings absorbed", state.get("merged")),
-                ("notices carrying a resolved lender", total),
-            ], int(state.get("raw") or 0) or total),
-                   "only exact matches after case, punctuation and legal form "
-                   "are normalised away — nothing merges on resemblance"),
-            _panel("Awaiting a human", _rows(
-                [(f"{p.get('a')}   vs  {p.get('b')}", p.get("score"))
-                 for p in proposals[:20]], 100),
-                   f"{len(proposals)} pair(s) too similar to ignore and too "
-                   "risky to merge automatically — the number shown is the "
-                   "similarity score, not a count"),
-            _panel("Most frequent lenders",
-                   _rows([(r["t"], r["n"]) for r in top], total), ""),
-            _panel("Most spelling variants", _rows(
-                [(r["t"], r["n"]) for r in spelt], total),
-                   "how many different spellings each lender arrived under"),
-        ]
-
-    elif key == "resolved":
-        total = int(_count_query(
-            "MATCH (d:Document) WHERE d.bank_canonical IS NOT NULL "
-            "RETURN count(d) AS n").get("n") or 0)
-        state = _count_query(
-            "MATCH (s:PipelineState {key:'entity_resolution'}) "
-            "RETURN s.raw_values AS raw, s.entities AS entities, "
-            "       s.merged_spellings AS merged, s.proposals_open AS proposals, "
-            "       s.proposals_json AS proposals_json")
-        top = run_read_query(
-            "MATCH (d:Document) WHERE d.bank_canonical IS NOT NULL "
-            "RETURN d.bank_canonical AS t, count(*) AS n ORDER BY n DESC LIMIT 12",
-            max_rows=12, timeout=30.0)
-        spelt = run_read_query(
-            """
-            MATCH (d:Document)
-            WHERE d.bank_canonical IS NOT NULL AND d.bank_name_raw IS NOT NULL
-              AND d.bank_name_raw <> d.bank_canonical
-            RETURN d.bank_canonical AS t, count(DISTINCT d.bank_name_raw) AS n
-            ORDER BY n DESC LIMIT 10
-            """, max_rows=10, timeout=30.0)
-        proposals: list[dict] = []
-        try:
-            import json as _json
-            proposals = _json.loads(state.get("proposals_json") or "[]")
-        except (TypeError, ValueError):
-            proposals = []
-        out["panels"] = [
-            _panel("Lenders", _rows([
-                ("name strings extracted", state.get("raw")),
-                ("distinct lenders after resolution", state.get("entities")),
-                ("spellings absorbed", state.get("merged")),
-                ("notices carrying a resolved lender", total),
-            ], int(state.get("raw") or 0) or total),
-                   "only exact matches after case, punctuation and legal form "
-                   "are normalised away — nothing merges on resemblance"),
-            _panel("Awaiting a human", _rows(
-                [(f"{p.get('a')}   vs  {p.get('b')}", p.get("score"))
-                 for p in proposals[:20]], 100),
-                   f"{len(proposals)} pair(s) too similar to ignore and too "
-                   "risky to merge automatically — the number shown is the "
-                   "similarity score, not a count"),
-            _panel("Most frequent lenders",
-                   _rows([(r["t"], r["n"]) for r in top], total), ""),
-            _panel("Most spelling variants", _rows(
-                [(r["t"], r["n"]) for r in spelt], total),
-                   "how many different spellings each lender arrived under"),
-        ]
+        ] + _place_panels()
 
     return out
+
+
+def _place_panels() -> list[dict]:
+    """How far each property got down the revenue hierarchy.
+
+    Places resolve against an authority the bank names never had — the
+    gazetteer — so the interesting number is not how many merged but how deep
+    each one reached, and why the rest stopped where they did.
+    """
+    counts = _count_query("""
+        MATCH (p:AuctionProperty)
+        RETURN count(p) AS total,
+               sum(CASE WHEN p.revenue_district IS NOT NULL THEN 1 ELSE 0 END) AS d,
+               sum(CASE WHEN p.revenue_taluk    IS NOT NULL THEN 1 ELSE 0 END) AS t,
+               sum(CASE WHEN p.revenue_village  IS NOT NULL THEN 1 ELSE 0 END) AS v,
+               sum(CASE WHEN p.place_portal_conflict THEN 1 ELSE 0 END) AS portal,
+               sum(CASE WHEN p.place_notice_conflict THEN 1 ELSE 0 END) AS notice
+    """)
+    total = int(counts.get("total") or 0)
+    stops = run_read_query(
+        """
+        MATCH (p:AuctionProperty) WHERE p.place_village_status IS NOT NULL
+          AND p.revenue_village IS NULL
+        RETURN p.place_village_status AS t, count(*) AS n ORDER BY n DESC
+        """, max_rows=12, timeout=30.0)
+    # Plain-English labels: the stored values are status codes, and a reviewer
+    # should not have to know that "taluk-has-no-villages" is a gap in the
+    # reference data rather than a bad read.
+    said = {
+        "unmatched": "village named, not found in its taluk",
+        "absent": "no village named in the notice",
+        "no-parent-taluk": "village named but no taluk to place it in",
+        "taluk-has-no-villages": "taluk keeps no revenue villages (urban)",
+        "names-a-taluk": "village field repeats the taluk name",
+    }
+    return [
+        _panel("Places matched to the revenue record", _rows([
+            ("district", counts.get("d")),
+            ("taluk", counts.get("t")),
+            ("village", counts.get("v")),
+        ], total),
+               "read bottom-up: a taluk names its own district, so a misspelt "
+               "or pre-2019 district is corrected by the taluk beneath it"),
+        _panel("Where the village stops", _rows(
+            [(said.get(r["t"], r["t"]), r["n"]) for r in stops], total),
+               "nothing is guessed — a wrong place is worse than a missing "
+               "one, because a missing one is visible"),
+        _panel("Disagreements", _rows([
+            ("notice district vs its own taluk", counts.get("notice")),
+            ("portal city vs the resolved district", counts.get("portal")),
+        ], total),
+               "the portal never supplies an answer; it is kept only to "
+               "disagree, which is how an extraction error shows up"),
+    ]
