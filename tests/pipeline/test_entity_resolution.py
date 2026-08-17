@@ -102,3 +102,29 @@ def test_resolve_rejects_unsupported_kinds():
         assert "place" in str(e)
     else:
         raise AssertionError("expected ValueError for kind='place'")
+
+
+def test_branch_key_ignores_word_order_and_the_word_branch():
+    """Canara Bank's Trichy recovery office, six ways in the corpus."""
+    variants = ["ARM Branch Trichy", "ARM Trichy", "ARM Branch, Trichy",
+                "Trichy ARM Branch", "ARM TRICHY", "ARM TRICHY BRANCH"]
+    from pipeline.entity_resolution import branch_key
+    keys = {branch_key(v) for v in variants}
+    assert len(keys) == 1
+    # "Anna Salai Branch" vs "Branch Anna Salai" — the scraped graph held
+    # these as two different offices of CanFin Homes.
+    assert branch_key("Anna Salai Branch") == branch_key("Branch Anna Salai")
+
+
+def test_branch_key_keeps_numbered_offices_apart():
+    # ARMB I and Specialized ARM II are different Chennai offices.
+    from pipeline.entity_resolution import branch_key
+    assert branch_key("ARMB I, Chennai") != branch_key("ARMB II, Chennai")
+
+
+def test_resolve_kind_branch_uses_the_branch_rule():
+    values = Counter({"ARM Branch Trichy": 4, "Trichy ARM Branch": 2,
+                      "Thousand Lights Branch": 3, "Thousand Lights": 1})
+    res = resolve(values, kind="branch")
+    assert len(res["groups"]) == 2
+    assert res["by_value"]["Trichy ARM Branch"] == "ARM Branch Trichy"

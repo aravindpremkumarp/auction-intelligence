@@ -121,3 +121,37 @@ def test_conflict_pattern_is_one_decision_for_many_notices():
 def test_unknown_kind_is_refused():
     with pytest.raises(ValueError):
         decision_key("place-merge", {"a": "x", "b": "y"})
+
+
+def test_branch_verdicts_are_scoped_to_their_bank():
+    """Approving that Indian Bank's "Portonovo" and "Portnovo" are one office
+    must not merge another bank's identically spelt branches."""
+    from pipeline.resolution_review import apply_branch_merges
+    d = _decision("branch-merge",
+                  {"bank": "Indian Bank", "a": "Portonovo", "b": "Portnovo"},
+                  "approved")
+    res_indian = resolve(Counter({"Portonovo": 3, "Portnovo": 1}),
+                         kind="branch")
+    res_other = resolve(Counter({"Portonovo": 2, "Portnovo": 1}),
+                        kind="branch")
+    merged = apply_branch_merges(res_indian, [d], bank="Indian Bank")
+    assert len(merged["groups"]) == 1
+    assert merged["by_value"]["Portnovo"] == "Portonovo"
+    untouched = apply_branch_merges(res_other, [d], bank="City Union Bank")
+    assert len(untouched["groups"]) == 2
+
+
+def test_decided_branch_pairs_leave_the_queue_either_way():
+    from pipeline.resolution_review import filter_branch_proposals
+    proposals = [
+        {"score": 94.1, "a": "Portonovo", "b": "Portnovo",
+         "a_count": 3, "b_count": 1, "bank": "Indian Bank"},
+        {"score": 98.0, "a": "Asset Recovery Management Branch",
+         "b": "Assets Recovery Management Branch",
+         "a_count": 5, "b_count": 2, "bank": "Indian Overseas Bank"},
+    ]
+    d = _decision("branch-merge",
+                  {"bank": "Indian Bank", "a": "Portonovo", "b": "Portnovo"},
+                  "rejected")
+    left = filter_branch_proposals(proposals, [d])
+    assert [p["bank"] for p in left] == ["Indian Overseas Bank"]

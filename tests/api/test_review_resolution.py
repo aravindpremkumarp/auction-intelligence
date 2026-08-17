@@ -84,6 +84,13 @@ def test_queues_filter_decided_rows_at_read_time(monkeypatch):
         {"auction_id": "2", "raw_district": "Vellore", "taluk": "Walajah",
          "resolved_district": "Ranipet", "kind": "notice"},
     ]
+    branch_props = [
+        {"score": 94.1, "a": "Portonovo", "b": "Portnovo",
+         "a_count": 3, "b_count": 1, "bank": "Indian Bank"},
+        {"score": 98.0, "a": "Asset Recovery Management Branch",
+         "b": "Assets Recovery Management Branch",
+         "a_count": 5, "b_count": 2, "bank": "Indian Overseas Bank"},
+    ]
     decisions = [
         {"key": decision_key("bank-merge",
                              {"a": "Piramal Finance", "b": "Pirama Finance"}),
@@ -94,6 +101,12 @@ def test_queues_filter_decided_rows_at_read_time(monkeypatch):
                              {"raw": "Vellore", "taluk": "Walajah"}),
          "kind": "district-conflict", "verdict": "approved",
          "payload_json": json.dumps({"raw": "Vellore", "taluk": "Walajah"})},
+        {"key": decision_key("branch-merge",
+                             {"bank": "Indian Bank", "a": "Portonovo",
+                              "b": "Portnovo"}),
+         "kind": "branch-merge", "verdict": "rejected",
+         "payload_json": json.dumps(
+             {"bank": "Indian Bank", "a": "Portonovo", "b": "Portnovo"})},
     ]
 
     def fake_read(cypher, params=None, **kw):
@@ -111,6 +124,8 @@ def test_queues_filter_decided_rows_at_read_time(monkeypatch):
     def fake_count(cypher, params=None):
         if "entity_resolution" in cypher:
             return {"pj": json.dumps(proposals)}
+        if "branch_resolution" in cypher:
+            return {"pj": json.dumps(branch_props)}
         if "place_resolution" in cypher:
             return {"cj": json.dumps(conflicts)}
         raise AssertionError(f"unexpected count: {cypher[:60]}")
@@ -119,12 +134,13 @@ def test_queues_filter_decided_rows_at_read_time(monkeypatch):
     monkeypatch.setattr(q, "_count_query", fake_count)
 
     out = q.resolution_review()
-    # The decided pair and the decided pattern are gone; the others remain.
+    # Every decided row is gone — approved, rejected alike; the rest remain.
     assert [p["a"] for p in out["bank_pairs"]] == ["ARC (India) Ltd"]
+    assert [p["bank"] for p in out["branch_pairs"]] == ["Indian Overseas Bank"]
     assert [c["raw_district"] for c in out["district_conflicts"]] == \
         ["Kanchipuram"]
-    assert out["decided"] == 2
-    assert out["open"] == 2
+    assert out["decided"] == 3
+    assert out["open"] == 3
 
 
 def test_undo_recomputes_the_same_key(monkeypatch):

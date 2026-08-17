@@ -1310,6 +1310,21 @@
         )).join('') + `</div>`);
     }
 
+    if ((d.branch_pairs || []).length) {
+      blocks.push(`<div class="ov-panel"><div class="ov-head">Branch lookalikes — same office?</div>
+        <p class="meta" style="color:var(--muted)">each pair is inside one bank;
+        a verdict here never touches another bank's identically named branch</p>` +
+        d.branch_pairs.map(p => rrRow(
+          `<b>${escapeHtml(p.a)}</b> <small>(${p.a_count}×)</small> vs
+           <b>${escapeHtml(p.b)}</b> <small>(${p.b_count}×)</small>
+           <small style="color:var(--muted)"> · ${escapeHtml(p.bank)} · ${p.score}</small>`,
+          rrBtn('Same office', { kind: 'branch-merge',
+              payload: { bank: p.bank, a: p.a, b: p.b }, verdict: 'approved' }) +
+          rrBtn('Different', { kind: 'branch-merge',
+              payload: { bank: p.bank, a: p.a, b: p.b }, verdict: 'rejected' })
+        )).join('') + `</div>`);
+    }
+
     if (d.district_conflicts.length) {
       blocks.push(`<div class="ov-panel"><div class="ov-head">District conflicts — the notice says one district, its taluk says another</div>
         <p class="meta" style="color:var(--muted)">the taluk usually knows best
