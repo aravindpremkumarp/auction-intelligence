@@ -34,6 +34,8 @@ import sys
 from collections import Counter
 
 from pipeline.entity_resolution import REVIEW_MIN_SCORE, propose_merges, resolve
+from pipeline.resolution_review import apply_bank_merges, filter_proposals
+from scripts.resolution_decisions import load_decisions
 from scripts.score_ink_coverage import nq
 
 
@@ -64,8 +66,18 @@ def collect() -> tuple[Counter, dict[str, str]]:
     return counts, per_doc
 
 
-def write_back(per_doc: dict[str, str], by_value: dict[str, str]) -> int:
-    rows = [{"file_path": fp, "raw": raw, "canonical": by_value.get(raw, raw)}
+def write_back(per_doc: dict[str, str], by_value: dict[str, str],
+               proposals: list[dict]) -> int:
+    """Write each notice's resolved lender, plus its attention flag.
+
+    ``bank_attention`` marks a document whose lender sits in a still-open
+    lookalike pair — the reason it cannot count as review-complete yet. It is
+    recomputed on every run, so deciding a pair and re-running clears it.
+    """
+    open_names = {p["a"] for p in proposals} | {p["b"] for p in proposals}
+    rows = [{"file_path": fp, "raw": raw,
+             "canonical": by_value.get(raw, raw),
+             "attention": by_value.get(raw, raw) in open_names}
             for fp, raw in per_doc.items()]
     for i in range(0, len(rows), 500):
         nq("""
@@ -73,6 +85,8 @@ def write_back(per_doc: dict[str, str], by_value: dict[str, str]) -> int:
             MATCH (d:Document {file_path: row.file_path})
             SET d.bank_name_raw      = row.raw,
                 d.bank_canonical     = row.canonical,
+                d.bank_attention     = CASE WHEN row.attention
+                                            THEN true ELSE NULL END,
                 d.entity_resolved_at = datetime()
         """, {"rows": rows[i:i + 500]})
     return len(rows)
@@ -112,11 +126,16 @@ def main() -> int:
     args = ap.parse_args()
 
     counts, per_doc = collect()
-    res = resolve(counts)
+    # Human verdicts come first: approved merges apply before anything is
+    # proposed, and pairs already ruled on never reappear in the queue.
+    decisions = load_decisions()
+    res = apply_bank_merges(resolve(counts), decisions)
     groups = res["groups"]
     merged = sum(g["merged"] for g in groups)
+    by_decision = sum(g.get("merged_by_decision", 0) for g in groups)
     print(f"{len(counts)} distinct name(s) across {len(per_doc)} notice(s) "
-          f"-> {len(groups)} lender(s); {merged} spelling(s) absorbed")
+          f"-> {len(groups)} lender(s); {merged} spelling(s) absorbed"
+          + (f" ({by_decision} by human decision)" if by_decision else ""))
 
     print("\ntop lenders after resolution:")
     for g in groups[:12]:
@@ -124,7 +143,8 @@ def main() -> int:
             if g["merged"] else ""
         print(f"  {g['count']:>4}  {g['canonical'][:52]}{extra}")
 
-    proposals = propose_merges(groups, min_score=args.min_score)
+    proposals = filter_proposals(
+        propose_merges(groups, min_score=args.min_score), decisions)
     print(f"\n{len(proposals)} pair(s) for human review at >= {args.min_score}:")
     for p in proposals[:12]:
         print(f"  {p['score']:5.1f}  {p['a'][:40]:<42} ({p['a_count']})"
@@ -134,7 +154,7 @@ def main() -> int:
         print("\n[dry-run] nothing written")
         return 0
 
-    wrote = write_back(per_doc, res["by_value"])
+    wrote = write_back(per_doc, res["by_value"], proposals)
     write_state(groups, proposals, len(counts))
     print(f"\nResolved {wrote} notice(s); {len(proposals)} proposal(s) stored "
           f"for review")

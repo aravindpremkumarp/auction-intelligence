@@ -548,6 +548,10 @@
       <button id="stg-reload" class="ghost">Reload</button>
     </div>
     <div id="stg-panels" class="ov-grid"></div>
+    <!-- Interactive queues (resolution review only). Unlike the panels above,
+         these rows carry verdict buttons: each row is a fact to settle, and
+         one click covers every notice that fact touches. -->
+    <div id="stg-queues"></div>
   </section>
 
   <!-- Queue screen -->
@@ -1170,6 +1174,7 @@
     $('stg-title').textContent = '';
     $('stg-sub').textContent = 'loading…';
     $('stg-panels').innerHTML = '';
+    $('stg-queues').innerHTML = '';
     const r = await authFetch(API + '/review/pipeline/' + encodeURIComponent(key));
     if (!r.ok) {
       $('stg-sub').textContent = '';
@@ -1180,6 +1185,120 @@
     $('stg-title').textContent = d.label;
     $('stg-sub').textContent = '';
     $('stg-panels').innerHTML = d.panels.map(stgPanel).join('');
+    if (key === 'resolve_ok') loadResolutionQueues();
+  }
+
+  // ─── Resolution review queues ───────────────────────────────────────────
+  // A verdict is stored permanently: the resolvers consult it on every later
+  // run, so approving a merge applies it forever and rejecting a pair means
+  // never being asked again. The queue row disappears immediately; the
+  // funnel's attention counts move on the next resolver run.
+
+  async function decideResolution(kind, payload, verdict, btn) {
+    if (btn) btn.disabled = true;
+    const r = await authFetch(API + '/review/resolution/decide', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kind, payload, verdict }),
+    });
+    if (!r.ok) {
+      const detail = await r.json().catch(() => ({}));
+      alert('decision failed: ' + (detail.detail || r.status));
+      if (btn) btn.disabled = false;
+      return;
+    }
+    loadResolutionQueues();
+  }
+
+  function rrRow(inner, buttons) {
+    return `<div class="ov-row" style="gap:10px; align-items:baseline">
+      <span class="ov-label" style="flex:1; white-space:normal">${inner}</span>
+      <span style="display:flex; gap:6px; flex-wrap:wrap">${buttons}</span>
+    </div>`;
+  }
+
+  function rrBtn(label, args) {
+    // Verdict buttons carry their payload in a data attribute; one delegated
+    // listener on the container reads it back. No inline JS strings.
+    return `<button class="ghost rr-btn" data-rr='${
+      escapeHtml(JSON.stringify(args))}'>${escapeHtml(label)}</button>`;
+  }
+
+  async function loadResolutionQueues() {
+    const host = $('stg-queues');
+    host.innerHTML = '<div class="ov-panel">loading queues…</div>';
+    const r = await authFetch(API + '/review/resolution');
+    if (!r.ok) {
+      host.innerHTML = `<div class="ov-panel">error ${r.status}</div>`;
+      return;
+    }
+    const d = await r.json();
+    const blocks = [];
+
+    if (d.bank_pairs.length) {
+      blocks.push(`<div class="ov-panel"><div class="ov-head">Lender lookalikes — same institution?</div>
+        <p class="meta" style="color:var(--muted)">the number is fuzzy similarity;
+        the files are real notices naming each spelling</p>` +
+        d.bank_pairs.map(p => rrRow(
+          `<b>${escapeHtml(p.a)}</b> <small>(${p.a_count}× — ${
+            p.a_files.map(escapeHtml).join(', ') || 'no file'})</small><br>
+           <b>${escapeHtml(p.b)}</b> <small>(${p.b_count}× — ${
+            p.b_files.map(escapeHtml).join(', ') || 'no file'})</small>
+           <small style="color:var(--muted)"> · ${p.score}</small>`,
+          rrBtn('Same lender', { kind: 'bank-merge',
+              payload: { a: p.a, b: p.b }, verdict: 'approved' }) +
+          rrBtn('Different', { kind: 'bank-merge',
+              payload: { a: p.a, b: p.b }, verdict: 'rejected' })
+        )).join('') + `</div>`);
+    }
+
+    if (d.district_conflicts.length) {
+      blocks.push(`<div class="ov-panel"><div class="ov-head">District conflicts — the notice says one district, its taluk says another</div>
+        <p class="meta" style="color:var(--muted)">the taluk usually knows best
+        (2019 redrew several districts); one verdict settles every notice in
+        the pattern</p>` +
+        d.district_conflicts.map(c => rrRow(
+          `notice says <b>${escapeHtml(c.raw_district || '?')}</b>, taluk
+           <b>${escapeHtml(c.taluk || '?')}</b> sits in
+           <b>${escapeHtml(c.resolved_district || '?')}</b>
+           <small style="color:var(--muted)"> · ${c.count} notice${
+             c.count === 1 ? '' : 's'} · e.g. ${
+             c.auction_ids.map(escapeHtml).join(', ')}</small>`,
+          rrBtn('Taluk is right', { kind: 'district-conflict',
+              payload: { raw: c.raw_district, taluk: c.taluk },
+              verdict: 'approved' }) +
+          rrBtn("Something's off", { kind: 'district-conflict',
+              payload: { raw: c.raw_district, taluk: c.taluk },
+              verdict: 'rejected' })
+        )).join('') + `</div>`);
+    }
+
+    if (d.unmatched_villages.length) {
+      blocks.push(`<div class="ov-panel"><div class="ov-head">Villages the gazetteer couldn't place</div>
+        <p class="meta" style="color:var(--muted)">pick the official name it
+        stands for, or rule it out — an urban locality is not a revenue
+        village, and saying so is also an answer</p>` +
+        d.unmatched_villages.map(v => rrRow(
+          `<b>${escapeHtml(v.village)}</b> in ${escapeHtml(v.taluk)}${
+             v.district ? ', ' + escapeHtml(v.district) : ''}
+           <small style="color:var(--muted)"> · ${v.count} propert${
+             v.count === 1 ? 'y' : 'ies'}</small>`,
+          v.candidates.map(cd =>
+            rrBtn(`→ ${cd.name} (${cd.score})`, { kind: 'village-alias',
+                payload: { raw: v.village, taluk: v.taluk, target: cd.name },
+                verdict: 'approved' })).join('') +
+          rrBtn('Not a village', { kind: 'village-skip',
+              payload: { raw: v.village }, verdict: 'approved' })
+        )).join('') + `</div>`);
+    }
+
+    host.innerHTML = blocks.length
+      ? blocks.join('')
+      : '<div class="ov-panel">nothing waiting — every question is settled</div>';
+    host.querySelectorAll('.rr-btn').forEach(b => b.addEventListener('click', () => {
+      const args = JSON.parse(b.dataset.rr);
+      decideResolution(args.kind, args.payload, args.verdict, b);
+    }));
   }
 
   // ─── Stats ──────────────────────────────────────────────────────────────

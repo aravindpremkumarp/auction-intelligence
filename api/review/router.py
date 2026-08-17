@@ -723,6 +723,108 @@ def review_pipeline_overview(
     return PipelineOverview(**q.pipeline_overview())
 
 
+# ── Entity-resolution review ────────────────────────────────────────────────
+
+
+class ResolutionBankPair(BaseModel):
+    score: float
+    a: str
+    b: str
+    a_count: int
+    b_count: int
+    a_files: list[str] = []
+    b_files: list[str] = []
+
+
+class ResolutionConflict(BaseModel):
+    raw_district: str | None = None
+    taluk: str | None = None
+    resolved_district: str | None = None
+    count: int
+    auction_ids: list[str] = []
+
+
+class VillageCandidate(BaseModel):
+    name: str
+    score: float
+
+
+class ResolutionVillage(BaseModel):
+    village: str
+    taluk: str
+    district: str | None = None
+    count: int
+    auction_ids: list[str] = []
+    candidates: list[VillageCandidate] = []
+
+
+class ResolutionReviewOut(BaseModel):
+    """The queues a human works through. Every row is a fact to settle, not a
+    document to walk — one verdict covers every notice the fact touches."""
+    bank_pairs: list[ResolutionBankPair] = []
+    district_conflicts: list[ResolutionConflict] = []
+    unmatched_villages: list[ResolutionVillage] = []
+    decided: int = 0
+    open: int = 0
+
+
+class ResolutionDecisionIn(BaseModel):
+    kind: Literal["bank-merge", "district-conflict",
+                  "village-alias", "village-skip"]
+    verdict: Literal["approved", "rejected"]
+    # What the decision is about; fields depend on kind (see
+    # pipeline/resolution_review.py). The stored key is always derived from
+    # this server-side — a caller can never aim a verdict at other strings.
+    payload: dict
+
+
+class ResolutionDecisionOut(BaseModel):
+    key: str
+    kind: str
+    verdict: str
+
+
+class ResolutionUndoOut(BaseModel):
+    key: str
+    deleted: bool
+
+
+@router.get("/resolution", response_model=ResolutionReviewOut)
+def review_resolution_queues(
+    _admin: UserOut = Depends(get_current_admin),
+) -> ResolutionReviewOut:
+    """Open resolution questions, with evidence beside every row."""
+    return ResolutionReviewOut(**q.resolution_review())
+
+
+@router.post("/resolution/decide", response_model=ResolutionDecisionOut)
+def review_resolution_decide(
+    body: ResolutionDecisionIn,
+    admin: UserOut = Depends(get_current_admin),
+) -> ResolutionDecisionOut:
+    """Record one verdict, permanently — the resolvers consult it on every
+    subsequent run, so a decision is applied forever rather than once."""
+    try:
+        return ResolutionDecisionOut(**q.record_resolution_decision(
+            body.kind, body.payload, body.verdict, by_email=admin.email))
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@router.post("/resolution/undo", response_model=ResolutionUndoOut)
+def review_resolution_undo(
+    body: ResolutionDecisionIn,
+    _admin: UserOut = Depends(get_current_admin),
+) -> ResolutionUndoOut:
+    """Delete a stored verdict so the question reopens. The body's verdict
+    field is ignored; the key is recomputed from kind + payload."""
+    try:
+        return ResolutionUndoOut(**q.undo_resolution_decision(
+            body.kind, body.payload))
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
 # ── Markdown-quality review ─────────────────────────────────────────────────
 
 

@@ -43,7 +43,12 @@ import json
 import sys
 from collections import Counter, defaultdict
 
-from pipeline.place_resolution import Gazetteer, resolve_place
+from pipeline.place_resolution import Gazetteer, normalize_place, resolve_place
+from pipeline.resolution_review import (
+    district_conflict_key, settled_conflicts, skipped_villages,
+    village_alias_key, village_aliases,
+)
+from scripts.resolution_decisions import load_decisions
 from scripts.score_ink_coverage import nq
 
 BATCH = 500
@@ -159,6 +164,26 @@ def write_back(rows: list[dict]) -> None:
                   -[:IN_TALUK]->(:Taluk {name: row.taluk})
             MERGE (p)-[:LOCATED_IN_REVENUE_VILLAGE]->(vv)
         """, {"rows": rows[i:i + BATCH]})
+    # Roll the per-property outcome up to the Document, where the funnel
+    # lives. place_resolved_at says the resolver has been over this notice;
+    # place_attention says at least one of its properties still holds an open
+    # question (an unsettled conflict or an unmatched village). Both are
+    # recomputed each run, so deciding and re-running moves the funnel.
+    per_doc: dict[str, bool] = {}
+    for r in rows:
+        if r.get("file_path"):
+            per_doc[r["file_path"]] = per_doc.get(r["file_path"], False) \
+                or bool(r["attention"])
+    doc_rows = [{"file_path": fp, "attention": att}
+                for fp, att in per_doc.items()]
+    for i in range(0, len(doc_rows), BATCH):
+        nq("""
+            UNWIND $rows AS row
+            MATCH (d:Document {file_path: row.file_path})
+            SET d.place_resolved_at = datetime(),
+                d.place_attention   = CASE WHEN row.attention
+                                           THEN true ELSE NULL END
+        """, {"rows": doc_rows[i:i + BATCH]})
 
 
 def write_state(stats: Counter, total: int, conflicts: list[dict]) -> None:
@@ -184,9 +209,16 @@ def main() -> int:
     gaz = load_gazetteer()
     props = load_properties()
     fallback = notice_fallback()
+    # Human verdicts first: aliases resolve villages the rules could not,
+    # skip verdicts stop blaming urban localities, and settled conflict
+    # patterns leave the queue.
+    decisions = load_decisions()
+    aliases = village_aliases(decisions)
+    skips = skipped_villages(decisions)
+    settled = settled_conflicts(decisions)
     print(f"{len(props)} propert(ies); gazetteer has "
           f"{len(gaz.districts)} districts, {len(gaz.taluks)} taluks, "
-          f"{len(gaz.villages)} villages")
+          f"{len(gaz.villages)} villages; {len(decisions)} human decision(s)")
 
     stats: Counter = Counter()
     rows: list[dict] = []
@@ -199,6 +231,23 @@ def main() -> int:
                 district, taluk, village = fb["district"], fb["taluk"], fb["village"]
                 stats["filled from notice"] += 1
         res = resolve_place(gaz, district=district, taluk=taluk, village=village)
+
+        # A human alias outranks "unmatched" — but only into a village the
+        # gazetteer actually holds under that taluk, so a typo in a decision
+        # cannot invent a place.
+        if village and not res["village"]:
+            target = aliases.get(village_alias_key(village, res["taluk"])) \
+                if res["taluk"] else None
+            official = gaz.village(target, res["taluk"], fuzzy=False) \
+                if target else None
+            if official:
+                res["village"] = official
+                res["village_status"] = "resolved"
+                res["village_source"] = "human-alias"
+            elif normalize_place(village) in skips:
+                # Ruled "not a revenue village" (an urban locality) — true in
+                # every taluk, so it needs no parent to apply.
+                res["village_status"] = "not-a-revenue-village"
 
         # The portal is only ever a witness: its disagreement is recorded, and
         # never allowed to change the answer.
@@ -215,13 +264,20 @@ def main() -> int:
             stats["district only"] += 1
         else:
             stats["unresolved"] += 1
+        open_conflict = False
         if res["conflict"]:
             stats["notice district vs its taluk"] += 1
-            conflicts.append({"auction_id": p["auction_id"],
-                              "raw_district": res["raw"]["district"],
-                              "taluk": res["taluk"],
-                              "resolved_district": res["district"],
-                              "kind": "notice"})
+            key = district_conflict_key(res["raw"]["district"] or "",
+                                        res["taluk"] or "")
+            open_conflict = key not in settled
+            if open_conflict:
+                conflicts.append({"auction_id": p["auction_id"],
+                                  "raw_district": res["raw"]["district"],
+                                  "taluk": res["taluk"],
+                                  "resolved_district": res["district"],
+                                  "kind": "notice"})
+            else:
+                stats["conflicts settled by review"] += 1
         if portal_conflict:
             stats["portal city vs resolved district"] += 1
 
@@ -234,6 +290,10 @@ def main() -> int:
             "village_source": res["village_source"],
             "notice_conflict": res["conflict"],
             "portal_conflict": portal_conflict,
+            # The two states a human still owes an answer on. Everything else
+            # — resolved, absent, urban, out of state — is settled ground.
+            "attention": open_conflict or res["village_status"] == "unmatched",
+            "file_path": p["file_path"],
         })
 
     print()
