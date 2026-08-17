@@ -811,6 +811,40 @@ def review_resolution_decide(
         raise HTTPException(status_code=422, detail=str(e))
 
 
+class ResolutionApplyStatus(BaseModel):
+    status: str                      # never-run | running | done | error | stale
+    started_ts: float | None = None
+    finished_ts: float | None = None
+    by: str | None = None
+    summary_json: str | None = None
+    error: str | None = None
+
+
+@router.post("/resolution/apply", response_model=ResolutionApplyStatus,
+             status_code=202)
+def review_resolution_apply(
+    background: BackgroundTasks,
+    admin: UserOut = Depends(get_current_admin),
+) -> ResolutionApplyStatus:
+    """Re-run both resolvers now, applying every stored verdict. Returns 202
+    immediately; poll GET /resolution/apply for the outcome. 409 while a run
+    is already in progress."""
+    try:
+        q.start_resolution_apply(by_email=admin.email)
+    except RuntimeError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    background.add_task(q.run_resolution_apply)
+    return ResolutionApplyStatus(**q.resolution_apply_status())
+
+
+@router.get("/resolution/apply", response_model=ResolutionApplyStatus)
+def review_resolution_apply_status(
+    _admin: UserOut = Depends(get_current_admin),
+) -> ResolutionApplyStatus:
+    """State of the last apply run — running, done with a summary, or error."""
+    return ResolutionApplyStatus(**q.resolution_apply_status())
+
+
 @router.post("/resolution/undo", response_model=ResolutionUndoOut)
 def review_resolution_undo(
     body: ResolutionDecisionIn,

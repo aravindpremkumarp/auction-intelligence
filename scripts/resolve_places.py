@@ -199,13 +199,9 @@ def write_state(stats: Counter, total: int, conflicts: list[dict]) -> None:
           "n_conflicts": len(conflicts)})
 
 
-def main() -> int:
-    ap = argparse.ArgumentParser(
-        description=__doc__,
-        formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--dry-run", action="store_true", help="report only")
-    args = ap.parse_args()
-
+def run(*, dry_run: bool = False) -> dict:
+    """One full resolution pass; the CLI and the API's apply button both land
+    here. Returns a summary the caller can store or print."""
     gaz = load_gazetteer()
     props = load_properties()
     fallback = notice_fallback()
@@ -300,14 +296,27 @@ def main() -> int:
     for key, n in stats.most_common():
         print(f"  {key:38}{n:>6}  ({100 * n / len(props):.0f}%)")
 
-    if args.dry_run:
+    summary = {"properties": len(props),
+               "village_resolved": int(stats.get("village resolved") or 0),
+               "conflicts_open": len(conflicts)}
+    if dry_run:
         print("\n[dry-run] nothing written")
-        return 0
+        return summary
 
     write_back(rows)
     write_state(stats, len(props), conflicts)
     print(f"\nResolved {len(rows)} propert(ies); {len(conflicts)} district "
           f"conflict(s) stored for review")
+    return summary
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--dry-run", action="store_true", help="report only")
+    args = ap.parse_args()
+    run(dry_run=args.dry_run)
     return 0
 
 

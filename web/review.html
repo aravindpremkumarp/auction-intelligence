@@ -1228,16 +1228,70 @@
       escapeHtml(JSON.stringify(args))}'>${escapeHtml(label)}</button>`;
   }
 
+  // Verdicts land instantly in the queue but are applied to the graph by the
+  // resolvers. The apply button closes that gap on demand: it re-runs both
+  // resolvers server-side and the funnel catches up when they finish.
+  let rrPollTimer = null;
+
+  function rrApplyBar(st) {
+    const when = ts => ts ? new Date(ts * 1000).toLocaleString() : '';
+    let note = 'no run recorded yet';
+    if (st.status === 'running') note = 'resolvers running… the funnel updates when they finish';
+    else if (st.status === 'done') note = `last applied ${when(st.finished_ts)}${st.by ? ' by ' + escapeHtml(st.by) : ''}`;
+    else if (st.status === 'error') note = `last run failed: ${escapeHtml(st.error || 'unknown')}`;
+    else if (st.status === 'stale') note = 'a previous run never reported back — safe to apply again';
+    return `<div class="ov-panel" id="rr-apply-bar" style="display:flex; gap:12px; align-items:center">
+      <button id="rr-apply" class="ghost" ${st.status === 'running' ? 'disabled' : ''}>
+        Apply my decisions</button>
+      <span class="meta" style="color:var(--muted)">${note}</span>
+    </div>`;
+  }
+
+  async function rrPollApply() {
+    const r = await authFetch(API + '/review/resolution/apply');
+    if (!r.ok) return;
+    const st = await r.json();
+    const bar = $('rr-apply-bar');
+    if (bar) bar.outerHTML = rrApplyBar(st);
+    wireApplyButton();
+    if (st.status === 'running') {
+      rrPollTimer = setTimeout(rrPollApply, 4000);
+    } else if (rrPollTimer) {
+      rrPollTimer = null;
+      // A run just finished — the graph moved, so reload the whole stage page.
+      loadStageDetail('resolve_ok');
+    }
+  }
+
+  function wireApplyButton() {
+    const b = $('rr-apply');
+    if (!b) return;
+    b.addEventListener('click', async () => {
+      b.disabled = true;
+      const r = await authFetch(API + '/review/resolution/apply', { method: 'POST' });
+      if (!r.ok && r.status !== 409) {
+        alert('apply failed: ' + r.status);
+        b.disabled = false;
+        return;
+      }
+      rrPollApply();
+    });
+  }
+
   async function loadResolutionQueues() {
     const host = $('stg-queues');
     host.innerHTML = '<div class="ov-panel">loading queues…</div>';
-    const r = await authFetch(API + '/review/resolution');
+    const [r, rs] = await Promise.all([
+      authFetch(API + '/review/resolution'),
+      authFetch(API + '/review/resolution/apply'),
+    ]);
     if (!r.ok) {
       host.innerHTML = `<div class="ov-panel">error ${r.status}</div>`;
       return;
     }
     const d = await r.json();
-    const blocks = [];
+    const applyState = rs.ok ? await rs.json() : { status: 'never-run' };
+    const blocks = [rrApplyBar(applyState)];
 
     if (d.bank_pairs.length) {
       blocks.push(`<div class="ov-panel"><div class="ov-head">Lender lookalikes — same institution?</div>
@@ -1296,13 +1350,16 @@
         )).join('') + `</div>`);
     }
 
-    host.innerHTML = blocks.length
-      ? blocks.join('')
-      : '<div class="ov-panel">nothing waiting — every question is settled</div>';
+    if (blocks.length === 1) {
+      blocks.push('<div class="ov-panel">nothing waiting — every question is settled</div>');
+    }
+    host.innerHTML = blocks.join('');
     host.querySelectorAll('.rr-btn').forEach(b => b.addEventListener('click', () => {
       const args = JSON.parse(b.dataset.rr);
       decideResolution(args.kind, args.payload, args.verdict, b);
     }));
+    wireApplyButton();
+    if (applyState.status === 'running' && !rrPollTimer) rrPollApply();
   }
 
   // ─── Stats ──────────────────────────────────────────────────────────────
