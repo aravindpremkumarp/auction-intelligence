@@ -567,6 +567,10 @@
         <button class="pill" data-stage="classification">classification</button>
         <button class="pill" data-stage="markdown">markdown</button>
         <button class="pill" data-stage="extraction">extraction</button>
+        <!-- Resolution review is corpus-shaped — verdicts on facts, not a walk
+             through documents — so this chip routes to its own queue page
+             instead of rendering cards behind the filters below. -->
+        <button class="pill" data-stage-link="stage/resolve_ok">resolution</button>
       </span>
       <span class="fgroup" id="group-wrap">
         <span class="fsep">·</span>
@@ -2480,6 +2484,11 @@
   }
 
   // ─── Pill handlers ──────────────────────────────────────────────────────
+  $$('button.pill[data-stage-link]').forEach(b => {
+    b.addEventListener('click', () => {
+      location.hash = '#' + b.getAttribute('data-stage-link');
+    });
+  });
   $$('button.pill[data-stage]').forEach(b => {
     b.addEventListener('click', () => {
       const next = b.getAttribute('data-stage');
