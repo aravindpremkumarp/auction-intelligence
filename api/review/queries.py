@@ -1927,3 +1927,74 @@ def _resolution_review_panels() -> list[dict]:
                "stored permanently — re-runs apply them before proposing "
                "anything"),
     ]
+
+
+# ── Apply decisions (re-run the resolvers) ──────────────────────────────────
+#
+# A verdict is applied by the resolvers, so between a review session and the
+# next run the queue is ahead of the graph. The apply endpoint closes that gap
+# on demand: it re-runs both resolvers in the API process (they talk to Neo4j
+# over the HTTPS query API with the same credentials the API already holds).
+# Status lives on a (:PipelineState {key:'resolution_apply'}) node — not in
+# process memory — so any worker can answer "is it still running?".
+
+_APPLY_STALE_S = 15 * 60.0
+
+
+def resolution_apply_status() -> dict:
+    import time as _time
+    row = _count_query(
+        "MATCH (s:PipelineState {key:'resolution_apply'}) "
+        "RETURN s.status AS status, s.started_ts AS started_ts, "
+        "       s.finished_ts AS finished_ts, s.by AS by, "
+        "       s.summary_json AS summary_json, s.error AS error")
+    status = row.get("status") or "never-run"
+    started = float(row.get("started_ts") or 0)
+    # A run that started long ago and never finished is a crashed worker, not
+    # a busy one — report it as such rather than blocking apply forever.
+    if status == "running" and _time.time() - started > _APPLY_STALE_S:
+        status = "stale"
+    return {"status": status, "started_ts": started or None,
+            "finished_ts": row.get("finished_ts"), "by": row.get("by"),
+            "summary_json": row.get("summary_json"),
+            "error": row.get("error")}
+
+
+def start_resolution_apply(by_email: str) -> dict:
+    """Claim the apply lock; raises if a run is genuinely in progress."""
+    import time as _time
+    current = resolution_apply_status()
+    if current["status"] == "running":
+        raise RuntimeError("a resolver run is already in progress")
+    run_query(
+        """
+        MERGE (s:PipelineState {key:'resolution_apply'})
+        SET s.status = 'running', s.started_ts = $ts, s.by = $by,
+            s.finished_ts = NULL, s.error = NULL
+        """, {"ts": _time.time(), "by": by_email})
+    return {"status": "running", "by": by_email}
+
+
+def run_resolution_apply() -> None:
+    """The background job: both resolvers, then the outcome — success or
+    failure — written where the UI can read it."""
+    import json as _json
+    import time as _time
+    try:
+        from scripts.resolve_bank_names import run as run_banks
+        from scripts.resolve_places import run as run_places
+        summary = {"banks": run_banks(), "places": run_places()}
+        run_query(
+            """
+            MERGE (s:PipelineState {key:'resolution_apply'})
+            SET s.status = 'done', s.finished_ts = $ts,
+                s.summary_json = $summary, s.error = NULL
+            """, {"ts": _time.time(),
+                  "summary": _json.dumps(summary, ensure_ascii=False)})
+    except Exception as e:                                  # noqa: BLE001
+        # The worker survives; the failure is data for the status endpoint.
+        run_query(
+            """
+            MERGE (s:PipelineState {key:'resolution_apply'})
+            SET s.status = 'error', s.finished_ts = $ts, s.error = $err
+            """, {"ts": _time.time(), "err": f"{type(e).__name__}: {e}"[:500]})

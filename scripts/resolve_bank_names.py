@@ -117,14 +117,10 @@ def write_state(groups: list[dict], proposals: list[dict],
     })
 
 
-def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--dry-run", action="store_true", help="group + preview only")
-    ap.add_argument("--min-score", type=float, default=REVIEW_MIN_SCORE,
-                    help="fuzzy score at which a pair is queued for review")
-    args = ap.parse_args()
-
+def run(*, dry_run: bool = False,
+        min_score: float = REVIEW_MIN_SCORE) -> dict:
+    """One full resolution pass; the CLI and the API's apply button both land
+    here. Returns a summary the caller can store or print."""
     counts, per_doc = collect()
     # Human verdicts come first: approved merges apply before anything is
     # proposed, and pairs already ruled on never reappear in the queue.
@@ -144,20 +140,34 @@ def main() -> int:
         print(f"  {g['count']:>4}  {g['canonical'][:52]}{extra}")
 
     proposals = filter_proposals(
-        propose_merges(groups, min_score=args.min_score), decisions)
-    print(f"\n{len(proposals)} pair(s) for human review at >= {args.min_score}:")
+        propose_merges(groups, min_score=min_score), decisions)
+    print(f"\n{len(proposals)} pair(s) for human review at >= {min_score}:")
     for p in proposals[:12]:
         print(f"  {p['score']:5.1f}  {p['a'][:40]:<42} ({p['a_count']})"
               f"  vs  {p['b'][:40]} ({p['b_count']})")
 
-    if args.dry_run:
+    summary = {"notices": len(per_doc), "lenders": len(groups),
+               "merged": merged, "proposals_open": len(proposals),
+               "decisions_applied": len(decisions)}
+    if dry_run:
         print("\n[dry-run] nothing written")
-        return 0
+        return summary
 
     wrote = write_back(per_doc, res["by_value"], proposals)
     write_state(groups, proposals, len(counts))
     print(f"\nResolved {wrote} notice(s); {len(proposals)} proposal(s) stored "
           f"for review")
+    return summary
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--dry-run", action="store_true", help="group + preview only")
+    ap.add_argument("--min-score", type=float, default=REVIEW_MIN_SCORE,
+                    help="fuzzy score at which a pair is queued for review")
+    args = ap.parse_args()
+    run(dry_run=args.dry_run, min_score=args.min_score)
     return 0
 
 
