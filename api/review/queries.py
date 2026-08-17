@@ -1181,8 +1181,19 @@ PIPELINE_STAGES: list[tuple[str, str, str]] = [
      "d.extraction_json IS NOT NULL"),
     ("extract_ok",    "Extraction reviewed",
      "coalesce(d.extraction_review_status,'pending') = 'verified'"),
+    # Resolved means both resolvers have been over the notice: its lender
+    # (document-level) and its properties' places. Documents with no linked
+    # property have no places to resolve, so they clear on the lender alone.
     ("resolved",      "Entities resolved",
-     "d.entity_resolved_at IS NOT NULL"),
+     "d.entity_resolved_at IS NOT NULL AND (d.place_resolved_at IS NOT NULL "
+     "OR NOT EXISTS { MATCH (:AuctionProperty)-[:HAS_DOCUMENT]->(d) })"),
+    # Resolution review is corpus-shaped, not per-document — a human rules on
+    # lookalike pairs and conflict patterns, and each verdict settles every
+    # notice it touches. So "reviewed" is the absence of open questions: the
+    # attention flags are recomputed by the resolvers on every run, and this
+    # stage advances as decisions land and the scripts re-apply them.
+    ("resolve_ok",    "Resolution reviewed",
+     "d.bank_attention IS NULL AND d.place_attention IS NULL"),
 ]
 
 # Stages the pipeline will grow but does not have yet. Carried here so the
@@ -1588,104 +1599,331 @@ def pipeline_stage_detail(key: str, sample: int = ENTITY_COVERAGE_SAMPLE) -> dic
             _panel("Most spelling variants", _rows(
                 [(r["t"], r["n"]) for r in spelt], total),
                    "how many different spellings each lender arrived under"),
-        ]
+        ] + _place_panels()
 
-    elif key == "resolved":
-        total = int(_count_query(
-            "MATCH (d:Document) WHERE d.bank_canonical IS NOT NULL "
-            "RETURN count(d) AS n").get("n") or 0)
-        state = _count_query(
-            "MATCH (s:PipelineState {key:'entity_resolution'}) "
-            "RETURN s.raw_values AS raw, s.entities AS entities, "
-            "       s.merged_spellings AS merged, s.proposals_open AS proposals, "
-            "       s.proposals_json AS proposals_json")
-        top = run_read_query(
-            "MATCH (d:Document) WHERE d.bank_canonical IS NOT NULL "
-            "RETURN d.bank_canonical AS t, count(*) AS n ORDER BY n DESC LIMIT 12",
-            max_rows=12, timeout=30.0)
-        spelt = run_read_query(
-            """
-            MATCH (d:Document)
-            WHERE d.bank_canonical IS NOT NULL AND d.bank_name_raw IS NOT NULL
-              AND d.bank_name_raw <> d.bank_canonical
-            RETURN d.bank_canonical AS t, count(DISTINCT d.bank_name_raw) AS n
-            ORDER BY n DESC LIMIT 10
-            """, max_rows=10, timeout=30.0)
-        proposals: list[dict] = []
-        try:
-            import json as _json
-            proposals = _json.loads(state.get("proposals_json") or "[]")
-        except (TypeError, ValueError):
-            proposals = []
-        out["panels"] = [
-            _panel("Lenders", _rows([
-                ("name strings extracted", state.get("raw")),
-                ("distinct lenders after resolution", state.get("entities")),
-                ("spellings absorbed", state.get("merged")),
-                ("notices carrying a resolved lender", total),
-            ], int(state.get("raw") or 0) or total),
-                   "only exact matches after case, punctuation and legal form "
-                   "are normalised away — nothing merges on resemblance"),
-            _panel("Awaiting a human", _rows(
-                [(f"{p.get('a')}   vs  {p.get('b')}", p.get("score"))
-                 for p in proposals[:20]], 100),
-                   f"{len(proposals)} pair(s) too similar to ignore and too "
-                   "risky to merge automatically — the number shown is the "
-                   "similarity score, not a count"),
-            _panel("Most frequent lenders",
-                   _rows([(r["t"], r["n"]) for r in top], total), ""),
-            _panel("Most spelling variants", _rows(
-                [(r["t"], r["n"]) for r in spelt], total),
-                   "how many different spellings each lender arrived under"),
-        ]
-
-    elif key == "resolved":
-        total = int(_count_query(
-            "MATCH (d:Document) WHERE d.bank_canonical IS NOT NULL "
-            "RETURN count(d) AS n").get("n") or 0)
-        state = _count_query(
-            "MATCH (s:PipelineState {key:'entity_resolution'}) "
-            "RETURN s.raw_values AS raw, s.entities AS entities, "
-            "       s.merged_spellings AS merged, s.proposals_open AS proposals, "
-            "       s.proposals_json AS proposals_json")
-        top = run_read_query(
-            "MATCH (d:Document) WHERE d.bank_canonical IS NOT NULL "
-            "RETURN d.bank_canonical AS t, count(*) AS n ORDER BY n DESC LIMIT 12",
-            max_rows=12, timeout=30.0)
-        spelt = run_read_query(
-            """
-            MATCH (d:Document)
-            WHERE d.bank_canonical IS NOT NULL AND d.bank_name_raw IS NOT NULL
-              AND d.bank_name_raw <> d.bank_canonical
-            RETURN d.bank_canonical AS t, count(DISTINCT d.bank_name_raw) AS n
-            ORDER BY n DESC LIMIT 10
-            """, max_rows=10, timeout=30.0)
-        proposals: list[dict] = []
-        try:
-            import json as _json
-            proposals = _json.loads(state.get("proposals_json") or "[]")
-        except (TypeError, ValueError):
-            proposals = []
-        out["panels"] = [
-            _panel("Lenders", _rows([
-                ("name strings extracted", state.get("raw")),
-                ("distinct lenders after resolution", state.get("entities")),
-                ("spellings absorbed", state.get("merged")),
-                ("notices carrying a resolved lender", total),
-            ], int(state.get("raw") or 0) or total),
-                   "only exact matches after case, punctuation and legal form "
-                   "are normalised away — nothing merges on resemblance"),
-            _panel("Awaiting a human", _rows(
-                [(f"{p.get('a')}   vs  {p.get('b')}", p.get("score"))
-                 for p in proposals[:20]], 100),
-                   f"{len(proposals)} pair(s) too similar to ignore and too "
-                   "risky to merge automatically — the number shown is the "
-                   "similarity score, not a count"),
-            _panel("Most frequent lenders",
-                   _rows([(r["t"], r["n"]) for r in top], total), ""),
-            _panel("Most spelling variants", _rows(
-                [(r["t"], r["n"]) for r in spelt], total),
-                   "how many different spellings each lender arrived under"),
-        ]
+    elif key == "resolve_ok":
+        out["panels"] = _resolution_review_panels()
 
     return out
+
+
+def _place_panels() -> list[dict]:
+    """How far each property got down the revenue hierarchy.
+
+    Places resolve against an authority the bank names never had — the
+    gazetteer — so the interesting number is not how many merged but how deep
+    each one reached, and why the rest stopped where they did.
+    """
+    counts = _count_query("""
+        MATCH (p:AuctionProperty)
+        RETURN count(p) AS total,
+               sum(CASE WHEN p.revenue_district IS NOT NULL THEN 1 ELSE 0 END) AS d,
+               sum(CASE WHEN p.revenue_taluk    IS NOT NULL THEN 1 ELSE 0 END) AS t,
+               sum(CASE WHEN p.revenue_village  IS NOT NULL THEN 1 ELSE 0 END) AS v,
+               sum(CASE WHEN p.place_portal_conflict THEN 1 ELSE 0 END) AS portal,
+               sum(CASE WHEN p.place_notice_conflict THEN 1 ELSE 0 END) AS notice
+    """)
+    total = int(counts.get("total") or 0)
+    stops = run_read_query(
+        """
+        MATCH (p:AuctionProperty) WHERE p.place_village_status IS NOT NULL
+          AND p.revenue_village IS NULL
+        RETURN p.place_village_status AS t, count(*) AS n ORDER BY n DESC
+        """, max_rows=12, timeout=30.0)
+    # Plain-English labels: the stored values are status codes, and a reviewer
+    # should not have to know that "taluk-has-no-villages" is a gap in the
+    # reference data rather than a bad read.
+    said = {
+        "unmatched": "village named, not found in its taluk",
+        "absent": "no village named in the notice",
+        "no-parent-taluk": "village named but no taluk to place it in",
+        "taluk-has-no-villages": "taluk keeps no revenue villages (urban)",
+        "names-a-taluk": "village field repeats the taluk name",
+    }
+    return [
+        _panel("Places matched to the revenue record", _rows([
+            ("district", counts.get("d")),
+            ("taluk", counts.get("t")),
+            ("village", counts.get("v")),
+        ], total),
+               "read bottom-up: a taluk names its own district, so a misspelt "
+               "or pre-2019 district is corrected by the taluk beneath it"),
+        _panel("Where the village stops", _rows(
+            [(said.get(r["t"], r["t"]), r["n"]) for r in stops], total),
+               "nothing is guessed — a wrong place is worse than a missing "
+               "one, because a missing one is visible"),
+        _panel("Disagreements", _rows([
+            ("notice district vs its own taluk", counts.get("notice")),
+            ("portal city vs the resolved district", counts.get("portal")),
+        ], total),
+               "the portal never supplies an answer; it is kept only to "
+               "disagree, which is how an extraction error shows up"),
+    ]
+
+
+# ── Entity-resolution review ────────────────────────────────────────────────
+#
+# The resolvers stop where a rule cannot decide, and what they leave behind is
+# corpus-shaped: a lookalike lender pair touches every notice naming either
+# spelling, a district-conflict pattern covers every notice writing that
+# district over that taluk. So the review queues hold *facts to settle*, not
+# documents to walk, and a verdict is stored as a (:ResolutionDecision) node
+# the resolvers consult on every subsequent run — approved merges apply
+# forever, rejected pairs never come back, aliases teach the lookup. The
+# queues below also filter decided keys at read time, so a verdict empties its
+# row immediately rather than after the next resolution run.
+
+
+def _load_decisions() -> list[dict]:
+    import json as _json
+    rows = run_read_query(
+        """
+        MATCH (r:ResolutionDecision)
+        RETURN r.key AS key, r.kind AS kind, r.verdict AS verdict,
+               r.payload_json AS payload_json
+        """, max_rows=5000, timeout=30.0)
+    out = []
+    for r in rows:
+        try:
+            payload = _json.loads(r.get("payload_json") or "{}")
+        except (TypeError, ValueError):
+            payload = {}
+        out.append({"key": r["key"], "kind": r["kind"],
+                    "verdict": r["verdict"], "payload": payload})
+    return out
+
+
+def _village_candidates(taluks: list[str]) -> dict[str, list[str]]:
+    """Official village names per taluk, for suggesting alias targets."""
+    rows = run_read_query(
+        """
+        MATCH (v:RevenueVillage)-[:IN_TALUK]->(t:Taluk)
+        WHERE t.name IN $taluks
+        RETURN t.name AS taluk, collect(v.name) AS villages
+        """, {"taluks": taluks}, max_rows=len(taluks) or 1, timeout=30.0)
+    return {r["taluk"]: r["villages"] for r in rows}
+
+
+def resolution_review() -> dict:
+    """The three queues a human works through, with evidence on every row.
+
+    Ranked by how much one verdict fixes: a bank pair settles a lender
+    identity, a conflict pattern settles every notice writing that district
+    over that taluk, a village row settles every property naming that string
+    in that taluk.
+    """
+    import json as _json
+
+    from pipeline.place_resolution import normalize_place
+    from pipeline.resolution_review import (
+        bank_pair_key, district_conflict_key, settled_conflicts,
+        skipped_villages, village_alias_key, village_aliases,
+    )
+
+    decisions = _load_decisions()
+    ruled_pairs = {d["key"] for d in decisions if d["kind"] == "bank-merge"}
+    settled = settled_conflicts(decisions)
+    aliased = set(village_aliases(decisions))
+    skipped = skipped_villages(decisions)
+
+    # Bank lookalike pairs — stored by the resolver, already excluding pairs
+    # decided before its last run; the key filter catches ones decided since.
+    state = _count_query(
+        "MATCH (s:PipelineState {key:'entity_resolution'}) "
+        "RETURN s.proposals_json AS pj")
+    try:
+        proposals = _json.loads(state.get("pj") or "[]")
+    except (TypeError, ValueError):
+        proposals = []
+    pairs = [p for p in proposals
+             if bank_pair_key(p["a"], p["b"]) not in ruled_pairs]
+    names = sorted({p["a"] for p in pairs} | {p["b"] for p in pairs})
+    examples: dict[str, list[str]] = {}
+    if names:
+        for r in run_read_query(
+                """
+                MATCH (d:Document) WHERE d.bank_canonical IN $names
+                RETURN d.bank_canonical AS name,
+                       collect(d.filename)[0..2] AS files
+                """, {"names": names}, max_rows=len(names), timeout=30.0):
+            examples[r["name"]] = r["files"]
+    bank_pairs = [{
+        "score": p["score"], "a": p["a"], "b": p["b"],
+        "a_count": p["a_count"], "b_count": p["b_count"],
+        "a_files": examples.get(p["a"], []),
+        "b_files": examples.get(p["b"], []),
+    } for p in pairs]
+
+    # District-conflict patterns — grouped, one row per (raw spelling, taluk).
+    pstate = _count_query(
+        "MATCH (s:PipelineState {key:'place_resolution'}) "
+        "RETURN s.conflicts_json AS cj")
+    try:
+        conflicts = _json.loads(pstate.get("cj") or "[]")
+    except (TypeError, ValueError):
+        conflicts = []
+    grouped: dict[tuple, dict] = {}
+    for c in conflicts:
+        key = district_conflict_key(c.get("raw_district") or "",
+                                    c.get("taluk") or "")
+        if key in settled:
+            continue
+        gk = (c.get("raw_district"), c.get("taluk"), c.get("resolved_district"))
+        g = grouped.setdefault(gk, {
+            "raw_district": c.get("raw_district"), "taluk": c.get("taluk"),
+            "resolved_district": c.get("resolved_district"),
+            "count": 0, "auction_ids": []})
+        g["count"] += 1
+        if len(g["auction_ids"]) < 3:
+            g["auction_ids"].append(c.get("auction_id"))
+    district_conflicts = sorted(grouped.values(), key=lambda g: -g["count"])
+
+    # Unmatched villages — grouped by (string, taluk), with the taluk's
+    # closest official names as candidate alias targets so the reviewer picks
+    # rather than types.
+    rows = run_read_query(
+        """
+        MATCH (p:AuctionProperty)
+        WHERE p.place_village_status = 'unmatched'
+          AND p.village IS NOT NULL AND p.revenue_taluk IS NOT NULL
+        RETURN p.village AS village, p.revenue_taluk AS taluk,
+               p.revenue_district AS district,
+               count(*) AS n, collect(p.auction_id)[0..3] AS auction_ids
+        ORDER BY n DESC
+        """, max_rows=2000, timeout=60.0)
+    open_rows = [r for r in rows
+                 if village_alias_key(r["village"], r["taluk"]) not in aliased
+                 and normalize_place(r["village"]) not in skipped]
+    open_rows = open_rows[:60]
+    pools = _village_candidates(sorted({r["taluk"] for r in open_rows}))
+    try:
+        from rapidfuzz import fuzz
+        def top3(raw: str, taluk: str) -> list[dict]:
+            nv = normalize_place(raw)
+            scored = sorted(
+                ((fuzz.ratio(nv, normalize_place(v)), v)
+                 for v in pools.get(taluk, [])), reverse=True)[:3]
+            return [{"name": v, "score": round(float(s), 1)}
+                    for s, v in scored if s >= 55]
+    except ImportError:
+        def top3(raw: str, taluk: str) -> list[dict]:
+            return []
+    unmatched_villages = [{
+        "village": r["village"], "taluk": r["taluk"],
+        "district": r["district"], "count": r["n"],
+        "auction_ids": r["auction_ids"],
+        "candidates": top3(r["village"], r["taluk"]),
+    } for r in open_rows]
+
+    return {
+        "bank_pairs": bank_pairs,
+        "district_conflicts": district_conflicts,
+        "unmatched_villages": unmatched_villages,
+        "decided": len(decisions),
+        "open": (len(bank_pairs) + len(district_conflicts)
+                 + len(unmatched_villages)),
+    }
+
+
+def record_resolution_decision(kind: str, payload: dict, verdict: str,
+                               by_email: str) -> dict:
+    """Store one human verdict as a (:ResolutionDecision) node.
+
+    The key is always derived from the kind and payload — never accepted from
+    the caller — so a decision can only land on the strings it names. An
+    approved village alias is checked against the gazetteer first: a typo in
+    the target must fail loudly here, not invent a place downstream.
+    """
+    import json as _json
+
+    from pipeline.resolution_review import APPROVED, REJECTED, decision_key
+
+    if verdict not in (APPROVED, REJECTED):
+        raise ValueError(f"verdict must be approved or rejected, got {verdict!r}")
+    try:
+        key = decision_key(kind, payload)
+    except KeyError as e:
+        raise ValueError(f"payload for {kind!r} is missing field {e}")
+
+    if kind == "village-alias" and verdict == APPROVED:
+        hit = _count_query(
+            """
+            MATCH (v:RevenueVillage {name: $target})-[:IN_TALUK]->
+                  (t:Taluk {name: $taluk})
+            RETURN count(v) AS n
+            """, {"target": payload.get("target"),
+                  "taluk": payload.get("taluk")})
+        if not int(hit.get("n") or 0):
+            raise ValueError(
+                f"{payload.get('target')!r} is not a revenue village of "
+                f"{payload.get('taluk')!r} — the alias would point nowhere")
+
+    run_query(
+        """
+        MERGE (r:ResolutionDecision {key: $key})
+        SET r.kind = $kind, r.verdict = $verdict,
+            r.payload_json = $payload, r.decided_at = datetime(),
+            r.decided_by = $by
+        """,
+        {"key": key, "kind": kind, "verdict": verdict,
+         "payload": _json.dumps(payload, ensure_ascii=False), "by": by_email})
+    return {"key": key, "kind": kind, "verdict": verdict}
+
+
+def undo_resolution_decision(kind: str, payload: dict) -> dict:
+    """Delete a stored verdict so the question reopens on the next run."""
+    from pipeline.resolution_review import decision_key
+    try:
+        key = decision_key(kind, payload)
+    except KeyError as e:
+        raise ValueError(f"payload for {kind!r} is missing field {e}")
+    rows = run_query(
+        "MATCH (r:ResolutionDecision {key: $key}) DELETE r RETURN count(r) AS n",
+        {"key": key})
+    n = int(rows[0].get("n") or 0) if rows else 0
+    return {"key": key, "deleted": bool(n)}
+
+
+def _resolution_review_panels() -> list[dict]:
+    """The resolve_ok stage page: what still blocks review-complete, and the
+    ledger of verdicts already banked."""
+    c = _count_query("""
+        MATCH (d:Document)
+        RETURN sum(CASE WHEN d.entity_resolved_at IS NOT NULL
+                        THEN 1 ELSE 0 END) AS resolved,
+               sum(CASE WHEN d.bank_attention THEN 1 ELSE 0 END) AS bank_att,
+               sum(CASE WHEN d.place_attention THEN 1 ELSE 0 END) AS place_att,
+               sum(CASE WHEN d.entity_resolved_at IS NOT NULL
+                        AND d.bank_attention IS NULL
+                        AND d.place_attention IS NULL
+                        THEN 1 ELSE 0 END) AS clean
+    """)
+    ledger = run_read_query(
+        """
+        MATCH (r:ResolutionDecision)
+        RETURN r.kind + ' — ' + r.verdict AS t, count(*) AS n ORDER BY n DESC
+        """, max_rows=12, timeout=30.0)
+    queues = resolution_review()
+    total = int(c.get("resolved") or 0)
+    return [
+        _panel("Review state", _rows([
+            ("notices with both resolvers run", c.get("resolved")),
+            ("clean — no open question", c.get("clean")),
+            ("waiting on a lender verdict", c.get("bank_att")),
+            ("waiting on a place verdict", c.get("place_att")),
+        ], total),
+               "a notice is review-complete when nothing about it is still "
+               "an open question; verdicts below shrink these numbers on the "
+               "next resolver run"),
+        _panel("Open questions", _rows([
+            ("lender lookalike pairs", len(queues["bank_pairs"])),
+            ("district conflict patterns", len(queues["district_conflicts"])),
+            ("unmatched village strings", len(queues["unmatched_villages"])),
+        ], max(queues["open"], 1)),
+               "each row on the review queue settles every notice it touches"),
+        _panel("Verdicts banked", _rows(
+            [(r["t"], r["n"]) for r in ledger], max(
+                sum(r["n"] for r in ledger), 1)),
+               "stored permanently — re-runs apply them before proposing "
+               "anything"),
+    ]
