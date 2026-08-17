@@ -372,8 +372,18 @@ def test_pipeline_stage_detail_rejects_unknown_stage(client) -> None:
 
 def test_planned_stage_detail_says_so(client) -> None:
     _ensure_admin_user()
-    r = client.get("/review/pipeline/entity_resolution", headers=_admin_header())
+    r = client.get("/review/pipeline/graph_loaded", headers=_admin_header())
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["panels"] and body["panels"][0]["rows"] == []
     assert "planned" in body["panels"][0]["note"]
+
+
+def test_resolved_stage_is_built_not_planned() -> None:
+    # Entity resolution graduated from planned to a real stage; a leftover
+    # entry in PIPELINE_PLANNED would make the funnel draw it dashed and
+    # exclude it from the blockage maths while it is actually running.
+    from api.review.queries import PIPELINE_PLANNED, PIPELINE_STAGES
+    assert "resolved" in {k for k, _l, _p in PIPELINE_STAGES}
+    assert "resolved" not in {k for k, _l in PIPELINE_PLANNED}
+    assert "entity_resolution" not in {k for k, _l in PIPELINE_PLANNED}

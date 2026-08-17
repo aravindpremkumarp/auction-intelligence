@@ -1181,6 +1181,8 @@ PIPELINE_STAGES: list[tuple[str, str, str]] = [
      "d.extraction_json IS NOT NULL"),
     ("extract_ok",    "Extraction reviewed",
      "coalesce(d.extraction_review_status,'pending') = 'verified'"),
+    ("resolved",      "Entities resolved",
+     "d.entity_resolved_at IS NOT NULL"),
 ]
 
 # Stages the pipeline will grow but does not have yet. Carried here so the
@@ -1189,8 +1191,7 @@ PIPELINE_STAGES: list[tuple[str, str, str]] = [
 # "nothing has reached this stage" and "this stage does not exist" are different
 # facts and a 0 would read as the first.
 PIPELINE_PLANNED: list[tuple[str, str]] = [
-    ("entity_resolution", "Entity resolution"),
-    ("graph_loaded",      "Loaded into the graph"),
+    ("graph_loaded", "Loaded into the graph"),
 ]
 
 
@@ -1539,5 +1540,152 @@ def pipeline_stage_detail(key: str, sample: int = ENTITY_COVERAGE_SAMPLE) -> dic
                 ("markdown changed since extraction", score.get("stale")),
             ], total), "their entities were read off text that has been replaced"),
         ] + _entity_coverage_panels(sample)
+
+    elif key == "resolved":
+        total = int(_count_query(
+            "MATCH (d:Document) WHERE d.bank_canonical IS NOT NULL "
+            "RETURN count(d) AS n").get("n") or 0)
+        state = _count_query(
+            "MATCH (s:PipelineState {key:'entity_resolution'}) "
+            "RETURN s.raw_values AS raw, s.entities AS entities, "
+            "       s.merged_spellings AS merged, s.proposals_open AS proposals, "
+            "       s.proposals_json AS proposals_json")
+        top = run_read_query(
+            "MATCH (d:Document) WHERE d.bank_canonical IS NOT NULL "
+            "RETURN d.bank_canonical AS t, count(*) AS n ORDER BY n DESC LIMIT 12",
+            max_rows=12, timeout=30.0)
+        spelt = run_read_query(
+            """
+            MATCH (d:Document)
+            WHERE d.bank_canonical IS NOT NULL AND d.bank_name_raw IS NOT NULL
+              AND d.bank_name_raw <> d.bank_canonical
+            RETURN d.bank_canonical AS t, count(DISTINCT d.bank_name_raw) AS n
+            ORDER BY n DESC LIMIT 10
+            """, max_rows=10, timeout=30.0)
+        proposals: list[dict] = []
+        try:
+            import json as _json
+            proposals = _json.loads(state.get("proposals_json") or "[]")
+        except (TypeError, ValueError):
+            proposals = []
+        out["panels"] = [
+            _panel("Lenders", _rows([
+                ("name strings extracted", state.get("raw")),
+                ("distinct lenders after resolution", state.get("entities")),
+                ("spellings absorbed", state.get("merged")),
+                ("notices carrying a resolved lender", total),
+            ], int(state.get("raw") or 0) or total),
+                   "only exact matches after case, punctuation and legal form "
+                   "are normalised away — nothing merges on resemblance"),
+            _panel("Awaiting a human", _rows(
+                [(f"{p.get('a')}   vs  {p.get('b')}", p.get("score"))
+                 for p in proposals[:20]], 100),
+                   f"{len(proposals)} pair(s) too similar to ignore and too "
+                   "risky to merge automatically — the number shown is the "
+                   "similarity score, not a count"),
+            _panel("Most frequent lenders",
+                   _rows([(r["t"], r["n"]) for r in top], total), ""),
+            _panel("Most spelling variants", _rows(
+                [(r["t"], r["n"]) for r in spelt], total),
+                   "how many different spellings each lender arrived under"),
+        ]
+
+    elif key == "resolved":
+        total = int(_count_query(
+            "MATCH (d:Document) WHERE d.bank_canonical IS NOT NULL "
+            "RETURN count(d) AS n").get("n") or 0)
+        state = _count_query(
+            "MATCH (s:PipelineState {key:'entity_resolution'}) "
+            "RETURN s.raw_values AS raw, s.entities AS entities, "
+            "       s.merged_spellings AS merged, s.proposals_open AS proposals, "
+            "       s.proposals_json AS proposals_json")
+        top = run_read_query(
+            "MATCH (d:Document) WHERE d.bank_canonical IS NOT NULL "
+            "RETURN d.bank_canonical AS t, count(*) AS n ORDER BY n DESC LIMIT 12",
+            max_rows=12, timeout=30.0)
+        spelt = run_read_query(
+            """
+            MATCH (d:Document)
+            WHERE d.bank_canonical IS NOT NULL AND d.bank_name_raw IS NOT NULL
+              AND d.bank_name_raw <> d.bank_canonical
+            RETURN d.bank_canonical AS t, count(DISTINCT d.bank_name_raw) AS n
+            ORDER BY n DESC LIMIT 10
+            """, max_rows=10, timeout=30.0)
+        proposals: list[dict] = []
+        try:
+            import json as _json
+            proposals = _json.loads(state.get("proposals_json") or "[]")
+        except (TypeError, ValueError):
+            proposals = []
+        out["panels"] = [
+            _panel("Lenders", _rows([
+                ("name strings extracted", state.get("raw")),
+                ("distinct lenders after resolution", state.get("entities")),
+                ("spellings absorbed", state.get("merged")),
+                ("notices carrying a resolved lender", total),
+            ], int(state.get("raw") or 0) or total),
+                   "only exact matches after case, punctuation and legal form "
+                   "are normalised away — nothing merges on resemblance"),
+            _panel("Awaiting a human", _rows(
+                [(f"{p.get('a')}   vs  {p.get('b')}", p.get("score"))
+                 for p in proposals[:20]], 100),
+                   f"{len(proposals)} pair(s) too similar to ignore and too "
+                   "risky to merge automatically — the number shown is the "
+                   "similarity score, not a count"),
+            _panel("Most frequent lenders",
+                   _rows([(r["t"], r["n"]) for r in top], total), ""),
+            _panel("Most spelling variants", _rows(
+                [(r["t"], r["n"]) for r in spelt], total),
+                   "how many different spellings each lender arrived under"),
+        ]
+
+    elif key == "resolved":
+        total = int(_count_query(
+            "MATCH (d:Document) WHERE d.bank_canonical IS NOT NULL "
+            "RETURN count(d) AS n").get("n") or 0)
+        state = _count_query(
+            "MATCH (s:PipelineState {key:'entity_resolution'}) "
+            "RETURN s.raw_values AS raw, s.entities AS entities, "
+            "       s.merged_spellings AS merged, s.proposals_open AS proposals, "
+            "       s.proposals_json AS proposals_json")
+        top = run_read_query(
+            "MATCH (d:Document) WHERE d.bank_canonical IS NOT NULL "
+            "RETURN d.bank_canonical AS t, count(*) AS n ORDER BY n DESC LIMIT 12",
+            max_rows=12, timeout=30.0)
+        spelt = run_read_query(
+            """
+            MATCH (d:Document)
+            WHERE d.bank_canonical IS NOT NULL AND d.bank_name_raw IS NOT NULL
+              AND d.bank_name_raw <> d.bank_canonical
+            RETURN d.bank_canonical AS t, count(DISTINCT d.bank_name_raw) AS n
+            ORDER BY n DESC LIMIT 10
+            """, max_rows=10, timeout=30.0)
+        proposals: list[dict] = []
+        try:
+            import json as _json
+            proposals = _json.loads(state.get("proposals_json") or "[]")
+        except (TypeError, ValueError):
+            proposals = []
+        out["panels"] = [
+            _panel("Lenders", _rows([
+                ("name strings extracted", state.get("raw")),
+                ("distinct lenders after resolution", state.get("entities")),
+                ("spellings absorbed", state.get("merged")),
+                ("notices carrying a resolved lender", total),
+            ], int(state.get("raw") or 0) or total),
+                   "only exact matches after case, punctuation and legal form "
+                   "are normalised away — nothing merges on resemblance"),
+            _panel("Awaiting a human", _rows(
+                [(f"{p.get('a')}   vs  {p.get('b')}", p.get("score"))
+                 for p in proposals[:20]], 100),
+                   f"{len(proposals)} pair(s) too similar to ignore and too "
+                   "risky to merge automatically — the number shown is the "
+                   "similarity score, not a count"),
+            _panel("Most frequent lenders",
+                   _rows([(r["t"], r["n"]) for r in top], total), ""),
+            _panel("Most spelling variants", _rows(
+                [(r["t"], r["n"]) for r in spelt], total),
+                   "how many different spellings each lender arrived under"),
+        ]
 
     return out
