@@ -33,6 +33,19 @@ from pipeline.mineru import (
 )
 
 
+#: Every ``source`` value real code stamps onto a block. Writers:
+#: ``pipeline/mineru.py`` ("mineru"), ``pipeline/datalab.py`` ("datalab"),
+#: ``scripts/fix_missing_regions.py`` ("datalab-patchfix"), and this module
+#: ("human", plus the engine name on re-extract).
+#:
+#: This is an allowlist for the WRITE path only. The read path deliberately
+#: accepts any string (see ``Block.source`` in api/review/router.py): a
+#: provenance value this list has not caught up with must never 400 the whole
+#: annotator payload, which is exactly how both the "datalab" and the
+#: "datalab-patchfix" outages happened.
+KNOWN_BLOCK_SOURCES = ("mineru", "datalab", "datalab-patchfix", "human")
+
+
 class BlocksConflict(RuntimeError):
     """Raised when the optimistic-lock CAS fails (HTTP 409 in the router)."""
 
@@ -80,6 +93,23 @@ def _clean_bbox(raw: Any) -> list[float]:
     if y1 - y0 < 0.005:
         y1 = _clamp01(y0 + 0.005)
     return [x0, y0, x1, y1]
+
+
+def _clean_source(raw: Any) -> str:
+    """Normalize a block's ``source`` provenance for the write path.
+
+    The allowlist stays closed here so a replace-all cannot be used to write
+    arbitrary provenance. Anything unrecognized becomes ``"human"`` — which is
+    what a reviewer-drawn block looks like when the client sends no source.
+
+    That fallback is lossy in one direction: it brands machine OCR as
+    human-verified, inverting the review signal. So a new writer must be added
+    to :data:`KNOWN_BLOCK_SOURCES` — ``test_every_writer_stamps_a_known_source``
+    fails until it is. Note this is NOT what the annotator 400 was about: the
+    read model accepts any string precisely so a missing entry here can never
+    take a document offline.
+    """
+    return raw if raw in KNOWN_BLOCK_SOURCES else "human"
 
 
 def _clean_crop_bbox(raw: Any) -> list[float] | None:
@@ -714,10 +744,10 @@ def _normalize_replacement_blocks(raw_blocks: Any, by_email: str) -> list[dict]:
             "label":         label,
             "text":          str(raw.get("text") or ""),
             "reading_order": int(raw.get("reading_order") or 0),
-            # Keep this allowlist in sync with Block.source in api/review/router.py.
-            # A value missing here is silently rewritten to "human", which brands
-            # machine OCR as human-verified — the opposite of the truth.
-            "source":        src if src in ("mineru", "datalab", "human") else "human",
+            # Allowlisted against KNOWN_BLOCK_SOURCES; anything else becomes
+            # "human", which brands machine OCR as human-verified — so a new
+            # writer must be registered there. See _clean_source.
+            "source":        _clean_source(src),
             "confidence":    (float(conf)
                               if isinstance(conf, (int, float))
                               and not isinstance(conf, bool) else None),
