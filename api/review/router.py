@@ -736,6 +736,15 @@ class ResolutionBankPair(BaseModel):
     b_files: list[str] = []
 
 
+class ResolutionBranchPair(BaseModel):
+    score: float
+    a: str
+    b: str
+    a_count: int
+    b_count: int
+    bank: str
+
+
 class ResolutionConflict(BaseModel):
     raw_district: str | None = None
     taluk: str | None = None
@@ -762,6 +771,7 @@ class ResolutionReviewOut(BaseModel):
     """The queues a human works through. Every row is a fact to settle, not a
     document to walk — one verdict covers every notice the fact touches."""
     bank_pairs: list[ResolutionBankPair] = []
+    branch_pairs: list[ResolutionBranchPair] = []
     district_conflicts: list[ResolutionConflict] = []
     unmatched_villages: list[ResolutionVillage] = []
     decided: int = 0
@@ -769,7 +779,7 @@ class ResolutionReviewOut(BaseModel):
 
 
 class ResolutionDecisionIn(BaseModel):
-    kind: Literal["bank-merge", "district-conflict",
+    kind: Literal["bank-merge", "branch-merge", "district-conflict",
                   "village-alias", "village-skip"]
     verdict: Literal["approved", "rejected"]
     # What the decision is about; fields depend on kind (see

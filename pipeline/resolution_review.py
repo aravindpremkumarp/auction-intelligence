@@ -35,13 +35,14 @@ Decision kinds and their payloads::
 """
 from __future__ import annotations
 
-from pipeline.entity_resolution import canonical_label, org_key
+from pipeline.entity_resolution import branch_key, canonical_label, org_key
 from pipeline.place_resolution import normalize_place
 
 APPROVED = "approved"
 REJECTED = "rejected"
 
-KINDS = ("bank-merge", "district-conflict", "village-alias", "village-skip")
+KINDS = ("bank-merge", "branch-merge", "district-conflict",
+         "village-alias", "village-skip")
 
 
 def bank_pair_key(a: str, b: str) -> str:
@@ -51,6 +52,17 @@ def bank_pair_key(a: str, b: str) -> str:
     pair keeps its key when a later run picks a different canonical spelling.
     """
     return "bank-merge:" + "|".join(sorted((org_key(a), org_key(b))))
+
+
+def branch_pair_key(bank: str, a: str, b: str) -> str:
+    """Key for a lookalike branch pair, scoped to its bank.
+
+    The bank is part of the key because branch identity only exists within a
+    bank — a verdict on Canara's two "ARM Trichy" spellings must never touch
+    another bank's Trichy office.
+    """
+    return (f"branch-merge:{org_key(bank)}:"
+            + "|".join(sorted((branch_key(a), branch_key(b)))))
 
 
 def district_conflict_key(raw_district: str, taluk: str) -> str:
@@ -79,6 +91,8 @@ def decision_key(kind: str, payload: dict) -> str:
     the strings it names."""
     if kind == "bank-merge":
         return bank_pair_key(payload["a"], payload["b"])
+    if kind == "branch-merge":
+        return branch_pair_key(payload["bank"], payload["a"], payload["b"])
     if kind == "district-conflict":
         return district_conflict_key(payload["raw"], payload["taluk"])
     if kind == "village-alias":
@@ -107,7 +121,29 @@ def apply_bank_merges(res: dict, decisions: list[dict]) -> dict:
     """
     approved = [d for d in _decided(decisions, "bank-merge").values()
                 if d.get("verdict") == APPROVED]
-    if not approved:
+    pairs = [(org_key(d["payload"]["a"]), org_key(d["payload"]["b"]))
+             for d in approved]
+    return _apply_merge_pairs(res, pairs)
+
+
+def apply_branch_merges(res: dict, decisions: list[dict], *,
+                        bank: str) -> dict:
+    """Fold approved branch-merge decisions for ``bank`` into that bank's
+    ``resolve(..., kind="branch")`` result. Same mechanics as the lender
+    version; the bank filter is what keeps one bank's verdicts from ever
+    touching another's identically named office."""
+    scope = org_key(bank)
+    approved = [d for d in _decided(decisions, "branch-merge").values()
+                if d.get("verdict") == APPROVED
+                and org_key((d.get("payload") or {}).get("bank") or "") == scope]
+    pairs = [(branch_key(d["payload"]["a"]), branch_key(d["payload"]["b"]))
+             for d in approved]
+    return _apply_merge_pairs(res, pairs)
+
+
+def _apply_merge_pairs(res: dict,
+                       pairs: list[tuple[str, str]]) -> dict:
+    if not pairs:
         for g in res["groups"]:
             g.setdefault("merged_by_decision", 0)
         return res
@@ -122,8 +158,7 @@ def apply_bank_merges(res: dict, decisions: list[dict]) -> dict:
             k = parent[k]
         return k
 
-    for d in approved:
-        a, b = org_key(d["payload"]["a"]), org_key(d["payload"]["b"])
+    for a, b in pairs:
         parent[find(a)] = find(b)
 
     by_root: dict[str, list[dict]] = {}
@@ -164,6 +199,14 @@ def filter_proposals(proposals: list[dict], decisions: list[dict]) -> list[dict]
     ruled = set(_decided(decisions, "bank-merge"))
     return [p for p in proposals
             if bank_pair_key(p["a"], p["b"]) not in ruled]
+
+
+def filter_branch_proposals(proposals: list[dict],
+                            decisions: list[dict]) -> list[dict]:
+    """Same idea for branch pairs; each proposal carries its ``bank``."""
+    ruled = set(_decided(decisions, "branch-merge"))
+    return [p for p in proposals
+            if branch_pair_key(p["bank"], p["a"], p["b"]) not in ruled]
 
 
 def village_aliases(decisions: list[dict]) -> dict[str, str]:

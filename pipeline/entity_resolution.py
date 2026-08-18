@@ -91,6 +91,26 @@ def org_key(value: str) -> str:
     return " ".join(sorted(set(s.split())))
 
 
+def branch_key(value: str) -> str:
+    """The auto-merge key for a branch name, always used *within one bank*.
+
+    A branch name is word soup around a place or unit name — ``ARM Branch
+    Trichy``, ``Trichy ARM Branch``, ``ARM TRICHY`` are one office of Canara
+    Bank, spelt six ways across the corpus. Normalized, the filler word
+    "branch" dropped, remaining tokens sorted as a set. Numerals survive as
+    tokens, which is what keeps ``ARM I`` and ``ARM II`` — two different
+    Chennai offices — apart.
+
+    Never compare these keys across banks: "Chennai" names a different branch
+    in every bank that has one, which is also why the scraped graph's shared
+    ``(:Branch {name})`` nodes (one "Chennai" node claimed by 23 banks)
+    cannot be trusted as identities.
+    """
+    s = _LEADING_THE.sub("", normalize(value))
+    s = re.sub(r"\b(branch|br)\b", " ", s)
+    return " ".join(sorted(set(s.split())))
+
+
 def canonical_label(variants: dict[str, int]) -> str:
     """Pick the spelling to display for a group of {variant: count}.
 
@@ -114,13 +134,16 @@ def resolve(values: Counter | dict[str, int], *, kind: str = "org") -> dict:
     its canonical label, its variants and a total count. Auto-merge only — the
     fuzzy proposals live in :func:`propose_merges`, which a human reviews.
     """
-    if kind != "org":
-        raise ValueError(f"unsupported kind: {kind!r} (only 'org' so far)")
+    key_fns = {"org": org_key, "branch": branch_key}
+    if kind not in key_fns:
+        raise ValueError(f"unsupported kind: {kind!r} "
+                         f"(one of {sorted(key_fns)})")
+    key_fn = key_fns[kind]
     buckets: dict[str, dict[str, int]] = defaultdict(dict)
     for raw, count in values.items():
         if not (raw or "").strip():
             continue
-        buckets[org_key(raw)][raw] = int(count)
+        buckets[key_fn(raw)][raw] = int(count)
 
     groups = []
     by_value: dict[str, str] = {}

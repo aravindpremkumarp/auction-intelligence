@@ -43,5 +43,10 @@ jobs:
       - name: Resolve lenders (applies stored verdicts)
         run: python -m scripts.resolve_bank_names
 
+      # Branches after lenders: their scope is d.bank_canonical, which the
+      # lender pass may have just rewritten.
+      - name: Resolve branches (applies stored verdicts)
+        run: python -m scripts.resolve_branches
+
       - name: Resolve places (applies stored verdicts)
         run: python -m scripts.resolve_places

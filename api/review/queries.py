@@ -1193,7 +1193,8 @@ PIPELINE_STAGES: list[tuple[str, str, str]] = [
     # attention flags are recomputed by the resolvers on every run, and this
     # stage advances as decisions land and the scripts re-apply them.
     ("resolve_ok",    "Resolution reviewed",
-     "d.bank_attention IS NULL AND d.place_attention IS NULL"),
+     "d.bank_attention IS NULL AND d.place_attention IS NULL "
+     "AND d.branch_attention IS NULL"),
 ]
 
 # Stages the pipeline will grow but does not have yet. Carried here so the
@@ -1754,6 +1755,17 @@ def resolution_review() -> dict:
         "b_files": examples.get(p["b"], []),
     } for p in pairs]
 
+    # Branch lookalike pairs — same design as lenders, scoped per bank.
+    from pipeline.resolution_review import filter_branch_proposals
+    bstate = _count_query(
+        "MATCH (s:PipelineState {key:'branch_resolution'}) "
+        "RETURN s.proposals_json AS pj")
+    try:
+        branch_props = _json.loads(bstate.get("pj") or "[]")
+    except (TypeError, ValueError):
+        branch_props = []
+    branch_pairs = filter_branch_proposals(branch_props, decisions)
+
     # District-conflict patterns — grouped, one row per (raw spelling, taluk).
     pstate = _count_query(
         "MATCH (s:PipelineState {key:'place_resolution'}) "
@@ -1817,11 +1829,12 @@ def resolution_review() -> dict:
 
     return {
         "bank_pairs": bank_pairs,
+        "branch_pairs": branch_pairs,
         "district_conflicts": district_conflicts,
         "unmatched_villages": unmatched_villages,
         "decided": len(decisions),
-        "open": (len(bank_pairs) + len(district_conflicts)
-                 + len(unmatched_villages)),
+        "open": (len(bank_pairs) + len(branch_pairs)
+                 + len(district_conflicts) + len(unmatched_villages)),
     }
 
 
@@ -1893,9 +1906,11 @@ def _resolution_review_panels() -> list[dict]:
                         THEN 1 ELSE 0 END) AS resolved,
                sum(CASE WHEN d.bank_attention THEN 1 ELSE 0 END) AS bank_att,
                sum(CASE WHEN d.place_attention THEN 1 ELSE 0 END) AS place_att,
+               sum(CASE WHEN d.branch_attention THEN 1 ELSE 0 END) AS branch_att,
                sum(CASE WHEN d.entity_resolved_at IS NOT NULL
                         AND d.bank_attention IS NULL
                         AND d.place_attention IS NULL
+                        AND d.branch_attention IS NULL
                         THEN 1 ELSE 0 END) AS clean
     """)
     ledger = run_read_query(
@@ -1911,12 +1926,14 @@ def _resolution_review_panels() -> list[dict]:
             ("clean — no open question", c.get("clean")),
             ("waiting on a lender verdict", c.get("bank_att")),
             ("waiting on a place verdict", c.get("place_att")),
+            ("waiting on a branch verdict", c.get("branch_att")),
         ], total),
                "a notice is review-complete when nothing about it is still "
                "an open question; verdicts below shrink these numbers on the "
                "next resolver run"),
         _panel("Open questions", _rows([
             ("lender lookalike pairs", len(queues["bank_pairs"])),
+            ("branch lookalike pairs", len(queues["branch_pairs"])),
             ("district conflict patterns", len(queues["district_conflicts"])),
             ("unmatched village strings", len(queues["unmatched_villages"])),
         ], max(queues["open"], 1)),
@@ -1982,8 +1999,12 @@ def run_resolution_apply() -> None:
     import time as _time
     try:
         from scripts.resolve_bank_names import run as run_banks
+        from scripts.resolve_branches import run as run_branches
         from scripts.resolve_places import run as run_places
-        summary = {"banks": run_banks(), "places": run_places()}
+        # Branches after banks: their scope is d.bank_canonical, which the
+        # lender pass may have just rewritten.
+        summary = {"banks": run_banks(), "branches": run_branches(),
+                   "places": run_places()}
         run_query(
             """
             MERGE (s:PipelineState {key:'resolution_apply'})
