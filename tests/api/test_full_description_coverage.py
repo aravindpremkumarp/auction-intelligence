@@ -102,3 +102,62 @@ def test_stats_expose_coverage_counts():
     stats = validate(ex)["stats"]
     assert stats["full_description_incomplete_lots"] == 1
     assert stats["lots_missing_full_description"] == 0
+
+
+# ── order-insensitive (token) coverage arm ───────────────────────────────────
+#
+# The extractor frequently SYNTHESISES an entity instead of copying it, emitting
+# a location in canonical order while the notice states the same facts in a
+# different order. Those entities are ungrounded (no span) and never match as a
+# substring, so before the token arm they read as "full_description truncated"
+# on notices whose description was complete.
+
+_FD = ("All that piece and parcel of the land and building in Tiruvannamalai "
+       "District, Tiruvannamalai Registration District, Chengam Taluk, Chengam "
+       "Sub Registration District, Thokkavadi Village, Patta No.44")
+
+
+def test_reordered_location_is_covered():
+    # every token is present in fd, only the ORDER differs -> not truncation.
+    ex = [E("full_description", 100, 300, text=_FD),
+          E("location", None, None, text="Thokkavadi Village, Chengam Taluk, "
+                                         "Tiruvannamalai District")]
+    assert full_description_coverage(ex)["lots_incomplete"] == {}
+
+
+def test_inferred_state_does_not_count_as_truncation():
+    # "Tamil Nadu" is derivable from the district and the notice never spells it
+    # out; the state attribute exempts exactly those tokens.
+    ex = [E("full_description", 100, 300, text=_FD),
+          E("location", None, None,
+            text="Thokkavadi Village, Chengam Taluk, Tiruvannamalai District, "
+                 "Tamil Nadu",
+            state="Tamil Nadu")]
+    assert full_description_coverage(ex)["lots_incomplete"] == {}
+
+
+def test_token_arm_still_detects_real_truncation():
+    # a genuinely truncated description loses whole values, not just their
+    # order — the token arm must NOT forgive that.
+    ex = [E("full_description", 100, 300, text=_FD),
+          E("boundary", None, None,
+            text="East: Road, West: Plot No.9, North: Canal, South: Masuthi")]
+    assert full_description_coverage(ex)["lots_incomplete"] == {"1": ["boundary"]}
+
+
+def test_unrelated_state_attribute_does_not_whitewash_missing_detail():
+    # the exemption is scoped to the state's OWN tokens; other missing content
+    # still flags.
+    ex = [E("full_description", 100, 300, text=_FD),
+          E("location", None, None, text="Kanchipuram District, Tamil Nadu",
+            state="Tamil Nadu")]
+    assert full_description_coverage(ex)["lots_incomplete"] == {"1": ["location"]}
+
+
+def test_integer_lot_index_does_not_crash_sorting():
+    # lot_index arrives as an int on some extractions; mixing int and str lots
+    # used to raise TypeError inside sorted().
+    ex = [E("property", 100, 180, lot=1), E("location", 200, 240, lot="2")]
+    cov = full_description_coverage(ex)
+    assert cov["lots_missing_full_description"] == ["1", "2"]
+    assert "missing_full_description" in _codes(ex)
