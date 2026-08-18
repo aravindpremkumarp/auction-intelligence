@@ -313,11 +313,17 @@ class Block(BaseModel):
     label: str
     text: str | None = None
     reading_order: int = 0
-    # "datalab" is a real provenance, not a fallback: pipeline/datalab.py stamps
-    # every block it parses, and both scripts/reocr_low_health_datalab.py and the
-    # --engine datalab path of scripts/ocr_missing_markdowns.py write it. Omitting
-    # it here 400s the whole blocks response for any Datalab-OCR'd notice.
-    source: Literal["mineru", "datalab", "human"] = "mineru"
+    # Deliberately an open `str`, not a closed Literal. This field is pure
+    # provenance the annotator only ever shows as a pill — it drives no logic
+    # beyond an "is it human?" check — but a Literal made every unlisted value
+    # a pydantic ValidationError, which `_wrap_block_errors` turns into a 400
+    # for the WHOLE document. That took the annotator down twice: once for
+    # "datalab" (661 notices) and again for "datalab-patchfix" written by
+    # scripts/fix_missing_regions.py (61 notices) — in both cases locking
+    # reviewers out of exactly the documents that most needed correcting.
+    # The allowlist lives on the write path instead, as
+    # api.review.blocks.KNOWN_BLOCK_SOURCES.
+    source: str = "mineru"
     confidence: float | None = None
     table: TableShape | None = None
     edited_at: str | None = None
