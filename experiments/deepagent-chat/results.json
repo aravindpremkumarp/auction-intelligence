@@ -1,0 +1,124 @@
+[
+ {
+  "variant": "A vanilla-deepagents",
+  "seconds": 18.3,
+  "llm_calls": 3,
+  "input_tokens": 14732,
+  "output_tokens": 916,
+  "tools": [
+   "search_auctions",
+   "search_auctions"
+  ],
+  "answer": "Interesting \u2014 the tool's `property_type` filter didn't match the way the data stores types. But all 11 results are actually **Residential** (asset_category). Let me get the full details on the most interesting ones.\n\nHere are **11 residential auctions in Chennai under \u20b930 lakhs**:\n\n| # | Auction ID | Property | Area | Bank | Reserve Price | EMD | Deadline |\n|---|-----------|----------|------|------|:------------:|:---:|:--------:|\n| 1 | **823287** | Land & Building | Ambattur | Indian Bank | **\u20b922,78,000** | \u20b92,28,000 | 27 Aug 2026 |\n| 2 | **826227** | Flat | Ponniammanmedu | Bank of Maharashtra | **\u20b923,06,000** | \u20b92,30,600 | 28 Aug 2026 |\n| 3 | **827257** | Land & Building | Tiruvarur | Jana Small Finance Bank | **\u20b916,40,000** | \u20b91,64,000 | 30 Aug 2026 |\n| 4 | **830361** | House | Padappai | Indian Overseas Bank | **\u20b927,00,000** | \u20b92,70,000 | 31 Aug 2026 |\n| 5 | **831476** | Flat | Varadharajapuram | HDFC Bank | **\u20b924,00,000** | \u20b92,40,000 | 1 Sep 2026 |\n| 6 | **840337** | Flat | Muthailpet | Union Bank of India | **\u20b925,00,000** | \u20b92,50,000 | 4 Sep 2026 |\n| 7 | **837062** | Flat | Adhanur | JM Financial ARC | **\u20b928,90,000** | \u20b92,89,000 | 9 Sep 2026 |\n| 8 | **837057** | Flat | Urapakkam | JM Financial ARC | **\u20b916,10,000** | \u20b91,61,000 | 9 Sep 2026 |\n| 9 | **837061** | Flat | Mangadu | JM Financial ARC | **\u20b917,60,000** | \u20b91,76,000 | 9 Sep 2026 |\n| 10 | **834644** | Flat | Varadharajapuram | Bank of Maharashtra | **\u20b927,32,000** | \u20b92,73,200 | 14 Sep 2026 |\n\n**Key takeaways:**\n- **Cheapest**: Land & Building in Tiruvarur at **\u20b916.4L** (Jana Small Finance Bank)\n- **Cheapest flat**: Urapakkam at **\u20b916.1L** (JM Financial ARC)\n- **Most expensive**: Flat in Adhanur at **\u20b928.9L** (JM Financial ARC)\n- **Banks involved**: Indian Bank, Bank of Maharashtra, HDFC Bank, Union Bank, IOB, Jana SFB, JM Financial ARC\n\nWould you like me to pull the full details (including price history) on any of these?",
+  "q": 1,
+  "tier": "T1 filter",
+  "question": "Show me residential auctions in Chennai under 30 lakhs"
+ },
+ {
+  "variant": "B tiered",
+  "seconds": 11.9,
+  "llm_calls": 2,
+  "input_tokens": 1618,
+  "output_tokens": 187,
+  "tools": [
+   "search_auctions"
+  ],
+  "answer": "Based on the search results, there are **no residential auctions in Chennai under 30 lakhs** that match all of your current filters.\n\nThe system found **0 matches** when combining city (Chennai), property type (Residential), and max price (\u20b930,00,000). However, if you were to **relax the property type filter** (i.e., consider all property types instead of only Residential), there are **11 auctions** in Chennai under 30 lakhs that would become available.\n\nWould you like to drop the \"Residential\" filter and see those 11 properties?",
+  "q": 1,
+  "tier": "T1 filter",
+  "question": "Show me residential auctions in Chennai under 30 lakhs"
+ },
+ {
+  "variant": "A vanilla-deepagents",
+  "seconds": 10.8,
+  "llm_calls": 3,
+  "input_tokens": 12870,
+  "output_tokens": 337,
+  "tools": [
+   "search_auctions",
+   "search_auctions"
+  ],
+  "answer": "Here are the results for **Karur**:\n\n| Metric | Reserve Price |\n|---|---|\n| **Min** | \u20b92,42,000 |\n| **Max** | \u20b91,10,50,000 |\n| **Median** | \u20b99,20,000 |\n\nThere are **5 auctions** in Karur currently. The reserve prices span a wide range \u2014 from a modest \u20b92.42 lakh up to \u20b91.1 crore, with the median sitting at **\u20b99.2 lakh**.",
+  "q": 2,
+  "tier": "T1 aggregate",
+  "question": "What's the price range and median reserve price in Karur?"
+ },
+ {
+  "variant": "B tiered",
+  "seconds": 5.0,
+  "llm_calls": 2,
+  "input_tokens": 1533,
+  "output_tokens": 141,
+  "tools": [
+   "search_auctions"
+  ],
+  "answer": "I see the tool returned an error because the field name should be `reserve_price_num` instead of `reserve_price`. Let me correct that and get the right data.\n\n`NEED_MORE:` {\"tool\": \"search_auctions\", \"args\": {\"city\": \"Karur\", \"aggregate_field\": \"reserve_price_num\", \"aggregations\": [\"min\", \"max\", \"median\"]}}",
+  "q": 2,
+  "tier": "T1 aggregate",
+  "question": "What's the price range and median reserve price in Karur?"
+ },
+ {
+  "variant": "A vanilla-deepagents",
+  "seconds": 59.5,
+  "llm_calls": 9,
+  "input_tokens": 61313,
+  "output_tokens": 2088,
+  "tools": [
+   "search_auctions",
+   "search_auctions",
+   "semantic_search",
+   "semantic_search",
+   "semantic_search",
+   "search_auctions",
+   "search_auctions",
+   "search_auctions",
+   "get_auction_details"
+  ],
+  "answer": "Here's what I found:\n\n---\n\n## No re-auction flats under \u20b925 lakhs in Chennai\n\nThere are **4 re-auction flats** (properties that failed to sell earlier) in Chennai, but **none are under \u20b925 lakhs**. All exceed that budget:\n\n| Auction ID | Area | Reserve Price | Previous Price | Drop |\n|---|---|---|---|---|\n| 802503 | Madhavaram | **\u20b934.30 L** | \u20b936.10 L | \u2193 5% |\n| 801783 | Sholinganallur | **\u20b959.00 L** | \u20b962.10 L | \u2193 5% |\n| 795196 | T Nagar | **\u20b977.00 L** | \u20b981.00 L | \u2193 5% |\n| 796267 | Sholinganallur | Not listed | \u20b946.20 L | \u2014 |\n\nThe two cheapest re-auction flats are:\n\n### 1\ufe0f\u20e3 Canara Bank \u2014 Madhavaram (\u20b934.30 L)\n- **Auction ID:** 802503 (past \u2014 ended 14 Jul 2026)\n- **Flat:** G1, Ground Floor, Block 18, Annapoorna Nagar\n- **Built-up area:** 805 sq.ft | **UDS:** 380 sq.ft\n- **Previous price:** \u20b936.10 L \u2192 **reduced by \u20b91.80 L (5%)**\n- **Borrower:** Mr. K. Yoganand\n- **Boundaries:** 24 ft road (N), plots on other sides\n\n### 2\ufe0f\u20e3 Canara Bank \u2014 Sholinganallur (\u20b959.00 L)\n- **Auction ID:** 801783 (past \u2014 ended 14 Jul 2026)\n- **Flat:** F1, First Floor, Kubera Nagara Layout, Madipakkam\n- **Built-up area:** 1,100 sq.ft | **UDS:** 428 sq.ft\n- **Previous price:** \u20b962.10 L \u2192 **reduced by \u20b93.10 L (5%)**\n- **Borrower:** Mr. S. Kumaraguruparan\n- **Includes:** Covered car parking\n\n---\n\n**Bottom line:** There are no re-auction flats in Chennai within your \u20b925 lakh budget. The cheapest re-auction flat (Madhavaram, \u20b934.30 L) is still ~37% above your cap. \n\nIf you'd like to **loosen the budget** or look at **non-re-auction flats** under \u20b925L, I found **5 upcoming flats** (Urapakkam at \u20b916.10L, Mangadu at \u20b917.60L, Ponniammanmedu at \u20b923.06L, Varadharajapuram at \u20b924L, Muthailpet at \u20b925L) \u2014 would you like details on those?",
+  "q": 4,
+  "tier": "T2 multi-hop",
+  "question": "Find flats under 25 lakhs in Chennai that failed to sell at an earlier auction, and compare the two cheapest."
+ },
+ {
+  "variant": "B tiered",
+  "seconds": 20.8,
+  "llm_calls": 2,
+  "input_tokens": 1760,
+  "output_tokens": 325,
+  "tools": [
+   "search_auctions",
+   "search_auctions"
+  ],
+  "answer": "I cannot fully answer your question because the tool results show **zero flats under \u20b925 lakhs in Chennai that are flagged as re-auctions** (`is_reauction: true`). The diagnostics suggest that if you drop the `is_reauction` filter, there are **5 matching properties** in the database.\n\nHere is what I found:\n\n- **With all filters (max_price \u20b925L, Chennai, Flat, re-auction):** 0 results.\n- **If you relax the re-auction requirement:** 5 properties exist that are flats in Chennai under \u20b925 lakhs.\n\nSince no auction IDs were returned, I cannot compare the two cheapest. To proceed, please confirm whether you want to **drop the \"failed to sell earlier\" (re-auction) filter** so I can search for the 5 available flats and compare the two cheapest.",
+  "q": 4,
+  "tier": "T2 multi-hop",
+  "question": "Find flats under 25 lakhs in Chennai that failed to sell at an earlier auction, and compare the two cheapest."
+ },
+ {
+  "variant": "A vanilla-deepagents",
+  "seconds": 12.9,
+  "llm_calls": 3,
+  "input_tokens": 16525,
+  "output_tokens": 671,
+  "tools": [
+   "semantic_search",
+   "get_auction_details"
+  ],
+  "answer": "Here's what **symbolic possession** under SARFAESI means, illustrated with a real example from our database:\n\n---\n\n## What is Symbolic Possession?\n\n**Symbolic possession** (also called *constructive possession*) is the **first stage** of the possession process under the **SARFAESI Act, 2002** (Securitisation and Reconstruction of Financial Assets and Enforcement of Security Interest Act). \n\nWhen a bank takes symbolic possession of a secured asset:\n\n1. **The bank issues a notice** under Section 13(4) of the SARFAESI Act, declaring that it has taken possession of the property \u2014 **symbolically**, not physically.\n2. **The borrower is notified** that they are now in \"custody\" of the property on behalf of the bank. The borrower can continue to occupy the property but cannot sell, transfer, or encumber it.\n3. **A possession notice is published** in newspapers and affixed at the property, and the bank registers the possession with **CERSAI** (Central Registry of Securitisation Asset Reconstruction and Security Interest of India).\n4. **Physical possession** (actual eviction of the borrower) is a **later, separate step** \u2014 typically taken only if the borrower fails to vacate voluntarily or if the property is sold to a third party.\n\n### Real Example from the Database\n\n| Field | Detail |\n|---|---|\n| **Auction ID** | 835678 |\n| **Bank** | Canara Bank |\n| **Borrower** | Mrs. V. Divya |\n| **Property** | Plot in Chengalpattu Taluk, Kanchipuram |\n| **Reserve Price** | \u20b961,00,000 |\n| **Status** | *\"Property \u2026 under Symbolic Possession of the Bank\"* (CERSAI ID: 400056738175) |\n\nThe sale notice explicitly states the property is **under Symbolic Possession** \u2014 meaning Canara Bank has taken legal/constructive possession via the SARFAESI process, but the borrower may still be in physical occupation. The bank has registered this with CERSAI and is now proceeding to auction the property.\n\n### Key Takeaway\n\n**Symbolic possession \u2260 physical possession.** It's a legal declaration that transfers control of the property to the bank on paper. The bank can then proceed with the auction. If the property is sold, the buyer gets vacant/physical possession through the bank's subsequent eviction proceedings.",
+  "q": 5,
+  "tier": "off-graph",
+  "question": "What does symbolic possession under SARFAESI mean?"
+ },
+ {
+  "variant": "B tiered",
+  "seconds": 10.6,
+  "llm_calls": 1,
+  "input_tokens": 961,
+  "output_tokens": 135,
+  "tools": [],
+  "answer": "Symbolic possession under SARFAESI refers to the legal step where the bank or secured creditor takes constructive possession of the secured asset (e.g., a property) without physically occupying it. This is done by issuing a notice and publishing a possession notice under Rule 8 of the Security Interest (Enforcement) Rules, 2002. It transfers control in the eyes of the law, allowing the bank to proceed with sale, but the physical possession may be taken later if needed. This is a legal concept, not a data point in the auction graph, so I cannot provide specific auction examples from the knowledge graph.",
+  "q": 5,
+  "tier": "off-graph",
+  "question": "What does symbolic possession under SARFAESI mean?"
+ }
+]
