@@ -41,8 +41,8 @@ iter_all_live_candidates filters on auction_start_dt in the future, and the
 per-city sort is live-first. So a page written while its auction was open is
 never revisited once that auction closes — it keeps the live wording and, worse,
 keeps an InStock Offer in its JSON-LD. Left alone the whole tree drifts into
-advertising auctions that already ended (measured 2026-08-19: 518 of 664 pages
-carried an InStock Offer whose priceValidUntil was already in the past).
+advertising auctions that already ended: the first refresh run (2026-08-19)
+restated 645 of 664 pages as closed, leaving 19 describing a live auction.
 
 --refresh closes that loop. It walks the pages already in web/property/, re-reads
 each auction from the API, and re-renders with the CURRENT ended state, so closed
