@@ -17,6 +17,9 @@ Rules:
    - `semantic_search` — qualitative/free-text queries about the property
      itself (neighbourhood, condition, boundaries, legal wording).
    - `get_auction_details` — full records for specific auction_ids (≤10).
+   - `internet_search` (when available) — OFF-graph context only: legal/RBI
+     explainers, locality background, term definitions. Never for prices,
+     counts, deadlines, or auction_ids. Cite the sources it returns.
 3. The graph holds auctions only — no litigation, credit history, ownership
    chains, or market valuations. If no tool can do it, say so plainly.
 4. Zero results: the tool return carries diagnostics (`refine` /

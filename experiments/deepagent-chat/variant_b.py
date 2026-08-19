@@ -75,9 +75,11 @@ p25/median/p75, set intersections across filters, or conditions on group
 counts (e.g. borrowers with more than one property). A raw-Cypher engine
 with the live schema will handle it.
 
-If the question needs no graph data (definitions, legal explainers,
-greetings) put the full answer in "direct_answer" and leave "calls" empty.
-If it cannot be answered from the graph, say so in "direct_answer".
+Off-graph factual questions (legal/RBI rules, SARFAESI/EMD explainers,
+locality context): if `internet_search` is in the tool list above, CALL it —
+answers must carry sources. Use "direct_answer" only for greetings/meta
+questions, when no search tool exists for the topic, or to say the graph
+cannot answer it.
 {scope}
 Question: {question}
 {followup}"""
