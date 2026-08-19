@@ -1,6 +1,8 @@
 # The page-2 push
 
-**Written 2026-08-19, from the first real Search Console read.**
+**Written 2026-08-19, from the first real Search Console read.
+Levers A, B and C all shipped the same day — see "What shipped" below.
+The open item is the readout on 2026-09-16.**
 
 The goal of this plan is narrow: take the handful of guide pages that already
 earn impressions and move them from page 2 to page 1. It is not a plan to make
@@ -228,3 +230,48 @@ python -m scripts.build_compare    # writes /compare/** + rebuilds sitemap
 Content lives in the `GUIDES` list in `scripts/build_guides.py` — one dict per
 topic (`slug`, `title`, `h1`, `description`, body, `faqs`). The renderer is
 generic; adding a `related` key means touching the renderer once.
+
+
+---
+
+## What shipped (2026-08-19)
+
+All three levers, in `scripts/build_guides.py`, regenerated into `web/guides/`.
+
+**Lever A — titles matched to query wording.** Six guides retitled; the
+poramboke guide deliberately untouched.
+
+| Page | Now titled | Target query |
+|---|---|---|
+| TS number | TS number full form — what "TS no" means in Tamil Nadu land records | `ts no full form` |
+| FMB sketch | How to read an FMB sketch (Tamil Nadu) | `how to read fmb sketch` |
+| Agricultural land | How many acres of land can a person own in Tamil Nadu? | `how many acres of land can a person own in tamil nadu` |
+| FSI / FAR | FSI in Tamil Nadu — how much you can build on a plot | `fsi in tamilnadu` |
+| Setbacks | Building setback rules in Tamil Nadu | `building setback rules in tamil nadu` |
+| UDS | What is UDS area in a flat? Undivided share explained | `what is uds area` |
+
+Descriptions and `h1`s moved with the titles, and each `answer` now leads with
+the literal answer — the acreage ceiling, "TS stands for Town Survey" — rather
+than framing.
+
+**Lever B — the searched phrasing in the FAQs.** Added "What is the full form
+of TS number?", "How many acres of land can a person own in Tamil Nadu?" and
+"What is UDS area?" alongside the existing formal versions. These land in the
+`FAQPage` JSON-LD, which is what a featured snippet or AI Overview lifts.
+
+**Lever C — internal linking.** A related-guides block now links each guide
+out: curated for the six targets, falling back to hub-group siblings
+everywhere else so all 44 gain links, not just the hand-tended few. Anchor
+text is the target guide's `h1`. Measured **3 → 9 internal links per guide**.
+
+Worth naming why the count had been stuck at 3: the existing "related terms"
+block rendered `<span class="chip">` — plain text, no `href`. It looked like
+internal linking and passed no signal at all.
+
+A build-time guard fails the build if `related_guides` names a slug that does
+not exist, since the renderer skips unknown slugs silently and would otherwise
+cost the link without anyone noticing.
+
+**Still open:** the 2026-09-16 readout in section 5. Nothing in section 4
+("what this deliberately does not do") has changed — no new guides, cities or
+property pages until that reads out.
