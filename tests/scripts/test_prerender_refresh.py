@@ -105,3 +105,60 @@ def test_re_rendering_a_page_whose_auction_closed_changes_it():
 
     assert live != closed
     assert CLOSED_MARKER in closed and CLOSED_MARKER not in live
+
+
+# --- Offer availability window -------------------------------------------------
+# Registration closes BEFORE bidding opens, so keying the Offer's end to
+# application_deadline_dt produced a window that ended before it started and a
+# priceValidUntil already in the past on auctions that had not yet happened.
+
+def _live_fields(**over) -> dict:
+    f = {
+        "auction_start_dt": "2099-06-10T10:30:00+00:00",
+        "auction_end_dt": "2099-06-10T13:30:00+00:00",
+        "application_deadline_dt": "2099-06-09T17:00:00+00:00",
+        "description": "x" * 200,
+        "reserve_price_num": 5_000_000.0,
+    }
+    f.update(over)
+    return f
+
+
+def _offer(fields: dict) -> dict:
+    page = render_page(TEMPLATE, "900001", fields, {})
+    offers = [b["offers"] for b in _jsonld(page) if "offers" in b]
+    assert offers, "expected a live Offer"
+    return offers[0]
+
+
+def test_offer_window_tracks_bidding_not_the_paperwork_deadline():
+    offer = _offer(_live_fields())
+
+    assert offer["availabilityStarts"] == "2099-06-10"
+    assert offer["availabilityEnds"] == "2099-06-10"
+    assert offer["priceValidUntil"] == "2099-06-10"
+
+
+def test_offer_window_never_ends_before_it_starts():
+    """The bug this guards: the deadline precedes the auction, so using it as
+    the end produced availabilityEnds < availabilityStarts."""
+    offer = _offer(_live_fields())
+
+    assert offer["availabilityEnds"] >= offer["availabilityStarts"]
+    assert offer["priceValidUntil"] >= offer["availabilityStarts"]
+
+
+def test_offer_end_falls_back_to_the_start_date_without_an_end_time():
+    offer = _offer(_live_fields(auction_end_dt=None))
+
+    assert offer["priceValidUntil"] == "2099-06-10"
+    assert offer["availabilityEnds"] == "2099-06-10"
+
+
+def test_the_application_deadline_is_still_published_as_a_fact():
+    page = render_page(TEMPLATE, "900001", _live_fields(), {})
+    props = [b for b in _jsonld(page) if "additionalProperty" in b]
+    names = {p["name"]: p["value"] for b in props for p in b["additionalProperty"]}
+
+    assert "Application deadline" in names
+    assert "Auction date" in names

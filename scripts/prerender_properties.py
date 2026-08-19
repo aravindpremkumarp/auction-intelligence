@@ -439,6 +439,12 @@ def property_jsonld(auction_id: str, fields: dict, rel: dict, ended: bool,
     auction_date = fmt_date(fields.get("auction_start_dt"))
     if auction_date:
         extra.append({"@type": "PropertyValue", "name": "Auction date", "value": auction_date})
+    # Kept as a stated fact now that it no longer (wrongly) bounds the Offer's
+    # availability window — it is the date a bidder must actually act by.
+    deadline_date = fmt_date(fields.get("application_deadline_dt"))
+    if deadline_date:
+        extra.append({"@type": "PropertyValue", "name": "Application deadline",
+                      "value": deadline_date})
 
     blocks: list[dict] = []
 
@@ -452,8 +458,18 @@ def property_jsonld(auction_id: str, fields: dict, rel: dict, ended: bool,
             "availability": "https://schema.org/InStock",
             "url": url,
         }
+        # The BIDDING window, not the paperwork window. Registration closes
+        # before bidding opens (application_deadline_dt precedes
+        # auction_start_dt), so keying these to the deadline emitted an Offer
+        # that ended before it started, with a priceValidUntil already in the
+        # past on pages whose auction had not even happened yet. The reserve is
+        # the floor for the whole auction, so it stands until bidding closes:
+        # auction_end_dt, falling back to the start date when the record has no
+        # end time. The application deadline is still published — as an
+        # additionalProperty above, where it is a fact rather than a claim
+        # about when this offer is live.
         starts = iso_date(fields.get("auction_start_dt"))
-        ends = iso_date(fields.get("application_deadline_dt") or fields.get("auction_start_dt"))
+        ends = iso_date(fields.get("auction_end_dt") or fields.get("auction_start_dt"))
         if ends:
             offer["priceValidUntil"] = ends
             offer["availabilityEnds"] = ends
