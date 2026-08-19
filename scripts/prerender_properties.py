@@ -34,6 +34,23 @@ Usage:
     python -m scripts.prerender_properties --city Chennai --limit 10 --dry-run
     python -m scripts.prerender_properties --all            # every live auction, all cities
     python -m scripts.prerender_properties --all --limit 200  # global safety cap
+    python -m scripts.prerender_properties --refresh          # restate closed auctions on pages already on disk
+
+Freshness (--refresh). The generators above only ever walk LIVE inventory:
+iter_all_live_candidates filters on auction_start_dt in the future, and the
+per-city sort is live-first. So a page written while its auction was open is
+never revisited once that auction closes — it keeps the live wording and, worse,
+keeps an InStock Offer in its JSON-LD. Left alone the whole tree drifts into
+advertising auctions that already ended (measured 2026-08-19: 518 of 664 pages
+carried an InStock Offer whose priceValidUntil was already in the past).
+
+--refresh closes that loop. It walks the pages already in web/property/, re-reads
+each auction from the API, and re-renders with the CURRENT ended state, so closed
+rounds pick up the "this auction has closed" framing and drop the live Offer (see
+is_ended and property_jsonld). Pages already framed closed are skipped without an
+API call — closed is a one-way door — unless --force says otherwise. Nothing is
+deleted: an auction that has vanished from the API is reported, not removed,
+because unpublishing an indexed URL is a human call.
 """
 from __future__ import annotations
 
@@ -84,6 +101,37 @@ def og_image_for(auction_id: str, manifest: dict[str, str] | None) -> str:
     """The property's own card URL, or the generic one when it has none yet."""
     url = (manifest or {}).get(str(auction_id))
     return url if isinstance(url, str) and url.startswith("http") else DEFAULT_OG_IMAGE
+
+
+# The sentence build_ssr_block writes onto a page whose auction has ended. Its
+# presence is how --refresh recognises a page that is already correctly framed
+# and can be skipped without spending an API call on it.
+CLOSED_MARKER = "this auction has closed"
+
+
+def iter_existing_pages(out_root: Path | None = None):
+    """(auction_id, path) for every property page already on disk, id-sorted.
+
+    The refresh pass walks this instead of the API: these are exactly the URLs
+    Google already knows about, which is the set that can go stale.
+    """
+    root = out_root or OUT_ROOT
+    if not root.is_dir():
+        return
+    for child in sorted(root.iterdir(), key=lambda p: p.name):
+        page = child / "index.html"
+        if child.is_dir() and page.is_file():
+            yield child.name, page
+
+
+def page_is_closed(path: Path) -> bool:
+    """Does this page already carry the ended framing? Closed auctions never
+    re-open (a re-auction is a new auction_id), so a page that already says so
+    is terminal and needs no re-fetch."""
+    try:
+        return CLOSED_MARKER in path.read_text(encoding="utf-8")
+    except OSError:
+        return False
 
 
 def fmt_money(num: float | None) -> str | None:
@@ -501,6 +549,93 @@ def render_page(template: str, auction_id: str, fields: dict, rel: dict,
     return out
 
 
+def run_refresh(args, template: str, og_manifest: dict[str, str]) -> int:
+    """Re-render pages already on disk against current API state.
+
+    The generators walk live inventory only, so this is the sole path by which a
+    page written while its auction was open ever learns that the auction closed.
+    It is deliberately conservative: it re-renders what exists, writes only when
+    the HTML actually changes, and never deletes.
+    """
+    counts = {"changed": 0, "now_closed": 0, "unchanged": 0, "already_closed": 0,
+              "gone": 0, "error": 0, "incomplete": 0}
+    cap = args.limit if (args.limit and args.limit > 0) else None
+    pages = list(iter_existing_pages())
+    print(f"== refresh: {len(pages)} page(s) on disk"
+          f"{f', cap {cap}' if cap else ''}"
+          f"{' (--force: re-checking closed pages too)' if args.force else ''} ==")
+
+    with httpx.Client() as client:
+        for auction_id, path in pages:
+            if cap is not None and counts["changed"] >= cap:
+                print(f"  reached cap {cap} — stopping (more pages remain)")
+                break
+            if not args.force and page_is_closed(path):
+                counts["already_closed"] += 1
+                continue
+
+            time.sleep(REQUEST_INTERVAL_S)
+            try:
+                detail = fetch_json(client, f"/auction/{auction_id}")
+            except httpx.HTTPStatusError as e:
+                # 404 = the auction left the graph. Reported, never deleted:
+                # unpublishing a URL Google has indexed is a human decision.
+                if e.response.status_code == 404:
+                    counts["gone"] += 1
+                    print(f"  ? {auction_id}: gone from the API — page left in place")
+                else:
+                    counts["error"] += 1
+                    print(f"  ! {auction_id}: {e.response.status_code}, skipping", file=sys.stderr)
+                continue
+            except httpx.HTTPError as e:
+                counts["error"] += 1
+                print(f"  ! {auction_id}: {e}, skipping", file=sys.stderr)
+                continue
+
+            fields = detail.get("fields", {})
+            rel = detail.get("relationships", {})
+            # A page already exists, so a thin description is no reason to
+            # rewrite it into something worse — leave the better version alone.
+            if len((fields.get("description") or "").strip()) < MIN_DESCRIPTION_LEN:
+                counts["incomplete"] += 1
+                continue
+
+            page = render_page(template, auction_id, fields, rel,
+                               og_image_for(auction_id, og_manifest))
+            try:
+                current = path.read_text(encoding="utf-8")
+            except OSError:
+                current = None
+            if page == current:
+                counts["unchanged"] += 1
+                continue
+
+            counts["changed"] += 1
+            # Tracked separately because it is the reason this mode exists: a
+            # page that had been advertising a live auction now says it closed.
+            ended_now = is_ended(fields)
+            if ended_now:
+                counts["now_closed"] += 1
+            state = "now closed" if ended_now else "updated"
+            if args.dry_run:
+                print(f"  [dry-run] would rewrite {path.relative_to(REPO_ROOT)} ({state})")
+            else:
+                path.write_text(page, encoding="utf-8")
+                print(f"  rewrote {path.relative_to(REPO_ROOT)} ({state})")
+
+    print(f"\n{counts['changed']} page(s) rewritten "
+          f"({counts['now_closed']} of them now framed as closed), "
+          f"{counts['unchanged']} already current, "
+          f"{counts['already_closed']} skipped (already framed closed), "
+          f"{counts['incomplete']} skipped (description too short), "
+          f"{counts['gone']} gone from the API, {counts['error']} fetch error(s)")
+
+    if not args.dry_run and counts["changed"]:
+        count = seo_sitemap.write_sitemap(WEB_DIR)
+        print(f"sitemap.xml rebuilt — {count} URLs total")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--city", action="append", default=[],
@@ -511,6 +646,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--all", action="store_true",
                          help="Prerender ALL live inventory across every district (not just "
                               "--city). Cityless + live-only; see iter_all_live_candidates.")
+    parser.add_argument("--refresh", action="store_true",
+                         help="Re-render the pages already in web/property/ against current API "
+                              "state so closed auctions stop reading as live. Walks the disk, not "
+                              "the API's live list; writes only pages whose HTML actually changed.")
+    parser.add_argument("--force", action="store_true",
+                         help="With --refresh, also re-fetch pages already framed as closed "
+                              "(normally skipped — closed is a one-way door).")
     parser.add_argument("--dry-run", action="store_true", help="Don't write files, just report what would happen.")
     args = parser.parse_args(argv)
 
@@ -549,6 +691,9 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  wrote {out_path.relative_to(REPO_ROOT)}")
         generated.append(auction_id)
         return True
+
+    if args.refresh:
+        return run_refresh(args, template, og_manifest)
 
     with httpx.Client() as client:
         if args.all:
