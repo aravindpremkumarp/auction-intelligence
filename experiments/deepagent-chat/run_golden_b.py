@@ -7,9 +7,9 @@ score it on the same two gates the production eval uses:
 - **refusal** — refusal cases must contain a decline marker and no
   fabricated data tool call is required.
 
-Two honest scope gaps, reported rather than hidden:
-- The spike has no `describe_schema`/`run_cypher` (tier 3 isn't built), so
-  `schema`-intent cases can only pass if another acceptable tool suffices.
+One honest scope gap, reported rather than hidden:
+- Tier 3 IS built (planner signals `cypher_request` → schema → composed
+  read-only Cypher with one retry), so `run_cypher` cases are in scope.
 - `internet_search` is registered only when TAVILY_API_KEY is set; without
   it, off-graph questions answer via the planner's direct_answer and are
   scored as `direct` (informational, not a trajectory pass).

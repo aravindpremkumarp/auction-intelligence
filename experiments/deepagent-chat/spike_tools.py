@@ -155,8 +155,14 @@ def search_auctions(
     property_type, asset_category, bank, borrower, re-auction flag, date
     window, deadline_within_days. Aggregates via aggregate_field +
     aggregations (min/max/avg/median/p25/p75) or group_by distributions.
-    Returns rows plus true total_count; on zero rows carries `refine`
-    diagnostics — follow them."""
+    asset_category is one of: Residential | Industrials | Commercial
+    ("residential/commercial property" questions filter HERE, not on
+    property_type). property_type is the specific kind: Flat, House, Villa,
+    Plot, Land, Residential Unit, Land And Building, Commercial Building,
+    Commercial Shop, Commercial Property, Agricultural Land, Industrial
+    Land, Godown, Shed, Factory land and Building, Machinary, Vehicle, Car,
+    Others. Returns rows plus true total_count; on zero rows carries
+    `refine` diagnostics — follow them."""
     return _strip_ui(T.search_auctions(
         min_price=min_price, max_price=max_price, city=city, area=area,
         property_type=property_type, asset_category=asset_category,
@@ -210,3 +216,27 @@ if os.getenv("TAVILY_API_KEY"):
 
 def load_instructions() -> str:
     return (Path(__file__).parent / "instructions.md").read_text(encoding="utf-8")
+
+
+# ── tier 3: the Cypher escape hatch ─────────────────────────────────────────
+# Deliberately NOT in TOOLS: the planner never emits run_cypher directly
+# (it hasn't seen the schema). Variant B loads these only when the planner
+# signals a novel analytical question — the same on-demand shape as
+# production's deferred `cypher` capability in api/agent.py.
+
+@_model_visible_errors
+def describe_schema(refresh: bool = False) -> dict:
+    """Live graph schema: labels, relationships, enums, ranges, and the
+    cypher_patterns cheat-sheet. Cached ~1h."""
+    return T.describe_schema(refresh=refresh)
+
+
+@_model_visible_errors
+def run_cypher(cypher: str, params: dict | None = None,
+               description: str = "") -> dict:
+    """READ-ONLY Cypher with production guardrails: write clauses rejected,
+    10s timeout, 200-row cap."""
+    return T.run_cypher(cypher=cypher, params=params, description=description)
+
+
+CYPHER_TOOLS = {"describe_schema": describe_schema, "run_cypher": run_cypher}
