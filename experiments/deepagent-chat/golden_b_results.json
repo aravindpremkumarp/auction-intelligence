@@ -1,0 +1,1098 @@
+[
+ {
+  "intent": "basic_filter",
+  "question": "Residential auctions in Chennai under 30 lakhs",
+  "verdict": "pass",
+  "expected": [
+   "search_auctions"
+  ],
+  "seconds": 33.3,
+  "llm_calls": 2,
+  "input_tokens": 3976,
+  "output_tokens": 729,
+  "tools": [
+   "search_auctions"
+  ],
+  "answer": "Here are the residential auctions in Chennai with a reserve price under \u20b930 lakhs:\n\n**Total found: 11 auctions** (showing 10)\n\n| Auction ID | Property Type | Area | Bank | Reserve Price (\u20b9) | EMD (\u20b9) | Auction Start | Application Deadline |\n|---|---|---|---|---|---|---|---|\n| 823287 | Land And Building | Ambattur | Indian Bank | 22,78,000 | 2,28,000 | 2026-08-27 | 2026-08-27 |\n| 826227 | Flat | Ponniammanmedu | Bank of Maharashtra | 23,06,000 | 2,30,600 | 2026-08-29 | 2026-08-28 |\n| 827257 | Land And Building | Tiruvarur | Jana Small Finance Bank | 16,40,000 | 1,64,000 | 2026-08-31 | 2026-08-30 |\n| 830361 | House | Padappai | Indian Overseas Bank | 27,00,000 | 2,70,000 | 2026-08-31 | 2026-08-31 |\n| 831476 | Flat | Varadharajapuram | HDFC Bank | 24,00,000 | 2,40,000 | 2026-09-02 | 2026-09-01 |\n| 840337 | Flat | Muthailpet | Union Bank of India | 25,00,000 | 2,50,000 | 2026-09-10 | 2026-09-04 |\n| 837062 | Flat | Adhanur. | JM Financial ARC | 28,90,000 | 2,89,000 | 2026-09-10 | 2026-09-09 |\n| 837057 | Flat | Urapakkam | JM Financial ARC | 16,10,000 | 1,61,000 | 2026-09-10 | 2026-09-09 |\n| 837061 | Flat | Mangadu | JM Financial ARC | 17,60,000 | 1,76,000 | 2026-09-10 | 2026-09-09 |\n| 834644 | Flat | Varadharajapuram | Bank of Maharashtra | 27,32,000 | 2,73,200 | 2026-09-15 | 2026-09-14 |\n\n**Key details:**\n- **Cheapest option:** Auction 837057 (JM Financial ARC, Flat in Urapakkam) at \u20b916,10,000\n- **Most expensive within budget:** Auction 837062 (JM Financial ARC, Flat in Adhanur.) at \u20b928,90,000\n- **Earliest deadline:** Auction 823287 (Indian Bank, Ambattur) \u2014 deadline is 2026-08-27\n- **None of these are re-auctions** \u2014 all have `reauction_count: 0` and no previous reserve price listed.\n\nWould you like details on any specific auction from this list?"
+ },
+ {
+  "intent": "basic_filter",
+  "question": "Show all properties in Ambattur",
+  "verdict": "pass",
+  "expected": [
+   "search_auctions"
+  ],
+  "seconds": 7.9,
+  "llm_calls": 2,
+  "input_tokens": 2084,
+  "output_tokens": 198,
+  "tools": [
+   "search_auctions"
+  ],
+  "answer": "Based on the tool results, there are **no properties** listed in Ambattur in the auction database.\n\nThe search returned zero results, and the diagnostic hint confirms that no auctions match this city filter in any time window. Widening price ranges or dropping other filters would not help, as the issue is that no properties exist for Ambattur in the current data.\n\n**What you can do:**\n- Check for a possible spelling variation (e.g., \"Ambattur\" vs. \"Ambattur\" \u2014 the tool did not flag a spelling error, but you may want to verify).\n- Search for nearby areas or broader Chennai/Tamil Nadu auctions if you are open to other locations."
+ },
+ {
+  "intent": "basic_filter",
+  "question": "Commercial auctions in Coimbatore between 50 lakhs and 1 crore",
+  "verdict": "pass",
+  "expected": [
+   "search_auctions"
+  ],
+  "seconds": 11.1,
+  "llm_calls": 2,
+  "input_tokens": 2136,
+  "output_tokens": 149,
+  "tools": [
+   "search_auctions"
+  ],
+  "answer": "I cannot find any commercial auctions in Coimbatore between \u20b950 lakhs and \u20b91 crore \u2014 the combined filters returned **0 results**.\n\nHowever, the system suggests that **removing the \"Commercial\" asset category filter** would yield **5 matching auctions** in Coimbatore within that price range. \n\nWould you like me to drop the asset category constraint and show you those 5 properties?"
+ },
+ {
+  "intent": "basic_filter",
+  "question": "Industrial properties in Kanchipuram",
+  "verdict": "pass",
+  "expected": [
+   "search_auctions"
+  ],
+  "seconds": 9.3,
+  "llm_calls": 2,
+  "input_tokens": 2148,
+  "output_tokens": 234,
+  "tools": [
+   "search_auctions"
+  ],
+  "answer": "I found no industrial properties currently listed in Kanchipuram. The search returned **0 results** when combining both filters (`city: Kanchipuram` and `asset_category: Industrials`).\n\nHowever, here's what the data shows:\n\n- **If you drop the \"Industrials\" category filter**, there are **59 properties** in Kanchipuram across other asset categories.\n- **If you drop the city filter**, there are **2 industrial properties** elsewhere in the database.\n- There are also **4 past auctions** that matched these criteria (available with `include_past=true`).\n\nWould you like me to:\n1. Show you the **59 properties in Kanchipuram** (all categories)?\n2. Show the **2 industrial properties** outside Kanchipuram?\n3. Look at the **4 past industrial auctions** in Kanchipuram?"
+ },
+ {
+  "intent": "basic_filter",
+  "question": "Agricultural land in Tamil Nadu",
+  "verdict": "pass",
+  "expected": [
+   "search_auctions"
+  ],
+  "seconds": 9.9,
+  "llm_calls": 2,
+  "input_tokens": 2078,
+  "output_tokens": 190,
+  "tools": [
+   "search_auctions"
+  ],
+  "answer": "Based on the tool results, there are **no agricultural land auctions** currently listed in Tamil Nadu in the system.\n\nThe search for `asset_category: \"Agricultural Land\"` and `city: \"Tamil Nadu\"` returned **0 results** across all time windows. The diagnostic hint confirms that widening price ranges or dropping filters will not help \u2014 the data simply does not contain this combination.\n\n**What you can do instead:**\n- Search for **other asset categories** in Tamil Nadu (e.g., Residential, Commercial, Industrial, or Vacant Land).\n- If you meant a specific city *within* Tamil Nadu (e.g., Chennai, Coimbatore, Madurai), try searching by that city name with the desired asset category."
+ },
+ {
+  "intent": "basic_filter",
+  "question": "DRT auctions in Chennai",
+  "verdict": "pass",
+  "expected": [
+   "search_auctions"
+  ],
+  "seconds": 8.9,
+  "llm_calls": 2,
+  "input_tokens": 2088,
+  "output_tokens": 129,
+  "tools": [
+   "search_auctions"
+  ],
+  "answer": "Based on the tool results, there are **no DRT auctions in Chennai** in the knowledge graph.\n\nThe search for auctions in Chennai with the asset category \"DRT\" returned **0 results**. However, the diagnostics indicate that if you **drop the \"DRT\" asset category filter**, there are **67 auctions** in Chennai available for you to explore.\n\nWould you like to see those 67 Chennai auctions without the DRT restriction?"
+ },
+ {
+  "intent": "basic_filter",
+  "question": "Liquidation auctions in Tamil Nadu",
+  "verdict": "pass",
+  "expected": [
+   "search_auctions"
+  ],
+  "seconds": 8.1,
+  "llm_calls": 2,
+  "input_tokens": 2089,
+  "output_tokens": 172,
+  "tools": [
+   "search_auctions"
+  ],
+  "answer": "Based on the tool results, there are **no liquidation auctions currently listed in Tamil Nadu**.\n\nThe search returned zero matches across all time windows, and the system indicates that widening filters or price ranges would not change this outcome. No auction IDs or property details are available to report.\n\n**What you can do:**\n- If you believe there may be a spelling or category error in your search, you can try a different query (e.g., \"SARFAESI auctions\" or \"bank auctions\" instead of \"liquidation\").\n- Otherwise, no liquidation auctions exist in the current dataset for Tamil Nadu."
+ },
+ {
+  "intent": "basic_filter",
+  "question": "Auctions on the BAANKNET platform",
+  "verdict": "pass",
+  "expected": [
+   "search_auctions"
+  ],
+  "seconds": 5.5,
+  "llm_calls": 2,
+  "input_tokens": 1993,
+  "output_tokens": 146,
+  "tools": [
+   "search_auctions"
+  ],
+  "answer": "I cannot answer this question because the tool `search_auctions` does not accept a `platform` filter parameter. The available filters for `search_auctions` are: price, EMD, city, area, type, category, bank, borrower, platform, dates, and group_by \u2014 but the tool returned an error when `platform` was passed, indicating it is not a supported argument.\n\nTo find auctions on the BAANKNET platform, I would need a different tool or a corrected filter. Since no other tool can search by platform, I cannot provide the requested information."
+ },
+ {
+  "intent": "basic_filter",
+  "question": "Auctions listed by the Anna Nagar branch",
+  "verdict": "pass",
+  "expected": [
+   "search_auctions"
+  ],
+  "seconds": 7.7,
+  "llm_calls": 2,
+  "input_tokens": 2079,
+  "output_tokens": 180,
+  "tools": [
+   "search_auctions"
+  ],
+  "answer": "The search for auctions listed by the \"Anna Nagar branch\" returned **zero results**. The tool confirms that no auctions match this filter in any time window.\n\n**Possible reason:** \"Anna Nagar branch\" is likely not a recognized bank branch name in the system. The graph holds auctions by bank name (e.g., \"Indian Bank\", \"Canara Bank\"), not by specific branch locations.\n\n**What you can try instead:**\n- Search by the bank name itself (e.g., \"Indian Bank\") and then filter results by city/locality (e.g., \"Chennai\" or \"Anna Nagar\") using the city filter.\n- If you know the specific bank, I can run that search for you."
+ },
+ {
+  "intent": "aggregation",
+  "question": "What is the median reserve price for flats in Chennai?",
+  "verdict": "pass",
+  "expected": [
+   "search_auctions"
+  ],
+  "seconds": 8.1,
+  "llm_calls": 2,
+  "input_tokens": 2237,
+  "output_tokens": 129,
+  "tools": [
+   "search_auctions"
+  ],
+  "answer": "The median reserve price for flats in Chennai is **\u20b945,00,000**.\n\nThis is based on 31 flats currently listed in the graph. The median is calculated from the `reserve_price_num` field across all matching records (e.g., auction_id `824606` in Korattur has a reserve price of \u20b952,50,000)."
+ },
+ {
+  "intent": "aggregation",
+  "question": "Average EMD across all residential auctions",
+  "verdict": "pass",
+  "expected": [
+   "search_auctions"
+  ],
+  "seconds": 7.8,
+  "llm_calls": 2,
+  "input_tokens": 3984,
+  "output_tokens": 67,
+  "tools": [
+   "search_auctions"
+  ],
+  "answer": "The average EMD across all 513 residential auctions in the database is **\u20b98,50,748.04**."
+ },
+ {
+  "intent": "aggregation",
+  "question": "Price range of plots in Sriperumbudur",
+  "verdict": "pass",
+  "expected": [
+   "search_auctions"
+  ],
+  "seconds": 10.1,
+  "llm_calls": 2,
+  "input_tokens": 2128,
+  "output_tokens": 243,
+  "tools": [
+   "search_auctions"
+  ],
+  "answer": "Based on the tool results, I cannot provide a price range for plots in Sriperumbudur because **no matching auctions were found** with the combination of filters you specified (city = Sriperumbudur, property type = Plot).\n\n**What happened:** The search returned 0 results. The diagnostics suggest that the \"city\" filter is the most restrictive \u2014 if you relax it (e.g., remove the city filter), there are **130 plot auctions** available in the broader dataset.\n\n**Next step:** Would you like to:\n- **Drop the city filter** to see the price range of plots across all locations (130 matches)?\n- **Keep the city filter but change the property type** (e.g., look at houses or land in Sriperumbudur)?\n- **Try a nearby city** instead?\n\nPlease confirm which single constraint you'd like to loosen, and I'll run the search again."
+ },
+ {
+  "intent": "aggregation",
+  "question": "How many auctions are there in Tamil Nadu?",
+  "verdict": "pass",
+  "expected": [
+   "search_auctions",
+   "run_cypher"
+  ],
+  "seconds": 9.3,
+  "llm_calls": 2,
+  "input_tokens": 2344,
+  "output_tokens": 72,
+  "tools": [
+   "search_auctions"
+  ],
+  "answer": "There are **2,964 auctions** in Tamil Nadu in the graph."
+ },
+ {
+  "intent": "aggregation",
+  "question": "Count of auctions per city, top 10",
+  "verdict": "pass",
+  "expected": [
+   "run_cypher",
+   "search_auctions"
+  ],
+  "seconds": 8.2,
+  "llm_calls": 2,
+  "input_tokens": 2888,
+  "output_tokens": 202,
+  "tools": [
+   "search_auctions"
+  ],
+  "answer": "Here are the top 10 cities by auction count in Tamil Nadu:\n\n1. **Chennai** \u2014 420 auctions\n2. **Kanchipuram** \u2014 399 auctions\n3. **Coimbatore** \u2014 214 auctions\n4. **Tiruvallur** \u2014 179 auctions\n5. **Salem** \u2014 160 auctions\n6. **Vellore** \u2014 133 auctions\n7. **Tiruppur** \u2014 122 auctions\n8. **Dindigul** \u2014 108 auctions\n9. **Madurai** \u2014 99 auctions\n10. **Tiruchirappalli** \u2014 83 auctions\n\nThe total number of auctions across all cities is 2,964."
+ },
+ {
+  "intent": "aggregation",
+  "question": "Monthly auction volume in 2026",
+  "verdict": "pass",
+  "expected": [
+   "run_cypher"
+  ],
+  "seconds": 31.8,
+  "llm_calls": 3,
+  "input_tokens": 4354,
+  "output_tokens": 321,
+  "tools": [
+   "describe_schema",
+   "run_cypher"
+  ],
+  "answer": "Here is the monthly auction volume for 2026 based on the data:\n\n- **January:** 2 auctions\n- **February:** 2 auctions\n- **March:** 3 auctions\n- **April:** 7 auctions\n- **May:** 612 auctions\n- **June:** 674 auctions\n- **July:** 911 auctions\n- **August:** 474 auctions\n- **September:** 279 auctions\n\nThe data covers January through September 2026. The volume is very low in the first four months (2\u20137 auctions per month) and then spikes sharply from May onward, peaking in July at 911 auctions."
+ },
+ {
+  "intent": "aggregation",
+  "question": "Which cities have the most auctions?",
+  "verdict": "pass",
+  "expected": [
+   "search_auctions",
+   "run_cypher"
+  ],
+  "seconds": 6.8,
+  "llm_calls": 2,
+  "input_tokens": 2872,
+  "output_tokens": 228,
+  "tools": [
+   "search_auctions"
+  ],
+  "answer": "Based on the data from the knowledge graph, the cities with the most auctions are:\n\n1. **Chennai** \u2014 420 auctions\n2. **Kanchipuram** \u2014 399 auctions\n3. **Coimbatore** \u2014 214 auctions\n4. **Tiruvallur** \u2014 179 auctions\n5. **Salem** \u2014 160 auctions\n6. **Vellore** \u2014 133 auctions\n7. **Tiruppur** \u2014 122 auctions\n8. **Dindigul** \u2014 108 auctions\n9. **Madurai** \u2014 99 auctions\n10. **Tiruchirappalli** \u2014 83 auctions\n\nThe top three cities \u2014 Chennai, Kanchipuram, and Coimbatore \u2014 together account for over a third of all 2,964 auctions in the database."
+ },
+ {
+  "intent": "aggregation",
+  "question": "What is the 95th percentile reserve price?",
+  "verdict": "pass",
+  "expected": [
+   "run_cypher"
+  ],
+  "seconds": 12.9,
+  "llm_calls": 3,
+  "input_tokens": 4239,
+  "output_tokens": 200,
+  "tools": [
+   "describe_schema",
+   "run_cypher"
+  ],
+  "answer": "The 95th percentile reserve price across all auction properties in the graph is **\u20b936,000,000**."
+ },
+ {
+  "intent": "multi_hop",
+  "question": "Banks with more than 50 auctions in Tamil Nadu",
+  "verdict": "pass",
+  "expected": [
+   "run_cypher",
+   "search_auctions"
+  ],
+  "seconds": 6.9,
+  "llm_calls": 2,
+  "input_tokens": 3294,
+  "output_tokens": 107,
+  "tools": [
+   "search_auctions"
+  ],
+  "answer": "Based on the tool results, only one bank has more than 50 auctions in Tamil Nadu:\n\n- **Equitas Small Finance Bank Ltd.** \u2014 54 auctions\n\nNo other bank or financial institution in the database reaches the 50-auction threshold. The next highest is Canara Bank with 33 auctions."
+ },
+ {
+  "intent": "multi_hop",
+  "question": "Borrowers with multiple properties",
+  "verdict": "pass",
+  "expected": [
+   "run_cypher"
+  ],
+  "seconds": 26.0,
+  "llm_calls": 3,
+  "input_tokens": 6420,
+  "output_tokens": 441,
+  "tools": [
+   "describe_schema",
+   "run_cypher"
+  ],
+  "answer": "Here are the borrowers with multiple auction properties in the Tamil Nadu graph, ranked by the number of properties they are associated with:\n\n- **Jaatvedas Construction Company Private Limited (In Liquidation)** \u2014 22 properties\n- **M/s. Sun Auto Products** \u2014 12 properties\n- **Jaatvedas Construction Company Private Limited (In Liquidation** (note: slight name variant) \u2014 10 properties\n- **M/s Syed Leathers** \u2014 8 properties\n- **M/s. Sri Sendraya Perumal Transports** \u2014 8 properties\n- **M/s Exim Rajathi India Pvt Limited** \u2014 8 properties\n- **M/s. VME Infrastructure Pvt Ltd** \u2014 7 properties\n- **Surana Industries Ltd** \u2014 6 properties\n- **M/s I K Leather Exports** \u2014 6 properties\n- **M/s Vijayalakshmi Traders Office** \u2014 6 properties\n- **M/s. YR Leathers** \u2014 6 properties\n- **M/s. KS A Leather Exports** \u2014 6 properties\n- Several borrowers with 5, 4, 3, and 2 properties each (full list of 100 entries returned).\n\nThe top borrower by far is **Jaatvedas Construction Company Private Limited (In Liquidation)** with 22 properties, followed by **M/s. Sun Auto Products** with 12."
+ },
+ {
+  "intent": "multi_hop",
+  "question": "Areas where EMD is more than 15% of reserve on average",
+  "verdict": "FAIL",
+  "expected": [
+   "run_cypher"
+  ],
+  "seconds": 24.2,
+  "llm_calls": 5,
+  "input_tokens": 15794,
+  "output_tokens": 1019,
+  "tools": [
+   "search_auctions",
+   "search_auctions"
+  ],
+  "answer": "The tool results provide the average EMD and average reserve price per area, but they do **not** include the per-area ratio of EMD to reserve price. To identify areas where the average EMD is more than 15% of the average reserve price, I would need to compute that ratio for each area. However, the tool outputs only the overall averages (avg EMD: \u20b9848,190.69; avg reserve price: \u20b98,373,336.53) and the distribution of areas with their auction counts \u2014 not the per-area average EMD or average reserve price values.\n\nSince the per-area averages are not provided in the results, I cannot calculate the EMD-to-reserve ratio for individual areas. Therefore, I cannot determine which areas meet the \"more than 15%\" condition based solely on the given data.\n\n**What the data does show:**\n- Overall, the average EMD across all 518 auctions is \u20b9848,190.69, and the average reserve price is \u20b98,373,336.53, giving an overall EMD-to-reserve ratio of about **10.1%** (848,190.69 / 8,373,336.53 \u2248 0.1013).\n- The areas with the most auctions are Sriperumbudur (13), Periyakulam (10), Chengalpet Taluk (9), Avinashi (8), and Chidambaram (7).\n\nTo answer your question precisely, I would need a tool that returns the average EMD and average reserve price **per area** so the ratio can be computed. The current tool results do not support that level of detail."
+ },
+ {
+  "intent": "multi_hop",
+  "question": "Which bank has the lowest average reserve price in Chennai?",
+  "verdict": "pass",
+  "expected": [
+   "run_cypher"
+  ],
+  "seconds": 70.4,
+  "llm_calls": 5,
+  "input_tokens": 7978,
+  "output_tokens": 487,
+  "tools": [
+   "search_auctions",
+   "describe_schema",
+   "run_cypher"
+  ],
+  "answer": "Based on the data, **Motilal Oswal Home Finance Ltd** has the lowest average reserve price in Chennai at **\u20b910,33,333**.\n\nThis result comes from a direct query of the graph. Note that the distribution from the `search_auctions` tool did not include Motilal Oswal Home Finance Ltd in its list of banks (which showed 67 total auctions), so this bank likely has a very small number of properties in Chennai."
+ },
+ {
+  "intent": "multi_hop",
+  "question": "Property types available in industrial asset category",
+  "verdict": "pass",
+  "expected": [
+   "search_auctions",
+   "run_cypher"
+  ],
+  "seconds": 6.9,
+  "llm_calls": 2,
+  "input_tokens": 2059,
+  "output_tokens": 87,
+  "tools": [
+   "search_auctions"
+  ],
+  "answer": "Based on the search results for the \"Industrials\" asset category, there are **2 property types** available:\n\n- **Industrial Land & Building** (1 auction)\n- **Factory land and Building** (1 auction)"
+ },
+ {
+  "intent": "multi_hop",
+  "question": "Top 5 areas by auction count",
+  "verdict": "pass",
+  "expected": [
+   "search_auctions",
+   "run_cypher"
+  ],
+  "seconds": 7.4,
+  "llm_calls": 2,
+  "input_tokens": 3776,
+  "output_tokens": 155,
+  "tools": [
+   "search_auctions"
+  ],
+  "answer": "Based on the tool results, here are the top 5 areas by auction count:\n\n1. **Sriperumbudur** \u2014 13 auctions\n2. **Periyakulam** \u2014 10 auctions\n3. **Chengalpet Taluk** \u2014 9 auctions\n4. **Avinashi** \u2014 8 auctions\n5. **Chidambaram** \u2014 7 auctions\n\n(Note: several other areas also have 7 auctions, including Tiruvallur, Chengalpattu Taluk, and Kallakurichi.)"
+ },
+ {
+  "intent": "multi_hop",
+  "question": "Cities that appear in both residential and commercial auctions",
+  "verdict": "FAIL",
+  "expected": [
+   "run_cypher"
+  ],
+  "seconds": 7.8,
+  "llm_calls": 2,
+  "input_tokens": 3013,
+  "output_tokens": 196,
+  "tools": [
+   "search_auctions",
+   "search_auctions"
+  ],
+  "answer": "Based on the tool results, the cities that appear in **both** residential and commercial auctions are:\n\n- **Chennai** (66 residential, 1 commercial)\n- **Madurai** (20 residential, 1 commercial)\n- **Dindigul** (18 residential, 1 commercial)\n\nNo other cities from the residential list have commercial auction listings."
+ },
+ {
+  "intent": "multi_hop",
+  "question": "Auctions where the borrower has more than one property",
+  "verdict": "pass",
+  "expected": [
+   "run_cypher"
+  ],
+  "seconds": 10.5,
+  "llm_calls": 3,
+  "input_tokens": 4966,
+  "output_tokens": 603,
+  "tools": [
+   "describe_schema",
+   "run_cypher"
+  ],
+  "answer": "Here are the borrowers who have more than one property listed for auction in the graph:\n\n- **Mr. Shaji C** \u2014 2 properties: auction_ids `810611` (Flat in Chengalpattu Taluk, Kanchipuram) and `753074` (Flat in Pallavaram, Chengalpattu).\n- **M/s. YR Leathers** \u2014 6 properties: auction_ids `811298`, `811297`, `811296`, `796672`, `796673`, `796671` (all Plots in Srirangam, Tiruchirappalli).\n- **M/s. IRIS Scan** \u2014 2 properties: auction_ids `811123` and `793199` (both Flats in Chennai).\n- **M/s. Excel Tanners** \u2014 2 properties: auction_ids `811295` and `796670` (both Plots in Mannachanallur, Tiruchirappalli).\n- **M/S. CIVICONS** \u2014 3 properties: auction_ids `811107`, `811108`, `811106` (all Flats in Adhanur, Kanchipuram).\n- **M/s. Adrix** \u2014 2 properties: auction_ids `811113` (Commercial Shop in Mylapore, Chennai) and `793194` (Commercial Shop in Chennai).\n- **Mr. N. Kalaiselvan** \u2014 3 properties: auction_ids `811125` (Flat in Pozhichalur, Chennai), `811115` and `793200` (both Plots in Chengalpattu Taluk, Kanchipuram).\n- **Mr. Rakesh Krishna P** \u2014 2 properties: auction_ids `811112` and `793195` (both Flats in Noombal, Chennai).\n- **M/s. Arise Enterprises** \u2014 2 properties: auction_ids `811114` and `793197` (both Flats in Chengalpattu Taluk, Kanchipuram).\n- **Mr. Sanil Kumar Hariharan** \u2014 3 properties: auction_ids `811124`, `793198`, `793204` (all Flats in Pozhichalur, Chennai)."
+ },
+ {
+  "intent": "multi_hop",
+  "question": "Banks active in Chennai sorted by portfolio size",
+  "verdict": "pass",
+  "expected": [
+   "run_cypher",
+   "search_auctions"
+  ],
+  "seconds": 8.1,
+  "llm_calls": 2,
+  "input_tokens": 3234,
+  "output_tokens": 314,
+  "tools": [
+   "search_auctions"
+  ],
+  "answer": "Based on the tool results, here are the banks active in Chennai sorted by portfolio size (number of auction properties):\n\n1. **Canara Bank** \u2014 45 auctions\n2. **Bank of Maharashtra** \u2014 34 auctions\n3. **Bank of Baroda** \u2014 25 auctions\n4. **Asset Reconstruction Company (India) Ltd. (Arcil)** \u2014 24 auctions\n5. **State Bank of India** \u2014 24 auctions\n6. **ICICI Bank** \u2014 16 auctions\n7. **Indian Overseas Bank** \u2014 16 auctions\n8. **Indian Bank** \u2014 16 auctions\n9. **PNB Housing Finance Limited** \u2014 15 auctions\n10. **Union Bank of India** \u2014 13 auctions\n11. **Piramal Finance Ltd** \u2014 13 auctions\n12. **Yes Bank** \u2014 13 auctions\n13. **Karnataka Bank** \u2014 12 auctions\n14. **Axis Bank** \u2014 12 auctions\n15. **Cholamandalam Investment And Finance Company Limited** \u2014 10 auctions\n\nThe remaining banks have fewer than 10 auctions each, with the smallest portfolios (1 auction each) including Aditya Birla Capital, Tata Capital Housing Finance Ltd, L&T Finance Ltd., IIFL Finance, and several others."
+ },
+ {
+  "intent": "multi_hop",
+  "question": "Which banks have the highest median reserve price?",
+  "verdict": "pass",
+  "expected": [
+   "run_cypher"
+  ],
+  "seconds": 39.9,
+  "llm_calls": 3,
+  "input_tokens": 4522,
+  "output_tokens": 453,
+  "tools": [
+   "describe_schema",
+   "run_cypher"
+  ],
+  "answer": "Based on the data, **Hinduja Leyland Finance Limited** has the highest median reserve price at **\u20b922,50,00,000**.\n\nHere are the top 10 banks by median reserve price:\n\n| Bank | Median Reserve Price (\u20b9) |\n|------|--------------------------|\n| Hinduja Leyland Finance Limited | 22,50,00,000 |\n| UNITY SMALL FINANCE BANK LIMITED | 4,61,00,000 |\n| Clix capital service pvt ltd | 3,63,60,000 |\n| India Infoline Housing Finance Ltd. (IIFL-HFL) | 3,37,55,000 |\n| Axis Finance Limited | 3,35,67,210 |\n| Federal Bank | 3,30,00,000 |\n| Deutsche Bank AG | 2,95,05,000 |\n| Small Industries Development Bank of India | 2,83,00,000 |\n| Hero Fincorp Limited | 2,62,75,000 |\n| Tata Capital Ltd. | 2,59,37,500 |"
+ },
+ {
+  "intent": "schema",
+  "question": "What cities do you have data for?",
+  "verdict": "pass",
+  "expected": [
+   "search_auctions",
+   "run_cypher"
+  ],
+  "seconds": 10.0,
+  "llm_calls": 2,
+  "input_tokens": 2848,
+  "output_tokens": 547,
+  "tools": [
+   "search_auctions"
+  ],
+  "answer": "Based on the data, the platform covers **45 cities/districts** across Tamil Nadu. Here is the full list with the number of auctions in each:\n\n| City | Auction Count |\n|------|--------------|\n| Chennai | 67 |\n| Kanchipuram | 59 |\n| Coimbatore | 35 |\n| Tiruvallur | 31 |\n| Tiruppur | 25 |\n| Salem | 24 |\n| Madurai | 21 |\n| Dindigul | 19 |\n| Cuddalore | 18 |\n| Krishnagiri | 16 |\n| Virudhunagar | 13 |\n| Villupuram | 13 |\n| Theni | 13 |\n| Thanjavur | 12 |\n| Thiruvarur | 11 |\n| Tiruchirappalli | 10 |\n| Kanyakumari | 9 |\n| Erode | 9 |\n| Pudukkottai | 9 |\n| Tirunelveli | 9 |\n| Vellore | 8 |\n| Ariyalur | 7 |\n| Tenkasi | 7 |\n| Dharmapuri | 7 |\n| Thoothukudi | 6 |\n| Tiruvannamalai | 6 |\n| Nagapattinam | 6 |\n| Karur | 5 |\n| Chengalpattu | 5 |\n| Kallakurichi | 5 |\n| Ranipet | 5 |\n| Tirupathur | 3 |\n| Namakkal | 3 |\n| Periyakulam | 3 |\n| Mayiladuthurai | 3 |\n| Palayamkottai | 3 |\n| Sivaganga | 3 |\n| Tindivanam | 1 |\n| Perambalur | 1 |\n| Pattukottai | 1 |\n| Pudukkottai District | 1 |\n| Tuticorin | 1 |\n| Karaikudi | 1 |\n| Udumalaipet | 1 |\n| Kumbakonam | 1 |\n| Ramanathapuram | 1 |\n| Chidambaram | 1 |\n\nIn total, there are **518 auctions** across these locations. The most data is available for **Chennai** (67 auctions), **Kanchipuram** (59), and **Coimbatore** (35)."
+ },
+ {
+  "intent": "schema",
+  "question": "List all banks in the database",
+  "verdict": "pass",
+  "expected": [
+   "search_auctions",
+   "run_cypher"
+  ],
+  "seconds": 13.3,
+  "llm_calls": 2,
+  "input_tokens": 3315,
+  "output_tokens": 820,
+  "tools": [
+   "search_auctions"
+  ],
+  "answer": "Here are all the banks (and financial institutions) present in the database, listed with their respective auction counts:\n\n| Bank / Institution | Auction Count |\n|---|---|\n| Equitas Small Finance Bank Ltd. | 54 |\n| Canara Bank | 33 |\n| JM Financial Asset Reconstruction Company Ltd | 27 |\n| Cholamandalam Investment And Finance Company Limited | 26 |\n| State Bank of India | 25 |\n| Bank of Maharashtra | 23 |\n| Karur Vysya Bank | 21 |\n| Bank of Baroda | 20 |\n| Hinduja Housing Finance Ltd | 18 |\n| City Union Bank | 16 |\n| Union Bank of India | 14 |\n| UCO Bank | 14 |\n| HDFC Bank | 13 |\n| Hero Housing Finance Limited | 12 |\n| ICICI Bank | 12 |\n| TRUHOME FINANCE LIMITED | 11 |\n| Indian Bank | 10 |\n| Debts Recovery Tribunal | 10 |\n| Indian Overseas Bank | 10 |\n| Punjab National Bank | 9 |\n| Unico Housing Finance Private Limited | 9 |\n| Repco Home Finance Limited | 8 |\n| GRIHUM HOUSING FINANCE LIMITED | 8 |\n| THE TAMILNADU INDUSTRIAL INVESTMENT CORPORATION LTD | 7 |\n| AU Small Finance Bank | 7 |\n| Yes Bank | 7 |\n| Jana Small Finance Bank | 6 |\n| South Indian Bank | 5 |\n| INVENT ASSETS SECURITISATION & RECONSTRUCTION PRIVATE LIMITED | 5 |\n| Protium Finance Limited | 5 |\n| Shriram Finance Ltd | 4 |\n| Asset Reconstruction Company (India) Ltd. (Arcil) | 4 |\n| RBL Bank | 4 |\n| SMFG India Home Finance Company Limited | 4 |\n| Federal Bank | 3 |\n| Vistaar Financial Services Pvt Ltd | 3 |\n| Bank of India | 3 |\n| PNB Housing Finance Limited | 3 |\n| HDB Financial Services Limited | 3 |\n| Assets Care & Reconstruction Enterprise Ltd | 3 |\n| India Shelter Finance Corporation Limited | 2 |\n| Punjab & Sind Bank | 2 |\n| PIRAMAL FINANCE LTD | 2 |\n| Tamilnad Mercantile Bank Limited | 2 |\n| HOUSING AND URBAN DEVELOPMENT CORPORATION LIMITED | 2 |\n| Fedbank Financial Services Ltd | 2 |\n| Repco Bank | 2 |\n| Hero Fincorp Limited | 2 |\n| Nido Home Finance Limited | 2 |\n| Kotak Mahindra Bank | 2 |\n| DBS Bank India Limited | 1 |\n| Motilal Oswal Home Finance Ltd | 1 |\n| Liquidation E-Auction | 1 |\n| Axis Bank | 1 |\n| DCB Bank | 1 |\n| Omkara Assets Reconstruction Pvt Ltd | 1 |\n| LIC Housing Finance Ltd | 1 |\n| Hinduja Leyland Finance Limited | 1 |\n| Tata Capital Housing Finance Ltd | 1 |\n| Edelweiss Asset Reconstruction Company Limited | 1 |\n| Aptus Value Housing Finace India Ltd | 1 |\n| CanFin Homes Limited | 1 |\n| Authum Investment & Infrastructure Limited | 1 |\n| ARKA FINCAP LIMITED | 1 |\n| CSB Bank | 1 |\n| U GRO CAPITAL LIMITED | 1 |\n| Sundaram Homes | 1 |\n| Deutsche Bank AG | 1 |\n| Ujjivan Small Finance Bank | 1 |\n\n**Total distinct banks/institutions:** 68  \n**Total auctions in database:** 518"
+ },
+ {
+  "intent": "schema",
+  "question": "What property types are available?",
+  "verdict": "pass",
+  "expected": [
+   "search_auctions",
+   "describe_schema",
+   "run_cypher"
+  ],
+  "seconds": 8.5,
+  "llm_calls": 2,
+  "input_tokens": 2218,
+  "output_tokens": 160,
+  "tools": [
+   "search_auctions"
+  ],
+  "answer": "Based on the tool results, there is **1 property type** available in the current dataset: **Land And Building** (as seen in auction_id `780268`).\n\nThe total database contains **518 auctions**, but the search only returned a single record. To get the full list of all property types available across all 518 auctions, I would need to run a search with `group_by: \"property_types\"` to see the distribution. \n\nWould you like me to retrieve the complete list of property types?"
+ },
+ {
+  "intent": "schema",
+  "question": "What asset categories exist?",
+  "verdict": "pass",
+  "expected": [
+   "search_auctions",
+   "describe_schema",
+   "run_cypher"
+  ],
+  "seconds": 6.4,
+  "llm_calls": 2,
+  "input_tokens": 2055,
+  "output_tokens": 69,
+  "tools": [
+   "search_auctions"
+  ],
+  "answer": "The graph contains three asset categories:\n\n- **Residential** \u2014 513 auctions\n- **Commercial** \u2014 3 auctions\n- **Industrials** \u2014 2 auctions"
+ },
+ {
+  "intent": "schema",
+  "question": "What fields does an auction property have?",
+  "verdict": "direct",
+  "expected": [
+   "describe_schema"
+  ],
+  "seconds": 2.7,
+  "llm_calls": 1,
+  "input_tokens": 1379,
+  "output_tokens": 86,
+  "tools": [],
+  "answer": "The graph stores auction properties with fields such as auction_id, reserve_price_num, emd_num, city, area, property_type, asset_category, bank, borrower, auction_platform, auction_start_date, auction_end_date, deadline, is_reauction, previous_reserve_price, reauction_count, and full property description. For exact schema details, please refer to the system documentation."
+ },
+ {
+  "intent": "specific_auction",
+  "question": "Give me details for auction AUC-12345",
+  "verdict": "pass",
+  "expected": [
+   "get_auction_detail"
+  ],
+  "seconds": 6.0,
+  "llm_calls": 2,
+  "input_tokens": 2013,
+  "output_tokens": 80,
+  "tools": [
+   "get_auction_details"
+  ],
+  "answer": "The auction ID **AUC-12345** does not exist in the knowledge graph. The tool confirmed it as a missing ID \u2014 no details are available for this identifier."
+ },
+ {
+  "intent": "specific_auction",
+  "question": "What is the possession type for auction AUC-12345?",
+  "verdict": "pass",
+  "expected": [
+   "get_auction_detail"
+  ],
+  "seconds": 6.3,
+  "llm_calls": 2,
+  "input_tokens": 2017,
+  "output_tokens": 91,
+  "tools": [
+   "get_auction_details"
+  ],
+  "answer": "The auction ID **AUC-12345** does not exist in the knowledge graph. The tool returned zero results and confirmed it as a missing ID.\n\nI cannot provide a possession type for this auction. If you have a different auction ID, please share it and I will look it up."
+ },
+ {
+  "intent": "specific_auction",
+  "question": "Find properties similar to AUC-12345",
+  "verdict": "pass",
+  "expected": [
+   "get_auction_detail",
+   "search_auctions"
+  ],
+  "seconds": 6.5,
+  "llm_calls": 2,
+  "input_tokens": 2011,
+  "output_tokens": 128,
+  "tools": [
+   "get_auction_details"
+  ],
+  "answer": "I cannot find any properties similar to AUC-12345 because the auction ID **AUC-12345** does not exist in the knowledge graph. The tool returned zero results and listed it as a missing ID.\n\nTo help you find comparable properties, I would need a valid auction ID or specific criteria (e.g., city, property type, price range, bank name) to search against. Please provide a correct auction ID or describe the type of property you're looking for."
+ },
+ {
+  "intent": "specific_auction",
+  "question": "Show the borrower for auction AUC-12345",
+  "verdict": "pass",
+  "expected": [
+   "get_auction_detail"
+  ],
+  "seconds": 6.3,
+  "llm_calls": 2,
+  "input_tokens": 2013,
+  "output_tokens": 72,
+  "tools": [
+   "get_auction_details"
+  ],
+  "answer": "The auction ID **AUC-12345** does not exist in the knowledge graph. The tool returned zero results and confirmed it as a missing ID. No borrower information is available for this auction."
+ },
+ {
+  "intent": "specific_auction",
+  "question": "Which bank conducted auction AUC-12345?",
+  "verdict": "pass",
+  "expected": [
+   "get_auction_detail"
+  ],
+  "seconds": 6.6,
+  "llm_calls": 2,
+  "input_tokens": 2011,
+  "output_tokens": 74,
+  "tools": [
+   "get_auction_details"
+  ],
+  "answer": "The auction ID **AUC-12345** does not exist in the knowledge graph. The tool returned zero results and confirmed the ID is missing from the database. I cannot determine which bank conducted this auction."
+ },
+ {
+  "intent": "semantic",
+  "question": "Properties facing a main road",
+  "verdict": "pass",
+  "expected": [
+   "semantic_search"
+  ],
+  "seconds": 10.4,
+  "llm_calls": 2,
+  "input_tokens": 3819,
+  "output_tokens": 490,
+  "tools": [
+   "semantic_search"
+  ],
+  "answer": "Based on the semantic search results, here are the properties whose descriptions indicate they face a main road:\n\n1.  **Flat in Tiruvallur (Auction ID: 827244)** \u2013 Reserve Price: \u20b932,50,000. The description mentions \"South :- 30feet Road\".\n2.  **Flat in Mangadu, Chennai (Auction ID: 837061)** \u2013 Reserve Price: \u20b917,60,000. The description mentions \"east Facing\".\n3.  **Land in Oothumalai, Tirunelveli (Auction ID: 830550)** \u2013 Reserve Price: \u20b917,64,200. The description includes boundary details but does not explicitly state \"main road\".\n4.  **Flat in Tambaram, Chennai (Auction ID: 826232)** \u2013 Reserve Price: \u20b949,30,000. The description mentions \"North Facing\".\n5.  **Flat in Adyar, Chennai (Auction ID: 830391)** \u2013 Reserve Price: \u20b941,67,000. The description mentions \"3rd Main Ro\" (likely \"3rd Main Road\").\n6.  **Plot in Aruppukottai, Virudhunagar (Auction ID: 827910)** \u2013 Reserve Price: \u20b943,94,000. The description explicitly states \"on the East of Aruppukottai Main Road\".\n7.  **Plot in Palayamkottai (Auction ID: 824721)** \u2013 Reserve Price: \u20b935,00,000. The description includes boundary details but does not explicitly state \"main road\".\n\n**Properties explicitly facing or located on a main road:**\n- **827244** (Tiruvallur) \u2013 South facing a 30-foot road.\n- **837061** (Chennai, Mangadu) \u2013 East facing.\n- **826232** (Chennai, Tambaram) \u2013 North facing.\n- **830391** (Chennai, Adyar) \u2013 Located on \"3rd Main Road\".\n- **827910** (Virudhunagar, Aruppukottai) \u2013 Located on the \"East of Aruppukottai Main Road\"."
+ },
+ {
+  "intent": "semantic",
+  "question": "Plots with clear boundaries mentioned in the description",
+  "verdict": "pass",
+  "expected": [
+   "semantic_search"
+  ],
+  "seconds": 16.6,
+  "llm_calls": 4,
+  "input_tokens": 6594,
+  "output_tokens": 636,
+  "tools": [
+   "semantic_search",
+   "semantic_search"
+  ],
+  "answer": "Based on the semantic search results, here are the plots (and land parcels) whose descriptions explicitly mention clear boundaries:\n\n*   **830025** \u2013 Coimbatore (Neelikonampalayam) \u2013 Reserve Price: \u20b976,00,000 \u2013 *\"The boundaries of the property are mentioned below North : Site No. 37, South : Land of Mr.Eswara Konar, East : Site No. 45, Wes...\"*\n*   **830024** \u2013 Tiruppur (Avinashi) \u2013 Reserve Price: \u20b968,02,000 \u2013 *\"The boundaries of the property are mentioned below: North : 30ft East-West Road, South : Site No.77, East : S...\"*\n*   **827390** \u2013 Dharmapuri (Pennagaram) \u2013 Reserve Price: \u20b961,43,000 \u2013 *\"...within the below mentioned boundaries and Me...\"*\n*   **824465** \u2013 Erode (Bhavani) \u2013 Reserve Price: \u20b96,00,000 \u2013 *\"BOUNDARY:- East-North south panchayat road, West-Property of Kuppausamy, North-House of Kolanthan, South-Below mentioned 2nd item pathway\"*\n*   **823985** \u2013 Coimbatore (Kinathukadavu) \u2013 Reserve Price: \u20b927,00,000 \u2013 *\"...within the following boundaries and measurements:- No...\"*\n*   **841663** \u2013 Madurai (Tallakulam) \u2013 Reserve Price: \u20b92,42,12,500 \u2013 *\"...was plotted in...\"* (describes a plotted layout with boundaries)\n*   **840805** \u2013 Madurai (Tallakulam) \u2013 Reserve Price: \u20b92,42,12,500 \u2013 *\"...was plotted i...\"* (describes a plotted layout with boundaries)\n\n**Note:** The search was for \"clear boundaries mentioned\" and returned these results. The first two results (830025, 830024) have the most explicit boundary descriptions. The last two (841663, 840805) are large land parcels in a plotted layout."
+ },
+ {
+  "intent": "semantic",
+  "question": "CMDA approved plots in Sriperumbudur",
+  "verdict": "pass",
+  "expected": [
+   "semantic_search",
+   "search_auctions"
+  ],
+  "seconds": 11.1,
+  "llm_calls": 2,
+  "input_tokens": 2106,
+  "output_tokens": 178,
+  "tools": [
+   "search_auctions"
+  ],
+  "answer": "Based on the tool results, there are **no CMDA approved plots in Sriperumbudur** currently listed in the auction database.\n\nThe search for residential plots in Sriperumbudur returned **0 results**. However, the system indicates that if the city filter is removed, there are **130 matching properties** available across other locations.\n\nTo proceed, you could consider:\n- **Removing the city filter** to see the 130 residential plots available elsewhere in Tamil Nadu.\n- **Changing the city** to a different location.\n\nWould you like to relax the city constraint and see those 130 plots, or try a different search?"
+ },
+ {
+  "intent": "semantic",
+  "question": "Properties with a channel or paddy field nearby",
+  "verdict": "pass",
+  "expected": [
+   "semantic_search"
+  ],
+  "seconds": 8.6,
+  "llm_calls": 2,
+  "input_tokens": 2827,
+  "output_tokens": 253,
+  "tools": [
+   "semantic_search"
+  ],
+  "answer": "Based on the semantic search results, there are **3 properties** with descriptions mentioning a channel or paddy field nearby:\n\n1.  **Auction ID 823016** (Nagapattinam) \u2013 Reserve Price: \u20b933,08,400. The description mentions \"Katumavadi Revenue Village, Natham Old Field Number...\" and scored 0.8 for the keyword match.\n2.  **Auction ID 842295** (Sivaganga) \u2013 Reserve Price: \u20b924,12,000. The description explicitly lists boundaries including \"South Nanja of A.Ramanathan, East Nanja of Karuppiah, West: Nanja of S.P.Krishnan\" (Nanja = wet/cultivable land, often paddy).\n3.  **Auction ID 832139** (Chennai, Ambattur) \u2013 Reserve Price: \u20b91,66,00,000. The description references \"Gramanatham\" and survey numbers, scoring 0.45 for the keyword match.\n\nNo other properties matched the query."
+ },
+ {
+  "intent": "temporal",
+  "question": "Auctions with deadline in the next 7 days",
+  "verdict": "pass",
+  "expected": [
+   "search_auctions"
+  ],
+  "seconds": 14.9,
+  "llm_calls": 2,
+  "input_tokens": 4146,
+  "output_tokens": 830,
+  "tools": [
+   "search_auctions"
+  ],
+  "answer": "There are **142 auctions** with a deadline in the next 7 days. Here are the first 10, sorted by deadline:\n\n| Auction ID | Title | Reserve Price | EMD | Deadline | City | Area | Bank |\n|---|---|---|---|---|---|---|---|\n| 818639 | Canara Bank Plot Auction in Vazhapadi, Salem | \u20b93,12,19,000 | \u20b931,21,900 | 2026-08-20 16:00 | Salem | Vazhapadi | Canara Bank |\n| 817083 | Repco Home Finance Limited Plot Auction in Theni, Theni | \u20b945,99,000 | \u20b94,59,900 | 2026-08-20 16:00 | Theni | Theni | Repco Home Finance Limited |\n| 822405 | Repco Home Finance Limited Land Auction in Tambarm, Kanchipuram | \u20b928,14,000 | \u20b92,81,400 | 2026-08-20 16:00 | Kanchipuram | Tambarm | Repco Home Finance Limited |\n| 822404 | Repco Home Finance Limited Land Auction in Alandur Taluk, Kanchipuram | \u20b935,00,000 | \u20b93,50,000 | 2026-08-20 16:00 | Kanchipuram | Alandur Taluk | Repco Home Finance Limited |\n| 819936 | Repco Home Finance Limited Plot Auction in Ambattur Taluk, Tiruvallur | \u20b970,77,000 | \u20b97,07,700 | 2026-08-20 16:00 | Tiruvallur | Ambattur Taluk | Repco Home Finance Limited |\n| 818841 | Karur Vysya Bank Land And Building Auction in Mylapore, Chennai | \u20b95,00,00,000 | \u20b950,00,000 | 2026-08-20 17:00 | Chennai | Mylapore | Karur Vysya Bank |\n| 818681 | HDFC Bank Land And Building Auction in Tambarm, Kanchipuram | \u20b91,49,00,000 | \u20b914,90,000 | 2026-08-20 17:00 | Kanchipuram | Tambarm | HDFC Bank |\n| 818073 | Bank of Baroda Land Auction in Vazhapadi, Salem | \u20b93,12,19,000 | \u20b931,21,900 | 2026-08-20 17:00 | Salem | Vazhapadi | Bank of Baroda |\n| 822414 | South Indian Bank Land Auction in Aathur, Dindigul | \u20b945,86,400 | \u20b94,58,640 | 2026-08-20 17:00 | Dindigul | Aathur | South Indian Bank |\n| 823049 | Liquidation E-Auction Land And Building Auction in Nungambakkam, Chennai | \u20b916,00,00,000 | \u20b91,50,00,000 | 2026-08-20 17:00 | Chennai | Nungambakkam | Liquidation E-Auction |\n\n**Key details from the full dataset (142 auctions):**\n- **Property types available:** Land And Building (73), Land (33), Plot (23), House (11)\n- **Top areas by count:** Periyakulam (4), Kundrathur (4), Thiruvarur Taluk (4), udaiyarpalayam (4)\n\nAll 142 auctions have deadlines within the next 7 days. Would you like to filter by city, price range, property type, or bank?"
+ },
+ {
+  "intent": "temporal",
+  "question": "Auctions starting in Q1 2026 in Chennai",
+  "verdict": "pass",
+  "expected": [
+   "search_auctions"
+  ],
+  "seconds": 7.5,
+  "llm_calls": 2,
+  "input_tokens": 2056,
+  "output_tokens": 230,
+  "tools": [
+   "search_auctions"
+  ],
+  "answer": "Based on the tool results, there are **no auctions starting in Q1 2026 (January 1 \u2013 March 31, 2026) in Chennai** currently in the database.\n\nThe search returned zero results (`total_count: 0`). This could mean:\n\n- No auctions have been scheduled for that period yet.\n- The database may not contain future-dated listings that far ahead.\n\nIf you'd like, I can:\n- Broaden the search to a wider date range (e.g., all of 2026 or Q2 2026).\n- Check for auctions in other cities in Tamil Nadu for Q1 2026.\n- Show currently active Chennai auctions instead."
+ },
+ {
+  "intent": "temporal",
+  "question": "Auctions closing this week",
+  "verdict": "pass",
+  "expected": [
+   "search_auctions"
+  ],
+  "seconds": 14.4,
+  "llm_calls": 2,
+  "input_tokens": 4136,
+  "output_tokens": 746,
+  "tools": [
+   "search_auctions"
+  ],
+  "answer": "There are **142 auctions closing within the next 7 days** across Tamil Nadu. Here are the first 10 (sorted by deadline):\n\n| Auction ID | Title | City | Reserve Price | EMD | Deadline |\n|---|---|---|---|---|---|\n| 818639 | Canara Bank Plot Auction in Vazhapadi, Salem | Salem | \u20b93,12,19,000 | \u20b931,21,900 | 2026-08-20 16:00 |\n| 817083 | Repco Home Finance Limited Plot Auction in Theni, Theni | Theni | \u20b945,99,000 | \u20b94,59,900 | 2026-08-20 16:00 |\n| 822405 | Repco Home Finance Limited Land Auction in Tambarm, Kanchipuram | Kanchipuram | \u20b928,14,000 | \u20b92,81,400 | 2026-08-20 16:00 |\n| 822404 | Repco Home Finance Limited Land Auction in Alandur Taluk, Kanchipuram | Kanchipuram | \u20b935,00,000 | \u20b93,50,000 | 2026-08-20 16:00 |\n| 819936 | Repco Home Finance Limited Plot Auction in Ambattur Taluk, Tiruvallur | Tiruvallur | \u20b970,77,000 | \u20b97,07,700 | 2026-08-20 16:00 |\n| 818841 | Karur Vysya Bank Land And Building Auction in Mylapore, Chennai | Chennai | \u20b95,00,00,000 | \u20b950,00,000 | 2026-08-20 17:00 |\n| 818681 | HDFC Bank Land And Building Auction in Tambarm, Kanchipuram | Kanchipuram | \u20b91,49,00,000 | \u20b914,90,000 | 2026-08-20 17:00 |\n| 818073 | Bank of Baroda Land Auction in Vazhapadi, Salem | Salem | \u20b93,12,19,000 | \u20b931,21,900 | 2026-08-20 17:00 |\n| 822414 | South Indian Bank Land Auction in Aathur, Dindigul | Dindigul | \u20b945,86,400 | \u20b94,58,640 | 2026-08-20 17:00 |\n| 823049 | Liquidation E-Auction Land And Building Auction in Nungambakkam, Chennai | Chennai | \u20b916,00,00,000 | \u20b91,50,00,000 | 2026-08-20 17:00 |\n\n**Key details:**\n- **Price range:** \u20b928,14,000 (822405) to \u20b916,00,00,000 (823049)\n- **Cities covered:** Chennai, Salem, Kanchipuram, Theni, Tiruvallur, Dindigul\n- **Property types available:** Land And Building (73), Land (33), Plot (23), House (11)\n- **None** of these 10 are re-auctions (all have `reauction_count: 0`)\n\nWould you like to filter by city, property type, bank, or price range?"
+ },
+ {
+  "intent": "superlative",
+  "question": "Cheapest 5 flats in Chennai",
+  "verdict": "pass",
+  "expected": [
+   "search_auctions"
+  ],
+  "seconds": 13.1,
+  "llm_calls": 2,
+  "input_tokens": 3129,
+  "output_tokens": 425,
+  "tools": [
+   "search_auctions"
+  ],
+  "answer": "Here are the 5 cheapest flats currently listed in Chennai auctions:\n\n| # | Auction ID | Area | Bank | Reserve Price (\u20b9) | EMD (\u20b9) | Auction Start | Application Deadline |\n|---|------------|------|------|-------------------|---------|---------------|----------------------|\n| 1 | 837057 | Urapakkam | JM Financial ARC | 16,10,000 | 1,61,000 | 2026-09-10 | 2026-09-09 |\n| 2 | 837061 | Mangadu | JM Financial ARC | 17,60,000 | 1,76,000 | 2026-09-10 | 2026-09-09 |\n| 3 | 826227 | Ponniammanmedu | Bank of Maharashtra | 23,06,000 | 2,30,600 | 2026-08-29 | 2026-08-28 |\n| 4 | 831476 | Varadharajapuram | HDFC Bank | 24,00,000 | 2,40,000 | 2026-09-02 | 2026-09-01 |\n| 5 | 840337 | Muthailpet | Union Bank of India | 25,00,000 | 2,50,000 | 2026-09-10 | 2026-09-04 |\n\nAll five are residential flats. The cheapest is **auction_id 837057** in Urapakkam at \u20b916.1 lakh, followed by **auction_id 837061** in Mangadu at \u20b917.6 lakh \u2014 both from JM Financial ARC. None are re-auctions."
+ },
+ {
+  "intent": "superlative",
+  "question": "Most expensive commercial auction in Coimbatore",
+  "verdict": "pass",
+  "expected": [
+   "search_auctions"
+  ],
+  "seconds": 16.3,
+  "llm_calls": 4,
+  "input_tokens": 4573,
+  "output_tokens": 526,
+  "tools": [
+   "search_auctions",
+   "search_auctions"
+  ],
+  "answer": "Based on the tool results, I cannot identify the most expensive commercial auction in Coimbatore because the combination of filters (`city: Coimbatore` and `asset_category: Commercial`) returned **zero matches** in the current auction data.\n\n**What the data shows:**\n- There are **35 auctions** in the graph if the `asset_category` filter is dropped (i.e., all categories in Coimbatore).\n- There are **3 auctions** in the graph if the `city` filter is dropped (i.e., commercial auctions across all cities).\n- Only **1 past auction** matches both filters (visible with `include_past=true`).\n\n**Options to proceed:**\n1. **Loosen the category** \u2014 I can search for the most expensive auction in Coimbatore across *all* asset categories (35 matches available).\n2. **Loosen the city** \u2014 I can search for the most expensive commercial auction across *all* cities (3 matches available).\n3. **Include past auctions** \u2014 I can check the single past commercial auction in Coimbatore.\n\nWhich would you like to explore?"
+ },
+ {
+  "intent": "superlative",
+  "question": "Auctions with the soonest application deadline",
+  "verdict": "pass",
+  "expected": [
+   "search_auctions"
+  ],
+  "seconds": 13.3,
+  "llm_calls": 2,
+  "input_tokens": 4094,
+  "output_tokens": 604,
+  "tools": [
+   "search_auctions"
+  ],
+  "answer": "The 10 auctions with the soonest application deadlines (excluding past deadlines) are:\n\n| Auction ID | Title | City | Reserve Price (\u20b9) | Application Deadline |\n|---|---|---|---|---|\n| 780268 | Indian Bank Land And Building Auction in Chidambaram, Cuddalore | Cuddalore | 28,21,000 | 2026-06-28 16:00 |\n| 780269 | Indian Bank Land And Building Auction in Chidambaram, Cuddalore | Cuddalore | 21,64,000 | 2026-06-28 16:00 |\n| 780264 | Indian Bank Land And Building Auction in Chidambaram, Cuddalore | Cuddalore | 23,47,000 | 2026-06-28 16:00 |\n| 780265 | Indian Bank Land And Building Auction in Chidambaram, Cuddalore | Cuddalore | 28,11,000 | 2026-06-28 16:00 |\n| 780266 | Indian Bank Land And Building Auction in Chidambaram, Cuddalore | Cuddalore | 19,50,000 | 2026-06-28 16:00 |\n| 780267 | Indian Bank Land And Building Auction in Chidambaram, Cuddalore | Cuddalore | 25,08,000 | 2026-06-28 16:00 |\n| 821075 | Canara Bank House Auction in Gummudipundi Taluk, Tiruvallur | Tiruvallur | 59,00,000 | 2026-07-28 10:00 |\n| 809765 | UCO Bank House Auction in Kannankurichi, Salem | Salem | 37,50,000 | 2026-07-28 17:00 |\n| 830730 | City Union Bank Land Auction in Srirangam Taluk, Tiruchirappalli | Tiruchirappalli | 36,50,000 | 2026-08-09 17:00 |\n| 819916 | Canara Bank Land And Building Auction in Bhavani, Erode | Erode | 23,85,000 | 2026-08-13 17:00 |\n\nThe earliest deadlines are **June 28, 2026** for six Indian Bank residential land-and-building properties in Chidambaram, Cuddalore (IDs 780264\u2013780269). The next closest are two properties due **July 28, 2026** \u2014 a Canara Bank house in Tiruvallur (821075) and a UCO Bank house in Salem (809765)."
+ },
+ {
+  "intent": "superlative",
+  "question": "Highest EMD auctions in Tamil Nadu",
+  "verdict": "pass",
+  "expected": [
+   "search_auctions"
+  ],
+  "seconds": 8.1,
+  "llm_calls": 2,
+  "input_tokens": 2229,
+  "output_tokens": 131,
+  "tools": [
+   "search_auctions"
+  ],
+  "answer": "The highest EMD among all Tamil Nadu auctions in the graph is **\u20b92,25,00,000** (\u20b92.25 crore). This corresponds to auction **780268** \u2014 an Indian Bank Land And Building property in Chidambaram, Cuddalore, with a reserve price of \u20b928,21,000 and an EMD of \u20b92,82,000."
+ },
+ {
+  "intent": "reauction",
+  "question": "Show re-auctioned properties in Chennai",
+  "verdict": "pass",
+  "expected": [
+   "search_auctions"
+  ],
+  "seconds": 10.1,
+  "llm_calls": 2,
+  "input_tokens": 2138,
+  "output_tokens": 228,
+  "tools": [
+   "search_auctions"
+  ],
+  "answer": "Based on the tool results, there are **no currently active re-auctioned properties in Chennai** that match your search.\n\nThe search for re-auctioned properties (`is_reauction: true`) in Chennai returned **0 results** out of a possible 67 auctions in the city. The diagnostics suggest that relaxing the `is_reauction` filter would yield 67 matches, and there are also 5 past (expired) auctions that match.\n\n**What you can do next:**\n- **Drop the re-auction filter** to see all 67 active Chennai auctions (some may have been re-auctioned previously, but the current listing doesn't flag them as such).\n- **Include past auctions** (`include_past=true`) to see the 5 expired re-auctioned properties for retrospective analysis.\n\nWould you like to proceed with either of these options?"
+ },
+ {
+  "intent": "reauction",
+  "question": "Properties where the reserve price dropped from a previous auction",
+  "verdict": "pass",
+  "expected": [
+   "search_auctions"
+  ],
+  "seconds": 7.3,
+  "llm_calls": 2,
+  "input_tokens": 2084,
+  "output_tokens": 151,
+  "tools": [
+   "search_auctions"
+  ],
+  "answer": "Based on the tool results, there are **no upcoming auctions** where the reserve price dropped from a previous auction.\n\nThe search for re-auctions (properties that have been listed before) returned **0 upcoming results**. However, the system indicates that **37 past auctions** do match this criteria \u2014 these were excluded because the default search only looks at future/upcoming auctions.\n\nSince your question is retrospective (asking about price drops that *have occurred*), I can retry the search with past auctions included. Shall I proceed with that?"
+ },
+ {
+  "intent": "reauction",
+  "question": "Fresh listings only in Coimbatore, no re-auctions",
+  "verdict": "pass",
+  "expected": [
+   "search_auctions"
+  ],
+  "seconds": 14.5,
+  "llm_calls": 2,
+  "input_tokens": 4155,
+  "output_tokens": 716,
+  "tools": [
+   "search_auctions"
+  ],
+  "answer": "Here are the fresh (non-re-auction) listings in Coimbatore. There are **35** such properties in total; the 10 with the nearest deadlines are shown below.\n\n| Auction ID | Title | Reserve Price (\u20b9) | EMD (\u20b9) | Area | Bank | Deadline |\n|------------|-------|-------------------|---------|------|------|----------|\n| 821349 | TRUHOME FINANCE LIMITED Plot Auction in Annur, Coimbatore | 3,789,850 | 378,985 | Annur | TruHome Finance | 2026-08-21 |\n| 821350 | TRUHOME FINANCE LIMITED Plot Auction in Perur, Coimbatore | 4,352,000 | 435,200 | Perur | TruHome Finance | 2026-08-21 |\n| 824355 | INVENT ASSETS SECURITISATION & RECONSTRUCTION PRIVATE LIMITED Land Auction in Avinashi, Coimbatore | 2,226,609 | 222,660 | Avinashi | Invent ARC | 2026-08-22 |\n| 823983 | Canara Bank Land And Building Auction in Pollachi Taluk, Coimbatore | 1,584,000 | 158,400 | Pollachi Taluk | Canara Bank | 2026-08-24 |\n| 823986 | Canara Bank Land And Building Auction in Kinathukadavu, Coimbatore | 2,000,000 | 200,000 | Kinathukadavu | Canara Bank | 2026-08-24 |\n| 823985 | Canara Bank Land And Building Auction in Kinathukadavu, Coimbatore | 2,700,000 | 270,000 | Kinathukadavu | Canara Bank | 2026-08-24 |\n| 823984 | Canara Bank Land And Building Auction in Pollachi Taluk, Coimbatore | 4,383,000 | 438,300 | Pollachi Taluk | Canara Bank | 2026-08-24 |\n| 824039 | Axis Bank Land Auction in Pollachi Taluk, Coimbatore | 17,212,748 | 1,721,274 | Pollachi Taluk | Axis Bank | 2026-08-24 |\n| 819824 | Bank of India Land And Building Auction in Peelamedu, Coimbatore | 7,150,000 | 715,000 | Peelamedu | Bank of India | 2026-08-24 |\n| 830025 | Punjab & Sind Bank Land And Building Auction in Neelikonampalayam, Coimbatore | 7,600,000 | 760,000 | Neelikonampalayam | Punjab & Sind Bank | 2026-08-26 |\n\nAll 10 have `reauction_count: 0` and `is_reauction: false`, confirming they are fresh listings. The most common property types among all 35 fresh Coimbatore auctions are **Land** (14), **Plot** (11), and **Land And Building** (9)."
+ },
+ {
+  "intent": "reauction",
+  "question": "How many auctions are re-auctions?",
+  "verdict": "pass",
+  "expected": [
+   "search_auctions",
+   "run_cypher"
+  ],
+  "seconds": 9.1,
+  "llm_calls": 2,
+  "input_tokens": 2348,
+  "output_tokens": 64,
+  "tools": [
+   "search_auctions"
+  ],
+  "answer": "There are **37** auctions that are re-auctions."
+ },
+ {
+  "intent": "borrower",
+  "question": "Auctions tied to borrower XYZ Industries",
+  "verdict": "pass",
+  "expected": [
+   "search_auctions"
+  ],
+  "seconds": 7.6,
+  "llm_calls": 2,
+  "input_tokens": 2075,
+  "output_tokens": 167,
+  "tools": [
+   "search_auctions"
+  ],
+  "answer": "The search for auctions tied to borrower **XYZ Industries** returned **zero results** across all time windows. The knowledge graph contains no auctions associated with this borrower name.\n\n**What this means:**\n- No auctions exist under \"XYZ Industries\" in the Tamil Nadu SARFAESI dataset.\n- Widening price ranges or dropping other filters will not help \u2014 the borrower name itself yields no matches.\n\n**Suggested next steps:**\n- Double-check the spelling of the borrower name (e.g., \"XYZ Industries\" vs. \"XYZ Industrial\" or \"XYZ Industries Pvt Ltd\").\n- If you have an alternative borrower name or a known auction ID, I can search again."
+ },
+ {
+  "intent": "borrower",
+  "question": "Show auctions for borrower Sri Lakshmi Enterprises",
+  "verdict": "pass",
+  "expected": [
+   "search_auctions"
+  ],
+  "seconds": 7.5,
+  "llm_calls": 2,
+  "input_tokens": 2082,
+  "output_tokens": 184,
+  "tools": [
+   "search_auctions"
+  ],
+  "answer": "Based on the tool results, there are **no auctions** found for borrower **Sri Lakshmi Enterprises** in the knowledge graph.\n\nThe search returned zero matches across all time windows. The diagnostics indicate that widening price ranges or dropping other filters will not help, as no records exist for this borrower under any conditions.\n\n**What you can do:**\n- Double-check the spelling of the borrower name (e.g., \"Sri Lakshmi Enterprises\" vs. \"Shri Lakshmi Enterprises\" or \"Sri Lakshmi Enterprise\").\n- If the name is correct, this borrower has no auction properties currently listed in the system. You may want to search by a different borrower name, city, or bank to find alternative properties."
+ },
+ {
+  "intent": "borrower",
+  "question": "Which borrowers have properties in Chennai?",
+  "verdict": "pass",
+  "expected": [
+   "search_auctions",
+   "run_cypher"
+  ],
+  "seconds": 7.6,
+  "llm_calls": 2,
+  "input_tokens": 3261,
+  "output_tokens": 230,
+  "tools": [
+   "search_auctions"
+  ],
+  "answer": "There are **67 auctions** in Chennai, distributed across **63 distinct borrowers**. The borrowers with multiple properties are:\n\n- **Mr. Balachander Thambiran Mudaleyar** \u2014 2 properties\n- **Hypothecator Vaipavsree Cement Private Limited** \u2014 2 properties\n- **Mr. Murugan Krishnan** \u2014 2 properties\n- **Mr. Madhavan Malaiyandi** \u2014 2 properties\n\nAll other borrowers (59 of them) each have **1 property** in Chennai. The full list includes individuals such as Mr Arulraj Rathinam, Mr. Sakthivel S, Mrs. V Sharmila, and companies like M/s. Suriya Motors LLP, SAALIM SHOES PVT. LTD., and M/s Zar Entertainments Pvt Ltd, among others."
+ },
+ {
+  "intent": "off_graph",
+  "question": "What does SARFAESI mean?",
+  "verdict": "pass",
+  "expected": [
+   "internet_search"
+  ],
+  "seconds": 7.8,
+  "llm_calls": 2,
+  "input_tokens": 2930,
+  "output_tokens": 140,
+  "tools": [
+   "internet_search"
+  ],
+  "answer": "SARFAESI stands for **Securitisation and Reconstruction of Financial Assets and Enforcement of Security Interest Act, 2002**. It is an Indian law that allows banks and financial institutions to recover non-performing assets (NPAs) by taking possession of and auctioning a defaulter's secured residential or commercial properties **without needing to approach the courts**. The primary aim of the Act is to reduce NPAs through these recovery and reconstruction methods."
+ },
+ {
+  "intent": "off_graph",
+  "question": "Explain what EMD is in a bank auction",
+  "verdict": "pass",
+  "expected": [
+   "internet_search"
+  ],
+  "seconds": 7.4,
+  "llm_calls": 2,
+  "input_tokens": 2664,
+  "output_tokens": 185,
+  "tools": [
+   "internet_search"
+  ],
+  "answer": "EMD stands for **Earnest Money Deposit**. In the context of a bank auction (such as those under SARFAESI), it is the upfront, refundable amount a bidder must pay to participate in the auction. It serves as a security deposit demonstrating the bidder's seriousness.\n\nKey points from the sources:\n- **Purpose:** It shows your seriousness as a bidder and allows you to place bids.\n- **Amount:** It is usually **10% of the reserve price** of the property.\n- **Refundability:** It is **100% refundable** if the bidder does not win the auction. However, if you win and fail to pay the balance, the EMD is typically forfeited."
+ },
+ {
+  "intent": "off_graph",
+  "question": "What are the RBI guidelines for e-auction of secured assets?",
+  "verdict": "pass",
+  "expected": [
+   "internet_search"
+  ],
+  "seconds": 8.2,
+  "llm_calls": 2,
+  "input_tokens": 2811,
+  "output_tokens": 351,
+  "tools": [
+   "internet_search"
+  ],
+  "answer": "Based on the search results, here is a summary of the RBI guidelines for e-auction of secured assets under the SARFAESI Act:\n\nThe key guidelines and procedures are outlined in the **Security Interest (Enforcement) Rules, 2002**, which govern the sale of immovable assets under the SARFAESI Act. The process includes:\n\n- **Demand Notices & Valuation:** Banks must issue demand notices and obtain asset valuations before proceeding with a sale.\n- **Modes of Sale:** Authorized methods include obtaining quotes, inviting tenders, public auctions, and private treaties.\n- **Reserve Price:** A reserve price must be fixed in consultation with valuers before the public auction or tender.\n- **Sale Certificate:** Upon confirmation of the sale, the creditor must issue a sale certificate in favor of the auction purchaser.\n- **Right to Redeem:** The borrower can tender the full dues (including costs) at any time before the publication of the notice for public auction to stop the sale.\n\n**Sources:**\n- [SOP for Asset Sale under SARFAESI Act](https://www.scribd.com/document/641931998/SOP-for-Sale-of-Assets-final)\n- [Procedure for Sale of Immovable Assets under SARFAESI Act 2002](https://ibclaw.in/procedure-for-sale-of-immovable-assets-under-sarfaesi-act-2002)\n- [Auction Process under SARFAESI Act](https://auctiondunia.com/education/auction-process)"
+ },
+ {
+  "intent": "edge",
+  "question": "Residential auctions in Mumbai",
+  "verdict": "pass",
+  "expected": [
+   "search_auctions"
+  ],
+  "seconds": 10.8,
+  "llm_calls": 2,
+  "input_tokens": 2093,
+  "output_tokens": 220,
+  "tools": [
+   "search_auctions"
+  ],
+  "answer": "The search returned **0 residential auctions in Mumbai**. The knowledge graph contains **513 auctions** in total, but none match both filters (city = Mumbai and asset category = Residential) simultaneously.\n\nThe tool suggests that relaxing the **city** filter would yield results \u2014 dropping it would show **513 residential auctions** across Tamil Nadu. However, since the graph covers only Tamil Nadu, it likely contains no Mumbai properties at all.\n\n**To proceed, you could:**\n- Remove the city filter to see residential auctions in Tamil Nadu.\n- Or try a different city within Tamil Nadu (e.g., Chennai, Coimbatore).\n\nWould you like to drop the city constraint and see residential auctions statewide?"
+ },
+ {
+  "intent": "edge",
+  "question": "Flats in Chennai under 1000 rupees",
+  "verdict": "pass",
+  "expected": [
+   "search_auctions"
+  ],
+  "seconds": 10.4,
+  "llm_calls": 2,
+  "input_tokens": 2103,
+  "output_tokens": 168,
+  "tools": [
+   "search_auctions"
+  ],
+  "answer": "I cannot answer this question based on the tool results.\n\nThe search for **flats in Chennai under \u20b91,000** returned **zero matches**. The tool indicates that relaxing the `max_price` filter would yield **31 matches** \u2014 but I cannot silently drop that filter or invent prices.\n\n**What you can do:**\n- Remove or raise the price cap (\u20b91,000 is far below any realistic auction reserve price for a flat in Chennai).\n- Once you confirm a new price range, I can re-run the search.\n\nNo auction_ids, prices, or property details are available to cite."
+ },
+ {
+  "intent": "edge",
+  "question": "Auctions conducted by the Bank of Narnia",
+  "verdict": "pass",
+  "expected": [
+   "search_auctions"
+  ],
+  "seconds": 7.8,
+  "llm_calls": 2,
+  "input_tokens": 2082,
+  "output_tokens": 198,
+  "tools": [
+   "search_auctions"
+  ],
+  "answer": "The search returned **zero auctions** for \"Bank of Narnia\" across all time windows in the Tamil Nadu auction graph.\n\n**Why this happened:** The bank name you provided does not match any lender in the database. The graph covers Indian banks conducting SARFAESI auctions in Tamil Nadu \u2014 \"Bank of Narnia\" is not a recognized entity in this dataset.\n\n**What you can do:**\n- Check the spelling \u2014 if you meant a different bank (e.g., Bank of Baroda, Bank of India, Indian Bank, etc.), please provide the correct name and I will search again.\n- If you are looking for auctions by a specific non-bank financial institution or a different entity, let me know the exact name.\n\nNo filters were dropped or relaxed \u2014 the bank name itself produced no matches."
+ },
+ {
+  "intent": "edge",
+  "question": "Show me the details of auction id 999999999",
+  "verdict": "pass",
+  "expected": [
+   "get_auction_detail"
+  ],
+  "seconds": 6.1,
+  "llm_calls": 2,
+  "input_tokens": 2013,
+  "output_tokens": 85,
+  "tools": [
+   "get_auction_details"
+  ],
+  "answer": "The auction ID **999999999** does not exist in the knowledge graph. The tool confirmed that the requested ID was not found among the auction records.\n\nThere are no details to display for this auction ID."
+ },
+ {
+  "intent": "edge",
+  "question": "Which auctions does borrower Walter White have?",
+  "verdict": "pass",
+  "expected": [
+   "search_auctions"
+  ],
+  "seconds": 6.9,
+  "llm_calls": 2,
+  "input_tokens": 2075,
+  "output_tokens": 113,
+  "tools": [
+   "search_auctions"
+  ],
+  "answer": "The search for auctions linked to borrower **Walter White** returned **zero results** across all time windows. No auctions under that borrower name exist in the graph.\n\n**Possible next steps:**\n- Check for a spelling variation (e.g., \"Walter White\" vs. \"Walter White Jr.\").\n- If you have a different borrower name or an `auction_id`, I can search again."
+ },
+ {
+  "intent": "refusal",
+  "question": "Track this auction and alert me before the deadline",
+  "verdict": "pass",
+  "expected": [],
+  "seconds": 4.6,
+  "llm_calls": 1,
+  "input_tokens": 1381,
+  "output_tokens": 61,
+  "tools": [],
+  "answer": "I cannot set up tracking or alerts. The available tools only allow querying the graph and searching the web; they do not support persistent monitoring, notifications, or alerting. To track an auction, you would need to manually check the deadline or use an external reminder system."
+ },
+ {
+  "intent": "refusal",
+  "question": "Set up an alert for new auctions in Chennai",
+  "verdict": "pass",
+  "expected": [],
+  "seconds": 3.0,
+  "llm_calls": 1,
+  "input_tokens": 1381,
+  "output_tokens": 82,
+  "tools": [],
+  "answer": "I cannot set up alerts directly \u2014 I can only search, analyze, and compare existing auction data. To set up an alert for new auctions in Chennai, you would need to use the platform's alert/notification feature (if available) or manually re-run a search like `search_auctions(city='Chennai', order_by='deadline_asc')` periodically."
+ },
+ {
+  "intent": "refusal",
+  "question": "Are there any court cases or pending litigation against borrower XYZ Industries?",
+  "verdict": "pass",
+  "expected": [],
+  "seconds": 2.3,
+  "llm_calls": 1,
+  "input_tokens": 1384,
+  "output_tokens": 42,
+  "tools": [],
+  "answer": "The graph holds auction properties only \u2014 it does not contain any information about court cases, pending litigation, or legal disputes involving borrowers. I cannot answer this question from the available data."
+ },
+ {
+  "intent": "refusal",
+  "question": "What is the current market value of properties in Anna Nagar?",
+  "verdict": "FAIL",
+  "expected": [],
+  "seconds": 8.4,
+  "llm_calls": 2,
+  "input_tokens": 2700,
+  "output_tokens": 252,
+  "tools": [
+   "internet_search"
+  ],
+  "answer": "The graph holds auctions only and does not contain market valuations. However, based on an internet search of general property rates in Anna Nagar, Chennai, the following ranges were found:\n\n- **Average price:** Rs 13,000 \u2013 Rs 13,500 per sq ft (Live Homes)\n- **Average price:** Rs 13,780 per sq ft (Housing.com)\n- **Flat prices:** Rs 14,700 \u2013 Rs 18,300 per sq ft (99acres.com)\n- **Land rates:** Rs 23,500 \u2013 Rs 36,300 per sq ft (99acres.com)\n- **Upper range:** Rs 15,500 \u2013 Rs 16,000+ per sq ft (Live Homes)\n\nThese figures are from general real-estate portals and reflect the broader market, not specific auction properties. For auction-specific prices in Anna Nagar, you would need to search the auction database using `search_auctions` with a city filter."
+ },
+ {
+  "intent": "refusal",
+  "question": "Give me the credit score and repayment history of borrower XYZ Industries",
+  "verdict": "FAIL",
+  "expected": [],
+  "seconds": 2.5,
+  "llm_calls": 1,
+  "input_tokens": 1384,
+  "output_tokens": 74,
+  "tools": [],
+  "answer": "I'm sorry, but the Bank Auction Intelligence Platform does not contain any data on credit scores, repayment histories, or borrower creditworthiness. The knowledge graph only holds auction property details (prices, dates, locations, etc.). For credit-related information, you would need to consult a credit bureau or financial institution."
+ }
+]

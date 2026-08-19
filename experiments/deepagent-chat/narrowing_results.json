@@ -1,0 +1,144 @@
+[
+ {
+  "name": "price-and-place narrowing (Chennai)",
+  "turns": [
+   {
+    "turn": 1,
+    "q": "Show me residential properties for auction",
+    "ok": true,
+    "checks": [],
+    "seconds": 16.7,
+    "llm_calls": 2,
+    "input_tokens": 3828,
+    "tools": [
+     "search_auctions"
+    ],
+    "count": 513,
+    "answer": "Here are the residential properties currently available for auction, sorted by the nearest application deadline:\n\n**Total residential properties found: 513** (s"
+   },
+   {
+    "turn": 2,
+    "q": "Only in Chennai please",
+    "ok": true,
+    "checks": [
+     "carry:PASS",
+     "shrink:PASS(513->66)"
+    ],
+    "seconds": 15.5,
+    "llm_calls": 2,
+    "input_tokens": 3948,
+    "tools": [
+     "search_auctions"
+    ],
+    "count": 66,
+    "answer": "Here are the residential auctions in Chennai, sorted by application deadline (earliest first):\n\n1. **Karur Vysya Bank \u2013 Land And Building in Mylapore** (auction"
+   },
+   {
+    "turn": 3,
+    "q": "Under 40 lakhs",
+    "ok": true,
+    "checks": [
+     "carry:PASS",
+     "shrink:PASS(66->20)"
+    ],
+    "seconds": 12.3,
+    "llm_calls": 2,
+    "input_tokens": 3844,
+    "tools": [
+     "search_auctions"
+    ],
+    "count": 20,
+    "answer": "Here are the residential properties in Chennai under \u20b940 lakhs, sorted by auction deadline:\n\n**Total available:** 20 properties (10 shown)\n\n**Top 10 upcoming au"
+   },
+   {
+    "turn": 4,
+    "q": "Of these, only ones that failed to sell at an earlier auction",
+    "ok": true,
+    "checks": [
+     "carry:PASS",
+     "shrink:PASS(20->1)"
+    ],
+    "seconds": 8.1,
+    "llm_calls": 2,
+    "input_tokens": 2133,
+    "tools": [
+     "search_auctions"
+    ],
+    "count": 1,
+    "answer": "Based on the tool results, there is **1 property** in Chennai under \u20b940,00,000 that failed to sell at an earlier auction (i.e., is a re-auction):\n\n- **Auction I"
+   },
+   {
+    "turn": 5,
+    "q": "Give me the full details of the cheapest one",
+    "ok": true,
+    "checks": [
+     "anchor:PASS"
+    ],
+    "seconds": 9.4,
+    "llm_calls": 2,
+    "input_tokens": 3444,
+    "tools": [
+     "get_auction_details"
+    ],
+    "count": 1,
+    "answer": "Here are the full details of the cheapest auction property (auction_id: **802503**):\n\n- **Auction ID:** 802503\n- **Title:** Canara Bank Flat Auction in Madhavar"
+   }
+  ],
+  "passed": true
+ },
+ {
+  "name": "bank narrowing (drop a filter mid-way)",
+  "turns": [
+   {
+    "turn": 1,
+    "q": "What live auctions does Indian Bank have?",
+    "ok": true,
+    "checks": [
+     "carry:PASS"
+    ],
+    "seconds": 10.6,
+    "llm_calls": 2,
+    "input_tokens": 3673,
+    "tools": [
+     "search_auctions"
+    ],
+    "count": 10,
+    "answer": "Here are the live auctions currently listed by Indian Bank:\n\n1. **Auction ID 780265** \u2013 Land And Building in Chidambaram, Cuddalore \u2013 Reserve Price: \u20b928,11,000 "
+   },
+   {
+    "turn": 2,
+    "q": "Only flats",
+    "ok": true,
+    "checks": [
+     "carry:PASS",
+     "shrink:PASS(10->0)"
+    ],
+    "seconds": 9.2,
+    "llm_calls": 2,
+    "input_tokens": 1994,
+    "tools": [
+     "search_auctions"
+    ],
+    "count": 0,
+    "answer": "I cannot answer your question with the current results. The search for Indian Bank flats returned **0 matches** when both filters were applied together.\n\nThe to"
+   },
+   {
+    "turn": 3,
+    "q": "Actually any property type is fine, but only in Coimbatore",
+    "ok": true,
+    "checks": [
+     "carry:PASS"
+    ],
+    "seconds": 9.5,
+    "llm_calls": 2,
+    "input_tokens": 2023,
+    "tools": [
+     "search_auctions"
+    ],
+    "count": 0,
+    "answer": "I found **0 auctions** matching your filters (Indian Bank, Coimbatore, current auctions only).\n\nHowever, the data shows that relaxing one constraint would yield"
+   }
+  ],
+  "passed": true
+ }
+]
