@@ -971,6 +971,64 @@ def _sse(event: str, data: dict[str, Any]) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
+# Seconds of stream silence before a keepalive comment is emitted. A single
+# LLM round-trip can sit 30-80s producing no event (DeepSeek first-party
+# latency — see the 2026-08-19 investigation: tools answer in ms, the model
+# calls eat the whole turn), during which the stream sent NOTHING. The client
+# can't tell "slow model" from "dead connection", so its fetch timeout killed
+# working turns ("BodyStreamBuffer was aborted"), and proxy idle timeouts
+# could do the same. The keepalive is an SSE comment frame (": keepalive"),
+# which every SSE parser must ignore — the web client just sees bytes arrive
+# and resets its idle timer.
+_STREAM_HEARTBEAT_SECONDS_DEFAULT = 15.0
+
+
+def _heartbeat_seconds() -> float:
+    try:
+        return float(os.environ.get(
+            "CHAT_STREAM_HEARTBEAT_SECONDS", str(_STREAM_HEARTBEAT_SECONDS_DEFAULT)
+        ))
+    except ValueError:
+        return _STREAM_HEARTBEAT_SECONDS_DEFAULT
+
+
+async def _with_heartbeat(
+    source: AsyncIterator[str], interval: float | None = None
+) -> AsyncIterator[str]:
+    """Relay `source` frames, inserting an SSE comment whenever `interval`
+    seconds pass with no frame — so the wire is never silent longer than the
+    interval while the agent is thinking."""
+    if interval is None:
+        interval = _heartbeat_seconds()
+    it = source.__aiter__()
+    task: asyncio.Task | None = None
+    try:
+        while True:
+            task = asyncio.ensure_future(it.__anext__())
+            while True:
+                done, _ = await asyncio.wait({task}, timeout=interval)
+                if task in done:
+                    break
+                yield ": keepalive\n\n"
+            try:
+                frame = task.result()
+            except StopAsyncIteration:
+                return
+            task = None
+            yield frame
+    finally:
+        # Client disconnect (GeneratorExit) or cancellation: stop the pending
+        # pull and let the source generator run its own cleanup.
+        if task is not None and not task.done():
+            task.cancel()
+        aclose = getattr(it, "aclose", None)
+        if aclose is not None:
+            try:
+                await aclose()
+            except Exception:  # noqa: BLE001 - teardown must never raise over the real exit
+                pass
+
+
 async def _stream_turn(
     message: str, history: list | None, deps: ChatDeps, mode: str | None,
     run_ctx: dict,
@@ -1064,7 +1122,7 @@ async def chat_stream(
     # surface as real HTTP statuses (401/429), matching blocking /chat.
     history, deps, mode, run_ctx = await _prepare_turn(request, req, user)
     return StreamingResponse(
-        _stream_turn(req.message, history, deps, mode, run_ctx),
+        _with_heartbeat(_stream_turn(req.message, history, deps, mode, run_ctx)),
         media_type="text/event-stream",
         headers={
             # SSE must not be buffered: X-Accel-Buffering for nginx-style
