@@ -90,6 +90,32 @@ dated `search_auctions` call hits. The spike shims it via the Query API's
 typed-parameter format (`application/vnd.neo4j.query`); a proper fix belongs
 in `api/neo4j_client.py`.
 
+## Golden catalogue (all 68 evals/cases.py questions, variant B)
+
+`run_golden_b.py` scores the two production gates — tool trajectory and
+graceful refusal — plus latency/tokens:
+
+```
+cases 68 | pass 56 | direct 4 | FAIL 8
+avg 6.5s | 1.87 model calls | 1,828 input tokens per turn
+```
+
+Perfect (all pass): basic_filter 9/9, refusal 5/5, semantic 4/4,
+specific_auction 5/5, superlative 4/4, temporal 3/3, reauction 4/4,
+borrower 3/3, edge 5/5. The 4 `direct` rows are off-graph/schema questions
+answered without tools (no Tavily key in this environment) — informational,
+not failures.
+
+**All 8 failures are tier-3 questions** whose expected tool is `run_cypher`
+(percentiles, month grouping, borrower-with-N-properties, cross-category
+joins) — the escape hatch this spike deliberately did not build. The planner
+either honestly said the tools can't express it, or approximated with
+`group_by`. Two also tripped over `reserve_price` vs `reserve_price_num`
+naming, which argues for enum-typed tool args. Conclusion: the tiered loop
+covers 60/64 non-cypher cases cleanly at ~6.5s/turn; tier 3 (deferred Cypher
+capability) is required for the remaining 12%, exactly as the design
+predicted.
+
 ## Scope notes
 
 - `internet_search` is wired in only when `TAVILY_API_KEY` is set; the smoke

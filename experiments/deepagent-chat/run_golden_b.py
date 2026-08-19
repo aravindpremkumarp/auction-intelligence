@@ -92,7 +92,7 @@ def main() -> None:
     avg_c = sum(r["llm_calls"] for r in ok_rows) / max(1, len(ok_rows))
     avg_in = sum(r["input_tokens"] for r in ok_rows) / max(1, len(ok_rows))
 
-    print(f"\n== variant B on golden catalogue ==")
+    print("\n== variant B on golden catalogue ==")
     print(f"cases {n} | pass {passes} | direct {directs} | FAIL {len(fails)}")
     print(f"avg {avg_s:.1f}s | {avg_c:.2f} model calls | {avg_in:.0f} in tokens")
 
