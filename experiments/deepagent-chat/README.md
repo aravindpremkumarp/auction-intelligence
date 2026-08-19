@@ -136,6 +136,37 @@ question sent to Cypher when `search_auctions(is_reauction=true)` already
 carries `previous_reserve_price` — fixed with one routing line in
 instructions.md and re-verified.
 
+## Third pass: Tavily live (2026-08-19)
+
+With a Tavily key present, `internet_search` registers and the planner
+routes off-graph factual questions through it (one routing line changed —
+previously the prompt steered explainers into uncited direct answers).
+
+```
+cases 68 | pass 63 | direct 1 | FAIL 4
+avg 11.2s | 2.15 model calls | 3,052 input tokens per case
+off_graph 3/3 pass via internet_search, answers carry sources
+```
+
+The 4 fails, honestly split:
+
+- **2 eval-strictness artifacts.** "Cities in both residential and
+  commercial auctions" answered *correctly* via two parallel group_by
+  searches + a set intersection — the catalogue only accepts `run_cypher`.
+  And one refusal used graceful wording the decline-marker lexicon doesn't
+  list ("does not contain any data on…").
+- **2 real routing wobbles.** The EMD-ratio question under-routed to
+  search_auctions (it passed via tier 3 in the previous run — planner
+  variance at temperature 0 across prompt versions). And enabling Tavily
+  softened one refusal boundary: "market value of Anna Nagar" now gets a
+  web answer after the graph disclaimer, where the catalogue expects a pure
+  refusal. That last one mirrors a genuine tension in production's own
+  rules (rule 4 forbids market valuations; the web-search rule allows
+  market context) — a decision for the migration, not a spike patch.
+
+Per-case cost rose (9.3s → 11.2s avg) because web-search turns are slow
+(~35s each) — correctness bought with Tavily latency.
+
 ## Narrowing conversations (scope object, not transcript)
 
 `run(question, state=...)` carries a scope object across turns — active
