@@ -5,8 +5,17 @@ const API_BASE = window.API_BASE || '';
 // a while); everything else should answer fast. A caller-supplied signal
 // (e.g. the browse abort) still wins where AbortSignal.any is available.
 const FETCH_TIMEOUT_MS = 20000;
-const CHAT_FETCH_TIMEOUT_MS = 120000;
+// Blocking /chat only. Agent turns legitimately run for minutes when the
+// upstream model is slow (a single LLM round-trip can sit 30-80s), so the
+// old 120s cap was killing turns that were still working. /chat/stream is
+// excluded from this hard timeout entirely — apiChatStream manages its own
+// idle-based timeout, which can tell a slow-but-alive stream (the server
+// heartbeats every ~15s) from a dead connection.
+const CHAT_FETCH_TIMEOUT_MS = 300000;
 const authFetch = (url, opts = {}) => {
+  if (String(url).includes('/chat/stream')) {
+    return (window.Auth && window.Auth.fetchWithAuth ? window.Auth.fetchWithAuth(url, opts) : fetch(url, opts));
+  }
   if (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) {
     const ms = String(url).includes('/chat') ? CHAT_FETCH_TIMEOUT_MS : FETCH_TIMEOUT_MS;
     const timeoutSignal = AbortSignal.timeout(ms);
@@ -1054,52 +1063,90 @@ async function apiChat(message, prebuilt) {
 // when the blocking endpoint should be retried (old backend / transport
 // failure before the server started working) — never after the model run
 // has started, so a failed turn isn't silently billed twice.
+// Idle + total guards for the chat stream, replacing the old hard 120s
+// fetch timeout (which aborted turns the server was still working on —
+// the "BodyStreamBuffer was aborted" failure). The server emits an SSE
+// keepalive comment every ~15s while the agent thinks, so 75s of wire
+// silence means the connection is genuinely dead, not just a slow model.
+// The total cap is a last-resort backstop for a stream that keeps ticking
+// but never finishes.
+const CHAT_STREAM_IDLE_TIMEOUT_MS = 75000;
+const CHAT_STREAM_MAX_MS = 600000;
 async function apiChatStream(body, onEvent) {
-  let res;
+  const ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+  let idleTimer = null, totalTimer = null, timedOut = false;
+  const armIdle = () => {
+    if (!ctrl) return;
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => { timedOut = true; ctrl.abort(); }, CHAT_STREAM_IDLE_TIMEOUT_MS);
+  };
+  if (ctrl) {
+    totalTimer = setTimeout(() => { timedOut = true; ctrl.abort(); }, CHAT_STREAM_MAX_MS);
+    armIdle();
+  }
   try {
-    res = await authFetch(`${API_BASE}/chat/stream`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-  } catch (e) {
-    if (e && e.name === 'AbortError') throw e; // timeout — don't re-wait on fallback
-    const err = new Error('network error'); err.useFallback = true; throw err;
-  }
-  if (res.status === 404 || res.status === 405) {
-    // Backend without /chat/stream (older deploy) — use blocking /chat.
-    const err = new Error(`chat ${res.status}`); err.useFallback = true; throw err;
-  }
-  if (!res.ok) throw _chatHttpError(res);
-  if (!res.body || !res.body.getReader) {
-    const err = new Error('streaming unsupported'); err.useFallback = true; throw err;
-  }
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buf = '';
-  let final = null;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buf += decoder.decode(value, { stream: true });
-    let sep;
-    while ((sep = buf.indexOf('\n\n')) >= 0) {
-      const frame = buf.slice(0, sep); buf = buf.slice(sep + 2);
-      let ev = 'message', data = '';
-      for (const line of frame.split('\n')) {
-        if (line.startsWith('event:')) ev = line.slice(6).trim();
-        else if (line.startsWith('data:')) data += line.slice(5).trim();
+    let res;
+    try {
+      res = await authFetch(`${API_BASE}/chat/stream`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        ...(ctrl ? { signal: ctrl.signal } : {}),
+      });
+    } catch (e) {
+      if (e && e.name === 'AbortError') {
+        // Our own idle/total guard fired — the model may still be running
+        // server-side, so no fallback retry (it would bill the turn twice).
+        throw timedOut ? new Error('the server stopped responding — please retry') : e;
       }
-      if (!data) continue;
-      let payload;
-      try { payload = JSON.parse(data); } catch (e) { continue; }
-      if (ev === 'final') final = payload;
-      else if (ev === 'error') throw new Error(payload.detail || 'chat failed');
-      else if (onEvent) onEvent(ev, payload);
+      const err = new Error('network error'); err.useFallback = true; throw err;
     }
+    if (res.status === 404 || res.status === 405) {
+      // Backend without /chat/stream (older deploy) — use blocking /chat.
+      const err = new Error(`chat ${res.status}`); err.useFallback = true; throw err;
+    }
+    if (!res.ok) throw _chatHttpError(res);
+    if (!res.body || !res.body.getReader) {
+      const err = new Error('streaming unsupported'); err.useFallback = true; throw err;
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    let final = null;
+    while (true) {
+      let chunk;
+      try {
+        chunk = await reader.read();
+      } catch (e) {
+        if (timedOut) throw new Error('the answer stalled — please retry');
+        throw e;
+      }
+      const { done, value } = chunk;
+      if (done) break;
+      armIdle(); // any bytes (keepalives included) prove the server is alive
+      buf += decoder.decode(value, { stream: true });
+      let sep;
+      while ((sep = buf.indexOf('\n\n')) >= 0) {
+        const frame = buf.slice(0, sep); buf = buf.slice(sep + 2);
+        let ev = 'message', data = '';
+        for (const line of frame.split('\n')) {
+          if (line.startsWith('event:')) ev = line.slice(6).trim();
+          else if (line.startsWith('data:')) data += line.slice(5).trim();
+        }
+        if (!data) continue;
+        let payload;
+        try { payload = JSON.parse(data); } catch (e) { continue; }
+        if (ev === 'final') final = payload;
+        else if (ev === 'error') throw new Error(payload.detail || 'chat failed');
+        else if (onEvent) onEvent(ev, payload);
+      }
+    }
+    if (!final) throw new Error('stream ended unexpectedly — please retry');
+    return final;
+  } finally {
+    clearTimeout(idleTimer);
+    clearTimeout(totalTimer);
   }
-  if (!final) throw new Error('stream ended unexpectedly — please retry');
-  return final;
 }
 async function hydrateModes() {
   try {
