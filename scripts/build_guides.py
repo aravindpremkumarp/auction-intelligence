@@ -955,10 +955,17 @@ trust before committing an EMD — exactly the kind of verification AuctionScope
     },
     {
         "slug": "fmb-sketch-tamil-nadu",
-        "title": "FMB sketch — what it is and how to check it (Tamil Nadu)",
-        "h1": "What is an FMB sketch?",
-        "description": ("An FMB sketch is the official survey map of a land parcel's shape and boundaries. "
-                        "What an FMB sketch is, how to read it, and how to get it in Tamil Nadu."),
+        "related_guides": ["patta-and-chitta-in-tamil-nadu",
+                            "town-survey-ts-number-urban-land-records",
+                            "land-area-units-and-conversions-tamil-nadu",
+                            "adangal-and-a-register-tamil-nadu",
+                            "encumbrance-certificate-tamil-nadu",
+                            "verify-property-documents-before-buying-tamil-nadu"],
+        "title": "How to read an FMB sketch (Tamil Nadu)",
+        "h1": "How to read an FMB sketch",
+        "description": ("An FMB sketch is the survey department's scaled map of a parcel — read it for the "
+                        "shape, the boundary measurements on each side and the neighbouring survey numbers. "
+                        "What it shows, and how to get one in Tamil Nadu."),
         "updated": "2026-07-21",
         "answer": ("An FMB — Field Measurement Book — sketch is the Tamil Nadu survey department's scaled "
                    "drawing of a land parcel, showing its actual shape, measurements and boundaries on all "
@@ -1786,13 +1793,23 @@ help with. This is general information, not legal advice.</p>
     },
     {
         "slug": "agricultural-land-purchase-rules-tamil-nadu",
-        "title": "Agricultural land purchase rules in Tamil Nadu",
-        "h1": "Buying agricultural land in Tamil Nadu",
-        "description": ("Who can buy farmland in Tamil Nadu, the land-ceiling limits, and what it takes to "
-                        "use agricultural land for building — with the auction angle."),
+        "related_guides": ["patta-and-chitta-in-tamil-nadu",
+                            "adangal-and-a-register-tamil-nadu",
+                            "prohibited-property-and-poramboke-land-tamil-nadu",
+                            "land-area-units-and-conversions-tamil-nadu",
+                            "guideline-value-tamil-nadu",
+                            "building-approval-and-occupancy-certificate-tamil-nadu"],
+        "title": "How many acres of land can a person own in Tamil Nadu?",
+        "h1": "How many acres of land can you own in Tamil Nadu?",
+        "description": ("The ceiling is about 59.95 acres for an individual and around 15 standard acres for "
+                        "a family of five, under the 1961 Land Reforms Act. Who can buy farmland, and what "
+                        "building on it takes."),
         "updated": "2026-07-21",
-        "answer": ("In Tamil Nadu any resident Indian, including a non-agriculturist, can buy agricultural "
-                   "land, subject to land-ceiling limits under the 1961 Land Reforms Act. NRIs and OCIs "
+        "answer": ("Tamil Nadu caps agricultural landholding under the 1961 Land Reforms Act at roughly "
+                   "59.95 acres for an individual and about 15 standard acres for a family of five — the "
+                   "\"standard acre\" being an equalised measure, so the raw acreage varies with land "
+                   "quality. Within that ceiling any resident Indian, including a non-agriculturist, can "
+                   "buy agricultural land. NRIs and OCIs "
                    "cannot buy farmland (they may inherit it). Using agricultural land for building needs a "
                    "change-of-land-use conversion first."),
         "body": """
@@ -1821,6 +1838,11 @@ Checking the classification before you bid is part of what AuctionScope helps yo
 fees and rules on the official portal, and treat this as general information, not legal advice.</p>
 """,
         "faqs": [
+            {"q": "How many acres of land can a person own in Tamil Nadu?",
+             "a": ("Under the Tamil Nadu Land Reforms (Fixation of Ceiling on Land) Act, 1961 the ceiling "
+                   "is in the region of 59.95 acres for an individual and around 15 standard acres for a "
+                   "family of five. A standard acre is an equalised measure, so the raw acreage the "
+                   "ceiling allows varies with land quality.")},
             {"q": "Can a non-agriculturist buy agricultural land in Tamil Nadu?",
              "a": ("Yes. Any resident Indian, including a non-agriculturist, can buy agricultural land in "
                    "Tamil Nadu, subject to the land-ceiling limits. NRIs and OCIs cannot buy farmland, "
@@ -2199,13 +2221,21 @@ before you bid, which is what AuctionScope helps you do. This is general informa
     },
     {
         "slug": "town-survey-ts-number-urban-land-records",
-        "title": "Town survey (TS) number and urban land records in Tamil Nadu",
-        "h1": "Town survey (TS) numbers",
-        "description": ("In towns and cities, land is identified by a TS number, not a rural survey number. "
-                        "What it is and why you need it to pull the right records."),
+        "related_guides": ["patta-and-chitta-in-tamil-nadu",
+                            "encumbrance-certificate-tamil-nadu",
+                            "fmb-sketch-tamil-nadu",
+                            "sale-deed-and-parent-documents-tamil-nadu",
+                            "guideline-value-tamil-nadu",
+                            "verify-property-documents-before-buying-tamil-nadu"],
+        "title": "TS number full form — what \"TS no\" means in Tamil Nadu land records",
+        "h1": "TS number: full form and meaning",
+        "description": ("TS stands for Town Survey. A TS number identifies a plot in urban Tamil Nadu land "
+                        "records — the town equivalent of a rural survey number, and the key to pulling the "
+                        "right EC, patta and FMB."),
         "updated": "2026-07-21",
-        "answer": ("In urban Tamil Nadu, land is identified by a Town Survey (TS) number under the Town "
-                   "Survey Land Register, the urban equivalent of the rural survey and sub-division number. "
+        "answer": ("TS stands for Town Survey. In urban Tamil Nadu, land is identified by a Town Survey "
+                   "(TS) number under the Town Survey Land Register, the urban equivalent of the rural "
+                   "survey and sub-division number. "
                    "You need the correct TS or survey number to pull the encumbrance certificate, patta and "
                    "FMB for the right parcel."),
         "body": """
@@ -2233,6 +2263,10 @@ patta and FMB independently. Getting the TS / survey number right is a small ste
 check reliable — the kind of groundwork AuctionScope helps you do quickly on a specific listing.</p>
 """,
         "faqs": [
+            {"q": "What is the full form of TS number?",
+             "a": ("TS stands for Town Survey. A TS number is the identifier given to a plot in the Town "
+                   "Survey Land Register, the urban land-record system — the town equivalent of a rural "
+                   "survey number.")},
             {"q": "What is a TS number in Tamil Nadu?",
              "a": ("A Town Survey number — the identifier for a parcel of land in a surveyed town or city, "
                    "recorded in the Town Survey Land Register. It is the urban equivalent of the rural "
@@ -2370,8 +2404,13 @@ notice states so you are comparing like with like; if a unit is ambiguous, confi
     },
     {
         "slug": "undivided-share-uds-in-a-flat",
-        "title": "Undivided share (UDS) in a flat — the land you actually own",
-        "h1": "Undivided share (UDS) in a flat",
+        "related_guides": ["carpet-area-built-up-and-super-built-up",
+                            "fsi-far-in-tamil-nadu",
+                            "co-ownership-and-joint-property",
+                            "how-to-check-rera-project-tamil-nadu",
+                            "building-approval-and-occupancy-certificate-tamil-nadu"],
+        "title": "What is UDS area in a flat? Undivided share explained",
+        "h1": "What is UDS area?",
         "description": ("When you buy a flat, you own the apartment plus an undivided share of the land. What "
                         "UDS is, why a low UDS matters, and how it affects value."),
         "updated": "2026-07-21",
@@ -2406,6 +2445,11 @@ whether a flat's reserve is genuinely attractive. AuctionScope reads what the no
 built-up and land components are kept separate in the maths.</p>
 """,
         "faqs": [
+            {"q": "What is UDS area?",
+             "a": ("UDS area is the undivided share of land that comes with a flat — the portion of the "
+                   "plot under the building that you own in common with the other owners, registered as "
+                   "part of your sale deed. It is land, not floor space, so it is separate from the "
+                   "carpet or built-up area of the flat itself.")},
             {"q": "What is undivided share (UDS) in a flat?",
              "a": ("It is the portion of the land under a building that a flat owner holds in common with "
                    "the other owners — undivided, registered as part of the sale, and sized roughly in "
@@ -2429,8 +2473,13 @@ built-up and land components are kept separate in the maths.</p>
     },
     {
         "slug": "fsi-far-in-tamil-nadu",
-        "title": "FSI / FAR in Tamil Nadu — how much you can build",
-        "h1": "FSI (Floor Space Index)",
+        "related_guides": ["building-setbacks-tamil-nadu",
+                            "building-approval-and-occupancy-certificate-tamil-nadu",
+                            "carpet-area-built-up-and-super-built-up",
+                            "undivided-share-uds-in-a-flat",
+                            "guideline-value-tamil-nadu"],
+        "title": "FSI in Tamil Nadu — how much you can build on a plot",
+        "h1": "FSI in Tamil Nadu",
         "description": ("FSI decides how much floor area you can build on a plot. What it means, the Tamil "
                         "Nadu limits, and why it affects a plot's value."),
         "updated": "2026-07-21",
@@ -2487,8 +2536,12 @@ professional advice.</p>
     },
     {
         "slug": "building-setbacks-tamil-nadu",
-        "title": "Building setbacks in Tamil Nadu — the open space you must leave",
-        "h1": "Building setbacks",
+        "related_guides": ["fsi-far-in-tamil-nadu",
+                            "building-approval-and-occupancy-certificate-tamil-nadu",
+                            "carpet-area-built-up-and-super-built-up",
+                            "verify-property-documents-before-buying-tamil-nadu"],
+        "title": "Building setback rules in Tamil Nadu",
+        "h1": "Building setback rules in Tamil Nadu",
         "description": ("Setbacks are the mandatory open space around a building. The Tamil Nadu front, side "
                         "and rear requirements, and why deviations are a risk."),
         "updated": "2026-07-21",
@@ -2654,6 +2707,37 @@ def _cta_and_capture(source: str) -> str:
     )
 
 
+def _related_slugs(g: dict) -> list[str]:
+    """Up to 6 sibling guides for this one to link to.
+
+    A curated `related_guides` list wins where a guide has one; otherwise the
+    other guides in its GUIDE_GROUPS section, which already encode topical
+    grouping. Falling back to the group means EVERY guide links out rather than
+    only the hand-curated few: before this each guide carried 3 internal links
+    while sitting beside 43 closely related pages, passing almost no signal
+    between them.
+    """
+    slug = g["slug"]
+    curated = [x for x in g.get("related_guides", []) if x != slug]
+    if curated:
+        return curated[:6]
+    for grp in GUIDE_GROUPS:
+        if slug in grp["slugs"]:
+            return [x for x in grp["slugs"] if x != slug][:6]
+    return []
+
+
+def _related_block(g: dict) -> str:
+    """Linked related-guides list. Anchor text is the target's h1, so the link
+    describes where it goes instead of saying "read more"."""
+    by_slug = {x["slug"]: x for x in GUIDES}
+    items = "".join(
+        f'<li><a href="/guides/{html.escape(other["slug"])}">{html.escape(other["h1"])}</a></li>'
+        for other in (by_slug.get(x) for x in _related_slugs(g)) if other
+    )
+    return f'<h2>Related guides</h2><ul class="related">{items}</ul>' if items else ""
+
+
 def render_guide(g: dict) -> str:
     slug = g["slug"]
     url = f"{SITE_BASE}/guides/{slug}"
@@ -2687,6 +2771,7 @@ def render_guide(g: dict) -> str:
         f'<p class="answer">{html.escape(g["answer"])}</p>',
         g["body"],
         f'<h2>Frequently asked questions</h2><div class="faq">{faq_html}</div>',
+        _related_block(g),
         chips_block,
         sources_block,
         "</article>",
@@ -2799,6 +2884,12 @@ def main(argv: list[str] | None = None) -> int:
     assert set(grouped) == set(slugs), (
         f"hub grouping mismatch — ungrouped: {sorted(set(slugs) - set(grouped))}; "
         f"unknown in groups: {sorted(set(grouped) - set(slugs))}")
+
+    # Guard: curated related_guides must point at guides that exist. A typo would
+    # otherwise vanish silently — the renderer skips unknown slugs — and quietly
+    # cost the internal link this whole block exists to add.
+    unknown = sorted({r for g in GUIDES for r in g.get("related_guides", [])} - set(slugs))
+    assert not unknown, f"related_guides points at unknown slug(s): {unknown}"
 
     written = []
     pages = [(OUT_ROOT / "index.html", render_hub(GUIDES))]
