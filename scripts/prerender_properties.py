@@ -472,6 +472,14 @@ def property_jsonld(auction_id: str, fields: dict, rel: dict, ended: bool,
         # about when this offer is live.
         starts = iso_date(fields.get("auction_start_dt"))
         ends = iso_date(fields.get("auction_end_dt") or fields.get("auction_start_dt"))
+        # Some records carry an end that precedes their own start — seen on 7
+        # auctions whose auction_end_dt landed three months before
+        # auction_start_dt, an upstream parse error. Publishing that verbatim
+        # would restate the contradiction as structured data, so fall back to
+        # the start date. Never guess a plausible end: an auction that closes
+        # the day it opens is the conservative reading, not an invented one.
+        if starts and ends and ends < starts:
+            ends = starts
         if ends:
             offer["priceValidUntil"] = ends
             offer["availabilityEnds"] = ends

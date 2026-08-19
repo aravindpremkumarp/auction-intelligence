@@ -162,3 +162,14 @@ def test_the_application_deadline_is_still_published_as_a_fact():
 
     assert "Application deadline" in names
     assert "Auction date" in names
+
+
+def test_an_end_before_its_own_start_falls_back_to_the_start():
+    """Upstream sometimes parses auction_end_dt months before auction_start_dt.
+    The page must not restate that contradiction as structured data."""
+    offer = _offer(_live_fields(auction_start_dt="2099-09-29T11:00:00+00:00",
+                                auction_end_dt="2099-06-29T16:00:00+00:00"))
+
+    assert offer["availabilityStarts"] == "2099-09-29"
+    assert offer["availabilityEnds"] == "2099-09-29"
+    assert offer["priceValidUntil"] == "2099-09-29"
