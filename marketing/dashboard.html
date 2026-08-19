@@ -381,23 +381,25 @@ const PULL = GH + '/pull/';
 
 const MARKETING_DATA = {
 meta: {
-  updated: '2026-08-02',
-  situation: 'pre-traction: ~7 registered users. the whole marketing engine was built in one sprint (jul 9–16, 2026) and is <b>human-gated end-to-end</b> — agents draft and stage, the founder reviews, merges and publishes. nothing auto-posts. north star (proposed): <b>weekly activated users</b> — ≥1 grounded search plus a value action.',
+  updated: '2026-08-19',
+  situation: 'pre-traction: ~7 registered users. the whole marketing engine was built in one sprint (jul 9–16, 2026) and is <b>human-gated end-to-end</b> — agents draft and stage, the founder reviews, merges and publishes. nothing auto-posts. north star (proposed): <b>weekly activated users</b> — ≥1 grounded search plus a value action. <b>first real organic read (2026-08-19):</b> search console shows 684 pages indexed and 98 clicks / 3.4K impressions over 3 months at average position 18.5 — the guides earn the impressions, the property pages do not, and page 2 is where the clicks are being lost.',
 },
 
 kpis: [
   { label: 'registered users', value: '≈7', note: '12-mo goal: first real cohort' },
   { label: 'live auction inventory', value: '638', note: 'of 2,434 tracked TN · 2026-07-15' },
-  { label: 'SEO surface', value: '690', note: 'sitemap URLs · 664 property pages · all districts' },
+  { label: 'SEO surface', value: '758', note: 'sitemap URLs · 664 property · 44 guides · 40 landing · 6 compare' },
+  { label: 'pages indexed', value: '684', note: '90% of 763 known · 74 discovered-not-indexed · GSC 2026-08-14' },
   { label: 'email list', value: '0', note: 'capture live · Q1 target 100+' },
   { label: 'content staged', value: '1', note: 'batch: 5 posts · 5 cards · 6 reels' },
-  { label: 'organic sessions / mo', value: '~0', note: '12-mo goal: low thousands' },
+  { label: 'organic clicks · 3 mo', value: '98', note: 'GSC · 3.4K impressions · CTR 2.9% · avg position 18.5' },
 ],
 
 nextActions: [
-  'in search console: watch the Pages report for indexed count as google works through the 690 discovered URLs + request homepage indexing',
+  'run the page-2 push (docs/marketing/seo-page-2-push.md): rewrite title+description on the 5 highest-impression guides to match the exact query wording, then add lead answers and internal links',
   'publish the staged 2026-07-15 batch — review it on /social, then first real posts on instagram, then cross-post',
   'after the next scrape, dispatch seo-pages.yml with coimbatore · salem · madurai',
+  'decide what the 664 property pages are for: they are 87% of the surface and earned ~6 clicks in 3 months — either give them query-shaped titles or stop expanding them',
   'once ≥5 posts have 7-day metrics: export the CSV, run the reporter, wire its friday cron',
 ],
 
@@ -496,7 +498,7 @@ nodes: [
     sub:'39 pages · 11 TN cities',
     progress:{ pct:22, label:'11 of 49 cities covered' },
     summary:'/bank-auctions/** — city hubs + property-type pages per city, generated from the graph with live counts, reserve ranges and bank mix. BreadcrumbList + ItemList JSON-LD. Thin-content gate: ≥5 listings per page. Expanded 2026-07-21 to 11 cities (added Tiruchirappalli, Tiruppur, Tiruvallur, Erode, Krishnagiri, Vellore) — chosen from Google autocomplete demand for "bank auction property tamil nadu" (which surfaces those towns). Sitemap carries a per-URL <lastmod> (git date) so only changed pages get recrawled.',
-    next:['Watch which of the 11 index; expand further as inventory allows (Chengalpattu/Thanjavur too thin for now).','Town-level nuance: "hosur" demand is served by the Krishnagiri hub (district-keyed) — a town-level page is a later refinement.'],
+    next:['Measured 2026-08-19: the city hubs draw almost no impressions — the guides carry the organic surface. Diagnose whether the hubs rank at all for "bank auction property <city>" before expanding to more cities.','Watch which of the 11 index; expand further as inventory allows (Chengalpattu/Thanjavur too thin for now).','Town-level nuance: "hosur" demand is served by the Krishnagiri hub (district-keyed) — a town-level page is a later refinement.'],
     links:[{t:'web/bank-auctions/', h: TREE+'web/bank-auctions'},{t:'live: chennai hub', h:'https://www.auctionscope.in/bank-auctions/chennai/'}], prs:[295] },
   { id:'ssr', lane:'channels', label:'property pages — SSR', type:'channel', status:'live',
     sub:'664 prerendered · all live inventory · every district',
@@ -561,10 +563,10 @@ nodes: [
     summary:'page_view, signup, checkout_start, upgrade_success, alert_subscribe via a never-throws track() wrapper with per-session UTM merge. Closed plan bet 3 ("instrument first, or fly blind forever"). Fixed 2026-07-21: the static SEO pages (43 guides, 5 comparisons, city landing pages) had no GA4 tag and were invisible in analytics — the shared page head now carries the same GA4 snippet + the cookie-notice, so their organic traffic finally reports.',
     links:[{t:'analytics-playbook.md', h: BLOB+'docs/marketing/analytics-playbook.md'},{t:'index.html · track()', h: BLOB+'web/index.html'}], prs:[279,292] },
   { id:'search-console', lane:'measure', label:'google search console', type:'monitor', status:'live',
-    sub:'auctionscope.in · sitemap Success · 690 discovered',
+    sub:'auctionscope.in · 684 indexed · 98 clicks / 3.4K impr (3 mo)',
     summary:'Google\'s crawl / index / query surface for the SEO channels — the ground truth behind the "pages indexed" and organic-sessions metrics. Domain property (verified 2026-07-17 via GoDaddy DNS) covers www + non-www, http + https and every subdomain; the sitemap is submitted and reading Success.',
-    details:['Verification method: domain-name provider (GoDaddy TXT record) — leave the record in place or verification is lost.','Sitemap https://www.auctionscope.in/sitemap.xml carries 690 URLs (664 property pages + landing) after the 2026-07-17 SSR --all regeneration; GSC re-read it 2026-07-17 with all 690 discovered (up from 77). Status Success. Discovered ≠ indexed.','Performance data (queries / clicks / impressions) is ~0 pre-traction; populates ~2–3 days after crawl.'],
-    next:['Check the Pages (indexing) report for how many of the 690 are actually indexed vs excluded / thin.','Request indexing for the homepage to speed the first crawl.','Add a 2nd verification method (HTML tag or GA4) as a backup.'],
+    details:['Verification method: domain-name provider (GoDaddy TXT record) — leave the record in place or verification is lost.','Indexing (report dated 2026-08-14): 684 indexed / 79 not indexed of 763 known URLs — a 90% index rate. The 79 break down as 74 "Discovered — currently not indexed" (Google found them and chose not to crawl: a page-value signal, not a bug), 4 redirects and 1 alternate-with-canonical.','Performance (3 months to 2026-08-18): 98 clicks · 3.43K impressions · CTR 2.9% · average position 18.5, across 374 queries and 318 pages. Position 18.5 is page 2 — the demand is real and the ranking is just below where clicks happen.','Where the clicks come from: the homepage takes 46 of the 98 on only 76 impressions (60% CTR — that is brand/navigational search for "auctionscope", not content working). Content-earned clicks are ~52.','What earns impressions: the guides. Agricultural land 573 impr / 5 clicks, TS number 243 / 5, FMB sketch 233 / 1, /compare/auctionscope-vs-baanknet 109 / 2. The 664 property pages — 87% of the surface — produced roughly 6 clicks in total.','Geography is right: India 94 clicks / 2,792 impressions. The foreign impressions (US 215, Philippines, Thailand, Indonesia, Vietnam, Turkey, Malaysia) draw 0–2 clicks and are generic-term noise, not a market.','Device split is lopsided: mobile 79 clicks / 1,683 impressions (4.7% CTR) vs desktop 19 / 1,722 (1.1%). Same reach, a quarter of the clicks — worth a look at desktop rankings and snippets.'],
+    next:['Run the page-2 push — see docs/marketing/seo-page-2-push.md.','Watch whether the impression drop after 2026-08-12 in the Performance chart recovers; if it holds for two weeks it is a ranking slip, not noise.','Diagnose the desktop CTR gap (1.1% vs mobile 4.7% at equal impressions).','Add a 2nd verification method (HTML tag or GA4) as a backup.'],
     links:[{t:'search console', h:'https://search.google.com/search-console'},{t:'sitemap.xml', h: BLOB+'web/sitemap.xml'}] },
   { id:'metrics-csv', lane:'measure', label:'post-metrics export', type:'process', status:'planned', compact:true,
     summary:'Manual per-post CSV export from the platforms (impressions, likes, saves, link clicks…) — the Reporter\'s input. Schema is defined; a hook_mechanism column is a pending human action.',
@@ -665,12 +667,13 @@ roadmap: [
 metrics: [
   { m:'weekly activated users (north star, proposed)', now:'not yet measured', target:'define + wire the segment', src:'GA4' },
   { m:'registered users', now:'≈7', target:'first real cohort (12-mo)', src:'Supabase / Neo4j' },
-  { m:'monthly organic sessions', now:'~0', target:'Q2: first few hundred · Q4: low-to-mid thousands', src:'GA4' },
-  { m:'pages indexed', now:'690 URLs (664 property pages) all discovered — GSC re-read the full sitemap 2026-07-17 (up from 77); indexed count pending Pages report', target:'Q1: 50–150 indexed', src:'Search Console' },
+  { m:'organic clicks (Search Console)', now:'98 over 3 months to 2026-08-18 · 3.43K impressions · CTR 2.9% · avg position 18.5 — but 46 of the 98 are homepage/brand, so ~52 are content-earned', target:'Q3: 300+ / mo with average position under 12', src:'Search Console' },
+  { m:'pages indexed', now:'684 of 763 known (90%) as of 2026-08-14 — Q1 target beaten by ~5x. The 79 remainder is mostly "Discovered — currently not indexed" (74), i.e. Google judging the pages not worth crawling', target:'hold above 85% while the surface grows; convert the 74 discovered-not-indexed', src:'Search Console' },
   { m:'email captures', now:'0', target:'Q1: 100+ · Q2: low thousands', src:'Neo4j :AlertSubscriber' },
   { m:'content cadence', now:'1 staged batch', target:'1 batch per scrape (~weekly)', src:'marketing/outputs/' },
   { m:'funnel events wired', now:'4 + page_view', target:'keep: signup → checkout_start → upgrade_success (+ alert_subscribe)', src:'GA4' },
   { m:'LTV : CAC', now:'n/a', target:'> 3 before paid turns on', src:'later' },
+  { m:'organic clicks per indexed page', now:'0.14 (98 clicks / 684 indexed, 3 months) — the honest read on programmatic scale: indexing is not the constraint, ranking and click-through are', target:'raise by improving existing pages before adding more', src:'Search Console' },
   { m:'marketing audit score', now:'16 / 85 (19%) · 2026-07-09 baseline', target:'re-score quarterly', src:'plan.md' },
 ],
 
@@ -682,6 +685,13 @@ risks: [
 ],
 
 changelog: [
+  { d:'2026-08-19', items:[
+    { t:'First real Search Console read — and it changes what the SEO channel is for. 684 of 763 known pages are indexed (90%), which beats the Q1 target of 50–150 by about five times, so indexing was never the constraint. The constraint is position 18.5: 3.43K impressions produced 98 clicks over three months, and 46 of those 98 are the homepage on brand-name search. Content-earned clicks are ~52. Google is showing the pages; it is showing them on page 2.' },
+    { t:'The guides carry the site, not the auctions. Agricultural-land rules pulled 573 impressions, TS number 243, FMB sketch 233, the BAANKNET comparison 109. The 664 prerendered property pages — 87% of the URL surface — produced roughly 6 clicks in three months. That is the honest verdict on programmatic scale here: more generated pages did not buy more traffic, and 74 URLs now sit in "Discovered — currently not indexed", which is Google saying it found them and judged them not worth crawling.' },
+    { t:'The queries name the fix. Searchers type "ts no full form" (30 impressions, 0 clicks), "how many acres of land can a person own in tamil nadu" (27, 0), "how to read fmb sketch" (33, 0) — question-shaped, in their own words. The matching pages are titled "Town survey (TS) number and urban land records in Tamil Nadu" and "Agricultural land purchase rules in Tamil Nadu". The answers are in the pages; the searcher\'s wording is not in the titles. The poramboke guide, whose title happens to match how people ask, converts at 7.8% CTR against a 2.9% site average — so the ceiling is not the position alone.' },
+    { t:'Two smaller findings worth keeping. Mobile takes 79 clicks on 1,683 impressions (4.7%) while desktop takes 19 on 1,722 (1.1%) — near-identical reach, a quarter of the clicks, unexplained. And impressions fell sharply after 2026-08-12; if that holds two weeks it is a ranking slip rather than noise. Geography is otherwise clean: India is 94 of 98 clicks, and the foreign impressions are generic-term spillover, not a market.' },
+    { t:'Wrote docs/marketing/seo-page-2-push.md: the plan to move the five highest-impression guides from page 2 to page 1, cheapest lever first (title and description rewritten to the exact query wording), then lead answers and internal linking. It also states the counterfactual — what result would prove the approach wrong — so the next read is not another round of "keep going".' },
+  ]},
   { d:'2026-08-02', items:[
     { t:'All staged media moved to R2 — cards and carousel slides followed the reels out of git. Reels went first because they had to (binaries, and as 14-day artifacts they simply expired), but leaving the PNGs committed meant the review page had two stories for two kinds of picture, and a weekly batch of 5-8 images accumulates forever — precisely the argument that already sent the 664 property OG cards to R2. drafts.json now carries a media_keys map, {batch-relative path → R2 key}, rather than per-kind fields on manifest rows: the API already knows an artifact\'s path, so one path-keyed map resolves a card, a carousel slide and a reel through the same lookup. What stays in git is what should be — the islands, drafts.json and review.md: small, diffable, and the batch\'s actual source of truth. The filesystem read is kept as a fallback, and it is not vestigial: the 2026-07-15 batch has its PNGs committed and no keys, and it must keep rendering.' },
     { t:'One thing was lost and is worth naming: the content-review issue used to link each card PNG as a blob URL that GitHub rendered inline — tap to view, long-press to save, which worked well on a phone. Those links die with the committed files, so the issue now points at /social instead. That is the better surface anyway (it has the captions, the grounded facts and the status buttons next to the image, and it is where the reels play), but it is a real change in how a batch gets reviewed from a phone, not a free swap.' },
