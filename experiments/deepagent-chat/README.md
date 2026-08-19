@@ -116,6 +116,57 @@ covers 60/64 non-cypher cases cleanly at ~6.5s/turn; tier 3 (deferred Cypher
 capability) is required for the remaining 12%, exactly as the design
 predicted.
 
+## Golden catalogue + tier 3 (2026-08-19, second pass)
+
+With tier 3 wired in (planner signals `cypher_request` → live schema → one
+composed read-only Cypher under production guardrails → one error-feedback
+retry), the full 68-case golden catalogue:
+
+| | first pass (no tier 3) | with tier 3 |
+|---|---|---|
+| pass | 56 | **61** |
+| direct (off-graph, informational) | 4 | 6 |
+| FAIL | 8 | **1 → 0 after a routing hint** |
+| avg per case | — | 9.3 s · 2.06 model calls · 2,598 in-tokens |
+
+All 8 former failures were `run_cypher` cases (per-group aggregates, monthly
+volume, p95, borrowers-with->1-property); all now answer through tier 3 in
+3 model calls. The one remaining FAIL was an over-route — a re-auction
+question sent to Cypher when `search_auctions(is_reauction=true)` already
+carries `previous_reserve_price` — fixed with one routing line in
+instructions.md and re-verified.
+
+## Narrowing conversations (scope object, not transcript)
+
+`run(question, state=...)` carries a scope object across turns — active
+filters, last result ids, last total_count. Code merges the scope into
+every `search_auctions` call deterministically; the model only expresses
+changes (new value overrides, explicit null drops). `eval_narrowing.py`
+scores this programmatically (no LLM judge): **carry** (filters accumulate
+into executed args), **shrink** (counts never grow while narrowing),
+**anchor** (a final detail turn uses an id from the prior results).
+
+Both scenarios pass end to end:
+
+```
+T1 residential properties      → 513
+T2 only in Chennai             → 66    carry ✓ shrink ✓
+T3 under 40 lakhs              → 20    carry ✓ shrink ✓
+T4 only failed earlier sales   → 1     carry ✓ shrink ✓
+T5 details of the cheapest one → anchors to T4's id ✓
+```
+
+Input tokens stay flat (~2-4k per turn) — turn five costs the same as turn
+one, because state is a scope object, not a transcript. Scenario 2 also
+covers dropping a filter mid-conversation ("actually any property type is
+fine, but only in Coimbatore").
+
+The first narrowing run failed honestly and improved the design: the
+planner filtered "Residential" on `property_type` (it belongs on
+`asset_category`) and ran the whole conversation on zero rows. Fix: the
+enum values moved into the `search_auctions` docstring — schema lives in
+the tools, not the prompt.
+
 ## Scope notes
 
 - `internet_search` is wired in only when `TAVILY_API_KEY` is set; the smoke

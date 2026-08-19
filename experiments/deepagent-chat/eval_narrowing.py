@@ -18,7 +18,6 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -96,7 +95,6 @@ def run_scenario(sc: dict) -> dict:
     prev_count: int | None = None
     prior_ids: list[str] = []
     for i, turn in enumerate(sc["turns"], 1):
-        t0 = time.perf_counter()
         r = run_b(turn["q"], state=state)
         state = r["state"]
         checks: list[str] = []

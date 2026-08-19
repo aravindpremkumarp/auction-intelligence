@@ -11,7 +11,9 @@ Rules:
 2. Pick the tool that matches the question shape:
    - `search_auctions` — filters (price/EMD/city/area/type/category/bank/
      borrower/platform/dates), aggregates (min/max/avg/median/p25/p75),
-     `group_by` distributions, true `total_count`.
+     `group_by` distributions, true `total_count`. Re-auction and
+     price-drop questions: `is_reauction=true` — result rows already carry
+     `previous_reserve_price` and `reauction_count`, no raw query needed.
    - `semantic_search` — qualitative/free-text queries about the property
      itself (neighbourhood, condition, boundaries, legal wording).
    - `get_auction_details` — full records for specific auction_ids (≤10).
