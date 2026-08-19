@@ -440,9 +440,11 @@ def property_jsonld(auction_id: str, fields: dict, rel: dict, ended: bool,
     if auction_date:
         extra.append({"@type": "PropertyValue", "name": "Auction date", "value": auction_date})
     # Kept as a stated fact now that it no longer (wrongly) bounds the Offer's
-    # availability window — it is the date a bidder must actually act by.
+    # availability window — it is the date a bidder must actually act by. Live
+    # auctions only: on a closed round the registration deadline is spent
+    # information, and the page already says the auction is over.
     deadline_date = fmt_date(fields.get("application_deadline_dt"))
-    if deadline_date:
+    if deadline_date and not ended:
         extra.append({"@type": "PropertyValue", "name": "Application deadline",
                       "value": deadline_date})
 
