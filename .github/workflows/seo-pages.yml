@@ -58,6 +58,9 @@ permissions:
 env:
   AGENTS_ENABLED: ${{ vars.AGENTS_ENABLED || 'true' }}
   SEO_BRANCH: automated/seo-pages
+  # Surfaced here purely so the OG-card step can gate on it: the `secrets`
+  # context is not available in a step-level `if:`, but `env` is.
+  R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
 
 jobs:
   regenerate:
@@ -87,6 +90,34 @@ jobs:
 
       - name: Install dependencies
         run: pip install --quiet "httpx>=0.27,<1"
+
+      # Runs BEFORE both page passes, because they read web/og-manifest.json as
+      # they write each page — cards produced after them would not reach a page
+      # until the next dispatch.
+      #
+      # Skipped when R2 is not configured rather than failing the run: without a
+      # manifest every page falls back to the generic site card, which is what
+      # it did before this step existed. A page is never left pointing at a 404.
+      # A real failure once R2 IS configured does fail the job — silently
+      # shipping 1,100+ Products that all claim to be depicted by one company
+      # logo is the thing this step exists to stop.
+      - name: Render per-property OG cards
+        if: ${{ env.R2_ACCOUNT_ID != '' }}
+        env:
+          R2_ACCESS_KEY_ID:     ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET:            ${{ secrets.R2_BUCKET }}
+          R2_PUBLIC_BASE_URL:   ${{ secrets.R2_PUBLIC_BASE_URL }}
+        run: |
+          pip install --quiet playwright pillow boto3
+          python -m playwright install chromium
+          # Cards carry no authored copy — every glyph is a field off the
+          # auction record — so the whole live inventory can run unattended.
+          python scripts/generate_property_og.py --all
+
+      - name: Note when OG cards were skipped
+        if: ${{ env.R2_ACCOUNT_ID == '' }}
+        run: echo "::warning::R2 not configured — property pages will use the generic og-image.png"
 
       - name: Restate pages whose auctions have closed
         # Not gated on any input: a page goes stale because time passed, not
@@ -120,7 +151,7 @@ jobs:
       - name: Commit regenerated pages
         id: commit
         run: |
-          git add web/property web/bank-auctions web/sitemap.xml
+          git add web/property web/bank-auctions web/sitemap.xml web/og-manifest.json
           if git diff --cached --quiet; then
             echo "No changes to the generated pages."
             echo "changed=false" >> "$GITHUB_OUTPUT"

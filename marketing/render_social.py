@@ -89,6 +89,39 @@ def stage_html(template: str, island: dict | None) -> tuple[str, pathlib.Path]:
     return staged.as_uri(), staged
 
 
+# Webfont hosts the templates pull from. Cached per run rather than per render.
+_FONT_HOSTS = ("https://fonts.googleapis.com/**", "https://fonts.gstatic.com/**")
+
+
+def _install_font_cache(page) -> None:
+    """Serve repeat webfont requests from memory for the life of this page.
+
+    The browser re-requests the font CSS and files on every navigation, and each
+    round trip costs far more than the screenshot. Caching the first response
+    and replaying it keeps every card visually identical — same fonts, same
+    bytes — while paying for them once. A fetch that fails is aborted rather
+    than cached, so a transient error cannot poison later renders.
+    """
+    cache: dict[str, tuple[bytes, dict, int]] = {}
+
+    def handler(route, request):
+        hit = cache.get(request.url)
+        if hit is not None:
+            body, headers, status = hit
+            route.fulfill(status=status, body=body, headers=headers)
+            return
+        try:
+            response = route.fetch()
+            body, headers = response.body(), response.headers
+            cache[request.url] = (body, headers, response.status)
+            route.fulfill(status=response.status, body=body, headers=headers)
+        except Exception:  # noqa: BLE001 — offline/blocked: let the page fall back
+            route.abort()
+
+    for pattern in _FONT_HOSTS:
+        page.route(pattern, handler)
+
+
 def render_batch(template: str, items: list[tuple[dict, str]],
                  out_dir: pathlib.Path, viewport: tuple[int, int] = (1240, 900),
                  progress_every: int = 50) -> list[pathlib.Path]:
@@ -98,6 +131,20 @@ def render_batch(template: str, items: list[tuple[dict, str]],
     content batch stages and hopeless for the whole property inventory (664
     cold starts dominate the actual screenshots). This keeps one browser and
     one page alive and re-navigates per item.
+
+    Two things keep the per-item cost near the screenshot itself rather than the
+    network. The templates pull webfonts from Google Fonts, and re-fetching them
+    per item dominated everything else — measured at ~26s per card against ~0.5s
+    once fixed, which is the difference between four minutes and four hours over
+    the property inventory:
+
+      · Font responses are cached in-process and replayed to later navigations,
+        so the fetch happens once per run instead of once per card.
+      · Navigation goes to a per-item URL rather than goto()-then-reload(). The
+        staged file has the same path every time, so a bare goto() to a URL the
+        page already sits on may not re-navigate; the old fix was a reload(),
+        which forced a second full network round. A unique query string
+        guarantees a real navigation in one round instead of two.
 
     `items` is [(island_dict, out_name.png), …]. Single-stage templates only —
     the per-property OG card is one .stage by construction; a multi-stage
@@ -116,13 +163,14 @@ def render_batch(template: str, items: list[tuple[dict, str]],
         exe = chromium_path()
         browser = p.chromium.launch(**({"executable_path": exe} if exe else {}))
         page = browser.new_page(viewport={"width": viewport[0], "height": viewport[1]})
+        _install_font_cache(page)
         try:
             for i, (island, out_name) in enumerate(items, start=1):
                 url, staged = stage_html(template, island)
-                # Same file path every iteration, so force a real reload rather
-                # than trusting navigation to a URL the page is already on.
-                page.goto(url)
-                page.reload()
+                # Unique URL per item: the staged file keeps one path, so a bare
+                # goto() may not re-navigate. See the docstring — this replaces a
+                # goto()+reload() pair and halves the navigations.
+                page.goto(f"{url}?i={i}")
                 page.wait_for_selector("html[data-render-ready]", timeout=30_000)
                 stage = page.query_selector(".stage")
                 if not stage:
