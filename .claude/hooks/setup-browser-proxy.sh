@@ -1,0 +1,196 @@
+#!/bin/bash
+# Make Chromium usable in Claude Code on the web containers.
+#
+# Outbound HTTPS in these containers goes through the CCR agent proxy, which
+# re-terminates TLS. Chromium ships its own trust and proxy handling and picks
+# up neither, so out of the box every external navigation fails and /browse is
+# limited to localhost. Three distinct problems, all fixed here:
+#
+#   1. Trust. The proxy's CAs are wired into the system store, NODE_EXTRA_CA_CERTS,
+#      the JVM truststore and so on, but not into Chromium's NSS db. Without them
+#      Chromium reports ERR_CERT_AUTHORITY_INVALID. We import them with certutil.
+#
+#   2. Proxy. Chromium does not read HTTPS_PROXY, and the container has no direct
+#      egress, so it needs an explicit --proxy-server. The port is assigned per
+#      session and rotates, so the wrapper reads it from the environment at launch
+#      instead of baking it in.
+#
+#   3. TLS 1.3. The egress TLS-inspection proxy resets Chromium's TLS 1.3
+#      ClientHello mid-handshake (SSL_HANDSHAKE_ERROR / os_error 104), surfacing as
+#      ERR_CONNECTION_RESET on every external host. --ssl-version-max=tls1.2 avoids
+#      it. This is a protocol downgrade only -- certificates are still fully
+#      verified against the CAs imported in step 1. Nothing here disables
+#      verification.
+#
+# 2 and 3 are applied by wrapping each Chromium binary with a shim that injects
+# the flags, because the gstack browse daemon exposes no hook for extra Chromium
+# args. The shims are regenerated on every run, so editing this script and
+# starting a new session is enough to change them.
+#
+# Local machines are untouched -- developers have real network access and none of
+# this applies.
+set -euo pipefail
+
+if [ "${CLAUDE_CODE_REMOTE:-}" != "true" ]; then
+  exit 0
+fi
+
+CCR_DIR="${HOME}/.ccr"
+[ -d "$CCR_DIR" ] || CCR_DIR="/root/.ccr"
+PW_ROOT="${PLAYWRIGHT_BROWSERS_PATH:-/opt/pw-browsers}"
+
+# No proxy in this container means nothing to work around.
+if [ ! -f "$CCR_DIR/ca-bundle.crt" ]; then
+  exit 0
+fi
+
+if [ ! -d "$PW_ROOT" ]; then
+  echo "browser-proxy: no Chromium at $PW_ROOT, skipping."
+  exit 0
+fi
+
+# --- 1. Import the proxy CAs into Chromium's NSS trust store -----------------
+
+import_cas() {
+  local nssdb="$HOME/.pki/nssdb"
+
+  if ! command -v certutil >/dev/null 2>&1; then
+    # The image's apt index is often stale enough that the pinned version 404s,
+    # so refresh before installing.
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get install -y libnss3-tools >/dev/null 2>&1 ||
+      { apt-get update >/dev/null 2>&1 && apt-get install -y libnss3-tools >/dev/null 2>&1; } ||
+      true
+  fi
+
+  if ! command -v certutil >/dev/null 2>&1; then
+    echo "browser-proxy: certutil unavailable, skipping CA import (external HTTPS will fail cert checks)."
+    return 0
+  fi
+
+  mkdir -p "$nssdb"
+  if [ ! -f "$nssdb/cert9.db" ]; then
+    certutil -N --empty-password -d "sql:$nssdb" >/dev/null 2>&1 || true
+  fi
+
+  local workdir
+  workdir="$(mktemp -d)"
+  trap 'rm -rf "$workdir"' RETURN
+
+  # Split every PEM in the bundle out to its own file, then keep the ones the
+  # proxy issued. Anthropic is the issuing org for both the agent-proxy CAs and
+  # the upstream egress-gateway CAs; public roots in the same bundle are already
+  # trusted by Chromium and must not be re-imported.
+  local sources=("$CCR_DIR/ca-bundle.crt")
+  [ -f "$CCR_DIR/agent-proxy-ca.crt" ] && sources+=("$CCR_DIR/agent-proxy-ca.crt")
+
+  cat "${sources[@]}" |
+    awk -v dir="$workdir" '
+      /BEGIN CERT/ { cert = "" }
+      { cert = cert $0 ORS }
+      /END CERT/   { printf "%s", cert > (dir "/cert" (n++) ".pem"); close(dir "/cert" (n-1) ".pem") }
+    '
+
+  local imported=0 f subject
+  for f in "$workdir"/cert*.pem; do
+    [ -f "$f" ] || continue
+    subject="$(openssl x509 -in "$f" -noout -subject 2>/dev/null || true)"
+    case "$subject" in
+      *Anthropic*) ;;
+      *) continue ;;
+    esac
+
+    # Nickname derived from the fingerprint so re-runs replace rather than
+    # duplicate, and a rotated CA lands under a new name.
+    local nick
+    nick="ccr-$(openssl x509 -in "$f" -noout -fingerprint -sha256 2>/dev/null |
+      tr -d ':' | cut -d= -f2 | cut -c1-16)"
+
+    certutil -D -d "sql:$nssdb" -n "$nick" >/dev/null 2>&1 || true
+    if certutil -A -d "sql:$nssdb" -t "C,," -n "$nick" -i "$f" >/dev/null 2>&1; then
+      imported=$((imported + 1))
+    fi
+  done
+
+  echo "browser-proxy: imported $imported proxy CA(s) into Chromium's trust store."
+}
+
+# --- 2 + 3. Wrap the Chromium binaries ---------------------------------------
+
+# $1 = binary to wrap, $2 = binary the shim should exec (its own .real, or the
+# full chrome from the same build for headless shells).
+write_shim() {
+  local target="$1" real="$2"
+
+  if [ ! -e "$target.real" ]; then
+    mv "$target" "$target.real"
+  fi
+
+  cat > "$target" <<SHIM
+#!/bin/sh
+# Generated by .claude/hooks/setup-browser-proxy.sh -- do not edit by hand.
+#
+# Injects the CCR agent-proxy accommodations before the caller's own args, so an
+# explicit caller flag still wins (base::CommandLine keeps the last occurrence
+# of a switch):
+#
+#   --proxy-server    Chromium does not read HTTPS_PROXY and the container has no
+#                     direct egress. Read from the environment because the port
+#                     rotates per session. No --proxy-bypass-list on purpose:
+#                     Chrome bypasses loopback by default, which is what keeps
+#                     localhost dev-server QA working.
+#   --ssl-version-max The egress TLS-inspection proxy resets Chromium's TLS 1.3
+#                     ClientHello. Downgrade only -- certificates are still fully
+#                     verified against the proxy CAs in ~/.pki/nssdb.
+#
+# Restore the stock binary with: mv "\$0.real" "\$0"
+REAL="$real"
+PROXY="\${HTTPS_PROXY:-\${https_proxy:-}}"
+if [ -n "\$PROXY" ]; then
+  exec "\$REAL" --proxy-server="\$PROXY" --ssl-version-max=tls1.2 "\$@"
+fi
+exec "\$REAL" --ssl-version-max=tls1.2 "\$@"
+SHIM
+  chmod +x "$target"
+}
+
+wrap_binaries() {
+  if [ ! -w "$PW_ROOT" ]; then
+    echo "browser-proxy: $PW_ROOT not writable, skipping Chromium wrappers."
+    return 0
+  fi
+
+  local wrapped=0 bin build full
+
+  # Full chrome builds: each shim execs its own .real.
+  while IFS= read -r bin; do
+    write_shim "$bin" "$bin.real"
+    wrapped=$((wrapped + 1))
+  done < <(find "$PW_ROOT" -maxdepth 3 -type f -name chrome -path '*/chromium-*' 2>/dev/null)
+
+  # Headless shells: --ssl-version-max is a chrome/browser switch that
+  # headless_shell does not implement, so the flag would be silently ignored.
+  # Hand off to the full chrome from the same build instead and let it run new
+  # headless -- Playwright drives either binary over --remote-debugging-pipe, so
+  # the swap is transparent.
+  while IFS= read -r bin; do
+    build="$(printf '%s' "$bin" | sed -n 's|.*/chromium_headless_shell-\([0-9]*\)/.*|\1|p')"
+    full=""
+    if [ -n "$build" ] && [ -d "$PW_ROOT/chromium-$build" ]; then
+      full="$(find "$PW_ROOT/chromium-$build" -maxdepth 2 -type f -name 'chrome.real' 2>/dev/null | head -1 || true)"
+      [ -n "$full" ] ||
+        full="$(find "$PW_ROOT/chromium-$build" -maxdepth 2 -type f -name chrome 2>/dev/null | head -1 || true)"
+    fi
+    # Without a matching full build, fall back to the shell's own binary: the
+    # proxy flag still helps even though the TLS cap will be ignored.
+    [ -n "$full" ] || full="$bin.real"
+    write_shim "$bin" "$full"
+    wrapped=$((wrapped + 1))
+  done < <(find "$PW_ROOT" -maxdepth 3 -type f \
+    \( -name headless_shell -o -name chrome-headless-shell \) 2>/dev/null)
+
+  echo "browser-proxy: wrapped $wrapped Chromium binary/binaries."
+}
+
+import_cas
+wrap_binaries
