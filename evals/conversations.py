@@ -184,6 +184,27 @@ GOLDEN_CONVERSATIONS: list[GoldenConversation] = [
         ],
     ),
 
+    # ─── Dimension change: the carried scope must be DROPPED, not replaced ─
+    GoldenConversation(
+        "switch_drop_scope",
+        "A pivot to a different DIMENSION must drop the carried filters "
+        "outright. Harder than switch_replace_scope: there is no new city to "
+        "overwrite the old one with, so nothing in the question itself "
+        "signals the drop — the agent has to notice the subject changed.",
+        [
+            Turn("Flats in Chennai under 50 lakhs",
+                 expected_tools=["search_auctions"],
+                 expect_filters={"city": "Chennai", "max_price": 5000000}),
+            # "Which bank has the most auctions?" is about the whole dataset.
+            # Carrying Chennai here silently answers a different question than
+            # the one asked, and the user has no way to see that it happened.
+            Turn("Which bank has the most auctions?",
+                 expected_tools=["search_auctions"], topic_switch=True,
+                 forbid_tool_arg_values={"city": "Chennai",
+                                         "max_price": 5000000}),
+        ],
+    ),
+
     # ─── Aggregate then drill-down: scope carries from a stats turn ─────
     GoldenConversation(
         "aggregate_then_list",
