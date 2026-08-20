@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from api.chat.v2 import prompts
+from api.chat.v2.middleware import check_answer, classify_intent, wrap_pasted_content
 from api.chat.v2.executor import ExecutedCall, TurnBudget, execute_plan
 from api.chat.v2.schemas import CypherSpec, Plan, Recommendation, Synthesis
 from api.chat.v2.scope import harvest_scope, merge_scope, sanitize_ids, sanitize_scope
@@ -62,6 +63,7 @@ class TurnResult:
     output_tokens: int = 0
     cached_tokens: int = 0
     seconds: float = 0.0
+    gate: Any = None
 
 
 async def run_turn(
@@ -90,6 +92,21 @@ async def run_turn(
     def emit(event: str, payload: dict) -> None:
         if on_event is not None:
             on_event(event, payload)
+
+    # Refuse harvesting-shaped requests before spending anything on them. In
+    # code rather than in the prompt because a prompt-resident policy loses
+    # arguments with the next prompt edit — observed in the spike, where
+    # enabling web search softened a refusal.
+    intent = classify_intent(question)
+    if not intent:
+        logger.info("chat v2: intent gate refused (%s)", intent.reason)
+        result.answer = intent.refusal
+        result.seconds = round(time.perf_counter() - started, 2)
+        return result
+
+    # Pasted broker blurbs and forwarded listings are ordinary input here, so
+    # frame them as data before the planner reads them.
+    question = wrap_pasted_content(question)
 
     catalogue = render_catalogue(PLANNER_TOOLS)
     planner = build_tier_agent(
@@ -178,6 +195,13 @@ async def run_turn(
 
         result.answer = synthesis.answer
         result.recommendation = synthesis.recommendation
+        # Report-only in Phase 1 — the fire rate decides whether enforcement
+        # is affordable, so it gets measured before anything is built on it.
+        result.gate = check_answer(
+            synthesis.answer,
+            [c.result for c in result.executed],
+            recommendation=synthesis.recommendation,
+        )
         break
 
     result.filters, harvested_total, harvested_ids = harvest_scope(
