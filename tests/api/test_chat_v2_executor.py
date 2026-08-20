@@ -154,3 +154,28 @@ def test_tier_is_tagged(registry):
 
 def test_empty_plan(registry):
     assert asyncio.run(_run([], registry)) == []
+
+
+# ── UI overflow split ───────────────────────────────────────────────────────
+
+def test_ui_rows_never_reach_the_model():
+    """A 500-row search must not enter the prompt — in v1 one such search
+    inflated a request from 38k to 109k input tokens. The rows still reach the
+    panel, on the ExecutedCall rather than in the result."""
+    registry = {"search": lambda **kw: {
+        "total_count": 500,
+        "results": [{"auction_id": "1"}],
+        "_ui_results": [{"auction_id": str(i)} for i in range(500)],
+    }}
+    out = asyncio.run(_run([_call("search")], registry))
+
+    assert "_ui_results" not in out[0].result
+    assert out[0].result["total_count"] == 500
+    assert len(out[0].ui_rows) == 500
+
+
+def test_no_ui_rows_is_not_an_error():
+    registry = {"search": lambda **kw: {"total_count": 1, "results": []}}
+    out = asyncio.run(_run([_call("search")], registry))
+    assert out[0].ui_rows == []
+    assert out[0].error is None

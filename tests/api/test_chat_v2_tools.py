@@ -93,8 +93,12 @@ def test_iso_string_coercion():
     assert tools._dt(already) is already
 
 
-def test_ui_overflow_never_reaches_the_model():
-    """A 500-row search must not enter the prompt."""
-    payload = {"total_count": 500, "results": [{"auction_id": "1"}],
-               "_ui_results": [{"auction_id": str(i)} for i in range(500)]}
-    assert "_ui_results" not in tools._strip_ui(payload)
+def test_tools_do_not_use_the_pydantic_ai_splitter():
+    """`split_ui_overflow` returns a pydantic-ai ToolReturn, which is
+    meaningless outside v1's agent. v2 splits the UI rows in the executor
+    instead, so the model-visible result and the panel rows are separated
+    exactly once."""
+    import inspect
+
+    source = inspect.getsource(tools)
+    assert "split_ui_overflow(" not in source.replace("split_ui_overflow`", "")

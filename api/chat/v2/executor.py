@@ -161,6 +161,7 @@ async def execute_plan(
                 logger.exception("chat v2 tool %s failed", name)
                 executed.error = f"{type(exc).__name__}: {exc}"
                 executed.result = {"error": executed.error}
+        executed.result, executed.ui_rows = _split_ui_rows(executed.result)
         if isinstance(executed.result, dict) and executed.result.get("error"):
             executed.error = executed.error or str(executed.result["error"])
         executed.ms = int((time.perf_counter() - started) * 1000)
@@ -170,6 +171,22 @@ async def execute_plan(
 
     await asyncio.gather(*(_one(i, c) for i, c in enumerate(planned)))
     return [r for r in results if r is not None]
+
+
+def _split_ui_rows(result: Any) -> tuple[Any, list[dict]]:
+    """Separate the UI overflow rows from what the model sees.
+
+    The tools layer attaches up to 500 full rows under `_ui_results` so the
+    matches panel can render every hit. Those rows must never enter a prompt:
+    in v1 one such search inflated a request from 38k to 109k input tokens.
+    Splitting here — once, on the way out of the executor — means every
+    downstream consumer gets the right half by default.
+    """
+    if not isinstance(result, dict) or "_ui_results" not in result:
+        return result, []
+    trimmed = {k: v for k, v in result.items() if k != "_ui_results"}
+    rows = result.get("_ui_results")
+    return trimmed, rows if isinstance(rows, list) else []
 
 
 async def _invoke(fn: Callable, args: dict[str, Any]) -> Any:

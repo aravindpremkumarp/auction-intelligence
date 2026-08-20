@@ -27,11 +27,10 @@ from __future__ import annotations
 import functools
 import inspect
 from datetime import datetime
-from typing import Any, Callable
+from typing import Callable
 
 from api.tools import cypher_tools as T
 from api.tools import web_tools as W
-from api.tool_returns import split_ui_overflow
 
 # Private in cypher_tools because nothing outside needed them until now. They
 # are imported rather than restated so the catalogue the planner reads and the
@@ -77,16 +76,11 @@ def _dt(value: str | datetime | None) -> datetime | None:
     return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
 
 
-def _strip_ui(result: Any) -> Any:
-    """Drop the UI overflow rows from what the model sees.
-
-    `split_ui_overflow` puts them on a side-channel for v1's pydantic-ai
-    `ToolReturn`; here we keep the model-visible half and hand the rows to the
-    router separately, so a 500-row search never enters the prompt.
-    """
-    if isinstance(result, dict):
-        result.pop("_ui_results", None)
-    return result
+# NB: v2 does NOT use `api.tool_returns.split_ui_overflow`. That helper
+# returns a pydantic-ai `ToolReturn`, which is meaningless outside v1's agent
+# — the executor does the same split into `ExecutedCall.ui_rows` instead, so
+# the model-visible result and the UI rows are separated exactly once, in one
+# place. The tools here return the raw payload, `_ui_results` included.
 
 
 # ── the six tools ───────────────────────────────────────────────────────────
@@ -116,7 +110,7 @@ def search_auctions(
     group_by: str | None = None,
     include_past: bool = False,
 ) -> dict:
-    return _strip_ui(split_ui_overflow(T.search_auctions(
+    return T.search_auctions(
         min_price=min_price, max_price=max_price,
         min_emd=min_emd, max_emd=max_emd,
         city=city, area=area,
@@ -131,7 +125,7 @@ def search_auctions(
         order_by=order_by,
         aggregate_field=aggregate_field, aggregations=aggregations,
         group_by=group_by, include_past=include_past,
-    )))
+    )
 
 
 @model_visible_errors
@@ -142,16 +136,16 @@ def semantic_search(
     max_price: float | None = None,
     limit: int = 10,
 ) -> dict:
-    return _strip_ui(T.semantic_search(
+    return T.semantic_search(
         query=query, city=city, min_price=min_price, max_price=max_price,
         limit=limit,
-    ))
+    )
 
 
 @model_visible_errors
 def get_auction_detail(auction_id: str | list[str]) -> dict:
     ids = auction_id if isinstance(auction_id, list) else [auction_id]
-    return _strip_ui(T.get_auction_details(ids[:10]))
+    return T.get_auction_details(ids[:10])
 
 
 @model_visible_errors
