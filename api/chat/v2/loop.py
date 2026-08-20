@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
@@ -146,8 +147,29 @@ async def run_turn(
             filters = {}
             scope_block = ""
 
+        narrated = False
         if plan.direct_answer and not plan.calls and not plan.cypher_request:
-            if round_index == 0:
+            if _reads_as_narration(plan.direct_answer):
+                narrated = True
+                # The planner described its intent instead of acting on it.
+                # Observed live: an off-graph question came back as "The user
+                # is asking about RBI guidelines... I'll use internet_search
+                # to find the relevant circulars" — shipped to the user as
+                # their answer, and scored 0.2 by the eval judge.
+                #
+                # The prompt and the field description are the real fix; this
+                # is the net under them, because monologue reaching a user is
+                # the kind of failure that costs trust disproportionately.
+                # Falling through to synthesis writes a real answer from
+                # whatever is available, at the cost of one extra call on a
+                # path that should be rare — the log line is how we find out
+                # whether it is.
+                logger.warning(
+                    "chat v2: planner narrated instead of planning: %r",
+                    plan.direct_answer[:200],
+                )
+                plan.direct_answer = None
+            elif round_index == 0:
                 result.answer = plan.direct_answer
                 break
             # On a follow-up round the planner has decided no further calls are
@@ -177,7 +199,7 @@ async def run_turn(
                 calls, budget=budget, tier=result.tier,
                 on_complete=lambda c: emit("status", {"label": _status_label(c)}),
             ))
-        elif round_index == 0:
+        elif round_index == 0 and not narrated:
             result.answer = plan.direct_answer or _CANT_PLAN
             break
 
@@ -333,6 +355,23 @@ def _schema_brief(schema: Any, budget: int = SCHEMA_BUDGET) -> str:
     trimmed = dict(schema)
     trimmed.pop("cypher_patterns", None)  # already in the composer's prompt
     return json.dumps(trimmed, default=str)[:budget]
+
+
+# First-person deliberation, which `direct_answer` must never contain. Kept
+# narrow on purpose: these match a planner talking about itself, not a normal
+# answer. "I can't track auctions for you" is a legitimate direct answer and
+# must not trip this.
+_NARRATION = re.compile(
+    r"^\s*(?:the user (?:is|wants|asked)|this (?:is|question) )"
+    r"|\bI(?:'ll| will| should| need to| am going to)\s+"
+    r"(?:use|call|search|query|run|check|look up|fetch)\b"
+    r"|\blet me (?:use|call|search|query|run|check)\b",
+    re.I,
+)
+
+
+def _reads_as_narration(text: str) -> bool:
+    return bool(text) and bool(_NARRATION.search(text))
 
 
 def _numeric_args(executed: list[ExecutedCall]) -> list[float]:

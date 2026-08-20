@@ -64,8 +64,14 @@ class Plan(BaseModel):
     )
     direct_answer: str | None = Field(
         default=None,
-        description="Greetings, meta questions, or saying the graph cannot "
-                    "answer this. Not for anything the tools could look up.",
+        description=(
+            "The FINAL ANSWER TEXT the user will read, addressed to them. "
+            "Use it for greetings, and for saying plainly that something is "
+            "out of scope. NEVER describe what you intend to do — 'I'll "
+            "search for...' is a plan, and a plan belongs in `calls`. If a "
+            "tool could answer the question, leave this null and emit the "
+            "call."
+        ),
     )
 
 

@@ -392,3 +392,60 @@ def test_scope_filters_count_as_grounded_numbers(monkeypatch, stub_tools):
     out = _run(scope={"city": "Chennai", "max_price": 4000000}, budget=TurnBudget())
 
     assert out.gate.ok, out.gate.reason
+
+
+# ── planner narration (found by the golden eval) ────────────────────────────
+
+@pytest.mark.parametrize("text", [
+    "The user is asking about RBI guidelines for e-auction of secured assets "
+    "— this is off-graph regulatory context. I'll use internet_search to find "
+    "the relevant circulars.",
+    "I will call search_auctions with city=Chennai.",
+    "Let me query the graph for that.",
+    "This is a schema question, so I should use describe_schema.",
+])
+def test_narration_is_recognised(text):
+    """The exact shape that shipped to a user as their answer and scored 0.2
+    from the eval judge."""
+    assert L._reads_as_narration(text)
+
+
+@pytest.mark.parametrize("text", [
+    "I can't track or send alerts for this auction — tap the Save button on "
+    "the property card instead.",
+    "I don't have litigation data; that sits outside what this platform covers.",
+    "I cover Tamil Nadu bank auctions. Ask me about a city or a price range.",
+    "The platform has exactly 3 asset categories: Residential, Commercial and "
+    "Industrials.",
+    "",
+])
+def test_legitimate_answers_are_not_narration(text):
+    """First person is normal in a refusal — "I can't do that" is the correct
+    answer, not a planner talking to itself. A guard that trips on those would
+    suppress the very answers the refusal cases require."""
+    assert not L._reads_as_narration(text)
+
+
+def test_narration_falls_through_to_synthesis(monkeypatch, stub_tools):
+    """Rather than shipping monologue, the loop writes a real answer from
+    whatever it has."""
+    planner = _StubAgent([Plan(direct_answer="The user is asking about RBI "
+                                             "rules. I'll use internet_search.")])
+    synth = _StubAgent([Synthesis(answer="RBI's SARFAESI rules require ...")])
+    _wire(monkeypatch, planner, synth)
+
+    out = _run(budget=TurnBudget())
+
+    assert out.answer == "RBI's SARFAESI rules require ..."
+    assert "I'll use internet_search" not in out.answer
+
+
+def test_a_genuine_direct_answer_still_ships(monkeypatch, stub_tools):
+    planner = _StubAgent([Plan(direct_answer="I can't set up alerts — use the "
+                                             "Save button on the property card.")])
+    _wire(monkeypatch, planner, _StubAgent([]))
+
+    out = _run(budget=TurnBudget())
+
+    assert out.answer.startswith("I can't set up alerts")
+    assert out.model_calls == 1   # no wasted synthesis call
