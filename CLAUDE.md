@@ -78,6 +78,8 @@ Key routing rules:
 - Design review of a plan → invoke /plan-design-review
 - Developer experience of a plan → invoke /plan-devex-review
 - "Review everything", full review pipeline → invoke /autoplan
+- Clone/rebuild/reverse-engineer another website → invoke /clone-website (output
+  goes to `clones/` only; see `clones/README.md`)
 - Bugs, errors, "why is this broken", "wtf", "this doesn't work" → invoke /investigate
 - Test the site, find bugs, "does this work" → invoke /qa (or /qa-only for report only)
 - Code review, check the diff, "look at my changes" → invoke /review
