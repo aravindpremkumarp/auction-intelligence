@@ -108,6 +108,22 @@ have caught:
    question that is (listing counts per area), and never present a count as a
    trend.
 
+7. **The scope had no lifecycle on the client.** `apiChatScope` was assigned
+   in exactly one place and cleared in none — while `apiMessageHistory`, the
+   v1 field it replaces, is cleared at four. So on v2, starting a new thread,
+   deleting the active chat, or editing an earlier message all carried the old
+   conversation's filters into the next question. A **cross-conversation**
+   version of the carried-city bug, and worse after fix 5, which added the
+   previous question and the area names to what leaks. All four sites now
+   clear both.
+
+   The same field was never persisted, either: `saveActiveConversation` sends
+   `api_history` and nothing else, so a reopened v2 conversation had **no
+   agent state at all** — v1 restores its transcript, v2 restored nothing.
+   Conversations now carry `agent_scope` alongside `api_history`
+   (`c.agent_scope_json`, additive — a pre-v2 conversation has no such
+   property and reads back as `null`).
+
 ## Answer-gate fire rate — the measurement, not a verdict
 
 The gate is **report-only** by design: the rule that keeps this cheap is that

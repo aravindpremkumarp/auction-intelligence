@@ -1434,6 +1434,7 @@ async function askAI(userText, opts = {}) {
   if (opts.fromLanding) {
     chatHistory = [];
     apiMessageHistory = null;
+    apiChatScope = null;
     currentResults = [];
     currentTotalCount = null;
     panelSnapshotIndex = null;
@@ -1555,7 +1556,10 @@ function renderChat(history, logEl, opts) {
   const inputId  = opts.inputId  || 'results-input';
   // Default callbacks preserve the main-chat behavior: clear pydantic-ai
   // history (can't be cleanly partial-edited) and persist the conversation.
-  const onChange = opts.onChange || (() => { apiMessageHistory = null; panelSnapshotIndex = null; saveActiveConversation(); });
+  const onChange = opts.onChange || (() => {
+    apiMessageHistory = null; apiChatScope = null;
+    panelSnapshotIndex = null; saveActiveConversation();
+  });
   const onRetry  = opts.onRetry  || ((q) => askAI(q));
   const scope    = opts.scope || null;
 
@@ -2650,6 +2654,9 @@ async function loadConversation(id) {
     activeChatId = data.id;
     chatHistory = Array.isArray(data.messages) ? data.messages : [];
     apiMessageHistory = data.api_history || null;
+    // v2 has no transcript, so this IS the restored agent state: without it a
+    // reopened conversation answers the next follow-up with nothing carried.
+    apiChatScope = data.agent_scope || null;
     currentResults = Array.isArray(data.results) ? data.results : [];
     currentTotalCount = (typeof data.total_count === 'number') ? data.total_count : null;
     panelSnapshotIndex = null; // saved conversations restore the live set
@@ -2688,6 +2695,7 @@ async function saveActiveConversation() {
     title: _conversationTitle(),
     messages: chatHistory.filter(m => m.role !== 'ai thinking'),
     api_history: apiMessageHistory,
+    agent_scope: apiChatScope,
     results: currentResults || [],
     total_count: currentTotalCount,
   };
@@ -2716,6 +2724,7 @@ async function deleteConversation(id) {
   if (activeChatId === id) {
     chatHistory = [];
     apiMessageHistory = null;
+    apiChatScope = null;
     currentResults = [];
     currentTotalCount = null;
     panelSnapshotIndex = null;
@@ -2730,6 +2739,7 @@ async function deleteConversation(id) {
 function newThread() {
   chatHistory = [];
   apiMessageHistory = null;
+  apiChatScope = null;
   currentResults = [];
   currentTotalCount = null;
   panelSnapshotIndex = null;
