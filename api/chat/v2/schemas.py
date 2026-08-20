@@ -148,6 +148,14 @@ class ScopeIn(BaseModel):
     filters: dict[str, Any] = Field(default_factory=dict)
     last_total_count: int | None = None
     last_ids: list[str] = Field(default_factory=list)
+    #: The previous question, verbatim and capped. One turn, not a transcript
+    #: — enough for a pronoun to have an antecedent.
+    last_question: str = ""
+    #: {dimension: [label, ...]} the previous turn NAMED, e.g.
+    #: {"area": ["Ambattur", "Padappai", ...]}. Filters say what was searched;
+    #: these say what the user actually read, which is what "these areas"
+    #: refers to. Never merged into tool kwargs — see scope.py.
+    last_entities: dict[str, list[str]] = Field(default_factory=dict)
     turn: int = 0
 
 

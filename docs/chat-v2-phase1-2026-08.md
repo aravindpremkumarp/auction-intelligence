@@ -73,6 +73,41 @@ have caught:
    legitimately refers back to ids the *previous* turn surfaced; the gate only
    saw the current turn's results. The anchor ids now count as grounded.
 
+5. **A follow-up could only refer back to properties.** Turn 1 answered
+   "areas in Chennai with land/plots under ₹50L" with a nine-row table of
+   area names. Turn 2 asked *"which of these areas is growing fast?"* and got
+   back *"I don't have enough context… I need to know which specific areas
+   you're asking about"* — the agent asking the user to restate a list it had
+   written seconds earlier.
+
+   The scope carried filters, `total_count`, and `last_ids`. All three are
+   about **auctions**. `last_ids` is what "these"/"those"/"the cheapest one"
+   resolves against, and it works — but "these **areas**" is a reference to
+   the *names in the previous answer*, and nothing in the scope held them. The
+   `group_by` path makes it sharper: in that mode `search_auctions` returns no
+   rows at all, so after an area breakdown even `last_ids` is empty.
+
+   The fix carries two more bounded fields on the same scope object — the
+   previous question verbatim (capped, one turn) and `last_entities`, the
+   `{dimension: [name, …]}` the turn put on screen, harvested from `group_by`
+   buckets and from result rows. Deliberately **not** a transcript: it is one
+   turn's referents, capped per dimension, and — unlike the filters beside it
+   — never merged into tool kwargs. `sanitize_question` / `sanitize_entities`
+   re-validate both, because they are client-echoed and land in a prompt.
+
+   A topic **reset** now clears the ids and the names as well as the filters.
+   Leaving them was the carried-city bug displaced by one turn: "these" would
+   resolve against a subject the user had already dropped.
+
+6. **"Growing fast" was answered as a missing referent, not a missing
+   capability.** Even with the areas resolved, the honest answer is that the
+   graph holds *current listings* — there is no time series to measure change
+   from, which `SCOPE_BOUNDARY` already covers as "no market valuations". The
+   planner and synthesizer prompts now name trend/appreciation/growth/demand
+   questions explicitly: say plainly what is not held, then answer the closest
+   question that is (listing counts per area), and never present a count as a
+   trend.
+
 ## Answer-gate fire rate — the measurement, not a verdict
 
 The gate is **report-only** by design: the rule that keeps this cheap is that

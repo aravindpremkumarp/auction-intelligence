@@ -109,8 +109,25 @@ here:
 {filters}
 
 Last result: total_count={total}, auction_ids={ids}
-When the user says "these", "those", "of them", or "the cheapest one",
-resolve against those auction_ids."""
+Previous question: {last_question}
+Names the previous answer put on screen, per dimension:
+{entities}
+
+RESOLVE REFERENCES AGAINST THE BLOCK ABOVE. "these"/"those"/"of them"/"the
+cheapest one" point at the auction_ids; "these areas"/"which of these
+banks"/"that city" point at the names listed above. This block IS the
+conversation — you have everything the user can see, so NEVER answer that you
+lack context or ask the user to repeat a list you just gave them. If the
+reference is genuinely ambiguous, act on the most recent candidate and say
+which one you took.
+
+Answer the question that was ASKED. If the graph cannot support it — anything
+about price trends over time, appreciation, growth, demand or future value —
+say plainly that the data is current auction listings only, with no history to
+measure change from, and then answer the closest question it CAN support (for
+example listing counts per area via search_auctions(group_by="area")). Do not
+substitute the closest question silently, and do not present a count as a
+trend."""
 
 PLANNER_USER = """{scope}
 Question: {question}
@@ -142,10 +159,22 @@ auction_ids you have just discovered. A zero-result carrying `relax` or
 `hint` diagnostics IS the answer: surface what it says. Never tell the user
 to "see previous output"; restate the facts."""
 
-SYNTH_USER = """Question: {question}
+# The synthesizer sees the previous question but NOT the full scope block: it
+# writes from the tool results, and the one thing it needs from the
+# conversation is what a referring question is referring to. "Which of these
+# areas is growing fast?" reads as unanswerable without it.
+SYNTH_USER = """{context}Question: {question}
 
 Tool results:
 {results}"""
+
+SYNTH_CONTEXT = """Previous question: {last_question}
+The results below answer the CURRENT question; read it as a follow-up to that
+one. If it asks for something the graph does not hold — a price trend,
+appreciation, growth, demand — say so in one plain line before giving what the
+results DO show, and never dress a listing count up as a trend.
+
+"""
 
 FINAL_ROUND_NOTE = """
 

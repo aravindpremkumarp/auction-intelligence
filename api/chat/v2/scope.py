@@ -10,12 +10,14 @@ That grows without bound and re-bills the model for it. v2 carries a small
 total count. Turn five costs the same as turn one because the state is a dict,
 not a log.
 
-Three functions, all pure:
+All pure functions:
 
   sanitize_scope  — trust boundary. The client echoes the scope back, so it is
                     untrusted input on every request.
   merge_scope     — deterministic carry-forward. Code merges, not the model.
   harvest_scope   — read the new scope out of what actually ran.
+  harvest_entities— the names this turn put in front of the user, so the next
+                    turn's "these areas" has something to point at.
 
 The filter keys come from `api/chat/scope_keys.py`, shared with the v1 router.
 """
@@ -189,3 +191,104 @@ def harvest_scope(
 # `semantic_property_search` is the pre-rename name, kept so a stored v1
 # conversation migrated into v2 still harvests scope correctly.
 _SEARCH_TOOLS = {"search_auctions", "semantic_search", "semantic_property_search"}
+
+
+# ── referring expressions: "these areas", "that bank" ───────────────────────
+#
+# The scope above answers "what is filtered". It does not answer "what did the
+# last answer NAME", and a follow-up routinely refers to that instead of to an
+# auction: a turn that lists nine Chennai areas is followed by "which of these
+# areas is growing fast?". The ids carried above are auction ids, so "these
+# areas" had no referent at all and the planner asked the user to restate the
+# list it had just written — the one thing a conversation should never do.
+#
+# So the entity labels a turn surfaced are carried too, per dimension. They are
+# labels, not filters: they are shown to the planner to resolve a reference and
+# are never merged into tool kwargs, which is why they live beside
+# CARRY_FORWARD_FILTER_KEYS rather than in it.
+
+#: Dimensions a follow-up refers back to by name. Ordered for prompt stability.
+ENTITY_DIMS = ("city", "area", "bank", "asset_category", "property_type",
+               "borrower")
+
+MAX_ENTITIES_PER_DIM = 12
+MAX_ENTITY_CHARS = 80
+#: The previous question, carried verbatim so a pronoun has an antecedent.
+#: One turn, capped — this is a referent, not a transcript.
+MAX_QUESTION_CHARS = 400
+
+
+def sanitize_question(raw: Any) -> str:
+    """Bounded plain text for the previous question. Client-supplied like the
+    rest of the scope, and it lands in a prompt, so it is capped here."""
+    if not isinstance(raw, str):
+        return ""
+    return raw.strip()[:MAX_QUESTION_CHARS]
+
+
+def sanitize_entities(raw: Any) -> dict[str, list[str]]:
+    """Bounded {dimension: [label, ...]}, dropping anything off-contract."""
+    if not isinstance(raw, dict):
+        return {}
+    clean: dict[str, list[str]] = {}
+    for dim in ENTITY_DIMS:
+        values = raw.get(dim)
+        if not isinstance(values, (list, tuple)):
+            continue
+        labels: list[str] = []
+        seen: set[str] = set()
+        for item in values:
+            if not isinstance(item, (str, int, float)):
+                continue
+            text = str(item).strip()[:MAX_ENTITY_CHARS]
+            if not text or text in seen:
+                continue
+            seen.add(text)
+            labels.append(text)
+            if len(labels) >= MAX_ENTITIES_PER_DIM:
+                break
+        if labels:
+            clean[dim] = labels
+    return clean
+
+
+def harvest_entities(executed: list[dict[str, Any]]) -> dict[str, list[str]]:
+    """Read the names this turn actually put in front of the user.
+
+    Two sources, because a turn names entities two ways:
+
+    * `group_by` — the buckets ARE the answer, and `search_auctions` returns no
+      rows at all in that mode, so the distribution is the only record of them;
+    * an ordinary search — the rows carry `city` / `area` / `bank` / …, which
+      is what the synthesizer groups its table by.
+
+    Separate from `harvest_scope` on purpose: these are display labels, and
+    keeping them out of that function keeps its return value the thing that
+    gets merged into tool kwargs.
+    """
+    found: dict[str, list[str]] = {}
+
+    def add(dim: str, value: Any) -> None:
+        if dim not in ENTITY_DIMS or value is None:
+            return
+        for item in (value if isinstance(value, (list, tuple)) else [value]):
+            text = str(item).strip()[:MAX_ENTITY_CHARS]
+            bucket = found.setdefault(dim, [])
+            if text and text not in bucket and len(bucket) < MAX_ENTITIES_PER_DIM:
+                bucket.append(text)
+
+    for call in executed:
+        result = call.get("result")
+        if not isinstance(result, dict):
+            continue
+        dim = result.get("group_by")
+        if isinstance(dim, str):
+            for bucket in result.get("distribution") or []:
+                if isinstance(bucket, dict):
+                    add(dim, bucket.get("value"))
+        for row in result.get("results") or []:
+            if not isinstance(row, dict):
+                continue
+            for entity_dim in ENTITY_DIMS:
+                add(entity_dim, row.get(entity_dim))
+    return sanitize_entities(found)
