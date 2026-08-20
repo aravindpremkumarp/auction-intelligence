@@ -343,3 +343,52 @@ def test_recommendation_is_carried_through(monkeypatch, stub_tools):
 
     out = _run(budget=TurnBudget())
     assert out.recommendation.ranked_by == "budget fit"
+
+
+# ── regressions found by the first live conversation ────────────────────────
+
+def test_planner_prose_never_ships_as_the_answer_on_a_followup(monkeypatch, stub_tools):
+    """Observed live: after a need_more round the planner decided no further
+    calls were needed, and its `direct_answer` — written for the loop, not the
+    user — shipped verbatim ("No additional calls needed — the
+    get_auction_detail results already contain price_history"). A follow-up
+    round must fall through to a final synthesis instead."""
+    planner = _StubAgent([
+        Plan(calls=[PlannedCall(tool="search_auctions", args={})]),
+        Plan(direct_answer="No additional calls needed — the results already "
+                           "contain price_history."),
+    ])
+    synth = _StubAgent([
+        Synthesis(answer="", need_more=Plan(
+            calls=[PlannedCall(tool="get_auction_detail", args={"auction_id": "1"})])),
+        Synthesis(answer="None of the 20 had a failed earlier auction."),
+    ])
+    _wire(monkeypatch, planner, synth)
+
+    out = _run(budget=TurnBudget())
+
+    assert out.answer == "None of the 20 had a failed earlier auction."
+    assert "No additional calls needed" not in out.answer
+
+
+def test_first_round_direct_answer_still_ships(monkeypatch, stub_tools):
+    """The fix must not break the ordinary case — a greeting or a
+    can't-answer on round one is genuinely the user-facing answer."""
+    planner = _StubAgent([Plan(direct_answer="I cover Tamil Nadu auctions.")])
+    _wire(monkeypatch, planner, _StubAgent([]))
+
+    assert _run(budget=TurnBudget()).answer == "I cover Tamil Nadu auctions."
+
+
+def test_scope_filters_count_as_grounded_numbers(monkeypatch, stub_tools):
+    """Restating the threshold the user just asked for ("under Rs 40,00,000")
+    is not a fabrication. Flagging it was two thirds of the gate's fire rate
+    on the first live conversation."""
+    planner = _StubAgent([Plan(calls=[PlannedCall(tool="search_auctions", args={})])])
+    _wire(monkeypatch, planner, _StubAgent([
+        Synthesis(answer="Of the residential flats under ₹40,00,000 in Chennai, "
+                         "837057 is cheapest.")]))
+
+    out = _run(scope={"city": "Chennai", "max_price": 4000000}, budget=TurnBudget())
+
+    assert out.gate.ok, out.gate.reason

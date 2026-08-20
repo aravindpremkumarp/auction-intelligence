@@ -102,3 +102,25 @@ def test_tools_do_not_use_the_pydantic_ai_splitter():
 
     source = inspect.getsource(tools)
     assert "split_ui_overflow(" not in source.replace("split_ui_overflow`", "")
+
+
+def test_detail_batch_truncation_is_reported_not_silent(monkeypatch):
+    """Observed live: the model asked for 15 ids, got 10 back, and wrote "this
+    applies to all 15 properties". Silent truncation reads as full coverage."""
+    monkeypatch.setattr("api.tools.cypher_tools.get_auction_details",
+                        lambda ids: {"results": [{"auction_id": i} for i in ids],
+                                     "returned": len(ids)})
+    ids = [str(800000 + i) for i in range(15)]
+    out = tools.get_auction_detail(ids)
+
+    assert out["returned"] == tools.DETAIL_BATCH_CAP
+    assert out["not_fetched_ids"] == ids[tools.DETAIL_BATCH_CAP:]
+    assert "not_checked" in out["_note"] or "not checked" in out["_note"]
+
+
+def test_no_note_when_nothing_was_dropped(monkeypatch):
+    monkeypatch.setattr("api.tools.cypher_tools.get_auction_details",
+                        lambda ids: {"results": [], "returned": 0})
+    out = tools.get_auction_detail(["837057", "831476"])
+    assert "not_fetched_ids" not in out
+    assert "_note" not in out

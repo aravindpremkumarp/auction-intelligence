@@ -142,10 +142,26 @@ def semantic_search(
     )
 
 
+#: Per-call cap in `get_auction_details`. Named here so the truncation can be
+#: reported rather than applied silently.
+DETAIL_BATCH_CAP = 10
+
+
 @model_visible_errors
 def get_auction_detail(auction_id: str | list[str]) -> dict:
     ids = auction_id if isinstance(auction_id, list) else [auction_id]
-    return T.get_auction_details(ids[:10])
+    result = T.get_auction_details(ids[:DETAIL_BATCH_CAP])
+    if len(ids) > DETAIL_BATCH_CAP and isinstance(result, dict):
+        # Observed live: the model asked for 15 ids, got 10, and wrote "this
+        # applies to all 15 properties". Silent truncation reads as full
+        # coverage, so say what was left out.
+        result["not_fetched_ids"] = ids[DETAIL_BATCH_CAP:]
+        result["_note"] = (
+            f"Only the first {DETAIL_BATCH_CAP} ids were fetched. Do not draw "
+            f"conclusions about the ids in not_fetched_ids — request them in a "
+            f"follow-up call or say they were not checked."
+        )
+    return result
 
 
 @model_visible_errors

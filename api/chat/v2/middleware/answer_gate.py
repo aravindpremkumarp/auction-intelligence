@@ -62,7 +62,9 @@ class GateVerdict:
 
 
 def check_answer(answer: str, tool_results: Any, *,
-                 recommendation: Any = None) -> GateVerdict:
+                 recommendation: Any = None,
+                 extra_numbers: list[float] | None = None,
+                 extra_ids: list[str] | None = None) -> GateVerdict:
     """Verify every id and rupee amount in the answer appears in the results.
 
     Deliberately one-directional: it catches values the answer asserts that
@@ -78,12 +80,12 @@ def check_answer(answer: str, tool_results: Any, *,
     if recommendation is not None:
         text += " " + _flatten(recommendation)
 
-    known_ids = set(_ID_RE.findall(haystack))
+    known_ids = set(_ID_RE.findall(haystack)) | {str(i) for i in (extra_ids or [])}
     for candidate in set(_ID_RE.findall(text)):
         if candidate not in known_ids:
             verdict.unsupported_ids.append(candidate)
 
-    known_numbers = _numbers_in(haystack)
+    known_numbers = _numbers_in(haystack) | {float(n) for n in (extra_numbers or [])}
     for raw, value in _amounts_in(text):
         if value is None:
             continue

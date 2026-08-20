@@ -217,3 +217,23 @@ def test_answer_gate_verdict_rides_on_the_turn_result(monkeypatch):
     assert out.answer == "Try 999999 instead."   # still ships
     assert out.gate is not None and not out.gate.ok
     assert "999999" in out.gate.unsupported_ids
+
+
+def test_carried_ids_are_grounded():
+    """A follow-up question legitimately refers back to ids the PREVIOUS turn
+    surfaced. Without this the gate flagged ten real ids as fabricated on the
+    first live conversation."""
+    verdict = check_answer("None of 831476 or 830361 had a failed auction.",
+                           _RESULTS, extra_ids=["831476", "830361"])
+    assert verdict.ok
+
+
+def test_carried_ids_do_not_launder_an_invented_one():
+    verdict = check_answer("Try 999999.", _RESULTS, extra_ids=["831476"])
+    assert not verdict.ok
+    assert verdict.unsupported_ids == ["999999"]
+
+
+def test_scope_thresholds_are_grounded():
+    assert check_answer("Everything under ₹40,00,000.", _RESULTS,
+                        extra_numbers=[4000000]).ok

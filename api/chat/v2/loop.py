@@ -145,8 +145,15 @@ async def run_turn(
             scope_block = ""
 
         if plan.direct_answer and not plan.calls and not plan.cypher_request:
-            result.answer = plan.direct_answer
-            break
+            if round_index == 0:
+                result.answer = plan.direct_answer
+                break
+            # On a follow-up round the planner has decided no further calls are
+            # needed — but it writes for the loop, not for the user. Observed
+            # live: "No additional calls needed — the get_auction_detail
+            # results already contain price_history" shipped as the answer.
+            # Fall through to a final synthesis over what we already have.
+            followup = ""
 
         if plan.cypher_request:
             result.tier = 3
@@ -168,7 +175,7 @@ async def run_turn(
                 calls, budget=budget, tier=result.tier,
                 on_complete=lambda c: emit("status", {"label": _status_label(c)}),
             ))
-        else:
+        elif round_index == 0:
             result.answer = plan.direct_answer or _CANT_PLAN
             break
 
@@ -201,6 +208,13 @@ async def run_turn(
             synthesis.answer,
             [c.result for c in result.executed],
             recommendation=synthesis.recommendation,
+            # Grounded-but-not-in-results values, both from the carried
+            # conversation: the filter thresholds the user just asked for, and
+            # the ids an earlier turn surfaced that this question refers back
+            # to. Read from the EXECUTED args, which are post-merge — the
+            # pre-merge scope does not yet hold this turn's new filter.
+            extra_numbers=_numeric_args(result.executed),
+            extra_ids=last_ids,
         )
         break
 
@@ -317,6 +331,16 @@ def _schema_brief(schema: Any, budget: int = SCHEMA_BUDGET) -> str:
     trimmed = dict(schema)
     trimmed.pop("cypher_patterns", None)  # already in the composer's prompt
     return json.dumps(trimmed, default=str)[:budget]
+
+
+def _numeric_args(executed: list[ExecutedCall]) -> list[float]:
+    """Numeric filter values that actually reached a tool this turn."""
+    out: list[float] = []
+    for call in executed:
+        for value in (call.args or {}).values():
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                out.append(float(value))
+    return out
 
 
 def _scope_block(filters: dict, total: int | None, ids: list[str]) -> str:
