@@ -136,3 +136,133 @@ EVAL_AGENT=v1 ...                                 # the baseline to compare agai
 
 Both agents are scored by identical cases and evaluators — that is what makes
 the two runs comparable at all.
+
+---
+
+# Phase 2 — the golden catalogue (20 Aug 2026)
+
+68 questions, scored by the same four evaluators plus the LLM judge that gate
+`/chat` nightly. `EVAL_AGENT` selects the agent; nothing else changes between
+runs, which is what makes them comparable.
+
+## Head to head, same questions, same afternoon
+
+| | v1 (production) | v2 (tiered loop) |
+|---|---|---|
+| Primary pass | 59/**65** = 90.8 % | **64/68 = 94.1 %** |
+| Citations (report-only) | 22/29 = 75.9 % | **28/30 = 93.3 %** |
+| Judge quality, mean | 0.981 | 0.982 |
+| Turn median | 119.4 s | **17.9 s** |
+| Turn p90 | 266 s | **36.3 s** |
+| Full sweep | 47.7 min | **6.8 min** |
+
+**v1's median is ~2 minutes per question** — materially worse than the 73 s
+this document quoted from older Logfire traces. That 73 s figure was wrong,
+and it is worth saying so plainly: it also underpinned the token estimate
+below, which is why that estimate has been withdrawn rather than repeated.
+
+**Run-to-run variance is ±2 cases** on identical code (two v2 runs of the same
+build scored 59/68 and 61/68). A single-case difference is noise.
+
+## Case by case — the comparison that decides a migration
+
+**v2 fixes four questions v1 gets wrong**, all analytical: total auction count,
+95th-percentile reserve price, and both "borrowers with multiple properties"
+variants. Those are precisely the tier-3 Cypher cases the loop was built for.
+
+**Only two failures are v2-only:**
+
+- *Cities in both residential and commercial* — v2 answers it **correctly**,
+  via two parallel `group_by` searches and a set intersection, naming the three
+  cities with counts. The catalogue accepts only `run_cypher`. Eval strictness,
+  not a defect; fixing it is a catalogue change and belongs in its own commit.
+- *Litigation against borrower XYZ* — a genuine refusal miss, and the one item
+  here that reads as a real blocker.
+
+**Two fail on both agents:** market valuations (the rule conflict below) and
+one schema question.
+
+**Two caveats that cut against v2's headline number:**
+
+- v1 scored **65 of 68** — three cases produced no result at all, including
+  "which banks have the highest median reserve price?", which v2 answers. So
+  v1's 90.8 % sits on an easier denominator than v2's 94.1 %.
+- v2 has a single **798 s outlier** dragging its mean to 32.5 s against a
+  17.9 s median. Worth chasing before the flag flips.
+
+## What the eval found in v2 (all fixed)
+
+Three real bugs, none reachable by the offline tests. Two would have been
+invisible from the tool-trajectory assertions alone — it took reading the
+answers, and in one case the judge score.
+
+**1 · v2 shipped without the policy rules.** Its prompts read the domain brief
+from `modes/_shared.md`, which v1 also reads, so schema and enums were shared.
+The *policy* — what may be claimed, what is off-limits — lived only in
+`api/agent.py::_ROLE_PROMPT`. v2 never saw it and failed refusal cases v1
+passes. Now `api/policy.py`, read by both; `_ROLE_PROMPT` is composed from the
+same constants and is byte-identical, which matters because it is the
+cache-keyed prefix of every v1 call.
+
+**2 · The planner narrated instead of planning.** Asked about RBI guidelines it
+returned, as the user's answer: *"The user is asking about RBI guidelines…
+I'll use `internet_search` to find the relevant circulars."* It then called
+nothing. **Every assertion passed**; the judge caught it at 0.2. The contract
+never said `direct_answer` was user-facing text. It does now, with a narrow
+guard underneath that routes narration to synthesis instead.
+
+**3 · Schema questions answered from a snapshot.** Correct today, read off a
+static brief — a new asset category would produce a confidently outdated
+answer with nothing to catch it. Now routed to `describe_schema`.
+
+Resolved by inspection with no change: *"Residential auctions in Mumbai"*
+failed one run and passed the next, answering well (zero results, coverage is
+Tamil Nadu, 499 available if the city filter drops). Variance.
+
+## Open — a product decision, not a bug
+
+**Market valuations.** Asked for the market value of Anna Nagar properties, v2
+searched the graph, found nothing current, said so, then used `internet_search`
+to produce a ₹/sq-ft table. The rules pull both ways: rule 4 forbids market
+valuations, the web-search rule allows market context. The answer is careful —
+it states reserve prices are starting bids, not market values — but it is still
+a valuation. **Which rule wins is a decision to make.**
+
+## Cost is now instrumented, and not yet measured
+
+The eval recorded **no token data**: `ChatTaskOutput` had no usage field and
+`grep -ic token` over a completed run returned 0. Both agents already computed
+usage per turn (`TurnResult` on v2, `_usage_fields` on v1) and the eval threw
+it away.
+
+Both output shapes now carry a `usage` dict, populated in all four bindings
+from those existing extractors, with identical key names on both sides and a
+cache-hit-rate line in the summary — the one number that says whether a stable
+prompt prefix is billed at the cache rate. Cost is reported, never gated.
+
+**No v1/v2 token comparison exists yet.** One `EVAL_AGENT=v1` run produces it.
+Measured for v2 on a 3-case live check: 2.00 model calls, 9,818 input tokens
+and 1,081 output tokens per case, 34.8 % cached (≈90 % once a multi-turn
+conversation stabilises the prefix).
+
+## Two environment findings
+
+- **`OPENROUTER_MODEL` points at a retired model.** The env sets
+  `google/gemini-2.0-flash-001`; OpenRouter 404s it ("No endpoints found"). It
+  broke the eval judge on every case of the first run. The same variable feeds
+  `pipeline/ocr_extract.py` and `pipeline/verify_and_enrich.py`, so if Render
+  carries this value the reviewer's ▶ Re-run extraction button is failing in
+  production and the nightly golden judge is failing silently. The repo default
+  (`google/gemini-2.5-flash`) works — verified. **Needs a Render env change.**
+- **The runner was silent for its whole duration**, so a 48-minute run looked
+  identical to a hung one. Each case now logs to stderr as it completes.
+
+## Report-only, but with a UI consequence
+
+Two v2 listing answers surfaced ids and never mentioned them. The matches panel
+is citation-driven (`api/chat/panel.py::cited_ids`), so such an answer leaves
+the panel showing the previous set — the user reads about one thing while
+looking at another. v2 is much better than v1 here (93.3 % vs 75.9 %, so
+roughly one v1 listing answer in four desyncs the panel), but the fix is
+structural: a populated `recommendation.picks` carries `auction_id` per pick
+and satisfies this without asking the model to remember.
