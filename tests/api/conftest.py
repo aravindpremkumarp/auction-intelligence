@@ -37,7 +37,14 @@ os.environ.setdefault("DOSSIERS_ENABLED", "true")
 
 
 def _install_stub_agent() -> None:
-    """Replace api.agent with a stub so importing api.main doesn't build a real agent."""
+    """Replace api.agent with a stub so importing api.main doesn't build a real agent.
+
+    Idempotent for the same reason as the Neo4j stub below — this file can be
+    executed twice, and a monkeypatch applied to the first stub must not be
+    silently discarded by a second install.
+    """
+    if getattr(sys.modules.get("api.agent"), "build_chat_run_overrides", None) is not None:
+        return
     mod = types.ModuleType("api.agent")
 
     class ChatDeps:  # noqa: D401
@@ -66,7 +73,18 @@ def _install_stub_agent() -> None:
 
 
 def _install_stub_neo4j_client() -> None:
-    """Replace api.neo4j_client.run_query with an in-memory fake store."""
+    """Replace api.neo4j_client.run_query with an in-memory fake store.
+
+    Idempotent on purpose. This file is executed TWICE in a normal run: once
+    as pytest's plugin module ``conftest``, and again as ``tests.api.conftest``
+    the moment a test module does ``from tests.api.conftest import
+    auth_header``. Installing a second stub would hand the app (which bound
+    the first one at import time) and the tests two different in-memory
+    stores, so a user seeded through /auth/me would be invisible to the test
+    that seeded it. Keep whichever stub got there first.
+    """
+    if getattr(sys.modules.get("api.neo4j_client"), "_users", None) is not None:
+        return
     mod = types.ModuleType("api.neo4j_client")
     feedback: list[dict] = []
     users: dict[str, dict] = {}              # keyed by supabase_id
@@ -313,6 +331,8 @@ def _install_stub_supabase_jwt() -> None:
     import json as _json
     import base64 as _b64
 
+    if getattr(sys.modules.get("api.auth.supabase_jwt"), "verify_access_token", None) is not None:
+        return
     mod = types.ModuleType("api.auth.supabase_jwt")
 
     def verify_access_token(token: str) -> dict:

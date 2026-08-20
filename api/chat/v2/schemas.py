@@ -177,6 +177,20 @@ class ExecutedCallOut(BaseModel):
     error: str | None = None
 
 
+class GateVerdictOut(BaseModel):
+    """The answer gate's finding for this turn.
+
+    Returned rather than only logged because the fire rate is the measurement
+    that decides whether enforcement is affordable, and a number nobody can
+    see does not get acted on. Report-only: a flagged answer still ships.
+    """
+
+    ok: bool = True
+    unsupported_ids: list[str] = Field(default_factory=list)
+    unsupported_amounts: list[str] = Field(default_factory=list)
+    reason: str = ""
+
+
 class ChatV2Response(BaseModel):
     answer: str
     recommendation: Recommendation | None = None
@@ -187,3 +201,5 @@ class ChatV2Response(BaseModel):
     # to the conversation-state channel.
     artifacts: list[dict[str, Any]] = Field(default_factory=list)
     usage: dict[str, Any] = Field(default_factory=dict)
+    #: Populated for admins only — it is a diagnostic, not product surface.
+    gate: GateVerdictOut | None = None
