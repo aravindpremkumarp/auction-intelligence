@@ -2,6 +2,12 @@
 
     python -m pipeline.promote_extractions [--limit N] [--filename F]
                                            [--dry-run] [--skip-parcels]
+                                           [--workers N]
+
+Phase B promotes documents concurrently (--workers, default 8) — each document
+is a few small writes dominated by the round trip to Aura, so a serial run over
+the full corpus is hours of waiting on the network. Phase C stays serial: it is
+a whole-corpus pass by design.
 
 If Bolt (port 7687) is blocked in your environment — Claude Code on the web,
 or any HTTP-only egress proxy — prefix with NEO4J_HTTP_API=1 to route through
@@ -30,8 +36,13 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
+import random
 import re
+import threading
+import time
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from api.neo4j_client import run_query, run_read_query
 from pipeline.apply_extractions import entities_with_corrections, parse_money
@@ -46,6 +57,47 @@ log = get_logger(__name__)
 
 WRITE_CHUNK = 100
 SIDES = ("north", "south", "east", "west")
+
+# Documents are promoted concurrently. Each one is a handful of small write
+# statements whose cost is almost entirely the round trip to Aura, so the
+# useful width is set by the network, not by CPU — serial over the full corpus
+# is hours of wall time for minutes of database work.
+DEFAULT_WORKERS = int(os.environ.get("PROMOTE_WORKERS", "8"))
+
+# Concurrent writers MERGE the same shared nodes (:Bank, :Platform,
+# :TermsTemplate, :Contact, :EMDAccount), so lock contention is expected rather
+# than exceptional. The Bolt driver retries these itself; the HTTP Query API
+# path does not, so retry here — it is the same "re-run the unit of work"
+# contract either way, and every statement is idempotent.
+_TRANSIENT_MARKERS = (
+    "DeadlockDetected",
+    "LockClientStopped",
+    "Neo.TransientError",
+    "ConstraintValidationFailed",
+    "LeaderSwitch",
+    "NotALeader",
+)
+WRITE_RETRIES = 5
+
+
+def _is_transient(exc: Exception) -> bool:
+    msg = str(exc)
+    return any(m in msg for m in _TRANSIENT_MARKERS)
+
+
+def write(cypher: str, params: dict) -> list[dict]:
+    """run_query with backoff on the contention a concurrent promote provokes."""
+    for attempt in range(1, WRITE_RETRIES + 1):
+        try:
+            return run_query(cypher, params)
+        except Exception as exc:
+            if attempt == WRITE_RETRIES or not _is_transient(exc):
+                raise
+            delay = 0.25 * (2 ** (attempt - 1)) + random.uniform(0, 0.25)
+            log.warning("write contention (attempt %d/%d), retrying in %.2fs: %s",
+                        attempt, WRITE_RETRIES, delay, exc)
+            time.sleep(delay)
+    return []
 
 # extent attr -> Measurement.kind. uds_parent is carried so it is not lost,
 # but pick_headline() refuses to ever divide a price by it.
@@ -516,7 +568,7 @@ def promote_document(doc: dict, dry_run: bool) -> int:
     officer = notice.get("authorised_officer") or notice.get("liquidator")
     emd = notice.get("emd_account") or {}
     platform_url = notice.get("platform_url")
-    run_query(_WRITE_NOTICE, {
+    write(_WRITE_NOTICE, {
         "filename": filename,
         "sale_terms": notice.get("sale_terms"),
         "legal_basis": notice.get("legal_basis"),
@@ -545,7 +597,7 @@ def promote_document(doc: dict, dry_run: bool) -> int:
         possession_date = props.pop("possession_date", None)
         title_deed_holder = props.pop("title_deed_holder", None)
         auction = rec["auction"]
-        run_query(_WRITE_LOT, {
+        write(_WRITE_LOT, {
             "filename": filename,
             "lot_key": rec["lot_key"],
             "lot_index": rec["lot_index"],
@@ -661,23 +713,49 @@ def resolve_parcels(dry_run: bool) -> None:
 # ── main ─────────────────────────────────────────────────────────────────────
 
 def run(limit: int | None, filename: str | None,
-        dry_run: bool, skip_parcels: bool) -> int:
+        dry_run: bool, skip_parcels: bool, workers: int = DEFAULT_WORKERS) -> int:
     docs = fetch_documents(limit, filename)
-    print(f"phase B — promoting {len(docs)} document(s)")
-    ok = fail = lots = 0
-    for doc in docs:
+    workers = max(1, workers if not dry_run else 1)
+    print(f"phase B — promoting {len(docs)} document(s) "
+          f"across {workers} worker(s)", flush=True)
+
+    state = {"ok": 0, "fail": 0, "lots": 0, "done": 0}
+    lock = threading.Lock()
+
+    def one(doc: dict) -> None:
         try:
-            lots += promote_document(doc, dry_run)
-            ok += 1
+            n = promote_document(doc, dry_run)
+            with lock:
+                state["ok"] += 1
+                state["lots"] += n
         except Exception as exc:      # one bad notice must not stop the batch
-            fail += 1
+            with lock:
+                state["fail"] += 1
             log.warning("promote failed for %s: %s", doc["filename"], exc)
-            print(f"  [fail] {doc['filename']}: {exc}")
-    print(f"phase B done — {ok} document(s), {lots} lot(s), {fail} failed")
+            print(f"  [fail] {doc['filename']}: {exc}", flush=True)
+        finally:
+            with lock:
+                state["done"] += 1
+                done = state["done"]
+            if done % 50 == 0 or done == len(docs):
+                print(f"  {done}/{len(docs)} documents, {state['lots']} lot(s), "
+                      f"{state['fail']} failed", flush=True)
+
+    if workers == 1:
+        for doc in docs:
+            one(doc)
+    else:
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = [pool.submit(one, doc) for doc in docs]
+            for f in as_completed(futures):
+                f.result()            # one() already swallows per-document errors
+
+    print(f"phase B done — {state['ok']} document(s), {state['lots']} lot(s), "
+          f"{state['fail']} failed", flush=True)
 
     if not skip_parcels:
         resolve_parcels(dry_run)
-    return 1 if fail else 0
+    return 1 if state["fail"] else 0
 
 
 def main() -> int:
@@ -689,8 +767,12 @@ def main() -> int:
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--skip-parcels", action="store_true",
                     help="run phase B only; parcels need the full corpus")
+    ap.add_argument("--workers", type=int, default=DEFAULT_WORKERS,
+                    help=f"concurrent documents in phase B "
+                         f"(default {DEFAULT_WORKERS}; phase C is always serial)")
     args = ap.parse_args()
-    return run(args.limit, args.filename, args.dry_run, args.skip_parcels)
+    return run(args.limit, args.filename, args.dry_run, args.skip_parcels,
+               args.workers)
 
 
 if __name__ == "__main__":
