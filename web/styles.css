@@ -1121,6 +1121,40 @@ body {
   background: rgba(19, 122, 59, 0.18);
   border-color: #3cb371;
 }
+
+/* Reason-first cards (/chat/v2). The synthesis call returns a typed
+   recommendation object; these render its one-line reason and up to three
+   badges. Absent on any turn without a recommendation, which is every v1
+   turn, so the card falls back to exactly its previous layout. */
+.prop .card-reason {
+  font-family: var(--font-body); font-size: 12.5px; line-height: 1.35;
+  color: var(--muted);
+  margin-top: 4px;
+  /* Two lines max: a reason longer than that is prose, and prose belongs in
+     the answer, not on a card. */
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.prop .card-badges {
+  display: flex; flex-wrap: wrap; gap: 4px;
+  margin-top: 4px;
+}
+.prop .card-badge {
+  font-family: var(--font-mono); font-size: 10px; font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 1px 6px;
+  border: 1px solid currentColor;
+  white-space: nowrap;
+}
+.prop .badge-good { color: #137a3b; background: #d6f0de; }
+.prop .badge-warn { color: #9a4a00; background: #fdecd8; }
+.prop .badge-neutral { color: var(--muted); background: transparent; }
+[data-theme="dark"] .prop .badge-good {
+  color: #a8efc0; background: rgba(19, 122, 59, 0.18);
+}
+[data-theme="dark"] .prop .badge-warn {
+  color: #f6c98a; background: rgba(154, 74, 0, 0.22);
+}
 .prop .why {
   font-family: var(--font-hand); font-size: 15px;
   color: var(--ink-soft);

@@ -12,8 +12,12 @@ const FETCH_TIMEOUT_MS = 20000;
 // idle-based timeout, which can tell a slow-but-alive stream (the server
 // heartbeats every ~15s) from a dead connection.
 const CHAT_FETCH_TIMEOUT_MS = 300000;
+// Matches /chat/stream AND /chat/v2/stream. Testing for the literal
+// '/chat/stream' would miss v2 and hand its turns the 300s hard cap, killing
+// long-but-alive streams the server was still working on.
+const _isChatStream = (url) => /\/chat(\/v\d+)?\/stream$/.test(String(url).split('?')[0]);
 const authFetch = (url, opts = {}) => {
-  if (String(url).includes('/chat/stream')) {
+  if (_isChatStream(url)) {
     return (window.Auth && window.Auth.fetchWithAuth ? window.Auth.fetchWithAuth(url, opts) : fetch(url, opts));
   }
   if (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) {
@@ -784,6 +788,23 @@ document.querySelectorAll('#results-mobile-tabs button').forEach(b => {
 // description + check), so both composer controls read as one component. Seeded
 // with a default list + friendlier copy than the raw /modes text, then refreshed
 // by hydrateModes() so the control works even before /modes responds.
+// /chat/v2 — the tiered loop (plan once, run the queries in parallel,
+// answer once). Off by default; flip with ?chatv2=1 or
+// localStorage.chat_v2='1'. The response is shaped like v1's apart from the
+// conversation-state channel: v2 echoes a small `scope` object where v1
+// round-trips the whole message_history.
+const CHAT_V2 = (() => {
+  try {
+    const q = new URLSearchParams(location.search).get('chatv2');
+    if (q === '1' || q === '0') { localStorage.setItem('chat_v2', q); return q === '1'; }
+    return localStorage.getItem('chat_v2') === '1';
+  } catch (_) { return false; }
+})();
+const chatPath = (suffix) => `${API_BASE}/chat${CHAT_V2 ? '/v2' : ''}${suffix}`;
+// v2's conversation state: one small dict, echoed back each turn in place of
+// the growing transcript apiMessageHistory holds for v1.
+let apiChatScope = null;
+
 window.currentMode = 'ask';
 const MODE_DESC = {
   'ask': 'Search and ask questions across every auction.',
@@ -1024,10 +1045,13 @@ function _chatRequestBody(message) {
   // to follow-up questions outside the original filter context.
   const activeFilters = window.pendingChatScope || null;
   window.pendingChatScope = null;
-  const body = { message, message_history: apiMessageHistory, mode };
-  if (activeFilters) body.active_filters = activeFilters;
   const panelIds = _currentPanelAuctionIds();
-  if (panelIds.length) body.panel_auction_ids = panelIds;
+  const body = CHAT_V2
+    ? { message, mode, scope: apiChatScope || undefined,
+        panel: panelIds.length ? { matches: panelIds } : undefined }
+    : { message, message_history: apiMessageHistory, mode };
+  if (activeFilters) body.active_filters = activeFilters;
+  if (!CHAT_V2 && panelIds.length) body.panel_auction_ids = panelIds;
   // Model + thinking-effort toggles (omitted when null so the server applies
   // the tier default). The server re-gates these, so a free user can't unlock
   // Pro by tampering with the body.
@@ -1048,7 +1072,7 @@ function _chatHttpError(res) {
 // so the one-shot pendingChatScope isn't lost on fallback.
 async function apiChat(message, prebuilt) {
   const body = prebuilt || _chatRequestBody(message);
-  const res = await authFetch(`${API_BASE}/chat`, {
+  const res = await authFetch(chatPath(''), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -1087,7 +1111,7 @@ async function apiChatStream(body, onEvent) {
   try {
     let res;
     try {
-      res = await authFetch(`${API_BASE}/chat/stream`, {
+      res = await authFetch(chatPath('/stream'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -1447,7 +1471,11 @@ async function askAI(userText, opts = {}) {
       console.warn('chat stream unavailable, falling back to /chat:', streamErr.message);
       resp = await apiChat(userText, reqBody);
     }
-    apiMessageHistory = resp.message_history || apiMessageHistory;
+    // v2 carries a scope object; v1 carries the transcript. Only one of the
+    // two is ever present in a response.
+    if (CHAT_V2) apiChatScope = resp.scope || apiChatScope;
+    else apiMessageHistory = resp.message_history || apiMessageHistory;
+    setRecommendation(resp.recommendation);
     const extracted = extractResultsFromArtifacts(resp.artifacts);
     if (extracted.rows.length || extracted.tool) {
       currentResults = extracted.rows;
@@ -1795,6 +1823,28 @@ const _CARD_ICO_BANK = '<svg class="ci" viewBox="0 0 16 16" width="13" height="1
 const _CARD_ICO_CAL = '<svg class="ci" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="3.5" width="11" height="10" rx="1.6"/><path d="M5 2.2v2.6M11 2.2v2.6M2.5 6.8h11"/></svg>';
 const _CARD_ICO_CLOCK = '<svg class="ci" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M8 4.6V8l2.4 1.4"/></svg>';
 
+// Reason-first cards. The v2 synthesis call returns a typed recommendation
+// object; its picks are keyed by auction_id here so the card template can bind
+// a one-line reason and a few badges. Cards render exactly as before when the
+// turn produced no recommendation, which is every v1 turn.
+let currentPicks = new Map();
+function setRecommendation(rec) {
+  currentPicks = new Map();
+  if (!rec || !Array.isArray(rec.picks)) return;
+  rec.picks.forEach(p => { if (p && p.auction_id) currentPicks.set(String(p.auction_id), p); });
+}
+const _BADGE_TONES = { good: 'badge-good', warn: 'badge-warn', neutral: 'badge-neutral' };
+function _pickHtml(id) {
+  const pick = currentPicks.get(String(id));
+  if (!pick) return '';
+  const badges = Array.isArray(pick.badges) ? pick.badges.slice(0, 3) : [];
+  return `
+        ${pick.reason ? `<div class="card-reason">${escapeHtml(pick.reason)}</div>` : ''}
+        ${badges.length ? `<div class="card-badges">${badges.map(b =>
+          `<span class="card-badge ${_BADGE_TONES[b && b.tone] || _BADGE_TONES.neutral}">${escapeHtml((b && b.text) || '')}</span>`
+        ).join('')}</div>` : ''}`;
+}
+
 function propCardHtml(c, urgent, countdown) {
   const isSaved = saved.has(c.id);
   const dropBadge = c.drop
@@ -1815,6 +1865,7 @@ function propCardHtml(c, urgent, countdown) {
         </div>
         <div class="price">${escapeHtml(c.price)}</div>
         ${dropBadge}
+        ${_pickHtml(c.id)}
         ${urgent && countdown ? `<div class="countdown">${_CARD_ICO_CLOCK}<span>auction ${escapeHtml(countdown)}</span></div>` : ''}
       </div>
       <button class="card-save ${isSaved ? 'saved' : ''}" data-save-id="${escapeHtml(c.id)}" title="${isSaved ? 'saved' : 'save to watchlist'}" aria-label="save">
@@ -2322,6 +2373,9 @@ async function askAboutProperty(text) {
   let nextApiHistory = apiHistorySnapshot;
   const startedAt = performance.now();
   try {
+    // The property-detail chat stays on v1 in Phase 1: it threads
+    // `message_history`, which v2 neither accepts nor returns. It moves over
+    // with the rest of the v2 work, not as a side effect of this flag.
     const res = await authFetch(`${API_BASE}/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
