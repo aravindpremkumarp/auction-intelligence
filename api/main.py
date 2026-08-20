@@ -262,6 +262,10 @@ if WEB_DIR.exists():
     def dossiers_js() -> FileResponse:
         return FileResponse(str(WEB_DIR / "dossiers.js"), media_type="application/javascript")
 
+    @app.get("/lab.js")
+    def lab_js() -> FileResponse:
+        return FileResponse(str(WEB_DIR / "lab.js"), media_type="application/javascript")
+
     # Crawler files. On Vercel these resolve straight from the filesystem, but
     # uvicorn (local dev + Render) needs explicit routes or crawlers hit a
     # 404/405 (seen in prod logs). Served directly — not SPA screens.
@@ -295,6 +299,14 @@ if WEB_DIR.exists():
     @app.get("/admin")
     def admin_page(request: Request) -> Response:
         return _canonical_spa_redirect(request) or FileResponse(str(WEB_DIR / "admin.html"))
+
+    # /lab — the admin chat-v2 surface. Serves the ordinary app shell; lab.js
+    # gates it on role and adds the diagnostics inspector. The API behind it
+    # (/chat/v2) is admin-gated independently, so this route being public
+    # only means a non-admin sees the "not authorised" panel.
+    @app.get("/lab")
+    def lab_page(request: Request) -> Response:
+        return _canonical_spa_redirect(request) or FileResponse(str(WEB_DIR / "index.html"))
 
     @app.get("/review")
     def review_page(request: Request) -> Response:

@@ -17,6 +17,12 @@ Two things are deliberately kept identical to v1:
 * the **artifact shape**, so `extractResultsFromArtifacts`, `setPanelSource`
   and the whole matches-panel path in `web/app.js` work unchanged.
 
+**Admin only.** Both endpoints depend on `get_current_admin`, so a non-admin
+gets 403. Gating the /lab page alone would have been cosmetic — anyone who
+knew the URL could still POST here, and every request spends real money on
+the prepaid OpenRouter key. The `?chatv2=1` flag on the main app therefore
+only works for an admin account; for everyone else it falls back to /chat.
+
 **Lazy imports.** Everything under `api.chat.v2` pulls in LangChain, which
 costs ~28 MB of RSS on a 512 MB Render starter instance. The imports live
 inside the handlers so an idle deploy and all v1 traffic stay at today's
@@ -32,10 +38,16 @@ from typing import Any, AsyncIterator
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
-from api.auth import get_optional_user
+from api.auth import get_current_admin
 from api.auth.schemas import UserOut
 from api.chat.gating import enforce_chat_quota, resolve_turn_model
-from api.chat.v2.schemas import ChatV2Request, ChatV2Response, ExecutedCallOut, ScopeIn
+from api.chat.v2.schemas import (
+    ChatV2Request,
+    ChatV2Response,
+    ExecutedCallOut,
+    GateVerdictOut,
+    ScopeIn,
+)
 from api.observability import SLOW_AGENT_MS, timed
 
 logger = logging.getLogger(__name__)
@@ -105,6 +117,16 @@ async def _build_response(req: ChatV2Request, ctx: dict, result) -> ChatV2Respon
                               error=c.error)
               for c in result.executed],
         artifacts=artifacts,
+        gate=(
+            GateVerdictOut(
+                ok=result.gate.ok,
+                unsupported_ids=result.gate.unsupported_ids,
+                unsupported_amounts=result.gate.unsupported_amounts,
+                reason=result.gate.reason,
+            )
+            if result.gate is not None
+            else None
+        ),
         usage={
             "llm_calls": result.model_calls,
             "input_tokens": result.input_tokens,
@@ -118,7 +140,7 @@ async def _build_response(req: ChatV2Request, ctx: dict, result) -> ChatV2Respon
 
 @router.post("/chat/v2", response_model=ChatV2Response)
 async def chat_v2(request: Request, req: ChatV2Request,
-                  user: UserOut | None = Depends(get_optional_user)) -> ChatV2Response:
+                  user: UserOut = Depends(get_current_admin)) -> ChatV2Response:
     ctx = await _prepare(request, req, user)
     from api.chat.v2.loop import run_turn
 
@@ -136,7 +158,7 @@ async def chat_v2(request: Request, req: ChatV2Request,
 
 @router.post("/chat/v2/stream")
 async def chat_v2_stream(request: Request, req: ChatV2Request,
-                         user: UserOut | None = Depends(get_optional_user)):
+                         user: UserOut = Depends(get_current_admin)):
     ctx = await _prepare(request, req, user)
     from api.chat.router import _sse, _with_heartbeat
 

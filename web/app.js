@@ -623,6 +623,11 @@ function pathForScreen(screen) {
   return '/';
 }
 function syncURLForScreen(screen, replace) {
+  // /lab keeps its own URL for the whole session. Without this the boot
+  // go('landing') rewrites it to '/', and lab.js — which loads after app.js
+  // and gates itself on location.pathname — finds itself on the wrong page
+  // and the inspector never mounts.
+  if (IS_LAB) return;
   const target = pathForScreen(screen);
   // Supabase OAuth/magic-link callback markers — leave the URL alone until the
   // SDK has consumed them, otherwise pushState strips the code and the user
@@ -793,7 +798,14 @@ document.querySelectorAll('#results-mobile-tabs button').forEach(b => {
 // localStorage.chat_v2='1'. The response is shaped like v1's apart from the
 // conversation-state channel: v2 echoes a small `scope` object where v1
 // round-trips the whole message_history.
+const IS_LAB = (() => {
+  try { return /^\/lab\/?$/.test(location.pathname); } catch (_) { return false; }
+})();
 const CHAT_V2 = (() => {
+  // /lab IS the v2 surface, so the flag is implied there and cannot be turned
+  // off from the URL — otherwise the page would silently show v1 and the
+  // inspector would sit empty with nothing explaining why.
+  if (IS_LAB) return true;
   try {
     const q = new URLSearchParams(location.search).get('chatv2');
     if (q === '1' || q === '0') { localStorage.setItem('chat_v2', q); return q === '1'; }
@@ -1479,6 +1491,18 @@ async function askAI(userText, opts = {}) {
     if (CHAT_V2) apiChatScope = resp.scope || apiChatScope;
     else apiMessageHistory = resp.message_history || apiMessageHistory;
     setRecommendation(resp.recommendation);
+    // Publish the turn for the /lab inspector. An event rather than a direct
+    // call so app.js stays unaware of whether a lab page is loaded at all.
+    if (CHAT_V2) {
+      try {
+        window.dispatchEvent(new CustomEvent('chatv2:turn', { detail: {
+          question: userText, plan: resp.plan, usage: resp.usage,
+          gate: resp.gate, scope: resp.scope,
+          recommendation: resp.recommendation,
+          elapsedMs: performance.now() - startedAt,
+        } }));
+      } catch (_) { /* the inspector is a diagnostic; never break a turn */ }
+    }
     const extracted = extractResultsFromArtifacts(resp.artifacts);
     if (extracted.rows.length || extracted.tool) {
       currentResults = extracted.rows;
@@ -3660,7 +3684,9 @@ function applyURLState(replace) {
     _restoreChatId = decodeURIComponent(chatMatch[1]);
     go('results');
     maybeRestoreActiveChat();
-  } else if (path === '/chat') {
+  } else if (IS_LAB || path === '/chat') {
+    // /lab is the chat surface with v2 forced on (see CHAT_V2), so it boots
+    // straight into the chat screen rather than the landing page.
     go('results');
   } else if (path === '/watchlist') {
     go('watchlist');

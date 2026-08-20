@@ -28,8 +28,29 @@ from api.main import app
 
 
 @pytest.fixture
-def client():
-    return TestClient(app)
+def admin_headers():
+    """Both /chat/v2 endpoints are admin-gated, so every request needs one.
+
+    Seeds a user via /auth/me, promotes it in the stub store, and returns its
+    bearer header — the same pattern tests/api/test_auth.py uses.
+    """
+    from api import neo4j_client
+    from tests.api.conftest import auth_header
+
+    c = TestClient(app)
+    h = auth_header(sub="lab-admin", email="admin@example.com", name="Admin")
+    c.get("/auth/me", headers=h)
+    neo4j_client._users["lab-admin"]["role"] = "admin"  # type: ignore[attr-defined]
+    return h
+
+
+@pytest.fixture
+def client(admin_headers):
+    c = TestClient(app)
+    # Attach the admin header to every request so the individual tests stay
+    # about the contract rather than about auth.
+    c.headers.update(admin_headers)
+    return c
 
 
 @pytest.fixture
@@ -198,6 +219,80 @@ def test_browse_filters_seed_the_scope(client, stub_turn):
         "scope": {"filters": {"max_price": 3000000}},
     })
     assert stub_turn["scope"] == {"city": "Salem", "max_price": 3000000}
+
+
+# ── admin gating ────────────────────────────────────────────────────────────
+
+def test_anonymous_is_rejected(stub_turn):
+    """Gating the /lab page alone would be cosmetic: anyone who knew the URL
+    could still POST here, and every request spends real money on the prepaid
+    OpenRouter key."""
+    anon = TestClient(app)
+    assert anon.post("/chat/v2", json={"message": "q"}).status_code == 401
+    assert anon.post("/chat/v2/stream", json={"message": "q"}).status_code == 401
+
+
+def test_signed_in_non_admin_gets_403(stub_turn):
+    from tests.api.conftest import auth_header
+
+    c = TestClient(app)
+    h = auth_header(sub="lab-plain", email="plain@example.com", name="Plain")
+    assert c.get("/auth/me", headers=h).status_code == 200   # profile exists
+    assert c.post("/chat/v2", json={"message": "q"}, headers=h).status_code == 403
+    assert c.post("/chat/v2/stream", json={"message": "q"},
+                  headers=h).status_code == 403
+
+
+def test_admin_gets_through(client, stub_turn):
+    assert client.post("/chat/v2", json={"message": "q"}).status_code == 200
+
+
+# ── the answer gate, surfaced ───────────────────────────────────────────────
+
+def test_gate_verdict_is_returned(client, monkeypatch, stub_turn):
+    """The gate already runs on every turn; until now its verdict only reached
+    the server log. /lab reads it off the response, so an admin can see that a
+    turn was flagged instead of having to grep Render logs for it."""
+    class _Gate:
+        ok = False
+        unsupported_ids = ["999999"]
+        unsupported_amounts = ["Rs 1,00,00,000"]
+        reason = "2 unsupported claim(s)"
+
+    class _Result:
+        answer = "999999 costs Rs 1,00,00,000."
+        recommendation = None
+        tier = 1
+        model_calls = 1
+        input_tokens = 10
+        output_tokens = 5
+        cached_tokens = 0
+        seconds = 0.5
+        gate = _Gate()
+        filters = {}
+        last_total_count = None
+        last_ids = []
+        executed = []
+
+    async def fake_run_turn(question, **kwargs):
+        return _Result()
+
+    monkeypatch.setattr("api.chat.v2.loop.run_turn", fake_run_turn)
+    body = client.post("/chat/v2", json={"message": "q"}).json()
+
+    assert body["gate"] == {
+        "ok": False,
+        "unsupported_ids": ["999999"],
+        "unsupported_amounts": ["Rs 1,00,00,000"],
+        "reason": "2 unsupported claim(s)",
+    }
+
+
+def test_gate_absent_is_null_not_an_error(client, stub_turn):
+    """The stub result carries gate=None (a turn that ran no gate). The field
+    must serialise as null rather than blowing up the response model."""
+    body = client.post("/chat/v2", json={"message": "q"}).json()
+    assert body["gate"] is None
 
 
 # ── the stream ──────────────────────────────────────────────────────────────

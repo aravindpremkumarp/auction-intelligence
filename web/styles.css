@@ -3026,3 +3026,103 @@ html { scroll-behavior: smooth; }
   border-radius: var(--radius-pill);
 }
 /* The 38-44px square send button reads as a clean circle at pill radius. */
+
+/* ── /lab — admin chat-v2 inspector ─────────────────────────────────────────
+   A diagnostics surface, not product. It docks bottom-right over the app so
+   the chat underneath stays fully usable — you are testing the real UI, and a
+   panel that displaced it would change what you are testing. */
+#lab-inspector {
+  position: fixed; right: 12px; bottom: 12px; z-index: 60;
+  width: min(400px, calc(100vw - 24px));
+  max-height: min(70vh, 640px);
+  display: flex; flex-direction: column;
+  background: var(--card, #fff);
+  border: 1.5px solid var(--ink, #111);
+  box-shadow: 4px 4px 0 rgba(0,0,0,0.18);
+  font-family: var(--font-mono);
+}
+#lab-inspector.collapsed .lab-body { display: none; }
+#lab-inspector .lab-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 10px; border-bottom: 1.5px solid var(--ink, #111);
+  background: var(--bg, #f6f6f4);
+}
+#lab-inspector .lab-badge {
+  font-size: 9px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  padding: 2px 6px; color: #9a4a00; background: #fdecd8; border: 1px solid #9a4a00;
+}
+#lab-inspector .lab-title { font-size: 11px; font-weight: 600; flex: 1; }
+#lab-inspector .lab-toggle {
+  border: none; background: none; cursor: pointer;
+  font-size: 16px; line-height: 1; padding: 0 4px; color: var(--muted);
+}
+#lab-inspector .lab-body { overflow-y: auto; padding: 8px 10px; }
+#lab-inspector .lab-empty, #lab-inspector .lab-none {
+  font-size: 11px; color: var(--muted); line-height: 1.5;
+}
+#lab-inspector .lab-turn { border-bottom: 1px solid var(--line, #e3e3df); padding: 6px 0; }
+#lab-inspector summary {
+  cursor: pointer; display: flex; align-items: center; gap: 6px;
+  font-size: 11px; list-style: none;
+}
+#lab-inspector .lab-q { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#lab-inspector .lab-pill {
+  font-size: 9px; padding: 1px 5px; border: 1px solid var(--muted); color: var(--muted);
+  white-space: nowrap;
+}
+#lab-inspector .lab-pill.warn { color: #9a4a00; border-color: #9a4a00; background: #fdecd8; }
+#lab-inspector .lab-grid {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 8px 0;
+}
+#lab-inspector .lab-grid div { text-align: center; }
+#lab-inspector .lab-grid b { display: block; font-size: 13px; }
+#lab-inspector .lab-grid span { font-size: 9px; color: var(--muted); }
+#lab-inspector .lab-sec {
+  font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--muted); margin: 8px 0 3px;
+}
+#lab-inspector .lab-ok { color: #137a3b; }
+#lab-inspector .lab-warn { color: #9a4a00; }
+#lab-inspector .lab-calls { list-style: none; padding: 0; margin: 0; }
+#lab-inspector .lab-call {
+  font-size: 10px; padding: 4px 6px; margin-bottom: 3px;
+  background: var(--bg, #f6f6f4); border-left: 2px solid var(--ink, #111);
+}
+#lab-inspector .lab-call.bad { border-left-color: #9a4a00; }
+#lab-inspector .lab-ms, #lab-inspector .lab-tier { color: var(--muted); margin-left: 6px; }
+#lab-inspector .lab-args, #lab-inspector .lab-err {
+  color: var(--muted); margin-top: 2px; word-break: break-all;
+}
+#lab-inspector .lab-err { color: #9a4a00; }
+#lab-inspector .lab-pre {
+  font-size: 10px; margin: 0; padding: 5px 6px; overflow-x: auto;
+  background: var(--bg, #f6f6f4); border-left: 2px solid var(--line, #e3e3df);
+}
+#lab-inspector .lab-gate {
+  font-size: 10px; padding: 5px 6px; color: #9a4a00; background: #fdecd8;
+  border-left: 2px solid #9a4a00;
+}
+#lab-inspector .lab-note { color: var(--muted); margin-top: 4px; }
+
+#lab-denied {
+  position: fixed; inset: 0; z-index: 200;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0,0,0,0.55); backdrop-filter: blur(3px);
+}
+#lab-denied .lab-denied-card {
+  background: var(--card, #fff); border: 1.5px solid var(--ink, #111);
+  box-shadow: 5px 5px 0 rgba(0,0,0,0.2);
+  padding: 22px 26px; max-width: 380px; text-align: center;
+}
+#lab-denied .lab-denied-title { font-family: var(--font-mono); font-weight: 700; margin-bottom: 6px; }
+#lab-denied .lab-denied-sub { font-size: 13px; color: var(--muted); line-height: 1.5; }
+#lab-denied .lab-denied-link { display: inline-block; margin-top: 14px; font-size: 12px; }
+
+[data-theme="dark"] #lab-inspector .lab-badge { color: #f6c98a; background: rgba(154,74,0,0.22); }
+[data-theme="dark"] #lab-inspector .lab-gate { color: #f6c98a; background: rgba(154,74,0,0.18); }
+[data-theme="dark"] #lab-inspector .lab-pill.warn { color: #f6c98a; background: rgba(154,74,0,0.22); }
+[data-theme="dark"] #lab-inspector .lab-ok { color: #a8efc0; }
+
+@media (max-width: 560px) {
+  #lab-inspector { right: 6px; left: 6px; bottom: 6px; width: auto; max-height: 50vh; }
+}
