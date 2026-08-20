@@ -26,6 +26,9 @@ import os
 import time
 import urllib.request
 from contextlib import contextmanager
+# Aliased: a bare `time` import would shadow the stdlib `time` module used by
+# the retry backoff below.
+from datetime import date as _date, datetime as _datetime, time as _time
 
 from neo4j import AsyncDriver, AsyncGraphDatabase, GraphDatabase, Driver, Query, READ_ACCESS
 from neo4j.exceptions import ServiceUnavailable, SessionExpired, TransientError
@@ -127,10 +130,73 @@ def _http_query_url() -> str:
     return f"https://{host}/db/{db}/query/v2"
 
 
+# Aura's Query API v2 accepts two parameter encodings. Plain JSON
+# (`application/json`) is what we send by default, but it cannot express a
+# Cypher temporal: `json.dumps` raises on a datetime, and hand-serializing it
+# to an ISO string would compare String-to-DateTime in Cypher and silently
+# match nothing. The typed encoding (`application/vnd.neo4j.query`) carries
+# the type with the value and preserves comparison semantics.
+#
+# Two traps, both verified against live Aura:
+#   * the typed encoding is ALL-OR-NOTHING per request — mixing a plain value
+#     in with typed ones returns HTTP 400, so once one param needs typing
+#     every param must be typed;
+#   * `Boolean` takes a real JSON bool, not a string, so the `bool` branch
+#     must come before the `int` branch (bool subclasses int in Python).
+#
+# Bolt never hits any of this, which is why it only shows up under
+# NEO4J_HTTP_API=1.
+_TEMPORAL_TYPES = (_datetime, _date, _time)
+
+
+def _encode_param(v):
+    """Encode one value in the Query API's typed-parameter format."""
+    if v is None:
+        return None
+    if isinstance(v, bool):  # before int — bool subclasses int
+        return {"$type": "Boolean", "_value": v}
+    if isinstance(v, _datetime):
+        return {"$type": "OffsetDateTime" if v.tzinfo else "LocalDateTime",
+                "_value": v.isoformat()}
+    if isinstance(v, _date):
+        return {"$type": "Date", "_value": v.isoformat()}
+    if isinstance(v, _time):
+        return {"$type": "OffsetTime" if v.tzinfo else "LocalTime",
+                "_value": v.isoformat()}
+    if isinstance(v, str):
+        return {"$type": "String", "_value": v}
+    if isinstance(v, int):
+        return {"$type": "Integer", "_value": str(v)}
+    if isinstance(v, float):
+        return {"$type": "Float", "_value": str(v)}
+    if isinstance(v, (list, tuple)):
+        return {"$type": "List", "_value": [_encode_param(x) for x in v]}
+    if isinstance(v, dict):
+        return {"$type": "Map",
+                "_value": {k: _encode_param(x) for k, x in v.items()}}
+    raise TypeError(f"unsupported Cypher param type: {type(v).__name__}")
+
+
+def _needs_typed_params(value) -> bool:
+    """True when any value in the (possibly nested) params needs the typed
+    encoding — i.e. a temporal `json.dumps` would refuse to serialize."""
+    if isinstance(value, _TEMPORAL_TYPES):
+        return True
+    if isinstance(value, dict):
+        return any(_needs_typed_params(v) for v in value.values())
+    if isinstance(value, (list, tuple)):
+        return any(_needs_typed_params(v) for v in value)
+    return False
+
+
 def _http_run(cypher: str, params: dict | None, access_mode: str, timeout: float) -> list[dict]:
+    params = params or {}
+    typed = _needs_typed_params(params)
     body = json.dumps({
         "statement": cypher,
-        "parameters": params or {},
+        "parameters": (
+            {k: _encode_param(v) for k, v in params.items()} if typed else params
+        ),
         "accessMode": access_mode,
     }).encode("utf-8")
     auth = base64.b64encode(f"{NEO4J_USERNAME}:{NEO4J_PASSWORD}".encode()).decode()
@@ -139,7 +205,9 @@ def _http_run(cypher: str, params: dict | None, access_mode: str, timeout: float
         data=body,
         headers={
             "Authorization": f"Basic {auth}",
-            "Content-Type": "application/json",
+            "Content-Type": (
+                "application/vnd.neo4j.query" if typed else "application/json"
+            ),
             "Accept": "application/json",
         },
         method="POST",

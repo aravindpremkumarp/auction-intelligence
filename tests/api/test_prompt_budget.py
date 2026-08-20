@@ -166,14 +166,17 @@ def _agent_module() -> ast.Module:
     return ast.parse(_AGENT_PY.read_text(encoding="utf-8"))
 
 
-def _role_prompt(mod: ast.Module) -> str:
-    for node in mod.body:
-        if isinstance(node, ast.Assign) and any(
-            getattr(t, "id", None) == "_ROLE_PROMPT" for t in node.targets
-        ):
-            assert isinstance(node.value, ast.Constant), "_ROLE_PROMPT must be a literal"
-            return node.value.value
-    raise AssertionError("_ROLE_PROMPT not found in api/agent.py")
+def _role_prompt(mod: ast.Module | None = None) -> str:
+    """The role prompt text, read from `api/policy.py` where it now lives.
+
+    It moved out of `api/agent.py` so /chat/v2 could share the policy rules
+    instead of keeping a paraphrase. The budget this file guards is unchanged
+    — the composed string is byte-identical to the literal it replaced, which
+    `tests/api/test_policy.py` pins.
+    """
+    from api.policy import ROLE_PROMPT
+
+    return ROLE_PROMPT
 
 
 def _decorator_owner(dec: ast.expr) -> str | None:

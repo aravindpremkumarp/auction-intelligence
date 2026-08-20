@@ -87,19 +87,28 @@ def test_has_refinement_and_topic_switch_coverage() -> None:
     ), "need at least one panel-reference turn (references_panel)"
 
 
-def test_carry_forward_keys_match_router() -> None:
-    """The eval's mirrored key set must equal the router's source of truth.
+def test_carry_forward_keys_match_source() -> None:
+    """The eval's mirrored key set must equal the real source of truth.
 
-    Imports the router (available under the tests/api conftest stubs, same as
-    test_active_filters.py) so a filter added to _CARRY_FORWARD_FILTER_KEYS
-    without updating the eval mirror is caught offline.
+    That source is now `api/chat/scope_keys.py`, shared by the v1 router and
+    the v2 tiered loop, so a filter added there without updating the eval
+    mirror is caught offline.
     """
-    from api.chat.router import _CARRY_FORWARD_FILTER_KEYS
+    from api.chat.scope_keys import CARRY_FORWARD_FILTER_KEYS as SOURCE
 
-    assert CARRY_FORWARD_FILTER_KEYS == _CARRY_FORWARD_FILTER_KEYS, (
+    assert CARRY_FORWARD_FILTER_KEYS == SOURCE, (
         "evals/conversations.py CARRY_FORWARD_FILTER_KEYS drifted from "
-        "api/chat/router.py _CARRY_FORWARD_FILTER_KEYS"
+        "api/chat/scope_keys.py CARRY_FORWARD_FILTER_KEYS"
     )
+
+
+def test_router_reexports_the_shared_key_set() -> None:
+    """The router alias must stay bound to the shared definition — a local
+    redefinition there would silently fork v1's scope from v2's."""
+    from api.chat.router import _CARRY_FORWARD_FILTER_KEYS
+    from api.chat.scope_keys import CARRY_FORWARD_FILTER_KEYS as SOURCE
+
+    assert _CARRY_FORWARD_FILTER_KEYS is SOURCE
 
 
 def test_any_sentinel_usable() -> None:

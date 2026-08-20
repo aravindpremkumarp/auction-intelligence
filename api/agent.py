@@ -28,6 +28,7 @@ from pipeline.config import (
     OPENROUTER_CHAT_API_KEY,
     OPENROUTER_BASE_URL,
 )
+from api.policy import ROLE_PROMPT
 from api.model_selection import (
     CHAT_MODEL_SLUGS,
     DEFAULT_PAID_MODEL,
@@ -61,42 +62,12 @@ class ChatDeps:
     panel_auction_ids: list[str] | None = None
 
 
-_ROLE_PROMPT = """\
-You are the assistant for the Bank Auction Intelligence Platform: help users
-find, analyze, and compare Indian bank-auction properties (mostly
-SARFAESI) over a Neo4j knowledge graph of Tamil Nadu properties. The shared
-context below holds the schema, enums, tool routing, and Cypher rules; the
-live graph size is supplied to you each turn.
-
-Rules:
-1. Ground every answer in tool output. Never invent auction_ids, prices,
-   counts, enums, or filter thresholds. Cite by `auction_id`.
-2. Prefer the specialized tool that matches; fall back to `run_cypher` only
-   for novel queries (load the `cypher` capability first — see Tool routing
-   below). On zero results follow the Zero-result protocol below.
-3. Use `internet_search` only for OFF-graph context (legal/RBI explainers,
-   locality background, term definitions) — never for properties, prices,
-   deadlines, auction_ids, or counts; for hybrid questions query the graph
-   first.
-4. Stay on the tool surface. The PUBLIC graph holds exactly the nodes in
-   the Graph schema below — nothing else. No litigations, court cases,
-   FIRs, credit history, ownership chains, market valuations, or external
-   records. Frame borrower follow-ups as
-   `search_auctions(borrower=...)` output, never "check legal records". Never offer or
-   agree to an action no tool performs — if you can't do it, say so plainly
-   and name the closest tool that exists. Chat has NO tracking, monitoring,
-   alerting, scoring, or saving actions: for "track/watch/alert/save/score
-   this" requests, say chat can't do that and point the user to the Save
-   button on the property card (saved properties get deadline alerts in
-   the app).
-5. Markdown only for genuine multi-section answers: open each section
-   with `### <emoji> **Title**` (one emoji matching intent — 📍 location,
-   🔍 search, 🏆 top, 📊 data, 📰 news, ⚡ insight, ⚠️ caveat, ✅, 💰, 📅).
-   Separate sections with a blank line + `---` + blank line. Use **bold**
-   for load-bearing facts; short bullets for parallel points; real
-   Markdown tables (with `|---|`) for tabular data. Don't wrap a short
-   single-section reply in headers.
-"""
+# The role prompt now lives in api/policy.py, composed from named rule
+# constants so /chat/v2 can share the three that are policy rather than v1
+# mechanics. The composed string is byte-identical to the literal it
+# replaced — pinned by tests/api/test_chat_policy.py — which matters because
+# this is the stable leading prefix the provider's prompt cache keys on.
+_ROLE_PROMPT = ROLE_PROMPT
 
 # Appended to the role prompt only when the private-dossier feature is enabled
 # (see api.dossier.dossiers_enabled). Kept out of _ROLE_PROMPT so the feature

@@ -15,6 +15,11 @@ Usage (needs OpenRouter + Neo4j credentials in the environment):
     python -m evals.run_golden
 
 Env knobs:
+    EVAL_AGENT                which agent to eval: "v1" (the pydantic-ai
+                              ReAct agent, default) or "v2" (the tiered
+                              loop). Both are scored by the SAME cases and
+                              evaluators — that is what makes the two runs
+                              comparable as a migration gate.
     EVAL_MIN_TRAJECTORY_PASS  CI gate threshold (default 0.85)
     EVAL_MIN_CITATION_PASS    citation-discipline gate over the listing cases
                               (default 0 = report-only while it burns in)
@@ -33,7 +38,8 @@ import asyncio
 import os
 import sys
 
-from evals.dataset import ChatTaskOutput, build_dataset
+from evals.dataset import build_dataset
+from evals.tasks import agent_id, golden_task
 from evals.evaluators import CITES_AUCTION_IDS, GRACEFUL_REFUSAL, TOOL_TRAJECTORY
 
 MIN_TRAJECTORY_PASS = float(os.getenv("EVAL_MIN_TRAJECTORY_PASS", "0.85"))
@@ -42,43 +48,79 @@ MAX_CONCURRENCY = int(os.getenv("EVAL_MAX_CONCURRENCY", "4"))
 CHAT_MODEL = os.getenv("EVAL_CHAT_MODEL", "flash")
 
 
-async def _run_agent(question: str) -> ChatTaskOutput:
-    """The eval 'task': run one question through the real agent and capture
-    the answer, the tools it called, and the auction_ids it surfaced/cited.
+def report_cost(cases, label: str = "") -> None:
+    """Print token/latency totals for a completed run.
 
-    The surfaced/cited sets are computed with the REAL panel extractor
-    (api/chat/panel.py — pure, no I/O), so the citation assertion tests
-    exactly what production's matches-panel sync would see on this answer.
+    Cost is REPORTED, never gated — a cheap wrong answer is still wrong. It
+    exists because the tiered loop's claim was that it is cheaper as well as
+    faster, and until now the eval measured neither.
+
+    Prints nothing when no case reported usage, so an agent binding without
+    accounting degrades quietly instead of breaking the runner.
     """
-    from pydantic_ai.messages import ToolReturnPart
+    from evals.tasks import USAGE_KEYS
 
-    from api.agent import ChatDeps, agent, build_chat_run_overrides
-    from api.chat.panel import cited_ids, known_auction_ids
+    totals: dict[str, float] = {}
+    counted = 0
+    for c in cases:
+        usage = getattr(getattr(c, "output", None), "usage", None)
+        if not isinstance(usage, dict) or not usage:
+            continue
+        counted += 1
+        for k in USAGE_KEYS:
+            v = usage.get(k)
+            if isinstance(v, (int, float)):
+                totals[k] = totals.get(k, 0) + v
+    if not counted:
+        print("\nCost: not reported by this agent.")
+        return
 
-    # Same per-request override path the chat router uses, so the eval runs
-    # the resolved EVAL_CHAT_MODEL instead of the agent's paid default.
-    result = await agent.run(
-        question, deps=ChatDeps(), **build_chat_run_overrides(CHAT_MODEL, None)
-    )
-    seen: set[str] = set()
-    tools: list[str] = []
-    tool_returns: list[tuple[str, object]] = []
-    for msg in result.all_messages():
-        for part in getattr(msg, "parts", []):
-            name = getattr(part, "tool_name", None)
-            if name and name not in seen:
-                seen.add(name)
-                tools.append(name)
-            if isinstance(part, ToolReturnPart):
-                tool_returns.append((part.tool_name, part.content))
-    answer = result.output or ""
-    surfaced = known_auction_ids(tool_returns)
-    return ChatTaskOutput(
-        answer=answer,
-        tools_called=tools,
-        surfaced_auction_ids=sorted(surfaced),
-        cited_auction_ids=cited_ids(answer, surfaced),
-    )
+    n = counted
+    inp = totals.get("input_tokens", 0)
+    cached = totals.get("cached_tokens", 0)
+    print(f"\nCost over {n} case(s){label}:")
+    print(f"  model calls   {totals.get('llm_calls', 0):>12,.0f}  "
+          f"({totals.get('llm_calls', 0) / n:.2f} per case)")
+    print(f"  input tokens  {inp:>12,.0f}  ({inp / n:,.0f} per case)")
+    print(f"  cached input  {cached:>12,.0f}  "
+          # The number that says whether a stable prompt prefix is actually
+          # being billed at the cache rate. A steady 0 means it is not.
+          f"({(cached / inp * 100) if inp else 0:.1f}% of input)")
+    print(f"  output tokens {totals.get('output_tokens', 0):>12,.0f}  "
+          f"({totals.get('output_tokens', 0) / n:,.0f} per case)")
+    if totals.get("seconds"):
+        print(f"  agent seconds {totals['seconds']:>12,.1f}  "
+              f"({totals['seconds'] / n:.1f} per case)")
+
+
+
+def with_progress(task, total: int):
+    """Wrap the eval task so each completed case prints a line to stderr.
+
+    The runner used to print nothing until every case finished, so a
+    48-minute run was indistinguishable from a hung one. Wrapping the task
+    rather than hooking the library keeps this working across pydantic-evals
+    versions, and it counts *completions* — which, at concurrency 4, is the
+    number you actually want.
+
+    stderr on purpose: the results table on stdout stays parseable.
+    """
+    import functools
+    import time
+
+    done = {"n": 0}
+
+    @functools.wraps(task)
+    async def wrapped(question: str):
+        started = time.perf_counter()
+        try:
+            return await task(question)
+        finally:
+            done["n"] += 1
+            print(f"[{done['n']:>3}/{total}] {time.perf_counter() - started:5.1f}s  "
+                  f"{question[:64]}", file=sys.stderr, flush=True)
+
+    return wrapped
 
 
 async def main() -> int:
@@ -89,9 +131,10 @@ async def main() -> int:
 
     include_judge = os.getenv("EVAL_DISABLE_JUDGE") != "1"
     dataset = build_dataset(include_judge=include_judge)
+    print(f"agent under test: {agent_id()}")
     report = await dataset.evaluate(
-        _run_agent,
-        name="golden-questions",
+        with_progress(golden_task(), len(dataset.cases)),
+        name=f"golden-questions-{agent_id()}",
         max_concurrency=MAX_CONCURRENCY,
     )
     report.print(include_input=True, include_output=False)
@@ -134,6 +177,8 @@ async def main() -> int:
         f"= {cite_rate:.1%} (threshold {MIN_CITATION_PASS:.0%}"
         f"{'' if MIN_CITATION_PASS else ' — report-only'})"
     )
+
+    report_cost(report.cases)
 
     failed = False
     if rate < MIN_TRAJECTORY_PASS:

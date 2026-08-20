@@ -61,6 +61,35 @@ pydantic-ai>=2.8,<3
 # The [fastapi] extra adds per-request root spans (opentelemetry asgi/fastapi).
 logfire[fastapi]>=4,<5
 
+# Chat agent v2 (/chat/v2) — the tiered loop: one planning call, parallel
+# graph queries executed in code, one synthesis call. Built on
+# `langchain.agents.create_agent` one-shot structured-output calls, NOT on
+# deepagents' own ReAct loop (that loop is what /chat v1 already does, and
+# measured 5.6 sequential model calls per turn against the tiered loop's 2).
+# langgraph arrives as langchain's execution engine.
+#
+# deepagents is declared for the capabilities the tiered loop does not use
+# yet — subagents, durable state, human-in-the-loop — which the pre-bid check
+# workflow and the self-enriching cards need. It also pulls
+# langchain-anthropic, which moves the (unused, transitive) `anthropic` pin
+# from 0.116 to 0.125; nothing in this repo imports it.
+#
+# Measured RSS on this lock, Python 3.11 (starter instance is 512 MB):
+#     import api.main                        226 MB   2.92 s
+#     + langchain/langgraph/langchain-openai 254 MB   0.82 s   (+28 MB)
+#     + deepagents                           362 MB   2.51 s   (+107 MB)
+#
+# Hence two rules, enforced in api/chat/v2/__init__.py:
+#   * the langchain stack is imported LAZILY, on the first /chat/v2 request,
+#     so an idle deploy and all v1 traffic stay at today's 226 MB;
+#   * `deepagents` is NOT imported anywhere yet. It is installed and ready,
+#     but importing it costs more than the entire tiered loop does. It gets
+#     imported when the subagent work actually lands, not before.
+langchain>=1.3,<2
+langchain-openai>=1.5,<2
+langgraph>=1.2,<2
+deepagents>=0.7,<1
+
 # Auth + email
 bcrypt>=4.0,<6
 PyJWT>=2.8,<3
