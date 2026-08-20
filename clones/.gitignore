@@ -1,0 +1,9 @@
+node_modules/
+.next/
+out/
+next-env.d.ts
+tsconfig.tsbuildinfo
+.vercel
+
+# The repo root ignores videos/ (HyperFrames); cloned site videos must be tracked.
+!videos/
