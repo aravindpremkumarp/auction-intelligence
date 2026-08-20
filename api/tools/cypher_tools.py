@@ -1184,7 +1184,14 @@ async def graph_property_count_async(refresh: bool = False) -> int | None:
 # per-turn system prompt. The agent only needs these when composing
 # run_cypher queries; pulling them on demand keeps the baseline chat
 # prompt ~1.5K tokens lighter.
-_CYPHER_PATTERN_RULES = [
+#
+# Public because the v2 tier-3 composer renders the same list into its prompt
+# rather than keeping a third hand-transcribed copy — the spike had one and it
+# drifted. (The second copy, `api/agent.py::_CYPHER_CAPABILITY.instructions`,
+# is deliberately left alone: it is a denser rewrite carrying one extra rule,
+# it is part of v1's frozen prompt prefix, and rewriting it would bust the
+# DeepSeek prompt cache for every v1 turn to no benefit. It retires with v1.)
+CYPHER_PATTERN_RULES = [
     "HAS_ASSET_CATEGORY, HAS_PROPERTY_TYPE, CONDUCTED_BY, HAS_BORROWER, "
     "and LOCATED_IN_* all start on AuctionProperty. MATCH each relationship "
     "independently from `a` and join with commas. Do NOT chain "
@@ -1483,7 +1490,7 @@ _SCHEMA_CACHE_NODE_ID = "default"
 def _cypher_patterns() -> dict:
     """Static run_cypher guidance, always sourced from code (never the durable
     cache) so edits to the rules/examples take effect immediately."""
-    return {"rules": _CYPHER_PATTERN_RULES, "examples": _CYPHER_PATTERN_EXAMPLES}
+    return {"rules": CYPHER_PATTERN_RULES, "examples": _CYPHER_PATTERN_EXAMPLES}
 
 
 def _read_schema_cache_node() -> dict | None:
