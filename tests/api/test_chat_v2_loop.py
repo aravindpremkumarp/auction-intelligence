@@ -449,3 +449,71 @@ def test_a_genuine_direct_answer_still_ships(monkeypatch, stub_tools):
 
     assert out.answer.startswith("I can't set up alerts")
     assert out.model_calls == 1   # no wasted synthesis call
+
+
+# ── regressions found by code review ────────────────────────────────────────
+
+def test_truncation_does_not_mutate_the_executed_calls():
+    """`_truncate` shapes a PROMPT. It used to trim through the reference the
+    payload held, making the cut permanent: the next turn carried 5 scope ids
+    instead of 25, the answer gate flagged every id past row 5 as invented,
+    and the browser got a 5-row artifact under an answer saying "22 matches"."""
+    from api.chat.v2.executor import ExecutedCall
+
+    call = ExecutedCall(tool="search_auctions", args={}, result={
+        "total_count": 200,
+        "results": [{"auction_id": str(i), "pad": "x" * 200} for i in range(200)],
+    })
+    text = L._truncate([call], budget=4000)
+
+    assert "rows truncated for context" in text          # the prompt was trimmed
+    assert len(call.result["results"]) == 200            # the record was not
+    assert "_note" not in call.result
+
+
+def test_repeated_truncation_is_stable():
+    """Tier 2 truncates twice — once at the 8 KB follow-up budget, once at the
+    24 KB synthesis budget. The smaller budget must not shrink what the larger
+    one can still show."""
+    from api.chat.v2.executor import ExecutedCall
+
+    call = ExecutedCall(tool="search_auctions", args={}, result={
+        "total_count": 200,
+        "results": [{"auction_id": str(i), "pad": "x" * 200} for i in range(200)],
+    })
+    L._truncate([call], budget=L.FOLLOWUP_BUDGET)
+    wide = L._truncate([call], budget=10_000_000)
+
+    assert "rows truncated" not in wide
+    assert wide.count("auction_id") == 200
+
+
+def test_tier3_survives_an_exhausted_tool_budget(monkeypatch, stub_tools):
+    """execute_plan returns [] once the per-turn cap is spent. Indexing [0]
+    turned a budget cap into a 500 — after the model work was already paid
+    for."""
+    planner = _StubAgent([Plan(cypher_request="cheapest per bank")])
+    synth = _StubAgent([Synthesis(answer="I couldn't run that query.")])
+    _wire(monkeypatch, planner, synth)
+
+    out = _run(budget=TurnBudget(max_tool_calls=0))
+
+    assert out.answer == "I couldn't run that query."
+    assert out.executed and "budget exhausted" in out.executed[0].error
+
+
+def test_tier3_survives_the_budget_running_out_mid_way(monkeypatch):
+    """Enough budget for the schema read, none left for the query itself."""
+    monkeypatch.setattr(L, "CYPHER_TOOLS", {
+        "describe_schema": lambda **kw: {"labels": ["AuctionProperty"]},
+        "run_cypher": lambda **kw: {"rows": []},
+    })
+    planner = _StubAgent([Plan(cypher_request="cheapest per bank")])
+    synth = _StubAgent([Synthesis(answer="Couldn't complete that.")])
+    composer = _StubAgent([CypherSpec(cypher="MATCH (a) RETURN a")])
+    _wire(monkeypatch, planner, synth, composer)
+
+    out = _run(budget=TurnBudget(max_tool_calls=1))
+
+    assert out.answer == "Couldn't complete that."
+    assert any("budget exhausted" in (c.error or "") for c in out.executed)

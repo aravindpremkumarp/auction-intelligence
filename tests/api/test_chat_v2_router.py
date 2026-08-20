@@ -23,6 +23,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from api.chat.v2.schemas import ChatV2Request
 from api.main import app
 
 
@@ -267,3 +268,47 @@ def test_stream_reports_failure_in_band(client, monkeypatch):
 
     assert events[-1][0] == "error"
     assert "please retry" in events[-1][1]["detail"]
+
+
+# ── regression found by code review ─────────────────────────────────────────
+
+def test_client_disconnect_cancels_the_agent_turn(client, monkeypatch):
+    """Without this the detached turn keeps calling the model and querying
+    Neo4j for a client that has gone — and the frontend's 75s idle guard
+    deliberately does NOT retry, precisely because it assumes the server is
+    still working. v1 ran the agent inline, so cancellation propagated free."""
+    import asyncio
+
+    started = asyncio.Event()
+    state = {"cancelled": False}
+
+    async def slow_run_turn(question, *, on_event=None, **kwargs):
+        started.set()
+        try:
+            if on_event:
+                on_event("status", {"label": "Planning…"})
+            await asyncio.sleep(30)
+        except asyncio.CancelledError:
+            state["cancelled"] = True
+            raise
+        raise AssertionError("should have been cancelled")
+
+    monkeypatch.setattr("api.chat.v2.loop.run_turn", slow_run_turn)
+
+    async def drive():
+        from api.chat.v2.router import _stream_turn
+        from api.chat.router import _sse
+
+        ctx = {"filters": {}, "last_ids": [], "last_total_count": None,
+               "turn": 0, "model_name": "flash", "reasoning_effort": None,
+               "panel": []}
+        req = ChatV2Request(message="q")
+        gen = _stream_turn(req, ctx, _sse)
+
+        first = await gen.__anext__()          # the status frame
+        assert "Planning" in first
+        await gen.aclose()                      # the client goes away
+        await asyncio.sleep(0.05)               # let the cancellation land
+
+    asyncio.run(drive())
+    assert state["cancelled"], "the agent turn outlived the disconnected client"

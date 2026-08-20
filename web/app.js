@@ -1405,6 +1405,9 @@ function _isRankedTool(tool) { return tool === 'select_properties'; }
 // forces the "relevance" (as-answered) order; anything else restores the sort
 // the user last picked, so switching away from a ranking doesn't strand them.
 function setPanelSource(tool) {
+  // Reasons belong to the turn that produced them. A panel repopulated by
+  // anything other than a chat turn must not keep showing them.
+  if (!tool) setRecommendation(null);
   panelIsRanked = _isRankedTool(tool);
   if (panelIsRanked) {
     currentSort = 'relevance';
@@ -1778,7 +1781,7 @@ function renderResultsList() {
   countEl.textContent = `${total.toLocaleString('en-IN')} match${total === 1 ? '' : 'es'}`;
   const sortLabel = SORT_LABEL[currentSort] || SORT_LABEL.date_asc;
   subEl.textContent = total > shown ? `showing ${shown} · ${sortLabel}` : sortLabel;
-  list.innerHTML = cards.map(c => propCardHtml(c, false)).join('');
+  list.innerHTML = cards.map(c => propCardHtml(c, false, '', true)).join('');
   wireCardClicks();
   _setMtabCount(total);
 }
@@ -1834,7 +1837,13 @@ function setRecommendation(rec) {
   rec.picks.forEach(p => { if (p && p.auction_id) currentPicks.set(String(p.auction_id), p); });
 }
 const _BADGE_TONES = { good: 'badge-good', warn: 'badge-warn', neutral: 'badge-neutral' };
-function _pickHtml(id) {
+// `withReason` is opt-in and defaults OFF. propCardHtml also renders the
+// browse grid and the saved-deadline timeline, and a reason written for "the
+// cheapest flats in Chennai" is nonsense on a watchlist card for a different
+// city — it reads as if the agent recommended it for the view you are in.
+// Only the matches panel, which IS the chat's result set, passes true.
+function _pickHtml(id, withReason) {
+  if (!withReason) return '';
   const pick = currentPicks.get(String(id));
   if (!pick) return '';
   const badges = Array.isArray(pick.badges) ? pick.badges.slice(0, 3) : [];
@@ -1845,7 +1854,7 @@ function _pickHtml(id) {
         ).join('')}</div>` : ''}`;
 }
 
-function propCardHtml(c, urgent, countdown) {
+function propCardHtml(c, urgent, countdown, withReason) {
   const isSaved = saved.has(c.id);
   const dropBadge = c.drop
     ? `<div class="price-drop" title="Reserve price previously ${escapeHtml(c.drop.previous)}">${c.drop.pct}% drop from ${escapeHtml(c.drop.previous)}</div>`
@@ -1865,7 +1874,7 @@ function propCardHtml(c, urgent, countdown) {
         </div>
         <div class="price">${escapeHtml(c.price)}</div>
         ${dropBadge}
-        ${_pickHtml(c.id)}
+        ${_pickHtml(c.id, withReason)}
         ${urgent && countdown ? `<div class="countdown">${_CARD_ICO_CLOCK}<span>auction ${escapeHtml(countdown)}</span></div>` : ''}
       </div>
       <button class="card-save ${isSaved ? 'saved' : ''}" data-save-id="${escapeHtml(c.id)}" title="${isSaved ? 'saved' : 'save to watchlist'}" aria-label="save">

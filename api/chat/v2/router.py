@@ -176,15 +176,18 @@ async def _stream_turn(req: ChatV2Request, ctx: dict, sse) -> AsyncIterator[str]
     ))
 
     try:
+        drain: asyncio.Task | None = None
         while True:
             drain = asyncio.create_task(queue.get())
             done, _ = await asyncio.wait({drain, task},
                                          return_when=asyncio.FIRST_COMPLETED)
             if drain in done:
                 event, payload = drain.result()
+                drain = None
                 yield sse(event, payload)
                 continue
             drain.cancel()
+            drain = None
             break
 
         # Anything queued between the last drain and the task finishing.
@@ -201,6 +204,17 @@ async def _stream_turn(req: ChatV2Request, ctx: dict, sse) -> AsyncIterator[str]
         logger.exception("chat v2 stream failed")
         yield sse("error", {"detail": "chat agent failed — please retry"})
         return
+    finally:
+        # A disconnecting client throws GeneratorExit in here. Without this the
+        # detached turn keeps calling the model and querying Neo4j for someone
+        # who has gone — and the frontend's 75s idle guard deliberately does
+        # NOT retry, precisely because it assumes the server is still working.
+        # v1 ran the agent inline, so cancellation propagated for free; this
+        # restores that on a 512 MB / 0.5 vCPU instance.
+        if drain is not None and not drain.done():
+            drain.cancel()
+        if not task.done():
+            task.cancel()
 
     # The answer arrives whole rather than token-by-token in Phase 1: the
     # synthesis call returns one structured object. Streaming the characters

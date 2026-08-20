@@ -304,10 +304,23 @@ async def _tier3(request: str, question: str, model_name: str,
     """
     from api.chat.v2.agents import build_tier_agent
 
-    schema_call = (await execute_plan(
+    # execute_plan returns [] when the per-turn tool budget is already spent
+    # (reachable: a 10-call round 1, then need_more, then a cypher_request).
+    # Indexing [0] there turned a budget cap into a 500 after the model work
+    # was already paid for.
+    schema_calls = await execute_plan(
         [{"tool": "describe_schema", "args": {}}],
         budget=budget, tier=3, registry=CYPHER_TOOLS,
-    ))[0]
+    )
+    if not schema_calls:
+        logger.warning("chat v2: tool budget exhausted before tier 3 could start")
+        return [ExecutedCall(
+            tool="describe_schema", args={}, tier=3,
+            error="tool budget exhausted before the schema could be read",
+            result={"error": "tool budget exhausted before the schema "
+                             "could be read"},
+        )]
+    schema_call = schema_calls[0]
     schema_text = _schema_brief(schema_call.result)
 
     composer = build_tier_agent(
@@ -331,12 +344,22 @@ async def _tier3(request: str, question: str, model_name: str,
             break
 
         emit("status", {"label": f"Querying the graph: {spec.description or request}"})
-        executed = (await execute_plan(
+        ran = await execute_plan(
             [{"tool": "run_cypher", "args": {
                 "cypher": spec.cypher, "params": spec.params,
                 "description": spec.description or request}}],
             budget=budget, tier=3, registry=CYPHER_TOOLS,
-        ))[0]
+        )
+        if not ran:   # budget spent mid-tier-3 — report, never raise
+            logger.warning("chat v2: tool budget exhausted mid tier 3")
+            out.append(ExecutedCall(
+                tool="run_cypher", args={"cypher": spec.cypher}, tier=3,
+                error="tool budget exhausted before the query could run",
+                result={"error": "tool budget exhausted before the query "
+                                 "could run"},
+            ))
+            break
+        executed = ran[0]
         out.append(executed)
 
         if executed.error and attempt == 0:
@@ -394,9 +417,23 @@ def _scope_block(filters: dict, total: int | None, ids: list[str]) -> str:
     )
 
 
+#: Rows kept per result when a payload has to be trimmed for the prompt.
+_ROWS_WHEN_TRUNCATED = 5
+
+
 def _truncate(executed: list[ExecutedCall], budget: int) -> str:
     """Serialize the results for the synthesizer, trimming rows before
-    truncating text — a half-cut JSON blob is worse than fewer complete rows."""
+    truncating text — a half-cut JSON blob is worse than fewer complete rows.
+
+    The trim is applied to a **copy**. It used to mutate `ExecutedCall.result`
+    through the reference the payload held, which made a prompt-shaping
+    decision permanent: `harvest_scope` then carried 5 ids instead of 25 into
+    the next turn, `check_answer` flagged every id past row 5 as invented, and
+    the browser was handed a 5-row artifact under an answer saying "22
+    matches". Worst on the tier-2 path, where the 8 KB follow-up budget would
+    permanently shrink results the 24 KB synthesis budget could have shown in
+    full.
+    """
     payload = [
         {"tool": c.tool, "args": c.args, "result": c.result, "error": c.error}
         for c in executed
@@ -404,13 +441,19 @@ def _truncate(executed: list[ExecutedCall], budget: int) -> str:
     text = json.dumps(payload, default=str)
     if len(text) <= budget:
         return text
+
+    trimmed = []
     for entry in payload:
         res = entry.get("result")
         if isinstance(res, dict) and isinstance(res.get("results"), list):
-            res["results"] = res["results"][:5]
-            res["_note"] = ("rows truncated for context — counts in "
-                            "total_count remain exact")
-    return json.dumps(payload, default=str)[:budget]
+            entry = {**entry, "result": {
+                **res,
+                "results": res["results"][:_ROWS_WHEN_TRUNCATED],
+                "_note": ("rows truncated for context — counts in "
+                          "total_count remain exact"),
+            }}
+        trimmed.append(entry)
+    return json.dumps(trimmed, default=str)[:budget]
 
 
 def _status_label(call: ExecutedCall) -> str:
