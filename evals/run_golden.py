@@ -48,6 +48,81 @@ MAX_CONCURRENCY = int(os.getenv("EVAL_MAX_CONCURRENCY", "4"))
 CHAT_MODEL = os.getenv("EVAL_CHAT_MODEL", "flash")
 
 
+def report_cost(cases, label: str = "") -> None:
+    """Print token/latency totals for a completed run.
+
+    Cost is REPORTED, never gated — a cheap wrong answer is still wrong. It
+    exists because the tiered loop's claim was that it is cheaper as well as
+    faster, and until now the eval measured neither.
+
+    Prints nothing when no case reported usage, so an agent binding without
+    accounting degrades quietly instead of breaking the runner.
+    """
+    from evals.tasks import USAGE_KEYS
+
+    totals: dict[str, float] = {}
+    counted = 0
+    for c in cases:
+        usage = getattr(getattr(c, "output", None), "usage", None)
+        if not isinstance(usage, dict) or not usage:
+            continue
+        counted += 1
+        for k in USAGE_KEYS:
+            v = usage.get(k)
+            if isinstance(v, (int, float)):
+                totals[k] = totals.get(k, 0) + v
+    if not counted:
+        print("\nCost: not reported by this agent.")
+        return
+
+    n = counted
+    inp = totals.get("input_tokens", 0)
+    cached = totals.get("cached_tokens", 0)
+    print(f"\nCost over {n} case(s){label}:")
+    print(f"  model calls   {totals.get('llm_calls', 0):>12,.0f}  "
+          f"({totals.get('llm_calls', 0) / n:.2f} per case)")
+    print(f"  input tokens  {inp:>12,.0f}  ({inp / n:,.0f} per case)")
+    print(f"  cached input  {cached:>12,.0f}  "
+          # The number that says whether a stable prompt prefix is actually
+          # being billed at the cache rate. A steady 0 means it is not.
+          f"({(cached / inp * 100) if inp else 0:.1f}% of input)")
+    print(f"  output tokens {totals.get('output_tokens', 0):>12,.0f}  "
+          f"({totals.get('output_tokens', 0) / n:,.0f} per case)")
+    if totals.get("seconds"):
+        print(f"  agent seconds {totals['seconds']:>12,.1f}  "
+              f"({totals['seconds'] / n:.1f} per case)")
+
+
+
+def with_progress(task, total: int):
+    """Wrap the eval task so each completed case prints a line to stderr.
+
+    The runner used to print nothing until every case finished, so a
+    48-minute run was indistinguishable from a hung one. Wrapping the task
+    rather than hooking the library keeps this working across pydantic-evals
+    versions, and it counts *completions* — which, at concurrency 4, is the
+    number you actually want.
+
+    stderr on purpose: the results table on stdout stays parseable.
+    """
+    import functools
+    import time
+
+    done = {"n": 0}
+
+    @functools.wraps(task)
+    async def wrapped(question: str):
+        started = time.perf_counter()
+        try:
+            return await task(question)
+        finally:
+            done["n"] += 1
+            print(f"[{done['n']:>3}/{total}] {time.perf_counter() - started:5.1f}s  "
+                  f"{question[:64]}", file=sys.stderr, flush=True)
+
+    return wrapped
+
+
 async def main() -> int:
     # Stream the eval run to Logfire when configured (no-op otherwise).
     from api.telemetry import configure_telemetry
@@ -58,7 +133,7 @@ async def main() -> int:
     dataset = build_dataset(include_judge=include_judge)
     print(f"agent under test: {agent_id()}")
     report = await dataset.evaluate(
-        golden_task(),
+        with_progress(golden_task(), len(dataset.cases)),
         name=f"golden-questions-{agent_id()}",
         max_concurrency=MAX_CONCURRENCY,
     )
@@ -102,6 +177,8 @@ async def main() -> int:
         f"= {cite_rate:.1%} (threshold {MIN_CITATION_PASS:.0%}"
         f"{'' if MIN_CITATION_PASS else ' — report-only'})"
     )
+
+    report_cost(report.cases)
 
     failed = False
     if rate < MIN_TRAJECTORY_PASS:

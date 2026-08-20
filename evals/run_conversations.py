@@ -126,6 +126,10 @@ async def main() -> int:
             for k in CONVERSATION_GATES
         ):
             passed += 1
+    from evals.run_golden import report_cost
+
+    report_cost(report.cases, label=" (summed across turns)")
+
     rate = passed / total if total else 0.0
     print(
         f"\nConversation pass rate (all gates): {passed}/{total} = {rate:.1%} "

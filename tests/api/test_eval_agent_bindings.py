@@ -56,6 +56,16 @@ class _Call:
 
 
 class _Result:
+    """Stands in for a v2 TurnResult, carrying the same fields the real one
+    does — including the usage counters, so the bindings are exercised against
+    the real shape rather than a subset."""
+
+    model_calls = 0
+    input_tokens = 0
+    cached_tokens = 0
+    output_tokens = 0
+    seconds = 0.0
+
     def __init__(self, answer, executed, filters=None, total=None, ids=None):
         self.answer = answer
         self.executed = executed
@@ -198,3 +208,99 @@ def test_dimension_change_conversation_exists():
     pivot = convo.turns[1]
     assert pivot.topic_switch
     assert pivot.forbid_tool_arg_values == {"city": "Chennai", "max_price": 5000000}
+
+
+# ── cost accounting ─────────────────────────────────────────────────────────
+
+def test_golden_v2_reports_cost(monkeypatch):
+    """The tiered loop's claim was that it is cheaper as well as faster. Until
+    now the eval measured neither."""
+    class _R(_Result):
+        model_calls = 2
+        input_tokens = 12_739
+        cached_tokens = 12_288
+        output_tokens = 916
+        seconds = 20.9
+
+    async def fake_run_turn(question, **kwargs):
+        return _R("ok", [_Call("search_auctions", {}, _ROWS)])
+
+    monkeypatch.setattr("api.chat.v2.loop.run_turn", fake_run_turn)
+    usage = asyncio.run(tasks.golden_v2("q")).usage
+
+    assert usage == {"llm_calls": 2, "input_tokens": 12_739,
+                     "cached_tokens": 12_288, "output_tokens": 916,
+                     "seconds": 20.9}
+
+
+def test_both_agents_report_the_same_keys():
+    """Different key names would make the two runs incomparable, which is the
+    whole point of measuring them."""
+    assert tasks.USAGE_KEYS == ("llm_calls", "input_tokens", "cached_tokens",
+                                "output_tokens", "seconds")
+
+
+def test_conversation_usage_sums_across_turns(monkeypatch):
+    """Multi-turn is where the two designs diverge most: v1 re-sends a growing
+    transcript, v2 sends a fixed-size scope object."""
+    class _R(_Result):
+        model_calls = 2
+        input_tokens = 10_000
+        cached_tokens = 8_000
+        output_tokens = 500
+        seconds = 15.0
+
+    async def fake_run_turn(question, **kwargs):
+        return _R("ok", [_Call("search_auctions", {}, _ROWS)],
+                  filters={}, total=2, ids=["837057"])
+
+    monkeypatch.setattr("api.chat.v2.loop.run_turn", fake_run_turn)
+    out = asyncio.run(tasks.conversation_v2(_Convo(["a", "b", "c"])))
+
+    assert out.usage["llm_calls"] == 6
+    assert out.usage["input_tokens"] == 30_000
+    assert out.usage["seconds"] == 45.0
+
+
+def test_missing_usage_degrades_to_empty():
+    """An agent binding with no accounting must not break the runner."""
+    assert tasks._sum_usage([{}, {}]) == {}
+    assert tasks._sum_usage([]) == {}
+
+
+def test_a_result_without_counters_does_not_crash_the_run():
+    """Cost is telemetry. A renamed TurnResult field should lose the numbers,
+    not fail a correctness run that is otherwise fine."""
+    assert tasks._v2_usage(object()) == {}
+
+
+def test_partial_usage_is_kept(monkeypatch):
+    """Providers differ on which fields they return; take what is there."""
+    assert tasks._sum_usage([{"input_tokens": 100}, {"input_tokens": 50}]) == {
+        "input_tokens": 150}
+
+
+def test_cost_report_survives_an_agent_that_reports_nothing(capsys):
+    from evals.run_golden import report_cost
+
+    class _C:
+        output = type("O", (), {"usage": {}})()
+
+    report_cost([_C(), _C()])
+    assert "not reported" in capsys.readouterr().out
+
+
+def test_cost_report_shows_the_cache_hit_rate(capsys):
+    """The single number that says whether a stable prompt prefix is actually
+    being billed at the cache rate."""
+    from evals.run_golden import report_cost
+
+    class _C:
+        output = type("O", (), {"usage": {
+            "llm_calls": 2, "input_tokens": 1000, "cached_tokens": 900,
+            "output_tokens": 100, "seconds": 10.0}})()
+
+    report_cost([_C()])
+    out = capsys.readouterr().out
+    assert "90.0% of input" in out
+    assert "2.00 per case" in out

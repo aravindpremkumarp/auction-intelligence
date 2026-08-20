@@ -34,6 +34,44 @@ from evals.dataset import ChatTaskOutput
 CHAT_MODEL = os.getenv("EVAL_CHAT_MODEL", "flash")
 
 
+#: The cost keys both agents report, so the two runs line up column for column.
+USAGE_KEYS = ("llm_calls", "input_tokens", "cached_tokens", "output_tokens",
+              "seconds")
+
+
+def _sum_usage(per_turn: list[dict]) -> dict:
+    """Add up per-turn usage for a whole conversation."""
+    total: dict = {}
+    for u in per_turn:
+        for k in USAGE_KEYS:
+            v = u.get(k)
+            if isinstance(v, (int, float)):
+                total[k] = round(total.get(k, 0) + v, 2)
+    return total
+
+
+def _v2_usage(result) -> dict:
+    """Map a v2 `TurnResult` onto the shared key names.
+
+    Reads defensively, matching `_usage_fields` on the v1 side: cost is
+    telemetry, and a renamed field should degrade to "no data" rather than
+    fail a correctness run that is otherwise fine.
+    """
+    fields = {
+        "llm_calls": "model_calls",
+        "input_tokens": "input_tokens",
+        "cached_tokens": "cached_tokens",
+        "output_tokens": "output_tokens",
+        "seconds": "seconds",
+    }
+    out = {}
+    for key, attr in fields.items():
+        value = getattr(result, attr, None)
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            out[key] = value
+    return out
+
+
 def agent_id() -> str:
     value = (os.getenv("EVAL_AGENT") or "v1").strip().lower()
     return value if value in {"v1", "v2"} else "v1"
@@ -48,6 +86,7 @@ async def golden_v1(question: str) -> ChatTaskOutput:
 
     from api.agent import ChatDeps, agent, build_chat_run_overrides
     from api.chat.panel import cited_ids, known_auction_ids
+    from api.chat.router import _usage_fields
 
     result = await agent.run(
         question, deps=ChatDeps(), **build_chat_run_overrides(CHAT_MODEL, None)
@@ -70,6 +109,10 @@ async def golden_v1(question: str) -> ChatTaskOutput:
         tools_called=tools,
         surfaced_auction_ids=sorted(surfaced),
         cited_auction_ids=cited_ids(answer, surfaced),
+        # Reuse the router's extractor rather than re-deriving: it is already
+        # defensive about pydantic-ai field renames, degrading to {} instead
+        # of raising, which is exactly what an eval wants.
+        usage=_usage_fields(result),
     )
 
 
@@ -80,9 +123,10 @@ async def conversation_v1(convo) -> ConversationOutput:
 
     from api.agent import ChatDeps, agent, build_chat_run_overrides
     from api.chat.panel import panel_sync_ids, turn_panel_ids
-    from api.chat.router import _extract_active_filters, _tool_returns
+    from api.chat.router import _extract_active_filters, _tool_returns, _usage_fields
 
     overrides = build_chat_run_overrides(CHAT_MODEL, None)
+    per_turn_usage: list[dict] = []
     history = None
     active_filters: dict = {}
     last_total: int | None = None
@@ -99,6 +143,7 @@ async def conversation_v1(convo) -> ConversationOutput:
             turn.message, message_history=history, deps=deps, **overrides
         )
         history = result.all_messages()
+        per_turn_usage.append(_usage_fields(result))
         active_filters, last_total = _extract_active_filters(history)
 
         seen: set[str] = set()
@@ -133,7 +178,7 @@ async def conversation_v1(convo) -> ConversationOutput:
             panel_ids_before=panel_before,
             panel_ids=list(panel),
         ))
-    return ConversationOutput(turns=turns_out)
+    return ConversationOutput(turns=turns_out, usage=_sum_usage(per_turn_usage))
 
 
 # ── v2: the tiered loop ─────────────────────────────────────────────────────
@@ -167,6 +212,7 @@ async def golden_v2(question: str) -> ChatTaskOutput:
         tools_called=_tools_called(result.executed),
         surfaced_auction_ids=sorted(surfaced),
         cited_auction_ids=cited_ids(answer, surfaced),
+        usage=_v2_usage(result),
     )
 
 
@@ -186,6 +232,7 @@ async def conversation_v2(convo) -> ConversationOutput:
     panel: list[str] = []
     all_returns: list[tuple[str, Any]] = []
     turns_out: list[TurnOutput] = []
+    per_turn_usage: list[dict] = []
 
     for turn in convo.turns:
         result = await run_turn(
@@ -195,6 +242,7 @@ async def conversation_v2(convo) -> ConversationOutput:
             last_total_count=last_total,
             model_name=CHAT_MODEL,
         )
+        per_turn_usage.append(_v2_usage(result))
         scope = result.filters
         last_total = result.last_total_count
         last_ids = result.last_ids
@@ -216,7 +264,7 @@ async def conversation_v2(convo) -> ConversationOutput:
             panel_ids_before=panel_before,
             panel_ids=list(panel),
         ))
-    return ConversationOutput(turns=turns_out)
+    return ConversationOutput(turns=turns_out, usage=_sum_usage(per_turn_usage))
 
 
 # ── selection ───────────────────────────────────────────────────────────────
