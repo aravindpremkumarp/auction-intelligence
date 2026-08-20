@@ -111,13 +111,15 @@ async def run_turn(
     catalogue = render_catalogue(PLANNER_TOOLS)
     planner = build_tier_agent(
         system_prompt=prompts.PLANNER_SYSTEM.format(
-            shared=prompts.shared_context(), catalogue=catalogue),
+            shared=prompts.shared_context(), policy=prompts.SHARED_POLICY,
+            catalogue=catalogue),
         response_format=Plan,
         model_name=model_name,
         reasoning_effort=reasoning_effort,
     )
     synthesizer = build_tier_agent(
-        system_prompt=prompts.SYNTH_SYSTEM.format(shared=prompts.shared_context()),
+        system_prompt=prompts.SYNTH_SYSTEM.format(
+            shared=prompts.shared_context(), policy=prompts.SHARED_POLICY),
         response_format=Synthesis,
         model_name=model_name,
         reasoning_effort=reasoning_effort,

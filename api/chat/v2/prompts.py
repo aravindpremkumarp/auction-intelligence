@@ -3,12 +3,19 @@ api/chat/v2/prompts.py
 ----------------------
 Prompt text for the three tiers.
 
-Domain knowledge is **not** restated here. `modes/_shared.md` already holds
-the graph schema, the enum values, the synonym map and the price/date
-conventions, and v1 reads it too — a second copy would drift and the answers
-would quietly diverge between endpoints. Cypher rules likewise come from
-`api/tools/cypher_tools.CYPHER_PATTERN_RULES`, the list `describe_schema()`
-already surfaces.
+Nothing domain-specific is restated here. Three files own it, and v1 reads
+the same three:
+
+* `modes/_shared.md` — graph schema, enums, synonym map, price/date conventions
+* `api/policy.py::SHARED_POLICY` — what the agent may claim and what is
+  off-limits
+* `cypher_tools.CYPHER_PATTERN_RULES` — the rules `describe_schema()` surfaces
+
+The policy import is not decoration. v2 originally shipped with the schema
+brief but no policy, and the golden eval failed it on four refusal cases v1
+passes — litigation, market valuations, and two "track this for me" requests
+whose correct answer names the Save button. Removing `SHARED_POLICY` from
+these prompts reproduces that.
 
 What each prompt adds on top is only the part that is specific to being a
 planner, a synthesizer, or a Cypher composer.
@@ -25,6 +32,7 @@ from __future__ import annotations
 import functools
 from pathlib import Path
 
+from api.policy import SHARED_POLICY as SHARED_POLICY  # re-exported for the loop
 from api.tools.cypher_tools import CYPHER_PATTERN_RULES
 
 _MODES_DIR = Path(__file__).resolve().parents[3] / "modes"
@@ -45,6 +53,10 @@ def cypher_rules() -> str:
 
 
 PLANNER_SYSTEM = """{shared}
+
+---
+
+{policy}
 
 ---
 
@@ -71,9 +83,10 @@ p25/median/p75, set intersections across filters, or a condition on group
 counts (borrowers with more than one property). A raw-Cypher engine with the
 live schema handles those.
 
-Use `direct_answer` only for greetings, meta questions about what this system
-holds, or to say plainly that the graph cannot answer something. Never use it
-for anything a tool could look up.
+Use `direct_answer` for greetings, meta questions about what this system
+holds, and — importantly — for anything the rules above put out of scope:
+say plainly that it is not covered, and name the closest thing that is.
+Never use it for something a tool could look up.
 
 `scope`: "carry" when this question narrows the previous one, "reset" when it
 changes the subject. A question about a different dimension entirely ("which
@@ -96,6 +109,10 @@ Question: {question}
 {followup}"""
 
 SYNTH_SYSTEM = """{shared}
+
+---
+
+{policy}
 
 ---
 
