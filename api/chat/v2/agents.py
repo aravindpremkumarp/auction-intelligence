@@ -70,13 +70,26 @@ def chat_model(model_name: str, reasoning_effort: str | None = None):
     )
 
 
-def model_middleware(fallback_to: str | None = None) -> list[Any]:
+#: Model calls one TIER may make. A tier is a single structured-output call,
+#: so anything above this is a runaway, not a hard question.
+TIER_RUN_LIMIT = 3
+
+
+def model_middleware(fallback_to: str | None = None,
+                     run_limit: int = TIER_RUN_LIMIT) -> list[Any]:
     """The off-the-shelf stack every tier runs behind.
 
     `ToolErrorMiddleware` and `ToolCallLimitMiddleware` are absent on purpose:
     they only fire inside a graph node that executes tools, and these agents
     have no tools. Their semantics live in `executor.py`, where the calls
     actually run, so the behaviour exists once instead of twice.
+
+    `run_limit` is a parameter because `api/chat/deep` shares this stack and a
+    ReAct loop is a different shape: the spike measured a multi-hop question at
+    9 model calls inside ONE graph run, where a tier is 1 by construction.
+    Leaving the tier's limit on the deep loop would `error` out every hard
+    question and score the A/B against a loop that was never allowed to
+    finish.
     """
     import httpx
     from langchain.agents.middleware import (
@@ -94,9 +107,9 @@ def model_middleware(fallback_to: str | None = None) -> list[Any]:
             backoff_factor=2.0,
             initial_delay=1.0,
         ),
-        # One tier should never need more than a couple of calls; `error` so a
-        # runaway surfaces instead of silently returning a partial answer.
-        ModelCallLimitMiddleware(run_limit=3, exit_behavior="error"),
+        # `error` so a runaway surfaces instead of silently returning a
+        # partial answer.
+        ModelCallLimitMiddleware(run_limit=run_limit, exit_behavior="error"),
     ]
     if fallback_to:
         # Emergency path only. A flash->pro hop changes per-turn cost AND
