@@ -32,8 +32,13 @@ class _StubGraph:
     """Returns a scripted final state, recording the config it was invoked
     with — the thread_id is the whole memory contract, so it is asserted."""
 
-    def __init__(self, messages, *, sink=None, tool_calls=(), fail=None):
+    def __init__(self, messages, *, sink=None, tool_calls=(), fail=None,
+                 prior=()):
         self.messages = messages
+        #: Messages already in the checkpoint from earlier turns. The real
+        #: graph returns these too, which is what makes summing the returned
+        #: state's usage re-count them.
+        self.prior = list(prior)
         self.sink = sink
         self.tool_calls = tool_calls
         self.fail = fail
@@ -45,10 +50,28 @@ class _StubGraph:
         self.seen_input = state
         if self.fail is not None:
             raise self.fail
+        # Fire the callbacks for THIS turn's model calls, the way a real graph
+        # does. Only the new messages: an earlier turn's calls already
+        # happened and are not billed again.
+        for handler in (config or {}).get("callbacks") or []:
+            for message in self.messages:
+                if message.usage_metadata:
+                    handler.on_llm_end(_llm_result(message.usage_metadata))
         # Simulate the graph running tools inside itself.
         for name, args, result in self.tool_calls:
             self.sink.calls.append(_call(name, args, result))
-        return {"messages": self.messages}
+        return {"messages": [*self.prior, *self.messages]}
+
+
+def _llm_result(usage):
+    """What a chat model hands its callbacks when a call completes."""
+    from langchain_core.messages import AIMessage
+    from langchain_core.outputs import ChatGeneration, LLMResult
+
+    usage = {"total_tokens": usage.get("input_tokens", 0)
+                            + usage.get("output_tokens", 0), **usage}
+    return LLMResult(generations=[[ChatGeneration(
+        message=AIMessage(content="", usage_metadata=usage))]])
 
 
 def _call(tool, args, result, ui_rows=None):
@@ -127,6 +150,38 @@ def test_the_thread_id_reaches_the_graph(monkeypatch):
 
 
 # ── usage accounting ────────────────────────────────────────────────────────
+
+def test_an_earlier_turns_tokens_are_not_billed_again(monkeypatch):
+    """The checkpointer means `ainvoke` returns the WHOLE conversation, not
+    this turn's slice. Summing the returned state's usage therefore charges
+    turn 1 again on turn 2, turns 1+2 again on turn 3, and so on — which
+    reads exactly like "the transcript is getting expensive" when it is the
+    same tokens counted N times. Found by tracing a live two-turn chat: turn
+    2 reported 49,550 input tokens against an actual 29,877.
+
+    This is the A/B's whole cost case, so it gets its own test."""
+    spent = {"input_tokens": 1500, "output_tokens": 120, "total_tokens": 1620,
+             "input_token_details": {"cache_read": 1400}}
+    earlier = {"input_tokens": 9999, "output_tokens": 8888, "total_tokens": 18887,
+               "input_token_details": {"cache_read": 7777}}
+    graph = _StubGraph(
+        [_Msg("ai", "done", usage=spent)],
+        # what turn 1 left in the checkpoint
+        prior=[_Msg("human", "earlier question"),
+               _Msg("ai", "earlier answer", usage=earlier)],
+    )
+    _wire(monkeypatch, graph)
+
+    out = _run()
+
+    assert out.model_calls == 1
+    assert out.input_tokens == 1500
+    assert out.output_tokens == 120
+    assert out.cached_tokens == 1400
+    # `steps` DOES count the whole transcript, and should: it is the size of
+    # the state being carried, which is the thing the A/B is measuring.
+    assert out.steps == 3
+
 
 def test_usage_sums_every_model_call_in_the_turn(monkeypatch):
     """The tiered loop reads the LAST usage record and returns, because each

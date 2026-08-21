@@ -62,31 +62,61 @@ from evals.conversations import GOLDEN_CONVERSATIONS  # noqa: E402
 LOOPS = ("tiered", "deep")
 
 
-def _turn_ceiling() -> float:
-    from api.chat.deep.loop import TURN_TIMEOUT_S
+#: Wall-clock ceiling applied to a turn on **either** loop, in seconds.
+#:
+#: This has to be one number, and the first version of this file did not make
+#: it one. It imported the deep loop's `TURN_TIMEOUT_S` and applied it to the
+#: deep loop only — the tiered loop has no turn-level ceiling at all, just a
+#: 90 s per-model-call timeout. So the suite was scoring "deep gave up at
+#: 120 s" against "tiered was allowed to take as long as it liked", and every
+#: deep timeout it reported was partly the harness's doing rather than the
+#: loop's.
+#:
+#: It matters more than it looks, because the provider generates at roughly
+#: 8 tokens/second and swings 2-4x run to run: a tiered turn on "Residential
+#: auctions in Chennai" was measured at 12 s, 52 s and 93 s on three separate
+#: occasions with no code change in between. At that noise level a ceiling
+#: applied to one side decides the result.
+#:
+#: The default is deliberately far above the production ceiling so the suite
+#: measures how long turns ACTUALLY take. `--ceiling` overrides it; the
+#: production reality (the browser's 75 s idle guard, the deep loop's 120 s)
+#: is reported per turn by `slow_for_a_browser` rather than enforced here.
+DEFAULT_CEILING_S = 300.0
 
-    return TURN_TIMEOUT_S
+#: What a real user's browser gives up at, for reporting only.
+BROWSER_GIVES_UP_S = 75.0
 
-
-_TURN_CEILING = _turn_ceiling()
+_TURN_CEILING = DEFAULT_CEILING_S
 
 
 # ── running one turn on either loop ─────────────────────────────────────────
 
 async def _run_tiered(question: str, state: dict[str, Any]) -> dict[str, Any]:
     """One turn through the tiered loop, threading its scope object."""
+    import asyncio
+
     from api.chat.v2.executor import TurnBudget
     from api.chat.v2.loop import run_turn
 
-    result = await run_turn(
-        question,
-        scope=state.get("filters") or {},
-        last_ids=state.get("last_ids") or [],
-        last_total_count=state.get("last_total_count"),
-        last_question=state.get("last_question") or "",
-        last_entities=state.get("last_entities") or {},
-        budget=TurnBudget(),
-    )
+    # Same ceiling as the deep loop gets — see DEFAULT_CEILING_S. The tiered
+    # loop enforces none of its own, so without this the comparison is rigged.
+    try:
+        result = await asyncio.wait_for(run_turn(
+            question,
+            scope=state.get("filters") or {},
+            last_ids=state.get("last_ids") or [],
+            last_total_count=state.get("last_total_count"),
+            last_question=state.get("last_question") or "",
+            last_entities=state.get("last_entities") or {},
+            budget=TurnBudget(),
+        ), timeout=_TURN_CEILING)
+    except asyncio.TimeoutError:
+        from api.chat.deep.loop import _TIMED_OUT
+
+        return {"answer": _TIMED_OUT, "tools": [], "seconds": _TURN_CEILING,
+                "model_calls": 0, "input_tokens": 0, "cached_tokens": 0,
+                "output_tokens": 0, "gate_ok": True}
     # The client echoes this back; the runner stands in for the client.
     state.update(
         filters=result.filters,
@@ -106,6 +136,14 @@ async def _run_deep(question: str, state: dict[str, Any]) -> dict[str, Any]:
     """
     from api.chat.deep.checkpointer import Neo4jSaver
     from api.chat.deep.loop import run_turn
+
+    import api.chat.deep.loop as deep_loop
+
+    # The loop's production ceiling is 120 s. Here it is the suite's, so both
+    # loops are measured under one rule; the production number is reported,
+    # not enforced. Patched rather than parameterised because the ceiling is a
+    # deployment fact, not a per-call option the router should be able to set.
+    deep_loop.TURN_TIMEOUT_S = _TURN_CEILING
 
     thread_id = state.setdefault("thread_id", f"eval-{uuid.uuid4()}")
     result = await run_turn(
@@ -330,6 +368,11 @@ def _summarise(rows: list[dict[str, Any]]) -> None:
     print("\n" + "=" * 78)
 
 
+def _write(path: str, rows: list[dict[str, Any]]) -> None:
+    Path(path).write_text(json.dumps(rows, indent=2, default=str))
+    print(f"wrote {len(rows)} rows to {path}", flush=True)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--suite", choices=("golden", "convo", "all"), default="all")
@@ -359,13 +402,17 @@ def main() -> None:
                 print(f"\n--- {suite} / {loop} ---")
                 runner = _run_golden if suite == "golden" else _run_convos
                 rows.extend(await runner(loop, args.limit))
+                # After each half, not only at the end. A full deep-loop pass
+                # is over an hour against a paid key; losing all of it because
+                # the last leg died is not a trade worth making.
+                if args.json:
+                    _write(args.json, rows)
         return rows
 
     rows = asyncio.run(_go())
     _summarise(rows)
     if args.json:
-        Path(args.json).write_text(json.dumps(rows, indent=2, default=str))
-        print(f"wrote {args.json}")
+        _write(args.json, rows)
 
 
 if __name__ == "__main__":

@@ -148,7 +148,14 @@ async def run_turn(
     result.executed = list(sink.calls)
     result.answer = _final_answer(messages) or _NO_ANSWER
     result.steps = len(messages)
-    _accumulate_usage(messages, result)
+    # From the tap, NOT by summing `messages`. With a checkpointer the
+    # returned state is the WHOLE conversation, so summing its usage metadata
+    # re-counts every earlier turn: turn 3 reports turns 1+2+3 and the growth
+    # looks like the transcript getting expensive when it is really the same
+    # tokens counted three times. The tap sees only the calls this invocation
+    # made. Caught by tracing a live two-turn conversation, where turn 2
+    # reported 49,550 input tokens against an actual 29,877.
+    usage.apply(result)
 
     # Report-only, exactly as in the tiered loop — the fire rate is the
     # measurement that decides whether enforcement is affordable, and it has
@@ -217,15 +224,22 @@ def _final_answer(messages: list[Any]) -> str:
 
 
 class _UsageTap:
-    """Records model usage as each call finishes, for the turns that never end.
+    """Records model usage as each call finishes. The turn's only usage source.
 
-    `_accumulate_usage` reads the returned messages, which is the right source
-    when the graph returns — it counts calls and sees the final state. It has
-    nothing to read when the turn times out or raises, because `ainvoke` never
-    returned, so those turns reported zero tokens. They did not cost zero
-    tokens: a turn that runs the full 120 s and is abandoned is the *most*
-    expensive kind, and reporting it as free would have told the A/B that the
-    loop failing most was the loop spending least.
+    Reading it off the returned messages instead — the way the tiered loop
+    does, because its state is one turn — is wrong here in both directions:
+
+    * On a turn that **finishes**, the checkpointed state is the whole
+      conversation, so summing it re-counts every earlier turn. Traced live:
+      turn 2 of a two-turn chat reported 49,550 input tokens against an
+      actual 29,877, and the over-count grows with every turn.
+    * On a turn that **times out or raises**, `ainvoke` never returns, so
+      there are no messages at all and the turn reads as zero tokens. It did
+      not cost zero — a turn that burns the full ceiling and is then
+      abandoned is the most expensive kind there is, and reporting it as free
+      tells the A/B that the loop failing most is the loop spending least.
+
+    Counting the calls as they happen is right on both.
 
     A plain object rather than a `BaseCallbackHandler` subclass so that
     importing this module does not pull LangChain in — see the RSS note in
@@ -274,26 +288,6 @@ class _UsageTap:
         result.input_tokens = self.input_tokens
         result.output_tokens = self.output_tokens
         result.cached_tokens = self.cached_tokens
-
-
-def _accumulate_usage(messages: list[Any], result: TurnResult) -> None:
-    """Sum usage across EVERY model call in the turn.
-
-    Deliberately different from the tiered loop's version, which reads the
-    last message with usage metadata and returns — correct there, because each
-    tier is one call and the loop accumulates per tier. A ReAct turn makes
-    several calls inside one graph invocation, so summing them is the only way
-    the A/B's token numbers mean the same thing on both sides.
-    """
-    for message in messages:
-        usage = getattr(message, "usage_metadata", None)
-        if not usage:
-            continue
-        result.model_calls += 1
-        result.input_tokens += usage.get("input_tokens", 0) or 0
-        result.output_tokens += usage.get("output_tokens", 0) or 0
-        details = usage.get("input_token_details") or {}
-        result.cached_tokens += details.get("cache_read", 0) or 0
 
 
 def _numeric_args(executed: list[Any]) -> list[float]:
