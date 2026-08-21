@@ -313,17 +313,126 @@ def test_the_deep_loop_does_not_inherit_the_tier_call_limit():
     assert MAX_MODEL_CALLS > TIER_RUN_LIMIT
 
 
-def test_the_long_run_harness_middleware_stays_off():
-    """`create_deep_agent`'s defaults are built for autonomous coding runs. A
-    todo list or a filesystem in a chat turn costs a model call per turn and
-    would show up as a latency regression rather than a failure."""
-    from api.chat.deep.agent import MAX_MODEL_CALLS, _assert_chat_shaped
+def test_no_todo_list_middleware_reaches_the_chat_loop():
+    """A todo list costs a whole model call writing a plan before the turn
+    starts, in a loop that has to answer in seconds.
+
+    This assertion used to ALSO claim the filesystem middleware was absent.
+    It passed while being false, because it only ever inspected the middleware
+    we pass in — never the stack `create_deep_agent` assembles around it. The
+    real surface is pinned by `test_the_bound_tool_surface_is_pinned`; this
+    now asserts only what it can actually see.
+    """
+    from api.chat.deep.agent import MAX_MODEL_CALLS, _assert_no_todo_list
     from api.chat.v2.agents import model_middleware
 
-    _assert_chat_shaped(model_middleware(run_limit=MAX_MODEL_CALLS))
+    _assert_no_todo_list(model_middleware(run_limit=MAX_MODEL_CALLS))
 
     class _Todo:
         name = "TodoListMiddleware"
 
-    with pytest.raises(AssertionError, match="long-run harness middleware"):
-        _assert_chat_shaped([_Todo()])
+    with pytest.raises(AssertionError, match="TodoListMiddleware"):
+        _assert_no_todo_list([_Todo()])
+
+
+# ── the real tool surface ───────────────────────────────────────────────────
+#
+# These exist because the module docstring once claimed the filesystem and
+# subagent middleware were "off", and that claim shipped in a PR description.
+# It was false: `create_deep_agent` adds them unconditionally. The assertion
+# that was supposed to catch it inspected the middleware WE pass, never the
+# graph the harness assembles — so it passed while being wrong. These assert
+# on the COMPILED GRAPH instead, which is the only thing that cannot lie.
+
+def _bound_tool_names():
+    import os
+
+    os.environ.setdefault("OPENROUTER_CHAT_API_KEY", "sk-test")
+    from api.chat.deep.agent import ToolSink, build_deep_agent
+
+    agent = build_deep_agent(sink=ToolSink(), model_name="flash")
+    node = agent.nodes["tools"]
+    return set(getattr(getattr(node, "bound", node), "tools_by_name", {}))
+
+
+#: Our four graph tools. These are the reason the surface exists.
+GRAPH_TOOLS = {
+    "search_auctions", "semantic_search", "get_auction_detail", "internet_search",
+}
+#: Everything deepagents adds on its own and will not let us remove. Written
+#: out rather than globbed so a NEW harness tool appearing in a version bump
+#: fails this test instead of arriving unnoticed in every prompt.
+HARNESS_TOOLS = {
+    "ls", "read_file", "write_file", "edit_file", "delete", "glob", "grep",
+    "execute", "task",
+}
+
+
+def test_the_bound_tool_surface_is_pinned():
+    """The exact tool list, asserted on the compiled graph.
+
+    A new tool appearing here is not free: every schema rides in every prompt,
+    and the deep loop's input tokens are being compared against the tiered
+    loop's in the A/B. A silent addition skews that comparison.
+    """
+    assert _bound_tool_names() == GRAPH_TOOLS | HARNESS_TOOLS
+
+
+def test_the_harness_tools_are_not_ours_and_cannot_be_removed():
+    """Documents the finding rather than asserting a wish.
+
+    `subagents=[]` does not suppress `task`; a HarnessProfile with
+    `excluded_tools` registered against a pre-built BaseChatModel does not
+    remove them from the tool node either (both verified against deepagents
+    0.7.7). If a future version DOES let us drop them, this test fails and
+    that is the signal to take the nine schemas out of every prompt.
+    """
+    assert HARNESS_TOOLS <= _bound_tool_names(), (
+        "a harness tool disappeared — if deepagents now allows excluding "
+        "them, drop the unused ones and shrink every prompt"
+    )
+
+
+def test_execute_cannot_reach_a_shell():
+    """The assertion that must fail loudly if the default backend ever changes.
+
+    `execute` is bound and we cannot unbind it. It is harmless only because
+    the default `StateBackend` is an in-memory virtual filesystem with no
+    `execute` method, so the tool returns an error string instead of running a
+    command. If a version bump swaps that default for a sandbox backend, a
+    chat endpoint taking arbitrary user text would gain shell execution — and
+    this test is the tripwire.
+    """
+    from deepagents.backends import StateBackend
+    from deepagents.backends.protocol import SandboxBackendProtocol
+
+    assert not hasattr(StateBackend, "execute")
+    assert not isinstance(StateBackend(), SandboxBackendProtocol)
+
+
+def test_the_dossier_subagent_shares_the_turns_tool_sink():
+    """A subagent with its own unwrapped tools would do real graph work the
+    turn's record could not account for — the matches panel, the answer gate
+    and the eval trajectory all read `ToolSink.calls`."""
+    from api.chat.deep.agent import ToolSink, _bind_tools, _subagents
+
+    sink = ToolSink()
+    bound = _bind_tools(sink)
+    subs = _subagents(bound)
+
+    assert [s["name"] for s in subs] == ["property-dossier"]
+    dossier = subs[0]
+    assert {t.__name__ for t in dossier["tools"]} == {
+        "get_auction_detail", "internet_search",
+    }
+    # Same objects, not lookalikes: calling one must land in this sink.
+    assert all(t in bound for t in dossier["tools"])
+
+
+def test_human_in_the_loop_is_wired_but_empty():
+    """Empty is the honest state: every tool on this surface is read-only, so
+    nothing has earned an approval prompt yet. The parameter is wired so the
+    first write tool is one entry rather than a plumbing change."""
+    from api.chat.deep.agent import INTERRUPT_ON
+
+    assert INTERRUPT_ON == {}

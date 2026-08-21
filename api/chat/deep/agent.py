@@ -27,12 +27,32 @@ Three harness facts this file exists to handle, all found by the spike
    payload would be re-billed for the rest of the conversation. `_bind_tools`
    strips them into a per-turn sink.
 
-3. **`TodoListMiddleware` and the filesystem/subagent middleware are off.**
-   `create_deep_agent`'s defaults are built for long autonomous coding runs.
-   A chat turn that has to answer in seconds cannot afford a planning call
-   that writes a todo list first, and there is no filesystem to give it.
-   `subagents=[]` keeps the same discipline `v2/agents.py::_assert_no_todo_list`
-   enforces on the tiers.
+3. **The harness tools are ON and cannot be switched off.** This was
+   originally documented here as "the filesystem/subagent middleware are
+   off" — that was **wrong**, and `test_the_bound_tool_surface_is_pinned`
+   exists because of it. `create_deep_agent` adds `FilesystemMiddleware` and
+   the general-purpose subagent **unconditionally**: they are in its
+   protected scaffolding set, `subagents=[]` does not suppress the `task`
+   tool, and a `HarnessProfile(excluded_tools=...)` registered against a
+   pre-built `BaseChatModel` does not remove them from the tool node either
+   (verified against 0.7.7). So the deep loop's real tool surface is our four
+   graph tools PLUS `ls`, `read_file`, `write_file`, `edit_file`, `delete`,
+   `glob`, `grep`, `execute` and `task`.
+
+   **What that does and does not mean.** The default backend is
+   `StateBackend` — an in-memory virtual filesystem living in graph state. It
+   has no `execute` method and does not satisfy `SandboxBackendProtocol`, so
+   the `execute` tool returns an error string rather than running a shell
+   command: no shell, no real disk, no path out of the process.
+   `test_execute_cannot_reach_a_shell` pins that, and it is the assertion
+   that must fail loudly if a future version ever swaps the default backend
+   for a sandbox one.
+
+   The cost is real even though the risk is not: nine extra tool schemas ride
+   in every prompt, which inflates the deep loop's input tokens against the
+   tiered loop it is being measured against. `docs/chat-loop-ab-2026-08.md`
+   says so, so the A/B is read with that handicap in view rather than as a
+   clean comparison.
 """
 from __future__ import annotations
 
@@ -183,33 +203,107 @@ def build_deep_agent(
     # NOT the tier default: a tier is one call by construction, a ReAct turn
     # is many. See `model_middleware`'s docstring.
     stack = model_middleware(run_limit=MAX_MODEL_CALLS)
-    _assert_chat_shaped(stack)
+    _assert_no_todo_list(stack)
+    bound = _bind_tools(sink)
     return create_deep_agent(
         model=chat_model(model_name, reasoning_effort),
-        tools=_bind_tools(sink),
+        tools=bound,
         system_prompt=system_prompt(),
         middleware=stack,
-        # Off on purpose — see the module docstring.
-        subagents=[],
+        # A NAMED subagent rather than the anonymous general-purpose one.
+        # The `task` tool ships either way (see the module docstring), so the
+        # choice is not "subagents or no subagents" — it is whether the model
+        # delegates to something with a brief and a bounded tool set, or to a
+        # blank general-purpose worker holding the same tools as its parent.
+        subagents=list(_subagents(bound)),
+        interrupt_on=INTERRUPT_ON or None,
         checkpointer=checkpointer,
     )
 
 
-def _assert_chat_shaped(stack: list[Any]) -> None:
-    """The chat loop must not inherit the long-run harness defaults.
+#: Tools whose call should pause the graph for a human to approve, in the
+#: `interrupt_on` shape `create_deep_agent` takes.
+#:
+#: Deliberately EMPTY, and that is the honest state rather than an oversight.
+#: Human-in-the-loop earns its keep in front of an action that is expensive or
+#: hard to undo, and this surface has none: every graph tool is read-only, and
+#: the filesystem tools write to an in-memory `StateBackend` that is discarded
+#: with the thread. Wiring the parameter now means the day a write tool does
+#: land (a save, a bid, an alert) it is one entry here rather than a plumbing
+#: change through the loop and the router.
+INTERRUPT_ON: dict[str, Any] = {}
 
-    `v2/agents.py::_assert_no_todo_list` makes the same assertion for the
-    tiers. Here it also guards the middleware `create_deep_agent` composes
-    around what we pass: a dependency bump that starts injecting a todo list
-    or a filesystem into every agent would add a model call to every chat
-    turn, and that must fail a test rather than show up as a latency
-    regression on the A/B.
+#: One line per subagent, kept next to the prompt it delegates with.
+DOSSIER_SUBAGENT_PROMPT = """You investigate ONE auction property in depth and report back.
+
+Pull the full record with get_auction_detail, including its price_history —
+the re-auction timeline is usually the most informative field, because a
+property that failed to sell twice is telling you something the headline
+price is not.
+
+Use internet_search ONLY for off-graph context: what the locality is like,
+what a legal term in the notice means, relevant RBI or bank news. NEVER for
+prices, counts, deadlines or auction_ids — those come from the graph or they
+do not get said.
+
+Report back as compact prose the calling agent can quote: what it is, what
+the price history shows, what is unusual, and what a bidder should check
+before committing. Do not pad. If a field is missing, say it is missing."""
+
+
+def _subagents(bound_tools: list[Callable]) -> list[dict[str, Any]]:
+    """The named subagents the `task` tool may delegate to.
+
+    Only one today. It exists because `deep-research` — a full due-diligence
+    pass on a single property — is a genuinely different job from answering a
+    search question, and it is the one mode both `/chat/v2` and `/chat/deep`
+    currently reject and leave on v1.
+
+    It is handed the SAME sink-wrapped tool objects as its parent, so a
+    subagent's graph queries land in `ToolSink.calls` like any other and the
+    matches panel, the answer gate and the eval's tool trajectory all see
+    them. A subagent with its own unwrapped tools would do real work that the
+    turn's record could not account for.
+    """
+    by_name = {t.__name__: t for t in bound_tools}
+    dossier_tools = [
+        by_name[name]
+        for name in ("get_auction_detail", "internet_search")
+        if name in by_name
+    ]
+    return [
+        {
+            "name": "property-dossier",
+            "description": (
+                "Deep due diligence on ONE auction property: full record, "
+                "price history, re-auction timeline, and off-graph context. "
+                "Delegate here instead of chaining get_auction_detail calls "
+                "yourself when the user asks for everything about a property."
+            ),
+            "system_prompt": DOSSIER_SUBAGENT_PROMPT,
+            "tools": dossier_tools,
+        }
+    ]
+
+
+def _assert_no_todo_list(stack: list[Any]) -> None:
+    """`TodoListMiddleware` must never reach the chat loop.
+
+    Narrower than it used to be, and deliberately so. This previously also
+    asserted `FilesystemMiddleware` was absent — an assertion that passed only
+    because it inspected the middleware WE pass, never the stack
+    `create_deep_agent` assembles around it, where the filesystem middleware
+    is unconditional. It therefore certified something false for the whole
+    life of the PR. The real surface is now pinned by
+    `test_the_bound_tool_surface_is_pinned`, which asserts on the compiled
+    graph rather than on our input.
+
+    What is left is the claim this function can actually make: nothing in the
+    middleware we hand over adds a todo-list planning call to a turn that has
+    to answer in seconds.
     """
     names = {getattr(m, "name", type(m).__name__) for m in stack}
-    forbidden = {"TodoListMiddleware", "FilesystemMiddleware", "MemoryMiddleware"}
-    overlap = names & forbidden
-    assert not overlap, (
-        f"long-run harness middleware reached the chat loop: {sorted(overlap)}. "
-        "These are built for autonomous coding runs and cost a model call per "
-        "turn in a loop that has to answer in seconds."
+    assert "TodoListMiddleware" not in names, (
+        "TodoListMiddleware reached the chat loop — it costs a whole model "
+        "call writing a plan before the turn starts."
     )

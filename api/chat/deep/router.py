@@ -52,9 +52,14 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-#: Same rule as /chat/v2 — `deep-research` is a long multi-step investigation
-#: with its own surface on v1; rather than half-support it, reject it here.
-V1_ONLY_MODES = {"deep-research"}
+#: Modes this endpoint refuses. Empty, unlike /chat/v2's.
+#:
+#: `deep-research` — a full due-diligence pass on one property — is the one
+#: mode the tiered loop rejects, because a plan-execute-synthesize shape has
+#: nowhere to put an open-ended investigation. This loop does: it delegates to
+#: the `property-dossier` subagent in `api/chat/deep/agent.py`, which is the
+#: first thing the harness's `task` tool has actually been given to do.
+V1_ONLY_MODES: set[str] = set()
 
 
 class ChatDeepRequest(BaseModel):

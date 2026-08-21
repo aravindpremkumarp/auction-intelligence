@@ -159,10 +159,14 @@ def test_artifacts_keep_the_v1_shape(client, stub_turn):
     assert set(body["artifacts"][0]) == {"tool", "args", "result", "ui_rows"}
 
 
-def test_deep_research_mode_is_rejected(client, stub_turn):
+def test_deep_research_mode_is_accepted(client, stub_turn):
+    """The one mode the tiered loop rejects. A plan-execute-synthesize shape
+    has nowhere to put an open-ended investigation; this loop delegates it to
+    the `property-dossier` subagent, which is the first real job the harness's
+    `task` tool has been given."""
     r = client.post("/chat/deep", json={"message": "q", "mode": "deep-research"})
-    assert r.status_code == 400
-    assert "deep-research" in r.json()["detail"]
+    assert r.status_code == 200
+    assert stub_turn["question"] == "q"
 
 
 # ── import discipline ───────────────────────────────────────────────────────

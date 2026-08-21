@@ -817,8 +817,15 @@ const CHAT_V2 = (() => {
 //   'v1'     /chat       pydantic-ai ReAct; client round-trips the transcript
 //   'tiered' /chat/v2    plan-execute-synthesize; client round-trips a summary
 //   'deep'   /chat/deep  Deep Agents ReAct; the server owns the transcript
-// `?loop=deep` (or localStorage.chat_loop) picks one; /lab defaults to tiered
-// so the existing surface is unchanged until someone asks for the other side.
+// `?loop=tiered` (or localStorage.chat_loop) switches back.
+//
+// The flagged surface DEFAULTS TO 'deep'. The tiered loop's memory is a
+// summary, and a summary can only answer questions about what it chose to
+// summarise — every referring question it cannot resolve is another field
+// hand-added to a notepad. The deep loop keeps the transcript, so that whole
+// class of bug does not arise. Both remain admin-only, so this changes which
+// loop an admin gets on /lab, NOT what a signed-in user gets: un-gating waits
+// on the live A/B in docs/chat-loop-ab-2026-08.md, which has not been run.
 const CHAT_LOOP = (() => {
   if (!CHAT_V2) return 'v1';
   try {
@@ -827,7 +834,7 @@ const CHAT_LOOP = (() => {
     const saved = localStorage.getItem('chat_loop');
     if (saved === 'deep' || saved === 'tiered') return saved;
   } catch (_) { /* private mode — fall through to the default */ }
-  return 'tiered';
+  return 'deep';
 })();
 const CHAT_DEEP = CHAT_LOOP === 'deep';
 const chatPath = (suffix) => {

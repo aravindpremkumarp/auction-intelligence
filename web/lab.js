@@ -55,9 +55,9 @@
     // channel), so flipping it live would leave a half-switched client
     // POSTing a scope object at an endpoint that wants a thread key.
     var picker = document.getElementById('lab-loop');
-    var current = 'tiered';
-    try { current = localStorage.getItem('chat_loop') || 'tiered'; } catch (_) {}
-    picker.value = current === 'deep' ? 'deep' : 'tiered';
+    var current = 'deep';
+    try { current = localStorage.getItem('chat_loop') || 'deep'; } catch (_) {}
+    picker.value = current === 'tiered' ? 'tiered' : 'deep';
     picker.addEventListener('change', function () {
       var url = new URL(location.href);
       url.searchParams.set('loop', this.value);

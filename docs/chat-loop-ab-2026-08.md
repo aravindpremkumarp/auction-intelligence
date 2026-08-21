@@ -9,10 +9,16 @@ same policy and the same quota:
 | Memory | a `scope` **summary**, round-tripped by the client | the **transcript**, checkpointed server-side in Neo4j |
 | State owner | the browser | the server |
 | Model calls/turn | 2.15 measured | ~4–9 expected (spike: 4.5 avg, 9 worst) |
-| Tools | `api/chat/v2/tools.py` | the same module, imported |
+| Tools | `api/chat/v2/tools.py` (4) | the same module, imported, **plus 9 harness tools** |
 | Policy | `api/policy.py::SHARED_POLICY` | the same constant, imported |
+| `deep-research` mode | rejected (400) | handled by the `property-dossier` subagent |
 
-Pick one with `?loop=deep` on /lab, or the picker in the inspector header.
+**The deep loop is the default** on the flagged surface. `?loop=tiered` on
+/lab, or the picker in the inspector header, switches back.
+
+Both endpoints stay admin-only, so this decides which loop an *admin* gets —
+not what a signed-in user gets. Un-gating to real users waits on the live A/B
+below, which has not been run.
 
 ---
 
@@ -154,6 +160,39 @@ in which case the routing rule is the deliverable, not a migration.
   `test_importing_the_app_does_not_load_deepagents` pins that in a clean
   subprocess. A module-scope import is a deploy-time OOM, not a test failure.
 
+- **The harness tools are on and cannot be removed — and this document said
+  the opposite.** An earlier revision claimed "subagents are off
+  (`subagents=[]`)" and that the filesystem middleware was disabled. Both were
+  false. `create_deep_agent` adds `FilesystemMiddleware` and the
+  general-purpose subagent unconditionally; `subagents=[]` does not suppress
+  the `task` tool, and a `HarnessProfile(excluded_tools=...)` registered
+  against a pre-built `BaseChatModel` does not drop them from the tool node
+  either (verified against 0.7.7). The deep loop's real surface is our four
+  graph tools plus `ls`, `read_file`, `write_file`, `edit_file`, `delete`,
+  `glob`, `grep`, `execute`, `task`.
+
+  The claim survived because the assertion meant to catch it inspected the
+  middleware *we pass in*, never the stack the harness assembles around it.
+  `test_the_bound_tool_surface_is_pinned` now asserts on the compiled graph.
+
+- **`execute` is bound but inert, and that is load-bearing for the A/B's
+  safety story.** The default backend is `StateBackend`, an in-memory virtual
+  filesystem in graph state: no `execute` method, does not satisfy
+  `SandboxBackendProtocol`, so the tool returns an error string rather than
+  running a command. No shell, no real disk.
+  `test_execute_cannot_reach_a_shell` is the tripwire for a version bump that
+  swaps that default — on a chat endpoint taking arbitrary user text, a
+  sandbox backend would mean shell execution behind a prompt.
+
+### The handicap the cost columns carry
+
+Nine harness tool schemas ride in **every** deep-loop prompt and cannot be
+removed. The tiered loop carries four. So the deep loop's input-token column
+is not a like-for-like measure of the loop shape — part of the gap is a fixed
+tax the library imposes, not a property of keeping a transcript. Read the
+token numbers with that subtracted in mind, and do not attribute the whole
+difference to memory.
+
 - **Server-owned state fixed a real client bug.** `apiChatScope` was cleared at
   none of the four sites that cleared `apiMessageHistory`, so a new chat
   carried the previous thread's filters into its first question.
@@ -165,9 +204,13 @@ in which case the routing rule is the deliverable, not a migration.
 
 - **Streaming is one `delta`.** Same as the tiered loop today; token-by-token
   is a separate piece of work on both.
-- **Subagents are off** (`subagents=[]`). They are the reason `deepagents` was
-  added to the lock in the first place, and they belong with the pre-bid check
-  workflow, not with a loop comparison.
+- **Subagents are on, with one named worker.** `property-dossier` handles
+  `deep-research` — a full due-diligence pass on a single property, and the
+  one mode the tiered loop rejects outright. It shares the turn's `ToolSink`,
+  so its graph calls reach the matches panel, the answer gate and the eval
+  trajectory like any other. More workers (a pre-bid check) are still future
+  work; what is settled is that the `task` tool now delegates to something
+  with a brief rather than to a blank general-purpose clone of its parent.
 - **No production traffic.** Both surfaces are admin-only. The A/B is run
   deliberately, not sampled.
 - **The live numbers are not in this document yet.** Running
