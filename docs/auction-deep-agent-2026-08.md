@@ -12,12 +12,11 @@ The agent has now been driven by a real model against the live graph
 (`evals/smoke_agent3.py`, 6/6) with grounded, scope-honest answers and
 working server-side memory. It is still not wired to any request path.
 
-**Two open issues, both measured and neither blocking step 5:** the prompt
-cache is reporting 0% (the provider itself returns `cached_tokens: 0`, so
-this is real rather than a reading bug — the same finding the loop A/B made
-about the deep agent), and every turn currently runs at
-`reasoning: {effort: "high"}` inherited from `OPENROUTER_CHAT_REASONING_EFFORT`,
-which is a large part of the 60–140s turns. See §10 step 4.
+**One open issue, measured and not blocking step 5:** the prompt cache
+reports 0% (the provider itself returns `cached_tokens: 0`, so this is real
+rather than a reading bug — the same finding the loop A/B made about the
+deep agent). Reasoning effort was investigated as a second suspect and
+**cleared** — see §10 step 4b.
 
 ---
 
@@ -645,11 +644,31 @@ Gate to ship: no regression on the 68, ≥90% on `lot_facts`, **100% on
      system prefix IS byte-stable (pinned by test), so the cause is
      upstream. This is the same unresolved finding the loop A/B made; §6's
      "above 50% or that is the bug to fix" gate is NOT met.
-   - **Every turn runs `reasoning: {effort: "high"}`**, inherited from
-     `OPENROUTER_CHAT_REASONING_EFFORT`. That is a large part of the
-     60–140 s turns, and it is applied to "how many auctions in Coimbatore"
-     as readily as to a diligence pass. Worth a per-tier decision before any
-     latency number from this agent is quoted.
+   - **Reasoning effort: investigated, and the hypothesis was wrong.**
+     Every turn inherits `reasoning: {effort: "high"}` from
+     `OPENROUTER_CHAT_REASONING_EFFORT` (a hardcoded default in
+     `pipeline/config.py`), and this was initially recorded here as "a large
+     part of the 60–140 s turns". Measured, same two questions at each
+     setting:
+
+     | effort | simple | multi-step |
+     |---|---|---|
+     | off | 42.4 s | 48.0 s |
+     | low | 44.5 s | 56.9 s |
+     | high | 44.0 s | 47.0 s |
+
+     All six runs: 2 model calls, correct, scope-honest. **The differences
+     are inside the noise**, and the 60–140 s figures from the smoke run
+     were provider throughput variance — the same 3.4–9.7 tok/s swing the
+     loop A/B documented on identical prompts minutes apart, not reasoning.
+
+     The toggle itself is sound (verified: `off` → 0 reasoning tokens,
+     `low` → 42, `high` → 68 on a fixed arithmetic prompt), so this is a
+     real cost with no measured latency benefit — but the cost is small
+     against per-turn output of 141–278 tokens, and at n=1 per cell this is
+     not evidence enough to change a default shared with v1 and v2.
+     **Left alone deliberately.** If it is revisited, it needs n≥3 across
+     more question shapes, and it should be measured as cost, not latency.
 
 5. `benchmark_price`, `reauction_history` + `pricing`, `reauction` skills.
 6. `AnswerGate` + `scope_honesty` evals; remaining skills.
