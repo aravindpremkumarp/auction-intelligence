@@ -575,3 +575,66 @@ def test_a_turn_that_raises_reports_its_spend_too(monkeypatch):
     # No calls were made by the stub, but the field is populated from the tap
     # rather than left at its default — the path runs.
     assert out.model_calls == 0
+
+
+# ── async tools ─────────────────────────────────────────────────────────────
+
+def test_an_async_tool_is_awaited_not_handed_over_as_a_coroutine():
+    """`internet_search` is a coroutine function; the other three are not.
+
+    A single sync wrapper around all four raises nothing — calling a
+    coroutine function just returns a coroutine object, which sails through
+    the splitter and reaches the model as
+    `<coroutine object internet_search at 0x...>`. The only symptom is a
+    `RuntimeWarning` at interpreter shutdown.
+
+    It cost real turns: in the conversation suite the model called
+    `internet_search` three times in a row getting nothing back, and the turn
+    that ran past the 300 s ceiling had called it too."""
+    from api.chat.deep.agent import ToolSink, _wrap
+    from api.chat.v2.executor import ExecutedCall, _split_ui_rows
+
+    async def internet_search(query: str) -> dict:
+        return {"results": [{"title": f"about {query}"}]}
+
+    sink = ToolSink()
+    wrapped = _wrap("internet_search", internet_search, sink, ExecutedCall,
+                    _split_ui_rows)
+
+    out = asyncio.run(wrapped(query="what is EMD"))
+
+    assert out == {"results": [{"title": "about what is EMD"}]}
+    assert sink.calls[0].tool == "internet_search"
+    assert sink.calls[0].result == out
+
+
+def test_an_async_tool_that_raises_still_becomes_data():
+    from api.chat.deep.agent import ToolSink, _wrap
+    from api.chat.v2.executor import ExecutedCall, _split_ui_rows
+
+    async def internet_search(query: str) -> dict:
+        raise RuntimeError("upstream down")
+
+    sink = ToolSink()
+    wrapped = _wrap("internet_search", internet_search, sink, ExecutedCall,
+                    _split_ui_rows)
+
+    out = asyncio.run(wrapped(query="q"))
+
+    assert "upstream down" in out["error"]
+    assert sink.calls[0].error == "upstream down"
+
+
+def test_every_real_tool_keeps_its_sync_or_async_nature():
+    """The tripwire for a tool switching to async later and silently
+    regressing to a coroutine handed to the model."""
+    import inspect
+
+    from api.chat.deep.agent import ToolSink, _bind_tools
+    from api.chat.v2.tools import PLANNER_TOOLS
+
+    bound = {t.__name__: t for t in _bind_tools(ToolSink())}
+    assert set(bound) == set(PLANNER_TOOLS)
+    for name, original in PLANNER_TOOLS.items():
+        assert inspect.iscoroutinefunction(bound[name]) == \
+            inspect.iscoroutinefunction(original), name

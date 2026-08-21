@@ -101,34 +101,72 @@ def _bind_tools(sink: ToolSink) -> list[Callable]:
 
 
 def _wrap(name: str, fn: Callable, sink: ToolSink, ExecutedCall, split):
+    """Wrap one tool, preserving whether it is sync or async.
+
+    `internet_search` is a coroutine function and the other three are not. A
+    single sync wrapper around all of them "works" in the sense that nothing
+    raises: calling a coroutine function just returns a coroutine object,
+    which `split` passes through and the model receives as
+    `<coroutine object internet_search at 0x...>`. No error, no result, and
+    the only trace is a `RuntimeWarning: coroutine was never awaited` on
+    interpreter shutdown.
+
+    It cost real turns before it was found. In the conversation suite the
+    model called `internet_search` three times in a row on one question,
+    getting nothing back each time, and the turn that ran past the 300 s
+    ceiling had called it too.
+    """
+    import inspect
+
+    if inspect.iscoroutinefunction(fn):
+        @functools.wraps(fn)
+        async def wrapped_async(**kwargs):
+            started = time.perf_counter()
+            try:
+                raw = await fn(**kwargs)
+            except Exception as exc:  # noqa: BLE001
+                return _record_failure(name, kwargs, exc, started, sink,
+                                       ExecutedCall)
+            return _record(name, kwargs, raw, started, sink, ExecutedCall,
+                           split)
+
+        return wrapped_async
+
     @functools.wraps(fn)
     def wrapped(**kwargs):
         started = time.perf_counter()
         try:
             raw = fn(**kwargs)
         except Exception as exc:  # noqa: BLE001
-            # `model_visible_errors` already converts ValueError/TypeError.
-            # Anything reaching here is a real fault; the harness would
-            # re-raise and kill the turn, so it becomes data instead and the
-            # model gets to write around it.
-            logger.exception("chat deep: tool %s failed", name)
-            payload = {"error": f"{name} failed: {exc}"}
-            sink.calls.append(ExecutedCall(
-                tool=name, args=dict(kwargs), result=payload,
-                ms=int((time.perf_counter() - started) * 1000),
-                error=str(exc),
-            ))
-            return payload
-
-        model_visible, ui_rows = split(raw)
-        sink.calls.append(ExecutedCall(
-            tool=name, args=dict(kwargs), result=model_visible,
-            ms=int((time.perf_counter() - started) * 1000),
-            ui_rows=ui_rows,
-        ))
-        return model_visible
+            return _record_failure(name, kwargs, exc, started, sink,
+                                   ExecutedCall)
+        return _record(name, kwargs, raw, started, sink, ExecutedCall, split)
 
     return wrapped
+
+
+def _record_failure(name, kwargs, exc, started, sink, ExecutedCall):
+    """A real fault becomes data. `model_visible_errors` already converts
+    ValueError/TypeError; anything reaching here would make the harness
+    re-raise and kill the turn, so the model gets to write around it instead.
+    """
+    logger.exception("chat deep: tool %s failed", name)
+    payload = {"error": f"{name} failed: {exc}"}
+    sink.calls.append(ExecutedCall(
+        tool=name, args=dict(kwargs), result=payload,
+        ms=int((time.perf_counter() - started) * 1000), error=str(exc),
+    ))
+    return payload
+
+
+def _record(name, kwargs, raw, started, sink, ExecutedCall, split):
+    """Split the panel's rows out of the model-visible result and record both."""
+    model_visible, ui_rows = split(raw)
+    sink.calls.append(ExecutedCall(
+        tool=name, args=dict(kwargs), result=model_visible,
+        ms=int((time.perf_counter() - started) * 1000), ui_rows=ui_rows,
+    ))
+    return model_visible
 
 
 def system_prompt() -> str:

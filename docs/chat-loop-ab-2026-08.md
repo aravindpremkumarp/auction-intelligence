@@ -8,7 +8,7 @@ same policy and the same quota:
 | Loop | plan → parallel execute → synthesize | ReAct: think → tool → think |
 | Memory | a `scope` **summary**, round-tripped by the client | the **transcript**, checkpointed server-side in Neo4j |
 | State owner | the browser | the server |
-| Model calls/turn | 2.15 measured | ~4–9 expected (spike: 4.5 avg, 9 worst) |
+| Model calls/turn | 2.00 measured | 1.95 measured (the spike expected 4–9) |
 | Tools | `api/chat/v2/tools.py` (4) | the same module, imported, **plus 9 harness tools** |
 | Policy | `api/policy.py::SHARED_POLICY` | the same constant, imported |
 | `deep-research` mode | rejected (400) | handled by the `property-dossier` subagent |
@@ -17,8 +17,10 @@ same policy and the same quota:
 /lab, or the picker in the inspector header, switches back.
 
 Both endpoints stay admin-only, so this decides which loop an *admin* gets —
-not what a signed-in user gets. Un-gating to real users waits on the live A/B
-below, which has not been run.
+not what a signed-in user gets. **The A/B has now been run** (conversation
+suite, below) and it says the deep loop does not go to users: correctness is a
+tie, but at a 149 s median turn most of its passing answers would never have
+reached a browser.
 
 ---
 
@@ -109,6 +111,116 @@ A loop that wins on accuracy and loses 5x on cost is a **decision**, not a
 verdict. The plausible outcome is neither loop winning outright — tiered for
 the common single-turn question, deep for conversations that refer backwards —
 in which case the routing rule is the deliverable, not a migration.
+
+
+---
+
+## The result — conversation suite, 21 Aug 2026
+
+9 scripted conversations, 22 turns, each loop run once against the live
+graph. Both loops under the same 300 s ceiling (see the harness note below).
+
+| | tiered | deep |
+|---|---|---|
+| pass | **21 / 22** | 20 / 22 |
+| median turn | **25.4 s** | 148.7 s |
+| p90 turn | **58.8 s** | 257.7 s |
+| model calls / turn | 2.00 | 1.95 |
+| prompt tokens sent | 10,909 | 22,275 |
+| — of which cached | 7,343 | 5,364 |
+| **fresh prompt (billed)** | **3,566** | 16,911 |
+| answer tokens | 1,056 | **677** |
+
+**Correctness is a tie; cost and latency are not.** The deep loop resolves
+every referring follow-up in the catalogue, including the one the tiered loop
+could not answer before the `last_entities` fix and the harder
+`aside_offgraph_then_resume` sequence (ask about Kanchipuram, detour to "what
+does EMD mean", then "ok, back to those") — which no summary-shaped state
+would survive. It pays about **4.7x the fresh prompt tokens and 6x the
+latency** for it.
+
+Its two failures are not memory failures:
+
+- `refine_residential_chennai#4` ran past even the 300 s ceiling. It had
+  called `internet_search`, which was broken (below).
+- `refine_commercial_coimbatore#3` answered "only the ones on BAANKNET"
+  without searching.
+
+The tiered loop's single failure is `refine_residential_chennai#4` too — the
+same question, reaching for `get_auction_detail` instead of a search. Neither
+loop can answer "which of those close within the next week".
+
+### The decision
+
+**Neither loop wins outright, and the split is not the one predicted.** The
+prediction was tiered for single-turn, deep for referring follow-ups. What the
+data says is narrower: the deep loop's memory works and its *per-turn* answer
+is no worse, but at 149 s median it is not a chat interface — the browser's
+idle guard gives up at 75 s, so **more than half of the deep loop's passing
+turns would never have reached a user.**
+
+So the deep loop stays on /lab and does not go to users. The tiered loop keeps
+production. Before that is worth revisiting, one thing has to change:
+
+**The prompt cache is the whole affordability case, and it is not working.**
+The tiered loop gets 67% of its prompt from cache. The deep loop gets 24%, and
+tracing showed the expensive call — the one that writes the answer — hitting
+**zero** cache on every sample. The transcript is supposed to be cheap on the
+second turn onward precisely because its prefix is stable. Until that is
+understood, the deep loop's cost number is measuring a broken cache rather
+than the cost of remembering.
+
+### What these numbers cannot tell you
+
+**The provider's throughput swings more than the effect being measured.** The
+same tiered question was timed at 12 s, 52 s and 93 s on three separate runs
+with no code change in between; a controlled generation test gave 3.4 to 9.7
+tokens/second across six samples minutes apart. Every figure above is one
+sample per case. The pass counts are solid; the latency medians are the right
+order of magnitude and no more.
+
+Three hypotheses for the latency gap were tested and **all three were wrong**:
+
+- *It loops.* No — 2 model calls per turn, the same as the tiered loop.
+- *Reasoning effort is too high.* No — `low` was **slower** than `high`
+  (133 s vs 64 s on the same call).
+- *The 9 harness tool schemas slow generation.* No — 51 s with them, 87 s
+  without, on the same prompt.
+
+What is left is that the deep loop makes its two calls strictly in sequence
+(think, then write) while the tiered loop overlaps its work, on a provider
+generating at roughly 8 tokens/second.
+
+### Three harness bugs found while running this
+
+All three flattered or damaged one loop specifically, and all three are fixed
+with tests. They are recorded because each one produced a plausible,
+publishable, wrong number.
+
+1. **The ceiling was one-sided.** The runner applied the deep loop's 120 s
+   `TURN_TIMEOUT_S` to the deep loop only; the tiered loop has no turn-level
+   ceiling at all. The first run reported **deep 5/22 with 15 timeouts** — a
+   verdict that was mostly the harness. Under one ceiling it is 20/22.
+2. **Old turns were billed again.** Deep-loop usage was summed over the
+   messages the graph returned, which with a checkpointer is the whole
+   conversation — so turn 2 re-charged turn 1, turn 3 re-charged 1+2. Traced:
+   49,550 input tokens reported against an actual 29,877. This read exactly
+   like "the transcript is getting expensive", which is the claim under test.
+3. **A timed-out turn reported zero tokens.** Usage was read off the returned
+   messages, and a turn that times out returns none. The most expensive turns
+   were being averaged in as free.
+
+### And one product bug
+
+`internet_search` is a coroutine function; the other three tools are not. The
+deep loop wrapped all four synchronously, so calling it returned a *coroutine
+object* — no error, no result, reaching the model as
+`<coroutine object internet_search at 0x...>`. The only symptom was a
+`RuntimeWarning` at interpreter shutdown. The model called it three times in a
+row on one question getting nothing back each time, and the turn that blew the
+300 s ceiling had called it too. Fixed; `_wrap` now preserves each tool's
+sync/async nature, with a test that pins every tool's kind against
+`PLANNER_TOOLS`.
 
 ---
 
@@ -213,6 +325,6 @@ difference to memory.
   with a brief rather than to a blank general-purpose clone of its parent.
 - **No production traffic.** Both surfaces are admin-only. The A/B is run
   deliberately, not sampled.
-- **The live numbers are not in this document yet.** Running
-  `evals/run_loop_ab.py` against the live graph is the next step, and the
-  results table belongs here when it exists — not a prediction of it.
+- **The golden suite has not been run.** Only the conversation half below.
+  68 cases x 2 loops at these latencies is several hours, and the
+  correctness gate it represents is still owed before any un-gating.
