@@ -272,14 +272,23 @@ def _summarise(rows: list[dict[str, Any]]) -> None:
         if not subset:
             continue
         print(f"\n{suite.upper()}")
+        # Both token columns, because they bill differently. `in tok` is the
+        # whole prompt; `fresh` is the part the cache did not cover and is
+        # what actually gets charged at the input rate; `out tok` bills
+        # several times higher than either and is the column a summary that
+        # prints only input silently hides.
         print(f"{'loop':8} {'pass':>5} {'direct':>7} {'FAIL':>5} {'ERR':>4} "
               f"{'med s':>7} {'p90 s':>7} {'calls':>6} {'in tok':>8} "
-              f"{'cached':>7}")
+              f"{'cached':>7} {'fresh':>7} {'out tok':>8} {'tok/turn':>9}")
         for loop in LOOPS:
             got = [r for r in subset if r["loop"] == loop]
             if not got:
                 continue
             secs = sorted(r["seconds"] for r in got) or [0]
+            mean = lambda key: statistics.mean([key(r) for r in got])  # noqa: E731
+            n_in = mean(lambda r: r["input_tokens"])
+            n_cached = mean(lambda r: r["cached_tokens"])
+            n_out = mean(lambda r: r["output_tokens"])
             print(
                 f"{loop:8} "
                 f"{sum(1 for r in got if r['verdict'] == 'pass'):>5} "
@@ -288,9 +297,9 @@ def _summarise(rows: list[dict[str, Any]]) -> None:
                 f"{sum(1 for r in got if r['verdict'] == 'ERROR'):>4} "
                 f"{statistics.median(secs):>7.1f} "
                 f"{secs[min(len(secs) - 1, int(len(secs) * 0.9))]:>7.1f} "
-                f"{statistics.mean([r['model_calls'] for r in got]):>6.2f} "
-                f"{statistics.mean([r['input_tokens'] for r in got]):>8.0f} "
-                f"{statistics.mean([r['cached_tokens'] for r in got]):>7.0f}"
+                f"{mean(lambda r: r['model_calls']):>6.2f} "
+                f"{n_in:>8.0f} {n_cached:>7.0f} {n_in - n_cached:>7.0f} "
+                f"{n_out:>8.0f} {n_in + n_out:>9.0f}"
             )
     failures = [r for r in rows if r["verdict"] in ("FAIL", "ERROR")]
     if failures:
@@ -308,7 +317,15 @@ def main() -> None:
     ap.add_argument("--loop", choices=(*LOOPS, "both"), default="both")
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--json", type=str, default=None)
+    # Re-print the table from a finished run's JSON. Every raw per-turn metric
+    # is in there, so a reporting change does not cost another run against a
+    # paid key — and a run already in flight is holding the old module.
+    ap.add_argument("--render", type=str, default=None)
     args = ap.parse_args()
+
+    if args.render:
+        _summarise(json.loads(Path(args.render).read_text()))
+        return
 
     if not (os.getenv("OPENROUTER_CHAT_API_KEY") or os.getenv("OPENROUTER_API_KEY")):
         sys.exit("set OPENROUTER_CHAT_API_KEY (or OPENROUTER_API_KEY) first")
