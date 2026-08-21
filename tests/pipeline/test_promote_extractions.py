@@ -225,3 +225,80 @@ def test_platform_name_from_url(url, name):
 
 def test_platform_name_of_none():
     assert P.platform_name_of(None) is None
+
+
+# ── phase C: parcel grouping ─────────────────────────────────────────────────
+
+def _edge(lot, ident, village="v1"):
+    return {"lot_key": lot, "ident": ident, "village": village}
+
+
+def _parcel_of(rows):
+    return {r["lot_key"]: r["parcel_id"] for r in rows}
+
+
+def test_lot_with_no_shared_identifier_is_its_own_parcel():
+    rows = P.parcel_groups([], ["a", "b"])
+    assert _parcel_of(rows) == {"a": "lot-a", "b": "lot-b"}
+    assert all(r["method"] == "singleton" for r in rows)
+
+
+def test_two_lots_sharing_an_identifier_merge():
+    rows = P.parcel_groups(
+        [_edge("a", "survey_old:12/1"), _edge("b", "survey_old:12/1")],
+        ["a", "b"])
+    assert _parcel_of(rows) == {"a": "auto-a", "b": "auto-a"}
+    assert all(r["method"] == "identifier" for r in rows)
+
+
+def test_merge_is_transitive_across_a_chain():
+    """A-B share one number, B-C another: all three are one parcel.
+
+    The pairwise MERGE this replaced put B in two parcels at once.
+    """
+    rows = P.parcel_groups([
+        _edge("a", "survey_old:12/1"), _edge("b", "survey_old:12/1"),
+        _edge("b", "patta:990"), _edge("c", "patta:990"),
+    ], ["a", "b", "c"])
+    assert _parcel_of(rows) == {"a": "auto-a", "b": "auto-a", "c": "auto-a"}
+
+
+def test_every_lot_belongs_to_exactly_one_parcel():
+    rows = P.parcel_groups([
+        _edge("a", "survey_old:12/1"), _edge("b", "survey_old:12/1"),
+        _edge("c", "survey_old:12/1"),
+    ], ["a", "b", "c", "d"])
+    assert len(rows) == 4
+    assert len({r["lot_key"] for r in rows}) == 4
+
+
+def test_same_identifier_in_another_village_does_not_merge():
+    """Survey numbers repeat across the state — village scoping is the guard."""
+    rows = P.parcel_groups(
+        [_edge("a", "survey_old:12/1", "v1"),
+         _edge("b", "survey_old:12/1", "v2")],
+        ["a", "b"])
+    assert _parcel_of(rows) == {"a": "lot-a", "b": "lot-b"}
+
+
+def test_parcel_id_is_stable_regardless_of_edge_order():
+    forward = P.parcel_groups(
+        [_edge("b", "patta:9"), _edge("a", "patta:9")], ["a", "b"])
+    reverse = P.parcel_groups(
+        [_edge("a", "patta:9"), _edge("b", "patta:9")], ["b", "a"])
+    assert _parcel_of(forward) == _parcel_of(reverse) == {
+        "a": "auto-a", "b": "auto-a"}
+
+
+def test_merged_parcel_records_what_it_merged_on():
+    rows = P.parcel_groups(
+        [_edge("a", "survey_old:12/1"), _edge("b", "survey_old:12/1")],
+        ["a", "b"])
+    assert rows[0]["evidence"] == ["survey_old:12/1"]
+    assert rows[0]["lot_count"] == 2
+
+
+def test_singleton_carries_no_evidence():
+    rows = P.parcel_groups([], ["a"])
+    assert rows[0]["evidence"] is None
+    assert rows[0]["lot_count"] == 1

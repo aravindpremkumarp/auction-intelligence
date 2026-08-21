@@ -2,6 +2,13 @@
 
     python -m pipeline.promote_extractions [--limit N] [--filename F]
                                            [--dry-run] [--skip-parcels]
+                                           [--workers N] [--places-only]
+                                           [--parcels-only]
+
+Phase B promotes documents concurrently (--workers, default 8) — each document
+is a few small writes dominated by the round trip to Aura, so a serial run over
+the full corpus is hours of waiting on the network. Phase C stays serial: it is
+a whole-corpus pass by design.
 
 If Bolt (port 7687) is blocked in your environment — Claude Code on the web,
 or any HTTP-only egress proxy — prefix with NEO4J_HTTP_API=1 to route through
@@ -9,9 +16,16 @@ Aura's HTTPS Query API instead.
 
 Phase B turns each extracted notice into graph structure: one :Lot per lot,
 with its identifiers, extents, boundaries, schedules, parties, sale event and
-notice-level nodes. Phase C then resolves :Parcel across every lot, which is a
-SECOND PASS on purpose — you cannot tell which lots share a physical parcel
-until every identifier in the corpus exists.
+notice-level nodes. Each lot's village/taluk/district is resolved onto the
+official gazetteer (:RevenueVillage / :Taluk / :District) through
+pipeline.place_resolution — the notice's own spelling is never stored as the
+answer, and a lot that cannot be placed keeps `place_status` and no edge.
+
+Phase C then resolves :Parcel across every lot, which is a SECOND PASS on
+purpose — you cannot tell which lots share a physical parcel until every
+identifier in the corpus exists. It merges two lots only when they cite the
+same identifier AND sit in the same revenue village, so phase B's gazetteer
+links are what make it fire at all.
 
 GATED ON `extraction_json IS NOT NULL`, not on review status. Every one of the
 245 extracted documents is still `extraction_review_status = 'pending'`, so
@@ -30,8 +44,13 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
+import random
 import re
-from collections import defaultdict
+import threading
+import time
+from collections import Counter, defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from api.neo4j_client import run_query, run_read_query
 from pipeline.apply_extractions import entities_with_corrections, parse_money
@@ -39,6 +58,7 @@ from pipeline.measures import (
     parse_area, parse_length, pick_headline, read_adjacency,
 )
 from pipeline.obs import get_logger
+from pipeline.place_resolution import Gazetteer, resolve_place
 from pipeline.resolve_places import norm_place
 from pipeline.validators import normalize_identifier_kind
 
@@ -46,6 +66,47 @@ log = get_logger(__name__)
 
 WRITE_CHUNK = 100
 SIDES = ("north", "south", "east", "west")
+
+# Documents are promoted concurrently. Each one is a handful of small write
+# statements whose cost is almost entirely the round trip to Aura, so the
+# useful width is set by the network, not by CPU — serial over the full corpus
+# is hours of wall time for minutes of database work.
+DEFAULT_WORKERS = int(os.environ.get("PROMOTE_WORKERS", "8"))
+
+# Concurrent writers MERGE the same shared nodes (:Bank, :Platform,
+# :TermsTemplate, :Contact, :EMDAccount), so lock contention is expected rather
+# than exceptional. The Bolt driver retries these itself; the HTTP Query API
+# path does not, so retry here — it is the same "re-run the unit of work"
+# contract either way, and every statement is idempotent.
+_TRANSIENT_MARKERS = (
+    "DeadlockDetected",
+    "LockClientStopped",
+    "Neo.TransientError",
+    "ConstraintValidationFailed",
+    "LeaderSwitch",
+    "NotALeader",
+)
+WRITE_RETRIES = 5
+
+
+def _is_transient(exc: Exception) -> bool:
+    msg = str(exc)
+    return any(m in msg for m in _TRANSIENT_MARKERS)
+
+
+def write(cypher: str, params: dict) -> list[dict]:
+    """run_query with backoff on the contention a concurrent promote provokes."""
+    for attempt in range(1, WRITE_RETRIES + 1):
+        try:
+            return run_query(cypher, params)
+        except Exception as exc:
+            if attempt == WRITE_RETRIES or not _is_transient(exc):
+                raise
+            delay = 0.25 * (2 ** (attempt - 1)) + random.uniform(0, 0.25)
+            log.warning("write contention (attempt %d/%d), retrying in %.2fs: %s",
+                        attempt, WRITE_RETRIES, delay, exc)
+            time.sleep(delay)
+    return []
 
 # extent attr -> Measurement.kind. uds_parent is carried so it is not lost,
 # but pick_headline() refuses to ever divide a price by it.
@@ -85,6 +146,87 @@ def _num(v) -> float | None:
         return float(str(v).replace(",", "").strip())
     except (TypeError, ValueError):
         return None
+
+
+# ── gazetteer ────────────────────────────────────────────────────────────────
+# The official TN hierarchy (38 districts / 316 taluks / 17,164 revenue
+# villages) already lives in the graph. It is read once per process and shared
+# across the phase-B workers — 17k rows is a few MB, and re-reading it per
+# document would cost more than the promotion itself.
+_GAZ: Gazetteer | None = None
+_GAZ_LOCK = threading.Lock()
+
+
+def gazetteer() -> Gazetteer:
+    global _GAZ
+    with _GAZ_LOCK:
+        if _GAZ is None:
+            _GAZ = Gazetteer(
+                districts=[r["name"] for r in run_read_query(
+                    "MATCH (d:District) RETURN d.name AS name",
+                    max_rows=1_000)],
+                taluks=[(r["taluk"], r["district"]) for r in run_read_query(
+                    "MATCH (t:Taluk)-[:IN_DISTRICT]->(d:District) "
+                    "RETURN t.name AS taluk, d.name AS district",
+                    max_rows=5_000)],
+                villages=[(r["village"], r["taluk"], r["district"])
+                          for r in run_read_query(
+                    "MATCH (v:RevenueVillage)-[:IN_TALUK]->(t:Taluk)"
+                    "-[:IN_DISTRICT]->(d:District) "
+                    "RETURN v.name AS village, t.name AS taluk, "
+                    "       d.name AS district",
+                    max_rows=50_000, timeout=120.0)],
+            )
+            log.info("gazetteer loaded: %d districts, %d taluks, %d villages",
+                     len(_GAZ.districts), len(_GAZ.taluks), len(_GAZ.villages))
+    return _GAZ
+
+
+def lot_place(rec: dict) -> dict:
+    """Resolve one lot's extracted village/taluk/district onto the gazetteer.
+
+    The notice's own strings are never stored as the answer — they go through
+    the same bottom-up resolver the scraped-listing path uses
+    (pipeline.place_resolution), so an outdated district ("Kanchipuram" for a
+    2019 Chengalpattu taluk) is corrected by the taluk beneath it rather than
+    believed.
+
+    Returns the row _WRITE_LOT_PLACE consumes: the resolved official names, or
+    None at whatever level did not resolve, plus the reason. A lot that cannot
+    be placed keeps `place_status` and no edge — a visible gap, never a guess.
+    """
+    gaz = gazetteer()
+    loc = rec["location"]
+    r = resolve_place(gaz,
+                      district=loc.get("district"),
+                      taluk=loc.get("taluk"),
+                      village=loc.get("village"))
+    status, source = r["village_status"], r["village_source"]
+    district, taluk, village = r["district"], r["taluk"], r["village"]
+
+    # Notices name the taluk more coarsely than the revenue record does —
+    # "Dindigul" where the gazetteer has split it into Dindigul East and West,
+    # "Udumalpet" for Udumalaipettai. resolve_place is right to refuse those
+    # (guessing East vs West is a coin flip), but the *village* underneath is
+    # still findable: search the district instead, on the gazetteer's own
+    # guarded terms — exact match only, and only when the district holds
+    # exactly one village of that name. That recovers the taluk for free,
+    # since a village names its own parent.
+    if village is None and district and loc.get("village"):
+        wider = gaz.village_in_district(loc["village"], district)
+        if wider:
+            village, taluk = wider
+            status, source = "resolved", "district"
+
+    return {
+        "lot_key": rec["lot_key"],
+        "district": district,
+        "taluk": taluk,
+        "village": village,
+        "status": status,
+        "source": source,
+        "conflict": r["conflict"],
+    }
 
 
 def _hash(text: str) -> str:
@@ -493,6 +635,62 @@ RETURN d.filename AS filename
 """
 
 
+_WRITE_LOT_PLACE = """
+UNWIND $rows AS row
+MATCH (l:Lot {lot_key: row.lot_key})
+SET l.place_status = row.status,
+    l.place_source = row.source,
+    l.place_conflict = row.conflict,
+    l.village = row.village,
+    l.taluk = row.taluk,
+    l.district = row.district
+
+// MATCH, never MERGE: every name here came out of the gazetteer, so a miss is
+// a bug worth leaving visible. MERGE would invent a duplicate place node with
+// no code hanging off the hierarchy — silently wrong instead of visibly absent.
+WITH l, row
+OPTIONAL MATCH (v:RevenueVillage {name: row.village})
+               -[:IN_TALUK]->(t:Taluk {name: row.taluk})
+               -[:IN_DISTRICT]->(d:District {name: row.district})
+WITH l, collect({v: v, t: t, d: d}) AS hits
+// 21 taluks hold two villages of one name. resolve_place already refuses
+// those, but a second guard here costs nothing and a wrong parcel merge is
+// far worse than a missing one.
+WITH l, hits WHERE size(hits) = 1
+UNWIND hits AS hit
+WITH l, hit.v AS v, hit.t AS t, hit.d AS d WHERE v IS NOT NULL
+MERGE (l)-[:IN_REVENUE_VILLAGE]->(v)
+MERGE (l)-[:IN_TALUK]->(t)
+MERGE (l)-[:IN_DISTRICT]->(d)
+RETURN count(*) AS linked
+"""
+
+# Lots whose village did not resolve can still be placed at district level —
+# useful on its own, and it costs one more statement rather than complicating
+# the guard above. Taluk names are globally unique, districts likewise, so
+# neither needs the size(hits) check.
+_WRITE_LOT_DISTRICT = """
+UNWIND $rows AS row
+WITH row WHERE row.village IS NULL AND row.district IS NOT NULL
+MATCH (l:Lot {lot_key: row.lot_key})
+MATCH (d:District {name: row.district})
+MERGE (l)-[:IN_DISTRICT]->(d)
+WITH l, row
+OPTIONAL MATCH (t:Taluk {name: row.taluk})
+FOREACH (_ IN CASE WHEN t IS NULL THEN [] ELSE [1] END |
+  MERGE (l)-[:IN_TALUK]->(t))
+RETURN count(*) AS linked
+"""
+
+
+def write_places(rows: list[dict]) -> None:
+    """Link a document's lots to the canonical geography. Idempotent."""
+    if not rows:
+        return
+    write(_WRITE_LOT_PLACE, {"rows": rows})
+    write(_WRITE_LOT_DISTRICT, {"rows": rows})
+
+
 def fetch_documents(limit: int | None, filename: str | None) -> list[dict]:
     q = _FETCH.format(
         filename_clause="AND d.filename = $fn" if filename else "",
@@ -502,21 +700,24 @@ def fetch_documents(limit: int | None, filename: str | None) -> list[dict]:
                           max_rows=20_000, timeout=120.0)
 
 
-def promote_document(doc: dict, dry_run: bool) -> int:
+def promote_document(doc: dict, dry_run: bool) -> tuple[int, Counter]:
     filename = doc["filename"]
     entities = entities_with_corrections(doc["extraction_json"],
                                          doc.get("corrections_json"))
     notice, lots = build_lots(entities, filename)
     if dry_run:
+        places = [lot_place(rec) for rec in lots]
         print(f"  [dry-run] {filename}: {len(lots)} lot(s), "
               f"{sum(len(l['identifiers']) for l in lots)} identifier(s), "
-              f"{sum(len(l['measurements']) for l in lots)} extent(s)")
-        return len(lots)
+              f"{sum(len(l['measurements']) for l in lots)} extent(s), "
+              f"{sum(1 for p in places if p['village'])}/{len(places)} placed "
+              f"({Counter(p['status'] for p in places).most_common()})")
+        return len(lots), Counter(p["status"] for p in places)
 
     officer = notice.get("authorised_officer") or notice.get("liquidator")
     emd = notice.get("emd_account") or {}
     platform_url = notice.get("platform_url")
-    run_query(_WRITE_NOTICE, {
+    write(_WRITE_NOTICE, {
         "filename": filename,
         "sale_terms": notice.get("sale_terms"),
         "legal_basis": notice.get("legal_basis"),
@@ -545,7 +746,7 @@ def promote_document(doc: dict, dry_run: bool) -> int:
         possession_date = props.pop("possession_date", None)
         title_deed_holder = props.pop("title_deed_holder", None)
         auction = rec["auction"]
-        run_query(_WRITE_LOT, {
+        write(_WRITE_LOT, {
             "filename": filename,
             "lot_key": rec["lot_key"],
             "lot_index": rec["lot_index"],
@@ -565,7 +766,30 @@ def promote_document(doc: dict, dry_run: bool) -> int:
             "auction": auction,
             "outstanding": [o for o in rec["outstanding"] if o["account_no"]],
         })
-    return len(lots)
+    places = [lot_place(rec) for rec in lots]
+    write_places(places)
+    return len(lots), Counter(p["status"] for p in places)
+
+
+def place_document(doc: dict, dry_run: bool) -> tuple[int, Counter]:
+    """Only the geography half of promote_document, for lots already loaded.
+
+    Rebuilds the same lot records — they are pure functions of the extraction —
+    but writes nothing except the gazetteer links, so re-linking the corpus is
+    two statements per document instead of the full node write.
+    """
+    filename = doc["filename"]
+    entities = entities_with_corrections(doc["extraction_json"],
+                                         doc.get("corrections_json"))
+    _, lots = build_lots(entities, filename)
+    places = [lot_place(rec) for rec in lots]
+    if dry_run:
+        print(f"  [dry-run] {filename}: "
+              f"{sum(1 for p in places if p['village'])}/{len(places)} placed "
+              f"({Counter(p['status'] for p in places).most_common()})")
+        return len(lots), Counter(p["status"] for p in places)
+    write_places(places)
+    return len(lots), Counter(p["status"] for p in places)
 
 
 def platform_name_of(url: str | None) -> str | None:
@@ -580,33 +804,59 @@ def platform_name_of(url: str | None) -> str | None:
 
 
 # ── Phase C: parcels ─────────────────────────────────────────────────────────
+#
+# A :Parcel is the physical land, persisting across the notices that advertise
+# it. Two lots that cite the same identifier AND resolve to the same revenue
+# village are the same land. Village scoping matters: survey numbers repeat
+# across the state, so an unscoped identifier match would merge unrelated
+# parcels — and a bad merge is far harder to undo than a missed one.
+#
+# Grouping is TRANSITIVE, and computed here rather than in Cypher. A pairwise
+# MERGE cannot express it: given lots A, B, C sharing one survey number, the
+# pairs (A,B) and (B,C) create two different parcels and B lands in both. The
+# relation "shares an identifier within a village" needs its connected
+# components, so the edges are read out and unioned in Python — 3k lots is
+# nothing, and the alternative is an iterative label-propagation query that is
+# far harder to read.
+#
+# Every :Parcel is derived state, holding no review or human input (only
+# parcel_id / last_seen / evidence), so phase C REBUILDS rather than
+# accumulates. Without the reset a re-run leaves a lot attached both to the
+# singleton parcel it had before and to the merged one it just joined.
 
-# Two lots that cite the same identifier AND resolve to the same village are
-# the same land. Village scoping matters: survey numbers repeat across the
-# state, so an unscoped identifier match would merge unrelated parcels — and a
-# bad merge is far harder to undo than a missed one.
-_RESOLVE_PARCELS = """
-MATCH (l1:Lot)-[:MENTIONS_IDENTIFIER]->(i:Identifier)<-[:MENTIONS_IDENTIFIER]-(l2:Lot)
-WHERE elementId(l1) < elementId(l2)
-  AND i.kind IN ['survey_old','survey_new','patta','cersai','property_id','sale_deed']
-MATCH (l1)-[:IN_REVENUE_VILLAGE]->(v:RevenueVillage)<-[:IN_REVENUE_VILLAGE]-(l2)
-WITH l1, l2, collect(DISTINCT i.kind + ':' + i.value_norm) AS shared
-MERGE (l1)-[:IS_PARCEL]->(p:Parcel {parcel_id: 'auto-' + l1.lot_key})
-MERGE (l2)-[r2:IS_PARCEL]->(p)
-SET r2.confidence = 'high', r2.method = 'identifier',
-    p.evidence = shared, p.last_seen = datetime()
-RETURN count(DISTINCT p) AS parcels
+# Identifier kinds that name the land itself. A door number or an account
+# number identifies a building or a debt, not a parcel, so neither can merge.
+PARCEL_IDENTIFIER_KINDS = (
+    "survey_old", "survey_new", "patta", "cersai", "property_id", "sale_deed",
+)
+
+_RESET_PARCELS = """
+MATCH (p:Parcel)
+DETACH DELETE p
+RETURN count(p) AS parcels
 """
 
-# Every lot that shares no identifier with another still gets its own parcel,
-# so :Parcel is a complete spine rather than only covering duplicates.
-_SINGLETON_PARCELS = """
-MATCH (l:Lot) WHERE NOT (l)-[:IS_PARCEL]->()
-MERGE (p:Parcel {parcel_id: 'lot-' + l.lot_key})
+_PARCEL_EDGES = """
+MATCH (l:Lot)-[:MENTIONS_IDENTIFIER]->(i:Identifier)
+WHERE i.kind IN $kinds
+MATCH (l)-[:IN_REVENUE_VILLAGE]->(v:RevenueVillage)
+RETURN l.lot_key AS lot_key,
+       i.kind + ':' + i.value_norm AS ident,
+       elementId(v) AS village
+"""
+
+_ALL_LOTS = "MATCH (l:Lot) RETURN l.lot_key AS lot_key"
+
+_WRITE_PARCELS = """
+UNWIND $rows AS row
+MATCH (l:Lot {lot_key: row.lot_key})
+MERGE (p:Parcel {parcel_id: row.parcel_id})
+SET p.last_seen = datetime(),
+    p.evidence = row.evidence,
+    p.lot_count = row.lot_count
 MERGE (l)-[r:IS_PARCEL]->(p)
-SET r.confidence = 'single', r.method = 'singleton',
-    p.last_seen = datetime()
-RETURN count(p) AS parcels
+SET r.confidence = row.confidence, r.method = row.method
+RETURN count(*) AS linked
 """
 
 _LINK_LISTINGS = """
@@ -638,9 +888,65 @@ SET a.attempt_no = idx + 1,
 RETURN count(a) AS auctions
 """
 
+
+def parcel_groups(edges: list[dict], all_lots: list[str]) -> list[dict]:
+    """Connected components of "shares an identifier within one village".
+
+    Pure, so the grouping is testable without a database. Returns one row per
+    lot, naming the parcel it belongs to: a group of one keeps its own
+    `lot-` id, a merged group is named `auto-` after its lowest lot_key so
+    the id is stable across runs rather than depending on row order.
+    """
+    parent: dict[str, str] = {k: k for k in all_lots}
+
+    def find(x: str) -> str:
+        parent.setdefault(x, x)
+        root = x
+        while parent[root] != root:
+            root = parent[root]
+        while parent[x] != root:      # path compression
+            parent[x], x = root, parent[x]
+        return root
+
+    def union(a: str, b: str) -> None:
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[max(ra, rb)] = min(ra, rb)
+
+    # bucket by (identifier, village) — every lot in a bucket is the same land
+    buckets: dict[tuple[str, str], list[str]] = defaultdict(list)
+    for e in edges:
+        buckets[(e["ident"], e["village"])].append(e["lot_key"])
+    for members in buckets.values():
+        for other in members[1:]:
+            union(members[0], other)
+
+    # what each component was merged on, for :Parcel.evidence
+    evidence: dict[str, set[str]] = defaultdict(set)
+    for (ident, _village), members in buckets.items():
+        if len(set(members)) > 1:
+            evidence[find(members[0])].add(ident)
+
+    groups: dict[str, list[str]] = defaultdict(list)
+    for lot_key in parent:
+        groups[find(lot_key)].append(lot_key)
+
+    rows = []
+    for root, members in groups.items():
+        merged = len(members) > 1
+        rows.extend({
+            "lot_key": lot_key,
+            "parcel_id": ("auto-" if merged else "lot-") + root,
+            "evidence": sorted(evidence.get(root, ())) or None,
+            "lot_count": len(members),
+            "confidence": "high" if merged else "single",
+            "method": "identifier" if merged else "singleton",
+        } for lot_key in members)
+    return rows
+
+
+# Run after the parcels themselves exist; each is a whole-corpus pass.
 _PARCEL_STEPS: tuple[tuple[str, str], ...] = (
-    ("merge by shared identifier", _RESOLVE_PARCELS),
-    ("singleton parcels", _SINGLETON_PARCELS),
     ("link listings", _LINK_LISTINGS),
     ("attach identifiers", _ATTACH_IDENTIFIERS),
     ("number attempts", _ATTEMPT_NO),
@@ -648,36 +954,97 @@ _PARCEL_STEPS: tuple[tuple[str, str], ...] = (
 
 
 def resolve_parcels(dry_run: bool) -> None:
-    print("phase C — parcels")
+    print("phase C — parcels", flush=True)
+    edges = run_read_query(_PARCEL_EDGES,
+                           {"kinds": list(PARCEL_IDENTIFIER_KINDS)},
+                           max_rows=200_000, timeout=180.0)
+    all_lots = [r["lot_key"] for r in run_read_query(_ALL_LOTS, max_rows=200_000,
+                                                     timeout=120.0)]
+    rows = parcel_groups(edges, all_lots)
+    merged_lots = sum(1 for r in rows if r["method"] == "identifier")
+    print(f"  grouping: {len(all_lots)} lot(s), {len(edges)} identifier edge(s)"
+          f" -> {len({r['parcel_id'] for r in rows})} parcel(s); "
+          f"{merged_lots} lot(s) merged into "
+          f"{len({r['parcel_id'] for r in rows if r['method'] == 'identifier'})}"
+          f" shared parcel(s)", flush=True)
+    if dry_run:
+        print("  [dry-run] reset + write parcels, then link listings, attach "
+              "identifiers, number attempts")
+        return
+
+    deleted = write(_RESET_PARCELS, {})
+    print(f"  reset derived parcels: "
+          f"{list(deleted[0].values())[0] if deleted else 0}", flush=True)
+    for i in range(0, len(rows), WRITE_CHUNK):
+        write(_WRITE_PARCELS, {"rows": rows[i:i + WRITE_CHUNK]})
+    print(f"  write parcels: {len(rows)} lot link(s)", flush=True)
+
     for name, cypher in _PARCEL_STEPS:
-        if dry_run:
-            print(f"  [dry-run] {name}")
-            continue
-        rows = run_query(cypher)
-        n = list(rows[0].values())[0] if rows else 0
-        print(f"  {name}: {n}")
+        out = write(cypher, {})
+        n = list(out[0].values())[0] if out else 0
+        print(f"  {name}: {n}", flush=True)
 
 
 # ── main ─────────────────────────────────────────────────────────────────────
 
 def run(limit: int | None, filename: str | None,
-        dry_run: bool, skip_parcels: bool) -> int:
+        dry_run: bool, skip_parcels: bool, workers: int = DEFAULT_WORKERS,
+        places_only: bool = False, parcels_only: bool = False) -> int:
+    # Phase C is a whole-corpus rebuild, so it stands alone: re-running it
+    # after a grouping change costs seconds and needs no phase-B work.
+    if parcels_only:
+        resolve_parcels(dry_run)
+        return 0
+
     docs = fetch_documents(limit, filename)
-    print(f"phase B — promoting {len(docs)} document(s)")
-    ok = fail = lots = 0
-    for doc in docs:
+    workers = max(1, workers if not dry_run else 1)
+    label = "places" if places_only else "promoting"
+    print(f"phase B — {label} {len(docs)} document(s) "
+          f"across {workers} worker(s)", flush=True)
+
+    state = {"ok": 0, "fail": 0, "lots": 0, "done": 0, "status": Counter()}
+    lock = threading.Lock()
+
+    def one(doc: dict) -> None:
         try:
-            lots += promote_document(doc, dry_run)
-            ok += 1
+            n, statuses = (place_document(doc, dry_run) if places_only
+                           else promote_document(doc, dry_run))
+            with lock:
+                state["ok"] += 1
+                state["lots"] += n
+                state["status"].update(statuses)
         except Exception as exc:      # one bad notice must not stop the batch
-            fail += 1
+            with lock:
+                state["fail"] += 1
             log.warning("promote failed for %s: %s", doc["filename"], exc)
-            print(f"  [fail] {doc['filename']}: {exc}")
-    print(f"phase B done — {ok} document(s), {lots} lot(s), {fail} failed")
+            print(f"  [fail] {doc['filename']}: {exc}", flush=True)
+        finally:
+            with lock:
+                state["done"] += 1
+                done = state["done"]
+            if done % 50 == 0 or done == len(docs):
+                print(f"  {done}/{len(docs)} documents, {state['lots']} lot(s), "
+                      f"{state['fail']} failed", flush=True)
+
+    if workers == 1:
+        for doc in docs:
+            one(doc)
+    else:
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = [pool.submit(one, doc) for doc in docs]
+            for f in as_completed(futures):
+                f.result()            # one() already swallows per-document errors
+
+    print(f"phase B done — {state['ok']} document(s), {state['lots']} lot(s), "
+          f"{state['fail']} failed", flush=True)
+    if state["status"]:
+        print("  place resolution: "
+              + ", ".join(f"{k}={v}" for k, v in state["status"].most_common()),
+              flush=True)
 
     if not skip_parcels:
         resolve_parcels(dry_run)
-    return 1 if fail else 0
+    return 1 if state["fail"] else 0
 
 
 def main() -> int:
@@ -689,8 +1056,21 @@ def main() -> int:
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--skip-parcels", action="store_true",
                     help="run phase B only; parcels need the full corpus")
+    ap.add_argument("--workers", type=int, default=DEFAULT_WORKERS,
+                    help=f"concurrent documents in phase B "
+                         f"(default {DEFAULT_WORKERS}; phase C is always serial)")
+    ap.add_argument("--parcels-only", action="store_true",
+                    help="run phase C alone against the lots already in the "
+                         "graph — it rebuilds the derived :Parcel layer, so "
+                         "it is safe to re-run on its own")
+    ap.add_argument("--places-only", action="store_true",
+                    help="skip the phase-B node writes and only (re)link "
+                         "already-promoted lots to the gazetteer, then run "
+                         "phase C — the cheap path when the lots are already "
+                         "loaded and only their geography changed")
     args = ap.parse_args()
-    return run(args.limit, args.filename, args.dry_run, args.skip_parcels)
+    return run(args.limit, args.filename, args.dry_run, args.skip_parcels,
+               args.workers, args.places_only, args.parcels_only)
 
 
 if __name__ == "__main__":
