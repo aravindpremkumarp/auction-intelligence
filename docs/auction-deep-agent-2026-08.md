@@ -5,10 +5,10 @@ the **current** graph and owing nothing to the pydantic-ai chat agent. New
 tools, new instructions, new skills, new package. `/chat/v1`, `/chat/v2` and
 `/chat/deep` keep running untouched.
 
-Status: **steps 1–2 built** (see §10). `find_properties`, `get_property`,
-`search_notices`, `find_by_identifier` and their evals are in `api/agent3/`
-and `evals/agent3_cases.py`; the eval catalogue scores 36/36 against the live
-graph, all four gates met. Everything else here is still spec.
+Status: **steps 1–3 built** (see §10). Tools, evals, instructions and the
+first three skills are in `api/agent3/`; the eval catalogue scores 36/36
+against the live graph, all four gates met. No agent loop exists yet — step
+4 (harness) is next.
 
 ---
 
@@ -528,7 +528,20 @@ Gate to ship: no regression on the 68, ≥90% on `lot_facts`, **100% on
      parse error, not a wrong-empty-result, so it was caught before this
      shipped. Fixed by aliasing inside the branches and back on the way out
      (`identifiers.py::_DETAIL_CYPHER`).
-3. Instructions core + `diligence`, `extent`, `identifiers` skills.
+3. ~~Instructions core + `diligence`, `extent`, `identifiers` skills.~~
+   **Done.** `api/agent3/instructions.md` (676 tokens — a ~74% cut from
+   `modes/_shared.md`'s ~2,600) plus three on-demand skills under
+   `api/agent3/skills/`. `tests/api/test_agent3_instructions.py` pins the
+   same class of drift `test_mode_files.py` catches for v1 — a prompt
+   citing a tool that isn't built (`benchmark_price`, `reauction_history`,
+   `run_cypher` are explicitly checked-for and forbidden until step 5/6
+   land), a skill nothing routes to, and enum/conversion values quoted in
+   prose that no longer match the live source (`enums.py`,
+   `pipeline/measures.py`, `common.py`'s sqft band). It caught two real
+   drift bugs on first run: a routing-phrase line-wrap that made the
+   `identifiers` skill look orphaned, and the skill missing the
+   `property_id` identifier kind. No live-graph eval needed here — this
+   step touches no Cypher.
 4. Harness on `create_agent`, checkpointer reused, cache test.
 5. `benchmark_price`, `reauction_history` + `pricing`, `reauction` skills.
 6. `AnswerGate` + `scope_honesty` evals; remaining skills.
