@@ -88,7 +88,7 @@ async def run_turn(
         classify_intent,
         wrap_pasted_content,
     )
-    from api.chat.v2.scope import harvest_entities, harvest_scope
+    from api.chat.v2.scope import harvest_scope
 
     started = time.perf_counter()
     result = TurnResult(last_question=question)
@@ -159,14 +159,20 @@ async def run_turn(
         extra_ids=_all_ids(result.executed),
     )
 
-    # For the matches panel only. Nothing in this loop reads it back.
+    # For the matches panel only, which reads `last_ids` and `last_total_count`.
+    #
+    # `last_entities` is deliberately NOT harvested here. It exists because the
+    # tiered loop's summary could not resolve "these areas" without it, and
+    # that loop feeds it back into its next prompt. This loop resolves the same
+    # reference from the checkpointed transcript, so computing the name list
+    # would be work whose only consumer is a loop that isn't running. The field
+    # stays on TurnResult (the response schema is shared) and stays empty.
     executed_dicts = [call.as_dict() for call in result.executed]
     result.filters, harvested_total, harvested_ids = harvest_scope(executed_dicts)
     if harvested_total is not None:
         result.last_total_count = harvested_total
     if harvested_ids:
         result.last_ids = harvested_ids
-    result.last_entities = harvest_entities(executed_dicts)
 
     result.seconds = round(time.perf_counter() - started, 2)
     return result
