@@ -17,7 +17,8 @@ def test_every_case_has_a_unique_id_and_a_known_suite():
 
 
 def test_every_case_names_a_real_tool():
-    assert {c.tool for c in ALL_CASES} <= {"find_properties", "get_property"}
+    assert {c.tool for c in ALL_CASES} <= {
+        "find_properties", "get_property", "find_by_identifier", "search_notices"}
 
 
 def test_scope_honesty_gate_is_total():
@@ -56,6 +57,39 @@ def test_invariant_catches_a_multi_lot_notice_with_no_scope_note():
 def test_invariant_passes_a_correct_single_lot_row():
     good = {"rows": [{"auction_id": "X", "notice_lot_count": 1,
                       "area_sqft": 714.0, "area_sqft_scope": "lot"}]}
+    assert C.scope_invariant(good) == []
+
+
+def test_invariant_catches_a_lot_scoped_identifier_match_on_a_multi_lot_notice():
+    bad = {"matches": [{"identifier_kind": "survey_new", "identifier_value": "1",
+                        "listings": [{"auction_id": "X", "notice_lot_count": 3,
+                                     "scope": "lot"}]}]}
+    problems = C.scope_invariant(bad)
+    assert problems and "3-lot notice" in problems[0]
+
+
+def test_invariant_catches_a_multi_lot_identifier_match_with_no_scope_note():
+    bad = {"matches": [{"identifier_kind": "survey_new", "identifier_value": "1",
+                        "listings": [{"auction_id": "X", "notice_lot_count": 2,
+                                     "scope": "notice"}]}]}
+    assert C.scope_invariant(bad)
+
+
+def test_invariant_catches_a_lot_scoped_notice_search_hit_on_a_multi_lot_notice():
+    bad = {"results": [{"auction_id": "X", "notice_lot_count": 4, "scope": "lot"}]}
+    problems = C.scope_invariant(bad)
+    assert problems and "notice-search hit" in problems[0]
+
+
+def test_invariant_passes_a_correct_identifier_match():
+    good = {"matches": [{"identifier_kind": "survey_new", "identifier_value": "1",
+                         "listings": [{"auction_id": "X", "notice_lot_count": 2,
+                                      "scope": "notice", "scope_note": "n"}]}]}
+    assert C.scope_invariant(good) == []
+
+
+def test_invariant_passes_a_correct_notice_search_hit():
+    good = {"results": [{"auction_id": "X", "notice_lot_count": 1, "scope": "lot"}]}
     assert C.scope_invariant(good) == []
 
 
