@@ -2,7 +2,7 @@
 
     python -m pipeline.promote_extractions [--limit N] [--filename F]
                                            [--dry-run] [--skip-parcels]
-                                           [--workers N]
+                                           [--workers N] [--places-only]
 
 Phase B promotes documents concurrently (--workers, default 8) — each document
 is a few small writes dominated by the round trip to Aura, so a serial run over
@@ -15,9 +15,16 @@ Aura's HTTPS Query API instead.
 
 Phase B turns each extracted notice into graph structure: one :Lot per lot,
 with its identifiers, extents, boundaries, schedules, parties, sale event and
-notice-level nodes. Phase C then resolves :Parcel across every lot, which is a
-SECOND PASS on purpose — you cannot tell which lots share a physical parcel
-until every identifier in the corpus exists.
+notice-level nodes. Each lot's village/taluk/district is resolved onto the
+official gazetteer (:RevenueVillage / :Taluk / :District) through
+pipeline.place_resolution — the notice's own spelling is never stored as the
+answer, and a lot that cannot be placed keeps `place_status` and no edge.
+
+Phase C then resolves :Parcel across every lot, which is a SECOND PASS on
+purpose — you cannot tell which lots share a physical parcel until every
+identifier in the corpus exists. It merges two lots only when they cite the
+same identifier AND sit in the same revenue village, so phase B's gazetteer
+links are what make it fire at all.
 
 GATED ON `extraction_json IS NOT NULL`, not on review status. Every one of the
 245 extracted documents is still `extraction_review_status = 'pending'`, so
@@ -41,7 +48,7 @@ import random
 import re
 import threading
 import time
-from collections import defaultdict
+from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from api.neo4j_client import run_query, run_read_query
@@ -50,6 +57,7 @@ from pipeline.measures import (
     parse_area, parse_length, pick_headline, read_adjacency,
 )
 from pipeline.obs import get_logger
+from pipeline.place_resolution import Gazetteer, resolve_place
 from pipeline.resolve_places import norm_place
 from pipeline.validators import normalize_identifier_kind
 
@@ -137,6 +145,87 @@ def _num(v) -> float | None:
         return float(str(v).replace(",", "").strip())
     except (TypeError, ValueError):
         return None
+
+
+# ── gazetteer ────────────────────────────────────────────────────────────────
+# The official TN hierarchy (38 districts / 316 taluks / 17,164 revenue
+# villages) already lives in the graph. It is read once per process and shared
+# across the phase-B workers — 17k rows is a few MB, and re-reading it per
+# document would cost more than the promotion itself.
+_GAZ: Gazetteer | None = None
+_GAZ_LOCK = threading.Lock()
+
+
+def gazetteer() -> Gazetteer:
+    global _GAZ
+    with _GAZ_LOCK:
+        if _GAZ is None:
+            _GAZ = Gazetteer(
+                districts=[r["name"] for r in run_read_query(
+                    "MATCH (d:District) RETURN d.name AS name",
+                    max_rows=1_000)],
+                taluks=[(r["taluk"], r["district"]) for r in run_read_query(
+                    "MATCH (t:Taluk)-[:IN_DISTRICT]->(d:District) "
+                    "RETURN t.name AS taluk, d.name AS district",
+                    max_rows=5_000)],
+                villages=[(r["village"], r["taluk"], r["district"])
+                          for r in run_read_query(
+                    "MATCH (v:RevenueVillage)-[:IN_TALUK]->(t:Taluk)"
+                    "-[:IN_DISTRICT]->(d:District) "
+                    "RETURN v.name AS village, t.name AS taluk, "
+                    "       d.name AS district",
+                    max_rows=50_000, timeout=120.0)],
+            )
+            log.info("gazetteer loaded: %d districts, %d taluks, %d villages",
+                     len(_GAZ.districts), len(_GAZ.taluks), len(_GAZ.villages))
+    return _GAZ
+
+
+def lot_place(rec: dict) -> dict:
+    """Resolve one lot's extracted village/taluk/district onto the gazetteer.
+
+    The notice's own strings are never stored as the answer — they go through
+    the same bottom-up resolver the scraped-listing path uses
+    (pipeline.place_resolution), so an outdated district ("Kanchipuram" for a
+    2019 Chengalpattu taluk) is corrected by the taluk beneath it rather than
+    believed.
+
+    Returns the row _WRITE_LOT_PLACE consumes: the resolved official names, or
+    None at whatever level did not resolve, plus the reason. A lot that cannot
+    be placed keeps `place_status` and no edge — a visible gap, never a guess.
+    """
+    gaz = gazetteer()
+    loc = rec["location"]
+    r = resolve_place(gaz,
+                      district=loc.get("district"),
+                      taluk=loc.get("taluk"),
+                      village=loc.get("village"))
+    status, source = r["village_status"], r["village_source"]
+    district, taluk, village = r["district"], r["taluk"], r["village"]
+
+    # Notices name the taluk more coarsely than the revenue record does —
+    # "Dindigul" where the gazetteer has split it into Dindigul East and West,
+    # "Udumalpet" for Udumalaipettai. resolve_place is right to refuse those
+    # (guessing East vs West is a coin flip), but the *village* underneath is
+    # still findable: search the district instead, on the gazetteer's own
+    # guarded terms — exact match only, and only when the district holds
+    # exactly one village of that name. That recovers the taluk for free,
+    # since a village names its own parent.
+    if village is None and district and loc.get("village"):
+        wider = gaz.village_in_district(loc["village"], district)
+        if wider:
+            village, taluk = wider
+            status, source = "resolved", "district"
+
+    return {
+        "lot_key": rec["lot_key"],
+        "district": district,
+        "taluk": taluk,
+        "village": village,
+        "status": status,
+        "source": source,
+        "conflict": r["conflict"],
+    }
 
 
 def _hash(text: str) -> str:
@@ -545,6 +634,62 @@ RETURN d.filename AS filename
 """
 
 
+_WRITE_LOT_PLACE = """
+UNWIND $rows AS row
+MATCH (l:Lot {lot_key: row.lot_key})
+SET l.place_status = row.status,
+    l.place_source = row.source,
+    l.place_conflict = row.conflict,
+    l.village = row.village,
+    l.taluk = row.taluk,
+    l.district = row.district
+
+// MATCH, never MERGE: every name here came out of the gazetteer, so a miss is
+// a bug worth leaving visible. MERGE would invent a duplicate place node with
+// no code hanging off the hierarchy — silently wrong instead of visibly absent.
+WITH l, row
+OPTIONAL MATCH (v:RevenueVillage {name: row.village})
+               -[:IN_TALUK]->(t:Taluk {name: row.taluk})
+               -[:IN_DISTRICT]->(d:District {name: row.district})
+WITH l, collect({v: v, t: t, d: d}) AS hits
+// 21 taluks hold two villages of one name. resolve_place already refuses
+// those, but a second guard here costs nothing and a wrong parcel merge is
+// far worse than a missing one.
+WITH l, hits WHERE size(hits) = 1
+UNWIND hits AS hit
+WITH l, hit.v AS v, hit.t AS t, hit.d AS d WHERE v IS NOT NULL
+MERGE (l)-[:IN_REVENUE_VILLAGE]->(v)
+MERGE (l)-[:IN_TALUK]->(t)
+MERGE (l)-[:IN_DISTRICT]->(d)
+RETURN count(*) AS linked
+"""
+
+# Lots whose village did not resolve can still be placed at district level —
+# useful on its own, and it costs one more statement rather than complicating
+# the guard above. Taluk names are globally unique, districts likewise, so
+# neither needs the size(hits) check.
+_WRITE_LOT_DISTRICT = """
+UNWIND $rows AS row
+WITH row WHERE row.village IS NULL AND row.district IS NOT NULL
+MATCH (l:Lot {lot_key: row.lot_key})
+MATCH (d:District {name: row.district})
+MERGE (l)-[:IN_DISTRICT]->(d)
+WITH l, row
+OPTIONAL MATCH (t:Taluk {name: row.taluk})
+FOREACH (_ IN CASE WHEN t IS NULL THEN [] ELSE [1] END |
+  MERGE (l)-[:IN_TALUK]->(t))
+RETURN count(*) AS linked
+"""
+
+
+def write_places(rows: list[dict]) -> None:
+    """Link a document's lots to the canonical geography. Idempotent."""
+    if not rows:
+        return
+    write(_WRITE_LOT_PLACE, {"rows": rows})
+    write(_WRITE_LOT_DISTRICT, {"rows": rows})
+
+
 def fetch_documents(limit: int | None, filename: str | None) -> list[dict]:
     q = _FETCH.format(
         filename_clause="AND d.filename = $fn" if filename else "",
@@ -554,16 +699,19 @@ def fetch_documents(limit: int | None, filename: str | None) -> list[dict]:
                           max_rows=20_000, timeout=120.0)
 
 
-def promote_document(doc: dict, dry_run: bool) -> int:
+def promote_document(doc: dict, dry_run: bool) -> tuple[int, Counter]:
     filename = doc["filename"]
     entities = entities_with_corrections(doc["extraction_json"],
                                          doc.get("corrections_json"))
     notice, lots = build_lots(entities, filename)
     if dry_run:
+        places = [lot_place(rec) for rec in lots]
         print(f"  [dry-run] {filename}: {len(lots)} lot(s), "
               f"{sum(len(l['identifiers']) for l in lots)} identifier(s), "
-              f"{sum(len(l['measurements']) for l in lots)} extent(s)")
-        return len(lots)
+              f"{sum(len(l['measurements']) for l in lots)} extent(s), "
+              f"{sum(1 for p in places if p['village'])}/{len(places)} placed "
+              f"({Counter(p['status'] for p in places).most_common()})")
+        return len(lots), Counter(p["status"] for p in places)
 
     officer = notice.get("authorised_officer") or notice.get("liquidator")
     emd = notice.get("emd_account") or {}
@@ -617,7 +765,30 @@ def promote_document(doc: dict, dry_run: bool) -> int:
             "auction": auction,
             "outstanding": [o for o in rec["outstanding"] if o["account_no"]],
         })
-    return len(lots)
+    places = [lot_place(rec) for rec in lots]
+    write_places(places)
+    return len(lots), Counter(p["status"] for p in places)
+
+
+def place_document(doc: dict, dry_run: bool) -> tuple[int, Counter]:
+    """Only the geography half of promote_document, for lots already loaded.
+
+    Rebuilds the same lot records — they are pure functions of the extraction —
+    but writes nothing except the gazetteer links, so re-linking the corpus is
+    two statements per document instead of the full node write.
+    """
+    filename = doc["filename"]
+    entities = entities_with_corrections(doc["extraction_json"],
+                                         doc.get("corrections_json"))
+    _, lots = build_lots(entities, filename)
+    places = [lot_place(rec) for rec in lots]
+    if dry_run:
+        print(f"  [dry-run] {filename}: "
+              f"{sum(1 for p in places if p['village'])}/{len(places)} placed "
+              f"({Counter(p['status'] for p in places).most_common()})")
+        return len(lots), Counter(p["status"] for p in places)
+    write_places(places)
+    return len(lots), Counter(p["status"] for p in places)
 
 
 def platform_name_of(url: str | None) -> str | None:
@@ -713,21 +884,25 @@ def resolve_parcels(dry_run: bool) -> None:
 # ── main ─────────────────────────────────────────────────────────────────────
 
 def run(limit: int | None, filename: str | None,
-        dry_run: bool, skip_parcels: bool, workers: int = DEFAULT_WORKERS) -> int:
+        dry_run: bool, skip_parcels: bool, workers: int = DEFAULT_WORKERS,
+        places_only: bool = False) -> int:
     docs = fetch_documents(limit, filename)
     workers = max(1, workers if not dry_run else 1)
-    print(f"phase B — promoting {len(docs)} document(s) "
+    label = "places" if places_only else "promoting"
+    print(f"phase B — {label} {len(docs)} document(s) "
           f"across {workers} worker(s)", flush=True)
 
-    state = {"ok": 0, "fail": 0, "lots": 0, "done": 0}
+    state = {"ok": 0, "fail": 0, "lots": 0, "done": 0, "status": Counter()}
     lock = threading.Lock()
 
     def one(doc: dict) -> None:
         try:
-            n = promote_document(doc, dry_run)
+            n, statuses = (place_document(doc, dry_run) if places_only
+                           else promote_document(doc, dry_run))
             with lock:
                 state["ok"] += 1
                 state["lots"] += n
+                state["status"].update(statuses)
         except Exception as exc:      # one bad notice must not stop the batch
             with lock:
                 state["fail"] += 1
@@ -752,6 +927,10 @@ def run(limit: int | None, filename: str | None,
 
     print(f"phase B done — {state['ok']} document(s), {state['lots']} lot(s), "
           f"{state['fail']} failed", flush=True)
+    if state["status"]:
+        print("  place resolution: "
+              + ", ".join(f"{k}={v}" for k, v in state["status"].most_common()),
+              flush=True)
 
     if not skip_parcels:
         resolve_parcels(dry_run)
@@ -770,9 +949,14 @@ def main() -> int:
     ap.add_argument("--workers", type=int, default=DEFAULT_WORKERS,
                     help=f"concurrent documents in phase B "
                          f"(default {DEFAULT_WORKERS}; phase C is always serial)")
+    ap.add_argument("--places-only", action="store_true",
+                    help="skip the phase-B node writes and only (re)link "
+                         "already-promoted lots to the gazetteer, then run "
+                         "phase C — the cheap path when the lots are already "
+                         "loaded and only their geography changed")
     args = ap.parse_args()
     return run(args.limit, args.filename, args.dry_run, args.skip_parcels,
-               args.workers)
+               args.workers, args.places_only)
 
 
 if __name__ == "__main__":
