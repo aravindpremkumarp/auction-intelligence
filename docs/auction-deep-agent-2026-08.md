@@ -5,10 +5,11 @@ the **current** graph and owing nothing to the pydantic-ai chat agent. New
 tools, new instructions, new skills, new package. `/chat/v1`, `/chat/v2` and
 `/chat/deep` keep running untouched.
 
-Status: **steps 1–3 built** (see §10). Tools, evals, instructions and the
-first three skills are in `api/agent3/`; the eval catalogue scores 36/36
-against the live graph, all four gates met. No agent loop exists yet — step
-4 (harness) is next.
+Status: **steps 1–4 built** (see §10). Tools, evals, instructions, three
+skills and the agent harness are in `api/agent3/`; the eval catalogue scores
+36/36 against the live graph and 135 unit tests pass. The agent compiles and
+runs turns with server-side memory, but is not wired to any request path and
+has not yet been driven by a real model.
 
 ---
 
@@ -385,10 +386,37 @@ skills, durable transcript — by composing them ourselves:
 |---|---|---|
 | Transcript memory | Neo4j `BaseCheckpointSaver` (reuse `api/chat/deep/checkpointer.py`, the one piece worth keeping) | It works, and it won the memory argument in the A/B |
 | Subagents | One `consult(brief, ids)` tool delegating to a named worker | `task` delegates to a blank clone of its parent |
-| Skills | `SkillsMiddleware` over `api/chat/agent3/skills/` | Keep — this is the token win |
+| Skills | `api/agent3/skills.py` — our own loader | **Corrected.** `SkillsMiddleware` was measured and rejected: see below |
 | Filesystem | **Not bound** | 6 tool schemas per prompt for a chat agent that never writes a file |
 | Shell (`execute`) | **Not bound** | Inert today only because the default backend has no `execute`; not a guarantee to rely on |
 | Todo list | **Not bound** | The plan is the answer's outline; a second fuzzy copy costs a call |
+
+**Why not `SkillsMiddleware` — measured, not assumed.** The original
+version of this section specified deepagents' `SkillsMiddleware`. Measured
+against 0.7.7 before building step 4, it fails on its own terms:
+
+- **+36 MB RSS.** `create_agent` alone imports at 68.3 MB; adding
+  `SkillsMiddleware` takes it to 104.5 MB — identical to importing all of
+  `deepagents`, because the package `__init__` pulls `create_deep_agent`, the
+  filesystem middleware and the subagent middleware regardless of which
+  submodule is requested.
+- **It requires the very tools this section drops.** `backend` is a REQUIRED
+  constructor argument, and the middleware binds no tools of its own. It
+  loads a skill by instructing the model to call `read_file` on a path — so
+  using it means binding `ls`, `read_file`, `write_file`, `edit_file`,
+  `delete`, `glob`, `grep`, `execute`, measured at **~2,611 tokens** of
+  schema per prompt.
+- **Plus 464 tokens** of its own boilerplate system prompt, most of it
+  irrelevant here (a quantum-computing example, "Executing Skill Scripts").
+- **Plus one model call per skill load**, since progressive disclosure runs
+  through a tool call rather than direct injection.
+
+That is ~3,075 tokens/turn against a 676-token core instruction file — 4.5x
+the whole prompt §5 exists to shrink, to obtain a feature we can get in ~70
+lines. `api/agent3/skills.py` matches a trigger, reads the file and injects
+the text: no tool bound, no round-trip, and nothing paid on turns that load
+no skill. For scale: our entire useful tool surface (all four graph tools)
+measures ~1,744 tokens — less than deepagents' filesystem overhead alone.
 
 Middleware, kept deliberately short:
 
@@ -542,7 +570,34 @@ Gate to ship: no regression on the 68, ≥90% on `lot_facts`, **100% on
    `identifiers` skill look orphaned, and the skill missing the
    `property_id` identifier kind. No live-graph eval needed here — this
    step touches no Cypher.
-4. Harness on `create_agent`, checkpointer reused, cache test.
+4. ~~Harness on `create_agent`, checkpointer reused, cache test.~~
+   **Done.** `api/agent3/agent.py` (builds the graph), `loop.py` (one turn),
+   `skills.py` (our loader — see §6). Four tools bound and nothing else;
+   `Neo4jSaver` reused unchanged. Three bugs found by compiling the graph
+   rather than reasoning about it:
+   - **`ToolErrorMiddleware()` with no handler raises** — it requires
+     `on_error`. Now supplied, and it deliberately does NOT echo internal
+     exception messages: a driver error can carry a URI or credential, so
+     only `ValueError`/`TypeError` (whose text we authored, naming valid
+     values) pass through; everything else surfaces as its type name.
+   - **`ModelRetryMiddleware` defaults to `retry_on=(Exception,)`** — it
+     retried a deterministic `NotImplementedError` three times with backoff
+     before failing anyway. On a real deploy a 4xx (bad key, malformed
+     request) would burn three calls and ~7s per turn to reach the same
+     error. Replaced with a predicate: 5xx/429/timeout/connection retry,
+     everything else surfaces immediately.
+   - **The stock LangChain fakes cannot drive this graph** —
+     `GenericFakeChatModel` and `FakeMessagesListChatModel` both raise
+     `NotImplementedError` under `create_agent` (no async tool-calling
+     path), so a scripted model lives in the test file. Without it the
+     graph could not be exercised at all.
+
+   The cache assertion is made against the **compiled graph**, not the file:
+   two turns of one thread must send a byte-identical system message. That
+   is deliberately stricter than checking `instructions.md` is constant —
+   the deep loop's docs claimed subagents were off for weeks because the
+   assertion inspected what was passed in rather than what the harness
+   assembled.
 5. `benchmark_price`, `reauction_history` + `pricing`, `reauction` skills.
 6. `AnswerGate` + `scope_honesty` evals; remaining skills.
 7. Full eval run, n≥3 on latency, then decide about un-gating.
