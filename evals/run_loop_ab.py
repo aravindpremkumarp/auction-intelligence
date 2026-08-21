@@ -62,6 +62,15 @@ from evals.conversations import GOLDEN_CONVERSATIONS  # noqa: E402
 LOOPS = ("tiered", "deep")
 
 
+def _turn_ceiling() -> float:
+    from api.chat.deep.loop import TURN_TIMEOUT_S
+
+    return TURN_TIMEOUT_S
+
+
+_TURN_CEILING = _turn_ceiling()
+
+
 # ── running one turn on either loop ─────────────────────────────────────────
 
 async def _run_tiered(question: str, state: dict[str, Any]) -> dict[str, Any]:
@@ -138,22 +147,56 @@ _RUNNERS = {"tiered": _run_tiered, "deep": _run_deep}
 
 # ── scoring ─────────────────────────────────────────────────────────────────
 
-def _score_golden(case, turn: dict[str, Any]) -> str:
+def _gave_up(answer: str) -> str | None:
+    """Did the loop itself fail to produce an answer? Returns why, or None.
+
+    This check has to come FIRST in both scorers, and the smoke run is why.
+    A deep-loop turn hit the 120 s ceiling and returned its timeout text — but
+    `search_auctions` had already run, so a trajectory-only score called it a
+    **pass**. The A/B would have reported a loop that failed to answer as
+    passing, which is worse than not running the A/B at all.
+
+    The sentinels are imported, never copied: if a loop reworks its failure
+    text, this goes stale silently and the false pass comes back.
+    """
+    from api.chat.deep.loop import _FAILED, _NO_ANSWER, _TIMED_OUT
+    from api.chat.v2.loop import _CANT_ANSWER, _CANT_PLAN
+
+    return {
+        _TIMED_OUT: f"gave up: turn exceeded the {int(_TURN_CEILING)}s ceiling",
+        _FAILED: "gave up: the graph raised",
+        _NO_ANSWER: "gave up: tools ran but no answer was written",
+        _CANT_PLAN: "gave up: could not plan the lookup",
+        _CANT_ANSWER: "gave up: could not write the results up",
+    }.get((answer or "").strip())
+
+
+def _score_golden(case, turn: dict[str, Any]) -> tuple[str, str]:
+    """Returns (verdict, note), same shape as `_score_turn`."""
+    gave_up = _gave_up(turn["answer"])
+    if gave_up:
+        return "FAIL", gave_up
     answer = (turn["answer"] or "").lower()
     if case.expect_refusal:
-        return "pass" if any(m in answer for m in _DECLINE_MARKERS) else "FAIL"
+        if any(m in answer for m in _DECLINE_MARKERS):
+            return "pass", ""
+        return "FAIL", "refusal case answered without a decline marker"
     used = set(turn["tools"])
     if used & set(case.acceptable_tools):
-        return "pass"
+        return "pass", ""
     if not used and answer:
         # Answered without tools. Informational, not a trajectory pass — the
         # spike reported these separately rather than burying them either way.
-        return "direct"
-    return "FAIL"
+        return "direct", ""
+    return "FAIL", (f"expected one of {case.acceptable_tools}, "
+                    f"called {sorted(used) or 'nothing'}")
 
 
 def _score_turn(turn_spec, turn: dict[str, Any]) -> tuple[str, str]:
     """Returns (verdict, note). Conversation turns carry more assertions."""
+    gave_up = _gave_up(turn["answer"])
+    if gave_up:
+        return "FAIL", gave_up
     answer = (turn["answer"] or "").lower()
     for marker in turn_spec.forbid_answer_markers:
         if marker in answer:
@@ -175,8 +218,7 @@ async def _run_golden(loop: str, limit: int | None) -> list[dict[str, Any]]:
         started = time.perf_counter()
         try:
             turn = await _RUNNERS[loop](case.question, state)
-            verdict = _score_golden(case, turn)
-            note = ""
+            verdict, note = _score_golden(case, turn)
         except Exception as exc:  # noqa: BLE001
             turn = {"answer": "", "tools": [], "seconds": 0, "model_calls": 0,
                     "input_tokens": 0, "cached_tokens": 0, "output_tokens": 0,
