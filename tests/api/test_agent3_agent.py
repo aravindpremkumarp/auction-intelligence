@@ -471,3 +471,65 @@ def test_building_the_model_does_not_import_langchain_at_module_scope():
     }
     assert not (module_level & {"langchain", "langchain_openai", "langgraph"}), (
         f"agent.py imports {module_level} at module scope")
+
+
+# ── memory is opt-out, not opt-in ────────────────────────────────────────
+
+def test_run_turn_defaults_to_a_real_checkpointer(monkeypatch):
+    """The first real-model smoke run asked a follow-up on the same thread
+    and got "this is the start of our conversation" — because `checkpointer`
+    defaulted to None and nothing complained. A memoryless agent is
+    indistinguishable from a working one until the second question, and the
+    transcript is the entire reason this design chose the deep loop's memory
+    model. Memory must be what you get by NOT deciding."""
+    built: dict = {}
+
+    def fake_build(**kwargs):
+        built.update(kwargs)
+        return _FakeAgent()
+
+    monkeypatch.setattr(L, "build_agent", fake_build)
+    monkeypatch.setattr(L, "default_checkpointer", lambda: "NEO4J_SAVER")
+    asyncio.run(L.run_turn("q", thread_id="t"))
+    assert built["checkpointer"] == "NEO4J_SAVER"
+
+
+def test_run_turn_still_allows_an_explicitly_memoryless_run(monkeypatch):
+    """`checkpointer=None` must remain a way to say 'deliberately no memory'
+    — distinct from 'I didn't think about it'."""
+    built: dict = {}
+
+    def fake_build(**kwargs):
+        built.update(kwargs)
+        return _FakeAgent()
+
+    monkeypatch.setattr(L, "build_agent", fake_build)
+    monkeypatch.setattr(L, "default_checkpointer",
+                        lambda: pytest.fail("should not be called"))
+    asyncio.run(L.run_turn("q", thread_id="t", checkpointer=None))
+    assert built["checkpointer"] is None
+
+
+def test_the_default_checkpointer_imports_without_the_web_stack():
+    """`api/agent3` must stay importable with only the Neo4j driver.
+
+    This regressed the moment memory was made opt-out: the saver lived at
+    `api/chat/deep/checkpointer.py`, and `api/chat/__init__.py` imports the
+    FastAPI router, so reaching it dragged the whole web stack in. Caught by
+    a real smoke run failing on `ModuleNotFoundError: fastapi`. The saver now
+    lives at `api/checkpointer.py`, for the same reason `api/policy.py` and
+    `api/model_selection.py` already sit outside `api/chat/`."""
+    import subprocess
+    import sys
+    import textwrap
+
+    code = textwrap.dedent("""
+        import sys
+        from api.agent3.loop import default_checkpointer  # noqa: F401
+        from api.checkpointer import Neo4jSaver           # noqa: F401
+        print("fastapi" if "fastapi" in sys.modules else "")
+    """)
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True,
+                         text=True, timeout=180, cwd=str(_REPO_ROOT))
+    assert out.returncode == 0, out.stderr[-2000:]
+    assert out.stdout.strip() == "", "reaching the checkpointer pulled in FastAPI"

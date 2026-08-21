@@ -90,3 +90,21 @@ def test_identifier_kind_is_forwarded(monkeypatch):
     monkeypatch.setattr(FBI, "resolve_identifier_detail", fake)
     FBI.find_by_identifier("331/1", identifier_kind="survey_new")
     assert seen["kind"] == "survey_new"
+
+
+def test_a_bare_integer_identifier_is_accepted(monkeypatch):
+    """Same failure shape as get_property's auction_ids: a plain survey or
+    door number ("331") arrives as an int, and a schema-level rejection is
+    one the model cannot read."""
+    monkeypatch.setattr(FBI, "resolve_identifier_detail",
+                        lambda *a, **k: [_row(value="331")])
+    out = FBI.find_by_identifier(331)
+    assert out["query"] == "331"
+    assert out["total_listings"] == 1
+
+
+def test_the_declared_signature_admits_ints():
+    import inspect
+
+    ann = str(inspect.signature(FBI.find_by_identifier).parameters["value"].annotation)
+    assert "int" in ann

@@ -228,3 +228,34 @@ def test_bad_depth_returns_the_valid_values(monkeypatch):
 def test_empty_ids_is_an_error(monkeypatch):
     _stub(monkeypatch, listings=[])
     assert "error" in GP.get_property([])
+
+
+# ── model-shaped input ───────────────────────────────────────────────────
+
+def test_an_integer_auction_id_is_accepted(monkeypatch):
+    """auction_ids look like numbers, so a model sends them as ints. Observed
+    in the first real-model smoke run: the model passed `auction_ids: 744314`
+    and burned THREE of six model calls retrying it verbatim, because
+    pydantic rejects at the schema boundary — before our error-as-data
+    decorator can hand back anything the model could learn from."""
+    _stub(monkeypatch, listings=[_listing("744314")], docs=[_doc("744314")],
+          lots=[_lot("744314")])
+    out = GP.get_property(744314)
+    assert out["properties"][0]["auction_id"] == "744314"
+
+
+def test_a_list_of_integer_auction_ids_is_accepted(monkeypatch):
+    _stub(monkeypatch, listings=[_listing("744314")], docs=[_doc("744314")],
+          lots=[_lot("744314")])
+    out = GP.get_property([744314])
+    assert out["properties"][0]["auction_id"] == "744314"
+
+
+def test_the_declared_signature_admits_ints():
+    """The runtime coercion is not enough on its own — pydantic builds the
+    tool schema from the annotation, so a str-only hint rejects the call
+    before any of our code runs."""
+    import inspect
+
+    ann = str(inspect.signature(GP.get_property).parameters["auction_ids"].annotation)
+    assert "int" in ann

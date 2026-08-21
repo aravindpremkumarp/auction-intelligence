@@ -16,7 +16,7 @@ We keep the parts of the Deep Agents pattern that earned their place:
 
 | Feature          | How we get it                                        |
 |------------------|------------------------------------------------------|
-| Transcript memory| `api/chat/deep/checkpointer.py::Neo4jSaver`, reused   |
+| Transcript memory| `api/checkpointer.py::Neo4jSaver`, reused             |
 | Skills           | `api/agent3/skills.py` — our loader, no tool bound    |
 | Filesystem/shell | **Not bound.** Nothing here reads or writes a file.   |
 | Todo list        | **Not bound.** The plan is the answer's outline.      |

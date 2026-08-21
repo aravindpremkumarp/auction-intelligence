@@ -130,7 +130,7 @@ def _saver():
     driver — so construction is free and there is no shared mutable state to
     reason about across requests.
     """
-    from api.chat.deep.checkpointer import Neo4jSaver
+    from api.checkpointer import Neo4jSaver
 
     return Neo4jSaver()
 

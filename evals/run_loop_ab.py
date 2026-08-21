@@ -134,7 +134,7 @@ async def _run_deep(question: str, state: dict[str, Any]) -> dict[str, Any]:
     The whole state this loop needs across turns is that string — the
     transcript itself lives in the checkpointer.
     """
-    from api.chat.deep.checkpointer import Neo4jSaver
+    from api.checkpointer import Neo4jSaver
     from api.chat.deep.loop import run_turn
 
     import api.chat.deep.loop as deep_loop
@@ -157,7 +157,7 @@ async def _forget_deep(state: dict[str, Any]) -> None:
     thread_id = state.get("thread_id")
     if not thread_id:
         return
-    from api.chat.deep.checkpointer import Neo4jSaver
+    from api.checkpointer import Neo4jSaver
 
     try:
         await Neo4jSaver().adelete_thread(thread_id)

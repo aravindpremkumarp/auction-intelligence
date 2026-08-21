@@ -427,7 +427,7 @@ def find_properties(
     outstanding_max: float | None = None,
     attempt_no: int | None = None,
     reauction_only: bool = False,
-    identifier: str | None = None,
+    identifier: str | int | None = None,
     identifier_kind: str | None = None,
     # shape
     sort: str = "deadline",

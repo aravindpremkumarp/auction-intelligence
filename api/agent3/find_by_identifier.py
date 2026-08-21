@@ -28,7 +28,7 @@ _MIN_QUERY_CHARS = 2
 
 
 @tool
-def find_by_identifier(value: str, identifier_kind: str | None = None,
+def find_by_identifier(value: str | int, identifier_kind: str | None = None,
                        limit: int = 20) -> dict:
     """Look up a survey, patta, door, plot, flat or CERSAI number.
 
@@ -49,7 +49,10 @@ def find_by_identifier(value: str, identifier_kind: str | None = None,
     notices — it does NOT mean the property doesn't exist; report it as a
     graph gap, not as "no such property".
     """
-    raw = (value or "").strip()
+    # int accepted for the same reason as get_property's auction_ids: a bare
+    # survey or door number ("331") arrives as an int, and a schema-level
+    # rejection is one the model cannot read.
+    raw = ("" if value is None else str(value)).strip()
     if len(raw) < _MIN_QUERY_CHARS:
         raise ToolInputError(
             f"value={value!r} is too short to search — give the full number.")

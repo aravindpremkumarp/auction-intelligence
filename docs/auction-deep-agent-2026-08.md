@@ -5,11 +5,19 @@ the **current** graph and owing nothing to the pydantic-ai chat agent. New
 tools, new instructions, new skills, new package. `/chat/v1`, `/chat/v2` and
 `/chat/deep` keep running untouched.
 
-Status: **steps 1–4 built** (see §10). Tools, evals, instructions, three
-skills and the agent harness are in `api/agent3/`; the eval catalogue scores
-36/36 against the live graph and 135 unit tests pass. The agent compiles and
-runs turns with server-side memory, but is not wired to any request path and
-has not yet been driven by a real model.
+Status: **steps 1–4 built and smoke-tested** (see §10). Tools, evals,
+instructions, three skills and the agent harness are in `api/agent3/`; the
+eval catalogue scores 36/36 against the live graph and 143 unit tests pass.
+The agent has now been driven by a real model against the live graph
+(`evals/smoke_agent3.py`, 6/6) with grounded, scope-honest answers and
+working server-side memory. It is still not wired to any request path.
+
+**Two open issues, both measured and neither blocking step 5:** the prompt
+cache is reporting 0% (the provider itself returns `cached_tokens: 0`, so
+this is real rather than a reading bug — the same finding the loop A/B made
+about the deep agent), and every turn currently runs at
+`reasoning: {effort: "high"}` inherited from `OPENROUTER_CHAT_REASONING_EFFORT`,
+which is a large part of the 60–140s turns. See §10 step 4.
 
 ---
 
@@ -384,7 +392,7 @@ skills, durable transcript — by composing them ourselves:
 
 | Deep Agents feature | How we get it | Why not the default |
 |---|---|---|
-| Transcript memory | Neo4j `BaseCheckpointSaver` (reuse `api/chat/deep/checkpointer.py`, the one piece worth keeping) | It works, and it won the memory argument in the A/B |
+| Transcript memory | Neo4j `BaseCheckpointSaver` (reuse `api/checkpointer.py`, the one piece worth keeping) | It works, and it won the memory argument in the A/B |
 | Subagents | One `consult(brief, ids)` tool delegating to a named worker | `task` delegates to a blank clone of its parent |
 | Skills | `api/agent3/skills.py` — our own loader | **Corrected.** `SkillsMiddleware` was measured and rejected: see below |
 | Filesystem | **Not bound** | 6 tool schemas per prompt for a chat agent that never writes a file |
@@ -598,6 +606,51 @@ Gate to ship: no regression on the 68, ≥90% on `lot_facts`, **100% on
    the deep loop's docs claimed subagents were off for weeks because the
    assertion inspected what was passed in rather than what the harness
    assembled.
+4b. ~~Smoke run: real model, live graph.~~ **Done.**
+   `evals/smoke_agent3.py` — five cases plus a same-thread follow-up,
+   deliberately small enough to run on every harness change. Final: 6/6.
+   Verified grounded (the Coimbatore counts were checked against the graph
+   and matched exactly: 35 listings, ₹11 lakh–₹22.5 crore, ~₹2 crore mean),
+   scope-honest in prose, and correctly refusing the sold-price question
+   with the reason.
+
+   It found two bugs that 135 unit tests could not, both now fixed and
+   regression-tested:
+   - **Memory was off and silent.** `run_turn`'s `checkpointer` defaulted to
+     `None`, so the follow-up answered "this is the start of our
+     conversation". A memoryless agent is indistinguishable from a working
+     one until the second question. Memory is now opt-OUT (`_DEFAULT`
+     sentinel); `checkpointer=None` still means a deliberately memoryless
+     run. The smoke check that let this through only asserted a non-empty
+     answer — it now looks for amnesia markers.
+   - **Integer ids cost three model calls per turn.** An `auction_id` looks
+     like a number, so the model sent `auction_ids: 744314`; pydantic
+     rejects at the schema boundary, *before* the errors-as-data decorator
+     can return anything the model could learn from, so it retried the same
+     call three times before guessing the list-of-strings form. That alone
+     blew the 6-call limit on the scope case. The id parameters now accept
+     `int` and coerce.
+
+   Fixing memory surfaced a third: `api/chat/deep/checkpointer.py` could not
+   be imported from `api/agent3` at all, because `api/chat/__init__.py`
+   imports the FastAPI router. The saver moved to **`api/checkpointer.py`**
+   — generic infrastructure that never belonged under the chat package, and
+   the same reason `api/policy.py` and `api/model_selection.py` already sit
+   outside it. Five call sites updated; the existing 16 checkpointer tests
+   pass unchanged.
+
+   **Still open after the smoke run**, recorded rather than fixed:
+   - **Prompt cache is 0%.** Not a measurement bug — the provider returns
+     `cached_tokens: 0` and `cache_write_tokens: 0` in the raw response. The
+     system prefix IS byte-stable (pinned by test), so the cause is
+     upstream. This is the same unresolved finding the loop A/B made; §6's
+     "above 50% or that is the bug to fix" gate is NOT met.
+   - **Every turn runs `reasoning: {effort: "high"}`**, inherited from
+     `OPENROUTER_CHAT_REASONING_EFFORT`. That is a large part of the
+     60–140 s turns, and it is applied to "how many auctions in Coimbatore"
+     as readily as to a diligence pass. Worth a per-tier decision before any
+     latency number from this agent is quoted.
+
 5. `benchmark_price`, `reauction_history` + `pricing`, `reauction` skills.
 6. `AnswerGate` + `scope_honesty` evals; remaining skills.
 7. Full eval run, n≥3 on latency, then decide about un-gating.

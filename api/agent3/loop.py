@@ -77,13 +77,36 @@ def _usage_of(message: Any) -> dict:
     }
 
 
+#: Sentinel: "you didn't say", as distinct from "explicitly no memory".
+#: `checkpointer=None` is a legitimate request for a memoryless run (tests,
+#: one-shot evals); omitting it must NOT be.
+_DEFAULT = object()
+
+
+def default_checkpointer():
+    """A Neo4j-backed saver, imported lazily.
+
+    Memory is opt-OUT here, and that is a correction. The first real-model
+    smoke run asked a follow-up on the same thread and got back "this is the
+    start of our conversation" — because `checkpointer` defaulted to None and
+    nothing complained. A memoryless agent looks identical to a working one
+    until someone asks a second question, and the transcript is the whole
+    reason this design chose the deep loop's memory model over the tiered
+    loop's summary. Wrong default; fixed.
+    """
+    from api.checkpointer import Neo4jSaver
+
+    return Neo4jSaver()
+
+
 async def run_turn(question: str, *, thread_id: str, model_name: str = "flash",
                    reasoning_effort: str | None = None,
-                   checkpointer: Any = None, agent: Any = None) -> TurnResult:
+                   checkpointer: Any = _DEFAULT, agent: Any = None) -> TurnResult:
     """Run one turn and return it in a UI-ready shape.
 
     `agent` is injectable so tests can drive a fake model without an
-    OpenRouter key or a network call.
+    OpenRouter key or a network call. `checkpointer` defaults to a real
+    `Neo4jSaver`; pass `None` explicitly for a deliberately memoryless run.
     """
     started = time.perf_counter()
     sink = ToolSink()
@@ -91,9 +114,10 @@ async def run_turn(question: str, *, thread_id: str, model_name: str = "flash",
     skills_text = render_skills(skills)
 
     if agent is None:
+        saver = default_checkpointer() if checkpointer is _DEFAULT else checkpointer
         agent = build_agent(model_name=model_name,
                             reasoning_effort=reasoning_effort,
-                            sink=sink, checkpointer=checkpointer)
+                            sink=sink, checkpointer=saver)
 
     result = await agent.ainvoke(
         {"messages": [{"role": "user",
