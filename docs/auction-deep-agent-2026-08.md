@@ -5,7 +5,10 @@ the **current** graph and owing nothing to the pydantic-ai chat agent. New
 tools, new instructions, new skills, new package. `/chat/v1`, `/chat/v2` and
 `/chat/deep` keep running untouched.
 
-Status: **spec**. Nothing here is built yet.
+Status: **step 1 built** (see §10). `find_properties`, `get_property` and
+their evals are in `api/agent3/` and `evals/agent3_cases.py`; the eval
+catalogue scores 27/27 against the live graph, all four gates met. Everything
+else here is still spec.
 
 ---
 
@@ -491,7 +494,12 @@ Gate to ship: no regression on the 68, ≥90% on `lot_facts`, **100% on
 
 ## 10. Build order
 
-1. Schema brief + `find_properties` + `get_property` + evals for both.
+1. ~~Schema brief + `find_properties` + `get_property` + evals for both.~~
+   **Done.** `api/agent3/{enums,common,find_properties,get_property}.py`,
+   `evals/agent3_cases.py`, `evals/run_agent3.py`, 58 unit tests. Live run:
+   capability 10/10, lot_facts 6/6, scope_honesty 6/6, gaps 5/5 in 79s.
+   The two tool docstrings cost ~1,035 tokens and ride in the cached tool
+   schema, against the ~2,600 always-on prompt tokens they replace.
 2. `search_notices`, `find_by_identifier` — the two new-capability tools.
 3. Instructions core + `diligence`, `extent`, `identifiers` skills.
 4. Harness on `create_agent`, checkpointer reused, cache test.
