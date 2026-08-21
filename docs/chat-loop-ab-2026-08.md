@@ -159,8 +159,18 @@ is no worse, but at 149 s median it is not a chat interface — the browser's
 idle guard gives up at 75 s, so **more than half of the deep loop's passing
 turns would never have reached a user.**
 
-So the deep loop stays on /lab and does not go to users. The tiered loop keeps
-production. Before that is worth revisiting, one thing has to change:
+So the deep loop stays on /lab and does not go to users.
+
+**And note what "production" is here: neither of these.** `/chat/v2` and
+`/chat/deep` both depend on `get_current_admin`, and `CHAT_V2` is off unless
+the page is /lab or the flag is set — so a signed-in user gets **v1**, the
+pydantic-ai loop, which neither suite here measures. The tiered loop won the
+earlier A/B against v1 and still has not been un-gated. This result decides
+which loop an admin sees on /lab; the v1 → tiered promotion is a separate,
+still-open decision, and it now has a stronger case than the tiered → deep one
+does.
+
+Before the deep loop is worth revisiting, one thing has to change:
 
 **The prompt cache is the whole affordability case, and it is not working.**
 The tiered loop gets 67% of its prompt from cache. The deep loop gets 24%, and
