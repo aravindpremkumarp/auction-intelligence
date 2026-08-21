@@ -265,6 +265,23 @@ async def _run_convos(loop: str, limit: int | None) -> list[dict[str, Any]]:
 
 # ── reporting ───────────────────────────────────────────────────────────────
 
+def _cost_columns(billed: list[dict[str, Any]], total: int) -> str:
+    """The cost half of a summary row, over the turns that reported usage."""
+    if not billed:
+        return f"{'-':>6} {'-':>8} {'-':>7} {'-':>7} {'-':>8} {'-':>9} " \
+               f"{f'0/{total}':>8}"
+    mean = lambda key: statistics.mean([key(r) for r in billed])  # noqa: E731
+    n_in = mean(lambda r: r["input_tokens"])
+    n_cached = mean(lambda r: r["cached_tokens"])
+    n_out = mean(lambda r: r["output_tokens"])
+    return (
+        f"{mean(lambda r: r['model_calls']):>6.2f} "
+        f"{n_in:>8.0f} {n_cached:>7.0f} {n_in - n_cached:>7.0f} "
+        f"{n_out:>8.0f} {n_in + n_out:>9.0f} "
+        f"{f'{len(billed)}/{total}':>8}"
+    )
+
+
 def _summarise(rows: list[dict[str, Any]]) -> None:
     print("\n" + "=" * 78)
     for suite in ("golden", "convo"):
@@ -279,16 +296,20 @@ def _summarise(rows: list[dict[str, Any]]) -> None:
         # prints only input silently hides.
         print(f"{'loop':8} {'pass':>5} {'direct':>7} {'FAIL':>5} {'ERR':>4} "
               f"{'med s':>7} {'p90 s':>7} {'calls':>6} {'in tok':>8} "
-              f"{'cached':>7} {'fresh':>7} {'out tok':>8} {'tok/turn':>9}")
+              f"{'cached':>7} {'fresh':>7} {'out tok':>8} {'tok/turn':>9} "
+              f"{'billed':>8}")
         for loop in LOOPS:
             got = [r for r in subset if r["loop"] == loop]
             if not got:
                 continue
             secs = sorted(r["seconds"] for r in got) or [0]
-            mean = lambda key: statistics.mean([key(r) for r in got])  # noqa: E731
-            n_in = mean(lambda r: r["input_tokens"])
-            n_cached = mean(lambda r: r["cached_tokens"])
-            n_out = mean(lambda r: r["output_tokens"])
+            # Latency covers every turn — a turn that times out really did
+            # cost the user 120 s. Cost cannot: a turn that times out or
+            # raises returns before usage is summed, so its tokens are 0, not
+            # zero-cost. Averaging those in would report the loop that fails
+            # most as the loop that spends least. `billed` says how many
+            # turns the cost columns actually cover.
+            billed = [r for r in got if r["model_calls"]]
             print(
                 f"{loop:8} "
                 f"{sum(1 for r in got if r['verdict'] == 'pass'):>5} "
@@ -297,9 +318,7 @@ def _summarise(rows: list[dict[str, Any]]) -> None:
                 f"{sum(1 for r in got if r['verdict'] == 'ERROR'):>4} "
                 f"{statistics.median(secs):>7.1f} "
                 f"{secs[min(len(secs) - 1, int(len(secs) * 0.9))]:>7.1f} "
-                f"{mean(lambda r: r['model_calls']):>6.2f} "
-                f"{n_in:>8.0f} {n_cached:>7.0f} {n_in - n_cached:>7.0f} "
-                f"{n_out:>8.0f} {n_in + n_out:>9.0f}"
+                + _cost_columns(billed, len(got))
             )
     failures = [r for r in rows if r["verdict"] in ("FAIL", "ERROR")]
     if failures:

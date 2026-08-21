@@ -112,6 +112,7 @@ async def run_turn(
     question = wrap_pasted_content(question)
 
     sink = ToolSink()
+    usage = _UsageTap()
     agent = build_deep_agent(
         sink=sink, model_name=model_name, reasoning_effort=reasoning_effort,
         checkpointer=checkpointer,
@@ -121,6 +122,7 @@ async def run_turn(
     config = {
         "configurable": {"thread_id": thread_id},
         "recursion_limit": RECURSION_LIMIT,
+        "callbacks": [usage],
     }
     try:
         state = await asyncio.wait_for(
@@ -131,12 +133,14 @@ async def run_turn(
         logger.warning("chat deep: turn exceeded %.0fs", TURN_TIMEOUT_S)
         result.executed = list(sink.calls)
         result.answer = _TIMED_OUT
+        usage.apply(result)
         result.seconds = round(time.perf_counter() - started, 2)
         return result
     except Exception:
         logger.exception("chat deep: graph failed")
         result.executed = list(sink.calls)
         result.answer = _FAILED
+        usage.apply(result)
         result.seconds = round(time.perf_counter() - started, 2)
         return result
 
@@ -210,6 +214,66 @@ def _final_answer(messages: list[Any]) -> str:
             if text:
                 return text
     return ""
+
+
+class _UsageTap:
+    """Records model usage as each call finishes, for the turns that never end.
+
+    `_accumulate_usage` reads the returned messages, which is the right source
+    when the graph returns — it counts calls and sees the final state. It has
+    nothing to read when the turn times out or raises, because `ainvoke` never
+    returned, so those turns reported zero tokens. They did not cost zero
+    tokens: a turn that runs the full 120 s and is abandoned is the *most*
+    expensive kind, and reporting it as free would have told the A/B that the
+    loop failing most was the loop spending least.
+
+    A plain object rather than a `BaseCallbackHandler` subclass so that
+    importing this module does not pull LangChain in — see the RSS note in
+    `docs/chat-loop-ab-2026-08.md`. LangChain duck-types callbacks, and the
+    `ignore_*` properties are what its dispatcher checks before calling.
+    """
+
+    ignore_llm = False
+    ignore_chat_model = False
+    ignore_chain = True
+    ignore_agent = True
+    ignore_retriever = True
+    ignore_retry = True
+    ignore_custom_event = True
+    raise_error = False
+    run_inline = False
+
+    def __init__(self) -> None:
+        self.calls = 0
+        self.input_tokens = 0
+        self.output_tokens = 0
+        self.cached_tokens = 0
+
+    def __getattr__(self, name: str) -> Any:
+        """Absorb every `on_*` hook we do not implement."""
+        if name.startswith("on_"):
+            return lambda *a, **kw: None
+        raise AttributeError(name)
+
+    def on_llm_end(self, response: Any, **kwargs: Any) -> None:
+        for generations in getattr(response, "generations", None) or []:
+            for generation in generations or []:
+                message = getattr(generation, "message", None)
+                meta = getattr(message, "usage_metadata", None)
+                if not meta:
+                    continue
+                self.calls += 1
+                self.input_tokens += meta.get("input_tokens", 0) or 0
+                self.output_tokens += meta.get("output_tokens", 0) or 0
+                details = meta.get("input_token_details") or {}
+                self.cached_tokens += details.get("cache_read", 0) or 0
+
+    def apply(self, result: TurnResult) -> None:
+        """Copy what was spent onto a turn that has no messages to read."""
+        result.model_calls = self.calls
+        result.input_tokens = self.input_tokens
+        result.output_tokens = self.output_tokens
+        result.cached_tokens = self.cached_tokens
 
 
 def _accumulate_usage(messages: list[Any], result: TurnResult) -> None:

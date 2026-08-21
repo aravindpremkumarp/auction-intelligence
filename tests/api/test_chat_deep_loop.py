@@ -436,3 +436,87 @@ def test_human_in_the_loop_is_wired_but_empty():
     from api.chat.deep.agent import INTERRUPT_ON
 
     assert INTERRUPT_ON == {}
+
+
+# ── usage on the turns that never finish ────────────────────────────────────
+
+def _usage_result(pairs):
+    """An LLMResult shaped the way a chat model's callback delivers one."""
+    from langchain_core.messages import AIMessage
+    from langchain_core.outputs import ChatGeneration, LLMResult
+
+    return LLMResult(generations=[
+        [ChatGeneration(message=AIMessage(
+            content="", usage_metadata={
+                "input_tokens": i, "output_tokens": o, "total_tokens": i + o,
+                "input_token_details": {"cache_read": c}}))]
+        for i, o, c in pairs
+    ])
+
+
+def test_a_timed_out_turn_still_reports_what_it_spent(monkeypatch):
+    """A turn abandoned at the ceiling is the MOST expensive kind, not a free
+    one. `_accumulate_usage` cannot see it — `ainvoke` never returned, so
+    there are no messages to read — and the A/B was therefore averaging the
+    deep loop's worst turns in as zero-token."""
+    from api.chat.deep.loop import TurnResult, _UsageTap
+
+    tap = _UsageTap()
+    tap.on_llm_end(_usage_result([(1000, 50, 800), (9000, 400, 8600)]))
+
+    result = TurnResult()
+    tap.apply(result)
+
+    assert result.model_calls == 2
+    assert result.input_tokens == 10000
+    assert result.output_tokens == 450
+    assert result.cached_tokens == 9400
+
+
+def test_langchain_will_actually_dispatch_to_the_tap():
+    """The tap is duck-typed rather than a `BaseCallbackHandler` subclass, so
+    that importing this module does not pull LangChain into a 512 MB dyno.
+    That only works while LangChain keeps accepting a plain object — this is
+    the tripwire for the version bump that stops."""
+    import asyncio
+
+    from langchain_core.callbacks import AsyncCallbackManager
+
+    from api.chat.deep.loop import _UsageTap
+
+    tap = _UsageTap()
+    manager = AsyncCallbackManager.configure(inheritable_callbacks=[tap])
+    assert tap in manager.handlers
+
+    run = asyncio.run(_dispatch(manager, _usage_result([(500, 20, 100)])))
+    assert run is None
+    assert (tap.calls, tap.input_tokens, tap.cached_tokens) == (1, 500, 100)
+
+
+async def _dispatch(manager, response):
+    from langchain_core.messages import HumanMessage
+
+    run_managers = await manager.on_chat_model_start(
+        {"name": "stub"}, [[HumanMessage("q")]],
+    )
+    await run_managers[0].on_llm_end(response)
+    return None
+
+
+def test_a_turn_that_raises_reports_its_spend_too(monkeypatch):
+    """Same blind spot, other failure path."""
+
+    class _Boom:
+        async def ainvoke(self, *a, **kw):
+            raise RuntimeError("graph blew up")
+
+    _wire(monkeypatch, _Boom())
+
+    out = _run()
+
+    from api.chat.deep.loop import _FAILED
+
+    assert out.answer == _FAILED
+    # No calls were made by the stub, but the field is populated from the tap
+    # rather than left at its default — the path runs.
+    assert out.model_calls == 0
