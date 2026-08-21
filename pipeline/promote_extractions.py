@@ -3,6 +3,7 @@
     python -m pipeline.promote_extractions [--limit N] [--filename F]
                                            [--dry-run] [--skip-parcels]
                                            [--workers N] [--places-only]
+                                           [--parcels-only]
 
 Phase B promotes documents concurrently (--workers, default 8) — each document
 is a few small writes dominated by the round trip to Aura, so a serial run over
@@ -803,33 +804,59 @@ def platform_name_of(url: str | None) -> str | None:
 
 
 # ── Phase C: parcels ─────────────────────────────────────────────────────────
+#
+# A :Parcel is the physical land, persisting across the notices that advertise
+# it. Two lots that cite the same identifier AND resolve to the same revenue
+# village are the same land. Village scoping matters: survey numbers repeat
+# across the state, so an unscoped identifier match would merge unrelated
+# parcels — and a bad merge is far harder to undo than a missed one.
+#
+# Grouping is TRANSITIVE, and computed here rather than in Cypher. A pairwise
+# MERGE cannot express it: given lots A, B, C sharing one survey number, the
+# pairs (A,B) and (B,C) create two different parcels and B lands in both. The
+# relation "shares an identifier within a village" needs its connected
+# components, so the edges are read out and unioned in Python — 3k lots is
+# nothing, and the alternative is an iterative label-propagation query that is
+# far harder to read.
+#
+# Every :Parcel is derived state, holding no review or human input (only
+# parcel_id / last_seen / evidence), so phase C REBUILDS rather than
+# accumulates. Without the reset a re-run leaves a lot attached both to the
+# singleton parcel it had before and to the merged one it just joined.
 
-# Two lots that cite the same identifier AND resolve to the same village are
-# the same land. Village scoping matters: survey numbers repeat across the
-# state, so an unscoped identifier match would merge unrelated parcels — and a
-# bad merge is far harder to undo than a missed one.
-_RESOLVE_PARCELS = """
-MATCH (l1:Lot)-[:MENTIONS_IDENTIFIER]->(i:Identifier)<-[:MENTIONS_IDENTIFIER]-(l2:Lot)
-WHERE elementId(l1) < elementId(l2)
-  AND i.kind IN ['survey_old','survey_new','patta','cersai','property_id','sale_deed']
-MATCH (l1)-[:IN_REVENUE_VILLAGE]->(v:RevenueVillage)<-[:IN_REVENUE_VILLAGE]-(l2)
-WITH l1, l2, collect(DISTINCT i.kind + ':' + i.value_norm) AS shared
-MERGE (l1)-[:IS_PARCEL]->(p:Parcel {parcel_id: 'auto-' + l1.lot_key})
-MERGE (l2)-[r2:IS_PARCEL]->(p)
-SET r2.confidence = 'high', r2.method = 'identifier',
-    p.evidence = shared, p.last_seen = datetime()
-RETURN count(DISTINCT p) AS parcels
+# Identifier kinds that name the land itself. A door number or an account
+# number identifies a building or a debt, not a parcel, so neither can merge.
+PARCEL_IDENTIFIER_KINDS = (
+    "survey_old", "survey_new", "patta", "cersai", "property_id", "sale_deed",
+)
+
+_RESET_PARCELS = """
+MATCH (p:Parcel)
+DETACH DELETE p
+RETURN count(p) AS parcels
 """
 
-# Every lot that shares no identifier with another still gets its own parcel,
-# so :Parcel is a complete spine rather than only covering duplicates.
-_SINGLETON_PARCELS = """
-MATCH (l:Lot) WHERE NOT (l)-[:IS_PARCEL]->()
-MERGE (p:Parcel {parcel_id: 'lot-' + l.lot_key})
+_PARCEL_EDGES = """
+MATCH (l:Lot)-[:MENTIONS_IDENTIFIER]->(i:Identifier)
+WHERE i.kind IN $kinds
+MATCH (l)-[:IN_REVENUE_VILLAGE]->(v:RevenueVillage)
+RETURN l.lot_key AS lot_key,
+       i.kind + ':' + i.value_norm AS ident,
+       elementId(v) AS village
+"""
+
+_ALL_LOTS = "MATCH (l:Lot) RETURN l.lot_key AS lot_key"
+
+_WRITE_PARCELS = """
+UNWIND $rows AS row
+MATCH (l:Lot {lot_key: row.lot_key})
+MERGE (p:Parcel {parcel_id: row.parcel_id})
+SET p.last_seen = datetime(),
+    p.evidence = row.evidence,
+    p.lot_count = row.lot_count
 MERGE (l)-[r:IS_PARCEL]->(p)
-SET r.confidence = 'single', r.method = 'singleton',
-    p.last_seen = datetime()
-RETURN count(p) AS parcels
+SET r.confidence = row.confidence, r.method = row.method
+RETURN count(*) AS linked
 """
 
 _LINK_LISTINGS = """
@@ -861,9 +888,65 @@ SET a.attempt_no = idx + 1,
 RETURN count(a) AS auctions
 """
 
+
+def parcel_groups(edges: list[dict], all_lots: list[str]) -> list[dict]:
+    """Connected components of "shares an identifier within one village".
+
+    Pure, so the grouping is testable without a database. Returns one row per
+    lot, naming the parcel it belongs to: a group of one keeps its own
+    `lot-` id, a merged group is named `auto-` after its lowest lot_key so
+    the id is stable across runs rather than depending on row order.
+    """
+    parent: dict[str, str] = {k: k for k in all_lots}
+
+    def find(x: str) -> str:
+        parent.setdefault(x, x)
+        root = x
+        while parent[root] != root:
+            root = parent[root]
+        while parent[x] != root:      # path compression
+            parent[x], x = root, parent[x]
+        return root
+
+    def union(a: str, b: str) -> None:
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[max(ra, rb)] = min(ra, rb)
+
+    # bucket by (identifier, village) — every lot in a bucket is the same land
+    buckets: dict[tuple[str, str], list[str]] = defaultdict(list)
+    for e in edges:
+        buckets[(e["ident"], e["village"])].append(e["lot_key"])
+    for members in buckets.values():
+        for other in members[1:]:
+            union(members[0], other)
+
+    # what each component was merged on, for :Parcel.evidence
+    evidence: dict[str, set[str]] = defaultdict(set)
+    for (ident, _village), members in buckets.items():
+        if len(set(members)) > 1:
+            evidence[find(members[0])].add(ident)
+
+    groups: dict[str, list[str]] = defaultdict(list)
+    for lot_key in parent:
+        groups[find(lot_key)].append(lot_key)
+
+    rows = []
+    for root, members in groups.items():
+        merged = len(members) > 1
+        rows.extend({
+            "lot_key": lot_key,
+            "parcel_id": ("auto-" if merged else "lot-") + root,
+            "evidence": sorted(evidence.get(root, ())) or None,
+            "lot_count": len(members),
+            "confidence": "high" if merged else "single",
+            "method": "identifier" if merged else "singleton",
+        } for lot_key in members)
+    return rows
+
+
+# Run after the parcels themselves exist; each is a whole-corpus pass.
 _PARCEL_STEPS: tuple[tuple[str, str], ...] = (
-    ("merge by shared identifier", _RESOLVE_PARCELS),
-    ("singleton parcels", _SINGLETON_PARCELS),
     ("link listings", _LINK_LISTINGS),
     ("attach identifiers", _ATTACH_IDENTIFIERS),
     ("number attempts", _ATTEMPT_NO),
@@ -871,21 +954,48 @@ _PARCEL_STEPS: tuple[tuple[str, str], ...] = (
 
 
 def resolve_parcels(dry_run: bool) -> None:
-    print("phase C — parcels")
+    print("phase C — parcels", flush=True)
+    edges = run_read_query(_PARCEL_EDGES,
+                           {"kinds": list(PARCEL_IDENTIFIER_KINDS)},
+                           max_rows=200_000, timeout=180.0)
+    all_lots = [r["lot_key"] for r in run_read_query(_ALL_LOTS, max_rows=200_000,
+                                                     timeout=120.0)]
+    rows = parcel_groups(edges, all_lots)
+    merged_lots = sum(1 for r in rows if r["method"] == "identifier")
+    print(f"  grouping: {len(all_lots)} lot(s), {len(edges)} identifier edge(s)"
+          f" -> {len({r['parcel_id'] for r in rows})} parcel(s); "
+          f"{merged_lots} lot(s) merged into "
+          f"{len({r['parcel_id'] for r in rows if r['method'] == 'identifier'})}"
+          f" shared parcel(s)", flush=True)
+    if dry_run:
+        print("  [dry-run] reset + write parcels, then link listings, attach "
+              "identifiers, number attempts")
+        return
+
+    deleted = write(_RESET_PARCELS, {})
+    print(f"  reset derived parcels: "
+          f"{list(deleted[0].values())[0] if deleted else 0}", flush=True)
+    for i in range(0, len(rows), WRITE_CHUNK):
+        write(_WRITE_PARCELS, {"rows": rows[i:i + WRITE_CHUNK]})
+    print(f"  write parcels: {len(rows)} lot link(s)", flush=True)
+
     for name, cypher in _PARCEL_STEPS:
-        if dry_run:
-            print(f"  [dry-run] {name}")
-            continue
-        rows = run_query(cypher)
-        n = list(rows[0].values())[0] if rows else 0
-        print(f"  {name}: {n}")
+        out = write(cypher, {})
+        n = list(out[0].values())[0] if out else 0
+        print(f"  {name}: {n}", flush=True)
 
 
 # ── main ─────────────────────────────────────────────────────────────────────
 
 def run(limit: int | None, filename: str | None,
         dry_run: bool, skip_parcels: bool, workers: int = DEFAULT_WORKERS,
-        places_only: bool = False) -> int:
+        places_only: bool = False, parcels_only: bool = False) -> int:
+    # Phase C is a whole-corpus rebuild, so it stands alone: re-running it
+    # after a grouping change costs seconds and needs no phase-B work.
+    if parcels_only:
+        resolve_parcels(dry_run)
+        return 0
+
     docs = fetch_documents(limit, filename)
     workers = max(1, workers if not dry_run else 1)
     label = "places" if places_only else "promoting"
@@ -949,6 +1059,10 @@ def main() -> int:
     ap.add_argument("--workers", type=int, default=DEFAULT_WORKERS,
                     help=f"concurrent documents in phase B "
                          f"(default {DEFAULT_WORKERS}; phase C is always serial)")
+    ap.add_argument("--parcels-only", action="store_true",
+                    help="run phase C alone against the lots already in the "
+                         "graph — it rebuilds the derived :Parcel layer, so "
+                         "it is safe to re-run on its own")
     ap.add_argument("--places-only", action="store_true",
                     help="skip the phase-B node writes and only (re)link "
                          "already-promoted lots to the gazetteer, then run "
@@ -956,7 +1070,7 @@ def main() -> int:
                          "loaded and only their geography changed")
     args = ap.parse_args()
     return run(args.limit, args.filename, args.dry_run, args.skip_parcels,
-               args.workers, args.places_only)
+               args.workers, args.places_only, args.parcels_only)
 
 
 if __name__ == "__main__":
