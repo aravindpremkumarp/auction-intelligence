@@ -819,13 +819,18 @@ const CHAT_V2 = (() => {
 //   'deep'   /chat/deep  Deep Agents ReAct; the server owns the transcript
 // `?loop=tiered` (or localStorage.chat_loop) switches back.
 //
-// The flagged surface DEFAULTS TO 'deep'. The tiered loop's memory is a
-// summary, and a summary can only answer questions about what it chose to
-// summarise — every referring question it cannot resolve is another field
-// hand-added to a notepad. The deep loop keeps the transcript, so that whole
-// class of bug does not arise. Both remain admin-only, so this changes which
-// loop an admin gets on /lab, NOT what a signed-in user gets: un-gating waits
-// on the live A/B in docs/chat-loop-ab-2026-08.md, which has not been run.
+// The flagged surface DEFAULTS TO 'tiered', and it briefly did not. The deep
+// loop was made the default on the argument that a transcript answers
+// referring questions a summary cannot — which the A/B confirmed: it resolves
+// every one in the catalogue, including an off-topic aside and back again.
+// But it takes 149 s at the median against the tiered loop's 25 s, and the
+// idle guard below gives up at 75 s, so most of its correct answers never
+// reach the person who asked. A default that loses the measurement it was
+// set on has to move back; the picker is still there for anyone comparing.
+// See docs/chat-loop-ab-2026-08.md.
+//
+// Both endpoints are admin-only, so this only decides what an ADMIN sees on
+// /lab. A signed-in user gets 'v1' — CHAT_V2 above is false off /lab.
 const CHAT_LOOP = (() => {
   if (!CHAT_V2) return 'v1';
   try {
@@ -834,9 +839,15 @@ const CHAT_LOOP = (() => {
     const saved = localStorage.getItem('chat_loop');
     if (saved === 'deep' || saved === 'tiered') return saved;
   } catch (_) { /* private mode — fall through to the default */ }
-  return 'deep';
+  return 'tiered';
 })();
 const CHAT_DEEP = CHAT_LOOP === 'deep';
+// Published for the /lab inspector's picker. It must show the loop that is
+// ACTUALLY answering, and it cannot re-derive that: the resolution above
+// reads a query param, then localStorage, then a default, and lab.js
+// duplicating those three steps is a second source of truth that drifts. It
+// drifted the first time the default moved.
+try { window.__chatLoop = CHAT_LOOP; } catch (_) { /* non-browser host */ }
 const chatPath = (suffix) => {
   if (CHAT_DEEP) return `${API_BASE}/chat/deep${suffix}`;
   return `${API_BASE}/chat${CHAT_V2 ? '/v2' : ''}${suffix}`;

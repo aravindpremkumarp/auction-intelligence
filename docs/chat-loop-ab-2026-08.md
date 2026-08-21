@@ -13,8 +13,9 @@ same policy and the same quota:
 | Policy | `api/policy.py::SHARED_POLICY` | the same constant, imported |
 | `deep-research` mode | rejected (400) | handled by the `property-dossier` subagent |
 
-**The deep loop is the default** on the flagged surface. `?loop=tiered` on
-/lab, or the picker in the inspector header, switches back.
+**The tiered loop is the default** on the flagged surface. `?loop=deep` on
+/lab, or the picker in the inspector header, switches. The deep loop was
+briefly the default, on the argument below; the result below moved it back.
 
 Both endpoints stay admin-only, so this decides which loop an *admin* gets —
 not what a signed-in user gets. **The A/B has now been run** (conversation

@@ -54,10 +54,14 @@
     // at boot in app.js (it decides the endpoint and the conversation-state
     // channel), so flipping it live would leave a half-switched client
     // POSTing a scope object at an endpoint that wants a thread key.
+    // The loop app.js RESOLVED, not a re-derivation of it. app.js reads a
+    // query param, then localStorage, then a default; repeating that here is
+    // a second source of truth, and it drifted the moment the default moved
+    // — the picker read 'deep' while tiered was answering.
     var picker = document.getElementById('lab-loop');
-    var current = 'deep';
-    try { current = localStorage.getItem('chat_loop') || 'deep'; } catch (_) {}
-    picker.value = current === 'tiered' ? 'tiered' : 'deep';
+    var current = 'tiered';
+    try { current = window.__chatLoop || 'tiered'; } catch (_) {}
+    picker.value = current === 'deep' ? 'deep' : 'tiered';
     picker.addEventListener('change', function () {
       var url = new URL(location.href);
       url.searchParams.set('loop', this.value);
