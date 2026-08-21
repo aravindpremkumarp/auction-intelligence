@@ -56,6 +56,21 @@ def test_conversations_well_formed() -> None:
             assert not unknown, (
                 f"unknown expect_panel key(s) {unknown} in {conv.conv_id}"
             )
+            for marker in turn.forbid_answer_markers:
+                assert isinstance(marker, str) and marker.strip(), (
+                    f"empty forbid_answer_markers entry in {conv.conv_id}"
+                )
+                assert marker == marker.lower(), (
+                    f"forbid_answer_markers entry {marker!r} in "
+                    f"{conv.conv_id} must be lowercase — the runner "
+                    "lowercases the answer before matching"
+                )
+            if turn.forbid_answer_markers:
+                # It asserts the agent resolved a reference to something said
+                # EARLIER, so there has to be an earlier turn to refer to.
+                assert conv.turns.index(turn) > 0, (
+                    f"forbid_answer_markers on the first turn of {conv.conv_id}"
+                )
             if turn.references_panel:
                 # A panel-reference turn needs a prior turn to have populated
                 # the panel — it can't be the conversation opener.
@@ -85,6 +100,12 @@ def test_has_refinement_and_topic_switch_coverage() -> None:
     assert any(
         t.references_panel for c in GOLDEN_CONVERSATIONS for t in c.turns
     ), "need at least one panel-reference turn (references_panel)"
+    # A follow-up referring to the NAMES a previous answer gave, rather than
+    # to auctions. This is what the tiered loop's scope object structurally
+    # could not resolve, and it is the case the loop A/B turns on.
+    assert any(
+        t.forbid_answer_markers for c in GOLDEN_CONVERSATIONS for t in c.turns
+    ), "need a turn asserting a prior-answer reference is resolved"
 
 
 def test_carry_forward_keys_match_source() -> None:

@@ -90,6 +90,15 @@ class Turn:
     # agent must resolve the reference to those ids — a tool call carrying one
     # of them, or the answer citing one — instead of running a blank search.
     references_panel: bool = False
+    # Phrases that must NOT appear in this turn's answer, lowercased before
+    # matching. The case this exists for: a follow-up referring to entities
+    # the PREVIOUS answer named ("which of these areas...") must be resolved
+    # from the conversation, not bounced back as "I need to know which areas
+    # you mean". That failure shipped once — a nine-row table of area names
+    # followed by the agent asking which areas were meant — and no assertion
+    # in this catalogue could have caught it, because every existing turn
+    # refers to auctions rather than to the names in an answer.
+    forbid_answer_markers: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -252,6 +261,32 @@ GOLDEN_CONVERSATIONS: list[GoldenConversation] = [
             Turn("Compare the first two of these on price and EMD",
                  references_panel=True,
                  expect_panel={"cited": True}),
+        ],
+    ),
+
+    # ─── Referring back to what the ANSWER named, not to auctions ────────
+    # The discriminating case for the loop A/B: the tiered loop carries a
+    # summary of the conversation, so it can only resolve references to the
+    # things that summary chose to keep; a transcript-backed loop can resolve
+    # a reference to anything that was said. Both must pass this.
+    GoldenConversation(
+        "refer_to_named_areas",
+        "A breakdown by area, then a follow-up that refers to those area "
+        "NAMES rather than to any auction.",
+        [
+            Turn("Which areas in Chennai have land or plots under 50 lakhs?",
+                 expected_tools=["search_auctions"],
+                 expect_filters={"city": "Chennai", "max_price": 5000000}),
+            Turn("Which of these areas has the most?",
+                 expected_tools=["search_auctions"],
+                 expect_filters={"city": "Chennai", "max_price": 5000000},
+                 forbid_answer_markers=[
+                     "which specific areas",
+                     "which areas you",
+                     "don't have enough context",
+                     "do not have enough context",
+                     "need to know which",
+                 ]),
         ],
     ),
 ]

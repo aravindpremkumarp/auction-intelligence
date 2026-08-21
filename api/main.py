@@ -27,6 +27,7 @@ from api.auth import router as auth_router
 from api.auth.rate_limit import limiter
 from api.billing import router as billing_router
 from api.chat import router as chat_router
+from api.chat.deep.router import router as chat_deep_router
 from api.chat.v2.router import router as chat_v2_router
 from api.conversations import router as conversations_router
 from api.dossier import dossiers_enabled, router as dossier_router
@@ -189,6 +190,11 @@ app.include_router(chat_router)
 # /chat/v2 — the tiered loop. Its handlers import LangChain lazily,
 # so mounting the router costs nothing until the first v2 request.
 app.include_router(chat_v2_router)
+# /chat/deep — the same tools and policy on the Deep Agents harness, with the
+# transcript checkpointed in Neo4j. The other half of the loop A/B (see
+# docs/chat-loop-ab-2026-08.md). `deepagents` costs ~107 MB of RSS, so it is
+# imported inside the handlers and an idle deploy never pays for it.
+app.include_router(chat_deep_router)
 app.include_router(feedback_router)
 app.include_router(alerts_router)
 

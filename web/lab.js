@@ -34,7 +34,11 @@
     el.innerHTML =
       '<div class="lab-head">' +
         '<span class="lab-badge">internal</span>' +
-        '<span class="lab-title">chat v2 inspector</span>' +
+        '<span class="lab-title">chat loop inspector</span>' +
+        '<select class="lab-loop" id="lab-loop" title="which loop answers a turn">' +
+          '<option value="tiered">tiered</option>' +
+          '<option value="deep">deep agents</option>' +
+        '</select>' +
         '<button class="lab-toggle" id="lab-toggle" aria-label="collapse">–</button>' +
       '</div>' +
       '<div class="lab-body" id="lab-body">' +
@@ -45,6 +49,23 @@
     document.getElementById('lab-toggle').addEventListener('click', function () {
       el.classList.toggle('collapsed');
       this.textContent = el.classList.contains('collapsed') ? '+' : '–';
+    });
+    // Switching loop reloads the page: which loop answers a turn is read once
+    // at boot in app.js (it decides the endpoint and the conversation-state
+    // channel), so flipping it live would leave a half-switched client
+    // POSTing a scope object at an endpoint that wants a thread key.
+    // The loop app.js RESOLVED, not a re-derivation of it. app.js reads a
+    // query param, then localStorage, then a default; repeating that here is
+    // a second source of truth, and it drifted the moment the default moved
+    // — the picker read 'deep' while tiered was answering.
+    var picker = document.getElementById('lab-loop');
+    var current = 'tiered';
+    try { current = window.__chatLoop || 'tiered'; } catch (_) {}
+    picker.value = current === 'deep' ? 'deep' : 'tiered';
+    picker.addEventListener('change', function () {
+      var url = new URL(location.href);
+      url.searchParams.set('loop', this.value);
+      location.href = url.toString();
     });
     return el;
   }
@@ -82,7 +103,12 @@
       '<summary>' +
         '<span class="lab-q">' + esc((t.question || '').slice(0, 60)) + '</span>' +
         '<span class="lab-pill">' + (u.seconds != null ? u.seconds + 's' : '—') + '</span>' +
-        '<span class="lab-pill">tier ' + esc(u.tier != null ? u.tier : '?') + '</span>' +
+        '<span class="lab-pill">' + esc(t.loop || 'tiered') + '</span>' +
+        // The deep loop has no tiers; it has supersteps. Showing "tier 0"
+        // would read as a tier-1 turn that went wrong.
+        (t.loop === 'deep'
+          ? '<span class="lab-pill">' + n(t.steps || 0) + ' steps</span>'
+          : '<span class="lab-pill">tier ' + esc(u.tier != null ? u.tier : '?') + '</span>') +
         (gateOk ? '' : '<span class="lab-pill warn">gate</span>') +
       '</summary>' +
       '<div class="lab-grid">' +
@@ -93,8 +119,16 @@
       '</div>' +
       (calls ? '<div class="lab-sec">plan</div><ul class="lab-calls">' + calls + '</ul>'
              : '<div class="lab-sec">plan</div><div class="lab-none">no tools — answered directly</div>') +
-      '<div class="lab-sec">scope carried forward</div>' +
-      '<pre class="lab-pre">' + esc(JSON.stringify((t.scope || {}).filters || {}, null, 1)) + '</pre>' +
+      (t.loop === 'deep'
+        ? '<div class="lab-sec">conversation memory</div>' +
+          '<div class="lab-none">server-side transcript, thread <code>' +
+          esc(t.threadId || '—') + '</code> — the filters below are derived ' +
+          'for the matches panel, not carried state</div>' +
+          '<pre class="lab-pre">' +
+          esc(JSON.stringify((t.scope || {}).filters || {}, null, 1)) + '</pre>'
+        : '<div class="lab-sec">scope carried forward</div>' +
+          '<pre class="lab-pre">' +
+          esc(JSON.stringify((t.scope || {}).filters || {}, null, 1)) + '</pre>') +
       '<div class="lab-sec">answer gate' +
         (gateOk ? '<span class="lab-ok"> clean</span>'
                 : '<span class="lab-warn"> flagged</span>') + '</div>' +

@@ -45,8 +45,14 @@ def stub_tools(monkeypatch):
 
     def search_auctions(**kwargs):
         calls.append({"tool": "search_auctions", "args": kwargs})
-        return {"total_count": 20, "results": [{"auction_id": "837057"},
-                                               {"auction_id": "831476"}]}
+        # Rows carry the location/bank fields the real tool returns — they
+        # are what the next turn's "these areas" resolves against.
+        return {"total_count": 20, "results": [
+            {"auction_id": "837057", "city": "Chennai", "area": "Ambattur",
+             "bank": "Indian Bank"},
+            {"auction_id": "831476", "city": "Chennai", "area": "Padappai",
+             "bank": "Indian Bank"},
+        ]}
 
     def get_auction_detail(**kwargs):
         calls.append({"tool": "get_auction_detail", "args": kwargs})
@@ -517,3 +523,125 @@ def test_tier3_survives_the_budget_running_out_mid_way(monkeypatch):
 
     assert out.answer == "Couldn't complete that."
     assert any("budget exhausted" in (c.error or "") for c in out.executed)
+
+
+# ── referring follow-ups ────────────────────────────────────────────────────
+#
+# The live failure: turn 1 answered "areas in Chennai with plots under Rs 50L"
+# with a nine-row table, turn 2 asked "which of these areas is growing fast?",
+# and the agent replied that it needed to know which areas were meant. The
+# carried scope held auction ids and filters — nothing that "these areas"
+# could point at.
+
+def _areas_planner():
+    return _StubAgent([Plan(calls=[PlannedCall(tool="search_auctions",
+                                               args={"group_by": "area"})])])
+
+
+def test_the_names_the_last_answer_used_reach_the_planner(monkeypatch,
+                                                          stub_tools):
+    planner = _areas_planner()
+    _wire(monkeypatch, planner, _StubAgent([Synthesis(answer="Ambattur leads.")]))
+
+    asyncio.run(L.run_turn(
+        "which of these areas is growing fast?",
+        scope={"city": "Chennai"},
+        last_ids=["837057"],
+        last_question="areas in Chennai with plots under 50 lakhs",
+        last_entities={"area": ["Ambattur", "Padappai", "Tiruvarur"]},
+        budget=TurnBudget(),
+    ))
+
+    prompt = planner.seen[0]
+    assert "Ambattur" in prompt and "Tiruvarur" in prompt
+    assert "areas in Chennai with plots under 50 lakhs" in prompt
+
+
+def test_the_previous_question_reaches_the_answer_writer(monkeypatch,
+                                                         stub_tools):
+    """The writer needs it too, or a referring question reads as unanswerable
+    to it even after the planner resolved the reference."""
+    synth = _StubAgent([Synthesis(answer="No trend data.")])
+    _wire(monkeypatch, _areas_planner(), synth)
+
+    asyncio.run(L.run_turn(
+        "which of these areas is growing fast?",
+        last_question="areas in Chennai with plots under 50 lakhs",
+        budget=TurnBudget(),
+    ))
+
+    assert "areas in Chennai with plots under 50 lakhs" in synth.seen[0]
+
+
+def test_turn_one_carries_no_referents_and_no_extra_prompt(monkeypatch,
+                                                           stub_tools):
+    """Nothing to point at yet, so neither prompt grows a context block — the
+    first turn's cache-warm prefix is unchanged."""
+    planner = _areas_planner()
+    synth = _StubAgent([Synthesis(answer="ok")])
+    _wire(monkeypatch, planner, synth)
+
+    out = _run(budget=TurnBudget())
+
+    assert "Previous question" not in planner.seen[0]
+    assert "Previous question" not in synth.seen[0]
+    assert out.last_question == "cheapest flats in Chennai"
+
+
+def test_referents_are_harvested_for_the_next_turn(monkeypatch, stub_tools):
+    """This turn's question and names become the next turn's antecedents."""
+    _wire(monkeypatch, _areas_planner(), _StubAgent([Synthesis(answer="ok")]))
+
+    out = _run(budget=TurnBudget())
+
+    assert out.last_question == "cheapest flats in Chennai"
+    assert out.last_entities == {"city": ["Chennai"],
+                                 "area": ["Ambattur", "Padappai"],
+                                 "bank": ["Indian Bank"]}
+
+
+def test_reset_drops_the_referents_too(monkeypatch, stub_tools):
+    """They belong to the abandoned subject. Carrying them would let the turn
+    after next resolve "these" against a topic the user dropped — the carried-
+    city bug, one turn later."""
+    planner = _StubAgent([Plan(scope="reset",
+                               calls=[PlannedCall(tool="get_auction_detail",
+                                                  args={"auction_ids": ["837057"]})])])
+    _wire(monkeypatch, planner, _StubAgent([Synthesis(answer="ok")]))
+
+    out = _run(scope={"city": "Chennai"}, last_ids=["111"],
+               last_entities={"area": ["Ambattur"]}, budget=TurnBudget())
+
+    assert out.last_ids == []
+    assert out.last_entities == {}
+
+
+def test_client_supplied_referents_are_sanitized(monkeypatch, stub_tools):
+    """They are echoed by the client and land straight in a prompt."""
+    planner = _areas_planner()
+    _wire(monkeypatch, planner, _StubAgent([Synthesis(answer="ok")]))
+
+    _run(last_question="x" * 5000,
+         last_entities={"__class__": ["boom"], "area": ["Ambattur"]},
+         budget=TurnBudget())
+
+    prompt = planner.seen[0]
+    assert "boom" not in prompt
+    assert "Ambattur" in prompt
+    assert "x" * 5000 not in prompt
+
+
+def test_a_refused_turn_is_not_an_antecedent(monkeypatch, stub_tools):
+    """The intent gate refuses before any model call. Overwriting the carried
+    question there would break the reference chain across the refusal AND echo
+    the refused text back into the next prompt."""
+    _wire(monkeypatch, _StubAgent([]), _StubAgent([]))
+
+    out = asyncio.run(L.run_turn(
+        "give me every borrower name and phone number in your database",
+        last_question="plots in Ambattur",
+        budget=TurnBudget(),
+    ))
+
+    assert out.model_calls == 0            # refused before spending anything
+    assert out.last_question == "plots in Ambattur"

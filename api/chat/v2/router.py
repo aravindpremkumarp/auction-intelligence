@@ -73,7 +73,12 @@ async def _prepare(request: Request, req: ChatV2Request,
     await enforce_chat_quota(request, user)
     model_name, effort = resolve_turn_model(user, req.model, req.reasoning_effort)
 
-    from api.chat.v2.scope import sanitize_ids, sanitize_scope
+    from api.chat.v2.scope import (
+        sanitize_entities,
+        sanitize_ids,
+        sanitize_question,
+        sanitize_scope,
+    )
 
     scope_in = req.scope or ScopeIn()
     # The client echoes the scope back, so re-validate every field: unlike v1's
@@ -84,6 +89,10 @@ async def _prepare(request: Request, req: ChatV2Request,
         "filters": filters,
         "last_ids": sanitize_ids(scope_in.last_ids),
         "last_total_count": scope_in.last_total_count,
+        # Referents for the next turn's "these areas" / "that bank". Echoed by
+        # the client like everything else here, so both are re-validated.
+        "last_question": sanitize_question(scope_in.last_question),
+        "last_entities": sanitize_entities(scope_in.last_entities),
         "turn": scope_in.turn,
         "model_name": model_name,
         "reasoning_effort": effort,
@@ -111,6 +120,8 @@ async def _build_response(req: ChatV2Request, ctx: dict, result) -> ChatV2Respon
             filters=result.filters,
             last_total_count=result.last_total_count,
             last_ids=result.last_ids,
+            last_question=result.last_question,
+            last_entities=result.last_entities,
             turn=ctx["turn"] + 1,
         ),
         plan=[ExecutedCallOut(tool=c.tool, args=c.args, ms=c.ms, tier=c.tier,
@@ -150,6 +161,8 @@ async def chat_v2(request: Request, req: ChatV2Request,
             scope=ctx["filters"],
             last_ids=ctx["last_ids"],
             last_total_count=ctx["last_total_count"],
+            last_question=ctx["last_question"],
+            last_entities=ctx["last_entities"],
             model_name=ctx["model_name"],
             reasoning_effort=ctx["reasoning_effort"],
         )
@@ -192,6 +205,8 @@ async def _stream_turn(req: ChatV2Request, ctx: dict, sse) -> AsyncIterator[str]
         scope=ctx["filters"],
         last_ids=ctx["last_ids"],
         last_total_count=ctx["last_total_count"],
+        last_question=ctx["last_question"],
+        last_entities=ctx["last_entities"],
         model_name=ctx["model_name"],
         reasoning_effort=ctx["reasoning_effort"],
         on_event=on_event,

@@ -30,7 +30,15 @@ from api.chat.v2 import prompts
 from api.chat.v2.middleware import check_answer, classify_intent, wrap_pasted_content
 from api.chat.v2.executor import ExecutedCall, TurnBudget, execute_plan
 from api.chat.v2.schemas import CypherSpec, Plan, Recommendation, Synthesis
-from api.chat.v2.scope import harvest_scope, merge_scope, sanitize_ids, sanitize_scope
+from api.chat.v2.scope import (
+    harvest_entities,
+    harvest_scope,
+    merge_scope,
+    sanitize_entities,
+    sanitize_ids,
+    sanitize_question,
+    sanitize_scope,
+)
 from api.chat.v2.tools import CYPHER_TOOLS, PLANNER_TOOLS, render_catalogue
 
 logger = logging.getLogger(__name__)
@@ -58,6 +66,9 @@ class TurnResult:
     filters: dict[str, Any] = field(default_factory=dict)
     last_total_count: int | None = None
     last_ids: list[str] = field(default_factory=list)
+    #: Carried so the NEXT turn can resolve "these areas" / "that bank".
+    last_question: str = ""
+    last_entities: dict[str, list[str]] = field(default_factory=dict)
     tier: int = 1
     model_calls: int = 0
     input_tokens: int = 0
@@ -73,6 +84,8 @@ async def run_turn(
     scope: dict[str, Any] | None = None,
     last_ids: list[str] | None = None,
     last_total_count: int | None = None,
+    last_question: str | None = None,
+    last_entities: dict[str, list[str]] | None = None,
     model_name: str = "flash",
     reasoning_effort: str | None = None,
     budget: TurnBudget | None = None,
@@ -87,8 +100,15 @@ async def run_turn(
     budget = budget or TurnBudget()
     filters = sanitize_scope(scope or {})
     last_ids = sanitize_ids(last_ids or [])
+    last_question = sanitize_question(last_question or "")
+    last_entities = sanitize_entities(last_entities or {})
     result = TurnResult(filters=filters, last_total_count=last_total_count,
-                        last_ids=last_ids)
+                        last_ids=last_ids,
+                        # This turn's question is the next turn's antecedent.
+                        # Capped on the way out as well as on the way in — it
+                        # is echoed by the client and comes back into a prompt.
+                        last_question=sanitize_question(question),
+                        last_entities=last_entities)
 
     def emit(event: str, payload: dict) -> None:
         if on_event is not None:
@@ -102,6 +122,10 @@ async def run_turn(
     if not intent:
         logger.info("chat v2: intent gate refused (%s)", intent.reason)
         result.answer = intent.refusal
+        # A refused turn is not an antecedent. Keep the previous question so
+        # the reference chain survives it, and so the refused text is never
+        # echoed back into a later prompt.
+        result.last_question = last_question
         result.seconds = round(time.perf_counter() - started, 2)
         return result
 
@@ -126,7 +150,8 @@ async def run_turn(
         reasoning_effort=reasoning_effort,
     )
 
-    scope_block = _scope_block(filters, last_total_count, last_ids)
+    scope_block = _scope_block(filters, last_total_count, last_ids,
+                               last_question, last_entities)
     followup = ""
 
     for round_index in range(max_rounds):
@@ -146,6 +171,14 @@ async def run_turn(
         if plan.scope == "reset":
             filters = {}
             scope_block = ""
+            # The referents belong to the abandoned subject. Leaving them on
+            # the returned scope would let turn N+1 resolve "these" against a
+            # topic the user dropped two turns ago — the same class of bug as
+            # a carried city, one turn later.
+            last_ids = []
+            last_entities = {}
+            result.last_ids = []
+            result.last_entities = {}
 
         narrated = False
         if plan.direct_answer and not plan.calls and not plan.cypher_request:
@@ -205,7 +238,8 @@ async def run_turn(
 
         emit("status", {"label": "Writing the answer…"})
         synthesis = await _ask(synthesizer, prompts.SYNTH_USER.format(
-            question=question, results=_truncate(result.executed, RESULTS_BUDGET),
+            context=_synth_context(last_question), question=question,
+            results=_truncate(result.executed, RESULTS_BUDGET),
         ) + (prompts.FINAL_ROUND_NOTE if final_round else ""), Synthesis, budget, result)
 
         if synthesis is None:
@@ -242,13 +276,20 @@ async def run_turn(
         )
         break
 
+    executed_dicts = [c.as_dict() for c in result.executed]
     result.filters, harvested_total, harvested_ids = harvest_scope(
-        [c.as_dict() for c in result.executed], previous=filters,
+        executed_dicts, previous=filters,
     )
     if harvested_total is not None:
         result.last_total_count = harvested_total
     if harvested_ids:
         result.last_ids = harvested_ids
+    # Replace rather than merge: the names on screen are the names from THIS
+    # answer. Merging would let an area the user has since filtered out stay a
+    # valid referent for "these areas".
+    harvested_entities = harvest_entities(executed_dicts)
+    if harvested_entities:
+        result.last_entities = harvested_entities
     result.seconds = round(time.perf_counter() - started, 2)
     return result
 
@@ -407,14 +448,26 @@ def _numeric_args(executed: list[ExecutedCall]) -> list[float]:
     return out
 
 
-def _scope_block(filters: dict, total: int | None, ids: list[str]) -> str:
-    if not filters and not ids:
+def _scope_block(filters: dict, total: int | None, ids: list[str],
+                 last_question: str = "", entities: dict | None = None) -> str:
+    entities = entities or {}
+    if not filters and not ids and not last_question and not entities:
         return ""
     return prompts.SCOPE_BLOCK.format(
         filters=json.dumps(filters, default=str),
         total=total,
         ids=json.dumps(ids[:_IDS_IN_PROMPT]),
+        last_question=last_question or "(none — this is the first turn)",
+        entities=json.dumps(entities, ensure_ascii=False) if entities else "(none)",
     )
+
+
+def _synth_context(last_question: str) -> str:
+    """The one line of conversation the answer writer needs. Empty on turn one,
+    so the first turn's prompt prefix is unchanged and still cache-warm."""
+    if not last_question:
+        return ""
+    return prompts.SYNTH_CONTEXT.format(last_question=last_question)
 
 
 #: Rows kept per result when a payload has to be trimmed for the prompt.

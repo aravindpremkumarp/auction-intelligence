@@ -73,6 +73,57 @@ have caught:
    legitimately refers back to ids the *previous* turn surfaced; the gate only
    saw the current turn's results. The anchor ids now count as grounded.
 
+5. **A follow-up could only refer back to properties.** Turn 1 answered
+   "areas in Chennai with land/plots under ₹50L" with a nine-row table of
+   area names. Turn 2 asked *"which of these areas is growing fast?"* and got
+   back *"I don't have enough context… I need to know which specific areas
+   you're asking about"* — the agent asking the user to restate a list it had
+   written seconds earlier.
+
+   The scope carried filters, `total_count`, and `last_ids`. All three are
+   about **auctions**. `last_ids` is what "these"/"those"/"the cheapest one"
+   resolves against, and it works — but "these **areas**" is a reference to
+   the *names in the previous answer*, and nothing in the scope held them. The
+   `group_by` path makes it sharper: in that mode `search_auctions` returns no
+   rows at all, so after an area breakdown even `last_ids` is empty.
+
+   The fix carries two more bounded fields on the same scope object — the
+   previous question verbatim (capped, one turn) and `last_entities`, the
+   `{dimension: [name, …]}` the turn put on screen, harvested from `group_by`
+   buckets and from result rows. Deliberately **not** a transcript: it is one
+   turn's referents, capped per dimension, and — unlike the filters beside it
+   — never merged into tool kwargs. `sanitize_question` / `sanitize_entities`
+   re-validate both, because they are client-echoed and land in a prompt.
+
+   A topic **reset** now clears the ids and the names as well as the filters.
+   Leaving them was the carried-city bug displaced by one turn: "these" would
+   resolve against a subject the user had already dropped.
+
+6. **"Growing fast" was answered as a missing referent, not a missing
+   capability.** Even with the areas resolved, the honest answer is that the
+   graph holds *current listings* — there is no time series to measure change
+   from, which `SCOPE_BOUNDARY` already covers as "no market valuations". The
+   planner and synthesizer prompts now name trend/appreciation/growth/demand
+   questions explicitly: say plainly what is not held, then answer the closest
+   question that is (listing counts per area), and never present a count as a
+   trend.
+
+7. **The scope had no lifecycle on the client.** `apiChatScope` was assigned
+   in exactly one place and cleared in none — while `apiMessageHistory`, the
+   v1 field it replaces, is cleared at four. So on v2, starting a new thread,
+   deleting the active chat, or editing an earlier message all carried the old
+   conversation's filters into the next question. A **cross-conversation**
+   version of the carried-city bug, and worse after fix 5, which added the
+   previous question and the area names to what leaks. All four sites now
+   clear both.
+
+   The same field was never persisted, either: `saveActiveConversation` sends
+   `api_history` and nothing else, so a reopened v2 conversation had **no
+   agent state at all** — v1 restores its transcript, v2 restored nothing.
+   Conversations now carry `agent_scope` alongside `api_history`
+   (`c.agent_scope_json`, additive — a pre-v2 conversation has no such
+   property and reads back as `null`).
+
 ## Answer-gate fire rate — the measurement, not a verdict
 
 The gate is **report-only** by design: the rule that keeps this cheap is that

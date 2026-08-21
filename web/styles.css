@@ -3052,6 +3052,13 @@ html { scroll-behavior: smooth; }
   padding: 2px 6px; color: #9a4a00; background: #fdecd8; border: 1px solid #9a4a00;
 }
 #lab-inspector .lab-title { font-size: 11px; font-weight: 600; flex: 1; }
+/* Which loop answers a turn. Sits in the header rather than in the body
+   because it is a property of the session, not of any one turn. */
+#lab-inspector .lab-loop {
+  font: inherit; font-size: 10px; padding: 1px 4px; margin-right: 4px;
+  color: var(--fg, #1a1a18); background: var(--bg, #f6f6f4);
+  border: 1px solid var(--border, #d8d8d2); border-radius: 3px; cursor: pointer;
+}
 #lab-inspector .lab-toggle {
   border: none; background: none; cursor: pointer;
   font-size: 16px; line-height: 1; padding: 0 4px; color: var(--muted);
@@ -3119,6 +3126,9 @@ html { scroll-behavior: smooth; }
 #lab-denied .lab-denied-link { display: inline-block; margin-top: 14px; font-size: 12px; }
 
 [data-theme="dark"] #lab-inspector .lab-badge { color: #f6c98a; background: rgba(154,74,0,0.22); }
+[data-theme="dark"] #lab-inspector .lab-loop {
+  color: #e8e8e4; background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.18);
+}
 [data-theme="dark"] #lab-inspector .lab-gate { color: #f6c98a; background: rgba(154,74,0,0.18); }
 [data-theme="dark"] #lab-inspector .lab-pill.warn { color: #f6c98a; background: rgba(154,74,0,0.22); }
 [data-theme="dark"] #lab-inspector .lab-ok { color: #a8efc0; }

@@ -75,6 +75,8 @@ def stub_turn(monkeypatch):
         filters = {"city": "Chennai", "max_price": 4000000}
         last_total_count = 20
         last_ids = ["837057", "831476"]
+        last_question = "cheapest flats in Chennai"
+        last_entities = {"area": ["Ambattur", "Padappai"]}
         executed = [_Call("search_auctions", {"city": "Chennai"},
                           {"total_count": 20,
                            "results": [{"auction_id": "837057"}]},
@@ -272,6 +274,8 @@ def test_gate_verdict_is_returned(client, monkeypatch, stub_turn):
         filters = {}
         last_total_count = None
         last_ids = []
+        last_question = ""
+        last_entities = {}
         executed = []
 
     async def fake_run_turn(question, **kwargs):
@@ -327,6 +331,8 @@ def test_stream_emits_the_v1_event_vocabulary(client, monkeypatch, stub_turn):
         filters = {}
         last_total_count = None
         last_ids = []
+        last_question = ""
+        last_entities = {}
         executed = []
 
     async def fake_run_turn(question, *, on_event=None, **kwargs):
@@ -395,6 +401,7 @@ def test_client_disconnect_cancels_the_agent_turn(client, monkeypatch):
         from api.chat.router import _sse
 
         ctx = {"filters": {}, "last_ids": [], "last_total_count": None,
+               "last_question": "", "last_entities": {},
                "turn": 0, "model_name": "flash", "reasoning_effort": None,
                "panel": []}
         req = ChatV2Request(message="q")

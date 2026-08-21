@@ -12,11 +12,16 @@ import pytest
 
 from api.chat.scope_keys import CARRY_FORWARD_FILTER_KEYS
 from api.chat.v2.scope import (
+    MAX_ENTITIES_PER_DIM,
     MAX_FILTER_LIST,
     MAX_FILTER_STR,
+    MAX_QUESTION_CHARS,
+    harvest_entities,
     harvest_scope,
     merge_scope,
+    sanitize_entities,
     sanitize_ids,
+    sanitize_question,
     sanitize_scope,
 )
 
@@ -192,3 +197,69 @@ def test_per_call_knobs_are_never_scope(key):
     conversation."""
     assert key not in CARRY_FORWARD_FILTER_KEYS
     assert sanitize_scope({key: "x"}) == {}
+
+
+# ── referents: what the last answer NAMED ───────────────────────────────────
+#
+# The bug these pin, seen live: a turn listed nine Chennai areas, the user
+# asked "which of these areas is growing fast?", and the agent replied that it
+# needed to know which areas they meant. The carried ids are auction ids, so
+# "these areas" pointed at nothing.
+
+def test_entities_harvested_from_group_by_buckets():
+    """In group_by mode search_auctions returns NO rows — the distribution is
+    the only record of the names the user read."""
+    executed = [_search(
+        {"city": "Chennai", "group_by": "area"},
+        {"total_count": 11, "results": [], "group_by": "area",
+         "distribution": [{"value": "Ambattur", "count": 3},
+                          {"value": "Padappai", "count": 1}]},
+    )]
+    assert harvest_entities(executed) == {"area": ["Ambattur", "Padappai"]}
+
+
+def test_entities_harvested_from_result_rows():
+    """An ordinary search names entities too — the synthesizer's table is
+    grouped by exactly these row fields."""
+    executed = [_search({"city": "Chennai"}, {"total_count": 2, "results": [
+        {"auction_id": "1", "city": "Chennai", "area": "Ambattur",
+         "bank": "Indian Bank"},
+        {"auction_id": "2", "city": "Chennai", "area": "Tiruvarur",
+         "bank": "Indian Bank"},
+    ]})]
+    assert harvest_entities(executed) == {
+        "city": ["Chennai"],
+        "area": ["Ambattur", "Tiruvarur"],
+        "bank": ["Indian Bank"],
+    }
+
+
+def test_entities_are_capped_per_dimension():
+    rows = [{"auction_id": str(i), "area": f"Area {i}"} for i in range(40)]
+    out = harvest_entities([_search({}, {"total_count": 40, "results": rows})])
+    assert len(out["area"]) == MAX_ENTITIES_PER_DIM
+
+
+def test_entities_ignore_dimensions_that_are_not_referents():
+    """Only the dimensions a follow-up refers to by name are carried. A price
+    is not a referent, and carrying every row field would rebuild the
+    transcript this design exists to avoid."""
+    executed = [_search({}, {"total_count": 1, "results": [
+        {"auction_id": "1", "area": "Ambattur", "reserve_price": 4488000,
+         "title": "Plot at Ambattur"},
+    ]})]
+    assert harvest_entities(executed) == {"area": ["Ambattur"]}
+
+
+def test_sanitize_entities_is_a_trust_boundary():
+    """The client echoes these back and they land in a prompt."""
+    assert sanitize_entities({"area": ["Ambattur", "", "Ambattur", 7],
+                              "__class__": ["x"], "evil": ["y"],
+                              "bank": "not a list"}) == {"area": ["Ambattur", "7"]}
+    assert sanitize_entities("nope") == {}
+
+
+def test_sanitize_question_is_bounded():
+    assert sanitize_question("  which of these areas?  ") == "which of these areas?"
+    assert len(sanitize_question("x" * 5000)) == MAX_QUESTION_CHARS
+    assert sanitize_question({"not": "a string"}) == ""

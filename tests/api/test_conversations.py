@@ -39,13 +39,14 @@ def fake_repo(monkeypatch: pytest.MonkeyPatch) -> dict:
         return dict(c, id=cid) if c else None
 
     async def upsert_conversation(supabase_id, conv_id, title, messages_json,
-                            api_history_json, results_json, total_count,
-                            property_id=None) -> None:
+                            api_history_json, agent_scope_json, results_json,
+                            total_count, property_id=None) -> None:
         existing = convs.get((supabase_id, conv_id))
         convs[(supabase_id, conv_id)] = {
             "title": title,
             "messages_json": messages_json,
             "api_history_json": api_history_json,
+            "agent_scope_json": agent_scope_json,
             "results_json": results_json,
             "total_count": total_count,
             # property_id binds ON CREATE only, mirroring the Cypher.
@@ -75,6 +76,11 @@ def _body(title: str = "Chennai flats", **over) -> dict:
         "title": title,
         "messages": [{"role": "user", "content": "hi"}],
         "api_history": [{"kind": "request"}],
+        "agent_scope": {"filters": {"city": "Chennai"},
+                        "last_ids": ["837057"],
+                        "last_question": "plots in Ambattur",
+                        "last_entities": {"area": ["Ambattur"]},
+                        "turn": 3},
         "results": [{"auction_id": "a-1"}],
         "total_count": 12,
         **over,
@@ -102,6 +108,11 @@ def test_conversation_upsert_get_roundtrip(fake_repo: dict) -> None:
     assert body["title"] == "Chennai flats"
     assert body["messages"] == [{"role": "user", "content": "hi"}]
     assert body["api_history"] == [{"kind": "request"}]
+    # v2 has no transcript, so this IS the agent state. Without it a reopened
+    # conversation answers the next follow-up with nothing carried.
+    assert body["agent_scope"]["filters"] == {"city": "Chennai"}
+    assert body["agent_scope"]["last_question"] == "plots in Ambattur"
+    assert body["agent_scope"]["last_entities"] == {"area": ["Ambattur"]}
     assert body["results"] == [{"auction_id": "a-1"}]
     assert body["total_count"] == 12
 
@@ -158,3 +169,19 @@ def test_conversation_corrupt_json_degrades(fake_repo: dict) -> None:
     fake_repo[("sub-c7", "c-j")]["messages_json"] = "{not json"
     body = client.get("/conversations/c-j", headers=h).json()
     assert body["messages"] == []
+
+
+def test_a_v1_conversation_without_agent_scope_still_loads(fake_repo: dict) -> None:
+    """Every conversation saved before /chat/v2 existed has no scope property
+    at all. Neo4j returns null for it, and that must read as "no state
+    carried", not as a 500 on opening an old chat."""
+    client = _client()
+    h = auth_header(sub="sub-old", email="old@x.com")
+
+    body = _body()
+    del body["agent_scope"]
+    assert client.put("/conversations/c-old", json=body, headers=h).status_code == 204
+
+    got = client.get("/conversations/c-old", headers=h).json()
+    assert got["agent_scope"] is None
+    assert got["api_history"] == [{"kind": "request"}]

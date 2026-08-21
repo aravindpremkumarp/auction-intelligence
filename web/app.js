@@ -812,10 +812,77 @@ const CHAT_V2 = (() => {
     return localStorage.getItem('chat_v2') === '1';
   } catch (_) { return false; }
 })();
-const chatPath = (suffix) => `${API_BASE}/chat${CHAT_V2 ? '/v2' : ''}${suffix}`;
+// Which loop answers a turn. Three exist and they differ in where the
+// conversation lives, which is the whole subject of the A/B:
+//   'v1'     /chat       pydantic-ai ReAct; client round-trips the transcript
+//   'tiered' /chat/v2    plan-execute-synthesize; client round-trips a summary
+//   'deep'   /chat/deep  Deep Agents ReAct; the server owns the transcript
+// `?loop=tiered` (or localStorage.chat_loop) switches back.
+//
+// The flagged surface DEFAULTS TO 'tiered', and it briefly did not. The deep
+// loop was made the default on the argument that a transcript answers
+// referring questions a summary cannot — which the A/B confirmed: it resolves
+// every one in the catalogue, including an off-topic aside and back again.
+// But it takes 149 s at the median against the tiered loop's 25 s, and the
+// idle guard below gives up at 75 s, so most of its correct answers never
+// reach the person who asked. A default that loses the measurement it was
+// set on has to move back; the picker is still there for anyone comparing.
+// See docs/chat-loop-ab-2026-08.md.
+//
+// Both endpoints are admin-only, so this only decides what an ADMIN sees on
+// /lab. A signed-in user gets 'v1' — CHAT_V2 above is false off /lab.
+const CHAT_LOOP = (() => {
+  if (!CHAT_V2) return 'v1';
+  try {
+    const q = new URLSearchParams(location.search).get('loop');
+    if (q === 'deep' || q === 'tiered') { localStorage.setItem('chat_loop', q); return q; }
+    const saved = localStorage.getItem('chat_loop');
+    if (saved === 'deep' || saved === 'tiered') return saved;
+  } catch (_) { /* private mode — fall through to the default */ }
+  return 'tiered';
+})();
+const CHAT_DEEP = CHAT_LOOP === 'deep';
+// Published for the /lab inspector's picker. It must show the loop that is
+// ACTUALLY answering, and it cannot re-derive that: the resolution above
+// reads a query param, then localStorage, then a default, and lab.js
+// duplicating those three steps is a second source of truth that drifts. It
+// drifted the first time the default moved.
+try { window.__chatLoop = CHAT_LOOP; } catch (_) { /* non-browser host */ }
+const chatPath = (suffix) => {
+  if (CHAT_DEEP) return `${API_BASE}/chat/deep${suffix}`;
+  return `${API_BASE}/chat${CHAT_V2 ? '/v2' : ''}${suffix}`;
+};
 // v2's conversation state: one small dict, echoed back each turn in place of
 // the growing transcript apiMessageHistory holds for v1.
 let apiChatScope = null;
+// The deep loop's entire client-side state. The transcript itself lives in
+// Neo4j under this key — which is the point: state the server depends on is
+// state the server owns.
+let apiChatThreadId = null;
+
+// Forget the current conversation's agent state — ALL of it, whichever loop
+// produced it. It exists because the clearing was open-coded at four sites:
+// `apiMessageHistory` was reset at all four and `apiChatScope`, added later,
+// at none, so starting a new chat carried the previous thread's city, price
+// band and area names into the next conversation's first question. A third
+// channel (`apiChatThreadId`) would have repeated it, so there is now one
+// owner and every reset calls it.
+function resetAgentState() {
+  apiMessageHistory = null;
+  apiChatScope = null;
+  const staleThread = apiChatThreadId;
+  apiChatThreadId = null;
+  // The deep loop's transcript lives server-side, so nulling a local variable
+  // forgets nothing — the next turn on the same key would resume the old
+  // conversation. Best-effort: a failed cleanup must never block starting a
+  // new chat, and the checkpointer prunes the thread on its own bound anyway.
+  if (staleThread && CHAT_DEEP) {
+    try {
+      authFetch(`${API_BASE}/chat/deep/${encodeURIComponent(staleThread)}`,
+                { method: 'DELETE' }).catch(() => {});
+    } catch (_) { /* never block a new chat on cleanup */ }
+  }
+}
 
 window.currentMode = 'ask';
 const MODE_DESC = {
@@ -1058,10 +1125,18 @@ function _chatRequestBody(message) {
   const activeFilters = window.pendingChatScope || null;
   window.pendingChatScope = null;
   const panelIds = _currentPanelAuctionIds();
-  const body = CHAT_V2
-    ? { message, mode, scope: apiChatScope || undefined,
-        panel: panelIds.length ? { matches: panelIds } : undefined }
-    : { message, message_history: apiMessageHistory, mode };
+  let body;
+  if (CHAT_DEEP) {
+    // No scope and no transcript — just the thread key. On the first turn it
+    // is null and the server mints one, which the response hands back.
+    body = { message, mode, thread_id: apiChatThreadId || undefined,
+             panel: panelIds.length ? { matches: panelIds } : undefined };
+  } else if (CHAT_V2) {
+    body = { message, mode, scope: apiChatScope || undefined,
+             panel: panelIds.length ? { matches: panelIds } : undefined };
+  } else {
+    body = { message, message_history: apiMessageHistory, mode };
+  }
   if (activeFilters) body.active_filters = activeFilters;
   if (!CHAT_V2 && panelIds.length) body.panel_auction_ids = panelIds;
   // Model + thinking-effort toggles (omitted when null so the server applies
@@ -1433,7 +1508,7 @@ async function askAI(userText, opts = {}) {
   if (!userText) return;
   if (opts.fromLanding) {
     chatHistory = [];
-    apiMessageHistory = null;
+    resetAgentState();
     currentResults = [];
     currentTotalCount = null;
     panelSnapshotIndex = null;
@@ -1486,9 +1561,11 @@ async function askAI(userText, opts = {}) {
       console.warn('chat stream unavailable, falling back to /chat:', streamErr.message);
       resp = await apiChat(userText, reqBody);
     }
-    // v2 carries a scope object; v1 carries the transcript. Only one of the
-    // two is ever present in a response.
-    if (CHAT_V2) apiChatScope = resp.scope || apiChatScope;
+    // Each loop carries its own conversation channel, and exactly one of the
+    // three is ever present in a response: the deep loop returns a thread key,
+    // v2 a scope summary, v1 the whole transcript.
+    if (CHAT_DEEP) apiChatThreadId = resp.thread_id || apiChatThreadId;
+    else if (CHAT_V2) apiChatScope = resp.scope || apiChatScope;
     else apiMessageHistory = resp.message_history || apiMessageHistory;
     setRecommendation(resp.recommendation);
     // Publish the turn for the /lab inspector. An event rather than a direct
@@ -1497,7 +1574,8 @@ async function askAI(userText, opts = {}) {
       try {
         window.dispatchEvent(new CustomEvent('chatv2:turn', { detail: {
           question: userText, plan: resp.plan, usage: resp.usage,
-          gate: resp.gate, scope: resp.scope,
+          gate: resp.gate, scope: resp.scope, loop: CHAT_LOOP,
+          threadId: resp.thread_id || null, steps: resp.steps || 0,
           recommendation: resp.recommendation,
           elapsedMs: performance.now() - startedAt,
         } }));
@@ -1555,7 +1633,10 @@ function renderChat(history, logEl, opts) {
   const inputId  = opts.inputId  || 'results-input';
   // Default callbacks preserve the main-chat behavior: clear pydantic-ai
   // history (can't be cleanly partial-edited) and persist the conversation.
-  const onChange = opts.onChange || (() => { apiMessageHistory = null; panelSnapshotIndex = null; saveActiveConversation(); });
+  const onChange = opts.onChange || (() => {
+    resetAgentState();
+    panelSnapshotIndex = null; saveActiveConversation();
+  });
   const onRetry  = opts.onRetry  || ((q) => askAI(q));
   const scope    = opts.scope || null;
 
@@ -2650,6 +2731,14 @@ async function loadConversation(id) {
     activeChatId = data.id;
     chatHistory = Array.isArray(data.messages) ? data.messages : [];
     apiMessageHistory = data.api_history || null;
+    // v2 has no transcript, so this IS the restored agent state: without it a
+    // reopened conversation answers the next follow-up with nothing carried.
+    apiChatScope = data.agent_scope || null;
+    // The deep loop needs nothing persisted here: its thread key IS the
+    // conversation id, and the transcript is already in the graph under it.
+    // Reopening a saved chat therefore resumes the real conversation rather
+    // than a summary of it — the one thing neither other loop can do.
+    apiChatThreadId = data.id || null;
     currentResults = Array.isArray(data.results) ? data.results : [];
     currentTotalCount = (typeof data.total_count === 'number') ? data.total_count : null;
     panelSnapshotIndex = null; // saved conversations restore the live set
@@ -2688,6 +2777,7 @@ async function saveActiveConversation() {
     title: _conversationTitle(),
     messages: chatHistory.filter(m => m.role !== 'ai thinking'),
     api_history: apiMessageHistory,
+    agent_scope: apiChatScope,
     results: currentResults || [],
     total_count: currentTotalCount,
   };
@@ -2715,7 +2805,7 @@ async function deleteConversation(id) {
   recentChats = recentChats.filter(c => c.id !== id);
   if (activeChatId === id) {
     chatHistory = [];
-    apiMessageHistory = null;
+    resetAgentState();
     currentResults = [];
     currentTotalCount = null;
     panelSnapshotIndex = null;
@@ -2729,7 +2819,7 @@ async function deleteConversation(id) {
 
 function newThread() {
   chatHistory = [];
-  apiMessageHistory = null;
+  resetAgentState();
   currentResults = [];
   currentTotalCount = null;
   panelSnapshotIndex = null;
