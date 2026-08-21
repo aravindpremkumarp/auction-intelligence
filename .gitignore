@@ -85,3 +85,6 @@ marketing/templates/.*.staged.html
 # Already-committed batches stay tracked; this only stops new ones.
 marketing/outputs/*/rendered/
 .reel_renders/
+
+# Eval run reports (evals/run_agent3.py --json)
+runs/
