@@ -37,10 +37,14 @@ if str(_REPO_ROOT) not in sys.path:
 def _call(case: Case) -> dict:
     # Imported inside the function so `--help` and the unit tests do not need
     # a Neo4j driver on the path.
+    from api.agent3.find_by_identifier import find_by_identifier
     from api.agent3.find_properties import find_properties
     from api.agent3.get_property import get_property
+    from api.agent3.search_notices import search_notices
 
-    tools = {"find_properties": find_properties, "get_property": get_property}
+    tools = {"find_properties": find_properties, "get_property": get_property,
+             "find_by_identifier": find_by_identifier,
+             "search_notices": search_notices}
     fn = tools.get(case.tool)
     if fn is None:
         raise KeyError(f"case {case.id} names an unknown tool {case.tool!r}")

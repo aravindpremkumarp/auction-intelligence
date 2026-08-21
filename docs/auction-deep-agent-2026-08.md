@@ -5,10 +5,10 @@ the **current** graph and owing nothing to the pydantic-ai chat agent. New
 tools, new instructions, new skills, new package. `/chat/v1`, `/chat/v2` and
 `/chat/deep` keep running untouched.
 
-Status: **step 1 built** (see §10). `find_properties`, `get_property` and
-their evals are in `api/agent3/` and `evals/agent3_cases.py`; the eval
-catalogue scores 27/27 against the live graph, all four gates met. Everything
-else here is still spec.
+Status: **steps 1–2 built** (see §10). `find_properties`, `get_property`,
+`search_notices`, `find_by_identifier` and their evals are in `api/agent3/`
+and `evals/agent3_cases.py`; the eval catalogue scores 36/36 against the live
+graph, all four gates met. Everything else here is still spec.
 
 ---
 
@@ -500,7 +500,34 @@ Gate to ship: no regression on the 68, ≥90% on `lot_facts`, **100% on
    capability 10/10, lot_facts 6/6, scope_honesty 6/6, gaps 5/5 in 79s.
    The two tool docstrings cost ~1,035 tokens and ride in the cached tool
    schema, against the ~2,600 always-on prompt tokens they replace.
-2. `search_notices`, `find_by_identifier` — the two new-capability tools.
+2. ~~`search_notices`, `find_by_identifier` — the two new-capability tools.~~
+   **Done.** `api/agent3/{search_notices,find_by_identifier,identifiers}.py`
+   — the survey/patta/door resolution and Lucene escaping moved into
+   `identifiers.py`, shared by `find_properties`' `identifier=` filter and
+   this standalone tool, so the two cannot answer the same survey number
+   differently. 36 unit tests, 36/36 on the live eval catalogue (13
+   capability, 8 lot_facts, 8 scope_honesty, 7 gaps).
+
+   Two things worth knowing before touching either tool:
+   - **Bare fulltext terms OR, they don't AND** — Lucene's default for
+     space-separated terms. Verified live: `north facing corner plot` as
+     bare terms matches 2,824 of 3,335 lots; AND-joined, 2.
+     `search_notices` builds an AND query itself; quoted phrases pass
+     through as exact-phrase queries.
+   - **Several portal listings can share one sale-notice `Document`.**
+     Verified live: auction_ids 744314 and 744316 point at the identical
+     `Document` node (same `storage_key`). A survey-number or free-text
+     match on that document is one finding across several listings, not
+     several unrelated hits — both new tools group by the matched
+     identifier/snippet rather than returning one row per listing.
+   - **A Neo4j 5.x gotcha, hit once and now pinned by a test:** a `UNION`
+     branch inside `CALL {}` cannot `RETURN` a column with the same name as
+     a variable the outer query already imported into that `CALL` (here,
+     `score` from `db.index.fulltext.queryNodes(...) YIELD ..., score`).
+     It raises `Variable 'score' already declared in outer scope` — a
+     parse error, not a wrong-empty-result, so it was caught before this
+     shipped. Fixed by aliasing inside the branches and back on the way out
+     (`identifiers.py::_DETAIL_CYPHER`).
 3. Instructions core + `diligence`, `extent`, `identifiers` skills.
 4. Harness on `create_agent`, checkpointer reused, cache test.
 5. `benchmark_price`, `reauction_history` + `pricing`, `reauction` skills.

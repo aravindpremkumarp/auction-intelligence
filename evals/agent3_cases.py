@@ -39,6 +39,9 @@ from typing import Any, Callable
 SINGLE_LOT_ID = "748779"
 MULTI_LOT_ID = "744314"
 MULTI_LOT_SURVEY = "331/1"
+#: A phrase unique to MULTI_LOT_ID's own notice text (verified live: exactly
+#: {744314, 744316}, the two listings sharing that notice's Document).
+MULTI_LOT_UNIQUE_PHRASE = "23 Cents 380"
 
 
 @dataclass
@@ -65,6 +68,15 @@ def _rows(result: dict) -> list[dict]:
 def _prop(result: dict) -> dict | None:
     props = result.get("properties") or []
     return props[0] if props else None
+
+
+def _identifier_listings(result: dict) -> list[dict]:
+    """Every listing row across every matched identifier value, flattened."""
+    return [listing for m in (result.get("matches") or []) for listing in m.get("listings", [])]
+
+
+def _notice_hits(result: dict) -> list[dict]:
+    return result.get("results") or []
 
 
 def _needs_rows(minimum: int = 1) -> Callable[[dict], list[str]]:
@@ -115,6 +127,29 @@ def scope_invariant(result: dict) -> list[str]:
         if lots and lots > 1 and not prop.get("scope_note"):
             problems.append(
                 f"{prop.get('auction_id')}: multi-lot notice with no scope_note")
+    # find_by_identifier: same rule, under matches[].listings[].
+    for listing in _identifier_listings(result):
+        lots = listing.get("notice_lot_count")
+        if listing.get("scope") == "lot" and lots != 1:
+            problems.append(
+                f"{listing.get('auction_id')}: identifier match scoped 'lot' "
+                f"on a {lots}-lot notice")
+        if lots and lots > 1 and not listing.get("scope_note"):
+            problems.append(
+                f"{listing.get('auction_id')}: multi-lot identifier match "
+                f"with no scope_note")
+    # search_notices: a snippet from a multi-lot notice is not any one
+    # listing's own description.
+    for hit in _notice_hits(result):
+        lots = hit.get("notice_lot_count")
+        if hit.get("scope") == "lot" and lots != 1:
+            problems.append(
+                f"{hit.get('auction_id')}: notice-search hit scoped 'lot' "
+                f"on a {lots}-lot notice")
+        if lots and lots > 1 and not hit.get("scope_note"):
+            problems.append(
+                f"{hit.get('auction_id')}: multi-lot notice-search hit with "
+                f"no scope_note")
     return problems
 
 
@@ -277,6 +312,43 @@ CAPABILITY: list[Case] = [
         ),
         tags=["refine"],
     ),
+    Case(
+        id="cap_identifier_lookup_finds_known_survey",
+        suite="capability",
+        question=f"is survey number {MULTI_LOT_SURVEY} in any auction notice",
+        tool="find_by_identifier",
+        args={"value": MULTI_LOT_SURVEY},
+        fixture=MULTI_LOT_ID,
+        check=lambda r: (
+            [] if any(MULTI_LOT_ID == x["auction_id"] for x in _identifier_listings(r))
+            else [f"survey {MULTI_LOT_SURVEY} did not surface {MULTI_LOT_ID} via "
+                  f"find_by_identifier"]),
+        tags=["identifiers"],
+    ),
+    Case(
+        id="cap_search_notices_finds_free_text",
+        suite="capability",
+        question="notices that mention a borewell",
+        tool="search_notices",
+        args={"query": "borewell", "limit": 10},
+        check=lambda r: (
+            [] if r.get("result_count", 0) >= 1
+            else ["expected at least one notice mentioning 'borewell'"]),
+        tags=["free_text"],
+    ),
+    Case(
+        id="cap_search_notices_and_not_or",
+        suite="capability",
+        question="notices mentioning a north-facing corner plot",
+        tool="search_notices",
+        args={"query": "north facing corner plot", "limit": 40},
+        check=lambda r: (
+            [] if r.get("result_count", 0) <= 20
+            else [f"'north facing corner plot' returned {r.get('result_count')} "
+                  f"results — bare terms are behaving like OR, not AND (verified "
+                  f"live: AND-joined this phrase matches only 2 of 3,335 lots)"]),
+        tags=["free_text"],
+    ),
 ]
 
 
@@ -362,6 +434,30 @@ LOT_FACTS: list[Case] = [
             else ["no auction terms returned"]),
         tags=["bidding"],
     ),
+    Case(
+        id="fact_identifier_lookup_returns_the_matched_kind",
+        suite="lot_facts",
+        question=f"what kind of number is {MULTI_LOT_SURVEY} in the notice",
+        tool="find_by_identifier",
+        args={"value": MULTI_LOT_SURVEY, "identifier_kind": "survey_new"},
+        fixture=MULTI_LOT_ID,
+        check=lambda r: (
+            [] if any(m["identifier_kind"] == "survey_new" for m in r.get("matches", []))
+            else ["expected a survey_new-kinded match"]),
+        tags=["identifiers"],
+    ),
+    Case(
+        id="fact_search_notices_snippet_is_from_the_real_text",
+        suite="lot_facts",
+        question=f"what does the notice for auction {MULTI_LOT_ID} say about the extent",
+        tool="search_notices",
+        args={"query": MULTI_LOT_UNIQUE_PHRASE, "limit": 5},
+        fixture=MULTI_LOT_ID,
+        check=lambda r: (
+            [] if any(MULTI_LOT_ID == h["auction_id"] for h in _notice_hits(r))
+            else [f"searching the notice's own text did not surface {MULTI_LOT_ID}"]),
+        tags=["free_text"],
+    ),
 ]
 
 
@@ -446,6 +542,34 @@ SCOPE_HONESTY: list[Case] = [
                   "in scope_notes"]),
         tags=["scope"],
     ),
+    Case(
+        id="scope_identifier_match_on_multi_lot_notice_is_notice_scoped",
+        suite="scope_honesty",
+        question=f"which lot has survey number {MULTI_LOT_SURVEY}",
+        tool="find_by_identifier",
+        args={"value": MULTI_LOT_SURVEY, "identifier_kind": "survey_new"},
+        fixture=MULTI_LOT_ID,
+        check=lambda r: (
+            [] if next((x for x in _identifier_listings(r)
+                       if x["auction_id"] == MULTI_LOT_ID), {}).get("scope") == "notice"
+            else [f"{MULTI_LOT_ID} (a 2-lot notice) was not scoped 'notice' on "
+                  f"an identifier match"]),
+        tags=["scope"],
+    ),
+    Case(
+        id="scope_search_notices_hit_on_multi_lot_notice_is_notice_scoped",
+        suite="scope_honesty",
+        question=f"what does the notice for {MULTI_LOT_ID} say",
+        tool="search_notices",
+        args={"query": MULTI_LOT_UNIQUE_PHRASE, "limit": 5},
+        fixture=MULTI_LOT_ID,
+        check=lambda r: (
+            [] if next((h for h in _notice_hits(r)
+                       if h["auction_id"] == MULTI_LOT_ID), {}).get("scope") == "notice"
+            else [f"{MULTI_LOT_ID} (a 2-lot notice) was not scoped 'notice' on "
+                  f"a text-search hit"]),
+        tags=["scope"],
+    ),
 ]
 
 
@@ -514,6 +638,33 @@ GAPS: list[Case] = [
             else ["a zero result carried neither relax nor hint, so the agent "
                   "has nothing to offer but a dead end"]),
         tags=["zero"],
+    ),
+    Case(
+        id="gap_unknown_identifier_is_a_graph_gap_not_a_denial",
+        suite="gaps",
+        question="is survey number 999999/ZZZZ-NOTREAL in any auction notice",
+        tool="find_by_identifier",
+        args={"value": "999999/ZZZZ-NOTREAL"},
+        check=lambda r: (
+            [] if (r.get("matches") == []
+                   and "not that the property doesn't exist" in (r.get("hint") or ""))
+            else ["a zero identifier match did not carry the graph-gap "
+                  "framing, so the agent may report this as the property "
+                  "not existing"]),
+        tags=["refusal", "identifiers"],
+    ),
+    Case(
+        id="gap_search_notices_zero_result_suggests_a_synonym",
+        suite="gaps",
+        question="notices mentioning zzznonsensewordzzz",
+        tool="search_notices",
+        args={"query": "zzznonsensewordzzz"},
+        check=lambda r: (
+            [] if (r.get("result_count") == 0 and "not semantic" in (r.get("hint") or ""))
+            else ["a zero-hit free-text search did not explain that this is "
+                  "literal matching, so the agent may over-conclude the "
+                  "graph has nothing on the topic"]),
+        tags=["refusal", "free_text"],
     ),
 ]
 

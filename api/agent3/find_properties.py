@@ -30,6 +30,12 @@ from api.agent3.common import (
     SQFT_CEIL, SQFT_FLOOR, ToolInputError, ToolSink, aware, clamp_limit,
     json_safe, now_utc, require_enum, scope_of, tool,
 )
+# Identifier resolution is shared with the standalone `find_by_identifier`
+# tool — both the Lucene escaping and the dual-path (Lot / Parcel) query live
+# in api/agent3/identifiers.py so they cannot drift into two answers for the
+# same survey number. Imported as a module-level name so tests can still
+# `monkeypatch.setattr(FP, "resolve_identifier", ...)`.
+from api.agent3.identifiers import resolve_identifier
 from api.neo4j_client import run_read_query
 
 #: Rows the panel may hold. The model never sees these — see ToolSink.
@@ -71,51 +77,6 @@ _SORTS: dict[str, str] = {
     "area_desc": "sqft_max DESC",
     "recent": "a.auction_start_dt DESC",
 }
-
-
-def _escape_lucene(text: str) -> str:
-    """Quote a value for a fulltext query.
-
-    Survey numbers are full of Lucene syntax characters (`123/4B`, `S.No 45-2`).
-    Phrase-quoting sidesteps every one of them; the inner quote is the only
-    thing that still needs escaping.
-    """
-    return '"' + str(text).replace('\\', '\\\\').replace('"', '\\"').strip() + '"'
-
-
-def resolve_identifier(value: str, kind: str | None = None,
-                       limit: int = 200) -> list[str]:
-    """Survey / patta / door / plot number -> auction_ids.
-
-    Two paths, because an Identifier is reachable both from the Lot that
-    mentions it and from the Parcel it identifies:
-
-        (Lot)-[:MENTIONS_IDENTIFIER]->(Identifier)   15,484 rels
-        (Parcel)-[:HAS_IDENTIFIER]->(Identifier)     14,608 rels
-
-    Backed by the `identifier_raw_ft` fulltext index over 10,253 identifiers
-    sitting on 96% of lots.
-    """
-    kind = require_enum(kind, enums.IDENTIFIER_KINDS, "identifier_kind")
-    cypher = """
-    CALL db.index.fulltext.queryNodes('identifier_raw_ft', $q) YIELD node AS i
-    WHERE $kind IS NULL OR i.kind = $kind
-    CALL {
-      WITH i
-      MATCH (i)<-[:MENTIONS_IDENTIFIER]-(:Lot)<-[:HAS_LOT]-(:Document)
-            <-[:HAS_DOCUMENT]-(a:AuctionProperty)
-      RETURN a.auction_id AS auction_id
-      UNION
-      WITH i
-      MATCH (i)<-[:HAS_IDENTIFIER]-(:Parcel)<-[:IS_PARCEL]-(a:AuctionProperty)
-      RETURN a.auction_id AS auction_id
-    }
-    RETURN DISTINCT auction_id LIMIT $limit
-    """
-    rows = run_read_query(cypher, {"q": _escape_lucene(value), "kind": kind,
-                                   "limit": int(limit)},
-                          timeout=15.0, max_rows=limit)
-    return [r["auction_id"] for r in rows if r.get("auction_id")]
 
 
 class _Query:

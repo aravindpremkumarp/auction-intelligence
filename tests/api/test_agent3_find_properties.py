@@ -258,16 +258,7 @@ def test_identifier_filter_resolves_to_ids_then_filters_on_them(monkeypatch):
     assert calls[0][1]["identifier_ids"] == ["A1", "A2"]
 
 
-def test_identifier_lookup_phrase_quotes_lucene_syntax(monkeypatch):
-    """Survey numbers are full of Lucene operators — `123/4B`, `S.No 45-2`."""
-    calls = _stub(monkeypatch)
-    FP.resolve_identifier("123/4B")
-    assert calls[0][1]["q"] == '"123/4B"'
-
-
-def test_identifier_lookup_walks_both_lot_and_parcel_paths(monkeypatch):
-    calls = _stub(monkeypatch)
-    FP.resolve_identifier("331/1")
-    cypher = calls[0][0]
-    assert "MENTIONS_IDENTIFIER" in cypher
-    assert "HAS_IDENTIFIER" in cypher
+# The Lucene-escaping and dual-path (Lot/Parcel) resolution behaviour of
+# resolve_identifier() itself is tested in test_agent3_identifiers.py, where
+# it lives now — api.agent3.identifiers. This file only tests that
+# find_properties composes correctly around whatever ids that seam returns.
