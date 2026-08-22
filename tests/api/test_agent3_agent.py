@@ -164,16 +164,51 @@ class _Msg:
         self.usage_metadata = usage
 
 
-def test_usage_is_read_off_the_final_message_not_summed(monkeypatch):
-    """Summing usage over the returned list re-charges earlier turns: with a
-    checkpointer that list is the whole conversation. The A/B reported
-    49,550 input tokens against an actual 29,877 this way."""
-    final = _Msg("ai", "answer", {"input_tokens": 100, "output_tokens": 20,
-                                  "total_tokens": 120,
-                                  "input_token_details": {"cache_read": 80}})
-    usage = L._usage_of(final)
-    assert usage["input_tokens"] == 100
+def test_usage_sums_every_model_call_in_the_turn():
+    """A turn that thinks, calls a tool, then answers makes THREE model
+    calls. Reading only the final message undercounts it — which is what
+    this function did first, and it hid two calls out of three on the smoke
+    run's scope case."""
+    turn = [
+        _Msg("ai", "", {"input_tokens": 100, "output_tokens": 10,
+                        "total_tokens": 110,
+                        "input_token_details": {"cache_read": 0}}),
+        _Msg("tool", "{}"),
+        _Msg("ai", "answer", {"input_tokens": 200, "output_tokens": 20,
+                              "total_tokens": 220,
+                              "input_token_details": {"cache_read": 80}}),
+    ]
+    usage = L._usage_of(turn)
+    assert usage["input_tokens"] == 300
+    assert usage["output_tokens"] == 30
     assert usage["cached_input_tokens"] == 80
+
+
+def test_usage_does_not_re_bill_earlier_turns():
+    """The opposite error, and the one the loop A/B actually shipped:
+    summing the whole returned list re-charges history, because with a
+    checkpointer that list IS the conversation. It reported 49,550 input
+    tokens against an actual 29,877 and read like 'the transcript is getting
+    expensive' — the very claim under test.
+
+    `_usage_of` is fed the tail since the last human message, so an earlier
+    turn's usage can never enter the total."""
+    conversation = [
+        _Msg("human", "turn 1"),
+        _Msg("ai", "a1", {"input_tokens": 9999, "output_tokens": 999,
+                          "total_tokens": 10998,
+                          "input_token_details": {"cache_read": 0}}),
+        _Msg("human", "turn 2"),
+        _Msg("ai", "a2", {"input_tokens": 50, "output_tokens": 5,
+                          "total_tokens": 55,
+                          "input_token_details": {"cache_read": 0}}),
+    ]
+    usage = L._usage_of(L._messages_since_last_human(conversation))
+    assert usage["input_tokens"] == 50, "turn 1 was re-billed onto turn 2"
+
+
+def test_usage_is_empty_when_the_provider_reports_nothing():
+    assert L._usage_of([_Msg("ai", "answer", None)]) == {}
 
 
 def test_turn_counts_only_this_turns_messages():

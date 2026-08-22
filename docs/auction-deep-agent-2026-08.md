@@ -12,11 +12,11 @@ The agent has now been driven by a real model against the live graph
 (`evals/smoke_agent3.py`, 6/6) with grounded, scope-honest answers and
 working server-side memory. It is still not wired to any request path.
 
-**One open issue, measured and not blocking step 5:** the prompt cache
-reports 0% (the provider itself returns `cached_tokens: 0`, so this is real
-rather than a reading bug — the same finding the loop A/B made about the
-deep agent). Reasoning effort was investigated as a second suspect and
-**cleared** — see §10 step 4b.
+**Open issue, not blocking step 5:** prompt cache runs at **17% of input**
+across a clean smoke run (10,752 of 63,017 tokens) — better than the 0% first
+reported here, which was an artefact of counting only the final model call,
+but still short of §6's "above 50%" gate. Reasoning effort was investigated
+as a second suspect and **cleared** — see §10 step 4b.
 
 ---
 
@@ -639,11 +639,13 @@ Gate to ship: no regression on the 68, ≥90% on `lot_facts`, **100% on
    pass unchanged.
 
    **Still open after the smoke run**, recorded rather than fixed:
-   - **Prompt cache is 0%.** Not a measurement bug — the provider returns
-     `cached_tokens: 0` and `cache_write_tokens: 0` in the raw response. The
-     system prefix IS byte-stable (pinned by test), so the cause is
-     upstream. This is the same unresolved finding the loop A/B made; §6's
-     "above 50% or that is the bug to fix" gate is NOT met.
+   - **Prompt cache: 17%, not the 0% first reported.** The first figure was
+     wrong because `_usage_of` read only the final model call, so cache hits
+     on a turn's earlier calls were invisible. Corrected to sum every call
+     in the turn (see below), a clean run shows 10,752 cached of 63,017
+     input tokens — and on the same-thread follow-up, 35%. Still short of
+     §6's "above 50% or that is the bug to fix" gate, so this stays open,
+     but it is partial engagement rather than none.
    - **Reasoning effort: investigated, and the hypothesis was wrong.**
      Every turn inherits `reasoning: {effort: "high"}` from
      `OPENROUTER_CHAT_REASONING_EFFORT` (a hardcoded default in
@@ -669,6 +671,30 @@ Gate to ship: no regression on the 68, ≥90% on `lot_facts`, **100% on
      not evidence enough to change a default shared with v1 and v2.
      **Left alone deliberately.** If it is revisited, it needs n≥3 across
      more question shapes, and it should be measured as cost, not latency.
+
+4c. **Token accounting, corrected twice.** Asked whether the smoke run
+   reports usage, it did — inaccurately. `_usage_of` had been written to read
+   only the FINAL model message, over-correcting away from the loop A/B's
+   bug of summing the whole returned list (which re-bills history: with a
+   checkpointer that list is the entire conversation, and it reported 49,550
+   input tokens against an actual 29,877). Reading only the last message
+   fails the other way: a turn that thinks, calls a tool and then answers
+   makes three model calls and only the third was counted.
+
+   The correct boundary is the tail since the last human message — every
+   call in this turn, nothing older. Both failure directions now have a
+   test. The smoke run also prints a per-run total, which is the number
+   worth quoting for cost.
+
+   The re-run surfaced a harness bug of its own: thread ids were fixed per
+   case (`smoke-scope`), and checkpoints live in Neo4j and outlive the
+   process, so the second run resumed the first run's conversation and
+   answered "I already answered this above" — correct, a fine demonstration
+   that memory works, and a worthless smoke test, since no tool ran. Threads
+   are now prefixed per run.
+
+   Clean run after both fixes: **6/6, every turn 2 model / 1 tool call**,
+   63,017 input and 2,347 output tokens across six turns.
 
 5. `benchmark_price`, `reauction_history` + `pricing`, `reauction` skills.
 6. `AnswerGate` + `scope_honesty` evals; remaining skills.

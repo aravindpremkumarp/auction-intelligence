@@ -56,25 +56,42 @@ def compose_input(question: str, skills_text: str) -> str:
     return f"{skills_text}\n\n---\n\n{question}"
 
 
-def _usage_of(message: Any) -> dict:
-    """Token usage off the final AI message only.
+def _usage_of(turn_messages: list) -> dict:
+    """Token usage summed over THIS TURN's model calls — no more, no less.
 
-    NOT summed over the returned message list: with a checkpointer that list
-    is the whole conversation, so summing re-charges turn 1 on turn 2 and
-    turn 1+2 on turn 3. That exact bug reported 49,550 input tokens against
-    an actual 29,877 in the loop A/B, and read convincingly like "the
-    transcript is getting expensive" — which was the claim under test.
+    Both ways of getting this wrong have now been made in this repo, in
+    opposite directions:
+
+    - **Summing the returned message list** re-charges history. With a
+      checkpointer that list is the whole conversation, so turn 2 re-bills
+      turn 1. The loop A/B reported 49,550 input tokens against an actual
+      29,877 this way, and it read convincingly like "the transcript is
+      getting expensive" — which was the claim under test.
+    - **Taking only the final message** (what this function did first)
+      undercounts the other direction: a turn that thinks, calls a tool and
+      then answers makes three model calls, and only the last one is
+      counted. On the smoke run's scope case that hid two calls out of
+      three.
+
+    The boundary that is actually correct is the tail since the last human
+    message — this turn's calls, all of them, and nothing older.
     """
-    meta = getattr(message, "usage_metadata", None) or {}
-    if not meta:
-        return {}
-    details = meta.get("input_token_details") or {}
-    return {
-        "input_tokens": meta.get("input_tokens"),
-        "output_tokens": meta.get("output_tokens"),
-        "total_tokens": meta.get("total_tokens"),
-        "cached_input_tokens": details.get("cache_read"),
-    }
+    totals = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0,
+              "cached_input_tokens": 0}
+    seen = False
+    for m in turn_messages:
+        if getattr(m, "type", "") != "ai":
+            continue
+        meta = getattr(m, "usage_metadata", None) or {}
+        if not meta:
+            continue
+        seen = True
+        details = meta.get("input_token_details") or {}
+        totals["input_tokens"] += meta.get("input_tokens") or 0
+        totals["output_tokens"] += meta.get("output_tokens") or 0
+        totals["total_tokens"] += meta.get("total_tokens") or 0
+        totals["cached_input_tokens"] += details.get("cache_read") or 0
+    return totals if seen else {}
 
 
 #: Sentinel: "you didn't say", as distinct from "explicitly no memory".
@@ -138,6 +155,7 @@ async def run_turn(question: str, *, thread_id: str, model_name: str = "flash",
     turn_msgs = _messages_since_last_human(messages)
     model_calls = sum(1 for m in turn_msgs if getattr(m, "type", "") == "ai")
     tool_calls = sum(1 for m in turn_msgs if getattr(m, "type", "") == "tool")
+    usage = _usage_of(turn_msgs)
 
     return TurnResult(
         answer=answer or "",
@@ -147,7 +165,7 @@ async def run_turn(question: str, *, thread_id: str, model_name: str = "flash",
         model_calls=model_calls,
         tool_calls=tool_calls,
         seconds=round(time.perf_counter() - started, 2),
-        usage=_usage_of(final),
+        usage=usage,
     )
 
 

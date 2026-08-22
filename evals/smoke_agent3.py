@@ -26,6 +26,7 @@ import asyncio
 import json
 import re
 import sys
+import time
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -169,12 +170,19 @@ CASES = [
 FOLLOW_UP = "And which bank is conducting that one?"
 
 
-async def _run(cases: list[dict], model_name: str, follow_up: bool) -> list[dict]:
+async def _run(cases: list[dict], model_name: str, follow_up: bool,
+               run_id: str) -> list[dict]:
     from api.agent3.loop import run_turn
 
     out = []
     for i, case in enumerate(cases):
-        thread = f"smoke-{case['id']}"
+        # Fresh thread per RUN, not per case name. Checkpoints live in Neo4j
+        # and outlive the process: with a fixed id, the second run of this
+        # suite resumed the first run's conversation and answered "I already
+        # answered this above" from history -- a correct answer, a clean
+        # memory demonstration, and a worthless smoke test, because the case
+        # never exercised the tools. A smoke run must start cold.
+        thread = f"smoke-{run_id}-{case['id']}"
         r = await run_turn(case["question"], thread_id=thread,
                            model_name=model_name)
         problems = case["check"](r)
@@ -245,15 +253,30 @@ def main(argv: list[str] | None = None) -> int:
         print("no case matched", file=sys.stderr)
         return 2
 
-    rows = asyncio.run(_run(cases, args.model, not args.no_follow_up))
+    # Wall-clock is fine as a run id here: this is a manual smoke tool, not
+    # something two copies of which race each other.
+    run_id = str(int(time.time()))
+    rows = asyncio.run(_run(cases, args.model, not args.no_follow_up, run_id))
+    print(f"(thread prefix: smoke-{run_id})")
 
     scored = [r for r in rows if r["status"] != "SKIP"]
     passed = sum(1 for r in scored if r["status"] == "PASS")
     total_s = sum(r["seconds"] for r in rows)
     calls = [r["model_calls"] for r in rows]
+    tin = sum((r.get("usage") or {}).get("input_tokens") or 0 for r in rows)
+    tout = sum((r.get("usage") or {}).get("output_tokens") or 0 for r in rows)
+    tcached = sum((r.get("usage") or {}).get("cached_input_tokens") or 0
+                  for r in rows)
+    cache_pct = round(100 * tcached / tin) if tin else 0
+
     print(f"\n{'=' * 60}")
     print(f"{passed}/{len(scored)} passed · {total_s:.1f}s total · "
           f"median {sorted(calls)[len(calls) // 2] if calls else 0} model calls/turn")
+    # Summed across every model call in every turn — see loop._usage_of for
+    # the two ways this has been got wrong before (re-billing history, and
+    # counting only the final call).
+    print(f"tokens: {tin:,} in · {tout:,} out · {tcached:,} cached "
+          f"({cache_pct}% of input)")
 
     if args.json_path:
         p = Path(args.json_path)
