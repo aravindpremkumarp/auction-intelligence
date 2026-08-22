@@ -185,6 +185,62 @@ def test_every_history_case_is_actually_multi_turn():
         assert len(S._turns_of(case)) >= 2, f"{case['id']} is a single turn"
 
 
+#: Longest conversation any case may run. Six is the floor because two turns
+#: is not a memory test — anything with a context window passes that. Ten is
+#: the ceiling because every turn is a real model call against the live
+#: graph: at ~40s each, one 20-turn case would cost more wall-clock than the
+#: other eleven cases combined, and the failures depth exposes (a referent
+#: surviving a digression, a filter surviving an unrelated topic, transcript
+#: growth) are all reachable by turn 10.
+MIN_SESSION_TURNS = 6
+MAX_SESSION_TURNS = 10
+
+
+def test_there_is_a_session_of_real_length():
+    from evals import smoke_agent3 as S
+
+    longest = max(len(S._turns_of(c)) for c in S.CASES)
+    assert longest >= MIN_SESSION_TURNS, f"longest session is {longest} turns"
+
+
+def test_no_session_runs_longer_than_the_cap():
+    """Every turn is a live model call. Without a ceiling the suite stops
+    being something anyone runs on a change."""
+    from evals import smoke_agent3 as S
+
+    for case in S.CASES:
+        n = len(S._turns_of(case))
+        assert n <= MAX_SESSION_TURNS, f"{case['id']} runs {n} turns"
+
+
+def test_the_long_session_is_not_ten_of_the_same_question():
+    """Depth only buys coverage if the turns differ. Ten rephrasings of one
+    question is a long transcript, not a long conversation."""
+    from evals import smoke_agent3 as S
+
+    case = next(c for c in S.CASES if c["id"] == "history_long_session")
+    turns = S._turns_of(case)
+    assert len(set(t["question"] for t in turns)) == len(turns)
+    # and it exercises more than one kind of check
+    assert len(set(id(t["check"]) for t in turns)) >= 3
+
+
+def test_the_long_session_reaches_back_past_the_previous_turn():
+    """The point of depth: at least one turn must depend on context from
+    several turns earlier, not just the message before it."""
+    from evals import smoke_agent3 as S
+
+    case = next(c for c in S.CASES if c["id"] == "history_long_session")
+    turns = S._turns_of(case)
+    # The deep-referent turn names no listing; it can only resolve from a
+    # listing introduced earlier in the session.
+    deep = next(t for t in turns if "Remind me which bank" in t["question"])
+    assert S.SINGLE_LOT_ID not in deep["question"]
+    idx = turns.index(deep)
+    named = next(i for i, t in enumerate(turns) if S.SINGLE_LOT_ID in t["question"])
+    assert idx - named >= 2, "the referent is not far enough back to be a test"
+
+
 def test_single_turn_cases_still_work_unchanged():
     """The eight original cases keep their flat shape — adding history
     coverage must not require rewriting them."""

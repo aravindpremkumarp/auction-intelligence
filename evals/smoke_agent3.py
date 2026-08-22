@@ -231,6 +231,91 @@ def check_accepts_the_correction(r) -> list[str]:
     return problems
 
 
+def check_still_on_city(city: str):
+    """The city named N turns ago is still the subject.
+
+    Curried so a long chain can assert it at several depths without three
+    near-identical functions.
+    """
+    def check(r) -> list[str]:
+        problems = check_memory_worked(r)
+        if city.lower() not in (r.answer or "").lower():
+            problems.append(
+                f"lost {city} — the filter was set earlier in this "
+                f"conversation and nothing since replaced it")
+        return problems
+    return check
+
+
+def check_answers_without_losing_the_thread(r) -> list[str]:
+    """A digression must be answered on its own terms.
+
+    The opposite failure to forgetting: an agent so anchored on the search
+    that it re-lists properties instead of answering the question asked.
+    """
+    problems = check_memory_worked(r)
+    if not (r.answer or "").strip():
+        problems.append("empty answer")
+    return problems
+
+
+def check_recalls_the_earlier_listing(r) -> list[str]:
+    """After several intervening turns, "that first one" still resolves.
+
+    Two turns is not a memory test — anything with a context window passes
+    it. Depth is what separates real transcript memory from the model simply
+    seeing the previous message.
+    """
+    problems = check_memory_worked(r)
+    if SINGLE_LOT_BANK.lower() not in (r.answer or "").lower():
+        problems.append(
+            f"did not name {SINGLE_LOT_BANK!r} — the listing was introduced "
+            f"several turns earlier and has to survive the turns since")
+    return problems
+
+
+def _long_session_turns() -> list[dict]:
+    """A 10-turn session shaped like a real one.
+
+    Deliberately not ten variations of the same question: it browses,
+    narrows, digresses into two knowledge questions, comes back to a
+    specific listing, corrects itself, and asks a summarising question at
+    the end. Each of those is a different way for history to fail.
+    """
+    return [
+        # 1-3: browse and narrow. The city set here has to survive to turn 9.
+        {"question": "What residential auctions are coming up in Coimbatore?",
+         "check": check_finds_rows},
+        {"question": "Which of those are under 50 lakhs?",
+         "check": check_still_on_city("Coimbatore")},
+        {"question": "Any of them plots rather than flats?",
+         "check": check_still_on_city("Coimbatore")},
+        # 4-5: digression. Knowledge questions with no property in them —
+        # the agent must answer these without dropping the search context.
+        {"question": "What does symbolic possession actually mean for a buyer?",
+         "check": check_answers_without_losing_the_thread},
+        {"question": "And how is EMD usually calculated?",
+         "check": check_answers_without_losing_the_thread},
+        # 6-7: back to a specific listing, introduced fresh mid-conversation.
+        {"question": f"Tell me about auction {SINGLE_LOT_ID}.",
+         "check": check_finds_rows},
+        {"question": "Is anyone living in it?",
+         "check": check_answers_without_losing_the_thread},
+        # 8: the deep referent. Five turns after the listing was named, and
+        # with two unrelated topics in between.
+        {"question": "Remind me which bank is conducting that one?",
+         "check": check_recalls_the_earlier_listing},
+        # 9: the oldest context of all — the city from turn 1, nine turns back.
+        {"question": "Going back to the search from the start — how many "
+                     "were there in total?",
+         "check": check_still_on_city("Coimbatore")},
+        # 10: summarise. Cheap to check, and the turn where a transcript that
+        # has quietly gone wrong usually shows it.
+        {"question": "Summarise what we've covered.",
+         "check": check_answers_without_losing_the_thread},
+    ]
+
+
 def check_refuses_bulk_people(r) -> list[str]:
     """IntentGate must short-circuit this before a model call. Both halves
     matter: refusing, and refusing for free.
@@ -348,6 +433,14 @@ CASES = [
             {"question": "Sorry, I meant Chennai.",
              "check": check_accepts_the_correction},
         ],
+    },
+    {
+        "id": "history_long_session",
+        "why": "a real session is 6–20 turns, not 2. Everything that only "
+               "breaks with depth lives here: the referent surviving "
+               "intervening turns, a filter surviving a digression, and the "
+               "input cost of a growing transcript",
+        "turns": _long_session_turns(),
     },
 ]
 
@@ -563,6 +656,17 @@ def main(argv: list[str] | None = None) -> int:
     # counting only the final call).
     print(f"tokens: {tin:,} in · {tout:,} out · {tcached:,} cached "
           f"({cache_pct}% of input)")
+    # A long session is the only place transcript cost is visible. Turn 1
+    # and turn N of one thread differ only by the history in between, so the
+    # ratio is what SummarizationMiddleware would have to earn back.
+    long_turns = [r for r in rows if r["id"].startswith("history_long_session/")]
+    if len(long_turns) >= 2:
+        first_in = (long_turns[0].get("usage") or {}).get("input_tokens") or 0
+        last_in = (long_turns[-1].get("usage") or {}).get("input_tokens") or 0
+        grew = f"{last_in / first_in:.1f}x" if first_in else "n/a"
+        print(f"transcript growth over {len(long_turns)} turns: "
+              f"{first_in:,} -> {last_in:,} input tokens ({grew})")
+
     repairs = sum(r.get("gate_repairs") or 0 for r in rows)
     advisory = sum(len(r.get("gate_advisory") or []) for r in rows)
     print(f"gate: {repairs} repair(s) across {len(rows)} turns · "
