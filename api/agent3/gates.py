@@ -40,6 +40,7 @@ trade a rare wrong number for a common wrong refusal.
 """
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any, NotRequired
 
@@ -47,6 +48,8 @@ from langchain.agents.middleware import AgentMiddleware, AgentState, hook_config
 from langchain_core.messages import AIMessage, HumanMessage, RemoveMessage
 
 from api.agent3.skills import USER_TEXT_DELIMITER
+
+logger = logging.getLogger("api.agent3.gates")
 
 # ── shared extraction ────────────────────────────────────────────────────
 
@@ -239,9 +242,15 @@ def unverified_amounts(answer: str, evidence: str) -> list[str]:
 # ── the gates ────────────────────────────────────────────────────────────
 
 class GateState(AgentState):
-    """One extra field: how many repairs this run has already spent."""
+    """What the gate needs to carry between steps and back to the caller."""
 
     answer_gate_repairs: NotRequired[int]
+    #: What the gate actually caught, kept because the draft that contained
+    #: it is deleted. Without this a run reports "1 repair" and nobody can
+    #: tell whether it caught a real invention or false-positived on a good
+    #: answer — which is the only thing that would tell you the blocking
+    #: tier needs work. Found missing on the first live run that fired one.
+    answer_gate_problems: NotRequired[list[str]]
 
 
 #: One, not two. A repair is a full model call, so each one is a turn's
@@ -297,6 +306,7 @@ class AnswerGate(AgentMiddleware):
             return None
 
         note = _repair_note(problems["blocking"])
+        logger.info("answer gate repairing: %s", "; ".join(problems["blocking"]))
         # `id` is assigned by the provider adapter, so in practice it is
         # always set — but a message with no id cannot be removed, and
         # crashing the turn over housekeeping would be worse than leaving one
@@ -306,6 +316,9 @@ class AnswerGate(AgentMiddleware):
             updates.append(RemoveMessage(id=draft.id))
         updates.append(HumanMessage(content=note))
         return {"jump_to": "model", "answer_gate_repairs": spent + 1,
+                "answer_gate_problems": (
+                    list(state.get("answer_gate_problems") or [])
+                    + problems["blocking"]),
                 "messages": updates}
 
     async def aafter_model(self, state: dict, runtime: Any = None) -> dict[str, Any] | None:

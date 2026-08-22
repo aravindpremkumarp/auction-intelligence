@@ -281,6 +281,17 @@ def test_the_rejected_draft_is_removed_from_the_transcript():
     assert any(isinstance(m, RemoveMessage) for m in out["messages"])
 
 
+def test_what_the_gate_caught_survives_the_draft_being_deleted():
+    """The draft is removed, so without this a run reports "1 repair" and
+    nobody can tell whether it caught a real invention or false-positived on
+    a good answer — which is the only signal that the blocking tier needs
+    work. Found missing on the first live run that fired one."""
+    state = {"messages": [HumanMessage(content="q"),
+                          AIMessage(content="see 999111", id="m1")]}
+    out = G.AnswerGate().after_model(state)
+    assert any("999111" in p for p in out["answer_gate_problems"])
+
+
 def test_the_repair_note_names_the_actual_defect():
     """A bare 'try again' on a temperature-0 model reproduces the same
     draft."""

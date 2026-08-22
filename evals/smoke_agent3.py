@@ -279,6 +279,7 @@ async def _run(cases: list[dict], model_name: str, follow_up: bool,
             "skills": r.skills_loaded, "seconds": r.seconds,
             "auction_ids": r.auction_ids[:5], "usage": r.usage,
             "gate_repairs": r.gate_repairs,
+            "gate_repaired": r.gate_repaired,
             "gate_advisory": (r.gate_findings or {}).get("advisory", []),
             "problems": problems,
             "status": "PASS" if not problems else "FAIL",
@@ -326,6 +327,8 @@ def _print_row(row: dict) -> None:
         print(f"     CACHE SHARE: {row['cache_share_pct']}%")
     if row.get("gate_repairs"):
         print(f"     gate: {row['gate_repairs']} repair(s) spent")
+        for p in row.get("gate_repaired") or []:
+            print(f"       caught: {p}")
     # Advisory findings are printed but never counted against the case. They
     # are the evidence for whether the numeric tier could ever be promoted to
     # blocking — a rate near zero on correct answers would make the case, and

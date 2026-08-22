@@ -926,16 +926,36 @@ Gate to ship: no regression on the 68, ≥90% on `lot_facts`, **100% on
      Both are right: the refusal *is* an AI message, one the gate wrote
      without going near a provider. The check now asserts empty usage.
 
+   **After the three fixes: 9/9, 448 s, median 2 model calls/turn.** The
+   date fix shows directly in the answer — the same question now returns
+   *"35 upcoming … (auction dates still in the future as of today, 22 Aug
+   2026). In total — including past auctions — there are 208"*, where before
+   it reported 35 with no such distinction.
+
+   **The gate fired one real repair, and that exposed a hole in it.** The
+   run reported "1 repair" and there was no way to tell what it caught,
+   because the offending draft is deleted by design. A gate whose catches
+   are invisible cannot be evaluated — "1 repair" is equally consistent with
+   catching an invention and with false-positiving on a good answer, and
+   those call for opposite responses. The blocking findings now survive on
+   `answer_gate_problems` → `TurnResult.gate_repaired`, and the smoke run
+   prints them.
+
    Two numbers worth carrying forward, neither of them a claim:
-   - **Prompt cache 54% of input** across the run (51,712 of 95,627), with
-     individual turns at 77%. Step 4 recorded 17% and concluded the gap was
-     provider-side eviction rather than a broken prefix; this run is
-     consistent with that reading. Still one run — not a trend.
-   - **The advisory numeric tier fired zero times on nine correct
-     answers.** That is the beginning of the evidence for promoting it to
-     blocking and nowhere near enough: few of these answers did derived
-     arithmetic, which is the exact shape it would false-positive on. It
-     needs the step-7 suite before anyone touches it.
+   - **Prompt cache 46–54% of input** across two runs, with individual turns
+     at 77%. Step 4 recorded 17% and concluded the gap was provider-side
+     eviction rather than a broken prefix; both runs are consistent with
+     that reading. Two runs — still not a trend.
+   - **The advisory numeric tier fired once in nine turns, and it was a
+     false positive.** Worth writing down precisely, because it is the first
+     concrete instance of the failure the two-tier split was designed
+     around. The answer said *"Price bands: 12 are ₹10L–₹30L, 9 are
+     ₹30L–₹60L"* — a faithful transcription of `find_properties`'
+     distribution. But that tool emits the band as a **string label**
+     (`'30L-60L'`, from `_PRICE_BAND_CASE`), so the digits 6,000,000 appear
+     nowhere in its output, and `₹60L` parses to exactly that. **Had the
+     numeric tier been blocking, a completely correct answer would have been
+     rejected.** That is the argument for the split, no longer hypothetical.
 
    Two facts about the graph found while writing these skills, recorded here
    because both are traps for anything that touches `Auction`:

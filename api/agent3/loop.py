@@ -51,6 +51,11 @@ class TurnResult:
     #: rising rate here is the signal that the prompt — not the gate — needs
     #: work.
     gate_repairs: int = 0
+    #: What the gate caught and made the model rewrite. Carried because the
+    #: offending draft is deleted: without it a run reports "1 repair" and
+    #: nobody can tell whether it caught a real invention or false-positived
+    #: on a good answer.
+    gate_repaired: list[str] = field(default_factory=list)
     #: `AnswerGate.inspect` re-run over the FINAL answer. `blocking` should be
     #: empty by construction (the gate would have repaired it); `advisory` is
     #: the numeric tier, which is recorded and never acted on. Reading this
@@ -211,6 +216,7 @@ async def run_turn(question: str, *, thread_id: str, model_name: str = "flash",
         seconds=round(time.perf_counter() - started, 2),
         usage=usage,
         gate_repairs=result.get("answer_gate_repairs") or 0,
+        gate_repaired=list(result.get("answer_gate_problems") or []),
         gate_findings=_gate_findings(answer or "", messages),
     )
 
