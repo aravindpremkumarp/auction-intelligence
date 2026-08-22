@@ -36,7 +36,7 @@ pyyaml>=6.0,<7
 
 # Observability + evaluation. logfire = OpenTelemetry tracing (prod + dev);
 # pydantic-evals = the golden-question eval harness (evals/, dev + CI only).
-logfire[fastapi]>=4,<5
+logfire[fastapi,httpx]>=4,<5
 pydantic-evals>=2.8,<3
 
 # Report generation (Phase 4)

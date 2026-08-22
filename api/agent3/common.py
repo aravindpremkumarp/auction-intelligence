@@ -33,6 +33,8 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Callable
 
+from api.observability import timed
+
 logger = logging.getLogger("api.agent3")
 
 #: Plausible extent band, in square feet. Below the floor is a parse artefact
@@ -65,22 +67,66 @@ class ToolInputError(ValueError):
         self.field = field
 
 
+def _result_fields(out: Any) -> dict[str, Any]:
+    """The size of what a tool returned, for the observability line.
+
+    Row counts, never rows. A tool result can carry a 500-row payload and
+    the whole point of `ToolSink` is that such a payload does not get copied
+    around; a log line that dumped it would undo that at a different layer.
+    """
+    if not isinstance(out, dict):
+        return {}
+    fields: dict[str, Any] = {}
+    for key in ("rows", "results", "lots"):
+        value = out.get(key)
+        if isinstance(value, list):
+            fields["rows"] = len(value)
+            break
+    for key in ("total_count", "result_count"):
+        value = out.get(key)
+        if isinstance(value, int):
+            fields["total_count"] = value
+            break
+    return fields
+
+
 def tool(fn: Callable) -> Callable:
-    """Wrap a tool so bad input comes back as data instead of killing the turn."""
+    """Wrap a tool so bad input comes back as data instead of killing the turn.
+
+    Also the one place every graph tool passes through, so it is where each
+    call is timed and recorded. That matters more here than it looks: rule 1
+    means a rejected argument returns `{"error": ...}` and the turn carries
+    on succeeding, so without this line a tool the model got wrong on every
+    call for a week would leave no trace anywhere — the answer still arrives,
+    only slower and worse.
+
+    `result` is the outcome the model saw: `ok`, `input_error` (a bad
+    argument, with the valid values handed back) or `error` (a plain
+    ValueError/TypeError). A tool that raises something else is a real bug
+    and still propagates, logged by `timed` at ERROR on the way out.
+    """
 
     @functools.wraps(fn)
     def wrapped(*args, **kwargs):
-        try:
-            return fn(*args, **kwargs)
-        except ToolInputError as exc:
-            out: dict[str, Any] = {"error": str(exc)}
-            if exc.field:
-                out["field"] = exc.field
-            if exc.valid_values is not None:
-                out["valid_values"] = list(exc.valid_values)
+        with timed("agent3.tool", tool=fn.__name__) as obs:
+            try:
+                out = fn(*args, **kwargs)
+            except ToolInputError as exc:
+                obs["result"] = "input_error"
+                obs["field"] = exc.field
+                out = {"error": str(exc)}
+                if exc.field:
+                    out["field"] = exc.field
+                if exc.valid_values is not None:
+                    out["valid_values"] = list(exc.valid_values)
+                return out
+            except (ValueError, TypeError) as exc:
+                obs["result"] = "error"
+                obs["err"] = type(exc).__name__
+                return {"error": str(exc)}
+            obs["result"] = "error" if isinstance(out, dict) and out.get("error") else "ok"
+            obs.update(_result_fields(out))
             return out
-        except (ValueError, TypeError) as exc:
-            return {"error": str(exc)}
 
     return wrapped
 

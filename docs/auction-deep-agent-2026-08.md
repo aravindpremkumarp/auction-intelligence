@@ -1036,5 +1036,57 @@ Gate to ship: no regression on the 68, ≥90% on `lot_facts`, **100% on
    fix), prompt cache **70–82%** (was 41%). The agent no longer spends extra
    calls reasoning about dates it can now read exactly.
 
+8. ~~Make a turn's cost readable in production.~~ **Done.** The numbers above
+   all came from eval scripts. Production recorded none of them, and the gap
+   surfaced the first time anyone asked what five real conversations had
+   cost: on 22 Aug five turns went through `POST /chat/agent3/stream`
+   (41.9s, 21.8s, 7.2s, 18.7s, 11.2s — from FastAPI's own request spans) and
+   **their token counts are unrecoverable.**
+
+   The cause is worth stating exactly, because it is invisible by
+   construction. `router.py` had logged `in_tok`/`cached_tok`/`out_tok` per
+   turn since it shipped — on `api.agent3.router`, a logger with **no
+   handler in any environment**. Nothing configures root logging, uvicorn
+   configures only its own loggers, and `telemetry.py` attached Logfire to
+   `auction.obs` alone. Those records fell through to `logging.lastResort`,
+   which drops anything below WARNING. The code looked correct at every
+   single site; the wiring between them did not exist.
+
+   What a turn records now, all of it on `auction.obs` and all of it shipped
+   to Logfire as queryable attributes rather than text to regex:
+
+   | Line | Where | Carries |
+   |---|---|---|
+   | `agent3.turn` | `loop.py`, one `timed()` block | latency, model, thread, effort, model/tool call counts, skills, gate repairs, in/cached/out/total tokens |
+   | `agent3.model_call` | `loop.py`, one per AI message | per-call in/cached/out tokens, the tools that call asked for |
+   | `agent3.tool` | `common.py::tool` | per-call latency, `result=ok\|input_error\|error`, rows and `total_count` returned |
+   | `chat_agent3.turn` | `router.py` | the endpoint's view: the same usage plus answer length and artifact count |
+
+   Three choices in that table are deliberate:
+   - **The turn line lives in `loop.py`, not the router.** Both endpoints
+     call `run_turn`, and the streaming one — the one all five real
+     conversations used — was the one the router's `timed()` wrapper did not
+     cover.
+   - **Per-model-call tokens, not just the turn total.** A 18k-token turn
+     might be one call carrying a fat tool result or four re-reading the
+     same prefix; those have opposite fixes, and `cached_tok` per call is
+     what separates them. Cache discipline is the constraint this agent is
+     designed around (§6) and it was measurable only in an A/B script.
+   - **`common.py::tool` is where tool calls are recorded**, because rule 1
+     of that module returns a bad argument as `{"error": ...}` and lets the
+     turn succeed. A tool the model got wrong on every call would otherwise
+     leave no trace at all — the answer still arrives, only slower and
+     worse.
+
+   Also fixed while in there: the Logfire handler now attaches to `api` as
+   well as `auction.obs`, so a `logger.exception` from a router is visible
+   instead of silent; and `logfire.instrument_httpx()` puts each OpenRouter
+   call on the trace with its own latency. Not the root logger — that would
+   bury the signal under every library's INFO chatter.
+
+   **Caveat: this does not recover the five turns.** Their usage was
+   computed and handed to the browser, and nothing kept it. The next turn
+   through either endpoint is the first one that will be measurable.
+
 Steps 1–2 are worth building alone: they answer questions no current surface
 can, and they are testable without any agent at all.
