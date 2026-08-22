@@ -696,6 +696,44 @@ Gate to ship: no regression on the 68, ≥90% on `lot_facts`, **100% on
    Clean run after both fixes: **6/6, every turn 2 model / 1 tool call**,
    63,017 input and 2,347 output tokens across six turns.
 
+4d. **Where the tokens actually are, and the cache dead end.** Chasing the
+   17% cache figure produced a more useful answer than fixing it.
+
+   **The cache is not ours to fix.** Five back-to-back requests with an
+   IDENTICAL prefix returned `0% · 71% · 71% · 0% · 0%` — nothing changed on
+   our side between the third and fourth. That 71% is the load-bearing
+   result: it proves the prefix IS correctly cacheable, so §6's byte-stable
+   work did its job. The hit *rate* is provider-side eviction. Two
+   structural facts also depress our number: skill turns and non-skill turns
+   are two different prefixes competing for cache (a perfect 3-for-3
+   correlation in the smoke run), and a six-turn run spread over minutes is
+   near worst-case — an interleaved different-shaped request was observed
+   evicting an entry that had been hitting seconds earlier. **Recorded and
+   dropped.** Do not re-open without provider-side evidence.
+
+   **The tokens are in the rows, not the prompt.** Measured on one
+   `find_properties` call: 3,281 tokens, of which `rows` is 3,006 — **92%**.
+   Per field across 20 rows: `title` 404, `url` 295, dates 445. The stable
+   prefix (system + tool schemas) is only ~2,420, so row payload is a bigger
+   lever than perfect caching would ever have been.
+
+   Two changes, both measured:
+   - **`url` stripped from the model's rows** (295 tok / 10% of row cost) —
+     the model cites by `auction_id` and the UI builds links from the panel
+     row. Stripped in `_for_model`, NOT in `_shape_row`: the sink and the
+     model are fed from the same shaped rows, so trimming in the shaper
+     would have silently taken the link away from the matches panel too.
+   - **Default sample 20 → 10 rows** (`DEFAULT_MODEL_ROWS`). `total_count`,
+     `aggregations` and `distribution` remain exact over every match, and
+     the panel still receives up to `PANEL_ROW_CAP`.
+
+   One `find_properties` payload: **3,281 → 1,644 tokens, 50%**. Smoke run
+   still 6/6 with answers no worse. **End-to-end movement is much smaller —
+   63,017 → 60,179 input tokens across six turns (4.5%) — because only one
+   of the six cases calls `find_properties`, and the saving lands once per
+   search rather than once per turn.** The 50% is the honest figure for a
+   search; 4.5% is the honest figure for this particular suite.
+
 5. `benchmark_price`, `reauction_history` + `pricing`, `reauction` skills.
 6. `AnswerGate` + `scope_honesty` evals; remaining skills.
 7. Full eval run, n≥3 on latency, then decide about un-gating.

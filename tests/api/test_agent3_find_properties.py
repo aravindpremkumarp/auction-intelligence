@@ -262,3 +262,44 @@ def test_identifier_filter_resolves_to_ids_then_filters_on_them(monkeypatch):
 # resolve_identifier() itself is tested in test_agent3_identifiers.py, where
 # it lives now — api.agent3.identifiers. This file only tests that
 # find_properties composes correctly around whatever ids that seam returns.
+
+
+# ── model payload trimming ───────────────────────────────────────────────
+
+def test_url_is_stripped_from_the_model_rows(monkeypatch):
+    """Measured at 295 tokens across 20 rows — 10% of the row payload, which
+    is itself 92% of what a search sends the model. The model cites by
+    auction_id and never needs a link, so this is pure cost."""
+    _stub(monkeypatch, total=1, rows=[_row()])
+    out = FP.find_properties(city="Chennai")
+    assert "url" not in out["rows"][0]
+    assert out["rows"][0]["auction_id"] == "A1"
+
+
+def test_url_still_reaches_the_panel(monkeypatch):
+    """The sink and the model are fed from the same shaped rows, so stripping
+    in the shaper would silently take the link away from the matches panel
+    too — and the panel is what turns a result into a clickable card."""
+    _stub(monkeypatch, total=1, rows=[_row()])
+    sink = ToolSink()
+    FP.find_properties(city="Chennai", sink=sink)
+    assert sink.panel_rows[0]["url"] == "http://x"
+
+
+def test_default_row_sample_is_ten(monkeypatch):
+    """Rows dominate per-turn cost. 10 halves that against the old 20 while
+    keeping a usable sample; counts and aggregations stay exact regardless."""
+    _stub(monkeypatch, total=200, rows=[_row(f"A{i}") for i in range(40)])
+    out = FP.find_properties(city="Chennai")
+    assert len(out["rows"]) == FP.DEFAULT_MODEL_ROWS == 10
+
+
+def test_counts_stay_exact_when_the_sample_is_small(monkeypatch):
+    """The sample must never be mistaken for the answer set — total_count and
+    aggregations are computed over every match."""
+    _stub(monkeypatch, total=412, rows=[_row(f"A{i}") for i in range(40)],
+          extra=[[{"dimension": "area", "value": "Anna Nagar", "listings": 30}]])
+    out = FP.find_properties(city="Chennai")
+    assert out["total_count"] == 412
+    assert len(out["rows"]) == 10
+    assert out["aggregations"]["listings_with_reserve_price"] == 412
