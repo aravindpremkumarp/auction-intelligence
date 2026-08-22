@@ -45,7 +45,14 @@ _SKILL_REF_RE = re.compile(r"load the\s+`?([a-z][a-z0-9_-]*)`?\s+skill")
 #: intact. Still a ~74% cut from modes/_shared.md's ~2,600 tokens. Bump
 #: this deliberately (with a comment, like test_prompt_budget.py) if you
 #: add content on purpose.
-BUDGET_CHARS = 3000
+#:
+#: 2026-08, step 5: +~330 chars for the benchmark_price and
+#: reauction_history routing lines. benchmark_price's line carries its own
+#: caveat ("it refuses most listings — the refusal reason is the answer")
+#: because that refusal is the common case, not the exception: only 832 of
+#: 2,750 priced listings sit on a single-lot notice. Cheaper to say once in
+#: the always-on prompt than to have the agent treat a refusal as an error.
+BUDGET_CHARS = 3200
 
 
 def _tool_functions() -> set[str]:
@@ -186,7 +193,9 @@ def test_no_reference_to_tools_not_yet_built():
     """Tools the design doc specs for later steps (benchmark_price,
     reauction_history, run_cypher) must not appear as if callable yet —
     that is the exact drift test_mode_files.py was written to catch."""
-    not_yet_built = {"benchmark_price", "reauction_history", "run_cypher"}
+    # benchmark_price and reauction_history shipped in step 5. run_cypher is
+    # still spec — it stays here until it exists.
+    not_yet_built = {"run_cypher"}
     offenders = []
     for name, text in _prompt_sources().items():
         for tool in not_yet_built:

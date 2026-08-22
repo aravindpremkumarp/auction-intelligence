@@ -22,13 +22,14 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 # ── the tool surface ─────────────────────────────────────────────────────
 
-def test_exactly_four_tools_are_bound():
+def test_the_bound_tool_surface_is_exactly_ours():
     """The whole point of create_agent over create_deep_agent: we choose the
-    surface. A fifth tool appearing here means something re-introduced the
+    surface. An unexpected tool here means something re-introduced the
     harness scaffolding this design exists to avoid."""
     names = {getattr(f, "__name__", "") for f in A.bind_tools()}
     assert names == {"find_properties", "get_property", "search_notices",
-                     "find_by_identifier"}
+                     "find_by_identifier", "benchmark_price",
+                     "reauction_history"}
 
 
 def test_no_filesystem_or_shell_tool_is_bound():

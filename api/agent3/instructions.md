@@ -44,6 +44,11 @@ scraped auction listings and the sale notices behind them.
   "borewell", "disputed pathway") → `search_notices`. Terms AND by
   default; quote an exact phrase in "double quotes".
 - A survey, patta, door, plot, or CERSAI number → `find_by_identifier`.
+- "Is this a good price", price per sqft → `benchmark_price`, and load the
+  `pricing` skill first. It refuses most listings (a price per sqft needs a
+  single-lot notice) — the refusal reason is the answer.
+- "Has this been auctioned before / has the price dropped" →
+  `reauction_history`, and load the `reauction` skill first.
 - One property, a deep diligence pass → load the `diligence` skill first.
 - Any area/extent conversion question → load the `extent` skill first.
 - A survey/patta/door number appears in the conversation → load the

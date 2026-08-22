@@ -734,7 +734,60 @@ Gate to ship: no regression on the 68, ≥90% on `lot_facts`, **100% on
    search rather than once per turn.** The 50% is the honest figure for a
    search; 4.5% is the honest figure for this particular suite.
 
-5. `benchmark_price`, `reauction_history` + `pricing`, `reauction` skills.
+5. ~~`benchmark_price`, `reauction_history` + `pricing`, `reauction` skills.~~
+   **Done.** `api/agent3/{benchmark_price,reauction_history}.py`, two skills,
+   40/40 on the live catalogue (capability 15, gaps 9, lot_facts 8,
+   scope_honesty 8) in 94.7 s, all four gates met.
+
+   **`benchmark_price` refuses more often than it answers, and that is the
+   design.** Three limits, each measured rather than assumed:
+   - **There are no sold prices.** `Auction.outcome` is only ever "unsold",
+     so every figure is *reserve against reserve* — one bank's floor next to
+     other banks' floors. Every response carries a `basis` saying so, in the
+     payload rather than the prompt, because a caveat that lives only in an
+     instruction is the first thing dropped when summarising.
+   - **Only single-lot notices can be priced.** Reserve price sits on the
+     listing, extent on the lot; on a multi-lot notice the division has no
+     meaning. Of 2,750 listings with a reserve price only **832** sit on a
+     single-lot notice with a usable extent, so the tool declines roughly
+     **70% of listings** with a named reason rather than a number.
+   - **Thin rings are refused, not averaged.** Below 5 comparables the tool
+     says so. Area rings are usually too thin by construction — only 36 of
+     417 areas clear 5, against 35 of 48 cities and 30 of 38 districts — so
+     the ring walk normally lands on city. Verified live: 748779 refused at
+     area (1 comparable), answered at city — ₹6,500/sqft, **88th percentile**
+     of Coimbatore (median ₹2,946, n=81). Multi-lot 744314 refused.
+   - **`PRICING_SQFT_FLOOR = 100`, not `common.SQFT_FLOOR = 1`.** The 1-sqft
+     floor is harmless in a filter and catastrophic in a *division*: extents
+     of 1.2 and 1.6 sqft produced ₹1.4M and ₹8.4M per sqft. Raising it drops
+     the corpus maximum from ₹8,387,097 to ₹229,358 per sqft and costs 30 of
+     the 832.
+
+   **`reauction_history` joins two sources that must not be conflated.**
+   `Auction.attempt_no` is the notice's own statement (206 auctions at
+   attempt ≥ 2: 144 at 2, 36 at 3, 18 at 4, a tail to 8) and is
+   authoritative about the count — but carries **no earlier price**.
+   `SAME_PROPERTY_AS` (80 links) does carry it, and the drops are real and
+   consistent with the ~10% SARFAESI convention: ₹45.58L→₹41L, ₹69L→₹62.1L,
+   ₹52L→₹46.8L. So `attempt_no` answers "has this failed before" and the
+   link chain answers "by how much has it come down"; neither substitutes
+   for the other. The link is a **pipeline inference**, so its `confidence`
+   (high/medium) is surfaced on every linked listing — a medium-confidence
+   match is a weaker claim about the world than the notice's own attempt
+   number. Verified live: 802076 → one high-confidence link to 755956, a
+   real −10% (₹45.58L → ₹41L).
+
+   One Cypher bug, caught by a unit test: `SAME_PROPERTY_AS` can exist in
+   **both** directions between a pair, and the undirected match then returns
+   the same listing twice. Collapsed per listing, keeping the strongest
+   confidence.
+
+   Three drift guards fired and were updated deliberately rather than
+   relaxed: the bound-tool count (4 → 6), `BUDGET_CHARS` (3000 → 3200, with
+   the +330 chars accounted for in a comment), and the not-yet-built tool
+   list (now just `run_cypher`). The extra prompt budget buys
+   `benchmark_price`'s refusal caveat in the always-on text — cheaper said
+   once than having the agent treat the common case as an error.
 6. `AnswerGate` + `scope_honesty` evals; remaining skills.
 7. Full eval run, n≥3 on latency, then decide about un-gating.
 

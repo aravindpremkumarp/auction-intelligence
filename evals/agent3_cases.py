@@ -42,6 +42,10 @@ MULTI_LOT_SURVEY = "331/1"
 #: A phrase unique to MULTI_LOT_ID's own notice text (verified live: exactly
 #: {744314, 744316}, the two listings sharing that notice's Document).
 MULTI_LOT_UNIQUE_PHRASE = "23 Cents 380"
+#: Verified live: 802076 is linked by SAME_PROPERTY_AS (high confidence) to
+#: 755956, whose reserve was Rs 45.58L against 802076's Rs 41L -- a real -10%
+#: drop, the standard SARFAESI reduction after a failed auction.
+REAUCTION_ID = "802076"
 
 
 @dataclass
@@ -77,6 +81,14 @@ def _identifier_listings(result: dict) -> list[dict]:
 
 def _notice_hits(result: dict) -> list[dict]:
     return result.get("results") or []
+
+
+def _no_invented_valuation(result: dict) -> list[str]:
+    """benchmark_price must never lose its not-market-value framing."""
+    basis = (result.get("basis") or "").lower()
+    if "not market value" not in basis:
+        return ["a pricing result dropped the not-market-value basis"]
+    return []
 
 
 def _needs_rows(minimum: int = 1) -> Callable[[dict], list[str]]:
@@ -335,6 +347,33 @@ CAPABILITY: list[Case] = [
             [] if r.get("result_count", 0) >= 1
             else ["expected at least one notice mentioning 'borewell'"]),
         tags=["free_text"],
+    ),
+    Case(
+        id="cap_benchmark_price_single_lot",
+        suite="capability",
+        question=f"is auction {SINGLE_LOT_ID} priced well",
+        tool="benchmark_price",
+        args={"auction_id": SINGLE_LOT_ID},
+        fixture=SINGLE_LOT_ID,
+        check=_all(
+            _no_invented_valuation,
+            lambda r: ([] if r.get("priced") and r.get("comparisons")
+                       else [f"expected a priced result with comparisons, got "
+                             f"{r.get('reason')!r}"]),
+        ),
+        tags=["pricing"],
+    ),
+    Case(
+        id="cap_reauction_history_finds_a_drop",
+        suite="capability",
+        question=f"has auction {REAUCTION_ID} been auctioned before",
+        tool="reauction_history",
+        args={"auction_id": REAUCTION_ID},
+        fixture=REAUCTION_ID,
+        check=lambda r: (
+            [] if any(o.get("price_change") for o in r.get("earlier_listings") or [])
+            else ["expected a linked earlier listing carrying a price change"]),
+        tags=["reauction"],
     ),
     Case(
         id="cap_search_notices_and_not_or",
@@ -652,6 +691,37 @@ GAPS: list[Case] = [
                   "framing, so the agent may report this as the property "
                   "not existing"]),
         tags=["refusal", "identifiers"],
+    ),
+    Case(
+        id="gap_multi_lot_price_is_refused_with_a_reason",
+        suite="gaps",
+        question=f"what is auction {MULTI_LOT_ID} worth per square foot",
+        tool="benchmark_price",
+        args={"auction_id": MULTI_LOT_ID},
+        fixture=MULTI_LOT_ID,
+        check=_all(
+            _no_invented_valuation,
+            lambda r: ([] if (r.get("priced") is False
+                              and "lots" in (r.get("reason") or ""))
+                       else ["a multi-lot notice was priced per sqft, or "
+                             "refused without naming the lot ambiguity — the "
+                             "reserve is the listing's and the extent is a "
+                             "lot's, so the division invents a number"]),
+        ),
+        tags=["pricing", "refusal"],
+    ),
+    Case(
+        id="gap_first_time_listing_is_not_a_missing_history",
+        suite="gaps",
+        question=f"has auction {SINGLE_LOT_ID} been auctioned before",
+        tool="reauction_history",
+        args={"auction_id": SINGLE_LOT_ID},
+        fixture=SINGLE_LOT_ID,
+        check=lambda r: (
+            [] if "No earlier attempt recorded" in (r.get("summary") or "")
+            else ["a first-time listing did not say so plainly; it must not "
+                  "read as missing history"]),
+        tags=["reauction"],
     ),
     Case(
         id="gap_search_notices_zero_result_suggests_a_synonym",

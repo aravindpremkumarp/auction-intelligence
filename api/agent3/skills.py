@@ -79,6 +79,19 @@ _TRIGGERS: dict[str, tuple[str, ...]] = {
         "acre", "cent", "ground", "hectare", "area of", "extent",
         "size of", "how many cents", "convert",
     ),
+    "pricing": (
+        "good price", "good deal", "is this cheap", "is it cheap",
+        "overpriced", "underpriced", "price per", "per sqft", "per square",
+        "worth it", "what's it worth", "how does the price compare",
+        "compare the price", "value for money", "priced right", "fair price",
+        "benchmark",
+    ),
+    "reauction": (
+        "re-auction", "reauction", "auctioned before", "failed to sell",
+        "second attempt", "previous auction", "earlier auction",
+        "price dropped", "price drop", "come down", "reduced",
+        "how many times", "listed before", "attempt",
+    ),
     "identifiers": (
         "survey number", "survey no", "s.no", "patta", "door number",
         "door no", "plot number", "plot no", "cersai", "chitta", "khata",

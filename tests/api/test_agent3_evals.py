@@ -18,7 +18,8 @@ def test_every_case_has_a_unique_id_and_a_known_suite():
 
 def test_every_case_names_a_real_tool():
     assert {c.tool for c in ALL_CASES} <= {
-        "find_properties", "get_property", "find_by_identifier", "search_notices"}
+        "find_properties", "get_property", "find_by_identifier",
+        "search_notices", "benchmark_price", "reauction_history"}
 
 
 def test_scope_honesty_gate_is_total():

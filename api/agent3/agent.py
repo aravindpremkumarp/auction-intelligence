@@ -42,10 +42,12 @@ import inspect
 from pathlib import Path
 from typing import Any, Callable
 
+from api.agent3.benchmark_price import benchmark_price
 from api.agent3.common import ToolSink
 from api.agent3.find_by_identifier import find_by_identifier
 from api.agent3.find_properties import find_properties
 from api.agent3.get_property import get_property
+from api.agent3.reauction_history import reauction_history
 from api.agent3.search_notices import search_notices
 
 INSTRUCTIONS_PATH = Path(__file__).resolve().parent / "instructions.md"
@@ -95,20 +97,20 @@ def _drop_param(fn: Callable, name: str) -> Callable:
 
 
 def bind_tools(sink: ToolSink | None = None) -> list[Callable]:
-    """The four graph tools, with per-turn state closed over.
+    """The six graph tools, with per-turn state closed over.
 
     The sink carries the panel's rows so they never enter the transcript: in
     a checkpointed conversation an unsplit 500-row payload is re-sent, and
     re-billed, on every later turn.
     """
+    others = [get_property, search_notices, find_by_identifier,
+              benchmark_price, reauction_history]
     if sink is None:
-        return [_drop_param(find_properties, "sink"), get_property,
-                search_notices, find_by_identifier]
+        return [_drop_param(find_properties, "sink"), *others]
 
     bound = functools.partial(find_properties, sink=sink)
     functools.update_wrapper(bound, find_properties)
-    return [_drop_param(bound, "sink"), get_property, search_notices,
-            find_by_identifier]
+    return [_drop_param(bound, "sink"), *others]
 
 
 def chat_model(model_name: str = "flash", reasoning_effort: str | None = None):
