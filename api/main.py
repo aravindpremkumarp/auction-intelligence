@@ -22,10 +22,10 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from slowapi.errors import RateLimitExceeded
 
+from api.agent3.router import router as chat_agent3_router
 from api.alerts import router as alerts_router
 from api.auth import router as auth_router
 from api.auth.rate_limit import limiter
-from api.agent3.router import router as chat_agent3_router
 from api.billing import router as billing_router
 from api.chat import router as chat_router
 from api.chat.deep.router import router as chat_deep_router
