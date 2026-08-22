@@ -159,6 +159,102 @@ def test_runner_skips_rather_than_fails_when_a_fixture_is_gone(monkeypatch):
     assert out["status"] == "SKIP"
 
 
+# ── the history cases can actually fail ──────────────────────────────────
+#
+# The reason this section exists: the ONE memory case that preceded it could
+# not fail. It followed a count question ("how many in Coimbatore?" — 35) and
+# then asked "which bank is conducting that one?", where "that one" has no
+# referent. Across two runs the model once asked which was meant and once
+# picked arbitrarily; both passed, because the only assertion was the absence
+# of amnesia phrases. Every check below is driven with a wrong answer to
+# prove it says so.
+
+def _turn(answer: str, *, tool_calls: int = 1):
+    from api.agent3.loop import TurnResult
+
+    return TurnResult(answer=answer, tool_calls=tool_calls, model_calls=2)
+
+
+def test_every_history_case_is_actually_multi_turn():
+    """A one-turn 'history' case tests nothing about history."""
+    from evals import smoke_agent3 as S
+
+    history = [c for c in S.CASES if c["id"].startswith("history")]
+    assert history, "no history cases registered"
+    for case in history:
+        assert len(S._turns_of(case)) >= 2, f"{case['id']} is a single turn"
+
+
+def test_single_turn_cases_still_work_unchanged():
+    """The eight original cases keep their flat shape — adding history
+    coverage must not require rewriting them."""
+    from evals import smoke_agent3 as S
+
+    simple = next(c for c in S.CASES if c["id"] == "simple_filter")
+    turns = S._turns_of(simple)
+    assert len(turns) == 1 and turns[0]["question"] == simple["question"]
+
+
+def test_referent_check_fails_when_the_bank_is_missing():
+    """The old case's exact failure mode: a fluent reply that never resolves
+    what 'it' referred to."""
+    from evals import smoke_agent3 as S
+
+    vague = _turn("Could you clarify which auction you mean?")
+    assert S.check_resolves_the_referent(vague)
+
+
+def test_referent_check_passes_when_the_bank_is_named():
+    from evals import smoke_agent3 as S
+
+    assert S.check_resolves_the_referent(
+        _turn("It is conducted by Canara Bank.")) == []
+
+
+def test_carryover_check_catches_a_dropped_city():
+    """The dangerous one: drop the city and the agent returns plausible
+    results for the whole state with nothing looking broken."""
+    from evals import smoke_agent3 as S
+
+    widened = _turn("Here are 214 residential auctions under 50 lakhs.")
+    problems = S.check_carries_the_filter(widened)
+    assert problems and "Coimbatore" in problems[0]
+
+
+def test_carryover_check_passes_when_the_city_survives():
+    from evals import smoke_agent3 as S
+
+    assert S.check_carries_the_filter(
+        _turn("16 of the Coimbatore listings are under 50 lakhs.")) == []
+
+
+def test_correction_check_catches_a_restated_old_answer():
+    """History must be revisable. An agent that treats turn 1 as fixed is as
+    wrong as one that forgets it."""
+    from evals import smoke_agent3 as S
+
+    ignored = _turn("There are 27 residential auctions in Coimbatore.")
+    problems = S.check_accepts_the_correction(ignored)
+    assert any("Chennai" in p for p in problems)
+
+
+def test_correction_check_requires_a_fresh_query():
+    """Switching city without calling a tool means the numbers are the old
+    city's, restated."""
+    from evals import smoke_agent3 as S
+
+    no_tool = _turn("Chennai has plenty of listings.", tool_calls=0)
+    problems = S.check_accepts_the_correction(no_tool)
+    assert any("re-quer" in p for p in problems)
+
+
+def test_correction_check_passes_on_a_real_switch():
+    from evals import smoke_agent3 as S
+
+    assert S.check_accepts_the_correction(
+        _turn("In Chennai there are 32 upcoming residential auctions.")) == []
+
+
 def test_runner_reports_a_crash_instead_of_swallowing_it(monkeypatch):
     from evals import run_agent3
 

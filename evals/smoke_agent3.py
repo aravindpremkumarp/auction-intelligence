@@ -161,6 +161,76 @@ def check_loads_bidding_skill(r) -> list[str]:
     return problems
 
 
+# ── history ──────────────────────────────────────────────────────────────
+#
+# A follow-up turn is the whole reason this design chose server-side memory
+# in Neo4j over the tiered loop's client-carried summary, and until now it
+# was covered by ONE case that could not fail. It followed a *count*
+# question — "how many residential auctions in Coimbatore?", answer 35 — and
+# then asked "which bank is conducting that one?". "That one" has no
+# referent among 35 listings. Observed across two runs: once the model asked
+# which one was meant, once it picked one arbitrarily. Both passed, because
+# the only check was for amnesia phrases.
+#
+# A case that passes whether or not the model resolved the reference is not
+# testing reference resolution. These anchor every follow-up to something
+# with exactly one right answer.
+
+#: Verified live 22 Aug 2026: 748779 is CONDUCTED_BY Canara Bank. A
+#: single-lot Coimbatore listing, so "it" in turn 2 has exactly one referent.
+SINGLE_LOT_BANK = "Canara Bank"
+
+
+def check_resolves_the_referent(r) -> list[str]:
+    """Turn 2 says "it" and means the property named in turn 1.
+
+    The sharpest memory check available: one listing, one bank, one correct
+    string. A model that lost the thread cannot produce it by luck.
+    """
+    problems = check_memory_worked(r)
+    if SINGLE_LOT_BANK.lower() not in (r.answer or "").lower():
+        problems.append(
+            f"did not name {SINGLE_LOT_BANK!r} — 'it' in the follow-up refers "
+            f"to the listing from turn 1, so losing the referent means losing "
+            f"the conversation")
+    return problems
+
+
+def check_carries_the_filter(r) -> list[str]:
+    """"Now only under 50 lakhs" must keep the city from turn 1.
+
+    The most common real follow-up and the most dangerous to get wrong: if
+    the city is dropped the agent returns plausible results for the whole
+    state and nothing looks broken. Verified live: Coimbatore has 27 upcoming
+    residential listings, 16 of them under ₹50L — so the narrowed answer is a
+    real subset, not the same set again.
+    """
+    problems = check_memory_worked(r)
+    text = (r.answer or "").lower()
+    if "coimbatore" not in text:
+        problems.append(
+            "the narrowed answer never mentions Coimbatore — the city filter "
+            "from turn 1 was dropped, which silently widens the search")
+    return problems
+
+
+def check_accepts_the_correction(r) -> list[str]:
+    """"Sorry, I meant Chennai" must replace the city, not add to it.
+
+    Tests the opposite of carry-over: history has to be revisable. An agent
+    that treats every earlier turn as fixed is as wrong as one that forgets.
+    """
+    problems = check_memory_worked(r)
+    text = (r.answer or "").lower()
+    if "chennai" not in text:
+        problems.append("did not switch to Chennai after the correction")
+    if not r.tool_calls:
+        problems.append(
+            "answered the correction without re-querying — the numbers can "
+            "only be Coimbatore's, restated")
+    return problems
+
+
 def check_refuses_bulk_people(r) -> list[str]:
     """IntentGate must short-circuit this before a model call. Both halves
     matter: refusing, and refusing for free.
@@ -245,11 +315,52 @@ CASES = [
         "why": "IntentGate: real people who defaulted on a loan. Must refuse "
                "before spending a single model call",
     },
+    # ── history: multi-turn, one thread each ─────────────────────────────
+    {
+        "id": "history_referent",
+        "why": "turn 2 says 'it' and means the listing from turn 1 — one "
+               "listing, one bank, one correct answer",
+        "turns": [
+            {"question": f"Tell me about auction {SINGLE_LOT_ID}.",
+             "check": check_finds_rows},
+            {"question": "Which bank is conducting it?",
+             "check": check_resolves_the_referent},
+        ],
+    },
+    {
+        "id": "history_filter_carryover",
+        "why": "the commonest real follow-up. Dropping the city silently "
+               "widens the search and nothing looks broken",
+        "turns": [
+            {"question": "Show me residential auctions in Coimbatore.",
+             "check": check_finds_rows},
+            {"question": "Now only the ones under 50 lakhs.",
+             "check": check_carries_the_filter},
+        ],
+    },
+    {
+        "id": "history_correction",
+        "why": "history has to be revisable — an agent that treats every "
+               "earlier turn as fixed is as wrong as one that forgets",
+        "turns": [
+            {"question": "Show me residential auctions in Coimbatore.",
+             "check": check_finds_rows},
+            {"question": "Sorry, I meant Chennai.",
+             "check": check_accepts_the_correction},
+        ],
+    },
 ]
 
-#: A second turn on the SAME thread, to prove memory works and to read the
-#: cache figure that the loop A/B found broken on the deep agent.
-FOLLOW_UP = "And which bank is conducting that one?"
+
+def _turns_of(case: dict) -> list[dict]:
+    """Every case is a conversation; most are one turn long.
+
+    Single-turn cases keep their flat `question`/`check` shape so the eight
+    original cases did not have to be rewritten to add history coverage.
+    """
+    if case.get("turns"):
+        return case["turns"]
+    return [{"question": case["question"], "check": case["check"]}]
 
 
 async def _run(cases: list[dict], model_name: str, follow_up: bool,
@@ -257,7 +368,7 @@ async def _run(cases: list[dict], model_name: str, follow_up: bool,
     from api.agent3.loop import run_turn
 
     out = []
-    for i, case in enumerate(cases):
+    for case in cases:
         # Fresh thread per RUN, not per case name. Checkpoints live in Neo4j
         # and outlive the process: with a fixed id, the second run of this
         # suite resumed the first run's conversation and answered "I already
@@ -265,49 +376,125 @@ async def _run(cases: list[dict], model_name: str, follow_up: bool,
         # memory demonstration, and a worthless smoke test, because the case
         # never exercised the tools. A smoke run must start cold.
         thread = f"smoke-{run_id}-{case['id']}"
-        r = await run_turn(case["question"], thread_id=thread,
-                           model_name=model_name)
-        problems = case["check"](r)
-        # A blocking finding that survives to here means the gate saw it,
-        # spent its one repair, and the model produced the same defect again.
-        # That is a genuine failure of the turn, not an advisory note.
-        problems += [f"[gate] {p}" for p in (r.gate_findings or {}).get("blocking", [])]
-        row = {
-            "id": case["id"], "question": case["question"],
-            "why": case["why"], "answer": r.answer,
-            "tool_calls": r.tool_calls, "model_calls": r.model_calls,
-            "skills": r.skills_loaded, "seconds": r.seconds,
-            "auction_ids": r.auction_ids[:5], "usage": r.usage,
-            "gate_repairs": r.gate_repairs,
-            "gate_repaired": r.gate_repaired,
-            "gate_advisory": (r.gate_findings or {}).get("advisory", []),
-            "problems": problems,
-            "status": "PASS" if not problems else "FAIL",
-        }
-        out.append(row)
-        _print_row(row)
-
-        if follow_up and i == 0:
-            r2 = await run_turn(FOLLOW_UP, thread_id=thread,
-                                model_name=model_name)
-            cached = (r2.usage or {}).get("cached_input_tokens")
-            total_in = (r2.usage or {}).get("input_tokens")
-            share = (round(100 * cached / total_in) if cached and total_in
-                     else 0)
-            row2 = {
-                "id": "memory_followup", "question": FOLLOW_UP,
-                "why": "same thread — proves server-side memory, and reads "
-                       "the cache share the loop A/B found at zero",
-                "answer": r2.answer, "tool_calls": r2.tool_calls,
-                "model_calls": r2.model_calls, "skills": r2.skills_loaded,
-                "seconds": r2.seconds, "auction_ids": r2.auction_ids[:5],
-                "usage": r2.usage, "cache_share_pct": share,
-                "problems": check_memory_worked(r2),
-                "status": "PASS" if not check_memory_worked(r2) else "FAIL",
+        turns = _turns_of(case)
+        for n, turn in enumerate(turns, start=1):
+            r = await run_turn(turn["question"], thread_id=thread,
+                               model_name=model_name)
+            problems = turn["check"](r)
+            # A blocking finding that survives to here means the gate saw it,
+            # spent its one repair, and the model produced the same defect
+            # again. That is a genuine failure, not an advisory note.
+            problems += [f"[gate] {p}"
+                         for p in (r.gate_findings or {}).get("blocking", [])]
+            row = {
+                "id": case["id"] if len(turns) == 1 else f"{case['id']}/{n}",
+                "question": turn["question"],
+                "why": case["why"], "answer": r.answer,
+                "tool_calls": r.tool_calls, "model_calls": r.model_calls,
+                "skills": r.skills_loaded, "seconds": r.seconds,
+                "auction_ids": r.auction_ids[:5], "usage": r.usage,
+                "gate_repairs": r.gate_repairs,
+                "gate_repaired": r.gate_repaired,
+                "gate_advisory": (r.gate_findings or {}).get("advisory", []),
+                "problems": problems,
+                "status": "PASS" if not problems else "FAIL",
             }
-            out.append(row2)
-            _print_row(row2)
+            # Cache share is only meaningful from turn 2 on: turn 1 of a
+            # thread has no prefix to hit.
+            if n > 1:
+                cached = (r.usage or {}).get("cached_input_tokens")
+                total_in = (r.usage or {}).get("input_tokens")
+                row["cache_share_pct"] = (
+                    round(100 * cached / total_in) if cached and total_in else 0)
+            out.append(row)
+            _print_row(row)
+
+        if follow_up and case["id"] == "history_referent":
+            out.append(await _resume_in_a_new_process(thread, model_name))
+            _print_row(out[-1])
     return out
+
+
+#: Verified live 22 Aug 2026: 748779's reserve is ₹46,41,000. Asked in a
+#: fresh process with no hint of which listing, only history can supply it.
+RESUME_QUESTION = "What was the reserve price on that one?"
+_RESUME_MARKERS = ("46,41,000", "4641000", "46.41", "46,41", "4,641,000")
+
+
+async def _resume_in_a_new_process(thread: str, model_name: str) -> dict:
+    """Reopen the thread from a cold process — the "closed tab" test.
+
+    Memory being server-side in Neo4j is the load-bearing claim of this
+    design: the transcript is supposed to survive a closed tab, a new
+    browser, a logout. Every other case here runs in one long-lived process,
+    so none of them can tell that claim apart from an in-memory dict that
+    happens to persist for the length of a run.
+
+    This has only ever been observed by accident, when fixed thread ids made
+    one smoke run resume the previous one's conversation. Doing it on purpose
+    means a genuinely separate interpreter: same thread id, nothing shared
+    but Neo4j.
+    """
+    import subprocess
+    import sys
+    import textwrap
+
+    code = textwrap.dedent(f"""
+        import asyncio, json
+        from api.agent3.loop import run_turn
+        r = asyncio.run(run_turn({RESUME_QUESTION!r},
+                                 thread_id={thread!r},
+                                 model_name={model_name!r}))
+        print("__RESULT__" + json.dumps({{
+            "answer": r.answer, "tool_calls": r.tool_calls,
+            "model_calls": r.model_calls, "seconds": r.seconds,
+            "usage": r.usage, "skills": r.skills_loaded}}))
+    """)
+    started = time.perf_counter()
+    proc = subprocess.run([sys.executable, "-c", code], capture_output=True,
+                          text=True, timeout=300, cwd=str(_REPO_ROOT))
+    elapsed = round(time.perf_counter() - started, 2)
+
+    marker = "__RESULT__"
+    line = next((l[len(marker):] for l in proc.stdout.splitlines()
+                 if l.startswith(marker)), None)
+    if line is None:
+        return {"id": "history_cross_process", "question": RESUME_QUESTION,
+                "why": "reopening the thread from a cold process",
+                "answer": "", "tool_calls": 0, "model_calls": 0, "skills": [],
+                "seconds": elapsed, "auction_ids": [], "usage": {},
+                "problems": [f"subprocess produced no result: "
+                             f"{(proc.stderr or proc.stdout)[-400:]}"],
+                "status": "FAIL"}
+
+    data = json.loads(line)
+    problems = []
+    answer = data.get("answer") or ""
+    if not answer.strip():
+        problems.append("empty answer from the resumed thread")
+    for m in _AMNESIA_MARKERS:
+        if m in answer.lower():
+            problems.append(
+                f"the resumed thread reports no history ({m!r}) — the "
+                f"checkpoint did not survive the process boundary, which is "
+                f"the whole reason memory lives in Neo4j")
+            break
+    if not any(m in answer for m in _RESUME_MARKERS):
+        problems.append(
+            "did not give 748779's reserve (₹46,41,000) — a fresh process was "
+            "told only 'that one', so the listing can only have come from the "
+            "stored transcript")
+    return {
+        "id": "history_cross_process", "question": RESUME_QUESTION,
+        "why": "same thread, brand-new interpreter — proves the transcript "
+               "survives a closed tab, not just a long-lived process",
+        "answer": answer, "tool_calls": data.get("tool_calls", 0),
+        "model_calls": data.get("model_calls", 0),
+        "skills": data.get("skills") or [], "seconds": elapsed,
+        "auction_ids": [], "usage": data.get("usage") or {},
+        "problems": problems,
+        "status": "PASS" if not problems else "FAIL",
+    }
 
 
 def _print_row(row: dict) -> None:
