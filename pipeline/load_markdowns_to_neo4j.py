@@ -5,7 +5,7 @@ Load every cached MinerU markdown into the corresponding :Document.markdown
 property in Neo4j.
 
 Complements pipeline/embed_markdowns.py (which writes the 3072-dim vector).
-Storing the raw markdown alongside the embedding lets the agent and graph
+Storing the raw markdown on the Document node lets the agent and graph
 queries surface the full notice text — bank, borrowers, schedule, terms —
 not just retrieve Documents by similarity.
 

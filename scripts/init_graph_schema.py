@@ -60,7 +60,6 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from api.neo4j_client import run_query
-from pipeline.embeddings import GEMINI_EMBED_DIM
 
 
 # ── uniqueness ───────────────────────────────────────────────────────────────
@@ -163,8 +162,9 @@ POINT_INDEXES = [
     "FOR (l:Lot) ON (l.location)",
 ]
 
-# Text search the graph has never had — the vector indexes exist, but there is
-# no way to search a borrower by name or a description by keyword.
+# Text search: the only content-retrieval path the graph has. `semantic_search`
+# and `search_notices` both read `lot_description_ft`, so it is load-bearing —
+# there is no vector index left to fall back to.
 FULLTEXT_INDEXES = [
     "CREATE FULLTEXT INDEX party_name_ft IF NOT EXISTS "
     "FOR (n:Borrower) ON EACH [n.name]",
@@ -174,19 +174,15 @@ FULLTEXT_INDEXES = [
     "FOR (n:Identifier) ON EACH [n.value_raw]",
 ]
 
-# Lot reuses the same embedding model as :AuctionProperty.description_embedding
-# so lot-level and listing-level vectors stay comparable — hence the shared
-# GEMINI_EMBED_DIM rather than a local constant that could drift.
-VECTOR_INDEXES = [
-    "CREATE VECTOR INDEX lot_description_embedding IF NOT EXISTS "
-    "FOR (l:Lot) ON (l.description_embedding) "
-    "OPTIONS {indexConfig: {"
-    f"`vector.dimensions`: {GEMINI_EMBED_DIM}, "
-    "`vector.similarity_function`: 'cosine'}}",
-]
+# No vector indexes. Retrieval over lot text is lexical (lot_description_ft,
+# above): LangExtract resolves each notice into typed entities, so the
+# questions embeddings answered approximately are now exact graph filters,
+# and term-presence questions are Lucene's job. The retired
+# `lot_description_embedding` index was never populated — it held zero
+# vectors for its whole life. See docs/design/2026-08-22-retire-embeddings.md.
 
 ALL_STATEMENTS = (
-    CONSTRAINTS + INDEXES + POINT_INDEXES + FULLTEXT_INDEXES + VECTOR_INDEXES
+    CONSTRAINTS + INDEXES + POINT_INDEXES + FULLTEXT_INDEXES
 )
 
 

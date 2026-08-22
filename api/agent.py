@@ -163,8 +163,9 @@ _CYPHER_CAPABILITY = Capability(
         "- NEVER compare a DATETIME column to a raw ISO string (ZONED-vs-"
         "LOCAL silently returns zero); wrap it: `WHERE a.auction_start_dt >= "
         "datetime($iso)`.\n"
-        "- No `total_area`/`village`/`taluk`/`district` props exist — sizes "
-        "and sub-locality live only in `description` text (`semantic_search`)."
+        "- No `total_area`/`village`/`taluk`/`district` props on "
+        ":AuctionProperty — they live on the :Lot spine or in "
+        "`description` text (`semantic_search`)."
     ),
     defer_loading=True,
 )
@@ -429,27 +430,25 @@ def semantic_search(
     limit: int = 20,
     include_past: bool = False,
 ) -> dict:
-    """Semantic search over descriptions, notice markdown, and notice
-    images (one gemini-embedding-2 call ranked across three indexes in the
-    same vector space). Use for qualitative text — boundaries, neighborhood,
-    legal caveats, condition, layout — present in free text or the notice
-    but absent from structured fields.
+    """Lucene fulltext over notice schedule text + property blurb. Use for
+    qualitative wording — boundaries, neighborhood, legal caveats,
+    condition — in the notice but not in structured fields.
 
-    ONE call per question. Results are dense-vector ranked by MEANING, so
-    re-phrasing the query — quotes, ALL-CAPS, `OR`, added synonyms, vastu/
-    direction words — returns the same ranking; a second variant just burns
-    tokens and latency without new hits. If you want broader recall, raise
-    `limit` ONCE (the UI shows every match regardless); do not re-search. A
-    non-empty result IS the answer — do not run a follow-up call to "double-
-    check" coverage.
+    LEXICAL, not semantic: it finds the WORDS you pass. Use the vocabulary a
+    notice would use ("borewell", "shed"), not a paraphrase. Terms OR-join
+    and rank, so extra terms re-sort rather than exclude; "quote a phrase"
+    to force word order. Structured constraints (type, city, extent, price,
+    dates, possession) belong in `search_auctions` — those are exact fields.
+
+    ONE call per question; a non-empty result IS the answer. For more recall
+    raise `limit` ONCE, never re-search. Retry only to swap in a different
+    domain word, never to reword the same terms.
 
     Optional `city`/`area`/`min_price`/`max_price`/`asset_category`/date
-    window post-filter the hits. Future-only by default; `include_past=True`
-    for retrospective queries. Each row carries `score` and `hit_sources`
-    (subset of 'desc'/'markdown'/'image'). A zero-hit result carries a
-    `hint` (and `past_matches` when past auctions would have matched) —
-    follow it; do NOT rephrase and retry. On embedding-backend failure
-    returns `{"error": ..., "results": []}` — fall back to `search_auctions`.
+    window post-filter. Future-only by default; `include_past=True` for
+    retrospective queries. `score` ranks rows against EACH OTHER — the top
+    hit is ~1.0 even when nothing matches well, so never read it as
+    confidence. A zero-hit result carries a `hint` — follow it.
     """
     try:
         return split_ui_overflow(T.semantic_search(

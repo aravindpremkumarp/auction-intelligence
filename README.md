@@ -13,8 +13,8 @@ lives in the app UI).
 
 ```
 scrape → filter TN → load Neo4j → OCR + vision-LLM extract → classify notices →
-verify/enrich → apply LangExtract descriptions → embed (3 vector indexes) →
-serve agent + web UI → human feedback + review loop
+verify/enrich → apply LangExtract descriptions → serve agent + web UI →
+human feedback + review loop
 ```
 
 ---
@@ -25,9 +25,9 @@ serve agent + web UI → human feedback + review loop
   under 30 lakhs", "what's the price range in Kanchipuram?", "which borrowers
   have more than 3 properties?". Every answer is grounded in a tool call; the
   agent never invents prices, counts, or IDs.
-- **Semantic / qualitative search** over notice text and images — boundaries,
-  neighbourhood, legal caveats, condition — across three vector indexes
-  (description, notice markdown, notice image) ranked in one embedding space.
+- **Qualitative text search** over notice content — boundaries,
+  neighbourhood, legal caveats, condition — across two Lucene fulltext
+  indexes (lot schedule text, property description), BM25-ranked and merged.
 - **Paste-a-listing matching** — drop a WhatsApp forward or broker blurb and the
   agent anchors it to the right auction by reserve price + date.
 - **Web-search enrichment** — the agent can answer questions the sale notice
@@ -106,8 +106,8 @@ api/          FastAPI composition root (main.py) + routers:
               agent.py (PydanticAI agent), neo4j_client.py, telemetry.py,
               observability.py, tools/ (Cypher + web search).
 pipeline/     Enrichment pipeline: OCR/MinerU, vision-LLM extraction, notice
-              classification, verify/enrich, normalize,
-              embeddings (3 vector indexes), R2 storage helpers.
+              classification, verify/enrich, normalize, LangExtract entity
+              promotion, R2 storage helpers.
 scrapers/     Selenium scrapers for eauctionsindia.com (local only).
 scripts/      Data-prep, migration, backfill, and one-off maintenance scripts.
 scoring/      Ten-dimensional investment scoring (auction_scorer.py) — offline
@@ -159,7 +159,7 @@ Copy `.env.example` → `.env`. Never commit the filled-in file. Key groups:
 
 | Group | Vars | Notes |
 | --- | --- | --- |
-| **LLM** | `OPENROUTER_API_KEY`, `OPENROUTER_CHAT_API_KEY`, `OPENROUTER_MODEL`, `OPENAI_API_KEY`, `GOOGLE_API_KEY` | OpenRouter runs the agent (**DeepSeek V4 Pro**, Flash on the free tier) and OCR extraction (`gemini-2.5-flash`); Google key powers `gemini-embedding-2` for semantic search. `OPENROUTER_CHAT_API_KEY` caps chat spend apart from the pipeline. |
+| **LLM** | `OPENROUTER_API_KEY`, `OPENROUTER_CHAT_API_KEY`, `OPENROUTER_MODEL`, `OPENAI_API_KEY`, `GOOGLE_API_KEY` | OpenRouter runs the agent (**DeepSeek V4 Pro**, Flash on the free tier) and OCR extraction (`gemini-2.5-flash`); Google key powers LangExtract's Gemini backend. `OPENROUTER_CHAT_API_KEY` caps chat spend apart from the pipeline. |
 | **Graph** | `NEO4J_URI`, `NEO4J_USERNAME`, `NEO4J_PASSWORD`, `NEO4J_DATABASE` | Neo4j Aura. |
 | **Auth** | `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `AUTH_ENABLED`, `ADMIN_BOOTSTRAP_EMAIL` | Anon key is browser-safe; service-role key is server-only (admin bootstrap script). |
 | **Storage** | `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, `R2_PUBLIC_BASE_URL` | Public Cloudflare R2 bucket serving sale notices. |
@@ -185,7 +185,7 @@ variant on the free tier).
 | Tool | Purpose |
 | --- | --- |
 | `search_auctions` | Filter by price / EMD / city / area / type / category / bank / borrower / platform / date; `deadline_within_days` for upcoming deadlines; supports aggregates (min/max/avg/median/p25/p75), `group_by` distributions, and true `total_count`. |
-| `semantic_search` | Vector search across description + notice-markdown + notice-image indexes in one call. |
+| `semantic_search` | Lucene fulltext across lot schedule text + property description, BM25-ranked and merged in one call. |
 | `get_auction_detail` | Full records for one or a list of `auction_id`s (up to 10 per call), including re-auction `price_history`. |
 | `describe_schema` | Live graph introspection (labels, rels, enums, ranges); 1-hour cache. |
 | `run_cypher` | Read-only Cypher escape hatch — write clauses rejected, 10 s / 500-row caps. |
@@ -261,7 +261,7 @@ python -m scripts.upload_downloads_to_r2    # 4. Push sale notices to R2
 python -m pipeline.run_pipeline             # 5. OCR → classify → verify →
                                             #    load → apply extractions
                                             #    (also links re-auctioned properties internally)
-python -m pipeline.embed_descriptions       # 6. Embed + build the vector indexes
+python -m scripts.init_graph_schema         # 6. Constraints + fulltext indexes
 uvicorn api.main:app --reload               # 7. Serve agent + web UI
 ```
 
@@ -270,9 +270,11 @@ Notable stages: **OCR/extraction** uses MinerU + a vision LLM
 multi-property notices by cluster count, corrected by human review
 (`classify_notice.py`); **descriptions** come from LangExtract's
 `full_description` spans (`apply_extractions.py`); **verify/enrich** reconciles
-scraped fields against the PDF (PDF wins, original kept as `<field>_scraped`);
-and **embeddings** build three vector indexes (`property_desc_idx`,
-`notice_markdown_idx`, `notice_image_idx`) consumed by `semantic_search`.
+scraped fields against the PDF (PDF wins, original kept as `<field>_scraped`).
+There is no embedding stage: retrieval is structured filters over the
+LangExtract entity graph plus two Lucene fulltext indexes
+(`lot_description_ft`, `property_text_idx`) consumed by `semantic_search` —
+see `docs/design/2026-08-22-retire-embeddings.md`.
 
 ### Sale notice → graph: the review workflow
 
@@ -322,8 +324,8 @@ Mounted in `api/main.py`. Selected endpoints:
 
 **Public**
 
-- `GET /health`, `GET /health/deep` — liveness + readiness (Neo4j, vector index,
-  `last_enriched` freshness; `degraded` on any failure).
+- `GET /health`, `GET /health/deep` — liveness + readiness (Neo4j, the two
+  fulltext indexes, `last_enriched` freshness; `degraded` on any failure).
 - `GET /stats` — public coverage + freshness snapshot.
 - `GET /modes` — mode registry for the UI selector.
 - `GET /properties` — browse listing with cascading facets + multi-select filters.

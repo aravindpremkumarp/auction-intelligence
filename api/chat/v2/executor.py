@@ -44,8 +44,10 @@ logger = logging.getLogger(__name__)
 # Neo4j pool ceiling: workers x uvicorn workers <= the driver's connection
 # limit. The starter instance runs one uvicorn worker, so six is safe.
 #
-# NB `semantic_search` fans out to a blocking Gemini embedding call and shares
-# this pool, so the count is not purely a Neo4j budget.
+# Every tool in this pool is now Neo4j-bound — `semantic_search` used to add a
+# blocking Gemini embedding call on top, but its vector lenses were retired
+# (docs/design/2026-08-22-retire-embeddings.md), so the count is a pure Neo4j
+# budget again.
 TOOL_WORKERS = int(os.getenv("CHAT_V2_TOOL_WORKERS", "6"))
 
 # A single tool call that outlives this is reported to the synthesizer as an

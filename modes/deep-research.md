@@ -19,7 +19,8 @@ parallel — none depends on another).** Using phase 1's fields:
 - `search_auctions(borrower=<borrower>, include_past=true)` — other
   auctions tied to the same borrower.
 - `semantic_search` over notice content for charge / encumbrance /
-  possession language on this property.
+  possession language on this property — pass the notice's own words
+  ("encumbrance", "symbolic possession"), not a paraphrase.
 - `search_auctions` scoped to the same area + property_type with
   `aggregate_field="reserve_price_num"`, `aggregations=["avg","median"]` —
   comparables and the local market anchor.

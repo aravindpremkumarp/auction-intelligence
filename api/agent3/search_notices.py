@@ -1,13 +1,14 @@
 """
 api/agent3/search_notices.py
 ------------------------------
-Free-text search over what the sale notice actually says — not vector
-search. `Lot.description_embedding` exists as an index name
-(`lot_description_embedding`) but holds **zero vectors**; `AuctionProperty
-.description_embedding` is populated (2,179 of 2,964) but is the wrong tool
-for this job — a fulltext match on "borewell" or "disputed pathway" is a
-precise term-presence question, not a semantic-similarity one, and Lucene
-answers it exactly where an embedding would only answer it approximately.
+Free-text search over what the sale notice actually says. Term-presence
+questions — "borewell", "disputed pathway" — are exactly what Lucene answers
+precisely, which is the reasoning that eventually retired the vector indexes
+graph-wide (docs/design/2026-08-22-retire-embeddings.md).
+
+The sibling tool `semantic_search` (api/tools/cypher_tools.py) also reads
+`lot_description_ft`, but OR-joins its terms for broad recall. This one
+AND-joins: it answers "does this exact term appear", where OR is useless.
 
 Two indexes, both live:
   lot_description_ft   Lot.full_description        (the schedule text)
@@ -91,10 +92,9 @@ def search_notices(query: str, limit: int = 10) -> dict:
     this corpus and return mostly noise (verified: "north facing corner
     plot" as bare terms matches 2,824 of 3,335 lots; AND-joined, 2).
 
-    This is NOT vector/semantic search — lot description embeddings are
-    empty in this graph. A word that never appears in any notice returns
-    zero, even if a synonym would have matched; try the synonym before
-    concluding nothing exists.
+    Matching is lexical, never semantic. A word that never appears in any
+    notice returns zero, even if a synonym would have matched; try the
+    synonym before concluding nothing exists.
 
     Each result carries `notice_lot_count` and `scope`: `lot` when the
     matched notice covers exactly this one lot (the text is safely this
