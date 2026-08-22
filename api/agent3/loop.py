@@ -22,6 +22,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, field
+from datetime import date
 from typing import Any
 
 from api.agent3.agent import build_agent
@@ -58,16 +59,45 @@ class TurnResult:
     gate_findings: dict = field(default_factory=dict)
 
 
-def compose_input(question: str, skills_text: str) -> str:
-    """The human message: skill material first, then the question.
+def today_line(today: date | None = None) -> str:
+    """Today's date, for the human message.
+
+    **This is a fix, and it belongs here rather than in the system prompt.**
+    `instructions.md` deliberately carries no date so the cache prefix stays
+    byte-identical, and the consequence went unnoticed until the step-6 smoke
+    run: nothing told the model what day it is, so it *guessed* whether an
+    auction had happened. The same listing (748779, auction 4 May 2026) was
+    called "still upcoming — it hasn't taken place yet" on one turn and
+    "already past" on another, minutes apart. Both were confident; one was
+    wrong, and telling a buyer an auction is still open when it closed months
+    ago is exactly the shape of failure this design exists to prevent.
+
+    Putting it in the human message keeps the prefix stable — the human
+    message is per-turn unique already, so a value that changes daily costs
+    nothing that was cacheable.
+    """
+    day = today or date.today()
+    return (f"Today is {day.isoformat()}. Auction dates before this have "
+            f"already happened; do not describe them as upcoming.")
+
+
+def compose_input(question: str, skills_text: str,
+                  today: date | None = None) -> str:
+    """The human message: the date, then skill material, then the question.
 
     Material before question, so the question is the last thing the model
     reads and the thing it answers — reference text trailing the ask reads
     as an afterthought and gets treated like one.
+
+    Everything before the LAST delimiter is ours, not the user's;
+    `gates._latest_human_text` splits on exactly that to recover what the
+    user actually wrote.
     """
-    if not skills_text:
-        return question
-    return f"{skills_text}{USER_TEXT_DELIMITER}{question}"
+    parts = [today_line(today)]
+    if skills_text:
+        parts.append(skills_text)
+    parts.append(question)
+    return USER_TEXT_DELIMITER.join(parts)
 
 
 def _usage_of(turn_messages: list) -> dict:

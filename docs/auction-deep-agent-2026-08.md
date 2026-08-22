@@ -891,6 +891,52 @@ Gate to ship: no regression on the 68, ≥90% on `lot_facts`, **100% on
    name. A skill nothing can act on is dead weight, and the drift test would
    have to be weakened to admit it. It belongs with the tool, in step 7.
 
+6b. **What the live smoke run found.** Nine turns, real model, live graph.
+   Three defects, and only one of them was in the agent.
+
+   - **The agent did not know what day it was.** The same listing (748779,
+     auction 4 May 2026) was called *"still upcoming — it hasn't taken
+     place yet"* on one turn and *"already past"* on another, minutes
+     apart. Both confident; against a run date of 22 Aug 2026 the first was
+     wrong. Root cause is a consequence of §6's cache rule that nobody
+     traced through: `instructions.md` carries no date so the prefix stays
+     byte-identical, and **nothing else supplied one**, so the model
+     guessed. Fixed in `loop.compose_input`, which now leads the *human*
+     message with the date — the human message is per-turn unique already,
+     so a value that changes daily costs nothing that was cacheable. Three
+     tests pin it, including one asserting the date lands on our side of
+     the `USER_TEXT_DELIMITER` split so `IntentGate` never matches text we
+     wrote ourselves.
+
+   - **The step-4 scope heuristic was a false positive by construction.**
+     `check_scope_honesty` flagged any `is 7,040 sq ft` in the answer with
+     no notion of hedging, so it fired identically on the violation ("the
+     property is 7,040 sq ft") and on a correct attributed statement ("the
+     other lot is 3,359 sq ft"). It failed a turn whose answer had already
+     said the notice covers 2 lots, that the notice does not say which lot
+     this is, and that it could therefore only report the range — an
+     exemplary answer. `AnswerGate.scope_violation` stayed silent on it,
+     correctly. The heuristic is deleted; the gate's findings reach every
+     case already. **The new check caught the old one being wrong**, which
+     is the clearest evidence available that the extra precision was worth
+     building.
+
+   - **"Costs nothing" is measured in tokens, not `model_calls`.** The
+     `IntentGate` case failed on `model_calls == 1` while `usage == {}`.
+     Both are right: the refusal *is* an AI message, one the gate wrote
+     without going near a provider. The check now asserts empty usage.
+
+   Two numbers worth carrying forward, neither of them a claim:
+   - **Prompt cache 54% of input** across the run (51,712 of 95,627), with
+     individual turns at 77%. Step 4 recorded 17% and concluded the gap was
+     provider-side eviction rather than a broken prefix; this run is
+     consistent with that reading. Still one run — not a trend.
+   - **The advisory numeric tier fired zero times on nine correct
+     answers.** That is the beginning of the evidence for promoting it to
+     blocking and nowhere near enough: few of these answers did derived
+     arithmetic, which is the exact shape it would false-positive on. It
+     needs the step-7 suite before anyone touches it.
+
    Two facts about the graph found while writing these skills, recorded here
    because both are traps for anything that touches `Auction`:
    - **`Auction`'s date fields are STRINGS; `AuctionProperty`'s are real
