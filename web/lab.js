@@ -38,6 +38,7 @@
         '<select class="lab-loop" id="lab-loop" title="which loop answers a turn">' +
           '<option value="tiered">tiered</option>' +
           '<option value="deep">deep agents</option>' +
+          '<option value="agent3">agent3 (auction)</option>' +
         '</select>' +
         '<button class="lab-toggle" id="lab-toggle" aria-label="collapse">–</button>' +
       '</div>' +
@@ -61,7 +62,13 @@
     var picker = document.getElementById('lab-loop');
     var current = 'tiered';
     try { current = window.__chatLoop || 'tiered'; } catch (_) {}
-    picker.value = current === 'deep' ? 'deep' : 'tiered';
+    // Assign, then read back: an unknown value leaves a <select> on its first
+    // option, so this lands on 'tiered' for anything the picker cannot show
+    // without needing a list of valid loops here. The previous
+    // `current === 'deep' ? 'deep' : 'tiered'` was a third copy of that list
+    // and would have silently displayed "tiered" while agent3 answered.
+    picker.value = current;
+    if (!picker.value) picker.value = 'tiered';
     picker.addEventListener('change', function () {
       var url = new URL(location.href);
       url.searchParams.set('loop', this.value);
@@ -108,6 +115,10 @@
         // would read as a tier-1 turn that went wrong.
         (t.loop === 'deep'
           ? '<span class="lab-pill">' + n(t.steps || 0) + ' steps</span>'
+          : t.loop === 'agent3'
+          // agent3 has neither tiers nor supersteps. Showing "tier ?" would
+          // read as a turn whose tier could not be determined.
+          ? '<span class="lab-pill">' + n(u.tool_calls || 0) + ' tools</span>'
           : '<span class="lab-pill">tier ' + esc(u.tier != null ? u.tier : '?') + '</span>') +
         (gateOk ? '' : '<span class="lab-pill warn">gate</span>') +
       '</summary>' +
@@ -119,7 +130,7 @@
       '</div>' +
       (calls ? '<div class="lab-sec">plan</div><ul class="lab-calls">' + calls + '</ul>'
              : '<div class="lab-sec">plan</div><div class="lab-none">no tools — answered directly</div>') +
-      (t.loop === 'deep'
+      (t.loop === 'deep' || t.loop === 'agent3'
         ? '<div class="lab-sec">conversation memory</div>' +
           '<div class="lab-none">server-side transcript, thread <code>' +
           esc(t.threadId || '—') + '</code> — the filters below are derived ' +
@@ -135,8 +146,18 @@
       (gateOk
         ? '<div class="lab-none">every id and amount traced back to a tool result</div>'
         : '<div class="lab-gate">' + esc(gate.reason || '') +
-          '<div class="lab-note">Report-only — the answer still shipped. ' +
-          'Price-band labels like “under ₹30L” are the known false positive.</div></div>') +
+          // The two gates do opposite things on a flag, and saying "the
+          // answer still shipped" about agent3 would be false: its gate
+          // DELETES the offending draft and makes the model write again, so
+          // what you are reading was already corrected.
+          (t.loop === 'agent3'
+            ? '<div class="lab-note">The draft was rejected and rewritten — ' +
+              'this answer is the corrected one. Advisory amount findings are ' +
+              'not shown here: measured at 34 findings and zero true ' +
+              'positives.</div></div>'
+            : '<div class="lab-note">Report-only — the answer still shipped. ' +
+              'Price-band labels like “under ₹30L” are the known false ' +
+              'positive.</div></div>')) +
       '</details>';
   }
 

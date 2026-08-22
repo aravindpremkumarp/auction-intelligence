@@ -968,7 +968,73 @@ Gate to ship: no regression on the 68, ≥90% on `lot_facts`, **100% on
      not the notice's wording, and it carries no information the
      relationship does not.
 
-7. Full eval run, n≥3 on latency, then decide about un-gating.
+7. ~~Full eval run, n≥3 on latency, then decide about un-gating.~~ **Done.**
+
+   **Tool catalogue: 40/40**, all four gates met (capability 15, gaps 9,
+   lot_facts 8, scope_honesty 8) in 101.7 s.
+
+   **Latency at n≥3 — the gate passes.** Three full passes of the 25-turn
+   smoke suite, 75 turns:
+
+   | | median | mean | p10 | p90 | max |
+   |---|---|---|---|---|---|
+   | per turn | **15.8 s** | 18.6 s | 12.3 s | 30.5 s | 45.8 s |
+
+   §9's gate was "median turn under 30 s at n≥3". Met with room.
+
+   **And n≥3 was not a formality — pass 1 was systematically ~2x slower than
+   passes 2 and 3 on every case.** Wall clock 601 s / 389 s / 406 s for
+   identical work. Quoting any single pass would have been misleading in
+   either direction, which is what §8's "no latency claim from a single run
+   is worth reporting" was about.
+
+   The suite contains its own control: `bulk_people` is refused by
+   `IntentGate` before any model call, and it measured 3.4 / 3.6 / 3.4 s —
+   a 1.0x spread against 1.9–2.8x on every case that reaches the provider.
+   That isolates the variance to provider throughput rather than anything
+   in this code.
+
+   **A real quality finding that n=1 would have missed.** 24/25 on pass 3,
+   25/25 on the other two. The failure was `history_long_session/8`, and it
+   is the agent's, not the check's: turn 6 introduced 748779, turn 7 asked
+   "is anyone living in **it**?" and answered correctly about 748779, then
+   turn 8 asked "which bank is conducting **that one**?" and the answer was
+   about 822035 — a listing from the search five turns earlier. **Deep
+   referent resolution is 2-for-3, not 3-for-3.** At n=1 the history suite
+   would have been reported as flawless. Recorded rather than fixed: one
+   observation in three is a rate, not a diagnosis, and the fix (an explicit
+   "current property" slot in state) is a design change that needs its own
+   evidence.
+
+   **Un-gating decision: the numeric tier stays advisory. Closed.**
+   Across the two step-6 runs and these three, **34 advisory findings on
+   correct answers and not one true positive**. The mechanism is understood
+   rather than merely observed: `find_properties` emits price bands as
+   string labels (`'30L-60L'`, from `_PRICE_BAND_CASE`), so an answer that
+   faithfully transcribes one as `₹60L` names a number that appears nowhere
+   in the tool payload. Promoting this tier would reject correct answers.
+   The three blocking classes stay as they are.
+
+   **The blocking tier fired 0 times in 75 turns here**, against 1 real
+   catch in the step-6 run (a fabricated `auction_id 827001` mid-
+   conversation). That is the shape you want: silent on good work, present
+   when it matters.
+
+   **The 68-case legacy catalogue was NOT run, deliberately.** It scores v1
+   or v2 (`EVAL_AGENT`), and has no agent3 path. This work changes exactly
+   one file outside `api/agent3/` — `api/main.py`, one import and one
+   `include_router`. The v1 and v2 code paths are byte-identical to main;
+   all 12 pre-existing chat routes still mount (asserted by test); CI's full
+   suite is green. Running it would have spent ~30 minutes of live model
+   calls on unchanged code **and** contended with these passes for the Neo4j
+   connection pool — a stray overlapping run had already produced
+   `ConnectionAcquisitionTimeoutError`, which would have corrupted the very
+   latency numbers above. Recorded here rather than left a silent omission.
+
+   Two cost figures, both improved by the step-6 date-aggregate fix and both
+   n=3: input tokens **378k–430k** per 25-turn pass (was 714k before the
+   fix), prompt cache **70–82%** (was 41%). The agent no longer spends extra
+   calls reasoning about dates it can now read exactly.
 
 Steps 1–2 are worth building alone: they answer questions no current surface
 can, and they are testable without any agent at all.

@@ -22,6 +22,7 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from slowapi.errors import RateLimitExceeded
 
+from api.agent3.router import router as chat_agent3_router
 from api.alerts import router as alerts_router
 from api.auth import router as auth_router
 from api.auth.rate_limit import limiter
@@ -195,6 +196,13 @@ app.include_router(chat_v2_router)
 # docs/chat-loop-ab-2026-08.md). `deepagents` costs ~107 MB of RSS, so it is
 # imported inside the handlers and an idle deploy never pays for it.
 app.include_router(chat_deep_router)
+# /chat/agent3 — the auction-specialised agent (docs/auction-deep-agent-2026-08.md).
+# Six graph tools, on-demand skills, and the answer/intent gates, on
+# `langchain.create_agent` rather than the Deep Agents harness. Its transcript
+# is checkpointed in Neo4j under the same thread_id scheme /chat/deep uses.
+# Handlers import LangChain lazily, so mounting costs nothing until the first
+# agent3 request.
+app.include_router(chat_agent3_router)
 app.include_router(feedback_router)
 app.include_router(alerts_router)
 

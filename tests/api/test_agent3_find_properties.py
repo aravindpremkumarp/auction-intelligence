@@ -23,7 +23,10 @@ def _stub(monkeypatch, *, total=5, rows=None, extra=None):
         if "total_count" in cypher and "count(a) AS total_count" in cypher:
             return [{"total_count": total, "reserve_min": 100000.0,
                      "reserve_max": 900000.0, "reserve_avg": 500000.0,
-                     "reserve_known": total}]
+                     "reserve_known": total,
+                     "auction_first": "2026-01-05T11:00:00Z",
+                     "auction_last": "2026-09-10T12:00:00Z",
+                     "upcoming_count": 27}]
         if "auction_id AS auction_id" in cypher or "a.auction_id AS auction_id" in cypher:
             return list(rows or [])
         if queue:
@@ -303,3 +306,40 @@ def test_counts_stay_exact_when_the_sample_is_small(monkeypatch):
     assert out["total_count"] == 412
     assert len(out["rows"]) == 10
     assert out["aggregations"]["listings_with_reserve_price"] == 412
+
+
+# ── date aggregates: the sample is not the set ───────────────────────────
+
+def test_aggregations_carry_the_date_range_and_upcoming_count(monkeypatch):
+    """Found on a live run, and it produced a confidently wrong answer.
+
+    Asked "how many residential auctions in Coimbatore?", the agent replied
+    that the latest auction date was May 2026 and all had concluded. The
+    graph's true latest was 10 Sep 2026, with 27 still upcoming.
+
+    The mechanism: `aggregations` carried price only. With no exact date to
+    cite, the model read the date range off the ROW SAMPLE — and the default
+    sort is `deadline` ASC, so that sample is the OLDEST ten of 208. It was
+    not hallucinating; it was answering a range question from a deliberately
+    truncated, deliberately oldest-first slice.
+
+    Exact aggregates are the fix. A sterner warning in `note` would not have
+    been, because the model had nothing else to answer from.
+    """
+    _stub(monkeypatch, total=208, rows=[_row()])
+    out = FP.find_properties(city="Coimbatore")
+    agg = out["aggregations"]
+    assert agg["auction_start_last"] == "2026-09-10T12:00:00Z"
+    assert agg["auction_start_first"] == "2026-01-05T11:00:00Z"
+    assert agg["upcoming_count"] == 27
+
+
+def test_date_aggregates_are_exact_over_every_match_not_the_sample(monkeypatch):
+    """The aggregate row is computed by its own query over the full match
+    set, so it cannot be contaminated by however few rows the model is
+    shown. This is what makes it safe to answer a range question from."""
+    calls = _stub(monkeypatch, total=208, rows=[_row()])
+    FP.find_properties(city="Coimbatore", limit=1)
+    agg_cypher = next(c for c, _ in calls if "count(a) AS total_count" in c)
+    assert "max(a.auction_start_dt)" in agg_cypher
+    assert "LIMIT" not in agg_cypher.upper().split("RETURN")[-1]

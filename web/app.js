@@ -831,25 +831,64 @@ const CHAT_V2 = (() => {
 //
 // Both endpoints are admin-only, so this only decides what an ADMIN sees on
 // /lab. A signed-in user gets 'v1' — CHAT_V2 above is false off /lab.
+//   'agent3' /chat/agent3  the auction-specialised agent: six graph tools that
+//            reach into the sale notice, on-demand skills, and the answer /
+//            intent gates. Server owns the transcript, same as 'deep'.
+//            See docs/auction-deep-agent-2026-08.md.
+const CHAT_LOOPS = ['tiered', 'deep', 'agent3'];
 const CHAT_LOOP = (() => {
   if (!CHAT_V2) return 'v1';
   try {
     const q = new URLSearchParams(location.search).get('loop');
-    if (q === 'deep' || q === 'tiered') { localStorage.setItem('chat_loop', q); return q; }
+    if (CHAT_LOOPS.includes(q)) { localStorage.setItem('chat_loop', q); return q; }
     const saved = localStorage.getItem('chat_loop');
-    if (saved === 'deep' || saved === 'tiered') return saved;
+    if (CHAT_LOOPS.includes(saved)) return saved;
   } catch (_) { /* private mode — fall through to the default */ }
   return 'tiered';
 })();
 const CHAT_DEEP = CHAT_LOOP === 'deep';
+const CHAT_AGENT3 = CHAT_LOOP === 'agent3';
+// The property that actually matters at every call site below: the server
+// owns the transcript under a thread key, so there is no scope object and no
+// message history to round-trip. Both 'deep' and 'agent3' work this way, and
+// writing `CHAT_DEEP || CHAT_AGENT3` in five places is how the third one gets
+// missed.
+const CHAT_THREADED = CHAT_DEEP || CHAT_AGENT3;
+//: Base path per loop, in ONE place. The thread DELETE below used to hardcode
+//: `/chat/deep/`, which is exactly the kind of second copy that survives a
+//: rename and silently stops forgetting anything.
+const LOOP_BASE = { deep: '/chat/deep', agent3: '/chat/agent3' };
 // Published for the /lab inspector's picker. It must show the loop that is
 // ACTUALLY answering, and it cannot re-derive that: the resolution above
 // reads a query param, then localStorage, then a default, and lab.js
 // duplicating those three steps is a second source of truth that drifts. It
 // drifted the first time the default moved.
 try { window.__chatLoop = CHAT_LOOP; } catch (_) { /* non-browser host */ }
+// The /lab inspector renders one gate shape: `{ ok, reason }`. v2 and deep
+// return exactly that. agent3 returns `{ repairs, repaired, advisory }` —
+// a different mechanism, because its gate REWRITES a bad draft rather than
+// flagging a shipped one, so "ok" means "nothing had to be repaired".
+//
+// Normalised here rather than in lab.js: the inspector is a diagnostic that
+// must not need to know how many loops exist. Without this, `gate.ok` is
+// undefined on every agent3 turn and the inspector shows a gate warning on
+// all of them — a false alarm on the one surface built to spot real ones.
+function normalizeGate(gate) {
+  if (!gate) return null;
+  if (gate.ok !== undefined) return gate;
+  const repairs = gate.repairs || 0;
+  return {
+    ok: repairs === 0,
+    // The advisory list is deliberately NOT surfaced as a problem: measured
+    // across five runs it is 34 findings and zero true positives.
+    reason: repairs
+      ? `${repairs} repair(s): ${(gate.repaired || []).join('; ')}`
+      : '',
+  };
+}
+
 const chatPath = (suffix) => {
-  if (CHAT_DEEP) return `${API_BASE}/chat/deep${suffix}`;
+  if (CHAT_THREADED) return `${API_BASE}${LOOP_BASE[CHAT_LOOP]}${suffix}`;
   return `${API_BASE}/chat${CHAT_V2 ? '/v2' : ''}${suffix}`;
 };
 // v2's conversation state: one small dict, echoed back each turn in place of
@@ -872,13 +911,13 @@ function resetAgentState() {
   apiChatScope = null;
   const staleThread = apiChatThreadId;
   apiChatThreadId = null;
-  // The deep loop's transcript lives server-side, so nulling a local variable
-  // forgets nothing — the next turn on the same key would resume the old
-  // conversation. Best-effort: a failed cleanup must never block starting a
-  // new chat, and the checkpointer prunes the thread on its own bound anyway.
-  if (staleThread && CHAT_DEEP) {
+  // A threaded loop's transcript lives server-side, so nulling a local
+  // variable forgets nothing — the next turn on the same key would resume the
+  // old conversation. Best-effort: a failed cleanup must never block starting
+  // a new chat, and the checkpointer prunes the thread on its own bound anyway.
+  if (staleThread && CHAT_THREADED) {
     try {
-      authFetch(`${API_BASE}/chat/deep/${encodeURIComponent(staleThread)}`,
+      authFetch(`${API_BASE}${LOOP_BASE[CHAT_LOOP]}/${encodeURIComponent(staleThread)}`,
                 { method: 'DELETE' }).catch(() => {});
     } catch (_) { /* never block a new chat on cleanup */ }
   }
@@ -1126,7 +1165,7 @@ function _chatRequestBody(message) {
   window.pendingChatScope = null;
   const panelIds = _currentPanelAuctionIds();
   let body;
-  if (CHAT_DEEP) {
+  if (CHAT_THREADED) {
     // No scope and no transcript — just the thread key. On the first turn it
     // is null and the server mints one, which the response hands back.
     body = { message, mode, thread_id: apiChatThreadId || undefined,
@@ -1564,7 +1603,7 @@ async function askAI(userText, opts = {}) {
     // Each loop carries its own conversation channel, and exactly one of the
     // three is ever present in a response: the deep loop returns a thread key,
     // v2 a scope summary, v1 the whole transcript.
-    if (CHAT_DEEP) apiChatThreadId = resp.thread_id || apiChatThreadId;
+    if (CHAT_THREADED) apiChatThreadId = resp.thread_id || apiChatThreadId;
     else if (CHAT_V2) apiChatScope = resp.scope || apiChatScope;
     else apiMessageHistory = resp.message_history || apiMessageHistory;
     setRecommendation(resp.recommendation);
@@ -1574,7 +1613,7 @@ async function askAI(userText, opts = {}) {
       try {
         window.dispatchEvent(new CustomEvent('chatv2:turn', { detail: {
           question: userText, plan: resp.plan, usage: resp.usage,
-          gate: resp.gate, scope: resp.scope, loop: CHAT_LOOP,
+          gate: normalizeGate(resp.gate), scope: resp.scope, loop: CHAT_LOOP,
           threadId: resp.thread_id || null, steps: resp.steps || 0,
           recommendation: resp.recommendation,
           elapsedMs: performance.now() - startedAt,

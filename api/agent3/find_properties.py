@@ -559,8 +559,12 @@ def find_properties(
            min(a.reserve_price_num) AS reserve_min,
            max(a.reserve_price_num) AS reserve_max,
            avg(a.reserve_price_num) AS reserve_avg,
-           count(a.reserve_price_num) AS reserve_known
-    """, params, timeout=20.0, max_rows=1)
+           count(a.reserve_price_num) AS reserve_known,
+           min(a.auction_start_dt) AS auction_first,
+           max(a.auction_start_dt) AS auction_last,
+           sum(CASE WHEN a.auction_start_dt >= $as_of THEN 1 ELSE 0 END)
+             AS upcoming_count
+    """, {**params, "as_of": now_utc()}, timeout=20.0, max_rows=1)
     agg = agg_rows[0] if agg_rows else {}
     total = int(agg.get("total_count") or 0)
 
@@ -576,12 +580,24 @@ def find_properties(
         ]
 
     if total:
+        # Dates belong here for the same reason prices do: they are the other
+        # thing people ask a range question about. Without them a model asked
+        # "when is the last one?" has nothing exact to cite and reads it off
+        # the row sample instead — which is a different question, because the
+        # default sort is `deadline` ASC and the sample is therefore the
+        # OLDEST ten. Observed live: a 208-listing search answered "the latest
+        # auction date is May 2026, all have concluded" when the true latest
+        # was 10 Sep 2026 and 27 were still upcoming. Exact aggregates are the
+        # fix; a warning in the note would not have been.
         out["aggregations"] = {
             "reserve_price_min": agg.get("reserve_min"),
             "reserve_price_max": agg.get("reserve_max"),
             "reserve_price_avg": (round(float(agg["reserve_avg"]), 0)
                                   if agg.get("reserve_avg") is not None else None),
             "listings_with_reserve_price": agg.get("reserve_known"),
+            "auction_start_first": json_safe(agg.get("auction_first")),
+            "auction_start_last": json_safe(agg.get("auction_last")),
+            "upcoming_count": agg.get("upcoming_count"),
         }
 
     # ── breakdown mode: the buckets are the answer, skip the rows ────────
