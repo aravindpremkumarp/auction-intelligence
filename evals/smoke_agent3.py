@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import re
 import sys
 import time
 from pathlib import Path
@@ -231,18 +232,56 @@ def check_accepts_the_correction(r) -> list[str]:
     return problems
 
 
-def check_still_on_city(city: str):
-    """The city named N turns ago is still the subject.
+#: Six-digit portal ids as they appear in prose. Same shape the answer gate
+#: matches; see api/agent3/gates.py::ID_LIKE for why six digits is safe.
+_ID_IN_PROSE = re.compile(r"(?<!\d)(\d{6})(?!\d)")
 
-    Curried so a long chain can assert it at several depths without three
-    near-identical functions.
+
+def _ids_outside_city(ids: list[str], city: str) -> list[str]:
+    """Which of these listings are not in `city`, per the graph."""
+    from api.neo4j_client import run_read_query
+
+    rows = run_read_query(
+        """
+        MATCH (a:AuctionProperty)-[:LOCATED_IN_CITY]->(c:City)
+        WHERE a.auction_id IN $ids
+        RETURN a.auction_id AS id, c.name AS city
+        """, {"ids": ids}, timeout=15.0, max_rows=200)
+    known = {r["id"]: r["city"] for r in rows}
+    return [i for i, c in known.items() if (c or "").lower() != city.lower()]
+
+
+def check_still_on_city(city: str):
+    """The city set earlier in the conversation still constrains the answer.
+
+    **Checks the listings, not the wording**, and that distinction is the
+    whole lesson of this file. The first version asserted the city name
+    appeared in the prose. It failed a turn that had carried the filter
+    perfectly: asked "any of them plots rather than flats?", the agent
+    replied "out of those 21, 8 are plots" and listed Gandhipuram and
+    Perianaickenpalayam — both Coimbatore areas, verified in the graph. A
+    fluent follow-up does not repeat the city every turn, because the
+    conversation already established it.
+
+    So the check resolves the ids it actually named and asks the graph where
+    they are. That cannot be satisfied by phrasing, and cannot be broken by
+    it either. When a turn names no ids at all, fall back to the city being
+    mentioned — a turn with neither has given us nothing to verify.
     """
     def check(r) -> list[str]:
         problems = check_memory_worked(r)
-        if city.lower() not in (r.answer or "").lower():
+        answer = r.answer or ""
+        ids = sorted(set(_ID_IN_PROSE.findall(answer)))
+        if ids:
+            stray = _ids_outside_city(ids, city)
+            if stray:
+                problems.append(
+                    f"returned listings outside {city}: {', '.join(stray)} — "
+                    f"the filter set earlier in this conversation was dropped")
+        elif city.lower() not in answer.lower():
             problems.append(
-                f"lost {city} — the filter was set earlier in this "
-                f"conversation and nothing since replaced it")
+                f"names no listings and never mentions {city} — nothing here "
+                f"shows the earlier filter survived")
         return problems
     return check
 

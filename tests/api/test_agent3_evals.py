@@ -284,6 +284,44 @@ def test_carryover_check_passes_when_the_city_survives():
         _turn("16 of the Coimbatore listings are under 50 lakhs.")) == []
 
 
+def test_still_on_city_judges_the_listings_not_the_wording(monkeypatch):
+    """A fluent follow-up does not repeat the city every turn.
+
+    The first version of this check asserted the city name appeared in the
+    prose, and it failed a turn that had carried the filter perfectly:
+    "out of those 21, 8 are plots", listing Gandhipuram and
+    Perianaickenpalayam — both verified Coimbatore areas. Matching wording
+    instead of substance is exactly the mistake these history cases were
+    written to replace, so it must not come back.
+    """
+    from evals import smoke_agent3 as S
+
+    monkeypatch.setattr(S, "_ids_outside_city", lambda ids, city: [])
+    answer = "Out of those 21, 8 are plots: 831197 in Gandhipuram, 827145."
+    assert "coimbatore" not in answer.lower()
+    assert S.check_still_on_city("Coimbatore")(_turn(answer)) == []
+
+
+def test_still_on_city_catches_a_listing_from_another_city(monkeypatch):
+    """The real failure it exists for — and one that no amount of correct
+    phrasing can disguise, because the graph is asked where the listing is."""
+    from evals import smoke_agent3 as S
+
+    monkeypatch.setattr(S, "_ids_outside_city", lambda ids, city: ["999111"])
+    problems = S.check_still_on_city("Coimbatore")(
+        _turn("Here are some Coimbatore options: 999111."))
+    assert problems and "999111" in problems[0]
+
+
+def test_still_on_city_needs_something_to_verify(monkeypatch):
+    """A turn that names no listing and never says the city has given us
+    nothing — that is a gap in the evidence, not a pass."""
+    from evals import smoke_agent3 as S
+
+    monkeypatch.setattr(S, "_ids_outside_city", lambda ids, city: [])
+    assert S.check_still_on_city("Coimbatore")(_turn("Yes, several are."))
+
+
 def test_correction_check_catches_a_restated_old_answer():
     """History must be revisable. An agent that treats turn 1 as fixed is as
     wrong as one that forgets it."""
