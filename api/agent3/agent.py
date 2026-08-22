@@ -143,16 +143,22 @@ def chat_model(model_name: str = "flash", reasoning_effort: str | None = None):
     )
 
 
-def middleware(run_limit: int = RUN_MODEL_CALL_LIMIT) -> list[Any]:
+def middleware(run_limit: int = RUN_MODEL_CALL_LIMIT, *,
+               gates: bool = True) -> list[Any]:
     """The deliberately short stack.
+
+    Order matters in one place: `AnswerGate` must sit **after**
+    `ModelCallLimitMiddleware` in this list. The limit middleware counts a
+    call in its own `after_model`, and a repair the gate triggers is a real
+    model call that has to be counted against the ceiling — otherwise a
+    repair loop is invisible to the only thing that bounds it.
 
     Not included, each for a reason:
       - Filesystem/shell/todo  — see the module docstring.
       - SummarizationMiddleware — warranted once transcripts are long, but it
         needs a measured trim threshold rather than a guessed one. Deferred
         until there are real conversations to measure.
-      - AnswerGate / IntentGate — step 6 of the design; they need the
-        scope_honesty eval wired to a live loop first.
+      - `PIIMiddleware` — see `gates.IntentGate` for why it does not fit.
     """
     from langchain.agents.middleware import (
         ModelCallLimitMiddleware,
@@ -161,7 +167,9 @@ def middleware(run_limit: int = RUN_MODEL_CALL_LIMIT) -> list[Any]:
         ToolErrorMiddleware,
     )
 
-    return [
+    from api.agent3.gates import AnswerGate, IntentGate
+
+    stack: list[Any] = [
         ModelRetryMiddleware(max_retries=2, backoff_factor=2.0,
                              retry_on=should_retry_model_call),
         ModelCallLimitMiddleware(run_limit=run_limit, exit_behavior="end"),
@@ -172,6 +180,10 @@ def middleware(run_limit: int = RUN_MODEL_CALL_LIMIT) -> list[Any]:
         # call cannot kill the turn.
         ToolErrorMiddleware(on_error=tool_error_content),
     ]
+    if gates:
+        stack.insert(0, IntentGate())
+        stack.append(AnswerGate())
+    return stack
 
 
 def should_retry_model_call(exc: Exception) -> bool:
@@ -223,11 +235,16 @@ def tool_error_content(exc: Exception, *_args: Any, **_kwargs: Any) -> str:
 
 def build_agent(*, model_name: str = "flash", reasoning_effort: str | None = None,
                 sink: ToolSink | None = None, checkpointer: Any = None,
-                run_limit: int = RUN_MODEL_CALL_LIMIT):
+                run_limit: int = RUN_MODEL_CALL_LIMIT, gates: bool = True):
     """Compile the agent graph.
 
     `checkpointer` is a `Neo4jSaver` in real use — passed in rather than
     constructed here so tests can run the whole graph in memory.
+
+    `gates=False` builds the same agent without `IntentGate`/`AnswerGate`. It
+    exists for the A/B that measures what they cost and catch, not as a
+    production switch — a gated and an ungated run have to be comparable on
+    the same graph for the numbers in the design doc to mean anything.
     """
     from langchain.agents import create_agent
 
@@ -235,6 +252,6 @@ def build_agent(*, model_name: str = "flash", reasoning_effort: str | None = Non
         model=chat_model(model_name, reasoning_effort),
         tools=bind_tools(sink),
         system_prompt=instructions(),
-        middleware=middleware(run_limit),
+        middleware=middleware(run_limit, gates=gates),
         checkpointer=checkpointer,
     )

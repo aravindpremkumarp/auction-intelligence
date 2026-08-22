@@ -52,7 +52,15 @@ _SKILL_REF_RE = re.compile(r"load the\s+`?([a-z][a-z0-9_-]*)`?\s+skill")
 #: because that refusal is the common case, not the exception: only 832 of
 #: 2,750 priced listings sit on a single-lot notice. Cheaper to say once in
 #: the always-on prompt than to have the agent treat a refusal as an error.
-BUDGET_CHARS = 3200
+#:
+#: 2026-08, step 6: +~320 chars for the possession-and-encumbrance and
+#: bidding routing lines. Each carries one clause of substance rather than a
+#: bare pointer — "symbolic possession means someone is probably still
+#: living there" and "the application deadline usually falls before the
+#: auction". Both are the single most consequential fact in their skill, and
+#: both are things the agent should not get wrong on a turn where the
+#: trigger words happened not to fire and the skill never loaded.
+BUDGET_CHARS = 3450
 
 
 def _tool_functions() -> set[str]:

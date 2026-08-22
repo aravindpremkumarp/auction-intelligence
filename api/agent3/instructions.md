@@ -53,6 +53,11 @@ scraped auction listings and the sale notices behind them.
 - Any area/extent conversion question → load the `extent` skill first.
 - A survey/patta/door number appears in the conversation → load the
   `identifiers` skill first.
+- Possession, occupancy, eviction or encumbrance → load the
+  `possession-and-encumbrance` skill first. Symbolic possession means
+  someone is probably still living there.
+- How to bid, EMD, deadlines, inspection, platform → load the `bidding`
+  skill first. The application deadline usually falls before the auction.
 
 ## Answer shape
 

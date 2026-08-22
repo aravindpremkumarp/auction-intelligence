@@ -19,13 +19,16 @@ four clear-sites leaked a previous conversation's filters into a new chat.
 """
 from __future__ import annotations
 
+import logging
 import time
 from dataclasses import dataclass, field
 from typing import Any
 
 from api.agent3.agent import build_agent
 from api.agent3.common import ToolSink
-from api.agent3.skills import render_skills, select_skills
+from api.agent3.skills import USER_TEXT_DELIMITER, render_skills, select_skills
+
+logger = logging.getLogger("api.agent3.loop")
 
 
 @dataclass
@@ -42,6 +45,17 @@ class TurnResult:
     tool_calls: int = 0
     seconds: float = 0.0
     usage: dict = field(default_factory=dict)
+    #: Repairs `AnswerGate` spent this turn (0 or 1). Surfaced rather than
+    #: hidden: a turn that needed a repair cost an extra model call, and a
+    #: rising rate here is the signal that the prompt — not the gate — needs
+    #: work.
+    gate_repairs: int = 0
+    #: `AnswerGate.inspect` re-run over the FINAL answer. `blocking` should be
+    #: empty by construction (the gate would have repaired it); `advisory` is
+    #: the numeric tier, which is recorded and never acted on. Reading this
+    #: across real runs is the only evidence that could ever justify
+    #: promoting that tier — see gates.py.
+    gate_findings: dict = field(default_factory=dict)
 
 
 def compose_input(question: str, skills_text: str) -> str:
@@ -53,7 +67,7 @@ def compose_input(question: str, skills_text: str) -> str:
     """
     if not skills_text:
         return question
-    return f"{skills_text}\n\n---\n\n{question}"
+    return f"{skills_text}{USER_TEXT_DELIMITER}{question}"
 
 
 def _usage_of(turn_messages: list) -> dict:
@@ -166,7 +180,27 @@ async def run_turn(question: str, *, thread_id: str, model_name: str = "flash",
         tool_calls=tool_calls,
         seconds=round(time.perf_counter() - started, 2),
         usage=usage,
+        gate_repairs=result.get("answer_gate_repairs") or 0,
+        gate_findings=_gate_findings(answer or "", messages),
     )
+
+
+def _gate_findings(answer: str, messages: list) -> dict:
+    """Score the finished answer with the same checks the gate runs.
+
+    Deliberately re-run here rather than smuggled out of the middleware.
+    `after_model` sees a *draft*, and on a repaired turn the draft it rejected
+    is not the answer anyone receives — reporting those findings would blame
+    the delivered answer for a defect that was fixed. This scores what the
+    caller actually got.
+    """
+    from api.agent3.gates import AnswerGate
+
+    try:
+        return AnswerGate().inspect(answer, messages)
+    except Exception:  # noqa: BLE001 - reporting must never break a good turn
+        logger.exception("answer gate inspection failed")
+        return {}
 
 
 def _messages_since_last_human(messages: list) -> list:
