@@ -1,6 +1,6 @@
 """
-api/chat/deep/checkpointer.py
------------------------------
+api/checkpointer.py
+-------------------
 A LangGraph `BaseCheckpointSaver` backed by Neo4j.
 
 **Why Neo4j and not Postgres.** Every piece of application state in this repo
@@ -43,6 +43,14 @@ inside the graph rather than at the write.
 conversation row exists (the browser mints the id and saves on the first
 answer), and a checkpoint that silently vanished because its parent node was
 not there yet is the worst possible failure for a memory store.
+
+Lives at `api/` rather than under `api/chat/deep/` because
+`api/chat/__init__.py` imports the FastAPI router: anything under that
+package drags the whole web stack in at import time. `api/agent3` must be
+importable with nothing but the Neo4j driver (its evals and tool tests run
+that way), and reaching this class from there is what surfaced it. Same
+reason `api/policy.py`, `api/model_selection.py` and `api/tool_returns.py`
+already sit outside `api/chat/`.
 """
 from __future__ import annotations
 

@@ -241,7 +241,7 @@ sync/async nature, with a test that pins every tool's kind against
 |---|---|
 | `api/chat/deep/agent.py` | `create_deep_agent` over the v2 tool surface |
 | `api/chat/deep/loop.py` | one turn, returning the v2 `TurnResult` shape |
-| `api/chat/deep/checkpointer.py` | `BaseCheckpointSaver` on Neo4j |
+| `api/checkpointer.py` (was `api/chat/deep/checkpointer.py`) | `BaseCheckpointSaver` on Neo4j |
 | `api/chat/deep/router.py` | `/chat/deep`, `/chat/deep/stream`, `DELETE /chat/deep/{thread}` |
 | `evals/run_loop_ab.py` | both loops, both suites, side by side |
 

@@ -5,10 +5,18 @@ the **current** graph and owing nothing to the pydantic-ai chat agent. New
 tools, new instructions, new skills, new package. `/chat/v1`, `/chat/v2` and
 `/chat/deep` keep running untouched.
 
-Status: **steps 1–3 built** (see §10). Tools, evals, instructions and the
-first three skills are in `api/agent3/`; the eval catalogue scores 36/36
-against the live graph, all four gates met. No agent loop exists yet — step
-4 (harness) is next.
+Status: **steps 1–4 built and smoke-tested** (see §10). Tools, evals,
+instructions, three skills and the agent harness are in `api/agent3/`; the
+eval catalogue scores 36/36 against the live graph and 143 unit tests pass.
+The agent has now been driven by a real model against the live graph
+(`evals/smoke_agent3.py`, 6/6) with grounded, scope-honest answers and
+working server-side memory. It is still not wired to any request path.
+
+**Open issue, not blocking step 5:** prompt cache runs at **17% of input**
+across a clean smoke run (10,752 of 63,017 tokens) — better than the 0% first
+reported here, which was an artefact of counting only the final model call,
+but still short of §6's "above 50%" gate. Reasoning effort was investigated
+as a second suspect and **cleared** — see §10 step 4b.
 
 ---
 
@@ -383,12 +391,39 @@ skills, durable transcript — by composing them ourselves:
 
 | Deep Agents feature | How we get it | Why not the default |
 |---|---|---|
-| Transcript memory | Neo4j `BaseCheckpointSaver` (reuse `api/chat/deep/checkpointer.py`, the one piece worth keeping) | It works, and it won the memory argument in the A/B |
+| Transcript memory | Neo4j `BaseCheckpointSaver` (reuse `api/checkpointer.py`, the one piece worth keeping) | It works, and it won the memory argument in the A/B |
 | Subagents | One `consult(brief, ids)` tool delegating to a named worker | `task` delegates to a blank clone of its parent |
-| Skills | `SkillsMiddleware` over `api/chat/agent3/skills/` | Keep — this is the token win |
+| Skills | `api/agent3/skills.py` — our own loader | **Corrected.** `SkillsMiddleware` was measured and rejected: see below |
 | Filesystem | **Not bound** | 6 tool schemas per prompt for a chat agent that never writes a file |
 | Shell (`execute`) | **Not bound** | Inert today only because the default backend has no `execute`; not a guarantee to rely on |
 | Todo list | **Not bound** | The plan is the answer's outline; a second fuzzy copy costs a call |
+
+**Why not `SkillsMiddleware` — measured, not assumed.** The original
+version of this section specified deepagents' `SkillsMiddleware`. Measured
+against 0.7.7 before building step 4, it fails on its own terms:
+
+- **+36 MB RSS.** `create_agent` alone imports at 68.3 MB; adding
+  `SkillsMiddleware` takes it to 104.5 MB — identical to importing all of
+  `deepagents`, because the package `__init__` pulls `create_deep_agent`, the
+  filesystem middleware and the subagent middleware regardless of which
+  submodule is requested.
+- **It requires the very tools this section drops.** `backend` is a REQUIRED
+  constructor argument, and the middleware binds no tools of its own. It
+  loads a skill by instructing the model to call `read_file` on a path — so
+  using it means binding `ls`, `read_file`, `write_file`, `edit_file`,
+  `delete`, `glob`, `grep`, `execute`, measured at **~2,611 tokens** of
+  schema per prompt.
+- **Plus 464 tokens** of its own boilerplate system prompt, most of it
+  irrelevant here (a quantum-computing example, "Executing Skill Scripts").
+- **Plus one model call per skill load**, since progressive disclosure runs
+  through a tool call rather than direct injection.
+
+That is ~3,075 tokens/turn against a 676-token core instruction file — 4.5x
+the whole prompt §5 exists to shrink, to obtain a feature we can get in ~70
+lines. `api/agent3/skills.py` matches a trigger, reads the file and injects
+the text: no tool bound, no round-trip, and nothing paid on turns that load
+no skill. For scale: our entire useful tool surface (all four graph tools)
+measures ~1,744 tokens — less than deepagents' filesystem overhead alone.
 
 Middleware, kept deliberately short:
 
@@ -542,7 +577,163 @@ Gate to ship: no regression on the 68, ≥90% on `lot_facts`, **100% on
    `identifiers` skill look orphaned, and the skill missing the
    `property_id` identifier kind. No live-graph eval needed here — this
    step touches no Cypher.
-4. Harness on `create_agent`, checkpointer reused, cache test.
+4. ~~Harness on `create_agent`, checkpointer reused, cache test.~~
+   **Done.** `api/agent3/agent.py` (builds the graph), `loop.py` (one turn),
+   `skills.py` (our loader — see §6). Four tools bound and nothing else;
+   `Neo4jSaver` reused unchanged. Three bugs found by compiling the graph
+   rather than reasoning about it:
+   - **`ToolErrorMiddleware()` with no handler raises** — it requires
+     `on_error`. Now supplied, and it deliberately does NOT echo internal
+     exception messages: a driver error can carry a URI or credential, so
+     only `ValueError`/`TypeError` (whose text we authored, naming valid
+     values) pass through; everything else surfaces as its type name.
+   - **`ModelRetryMiddleware` defaults to `retry_on=(Exception,)`** — it
+     retried a deterministic `NotImplementedError` three times with backoff
+     before failing anyway. On a real deploy a 4xx (bad key, malformed
+     request) would burn three calls and ~7s per turn to reach the same
+     error. Replaced with a predicate: 5xx/429/timeout/connection retry,
+     everything else surfaces immediately.
+   - **The stock LangChain fakes cannot drive this graph** —
+     `GenericFakeChatModel` and `FakeMessagesListChatModel` both raise
+     `NotImplementedError` under `create_agent` (no async tool-calling
+     path), so a scripted model lives in the test file. Without it the
+     graph could not be exercised at all.
+
+   The cache assertion is made against the **compiled graph**, not the file:
+   two turns of one thread must send a byte-identical system message. That
+   is deliberately stricter than checking `instructions.md` is constant —
+   the deep loop's docs claimed subagents were off for weeks because the
+   assertion inspected what was passed in rather than what the harness
+   assembled.
+4b. ~~Smoke run: real model, live graph.~~ **Done.**
+   `evals/smoke_agent3.py` — five cases plus a same-thread follow-up,
+   deliberately small enough to run on every harness change. Final: 6/6.
+   Verified grounded (the Coimbatore counts were checked against the graph
+   and matched exactly: 35 listings, ₹11 lakh–₹22.5 crore, ~₹2 crore mean),
+   scope-honest in prose, and correctly refusing the sold-price question
+   with the reason.
+
+   It found two bugs that 135 unit tests could not, both now fixed and
+   regression-tested:
+   - **Memory was off and silent.** `run_turn`'s `checkpointer` defaulted to
+     `None`, so the follow-up answered "this is the start of our
+     conversation". A memoryless agent is indistinguishable from a working
+     one until the second question. Memory is now opt-OUT (`_DEFAULT`
+     sentinel); `checkpointer=None` still means a deliberately memoryless
+     run. The smoke check that let this through only asserted a non-empty
+     answer — it now looks for amnesia markers.
+   - **Integer ids cost three model calls per turn.** An `auction_id` looks
+     like a number, so the model sent `auction_ids: 744314`; pydantic
+     rejects at the schema boundary, *before* the errors-as-data decorator
+     can return anything the model could learn from, so it retried the same
+     call three times before guessing the list-of-strings form. That alone
+     blew the 6-call limit on the scope case. The id parameters now accept
+     `int` and coerce.
+
+   Fixing memory surfaced a third: `api/chat/deep/checkpointer.py` could not
+   be imported from `api/agent3` at all, because `api/chat/__init__.py`
+   imports the FastAPI router. The saver moved to **`api/checkpointer.py`**
+   — generic infrastructure that never belonged under the chat package, and
+   the same reason `api/policy.py` and `api/model_selection.py` already sit
+   outside it. Five call sites updated; the existing 16 checkpointer tests
+   pass unchanged.
+
+   **Still open after the smoke run**, recorded rather than fixed:
+   - **Prompt cache: 17%, not the 0% first reported.** The first figure was
+     wrong because `_usage_of` read only the final model call, so cache hits
+     on a turn's earlier calls were invisible. Corrected to sum every call
+     in the turn (see below), a clean run shows 10,752 cached of 63,017
+     input tokens — and on the same-thread follow-up, 35%. Still short of
+     §6's "above 50% or that is the bug to fix" gate, so this stays open,
+     but it is partial engagement rather than none.
+   - **Reasoning effort: investigated, and the hypothesis was wrong.**
+     Every turn inherits `reasoning: {effort: "high"}` from
+     `OPENROUTER_CHAT_REASONING_EFFORT` (a hardcoded default in
+     `pipeline/config.py`), and this was initially recorded here as "a large
+     part of the 60–140 s turns". Measured, same two questions at each
+     setting:
+
+     | effort | simple | multi-step |
+     |---|---|---|
+     | off | 42.4 s | 48.0 s |
+     | low | 44.5 s | 56.9 s |
+     | high | 44.0 s | 47.0 s |
+
+     All six runs: 2 model calls, correct, scope-honest. **The differences
+     are inside the noise**, and the 60–140 s figures from the smoke run
+     were provider throughput variance — the same 3.4–9.7 tok/s swing the
+     loop A/B documented on identical prompts minutes apart, not reasoning.
+
+     The toggle itself is sound (verified: `off` → 0 reasoning tokens,
+     `low` → 42, `high` → 68 on a fixed arithmetic prompt), so this is a
+     real cost with no measured latency benefit — but the cost is small
+     against per-turn output of 141–278 tokens, and at n=1 per cell this is
+     not evidence enough to change a default shared with v1 and v2.
+     **Left alone deliberately.** If it is revisited, it needs n≥3 across
+     more question shapes, and it should be measured as cost, not latency.
+
+4c. **Token accounting, corrected twice.** Asked whether the smoke run
+   reports usage, it did — inaccurately. `_usage_of` had been written to read
+   only the FINAL model message, over-correcting away from the loop A/B's
+   bug of summing the whole returned list (which re-bills history: with a
+   checkpointer that list is the entire conversation, and it reported 49,550
+   input tokens against an actual 29,877). Reading only the last message
+   fails the other way: a turn that thinks, calls a tool and then answers
+   makes three model calls and only the third was counted.
+
+   The correct boundary is the tail since the last human message — every
+   call in this turn, nothing older. Both failure directions now have a
+   test. The smoke run also prints a per-run total, which is the number
+   worth quoting for cost.
+
+   The re-run surfaced a harness bug of its own: thread ids were fixed per
+   case (`smoke-scope`), and checkpoints live in Neo4j and outlive the
+   process, so the second run resumed the first run's conversation and
+   answered "I already answered this above" — correct, a fine demonstration
+   that memory works, and a worthless smoke test, since no tool ran. Threads
+   are now prefixed per run.
+
+   Clean run after both fixes: **6/6, every turn 2 model / 1 tool call**,
+   63,017 input and 2,347 output tokens across six turns.
+
+4d. **Where the tokens actually are, and the cache dead end.** Chasing the
+   17% cache figure produced a more useful answer than fixing it.
+
+   **The cache is not ours to fix.** Five back-to-back requests with an
+   IDENTICAL prefix returned `0% · 71% · 71% · 0% · 0%` — nothing changed on
+   our side between the third and fourth. That 71% is the load-bearing
+   result: it proves the prefix IS correctly cacheable, so §6's byte-stable
+   work did its job. The hit *rate* is provider-side eviction. Two
+   structural facts also depress our number: skill turns and non-skill turns
+   are two different prefixes competing for cache (a perfect 3-for-3
+   correlation in the smoke run), and a six-turn run spread over minutes is
+   near worst-case — an interleaved different-shaped request was observed
+   evicting an entry that had been hitting seconds earlier. **Recorded and
+   dropped.** Do not re-open without provider-side evidence.
+
+   **The tokens are in the rows, not the prompt.** Measured on one
+   `find_properties` call: 3,281 tokens, of which `rows` is 3,006 — **92%**.
+   Per field across 20 rows: `title` 404, `url` 295, dates 445. The stable
+   prefix (system + tool schemas) is only ~2,420, so row payload is a bigger
+   lever than perfect caching would ever have been.
+
+   Two changes, both measured:
+   - **`url` stripped from the model's rows** (295 tok / 10% of row cost) —
+     the model cites by `auction_id` and the UI builds links from the panel
+     row. Stripped in `_for_model`, NOT in `_shape_row`: the sink and the
+     model are fed from the same shaped rows, so trimming in the shaper
+     would have silently taken the link away from the matches panel too.
+   - **Default sample 20 → 10 rows** (`DEFAULT_MODEL_ROWS`). `total_count`,
+     `aggregations` and `distribution` remain exact over every match, and
+     the panel still receives up to `PANEL_ROW_CAP`.
+
+   One `find_properties` payload: **3,281 → 1,644 tokens, 50%**. Smoke run
+   still 6/6 with answers no worse. **End-to-end movement is much smaller —
+   63,017 → 60,179 input tokens across six turns (4.5%) — because only one
+   of the six cases calls `find_properties`, and the saving lands once per
+   search rather than once per turn.** The 50% is the honest figure for a
+   search; 4.5% is the honest figure for this particular suite.
+
 5. `benchmark_price`, `reauction_history` + `pricing`, `reauction` skills.
 6. `AnswerGate` + `scope_honesty` evals; remaining skills.
 7. Full eval run, n≥3 on latency, then decide about un-gating.

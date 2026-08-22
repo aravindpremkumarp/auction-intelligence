@@ -38,6 +38,14 @@ from api.agent3.common import (
 from api.agent3.identifiers import resolve_identifier
 from api.neo4j_client import run_read_query
 
+#: The model's default row sample. Rows are 92% of what a search sends the
+#: model (3,006 of 3,281 tokens at 20 rows), so this is the single largest
+#: lever on per-turn cost — larger than the entire system prompt. 10 keeps a
+#: usable sample for "which of these is cheapest" while halving that.
+#: `total_count` and `aggregations` stay exact over every match regardless,
+#: and the panel still receives up to PANEL_ROW_CAP.
+DEFAULT_MODEL_ROWS = 10
+
 #: Rows the panel may hold. The model never sees these — see ToolSink.
 PANEL_ROW_CAP = 500
 
@@ -388,6 +396,27 @@ def _shape_row(r: dict) -> dict:
     return row
 
 
+#: Fields the panel needs but the model has no use for. Stripped from the
+#: model's copy only — `_shape_row` still produces them for the sink.
+#:
+#: `url` measured at 295 tokens across 20 rows (10% of the whole row payload,
+#: which is itself 92% of what a search sends the model). The model never
+#: needs it: it cites by `auction_id`, and the UI builds the link from the
+#: panel row. Pure cost, no information lost.
+MODEL_HIDDEN_ROW_FIELDS = ("url",)
+
+
+def _for_model(row: dict) -> dict:
+    """The model's copy of a row: everything the panel gets, minus the noise.
+
+    Kept separate from `_shape_row` deliberately. The sink and the model are
+    fed from the same shaped rows, so stripping a field in the shaper would
+    silently take it away from the matches panel too — and the panel does
+    need the link.
+    """
+    return {k: v for k, v in row.items() if k not in MODEL_HIDDEN_ROW_FIELDS}
+
+
 @tool
 def find_properties(
     *,
@@ -427,21 +456,26 @@ def find_properties(
     outstanding_max: float | None = None,
     attempt_no: int | None = None,
     reauction_only: bool = False,
-    identifier: str | None = None,
+    identifier: str | int | None = None,
     identifier_kind: str | None = None,
     # shape
     sort: str = "deadline",
-    limit: int = 20,
+    limit: int = DEFAULT_MODEL_ROWS,
     group_by: str | None = None,
     sink: ToolSink | None = None,
 ) -> dict:
     """Search bank-auction listings in Tamil Nadu. One call per question.
 
     Returns `total_count` (exact, over the whole match set — the panel shows
-    all of them) plus up to `limit` rows, `aggregations`, and `refine`:
-    narrowings with live counts. On zero rows it returns `relax`, naming the
-    single filter to drop and how many matches that unlocks. Read those and
-    act on them — do NOT fire a second search to work out how to narrow.
+    all of them) plus up to `limit` example rows (default 10),
+    `aggregations`, and `refine`: narrowings with live counts. On zero rows
+    it returns `relax`, naming the single filter to drop and how many
+    matches that unlocks. Read those and act on them — do NOT fire a second
+    search to work out how to narrow.
+
+    `rows` is a SAMPLE, not the answer set. Counts, ranges and averages come
+    from `total_count` and `aggregations`, which are exact over every match
+    — quote those, never a count of the rows you can see.
 
     Prices are rupees: 30 lakhs = 3000000, 1 crore = 10000000.
 
@@ -576,7 +610,7 @@ def find_properties(
     shaped = [_shape_row(r) for r in raw]
     if sink is not None:
         sink.absorb(shaped)
-    out["rows"] = shaped[:limit]
+    out["rows"] = [_for_model(r) for r in shaped[:limit]]
     out["rows_shown"] = len(out["rows"])
     out["sort"] = sort
 

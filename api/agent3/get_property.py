@@ -237,7 +237,8 @@ def _gaps(listing: dict, doc: dict, lots: list[dict]) -> list[str]:
 
 
 @tool
-def get_property(auction_ids: str | list[str], depth: str = "standard") -> dict:
+def get_property(auction_ids: str | int | list[str | int],
+                 depth: str = "standard") -> dict:
     """Everything known about one listing (or up to 5), from listing and notice.
 
     `depth="standard"` — the listing, bank, branch, platform, dates, EMD,
@@ -266,7 +267,14 @@ def get_property(auction_ids: str | list[str], depth: str = "standard") -> dict:
     if depth not in ("standard", "full"):
         raise ToolInputError(f"depth={depth!r} is not supported.",
                              valid_values=("standard", "full"), field="depth")
-    if isinstance(auction_ids, str):
+    # An auction_id looks like a number ("744314"), so a model will send one
+    # as an int about half the time. The type hint accepts that on purpose:
+    # pydantic validates the tool schema BEFORE our error-as-data decorator
+    # runs, so a str-only hint produces a raw framework rejection the model
+    # cannot learn from. Observed in the first real-model smoke run — it
+    # burned three of six model calls retrying `auction_ids: 744314`
+    # verbatim before guessing the list-of-str form.
+    if isinstance(auction_ids, (str, int)):
         auction_ids = [auction_ids]
     ids = [str(x).strip() for x in (auction_ids or []) if str(x).strip()]
     if not ids:

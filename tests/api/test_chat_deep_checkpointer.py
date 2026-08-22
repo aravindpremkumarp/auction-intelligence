@@ -17,7 +17,7 @@ import asyncio
 import pytest
 from langgraph.checkpoint.base import empty_checkpoint
 
-from api.chat.deep import checkpointer as CP
+from api import checkpointer as CP
 
 
 class _FakeGraph:
