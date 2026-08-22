@@ -46,6 +46,14 @@ SKILLS_DIR = Path(__file__).resolve().parent / "skills"
 #: reading more manuals.
 MAX_SKILLS_PER_TURN = 2
 
+#: Separates loaded skill text from the user's actual question inside the one
+#: human message. It has to be a named constant rather than an inline string
+#: because `IntentGate` reads back across it: the gate matches phrases like
+#: "all borrowers", and a skill file that happens to contain that phrase
+#: would otherwise make every turn that loads it look like a harvesting
+#: request. Anything that composes or decomposes a human message uses this.
+USER_TEXT_DELIMITER = "\n\n---\n\n"
+
 
 @dataclass(frozen=True)
 class Skill:
@@ -79,10 +87,36 @@ _TRIGGERS: dict[str, tuple[str, ...]] = {
         "acre", "cent", "ground", "hectare", "area of", "extent",
         "size of", "how many cents", "convert",
     ),
+    "pricing": (
+        "good price", "good deal", "is this cheap", "is it cheap",
+        "overpriced", "underpriced", "price per", "per sqft", "per square",
+        "worth it", "what's it worth", "how does the price compare",
+        "compare the price", "value for money", "priced right", "fair price",
+        "benchmark",
+    ),
+    "reauction": (
+        "re-auction", "reauction", "auctioned before", "failed to sell",
+        "second attempt", "previous auction", "earlier auction",
+        "price dropped", "price drop", "come down", "reduced",
+        "how many times", "listed before", "attempt",
+    ),
     "identifiers": (
         "survey number", "survey no", "s.no", "patta", "door number",
         "door no", "plot number", "plot no", "cersai", "chitta", "khata",
         "assessment number", "identifier",
+    ),
+    "possession-and-encumbrance": (
+        "possession", "symbolic", "physical possession", "constructive",
+        "encumbrance", "encumbrances", "occupied", "occupant", "tenant",
+        "vacant", "evict", "eviction", "clear title", "title", "charge on",
+        "who is living", "anyone living",
+    ),
+    "bidding": (
+        "how do i bid", "how to bid", "bid on", "place a bid", "emd",
+        "earnest money", "deposit", "increment", "auto extension",
+        "auto-extension", "register", "registration", "deadline",
+        "last date", "inspection", "inspect", "platform", "participate",
+        "take part",
     ),
 }
 
@@ -137,4 +171,4 @@ def render_skills(skills: list[Skill]) -> str:
         "Follow it where it applies; it does not override your core rules."
     ]
     parts.extend(s.text().strip() for s in skills)
-    return "\n\n---\n\n".join(parts)
+    return USER_TEXT_DELIMITER.join(parts)

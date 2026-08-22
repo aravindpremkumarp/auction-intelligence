@@ -433,13 +433,23 @@ Middleware, kept deliberately short:
 - `SummarizationMiddleware` — **now warranted**, unlike in the tiered loop:
   a checkpointed transcript does grow. Trim tool messages older than N turns
   to their `auction_id` list.
-- `AnswerGate` (custom, `after_model`) — every ₹ amount, count, sqft and
-  `auction_id` in the draft must appear in this turn's tool results; one
-  repair call, then degrade to raw rows. Plus the scope rule: a lot fact
-  stated without its tag is a gate failure.
+- `AnswerGate` (custom, `after_model`) — ~~every ₹ amount, count, sqft and
+  `auction_id` in the draft must appear in this turn's tool results~~; one
+  repair call, then degrade. Plus the scope rule: a lot fact stated without
+  its tag is a gate failure.
+
+  **Corrected when built (step 6).** Requiring *every* number to appear in a
+  tool result rejects correct arithmetic — a price difference, a ₹/sqft, a
+  rounded mean. Shipped instead as two tiers: `auction_id`, sale/valuation
+  claims and the scope rule repair; ₹ amounts, sqft and counts are computed
+  and reported but never block. See §10 step 6 for why, and `gates.py` for
+  the table.
 - `IntentGate` (custom, `before_agent`) — regex tier first. Protects the
   people in the data: "every defaulter in Coimbatore with addresses" is one
-  cheap query and the reason this lives in code, not the prompt.
+  cheap query and the reason this lives in code, not the prompt. Defence in
+  depth rather than the only barrier — the tool shapes are the primary
+  control, and step 6 records why neither `PIIMiddleware` nor a classifier
+  tier fits.
 - `InjectionEnvelope` (custom) — pasted broker blurbs and WhatsApp forwards
   wrapped as data.
 
@@ -466,8 +476,9 @@ and the eval trajectory like any other.
 
 ## 7. Skills
 
-`api/chat/agent3/skills/<name>/SKILL.md`, loaded on demand. Each is the
-knowledge a good auction analyst has, written once:
+`api/agent3/skills/<name>/SKILL.md`, loaded on demand. Each is the
+knowledge a good auction analyst has, written once. Seven of the eight are
+built (steps 3, 5 and 6); `cypher` waits for its tool.
 
 | Skill | Loaded when | Carries |
 |---|---|---|
@@ -478,7 +489,7 @@ knowledge a good auction analyst has, written once:
 | `possession-and-encumbrance` | title/risk questions | physical vs symbolic vs constructive, `taken_on`, how to read an encumbrance clause, and the hard line at "not legal advice" |
 | `bidding` | "how do I bid" | EMD account and mode, increments, auto-extension, inspection, application deadline, platform quirks |
 | `reauction` | attempt ≥ 2, or "has this failed before" | `attempt_no`, `SAME_PROPERTY_AS`, reading a price drop |
-| `cypher` | nothing else expresses it | Full schema, the string-date trap, read-only guardrails |
+| `cypher` | nothing else expresses it | Full schema, the string-date trap, read-only guardrails — **not built**, see §10 step 6: it documents a `run_cypher` tool that does not exist yet |
 
 Cost shape: a skill is ~300–800 tokens and loads on maybe 20% of turns.
 Against ~2,600 always-on today, the expected steady-state saving is roughly
@@ -734,8 +745,229 @@ Gate to ship: no regression on the 68, ≥90% on `lot_facts`, **100% on
    search rather than once per turn.** The 50% is the honest figure for a
    search; 4.5% is the honest figure for this particular suite.
 
-5. `benchmark_price`, `reauction_history` + `pricing`, `reauction` skills.
-6. `AnswerGate` + `scope_honesty` evals; remaining skills.
+5. ~~`benchmark_price`, `reauction_history` + `pricing`, `reauction` skills.~~
+   **Done.** `api/agent3/{benchmark_price,reauction_history}.py`, two skills,
+   40/40 on the live catalogue (capability 15, gaps 9, lot_facts 8,
+   scope_honesty 8) in 94.7 s, all four gates met.
+
+   **`benchmark_price` refuses more often than it answers, and that is the
+   design.** Three limits, each measured rather than assumed:
+   - **There are no sold prices.** `Auction.outcome` is only ever "unsold",
+     so every figure is *reserve against reserve* — one bank's floor next to
+     other banks' floors. Every response carries a `basis` saying so, in the
+     payload rather than the prompt, because a caveat that lives only in an
+     instruction is the first thing dropped when summarising.
+   - **Only single-lot notices can be priced.** Reserve price sits on the
+     listing, extent on the lot; on a multi-lot notice the division has no
+     meaning. Of 2,750 listings with a reserve price only **832** sit on a
+     single-lot notice with a usable extent, so the tool declines roughly
+     **70% of listings** with a named reason rather than a number.
+   - **Thin rings are refused, not averaged.** Below 5 comparables the tool
+     says so. Area rings are usually too thin by construction — only 36 of
+     417 areas clear 5, against 35 of 48 cities and 30 of 38 districts — so
+     the ring walk normally lands on city. Verified live: 748779 refused at
+     area (1 comparable), answered at city — ₹6,500/sqft, **88th percentile**
+     of Coimbatore (median ₹2,946, n=81). Multi-lot 744314 refused.
+   - **`PRICING_SQFT_FLOOR = 100`, not `common.SQFT_FLOOR = 1`.** The 1-sqft
+     floor is harmless in a filter and catastrophic in a *division*: extents
+     of 1.2 and 1.6 sqft produced ₹1.4M and ₹8.4M per sqft. Raising it drops
+     the corpus maximum from ₹8,387,097 to ₹229,358 per sqft and costs 30 of
+     the 832.
+
+   **`reauction_history` joins two sources that must not be conflated.**
+   `Auction.attempt_no` is the notice's own statement (206 auctions at
+   attempt ≥ 2: 144 at 2, 36 at 3, 18 at 4, a tail to 8) and is
+   authoritative about the count — but carries **no earlier price**.
+   `SAME_PROPERTY_AS` (80 links) does carry it, and the drops are real and
+   consistent with the ~10% SARFAESI convention: ₹45.58L→₹41L, ₹69L→₹62.1L,
+   ₹52L→₹46.8L. So `attempt_no` answers "has this failed before" and the
+   link chain answers "by how much has it come down"; neither substitutes
+   for the other. The link is a **pipeline inference**, so its `confidence`
+   (high/medium) is surfaced on every linked listing — a medium-confidence
+   match is a weaker claim about the world than the notice's own attempt
+   number. Verified live: 802076 → one high-confidence link to 755956, a
+   real −10% (₹45.58L → ₹41L).
+
+   One Cypher bug, caught by a unit test: `SAME_PROPERTY_AS` can exist in
+   **both** directions between a pair, and the undirected match then returns
+   the same listing twice. Collapsed per listing, keeping the strongest
+   confidence.
+
+   Three drift guards fired and were updated deliberately rather than
+   relaxed: the bound-tool count (4 → 6), `BUDGET_CHARS` (3000 → 3200, with
+   the +330 chars accounted for in a comment), and the not-yet-built tool
+   list (now just `run_cypher`). The extra prompt budget buys
+   `benchmark_price`'s refusal caveat in the always-on text — cheaper said
+   once than having the agent treat the common case as an error.
+6. ~~`AnswerGate` + `IntentGate` + `scope_honesty` evals; remaining skills.~~
+   **Done.** `api/agent3/gates.py`, two skills, and the gate wired into both
+   the live loop's `TurnResult` and the smoke suite.
+
+   **The gate is split by whether a violation is *definitionally* wrong.**
+   This is the whole design, and it is the answer to "why gate at all when
+   the data comes from Neo4j": the graph constrains *retrieval*, not the
+   prose written on the way out. Between the tool result and the answer the
+   model still paraphrases, transcribes and does arithmetic.
+
+   | Class | Repairs? | Why |
+   |---|---|---|
+   | Unknown `auction_id` | **yes** | No arithmetic produces an id. Not in the tool output ⇒ invented or mis-transcribed. |
+   | A sale price or valuation | **yes** | `outcome` is only ever "unsold". A figure on a sale verb describes something not in this graph. |
+   | Unhedged lot fact from a multi-lot notice | **yes** | The scope rule, in prose. |
+   | ₹ amounts, sqft, counts | **no — recorded only** | The model legitimately derives these. |
+
+   That fourth row is the important decision and it went the other way from
+   the original spec, which said "every ₹ amount, count, sqft and
+   `auction_id` in the draft must appear in this turn's tool results". It
+   cannot: a price difference, a ₹/sqft, a rounded mean are all correct
+   arithmetic producing figures that appear in no tool payload. A gate that
+   rejects correct answers gets switched off, and then the three rows that
+   *do* work go with it. The numeric tier is computed on every turn and
+   reported as `gate_findings["advisory"]` — reading that rate across real
+   runs is the only evidence that could ever promote it.
+
+   Four implementation notes worth keeping:
+   - **The id check needs a currency guard.** `₹6,50,000` normalises to
+     650000, inside the six-digit id band. Without the guard the gate
+     rejects a correctly quoted reserve price.
+   - **Ids are checked against the whole thread, not the turn.** On a
+     follow-up the model cites ids a *previous* turn's search returned.
+   - **The scope check only fires when EVERY notice in view is multi-lot.**
+     If any single-lot notice is present a bare extent may correctly be that
+     one's. Conservative on purpose: this makes it a check on the
+     one-property case, which is where the scope rule actually bites.
+   - **The rejected draft is removed from the transcript**, not left in it.
+     Otherwise it is checkpointed: re-sent and re-billed on every later turn,
+     and readable by a later turn's model as if we had said it.
+
+   **`IntentGate` is defence in depth and the docstring says so.** The tool
+   shapes are the primary control — no search returns borrower names in its
+   rows, and `get_property`, the only tool that returns names at all, is
+   capped at five ids against a 10-call ceiling. The gate closes the cheap
+   version: one plainly-phrased "every defaulter in Coimbatore with
+   addresses". Two things it is not:
+   - **Not `PIIMiddleware`.** That detects emails, credit cards, IPs, MACs
+     and URLs — none of which is what is sensitive here, which is an Indian
+     personal name attached to a loan default — and it acts on content
+     already retrieved, where the cost worth avoiding is the retrieval.
+   - **Not a classifier.** A model tier would cost a round-trip on every
+     turn to catch a rare case, and would fail *open* when the provider is
+     down. Regex fails closed and costs nothing. It is also beatable by
+     rephrasing, which is exactly why the tool shapes carry the real weight.
+
+   One bug this created and then caught: `compose_input` prepends loaded
+   skill text to the same human message, and the skill files are full of the
+   phrases the gate matches — the diligence skill discusses parties and
+   borrowers at length. Matching the composed message refuses every turn that
+   loads it. A safety gate that fires on the honest questions is the worst
+   available failure, so the delimiter is now a named constant
+   (`skills.USER_TEXT_DELIMITER`) and the gate reads only the user's own
+   words. Both halves are pinned by tests.
+
+   **The two new skills, from a fresh profile of the live graph:**
+   - `possession-and-encumbrance`. Possession splits symbolic 867 / physical
+     706 / constructive 412 — and **40% of lots (1,350 of 3,335) state no
+     possession type at all**, which is a gap to report, never an excuse to
+     assume physical. The finding that changes what the agent may say:
+     `Lot.encumbrance` exists on only 1,009 lots, and of those, 683 say
+     "Nil", 213 say "not known", and the remaining 113 are longer
+     disclaimers of the same kind ("Not to the knowledge of the bank"). So
+     **essentially no notice in this corpus discloses an actual
+     encumbrance.** "The property is free of encumbrances" is never a
+     supportable sentence; "the notice records Nil, which is the bank's
+     standard wording and not a title search" is.
+   - `bidding`. **EMD is exactly 10% of reserve on 2,977 of 3,145 auctions**
+     (p10, p50 and p90 all 10.00%), which makes it a *check*: an EMD that
+     isn't a tenth usually means one of the two figures was misread. The
+     application deadline is a median of **1 day before** the auction and
+     falls on the same day for 396 of 2,410 — so the deadline, not the
+     auction date, is the thing to lead with. Only 334 of 1,628 notices
+     (21%) name an EMD account. Auto-extension is a median 5 minutes
+     (3–15), so an auction does not end at its stated end time.
+
+   **The `cypher` skill is deliberately not built.** §7 lists it, but it
+   documents how to write Cypher for a `run_cypher` tool that does not exist
+   — and `test_agent3_instructions.py` forbids referencing that tool by
+   name. A skill nothing can act on is dead weight, and the drift test would
+   have to be weakened to admit it. It belongs with the tool, in step 7.
+
+6b. **What the live smoke run found.** Nine turns, real model, live graph.
+   Three defects, and only one of them was in the agent.
+
+   - **The agent did not know what day it was.** The same listing (748779,
+     auction 4 May 2026) was called *"still upcoming — it hasn't taken
+     place yet"* on one turn and *"already past"* on another, minutes
+     apart. Both confident; against a run date of 22 Aug 2026 the first was
+     wrong. Root cause is a consequence of §6's cache rule that nobody
+     traced through: `instructions.md` carries no date so the prefix stays
+     byte-identical, and **nothing else supplied one**, so the model
+     guessed. Fixed in `loop.compose_input`, which now leads the *human*
+     message with the date — the human message is per-turn unique already,
+     so a value that changes daily costs nothing that was cacheable. Three
+     tests pin it, including one asserting the date lands on our side of
+     the `USER_TEXT_DELIMITER` split so `IntentGate` never matches text we
+     wrote ourselves.
+
+   - **The step-4 scope heuristic was a false positive by construction.**
+     `check_scope_honesty` flagged any `is 7,040 sq ft` in the answer with
+     no notion of hedging, so it fired identically on the violation ("the
+     property is 7,040 sq ft") and on a correct attributed statement ("the
+     other lot is 3,359 sq ft"). It failed a turn whose answer had already
+     said the notice covers 2 lots, that the notice does not say which lot
+     this is, and that it could therefore only report the range — an
+     exemplary answer. `AnswerGate.scope_violation` stayed silent on it,
+     correctly. The heuristic is deleted; the gate's findings reach every
+     case already. **The new check caught the old one being wrong**, which
+     is the clearest evidence available that the extra precision was worth
+     building.
+
+   - **"Costs nothing" is measured in tokens, not `model_calls`.** The
+     `IntentGate` case failed on `model_calls == 1` while `usage == {}`.
+     Both are right: the refusal *is* an AI message, one the gate wrote
+     without going near a provider. The check now asserts empty usage.
+
+   **After the three fixes: 9/9, 448 s, median 2 model calls/turn.** The
+   date fix shows directly in the answer — the same question now returns
+   *"35 upcoming … (auction dates still in the future as of today, 22 Aug
+   2026). In total — including past auctions — there are 208"*, where before
+   it reported 35 with no such distinction.
+
+   **The gate fired one real repair, and that exposed a hole in it.** The
+   run reported "1 repair" and there was no way to tell what it caught,
+   because the offending draft is deleted by design. A gate whose catches
+   are invisible cannot be evaluated — "1 repair" is equally consistent with
+   catching an invention and with false-positiving on a good answer, and
+   those call for opposite responses. The blocking findings now survive on
+   `answer_gate_problems` → `TurnResult.gate_repaired`, and the smoke run
+   prints them.
+
+   Two numbers worth carrying forward, neither of them a claim:
+   - **Prompt cache 46–54% of input** across two runs, with individual turns
+     at 77%. Step 4 recorded 17% and concluded the gap was provider-side
+     eviction rather than a broken prefix; both runs are consistent with
+     that reading. Two runs — still not a trend.
+   - **The advisory numeric tier fired once in nine turns, and it was a
+     false positive.** Worth writing down precisely, because it is the first
+     concrete instance of the failure the two-tier split was designed
+     around. The answer said *"Price bands: 12 are ₹10L–₹30L, 9 are
+     ₹30L–₹60L"* — a faithful transcription of `find_properties`'
+     distribution. But that tool emits the band as a **string label**
+     (`'30L-60L'`, from `_PRICE_BAND_CASE`), so the digits 6,000,000 appear
+     nowhere in its output, and `₹60L` parses to exactly that. **Had the
+     numeric tier been blocking, a completely correct answer would have been
+     rejected.** That is the argument for the split, no longer hypothetical.
+
+   Two facts about the graph found while writing these skills, recorded here
+   because both are traps for anything that touches `Auction`:
+   - **`Auction`'s date fields are STRINGS; `AuctionProperty`'s are real
+     `DATE_TIME`.** `duration.inDays` on the lot-layer dates fails outright,
+     and the two layers store different precisions (`"2025-05-12"` against
+     `"2025-05-13T15:30"`).
+   - **`Lot.possession_stated` is exactly `exists((l)-[:POSSESSION_IS]->())`
+     — 1,985 true / 1,307 false, with no disagreement.** It is a boolean,
+     not the notice's wording, and it carries no information the
+     relationship does not.
+
 7. Full eval run, n≥3 on latency, then decide about un-gating.
 
 Steps 1–2 are worth building alone: they answer questions no current surface

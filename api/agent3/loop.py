@@ -19,13 +19,17 @@ four clear-sites leaked a previous conversation's filters into a new chat.
 """
 from __future__ import annotations
 
+import logging
 import time
 from dataclasses import dataclass, field
+from datetime import date
 from typing import Any
 
 from api.agent3.agent import build_agent
 from api.agent3.common import ToolSink
-from api.agent3.skills import render_skills, select_skills
+from api.agent3.skills import USER_TEXT_DELIMITER, render_skills, select_skills
+
+logger = logging.getLogger("api.agent3.loop")
 
 
 @dataclass
@@ -42,18 +46,63 @@ class TurnResult:
     tool_calls: int = 0
     seconds: float = 0.0
     usage: dict = field(default_factory=dict)
+    #: Repairs `AnswerGate` spent this turn (0 or 1). Surfaced rather than
+    #: hidden: a turn that needed a repair cost an extra model call, and a
+    #: rising rate here is the signal that the prompt — not the gate — needs
+    #: work.
+    gate_repairs: int = 0
+    #: What the gate caught and made the model rewrite. Carried because the
+    #: offending draft is deleted: without it a run reports "1 repair" and
+    #: nobody can tell whether it caught a real invention or false-positived
+    #: on a good answer.
+    gate_repaired: list[str] = field(default_factory=list)
+    #: `AnswerGate.inspect` re-run over the FINAL answer. `blocking` should be
+    #: empty by construction (the gate would have repaired it); `advisory` is
+    #: the numeric tier, which is recorded and never acted on. Reading this
+    #: across real runs is the only evidence that could ever justify
+    #: promoting that tier — see gates.py.
+    gate_findings: dict = field(default_factory=dict)
 
 
-def compose_input(question: str, skills_text: str) -> str:
-    """The human message: skill material first, then the question.
+def today_line(today: date | None = None) -> str:
+    """Today's date, for the human message.
+
+    **This is a fix, and it belongs here rather than in the system prompt.**
+    `instructions.md` deliberately carries no date so the cache prefix stays
+    byte-identical, and the consequence went unnoticed until the step-6 smoke
+    run: nothing told the model what day it is, so it *guessed* whether an
+    auction had happened. The same listing (748779, auction 4 May 2026) was
+    called "still upcoming — it hasn't taken place yet" on one turn and
+    "already past" on another, minutes apart. Both were confident; one was
+    wrong, and telling a buyer an auction is still open when it closed months
+    ago is exactly the shape of failure this design exists to prevent.
+
+    Putting it in the human message keeps the prefix stable — the human
+    message is per-turn unique already, so a value that changes daily costs
+    nothing that was cacheable.
+    """
+    day = today or date.today()
+    return (f"Today is {day.isoformat()}. Auction dates before this have "
+            f"already happened; do not describe them as upcoming.")
+
+
+def compose_input(question: str, skills_text: str,
+                  today: date | None = None) -> str:
+    """The human message: the date, then skill material, then the question.
 
     Material before question, so the question is the last thing the model
     reads and the thing it answers — reference text trailing the ask reads
     as an afterthought and gets treated like one.
+
+    Everything before the LAST delimiter is ours, not the user's;
+    `gates._latest_human_text` splits on exactly that to recover what the
+    user actually wrote.
     """
-    if not skills_text:
-        return question
-    return f"{skills_text}\n\n---\n\n{question}"
+    parts = [today_line(today)]
+    if skills_text:
+        parts.append(skills_text)
+    parts.append(question)
+    return USER_TEXT_DELIMITER.join(parts)
 
 
 def _usage_of(turn_messages: list) -> dict:
@@ -166,7 +215,28 @@ async def run_turn(question: str, *, thread_id: str, model_name: str = "flash",
         tool_calls=tool_calls,
         seconds=round(time.perf_counter() - started, 2),
         usage=usage,
+        gate_repairs=result.get("answer_gate_repairs") or 0,
+        gate_repaired=list(result.get("answer_gate_problems") or []),
+        gate_findings=_gate_findings(answer or "", messages),
     )
+
+
+def _gate_findings(answer: str, messages: list) -> dict:
+    """Score the finished answer with the same checks the gate runs.
+
+    Deliberately re-run here rather than smuggled out of the middleware.
+    `after_model` sees a *draft*, and on a repaired turn the draft it rejected
+    is not the answer anyone receives — reporting those findings would blame
+    the delivered answer for a defect that was fixed. This scores what the
+    caller actually got.
+    """
+    from api.agent3.gates import AnswerGate
+
+    try:
+        return AnswerGate().inspect(answer, messages)
+    except Exception:  # noqa: BLE001 - reporting must never break a good turn
+        logger.exception("answer gate inspection failed")
+        return {}
 
 
 def _messages_since_last_human(messages: list) -> list:

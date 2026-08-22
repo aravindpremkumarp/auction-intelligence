@@ -22,13 +22,14 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 # ── the tool surface ─────────────────────────────────────────────────────
 
-def test_exactly_four_tools_are_bound():
+def test_the_bound_tool_surface_is_exactly_ours():
     """The whole point of create_agent over create_deep_agent: we choose the
-    surface. A fifth tool appearing here means something re-introduced the
+    surface. An unexpected tool here means something re-introduced the
     harness scaffolding this design exists to avoid."""
     names = {getattr(f, "__name__", "") for f in A.bind_tools()}
     assert names == {"find_properties", "get_property", "search_notices",
-                     "find_by_identifier"}
+                     "find_by_identifier", "benchmark_price",
+                     "reauction_history"}
 
 
 def test_no_filesystem_or_shell_tool_is_bound():
@@ -110,8 +111,41 @@ def test_compose_input_puts_the_question_last():
     assert composed.index("MATERIAL") < composed.index("QUESTION")
 
 
-def test_compose_input_is_unchanged_when_no_skill_matched():
-    assert L.compose_input("plain question", "") == "plain question"
+def test_compose_input_carries_only_the_date_when_no_skill_matched():
+    """Was `== "plain question"` until step 6. It changed deliberately: with
+    no date anywhere, the model guessed whether an auction had happened and
+    called the same listing "still upcoming" on one turn and "already past"
+    on another."""
+    import datetime
+
+    out = L.compose_input("plain question", "", today=datetime.date(2026, 8, 22))
+    assert out.endswith("plain question")
+    assert "2026-08-22" in out
+
+
+def test_the_date_goes_in_the_human_message_not_the_cache_prefix():
+    """The whole reason it is composed here. A date in instructions.md would
+    change the system prefix every midnight and silently halve the cache hit
+    rate — the exact failure §6 was written to avoid."""
+    import datetime
+
+    assert "2026-08-22" in L.compose_input(
+        "q", "", today=datetime.date(2026, 8, 22))
+    assert "Today is" not in A.instructions()
+
+
+def test_the_date_is_not_mistaken_for_the_users_words():
+    """`gates._latest_human_text` splits on the last delimiter to recover
+    what the user actually wrote. If the date landed on the user's side of
+    that split, IntentGate would be matching text we wrote ourselves."""
+    import datetime
+
+    from api.agent3.gates import _latest_human_text
+    from langchain_core.messages import HumanMessage
+
+    composed = L.compose_input("how big is 748779", "SKILL BODY",
+                               today=datetime.date(2026, 8, 22))
+    assert _latest_human_text([HumanMessage(content=composed)]) == "how big is 748779"
 
 
 # ── skill selection ──────────────────────────────────────────────────────
