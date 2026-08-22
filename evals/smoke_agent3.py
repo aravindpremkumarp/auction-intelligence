@@ -588,8 +588,8 @@ async def _resume_in_a_new_process(thread: str, model_name: str) -> dict:
     elapsed = round(time.perf_counter() - started, 2)
 
     marker = "__RESULT__"
-    line = next((l[len(marker):] for l in proc.stdout.splitlines()
-                 if l.startswith(marker)), None)
+    line = next((out[len(marker):] for out in proc.stdout.splitlines()
+                 if out.startswith(marker)), None)
     if line is None:
         return {"id": "history_cross_process", "question": RESUME_QUESTION,
                 "why": "reopening the thread from a cold process",
