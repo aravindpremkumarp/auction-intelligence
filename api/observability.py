@@ -15,6 +15,17 @@ Log line shape (space-separated key=value, easy to grep/parse):
 
     auction.obs neo4j.run_read_query status=ok elapsed_ms=42 rows=18
     auction.obs chat.agent_run status=error elapsed_ms=9120 mode=ask err=...
+    auction.obs agent3.turn.usage in_tok=18422 cached_tok=16128 out_tok=311
+
+Two emitters, one channel. :func:`timed` answers "how long did it take";
+:func:`record` answers "what did it cost" — token counts, call counts, the
+per-model-call breakdown. Same logger and same `k=v` shape, so one grep (and
+one Logfire query) reads both.
+
+**Fields are attached to the LogRecord as well as formatted into the
+message.** `api/telemetry.py` ships this logger to Logfire, and a handler
+reads structured fields off the record — so `in_tok` is a queryable attribute
+there, not something a reader has to regex out of a string.
 """
 from __future__ import annotations
 
@@ -37,6 +48,33 @@ def _fmt_fields(fields: dict[str, Any]) -> str:
     return " ".join(f"{k}={v}" for k, v in fields.items() if v is not None)
 
 
+#: LogRecord attribute names we must not shadow. `logging` raises
+#: "Attempt to overwrite %r in LogRecord" if an `extra` key collides with a
+#: built-in one, and a field named `module` or `name` is an easy accident.
+_RESERVED = frozenset(
+    logging.LogRecord("", 0, "", 0, "", None, None).__dict__
+) | {"message", "asctime", "taskName"}
+
+
+def _extra(fields: dict[str, Any]) -> dict[str, Any]:
+    """Fields as LogRecord attributes, with colliding names suffixed."""
+    return {(f"{k}_" if k in _RESERVED else k): v
+            for k, v in fields.items() if v is not None}
+
+
+def record(op: str, **fields: Any) -> None:
+    """Log one structured fact that has no duration of its own.
+
+    Exists because the thing worth recording about a chat turn is not only
+    its latency: the token counts, the per-model-call breakdown and the tool
+    tally have no elapsed time to hang off, and inventing a zero-length
+    `timed()` block for them would log a lie. Emitted on the same logger as
+    :func:`timed` so both land in the same place.
+    """
+    logger.info("%s %s", op, _fmt_fields(fields),
+                extra=_extra({**fields, "op": op}))
+
+
 @contextmanager
 def timed(op: str, *, slow_ms: float | None = None, **fields: Any) -> Iterator[dict]:
     """Time a block and log its duration in milliseconds.
@@ -56,6 +94,7 @@ def timed(op: str, *, slow_ms: float | None = None, **fields: Any) -> Iterator[d
         logger.error(
             "%s status=error elapsed_ms=%.0f %s err=%r",
             op, elapsed_ms, _fmt_fields(extra), exc,
+            extra=_extra({**extra, "op": op, "elapsed_ms": round(elapsed_ms)}),
         )
         raise
     else:
@@ -65,4 +104,5 @@ def timed(op: str, *, slow_ms: float | None = None, **fields: Any) -> Iterator[d
         logger.log(
             level, "%s status=ok elapsed_ms=%.0f %s",
             op, elapsed_ms, _fmt_fields(extra),
+            extra=_extra({**extra, "op": op, "elapsed_ms": round(elapsed_ms)}),
         )

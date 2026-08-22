@@ -48,7 +48,7 @@ from api.auth import get_current_admin
 from api.auth.schemas import UserOut
 from api.chat.gating import enforce_chat_quota, resolve_turn_model
 from api.chat.v2.schemas import PanelIn
-from api.observability import SLOW_AGENT_MS, timed
+from api.observability import record
 
 logger = logging.getLogger(__name__)
 
@@ -162,16 +162,27 @@ async def _build_response(ctx: dict, result) -> ChatAgent3Response:
 
     artifacts = await build_artifacts(result, panel_before=ctx["panel"])
     findings = result.gate_findings or {}
-    logger.info(
-        "chat agent3 turn ok model=%s tool_calls=%d answer_chars=%d "
-        "llm_calls=%d skills=%s in_tok=%d cached_tok=%d out_tok=%d "
-        "seconds=%.1f gate_repairs=%d",
-        ctx["model_name"], result.tool_calls, len(result.answer or ""),
-        result.model_calls, ",".join(result.skills_loaded) or "-",
-        (result.usage or {}).get("input_tokens", 0),
-        (result.usage or {}).get("cached_input_tokens", 0),
-        (result.usage or {}).get("output_tokens", 0),
-        result.seconds, result.gate_repairs,
+    # On `auction.obs`, not this module's logger. The line this replaced went
+    # to `api.agent3.router`, which has no handler on it in any environment —
+    # root logging is unconfigured and `api/telemetry.py` attached Logfire to
+    # `auction.obs` alone — so five real conversations went through this
+    # endpoint on 22 Aug and their token counts reached neither Render's logs
+    # nor Logfire. The usage was computed, returned to the browser, and
+    # dropped.
+    usage = result.usage or {}
+    record(
+        "chat_agent3.turn",
+        model=ctx["model_name"], thread=ctx["thread_id"],
+        llm_calls=result.model_calls, tool_calls=result.tool_calls,
+        answer_chars=len(result.answer or ""),
+        skills=",".join(result.skills_loaded) or "-",
+        in_tok=usage.get("input_tokens", 0),
+        cached_tok=usage.get("cached_input_tokens", 0),
+        out_tok=usage.get("output_tokens", 0),
+        total_tok=usage.get("total_tokens", 0),
+        seconds=result.seconds,
+        gate_repairs=result.gate_repairs,
+        artifacts=len(artifacts),
     )
     return ChatAgent3Response(
         answer=result.answer,
@@ -201,15 +212,16 @@ async def chat_agent3(request: Request, req: ChatAgent3Request,
     ctx = await _prepare(request, req, user)
     from api.agent3.loop import run_turn
 
-    with timed("chat_agent3.turn", slow_ms=SLOW_AGENT_MS,
-               model=ctx["model_name"]):
-        result = await run_turn(
-            ctx["message"],
-            thread_id=ctx["thread_id"],
-            model_name=ctx["model_name"],
-            reasoning_effort=ctx["reasoning_effort"],
-            checkpointer=_saver(),
-        )
+    # No `timed` wrapper here any more: `run_turn` times the turn itself, so
+    # both this endpoint and the streaming one are covered by one line
+    # instead of only this one being covered by two.
+    result = await run_turn(
+        ctx["message"],
+        thread_id=ctx["thread_id"],
+        model_name=ctx["model_name"],
+        reasoning_effort=ctx["reasoning_effort"],
+        checkpointer=_saver(),
+    )
     return await _build_response(ctx, result)
 
 

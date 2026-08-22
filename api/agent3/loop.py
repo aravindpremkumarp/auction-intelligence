@@ -28,6 +28,7 @@ from typing import Any
 from api.agent3.agent import build_agent
 from api.agent3.common import ToolSink
 from api.agent3.skills import USER_TEXT_DELIMITER, render_skills, select_skills
+from api.observability import SLOW_AGENT_MS, record, timed
 
 logger = logging.getLogger("api.agent3.loop")
 
@@ -185,26 +186,45 @@ async def run_turn(question: str, *, thread_id: str, model_name: str = "flash",
                             reasoning_effort=reasoning_effort,
                             sink=sink, checkpointer=saver)
 
-    result = await agent.ainvoke(
-        {"messages": [{"role": "user",
-                       "content": compose_input(question, skills_text)}]},
-        config={"configurable": {"thread_id": thread_id}},
-    )
+    # The whole turn under one `timed` block, so latency and cost are one
+    # line rather than two things a reader has to join by timestamp. It wraps
+    # the accounting as well as the call because the token counts are only
+    # knowable once the messages are back, and they belong on this line.
+    with timed("agent3.turn", slow_ms=SLOW_AGENT_MS, model=model_name,
+               thread=thread_id, effort=reasoning_effort) as obs:
+        result = await agent.ainvoke(
+            {"messages": [{"role": "user",
+                           "content": compose_input(question, skills_text)}]},
+            config={"configurable": {"thread_id": thread_id}},
+        )
 
-    messages = result.get("messages") or []
-    final = messages[-1] if messages else None
-    answer = getattr(final, "content", "") if final is not None else ""
-    if isinstance(answer, list):  # some providers return content blocks
-        answer = "".join(part.get("text", "") for part in answer
-                         if isinstance(part, dict))
+        messages = result.get("messages") or []
+        final = messages[-1] if messages else None
+        answer = getattr(final, "content", "") if final is not None else ""
+        if isinstance(answer, list):  # some providers return content blocks
+            answer = "".join(part.get("text", "") for part in answer
+                             if isinstance(part, dict))
 
-    # Count only THIS turn's calls. With a checkpointer the returned list is
-    # the full conversation, so counting every AIMessage in it inflates every
-    # turn after the first.
-    turn_msgs = _messages_since_last_human(messages)
-    model_calls = sum(1 for m in turn_msgs if getattr(m, "type", "") == "ai")
-    tool_calls = sum(1 for m in turn_msgs if getattr(m, "type", "") == "tool")
-    usage = _usage_of(turn_msgs)
+        # Count only THIS turn's calls. With a checkpointer the returned list
+        # is the full conversation, so counting every AIMessage in it inflates
+        # every turn after the first.
+        turn_msgs = _messages_since_last_human(messages)
+        model_calls = sum(1 for m in turn_msgs if getattr(m, "type", "") == "ai")
+        tool_calls = sum(1 for m in turn_msgs if getattr(m, "type", "") == "tool")
+        usage = _usage_of(turn_msgs)
+        obs.update(
+            model_calls=model_calls,
+            tool_calls=tool_calls,
+            skills=",".join(s.name for s in skills) or "-",
+            answer_chars=len(answer or ""),
+            gate_repairs=result.get("answer_gate_repairs") or 0,
+            in_tok=usage.get("input_tokens", 0),
+            cached_tok=usage.get("cached_input_tokens", 0),
+            out_tok=usage.get("output_tokens", 0),
+            total_tok=usage.get("total_tokens", 0),
+        )
+
+    _record_model_calls(turn_msgs, thread_id=thread_id, model=model_name)
 
     return TurnResult(
         answer=answer or "",
@@ -219,6 +239,35 @@ async def run_turn(question: str, *, thread_id: str, model_name: str = "flash",
         gate_repaired=list(result.get("answer_gate_problems") or []),
         gate_findings=_gate_findings(answer or "", messages),
     )
+
+
+def _record_model_calls(turn_msgs: list, *, thread_id: str, model: str) -> None:
+    """One line per model call in the turn, with its own token counts.
+
+    The turn total says a turn cost 18k input tokens; it cannot say whether
+    that was one call carrying a fat tool result or four calls re-reading the
+    same prefix, and those two have opposite fixes. `cached_tok` per call is
+    the number that tells them apart — cache discipline is the design
+    constraint this agent is built around (see agent.py), and until now it was
+    measurable only in an A/B script, never in production.
+
+    `tools` names the calls the model asked for on that step, so a tool line
+    can be traced back to the call that requested it.
+    """
+    index = 0
+    for m in turn_msgs:
+        if getattr(m, "type", "") != "ai":
+            continue
+        index += 1
+        meta = getattr(m, "usage_metadata", None) or {}
+        details = meta.get("input_token_details") or {}
+        asked = [c.get("name") for c in (getattr(m, "tool_calls", None) or [])
+                 if isinstance(c, dict) and c.get("name")]
+        record("agent3.model_call", thread=thread_id, model=model, call=index,
+               in_tok=meta.get("input_tokens") or 0,
+               cached_tok=details.get("cache_read") or 0,
+               out_tok=meta.get("output_tokens") or 0,
+               tools=",".join(asked) or None)
 
 
 def _gate_findings(answer: str, messages: list) -> dict:

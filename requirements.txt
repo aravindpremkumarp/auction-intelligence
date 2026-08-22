@@ -59,7 +59,7 @@ pydantic-ai>=2.8,<3
 # calls. Tracing is a no-op unless LOGFIRE_TOKEN is set (see api/telemetry.py),
 # but the package is installed in prod so the instrumentation is available.
 # The [fastapi] extra adds per-request root spans (opentelemetry asgi/fastapi).
-logfire[fastapi]>=4,<5
+logfire[fastapi,httpx]>=4,<5
 
 # Chat agent v2 (/chat/v2) — the tiered loop: one planning call, parallel
 # graph queries executed in code, one synthesis call. Built on
