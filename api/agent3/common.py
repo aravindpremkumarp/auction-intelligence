@@ -199,6 +199,11 @@ class ToolSink:
     def __init__(self) -> None:
         self.panel_rows: list[dict] = []
         self.auction_ids: list[str] = []
+        #: Web sources cited this turn. Unlike panel_rows these are NOT held
+        #: back from the model — it needs them to attribute what it says. The
+        #: sink carries them so the response can render citation chips
+        #: without re-deriving them from the answer text.
+        self.web_sources: list[dict] = []
 
     def absorb(self, rows: list[dict]) -> None:
         self.panel_rows = rows
@@ -210,3 +215,16 @@ class ToolSink:
                 seen.add(aid)
                 ids.append(aid)
         self.auction_ids = ids
+
+    def absorb_web(self, sources: list[dict]) -> None:
+        """Accumulate, don't replace — a turn may search more than once.
+
+        Deduplicated by url: two searches on related queries routinely return
+        the same page, and a citation list that shows it twice looks careless.
+        """
+        seen = {s.get("url") for s in self.web_sources}
+        for s in sources or []:
+            url = s.get("url")
+            if url and url not in seen:
+                seen.add(url)
+                self.web_sources.append(s)

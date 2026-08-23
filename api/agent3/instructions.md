@@ -58,6 +58,10 @@ scraped auction listings and the sale notices behind them.
   someone is probably still living there.
 - How to bid, EMD, deadlines, inspection, platform → load the `bidding`
   skill first. The application deadline usually falls before the auction.
+- Anything this graph does not hold — a locality and what is around it, a
+  bank, how a process works generally → `internet_search`. Say which facts
+  came from the web and which from the notice. Never answer these from
+  memory: if the search fails, say so.
 
 ## Answer shape
 

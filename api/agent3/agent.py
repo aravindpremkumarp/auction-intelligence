@@ -49,6 +49,7 @@ from api.agent3.find_properties import find_properties
 from api.agent3.get_property import get_property
 from api.agent3.reauction_history import reauction_history
 from api.agent3.search_notices import search_notices
+from api.agent3.web_search import internet_search
 
 INSTRUCTIONS_PATH = Path(__file__).resolve().parent / "instructions.md"
 
@@ -88,6 +89,20 @@ def _drop_param(fn: Callable, name: str) -> Callable:
     sig = inspect.signature(fn)
     kept = [p for n, p in sig.parameters.items() if n != name]
 
+    # The async branch is not decoration for its own sake. A plain `def`
+    # wrapper around a coroutine function returns the COROUTINE OBJECT rather
+    # than awaiting it, and `inspect.iscoroutinefunction` on the wrapper is
+    # False — so LangChain classifies it as a sync tool, runs it in a
+    # threadpool, and hands the model an un-awaited coroutine instead of a
+    # result. Caught by asserting iscoroutinefunction survives this call.
+    if inspect.iscoroutinefunction(fn):
+        @functools.wraps(fn)
+        async def wrapped_async(*args, **kwargs):
+            return await fn(*args, **kwargs)
+
+        wrapped_async.__signature__ = sig.replace(parameters=kept)
+        return wrapped_async
+
     @functools.wraps(fn)
     def wrapped(*args, **kwargs):
         return fn(*args, **kwargs)
@@ -97,20 +112,33 @@ def _drop_param(fn: Callable, name: str) -> Callable:
 
 
 def bind_tools(sink: ToolSink | None = None) -> list[Callable]:
-    """The six graph tools, with per-turn state closed over.
+    """Six graph tools plus `internet_search`, with per-turn state closed over.
 
     The sink carries the panel's rows so they never enter the transcript: in
     a checkpointed conversation an unsplit 500-row payload is re-sent, and
-    re-billed, on every later turn.
+    re-billed, on every later turn. It also collects web sources, for the
+    opposite reason — the model needs those, and the sink is simply where the
+    response goes to find them for the citation chips.
+
+    `internet_search` is async while the graph tools are sync. LangChain's
+    tool node handles both (a sync tool runs in a threadpool, a coroutine is
+    awaited), so no adapter is needed — but the mix is deliberate rather than
+    accidental: the graph tools are CPU-cheap and IO-bound on one local
+    driver, while a web search is a second-long network call that should not
+    hold a thread.
     """
     others = [get_property, search_notices, find_by_identifier,
               benchmark_price, reauction_history]
     if sink is None:
-        return [_drop_param(find_properties, "sink"), *others]
+        return [_drop_param(find_properties, "sink"),
+                _drop_param(internet_search, "sink"), *others]
 
     bound = functools.partial(find_properties, sink=sink)
     functools.update_wrapper(bound, find_properties)
-    return [_drop_param(bound, "sink"), *others]
+    bound_search = functools.partial(internet_search, sink=sink)
+    functools.update_wrapper(bound_search, internet_search)
+    return [_drop_param(bound, "sink"),
+            _drop_param(bound_search, "sink"), *others]
 
 
 def chat_model(model_name: str = "flash", reasoning_effort: str | None = None):

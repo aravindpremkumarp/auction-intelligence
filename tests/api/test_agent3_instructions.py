@@ -60,7 +60,14 @@ _SKILL_REF_RE = re.compile(r"load the\s+`?([a-z][a-z0-9_-]*)`?\s+skill")
 #: auction". Both are the single most consequential fact in their skill, and
 #: both are things the agent should not get wrong on a turn where the
 #: trigger words happened not to fire and the skill never loaded.
-BUDGET_CHARS = 3450
+#:
+#: 2026-08, internet_search: +~210 chars. The routing line carries "never
+#: answer these from memory: if the search fails, say so" because that is
+#: the exact failure the tool exists to fix — a real session answered "12–15
+#: km, a 30–45 minute drive" from the model's own prior after correctly
+#: saying it had no mapping data. The tool alone does not close that; the
+#: instruction not to fall back to memory is what does.
+BUDGET_CHARS = 3700
 
 
 def _tool_functions() -> set[str]:
