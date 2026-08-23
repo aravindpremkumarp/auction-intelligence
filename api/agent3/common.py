@@ -30,8 +30,12 @@ from __future__ import annotations
 
 import functools
 import logging
+import time
+from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 
 from api.observability import timed
 
@@ -65,6 +69,55 @@ class ToolInputError(ValueError):
         super().__init__(message)
         self.valid_values = valid_values
         self.field = field
+
+
+@dataclass
+class TurnContext:
+    """What the running turn is, visible from inside a tool call.
+
+    A tool is a plain function several frames below the loop; it knows its own
+    arguments and nothing else. That is why `agent3.tool` lines carried no
+    thread id and could only be tied back to a conversation through the trace
+    — and a trace is exactly what is missing when the export is a log drain
+    rather than a tracing backend.
+
+    `steps` is the same problem seen from the other end: when a turn raises,
+    `ainvoke` returns nothing, so the messages carrying the tool round-trips
+    never exist and the transcript of the failing turn is empty. Tools append
+    here as they run, so the loop can report what happened *before* the error
+    even though the graph gave it nothing.
+    """
+    thread_id: str
+    steps: list[dict] = field(default_factory=list)
+
+
+#: The turn in progress, or None outside one (an eval script, a direct tool
+#: call in a test). LangChain copies the context into the executor it runs
+#: sync tools in, so this survives the hop off the event loop; a custom
+#: executor would not copy it, which is why every reader tolerates None.
+_CURRENT_TURN: ContextVar[TurnContext | None] = ContextVar(
+    "agent3_turn", default=None)
+
+
+@contextmanager
+def turn_context(thread_id: str) -> Iterator[TurnContext]:
+    """Mark the block as one turn of `thread_id`.
+
+    Reset on the way out, always: a leaked context would label the next
+    turn's tool calls with the previous thread, which is worse than no label
+    at all.
+    """
+    ctx = TurnContext(thread_id=thread_id)
+    token = _CURRENT_TURN.set(ctx)
+    try:
+        yield ctx
+    finally:
+        _CURRENT_TURN.reset(token)
+
+
+def current_turn() -> TurnContext | None:
+    """The turn in progress, or None when a tool is called outside one."""
+    return _CURRENT_TURN.get()
 
 
 def _result_fields(out: Any) -> dict[str, Any]:
@@ -108,7 +161,10 @@ def tool(fn: Callable) -> Callable:
 
     @functools.wraps(fn)
     def wrapped(*args, **kwargs):
-        with timed("agent3.tool", tool=fn.__name__) as obs:
+        turn = current_turn()
+        started = time.perf_counter()
+        with timed("agent3.tool", tool=fn.__name__,
+                   thread=turn.thread_id if turn else None) as obs:
             try:
                 out = fn(*args, **kwargs)
             except ToolInputError as exc:
@@ -119,16 +175,45 @@ def tool(fn: Callable) -> Callable:
                     out["field"] = exc.field
                 if exc.valid_values is not None:
                     out["valid_values"] = list(exc.valid_values)
+                _note_step(turn, fn, args, kwargs, obs, started)
                 return out
             except (ValueError, TypeError) as exc:
                 obs["result"] = "error"
                 obs["err"] = type(exc).__name__
+                _note_step(turn, fn, args, kwargs, obs, started)
                 return {"error": str(exc)}
+            except BaseException:
+                # A real bug, on its way out. The step is worth keeping for
+                # exactly the same reason the turn's transcript is: this is
+                # the call that broke the turn.
+                obs["result"] = "raised"
+                _note_step(turn, fn, args, kwargs, obs, started)
+                raise
             obs["result"] = "error" if isinstance(out, dict) and out.get("error") else "ok"
             obs.update(_result_fields(out))
+            _note_step(turn, fn, args, kwargs, obs, started)
             return out
 
     return wrapped
+
+
+def _note_step(turn: TurnContext | None, fn: Callable, args: tuple,
+               kwargs: dict, obs: dict, started: float) -> None:
+    """Append this call to the turn's live step list.
+
+    Summaries, never payloads — the row counts `timed` already computed, not
+    the rows. Rule 4 exists so a tool result is not copied around, and a
+    buffer that held full results for the length of a turn would break it in
+    a new place.
+    """
+    if turn is None:
+        return
+    step = {"tool": fn.__name__,
+            "args": {**({"_args": list(args)} if args else {}), **kwargs},
+            "ms": round((time.perf_counter() - started) * 1000)}
+    step.update({k: v for k, v in obs.items()
+                 if k in ("result", "rows", "total_count", "field", "err")})
+    turn.steps.append(step)
 
 
 def json_safe(v: Any) -> Any:
