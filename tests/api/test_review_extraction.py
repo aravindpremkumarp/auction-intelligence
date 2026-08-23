@@ -70,7 +70,7 @@ def test_queue_defaults_to_recent_and_passes_extraction_at(monkeypatch):
     import api.review.extraction as ex
     seen = {}
 
-    def fake_list(status, limit, sort, score_min=None, score_max=None):
+    def fake_list(status, limit, sort, score_min=None, score_max=None, **kw):
         seen["sort"] = sort
         seen["score_min"] = score_min
         seen["score_max"] = score_max
@@ -88,7 +88,9 @@ def test_queue_defaults_to_recent_and_passes_extraction_at(monkeypatch):
     out = ex.extraction_queue(status=None, limit=200, sort="recent",
                               score_min=None, score_max=None, _admin=None)
     assert seen["sort"] == "recent"                 # default forwarded to the query
-    assert out.total == 2
+    # `total` is a separate count query now (see the row-cap test below), so it
+    # is deliberately NOT asserted against len(rows) here.
+    assert len(out.rows) == 2
     r0, r1 = out.rows
     assert r0.filename == "b.pdf"
     assert r0.extraction_at == "2026-07-08T10:00:00Z"
@@ -104,7 +106,7 @@ def test_queue_honours_name_sort(monkeypatch):
     import api.review.extraction as ex
     seen = {}
     monkeypatch.setattr(ex, "list_extraction_queue",
-                        lambda status, limit, sort, score_min=None, score_max=None:
+                        lambda status, limit, sort, score_min=None, score_max=None, **kw:
                             seen.update(sort=sort) or [])
     ex.extraction_queue(status=None, limit=200, sort="name",
                         score_min=None, score_max=None, _admin=None)
@@ -117,7 +119,7 @@ def test_queue_forwards_score_bounds(monkeypatch):
     import api.review.extraction as ex
     seen = {}
     monkeypatch.setattr(ex, "list_extraction_queue",
-                        lambda status, limit, sort, score_min=None, score_max=None:
+                        lambda status, limit, sort, score_min=None, score_max=None, **kw:
                             seen.update(score_min=score_min, score_max=score_max) or [])
     ex.extraction_queue(status=None, limit=200, sort="recent",
                         score_min=40.0, score_max=79.0, _admin=None)
@@ -220,3 +222,293 @@ def test_load_gold_falls_back_to_seed_without_reviewed_file():
     from evals.langextract_eval import GOLD, load_gold
     # No reviewed file present in CI -> load_gold == seed
     assert len(load_gold()) >= len(GOLD)
+
+
+# ── single-document LangExtract rerun ─────────────────────────────────────────
+
+def _doc_row(fn):
+    return {"filename": fn, "markdown": "x", "extraction_json": "[]",
+            "corrections_json": "{}", "status": "pending",
+            "verified_by": None, "verified_at": None}
+
+
+def test_rerun_starts_worker_and_reports_running(monkeypatch):
+    import api.review.extraction as ex
+    monkeypatch.setattr(ex, "get_extraction", lambda fn: _doc_row(fn))
+    started = {}
+    monkeypatch.setattr(ex.threading, "Thread",
+                        lambda **kw: type("T", (), {"start": lambda s: started.update(kw)})())
+    ex._RERUNS.clear()
+    out = ex.extraction_rerun("n.jpg", None)
+    assert out.rerun_running is True
+    assert out.rerun_error is None
+    assert started["args"] == ("n.jpg",)
+    ex._RERUNS.clear()
+
+
+def test_rerun_twice_is_conflict(monkeypatch):
+    import pytest
+    from fastapi import HTTPException
+    import api.review.extraction as ex
+    monkeypatch.setattr(ex, "get_extraction", lambda fn: _doc_row(fn))
+    monkeypatch.setattr(ex.threading, "Thread",
+                        lambda **kw: type("T", (), {"start": lambda s: None})())
+    ex._RERUNS.clear()
+    ex.extraction_rerun("n.jpg", None)
+    with pytest.raises(HTTPException) as e:
+        ex.extraction_rerun("n.jpg", None)
+    assert e.value.status_code == 409
+    ex._RERUNS.clear()
+
+
+def test_rerun_unknown_doc_is_404(monkeypatch):
+    import pytest
+    from fastapi import HTTPException
+    import api.review.extraction as ex
+    monkeypatch.setattr(ex, "get_extraction", lambda fn: None)
+    with pytest.raises(HTTPException) as e:
+        ex.extraction_rerun("missing.jpg", None)
+    assert e.value.status_code == 404
+
+
+def test_rerun_worker_failure_surfaces_in_detail(monkeypatch):
+    """A worker crash (e.g. langextract not installed on the web host) must
+    land in rerun_error, not vanish or kill the app."""
+    import api.review.extraction as ex
+    monkeypatch.setattr(ex, "run_read_query", lambda *a, **k: [
+        {"filename": "n.jpg", "md": "", "notice_type": None}])
+    ex._RERUNS.clear()
+    ex._RERUNS["n.jpg"] = {"status": "running"}
+    ex._rerun_worker("n.jpg")           # md empty -> RuntimeError inside
+    monkeypatch.setattr(ex, "get_extraction", lambda fn: _doc_row(fn))
+    out = ex.extraction_detail("n.jpg", None)
+    assert out.rerun_running is False
+    assert "no markdown" in out.rerun_error
+    ex._RERUNS.clear()
+
+
+# ── lot-count checksum (expected vs extracted) ──────────────────────────────
+
+
+def test_count_extracted_lots_empty_is_none():
+    from api.review.extraction import count_extracted_lots
+    assert count_extracted_lots([]) is None
+
+
+def test_count_extracted_lots_no_lot_index_is_one_lot():
+    from api.review.extraction import count_extracted_lots
+    ents = [{"cls": "property", "attrs": {}},
+            {"cls": "borrower", "attrs": None},
+            {"cls": "identifier"}]
+    assert count_extracted_lots(ents) == 1
+
+
+def test_count_extracted_lots_distinct_indices():
+    from api.review.extraction import count_extracted_lots
+    ents = [{"attrs": {"lot_index": 1}},
+            {"attrs": {"lot_index": "1"}},   # same lot, str vs int
+            {"attrs": {"lot_index": 2}},
+            {"attrs": {"lot_index": 3}},
+            {"attrs": {}}]                   # unindexed entity doesn't add a lot
+    assert count_extracted_lots(ents) == 3
+
+
+def test_queue_row_lot_count_mismatch(monkeypatch):
+    """expected=2 but the extraction only has lot 1 -> the checksum fires."""
+    import json as _json
+    import api.review.extraction as ex
+    row = {"filename": "n.jpg", "status": "pending", "score": 80,
+           "extraction_at": None, "markdown_reextracted_at": None,
+           "markdown_loaded_at": None, "extraction_batch": 1,
+           "expected_lot_count": 2,
+           "extraction_json": _json.dumps([{"attrs": {"lot_index": 1}}])}
+    monkeypatch.setattr(ex, "list_extraction_queue", lambda *a, **k: [row])
+    out = ex.extraction_queue(None, 200, "recent", None, None, None)
+    r = out.rows[0]
+    assert r.expected_lot_count == 2
+    assert r.extracted_lot_count == 1
+    assert r.lot_count_mismatch is True
+
+
+def test_queue_row_lot_count_match_and_unknown(monkeypatch):
+    import json as _json
+    import api.review.extraction as ex
+    rows = [
+        {"filename": "match.jpg", "status": "pending", "score": None,
+         "extraction_at": None, "markdown_reextracted_at": None,
+         "markdown_loaded_at": None, "extraction_batch": None,
+         "expected_lot_count": 2,
+         "extraction_json": _json.dumps([{"attrs": {"lot_index": 1}},
+                                          {"attrs": {"lot_index": 2}}])},
+        {"filename": "unknown.jpg", "status": "pending", "score": None,
+         "extraction_at": None, "markdown_reextracted_at": None,
+         "markdown_loaded_at": None, "extraction_batch": None,
+         "expected_lot_count": None,
+         "extraction_json": _json.dumps([{"attrs": {"lot_index": 1}}])},
+    ]
+    monkeypatch.setattr(ex, "list_extraction_queue", lambda *a, **k: rows)
+    out = ex.extraction_queue(None, 200, "recent", None, None, None)
+    match, unknown = out.rows
+    assert match.lot_count_mismatch is False
+    assert match.extracted_lot_count == 2
+    # no reviewer count -> no claim, never flagged
+    assert unknown.lot_count_mismatch is False
+    assert unknown.expected_lot_count is None
+
+
+# ── stage-parity filters (notice type / auction date / search) ──────────────
+
+
+def _capture_cypher(fn, *a, **kw):
+    """Run a queue/stats/bulk call against a stubbed driver, returning
+    (cypher, params). Both run_read_query and run_query are stubbed — the bulk
+    path writes, so it goes through run_query."""
+    import api.review.extraction as ex
+    captured = {}
+
+    def fake_run(cypher, params=None, **k):
+        captured["cypher"] = cypher
+        captured["params"] = params
+        return [{"total": 0, "pending": 0, "verified": 0, "edited": 0, "n": 0}]
+
+    orig_read, orig_write = ex.run_read_query, ex.run_query
+    try:
+        ex.run_read_query = fake_run
+        ex.run_query = fake_run
+        fn(*a, **kw)
+    finally:
+        ex.run_read_query = orig_read
+        ex.run_query = orig_write
+    return captured["cypher"], captured["params"]
+
+
+def test_queue_filters_by_notice_type():
+    import api.review.extraction as ex
+    cy, _ = _capture_cypher(ex.list_extraction_queue, None, 200, "recent",
+                            notice_type="multi")
+    assert "d.notice_type = 'multi'" in cy
+    cy, _ = _capture_cypher(ex.list_extraction_queue, None, 200, "recent",
+                            notice_type="unclassified")
+    assert "d.notice_type IS NULL" in cy
+    # no filter -> no clause
+    cy, _ = _capture_cypher(ex.list_extraction_queue, None, 200, "recent")
+    assert "d.notice_type" not in cy.split("RETURN")[0]
+
+
+def test_queue_filters_by_auction_date_window():
+    import api.review.extraction as ex
+    cy, params = _capture_cypher(ex.list_extraction_queue, None, 200, "recent",
+                                 date_from="2026-08-01", date_to="2026-08-31")
+    assert "auction_start_dt" in cy
+    assert params["date_from"] == "2026-08-01"
+    assert params["date_to"] == "2026-08-31"
+
+
+def test_queue_search_covers_filename_title_and_borrower():
+    """One search box, three places a reviewer might remember the notice from."""
+    import api.review.extraction as ex
+    cy, params = _capture_cypher(ex.list_extraction_queue, None, 200, "recent",
+                                 q="hinduja")
+    assert "d.filename" in cy
+    assert "_p.title" in cy
+    assert "_b.name" in cy
+    assert params["q"] == "hinduja"
+
+
+def test_stats_counts_by_status_and_ignores_status_filter():
+    """The pills ARE the status breakdown, so stats must not filter by status."""
+    import api.review.extraction as ex
+    cy, _ = _capture_cypher(ex.extraction_stats, notice_type="single")
+    assert "d.notice_type = 'single'" in cy
+    assert "extraction_review_status,'pending') = $status" not in cy
+    assert "AS pending" in cy and "AS verified" in cy and "AS edited" in cy
+
+
+def test_no_all_maps_sentinel_to_none():
+    """The shared filter bar sends 'all' to mean no filter."""
+    from api.review.extraction import _no_all
+    assert _no_all("all") is None
+    assert _no_all("") is None
+    assert _no_all(None) is None
+    assert _no_all("multi") == "multi"
+
+
+def test_stats_route_registered_before_filename_catchall():
+    """/stats must resolve as its own route, not as a filename for the
+    `/{filename:path}` catch-all declared after it."""
+    from api.main import app
+    paths = [r.path for r in app.routes]
+    assert "/review/extraction/stats" in paths
+    assert (paths.index("/review/extraction/stats")
+            < paths.index("/review/extraction/{filename:path}"))
+
+
+# ── bulk confirm ────────────────────────────────────────────────────────────
+
+
+def test_bulk_confirm_pins_status_to_pending():
+    """Verified rows are a no-op; 'edited' rows must NOT be swept back to
+    'verified' — that would erase the fact a human changed fields."""
+    import api.review.extraction as ex
+    cy, params = _capture_cypher(ex.bulk_verify_extractions, "me@example.com",
+                                 score_min=80)
+    assert params["status"] == "pending"
+    assert "extraction_review_status,'pending') = $status" in cy
+    assert "SET d.extraction_review_status = 'verified'" in cy
+    assert "d.extraction_verified_by   = $by" in cy
+
+
+def test_bulk_confirm_honours_every_queue_filter():
+    import api.review.extraction as ex
+    cy, params = _capture_cypher(ex.bulk_verify_extractions, "me@example.com",
+                                 score_min=50, score_max=90, notice_type="multi",
+                                 date_from="2026-08-01", date_to="2026-08-31",
+                                 q="hinduja")
+    assert "d.extraction_score >= $score_min" in cy
+    assert "d.extraction_score <= $score_max" in cy
+    assert "d.notice_type = 'multi'" in cy
+    assert "auction_start_dt" in cy
+    assert params["q"] == "hinduja"
+
+
+def test_bulk_confirm_dry_run_does_not_write():
+    import api.review.extraction as ex
+    cy, _ = _capture_cypher(ex.bulk_verify_extractions, "me@example.com",
+                            dry_run=True)
+    assert "count(d) AS n" in cy
+    assert "SET" not in cy
+
+
+def test_queue_total_is_a_real_count_not_the_row_cap():
+    """The 'Confirm all N in range' button acts on the whole matching set, so a
+    total capped by $limit would understate what it is about to verify."""
+    import api.review.extraction as ex
+    calls = {"n": 0}
+
+    def fake_list(*a, **kw):
+        calls["n"] += 1
+        return [{"filename": f"{i}.jpg", "status": "pending", "score": 90,
+                 "extraction_at": None, "extraction_batch": None,
+                 "expected_lot_count": None, "extraction_json": "[]"}
+                for i in range(3)]          # 3 rows returned...
+
+    orig_count = ex.count_extraction_queue
+    try:
+        ex.list_extraction_queue = fake_list
+        ex.count_extraction_queue = lambda *a, **kw: 1530   # ...of 1530 matching
+        out = ex.extraction_queue(status="pending", limit=3, sort="recent",
+                                  score_min=None, score_max=None,
+                                  notice_type=None, date_from=None,
+                                  date_to=None, q=None, _admin=None)
+        assert len(out.rows) == 3
+        assert out.total == 1530
+    finally:
+        ex.count_extraction_queue = orig_count
+
+
+def test_bulk_confirm_route_registered_before_catchall():
+    from api.main import app
+    paths = [r.path for r in app.routes]
+    assert "/review/extraction/bulk-confirm" in paths
+    assert (paths.index("/review/extraction/bulk-confirm")
+            < paths.index("/review/extraction/{filename:path}"))

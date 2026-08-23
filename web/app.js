@@ -5,8 +5,21 @@ const API_BASE = window.API_BASE || '';
 // a while); everything else should answer fast. A caller-supplied signal
 // (e.g. the browse abort) still wins where AbortSignal.any is available.
 const FETCH_TIMEOUT_MS = 20000;
-const CHAT_FETCH_TIMEOUT_MS = 120000;
+// Blocking /chat only. Agent turns legitimately run for minutes when the
+// upstream model is slow (a single LLM round-trip can sit 30-80s), so the
+// old 120s cap was killing turns that were still working. /chat/stream is
+// excluded from this hard timeout entirely — apiChatStream manages its own
+// idle-based timeout, which can tell a slow-but-alive stream (the server
+// heartbeats every ~15s) from a dead connection.
+const CHAT_FETCH_TIMEOUT_MS = 300000;
+// Matches /chat/stream AND /chat/v2/stream. Testing for the literal
+// '/chat/stream' would miss v2 and hand its turns the 300s hard cap, killing
+// long-but-alive streams the server was still working on.
+const _isChatStream = (url) => /\/chat(\/v\d+)?\/stream$/.test(String(url).split('?')[0]);
 const authFetch = (url, opts = {}) => {
+  if (_isChatStream(url)) {
+    return (window.Auth && window.Auth.fetchWithAuth ? window.Auth.fetchWithAuth(url, opts) : fetch(url, opts));
+  }
   if (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) {
     const ms = String(url).includes('/chat') ? CHAT_FETCH_TIMEOUT_MS : FETCH_TIMEOUT_MS;
     const timeoutSignal = AbortSignal.timeout(ms);
@@ -610,6 +623,11 @@ function pathForScreen(screen) {
   return '/';
 }
 function syncURLForScreen(screen, replace) {
+  // /lab keeps its own URL for the whole session. Without this the boot
+  // go('landing') rewrites it to '/', and lab.js — which loads after app.js
+  // and gates itself on location.pathname — finds itself on the wrong page
+  // and the inspector never mounts.
+  if (IS_LAB) return;
   const target = pathForScreen(screen);
   // Supabase OAuth/magic-link callback markers — leave the URL alone until the
   // SDK has consumed them, otherwise pushState strips the code and the user
@@ -775,6 +793,136 @@ document.querySelectorAll('#results-mobile-tabs button').forEach(b => {
 // description + check), so both composer controls read as one component. Seeded
 // with a default list + friendlier copy than the raw /modes text, then refreshed
 // by hydrateModes() so the control works even before /modes responds.
+// /chat/v2 — the tiered loop (plan once, run the queries in parallel,
+// answer once). Off by default; flip with ?chatv2=1 or
+// localStorage.chat_v2='1'. The response is shaped like v1's apart from the
+// conversation-state channel: v2 echoes a small `scope` object where v1
+// round-trips the whole message_history.
+const IS_LAB = (() => {
+  try { return /^\/lab\/?$/.test(location.pathname); } catch (_) { return false; }
+})();
+const CHAT_V2 = (() => {
+  // /lab IS the v2 surface, so the flag is implied there and cannot be turned
+  // off from the URL — otherwise the page would silently show v1 and the
+  // inspector would sit empty with nothing explaining why.
+  if (IS_LAB) return true;
+  try {
+    const q = new URLSearchParams(location.search).get('chatv2');
+    if (q === '1' || q === '0') { localStorage.setItem('chat_v2', q); return q === '1'; }
+    return localStorage.getItem('chat_v2') === '1';
+  } catch (_) { return false; }
+})();
+// Which loop answers a turn. Three exist and they differ in where the
+// conversation lives, which is the whole subject of the A/B:
+//   'v1'     /chat       pydantic-ai ReAct; client round-trips the transcript
+//   'tiered' /chat/v2    plan-execute-synthesize; client round-trips a summary
+//   'deep'   /chat/deep  Deep Agents ReAct; the server owns the transcript
+// `?loop=tiered` (or localStorage.chat_loop) switches back.
+//
+// The flagged surface DEFAULTS TO 'tiered', and it briefly did not. The deep
+// loop was made the default on the argument that a transcript answers
+// referring questions a summary cannot — which the A/B confirmed: it resolves
+// every one in the catalogue, including an off-topic aside and back again.
+// But it takes 149 s at the median against the tiered loop's 25 s, and the
+// idle guard below gives up at 75 s, so most of its correct answers never
+// reach the person who asked. A default that loses the measurement it was
+// set on has to move back; the picker is still there for anyone comparing.
+// See docs/chat-loop-ab-2026-08.md.
+//
+// Both endpoints are admin-only, so this only decides what an ADMIN sees on
+// /lab. A signed-in user gets 'v1' — CHAT_V2 above is false off /lab.
+//   'agent3' /chat/agent3  the auction-specialised agent: six graph tools that
+//            reach into the sale notice, on-demand skills, and the answer /
+//            intent gates. Server owns the transcript, same as 'deep'.
+//            See docs/auction-deep-agent-2026-08.md.
+const CHAT_LOOPS = ['tiered', 'deep', 'agent3'];
+const CHAT_LOOP = (() => {
+  if (!CHAT_V2) return 'v1';
+  try {
+    const q = new URLSearchParams(location.search).get('loop');
+    if (CHAT_LOOPS.includes(q)) { localStorage.setItem('chat_loop', q); return q; }
+    const saved = localStorage.getItem('chat_loop');
+    if (CHAT_LOOPS.includes(saved)) return saved;
+  } catch (_) { /* private mode — fall through to the default */ }
+  return 'tiered';
+})();
+const CHAT_DEEP = CHAT_LOOP === 'deep';
+const CHAT_AGENT3 = CHAT_LOOP === 'agent3';
+// The property that actually matters at every call site below: the server
+// owns the transcript under a thread key, so there is no scope object and no
+// message history to round-trip. Both 'deep' and 'agent3' work this way, and
+// writing `CHAT_DEEP || CHAT_AGENT3` in five places is how the third one gets
+// missed.
+const CHAT_THREADED = CHAT_DEEP || CHAT_AGENT3;
+//: Base path per loop, in ONE place. The thread DELETE below used to hardcode
+//: `/chat/deep/`, which is exactly the kind of second copy that survives a
+//: rename and silently stops forgetting anything.
+const LOOP_BASE = { deep: '/chat/deep', agent3: '/chat/agent3' };
+// Published for the /lab inspector's picker. It must show the loop that is
+// ACTUALLY answering, and it cannot re-derive that: the resolution above
+// reads a query param, then localStorage, then a default, and lab.js
+// duplicating those three steps is a second source of truth that drifts. It
+// drifted the first time the default moved.
+try { window.__chatLoop = CHAT_LOOP; } catch (_) { /* non-browser host */ }
+// The /lab inspector renders one gate shape: `{ ok, reason }`. v2 and deep
+// return exactly that. agent3 returns `{ repairs, repaired, advisory }` —
+// a different mechanism, because its gate REWRITES a bad draft rather than
+// flagging a shipped one, so "ok" means "nothing had to be repaired".
+//
+// Normalised here rather than in lab.js: the inspector is a diagnostic that
+// must not need to know how many loops exist. Without this, `gate.ok` is
+// undefined on every agent3 turn and the inspector shows a gate warning on
+// all of them — a false alarm on the one surface built to spot real ones.
+function normalizeGate(gate) {
+  if (!gate) return null;
+  if (gate.ok !== undefined) return gate;
+  const repairs = gate.repairs || 0;
+  return {
+    ok: repairs === 0,
+    // The advisory list is deliberately NOT surfaced as a problem: measured
+    // across five runs it is 34 findings and zero true positives.
+    reason: repairs
+      ? `${repairs} repair(s): ${(gate.repaired || []).join('; ')}`
+      : '',
+  };
+}
+
+const chatPath = (suffix) => {
+  if (CHAT_THREADED) return `${API_BASE}${LOOP_BASE[CHAT_LOOP]}${suffix}`;
+  return `${API_BASE}/chat${CHAT_V2 ? '/v2' : ''}${suffix}`;
+};
+// v2's conversation state: one small dict, echoed back each turn in place of
+// the growing transcript apiMessageHistory holds for v1.
+let apiChatScope = null;
+// The deep loop's entire client-side state. The transcript itself lives in
+// Neo4j under this key — which is the point: state the server depends on is
+// state the server owns.
+let apiChatThreadId = null;
+
+// Forget the current conversation's agent state — ALL of it, whichever loop
+// produced it. It exists because the clearing was open-coded at four sites:
+// `apiMessageHistory` was reset at all four and `apiChatScope`, added later,
+// at none, so starting a new chat carried the previous thread's city, price
+// band and area names into the next conversation's first question. A third
+// channel (`apiChatThreadId`) would have repeated it, so there is now one
+// owner and every reset calls it.
+function resetAgentState() {
+  apiMessageHistory = null;
+  apiChatScope = null;
+  const staleThread = apiChatThreadId;
+  apiChatThreadId = null;
+  // A threaded loop's transcript lives server-side, so nulling a local
+  // variable forgets nothing — the next turn on the same key would resume the
+  // old conversation. Best-effort: a failed cleanup must never block starting
+  // a new chat, and the checkpointer prunes the thread on its own bound anyway.
+  if (staleThread && CHAT_THREADED) {
+    try {
+      authFetch(`${API_BASE}${LOOP_BASE[CHAT_LOOP]}/${encodeURIComponent(staleThread)}`,
+                { method: 'DELETE' }).catch(() => {});
+    } catch (_) { /* never block a new chat on cleanup */ }
+  }
+}
+
 window.currentMode = 'ask';
 const MODE_DESC = {
   'ask': 'Search and ask questions across every auction.',
@@ -1015,10 +1163,21 @@ function _chatRequestBody(message) {
   // to follow-up questions outside the original filter context.
   const activeFilters = window.pendingChatScope || null;
   window.pendingChatScope = null;
-  const body = { message, message_history: apiMessageHistory, mode };
-  if (activeFilters) body.active_filters = activeFilters;
   const panelIds = _currentPanelAuctionIds();
-  if (panelIds.length) body.panel_auction_ids = panelIds;
+  let body;
+  if (CHAT_THREADED) {
+    // No scope and no transcript — just the thread key. On the first turn it
+    // is null and the server mints one, which the response hands back.
+    body = { message, mode, thread_id: apiChatThreadId || undefined,
+             panel: panelIds.length ? { matches: panelIds } : undefined };
+  } else if (CHAT_V2) {
+    body = { message, mode, scope: apiChatScope || undefined,
+             panel: panelIds.length ? { matches: panelIds } : undefined };
+  } else {
+    body = { message, message_history: apiMessageHistory, mode };
+  }
+  if (activeFilters) body.active_filters = activeFilters;
+  if (!CHAT_V2 && panelIds.length) body.panel_auction_ids = panelIds;
   // Model + thinking-effort toggles (omitted when null so the server applies
   // the tier default). The server re-gates these, so a free user can't unlock
   // Pro by tampering with the body.
@@ -1039,7 +1198,7 @@ function _chatHttpError(res) {
 // so the one-shot pendingChatScope isn't lost on fallback.
 async function apiChat(message, prebuilt) {
   const body = prebuilt || _chatRequestBody(message);
-  const res = await authFetch(`${API_BASE}/chat`, {
+  const res = await authFetch(chatPath(''), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -1054,52 +1213,90 @@ async function apiChat(message, prebuilt) {
 // when the blocking endpoint should be retried (old backend / transport
 // failure before the server started working) — never after the model run
 // has started, so a failed turn isn't silently billed twice.
+// Idle + total guards for the chat stream, replacing the old hard 120s
+// fetch timeout (which aborted turns the server was still working on —
+// the "BodyStreamBuffer was aborted" failure). The server emits an SSE
+// keepalive comment every ~15s while the agent thinks, so 75s of wire
+// silence means the connection is genuinely dead, not just a slow model.
+// The total cap is a last-resort backstop for a stream that keeps ticking
+// but never finishes.
+const CHAT_STREAM_IDLE_TIMEOUT_MS = 75000;
+const CHAT_STREAM_MAX_MS = 600000;
 async function apiChatStream(body, onEvent) {
-  let res;
+  const ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+  let idleTimer = null, totalTimer = null, timedOut = false;
+  const armIdle = () => {
+    if (!ctrl) return;
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => { timedOut = true; ctrl.abort(); }, CHAT_STREAM_IDLE_TIMEOUT_MS);
+  };
+  if (ctrl) {
+    totalTimer = setTimeout(() => { timedOut = true; ctrl.abort(); }, CHAT_STREAM_MAX_MS);
+    armIdle();
+  }
   try {
-    res = await authFetch(`${API_BASE}/chat/stream`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-  } catch (e) {
-    if (e && e.name === 'AbortError') throw e; // timeout — don't re-wait on fallback
-    const err = new Error('network error'); err.useFallback = true; throw err;
-  }
-  if (res.status === 404 || res.status === 405) {
-    // Backend without /chat/stream (older deploy) — use blocking /chat.
-    const err = new Error(`chat ${res.status}`); err.useFallback = true; throw err;
-  }
-  if (!res.ok) throw _chatHttpError(res);
-  if (!res.body || !res.body.getReader) {
-    const err = new Error('streaming unsupported'); err.useFallback = true; throw err;
-  }
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buf = '';
-  let final = null;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buf += decoder.decode(value, { stream: true });
-    let sep;
-    while ((sep = buf.indexOf('\n\n')) >= 0) {
-      const frame = buf.slice(0, sep); buf = buf.slice(sep + 2);
-      let ev = 'message', data = '';
-      for (const line of frame.split('\n')) {
-        if (line.startsWith('event:')) ev = line.slice(6).trim();
-        else if (line.startsWith('data:')) data += line.slice(5).trim();
+    let res;
+    try {
+      res = await authFetch(chatPath('/stream'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        ...(ctrl ? { signal: ctrl.signal } : {}),
+      });
+    } catch (e) {
+      if (e && e.name === 'AbortError') {
+        // Our own idle/total guard fired — the model may still be running
+        // server-side, so no fallback retry (it would bill the turn twice).
+        throw timedOut ? new Error('the server stopped responding — please retry') : e;
       }
-      if (!data) continue;
-      let payload;
-      try { payload = JSON.parse(data); } catch (e) { continue; }
-      if (ev === 'final') final = payload;
-      else if (ev === 'error') throw new Error(payload.detail || 'chat failed');
-      else if (onEvent) onEvent(ev, payload);
+      const err = new Error('network error'); err.useFallback = true; throw err;
     }
+    if (res.status === 404 || res.status === 405) {
+      // Backend without /chat/stream (older deploy) — use blocking /chat.
+      const err = new Error(`chat ${res.status}`); err.useFallback = true; throw err;
+    }
+    if (!res.ok) throw _chatHttpError(res);
+    if (!res.body || !res.body.getReader) {
+      const err = new Error('streaming unsupported'); err.useFallback = true; throw err;
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    let final = null;
+    while (true) {
+      let chunk;
+      try {
+        chunk = await reader.read();
+      } catch (e) {
+        if (timedOut) throw new Error('the answer stalled — please retry');
+        throw e;
+      }
+      const { done, value } = chunk;
+      if (done) break;
+      armIdle(); // any bytes (keepalives included) prove the server is alive
+      buf += decoder.decode(value, { stream: true });
+      let sep;
+      while ((sep = buf.indexOf('\n\n')) >= 0) {
+        const frame = buf.slice(0, sep); buf = buf.slice(sep + 2);
+        let ev = 'message', data = '';
+        for (const line of frame.split('\n')) {
+          if (line.startsWith('event:')) ev = line.slice(6).trim();
+          else if (line.startsWith('data:')) data += line.slice(5).trim();
+        }
+        if (!data) continue;
+        let payload;
+        try { payload = JSON.parse(data); } catch (e) { continue; }
+        if (ev === 'final') final = payload;
+        else if (ev === 'error') throw new Error(payload.detail || 'chat failed');
+        else if (onEvent) onEvent(ev, payload);
+      }
+    }
+    if (!final) throw new Error('stream ended unexpectedly — please retry');
+    return final;
+  } finally {
+    clearTimeout(idleTimer);
+    clearTimeout(totalTimer);
   }
-  if (!final) throw new Error('stream ended unexpectedly — please retry');
-  return final;
 }
 async function hydrateModes() {
   try {
@@ -1183,8 +1380,17 @@ async function apiFeedback(payload) {
 }
 
 /* ====== CHAT ====== */
-function detailArtifactToRow(art) {
+// One detail artifact may carry several records now (get_auction_detail
+// accepts a list of ids), so callers get an array. Stored single-record
+// artifacts still yield exactly one row.
+function detailArtifactToRows(art) {
   const res = art && art.result;
+  if (!res) return [];
+  if (Array.isArray(res.results)) return res.results.map(detailRecordToRow).filter(Boolean);
+  const row = detailRecordToRow(res);
+  return row ? [row] : [];
+}
+function detailRecordToRow(res) {
   if (!res || !res.auction_id) return null;
   const f = res.fields || {};
   const rel = res.relationships || {};
@@ -1284,7 +1490,7 @@ function extractResultsFromArtifacts(artifacts) {
   const listIdx = listArt ? artifacts.indexOf(listArt) : -1;
   const lastDetailIdx = detailArts.length ? artifacts.indexOf(detailArts[detailArts.length - 1]) : -1;
   if (detailArts.length && lastDetailIdx > listIdx) {
-    const rows = detailArts.map(detailArtifactToRow).filter(Boolean);
+    const rows = detailArts.flatMap(detailArtifactToRows);
     return { rows, total: rows.length, tool: detailArts[0].tool };
   }
   if (!listArt) return { rows: [], total: null, tool: null };
@@ -1325,6 +1531,9 @@ function _isRankedTool(tool) { return tool === 'select_properties'; }
 // forces the "relevance" (as-answered) order; anything else restores the sort
 // the user last picked, so switching away from a ranking doesn't strand them.
 function setPanelSource(tool) {
+  // Reasons belong to the turn that produced them. A panel repopulated by
+  // anything other than a chat turn must not keep showing them.
+  if (!tool) setRecommendation(null);
   panelIsRanked = _isRankedTool(tool);
   if (panelIsRanked) {
     currentSort = 'relevance';
@@ -1338,7 +1547,7 @@ async function askAI(userText, opts = {}) {
   if (!userText) return;
   if (opts.fromLanding) {
     chatHistory = [];
-    apiMessageHistory = null;
+    resetAgentState();
     currentResults = [];
     currentTotalCount = null;
     panelSnapshotIndex = null;
@@ -1391,7 +1600,26 @@ async function askAI(userText, opts = {}) {
       console.warn('chat stream unavailable, falling back to /chat:', streamErr.message);
       resp = await apiChat(userText, reqBody);
     }
-    apiMessageHistory = resp.message_history || apiMessageHistory;
+    // Each loop carries its own conversation channel, and exactly one of the
+    // three is ever present in a response: the deep loop returns a thread key,
+    // v2 a scope summary, v1 the whole transcript.
+    if (CHAT_THREADED) apiChatThreadId = resp.thread_id || apiChatThreadId;
+    else if (CHAT_V2) apiChatScope = resp.scope || apiChatScope;
+    else apiMessageHistory = resp.message_history || apiMessageHistory;
+    setRecommendation(resp.recommendation);
+    // Publish the turn for the /lab inspector. An event rather than a direct
+    // call so app.js stays unaware of whether a lab page is loaded at all.
+    if (CHAT_V2) {
+      try {
+        window.dispatchEvent(new CustomEvent('chatv2:turn', { detail: {
+          question: userText, plan: resp.plan, usage: resp.usage,
+          gate: normalizeGate(resp.gate), scope: resp.scope, loop: CHAT_LOOP,
+          threadId: resp.thread_id || null, steps: resp.steps || 0,
+          recommendation: resp.recommendation,
+          elapsedMs: performance.now() - startedAt,
+        } }));
+      } catch (_) { /* the inspector is a diagnostic; never break a turn */ }
+    }
     const extracted = extractResultsFromArtifacts(resp.artifacts);
     if (extracted.rows.length || extracted.tool) {
       currentResults = extracted.rows;
@@ -1444,7 +1672,10 @@ function renderChat(history, logEl, opts) {
   const inputId  = opts.inputId  || 'results-input';
   // Default callbacks preserve the main-chat behavior: clear pydantic-ai
   // history (can't be cleanly partial-edited) and persist the conversation.
-  const onChange = opts.onChange || (() => { apiMessageHistory = null; panelSnapshotIndex = null; saveActiveConversation(); });
+  const onChange = opts.onChange || (() => {
+    resetAgentState();
+    panelSnapshotIndex = null; saveActiveConversation();
+  });
   const onRetry  = opts.onRetry  || ((q) => askAI(q));
   const scope    = opts.scope || null;
 
@@ -1694,7 +1925,7 @@ function renderResultsList() {
   countEl.textContent = `${total.toLocaleString('en-IN')} match${total === 1 ? '' : 'es'}`;
   const sortLabel = SORT_LABEL[currentSort] || SORT_LABEL.date_asc;
   subEl.textContent = total > shown ? `showing ${shown} · ${sortLabel}` : sortLabel;
-  list.innerHTML = cards.map(c => propCardHtml(c, false)).join('');
+  list.innerHTML = cards.map(c => propCardHtml(c, false, '', true)).join('');
   wireCardClicks();
   _setMtabCount(total);
 }
@@ -1739,7 +1970,35 @@ const _CARD_ICO_BANK = '<svg class="ci" viewBox="0 0 16 16" width="13" height="1
 const _CARD_ICO_CAL = '<svg class="ci" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="3.5" width="11" height="10" rx="1.6"/><path d="M5 2.2v2.6M11 2.2v2.6M2.5 6.8h11"/></svg>';
 const _CARD_ICO_CLOCK = '<svg class="ci" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M8 4.6V8l2.4 1.4"/></svg>';
 
-function propCardHtml(c, urgent, countdown) {
+// Reason-first cards. The v2 synthesis call returns a typed recommendation
+// object; its picks are keyed by auction_id here so the card template can bind
+// a one-line reason and a few badges. Cards render exactly as before when the
+// turn produced no recommendation, which is every v1 turn.
+let currentPicks = new Map();
+function setRecommendation(rec) {
+  currentPicks = new Map();
+  if (!rec || !Array.isArray(rec.picks)) return;
+  rec.picks.forEach(p => { if (p && p.auction_id) currentPicks.set(String(p.auction_id), p); });
+}
+const _BADGE_TONES = { good: 'badge-good', warn: 'badge-warn', neutral: 'badge-neutral' };
+// `withReason` is opt-in and defaults OFF. propCardHtml also renders the
+// browse grid and the saved-deadline timeline, and a reason written for "the
+// cheapest flats in Chennai" is nonsense on a watchlist card for a different
+// city — it reads as if the agent recommended it for the view you are in.
+// Only the matches panel, which IS the chat's result set, passes true.
+function _pickHtml(id, withReason) {
+  if (!withReason) return '';
+  const pick = currentPicks.get(String(id));
+  if (!pick) return '';
+  const badges = Array.isArray(pick.badges) ? pick.badges.slice(0, 3) : [];
+  return `
+        ${pick.reason ? `<div class="card-reason">${escapeHtml(pick.reason)}</div>` : ''}
+        ${badges.length ? `<div class="card-badges">${badges.map(b =>
+          `<span class="card-badge ${_BADGE_TONES[b && b.tone] || _BADGE_TONES.neutral}">${escapeHtml((b && b.text) || '')}</span>`
+        ).join('')}</div>` : ''}`;
+}
+
+function propCardHtml(c, urgent, countdown, withReason) {
   const isSaved = saved.has(c.id);
   const dropBadge = c.drop
     ? `<div class="price-drop" title="Reserve price previously ${escapeHtml(c.drop.previous)}">${c.drop.pct}% drop from ${escapeHtml(c.drop.previous)}</div>`
@@ -1759,6 +2018,7 @@ function propCardHtml(c, urgent, countdown) {
         </div>
         <div class="price">${escapeHtml(c.price)}</div>
         ${dropBadge}
+        ${_pickHtml(c.id, withReason)}
         ${urgent && countdown ? `<div class="countdown">${_CARD_ICO_CLOCK}<span>auction ${escapeHtml(countdown)}</span></div>` : ''}
       </div>
       <button class="card-save ${isSaved ? 'saved' : ''}" data-save-id="${escapeHtml(c.id)}" title="${isSaved ? 'saved' : 'save to watchlist'}" aria-label="save">
@@ -2266,6 +2526,9 @@ async function askAboutProperty(text) {
   let nextApiHistory = apiHistorySnapshot;
   const startedAt = performance.now();
   try {
+    // The property-detail chat stays on v1 in Phase 1: it threads
+    // `message_history`, which v2 neither accepts nor returns. It moves over
+    // with the rest of the v2 work, not as a side effect of this flag.
     const res = await authFetch(`${API_BASE}/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -2507,6 +2770,14 @@ async function loadConversation(id) {
     activeChatId = data.id;
     chatHistory = Array.isArray(data.messages) ? data.messages : [];
     apiMessageHistory = data.api_history || null;
+    // v2 has no transcript, so this IS the restored agent state: without it a
+    // reopened conversation answers the next follow-up with nothing carried.
+    apiChatScope = data.agent_scope || null;
+    // The deep loop needs nothing persisted here: its thread key IS the
+    // conversation id, and the transcript is already in the graph under it.
+    // Reopening a saved chat therefore resumes the real conversation rather
+    // than a summary of it — the one thing neither other loop can do.
+    apiChatThreadId = data.id || null;
     currentResults = Array.isArray(data.results) ? data.results : [];
     currentTotalCount = (typeof data.total_count === 'number') ? data.total_count : null;
     panelSnapshotIndex = null; // saved conversations restore the live set
@@ -2545,6 +2816,7 @@ async function saveActiveConversation() {
     title: _conversationTitle(),
     messages: chatHistory.filter(m => m.role !== 'ai thinking'),
     api_history: apiMessageHistory,
+    agent_scope: apiChatScope,
     results: currentResults || [],
     total_count: currentTotalCount,
   };
@@ -2572,7 +2844,7 @@ async function deleteConversation(id) {
   recentChats = recentChats.filter(c => c.id !== id);
   if (activeChatId === id) {
     chatHistory = [];
-    apiMessageHistory = null;
+    resetAgentState();
     currentResults = [];
     currentTotalCount = null;
     panelSnapshotIndex = null;
@@ -2586,7 +2858,7 @@ async function deleteConversation(id) {
 
 function newThread() {
   chatHistory = [];
-  apiMessageHistory = null;
+  resetAgentState();
   currentResults = [];
   currentTotalCount = null;
   panelSnapshotIndex = null;
@@ -3541,7 +3813,9 @@ function applyURLState(replace) {
     _restoreChatId = decodeURIComponent(chatMatch[1]);
     go('results');
     maybeRestoreActiveChat();
-  } else if (path === '/chat') {
+  } else if (IS_LAB || path === '/chat') {
+    // /lab is the chat surface with v2 forced on (see CHAT_V2), so it boots
+    // straight into the chat screen rather than the landing page.
     go('results');
   } else if (path === '/watchlist') {
     go('watchlist');

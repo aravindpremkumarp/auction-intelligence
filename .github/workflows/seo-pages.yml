@@ -6,11 +6,22 @@
 # advertising a closed auction is worse than none) — same reasoning as
 # content-poster.yml.
 #
-# What it does: resets a bot-owned branch off main, regenerates the static
+# What it does, in order: resets a bot-owned branch off main, RESTATES the
+# property pages whose auctions have since closed, regenerates the static
 # property pages (scripts/prerender_properties.py) and the /bank-auctions/**
 # landing pages + sitemap (scripts/build_landing_pages.py), commits, and opens
 # (or updates) a DRAFT PR. It never pushes to main — a human reviews and merges
 # (the Tier-1 "always stage, never auto-publish" rule from docs/marketing/).
+#
+# Why the refresh step exists. Every generator here walks LIVE inventory only
+# (prerender filters on auction_start_dt in the future; the landing pages use
+# the same filter), which is correct for deciding what to CREATE and means
+# nothing in this workflow would ever revisit a page whose auction has since
+# ended. Left that way a page keeps its live wording and an InStock Offer
+# forever: on 2026-08-19 that had reached 645 of 664 pages. --refresh walks the
+# pages on disk instead of the API's live list and re-renders them against
+# current state. It runs first, unconditionally, in both modes — staleness is
+# not city-scoped, so it is deliberately not gated on the inputs below.
 #
 # Kill switch: set the repo Actions variable AGENTS_ENABLED to "false".
 #
@@ -47,12 +58,19 @@ permissions:
 env:
   AGENTS_ENABLED: ${{ vars.AGENTS_ENABLED || 'true' }}
   SEO_BRANCH: automated/seo-pages
+  # Surfaced here purely so the OG-card step can gate on it: the `secrets`
+  # context is not available in a step-level `if:`, but `env` is.
+  R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
 
 jobs:
   regenerate:
     runs-on: ubuntu-latest
-    # Headroom for an all_live run: ~1.1s/property × the full live inventory.
-    timeout-minutes: 60
+    # Headroom for refresh + an all_live run. Both walk the API at ~1.1s/property
+    # and they overlap on the currently-live set (refresh re-reads those pages,
+    # then --all writes them again from a fresh read). That duplicate pass costs
+    # ~20 minutes on a weekly, manually-dispatched job — cheap next to shipping
+    # pages that misstate whether an auction is open.
+    timeout-minutes: 120
     if: ${{ vars.AGENTS_ENABLED != 'false' }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -70,13 +88,50 @@ jobs:
           git fetch origin main
           git checkout -B "$SEO_BRANCH" origin/main
 
+      - name: Install dependencies
+        run: pip install --quiet "httpx>=0.27,<1"
+
+      # Runs BEFORE both page passes, because they read web/og-manifest.json as
+      # they write each page — cards produced after them would not reach a page
+      # until the next dispatch.
+      #
+      # Skipped when R2 is not configured rather than failing the run: without a
+      # manifest every page falls back to the generic site card, which is what
+      # it did before this step existed. A page is never left pointing at a 404.
+      # A real failure once R2 IS configured does fail the job — silently
+      # shipping 1,100+ Products that all claim to be depicted by one company
+      # logo is the thing this step exists to stop.
+      - name: Render per-property OG cards
+        if: ${{ env.R2_ACCOUNT_ID != '' }}
+        env:
+          R2_ACCESS_KEY_ID:     ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET:            ${{ secrets.R2_BUCKET }}
+          R2_PUBLIC_BASE_URL:   ${{ secrets.R2_PUBLIC_BASE_URL }}
+        run: |
+          pip install --quiet playwright pillow boto3
+          python -m playwright install chromium
+          # Cards carry no authored copy — every glyph is a field off the
+          # auction record — so the whole live inventory can run unattended.
+          python scripts/generate_property_og.py --all
+
+      - name: Note when OG cards were skipped
+        if: ${{ env.R2_ACCOUNT_ID == '' }}
+        run: echo "::warning::R2 not configured — property pages will use the generic og-image.png"
+
+      - name: Restate pages whose auctions have closed
+        # Not gated on any input: a page goes stale because time passed, not
+        # because of which cities this run was asked for. Writes only the pages
+        # whose HTML actually changed, and never deletes — an auction that has
+        # left the API is reported and its page left in place.
+        run: python -m scripts.prerender_properties --refresh
+
       - name: Generate pages
         env:
           CITIES: ${{ inputs.cities }}
           PROPERTY_LIMIT: ${{ inputs.property_limit }}
           ALL_LIVE: ${{ inputs.all_live }}
         run: |
-          pip install --quiet "httpx>=0.27,<1"
           # Build repeated --city flags from the space-separated input. Passed
           # via env (not inlined) so the value can't inject shell into the script.
           CITY_ARGS=""
@@ -96,7 +151,7 @@ jobs:
       - name: Commit regenerated pages
         id: commit
         run: |
-          git add web/property web/bank-auctions web/sitemap.xml
+          git add web/property web/bank-auctions web/sitemap.xml web/og-manifest.json
           if git diff --cached --quiet; then
             echo "No changes to the generated pages."
             echo "changed=false" >> "$GITHUB_OUTPUT"
@@ -115,11 +170,11 @@ jobs:
           if [ "$open_count" = "0" ]; then
             gh pr create --base main --head "$SEO_BRANCH" --draft \
               --title "Automated: regenerate SEO pages" \
-              --body "Regenerated static property pages and \`/bank-auctions/**\` landing pages off the live graph via the **SEO pages** workflow (\`scripts/prerender_properties.py\` + \`scripts/build_landing_pages.py\`).
+              --body "Restated any property page whose auction has closed, then regenerated static property pages and \`/bank-auctions/**\` landing pages off the live graph via the **SEO pages** workflow (\`scripts/prerender_properties.py --refresh\`, then \`--all\`/\`--city\` + \`scripts/build_landing_pages.py\`).
 
           Mode: \`${{ inputs.all_live == true && 'all live inventory (all districts)' || format('per-city · {0} · {1}/city', inputs.cities, inputs.property_limit) }}\`. Landing pages: \`${{ inputs.cities }}\`.
 
-          Review the diff (spot-check a page or two, confirm no empty/stale listings) and merge to publish. Nothing was pushed to main automatically."
+          Review the diff (spot-check a page or two: a closed auction should read \"this auction has closed\" and carry no live Offer; a live one should show its deadline) and merge to publish. Nothing was pushed to main automatically."
             echo "Opened a new draft PR for $SEO_BRANCH."
           else
             echo "Draft PR already open for $SEO_BRANCH — the push updated it."

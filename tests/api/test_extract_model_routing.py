@@ -2,9 +2,8 @@
 
 Pure: imports only pipeline.extract_routing (-> pipeline.config), no Neo4j and no
 `langextract`. Proves the routing decision — which the load_extractions batch
-applies per Document — sends single vs multi notices to the right model and, most
-importantly, routes on the classifier's markdown-based verdict over the
-cluster-count notice_type.
+applies per Document — sends single vs multi notices to the right model based on
+the canonical (cluster-count + human-override) notice_type.
 """
 from __future__ import annotations
 
@@ -17,46 +16,32 @@ from pipeline.config import (
 )
 
 
-def _model(notice_type, classifier_pred):
-    return er.select_extract_model(notice_type, classifier_pred)[0]
+def _model(notice_type):
+    return er.select_extract_model(notice_type)[0]
 
 
 # ── routing by label ──────────────────────────────────────────────────────────
-def test_multi_prediction_routes_to_multi_model():
-    assert _model(None, "multi") == MULTI
+def test_multi_routes_to_multi_model():
+    assert _model("multi") == MULTI
 
 
-def test_single_prediction_routes_to_single_model():
-    assert _model(None, "single") == SINGLE
-
-
-def test_classifier_pred_overrides_cluster_notice_type():
-    # THE point of routing on the classifier: a notice tagged 'single' by cluster
-    # count (only 1 in-scope AuctionProperty) but seen as 'multi' from the markdown
-    # must get the multi model — else a long multi-lot notice gets the cheap one.
-    assert _model("single", "multi") == MULTI
-    # and the converse: cluster 'multi' but classifier 'single' -> single model.
-    assert _model("multi", "single") == SINGLE
-
-
-def test_falls_back_to_notice_type_when_no_prediction():
-    assert _model("multi", None) == MULTI
-    assert _model("single", None) == SINGLE
+def test_single_routes_to_single_model():
+    assert _model("single") == SINGLE
 
 
 def test_defaults_to_single_when_nothing_known():
-    assert _model(None, None) == SINGLE
+    assert _model(None) == SINGLE
 
 
 @pytest.mark.parametrize("label", ["", "  ", "unknown", "MULTI-ish", None])
 def test_only_exact_multi_picks_multi(label):
     # Any label that isn't exactly "multi" (case/space-normalised) is treated as
-    # single — the cheap default — so a garbled prediction never over-spends.
-    assert _model(None, label) == SINGLE
+    # single — the cheap default — so a garbled label never over-spends.
+    assert _model(label) == SINGLE
 
 
 def test_label_is_case_and_space_insensitive():
-    assert _model(None, "  Multi ") == MULTI
+    assert _model("  Multi ") == MULTI
 
 
 # ── reasoning-off flag ────────────────────────────────────────────────────────
@@ -76,8 +61,8 @@ def test_reasoning_off_empty_config_disables_override(monkeypatch):
 def test_select_returns_consistent_reasoning_flag(monkeypatch):
     # the bool select_extract_model returns must equal reasoning_off_for(model).
     monkeypatch.setattr(er, "LANGEXTRACT_REASONING_OFF_MODELS", "deepseek")
-    for nt, pred in [("single", None), ("multi", None), (None, "multi")]:
-        model, off = er.select_extract_model(nt, pred)
+    for nt in ("single", "multi", None):
+        model, off = er.select_extract_model(nt)
         assert off is er.reasoning_off_for(model)
 
 
@@ -85,8 +70,8 @@ def test_reasoning_on_for_both_by_default(monkeypatch):
     # Shipped default: empty suppression list -> reasoning stays ON (provider
     # default) for both models; neither single nor multi is forced off.
     monkeypatch.setattr(er, "LANGEXTRACT_REASONING_OFF_MODELS", "")
-    assert er.select_extract_model(None, "single")[1] is False
-    assert er.select_extract_model(None, "multi")[1] is False
+    assert er.select_extract_model("single")[1] is False
+    assert er.select_extract_model("multi")[1] is False
 
 
 # ── dynamic chunk size ────────────────────────────────────────────────────────

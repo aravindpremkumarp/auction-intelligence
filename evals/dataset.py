@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
+from typing import Any
 
 from pydantic_evals import Case, Dataset
 
@@ -37,6 +38,14 @@ class ChatTaskOutput:
     # Surfaced ids that appear in the answer text, first-mention order — what
     # production's matches-panel sync would extract from this answer.
     cited_auction_ids: list[str] = field(default_factory=list)
+    # Token/latency accounting for this turn: llm_calls, input_tokens,
+    # cached_tokens, output_tokens, seconds. A loose dict rather than typed
+    # fields because the two agents report slightly different shapes, and an
+    # eval should degrade to "no data" rather than fail on a missing key.
+    #
+    # NO evaluator reads this — cost is reported, never gated. A cheap wrong
+    # answer is still wrong.
+    usage: dict[str, Any] = field(default_factory=dict)
 
 
 def build_judge_model():

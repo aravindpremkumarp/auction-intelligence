@@ -28,6 +28,7 @@ from pipeline.config import (
     OPENROUTER_CHAT_API_KEY,
     OPENROUTER_BASE_URL,
 )
+from api.policy import ROLE_PROMPT
 from api.model_selection import (
     CHAT_MODEL_SLUGS,
     DEFAULT_PAID_MODEL,
@@ -61,42 +62,12 @@ class ChatDeps:
     panel_auction_ids: list[str] | None = None
 
 
-_ROLE_PROMPT = """\
-You are the assistant for the Bank Auction Intelligence Platform: help users
-find, analyze, and compare Indian bank-auction properties (mostly
-SARFAESI) over a Neo4j knowledge graph of Tamil Nadu properties. The shared
-context below holds the schema, enums, tool routing, and Cypher rules; the
-live graph size is supplied to you each turn.
-
-Rules:
-1. Ground every answer in tool output. Never invent auction_ids, prices,
-   counts, enums, or filter thresholds. Cite by `auction_id`.
-2. Prefer the specialized tool that matches; fall back to `run_cypher` only
-   for novel queries (load the `cypher` capability first — see Tool routing
-   below). On zero results follow the Zero-result protocol below.
-3. Use `internet_search` only for OFF-graph context (legal/RBI explainers,
-   locality background, term definitions) — never for properties, prices,
-   deadlines, auction_ids, or counts; for hybrid questions query the graph
-   first.
-4. Stay on the tool surface. The PUBLIC graph holds exactly the nodes in
-   the Graph schema below — nothing else. No litigations, court cases,
-   FIRs, credit history, ownership chains, market valuations, or external
-   records. Frame borrower follow-ups as
-   `search_auctions(borrower=...)` output, never "check legal records". Never offer or
-   agree to an action no tool performs — if you can't do it, say so plainly
-   and name the closest tool that exists. Chat has NO tracking, monitoring,
-   alerting, scoring, or saving actions: for "track/watch/alert/save/score
-   this" requests, say chat can't do that and point the user to the Save
-   button on the property card (saved properties get deadline alerts in
-   the app).
-5. Markdown only for genuine multi-section answers: open each section
-   with `### <emoji> **Title**` (one emoji matching intent — 📍 location,
-   🔍 search, 🏆 top, 📊 data, 📰 news, ⚡ insight, ⚠️ caveat, ✅, 💰, 📅).
-   Separate sections with a blank line + `---` + blank line. Use **bold**
-   for load-bearing facts; short bullets for parallel points; real
-   Markdown tables (with `|---|`) for tabular data. Don't wrap a short
-   single-section reply in headers.
-"""
+# The role prompt now lives in api/policy.py, composed from named rule
+# constants so /chat/v2 can share the three that are policy rather than v1
+# mechanics. The composed string is byte-identical to the literal it
+# replaced — pinned by tests/api/test_chat_policy.py — which matters because
+# this is the stable leading prefix the provider's prompt cache keys on.
+_ROLE_PROMPT = ROLE_PROMPT
 
 # Appended to the role prompt only when the private-dossier feature is enabled
 # (see api.dossier.dossiers_enabled). Kept out of _ROLE_PROMPT so the feature
@@ -192,8 +163,9 @@ _CYPHER_CAPABILITY = Capability(
         "- NEVER compare a DATETIME column to a raw ISO string (ZONED-vs-"
         "LOCAL silently returns zero); wrap it: `WHERE a.auction_start_dt >= "
         "datetime($iso)`.\n"
-        "- No `total_area`/`village`/`taluk`/`district` props exist — sizes "
-        "and sub-locality live only in `description` text (`semantic_search`)."
+        "- No `total_area`/`village`/`taluk`/`district` props on "
+        ":AuctionProperty — they live on the :Lot spine or in "
+        "`description` text (`semantic_search`)."
     ),
     defer_loading=True,
 )
@@ -455,28 +427,27 @@ def semantic_search(
     limit: int = 20,
     include_past: bool = False,
 ) -> dict:
-    """Semantic search over descriptions, notice markdown, and notice
-    images (one gemini-embedding-2 call ranked across three indexes in the
-    same vector space). Use for qualitative text — boundaries, neighborhood,
-    legal caveats, condition, layout — present in free text or the notice
-    but absent from structured fields.
+    """Lucene fulltext over notice schedule text + property blurb. Use for
+    qualitative wording — boundaries, neighborhood, legal caveats,
+    condition — in the notice but not in structured fields.
 
-    ONE call per question. Results are dense-vector ranked by MEANING, so
-    re-phrasing the query — quotes, ALL-CAPS, `OR`, added synonyms, vastu/
-    direction words — returns the same ranking; a second variant just burns
-    tokens and latency without new hits. If you want broader recall, raise
-    `limit` ONCE (the UI shows every match regardless); do not re-search. A
-    non-empty result IS the answer — do not run a follow-up call to "double-
-    check" coverage.
+    LEXICAL, not semantic: it finds the WORDS you pass. Use the vocabulary a
+    notice would use ("borewell", "shed"), not a paraphrase. Terms OR-join
+    and rank, so extra terms re-sort rather than exclude; "quote a phrase"
+    to force word order. Structured constraints (type, city, extent, price,
+    dates, possession) belong in `search_auctions` — those are exact fields.
+
+    ONE call per question; a non-empty result IS the answer. For more recall
+    raise `limit` ONCE, never re-search. Retry only to swap in a different
+    domain word, never to reword the same terms.
 
     Optional `city`/`area`/`min_price`/`max_price`/`asset_category`/date
-    window post-filter the hits. Future-only by default; `include_past=True`
-    for retrospective queries. Each row carries `score` and `hit_sources`
-    (subset of 'desc'/'markdown'/'image'). `results` is a top-ranked sample;
-    use `total_ranked` for "how many", never `len(results)`. A zero-hit
-    result carries a `hint` (and `past_matches` when past would have matched) —
-    follow it; do NOT rephrase and retry. On embedding-backend failure
-    returns `{"error": ..., "results": []}` — fall back to `search_auctions`.
+    window post-filter. Future-only by default; `include_past=True` for
+    retrospective queries. `score` ranks rows against EACH OTHER — the top
+    hit is ~1.0 even when nothing matches well, so never read it as
+    confidence. `results` is a top-ranked sample; use `total_ranked` for
+    "how many", never `len(results)`. A zero-hit result carries a `hint` —
+    follow it.
     """
     try:
         return split_ui_overflow(T.semantic_search(
@@ -493,15 +464,26 @@ def semantic_search(
         }
 
 
+# Name kept (not `get_auction_details`) so stored conversations, the panel
+# extractor, and the frontend's DETAIL_TOOLS list keep resolving; only the
+# arity widened. `auction_id` accepts a LIST so N properties cost one LLM
+# round-trip instead of N — production telemetry showed 3.7 detail calls per
+# turn that used it (worst: 15), each re-sending the whole accumulated
+# context. The old docstring asked the model to batch; the signature now
+# guarantees it.
 @agent.tool_plain
-def get_auction_detail(auction_id: str) -> dict | None:
-    """Full record for ONE auction_id — every stored property plus
+def get_auction_detail(auction_id: str | list[str]) -> dict:
+    """Full records for one or more auction_ids — every stored property plus
     related city/area/state/bank/borrower/category/property_types and
-    `price_history` (re-auction timeline). Call this before concluding
-    a field is unavailable for a specific auction. Returns None if the
-    auction_id doesn't exist. For several ids, batch the detail calls in
-    one step (they run in parallel)."""
-    return T.get_auction_detail(auction_id)
+    `price_history` (re-auction timeline). Pass a LIST to fetch several at
+    once (up to 10 per call); never issue one call per id. Call this before
+    concluding a field is unavailable for a specific auction.
+
+    Returns {results, returned, requested}; `missing_ids` lists any
+    auction_id the graph doesn't hold — report those as not found rather
+    than retrying them."""
+    ids = auction_id if isinstance(auction_id, list) else [auction_id]
+    return T.get_auction_details(ids)
 
 
 @_CYPHER_CAPABILITY.tool_plain

@@ -232,3 +232,46 @@ def test_normalize_identifier_kind_roundtrip():
     assert normalize_identifier_kind("shop") == ("shop", False)
     for k in CANONICAL_KINDS:  # canonical values are stable
         assert normalize_identifier_kind(k) == (k, False)
+
+
+# ── per-notice lot-count prompt priming ─────────────────────────────────────
+# langextract isn't importable in CI, so exec just the prompt_description_for
+# function's source (extracted via ast) against a stub PROMPT_DESCRIPTION —
+# same no-import discipline as the rest of this file.
+
+
+def _prompt_description_for():
+    tree = ast.parse(_SRC.read_text(encoding="utf-8"))
+    fn = next(n for n in tree.body
+              if isinstance(n, ast.FunctionDef) and n.name == "prompt_description_for")
+    ns = {"PROMPT_DESCRIPTION": "BASE_PROMPT"}
+    exec(compile(ast.Module(body=[fn], type_ignores=[]), "<ast>", "exec"), ns)
+    return ns["prompt_description_for"]
+
+
+def test_lot_count_none_leaves_prompt_unchanged():
+    f = _prompt_description_for()
+    assert f(None) == "BASE_PROMPT"
+
+
+def test_lot_count_multi_names_the_count_and_lot_index():
+    f = _prompt_description_for()
+    out = f(5)
+    assert out.startswith("BASE_PROMPT")
+    assert "EXACTLY 5" in out
+    assert "lot_index 1 through 5" in out
+
+
+def test_lot_count_single_says_one_lot():
+    f = _prompt_description_for()
+    out = f(1)
+    assert out.startswith("BASE_PROMPT")
+    assert "EXACTLY ONE lot" in out
+
+
+def test_extract_signature_accepts_expected_lot_count():
+    """extract() must expose the parameter the batch/rerun callers now pass."""
+    tree = ast.parse(_SRC.read_text(encoding="utf-8"))
+    fn = next(n for n in tree.body
+              if isinstance(n, ast.FunctionDef) and n.name == "extract")
+    assert "expected_lot_count" in [a.arg for a in fn.args.args]

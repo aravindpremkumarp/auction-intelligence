@@ -9,8 +9,9 @@ returns grounded **excerpts** — the agent then composes the answer from them
 Why excerpts, not the whole text: a scanned 15-page deed is large; returning
 keyword-windowed excerpts keeps the tool payload bounded and points the model at
 the relevant passages. Retrieval is deliberately dependency-free (keyword
-windowing, no embeddings) so this slice ships without new infra; a semantic
-upgrade can swap out :func:`extract_excerpt` later.
+windowing, no index) so this slice ships without new infra — the same lexical
+bet the graph made when it retired its vector indexes
+(docs/design/2026-08-22-retire-embeddings.md).
 """
 from __future__ import annotations
 

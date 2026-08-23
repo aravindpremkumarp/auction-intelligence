@@ -60,9 +60,16 @@ def _user_headers(c: TestClient, sub: str = "sub-plain") -> dict:
 DATE = "2026-07-15"
 
 
-def _stage_batch(root: Path, date: str = DATE, *, render: bool = True) -> Path:
+def _stage_batch(root: Path, date: str = DATE, *, render: bool = True,
+                 on_disk: bool = False) -> Path:
     """Write a minimal but structurally real batch: 2 drafts, 2 cards, 3 reels
-    (one of them the batch-level stats reel) and a city carousel."""
+    (one of them the batch-level stats reel) and a city carousel.
+
+    `render=True` gives the batch its rendered media. By default that media is
+    recorded in `media_keys` (the R2 path, what the workflow now produces);
+    `on_disk=True` writes the PNGs into `rendered/` with no keys instead, which
+    is the shape of a batch staged before renders moved to R2.
+    """
     d = root / date
     (d / "cards").mkdir(parents=True, exist_ok=True)
     (d / "reels").mkdir(parents=True, exist_ok=True)
@@ -104,22 +111,31 @@ def _stage_batch(root: Path, date: str = DATE, *, render: bool = True) -> Path:
         "rejected": [],
         "editor_notes": "picked 2 price_drop to cover 2",
     }
+    # Draft 1's card renders to a single PNG; the carousel renders one per slide
+    # (render_social.stage_name numbers multi-stage templates). Draft 2's card
+    # and the stats reel are deliberately absent — both render steps are
+    # continue-on-error in the workflow, so a partial batch is a real state.
+    RENDERED = ["rendered/card-01-798444.png",
+                "rendered/card-00-carousel_01.png",
+                "rendered/card-00-carousel_02.png"]
+    if render and not on_disk:
+        drafts["media_keys"] = {
+            **{p: f"marketing-media/{date}/{p}" for p in RENDERED},
+            "reels/01-798444.mp4": f"marketing-media/{date}/reels/01-798444.mp4",
+        }
+        drafts["media_bytes"] = {"reels/01-798444.mp4": 2_400_000}
+
     (d / "drafts.json").write_text(json.dumps(drafts), encoding="utf-8")
     for name in ("00-carousel", "01-798444", "02-802076"):
         (d / "cards" / f"{name}.json").write_text('{"headline": "x"}', encoding="utf-8")
     for name in ("00-stats", "01-798444"):
         (d / "reels" / f"{name}.json").write_text('{"hook": "x"}', encoding="utf-8")
     (d / "review.md").write_text("# Content review\n", encoding="utf-8")
-    if render:
+    if render and on_disk:
         rendered = d / "rendered"
         rendered.mkdir(exist_ok=True)
-        # Draft 1's card renders to a single PNG; the carousel renders one per
-        # slide (render_social.stage_name numbers multi-stage templates).
-        # Draft 2's card is deliberately missing — the render step is
-        # continue-on-error in the workflow, so this is a real state.
-        (rendered / "card-01-798444.png").write_bytes(b"\x89PNG\r\n\x1a\nfake")
-        (rendered / "card-00-carousel_01.png").write_bytes(b"\x89PNG\r\n\x1a\nfake1")
-        (rendered / "card-00-carousel_02.png").write_bytes(b"\x89PNG\r\n\x1a\nfake2")
+        for i, p in enumerate(RENDERED):
+            (d / p).write_bytes(b"\x89PNG\r\n\x1a\nfake" + str(i).encode())
     return d
 
 
@@ -128,6 +144,57 @@ def batch(tmp_path, monkeypatch) -> Path:
     monkeypatch.setenv("POSTER_OUT_DIR", str(tmp_path))
     _reset()
     return _stage_batch(tmp_path)
+
+
+@pytest.fixture
+def legacy_batch(tmp_path, monkeypatch) -> Path:
+    """A batch from before renders moved to R2 — PNGs committed, no media_keys."""
+    monkeypatch.setenv("POSTER_OUT_DIR", str(tmp_path))
+    _reset()
+    return _stage_batch(tmp_path, on_disk=True)
+
+
+REEL_BYTES = b"\x00\x00\x00\x18ftypmp42fake-mp4-payload"
+
+
+class _FakeBody:
+    """Stand-in for boto3's StreamingBody (iter_chunks / read / close)."""
+
+    def __init__(self, blob: bytes) -> None:
+        self._blob = blob
+        self.closed = False
+
+    def iter_chunks(self, chunk_size: int = 65536):
+        for i in range(0, len(self._blob), chunk_size):
+            yield self._blob[i:i + chunk_size]
+
+    def read(self) -> bytes:
+        return self._blob
+
+    def close(self) -> None:
+        self.closed = True
+
+
+PNG_BYTES = b"\x89PNG\r\n\x1a\nfake-png-payload"
+
+
+@pytest.fixture
+def r2(monkeypatch):
+    """Fake private-R2 reads, recording which keys were asked for."""
+    from pipeline import storage
+
+    calls: list[str] = []
+
+    def fake_get(key: str):
+        calls.append(key)
+        if key.endswith(".png"):
+            return {"Body": _FakeBody(PNG_BYTES), "ContentType": "image/png",
+                    "ContentLength": len(PNG_BYTES)}
+        return {"Body": _FakeBody(REEL_BYTES), "ContentType": "video/mp4",
+                "ContentLength": len(REEL_BYTES)}
+
+    monkeypatch.setattr(storage, "get_private_object", fake_get)
+    return calls
 
 
 # ── auth ─────────────────────────────────────────────────────────────────────
@@ -220,6 +287,10 @@ def test_batch_detail_shape(batch) -> None:
     assert kinds["card"]["status"] == "pending"      # no node stored yet
     assert kinds["reel"]["hook"].endswith("31L")
     assert kinds["reel"]["png_available"] is False   # reels have no committed render
+    assert kinds["reel"]["video_available"] is True  # its mp4 is on R2
+    assert kinds["reel"]["video_bytes"] == 2_400_000
+    # The R2 key is an internal pointer — it must not reach the client.
+    assert "video_key" not in kinds["reel"]
 
     # Batch-level artifacts belong to no draft.
     orphans = {(a["kind"], a["stem"]) for a in body["orphan_artifacts"]}
@@ -338,20 +409,25 @@ def test_invalid_status_is_rejected(batch) -> None:
 
 
 # ── assets ───────────────────────────────────────────────────────────────────
-def test_asset_served(batch) -> None:
+def test_asset_served(batch, r2) -> None:
+    """PNGs stream from R2; islands still come off disk."""
     c = _client()
     h = _admin_headers(c)
     r = c.get(f"/social/asset/{DATE}/rendered/card-01-798444.png", headers=h)
     assert r.status_code == 200
     assert r.headers["content-type"] == "image/png"
+    assert r.content == PNG_BYTES
     assert "content-disposition" not in r.headers  # inline by default (blob preview)
+    assert r2 == [f"marketing-media/{DATE}/rendered/card-01-798444.png"]
 
     r = c.get(f"/social/asset/{DATE}/cards/01-798444.json", headers=h)
     assert r.status_code == 200
     assert r.headers["content-type"].startswith("application/json")
+    # The island was never uploaded, so this must not have hit R2 again.
+    assert len(r2) == 1
 
 
-def test_asset_download_flag_sets_attachment(batch) -> None:
+def test_asset_download_flag_sets_attachment(batch, r2) -> None:
     c = _client()
     r = c.get(f"/social/asset/{DATE}/rendered/card-01-798444.png?download=1",
               headers=_admin_headers(c))
@@ -383,6 +459,64 @@ def test_asset_type_allowlist(batch, tmp_path) -> None:
     assert "SECRET" not in r.text
 
 
+def test_legacy_batch_serves_pngs_off_disk(legacy_batch, monkeypatch) -> None:
+    """Batches staged before the R2 move have committed PNGs and no media_keys.
+
+    They must keep rendering without touching R2 at all — if the fallback
+    regressed, every previously-staged batch would go blank.
+    """
+    from pipeline import storage
+
+    def never(key: str):
+        raise AssertionError(f"must not hit R2 for a legacy batch: {key}")
+
+    monkeypatch.setattr(storage, "get_private_object", never)
+    c = _client()
+    h = _admin_headers(c)
+
+    body = c.get(f"/social/batch/{DATE}", headers=h).json()
+    card = [a for a in body["drafts"][0]["artifacts"] if a["kind"] == "card"][0]
+    assert card["png_paths"] == ["rendered/card-01-798444.png"]
+    assert card["png_available"] is True
+
+    r = c.get(f"/social/asset/{DATE}/rendered/card-01-798444.png", headers=h)
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "image/png"
+
+    # No MP4 was ever committed, so a legacy reel has no video.
+    reel = [a for a in body["drafts"][0]["artifacts"] if a["kind"] == "reel"][0]
+    assert reel["video_available"] is False
+    assert c.get(f"/social/reel/{DATE}/01-798444", headers=h).status_code == 404
+
+
+def test_legacy_bundle_zips_from_disk(legacy_batch, monkeypatch) -> None:
+    from pipeline import storage
+
+    monkeypatch.setattr(storage, "get_private_object",
+                        lambda key: (_ for _ in ()).throw(AssertionError(key)))
+    c = _client()
+    r = c.get(f"/social/bundle/{DATE}/1", headers=_admin_headers(c))
+    assert r.status_code == 200
+    with zipfile.ZipFile(io.BytesIO(r.content)) as zf:
+        names = set(zf.namelist())
+    assert "rendered/card-01-798444.png" in names
+    assert "caption.txt" in names
+
+
+def test_asset_path_not_in_media_keys_is_not_fetched_from_r2(batch, r2) -> None:
+    """The R2 key comes from the manifest, never from the caller's path.
+
+    A path the batch doesn't know about must fall through to the filesystem
+    (and 404 there) rather than being turned into an object key — otherwise the
+    caller would be choosing what to read out of the bucket.
+    """
+    c = _client()
+    r = c.get(f"/social/asset/{DATE}/rendered/card-99-nope.png",
+              headers=_admin_headers(c))
+    assert r.status_code == 404
+    assert r2 == []
+
+
 def test_asset_missing_file_404s(batch) -> None:
     c = _client()
     r = c.get(f"/social/asset/{DATE}/rendered/card-02-802076.png",
@@ -396,8 +530,75 @@ def test_asset_bad_date_404s(batch) -> None:
     assert r.status_code == 404
 
 
+# ── reel video ───────────────────────────────────────────────────────────────
+def test_reel_streams_from_private_r2(batch, r2) -> None:
+    c = _client()
+    r = c.get(f"/social/reel/{DATE}/01-798444", headers=_admin_headers(c))
+    assert r.status_code == 200, r.text
+    assert r.headers["content-type"] == "video/mp4"
+    assert r.content == REEL_BYTES
+    assert r2 == [f"marketing-media/{DATE}/reels/01-798444.mp4"]
+
+
+def test_reel_requires_admin(batch, r2) -> None:
+    c = _client()
+    path = f"/social/reel/{DATE}/01-798444"
+    assert c.get(path).status_code == 401
+    assert c.get(path, headers=_user_headers(c)).status_code == 403
+    assert r2 == []  # never touched storage for an unauthorised caller
+
+
+def test_reel_without_uploaded_mp4_404s(batch, r2) -> None:
+    """The stats reel exists in the batch but has no video_key."""
+    c = _client()
+    r = c.get(f"/social/reel/{DATE}/00-stats", headers=_admin_headers(c))
+    assert r.status_code == 404
+    assert r2 == []
+
+
+def test_reel_unknown_stem_or_batch_404s(batch, r2) -> None:
+    c = _client()
+    h = _admin_headers(c)
+    assert c.get(f"/social/reel/{DATE}/99-nope", headers=h).status_code == 404
+    assert c.get("/social/reel/2026-07-16/01-798444", headers=h).status_code == 404
+    assert c.get("/social/reel/not-a-date/01-798444", headers=h).status_code == 404
+
+
+def test_reel_asks_only_for_a_reel_not_a_card(batch, r2) -> None:
+    """A card stem must not be servable through the video route."""
+    c = _client()
+    r = c.get(f"/social/reel/{DATE}/01-798444.png", headers=_admin_headers(c))
+    assert r.status_code == 404
+
+
+def test_missing_r2_object_is_404_not_500(batch, monkeypatch) -> None:
+    from botocore.exceptions import ClientError
+
+    from pipeline import storage
+
+    def boom(key: str):
+        raise ClientError({"Error": {"Code": "NoSuchKey"}}, "GetObject")
+
+    monkeypatch.setattr(storage, "get_private_object", boom)
+    c = _client()
+    r = c.get(f"/social/reel/{DATE}/01-798444", headers=_admin_headers(c))
+    assert r.status_code == 404
+
+
+def test_unconfigured_r2_is_503(batch, monkeypatch) -> None:
+    from pipeline import storage
+
+    def boom(key: str):
+        raise storage.R2ConfigError("Missing private R2 config: R2_ACCOUNT_ID")
+
+    monkeypatch.setattr(storage, "get_private_object", boom)
+    c = _client()
+    r = c.get(f"/social/reel/{DATE}/01-798444", headers=_admin_headers(c))
+    assert r.status_code == 503
+
+
 # ── bundle ───────────────────────────────────────────────────────────────────
-def test_bundle_is_a_valid_zip(batch) -> None:
+def test_bundle_is_a_valid_zip(batch, r2) -> None:
     c = _client()
     r = c.get(f"/social/bundle/{DATE}/1", headers=_admin_headers(c))
     assert r.status_code == 200, r.text
@@ -410,13 +611,39 @@ def test_bundle_is_a_valid_zip(batch) -> None:
         assert "cards/01-798444.json" in names
         assert "reels/01-798444.json" in names
         assert "rendered/card-01-798444.png" in names
+        # The MP4 you actually need to post the reel — pulled from R2, not disk.
+        assert "reels/01-798444.mp4" in names
+        assert zf.read("reels/01-798444.mp4") == REEL_BYTES
         caption = zf.read("caption.txt").decode("utf-8")
     assert "same karur plot" in caption
     assert "#bankauction #karur" in caption
     assert "not legal advice." in caption
 
 
-def test_bundle_skips_missing_renders(batch) -> None:
+def test_bundle_survives_missing_r2_objects(batch, monkeypatch) -> None:
+    """R2 down must not cost the reviewer the whole zip.
+
+    Rendered media all lives in R2 now, so an outage costs the images too — but
+    the caption and islands are committed, and those are what you can't
+    regenerate from a re-render.
+    """
+    from pipeline import storage
+
+    def boom(key: str):
+        raise RuntimeError("r2 unreachable")
+
+    monkeypatch.setattr(storage, "get_private_object", boom)
+    c = _client()
+    r = c.get(f"/social/bundle/{DATE}/1", headers=_admin_headers(c))
+    assert r.status_code == 200
+    with zipfile.ZipFile(io.BytesIO(r.content)) as zf:
+        names = set(zf.namelist())
+    assert "caption.txt" in names
+    assert "cards/01-798444.json" in names
+    assert not any(n.endswith((".mp4", ".png")) for n in names)
+
+
+def test_bundle_skips_missing_renders(batch, r2) -> None:
     """Draft 2 has no rendered PNG — the bundle still builds, minus the image."""
     c = _client()
     r = c.get(f"/social/bundle/{DATE}/2", headers=_admin_headers(c))

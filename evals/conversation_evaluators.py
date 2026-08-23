@@ -79,6 +79,11 @@ class ConversationOutput:
     """The eval task's return for one scripted conversation."""
 
     turns: list[TurnOutput] = field(default_factory=list)
+    # Cost summed across every turn. Multi-turn is where the two designs
+    # diverge most — v1 re-sends a growing transcript, v2 sends a fixed-size
+    # scope object — so the per-conversation total is the revealing number.
+    # Reported, never gated.
+    usage: dict = field(default_factory=dict)
 
 
 def _turns_out(ctx: EvaluatorContext) -> list:

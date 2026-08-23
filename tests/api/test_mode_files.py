@@ -60,13 +60,17 @@ def _active_mode_files() -> list[Path]:
 
 
 def _role_prompt() -> str:
-    mod = ast.parse(_AGENT_PY.read_text(encoding="utf-8"))
-    for node in mod.body:
-        if isinstance(node, ast.Assign) and any(
-            getattr(t, "id", None) == "_ROLE_PROMPT" for t in node.targets
-        ):
-            return node.value.value
-    raise AssertionError("_ROLE_PROMPT not found")
+    """The role prompt text, read from `api/policy.py` where it now lives.
+
+    It moved out of `api/agent.py` so /chat/v2 could share the policy rules
+    rather than keep a paraphrase — the golden eval caught v2 missing the
+    scope boundary entirely. `_ROLE_PROMPT` is now composed from named
+    constants, so an AST scan for a literal in agent.py finds a Name.
+    Importing is safe here: api/policy.py is pure text with no dependencies.
+    """
+    from api.policy import ROLE_PROMPT
+
+    return ROLE_PROMPT
 
 
 def test_no_retired_tool_named_in_active_prompts():

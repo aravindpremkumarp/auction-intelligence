@@ -17,10 +17,12 @@ with its bearer token and renders them as blob: URLs.
 """
 from __future__ import annotations
 
+import logging
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 
 from api.auth.dependencies import get_current_admin
 from api.auth.rate_limit import PUBLIC_READ_LIMIT, limiter
@@ -36,6 +38,8 @@ from api.social.schemas import (
     StatusIn,
 )
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/social", tags=["social"])
 
 _MEDIA_TYPES = {".png": "image/png", ".json": "application/json", ".md": "text/markdown"}
@@ -43,6 +47,73 @@ _MEDIA_TYPES = {".png": "image/png", ".json": "application/json", ".md": "text/m
 
 def _key(date: str, kind: str, stem: str) -> str:
     return f"{date}/{kind}/{stem}"
+
+
+def _stream_private(key: str, headers: dict[str, str], fallback_type: str) -> Response:
+    """Proxy one private R2 object through this admin-gated route.
+
+    Proxied rather than handed over as a presigned URL (the idiom api/dossier
+    uses) because a presigned link leaves our auth gate: it works for anyone
+    holding it, for its whole TTL. The page fetches with its bearer token and
+    renders the result as a blob, so unpublished media is never reachable
+    without an admin session.
+    """
+    from botocore.exceptions import ClientError
+
+    from pipeline import storage
+
+    try:
+        obj = storage.get_private_object(key)
+    except storage.R2ConfigError as exc:
+        raise HTTPException(status_code=503, detail="media storage not configured") from exc
+    except ClientError as exc:
+        # The manifest records a key the bucket no longer has (lifecycle rule,
+        # manual cleanup). A 404 is the honest answer, not a 500.
+        raise HTTPException(status_code=404, detail="object missing") from exc
+
+    body = obj["Body"]
+
+    def _iter():
+        try:
+            for chunk in body.iter_chunks(chunk_size=65536):
+                if chunk:
+                    yield chunk
+        finally:
+            body.close()
+
+    out = dict(headers)
+    if obj.get("ContentLength") is not None:
+        out["Content-Length"] = str(obj["ContentLength"])
+    return StreamingResponse(
+        _iter(),
+        media_type=obj.get("ContentType") or fallback_type,
+        headers=out,
+    )
+
+
+def _fetch_media_blobs(keys: dict[str, str]) -> dict[str, bytes]:
+    """Pull a draft's R2-hosted media for the bundle, skipping any that fail.
+
+    An asset that can't be fetched (R2 unconfigured, object deleted) must not
+    cost the reviewer the rest of the download, so every failure is swallowed
+    here and simply omits that file.
+    """
+    if not keys:
+        return {}
+    from pipeline import storage
+
+    out: dict[str, bytes] = {}
+    for arcname, key in keys.items():
+        try:
+            obj = storage.get_private_object(key)
+            body = obj["Body"]
+            try:
+                out[arcname] = body.read()
+            finally:
+                body.close()
+        except Exception:  # noqa: BLE001 - best effort; the zip ships without it
+            logger.warning("media %s (%s) unavailable for bundle", arcname, key)
+    return out
 
 
 def _statuses_for(date: str) -> dict[str, dict]:
@@ -69,6 +140,8 @@ def _apply_status(artifact: dict, stored: dict[str, dict], date: str) -> Artifac
         png_paths=artifact["png_paths"],
         png_available=artifact["png_available"],
         hook=artifact.get("hook"),
+        video_available=bool(artifact.get("video_key")),
+        video_bytes=artifact.get("video_bytes"),
         status=s.get("status") or "pending",
         note=s.get("note"),
         posted_url=s.get("posted_url"),
@@ -207,23 +280,66 @@ def get_asset(
     download: bool = False,
     _admin: UserOut = Depends(get_current_admin),
 ) -> Response:
-    """Serve one staged file (card PNG, island JSON, review.md) from the batch.
+    """Serve one staged file (card PNG, carousel slide, island JSON, review.md).
+
+    Rendered media lives in R2 and the text-ish files (islands, review.md) stay
+    in git, so this checks the manifest's `media_keys` first and falls back to
+    the filesystem. The fallback is not vestigial: batches staged before the
+    move still have their PNGs committed, and they must keep rendering.
 
     Every failure mode — bad date, traversal attempt, unserved file type,
-    missing file — raises ValueError in the service and lands here as a flat
-    404, so probing cannot distinguish "blocked" from "absent".
+    missing file — becomes a flat 404, so probing cannot distinguish "blocked"
+    from "absent".
     """
+    headers = {"Cache-Control": "private, max-age=60"}
+    filename = relpath.rsplit("/", 1)[-1]
+    if download:
+        headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+
+    try:
+        key = service.media_key_for(date, relpath)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="asset not found") from None
+    if key:
+        return _stream_private(key, headers, fallback_type=_MEDIA_TYPES.get(
+            Path(filename).suffix.lower(), "application/octet-stream"))
+
     try:
         path = service.resolve_asset(date, relpath)
     except ValueError:
         raise HTTPException(status_code=404, detail="asset not found") from None
-    headers = {"Cache-Control": "private, max-age=60"}
-    if download:
-        headers["Content-Disposition"] = f'attachment; filename="{path.name}"'
     return FileResponse(
         str(path),
         media_type=_MEDIA_TYPES.get(path.suffix.lower(), "application/octet-stream"),
         headers=headers,
+    )
+
+
+@router.get("/reel/{date}/{stem}")
+def get_reel_video(
+    date: str,
+    stem: str,
+    _admin: UserOut = Depends(get_current_admin),
+) -> Response:
+    """Stream one staged reel's MP4 from the private R2 bucket.
+
+    Kept separate from /asset because the page addresses reels by stem, not by
+    path — it never sees where the MP4 lives.
+    """
+    try:
+        batch = service.load_batch(date)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    every = [a for d in batch["drafts"] for a in d["artifacts"]] + batch["orphan_artifacts"]
+    match = [a for a in every if a["kind"] == "reel" and a["stem"] == stem]
+    if not match or not match[0].get("video_key"):
+        raise HTTPException(status_code=404, detail="no rendered reel for this stem")
+
+    return _stream_private(
+        match[0]["video_key"],
+        {"Cache-Control": "private, max-age=300"},
+        fallback_type="video/mp4",
     )
 
 
@@ -233,9 +349,16 @@ def get_bundle(
     draft_index: int,
     _admin: UserOut = Depends(get_current_admin),
 ) -> Response:
-    """Zip of one draft's caption, islands and rendered images."""
+    """Zip of one draft's caption, islands, rendered images and reel MP4s.
+
+    Rendered media lives in private R2 rather than on disk, so it's fetched here
+    and handed to the bundler. Best-effort: an object that has gone missing is
+    left out rather than failing the whole download — the captions and islands
+    are still worth having.
+    """
     try:
-        filename, blob = service.bundle_draft(date, draft_index)
+        extras = _fetch_media_blobs(service.draft_media_keys(date, draft_index))
+        filename, blob = service.bundle_draft(date, draft_index, extra_files=extras)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return Response(

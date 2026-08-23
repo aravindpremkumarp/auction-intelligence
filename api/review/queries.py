@@ -87,278 +87,8 @@ def _sort_properties_by_markdown(row: dict) -> None:
     props.sort(key=sort_key)
 
 
-def list_queue(
-    status: ReviewStatus = "pending",
-    q: str | None = None,
-    page: int = 1,
-    size: int = 50,
-    date_from: str | None = None,
-    date_to: str | None = None,
-    notice_type: NoticeTypeFilter | None = None,
-    judge_min: float | None = None,
-    judge_max: float | None = None,
-) -> dict:
-    """Return a page of properties whose description came from a notice
-    extraction (or a human edit), filtered by review status.
-
-    Pending = description_source IN ['notice','human'] AND NOT description_verified.
-    Verified = description_verified = true AND description_source = 'notice'.
-    Edited = description_verified = true AND description_source = 'human'.
-
-    Optional date_from / date_to filter on auction_start_dt (ISO date strings,
-    YYYY-MM-DD). Property is included if its auction_start_dt falls in the
-    [date_from, date_to] window (inclusive). Properties with a null
-    auction_start_dt are excluded when either bound is set.
-    """
-    page = max(1, int(page))
-    size = max(1, min(200, int(size)))
-    skip = (page - 1) * size
-
-    where = ["a.description_source IN ['notice', 'human']", "a.description IS NOT NULL"]
-    if status == "pending":
-        where.append("coalesce(a.description_verified, false) = false")
-    elif status == "verified":
-        where.append("coalesce(a.description_verified, false) = true")
-        where.append("a.description_source = 'notice'")
-    elif status == "edited":
-        where.append("coalesce(a.description_verified, false) = true")
-        where.append("a.description_source = 'human'")
-    # "all" → no extra filter
-
-    params: dict = {"skip": skip, "size": size}
-    if q:
-        # `b` is collapsed into the `borrowers` collection before this WHERE
-        # runs, so the borrower search must go through the collection (an
-        # `ANY` over `borrowers`) rather than referencing `b.name` directly.
-        where.append(
-            "(toLower(coalesce(a.title, '')) CONTAINS toLower($q) "
-            "OR ANY(bn IN borrowers WHERE toLower(coalesce(bn, '')) CONTAINS toLower($q)))"
-        )
-        params["q"] = q
-    if judge_min is not None:
-        where.append("coalesce(a.description_judge_confidence, 0.0) >= $judge_min")
-        params["judge_min"] = float(judge_min)
-    if judge_max is not None:
-        where.append("coalesce(a.description_judge_confidence, 0.0) <= $judge_max")
-        params["judge_max"] = float(judge_max)
-    if date_from:
-        where.append("a.auction_start_dt IS NOT NULL AND date(a.auction_start_dt) >= date($date_from)")
-        params["date_from"] = date_from
-    if date_to:
-        where.append("a.auction_start_dt IS NOT NULL AND date(a.auction_start_dt) <= date($date_to)")
-        params["date_to"] = date_to
-
-    nt_clause = _notice_type_clause(notice_type, alias="d")
-    if nt_clause:
-        where.append(nt_clause)
-
-    where_clause = " AND ".join(where)
-
-    cypher = f"""
-        MATCH (a:AuctionProperty)
-        OPTIONAL MATCH (a)-[:HAS_BORROWER]->(b:Borrower)
-        OPTIONAL MATCH (a)-[:HAS_DOCUMENT]->(d:Document)
-        WITH a, collect(DISTINCT b.name) AS borrowers,
-             collect(DISTINCT d) AS docs
-        WITH a, borrowers, docs, head(docs) AS d
-        WHERE {where_clause}
-        RETURN a.auction_id                AS auction_id,
-               a.title                     AS title,
-               borrowers                   AS borrowers,
-               a.reserve_price_num         AS reserve_price,
-               a.description_completeness  AS completeness,
-               a.description_wrong_property AS wrong_property,
-               a.description_text_overlap  AS text_overlap,
-               a.description_source        AS source,
-               coalesce(a.description_verified, false) AS verified,
-               a.description_verified_at   AS verified_at,
-               a.description_verified_by   AS verified_by,
-               d.notice_type               AS notice_type,
-               (d.public_url IS NOT NULL AND d.public_url <> '') AS has_pdf
-        ORDER BY verified ASC,
-                 coalesce(a.description_completeness, 0.0) ASC,
-                 coalesce(a.description_text_overlap, 0.0) ASC,
-                 a.auction_id ASC
-        SKIP $skip LIMIT $size
-    """
-    rows = run_read_query(cypher, params, max_rows=size)
-
-    # Total count.  When a notice_type filter is active, we must join Document
-    # to apply it; otherwise strip d. predicates as before (the count query
-    # in the no-filter path doesn't pull docs for performance).
-    if notice_type:
-        count_cypher = f"""
-            MATCH (a:AuctionProperty)
-            OPTIONAL MATCH (a)-[:HAS_BORROWER]->(b:Borrower)
-            OPTIONAL MATCH (a)-[:HAS_DOCUMENT]->(d:Document)
-            WITH a, collect(DISTINCT b.name) AS borrowers,
-                 collect(DISTINCT d) AS docs
-            WITH a, borrowers, head(docs) AS d
-            WHERE {where_clause}
-            RETURN count(a) AS total
-        """
-    else:
-        count_where = [w for w in where if "d." not in w]
-        count_cypher = f"""
-            MATCH (a:AuctionProperty)
-            OPTIONAL MATCH (a)-[:HAS_BORROWER]->(b:Borrower)
-            WITH a, collect(DISTINCT b.name) AS borrowers
-            WHERE {' AND '.join(count_where)}
-            RETURN count(a) AS total
-        """
-    count_rows = run_read_query(count_cypher, params, max_rows=1)
-    total = count_rows[0]["total"] if count_rows else 0
-
-    return {"page": page, "size": size, "total": total, "rows": rows}
 
 
-def list_notice_queue(
-    status: ReviewStatus = "pending",
-    q: str | None = None,
-    page: int = 1,
-    size: int = 50,
-    date_from: str | None = None,
-    date_to: str | None = None,
-    notice_type: NoticeTypeFilter | None = None,
-    judge_min: float | None = None,
-    judge_max: float | None = None,
-) -> dict:
-    """Return a page of sales notices (Documents), each carrying the list of
-    AuctionProperty rows extracted from it.
-
-    Lets reviewers close 5–7 listings of a multi-property notice in one sitting
-    instead of jumping back to the queue after every verify.
-
-    Status semantics at the notice level:
-    - pending: notice has at least one property still pending review
-    - verified: every property under the notice has been verified
-    - edited: at least one property under the notice was human-edited
-    - all: every notice that backs any reviewable property
-
-    date_from / date_to filter linked properties by auction_start_dt. A notice
-    is surfaced if any property survives the date filter; aggregate counts
-    (total/pending/verified/edited) are computed over surviving properties only,
-    so filtered totals reflect what the reviewer can actually act on.
-    """
-    page = max(1, int(page))
-    size = max(1, min(200, int(size)))
-    skip = (page - 1) * size
-
-    if status == "pending":
-        notice_filter = "pending_count > 0"
-    elif status == "verified":
-        notice_filter = "pending_count = 0"
-    elif status == "edited":
-        notice_filter = "edited_count > 0"
-    else:
-        notice_filter = "true"
-
-    params: dict = {"skip": skip, "size": size}
-    search_filter = "true"
-    if q:
-        params["q"] = q
-        search_filter = (
-            "(toLower(coalesce(d.filename, '')) CONTAINS toLower($q) "
-            "OR ANY(p IN properties WHERE "
-            "  toLower(coalesce(p.title, '')) CONTAINS toLower($q) "
-            "  OR ANY(bb IN p.borrowers WHERE toLower(coalesce(bb, '')) CONTAINS toLower($q))))"
-        )
-
-    date_predicate = ""
-    if date_from:
-        date_predicate += " AND a.auction_start_dt IS NOT NULL AND date(a.auction_start_dt) >= date($date_from)"
-        params["date_from"] = date_from
-    if date_to:
-        date_predicate += " AND a.auction_start_dt IS NOT NULL AND date(a.auction_start_dt) <= date($date_to)"
-        params["date_to"] = date_to
-    # Score (completeness-judge confidence) filter — narrows the per-property
-    # rows that feed each notice's aggregate counts, so a notice surfaces only
-    # while it has reviewable properties inside the requested score band.
-    if judge_min is not None:
-        date_predicate += " AND coalesce(a.description_judge_confidence, 0.0) >= $judge_min"
-        params["judge_min"] = float(judge_min)
-    if judge_max is not None:
-        date_predicate += " AND coalesce(a.description_judge_confidence, 0.0) <= $judge_max"
-        params["judge_max"] = float(judge_max)
-    nt_clause = _notice_type_clause(notice_type, alias="d")
-    if nt_clause:
-        date_predicate += f" AND {nt_clause}"
-
-    cypher = f"""
-        MATCH (d:Document)<-[:HAS_DOCUMENT]-(a:AuctionProperty)
-        WHERE a.description_source IN ['notice', 'human']
-          AND a.description IS NOT NULL
-          {date_predicate}
-        OPTIONAL MATCH (a)-[:HAS_BORROWER]->(b:Borrower)
-        WITH d, a, collect(DISTINCT b.name) AS borrowers
-        WITH d, collect({{
-                auction_id:    a.auction_id,
-                title:         a.title,
-                borrowers:     borrowers,
-                reserve_price: a.reserve_price_num,
-                completeness:  a.description_completeness,
-                source:        a.description_source,
-                verified:      coalesce(a.description_verified, false),
-                verified_at:   a.description_verified_at,
-                verified_by:   a.description_verified_by
-             }}) AS properties
-        WITH d, properties,
-             size(properties) AS total_count,
-             size([p IN properties WHERE p.verified = false]) AS pending_count,
-             size([p IN properties WHERE p.verified = true AND p.source = 'notice']) AS verified_count,
-             size([p IN properties WHERE p.verified = true AND p.source = 'human']) AS edited_count
-        WHERE {notice_filter} AND {search_filter}
-        RETURN d.filename                       AS filename,
-               d.file_path                      AS file_path,
-               d.public_url                     AS public_url,
-               d.notice_type                    AS notice_type,
-               coalesce(d.property_count, total_count) AS doc_property_count,
-               total_count                      AS total_count,
-               pending_count                    AS pending_count,
-               verified_count                   AS verified_count,
-               edited_count                     AS edited_count,
-               properties                       AS properties,
-               d.markdown                       AS markdown
-        ORDER BY pending_count DESC,
-                 total_count DESC,
-                 filename ASC
-        SKIP $skip LIMIT $size
-    """
-    rows = run_read_query(cypher, params, max_rows=size, timeout=30.0)
-
-    count_cypher = f"""
-        MATCH (d:Document)<-[:HAS_DOCUMENT]-(a:AuctionProperty)
-        WHERE a.description_source IN ['notice', 'human']
-          AND a.description IS NOT NULL
-          {date_predicate}
-        OPTIONAL MATCH (a)-[:HAS_BORROWER]->(b:Borrower)
-        WITH d, a, collect(DISTINCT b.name) AS borrowers
-        WITH d, collect({{
-                auction_id:    a.auction_id,
-                title:         a.title,
-                borrowers:     borrowers,
-                reserve_price: a.reserve_price_num,
-                completeness:  a.description_completeness,
-                source:        a.description_source,
-                verified:      coalesce(a.description_verified, false)
-             }}) AS properties
-        WITH d, properties,
-             size([p IN properties WHERE p.verified = false]) AS pending_count,
-             size([p IN properties WHERE p.verified = true AND p.source = 'human']) AS edited_count
-        WHERE {notice_filter} AND {search_filter}
-        RETURN count(d) AS total
-    """
-    count_rows = run_read_query(count_cypher, params, max_rows=1, timeout=30.0)
-    total = count_rows[0]["total"] if count_rows else 0
-
-    for r in rows:
-        for p in r.get("properties") or []:
-            v = p.get("verified_at")
-            if v is not None and not isinstance(v, str):
-                p["verified_at"] = str(v)
-        _sort_properties_by_markdown(r)
-
-    return {"page": page, "size": size, "total": total, "rows": rows}
 
 
 def list_notice_siblings(auction_id: str) -> dict | None:
@@ -566,95 +296,6 @@ def unverify(auction_id: str) -> bool:
     return bool(rows)
 
 
-def auto_confirm_descriptions(
-    judge_min: float,
-    by_email: str,
-    notes: str | None = None,
-    dry_run: bool = False,
-    judge_max: float = 1.0,
-    notice_type: NoticeTypeFilter | None = None,
-    date_from: str | None = None,
-    date_to: str | None = None,
-    q: str | None = None,
-) -> dict:
-    """Bulk-verify every pending property whose description matches the
-    reviewer's current description-queue filter (completeness-judge score
-    range, notice_type, date window, title/borrower search).
-
-    Mirrors the pending-side WHERE of ``list_queue`` so the count advertised
-    on the "Confirm all N in range" button and the set actually verified stay
-    in lockstep. Only the verification audit fields are stamped — the
-    description text and source are left untouched (no re-extract).
-
-    Returns ``{"count": N, "dry_run": bool}``. When ``dry_run=True`` nothing
-    is written; the count reflects what *would* be confirmed.
-    """
-    where = [
-        "a.description_source IN ['notice', 'human']",
-        "a.description IS NOT NULL",
-        "coalesce(a.description_verified, false) = false",
-    ]
-    params: dict = {}
-    if q:
-        where.append(
-            "(toLower(coalesce(a.title, '')) CONTAINS toLower($q) "
-            "OR ANY(bn IN borrowers WHERE toLower(coalesce(bn, '')) CONTAINS toLower($q)))"
-        )
-        params["q"] = q
-    if judge_min is not None:
-        where.append("coalesce(a.description_judge_confidence, 0.0) >= $judge_min")
-        params["judge_min"] = float(judge_min)
-    if judge_max is not None:
-        where.append("coalesce(a.description_judge_confidence, 0.0) <= $judge_max")
-        params["judge_max"] = float(judge_max)
-    if date_from:
-        where.append("a.auction_start_dt IS NOT NULL AND date(a.auction_start_dt) >= date($date_from)")
-        params["date_from"] = date_from
-    if date_to:
-        where.append("a.auction_start_dt IS NOT NULL AND date(a.auction_start_dt) <= date($date_to)")
-        params["date_to"] = date_to
-    nt_clause = _notice_type_clause(notice_type, alias="d")
-    if nt_clause:
-        where.append(nt_clause)
-    where_clause = " AND ".join(where)
-
-    base_match = """
-        MATCH (a:AuctionProperty)
-        OPTIONAL MATCH (a)-[:HAS_BORROWER]->(b:Borrower)
-        OPTIONAL MATCH (a)-[:HAS_DOCUMENT]->(d:Document)
-        WITH a, collect(DISTINCT b.name) AS borrowers,
-             head(collect(DISTINCT d)) AS d
-    """
-
-    if dry_run:
-        rows = run_read_query(
-            f"""
-            {base_match}
-            WHERE {where_clause}
-            RETURN count(a) AS n
-            """,
-            params,
-            max_rows=1,
-        )
-        return {"count": int(rows[0]["n"]) if rows else 0, "dry_run": True}
-
-    params["by"] = by_email
-    params["notes"] = notes
-    rows = run_query(
-        f"""
-        {base_match}
-        WHERE {where_clause}
-        SET a.description_verified = true,
-            a.description_verified_by = $by,
-            a.description_verified_at = datetime(),
-            a.description_review_notes = CASE WHEN $notes IS NULL OR $notes = ''
-                                              THEN a.description_review_notes
-                                              ELSE $notes END
-        RETURN count(a) AS n
-        """,
-        params,
-    )
-    return {"count": int(rows[0]["n"]) if rows else 0, "dry_run": False}
 
 
 ClassificationStatus = Literal["pending", "verified", "edited", "all"]
@@ -663,12 +304,9 @@ ClassificationStatus = Literal["pending", "verified", "edited", "all"]
 def _classification_where(
     status: ClassificationStatus,
     q: str | None = None,
-    confidence_min: float | None = None,
-    confidence_max: float | None = None,
     notice_type: NoticeTypeFilter | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
-    agrees_only: bool = False,
 ) -> tuple[list[str], dict]:
     """Shared filter clause for the classification queue + bulk-confirm.
 
@@ -691,15 +329,6 @@ def _classification_where(
     if q:
         where.append("toLower(coalesce(d.filename, '')) CONTAINS toLower($q)")
         params["q"] = q
-    if confidence_min is not None:
-        where.append("coalesce(d.notice_type_confidence, 0.0) >= $confidence_min")
-        params["confidence_min"] = float(confidence_min)
-    if confidence_max is not None:
-        where.append("coalesce(d.notice_type_confidence, 0.0) <= $confidence_max")
-        params["confidence_max"] = float(confidence_max)
-    if agrees_only:
-        where.append("d.notice_type_classifier_pred IS NOT NULL")
-        where.append("d.notice_type = d.notice_type_classifier_pred")
 
     nt_clause = _notice_type_clause(notice_type, alias="d")
     if nt_clause:
@@ -719,9 +348,6 @@ def list_classification_queue(
     q: str | None = None,
     page: int = 1,
     size: int = 50,
-    confidence_min: float | None = None,
-    confidence_max: float | None = None,
-    agrees_only: bool = False,
     notice_type: NoticeTypeFilter | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
@@ -734,11 +360,6 @@ def list_classification_queue(
       - edited:   human overrode the type (notice_type_overridden = true)
       - all:      every Document with a notice_type
 
-    confidence_min / agrees_only are independent filters layered on top of
-    status — used by the "auto-confirm" UI to surface unverified notices
-    whose classifier prediction already matches notice_type at or above a
-    chosen confidence threshold.
-
     date_from / date_to filter to Documents linked to any AuctionProperty
     whose auction_start_dt falls in the window.
     """
@@ -748,10 +369,8 @@ def list_classification_queue(
 
     where, params = _classification_where(
         status=status, q=q,
-        confidence_min=confidence_min, confidence_max=confidence_max,
         notice_type=notice_type,
         date_from=date_from, date_to=date_to,
-        agrees_only=agrees_only,
     )
     params["skip"] = skip
     params["size"] = size
@@ -769,24 +388,15 @@ def list_classification_queue(
                d.public_url                     AS public_url,
                d.notice_type                    AS notice_type,
                coalesce(d.property_count, size(auction_ids)) AS property_count,
-               d.notice_type_classifier_pred    AS classifier_pred,
-               d.notice_type_confidence         AS classifier_confidence,
-               d.notice_type_reasoning          AS classifier_reasoning,
-               d.notice_type_model              AS classifier_model,
-               toString(d.notice_type_classified_at) AS classified_at,
+               d.expected_lot_count             AS expected_lot_count,
                coalesce(d.notice_type_overridden, false) AS overridden,
                (d.notice_type_verified_at IS NOT NULL) AS verified,
                toString(d.notice_type_verified_at) AS verified_at,
                d.notice_type_verified_by        AS verified_by,
                d.notice_type_review_notes       AS review_notes,
-               d.description_extraction_status  AS extraction_status,
-               (d.notice_type_classifier_pred IS NOT NULL
-                AND d.notice_type <> d.notice_type_classifier_pred) AS disagreement,
                [t IN titles WHERE t IS NOT NULL][0..3] AS sample_titles,
                size(auction_ids)                AS auction_id_count
-        ORDER BY disagreement DESC,
-                 verified ASC,
-                 coalesce(d.notice_type_confidence, 0.0) ASC,
+        ORDER BY verified ASC,
                  d.filename ASC
         SKIP $skip LIMIT $size
     """
@@ -808,8 +418,6 @@ def list_classification_queue_by_property(
     q: str | None = None,
     page: int = 1,
     size: int = 50,
-    confidence_min: float | None = None,
-    confidence_max: float | None = None,
     notice_type: NoticeTypeFilter | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
@@ -832,13 +440,6 @@ def list_classification_queue_by_property(
         where.append("d.notice_type_verified_at IS NOT NULL")
         where.append("coalesce(d.notice_type_overridden, false) = true")
     # "all" → no extra filter
-
-    if confidence_min is not None:
-        where.append("coalesce(d.notice_type_confidence, 0.0) >= $confidence_min")
-        params["confidence_min"] = float(confidence_min)
-    if confidence_max is not None:
-        where.append("coalesce(d.notice_type_confidence, 0.0) <= $confidence_max")
-        params["confidence_max"] = float(confidence_max)
 
     nt_clause = _notice_type_clause(notice_type, alias="d")
     if nt_clause:
@@ -868,7 +469,6 @@ def list_classification_queue_by_property(
                a.reserve_price_num                AS reserve_price,
                d.filename                         AS notice_filename,
                d.notice_type                      AS notice_type,
-               d.notice_type_confidence           AS notice_type_confidence,
                coalesce(d.notice_type_overridden, false) AS overridden,
                (d.notice_type_verified_at IS NOT NULL) AS verified,
                toString(d.notice_type_verified_at) AS verified_at
@@ -940,16 +540,20 @@ def verify_classification(
     notice_type: str,
     by_email: str,
     notes: str | None,
+    expected_lot_count: int | None = None,
 ) -> dict | None:
     """Set a Document's notice_type from human review.
 
+    ``expected_lot_count`` is the reviewer's count of lots in the notice —
+    the downstream checksum for LangExtract (extracted lots must match).
+    'single' implies 1, so it is stamped even when the reviewer omits it;
+    for 'multi' the count is stored only when given.
+
     Side effects when the new notice_type differs from the prior:
-      - description_extraction_status is set to 'needs_reextract' so the
-        next pipeline run regenerates the cache file and apply.
       - Every linked AuctionProperty whose description was NOT human-edited
         is unverified (description_verified=false; audit fields cleared).
         The description text stays in place — it gets overwritten by the
-        next pipeline run, after which the reviewer re-verifies.
+        next LangExtract apply, after which the reviewer re-verifies.
       - Human-edited rows (description_source='human') are NEVER touched;
         their edits stand regardless of classification flips.
 
@@ -957,23 +561,28 @@ def verify_classification(
     """
     if notice_type not in ("single", "multi"):
         raise ValueError("notice_type must be 'single' or 'multi'")
+    if expected_lot_count is not None:
+        if notice_type == "single" and expected_lot_count != 1:
+            raise ValueError("a 'single' notice has exactly 1 lot")
+        if notice_type == "multi" and expected_lot_count < 2:
+            raise ValueError("a 'multi' notice has at least 2 lots")
+    if expected_lot_count is None and notice_type == "single":
+        expected_lot_count = 1
     params = {"filename": filename, "nt": notice_type,
-              "by": by_email, "notes": notes}
+              "by": by_email, "notes": notes,
+              "elc": expected_lot_count}
     rows = run_query("""
         MATCH (d:Document {filename: $filename})
         WITH d, d.notice_type AS prior
         SET d.notice_type                  = $nt,
+            d.expected_lot_count           = coalesce($elc, d.expected_lot_count),
             d.notice_type_overridden       = true,
             d.notice_type_verified_at      = datetime(),
             d.notice_type_verified_by      = $by,
             d.notice_type_review_notes     = CASE
                 WHEN $notes IS NULL OR $notes = ''
                 THEN d.notice_type_review_notes
-                ELSE $notes END,
-            d.description_extraction_status = CASE
-                WHEN prior = $nt
-                THEN d.description_extraction_status
-                ELSE 'needs_reextract' END
+                ELSE $notes END
         WITH d, prior
         OPTIONAL MATCH (d)<-[:HAS_DOCUMENT]-(a:AuctionProperty)
         WHERE prior <> $nt
@@ -986,28 +595,26 @@ def verify_classification(
         )
         RETURN d.filename                          AS filename,
                d.notice_type                       AS notice_type,
+               d.expected_lot_count                AS expected_lot_count,
                toString(d.notice_type_verified_at) AS verified_at,
                d.notice_type_verified_by           AS verified_by,
                d.notice_type_review_notes          AS review_notes,
-               d.description_extraction_status     AS extraction_status,
                size(to_invalidate)                 AS invalidated_count
     """, params)
     return rows[0] if rows else None
 
 
 def auto_confirm_classifications(
-    confidence_min: float,
     by_email: str,
     notes: str | None = None,
     dry_run: bool = False,
-    confidence_max: float = 1.0,
     notice_type: NoticeTypeFilter | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
     q: str | None = None,
 ) -> dict:
     """Bulk-verify every pending Document that matches the reviewer's current
-    queue filter (confidence range, notice_type, date window, filename search).
+    queue filter (notice_type, date window, filename search).
 
     The reviewer's click on "Confirm all N in range" means "I've eyeballed
     the visible gallery and approve them all" — so we mirror the exact
@@ -1025,8 +632,6 @@ def auto_confirm_classifications(
     where, params = _classification_where(
         status="pending",
         q=q,
-        confidence_min=confidence_min,
-        confidence_max=confidence_max,
         notice_type=notice_type,
         date_from=date_from,
         date_to=date_to,
@@ -1056,7 +661,11 @@ def auto_confirm_classifications(
             d.notice_type_review_notes = CASE
                 WHEN $notes IS NULL OR $notes = ''
                 THEN d.notice_type_review_notes
-                ELSE $notes END
+                ELSE $notes END,
+            d.expected_lot_count = CASE
+                WHEN d.notice_type = 'single'
+                THEN coalesce(d.expected_lot_count, 1)
+                ELSE d.expected_lot_count END
         RETURN count(d) AS n
         """,
         params,
@@ -1064,88 +673,50 @@ def auto_confirm_classifications(
     return {"count": int(rows[0]["n"]) if rows else 0, "dry_run": False}
 
 
-def stats(
-    date_from: str | None = None,
-    date_to: str | None = None,
-    notice_type: NoticeTypeFilter | None = None,
-) -> dict:
-    """Counts for the queue header — pending / verified / edited / total.
-
-    Optional date_from / date_to filter properties by auction_start_dt so the
-    pills reflect the current date filter the reviewer has applied.
-
-    Optional notice_type filter scopes stats to properties backed by a
-    Document of the given type. When filtering, an OPTIONAL MATCH to Document
-    is added; properties with no Document have d.notice_type = NULL, so they
-    are excluded by single/multi filters and included by unclassified.
-    """
-    where = ["a.description_source IN ['notice', 'human']", "a.description IS NOT NULL"]
-    params: dict = {}
-    if date_from:
-        where.append("a.auction_start_dt IS NOT NULL AND date(a.auction_start_dt) >= date($date_from)")
-        params["date_from"] = date_from
-    if date_to:
-        where.append("a.auction_start_dt IS NOT NULL AND date(a.auction_start_dt) <= date($date_to)")
-        params["date_to"] = date_to
-
-    nt_clause = _notice_type_clause(notice_type, alias="d")
-    if nt_clause:
-        where.append(nt_clause)
-
-    where_str = ' AND '.join(where)
-
-    if nt_clause:
-        # Need to join Document to apply the filter; OPTIONAL MATCH so that
-        # properties without a document still participate (NULL d.notice_type
-        # satisfies `IS NULL` but fails `= 'single'/'multi'` — correct).
-        cypher = f"""
-            MATCH (a:AuctionProperty)
-            OPTIONAL MATCH (a)-[:HAS_DOCUMENT]->(d:Document)
-            WITH a, head(collect(d)) AS d
-            WHERE {where_str}
-            RETURN
-              count(*) AS total,
-              sum(CASE WHEN coalesce(a.description_verified, false) = false THEN 1 ELSE 0 END) AS pending,
-              sum(CASE WHEN coalesce(a.description_verified, false) = true
-                        AND a.description_source = 'notice' THEN 1 ELSE 0 END) AS verified,
-              sum(CASE WHEN coalesce(a.description_verified, false) = true
-                        AND a.description_source = 'human' THEN 1 ELSE 0 END) AS edited
-        """
-    else:
-        cypher = f"""
-            MATCH (a:AuctionProperty)
-            WHERE {where_str}
-            RETURN
-              count(*) AS total,
-              sum(CASE WHEN coalesce(a.description_verified, false) = false THEN 1 ELSE 0 END) AS pending,
-              sum(CASE WHEN coalesce(a.description_verified, false) = true
-                        AND a.description_source = 'notice' THEN 1 ELSE 0 END) AS verified,
-              sum(CASE WHEN coalesce(a.description_verified, false) = true
-                        AND a.description_source = 'human' THEN 1 ELSE 0 END) AS edited
-        """
-    rows = run_read_query(cypher, params, max_rows=1)
-    if not rows:
-        return {"total": 0, "pending": 0, "verified": 0, "edited": 0}
-    r = rows[0]
-    return {
-        "total": int(r.get("total") or 0),
-        "pending": int(r.get("pending") or 0),
-        "verified": int(r.get("verified") or 0),
-        "edited": int(r.get("edited") or 0),
-    }
-
-
-# ── Markdown-quality review ─────────────────────────────────────────────────
-# A :Document's `markdown` is OCR output. Coverage scoring
-# (pipeline/score_markdown.py) writes `markdown_quality_score` 0–100 per
-# Document; reviewers focus on the low end. Verify writes:
-#   - markdown_quality              ('good' | 'bad')
-#   - markdown_verified_at          (datetime)
-#   - markdown_verified_by          (admin email)
-#   - markdown_review_notes         (optional)
 
 
 MarkdownStatus = Literal["pending", "verified", "edited", "all"]
+
+
+def _parse_quality_where(pq_min: float | None,
+                         pq_max: float | None) -> tuple[list[str], dict]:
+    """WHERE fragments for the Datalab parse-quality filter (0–5, higher is
+    better).
+
+    Distinct from OCR health on purpose: health is our own text-only verdict
+    (``pipeline/ocr_health.py``) and cannot see content the engine dropped,
+    while parse quality is Datalab's own read on the *page*. A notice that
+    lost a third of its text scores 100 health and ~3 parse quality, so the
+    two filters answer different questions and compose.
+
+    Documents with no stored score are excluded once either bound is set —
+    same rule as the health filter, and the honest one here since a missing
+    score means "never measured", not "fine".
+    """
+    where: list[str] = []
+    params: dict = {}
+    if pq_min is not None:
+        where.append("d.parse_quality_score IS NOT NULL")
+        where.append("d.parse_quality_score >= $pq_min")
+        params["pq_min"] = float(pq_min)
+    if pq_max is not None:
+        where.append("d.parse_quality_score IS NOT NULL")
+        where.append("d.parse_quality_score <= $pq_max")
+        params["pq_max"] = float(pq_max)
+    return where, params
+
+
+def _health_flags_where(flags: list[str] | None) -> tuple[list[str], dict]:
+    """WHERE fragment matching Documents carrying ANY of ``flags``.
+
+    OR, not AND: the reviewer picking `missing-region` + `repetition` wants the
+    queue of everything broken in either way, not the rare doc broken in both.
+    An empty/None list is no filter at all.
+    """
+    if not flags:
+        return [], {}
+    return (["any(f IN coalesce(d.ocr_health_flags, []) WHERE f IN $health_flags)"],
+            {"health_flags": list(flags)})
 
 
 def _markdown_where(
@@ -1156,6 +727,9 @@ def _markdown_where(
     date_from: str | None = None,
     date_to: str | None = None,
     q: str | None = None,
+    pq_min: float | None = None,
+    pq_max: float | None = None,
+    flags: list[str] | None = None,
 ) -> tuple[list[str], dict]:
     where = ["d.markdown IS NOT NULL", "d.markdown <> ''"]
     params: dict = {}
@@ -1179,6 +753,12 @@ def _markdown_where(
         where.append("d.ocr_health_score IS NOT NULL")
         where.append("d.ocr_health_score <= $score_max")
         params["score_max"] = float(score_max)
+    pq_where, pq_params = _parse_quality_where(pq_min, pq_max)
+    where.extend(pq_where)
+    params.update(pq_params)
+    fl_where, fl_params = _health_flags_where(flags)
+    where.extend(fl_where)
+    params.update(fl_params)
     clause = _notice_type_clause(notice_type, alias="d")
     if clause:
         where.append(clause)
@@ -1285,12 +865,16 @@ def list_markdown_queue(
     notice_type: NoticeTypeFilter | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
+    pq_min: float | None = None,
+    pq_max: float | None = None,
+    flags: list[str] | None = None,
 ) -> dict:
     """Return a page of Documents for markdown-quality review.
 
     Order: pending first, then lowest OCR-health first (so the worst OCR
     floats to the top of the reviewer's queue). `score_min`/`score_max`
     filter on ocr_health_score — the markdown stage's single score.
+    `pq_min`/`pq_max` filter on Datalab's parse_quality_score (0–5).
 
     date_from / date_to filter to Documents linked to any AuctionProperty
     whose auction_start_dt falls in the window.
@@ -1302,6 +886,7 @@ def list_markdown_queue(
     where, params = _markdown_where(
         status, score_min, score_max, notice_type,
         date_from=date_from, date_to=date_to, q=q,
+        pq_min=pq_min, pq_max=pq_max, flags=flags,
     )
     params.update({"skip": skip, "size": size})
     where_clause = " AND ".join(where)
@@ -1324,6 +909,8 @@ def list_markdown_queue(
                d.markdown_quality_score         AS score,
                d.ocr_health_score               AS ocr_health_score,
                d.ocr_health_flags               AS ocr_health_flags,
+               d.parse_quality_score            AS parse_quality_score,
+               d.ink_uncovered_ratio            AS ink_uncovered_ratio,
                d.markdown_quality               AS quality,
                (d.markdown_verified_at IS NOT NULL) AS verified,
                toString(d.markdown_verified_at) AS verified_at,
@@ -1359,6 +946,9 @@ def list_markdown_queue_by_property(
     notice_type: NoticeTypeFilter | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
+    pq_min: float | None = None,
+    pq_max: float | None = None,
+    flags: list[str] | None = None,
 ) -> dict:
     """One row per AuctionProperty projected with its Document's
     markdown-quality status."""
@@ -1388,6 +978,14 @@ def list_markdown_queue_by_property(
         where.append("d.ocr_health_score IS NOT NULL")
         where.append("d.ocr_health_score <= $score_max")
         params["score_max"] = float(score_max)
+
+    pq_where, pq_params = _parse_quality_where(pq_min, pq_max)
+    where.extend(pq_where)
+    params.update(pq_params)
+
+    fl_where, fl_params = _health_flags_where(flags)
+    where.extend(fl_where)
+    params.update(fl_params)
 
     nt_clause = _notice_type_clause(notice_type, alias="d")
     if nt_clause:
@@ -1420,6 +1018,7 @@ def list_markdown_queue_by_property(
                d.markdown_quality_score           AS score,
                d.ocr_health_score                 AS ocr_health_score,
                d.ocr_health_flags                 AS ocr_health_flags,
+               d.parse_quality_score              AS parse_quality_score,
                d.markdown_quality                 AS quality,
                (d.markdown_verified_at IS NOT NULL) AS verified,
                toString(d.markdown_verified_at)   AS verified_at
@@ -1469,6 +1068,7 @@ def verify_markdown(
                d.markdown_quality_score         AS score,
                d.ocr_health_score               AS ocr_health_score,
                d.ocr_health_flags               AS ocr_health_flags,
+               d.parse_quality_score            AS parse_quality_score,
                d.markdown_quality               AS quality,
                true                             AS verified,
                toString(d.markdown_verified_at) AS verified_at,
@@ -1492,11 +1092,16 @@ def auto_confirm_markdown(
     date_from: str | None = None,
     date_to: str | None = None,
     q: str | None = None,
+    pq_min: float | None = None,
+    pq_max: float | None = None,
+    flags: list[str] | None = None,
 ) -> dict:
     """Bulk-verify (quality='good') every pending Document that matches the
-    reviewer's current queue filter (score range, notice_type, date window,
-    filename search). Mirrors `list_markdown_queue` via the shared
-    `_markdown_where` helper so the count and the action stay aligned.
+    reviewer's current queue filter (score range, parse-quality range, health
+    flags, notice_type, date window, filename search). Mirrors `list_markdown_queue`
+    via the shared `_markdown_where` helper so the count and the action stay
+    aligned — the parse-quality bounds MUST be threaded through here too, or
+    the button confirms a wider set than the queue it is labelled with.
 
     Returns ``{"count": N, "dry_run": bool}``.
     """
@@ -1508,6 +1113,9 @@ def auto_confirm_markdown(
         date_from=date_from,
         date_to=date_to,
         q=q,
+        pq_min=pq_min,
+        pq_max=pq_max,
+        flags=flags,
     )
     params["by"] = by_email
     params["notes"] = notes
@@ -1541,3 +1149,873 @@ def auto_confirm_markdown(
         params,
     )
     return {"count": int(rows[0]["n"]) if rows else 0, "dry_run": False}
+
+
+# ── Pipeline overview ───────────────────────────────────────────────────────
+
+# The workflow a notice moves through, in the order it actually runs: each
+# machine step is followed by the human gate that accepts it. Classification
+# comes before OCR because notice_type routes the OCR tier (single -> fast,
+# multi -> accurate, see pipeline.config.datalab_mode_for), so a notice whose
+# type nobody confirmed has not really cleared the step that feeds the parser.
+#
+# Counts are CUMULATIVE — a document counts at stage N only if it cleared
+# 1..N-1. Counted independently the corpus reports more notices extracted
+# (1,553) than markdown-verified (1,489), because extraction has run ahead of
+# review; every "drop" between stages would then be fiction.
+#
+# Block layer and ink coverage are deliberately absent: they are measurements
+# taken alongside the workflow, not steps in it, and they surface under
+# "attention" instead.
+PIPELINE_STAGES: list[tuple[str, str, str]] = [
+    ("scraped",       "Scraped",              "true"),
+    ("classified",    "Classified single/multi",
+     "d.notice_type IS NOT NULL"),
+    ("class_ok",      "Classification reviewed",
+     "d.notice_type_verified_at IS NOT NULL"),
+    ("ocr",           "OCR'd",
+     "d.markdown IS NOT NULL AND d.markdown <> ''"),
+    ("ocr_ok",        "OCR reviewed",
+     "d.markdown_verified_at IS NOT NULL"),
+    ("extracted",     "Entities extracted",
+     "d.extraction_json IS NOT NULL"),
+    ("extract_ok",    "Extraction reviewed",
+     "coalesce(d.extraction_review_status,'pending') = 'verified'"),
+    # Resolved means both resolvers have been over the notice: its lender
+    # (document-level) and its properties' places. Documents with no linked
+    # property have no places to resolve, so they clear on the lender alone.
+    ("resolved",      "Entities resolved",
+     "d.entity_resolved_at IS NOT NULL AND (d.place_resolved_at IS NOT NULL "
+     "OR NOT EXISTS { MATCH (:AuctionProperty)-[:HAS_DOCUMENT]->(d) })"),
+    # Resolution review is corpus-shaped, not per-document — a human rules on
+    # lookalike pairs and conflict patterns, and each verdict settles every
+    # notice it touches. So "reviewed" is the absence of open questions: the
+    # attention flags are recomputed by the resolvers on every run, and this
+    # stage advances as decisions land and the scripts re-apply them.
+    ("resolve_ok",    "Resolution reviewed",
+     "d.bank_attention IS NULL AND d.place_attention IS NULL "
+     "AND d.branch_attention IS NULL"),
+]
+
+# Stages the pipeline will grow but does not have yet. Carried here so the
+# dashboard shows the whole intended path — a funnel that stops at extraction
+# implies the work ends there. They report no count rather than a zero, because
+# "nothing has reached this stage" and "this stage does not exist" are different
+# facts and a 0 would read as the first.
+PIPELINE_PLANNED: list[tuple[str, str]] = [
+    ("graph_loaded", "Loaded into the graph"),
+]
+
+
+def _stage_counts(scope_match: str, scope_where: str, params: dict) -> list[dict]:
+    """Count Documents clearing each stage AND all stages before it."""
+    parts = []
+    for i, (key, _label, _pred) in enumerate(PIPELINE_STAGES):
+        chain = " AND ".join(f"({p})" for _k, _l, p in PIPELINE_STAGES[: i + 1])
+        parts.append(f"sum(CASE WHEN {chain} THEN 1 ELSE 0 END) AS {key}")
+    rows = run_read_query(
+        f"{scope_match} {scope_where} WITH DISTINCT d RETURN {', '.join(parts)}",
+        params, max_rows=1, timeout=30.0)
+    r = rows[0] if rows else {}
+    out = [{"key": key, "label": label, "count": int(r.get(key) or 0),
+            "planned": False}
+           for key, label, _pred in PIPELINE_STAGES]
+    out += [{"key": key, "label": label, "count": None, "planned": True}
+            for key, label in PIPELINE_PLANNED]
+    return out
+
+
+def pipeline_overview() -> dict:
+    """Corpus-wide funnel plus the same funnel for upcoming auctions only.
+
+    Two scopes because they answer different questions: the whole corpus says
+    where the pipeline leaks, while the upcoming slice says what is at risk for
+    an auction that has not happened yet — the only backlog with a deadline.
+    """
+    all_stages = _stage_counts("MATCH (d:Document)", "", {})
+    upcoming = _stage_counts(
+        "MATCH (a:AuctionProperty)-[:HAS_DOCUMENT]->(d:Document)",
+        "WHERE a.auction_start_dt >= datetime()", {})
+
+    flag_rows = run_read_query(
+        """
+        MATCH (d:Document)
+        WHERE size(coalesce(d.ocr_health_flags, [])) > 0
+        UNWIND d.ocr_health_flags AS f
+        WITH f, count(*) AS n
+        OPTIONAL MATCH (a:AuctionProperty)-[:HAS_DOCUMENT]->(d2:Document)
+        WHERE f IN coalesce(d2.ocr_health_flags, [])
+          AND a.auction_start_dt >= datetime()
+        RETURN f AS flag, n AS total, count(DISTINCT d2) AS upcoming
+        ORDER BY n DESC
+        """,
+        max_rows=20, timeout=30.0)
+
+    extra_rows = run_read_query(
+        """
+        MATCH (d:Document)
+        WITH d, (d.markdown IS NOT NULL AND d.markdown <> '') AS has_md
+        RETURN sum(CASE WHEN coalesce(d.extraction_review_status,'') = 'pending'
+                         AND d.extraction_json IS NOT NULL THEN 1 ELSE 0 END)
+                   AS extraction_pending,
+               sum(CASE WHEN d.extraction_stale_at IS NOT NULL THEN 1 ELSE 0 END)
+                   AS extraction_stale,
+               sum(CASE WHEN has_md AND d.ink_uncovered_ratio IS NULL
+                        THEN 1 ELSE 0 END) AS unmeasured,
+               sum(CASE WHEN has_md AND (d.blocks IS NULL OR d.blocks = '')
+                        THEN 1 ELSE 0 END) AS no_blocks,
+               sum(CASE WHEN d.parse_quality_score IS NOT NULL THEN 1 ELSE 0 END)
+                   AS parse_quality_scored
+        """,
+        max_rows=1, timeout=30.0)
+    extra = extra_rows[0] if extra_rows else {}
+
+    return {
+        "stages": all_stages,
+        "upcoming_stages": upcoming,
+        "flags": [{"flag": r["flag"], "total": int(r["total"] or 0),
+                   "upcoming": int(r["upcoming"] or 0)} for r in flag_rows],
+        "extraction_pending": int(extra.get("extraction_pending") or 0),
+        "extraction_stale": int(extra.get("extraction_stale") or 0),
+        "unmeasured": int(extra.get("unmeasured") or 0),
+        "no_blocks": int(extra.get("no_blocks") or 0),
+        "parse_quality_scored": int(extra.get("parse_quality_scored") or 0),
+    }
+
+
+# ── Per-stage detail ────────────────────────────────────────────────────────
+#
+# Each stage of the funnel opens its own page. The endpoint returns *panels* in
+# a small generic shape — a title, a note, and rows of {label, count, pct,
+# href} — so the renderer stays one function and a new stage only has to
+# describe what it knows. Rows carry an optional href into the queue already
+# filtered, keeping the dashboard a way in rather than a dead end.
+
+# Entity-coverage is computed from stored extraction_json, which means pulling
+# ~13 KB per document; the full corpus is ~20 MB and too slow to fetch on every
+# page load. The panel therefore scans the most recent N extractions and says
+# so — for "is the extractor capturing the fields we need", recent behaviour is
+# the honest sample anyway.
+ENTITY_COVERAGE_SAMPLE = 600
+
+_stage_cache: dict = {}
+_STAGE_CACHE_TTL_S = 300.0
+
+
+def _rows(pairs, total, href=None) -> list[dict]:
+    """[(label, count)] -> panel rows carrying their share of ``total``."""
+    return [{"label": label, "count": int(count or 0),
+             "pct": round((count or 0) / total * 100, 1) if total else 0.0,
+             "href": href(label) if href else None}
+            for label, count in pairs]
+
+
+def _count_query(cypher: str, params: dict | None = None) -> dict:
+    rows = run_read_query(cypher, params or {}, max_rows=1, timeout=30.0)
+    return rows[0] if rows else {}
+
+
+def _panel(title: str, rows: list[dict], note: str = "", kind: str = "bars") -> dict:
+    return {"kind": kind, "title": title, "note": note, "rows": rows}
+
+
+def _entity_coverage_panels(sample: int) -> list[dict]:
+    """Field coverage + score bands + validator issues over recent extractions."""
+    import collections
+    import json as _json
+    import time as _time
+
+    cached = _stage_cache.get("entity_coverage")
+    if cached and (_time.monotonic() - cached[0]) < _STAGE_CACHE_TTL_S:
+        return cached[1]
+
+    from pipeline.validators import COVERAGE_FIELDS, validate_stored
+
+    rows = run_read_query(
+        """
+        MATCH (d:Document)
+        WHERE d.extraction_json IS NOT NULL
+        RETURN d.filename AS filename, d.extraction_json AS ej,
+               d.extraction_score AS score
+        ORDER BY d.extraction_at DESC
+        LIMIT $lim
+        """,
+        {"lim": int(sample)}, max_rows=int(sample), timeout=120.0)
+
+    cov = collections.Counter()
+    issues = collections.Counter()
+    ent_counts: list[int] = []
+    n = len(rows)
+    for r in rows:
+        try:
+            ents = _json.loads(r.get("ej") or "[]")
+        except (TypeError, ValueError):
+            continue
+        ent_counts.append(len(ents))
+        report = validate_stored(ents)
+        for f in report.get("fields") or []:
+            cov[f] += 1
+        for iss in report.get("issues") or []:
+            issues[iss.get("code") or "?"] += 1
+
+    field_rows = sorted(
+        _rows([(f, cov[f]) for f in COVERAGE_FIELDS], n),
+        key=lambda r: r["pct"])
+    issue_rows = _rows(issues.most_common(12), n)
+    ent_counts.sort()
+    median_ents = ent_counts[len(ent_counts) // 2] if ent_counts else 0
+
+    panels = [
+        _panel("Entity coverage", field_rows,
+               f"share of the last {n} extractions carrying each field — "
+               "lowest first, because that is where the extractor is losing "
+               "information"),
+        _panel("Validator issues", issue_rows,
+               "how often each check fires across those extractions"),
+        _panel("Entities per notice", _rows([
+            ("fewest", ent_counts[0] if ent_counts else 0),
+            ("median", median_ents),
+            ("most", ent_counts[-1] if ent_counts else 0),
+        ], 0), "raw counts, not percentages", kind="lines"),
+    ]
+    _stage_cache["entity_coverage"] = (_time.monotonic(), panels)
+    return panels
+
+
+def pipeline_stage_detail(key: str, sample: int = ENTITY_COVERAGE_SAMPLE) -> dict:
+    """Panels describing one pipeline stage in depth."""
+    labels = {k: label for k, label, _p in PIPELINE_STAGES}
+    labels.update({k: label for k, label in PIPELINE_PLANNED})
+    if key not in labels:
+        raise ValueError(f"unknown stage: {key}")
+    out = {"key": key, "label": labels[key], "panels": []}
+
+    if key in {k for k, _l in PIPELINE_PLANNED}:
+        out["panels"] = [_panel(
+            "Not built yet",
+            [], f"{labels[key]} is planned; nothing reports on it yet.")]
+        return out
+
+    if key == "scraped":
+        c = _count_query("""
+            MATCH (d:Document)
+            RETURN count(d) AS total,
+                   sum(CASE WHEN d.public_url IS NULL OR d.public_url = ''
+                            THEN 1 ELSE 0 END) AS no_url,
+                   sum(CASE WHEN d.markdown IS NULL OR d.markdown = ''
+                            THEN 1 ELSE 0 END) AS no_text,
+                   sum(CASE WHEN NOT EXISTS {
+                            MATCH (:AuctionProperty)-[:HAS_DOCUMENT]->(d) }
+                            THEN 1 ELSE 0 END) AS orphan
+        """)
+        total = int(c.get("total") or 0)
+        out["panels"] = [
+            _panel("Source material", _rows([
+                ("notices scraped", total),
+                ("no source URL — cannot be re-read", c.get("no_url")),
+                ("no text yet", c.get("no_text")),
+                ("not linked to any auction", c.get("orphan")),
+            ], total), "everything downstream starts from these"),
+            _panel("By file type", _rows([
+                (r["t"], r["n"]) for r in run_read_query(
+                    "MATCH (d:Document) RETURN coalesce(d.file_type,'unknown') AS t, "
+                    "count(*) AS n ORDER BY n DESC", max_rows=20, timeout=30.0)
+            ], total), "PDFs cannot be checked for missing content"),
+        ]
+
+    elif key in ("classified", "class_ok"):
+        total = int(_count_query("MATCH (d:Document) RETURN count(d) AS n").get("n") or 0)
+        type_rows = run_read_query(
+            "MATCH (d:Document) RETURN coalesce(d.notice_type,'unclassified') AS t, "
+            "count(*) AS n ORDER BY n DESC", max_rows=10, timeout=30.0)
+        c = _count_query("""
+            MATCH (d:Document)
+            RETURN sum(CASE WHEN d.notice_type_verified_at IS NOT NULL
+                            THEN 1 ELSE 0 END) AS verified,
+                   sum(CASE WHEN coalesce(d.notice_type_overridden,false)
+                            THEN 1 ELSE 0 END) AS overridden,
+                   sum(CASE WHEN d.notice_type = 'multi'
+                             AND d.expected_lot_count IS NULL
+                            THEN 1 ELSE 0 END) AS multi_no_lots
+        """)
+        out["panels"] = [
+            _panel("Type mix", _rows([(r["t"], r["n"]) for r in type_rows], total),
+                   "single routes OCR to the fast tier, multi to accurate",
+                   ),
+            _panel("Review", _rows([
+                ("confirmed by a human", c.get("verified")),
+                ("still to confirm", total - int(c.get("verified") or 0)),
+                ("human overrode the machine", c.get("overridden")),
+                ("multi notices with no expected lot count",
+                 c.get("multi_no_lots")),
+            ], total), "the lot count is the checksum extraction is judged against"),
+        ]
+
+    elif key in ("ocr", "ocr_ok"):
+        total = int(_count_query(
+            "MATCH (d:Document) WHERE d.markdown IS NOT NULL AND d.markdown <> '' "
+            "RETURN count(d) AS n").get("n") or 0)
+        engine_rows = run_read_query(
+            "MATCH (d:Document) WHERE d.markdown IS NOT NULL AND d.markdown <> '' "
+            "RETURN coalesce(d.markdown_model,'unknown') AS t, count(*) AS n "
+            "ORDER BY n DESC", max_rows=12, timeout=30.0)
+        health = _count_query("""
+            MATCH (d:Document) WHERE d.ocr_health_score IS NOT NULL
+            RETURN sum(CASE WHEN d.ocr_health_score = 100 THEN 1 ELSE 0 END) AS clean,
+                   sum(CASE WHEN d.ocr_health_score < 100
+                             AND d.ocr_health_score >= 60 THEN 1 ELSE 0 END) AS mid,
+                   sum(CASE WHEN d.ocr_health_score < 60 THEN 1 ELSE 0 END) AS bad
+        """)
+        flags = run_read_query("""
+            MATCH (d:Document) WHERE size(coalesce(d.ocr_health_flags,[])) > 0
+            UNWIND d.ocr_health_flags AS f
+            RETURN f AS t, count(*) AS n ORDER BY n DESC
+        """, max_rows=12, timeout=30.0)
+        # ink_uncovered_ratio is the page TOTAL; the missing-region flag fires on
+        # the largest contiguous patch. They are different measures and a doc can
+        # carry 20% scattered without being flagged, so the flagged count is read
+        # from the flag itself rather than re-derived from the ratio.
+        ink = _count_query("""
+            MATCH (d:Document) WHERE d.ink_uncovered_ratio IS NOT NULL
+            RETURN count(d) AS measured,
+                   sum(CASE WHEN d.ink_uncovered_ratio < 0.05 THEN 1 ELSE 0 END) AS tight,
+                   sum(CASE WHEN 'missing-region' IN coalesce(d.ocr_health_flags,[])
+                            THEN 1 ELSE 0 END) AS flagged
+        """)
+        review = _count_query("""
+            MATCH (d:Document) WHERE d.markdown IS NOT NULL AND d.markdown <> ''
+            RETURN sum(CASE WHEN d.markdown_verified_at IS NOT NULL
+                        AND d.markdown_quality = 'good' THEN 1 ELSE 0 END) AS good,
+                   sum(CASE WHEN d.markdown_verified_at IS NOT NULL
+                        AND d.markdown_quality = 'bad' THEN 1 ELSE 0 END) AS bad,
+                   sum(CASE WHEN d.markdown_verified_at IS NULL THEN 1 ELSE 0 END) AS pending,
+                   sum(CASE WHEN d.markdown_reextracted_at IS NOT NULL
+                            THEN 1 ELSE 0 END) AS reextracted
+        """)
+        out["panels"] = [
+            _panel("Engine", _rows([(r["t"], r["n"]) for r in engine_rows], total),
+                   "which parser produced the text on file"),
+            _panel("Health", _rows([
+                ("clean (100)", health.get("clean")),
+                ("60–99", health.get("mid")),
+                ("below 60", health.get("bad")),
+            ], total), "score after every failure-mode penalty"),
+            _panel("Failures", _rows(
+                [(r["t"], r["n"]) for r in flags], total,
+                href=lambda f: f"#stage=markdown&group=notice&status=all"
+                               f"&notice_type=all&flags={f}"),
+                "click a failure to open that queue"),
+            _panel("Missing content", _rows([
+                ("checked for missing content", ink.get("measured")),
+                ("under 5% of ink unread in total", ink.get("tight")),
+                ("flagged: one solid patch never read", ink.get("flagged")),
+                ("never checked", total - int(ink.get("measured") or 0)),
+            ], total),
+                   "the flag fires on the largest single gap, not the page total — "
+                   "scattered slivers are bbox slop, one solid patch is lost content"),
+            _panel("Review", _rows([
+                ("accepted", review.get("good")),
+                ("marked bad", review.get("bad")),
+                ("not yet reviewed", review.get("pending")),
+                ("re-extracted by a reviewer", review.get("reextracted")),
+            ], total), ""),
+        ]
+
+    elif key in ("extracted", "extract_ok"):
+        total = int(_count_query(
+            "MATCH (d:Document) WHERE d.extraction_json IS NOT NULL "
+            "RETURN count(d) AS n").get("n") or 0)
+        status = run_read_query(
+            "MATCH (d:Document) WHERE d.extraction_json IS NOT NULL "
+            "RETURN coalesce(d.extraction_review_status,'pending') AS t, "
+            "count(*) AS n ORDER BY n DESC", max_rows=10, timeout=30.0)
+        score = _count_query("""
+            MATCH (d:Document) WHERE d.extraction_score IS NOT NULL
+            RETURN sum(CASE WHEN d.extraction_score >= 90 THEN 1 ELSE 0 END) AS top,
+                   sum(CASE WHEN d.extraction_score >= 70
+                             AND d.extraction_score < 90 THEN 1 ELSE 0 END) AS mid,
+                   sum(CASE WHEN d.extraction_score < 70 THEN 1 ELSE 0 END) AS low,
+                   sum(CASE WHEN d.extraction_stale_at IS NOT NULL THEN 1 ELSE 0 END)
+                       AS stale
+        """)
+        out["panels"] = [
+            _panel("Extraction score", _rows([
+                ("90 or above", score.get("top")),
+                ("70–89", score.get("mid")),
+                ("below 70 — worth a look", score.get("low")),
+            ], total), "validators.py score over the stored entities"),
+            _panel("Review", _rows(
+                [(r["t"], r["n"]) for r in status], total,
+                href=lambda s: f"#stage=extraction&group=notice&status={s}"),
+                "click a status to open that queue"),
+            _panel("Rerun needed", _rows([
+                ("markdown changed since extraction", score.get("stale")),
+            ], total), "their entities were read off text that has been replaced"),
+        ] + _entity_coverage_panels(sample)
+
+    elif key == "resolved":
+        total = int(_count_query(
+            "MATCH (d:Document) WHERE d.bank_canonical IS NOT NULL "
+            "RETURN count(d) AS n").get("n") or 0)
+        state = _count_query(
+            "MATCH (s:PipelineState {key:'entity_resolution'}) "
+            "RETURN s.raw_values AS raw, s.entities AS entities, "
+            "       s.merged_spellings AS merged, s.proposals_open AS proposals, "
+            "       s.proposals_json AS proposals_json")
+        top = run_read_query(
+            "MATCH (d:Document) WHERE d.bank_canonical IS NOT NULL "
+            "RETURN d.bank_canonical AS t, count(*) AS n ORDER BY n DESC LIMIT 12",
+            max_rows=12, timeout=30.0)
+        spelt = run_read_query(
+            """
+            MATCH (d:Document)
+            WHERE d.bank_canonical IS NOT NULL AND d.bank_name_raw IS NOT NULL
+              AND d.bank_name_raw <> d.bank_canonical
+            RETURN d.bank_canonical AS t, count(DISTINCT d.bank_name_raw) AS n
+            ORDER BY n DESC LIMIT 10
+            """, max_rows=10, timeout=30.0)
+        proposals: list[dict] = []
+        try:
+            import json as _json
+            proposals = _json.loads(state.get("proposals_json") or "[]")
+        except (TypeError, ValueError):
+            proposals = []
+        out["panels"] = [
+            _panel("Lenders", _rows([
+                ("name strings extracted", state.get("raw")),
+                ("distinct lenders after resolution", state.get("entities")),
+                ("spellings absorbed", state.get("merged")),
+                ("notices carrying a resolved lender", total),
+            ], int(state.get("raw") or 0) or total),
+                   "only exact matches after case, punctuation and legal form "
+                   "are normalised away — nothing merges on resemblance"),
+            _panel("Awaiting a human", _rows(
+                [(f"{p.get('a')}   vs  {p.get('b')}", p.get("score"))
+                 for p in proposals[:20]], 100),
+                   f"{len(proposals)} pair(s) too similar to ignore and too "
+                   "risky to merge automatically — the number shown is the "
+                   "similarity score, not a count"),
+            _panel("Most frequent lenders",
+                   _rows([(r["t"], r["n"]) for r in top], total), ""),
+            _panel("Most spelling variants", _rows(
+                [(r["t"], r["n"]) for r in spelt], total),
+                   "how many different spellings each lender arrived under"),
+        ] + _place_panels()
+
+    elif key == "resolve_ok":
+        out["panels"] = _resolution_review_panels()
+
+    return out
+
+
+def _place_panels() -> list[dict]:
+    """How far each property got down the revenue hierarchy.
+
+    Places resolve against an authority the bank names never had — the
+    gazetteer — so the interesting number is not how many merged but how deep
+    each one reached, and why the rest stopped where they did.
+    """
+    counts = _count_query("""
+        MATCH (p:AuctionProperty)
+        RETURN count(p) AS total,
+               sum(CASE WHEN p.revenue_district IS NOT NULL THEN 1 ELSE 0 END) AS d,
+               sum(CASE WHEN p.revenue_taluk    IS NOT NULL THEN 1 ELSE 0 END) AS t,
+               sum(CASE WHEN p.revenue_village  IS NOT NULL THEN 1 ELSE 0 END) AS v,
+               sum(CASE WHEN p.place_portal_conflict THEN 1 ELSE 0 END) AS portal,
+               sum(CASE WHEN p.place_notice_conflict THEN 1 ELSE 0 END) AS notice
+    """)
+    total = int(counts.get("total") or 0)
+    stops = run_read_query(
+        """
+        MATCH (p:AuctionProperty) WHERE p.place_village_status IS NOT NULL
+          AND p.revenue_village IS NULL
+        RETURN p.place_village_status AS t, count(*) AS n ORDER BY n DESC
+        """, max_rows=12, timeout=30.0)
+    # Plain-English labels: the stored values are status codes, and a reviewer
+    # should not have to know that "taluk-has-no-villages" is a gap in the
+    # reference data rather than a bad read.
+    said = {
+        "unmatched": "village named, not found in its taluk",
+        "absent": "no village named in the notice",
+        "no-parent-taluk": "village named but no taluk to place it in",
+        "taluk-has-no-villages": "taluk keeps no revenue villages (urban)",
+        "names-a-taluk": "village field repeats the taluk name",
+    }
+    return [
+        _panel("Places matched to the revenue record", _rows([
+            ("district", counts.get("d")),
+            ("taluk", counts.get("t")),
+            ("village", counts.get("v")),
+        ], total),
+               "read bottom-up: a taluk names its own district, so a misspelt "
+               "or pre-2019 district is corrected by the taluk beneath it"),
+        _panel("Where the village stops", _rows(
+            [(said.get(r["t"], r["t"]), r["n"]) for r in stops], total),
+               "nothing is guessed — a wrong place is worse than a missing "
+               "one, because a missing one is visible"),
+        _panel("Disagreements", _rows([
+            ("notice district vs its own taluk", counts.get("notice")),
+            ("portal city vs the resolved district", counts.get("portal")),
+        ], total),
+               "the portal never supplies an answer; it is kept only to "
+               "disagree, which is how an extraction error shows up"),
+    ]
+
+
+# ── Entity-resolution review ────────────────────────────────────────────────
+#
+# The resolvers stop where a rule cannot decide, and what they leave behind is
+# corpus-shaped: a lookalike lender pair touches every notice naming either
+# spelling, a district-conflict pattern covers every notice writing that
+# district over that taluk. So the review queues hold *facts to settle*, not
+# documents to walk, and a verdict is stored as a (:ResolutionDecision) node
+# the resolvers consult on every subsequent run — approved merges apply
+# forever, rejected pairs never come back, aliases teach the lookup. The
+# queues below also filter decided keys at read time, so a verdict empties its
+# row immediately rather than after the next resolution run.
+
+
+def _load_decisions() -> list[dict]:
+    import json as _json
+    rows = run_read_query(
+        """
+        MATCH (r:ResolutionDecision)
+        RETURN r.key AS key, r.kind AS kind, r.verdict AS verdict,
+               r.payload_json AS payload_json
+        """, max_rows=5000, timeout=30.0)
+    out = []
+    for r in rows:
+        try:
+            payload = _json.loads(r.get("payload_json") or "{}")
+        except (TypeError, ValueError):
+            payload = {}
+        out.append({"key": r["key"], "kind": r["kind"],
+                    "verdict": r["verdict"], "payload": payload})
+    return out
+
+
+def _village_candidates(taluks: list[str]) -> dict[str, list[str]]:
+    """Official village names per taluk, for suggesting alias targets."""
+    rows = run_read_query(
+        """
+        MATCH (v:RevenueVillage)-[:IN_TALUK]->(t:Taluk)
+        WHERE t.name IN $taluks
+        RETURN t.name AS taluk, collect(v.name) AS villages
+        """, {"taluks": taluks}, max_rows=len(taluks) or 1, timeout=30.0)
+    return {r["taluk"]: r["villages"] for r in rows}
+
+
+def resolution_review() -> dict:
+    """The three queues a human works through, with evidence on every row.
+
+    Ranked by how much one verdict fixes: a bank pair settles a lender
+    identity, a conflict pattern settles every notice writing that district
+    over that taluk, a village row settles every property naming that string
+    in that taluk.
+    """
+    import json as _json
+
+    from pipeline.place_resolution import normalize_place
+    from pipeline.resolution_review import (
+        bank_pair_key, district_conflict_key, settled_conflicts,
+        skipped_villages, village_alias_key, village_aliases,
+    )
+
+    decisions = _load_decisions()
+    ruled_pairs = {d["key"] for d in decisions if d["kind"] == "bank-merge"}
+    settled = settled_conflicts(decisions)
+    aliased = set(village_aliases(decisions))
+    skipped = skipped_villages(decisions)
+
+    # Bank lookalike pairs — stored by the resolver, already excluding pairs
+    # decided before its last run; the key filter catches ones decided since.
+    state = _count_query(
+        "MATCH (s:PipelineState {key:'entity_resolution'}) "
+        "RETURN s.proposals_json AS pj")
+    try:
+        proposals = _json.loads(state.get("pj") or "[]")
+    except (TypeError, ValueError):
+        proposals = []
+    pairs = [p for p in proposals
+             if bank_pair_key(p["a"], p["b"]) not in ruled_pairs]
+    names = sorted({p["a"] for p in pairs} | {p["b"] for p in pairs})
+    examples: dict[str, list[str]] = {}
+    if names:
+        for r in run_read_query(
+                """
+                MATCH (d:Document) WHERE d.bank_canonical IN $names
+                RETURN d.bank_canonical AS name,
+                       collect(d.filename)[0..2] AS files
+                """, {"names": names}, max_rows=len(names), timeout=30.0):
+            examples[r["name"]] = r["files"]
+    bank_pairs = [{
+        "score": p["score"], "a": p["a"], "b": p["b"],
+        "a_count": p["a_count"], "b_count": p["b_count"],
+        "a_files": examples.get(p["a"], []),
+        "b_files": examples.get(p["b"], []),
+    } for p in pairs]
+
+    # Branch lookalike pairs — same design as lenders, scoped per bank.
+    from pipeline.resolution_review import filter_branch_proposals
+    bstate = _count_query(
+        "MATCH (s:PipelineState {key:'branch_resolution'}) "
+        "RETURN s.proposals_json AS pj")
+    try:
+        branch_props = _json.loads(bstate.get("pj") or "[]")
+    except (TypeError, ValueError):
+        branch_props = []
+    branch_pairs = filter_branch_proposals(branch_props, decisions)
+
+    # District-conflict patterns — grouped, one row per (raw spelling, taluk).
+    pstate = _count_query(
+        "MATCH (s:PipelineState {key:'place_resolution'}) "
+        "RETURN s.conflicts_json AS cj")
+    try:
+        conflicts = _json.loads(pstate.get("cj") or "[]")
+    except (TypeError, ValueError):
+        conflicts = []
+    grouped: dict[tuple, dict] = {}
+    for c in conflicts:
+        key = district_conflict_key(c.get("raw_district") or "",
+                                    c.get("taluk") or "")
+        if key in settled:
+            continue
+        gk = (c.get("raw_district"), c.get("taluk"), c.get("resolved_district"))
+        g = grouped.setdefault(gk, {
+            "raw_district": c.get("raw_district"), "taluk": c.get("taluk"),
+            "resolved_district": c.get("resolved_district"),
+            "count": 0, "auction_ids": []})
+        g["count"] += 1
+        if len(g["auction_ids"]) < 3:
+            g["auction_ids"].append(c.get("auction_id"))
+    district_conflicts = sorted(grouped.values(), key=lambda g: -g["count"])
+
+    # Unmatched villages — grouped by (string, taluk), with the taluk's
+    # closest official names as candidate alias targets so the reviewer picks
+    # rather than types.
+    rows = run_read_query(
+        """
+        MATCH (p:AuctionProperty)
+        WHERE p.place_village_status = 'unmatched'
+          AND p.village IS NOT NULL AND p.revenue_taluk IS NOT NULL
+        RETURN p.village AS village, p.revenue_taluk AS taluk,
+               p.revenue_district AS district,
+               count(*) AS n, collect(p.auction_id)[0..3] AS auction_ids
+        ORDER BY n DESC
+        """, max_rows=2000, timeout=60.0)
+    open_rows = [r for r in rows
+                 if village_alias_key(r["village"], r["taluk"]) not in aliased
+                 and normalize_place(r["village"]) not in skipped]
+    open_rows = open_rows[:60]
+    pools = _village_candidates(sorted({r["taluk"] for r in open_rows}))
+    try:
+        from rapidfuzz import fuzz
+        def top3(raw: str, taluk: str) -> list[dict]:
+            nv = normalize_place(raw)
+            scored = sorted(
+                ((fuzz.ratio(nv, normalize_place(v)), v)
+                 for v in pools.get(taluk, [])), reverse=True)[:3]
+            return [{"name": v, "score": round(float(s), 1)}
+                    for s, v in scored if s >= 55]
+    except ImportError:
+        def top3(raw: str, taluk: str) -> list[dict]:
+            return []
+    unmatched_villages = [{
+        "village": r["village"], "taluk": r["taluk"],
+        "district": r["district"], "count": r["n"],
+        "auction_ids": r["auction_ids"],
+        "candidates": top3(r["village"], r["taluk"]),
+    } for r in open_rows]
+
+    return {
+        "bank_pairs": bank_pairs,
+        "branch_pairs": branch_pairs,
+        "district_conflicts": district_conflicts,
+        "unmatched_villages": unmatched_villages,
+        "decided": len(decisions),
+        "open": (len(bank_pairs) + len(branch_pairs)
+                 + len(district_conflicts) + len(unmatched_villages)),
+    }
+
+
+def record_resolution_decision(kind: str, payload: dict, verdict: str,
+                               by_email: str) -> dict:
+    """Store one human verdict as a (:ResolutionDecision) node.
+
+    The key is always derived from the kind and payload — never accepted from
+    the caller — so a decision can only land on the strings it names. An
+    approved village alias is checked against the gazetteer first: a typo in
+    the target must fail loudly here, not invent a place downstream.
+    """
+    import json as _json
+
+    from pipeline.resolution_review import APPROVED, REJECTED, decision_key
+
+    if verdict not in (APPROVED, REJECTED):
+        raise ValueError(f"verdict must be approved or rejected, got {verdict!r}")
+    try:
+        key = decision_key(kind, payload)
+    except KeyError as e:
+        raise ValueError(f"payload for {kind!r} is missing field {e}")
+
+    if kind == "village-alias" and verdict == APPROVED:
+        hit = _count_query(
+            """
+            MATCH (v:RevenueVillage {name: $target})-[:IN_TALUK]->
+                  (t:Taluk {name: $taluk})
+            RETURN count(v) AS n
+            """, {"target": payload.get("target"),
+                  "taluk": payload.get("taluk")})
+        if not int(hit.get("n") or 0):
+            raise ValueError(
+                f"{payload.get('target')!r} is not a revenue village of "
+                f"{payload.get('taluk')!r} — the alias would point nowhere")
+
+    run_query(
+        """
+        MERGE (r:ResolutionDecision {key: $key})
+        SET r.kind = $kind, r.verdict = $verdict,
+            r.payload_json = $payload, r.decided_at = datetime(),
+            r.decided_by = $by
+        """,
+        {"key": key, "kind": kind, "verdict": verdict,
+         "payload": _json.dumps(payload, ensure_ascii=False), "by": by_email})
+    return {"key": key, "kind": kind, "verdict": verdict}
+
+
+def undo_resolution_decision(kind: str, payload: dict) -> dict:
+    """Delete a stored verdict so the question reopens on the next run."""
+    from pipeline.resolution_review import decision_key
+    try:
+        key = decision_key(kind, payload)
+    except KeyError as e:
+        raise ValueError(f"payload for {kind!r} is missing field {e}")
+    rows = run_query(
+        "MATCH (r:ResolutionDecision {key: $key}) DELETE r RETURN count(r) AS n",
+        {"key": key})
+    n = int(rows[0].get("n") or 0) if rows else 0
+    return {"key": key, "deleted": bool(n)}
+
+
+def _resolution_review_panels() -> list[dict]:
+    """The resolve_ok stage page: what still blocks review-complete, and the
+    ledger of verdicts already banked."""
+    c = _count_query("""
+        MATCH (d:Document)
+        RETURN sum(CASE WHEN d.entity_resolved_at IS NOT NULL
+                        THEN 1 ELSE 0 END) AS resolved,
+               sum(CASE WHEN d.bank_attention THEN 1 ELSE 0 END) AS bank_att,
+               sum(CASE WHEN d.place_attention THEN 1 ELSE 0 END) AS place_att,
+               sum(CASE WHEN d.branch_attention THEN 1 ELSE 0 END) AS branch_att,
+               sum(CASE WHEN d.entity_resolved_at IS NOT NULL
+                        AND d.bank_attention IS NULL
+                        AND d.place_attention IS NULL
+                        AND d.branch_attention IS NULL
+                        THEN 1 ELSE 0 END) AS clean
+    """)
+    ledger = run_read_query(
+        """
+        MATCH (r:ResolutionDecision)
+        RETURN r.kind + ' — ' + r.verdict AS t, count(*) AS n ORDER BY n DESC
+        """, max_rows=12, timeout=30.0)
+    queues = resolution_review()
+    total = int(c.get("resolved") or 0)
+    return [
+        _panel("Review state", _rows([
+            ("notices with both resolvers run", c.get("resolved")),
+            ("clean — no open question", c.get("clean")),
+            ("waiting on a lender verdict", c.get("bank_att")),
+            ("waiting on a place verdict", c.get("place_att")),
+            ("waiting on a branch verdict", c.get("branch_att")),
+        ], total),
+               "a notice is review-complete when nothing about it is still "
+               "an open question; verdicts below shrink these numbers on the "
+               "next resolver run"),
+        _panel("Open questions", _rows([
+            ("lender lookalike pairs", len(queues["bank_pairs"])),
+            ("branch lookalike pairs", len(queues["branch_pairs"])),
+            ("district conflict patterns", len(queues["district_conflicts"])),
+            ("unmatched village strings", len(queues["unmatched_villages"])),
+        ], max(queues["open"], 1)),
+               "each row on the review queue settles every notice it touches"),
+        _panel("Verdicts banked", _rows(
+            [(r["t"], r["n"]) for r in ledger], max(
+                sum(r["n"] for r in ledger), 1)),
+               "stored permanently — re-runs apply them before proposing "
+               "anything"),
+    ]
+
+
+# ── Apply decisions (re-run the resolvers) ──────────────────────────────────
+#
+# A verdict is applied by the resolvers, so between a review session and the
+# next run the queue is ahead of the graph. The apply endpoint closes that gap
+# on demand: it re-runs both resolvers in the API process (they talk to Neo4j
+# over the HTTPS query API with the same credentials the API already holds).
+# Status lives on a (:PipelineState {key:'resolution_apply'}) node — not in
+# process memory — so any worker can answer "is it still running?".
+
+_APPLY_STALE_S = 15 * 60.0
+
+
+def resolution_apply_status() -> dict:
+    import time as _time
+    row = _count_query(
+        "MATCH (s:PipelineState {key:'resolution_apply'}) "
+        "RETURN s.status AS status, s.started_ts AS started_ts, "
+        "       s.finished_ts AS finished_ts, s.by AS by, "
+        "       s.summary_json AS summary_json, s.error AS error")
+    status = row.get("status") or "never-run"
+    started = float(row.get("started_ts") or 0)
+    # A run that started long ago and never finished is a crashed worker, not
+    # a busy one — report it as such rather than blocking apply forever.
+    if status == "running" and _time.time() - started > _APPLY_STALE_S:
+        status = "stale"
+    return {"status": status, "started_ts": started or None,
+            "finished_ts": row.get("finished_ts"), "by": row.get("by"),
+            "summary_json": row.get("summary_json"),
+            "error": row.get("error")}
+
+
+def start_resolution_apply(by_email: str) -> dict:
+    """Claim the apply lock; raises if a run is genuinely in progress."""
+    import time as _time
+    current = resolution_apply_status()
+    if current["status"] == "running":
+        raise RuntimeError("a resolver run is already in progress")
+    run_query(
+        """
+        MERGE (s:PipelineState {key:'resolution_apply'})
+        SET s.status = 'running', s.started_ts = $ts, s.by = $by,
+            s.finished_ts = NULL, s.error = NULL
+        """, {"ts": _time.time(), "by": by_email})
+    return {"status": "running", "by": by_email}
+
+
+def run_resolution_apply() -> None:
+    """The background job: both resolvers, then the outcome — success or
+    failure — written where the UI can read it."""
+    import json as _json
+    import time as _time
+    try:
+        from scripts.resolve_bank_names import run as run_banks
+        from scripts.resolve_branches import run as run_branches
+        from scripts.resolve_places import run as run_places
+        # Branches after banks: their scope is d.bank_canonical, which the
+        # lender pass may have just rewritten.
+        summary = {"banks": run_banks(), "branches": run_branches(),
+                   "places": run_places()}
+        run_query(
+            """
+            MERGE (s:PipelineState {key:'resolution_apply'})
+            SET s.status = 'done', s.finished_ts = $ts,
+                s.summary_json = $summary, s.error = NULL
+            """, {"ts": _time.time(),
+                  "summary": _json.dumps(summary, ensure_ascii=False)})
+    except Exception as e:                                  # noqa: BLE001
+        # The worker survives; the failure is data for the status endpoint.
+        run_query(
+            """
+            MERGE (s:PipelineState {key:'resolution_apply'})
+            SET s.status = 'error', s.finished_ts = $ts, s.error = $err
+            """, {"ts": _time.time(), "err": f"{type(e).__name__}: {e}"[:500]})

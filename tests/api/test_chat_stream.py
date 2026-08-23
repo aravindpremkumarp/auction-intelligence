@@ -213,3 +213,60 @@ def test_chat_usage_limit_maps_to_422(monkeypatch: pytest.MonkeyPatch) -> None:
     resp = client.post("/chat", json={"message": "hello"})
     assert resp.status_code == 422
     assert resp.json()["detail"] == chat_router._USAGE_LIMIT_DETAIL
+
+
+def test_heartbeat_fills_idle_gaps() -> None:
+    """`_with_heartbeat` inserts SSE comment frames while the source is
+    silent (a slow LLM round-trip), and relays every real frame unchanged —
+    so a proxy or client idle-timeout never sees a dead wire mid-turn."""
+    import asyncio
+    import importlib
+    chat_router = importlib.import_module("api.chat.router")
+
+    async def slow_source():
+        yield "event: status\ndata: {}\n\n"
+        await asyncio.sleep(0.3)
+        yield "event: final\ndata: {}\n\n"
+
+    async def collect() -> list[str]:
+        return [f async for f in chat_router._with_heartbeat(slow_source(), interval=0.05)]
+
+    frames = asyncio.run(collect())
+    assert frames[0] == "event: status\ndata: {}\n\n"
+    assert frames[-1] == "event: final\ndata: {}\n\n"
+    # The 0.3s gap at 0.05s interval must have produced keepalive comments.
+    keepalives = [f for f in frames if f == ": keepalive\n\n"]
+    assert len(keepalives) >= 2
+    # Nothing else was invented.
+    assert set(frames) <= {"event: status\ndata: {}\n\n", "event: final\ndata: {}\n\n", ": keepalive\n\n"}
+
+
+def test_heartbeat_interval_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    import importlib
+    chat_router = importlib.import_module("api.chat.router")
+
+    monkeypatch.setenv("CHAT_STREAM_HEARTBEAT_SECONDS", "3.5")
+    assert chat_router._heartbeat_seconds() == 3.5
+    monkeypatch.setenv("CHAT_STREAM_HEARTBEAT_SECONDS", "not-a-number")
+    assert chat_router._heartbeat_seconds() == chat_router._STREAM_HEARTBEAT_SECONDS_DEFAULT
+
+
+def test_stream_endpoint_keepalives_are_ignored_by_sse_parsers(monkeypatch: pytest.MonkeyPatch) -> None:
+    """End-to-end: with an aggressive heartbeat the endpoint's raw body may
+    carry comment frames, but the parsed event stream is identical to the
+    happy path — comments are invisible to any spec-compliant SSE parser."""
+    import importlib
+    chat_router = importlib.import_module("api.chat.router")
+    from api.main import app
+
+    monkeypatch.setenv("CHAT_STREAM_HEARTBEAT_SECONDS", "0.01")
+    answer = "Found 2 auctions in Chennai."
+    monkeypatch.setattr(chat_router, "agent", _streaming_agent(answer))
+
+    client = TestClient(app)
+    resp = client.post("/chat/stream", json={"message": "auctions in chennai"})
+    assert resp.status_code == 200
+    events = _parse_sse(resp.text)
+    kinds = [k for k, _ in events]
+    assert kinds[-1] == "final"
+    assert events[-1][1]["answer"] == answer

@@ -1,0 +1,1092 @@
+# The auction deep agent — clean-slate design (Aug 2026)
+
+A purpose-built agent for Tamil Nadu bank-auction property, designed against
+the **current** graph and owing nothing to the pydantic-ai chat agent. New
+tools, new instructions, new skills, new package. `/chat/v1`, `/chat/v2` and
+`/chat/deep` keep running untouched.
+
+Status: **steps 1–4 built and smoke-tested** (see §10). Tools, evals,
+instructions, three skills and the agent harness are in `api/agent3/`; the
+eval catalogue scores 36/36 against the live graph and 143 unit tests pass.
+The agent has now been driven by a real model against the live graph
+(`evals/smoke_agent3.py`, 6/6) with grounded, scope-honest answers and
+working server-side memory. It is still not wired to any request path.
+
+**Open issue, not blocking step 5:** prompt cache runs at **17% of input**
+across a clean smoke run (10,752 of 63,017 tokens) — better than the 0% first
+reported here, which was an artefact of counting only the final model call,
+but still short of §6's "above 50%" gate. Reasoning effort was investigated
+as a second suspect and **cleared** — see §10 step 4b.
+
+---
+
+## 1. Why a clean slate — and what the evidence actually says
+
+The premise for this rewrite is that the deep loop was slow and expensive
+because it inherited instructions built for the v1 pydantic-ai agent. That is
+**half right, and the half that is wrong matters**, because building on the
+wrong diagnosis would reproduce the cost.
+
+What `docs/chat-loop-ab-2026-08.md` measured on 21 Aug — deep loop at 148.7 s
+median, 16,911 fresh prompt tokens per turn against the tiered loop's 3,566:
+
+| Cause | Instruction-driven? | Fix lives in |
+|---|---|---|
+| 9 harness tool schemas in every prompt (`ls`, `read_file`, `write_file`, `edit_file`, `delete`, `glob`, `grep`, `execute`, `task`) | No | §6 — drop `create_deep_agent` |
+| Prompt cache at 24%, **zero** on the answer call | No | §6 — stable prefix, pinned |
+| Two strictly sequential model calls on a provider running at ~8 tok/s | No | §6 — parallel tool execution |
+| `modes/_shared.md` at ~2,600 tokens re-sent every turn, most of it irrelevant to the question asked | **Yes** | §5 — thin core + skills |
+| Whole transcript re-sent each turn, including 500-row tool payloads | Partly | §6 — trim + sink |
+
+So the instruction inheritance is a real cost — roughly 2.6k tokens of
+always-on prompt where a typical turn needs maybe 400 of it — but it is not
+the 149 seconds. The design below fixes all five, and §9 says how we will know
+which one paid.
+
+The stronger reason for the clean slate is not cost at all: **`modes/_shared.md`
+is now wrong.** It states "No `total_area`/`village`/`taluk`/`district` props
+exist — sizes and sub-locality live only in `description` text; never filter on
+them." Every clause of that is false against today's graph. An agent told that
+will refuse questions it can answer exactly.
+
+---
+
+## 2. The graph as it is — verified 21 Aug 2026
+
+Two layers, joined by `HAS_DOCUMENT`.
+
+### Layer 1 — the portal listing (`AuctionProperty`, 2,964)
+
+What the website scraped, and what the UI keys on. `auction_id` is the id in
+every URL, the matches panel and the saved-property flow.
+
+Coverage of the fields worth filtering on:
+
+| Field | Filled | Field | Filled |
+|---|---|---|---|
+| `description` | 2,964 | `district` | 2,302 |
+| `auction_start_dt` (ZONED DATETIME) | 2,964 | `taluk` | 2,235 |
+| `reserve_price_num` | 2,750 | `village` | 2,494 |
+| `emd_num` | ~2,900 | `revenue_village` | 1,051 |
+| `total_area` (raw string) | 2,132 | `registration_sub_district` | 2,103 |
+| `description_embedding` | 2,179 | `boundary_north` (+S/E/W) | 2,190 |
+| `undivided_share` | 487 | `door_numbers_new` | 512 |
+
+Relationships: `CONDUCTED_BY→Bank`, `LISTED_BY_BRANCH→Branch`,
+`LOCATED_IN_CITY/AREA/STATE/DISTRICT/TALUK/REVENUE_VILLAGE`,
+`HAS_BORROWER→Borrower`, `HAS_ASSET_CATEGORY`, `HAS_PROPERTY_TYPE` (many),
+`IS_AUCTION_TYPE`, `IS_PARCEL→Parcel`, `SAME_PROPERTY_AS` (80 re-listing
+links), `HAS_DOCUMENT→Document`.
+
+### Layer 2 — the sale notice (`Document` 1,628 → `Lot` 3,335 → `Auction` 3,262)
+
+This is the layer the current agent cannot see, and it is where the answer to
+almost every serious buyer question lives.
+
+**`Lot`** — one schedule item in a notice:
+
+| Field | Filled | Field | Filled |
+|---|---|---|---|
+| `full_description` | 3,251 | `district` | 2,869 |
+| `asset_category` | 3,292 | `taluk` | 2,337 |
+| `property_type` | 3,289 | `village` | 1,368 |
+| `encumbrance` (free text) | 1,009 | `road_width_ft` | 914 |
+| `address` | 1,075 | `frontage_ft` | 607 |
+| `construction_type` | 188 | `latitude`/`longitude` | 171 |
+| `occupancy_status` | 33 | `landmark` | 86 |
+
+**Lot edges, with lot coverage:**
+
+- `HAS_EXTENT→Measurement` — **2,993 lots (90%) carry a normalised
+  `sqft_norm`.** 2,975 have a `is_headline` extent. Kinds: `extent` 2,602,
+  `total` 2,500, `built_up` 684, `uds` 614, `uds_parent` 553,
+  `super_built_up` 237, `carpet` 31. Units seen: `sq_ft`, `sq_m`, `cent`,
+  `ground`, `acre`, `are`, `hectare`.
+  **Caveat: `sqft_norm` has bad outliers** — median 1,471, p90 10,977, max
+  15,571,959,480. Any tool touching it must band-limit (see §4.1).
+- `MENTIONS_IDENTIFIER→Identifier` — **3,215 lots (96%)**. Kinds by volume:
+  `survey_old` 3,548, `survey_new` 2,242, `patta` 814, `plot` 548,
+  `door_old` 504, `door_new` 455, `sale_deed` 425, `approved_layout` 354,
+  `property_id` 338, `flat` 263, `assessment_old/new` 372, `block` 147,
+  `cersai` 143.
+- `HAS_BOUNDARY→Boundary` — 2,595 lots, 10,329 boundaries. Carries `side`,
+  `adjacency_raw`, `measurement_ft`, `road_width_ft`, `access_kind`
+  (`plot` 3,827, `road` 1,939, `street` 655, `pathway` 435, `channel` 48).
+- `POSSESSION_IS→PossessionType` — 1,985 lots. Values: `physical`,
+  `symbolic`, `constructive`. Rel carries `taken_on`.
+- `SECURES→LoanAccount` — 1,609 lots. Rel carries `outstanding_num`,
+  `demand_notice_date`, `as_on`.
+- `TITLE_HELD_BY→Borrower` 908 · `HAS_PARTY→Borrower` (rel `role`) 8,642
+- `HAS_SCHEDULE→Schedule` 1,893 · `IN_TALUK` / `IN_DISTRICT` /
+  `IN_REVENUE_VILLAGE` · `IS_PARCEL→Parcel` · `HAS_FACT→Fact`
+
+**`Auction`** — one sale event for one lot. 3,262 nodes:
+
+`reserve_price_num` 3,216 · `emd_num` 3,158 · `bid_increment_num` 2,484 ·
+`inspection_dt` 1,989 · `auction_start_dt` 3,190 · `auction_end_dt` ·
+`application_deadline_dt` · `auto_extension_minutes` · `sarfaesi_stage` ·
+**`attempt_no` 1–8, with 206 auctions at attempt ≥ 2** · `outcome` (only
+`unsold` populated today).
+
+**`Document`** — the notice itself: `markdown`, `sale_terms`,
+`notice_type`, `parse_quality_score`, `public_url`, plus edges
+`ISSUED_BY→Bank`, `HOSTED_ON→Platform` (BAANKNET 558, BANKEAUCTIONS 136,
+BANKAUCTIONS 130, AUCTIONBAZAAR 72, AUCTIONTIGER 66, …),
+`EMD_PAYABLE_TO→EMDAccount` (account_no, ifsc, mode_of_payment),
+`HAS_CONTACT→Contact` (phone, email), `SIGNED_BY→Officer` (rel `role`),
+`UNDER_FRAMEWORK→LegalFramework` (SARFAESI / DRT / IBC / other),
+`USES_TERMS→TermsTemplate`, `CASE_REF→CaseReference`,
+`DEBT_ASSIGNED_FROM→Bank`, `UNDER_TRUST→Trust`.
+
+**Reference geography is loaded**: `District` 38, `Taluk` 316,
+`RevenueVillage` 17,164, `City` 50, `Area` 1,084 — all with codes and
+`name_ta`. Village-level questions are now answerable by join, not by string
+matching in prose.
+
+### The join, and its one sharp edge
+
+- 2,964 / 2,964 listings have a document; **2,939 reach at least one lot.**
+- A document fans out: 966 listings sit on a 1-lot notice, the rest on
+  notices with 2–30 lots (mean 4.4).
+- **There is no clean 1:1 listing→lot link.** `IS_PARCEL` via `Parcel` does
+  not disambiguate either (same 4.4 mean).
+
+So: lot facts are **notice-level context** for a listing, not per-listing
+truth, unless the notice has one lot. Every tool that surfaces a lot fact
+must say which of the two it is. This is a correctness rule, not a nicety —
+"this property is 2,400 sqft with physical possession" is a lie if the notice
+had six lots and we picked one.
+
+### What is NOT available (do not design for it)
+
+- **`Lot.description_embedding` is empty.** The `lot_description_embedding`
+  vector index exists with **0 vectors**. Lot free-text search must use the
+  `lot_description_ft` fulltext index (verified working), not vectors.
+- `Document.markdown_embedding` is only 340 / 1,628.
+- `Auction.outcome` only ever says `unsold` — **we cannot answer "did it
+  sell" or "what did it fetch".** Sold prices do not exist in this graph.
+- `Lot.occupancy_status` at 33 rows is not a filter, it is a footnote.
+- Geo coordinates on 171 lots — no distance/radius search.
+- Dirty dates: `Auction.auction_start_dt` is a **STRING** (`2026-06-29T11:00`)
+  and at least one row is the literal `"12:00"`. Only 516 auctions start on or
+  after today. `AuctionProperty.auction_start_dt` is a proper ZONED DATETIME
+  and is the one to filter on.
+
+Live indexes to build on: `property_desc_idx` (vector, AuctionProperty),
+`property_text_idx` (fulltext, title+description), `lot_description_ft`
+(fulltext), `identifier_raw_ft` (fulltext), `party_name_ft` (fulltext).
+
+---
+
+## 3. What the agent is for
+
+One sentence: **take a buyer from "show me flats in Coimbatore" to "here is
+everything the sale notice says about this specific lot, what it is worth per
+square foot against comparables, what is unresolved, and what you must do by
+when" — without them learning the schema.**
+
+Three question classes it must cover, in rising depth:
+
+1. **Find** — filters, counts, breakdowns, deadlines. Answer in one tool call.
+2. **Compare** — price per sqft against comparables, re-auction price drops,
+   bank/area patterns. Two or three calls, run in parallel.
+3. **Diligence** — one property, everything the notice says: schedule,
+   extent, survey numbers, boundaries and access, possession, encumbrance,
+   outstanding loan, parties, EMD mechanics, contacts, and **the named gaps**.
+   This is where a skill and a subagent earn their cost.
+
+Non-goals, stated so they are not rebuilt later: no sold prices, no market
+valuation, no litigation or title-chain lookup, no alerts or tracking, no
+distance search.
+
+---
+
+## 4. Tool surface
+
+Six graph tools + one web tool. `api/chat/agent3/tools/`. No import from
+`api/tools/cypher_tools.py`, `api/chat/v2/tools.py` or `api/policy.py` — this
+package owns its own surface, which is the point of the clean slate.
+
+Shared conventions, applied by decorator so they cannot drift:
+
+- **Errors return as data** (`{"error": ..., "valid_values": [...]}`), never
+  raise. The deepagents tool node re-raises and kills the turn.
+- **Every row carries `auction_id`.** That is the panel's key and the answer's
+  citation.
+- **Heavy payloads never reach the model.** Panel rows go to a per-turn sink;
+  the model sees a slice plus `total_count`. In a checkpointed transcript an
+  unsplit payload is re-billed on every later turn.
+- **Every lot-derived value is tagged** `"scope": "lot"` (notice had one lot,
+  it is this property) or `"scope": "notice"` (fanned out, treat as context).
+- Enum values live in the docstring, rendered from live constants.
+
+### 4.1 `find_properties(...)` — the workhorse
+
+Returns listings. Filters span both layers; lot-layer filters resolve through
+`HAS_DOCUMENT` and are documented as notice-level.
+
+```
+find_properties(
+  # place
+  city=None, area=None, district=None, taluk=None, revenue_village=None,
+  # what
+  asset_category=None,          # Residential | Commercial | Industrials
+  property_type=None,           # list; 23 live values, see docstring
+  auction_type=None,            # SARFAESI | DRT | Liquidation | Private Property
+  # money (INR)
+  reserve_price_min=None, reserve_price_max=None,
+  emd_min=None, emd_max=None,
+  # time
+  auction_from=None, auction_to=None, deadline_before=None,
+  upcoming_only=False,
+  # who
+  bank=None, branch=None, borrower=None, platform=None,
+  # NEW — notice-layer filters, none of which the current agent can express
+  area_sqft_min=None, area_sqft_max=None,   # headline extent, band-limited
+  extent_kind="headline",                   # headline|total|built_up|uds|carpet
+  possession=None,                          # physical|symbolic|constructive
+  road_width_ft_min=None,
+  access_kind=None,                         # road|street|pathway|plot|channel
+  has_encumbrance_note=None,                # bool
+  outstanding_max=None,                     # secured loan outstanding
+  attempt_no=None, reauction_only=False,    # attempt_no >= 2 (206 auctions)
+  identifier=None, identifier_kind=None,    # survey/patta/door/plot number
+  legal_framework=None,                     # SARFAESI|DRT|IBC|other
+  # shape
+  sort="deadline", limit=20, group_by=None,
+)
+```
+
+Returns:
+
+```
+{ rows: [...],            # limit rows, each with auction_id + why-it-matched
+  total_count: int,       # exact, over the whole filter set
+  aggregations: {...},    # count, reserve min/avg/max, ₹/sqft when askable
+  distribution: {...},    # when group_by is set
+  refine: [{filter, value, count}],   # live, non-empty narrowings
+  hint / relax: ...,      # on zero results, which single filter to drop
+  scope_notes: [...] }    # any lot filter that was notice-level
+```
+
+Design notes:
+
+- `sqft` filters clamp to `1 <= sqft_norm <= 500000` and prefer
+  `is_headline`; anything outside is excluded and counted in `scope_notes`.
+  Without this the 15.5-billion-sqft row poisons every average.
+- `refine` and `relax` are computed in the same round-trip, not by extra
+  calls. This is what stops the agent firing follow-up searches.
+- `group_by` handles the whole "breakdown" class — city, area, district,
+  bank, property_type, price band, month, attempt_no — without Cypher.
+
+### 4.2 `get_property(auction_ids: list[str], depth="standard")`
+
+The diligence tool. One call, up to 5 ids.
+
+- `depth="standard"` — listing fields, bank/branch/platform, dates, EMD,
+  contacts, and a **lot summary** (count, headline extents, possession mix).
+- `depth="full"` — every lot of the notice: schedule text, extent by kind,
+  identifiers by kind, boundaries by side with access and road width,
+  possession + `taken_on`, encumbrance text, `SECURES` outstanding and demand
+  notice date, parties by role, plus document-level `sale_terms`, EMD account,
+  officer, framework, case reference, `public_url`.
+- Always returns a **`gaps` list**: named things the notice does not say
+  ("no patta number", "possession not stated", "no encumbrance clause").
+  The gaps are the diligence product. An agent that only reports what is
+  present reads as if nothing is missing.
+
+### 4.3 `search_notices(query, ...)`
+
+Free-text over what the notice actually says, via `lot_description_ft` and
+`property_text_idx` (both live). **Not vector** — lot embeddings are empty.
+
+Handles: "borewell", "shed on agricultural land", "disputed pathway",
+"north facing corner plot", "tiled roof". Returns matched snippets +
+`auction_id`, so the answer can quote the notice.
+
+### 4.4 `find_by_identifier(value, kind=None)`
+
+Survey number, patta, door number, plot number, flat number, CERSAI id →
+listings. Backed by `identifier_raw_ft` over 10,253 identifiers on 96% of
+lots. Normalises the usual noise (`S.No.`, `Survey No`, `/`, `-`, spacing).
+
+This is the single highest-value new capability: *"is 123/4B in Sriperumbudur
+in any auction notice"* is a question the current agent cannot answer at all,
+and one a buyer or a broker asks constantly.
+
+### 4.5 `benchmark_price(...)`
+
+The "is this priced right" tool, and the reason `sqft_norm` matters.
+
+Given an `auction_id` or a filter set, returns ₹/sqft for the subject and for
+comparables at widening rings (same area → same city → same district → same
+property type statewide), with n, median, p25, p75 at each ring, and the
+subject's percentile. Refuses to output a ring with n < 5 rather than
+computing a percentile off three rows. Explicitly labelled **reserve price
+per sqft, not market value** — reserve is a bank's floor, and we have no sold
+prices (§2).
+
+### 4.6 `reauction_history(auction_id)`
+
+`SAME_PROPERTY_AS` links + `Auction.attempt_no` + `sarfaesi_stage` → the
+attempt chain for a property, with reserve price at each attempt and the drop
+between them. 206 auctions are at attempt ≥ 2; a falling reserve across
+attempts is the strongest buy signal the graph holds.
+
+### 4.7 `run_cypher(cypher, params)` + `internet_search(query)`
+
+`run_cypher` stays as the read-only escape hatch, but is **only reachable
+after the `cypher` skill is loaded** — the skill carries the schema and the
+date-string rules, so they cost nothing on the 95% of turns that never use it.
+`internet_search` is off-graph context only, and async (the current deep loop
+wrapped it synchronously and silently fed the model a coroutine repr for
+weeks).
+
+---
+
+## 5. Instructions — thin core, everything else on demand
+
+The single biggest instruction change: **`modes/_shared.md`'s ~2,600 tokens
+become a ~600-token core plus skills the agent loads only when it needs
+them.** Nothing about extent normalisation is in the prompt when someone asks
+"how many auctions in Salem".
+
+`api/chat/agent3/instructions.md` — the always-on core, and nothing else:
+
+1. **Who and what** (3 lines) — auction intelligence over Tamil Nadu bank
+   auction notices; every claim traceable to a notice.
+2. **The data in six lines** — a listing is a portal row keyed by
+   `auction_id`; behind it is a sale notice with one or more lots; lot facts
+   are per-property only when the notice has one lot, otherwise context.
+3. **Four hard rules** — ground every number in tool output and cite
+   `auction_id`; never state a lot fact as property fact without its scope
+   tag; no market valuation, no litigation/title-chain, no sold prices, no
+   tracking (point at the Save button); say what is missing, not just what is
+   there.
+4. **Routing table** — one line per tool, plus: *load a skill before deep
+   work.*
+5. **Answer shape** — direct answer, then evidence, then gaps, then one
+   narrowing nudge. No headers on a one-line answer.
+
+Enums, synonym maps, date rules, extent kinds, identifier kinds: **all in tool
+docstrings or skills**, never in the core prompt. The v2 lesson holds — schema
+next to the parameter is what fixed the `property_type`/`asset_category`
+confusion — and a docstring rides in the tool schema, which is cached.
+
+The core must be **byte-stable across turns**. It is the cache prefix; the
+per-turn variable part (today's date, graph size) goes at the *end* of the
+system block, after the stable text.
+
+---
+
+## 6. Harness — and how the cost gets fixed
+
+**Drop `create_deep_agent`. Build on `create_agent` with explicit
+middleware.** This is the biggest single change and it is a direct response to
+the A/B: `create_deep_agent` unconditionally binds nine tools we cannot use
+and cannot remove (verified against 0.7.7, `subagents=[]` does not suppress
+`task`, `HarnessProfile(excluded_tools=…)` does not either). We keep the parts
+of the Deep Agents pattern that earned their place — planning, subagents,
+skills, durable transcript — by composing them ourselves:
+
+| Deep Agents feature | How we get it | Why not the default |
+|---|---|---|
+| Transcript memory | Neo4j `BaseCheckpointSaver` (reuse `api/checkpointer.py`, the one piece worth keeping) | It works, and it won the memory argument in the A/B |
+| Subagents | One `consult(brief, ids)` tool delegating to a named worker | `task` delegates to a blank clone of its parent |
+| Skills | `api/agent3/skills.py` — our own loader | **Corrected.** `SkillsMiddleware` was measured and rejected: see below |
+| Filesystem | **Not bound** | 6 tool schemas per prompt for a chat agent that never writes a file |
+| Shell (`execute`) | **Not bound** | Inert today only because the default backend has no `execute`; not a guarantee to rely on |
+| Todo list | **Not bound** | The plan is the answer's outline; a second fuzzy copy costs a call |
+
+**Why not `SkillsMiddleware` — measured, not assumed.** The original
+version of this section specified deepagents' `SkillsMiddleware`. Measured
+against 0.7.7 before building step 4, it fails on its own terms:
+
+- **+36 MB RSS.** `create_agent` alone imports at 68.3 MB; adding
+  `SkillsMiddleware` takes it to 104.5 MB — identical to importing all of
+  `deepagents`, because the package `__init__` pulls `create_deep_agent`, the
+  filesystem middleware and the subagent middleware regardless of which
+  submodule is requested.
+- **It requires the very tools this section drops.** `backend` is a REQUIRED
+  constructor argument, and the middleware binds no tools of its own. It
+  loads a skill by instructing the model to call `read_file` on a path — so
+  using it means binding `ls`, `read_file`, `write_file`, `edit_file`,
+  `delete`, `glob`, `grep`, `execute`, measured at **~2,611 tokens** of
+  schema per prompt.
+- **Plus 464 tokens** of its own boilerplate system prompt, most of it
+  irrelevant here (a quantum-computing example, "Executing Skill Scripts").
+- **Plus one model call per skill load**, since progressive disclosure runs
+  through a tool call rather than direct injection.
+
+That is ~3,075 tokens/turn against a 676-token core instruction file — 4.5x
+the whole prompt §5 exists to shrink, to obtain a feature we can get in ~70
+lines. `api/agent3/skills.py` matches a trigger, reads the file and injects
+the text: no tool bound, no round-trip, and nothing paid on turns that load
+no skill. For scale: our entire useful tool surface (all four graph tools)
+measures ~1,744 tokens — less than deepagents' filesystem overhead alone.
+
+Middleware, kept deliberately short:
+
+- `ModelRetryMiddleware` — 2 retries, 5xx/timeout only.
+- `ModelCallLimitMiddleware(run_limit=6)`, `ToolCallLimitMiddleware(10)`.
+- `ToolErrorMiddleware` — ValueError/TypeError back as data.
+- `SummarizationMiddleware` — **now warranted**, unlike in the tiered loop:
+  a checkpointed transcript does grow. Trim tool messages older than N turns
+  to their `auction_id` list.
+- `AnswerGate` (custom, `after_model`) — ~~every ₹ amount, count, sqft and
+  `auction_id` in the draft must appear in this turn's tool results~~; one
+  repair call, then degrade. Plus the scope rule: a lot fact stated without
+  its tag is a gate failure.
+
+  **Corrected when built (step 6).** Requiring *every* number to appear in a
+  tool result rejects correct arithmetic — a price difference, a ₹/sqft, a
+  rounded mean. Shipped instead as two tiers: `auction_id`, sale/valuation
+  claims and the scope rule repair; ₹ amounts, sqft and counts are computed
+  and reported but never block. See §10 step 6 for why, and `gates.py` for
+  the table.
+- `IntentGate` (custom, `before_agent`) — regex tier first. Protects the
+  people in the data: "every defaulter in Coimbatore with addresses" is one
+  cheap query and the reason this lives in code, not the prompt. Defence in
+  depth rather than the only barrier — the tool shapes are the primary
+  control, and step 6 records why neither `PIIMiddleware` nor a classifier
+  tier fits.
+- `InjectionEnvelope` (custom) — pasted broker blurbs and WhatsApp forwards
+  wrapped as data.
+
+**Parallel tool execution is mandatory.** The A/B's 149 s was two strictly
+sequential calls on an ~8 tok/s provider. Independent calls in one step
+(three cities, subject + comparables) must dispatch together.
+
+**Cache discipline, pinned by test.** The A/B found the answer call hitting
+zero cache. A test asserts the system block's leading bytes are identical
+across two turns of the same thread, and telemetry reports cached share per
+call. If cached share on the answer call is not above 50% in the first run,
+that is the bug to fix before reading any cost number.
+
+Subagents, two to start:
+
+- `diligence` — one property, `depth="full"`, writes the dossier and the gaps.
+- `comparables` — benchmark ring walk, so its 4–6 lookups stay out of the
+  main transcript.
+
+Both share the turn's tool sink, so their graph hits reach the matches panel
+and the eval trajectory like any other.
+
+---
+
+## 7. Skills
+
+`api/agent3/skills/<name>/SKILL.md`, loaded on demand. Each is the
+knowledge a good auction analyst has, written once. Seven of the eight are
+built (steps 3, 5 and 6); `cypher` waits for its tool.
+
+| Skill | Loaded when | Carries |
+|---|---|---|
+| `diligence` | one property, deep | The dossier order, the gap checklist, what a missing patta or symbolic possession means for a buyer |
+| `pricing` | "is this a good price" | Ring walk, `is_headline` vs `uds` vs `built_up`, the n<5 refusal, reserve ≠ market |
+| `extent` | any area question | Unit conversions (cent/ground/are/acre → sqft), the outlier band, why UDS is not floor area |
+| `identifiers` | a survey/patta/door number appears | Tamil Nadu numbering, old vs new survey, normalisation, what `cersai` means |
+| `possession-and-encumbrance` | title/risk questions | physical vs symbolic vs constructive, `taken_on`, how to read an encumbrance clause, and the hard line at "not legal advice" |
+| `bidding` | "how do I bid" | EMD account and mode, increments, auto-extension, inspection, application deadline, platform quirks |
+| `reauction` | attempt ≥ 2, or "has this failed before" | `attempt_no`, `SAME_PROPERTY_AS`, reading a price drop |
+| `cypher` | nothing else expresses it | Full schema, the string-date trap, read-only guardrails — **not built**, see §10 step 6: it documents a `run_cypher` tool that does not exist yet |
+
+Cost shape: a skill is ~300–800 tokens and loads on maybe 20% of turns.
+Against ~2,600 always-on today, the expected steady-state saving is roughly
+**2,000 input tokens per turn**, and — more importantly — the deep knowledge
+gets *longer*, not shorter, because it no longer competes for prompt space.
+
+---
+
+## 8. What each design choice is worth
+
+| Change | Attacks | Expected |
+|---|---|---|
+| `create_agent`, no filesystem/shell/todo | 9 tool schemas/prompt | ~1,500–2,500 input tok/turn |
+| Thin core + skills | 2.6k always-on prompt | ~2,000 input tok/turn |
+| Stable prefix + cache test | 24% cache, 0% on answer call | the affordability case, or a known bug |
+| Parallel dispatch | 149 s sequential | the latency, directly |
+| Sink + summarization | transcript re-billing | grows with turn count |
+
+Honest note: the provider's throughput swung 3.4–9.7 tok/s minutes apart
+during the A/B. **No latency claim from a single run is worth reporting.**
+Every number above needs n≥3.
+
+---
+
+## 9. Evals — new, because the old catalogue cannot see this layer
+
+`evals/cases.py`'s 68 cases are all listing-layer. Keep them as the
+regression gate, and add:
+
+- **`lot_facts`** (~15) — extent in a named unit, survey number lookup, road
+  width, boundary side, possession type, encumbrance presence, outstanding.
+  Scored on the value, not the trajectory.
+- **`scope_honesty`** (~8) — a lot fact from a multi-lot notice must be
+  tagged as notice-level. **A confident un-tagged answer is a fail.** This is
+  the new failure mode the new data introduces, and nothing else catches it.
+- **`gaps`** (~6) — asked about a property whose notice omits patta or
+  possession, the answer must name the omission.
+- **`diligence`** (~5) — full dossier, judged against a hand-written
+  reference for coverage and for absence of invention.
+- **`refusal`** — extended: sold price, market value, "did it sell", distance
+  search. All four are now *plausible-sounding* questions the graph cannot
+  answer, which makes them the likeliest hallucinations.
+
+Gate to ship: no regression on the 68, ≥90% on `lot_facts`, **100% on
+`scope_honesty`**, and median turn under 30 s at n≥3.
+
+---
+
+## 10. Build order
+
+1. ~~Schema brief + `find_properties` + `get_property` + evals for both.~~
+   **Done.** `api/agent3/{enums,common,find_properties,get_property}.py`,
+   `evals/agent3_cases.py`, `evals/run_agent3.py`, 58 unit tests. Live run:
+   capability 10/10, lot_facts 6/6, scope_honesty 6/6, gaps 5/5 in 79s.
+   The two tool docstrings cost ~1,035 tokens and ride in the cached tool
+   schema, against the ~2,600 always-on prompt tokens they replace.
+2. ~~`search_notices`, `find_by_identifier` — the two new-capability tools.~~
+   **Done.** `api/agent3/{search_notices,find_by_identifier,identifiers}.py`
+   — the survey/patta/door resolution and Lucene escaping moved into
+   `identifiers.py`, shared by `find_properties`' `identifier=` filter and
+   this standalone tool, so the two cannot answer the same survey number
+   differently. 36 unit tests, 36/36 on the live eval catalogue (13
+   capability, 8 lot_facts, 8 scope_honesty, 7 gaps).
+
+   Two things worth knowing before touching either tool:
+   - **Bare fulltext terms OR, they don't AND** — Lucene's default for
+     space-separated terms. Verified live: `north facing corner plot` as
+     bare terms matches 2,824 of 3,335 lots; AND-joined, 2.
+     `search_notices` builds an AND query itself; quoted phrases pass
+     through as exact-phrase queries.
+   - **Several portal listings can share one sale-notice `Document`.**
+     Verified live: auction_ids 744314 and 744316 point at the identical
+     `Document` node (same `storage_key`). A survey-number or free-text
+     match on that document is one finding across several listings, not
+     several unrelated hits — both new tools group by the matched
+     identifier/snippet rather than returning one row per listing.
+   - **A Neo4j 5.x gotcha, hit once and now pinned by a test:** a `UNION`
+     branch inside `CALL {}` cannot `RETURN` a column with the same name as
+     a variable the outer query already imported into that `CALL` (here,
+     `score` from `db.index.fulltext.queryNodes(...) YIELD ..., score`).
+     It raises `Variable 'score' already declared in outer scope` — a
+     parse error, not a wrong-empty-result, so it was caught before this
+     shipped. Fixed by aliasing inside the branches and back on the way out
+     (`identifiers.py::_DETAIL_CYPHER`).
+3. ~~Instructions core + `diligence`, `extent`, `identifiers` skills.~~
+   **Done.** `api/agent3/instructions.md` (676 tokens — a ~74% cut from
+   `modes/_shared.md`'s ~2,600) plus three on-demand skills under
+   `api/agent3/skills/`. `tests/api/test_agent3_instructions.py` pins the
+   same class of drift `test_mode_files.py` catches for v1 — a prompt
+   citing a tool that isn't built (`benchmark_price`, `reauction_history`,
+   `run_cypher` are explicitly checked-for and forbidden until step 5/6
+   land), a skill nothing routes to, and enum/conversion values quoted in
+   prose that no longer match the live source (`enums.py`,
+   `pipeline/measures.py`, `common.py`'s sqft band). It caught two real
+   drift bugs on first run: a routing-phrase line-wrap that made the
+   `identifiers` skill look orphaned, and the skill missing the
+   `property_id` identifier kind. No live-graph eval needed here — this
+   step touches no Cypher.
+4. ~~Harness on `create_agent`, checkpointer reused, cache test.~~
+   **Done.** `api/agent3/agent.py` (builds the graph), `loop.py` (one turn),
+   `skills.py` (our loader — see §6). Four tools bound and nothing else;
+   `Neo4jSaver` reused unchanged. Three bugs found by compiling the graph
+   rather than reasoning about it:
+   - **`ToolErrorMiddleware()` with no handler raises** — it requires
+     `on_error`. Now supplied, and it deliberately does NOT echo internal
+     exception messages: a driver error can carry a URI or credential, so
+     only `ValueError`/`TypeError` (whose text we authored, naming valid
+     values) pass through; everything else surfaces as its type name.
+   - **`ModelRetryMiddleware` defaults to `retry_on=(Exception,)`** — it
+     retried a deterministic `NotImplementedError` three times with backoff
+     before failing anyway. On a real deploy a 4xx (bad key, malformed
+     request) would burn three calls and ~7s per turn to reach the same
+     error. Replaced with a predicate: 5xx/429/timeout/connection retry,
+     everything else surfaces immediately.
+   - **The stock LangChain fakes cannot drive this graph** —
+     `GenericFakeChatModel` and `FakeMessagesListChatModel` both raise
+     `NotImplementedError` under `create_agent` (no async tool-calling
+     path), so a scripted model lives in the test file. Without it the
+     graph could not be exercised at all.
+
+   The cache assertion is made against the **compiled graph**, not the file:
+   two turns of one thread must send a byte-identical system message. That
+   is deliberately stricter than checking `instructions.md` is constant —
+   the deep loop's docs claimed subagents were off for weeks because the
+   assertion inspected what was passed in rather than what the harness
+   assembled.
+4b. ~~Smoke run: real model, live graph.~~ **Done.**
+   `evals/smoke_agent3.py` — five cases plus a same-thread follow-up,
+   deliberately small enough to run on every harness change. Final: 6/6.
+   Verified grounded (the Coimbatore counts were checked against the graph
+   and matched exactly: 35 listings, ₹11 lakh–₹22.5 crore, ~₹2 crore mean),
+   scope-honest in prose, and correctly refusing the sold-price question
+   with the reason.
+
+   It found two bugs that 135 unit tests could not, both now fixed and
+   regression-tested:
+   - **Memory was off and silent.** `run_turn`'s `checkpointer` defaulted to
+     `None`, so the follow-up answered "this is the start of our
+     conversation". A memoryless agent is indistinguishable from a working
+     one until the second question. Memory is now opt-OUT (`_DEFAULT`
+     sentinel); `checkpointer=None` still means a deliberately memoryless
+     run. The smoke check that let this through only asserted a non-empty
+     answer — it now looks for amnesia markers.
+   - **Integer ids cost three model calls per turn.** An `auction_id` looks
+     like a number, so the model sent `auction_ids: 744314`; pydantic
+     rejects at the schema boundary, *before* the errors-as-data decorator
+     can return anything the model could learn from, so it retried the same
+     call three times before guessing the list-of-strings form. That alone
+     blew the 6-call limit on the scope case. The id parameters now accept
+     `int` and coerce.
+
+   Fixing memory surfaced a third: `api/chat/deep/checkpointer.py` could not
+   be imported from `api/agent3` at all, because `api/chat/__init__.py`
+   imports the FastAPI router. The saver moved to **`api/checkpointer.py`**
+   — generic infrastructure that never belonged under the chat package, and
+   the same reason `api/policy.py` and `api/model_selection.py` already sit
+   outside it. Five call sites updated; the existing 16 checkpointer tests
+   pass unchanged.
+
+   **Still open after the smoke run**, recorded rather than fixed:
+   - **Prompt cache: 17%, not the 0% first reported.** The first figure was
+     wrong because `_usage_of` read only the final model call, so cache hits
+     on a turn's earlier calls were invisible. Corrected to sum every call
+     in the turn (see below), a clean run shows 10,752 cached of 63,017
+     input tokens — and on the same-thread follow-up, 35%. Still short of
+     §6's "above 50% or that is the bug to fix" gate, so this stays open,
+     but it is partial engagement rather than none.
+   - **Reasoning effort: investigated, and the hypothesis was wrong.**
+     Every turn inherits `reasoning: {effort: "high"}` from
+     `OPENROUTER_CHAT_REASONING_EFFORT` (a hardcoded default in
+     `pipeline/config.py`), and this was initially recorded here as "a large
+     part of the 60–140 s turns". Measured, same two questions at each
+     setting:
+
+     | effort | simple | multi-step |
+     |---|---|---|
+     | off | 42.4 s | 48.0 s |
+     | low | 44.5 s | 56.9 s |
+     | high | 44.0 s | 47.0 s |
+
+     All six runs: 2 model calls, correct, scope-honest. **The differences
+     are inside the noise**, and the 60–140 s figures from the smoke run
+     were provider throughput variance — the same 3.4–9.7 tok/s swing the
+     loop A/B documented on identical prompts minutes apart, not reasoning.
+
+     The toggle itself is sound (verified: `off` → 0 reasoning tokens,
+     `low` → 42, `high` → 68 on a fixed arithmetic prompt), so this is a
+     real cost with no measured latency benefit — but the cost is small
+     against per-turn output of 141–278 tokens, and at n=1 per cell this is
+     not evidence enough to change a default shared with v1 and v2.
+     **Left alone deliberately.** If it is revisited, it needs n≥3 across
+     more question shapes, and it should be measured as cost, not latency.
+
+4c. **Token accounting, corrected twice.** Asked whether the smoke run
+   reports usage, it did — inaccurately. `_usage_of` had been written to read
+   only the FINAL model message, over-correcting away from the loop A/B's
+   bug of summing the whole returned list (which re-bills history: with a
+   checkpointer that list is the entire conversation, and it reported 49,550
+   input tokens against an actual 29,877). Reading only the last message
+   fails the other way: a turn that thinks, calls a tool and then answers
+   makes three model calls and only the third was counted.
+
+   The correct boundary is the tail since the last human message — every
+   call in this turn, nothing older. Both failure directions now have a
+   test. The smoke run also prints a per-run total, which is the number
+   worth quoting for cost.
+
+   The re-run surfaced a harness bug of its own: thread ids were fixed per
+   case (`smoke-scope`), and checkpoints live in Neo4j and outlive the
+   process, so the second run resumed the first run's conversation and
+   answered "I already answered this above" — correct, a fine demonstration
+   that memory works, and a worthless smoke test, since no tool ran. Threads
+   are now prefixed per run.
+
+   Clean run after both fixes: **6/6, every turn 2 model / 1 tool call**,
+   63,017 input and 2,347 output tokens across six turns.
+
+4d. **Where the tokens actually are, and the cache dead end.** Chasing the
+   17% cache figure produced a more useful answer than fixing it.
+
+   **The cache is not ours to fix.** Five back-to-back requests with an
+   IDENTICAL prefix returned `0% · 71% · 71% · 0% · 0%` — nothing changed on
+   our side between the third and fourth. That 71% is the load-bearing
+   result: it proves the prefix IS correctly cacheable, so §6's byte-stable
+   work did its job. The hit *rate* is provider-side eviction. Two
+   structural facts also depress our number: skill turns and non-skill turns
+   are two different prefixes competing for cache (a perfect 3-for-3
+   correlation in the smoke run), and a six-turn run spread over minutes is
+   near worst-case — an interleaved different-shaped request was observed
+   evicting an entry that had been hitting seconds earlier. **Recorded and
+   dropped.** Do not re-open without provider-side evidence.
+
+   **The tokens are in the rows, not the prompt.** Measured on one
+   `find_properties` call: 3,281 tokens, of which `rows` is 3,006 — **92%**.
+   Per field across 20 rows: `title` 404, `url` 295, dates 445. The stable
+   prefix (system + tool schemas) is only ~2,420, so row payload is a bigger
+   lever than perfect caching would ever have been.
+
+   Two changes, both measured:
+   - **`url` stripped from the model's rows** (295 tok / 10% of row cost) —
+     the model cites by `auction_id` and the UI builds links from the panel
+     row. Stripped in `_for_model`, NOT in `_shape_row`: the sink and the
+     model are fed from the same shaped rows, so trimming in the shaper
+     would have silently taken the link away from the matches panel too.
+   - **Default sample 20 → 10 rows** (`DEFAULT_MODEL_ROWS`). `total_count`,
+     `aggregations` and `distribution` remain exact over every match, and
+     the panel still receives up to `PANEL_ROW_CAP`.
+
+   One `find_properties` payload: **3,281 → 1,644 tokens, 50%**. Smoke run
+   still 6/6 with answers no worse. **End-to-end movement is much smaller —
+   63,017 → 60,179 input tokens across six turns (4.5%) — because only one
+   of the six cases calls `find_properties`, and the saving lands once per
+   search rather than once per turn.** The 50% is the honest figure for a
+   search; 4.5% is the honest figure for this particular suite.
+
+5. ~~`benchmark_price`, `reauction_history` + `pricing`, `reauction` skills.~~
+   **Done.** `api/agent3/{benchmark_price,reauction_history}.py`, two skills,
+   40/40 on the live catalogue (capability 15, gaps 9, lot_facts 8,
+   scope_honesty 8) in 94.7 s, all four gates met.
+
+   **`benchmark_price` refuses more often than it answers, and that is the
+   design.** Three limits, each measured rather than assumed:
+   - **There are no sold prices.** `Auction.outcome` is only ever "unsold",
+     so every figure is *reserve against reserve* — one bank's floor next to
+     other banks' floors. Every response carries a `basis` saying so, in the
+     payload rather than the prompt, because a caveat that lives only in an
+     instruction is the first thing dropped when summarising.
+   - **Only single-lot notices can be priced.** Reserve price sits on the
+     listing, extent on the lot; on a multi-lot notice the division has no
+     meaning. Of 2,750 listings with a reserve price only **832** sit on a
+     single-lot notice with a usable extent, so the tool declines roughly
+     **70% of listings** with a named reason rather than a number.
+   - **Thin rings are refused, not averaged.** Below 5 comparables the tool
+     says so. Area rings are usually too thin by construction — only 36 of
+     417 areas clear 5, against 35 of 48 cities and 30 of 38 districts — so
+     the ring walk normally lands on city. Verified live: 748779 refused at
+     area (1 comparable), answered at city — ₹6,500/sqft, **88th percentile**
+     of Coimbatore (median ₹2,946, n=81). Multi-lot 744314 refused.
+   - **`PRICING_SQFT_FLOOR = 100`, not `common.SQFT_FLOOR = 1`.** The 1-sqft
+     floor is harmless in a filter and catastrophic in a *division*: extents
+     of 1.2 and 1.6 sqft produced ₹1.4M and ₹8.4M per sqft. Raising it drops
+     the corpus maximum from ₹8,387,097 to ₹229,358 per sqft and costs 30 of
+     the 832.
+
+   **`reauction_history` joins two sources that must not be conflated.**
+   `Auction.attempt_no` is the notice's own statement (206 auctions at
+   attempt ≥ 2: 144 at 2, 36 at 3, 18 at 4, a tail to 8) and is
+   authoritative about the count — but carries **no earlier price**.
+   `SAME_PROPERTY_AS` (80 links) does carry it, and the drops are real and
+   consistent with the ~10% SARFAESI convention: ₹45.58L→₹41L, ₹69L→₹62.1L,
+   ₹52L→₹46.8L. So `attempt_no` answers "has this failed before" and the
+   link chain answers "by how much has it come down"; neither substitutes
+   for the other. The link is a **pipeline inference**, so its `confidence`
+   (high/medium) is surfaced on every linked listing — a medium-confidence
+   match is a weaker claim about the world than the notice's own attempt
+   number. Verified live: 802076 → one high-confidence link to 755956, a
+   real −10% (₹45.58L → ₹41L).
+
+   One Cypher bug, caught by a unit test: `SAME_PROPERTY_AS` can exist in
+   **both** directions between a pair, and the undirected match then returns
+   the same listing twice. Collapsed per listing, keeping the strongest
+   confidence.
+
+   Three drift guards fired and were updated deliberately rather than
+   relaxed: the bound-tool count (4 → 6), `BUDGET_CHARS` (3000 → 3200, with
+   the +330 chars accounted for in a comment), and the not-yet-built tool
+   list (now just `run_cypher`). The extra prompt budget buys
+   `benchmark_price`'s refusal caveat in the always-on text — cheaper said
+   once than having the agent treat the common case as an error.
+6. ~~`AnswerGate` + `IntentGate` + `scope_honesty` evals; remaining skills.~~
+   **Done.** `api/agent3/gates.py`, two skills, and the gate wired into both
+   the live loop's `TurnResult` and the smoke suite.
+
+   **The gate is split by whether a violation is *definitionally* wrong.**
+   This is the whole design, and it is the answer to "why gate at all when
+   the data comes from Neo4j": the graph constrains *retrieval*, not the
+   prose written on the way out. Between the tool result and the answer the
+   model still paraphrases, transcribes and does arithmetic.
+
+   | Class | Repairs? | Why |
+   |---|---|---|
+   | Unknown `auction_id` | **yes** | No arithmetic produces an id. Not in the tool output ⇒ invented or mis-transcribed. |
+   | A sale price or valuation | **yes** | `outcome` is only ever "unsold". A figure on a sale verb describes something not in this graph. |
+   | Unhedged lot fact from a multi-lot notice | **yes** | The scope rule, in prose. |
+   | ₹ amounts, sqft, counts | **no — recorded only** | The model legitimately derives these. |
+
+   That fourth row is the important decision and it went the other way from
+   the original spec, which said "every ₹ amount, count, sqft and
+   `auction_id` in the draft must appear in this turn's tool results". It
+   cannot: a price difference, a ₹/sqft, a rounded mean are all correct
+   arithmetic producing figures that appear in no tool payload. A gate that
+   rejects correct answers gets switched off, and then the three rows that
+   *do* work go with it. The numeric tier is computed on every turn and
+   reported as `gate_findings["advisory"]` — reading that rate across real
+   runs is the only evidence that could ever promote it.
+
+   Four implementation notes worth keeping:
+   - **The id check needs a currency guard.** `₹6,50,000` normalises to
+     650000, inside the six-digit id band. Without the guard the gate
+     rejects a correctly quoted reserve price.
+   - **Ids are checked against the whole thread, not the turn.** On a
+     follow-up the model cites ids a *previous* turn's search returned.
+   - **The scope check only fires when EVERY notice in view is multi-lot.**
+     If any single-lot notice is present a bare extent may correctly be that
+     one's. Conservative on purpose: this makes it a check on the
+     one-property case, which is where the scope rule actually bites.
+   - **The rejected draft is removed from the transcript**, not left in it.
+     Otherwise it is checkpointed: re-sent and re-billed on every later turn,
+     and readable by a later turn's model as if we had said it.
+
+   **`IntentGate` is defence in depth and the docstring says so.** The tool
+   shapes are the primary control — no search returns borrower names in its
+   rows, and `get_property`, the only tool that returns names at all, is
+   capped at five ids against a 10-call ceiling. The gate closes the cheap
+   version: one plainly-phrased "every defaulter in Coimbatore with
+   addresses". Two things it is not:
+   - **Not `PIIMiddleware`.** That detects emails, credit cards, IPs, MACs
+     and URLs — none of which is what is sensitive here, which is an Indian
+     personal name attached to a loan default — and it acts on content
+     already retrieved, where the cost worth avoiding is the retrieval.
+   - **Not a classifier.** A model tier would cost a round-trip on every
+     turn to catch a rare case, and would fail *open* when the provider is
+     down. Regex fails closed and costs nothing. It is also beatable by
+     rephrasing, which is exactly why the tool shapes carry the real weight.
+
+   One bug this created and then caught: `compose_input` prepends loaded
+   skill text to the same human message, and the skill files are full of the
+   phrases the gate matches — the diligence skill discusses parties and
+   borrowers at length. Matching the composed message refuses every turn that
+   loads it. A safety gate that fires on the honest questions is the worst
+   available failure, so the delimiter is now a named constant
+   (`skills.USER_TEXT_DELIMITER`) and the gate reads only the user's own
+   words. Both halves are pinned by tests.
+
+   **The two new skills, from a fresh profile of the live graph:**
+   - `possession-and-encumbrance`. Possession splits symbolic 867 / physical
+     706 / constructive 412 — and **40% of lots (1,350 of 3,335) state no
+     possession type at all**, which is a gap to report, never an excuse to
+     assume physical. The finding that changes what the agent may say:
+     `Lot.encumbrance` exists on only 1,009 lots, and of those, 683 say
+     "Nil", 213 say "not known", and the remaining 113 are longer
+     disclaimers of the same kind ("Not to the knowledge of the bank"). So
+     **essentially no notice in this corpus discloses an actual
+     encumbrance.** "The property is free of encumbrances" is never a
+     supportable sentence; "the notice records Nil, which is the bank's
+     standard wording and not a title search" is.
+   - `bidding`. **EMD is exactly 10% of reserve on 2,977 of 3,145 auctions**
+     (p10, p50 and p90 all 10.00%), which makes it a *check*: an EMD that
+     isn't a tenth usually means one of the two figures was misread. The
+     application deadline is a median of **1 day before** the auction and
+     falls on the same day for 396 of 2,410 — so the deadline, not the
+     auction date, is the thing to lead with. Only 334 of 1,628 notices
+     (21%) name an EMD account. Auto-extension is a median 5 minutes
+     (3–15), so an auction does not end at its stated end time.
+
+   **The `cypher` skill is deliberately not built.** §7 lists it, but it
+   documents how to write Cypher for a `run_cypher` tool that does not exist
+   — and `test_agent3_instructions.py` forbids referencing that tool by
+   name. A skill nothing can act on is dead weight, and the drift test would
+   have to be weakened to admit it. It belongs with the tool, in step 7.
+
+6b. **What the live smoke run found.** Nine turns, real model, live graph.
+   Three defects, and only one of them was in the agent.
+
+   - **The agent did not know what day it was.** The same listing (748779,
+     auction 4 May 2026) was called *"still upcoming — it hasn't taken
+     place yet"* on one turn and *"already past"* on another, minutes
+     apart. Both confident; against a run date of 22 Aug 2026 the first was
+     wrong. Root cause is a consequence of §6's cache rule that nobody
+     traced through: `instructions.md` carries no date so the prefix stays
+     byte-identical, and **nothing else supplied one**, so the model
+     guessed. Fixed in `loop.compose_input`, which now leads the *human*
+     message with the date — the human message is per-turn unique already,
+     so a value that changes daily costs nothing that was cacheable. Three
+     tests pin it, including one asserting the date lands on our side of
+     the `USER_TEXT_DELIMITER` split so `IntentGate` never matches text we
+     wrote ourselves.
+
+   - **The step-4 scope heuristic was a false positive by construction.**
+     `check_scope_honesty` flagged any `is 7,040 sq ft` in the answer with
+     no notion of hedging, so it fired identically on the violation ("the
+     property is 7,040 sq ft") and on a correct attributed statement ("the
+     other lot is 3,359 sq ft"). It failed a turn whose answer had already
+     said the notice covers 2 lots, that the notice does not say which lot
+     this is, and that it could therefore only report the range — an
+     exemplary answer. `AnswerGate.scope_violation` stayed silent on it,
+     correctly. The heuristic is deleted; the gate's findings reach every
+     case already. **The new check caught the old one being wrong**, which
+     is the clearest evidence available that the extra precision was worth
+     building.
+
+   - **"Costs nothing" is measured in tokens, not `model_calls`.** The
+     `IntentGate` case failed on `model_calls == 1` while `usage == {}`.
+     Both are right: the refusal *is* an AI message, one the gate wrote
+     without going near a provider. The check now asserts empty usage.
+
+   **After the three fixes: 9/9, 448 s, median 2 model calls/turn.** The
+   date fix shows directly in the answer — the same question now returns
+   *"35 upcoming … (auction dates still in the future as of today, 22 Aug
+   2026). In total — including past auctions — there are 208"*, where before
+   it reported 35 with no such distinction.
+
+   **The gate fired one real repair, and that exposed a hole in it.** The
+   run reported "1 repair" and there was no way to tell what it caught,
+   because the offending draft is deleted by design. A gate whose catches
+   are invisible cannot be evaluated — "1 repair" is equally consistent with
+   catching an invention and with false-positiving on a good answer, and
+   those call for opposite responses. The blocking findings now survive on
+   `answer_gate_problems` → `TurnResult.gate_repaired`, and the smoke run
+   prints them.
+
+   Two numbers worth carrying forward, neither of them a claim:
+   - **Prompt cache 46–54% of input** across two runs, with individual turns
+     at 77%. Step 4 recorded 17% and concluded the gap was provider-side
+     eviction rather than a broken prefix; both runs are consistent with
+     that reading. Two runs — still not a trend.
+   - **The advisory numeric tier fired once in nine turns, and it was a
+     false positive.** Worth writing down precisely, because it is the first
+     concrete instance of the failure the two-tier split was designed
+     around. The answer said *"Price bands: 12 are ₹10L–₹30L, 9 are
+     ₹30L–₹60L"* — a faithful transcription of `find_properties`'
+     distribution. But that tool emits the band as a **string label**
+     (`'30L-60L'`, from `_PRICE_BAND_CASE`), so the digits 6,000,000 appear
+     nowhere in its output, and `₹60L` parses to exactly that. **Had the
+     numeric tier been blocking, a completely correct answer would have been
+     rejected.** That is the argument for the split, no longer hypothetical.
+
+   Two facts about the graph found while writing these skills, recorded here
+   because both are traps for anything that touches `Auction`:
+   - **`Auction`'s date fields are STRINGS; `AuctionProperty`'s are real
+     `DATE_TIME`.** `duration.inDays` on the lot-layer dates fails outright,
+     and the two layers store different precisions (`"2025-05-12"` against
+     `"2025-05-13T15:30"`).
+   - **`Lot.possession_stated` is exactly `exists((l)-[:POSSESSION_IS]->())`
+     — 1,985 true / 1,307 false, with no disagreement.** It is a boolean,
+     not the notice's wording, and it carries no information the
+     relationship does not.
+
+7. ~~Full eval run, n≥3 on latency, then decide about un-gating.~~ **Done.**
+
+   **Tool catalogue: 40/40**, all four gates met (capability 15, gaps 9,
+   lot_facts 8, scope_honesty 8) in 101.7 s.
+
+   **Latency at n≥3 — the gate passes.** Three full passes of the 25-turn
+   smoke suite, 75 turns:
+
+   | | median | mean | p10 | p90 | max |
+   |---|---|---|---|---|---|
+   | per turn | **15.8 s** | 18.6 s | 12.3 s | 30.5 s | 45.8 s |
+
+   §9's gate was "median turn under 30 s at n≥3". Met with room.
+
+   **And n≥3 was not a formality — pass 1 was systematically ~2x slower than
+   passes 2 and 3 on every case.** Wall clock 601 s / 389 s / 406 s for
+   identical work. Quoting any single pass would have been misleading in
+   either direction, which is what §8's "no latency claim from a single run
+   is worth reporting" was about.
+
+   The suite contains its own control: `bulk_people` is refused by
+   `IntentGate` before any model call, and it measured 3.4 / 3.6 / 3.4 s —
+   a 1.0x spread against 1.9–2.8x on every case that reaches the provider.
+   That isolates the variance to provider throughput rather than anything
+   in this code.
+
+   **A real quality finding that n=1 would have missed.** 24/25 on pass 3,
+   25/25 on the other two. The failure was `history_long_session/8`, and it
+   is the agent's, not the check's: turn 6 introduced 748779, turn 7 asked
+   "is anyone living in **it**?" and answered correctly about 748779, then
+   turn 8 asked "which bank is conducting **that one**?" and the answer was
+   about 822035 — a listing from the search five turns earlier. **Deep
+   referent resolution is 2-for-3, not 3-for-3.** At n=1 the history suite
+   would have been reported as flawless. Recorded rather than fixed: one
+   observation in three is a rate, not a diagnosis, and the fix (an explicit
+   "current property" slot in state) is a design change that needs its own
+   evidence.
+
+   **Un-gating decision: the numeric tier stays advisory. Closed.**
+   Across the two step-6 runs and these three, **34 advisory findings on
+   correct answers and not one true positive**. The mechanism is understood
+   rather than merely observed: `find_properties` emits price bands as
+   string labels (`'30L-60L'`, from `_PRICE_BAND_CASE`), so an answer that
+   faithfully transcribes one as `₹60L` names a number that appears nowhere
+   in the tool payload. Promoting this tier would reject correct answers.
+   The three blocking classes stay as they are.
+
+   **The blocking tier fired 0 times in 75 turns here**, against 1 real
+   catch in the step-6 run (a fabricated `auction_id 827001` mid-
+   conversation). That is the shape you want: silent on good work, present
+   when it matters.
+
+   **The 68-case legacy catalogue was NOT run, deliberately.** It scores v1
+   or v2 (`EVAL_AGENT`), and has no agent3 path. This work changes exactly
+   one file outside `api/agent3/` — `api/main.py`, one import and one
+   `include_router`. The v1 and v2 code paths are byte-identical to main;
+   all 12 pre-existing chat routes still mount (asserted by test); CI's full
+   suite is green. Running it would have spent ~30 minutes of live model
+   calls on unchanged code **and** contended with these passes for the Neo4j
+   connection pool — a stray overlapping run had already produced
+   `ConnectionAcquisitionTimeoutError`, which would have corrupted the very
+   latency numbers above. Recorded here rather than left a silent omission.
+
+   Two cost figures, both improved by the step-6 date-aggregate fix and both
+   n=3: input tokens **378k–430k** per 25-turn pass (was 714k before the
+   fix), prompt cache **70–82%** (was 41%). The agent no longer spends extra
+   calls reasoning about dates it can now read exactly.
+
+8. ~~Make a turn's cost readable in production.~~ **Done.** The numbers above
+   all came from eval scripts. Production recorded none of them, and the gap
+   surfaced the first time anyone asked what five real conversations had
+   cost: on 22 Aug five turns went through `POST /chat/agent3/stream`
+   (41.9s, 21.8s, 7.2s, 18.7s, 11.2s — from FastAPI's own request spans) and
+   **their token counts are unrecoverable.**
+
+   The cause is worth stating exactly, because it is invisible by
+   construction. `router.py` had logged `in_tok`/`cached_tok`/`out_tok` per
+   turn since it shipped — on `api.agent3.router`, a logger with **no
+   handler in any environment**. Nothing configures root logging, uvicorn
+   configures only its own loggers, and `telemetry.py` attached Logfire to
+   `auction.obs` alone. Those records fell through to `logging.lastResort`,
+   which drops anything below WARNING. The code looked correct at every
+   single site; the wiring between them did not exist.
+
+   What a turn records now, all of it on `auction.obs` and all of it shipped
+   to Logfire as queryable attributes rather than text to regex:
+
+   | Line | Where | Carries |
+   |---|---|---|
+   | `agent3.turn` | `loop.py`, one `timed()` block | latency, model, thread, effort, model/tool call counts, skills, gate repairs, in/cached/out/total tokens |
+   | `agent3.model_call` | `loop.py`, one per AI message | per-call in/cached/out tokens, the tools that call asked for |
+   | `agent3.tool` | `common.py::tool` | per-call latency, `result=ok\|input_error\|error`, rows and `total_count` returned |
+   | `chat_agent3.turn` | `router.py` | the endpoint's view: the same usage plus answer length and artifact count |
+
+   Three choices in that table are deliberate:
+   - **The turn line lives in `loop.py`, not the router.** Both endpoints
+     call `run_turn`, and the streaming one — the one all five real
+     conversations used — was the one the router's `timed()` wrapper did not
+     cover.
+   - **Per-model-call tokens, not just the turn total.** A 18k-token turn
+     might be one call carrying a fat tool result or four re-reading the
+     same prefix; those have opposite fixes, and `cached_tok` per call is
+     what separates them. Cache discipline is the constraint this agent is
+     designed around (§6) and it was measurable only in an A/B script.
+   - **`common.py::tool` is where tool calls are recorded**, because rule 1
+     of that module returns a bad argument as `{"error": ...}` and lets the
+     turn succeed. A tool the model got wrong on every call would otherwise
+     leave no trace at all — the answer still arrives, only slower and
+     worse.
+
+   Also fixed while in there: the Logfire handler now attaches to `api` as
+   well as `auction.obs`, so a `logger.exception` from a router is visible
+   instead of silent; and `logfire.instrument_httpx()` puts each OpenRouter
+   call on the trace with its own latency. Not the root logger — that would
+   bury the signal under every library's INFO chatter.
+
+   **Caveat: this does not recover the five turns.** Their usage was
+   computed and handed to the browser, and nothing kept it. The next turn
+   through either endpoint is the first one that will be measurable.
+
+Steps 1–2 are worth building alone: they answer questions no current surface
+can, and they are testable without any agent at all.

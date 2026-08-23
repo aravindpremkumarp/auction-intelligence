@@ -56,6 +56,21 @@ def test_conversations_well_formed() -> None:
             assert not unknown, (
                 f"unknown expect_panel key(s) {unknown} in {conv.conv_id}"
             )
+            for marker in turn.forbid_answer_markers:
+                assert isinstance(marker, str) and marker.strip(), (
+                    f"empty forbid_answer_markers entry in {conv.conv_id}"
+                )
+                assert marker == marker.lower(), (
+                    f"forbid_answer_markers entry {marker!r} in "
+                    f"{conv.conv_id} must be lowercase — the runner "
+                    "lowercases the answer before matching"
+                )
+            if turn.forbid_answer_markers:
+                # It asserts the agent resolved a reference to something said
+                # EARLIER, so there has to be an earlier turn to refer to.
+                assert conv.turns.index(turn) > 0, (
+                    f"forbid_answer_markers on the first turn of {conv.conv_id}"
+                )
             if turn.references_panel:
                 # A panel-reference turn needs a prior turn to have populated
                 # the panel — it can't be the conversation opener.
@@ -85,21 +100,36 @@ def test_has_refinement_and_topic_switch_coverage() -> None:
     assert any(
         t.references_panel for c in GOLDEN_CONVERSATIONS for t in c.turns
     ), "need at least one panel-reference turn (references_panel)"
+    # A follow-up referring to the NAMES a previous answer gave, rather than
+    # to auctions. This is what the tiered loop's scope object structurally
+    # could not resolve, and it is the case the loop A/B turns on.
+    assert any(
+        t.forbid_answer_markers for c in GOLDEN_CONVERSATIONS for t in c.turns
+    ), "need a turn asserting a prior-answer reference is resolved"
 
 
-def test_carry_forward_keys_match_router() -> None:
-    """The eval's mirrored key set must equal the router's source of truth.
+def test_carry_forward_keys_match_source() -> None:
+    """The eval's mirrored key set must equal the real source of truth.
 
-    Imports the router (available under the tests/api conftest stubs, same as
-    test_active_filters.py) so a filter added to _CARRY_FORWARD_FILTER_KEYS
-    without updating the eval mirror is caught offline.
+    That source is now `api/chat/scope_keys.py`, shared by the v1 router and
+    the v2 tiered loop, so a filter added there without updating the eval
+    mirror is caught offline.
     """
-    from api.chat.router import _CARRY_FORWARD_FILTER_KEYS
+    from api.chat.scope_keys import CARRY_FORWARD_FILTER_KEYS as SOURCE
 
-    assert CARRY_FORWARD_FILTER_KEYS == _CARRY_FORWARD_FILTER_KEYS, (
+    assert CARRY_FORWARD_FILTER_KEYS == SOURCE, (
         "evals/conversations.py CARRY_FORWARD_FILTER_KEYS drifted from "
-        "api/chat/router.py _CARRY_FORWARD_FILTER_KEYS"
+        "api/chat/scope_keys.py CARRY_FORWARD_FILTER_KEYS"
     )
+
+
+def test_router_reexports_the_shared_key_set() -> None:
+    """The router alias must stay bound to the shared definition — a local
+    redefinition there would silently fork v1's scope from v2's."""
+    from api.chat.router import _CARRY_FORWARD_FILTER_KEYS
+    from api.chat.scope_keys import CARRY_FORWARD_FILTER_KEYS as SOURCE
+
+    assert _CARRY_FORWARD_FILTER_KEYS is SOURCE
 
 
 def test_any_sentinel_usable() -> None:

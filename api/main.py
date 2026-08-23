@@ -22,11 +22,14 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from slowapi.errors import RateLimitExceeded
 
+from api.agent3.router import router as chat_agent3_router
 from api.alerts import router as alerts_router
 from api.auth import router as auth_router
 from api.auth.rate_limit import limiter
 from api.billing import router as billing_router
 from api.chat import router as chat_router
+from api.chat.deep.router import router as chat_deep_router
+from api.chat.v2.router import router as chat_v2_router
 from api.conversations import router as conversations_router
 from api.dossier import dossiers_enabled, router as dossier_router
 from api.feedback import router as feedback_router
@@ -185,6 +188,21 @@ async def _unhandled_exception_handler(request: Request, exc: Exception) -> JSON
 app.include_router(health_router)
 app.include_router(properties_router)
 app.include_router(chat_router)
+# /chat/v2 — the tiered loop. Its handlers import LangChain lazily,
+# so mounting the router costs nothing until the first v2 request.
+app.include_router(chat_v2_router)
+# /chat/deep — the same tools and policy on the Deep Agents harness, with the
+# transcript checkpointed in Neo4j. The other half of the loop A/B (see
+# docs/chat-loop-ab-2026-08.md). `deepagents` costs ~107 MB of RSS, so it is
+# imported inside the handlers and an idle deploy never pays for it.
+app.include_router(chat_deep_router)
+# /chat/agent3 — the auction-specialised agent (docs/auction-deep-agent-2026-08.md).
+# Six graph tools, on-demand skills, and the answer/intent gates, on
+# `langchain.create_agent` rather than the Deep Agents harness. Its transcript
+# is checkpointed in Neo4j under the same thread_id scheme /chat/deep uses.
+# Handlers import LangChain lazily, so mounting costs nothing until the first
+# agent3 request.
+app.include_router(chat_agent3_router)
 app.include_router(feedback_router)
 app.include_router(alerts_router)
 
@@ -258,6 +276,10 @@ if WEB_DIR.exists():
     def dossiers_js() -> FileResponse:
         return FileResponse(str(WEB_DIR / "dossiers.js"), media_type="application/javascript")
 
+    @app.get("/lab.js")
+    def lab_js() -> FileResponse:
+        return FileResponse(str(WEB_DIR / "lab.js"), media_type="application/javascript")
+
     # Crawler files. On Vercel these resolve straight from the filesystem, but
     # uvicorn (local dev + Render) needs explicit routes or crawlers hit a
     # 404/405 (seen in prod logs). Served directly — not SPA screens.
@@ -291,6 +313,14 @@ if WEB_DIR.exists():
     @app.get("/admin")
     def admin_page(request: Request) -> Response:
         return _canonical_spa_redirect(request) or FileResponse(str(WEB_DIR / "admin.html"))
+
+    # /lab — the admin chat-v2 surface. Serves the ordinary app shell; lab.js
+    # gates it on role and adds the diagnostics inspector. The API behind it
+    # (/chat/v2) is admin-gated independently, so this route being public
+    # only means a non-admin sees the "not authorised" panel.
+    @app.get("/lab")
+    def lab_page(request: Request) -> Response:
+        return _canonical_spa_redirect(request) or FileResponse(str(WEB_DIR / "index.html"))
 
     @app.get("/review")
     def review_page(request: Request) -> Response:

@@ -38,7 +38,26 @@ import os
 import sys
 from pathlib import Path
 
-import langextract as lx
+try:
+    import langextract as lx
+except ModuleNotFoundError as e:  # pragma: no cover - environment guard
+    # langextract is a batch-pipeline dependency and lives in
+    # config/requirements.txt, NOT the top-level requirements.txt that Render
+    # installs: it pulls pandas, google-cloud-storage, absl-py and
+    # ml-collections, and the API server never imports it. That split is
+    # deliberate, but it means any box provisioned from requirements.txt (a
+    # cloud runner, a fresh container) looks fine until the first extraction
+    # and then dies on a bare "No module named 'langextract'". Say what to do
+    # instead.
+    if e.name != "langextract":
+        raise
+    raise ModuleNotFoundError(
+        "langextract is not installed. It is a batch-pipeline dependency kept "
+        "out of the production requirements.txt on purpose — install the "
+        "pipeline set instead:\n"
+        "    pip install -r config/requirements.txt\n"
+        "(or just `pip install 'langextract>=1.5,<2' 'openai>=2.0,<3'`)"
+    ) from e
 
 # --------------------------------------------------------------------------- #
 # C — prompt is derived from the canonical scheme file, not hand-maintained.
@@ -218,6 +237,32 @@ catalogue's nested paths onto entity attrs like this:
 """
 
 PROMPT_DESCRIPTION = _LANGEXTRACT_GUIDE + load_canonical_scheme()
+
+
+def prompt_description_for(expected_lot_count: int | None) -> str:
+    """The per-notice prompt: the shared guide + scheme, plus the reviewer's
+    lot count when one exists (Document.expected_lot_count, stamped at the
+    classification review gate). Priming the model with the confirmed count
+    is the recall lever for multi-lot notices — it knows when it has found
+    them all and when it has invented extras. None -> unchanged prompt."""
+    if expected_lot_count is None:
+        return PROMPT_DESCRIPTION
+    n = int(expected_lot_count)
+    if n <= 1:
+        hint = (
+            "\n\nA human reviewer confirmed this notice sells EXACTLY ONE lot. "
+            "Extract every entity for that single lot; multiple schedules or "
+            "items sharing one reserve price are parts of the same lot, not "
+            "separate lots."
+        )
+    else:
+        hint = (
+            f"\n\nA human reviewer confirmed this notice sells EXACTLY {n} "
+            f"lots. Extract entities for ALL {n} lots, stamping lot_index 1 "
+            f"through {n} — do not merge distinct lots and do not invent "
+            "extras beyond the confirmed count."
+        )
+    return PROMPT_DESCRIPTION + hint
 
 
 def E(cls, text, **attrs):
@@ -1049,13 +1094,33 @@ def _openrouter_model(model_id: str | None = None, reasoning_off: bool = False):
         else:
             model = OpenAILanguageModel(
                 model_id=model_id, api_key=key, base_url=base_url, max_workers=4)
+        # langextract constructs its OpenAI client with no timeout, so it inherits
+        # the SDK default (600s read x max_retries=2) — and with extraction_passes=2
+        # on top, ONE dead socket can hold a worker for the better part of an hour.
+        # When the connection dies for a reason that will never resolve (laptop
+        # sleep, network drop) the call never returns, and in a bounded thread pool
+        # each such worker is gone for good: throughput decays to zero while the run
+        # still looks alive. An explicit deadline turns that into a fast [fail] the
+        # resume pass picks up. Kwargs can't carry this — OpenAILanguageModel stores
+        # **kwargs in _extra_kwargs and never forwards them to the client — so
+        # rebuild the client instead.
+        import openai
+        model._client = openai.OpenAI(
+            api_key=key, base_url=base_url,
+            timeout=float(os.environ.get("LANGEXTRACT_REQUEST_TIMEOUT_S", "300")),
+            max_retries=1)
         _MODEL_CACHE[cache_key] = model
     return _MODEL_CACHE[cache_key]
 
 
 def extract(markdown: str, model_id: str | None = None,
-            reasoning_off: bool = False):
+            reasoning_off: bool = False,
+            expected_lot_count: int | None = None):
     """Run LangExtract over one notice's MinerU markdown.
+
+    ``expected_lot_count`` — the reviewer-confirmed lot count from the
+    classification gate, injected into the prompt so the model knows how many
+    lots to find (see prompt_description_for). None leaves the prompt as-is.
 
     Provider is env-driven via LANGEXTRACT_PROVIDER:
       'openrouter' (default) -> OpenRouter, OpenAI-compatible; model
@@ -1078,7 +1143,8 @@ def extract(markdown: str, model_id: str | None = None,
     """
     from pipeline.extract_routing import char_buffer_for
     common = dict(
-        text_or_documents=markdown, prompt_description=PROMPT_DESCRIPTION,
+        text_or_documents=markdown,
+        prompt_description=prompt_description_for(expected_lot_count),
         examples=EXAMPLES, extraction_passes=int(os.environ.get("LANGEXTRACT_PASSES", "2")),
         max_char_buffer=char_buffer_for(markdown), max_workers=4,
     )

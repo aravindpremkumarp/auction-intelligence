@@ -30,6 +30,57 @@
   .link { color: var(--ink); text-decoration: underline; }
   .actions { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
   .actions input[type="search"] { padding: 6px 10px; border: 1.5px solid var(--ink); background: #fff; min-width: 220px; }
+  /* Dense filter rows. The queue previously spent six stacked rows — over half
+     a laptop viewport — on controls, pushing the actual work below the fold.
+     Same controls, three rows, tighter metrics. */
+  .actions.filters { gap: 7px; margin-bottom: 6px; }
+  .actions.filters .fgroup { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .actions.filters .flabel { font-size: 13px; }
+  .actions.filters .fsep { color: var(--muted); margin: 0 2px; }
+  .actions.filters .fdash { color: var(--muted); }
+  .actions.filters .fhint { color: var(--muted); font-size: 11px; }
+  .actions.filters button { padding: 3px 9px; min-height: 26px; }
+  .actions.filters input[type="date"],
+  .actions.filters input[type="number"] { padding: 3px 6px; border: 1.5px solid var(--ink); background: #fff; }
+  .actions.filters input[type="number"] { width: 52px; }
+  .actions.filters input[type="search"] { padding: 3px 8px; min-width: 190px; }
+  /* The masthead is fixed chrome on every screen — trim it too, since the
+     complaint is total space above the first row of work. */
+  h1 { margin-bottom: 6px; }
+  .wrap > .actions:not(.filters) { margin-bottom: 8px; }
+  #msg:empty { display: none; }
+  /* Pipeline overview. A funnel is a comparison, so every bar shares one
+     baseline (the widest stage) and carries its own count — no colour coding
+     beyond "this stage is where work stops". */
+  .ov-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
+  .ov-panel { border: 1.5px solid var(--ink); background: #fff; padding: 12px 14px; }
+  .ov-head { display: flex; justify-content: space-between; align-items: baseline;
+             gap: 10px; font-weight: 600; font-size: 13px; text-transform: uppercase;
+             letter-spacing: .06em; border-bottom: 1px solid var(--ink);
+             padding-bottom: 6px; margin-bottom: 10px; }
+  .ov-head span { font-weight: 400; font-size: 11px; letter-spacing: 0; text-transform: none; }
+  .ov-row { display: grid; grid-template-columns: 150px 1fr 92px; gap: 10px;
+            align-items: center; padding: 4px 0; }
+  .ov-row .ov-label { font-size: 13px; }
+  a.ov-label { color: var(--ink); text-decoration: none; border-bottom: 1px dotted var(--muted); }
+  a.ov-label:hover, a.ov-label:focus-visible { border-bottom-style: solid; }
+  .ov-planned a.ov-label { border-bottom: none; }
+  .ov-track { background: #f0efe9; height: 16px; position: relative; }
+  .ov-bar { background: var(--accent); height: 100%; }
+  .ov-bar.drop { background: #e8b4ae; }
+  .ov-planned { opacity: .55; }
+  .ov-planned .ov-track { border: 1px dashed var(--muted); background: transparent; }
+  .ov-num { font-family: 'IBM Plex Mono', monospace; font-size: 12px; text-align: right;
+            font-variant-numeric: tabular-nums; }
+  .ov-num small { color: var(--muted); }
+  .ov-callout { border: 1.5px solid var(--ink); border-left-width: 6px; background: #fff;
+                padding: 10px 14px; margin-bottom: 16px; font-size: 14px; }
+  .ov-callout b { font-family: 'IBM Plex Mono', monospace; }
+  .ov-line { display: flex; justify-content: space-between; align-items: center;
+             gap: 12px; padding: 6px 0; border-bottom: 1px solid #eee; font-size: 13px; }
+  .ov-line:last-child { border-bottom: none; }
+  .ov-line a { color: var(--ink); }
+  .ov-line .ov-num { min-width: 120px; }
   .pill { display: inline-block; padding: 1px 6px; border: 1px solid var(--ink); font-size: 11px; font-family: 'IBM Plex Mono', monospace; }
   .pill.on { background: var(--accent); font-weight: 600; }
   .pill.off { background: #eee; color: var(--muted); }
@@ -166,6 +217,10 @@
   .notice-card > summary::-webkit-details-marker { display: none; }
   .notice-card > summary::before { content: '▸'; font-family: 'IBM Plex Mono', monospace; font-size: 11px; width: 12px; display: inline-block; transition: transform 0.15s; }
   .notice-card[open] > summary::before { transform: rotate(90deg); }
+  /* Extraction cards don't expand — the card IS the link into the workspace —
+     so drop the disclosure triangle and the pointer that promise otherwise. */
+  .notice-card.static > summary { cursor: default; }
+  .notice-card.static > summary::before { content: none; }
   .notice-card > summary .nfile { font-family: 'IBM Plex Mono', monospace; font-size: 13px; font-weight: 600; }
   .notice-card > summary .nspacer { flex: 1; }
   .notice-card > summary .nlinks { display: inline-flex; gap: 10px; }
@@ -206,16 +261,13 @@
   /* Classification cards */
   .class-card { border: 2px solid var(--ink); background: #fff; box-shadow: 2px 3px 0 rgba(0,0,0,0.9); padding: 12px 14px; display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
   @media (max-width: 1100px) { .class-card { grid-template-columns: 1fr; } }
-  .class-card.disagree { border-color: var(--danger); }
   .class-card .cfile { font-family: 'IBM Plex Mono', monospace; font-size: 13px; font-weight: 600; margin-bottom: 6px; word-break: break-all; }
   .class-card .crow { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 6px; }
-  .class-card .creason { font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--ink); background: #f3f0e7; padding: 6px 8px; border: 1px dashed rgba(0,0,0,0.2); margin-top: 6px; }
-  .class-card .cdisagree-banner { background: #ffe1c2; border: 1px solid var(--danger); padding: 6px 8px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; margin-bottom: 8px; }
   .class-card .cactions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
   .class-card .cnotes { flex: 1; min-width: 160px; padding: 6px 10px; border: 1.5px solid var(--ink); font-family: 'IBM Plex Mono', monospace; font-size: 12px; }
+  .clots-wrap { display: inline-flex; gap: 6px; align-items: center; font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--muted); }
+  .clots-wrap .clots { width: 64px; padding: 6px 8px; border: 1.5px solid var(--ink); font-family: 'IBM Plex Mono', monospace; font-size: 12px; }
   .class-card .ctitles { font-family: 'Kalam', cursive; font-size: 13px; color: var(--muted); margin-top: 4px; }
-  .class-card .cconfidence { display: inline-block; width: 60px; height: 8px; background: #eee; border: 1px solid var(--ink); position: relative; vertical-align: middle; }
-  .class-card .cconfidence > span { display: block; height: 100%; background: var(--accent); }
   /* Classification gallery view */
   .gallery-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 14px; align-items: start; }
   @media (max-width: 1100px) { .gallery-grid { grid-template-columns: 1fr; } }
@@ -225,7 +277,6 @@
   .gallery-right .gr-title { font-family: 'IBM Plex Mono', monospace; font-size: 13px; font-weight: 600; word-break: break-all; margin-bottom: 6px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
   .gallery-right .gr-title .gr-fname { flex: 1; min-width: 0; }
   .gallery-right .gr-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-bottom: 4px; }
-  .gallery-right .gr-reason { font-family: 'IBM Plex Mono', monospace; font-size: 12px; background: #f3f0e7; padding: 6px 8px; border: 1px dashed rgba(0,0,0,0.2); margin: 6px 0; }
   .gallery-right .gr-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
   .gallery-right .gr-actions .cnotes { flex: 1; min-width: 120px; padding: 6px 10px; border: 1.5px solid var(--ink); font-family: 'IBM Plex Mono', monospace; font-size: 12px; }
   .gallery-right .gr-body { flex: 1; min-height: 50vh; display: flex; }
@@ -239,8 +290,6 @@
   .thumb { border: 2px solid var(--ink); background: #fff; box-shadow: 2px 3px 0 rgba(0,0,0,0.9); cursor: pointer; display: flex; flex-direction: column; height: 220px; overflow: hidden; position: relative; }
   .thumb:hover { transform: translate(-1px, -1px); box-shadow: 3px 4px 0 rgba(0,0,0,0.9); }
   .thumb.selected { border-color: var(--accent); border-width: 3px; height: 218px; }
-  .thumb.disagree { border-color: var(--danger); }
-  .thumb.disagree.selected { border-color: var(--accent); box-shadow: 0 0 0 2px var(--danger), 3px 4px 0 rgba(0,0,0,0.9); }
   .thumb-body { flex: 1; display: flex; justify-content: center; align-items: center; overflow: hidden; background: #f3f0e7; position: relative; }
   .thumb-body img { width: 100%; height: 100%; object-fit: cover; }
   .thumb-body .pdf-icon { font-family: 'Caveat', cursive; font-size: 42px; color: var(--muted); font-weight: 700; }
@@ -265,6 +314,35 @@
   .ann-toolbar .zoom-group { display: inline-flex; gap: 4px; align-items: center; padding: 0 6px; border-left: 1px solid var(--muted); border-right: 1px solid var(--muted); }
   .ann-toolbar .zoom-btn { padding: 2px 8px; min-height: 0; font-size: 13px; }
   .ann-toolbar .zoom-pct { min-width: 36px; text-align: center; font-family: 'IBM Plex Mono', monospace; font-size: 11px; }
+  .ann-toolbar .ann-badges { display: inline-flex; gap: 5px; align-items: center; flex-wrap: wrap; }
+  /* Extraction workspace (one notice). Mirrors the annotator: the masthead
+     collapses and the tool fills the viewport, so the page itself never
+     scrolls and the iframe gets every pixel below the toolbar. */
+  #screen-extraction iframe { width: 100%; height: 78vh; min-height: 480px; display: block; border: 2px solid var(--ink); box-shadow: 2px 3px 0 rgba(0,0,0,0.9); background: #fff; box-sizing: border-box; }
+  body.extraction-active { padding-top: 8px; padding-bottom: 8px; }
+  body.extraction-active .wrap > h1,
+  body.extraction-active .wrap > .actions { display: none; }
+  body.extraction-active .wrap > #msg:empty { display: none; }
+  body.extraction-active .ann-toolbar { gap: 6px; margin-bottom: 6px; }
+  @media (min-width: 1101px) {
+    body.extraction-active { height: 100vh; overflow: hidden; box-sizing: border-box; }
+    body.extraction-active .wrap { height: 100%; display: flex; flex-direction: column; min-height: 0; }
+    body.extraction-active #screen-extraction { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+    body.extraction-active #screen-extraction .ann-toolbar { flex: none; }
+    body.extraction-active #screen-extraction iframe { flex: 1 1 auto; height: auto; min-height: 0; }
+  }
+  /* The annotator is a workspace, not a browse screen. The masthead, the global
+     nav row and the queue-level stats are all context the reviewer already had
+     before drilling in, and on a laptop they cost ~90px of the image area. Hide
+     them here only — "← Back to queue" in the toolbar is the way out — and
+     tighten the toolbar so it wraps to fewer rows. */
+  body.annotator-active { padding-top: 8px; padding-bottom: 8px; }
+  body.annotator-active .wrap > h1,
+  body.annotator-active .wrap > .actions { display: none; }
+  body.annotator-active .wrap > #msg:empty { display: none; }
+  body.annotator-active .ann-toolbar { gap: 6px; margin-bottom: 6px; }
+  body.annotator-active .ann-toolbar button { padding: 3px 8px; min-height: 26px; }
+  body.annotator-active .ann-toolbar .zoom-btn { padding: 2px 7px; }
   .ann-grid { display: grid; grid-template-columns: minmax(0, var(--anngrid-left-fr, 1.4fr)) 6px minmax(280px, var(--anngrid-right-fr, 1fr)); gap: 4px; }
   @media (max-width: 1100px) { .ann-grid { grid-template-columns: 1fr; gap: 14px; } .ann-resizer { display: none; } }
   .ann-resizer { cursor: col-resize; background: var(--ink); opacity: 0.18; border-radius: 2px; align-self: stretch; user-select: none; touch-action: none; }
@@ -421,6 +499,7 @@
   <h1><em>Review</em> · enrichment</h1>
   <div class="actions">
     <a class="link" href="/">← Back to app</a>
+    <a class="link" href="#overview" id="overview-link">Pipeline</a>
     <a class="link" href="/admin">Admin</a>
     <a class="link" href="/social">Social</a>
     <span style="flex:1"></span>
@@ -428,111 +507,176 @@
   </div>
   <div id="msg"></div>
 
-  <!-- Extraction-review overlay (LangExtract grounded review). Isolated from the
-       stage machinery: shown by a capture-phase handler when the "extraction"
-       pill is clicked; an embedded iframe hosts web/review_extraction.html. -->
-  <div id="extraction-panel" style="display:none;position:fixed;inset:0;background:#fff;z-index:60">
-    <div style="display:flex;align-items:center;gap:10px;padding:6px 12px;background:#0f172a;color:#fff;font-size:13px">
-      <b>Extraction review</b>
+  <!-- Pipeline overview: where the corpus is stuck. Read-only, and every row
+       links into the queue already filtered to the work it names, so the
+       dashboard is a way in rather than a separate reporting surface. -->
+  <section id="screen-overview" class="hidden">
+    <div class="actions">
+      <h2 style="margin:0; font-size:1.1rem;">Pipeline</h2>
+      <span class="meta" id="ov-sub" style="color:var(--muted)"></span>
       <span style="flex:1"></span>
-      <button onclick="closeExtractionPanel()" style="background:#1e293b;color:#fff;border:0;border-radius:6px;padding:4px 12px;cursor:pointer">← back to review</button>
+      <button id="ov-reload" class="ghost">Reload</button>
     </div>
-    <iframe id="extraction-frame" style="border:0;width:100%;height:calc(100% - 33px)"></iframe>
-  </div>
+    <div id="ov-blockage" class="ov-callout"></div>
+    <div class="ov-grid">
+      <div class="ov-panel">
+        <div class="ov-head">Whole corpus<span id="ov-total"></span></div>
+        <div id="ov-funnel"></div>
+      </div>
+      <div class="ov-panel">
+        <div class="ov-head">Upcoming auctions only<span id="ov-uptotal"></span></div>
+        <div id="ov-funnel-up"></div>
+      </div>
+    </div>
+    <div class="ov-panel" style="margin-top:16px;">
+      <div class="ov-head">OCR failures<span class="meta" style="color:var(--muted)">click to open that queue</span></div>
+      <div id="ov-flags"></div>
+    </div>
+    <div class="ov-panel" style="margin-top:16px;">
+      <div class="ov-head">Attention</div>
+      <div id="ov-attention"></div>
+    </div>
+  </section>
+
+  <!-- One stage in depth, reached by clicking a funnel row. -->
+  <section id="screen-stage" class="hidden">
+    <div class="actions">
+      <a class="link" href="#overview">&larr; Pipeline</a>
+      <h2 id="stg-title" style="margin:0; font-size:1.1rem;"></h2>
+      <span class="meta" id="stg-sub" style="color:var(--muted)"></span>
+      <span style="flex:1"></span>
+      <button id="stg-reload" class="ghost">Reload</button>
+    </div>
+    <div id="stg-panels" class="ov-grid"></div>
+    <!-- Interactive queues (resolution review only). Unlike the panels above,
+         these rows carry verdict buttons: each row is a fact to settle, and
+         one click covers every notice that fact touches. -->
+    <div id="stg-queues"></div>
+  </section>
 
   <!-- Queue screen -->
   <section id="screen-queue">
-    <div class="actions">
-      <span>Stage:</span>
+    <!-- Filter bar, three dense rows: what you're reviewing / how it's scoped /
+         what narrows it. Each control keeps its own id so the per-stage
+         show-hide logic in syncStatusButtons() works on the group, not the row
+         — that is what lets six rows collapse into three without any stage
+         showing a filter it doesn't have. -->
+    <div class="actions filters">
+      <span class="flabel">Stage:</span>
       <span class="group-toggle" id="stage-tabs">
         <button class="pill" data-stage="classification">classification</button>
         <button class="pill" data-stage="markdown">markdown</button>
-        <button class="pill" data-stage="description">description</button>
         <button class="pill" data-stage="extraction">extraction</button>
+        <!-- Resolution review is corpus-shaped — verdicts on facts, not a walk
+             through documents — so this chip routes to its own queue page
+             instead of rendering cards behind the filters below. -->
+        <button class="pill" data-stage-link="stage/resolve_ok">resolution</button>
+      </span>
+      <span class="fgroup" id="group-wrap">
+        <span class="fsep">·</span>
+        <span class="flabel" id="group-label">Group:</span>
+        <span class="group-toggle" id="group-tabs">
+          <button class="pill" data-group="property">property</button>
+          <button class="pill" data-group="notice">sales notice</button>
+        </span>
+      </span>
+      <span id="cview-toggle" class="fgroup hidden">
+        <span class="fsep">·</span>
+        <span class="flabel">View:</span>
+        <span class="group-toggle">
+          <button class="pill" data-cview="gallery">gallery</button>
+          <button class="pill" data-cview="cards">cards</button>
+        </span>
       </span>
     </div>
-    <div class="actions">
-      <span>Group:</span>
-      <span class="group-toggle" id="group-tabs">
-        <button class="pill" data-group="property">property</button>
-        <button class="pill" data-group="notice">sales notice</button>
-      </span>
-      <span style="width:14px"></span>
-      <span>Status:</span>
+    <div class="actions filters">
+      <span class="flabel">Status:</span>
       <span id="status-buttons" class="group-toggle">
         <button class="pill" data-status="pending">pending</button>
         <button class="pill" data-status="verified">verified</button>
         <button class="pill" data-status="edited">edited</button>
         <button class="pill" data-status="all">all</button>
       </span>
-      <span id="cview-toggle" class="group-toggle hidden">
-        <span style="margin:0 4px; color: var(--muted);">·</span>
-        <span>View:</span>
-        <button class="pill" data-cview="gallery">gallery</button>
-        <button class="pill" data-cview="cards">cards</button>
-      </span>
       <input type="search" id="q" placeholder="search title or borrower">
       <button id="reload" class="primary">Reload</button>
-    </div>
-    <div class="actions">
-      <span>Auction date:</span>
-      <label class="meta" style="display:flex; gap:6px; align-items:center;">
-        from <input type="date" id="date-from" style="padding:4px 6px; border:1.5px solid var(--ink);">
-      </label>
-      <label class="meta" style="display:flex; gap:6px; align-items:center;">
-        to <input type="date" id="date-to" style="padding:4px 6px; border:1.5px solid var(--ink);">
-      </label>
-      <button id="date-clear" class="ghost" title="show all dates">clear dates</button>
-      <span class="meta" id="date-hint" style="color: var(--muted);"></span>
-    </div>
-    <div class="actions" id="score-bar">
-      <span id="score-label">Score:</span>
-      <label class="meta" style="display:flex; gap:6px; align-items:center;">
-        from <input type="number" id="score-from" min="0" max="100" step="1" value="0"
-                    style="width:60px; padding:4px 6px; border:1.5px solid var(--ink);">
-      </label>
-      <label class="meta" style="display:flex; gap:6px; align-items:center;">
-        to <input type="number" id="score-to" min="0" max="100" step="1" value="100"
-                  style="width:60px; padding:4px 6px; border:1.5px solid var(--ink);">
-      </label>
-      <button id="score-clear" class="ghost" title="reset to 0–100">clear</button>
-      <span class="meta" id="score-hint" style="color: var(--muted);"></span>
-    </div>
-    <div class="actions" id="notice-type-bar">
-      <span>Notice type:</span>
-      <span class="group-toggle" id="notice-type-tabs">
-        <button class="pill" data-ntype="all">all</button>
-        <button class="pill" data-ntype="single">single</button>
-        <button class="pill" data-ntype="multi">multi</button>
-        <button class="pill" data-ntype="unclassified">unclassified</button>
+      <span style="flex:1"></span>
+      <span id="bulk-confirm-bar" class="fgroup hidden">
+        <button id="bulk-confirm-btn" class="primary" disabled
+                title="marks every visible pending item as verified (no re-extract)">Confirm all 0 in range</button>
       </span>
     </div>
-    <div id="bulk-confirm-bar" class="actions hidden">
-      <span class="meta" id="bulk-confirm-hint" style="color: var(--muted);">marks every visible pending item as verified (no re-extract)</span>
-      <span style="flex:1"></span>
-      <button id="bulk-confirm-btn" class="primary" disabled>Confirm all 0 in range</button>
+    <div class="actions filters">
+      <span class="fgroup" id="notice-type-bar">
+        <span class="flabel">Type:</span>
+        <span class="group-toggle" id="notice-type-tabs">
+          <button class="pill" data-ntype="all">all</button>
+          <button class="pill" data-ntype="single">single</button>
+          <button class="pill" data-ntype="multi">multi</button>
+          <button class="pill" data-ntype="unclassified">unclassified</button>
+        </span>
+      </span>
+      <span class="fgroup">
+        <span class="fsep">·</span>
+        <span class="flabel">Date:</span>
+        <input type="date" id="date-from" title="auction date from">
+        <span class="fdash">–</span>
+        <input type="date" id="date-to" title="auction date to">
+        <button id="date-clear" class="ghost" title="show all dates">clear</button>
+        <span class="meta fhint" id="date-hint"></span>
+      </span>
+      <span class="fgroup" id="score-bar">
+        <span class="fsep">·</span>
+        <span class="flabel" id="score-label">Score:</span>
+        <input type="number" id="score-from" min="0" max="100" step="1" value="0" title="minimum score">
+        <span class="fdash">–</span>
+        <input type="number" id="score-to" min="0" max="100" step="1" value="100" title="maximum score">
+        <button id="score-clear" class="ghost" title="reset to 0–100">clear</button>
+        <span class="meta fhint" id="score-hint"></span>
+      </span>
+      <!-- Datalab's own 0–5 verdict on the parse. Separate from OCR health
+           because it catches the failure health cannot see: content the engine
+           silently dropped. Blank inputs = no filter (docs with no score stay
+           visible); set either bound and only scored docs match. -->
+      <span class="fgroup hidden" id="pq-bar">
+        <span class="fsep">·</span>
+        <span class="flabel">Parse quality:</span>
+        <input type="number" id="pq-from" min="0" max="5" step="0.5"
+               placeholder="0" title="minimum Datalab parse quality (0–5)">
+        <span class="fdash">–</span>
+        <input type="number" id="pq-to" min="0" max="5" step="0.5"
+               placeholder="5" title="maximum Datalab parse quality (0–5)">
+        <button id="pq-clear" class="ghost" title="remove the parse-quality filter">clear</button>
+        <span class="meta fhint" id="pq-hint"></span>
+      </span>
+      <!-- Work one failure mode at a time: every notice carrying any selected
+           flag (OR, not AND). Order matches pipeline/ocr_health.HEALTH_FLAGS. -->
+      <span class="fgroup hidden" id="flag-bar">
+        <span class="fsep">·</span>
+        <span class="flabel">Failures:</span>
+        <span class="group-toggle" id="flag-tabs">
+          <button class="pill" data-flag="missing-region"
+                  title="ink on the page that no parsed block covers — content we never read">missing region</button>
+          <button class="pill" data-flag="table-collapse"
+                  title="the whole notice read as one giant table">table collapse</button>
+          <button class="pill" data-flag="truncated"
+                  title="generation stopped mid-structure">truncated</button>
+          <button class="pill" data-flag="repetition"
+                  title="the same line or phrase emitted over and over">repetition</button>
+          <button class="pill" data-flag="token-leak"
+                  title="raw model control tokens leaked into the text">token leak</button>
+          <button class="pill" data-flag="foreign-script"
+                  title="hallucinated CJK/Cyrillic/etc. in a Tamil Nadu notice">foreign script</button>
+        </span>
+        <button id="flag-clear" class="ghost" title="show all notices again">clear</button>
+      </span>
     </div>
-    <div id="queue-by-property" class="table-scroll">
-      <table>
-        <thead>
-          <tr>
-            <th>Title</th>
-            <th>Borrower</th>
-            <th>Reserve (₹)</th>
-            <th>Completeness</th>
-            <th>Notice</th>
-            <th>Source</th>
-            <th>Status</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody id="queue-rows"></tbody>
-      </table>
-    </div>
-    <div id="queue-by-notice" class="notice-list hidden"></div>
-    <div id="queue-by-classification" class="notice-list hidden"></div>
+    <div id="queue-by-classification" class="notice-list"></div>
     <div id="queue-by-classification-gallery" class="gallery-grid hidden"></div>
     <div id="queue-by-markdown" class="notice-list hidden"></div>
+    <!-- Extraction stage: a card list, exactly like the markdown stage. The
+         grounded-review workspace opens per notice via #extraction/<filename>
+         (see #screen-extraction), the same way a card here opens the annotator. -->
+    <div id="queue-by-extraction" class="notice-list hidden"></div>
     <div id="queue-by-classification-by-property" class="table-scroll hidden">
       <table>
         <thead>
@@ -541,8 +685,7 @@
             <th>Auction date</th>
             <th>Reserve (₹)</th>
             <th>Notice</th>
-            <th>Predicted type</th>
-            <th>Confidence</th>
+            <th>Type</th>
             <th>Status</th>
           </tr>
         </thead>
@@ -558,6 +701,7 @@
             <th>Reserve (₹)</th>
             <th>Notice</th>
             <th>OCR health</th>
+            <th title="Datalab's own 0–5 verdict on the page read">Parse</th>
             <th>Quality</th>
             <th>Status</th>
           </tr>
@@ -680,6 +824,7 @@
       <span class="filename" id="ann-filename"></span>
       <span class="pill" id="ann-rev"></span>
       <span class="pill" id="ann-preclean" title="Source image was upscaled + sharpened before OCR (long edge was below 1500 px)" style="display:none;background:#dff5e3;color:#1b6b3c;border-color:#9bd2af">preclean 2×</span>
+      <span class="ann-badges" id="ann-badges"></span>
       <span style="flex:1"></span>
       <label class="meta" style="display:none" id="ann-page-wrap">page <select class="page-select" id="ann-page"></select></label>
       <button id="ann-add" class="ghost">+ Add block</button>
@@ -731,6 +876,21 @@
       </div>
     </div>
   </section>
+
+  <!-- Extraction workspace for ONE notice (#extraction/<filename>), opened from
+       a card in the extraction stage — the same list-then-drill-in shape the
+       markdown stage uses to reach the annotator. The grounded-review tool is
+       hosted in an iframe; it hides its own queue sidebar in this mode. -->
+  <section id="screen-extraction" class="hidden">
+    <div class="ann-toolbar">
+      <a class="link" href="#" id="xr-back">← Back to queue</a>
+      <span class="filename" id="xr-filename"></span>
+      <span class="ann-badges" id="xr-badges"></span>
+      <span style="flex:1"></span>
+      <a class="link" id="xr-annotate" title="edit this notice's OCR blocks">annotate blocks ↗</a>
+    </div>
+    <iframe id="extraction-frame" title="Extraction review"></iframe>
+  </section>
 </div>
 
 <script>
@@ -776,26 +936,33 @@
     }
   }
   function appendScoreParams(params) {
-    // The classification API takes 0–1 floats; markdown API takes 0–100;
-    // description filters the completeness-judge confidence (0–1 floats).
-    if (queueState.stage === 'classification') {
-      if (queueState.scoreFrom !== 0)   params.set('confidence_min', String(queueState.scoreFrom / 100));
-      if (queueState.scoreTo   !== 100) params.set('confidence_max', String(queueState.scoreTo   / 100));
-    } else if (queueState.stage === 'markdown') {
+    // Markdown (OCR-health) and extraction (validators.py quality) both score
+    // 0–100. Classification has no score — it is a cluster-count + human-review
+    // stage.
+    if (queueState.stage === 'markdown' || queueState.stage === 'extraction') {
       if (queueState.scoreFrom !== 0)   params.set('score_min', String(queueState.scoreFrom));
       if (queueState.scoreTo   !== 100) params.set('score_max', String(queueState.scoreTo));
-    } else if (queueState.stage === 'description') {
-      if (queueState.scoreFrom !== 0)   params.set('judge_min', String(queueState.scoreFrom / 100));
-      if (queueState.scoreTo   !== 100) params.set('judge_max', String(queueState.scoreTo   / 100));
+    }
+    // Parse quality is a markdown-stage signal only — the extraction stage
+    // scores the fields, not the page read.
+    if (queueState.stage === 'markdown') {
+      if (queueState.pqFrom != null) params.set('pq_min', String(queueState.pqFrom));
+      if (queueState.pqTo   != null) params.set('pq_max', String(queueState.pqTo));
+      // Repeated key, one per flag — FastAPI reads these as a list.
+      for (const f of (queueState.flags || [])) params.append('flags', f);
     }
   }
 
   // ─── Routing ────────────────────────────────────────────────────────────
   function parseHash() {
     const h = (location.hash || '').replace(/^#/, '');
+    if (h === 'overview') return { screen: 'overview' };
+    if (h.startsWith('stage/')) return { screen: 'stage',
+                                         key: decodeURIComponent(h.slice('stage/'.length)) };
     if (h.startsWith('detail/'))  return { screen: 'detail',   id: decodeURIComponent(h.slice('detail/'.length)) };
     if (h.startsWith('property/')) return { screen: 'detail',  id: decodeURIComponent(h.slice('property/'.length)) };
     if (h.startsWith('notice/'))   return { screen: 'annotator', filename: decodeURIComponent(h.slice('notice/'.length)) };
+    if (h.startsWith('extraction/')) return { screen: 'extraction', filename: decodeURIComponent(h.slice('extraction/'.length)) };
     if (h.startsWith('gallery/')) {
       // Legacy deep-link: jump into the classification gallery for a specific notice.
       const fn = decodeURIComponent(h.slice('gallery/'.length));
@@ -808,53 +975,86 @@
     // New hash format: kv-pairs separated by `&`.
     const p = new URLSearchParams(h);
     if (p.has('stage')) {
-      queueState.stage      = p.get('stage')       || queueState.stage;
+      // Retired stages in bookmarked hashes (e.g. 'description') fall back
+      // to classification.
+      const st0 = p.get('stage');
+      queueState.stage      = STAGES.includes(st0) ? st0 : queueState.stage;
       queueState.group      = p.get('group')       || queueState.group;
       queueState.status     = p.get('status')      || queueState.status;
       queueState.noticeType = p.get('notice_type') || queueState.noticeType;
+      // Restored so a refresh keeps the reviewer's search instead of silently
+      // widening the queue back out; the input is synced in syncDateInputs().
+      queueState.q          = p.get('q')           || '';
       queueState.dateFrom   = p.get('date_from')   ?? queueState.dateFrom;
       queueState.dateTo     = p.get('date_to')     ?? queueState.dateTo;
       const sf = parseInt(p.get('score_from'), 10);
       const st = parseInt(p.get('score_to'),   10);
       if (!isNaN(sf)) queueState.scoreFrom = sf;
       if (!isNaN(st)) queueState.scoreTo   = st;
+      const pf = parseFloat(p.get('pq_from'));
+      const pt = parseFloat(p.get('pq_to'));
+      queueState.pqFrom = isNaN(pf) ? null : pf;
+      queueState.pqTo   = isNaN(pt) ? null : pt;
+      queueState.flags = (p.get('flags') || '').split(',').filter(Boolean);
     }
     return { screen: 'queue' };
   }
 
   function writeHash() {
-    const p = new URLSearchParams();
-    p.set('stage', queueState.stage);
-    p.set('group', queueState.group);
-    p.set('status', queueState.status);
-    p.set('notice_type', queueState.noticeType);
-    if (queueState.dateFrom) p.set('date_from', queueState.dateFrom);
-    if (queueState.dateTo)   p.set('date_to',   queueState.dateTo);
-    if (queueState.scoreFrom !== 0)   p.set('score_from', String(queueState.scoreFrom));
-    if (queueState.scoreTo   !== 100) p.set('score_to',   String(queueState.scoreTo));
-    const next = '#' + p.toString();
+    const next = '#' + buildQueueHash();
     if (location.hash !== next) {
       history.replaceState(null, '', next);
     }
   }
 
+  // The queue's filter state as a hash string. Split out of writeHash() so the
+  // per-notice workspaces can point "← Back to queue" at the exact filters the
+  // reviewer came from instead of dumping them back on the defaults.
+  function buildQueueHash() {
+    const p = new URLSearchParams();
+    p.set('stage', queueState.stage);
+    p.set('group', queueState.group);
+    p.set('status', queueState.status);
+    p.set('notice_type', queueState.noticeType);
+    if (queueState.q) p.set('q', queueState.q);
+    if (queueState.dateFrom) p.set('date_from', queueState.dateFrom);
+    if (queueState.dateTo)   p.set('date_to',   queueState.dateTo);
+    if (queueState.scoreFrom !== 0)   p.set('score_from', String(queueState.scoreFrom));
+    if (queueState.scoreTo   !== 100) p.set('score_to',   String(queueState.scoreTo));
+    if (queueState.pqFrom != null) p.set('pq_from', String(queueState.pqFrom));
+    if (queueState.pqTo   != null) p.set('pq_to',   String(queueState.pqTo));
+    // Comma-joined in the hash (one readable key) but repeated on the wire.
+    if ((queueState.flags || []).length) p.set('flags', queueState.flags.join(','));
+    return p.toString();
+  }
+
   function show(screen) {
+    $('screen-overview').classList.toggle('hidden', screen !== 'overview');
+    $('screen-stage').classList.toggle('hidden', screen !== 'stage');
     $('screen-queue').classList.toggle('hidden', screen !== 'queue');
     $('screen-detail').classList.toggle('hidden', screen !== 'detail');
     $('screen-annotator').classList.toggle('hidden', screen !== 'annotator');
+    $('screen-extraction').classList.toggle('hidden', screen !== 'extraction');
     document.body.classList.toggle('annotator-active', screen === 'annotator');
+    document.body.classList.toggle('extraction-active', screen === 'extraction');
   }
 
   async function route() {
     const r = parseHash();
     show(r.screen);
-    if (r.screen === 'queue') {
+    if (r.screen === 'overview') {
+      await loadOverview();
+    } else if (r.screen === 'stage') {
+      await loadStageDetail(r.key);
+    } else if (r.screen === 'queue') {
       if (r.gallery) {
         try { localStorage.setItem('cView', 'gallery'); } catch {}
       }
       await loadStats(); await loadQueue();
     } else if (r.screen === 'annotator') {
       await loadAnnotator(r.filename);
+    } else if (r.screen === 'extraction') {
+      openExtractionDoc(r.filename);
     } else {
       await loadDetail(r.id);
     }
@@ -862,20 +1062,337 @@
 
   window.addEventListener('hashchange', route);
 
+  // ─── Pipeline overview ──────────────────────────────────────────────────
+  // Answers one question: where is the corpus stuck? Each stage counts the
+  // Documents that have cleared it, so the funnel only ever narrows, and the
+  // biggest single drop between consecutive stages is the blockage worth
+  // naming at the top.
+  function ovFunnel(el, allStages) {
+    // Planned stages carry no count — they're drawn as an empty track so the
+    // whole intended pipeline is visible, and they take no part in the
+    // blockage maths (nothing is stuck at a stage that doesn't exist).
+    const stages = allStages.filter(s => !s.planned);
+    const planned = allStages.filter(s => s.planned);
+    if (!stages.length) { el.innerHTML = ''; return { drop: -1 }; }
+    const top = Math.max(...stages.map(s => s.count), 1);
+    let worst = { drop: -1 };
+    stages.forEach((s, i) => {
+      if (i === 0) return;
+      const drop = stages[i - 1].count - s.count;
+      if (drop > worst.drop) worst = { drop, label: s.label, prev: stages[i - 1] };
+    });
+    const rows = stages.map((s, i) => {
+      const lost = i === 0 ? 0 : stages[i - 1].count - s.count;
+      const pct = Math.round((s.count / top) * 100);
+      const isWorst = lost > 0 && lost === worst.drop;
+      return `<div class="ov-row">
+        <a class="ov-label" href="#stage/${encodeURIComponent(s.key)}"
+           title="open ${escapeHtml(s.label)} in detail">${escapeHtml(s.label)}</a>
+        <span class="ov-track"><span class="ov-bar${isWorst ? ' drop' : ''}"
+              style="width:${pct}%"></span></span>
+        <span class="ov-num">${s.count.toLocaleString()}${
+          lost > 0 ? `<small> −${lost.toLocaleString()}</small>` : ''}</span>
+      </div>`;
+    }).concat(planned.map(s => `<div class="ov-row ov-planned">
+        <span class="ov-label">${escapeHtml(s.label)}</span>
+        <span class="ov-track"></span>
+        <span class="ov-num"><small>not built yet</small></span>
+      </div>`));
+    el.innerHTML = rows.join('');
+    return worst;
+  }
+
+  async function loadOverview() {
+    const sub = $('ov-sub');
+    sub.textContent = 'loading…';
+    const r = await authFetch(API + '/review/pipeline');
+    if (!r.ok) {
+      sub.textContent = '';
+      $('ov-blockage').textContent = `error ${r.status}`;
+      return;
+    }
+    const d = await r.json();
+    const total = d.stages[0]?.count || 0;
+    const upTotal = d.upcoming_stages[0]?.count || 0;
+    $('ov-total').textContent = `${total.toLocaleString()} notices`;
+    $('ov-uptotal').textContent = `${upTotal.toLocaleString()} notices`;
+    sub.textContent = 'each stage counts notices that cleared it and every stage before it';
+
+    const worst = ovFunnel($('ov-funnel'), d.stages);
+    ovFunnel($('ov-funnel-up'), d.upcoming_stages);
+
+    $('ov-blockage').innerHTML = worst && worst.drop > 0
+      ? `Biggest blockage: <b>${worst.drop.toLocaleString()}</b> notices reach
+         “${escapeHtml(worst.prev.label)}” but not “${escapeHtml(worst.label)}”.`
+      : 'No stage is holding work back.';
+
+    // Flags link into the markdown queue with that failure preselected, so the
+    // dashboard hands over the exact worklist it just counted.
+    $('ov-flags').innerHTML = d.flags.length
+      ? d.flags.map(f => `<div class="ov-line">
+          <a href="#stage=markdown&group=notice&status=all&notice_type=all&flags=${
+            encodeURIComponent(f.flag)}">${escapeHtml(f.flag)}</a>
+          <span class="ov-num">${f.total.toLocaleString()}${
+            f.upcoming ? `<small> · ${f.upcoming} upcoming</small>` : ''}</span>
+        </div>`).join('')
+      : '<div class="ov-line">no OCR failures flagged</div>';
+
+    const att = [
+      ['extractions awaiting review', d.extraction_pending,
+       '#stage=extraction&group=notice&status=pending'],
+      ['extractions stale — markdown changed since', d.extraction_stale, null],
+      ['not yet checked for missing content', d.unmeasured, null],
+      ['notices with no block layer (cannot be checked)', d.no_blocks, null],
+      ['notices carrying a Datalab parse-quality score', d.parse_quality_scored, null],
+    ].filter(([, n]) => n > 0);
+    $('ov-attention').innerHTML = att.length
+      ? att.map(([label, n, href]) => `<div class="ov-line">
+          ${href ? `<a href="${href}">${escapeHtml(label)}</a>` : escapeHtml(label)}
+          <span class="ov-num">${n.toLocaleString()}</span></div>`).join('')
+      : '<div class="ov-line">nothing waiting</div>';
+  }
+
+  // A stage page is whatever panels the API says it has: {title, note, rows}.
+  // Keeping the renderer generic means a new stage needs no UI work, and the
+  // bar length is always a share of that panel's own largest row — panels
+  // measure different things and must not be compared to each other.
+  function stgPanel(p) {
+    const top = Math.max(...p.rows.map(r => r.count), 1);
+    const rows = p.rows.length ? p.rows.map(r => `<div class="ov-row">
+        ${r.href ? `<a class="ov-label" href="${r.href}">${escapeHtml(r.label)}</a>`
+                 : `<span class="ov-label">${escapeHtml(r.label)}</span>`}
+        <span class="ov-track"><span class="ov-bar"
+              style="width:${Math.round((r.count / top) * 100)}%"></span></span>
+        <span class="ov-num">${r.count.toLocaleString()}${
+          p.kind === 'lines' ? '' : `<small> ${r.pct}%</small>`}</span>
+      </div>`).join('') : '<div class="ov-line">nothing to show</div>';
+    return `<div class="ov-panel">
+      <div class="ov-head">${escapeHtml(p.title)}</div>
+      ${p.note ? `<p class="meta" style="margin:-4px 0 10px; color:var(--muted)">${
+        escapeHtml(p.note)}</p>` : ''}
+      ${rows}
+    </div>`;
+  }
+
+  async function loadStageDetail(key) {
+    $('stg-title').textContent = '';
+    $('stg-sub').textContent = 'loading…';
+    $('stg-panels').innerHTML = '';
+    $('stg-queues').innerHTML = '';
+    const r = await authFetch(API + '/review/pipeline/' + encodeURIComponent(key));
+    if (!r.ok) {
+      $('stg-sub').textContent = '';
+      $('stg-panels').innerHTML = `<div class="ov-panel">error ${r.status}</div>`;
+      return;
+    }
+    const d = await r.json();
+    $('stg-title').textContent = d.label;
+    $('stg-sub').textContent = '';
+    $('stg-panels').innerHTML = d.panels.map(stgPanel).join('');
+    if (key === 'resolve_ok') loadResolutionQueues();
+  }
+
+  // ─── Resolution review queues ───────────────────────────────────────────
+  // A verdict is stored permanently: the resolvers consult it on every later
+  // run, so approving a merge applies it forever and rejecting a pair means
+  // never being asked again. The queue row disappears immediately; the
+  // funnel's attention counts move on the next resolver run.
+
+  async function decideResolution(kind, payload, verdict, btn) {
+    if (btn) btn.disabled = true;
+    const r = await authFetch(API + '/review/resolution/decide', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kind, payload, verdict }),
+    });
+    if (!r.ok) {
+      const detail = await r.json().catch(() => ({}));
+      alert('decision failed: ' + (detail.detail || r.status));
+      if (btn) btn.disabled = false;
+      return;
+    }
+    loadResolutionQueues();
+  }
+
+  function rrRow(inner, buttons) {
+    return `<div class="ov-row" style="gap:10px; align-items:baseline">
+      <span class="ov-label" style="flex:1; white-space:normal">${inner}</span>
+      <span style="display:flex; gap:6px; flex-wrap:wrap">${buttons}</span>
+    </div>`;
+  }
+
+  function rrBtn(label, args) {
+    // Verdict buttons carry their payload in a data attribute; one delegated
+    // listener on the container reads it back. No inline JS strings.
+    return `<button class="ghost rr-btn" data-rr='${
+      escapeHtml(JSON.stringify(args))}'>${escapeHtml(label)}</button>`;
+  }
+
+  // Verdicts land instantly in the queue but are applied to the graph by the
+  // resolvers. The apply button closes that gap on demand: it re-runs both
+  // resolvers server-side and the funnel catches up when they finish.
+  let rrPollTimer = null;
+
+  function rrApplyBar(st) {
+    const when = ts => ts ? new Date(ts * 1000).toLocaleString() : '';
+    let note = 'no run recorded yet';
+    if (st.status === 'running') note = 'resolvers running… the funnel updates when they finish';
+    else if (st.status === 'done') note = `last applied ${when(st.finished_ts)}${st.by ? ' by ' + escapeHtml(st.by) : ''}`;
+    else if (st.status === 'error') note = `last run failed: ${escapeHtml(st.error || 'unknown')}`;
+    else if (st.status === 'stale') note = 'a previous run never reported back — safe to apply again';
+    return `<div class="ov-panel" id="rr-apply-bar" style="display:flex; gap:12px; align-items:center">
+      <button id="rr-apply" class="ghost" ${st.status === 'running' ? 'disabled' : ''}>
+        Apply my decisions</button>
+      <span class="meta" style="color:var(--muted)">${note}</span>
+    </div>`;
+  }
+
+  async function rrPollApply() {
+    const r = await authFetch(API + '/review/resolution/apply');
+    if (!r.ok) return;
+    const st = await r.json();
+    const bar = $('rr-apply-bar');
+    if (bar) bar.outerHTML = rrApplyBar(st);
+    wireApplyButton();
+    if (st.status === 'running') {
+      rrPollTimer = setTimeout(rrPollApply, 4000);
+    } else if (rrPollTimer) {
+      rrPollTimer = null;
+      // A run just finished — the graph moved, so reload the whole stage page.
+      loadStageDetail('resolve_ok');
+    }
+  }
+
+  function wireApplyButton() {
+    const b = $('rr-apply');
+    if (!b) return;
+    b.addEventListener('click', async () => {
+      b.disabled = true;
+      const r = await authFetch(API + '/review/resolution/apply', { method: 'POST' });
+      if (!r.ok && r.status !== 409) {
+        alert('apply failed: ' + r.status);
+        b.disabled = false;
+        return;
+      }
+      rrPollApply();
+    });
+  }
+
+  async function loadResolutionQueues() {
+    const host = $('stg-queues');
+    host.innerHTML = '<div class="ov-panel">loading queues…</div>';
+    const [r, rs] = await Promise.all([
+      authFetch(API + '/review/resolution'),
+      authFetch(API + '/review/resolution/apply'),
+    ]);
+    if (!r.ok) {
+      host.innerHTML = `<div class="ov-panel">error ${r.status}</div>`;
+      return;
+    }
+    const d = await r.json();
+    const applyState = rs.ok ? await rs.json() : { status: 'never-run' };
+    const blocks = [rrApplyBar(applyState)];
+
+    if (d.bank_pairs.length) {
+      blocks.push(`<div class="ov-panel"><div class="ov-head">Lender lookalikes — same institution?</div>
+        <p class="meta" style="color:var(--muted)">the number is fuzzy similarity;
+        the files are real notices naming each spelling</p>` +
+        d.bank_pairs.map(p => rrRow(
+          `<b>${escapeHtml(p.a)}</b> <small>(${p.a_count}× — ${
+            p.a_files.map(escapeHtml).join(', ') || 'no file'})</small><br>
+           <b>${escapeHtml(p.b)}</b> <small>(${p.b_count}× — ${
+            p.b_files.map(escapeHtml).join(', ') || 'no file'})</small>
+           <small style="color:var(--muted)"> · ${p.score}</small>`,
+          rrBtn('Same lender', { kind: 'bank-merge',
+              payload: { a: p.a, b: p.b }, verdict: 'approved' }) +
+          rrBtn('Different', { kind: 'bank-merge',
+              payload: { a: p.a, b: p.b }, verdict: 'rejected' })
+        )).join('') + `</div>`);
+    }
+
+    if ((d.branch_pairs || []).length) {
+      blocks.push(`<div class="ov-panel"><div class="ov-head">Branch lookalikes — same office?</div>
+        <p class="meta" style="color:var(--muted)">each pair is inside one bank;
+        a verdict here never touches another bank's identically named branch</p>` +
+        d.branch_pairs.map(p => rrRow(
+          `<b>${escapeHtml(p.a)}</b> <small>(${p.a_count}×)</small> vs
+           <b>${escapeHtml(p.b)}</b> <small>(${p.b_count}×)</small>
+           <small style="color:var(--muted)"> · ${escapeHtml(p.bank)} · ${p.score}</small>`,
+          rrBtn('Same office', { kind: 'branch-merge',
+              payload: { bank: p.bank, a: p.a, b: p.b }, verdict: 'approved' }) +
+          rrBtn('Different', { kind: 'branch-merge',
+              payload: { bank: p.bank, a: p.a, b: p.b }, verdict: 'rejected' })
+        )).join('') + `</div>`);
+    }
+
+    if (d.district_conflicts.length) {
+      blocks.push(`<div class="ov-panel"><div class="ov-head">District conflicts — the notice says one district, its taluk says another</div>
+        <p class="meta" style="color:var(--muted)">the taluk usually knows best
+        (2019 redrew several districts); one verdict settles every notice in
+        the pattern</p>` +
+        d.district_conflicts.map(c => rrRow(
+          `notice says <b>${escapeHtml(c.raw_district || '?')}</b>, taluk
+           <b>${escapeHtml(c.taluk || '?')}</b> sits in
+           <b>${escapeHtml(c.resolved_district || '?')}</b>
+           <small style="color:var(--muted)"> · ${c.count} notice${
+             c.count === 1 ? '' : 's'} · e.g. ${
+             c.auction_ids.map(escapeHtml).join(', ')}</small>`,
+          rrBtn('Taluk is right', { kind: 'district-conflict',
+              payload: { raw: c.raw_district, taluk: c.taluk },
+              verdict: 'approved' }) +
+          rrBtn("Something's off", { kind: 'district-conflict',
+              payload: { raw: c.raw_district, taluk: c.taluk },
+              verdict: 'rejected' })
+        )).join('') + `</div>`);
+    }
+
+    if (d.unmatched_villages.length) {
+      blocks.push(`<div class="ov-panel"><div class="ov-head">Villages the gazetteer couldn't place</div>
+        <p class="meta" style="color:var(--muted)">pick the official name it
+        stands for, or rule it out — an urban locality is not a revenue
+        village, and saying so is also an answer</p>` +
+        d.unmatched_villages.map(v => rrRow(
+          `<b>${escapeHtml(v.village)}</b> in ${escapeHtml(v.taluk)}${
+             v.district ? ', ' + escapeHtml(v.district) : ''}
+           <small style="color:var(--muted)"> · ${v.count} propert${
+             v.count === 1 ? 'y' : 'ies'}</small>`,
+          v.candidates.map(cd =>
+            rrBtn(`→ ${cd.name} (${cd.score})`, { kind: 'village-alias',
+                payload: { raw: v.village, taluk: v.taluk, target: cd.name },
+                verdict: 'approved' })).join('') +
+          rrBtn('Not a village', { kind: 'village-skip',
+              payload: { raw: v.village }, verdict: 'approved' })
+        )).join('') + `</div>`);
+    }
+
+    if (blocks.length === 1) {
+      blocks.push('<div class="ov-panel">nothing waiting — every question is settled</div>');
+    }
+    host.innerHTML = blocks.join('');
+    host.querySelectorAll('.rr-btn').forEach(b => b.addEventListener('click', () => {
+      const args = JSON.parse(b.dataset.rr);
+      decideResolution(args.kind, args.payload, args.verdict, b);
+    }));
+    wireApplyButton();
+    if (applyState.status === 'running' && !rrPollTimer) rrPollApply();
+  }
+
   // ─── Stats ──────────────────────────────────────────────────────────────
   async function loadStats() {
     const params = new URLSearchParams();
     appendCommonParams(params);
     let url;
-    if (queueState.stage === 'classification') {
-      url = API + '/review/classifications/stats';
-    } else if (queueState.stage === 'markdown') {
+    if (queueState.stage === 'markdown') {
       url = API + '/review/markdown/stats';
       // The markdown stats endpoint also computes `auto_confirmable` over a score
       // range — feed it the current score from/to so the count reflects the filter.
       appendScoreParams(params);
+    } else if (queueState.stage === 'extraction') {
+      url = API + '/review/extraction/stats';
+      appendScoreParams(params);
+      if (queueState.q) params.set('q', queueState.q);
     } else {
-      url = API + '/review/stats';
+      url = API + '/review/classifications/stats';
     }
     if (params.toString()) url += '?' + params.toString();
     const r = await authFetch(url);
@@ -892,26 +1409,33 @@
   // ─── Queue ──────────────────────────────────────────────────────────────
   // Default to "upcoming auctions" — past auctions are mostly archival.
   const PAGE_SIZE_PROPERTY = 100;
-  const PAGE_SIZE_NOTICE = 50;
   const PAGE_SIZE_CLASSIFICATION = 50;
   const PAGE_SIZE_GALLERY = 100;
   const savedCView = (() => { try { return localStorage.getItem('cView'); } catch { return null; } })();
+  const STAGES = ['classification', 'markdown', 'extraction'];
   let queueState = {
-    stage: 'description',         // 'classification' | 'markdown' | 'description'
-    group: 'property',            // 'property' | 'notice'
+    stage: 'classification',      // 'classification' | 'markdown' | 'extraction'
+    group: 'notice',              // 'property' | 'notice'
     status: 'pending',            // 'pending' | 'verified' | 'edited' | 'all'
     cview: (savedCView === 'cards' ? 'cards' : 'gallery'),
     noticeType: 'all',            // 'all' | 'single' | 'multi' | 'unclassified'
     q: '',
     dateFrom: todayISO(), dateTo: '',
     scoreFrom: 0, scoreTo: 100,
+    // Datalab parse quality, 0–5. null = unset, and unset means "no filter" —
+    // unlike the 0–100 health range, a 0 bound here is a real (worst) value.
+    pqFrom: null, pqTo: null,
+    // Selected ocr_health failure flags; empty = no filter, multiple = OR.
+    flags: [],
     page: 1,
   };
   // Per-stage default sub-group (remembers reviewer's last choice in localStorage).
   const DEFAULT_GROUP_FOR_STAGE = {
     classification: 'notice',
     markdown: 'notice',
-    description: 'property',
+    // Extraction is inherently per-notice (one LangExtract run per Document),
+    // so it has no property-grouped view and the Group toggle hides.
+    extraction: 'notice',
   };
   const PAGE_SIZE_MARKDOWN = 50;
   let queueLoadedCount = 0;
@@ -934,17 +1458,17 @@
     $$('button.pill[data-cview]').forEach(b => {
       b.classList.toggle('on', b.getAttribute('data-cview') === queueState.cview);
     });
+    // Multi-select, unlike the toggles above: any number of flags can be on.
+    $$('button.pill[data-flag]').forEach(b => {
+      b.classList.toggle('on', queueState.flags.includes(b.getAttribute('data-flag')));
+    });
 
     const isClass = queueState.stage === 'classification';
     const isMd = queueState.stage === 'markdown';
-    const isDesc = queueState.stage === 'description';
+    const isExtract = queueState.stage === 'extraction';
     const isProperty = queueState.group === 'property';
     const isNotice = queueState.group === 'notice';
 
-    // Body panels — description reuses the legacy IDs; classification + markdown
-    // now have an extra "by-property" panel that we'll wire up in later tasks.
-    $('queue-by-property').classList.toggle('hidden', !(isDesc && isProperty));
-    $('queue-by-notice').classList.toggle('hidden', !(isDesc && isNotice));
     $('queue-by-classification').classList.toggle('hidden',
         !(isClass && isNotice && queueState.cview === 'cards'));
     $('queue-by-classification-gallery').classList.toggle('hidden',
@@ -954,26 +1478,35 @@
         !(isClass && isProperty));
     $('queue-by-markdown-by-property').classList.toggle('hidden',
         !(isMd && isProperty));
+    $('queue-by-extraction').classList.toggle('hidden', !isExtract);
 
     // The classification stage has a gallery/cards toggle, but only when
     // looking at the sales-notice sub-group.
     $('cview-toggle').classList.toggle('hidden', !(isClass && isNotice));
+    // Extraction runs once per Document, so there is no property-grouped view —
+    // hide the label with the toggle so no orphan "Group:" is left behind.
+    // One wrapper so the leading separator hides with the label and tabs.
+    $('group-wrap').classList.toggle('hidden', isExtract);
 
-    // Score row + bulk-confirm are available in every stage. Description
-    // filters/acts on the completeness-judge confidence; classification on
-    // the classifier confidence; markdown on the OCR-quality score.
-    $('score-bar').classList.remove('hidden');
+    // The score row applies to markdown (OCR health) and extraction (the
+    // validators.py quality score); classification has no score.
+    $('score-bar').classList.toggle('hidden', isClass);
+    // Parse quality and the OCR failure flags are markdown-stage signals.
+    $('pq-bar').classList.toggle('hidden', !isMd);
+    $('flag-bar').classList.toggle('hidden', !isMd);
+    // Bulk-confirm is available in every stage. On extraction it pairs with the
+    // score filter: confirm the high-scoring tail in one action, spend the time
+    // on the low scores.
     $('bulk-confirm-bar').classList.remove('hidden');
-    // The markdown stage's score IS OCR-health; other stages keep their own
-    // confidence semantics (see comment above), so label the filter per stage.
     const scoreLabel = $('score-label');
     if (scoreLabel) {
       scoreLabel.textContent =
-        queueState.stage === 'markdown' ? 'OCR health:' : 'Score:';
+        isMd ? 'OCR health:' : (isExtract ? 'Extraction score:' : 'Score:');
     }
   }
 
   function syncDateInputs() {
+    if ($('q').value !== queueState.q) $('q').value = queueState.q || '';
     $('date-from').value = queueState.dateFrom || '';
     $('date-to').value = queueState.dateTo || '';
     const hint = !queueState.dateFrom && !queueState.dateTo
@@ -1007,16 +1540,120 @@
       } else {
         await loadMarkdownQueue(append);
       }
-    } else {
-      // description stage
-      if (queueState.group === 'notice') {
-        await loadNoticeQueue(append);
-      } else {
-        await loadPropertyQueue(append);
-      }
+    } else if (queueState.stage === 'extraction') {
+      await loadExtractionQueue();
     }
     updateLoadMore();
     updateBulkConfirmButton();
+  }
+
+  // ─── Extraction stage: list, then drill into one notice ─────────────────
+  // Same shape as the markdown stage — a card per notice here, and the
+  // grounded-review workspace opens per notice at #extraction/<filename>.
+
+  // The validators.py quality score, banded like the extraction tool's own
+  // badge: >=80 green (the review threshold), 50-79 amber, <50 red.
+  function extractionScorePill(row) {
+    if (row.score == null) return '<span class="pill off">unscored</span>';
+    const cls = row.score >= 80 ? 'good' : (row.score >= 50 ? 'warn' : 'danger');
+    return `<span class="pill ${cls}" title="extraction quality score (pipeline/validators.py)">score ${row.score}</span>`;
+  }
+
+  function extractionStatusPill(row) {
+    if (row.status === 'verified') return '<span class="pill good">verified</span>';
+    if (row.status === 'edited') return '<span class="pill good">edited</span>';
+    return '<span class="pill warn">pending</span>';
+  }
+
+  async function loadExtractionQueue() {
+    const list = $('queue-by-extraction');
+    list.innerHTML = '<div class="empty">loading…</div>';
+    const params = new URLSearchParams({ limit: '500', sort: 'recent' });
+    if (queueState.status && queueState.status !== 'all') params.set('status', queueState.status);
+    if (queueState.q) params.set('q', queueState.q);
+    appendCommonParams(params);
+    appendScoreParams(params);
+    const r = await authFetch(API + '/review/extraction/queue?' + params.toString());
+    if (r.status === 401 || r.status === 403) {
+      list.innerHTML = '<div class="empty"><span class="err">not authorised — sign in as admin</span></div>';
+      return;
+    }
+    if (!r.ok) {
+      list.innerHTML = `<div class="empty"><span class="err">error ${r.status}</span></div>`;
+      return;
+    }
+    const data = await r.json();
+    queueTotal = data.total || 0;
+    queueLoadedCount = (data.rows || []).length;
+    if (!queueLoadedCount) {
+      list.innerHTML = '<div class="empty">no extractions match this filter.</div>';
+      return;
+    }
+    list.innerHTML = '';
+    const batches = data.rows.map(x => x.extraction_batch).filter(b => b != null);
+    const maxBatch = batches.length ? Math.max(...batches) : null;
+    for (const row of data.rows) list.appendChild(renderExtractionCard(row, maxBatch));
+  }
+
+  function renderExtractionCard(row, maxBatch) {
+    const card = document.createElement('div');
+    card.className = 'notice-card static';
+    const filename = row.filename || '(unnamed notice)';
+    const batch = row.extraction_batch != null
+      ? `<span class="pill ${row.extraction_batch === maxBatch ? 'on' : 'off'}" title="extraction batch ${row.extraction_batch}${row.extraction_batch === maxBatch ? ' — the latest run' : ''}">B${row.extraction_batch}</span>`
+      : '';
+    const fields = `<span class="pill off">${row.n_fields} field${row.n_fields === 1 ? '' : 's'}</span>`;
+    const ungrounded = row.n_ungrounded
+      ? `<span class="pill warn" title="${row.n_ungrounded} extraction(s) with no character span in the source">${row.n_ungrounded} ungrounded</span>`
+      : '';
+    // The lot-count checksum from the classification gate (see expected_lot_count).
+    const lots = row.lot_count_mismatch
+      ? `<span class="pill danger" title="a reviewer counted ${row.expected_lot_count} lot(s) at classification; this extraction has ${row.extracted_lot_count}">⚠ lots ${row.extracted_lot_count}/${row.expected_lot_count}</span>`
+      : ((row.expected_lot_count != null && row.extracted_lot_count != null)
+          ? `<span class="pill good" title="extracted lot count matches the reviewer's count">✓ ${row.extracted_lot_count} lot${row.extracted_lot_count === 1 ? '' : 's'}</span>`
+          : '');
+    const stale = row.stale
+      ? '<span class="pill warn" title="markdown was re-ingested after this extraction ran — re-run required">⚠ re-run</span>'
+      : '';
+    const when = row.extraction_at
+      ? `<span class="meta" style="color:var(--muted)">extracted ${escapeHtml(fmtWhen(row.extraction_at))}</span>`
+      : '';
+    const href = '#extraction/' + encodeURIComponent(row.filename || '');
+    const summary = document.createElement('summary');
+    summary.innerHTML = `
+      <span class="nfile">${escapeHtml(filename)}</span>
+      ${batch} ${extractionScorePill(row)} ${extractionStatusPill(row)} ${lots} ${ungrounded} ${stale} ${fields}
+      <span class="nspacer"></span>
+      <span class="nlinks">
+        <a class="link" href="${href}">review extraction ↗</a>
+        <a class="link" href="#notice/${encodeURIComponent(row.filename || '')}">annotate blocks ↗</a>
+      </span>
+    `;
+    card.appendChild(summary);
+    if (when) {
+      const foot = document.createElement('div');
+      foot.style.cssText = 'padding:0 12px 8px; font-size:11px;';
+      foot.innerHTML = when;
+      card.appendChild(foot);
+    }
+    return card;
+  }
+
+  // Open ONE notice in the grounded-review workspace. The iframe hides its own
+  // queue sidebar in this mode (?doc=), so the card list above is the only queue.
+  function openExtractionDoc(filename) {
+    const frame = $('extraction-frame');
+    $('xr-filename').textContent = filename || '';
+    $('xr-back').setAttribute('href', '#' + buildQueueHash());
+    $('xr-annotate').setAttribute('href', '#notice/' + encodeURIComponent(filename || ''));
+    if (!frame) return;
+    const base = (typeof window.API_BASE === 'string') ? window.API_BASE : '';
+    const p = new URLSearchParams();
+    p.set('api', base);
+    p.set('embedded', '1');
+    p.set('doc', filename || '');
+    const src = 'review_extraction.html?' + p.toString();
+    if (frame.getAttribute('src') !== src) frame.setAttribute('src', src);
   }
 
   async function loadClassificationByPropertyQueue(append) {
@@ -1039,7 +1676,6 @@
       const tr = document.createElement('tr');
       tr.className = row.verified ? (row.overridden ? 'edited' : 'verified') : 'pending';
       const statusLabel = row.verified ? (row.overridden ? 'edited' : 'verified') : 'pending';
-      const conf = row.notice_type_confidence == null ? '—' : (Math.round(row.notice_type_confidence * 100) + '%');
       const noticeLink = row.notice_filename
         ? `<a href="#notice/${encodeURIComponent(row.notice_filename)}">${escapeHtml(row.notice_filename)}</a>`
         : '—';
@@ -1049,7 +1685,6 @@
         <td>${row.reserve_price == null ? '—' : row.reserve_price.toLocaleString('en-IN')}</td>
         <td>${noticeLink}</td>
         <td>${escapeHtml(row.notice_type || '—')}</td>
-        <td>${conf}</td>
         <td>${escapeHtml(statusLabel)}</td>
       `;
       tbody.appendChild(tr);
@@ -1087,6 +1722,7 @@
         <td>${row.reserve_price == null ? '—' : row.reserve_price.toLocaleString('en-IN')}</td>
         <td>${noticeLink}</td>
         <td title="${(Array.isArray(row.ocr_health_flags) && row.ocr_health_flags.length) ? escapeHtml(row.ocr_health_flags.join(', ')) : ''}">${row.ocr_health_score == null ? '—' : row.ocr_health_score}${(Array.isArray(row.ocr_health_flags) && row.ocr_health_flags.length) ? ' ⚠' : ''}</td>
+        <td title="Datalab parse quality (0–5)">${row.parse_quality_score == null ? '—' : (Number.isInteger(row.parse_quality_score) ? row.parse_quality_score : row.parse_quality_score.toFixed(1)) + '/5'}</td>
         <td>${escapeHtml(row.quality || '—')}</td>
         <td>${escapeHtml(statusLabel)}</td>
       `;
@@ -1103,20 +1739,27 @@
       const def = queueState.scoreFrom === 0 && queueState.scoreTo === 100;
       hint.textContent = def ? '(no score filter)' : '';
     }
+    syncParseQualityInputs();
+  }
+
+  // Parse-quality inputs stay blank when unset, so the reviewer can tell "no
+  // filter" from "min 0" — the latter would drop every unscored Document.
+  function syncParseQualityInputs() {
+    const pf = $('pq-from'), pt = $('pq-to');
+    if (pf) pf.value = queueState.pqFrom == null ? '' : String(queueState.pqFrom);
+    if (pt) pt.value = queueState.pqTo   == null ? '' : String(queueState.pqTo);
+    const hint = $('pq-hint');
+    if (hint) {
+      const off = queueState.pqFrom == null && queueState.pqTo == null;
+      hint.textContent = off ? '(no parse-quality filter)' : '(scored docs only)';
+    }
   }
   function updateBulkConfirmButton() {
     const btn = $('bulk-confirm-btn');
     if (!btn) return;
-    const active = queueState.stage === 'classification'
-                || queueState.stage === 'markdown'
-                || queueState.stage === 'description';
+    const active = STAGES.includes(queueState.stage);
     const n = active ? (queueTotal || 0) : 0;
-    // In the description stage the count reflects whatever the queue is grouped
-    // by (properties, or notices when grouped by sales notice) — the confirm
-    // itself always verifies the matching pending properties.
-    const unit = queueState.stage === 'description' && queueState.group === 'notice'
-      ? 'notices' : 'in range';
-    btn.textContent = `Confirm all ${n} ${unit}`;
+    btn.textContent = `Confirm all ${n} in range`;
     btn.disabled = !active || n === 0 || queueState.status !== 'pending';
   }
 
@@ -1130,163 +1773,6 @@
     }
   }
 
-  async function loadPropertyQueue(append) {
-    const tbody = $('queue-rows');
-    if (!append) {
-      tbody.innerHTML = '<tr><td colspan="8"><div class="empty">loading…</div></td></tr>';
-    }
-    const params = new URLSearchParams({
-      status: queueState.status,
-      page: String(queueState.page),
-      size: String(PAGE_SIZE_PROPERTY),
-    });
-    if (queueState.q) params.set('q', queueState.q);
-    appendCommonParams(params);
-    appendScoreParams(params);
-    const r = await authFetch(API + '/review/queue?' + params.toString());
-    if (r.status === 401 || r.status === 403) {
-      tbody.innerHTML = '<tr><td colspan="8"><div class="empty"><span class="err">not authorised — sign in as admin from the main app</span></div></td></tr>';
-      return;
-    }
-    if (!r.ok) {
-      tbody.innerHTML = `<tr><td colspan="8"><div class="empty"><span class="err">error ${r.status}</span></div></td></tr>`;
-      return;
-    }
-    const data = await r.json();
-    if (!append && !data.rows.length) {
-      tbody.innerHTML = '<tr><td colspan="8"><div class="empty">no rows match this filter — nice.</div></td></tr>';
-      queueTotal = data.total || 0;
-      queueLoadedCount = 0;
-      return;
-    }
-    if (!append) tbody.innerHTML = '';
-    for (const row of data.rows) {
-      const tr = document.createElement('tr');
-      tr.className = row.verified ? (row.source === 'human' ? 'edited' : 'verified') : 'pending';
-      const borrower = (row.borrowers || []).filter(Boolean).join(', ') || '—';
-      const noticeBadge = row.notice_type
-        ? `<span class="pill">${escapeHtml(row.notice_type)}</span>${row.has_pdf ? '' : ' <span class="pill off">no pdf</span>'}`
-        : '<span class="pill off">none</span>';
-      tr.innerHTML = `
-        <td>${escapeHtml(row.title || '—')}</td>
-        <td>${escapeHtml(borrower)}</td>
-        <td>${fmtPrice(row.reserve_price)}</td>
-        <td>${fmtPct(row.completeness)}${row.wrong_property ? ' <span class="pill bad">wrong?</span>' : ''}</td>
-        <td>${noticeBadge}</td>
-        <td><span class="pill ${row.source === 'human' ? 'good' : ''}">${escapeHtml(row.source || '—')}</span></td>
-        <td>${statusPill(row)}</td>
-        <td class="row-actions"><a class="link" href="#property/${encodeURIComponent(row.auction_id)}">open →</a></td>
-      `;
-      tbody.appendChild(tr);
-    }
-    queueTotal = data.total || 0;
-    queueLoadedCount = (append ? queueLoadedCount : 0) + data.rows.length;
-  }
-
-  async function loadNoticeQueue(append) {
-    const list = $('queue-by-notice');
-    if (!append) {
-      list.innerHTML = '<div class="empty">loading…</div>';
-    }
-    const params = new URLSearchParams({
-      status: queueState.status,
-      page: String(queueState.page),
-      size: String(PAGE_SIZE_NOTICE),
-    });
-    if (queueState.q) params.set('q', queueState.q);
-    appendCommonParams(params);
-    appendScoreParams(params);
-    const r = await authFetch(API + '/review/notices?' + params.toString());
-    if (r.status === 401 || r.status === 403) {
-      list.innerHTML = '<div class="empty"><span class="err">not authorised — sign in as admin from the main app</span></div>';
-      return;
-    }
-    if (!r.ok) {
-      list.innerHTML = `<div class="empty"><span class="err">error ${r.status}</span></div>`;
-      return;
-    }
-    const data = await r.json();
-    if (!append && !data.rows.length) {
-      list.innerHTML = '<div class="empty">no sales notices match this filter — nice.</div>';
-      queueTotal = data.total || 0;
-      queueLoadedCount = 0;
-      return;
-    }
-    if (!append) list.innerHTML = '';
-    for (const notice of data.rows) {
-      list.appendChild(renderNoticeCard(notice));
-    }
-    queueTotal = data.total || 0;
-    queueLoadedCount = (append ? queueLoadedCount : 0) + data.rows.length;
-  }
-
-  function renderNoticeCard(notice) {
-    const card = document.createElement('details');
-    card.className = 'notice-card';
-    if ((notice.pending_count || 0) > 0) card.open = true;
-
-    const filename = notice.filename || notice.file_path || '(unnamed notice)';
-    const typeBadge = notice.notice_type
-      ? `<span class="pill">${escapeHtml(notice.notice_type)}</span>`
-      : '<span class="pill off">unclassified</span>';
-    const counts = [
-      notice.pending_count ? `<span class="pill warn">${notice.pending_count} pending</span>` : '',
-      notice.verified_count ? `<span class="pill good">${notice.verified_count} verified</span>` : '',
-      notice.edited_count ? `<span class="pill good">${notice.edited_count} edited</span>` : '',
-    ].filter(Boolean).join(' ');
-    const totalBadge = `<span class="pill off">${notice.total_count} total</span>`;
-    const openLink = notice.public_url
-      ? `<a class="link" href="${escapeHtml(notice.public_url)}" target="_blank" rel="noopener">open notice ↗</a>`
-      : '';
-
-    const summary = document.createElement('summary');
-    summary.innerHTML = `
-      <span class="nfile">${escapeHtml(filename)}</span>
-      ${typeBadge}
-      ${counts} ${totalBadge}
-      <span class="nspacer"></span>
-      <span class="nlinks">${openLink}</span>
-    `;
-    card.appendChild(summary);
-
-    const table = document.createElement('table');
-    table.className = 'ntable';
-    table.innerHTML = `
-      <thead>
-        <tr>
-          <th>Title</th>
-          <th>Borrower</th>
-          <th>Reserve (₹)</th>
-          <th>Completeness</th>
-          <th>Source</th>
-          <th>Status</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody></tbody>
-    `;
-    const tbody = table.querySelector('tbody');
-    const props = notice.properties || [];
-    for (const p of props) {
-      const tr = document.createElement('tr');
-      tr.className = p.verified ? (p.source === 'human' ? 'edited' : 'verified') : 'pending';
-      const borrower = (p.borrowers || []).filter(Boolean).join(', ') || '—';
-      tr.innerHTML = `
-        <td>${escapeHtml(p.title || '—')}</td>
-        <td>${escapeHtml(borrower)}</td>
-        <td>${fmtPrice(p.reserve_price)}</td>
-        <td>${fmtPct(p.completeness)}</td>
-        <td><span class="pill ${p.source === 'human' ? 'good' : ''}">${escapeHtml(p.source || '—')}</span></td>
-        <td>${statusPill(p)}</td>
-        <td class="row-actions"><a class="link" href="#property/${encodeURIComponent(p.auction_id)}">open →</a></td>
-      `;
-      tbody.appendChild(tr);
-    }
-    card.appendChild(table);
-    return card;
-  }
-
-  // ─── Markdown-quality queue ─────────────────────────────────────────────
   async function loadMarkdownQueue(append) {
     const list = $('queue-by-markdown');
     if (!append) {
@@ -1337,10 +1823,32 @@
       : (score >= 80 ? 'good' : (score >= 50 ? 'warn' : 'danger'));
     const hasFlags = Array.isArray(flags) && flags.length > 0;
     const suffix = hasFlags ? ` · ${flags.join(' + ')}` : '';
+    // `missing-region` is the one flag whose severity varies wildly — 16% of a
+    // page unread is a clipped footer, 38% is a whole dropped column — so the
+    // measured share goes in the tooltip rather than leaving the reviewer to
+    // open the notice to find out.
+    const unread = (hasFlags && flags.includes('missing-region')
+                    && row.ink_uncovered_ratio != null)
+      ? ` (${Math.round(row.ink_uncovered_ratio * 100)}% of the page's ink was never read)`
+      : '';
     const title = hasFlags
-      ? `OCR failure artifacts: ${flags.join(', ')} — consider a crop + re-ingest`
+      ? `OCR failure artifacts: ${flags.join(', ')}${unread} — consider a crop + re-ingest`
       : 'no OCR failure artifacts detected';
     return `<span class="pill ${cls}" title="${escapeHtml(title)}">health ${score ?? '?'}${escapeHtml(suffix)}</span>`;
+  }
+
+  // Datalab's own 0–5 read on the parse, shown next to health because the two
+  // disagree in the case that matters: a notice whose bottom third never made
+  // it into the text scores health 100 (nothing wrong with what we got) and
+  // parse quality ~3. Renders nothing when unscored — MinerU docs and anything
+  // not re-parsed since this shipped have no value, and an "unscored" pill on
+  // most of the queue would be noise.
+  function parseQualityPill(row) {
+    const pq = row.parse_quality_score;
+    if (pq == null) return '';
+    const cls = pq >= 4 ? 'good' : (pq >= 3 ? 'warn' : 'danger');
+    const shown = Number.isInteger(pq) ? pq : pq.toFixed(1);
+    return `<span class="pill ${cls}" title="Datalab parse quality ${shown}/5 — the engine's own verdict on how much of the page it read">parse ${escapeHtml(String(shown))}/5</span>`;
   }
 
   function mdStatusPill(row) {
@@ -1445,7 +1953,7 @@
     const summary = document.createElement('summary');
     summary.innerHTML = `
       <span class="nfile">${escapeHtml(filename)}</span>
-      ${typeBadge} ${healthPill(row)} ${mdStatusPill(row)} ${reextractedBadge} ${precleanBadge}
+      ${typeBadge} ${healthPill(row)} ${parseQualityPill(row)} ${mdStatusPill(row)} ${reextractedBadge} ${precleanBadge}
       ${props} ${hlPill} ${len}
       <span class="nspacer"></span>
       <span class="nlinks">${annotateLink} ${openLink}</span>
@@ -1676,7 +2184,7 @@
 
   function renderClassificationCard(n) {
     const card = document.createElement('div');
-    card.className = 'class-card' + (n.disagreement ? ' disagree' : '');
+    card.className = 'class-card';
 
     const left = document.createElement('div');
     const right = document.createElement('div');
@@ -1688,45 +2196,32 @@
     const currentBadge = n.notice_type
       ? `<span class="pill on">current: ${escapeHtml(n.notice_type)}</span>`
       : '<span class="pill off">no classification</span>';
-    const predBadge = n.classifier_pred
-      ? `<span class="pill">classifier: ${escapeHtml(n.classifier_pred)}</span>`
-      : '<span class="pill off">classifier: —</span>';
-    const conf = (typeof n.classifier_confidence === 'number')
-      ? Math.round(n.classifier_confidence * 100)
-      : null;
-    const confBar = (conf != null)
-      ? `<span class="cconfidence" title="${conf}% confident"><span style="width:${conf}%"></span></span> <span class="meta" style="font-size:11px;">${conf}%</span>`
-      : '';
     const statusBadge = n.verified
       ? `<span class="pill good">verified</span>`
-      : (n.disagreement ? `<span class="pill warn">disagreement</span>` : `<span class="pill warn">pending</span>`);
+      : `<span class="pill warn">pending</span>`;
     const overriddenBadge = n.overridden
       ? `<span class="pill good">human-set</span>`
       : '';
     const propCountBadge = `<span class="pill off">${n.property_count} prop${n.property_count === 1 ? '' : 's'}</span>`;
-    const extractBadge = n.extraction_status
-      ? `<span class="pill ${n.extraction_status === 'applied' ? 'good' : (n.extraction_status === 'needs_reextract' ? 'warn' : '')}">extract: ${escapeHtml(n.extraction_status)}</span>`
+    const lotCountBadge = n.expected_lot_count != null
+      ? `<span class="pill on" title="reviewer-confirmed lot count">lots: ${n.expected_lot_count}</span>`
       : '';
-
     left.innerHTML = `
       <div class="cfile">${escapeHtml(filename)}</div>
-      <div class="crow">${currentBadge} ${overriddenBadge} ${propCountBadge} ${statusBadge}</div>
-      <div class="crow">${predBadge} ${confBar} ${extractBadge}</div>
-      ${n.disagreement ? `<div class="cdisagree-banner">⚠ classifier disagrees with cluster-count — pick one</div>` : ''}
+      <div class="crow">${currentBadge} ${overriddenBadge} ${propCountBadge} ${lotCountBadge} ${statusBadge}</div>
       ${(n.sample_titles && n.sample_titles.length) ? `<div class="ctitles">${escapeHtml(n.sample_titles.filter(Boolean).join(' · '))}${(n.auction_id_count > n.sample_titles.length) ? ' · +' + (n.auction_id_count - n.sample_titles.length) + ' more' : ''}</div>` : ''}
       ${openLink ? `<div style="margin-top:8px;">${openLink}</div>` : ''}
     `;
 
     const altType = n.notice_type === 'single' ? 'multi' : 'single';
-    const reasoning = n.classifier_reasoning
-      ? `<div class="creason">${escapeHtml(n.classifier_reasoning)}</div>`
-      : '';
     const verifiedFooter = n.verified
       ? `<div class="audit">verified by <code>${escapeHtml(n.verified_by || '?')}</code> at <code>${escapeHtml(fmtWhen(n.verified_at))}</code></div>`
       : '<div class="audit">not yet verified</div>';
+    const lotsPrefill = n.expected_lot_count ?? n.property_count ?? 1;
     right.innerHTML = `
-      ${reasoning}
       <div class="cactions">
+        <label class="clots-wrap" title="how many lots does this notice sell? (the downstream extraction checksum)">lots
+          <input type="number" class="clots" min="1" max="500" value="${lotsPrefill}"></label>
         <input type="text" class="cnotes" placeholder="notes (optional)">
         <button class="primary" data-act="confirm">Confirm as ${escapeHtml(n.notice_type || 'single')}</button>
         <button class="" data-act="flip">Flip to ${escapeHtml(altType)}</button>
@@ -1739,14 +2234,32 @@
 
     const filenameForApi = n.filename || '';
     right.querySelector('button[data-act="confirm"]').addEventListener('click', () =>
-      submitClassification(card, filenameForApi, n.notice_type, right.querySelector('.cnotes').value || null));
+      submitClassification(card, filenameForApi, n.notice_type, right.querySelector('.cnotes').value || null,
+                           readLotCount(right, n.notice_type)));
     right.querySelector('button[data-act="flip"]').addEventListener('click', () =>
-      submitClassification(card, filenameForApi, altType, right.querySelector('.cnotes').value || null));
+      submitClassification(card, filenameForApi, altType, right.querySelector('.cnotes').value || null,
+                           readLotCount(right, altType)));
 
     return card;
   }
 
-  async function submitClassification(card, filename, noticeType, notes) {
+  // The reviewer's lot count for one classification decision. 'single' IS a
+  // count of 1, so the input is ignored there; for 'multi' an out-of-range or
+  // blank input returns null (the server then keeps whatever count exists).
+  function readLotCount(scope, noticeType) {
+    if (noticeType === 'single') return 1;
+    const inp = scope ? scope.querySelector('.clots') : null;
+    const v = inp ? parseInt(inp.value, 10) : NaN;
+    return (Number.isInteger(v) && v >= 2 && v <= 500) ? v : null;
+  }
+
+  function classifyBody(noticeType, notes, lotCount) {
+    const body = { notice_type: noticeType, notes: notes };
+    if (lotCount != null) body.expected_lot_count = lotCount;
+    return body;
+  }
+
+  async function submitClassification(card, filename, noticeType, notes, lotCount) {
     if (!filename) { setMsg('<span class="err">notice has no filename — cannot save</span>', 3000); return; }
     const buttons = $$('button', card);
     buttons.forEach(b => b.disabled = true);
@@ -1754,7 +2267,7 @@
       const r = await authFetch(API + '/review/notice/' + encodeURIComponent(filename) + '/classify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ notice_type: noticeType, notes: notes }),
+        body: JSON.stringify(classifyBody(noticeType, notes, lotCount)),
       });
       if (r.status === 401 || r.status === 403) { setMsg('<span class="err">not authorised</span>', 3000); return; }
       if (r.status === 404) { setMsg('<span class="err">notice not found</span>', 3000); return; }
@@ -1825,7 +2338,7 @@
 
   function renderThumb(n, idx) {
     const t = document.createElement('div');
-    t.className = 'thumb' + (n.disagreement ? ' disagree' : '');
+    t.className = 'thumb';
     t.dataset.index = String(idx);
     if (idx === gallery.selectedIndex) t.classList.add('selected');
 
@@ -1857,9 +2370,8 @@
     badges.className = 'thumb-badges';
     const currentBadge = n.notice_type
       ? `<span class="pill on">${escapeHtml(n.notice_type)}</span>` : '';
-    const disBadge = n.disagreement ? `<span class="pill danger">⚠</span>` : '';
     const verifiedBadge = n.verified ? `<span class="pill good">✓</span>` : '';
-    badges.innerHTML = currentBadge + disBadge + verifiedBadge;
+    badges.innerHTML = currentBadge + verifiedBadge;
     body.appendChild(badges);
 
     const footer = document.createElement('div');
@@ -1903,22 +2415,14 @@
     const currentBadge = n.notice_type
       ? `<span class="pill on">current: ${escapeHtml(n.notice_type)}</span>`
       : '<span class="pill off">no classification</span>';
-    const predBadge = n.classifier_pred
-      ? `<span class="pill">classifier: ${escapeHtml(n.classifier_pred)}</span>`
-      : '<span class="pill off">classifier: —</span>';
-    const conf = (typeof n.classifier_confidence === 'number') ? Math.round(n.classifier_confidence * 100) : null;
-    const confBar = (conf != null)
-      ? `<span class="cconfidence" title="${conf}% confident"><span style="width:${conf}%"></span></span> <span class="meta" style="font-size:11px;">${conf}%</span>`
-      : '';
     const statusBadge = n.verified
       ? `<span class="pill good">verified</span>`
-      : (n.disagreement ? `<span class="pill warn">disagreement</span>` : `<span class="pill warn">pending</span>`);
+      : `<span class="pill warn">pending</span>`;
     const overriddenBadge = n.overridden ? `<span class="pill good">human-set</span>` : '';
     const propCountBadge = `<span class="pill off">${n.property_count} prop${n.property_count === 1 ? '' : 's'}</span>`;
-    const reasoning = n.classifier_reasoning
-      ? `<div class="gr-reason">${escapeHtml(n.classifier_reasoning)}</div>` : '';
-    const disagreeBanner = n.disagreement
-      ? `<div class="cdisagree-banner">⚠ classifier disagrees with cluster-count — pick one</div>` : '';
+    const lotCountBadge = n.expected_lot_count != null
+      ? `<span class="pill on" title="reviewer-confirmed lot count">lots: ${n.expected_lot_count}</span>`
+      : '';
     const altType = n.notice_type === 'single' ? 'multi' : 'single';
     const auditFooter = n.verified
       ? `<div class="gr-audit">verified by <code>${escapeHtml(n.verified_by || '?')}</code> at <code>${escapeHtml(fmtWhen(n.verified_at))}</code></div>`
@@ -1928,11 +2432,10 @@
     header.className = 'gr-header';
     header.innerHTML = `
       <div class="gr-title"><span class="gr-fname">${escapeHtml(filename)}</span>${openLink}</div>
-      <div class="gr-row">${currentBadge} ${overriddenBadge} ${propCountBadge} ${statusBadge}</div>
-      <div class="gr-row">${predBadge} ${confBar}</div>
-      ${reasoning}
-      ${disagreeBanner}
+      <div class="gr-row">${currentBadge} ${overriddenBadge} ${propCountBadge} ${lotCountBadge} ${statusBadge}</div>
       <div class="gr-actions">
+        <label class="clots-wrap" title="how many lots does this notice sell? (the downstream extraction checksum)">lots
+          <input type="number" class="clots" min="1" max="500" value="${n.expected_lot_count ?? n.property_count ?? 1}"></label>
         <input type="text" class="cnotes" placeholder="notes (optional)">
         <button class="primary" data-act="confirm">Confirm as ${escapeHtml(n.notice_type || 'single')} <span class="kbd">V</span></button>
         <button data-act="flip">Flip to ${escapeHtml(altType)} <span class="kbd">F</span></button>
@@ -1966,13 +2469,15 @@
     const filenameForApi = n.filename || '';
     header.querySelector('button[data-act="confirm"]').addEventListener('click', () =>
       submitClassificationFromGallery(filenameForApi, n.notice_type || 'single',
-                                       header.querySelector('.cnotes').value || null));
+                                       header.querySelector('.cnotes').value || null,
+                                       readLotCount(header, n.notice_type || 'single')));
     header.querySelector('button[data-act="flip"]').addEventListener('click', () =>
       submitClassificationFromGallery(filenameForApi, altType,
-                                       header.querySelector('.cnotes').value || null));
+                                       header.querySelector('.cnotes').value || null,
+                                       readLotCount(header, altType)));
   }
 
-  async function submitClassificationFromGallery(filename, noticeType, notes) {
+  async function submitClassificationFromGallery(filename, noticeType, notes, lotCount) {
     if (!filename) { setMsg('<span class="err">notice has no filename — cannot save</span>', 3000); return; }
     const right = $('gallery-right');
     const buttons = right ? $$('button', right) : [];
@@ -1981,7 +2486,7 @@
       const r = await authFetch(API + '/review/notice/' + encodeURIComponent(filename) + '/classify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ notice_type: noticeType, notes: notes }),
+        body: JSON.stringify(classifyBody(noticeType, notes, lotCount)),
       });
       if (r.status === 401 || r.status === 403) { setMsg('<span class="err">not authorised</span>', 3000); return; }
       if (r.status === 404) { setMsg('<span class="err">notice not found</span>', 3000); return; }
@@ -2046,10 +2551,16 @@
     if (gallery.selectedIndex < 0) return;
     const n = gallery.notices[gallery.selectedIndex];
     if (!n) return;
-    submitClassificationFromGallery(n.filename || '', targetType, galleryNotesValue());
+    submitClassificationFromGallery(n.filename || '', targetType, galleryNotesValue(),
+                                    readLotCount($('gallery-right'), targetType));
   }
 
   // ─── Pill handlers ──────────────────────────────────────────────────────
+  $$('button.pill[data-stage-link]').forEach(b => {
+    b.addEventListener('click', () => {
+      location.hash = '#' + b.getAttribute('data-stage-link');
+    });
+  });
   $$('button.pill[data-stage]').forEach(b => {
     b.addEventListener('click', () => {
       const next = b.getAttribute('data-stage');
@@ -2096,6 +2607,25 @@
     });
   });
 
+  // Flags toggle independently — clicking a second one widens the queue to
+  // "either failure" rather than replacing the first.
+  $$('button.pill[data-flag]').forEach(b => {
+    b.addEventListener('click', () => {
+      const f = b.getAttribute('data-flag');
+      queueState.flags = queueState.flags.includes(f)
+        ? queueState.flags.filter(x => x !== f)
+        : [...queueState.flags, f];
+      writeHash();
+      loadStats(); loadQueue();
+    });
+  });
+  $('flag-clear').addEventListener('click', () => {
+    if (!queueState.flags.length) return;
+    queueState.flags = [];
+    writeHash();
+    loadStats(); loadQueue();
+  });
+
   $$('button.pill[data-cview]').forEach(b => {
     b.addEventListener('click', () => {
       const next = b.getAttribute('data-cview');
@@ -2109,14 +2639,14 @@
 
   $('bulk-confirm-btn').addEventListener('click', async () => {
     const stage = queueState.stage;
-    if (stage !== 'classification' && stage !== 'markdown' && stage !== 'description') return;
+    if (!STAGES.includes(stage)) return;
     const btn = $('bulk-confirm-btn');
     btn.disabled = true;
     const url = API + (stage === 'classification'
       ? '/review/classifications/bulk-confirm'
       : stage === 'markdown'
         ? '/review/markdown/bulk-confirm'
-        : '/review/bulk-confirm');
+        : '/review/extraction/bulk-confirm');
     const commonFilters = {
       notice_type: queueState.noticeType || 'all',
       date_from:   queueState.dateFrom || null,
@@ -2124,22 +2654,20 @@
       q:           queueState.q || null,
       dry_run: false,
     };
+    // Classification has no score; markdown and extraction both band 0-100.
+    // The markdown stage also carries the 0-5 parse-quality bounds — the button
+    // says "Confirm all N in range", where N came from the parse-quality-filtered
+    // queue, so omitting them here would confirm notices the reviewer never saw.
     const body = stage === 'classification'
-      ? {
-          confidence_min: queueState.scoreFrom / 100,
-          confidence_max: queueState.scoreTo   / 100,
-          ...commonFilters,
-        }
-      : stage === 'markdown'
-      ? {
+      ? { ...commonFilters }
+      : {
           score_min: queueState.scoreFrom,
           score_max: queueState.scoreTo,
-          ...commonFilters,
-        }
-      : {
-          // description → completeness-judge confidence band (0–1)
-          judge_min: queueState.scoreFrom / 100,
-          judge_max: queueState.scoreTo   / 100,
+          ...(stage === 'markdown' ? {
+            pq_min: queueState.pqFrom,
+            pq_max: queueState.pqTo,
+            flags: queueState.flags.length ? queueState.flags : null,
+          } : {}),
           ...commonFilters,
         };
     let result = null;
@@ -2166,6 +2694,11 @@
       // Brief toast-style alert; reviewer expects feedback.
       alert(`Confirmed ${result.count} ${stage} items.`);
     }
+  });
+  $('ov-reload').addEventListener('click', () => loadOverview());
+  $('stg-reload').addEventListener('click', () => {
+    const h = (location.hash || '').replace(/^#/, '');
+    if (h.startsWith('stage/')) loadStageDetail(decodeURIComponent(h.slice(6)));
   });
   $('reload').addEventListener('click', () => { loadStats(); loadQueue(); });
   $('q').addEventListener('input', (e) => {
@@ -2204,6 +2737,28 @@
   $('score-clear').addEventListener('click', () => {
     queueState.scoreFrom = 0;
     queueState.scoreTo = 100;
+    writeHash();
+    loadStats(); loadQueue();
+  });
+  // An empty input clears the bound rather than snapping to 0 / 5 — with a
+  // 0–5 scale those are meaningful values, not "off".
+  function pqBound(raw) {
+    const v = parseFloat(raw);
+    return isNaN(v) ? null : Math.max(0, Math.min(5, v));
+  }
+  $('pq-from').addEventListener('change', (e) => {
+    queueState.pqFrom = pqBound(e.target.value);
+    writeHash();
+    loadStats(); loadQueue();
+  });
+  $('pq-to').addEventListener('change', (e) => {
+    queueState.pqTo = pqBound(e.target.value);
+    writeHash();
+    loadStats(); loadQueue();
+  });
+  $('pq-clear').addEventListener('click', () => {
+    queueState.pqFrom = null;
+    queueState.pqTo = null;
     writeHash();
     loadStats(); loadQueue();
   });
@@ -3053,6 +3608,7 @@
       $('ann-rev').textContent = 'rev ' + ann.rev;
       $('ann-preclean').style.display =
         (doc.markdown_model === 'mineru-vlm-preclean2x') ? '' : 'none';
+      annRenderBadges(doc);
       const openLink = $('ann-open-src');
       if (doc.public_url) {
         openLink.href = doc.public_url;
@@ -4846,6 +5402,36 @@
     }
   }
 
+  // The markdown queue's badge strip, rendered on the annotator toolbar so a
+  // reviewer who drilled into a notice keeps the type / OCR-health / lot-count
+  // context instead of having to go back to see it. Reuses healthPill and
+  // mdStatusPill verbatim, so the two screens can never drift apart.
+  function annRenderBadges(doc) {
+    const el = $('ann-badges');
+    if (!el) return;
+    if (!doc) { el.innerHTML = ''; return; }
+    const row = {
+      ocr_health_score: doc.ocr_health_score,
+      ocr_health_flags: doc.ocr_health_flags,
+      parse_quality_score: doc.parse_quality_score,
+      ink_uncovered_ratio: doc.ink_uncovered_ratio,
+      verified: !!doc.markdown_verified,
+      quality: doc.markdown_quality,
+    };
+    const type = doc.notice_type
+      ? `<span class="pill">${escapeHtml(doc.notice_type)}</span>`
+      : '<span class="pill off">unclassified</span>';
+    const n = doc.property_count;
+    const props = n != null
+      ? `<span class="pill off">${n} prop${n === 1 ? '' : 's'}</span>` : '';
+    const chars = doc.markdown_length != null
+      ? `<span class="pill off">${doc.markdown_length.toLocaleString()} chars</span>` : '';
+    const reext = doc.markdown_reextracted_at
+      ? `<span class="pill warn" title="re-extracted ${escapeHtml(doc.markdown_reextracted_at)}">re-extracted</span>`
+      : '';
+    el.innerHTML = `${type} ${healthPill(row)} ${parseQualityPill(row)} ${mdStatusPill(row)} ${reext} ${props} ${chars}`;
+  }
+
   // After any mutation, refresh ann.doc.markdown via a fresh GET so the
   // collapsible regenerated-markdown preview reflects the server's view.
   let mdRefreshTimer = null;
@@ -4859,6 +5445,9 @@
         ann.doc = doc;
         ann.rev = doc.blocks_revision || ann.rev;
         $('ann-rev').textContent = 'rev ' + ann.rev;
+        // Editing blocks rewrites the markdown, so size / health / verified
+        // state all move — repaint the strip rather than leaving stale numbers.
+        annRenderBadges(doc);
         paintAnnMarkdown();
       } catch {}
     }, 400);
@@ -6014,36 +6603,6 @@
     paintTbledTex();
     paintTbledStatus();
   }
-
-  // ─── Extraction-review tab (isolated overlay) ───────────────────────────
-  // Capture-phase listener: for the "extraction" pill, show the overlay and
-  // stop the event before the normal stage handler runs (so queueState is never
-  // set to an unknown stage). For any other pill, just hide the overlay.
-  function closeExtractionPanel() {
-    const p = document.getElementById('extraction-panel');
-    if (p) p.style.display = 'none';
-    document.querySelectorAll('button.pill[data-stage="extraction"]')
-      .forEach(b => b.classList.remove('on'));
-  }
-  document.addEventListener('click', function (ev) {
-    const pill = ev.target.closest && ev.target.closest('button.pill[data-stage]');
-    if (!pill) return;
-    const panel = document.getElementById('extraction-panel');
-    if (pill.getAttribute('data-stage') === 'extraction') {
-      document.querySelectorAll('button.pill[data-stage]')
-        .forEach(b => b.classList.toggle('on', b === pill));
-      const frame = document.getElementById('extraction-frame');
-      if (frame && !frame.getAttribute('src')) {
-        const base = (typeof window.API_BASE === 'string') ? window.API_BASE : '';
-        frame.setAttribute('src', 'review_extraction.html?api=' + encodeURIComponent(base));
-      }
-      if (panel) panel.style.display = 'block';
-      ev.stopImmediatePropagation();   // keep the normal stage handler from firing
-      ev.preventDefault();
-    } else if (panel) {
-      panel.style.display = 'none';    // leaving extraction; let normal flow run
-    }
-  }, true);
 
   // Boot
   route();

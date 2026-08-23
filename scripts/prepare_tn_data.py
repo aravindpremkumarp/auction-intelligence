@@ -182,7 +182,10 @@ def main():
                     for p in (r.get('Property Type', '') or '').split(',')
                     if p.strip()
                 ],
-                "auction_type"              : r.get('Auction Type', ''),
+                # Scraper wrote 'Auction Type' on older runs and 'AuctionType' on newer
+                # ones; read both or ~1/3 of records load with no AuctionType — and,
+                # because the loader filters on it, no Borrower edge either.
+                "auction_type"              : r.get('Auction Type') or r.get('AuctionType', ''),
                 # Parties
                 "bank_name"                 : r.get('Bank Name', ''),
                 "branch_name"               : r.get('Branch Name', ''),

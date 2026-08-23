@@ -1,4 +1,4 @@
-"""Phase A full rollout: re-OCR every TN notice with MinerU API + LLM.
+"""Batch OCR of TN notices into the markdown cache (MinerU API or Datalab).
 
 Pipeline:
   notice file (jpg/png/pdf)
@@ -7,45 +7,37 @@ Pipeline:
        2. PUT file content to each signed URL
        3. Poll GET /extract-results/batch/<batch_id> until done
        4. Download full_zip_url, extract full.md
-    -> Gemini 2.0 Flash text-only via OpenRouter (single-property notices only)
-       -> property_description_full
-    -> Apply v3 descriptions to Neo4j AuctionProperty.description with
-       description_source='notice'
+  (or Datalab, per DESCRIPTION_OCR_ENGINE)
+
+Descriptions are NOT extracted here — LangExtract's full_description is the
+sole automated description source (pipeline/apply_extractions.py).
 
 Resumable:
   - MinerU markdown cached at pipeline/cache/mineru_markdown/<safe_path>.md
-  - v3 description cached at pipeline/cache/notice_descriptions_v3/<safe_path>.json
   - Re-runs skip cached entries
 
 Usage:
   python -m scripts.ocr_with_mineru                 # full run
   python -m scripts.ocr_with_mineru --limit 50      # cap to first 50 Documents
-  python -m scripts.ocr_with_mineru --skip-mineru   # only run LLM + apply stages
-  python -m scripts.ocr_with_mineru --skip-apply    # don't write to Neo4j
   python -m scripts.ocr_with_mineru --missing-only  # only Documents with d.markdown IS NULL
 
-Auth: MINERU_API_KEY + OPENROUTER_API_KEY in .env
+Auth: MINERU_API_KEY in .env
 """
 from __future__ import annotations
 
 import argparse
-import asyncio
-import json
 import os
 import sys
 import time
 from pathlib import Path
 
-import aiohttp
 import requests
 from dotenv import load_dotenv
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from api.neo4j_client import run_query, run_read_query
+from api.neo4j_client import run_read_query
 from pipeline.config import (
-    OPENROUTER_API_KEY, OPENROUTER_BASE_URL, OPENROUTER_MODEL,
-    PROMPTS_DIR, MAX_RETRIES,
     DESCRIPTION_OCR_ENGINE, DATALAB_PIPELINE_CONCURRENCY, datalab_mode_for,
 )
 from pipeline.mineru import (
@@ -70,14 +62,10 @@ load_dotenv()
 MINERU_KEY = os.environ.get("MINERU_API_KEY")
 
 REPO_ROOT          = Path(__file__).resolve().parent.parent
-NOTICE_DESC_V3_DIR = REPO_ROOT / "pipeline" / "cache" / "notice_descriptions_v3"
-PROMPT_PATH        = PROMPTS_DIR / "extract_description.txt"
 
 MINERU_BATCH_SIZE = 10      # files per MinerU batch request
                             # (signed OSS URLs are short-lived; smaller
                             # batches reduce the chance of expiry mid-batch)
-LLM_CONCURRENCY   = 6       # concurrent OpenRouter calls
-WRITE_CHUNK       = 200     # rows per UNWIND Cypher write
 
 
 def chunked(seq, n):
@@ -295,159 +283,6 @@ def stage1_datalab(work: list[dict]) -> dict[str, str]:
     return md_by_path
 
 
-# ── LLM extraction stage (single-property only) ──────────────────────────────
-
-async def extract_description_from_md(
-    session: aiohttp.ClientSession,
-    sem: asyncio.Semaphore,
-    markdown: str,
-    prompt: str,
-) -> str | None:
-    full_prompt = (
-        prompt
-        + "\n\n---\nThe document text below was extracted by a layout-aware OCR "
-          "tool and is provided as Markdown that preserves the "
-          "original table structure. Read the Markdown to identify the "
-          "property-description block.\n\n"
-        + markdown
-    )
-    payload = {
-        "model": OPENROUTER_MODEL,
-        "messages": [{"role": "user", "content": full_prompt}],
-        "max_tokens": 6144,
-        "temperature": 0.1,
-    }
-    headers = {"Authorization": f"Bearer {OPENROUTER_API_KEY}", "Content-Type": "application/json"}
-    async with sem:
-        for attempt in range(MAX_RETRIES):
-            try:
-                async with session.post(
-                    f"{OPENROUTER_BASE_URL}/chat/completions",
-                    json=payload, headers=headers,
-                    timeout=aiohttp.ClientTimeout(total=120),
-                ) as resp:
-                    if resp.status != 200:
-                        if attempt < MAX_RETRIES - 1:
-                            await asyncio.sleep(2 ** attempt)
-                        continue
-                    data = await resp.json()
-                    text = data["choices"][0]["message"]["content"].strip()
-                    if text.startswith("```"):
-                        lines = [l for l in text.split("\n") if not l.strip().startswith("```")]
-                        text = "\n".join(lines).strip()
-                    obj = None
-                    try:
-                        obj = json.loads(text)
-                    except json.JSONDecodeError:
-                        try:
-                            s, e = text.find("{"), text.rfind("}") + 1
-                            if s >= 0 and e > s:
-                                obj = json.loads(text[s:e])
-                        except json.JSONDecodeError:
-                            obj = None
-                    if not isinstance(obj, dict):
-                        return None
-                    val = obj.get("property_description_full")
-                    return val if isinstance(val, str) and val.strip() else None
-            except (aiohttp.ClientError, asyncio.TimeoutError):
-                if attempt < MAX_RETRIES - 1:
-                    await asyncio.sleep(2 ** attempt)
-        return None
-
-
-async def stage2_llm(work: list[dict], mds: dict[str, str]) -> dict[str, str | None]:
-    """Run LLM extraction on single-property Documents only.
-    Returns {file_path: description_or_None}."""
-    if not OPENROUTER_API_KEY:
-        raise RuntimeError("OPENROUTER_API_KEY missing")
-    NOTICE_DESC_V3_DIR.mkdir(parents=True, exist_ok=True)
-    prompt = PROMPT_PATH.read_text(encoding="utf-8")
-
-    # Filter to single-property Documents that have markdown and don't yet have a v3 cache.
-    todo: list[tuple[str, str]] = []  # (file_path, markdown)
-    cache_hits: dict[str, str] = {}
-    for w in work:
-        if w["notice_type"] != "single":
-            continue
-        fp = w["file_path"]
-        md = mds.get(fp)
-        if not md:
-            continue
-        cache_path = NOTICE_DESC_V3_DIR / f"{safe_cache_name(fp)}.json"
-        if cache_path.exists():
-            try:
-                v = json.loads(cache_path.read_text(encoding="utf-8")).get("property_description_full")
-            except Exception:
-                v = None
-            if isinstance(v, str) and v.strip():
-                cache_hits[fp] = v
-                continue
-        todo.append((fp, md))
-
-    print(f"  v3 cached: {len(cache_hits)}  to_extract: {len(todo)}")
-
-    sem = asyncio.Semaphore(LLM_CONCURRENCY)
-    connector = aiohttp.TCPConnector(limit=LLM_CONCURRENCY * 2)
-    new_results: dict[str, str | None] = {}
-
-    async with aiohttp.ClientSession(connector=connector) as session:
-        async def one(fp: str, md: str):
-            try:
-                desc = await extract_description_from_md(session, sem, md, prompt)
-            except Exception as e:
-                print(f"    [LLM-fail] {safe_cache_name(fp)[:60]}: {e}")
-                desc = None
-            new_results[fp] = desc
-            cache_path = NOTICE_DESC_V3_DIR / f"{safe_cache_name(fp)}.json"
-            try:
-                cache_path.write_text(
-                    json.dumps({"property_description_full": desc}, ensure_ascii=False, indent=2),
-                    encoding="utf-8")
-            except Exception:
-                pass
-
-        # Process in chunks to keep memory bounded
-        for chunk in chunked(todo, 50):
-            await asyncio.gather(*[one(fp, md) for fp, md in chunk], return_exceptions=True)
-            done = len({**cache_hits, **new_results})
-            print(f"  [{done}/{len(cache_hits) + len(todo)}] cumulative")
-
-    return {**cache_hits, **new_results}
-
-
-# ── Apply stage ──────────────────────────────────────────────────────────────
-
-def stage3_apply(work: list[dict], descs: dict[str, str | None]) -> int:
-    """For each (single-property Document, listing) pair where the v3
-    extraction succeeded, write description to Neo4j with source='notice'."""
-    rows: list[dict] = []
-    for w in work:
-        if w["notice_type"] != "single":
-            continue
-        fp = w["file_path"]
-        desc = descs.get(fp)
-        if not desc:
-            continue
-        for aid in (w.get("aids") or []):
-            if aid:
-                rows.append({"auction_id": aid, "notice_description": desc})
-
-    if not rows:
-        print("  (nothing to apply)")
-        return 0
-
-    n = 0
-    for batch in chunked(rows, WRITE_CHUNK):
-        run_query("""
-            UNWIND $rows AS row
-            MATCH (a:AuctionProperty {auction_id: row.auction_id})
-            SET a.description        = row.notice_description,
-                a.description_source = 'notice'
-        """, {"rows": batch})
-        n += len(batch)
-    return n
-
-
 # ── Verification ─────────────────────────────────────────────────────────────
 
 def print_summary():
@@ -458,10 +293,8 @@ def print_summary():
         print(f"  source={str(row['src']):<20} {row['n']:>5}")
     md_count     = len(list(MINERU_MD_DIR.glob("*.md")))      if MINERU_MD_DIR.exists()     else 0
     blocks_count = len(list(MINERU_BLOCKS_DIR.glob("*.json"))) if MINERU_BLOCKS_DIR.exists() else 0
-    v3_count     = len(list(NOTICE_DESC_V3_DIR.glob("*.json"))) if NOTICE_DESC_V3_DIR.exists() else 0
     print(f"\n  mineru_markdown cache: {md_count} files")
     print(f"  mineru_blocks cache:   {blocks_count} files")
-    print(f"  notice_descriptions_v3 cache: {v3_count} files")
 
 
 # ── CLI ──────────────────────────────────────────────────────────────────────
@@ -473,8 +306,6 @@ def main():
                         help="Cap to first N Documents (staged rollout)")
     parser.add_argument("--skip-mineru", action="store_true",
                         help="Skip MinerU stage; reuse cached markdowns only")
-    parser.add_argument("--skip-apply", action="store_true",
-                        help="Skip Neo4j writes (cache only)")
     parser.add_argument("--missing-only", action="store_true",
                         help="Only Documents whose d.markdown is NULL/empty")
     args = parser.parse_args()
@@ -506,16 +337,7 @@ def main():
     else:
         print("  engine=mineru")
         mds = stage1_mineru(work)
-
-    print(f"\n[Stage 2] LLM extraction (single-property only)")
-    descs = asyncio.run(stage2_llm(work, mds))
-
-    if args.skip_apply:
-        print("\n[Stage 3] SKIPPED (--skip-apply)")
-    else:
-        print(f"\n[Stage 3] Apply v3 descriptions to Neo4j")
-        n = stage3_apply(work, descs)
-        print(f"  wrote {n} listings")
+    print(f"  markdowns available: {len(mds)}")
 
     print_summary()
 

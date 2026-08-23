@@ -1,44 +1,67 @@
-"""Backfill MinerU markdown for Documents that lack it.
+"""Backfill OCR markdown for Documents that lack it.
 
 Targets only :Document nodes where ``d.markdown IS NULL`` or empty —
-the existing 2,450 markdowns are untouched. Downloads each missing
-notice from its R2 ``public_url`` into ``downloads/tn_properties/``
-so the MinerU helpers can find it, then reuses ``stage1_mineru`` from
-``scripts.ocr_with_mineru`` to OCR in batches of 20 and cache the
-results under ``pipeline/cache/mineru_markdown/``. Finally writes the
-new markdowns into Neo4j via the same write path as
-``pipeline.load_markdowns_to_neo4j`` (with provenance stamping).
+the existing markdowns are untouched. Downloads each missing notice
+from its R2 ``public_url`` into ``downloads/tn_properties/``, then OCRs
+with the engine chosen by ``--engine``:
+
+``mineru`` (default)
+    Reuses ``stage1_mineru`` from ``scripts.ocr_with_mineru`` to OCR in
+    batches of 20, caching under ``pipeline/cache/mineru_markdown/``.
+    Writes via ``pipeline.load_markdowns_to_neo4j.write_markdowns``.
+
+``datalab``
+    One Datalab job per file (``pipeline.datalab_api``), parsed into
+    blocks by ``pipeline.datalab.parse_datalab_blocks`` and written with
+    ``markdown_source='datalab'`` — the same write shape as
+    ``scripts.reocr_low_health_datalab``, minus its strict-improvement
+    gate (a Document with no markdown has no score to improve on, so any
+    non-empty result is a win).
+
+    Datalab normally picks its mode from ``notice_type``, but a Document
+    with no markdown has not been classified yet — so the mode is a flag
+    here, defaulting to ``accurate``. Fast mode on an unclassified batch
+    notice collapses its lot table, which is expensive to detect later.
 
 Idempotent: a re-run skips Documents that now have markdown, and the
 MinerU helpers skip files whose cache file already exists.
 
 Usage:
-  python -m scripts.ocr_missing_markdowns                 # run it
-  python -m scripts.ocr_missing_markdowns --dry-run       # list only
-  python -m scripts.ocr_missing_markdowns --limit 10      # cap N
+  python -m scripts.ocr_missing_markdowns                        # MinerU
+  python -m scripts.ocr_missing_markdowns --engine datalab       # Datalab
+  python -m scripts.ocr_missing_markdowns --engine datalab --mode fast
+  python -m scripts.ocr_missing_markdowns --dry-run              # list only
+  python -m scripts.ocr_missing_markdowns --limit 10             # cap N
 
-Auth: MINERU_API_KEY in .env (paid). Network egress to R2 + MinerU.
+Auth: MINERU_API_KEY or DATALAB_API_KEY in .env (both paid), depending
+on ``--engine``. Network egress to R2 + the chosen OCR provider.
 """
 from __future__ import annotations
 
 import argparse
+import json
 import os
+import secrets
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import requests
 from dotenv import load_dotenv
 
 from api.neo4j_client import run_query, run_read_query
+from pipeline import datalab_api
 from pipeline.config import DOWNLOADS_DIR
+from pipeline.datalab import parse_datalab_blocks
 from pipeline.load_markdowns_to_neo4j import (
     DEFAULT_MARKDOWN_MODEL,
     DEFAULT_MARKDOWN_SOURCE,
     read_raw_artifacts,
     write_markdowns,
 )
-from pipeline.mineru import MINERU_SUPPORTED_EXTS
+from pipeline.mineru import MINERU_SUPPORTED_EXTS, assemble_markdown
+from pipeline.ocr_health import score_ocr_health
 from scripts.ocr_with_mineru import MINERU_KEY, stage1_mineru
 
 
@@ -117,6 +140,82 @@ def build_write_rows(mds: dict[str, str]) -> list[dict]:
     return rows
 
 
+def _bid() -> str:
+    return f"blk_{secrets.token_hex(6)}"
+
+
+def datalab_one(m: dict, *, mode: str) -> dict:
+    """OCR one already-downloaded notice with Datalab. Never raises.
+
+    ``m`` carries ``filename``/``file_path``; the source file is the copy
+    Stage 0 placed in ``DOWNLOAD_TARGET_DIR`` (kept on disk, unlike
+    reocr_low_health_datalab's tempfile, so a re-run can reuse it).
+    """
+    out = {**m, "markdown": "", "blocks": [], "score": None, "flags": [],
+           "ok": False, "note": ""}
+    try:
+        src = DOWNLOAD_TARGET_DIR / m["filename"]
+        result = datalab_api.run_file(src, output_format="json", mode=mode)
+        _md, doc, _img = datalab_api.extract_payload(result)
+        blocks = parse_datalab_blocks(doc)
+        for b in blocks:
+            b["id"] = _bid()
+        markdown = result.get("markdown") or assemble_markdown(blocks)
+        if not (markdown or "").strip():
+            out["note"] = "empty result"
+            return out
+        health = score_ocr_health(markdown)
+        out.update(markdown=markdown, blocks=blocks,
+                   score=health["score"], flags=health["flags"], ok=True,
+                   parse_quality=datalab_api.parse_quality(result))
+    except Exception as e:
+        out["note"] = f"{type(e).__name__}: {e}"
+    return out
+
+
+def write_datalab(results: list[dict], mode: str) -> int:
+    """Persist Datalab OCR results. Same field shape as
+    scripts.reocr_low_health_datalab.write_back."""
+    rows = [{
+        "file_path":   r["file_path"],
+        "markdown":    r["markdown"],
+        "blocks_raw":  json.dumps(r["blocks"], ensure_ascii=False),
+        "blocks_json": json.dumps(
+            {"schema_version": 1, "blocks": r["blocks"]}, ensure_ascii=False),
+        "model":       f"datalab-{mode}",
+        "score":       r["score"],
+        "flags":       r["flags"],
+        "parse_quality": r.get("parse_quality"),
+    } for r in results if r.get("ok")]
+    if not rows:
+        return 0
+    for i in range(0, len(rows), 200):
+        run_query(
+            """
+            UNWIND $rows AS row
+            MATCH (d:Document {file_path: row.file_path})
+            SET d.markdown           = row.markdown,
+                d.markdown_source    = 'datalab',
+                d.markdown_model     = row.model,
+                d.markdown_loaded_at = datetime(),
+                d.markdown_raw       = row.markdown,
+                d.markdown_raw_at    = datetime(),
+                d.blocks_raw         = row.blocks_raw,
+                d.blocks             = row.blocks_json,
+                d.blocks_revision    = coalesce(d.blocks_revision, 0) + 1,
+                d.ocr_health_score   = row.score,
+                d.ocr_health_flags   = row.flags,
+                d.ocr_health_at      = datetime(),
+                d.parse_quality_score = coalesce(row.parse_quality,
+                                                 d.parse_quality_score),
+                d.parse_quality_at    = CASE WHEN row.parse_quality IS NULL
+                                            THEN d.parse_quality_at ELSE datetime() END
+            """,
+            {"rows": rows[i:i + 200]},
+        )
+    return len(rows)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -124,6 +223,14 @@ def main() -> int:
                     help="list what would be processed; no downloads, no OCR")
     ap.add_argument("--limit", type=int, default=None,
                     help="cap to first N missing Documents")
+    ap.add_argument("--engine", choices=["mineru", "datalab"], default="mineru",
+                    help="OCR provider (default: mineru)")
+    ap.add_argument("--mode", choices=["fast", "accurate"], default="accurate",
+                    help="Datalab mode; ignored for --engine mineru "
+                         "(default: accurate — these Documents have no "
+                         "notice_type yet, so mode cannot be derived)")
+    ap.add_argument("--concurrency", type=int, default=4,
+                    help="parallel Datalab jobs (default: 4)")
     args = ap.parse_args()
 
     missing = fetch_missing()
@@ -140,8 +247,10 @@ def main() -> int:
             print(f"  {m['filename']}  <- {m['public_url']}")
         return 0
 
-    if not MINERU_KEY:
+    if args.engine == "mineru" and not MINERU_KEY:
         sys.exit("MINERU_API_KEY not set in .env")
+    if args.engine == "datalab" and not datalab_api.DATALAB_API_KEY:
+        sys.exit("DATALAB_API_KEY not set in .env")
 
     # ── Stage 0: download source files from R2 ──────────────────────────────
     print(f"\n[Stage 0] Downloading source files into {DOWNLOAD_TARGET_DIR}")
@@ -169,26 +278,65 @@ def main() -> int:
         print("\nNo files available to OCR — nothing to do.")
         return 1
 
-    # ── Stage 1: MinerU OCR ─────────────────────────────────────────────────
-    print(f"\n[Stage 1] MinerU OCR on {len(downloaded)} files")
     work = [{"filename": m["filename"], "file_path": m["file_path"]}
             for m in downloaded]
-    mds = stage1_mineru(work)
-    print(f"  MinerU returned markdown for {len(mds)} / {len(work)} files")
 
-    # ── Stage 2: write markdowns to Neo4j ───────────────────────────────────
-    if not mds:
-        print("\nNo markdown produced — nothing to write.")
-        return 1
+    if args.engine == "datalab":
+        # ── Stage 1: Datalab OCR (one job per file, N in flight) ────────────
+        print(f"\n[Stage 1] Datalab OCR ({args.mode}) on {len(work)} files, "
+              f"concurrency={args.concurrency}")
+        results: list[dict] = []
+        failures = 0
+        with ThreadPoolExecutor(max_workers=args.concurrency) as pool:
+            futures = {pool.submit(datalab_one, m, mode=args.mode): m
+                       for m in work}
+            for i, fut in enumerate(as_completed(futures), 1):
+                r = fut.result()
+                results.append(r)
+                if not r["ok"]:
+                    failures += 1
+                    print(f"  [{i}/{len(work)}] FAIL {r['filename']}: {r['note']}",
+                          flush=True)
+                elif i % 10 == 0 or i == len(work):
+                    ok = sum(1 for x in results if x["ok"])
+                    print(f"  [{i}/{len(work)}] ok={ok} failed={failures}",
+                          flush=True)
 
-    rows = build_write_rows(mds)
-    print(f"\n[Stage 2] Writing {len(rows)} markdowns to Neo4j")
-    if rows:
-        # Write in batches of 200 like the loader does.
-        for i in range(0, len(rows), 200):
-            batch = rows[i:i + 200]
-            write_markdowns(batch, DEFAULT_MARKDOWN_SOURCE, DEFAULT_MARKDOWN_MODEL)
-            print(f"  wrote {min(i + 200, len(rows))} / {len(rows)}", flush=True)
+        ok_results = [r for r in results if r["ok"]]
+        print(f"  Datalab returned markdown for {len(ok_results)} / {len(work)} files")
+        if not ok_results:
+            print("\nNo markdown produced — nothing to write.")
+            return 1
+
+        print(f"\n[Stage 2] Writing {len(ok_results)} markdowns to Neo4j")
+        wrote = write_datalab(ok_results, args.mode)
+        print(f"  wrote {wrote} / {len(ok_results)}", flush=True)
+
+        scored = [r["score"] for r in ok_results if r["score"] is not None]
+        if scored:
+            scored.sort()
+            print(f"  ocr_health: min={scored[0]} "
+                  f"median={scored[len(scored) // 2]} max={scored[-1]} "
+                  f"| below_70={sum(1 for s in scored if s < 70)}")
+    else:
+        # ── Stage 1: MinerU OCR ─────────────────────────────────────────────
+        print(f"\n[Stage 1] MinerU OCR on {len(work)} files")
+        mds = stage1_mineru(work)
+        print(f"  MinerU returned markdown for {len(mds)} / {len(work)} files")
+
+        # ── Stage 2: write markdowns to Neo4j ───────────────────────────────
+        if not mds:
+            print("\nNo markdown produced — nothing to write.")
+            return 1
+
+        rows = build_write_rows(mds)
+        print(f"\n[Stage 2] Writing {len(rows)} markdowns to Neo4j")
+        if rows:
+            # Write in batches of 200 like the loader does.
+            for i in range(0, len(rows), 200):
+                batch = rows[i:i + 200]
+                write_markdowns(batch, DEFAULT_MARKDOWN_SOURCE, DEFAULT_MARKDOWN_MODEL)
+                print(f"  wrote {min(i + 200, len(rows))} / {len(rows)}", flush=True)
 
     # ── Stage 3: final tally ────────────────────────────────────────────────
     final = run_read_query(

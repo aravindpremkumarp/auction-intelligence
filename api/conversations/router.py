@@ -24,6 +24,13 @@ class ConversationUpsertIn(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     messages: list[Any] = Field(default_factory=list)
     api_history: list[Any] | None = None
+    #: /chat/v2's conversation state. v1 stores its transcript in
+    #: `api_history`; v2 has no transcript, so without this a reopened
+    #: conversation loses every carried filter and referent and the next
+    #: follow-up starts cold. Untyped here on purpose — the shape is owned by
+    #: `ChatV2Request.scope`, and `sanitize_scope` re-validates it on the way
+    #: back in, which is the check that matters.
+    agent_scope: dict[str, Any] | None = None
     results: list[Any] = Field(default_factory=list)
     total_count: int | None = None
     property_id: str | None = None
@@ -66,6 +73,7 @@ async def get_conversation(
         "updated_at": row["updated_at"],
         "messages": _parse(row.get("messages_json"), []),
         "api_history": _parse(row.get("api_history_json"), None),
+        "agent_scope": _parse(row.get("agent_scope_json"), None),
         "results": _parse(row.get("results_json"), []),
         "total_count": row.get("total_count"),
     }
@@ -83,6 +91,7 @@ async def upsert_conversation(
         title=body.title[:200],
         messages_json=json.dumps(body.messages),
         api_history_json=json.dumps(body.api_history) if body.api_history is not None else "",
+        agent_scope_json=json.dumps(body.agent_scope) if body.agent_scope is not None else "",
         results_json=json.dumps(body.results),
         total_count=body.total_count,
         property_id=body.property_id,

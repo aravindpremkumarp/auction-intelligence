@@ -63,6 +63,8 @@
   .artifact .reel-frame { border: 1.5px solid var(--ink); background: #111; color: #fff; padding: 14px; margin-bottom: 8px; }
   .artifact .reel-frame .l1 { font-family: 'Caveat', cursive; font-size: 26px; line-height: 1.1; }
   .artifact .reel-frame .l2 { font-size: 16px; opacity: .85; }
+  .artifact .preview video { width: 100%; border: 1.5px solid var(--ink); display: block; margin-bottom: 6px; background: #111; }
+  .artifact .preview .loadvid { width: 100%; }
   .artifact .btns { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
   .statusbar { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
   .statusbar button.on { background: var(--accent); font-weight: 600; }
@@ -177,6 +179,33 @@
     }
   }
 
+  function reelUrl(date, stem) {
+    return API + '/social/reel/' + encodeURIComponent(date) + '/' + encodeURIComponent(stem);
+  }
+
+  // Same blob trick as the card previews: <video src> can't carry the bearer
+  // token, so fetch with auth and play the result locally. Seeking works
+  // because the whole file is in memory by then.
+  async function loadVideo(btn, stem) {
+    btn.disabled = true;
+    btn.textContent = 'loading…';
+    try {
+      const r = await authFetch(reelUrl(state.date, stem));
+      if (!r.ok) throw new Error(r.status);
+      const url = URL.createObjectURL(await r.blob());
+      blobUrls.push(url);
+      const v = document.createElement('video');
+      v.controls = true;
+      v.playsInline = true;
+      v.src = url;
+      btn.replaceWith(v);
+    } catch (e) {
+      btn.disabled = false;
+      btn.textContent = '▶ load video';
+      setMsg('Reel unavailable (' + e.message + ').', 'err');
+    }
+  }
+
   async function copyText(text, btn) {
     try {
       await navigator.clipboard.writeText(text);
@@ -281,15 +310,22 @@
       preview = a.png_paths.map((p, i) =>
         '<img alt="' + escapeHtml(a.stem) + ' slide ' + (i + 1) + '" data-preview="' + escapeHtml(p) + '">'
       ).join('');
+    } else if (isReel && a.video_available) {
+      // Click-to-load: the MP4 comes through the admin gate as a blob, so it
+      // must be fetched whole. Six of them on page load would be megabytes
+      // nobody asked for.
+      preview = '<button class="loadvid" data-video="' + escapeHtml(a.stem) + '">▶ load video' +
+        (a.video_bytes ? ' (' + Math.round(a.video_bytes / 1024) + ' KB)' : '') + '</button>';
     } else if (isReel) {
-      preview = '<div class="noimg">reel mp4 is a 14-day workflow artifact — not committed</div>';
+      preview = '<div class="noimg">no mp4 — this batch was staged before reels went to R2, or the render failed</div>';
     } else {
       preview = '<div class="noimg">not rendered</div>';
     }
 
     const dls = ['<button data-dl="' + escapeHtml(a.island_path) + '">island json</button>']
       .concat(a.png_paths.map((p, i) =>
-        '<button data-dl="' + escapeHtml(p) + '">png' + (a.png_paths.length > 1 ? ' ' + (i + 1) : '') + '</button>'));
+        '<button data-dl="' + escapeHtml(p) + '">png' + (a.png_paths.length > 1 ? ' ' + (i + 1) : '') + '</button>'))
+      .concat(a.video_available ? ['<button data-dlreel="' + escapeHtml(a.stem) + '">mp4</button>'] : []);
 
     const statusBtns = STATUSES.map(s =>
       '<button data-status="' + s + '" data-kind="' + escapeHtml(a.kind) + '" data-stem="' + escapeHtml(a.stem) + '"' +
@@ -426,6 +462,12 @@
 
     const rel = t.getAttribute('data-dl');
     if (rel) { download(assetPath(state.date, rel, true), rel.split('/').pop(), t); return; }
+
+    const vid = t.getAttribute('data-video');
+    if (vid) { loadVideo(t, vid); return; }
+
+    const dlreel = t.getAttribute('data-dlreel');
+    if (dlreel) { download(reelUrl(state.date, dlreel), dlreel + '.mp4', t); return; }
 
     const bundle = t.getAttribute('data-bundle');
     if (bundle) {

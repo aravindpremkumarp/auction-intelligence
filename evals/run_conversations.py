@@ -45,7 +45,6 @@ from evals.conversation_evaluators import (
     NoStaleScope,
     PanelReferenceResolution,
     PanelState,
-    TurnOutput,
 )
 from evals.conversations import GOLDEN_CONVERSATIONS
 
@@ -94,79 +93,15 @@ def build_conversation_dataset() -> Dataset:
 
 
 async def _run_conversation(conv_id: str) -> ConversationOutput:
-    """Play one scripted conversation through the real agent, capturing per-turn
-    tools, args, match count, the re-derived rolling scope, and the derived UI
-    matches panel.
+    """Play one scripted conversation through the agent under test.
 
-    The panel is threaded exactly like production: the browser's current panel
-    ids ride into `ChatDeps.panel_auction_ids` each turn, and after the turn the
-    panel becomes (in priority order) the citation-driven sync
-    (`panel_sync_ids`), else this turn's last search-shaped artifact
-    (`turn_panel_ids` — what the frontend renders), else unchanged. Both
-    functions are imported from `api/chat/panel.py`, not re-implemented."""
-    from pydantic_ai.messages import ToolCallPart
+    The binding itself lives in `evals/tasks.py`, shared with the golden
+    runner and selected by EVAL_AGENT — see that module for why both agents
+    must be scored by exactly the same evaluators.
+    """
+    from evals.tasks import conversation_task
 
-    from api.agent import ChatDeps, agent, build_chat_run_overrides
-    from api.chat.panel import panel_sync_ids, turn_panel_ids
-    from api.chat.router import _extract_active_filters, _tool_returns
-
-    convo = _CONVERSATIONS_BY_ID[conv_id]
-    overrides = build_chat_run_overrides(CHAT_MODEL, None)
-    history = None
-    active_filters: dict = {}
-    last_total: int | None = None
-    panel: list[str] = []
-    turns_out: list[TurnOutput] = []
-
-    for turn in convo.turns:
-        deps = ChatDeps(
-            active_filters=active_filters or None,
-            last_total_count=last_total,
-            panel_auction_ids=panel or None,
-        )
-        result = await agent.run(
-            turn.message, message_history=history, deps=deps, **overrides
-        )
-        history = result.all_messages()
-        # Re-derive the rolling scope + last count the SAME way the router does,
-        # so the next turn's deps match production.
-        active_filters, last_total = _extract_active_filters(history)
-
-        seen: set[str] = set()
-        tools: list[str] = []
-        calls: list[dict] = []
-        for msg in result.new_messages():
-            for part in getattr(msg, "parts", []):
-                if isinstance(part, ToolCallPart):
-                    try:
-                        args = part.args_as_dict()
-                    except Exception:  # noqa: BLE001 - malformed args → empty
-                        args = {}
-                    calls.append({"tool": part.tool_name, "args": args})
-                    if part.tool_name not in seen:
-                        seen.add(part.tool_name)
-                        tools.append(part.tool_name)
-
-        # Derive the panel after this turn with the real sync logic.
-        answer = result.output or ""
-        panel_before = list(panel)
-        turn_returns = _tool_returns(result.new_messages())
-        all_returns = _tool_returns(history)
-        synced = panel_sync_ids(answer, turn_returns, all_returns, panel_before)
-        panel = synced or turn_panel_ids(turn_returns) or panel_before
-
-        turns_out.append(TurnOutput(
-            message=turn.message,
-            answer=answer,
-            tools_called=tools,
-            tool_calls=calls,
-            total_count=last_total,
-            active_filters=dict(active_filters),
-            panel_ids_before=panel_before,
-            panel_ids=list(panel),
-        ))
-
-    return ConversationOutput(turns=turns_out)
+    return await conversation_task()(_CONVERSATIONS_BY_ID[conv_id])
 
 
 async def main() -> int:
@@ -191,6 +126,10 @@ async def main() -> int:
             for k in CONVERSATION_GATES
         ):
             passed += 1
+    from evals.run_golden import report_cost
+
+    report_cost(report.cases, label=" (summed across turns)")
+
     rate = passed / total if total else 0.0
     print(
         f"\nConversation pass rate (all gates): {passed}/{total} = {rate:.1%} "

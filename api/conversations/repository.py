@@ -78,6 +78,7 @@ async def get_conversation(supabase_id: str, conv_id: str) -> dict | None:
                toString(c.updated_at) AS updated_at,
                c.messages_json   AS messages_json,
                c.api_history_json AS api_history_json,
+               c.agent_scope_json AS agent_scope_json,
                c.results_json    AS results_json,
                c.total_count     AS total_count
         """,
@@ -94,6 +95,7 @@ async def upsert_conversation(
     title: str,
     messages_json: str,
     api_history_json: str,
+    agent_scope_json: str,
     results_json: str,
     total_count: int | None,
     property_id: str | None = None,
@@ -109,6 +111,7 @@ async def upsert_conversation(
         SET c.title             = $title,
             c.messages_json     = $messages,
             c.api_history_json  = $api_history,
+            c.agent_scope_json  = $agent_scope,
             c.results_json      = $results,
             c.total_count       = $total,
             c.updated_at        = datetime()
@@ -119,6 +122,7 @@ async def upsert_conversation(
             "title": title,
             "messages": messages_json,
             "api_history": api_history_json,
+            "agent_scope": agent_scope_json,
             "results": results_json,
             "total": total_count,
             "property_id": property_id,

@@ -297,6 +297,49 @@ def research_object_key(platform: str, channel: str, run_date: str, filename: st
     )
 
 
+# ── Staged batch media storage ────────────────────────────────────────────────
+#
+# Everything the content-poster renders — card PNGs, carousel slides, reel MP4s
+# — lives here rather than in git. Reels never could be committed (binaries grow
+# the repo forever, and as 14-day artifacts they simply vanished); card PNGs
+# could be, but a weekly batch of 5-8 images accumulates for the same reason the
+# 664 property OG cards went to R2.
+#
+# The bucket is the PRIVATE one: staged media is unpublished pre-release
+# material and the /social page it feeds is admin-only, so the bytes must not be
+# fetchable by URL. api/social streams them back through its own admin gate.
+
+_BATCH_MEDIA_KEY_PREFIX = "marketing-media"
+
+
+def batch_media_key(batch_date: str, relpath: str) -> str:
+    """Deterministic private key for one staged file of a batch.
+
+    Shape: ``marketing-media/{batch_date}/{relpath}``, where ``relpath`` is the
+    file's path relative to the batch directory (``rendered/card-01-798444.png``,
+    ``reels/01-798444.mp4``). Each segment is sanitised separately so the
+    directory structure survives but nothing can escape the prefix. Keying off
+    the batch-relative path makes the mapping reversible: given a path the API
+    already knows, the key is derivable without a lookup.
+    """
+    parts = [p for p in relpath.split("/") if p not in ("", ".", "..")]
+    safe = "/".join(_safe_segment(p) for p in parts)
+    return f"{_BATCH_MEDIA_KEY_PREFIX}/{_safe_segment(batch_date)}/{safe}"
+
+
+def get_private_object(key: str):
+    """Fetch a private object for streaming.
+
+    Returns the raw boto3 ``get_object`` response — ``Body`` is a streaming
+    body the caller must close, alongside ``ContentType`` / ``ContentLength``.
+    Used instead of a presigned URL when the bytes are re-served through our
+    own auth gate rather than handed to the browser as a link.
+    """
+    _require_private_config()
+    client = r2_client()
+    return client.get_object(Bucket=R2_PRIVATE_BUCKET, Key=key)
+
+
 def delete_private_objects(keys: list[str]) -> None:
     """Delete the given private objects (cascade on dossier deletion).
 

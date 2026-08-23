@@ -83,18 +83,45 @@ def configure_telemetry(app: object | None = None) -> bool:
     # cost) and tool call as spans — this is the core of the trace.
     logfire.instrument_pydantic_ai()
 
-    # Ship the api/observability.py `timed()` lines (auction.obs — chat
-    # latency, resolved model/reasoning_effort, Neo4j query timings) into
-    # Logfire too. Scoped to this one logger (not the root logger) so uvicorn
-    # access logs and other library noise don't ride along. setLevel is
-    # required: this logger has no explicit level today, so it inherits the
-    # root logger's default WARNING and the happy-path INFO lines (the ones
-    # carrying reasoning_effort) would never reach any handler at all.
+    # Ship our own structured log lines into Logfire. `auction.obs` carries
+    # api/observability.py's `timed()` and `record()` output — chat latency,
+    # per-turn token counts, per-tool-call timings, Neo4j query timings.
+    # `api` carries everything the application's own modules log, which is how
+    # a `logger.exception` from a router (e.g. "chat agent3 stream failed")
+    # becomes visible.
+    #
+    # **Both, not just the first, and that is the fix here.** Attaching only
+    # `auction.obs` meant every INFO line from an `api.*` module reached no
+    # handler at all: nothing configures root logging, uvicorn only configures
+    # its own loggers, so those records fell through to `logging.lastResort`
+    # and were dropped below WARNING. The agent3 endpoint had been logging
+    # `in_tok`/`cached_tok`/`out_tok` per turn since it shipped and not one of
+    # those lines was ever stored anywhere.
+    #
+    # Still not the root logger: that would sweep in every library's INFO
+    # chatter (httpx request lines, neo4j pool churn) and bury the signal.
+    # setLevel is required on each — without an explicit level they inherit
+    # root's WARNING and the happy-path lines never reach the handler.
     from logfire.integrations.logging import LogfireLoggingHandler
 
-    obs_logger = logging.getLogger("auction.obs")
-    obs_logger.setLevel(logging.INFO)
-    obs_logger.addHandler(LogfireLoggingHandler())
+    handler = LogfireLoggingHandler()
+    for name in ("auction.obs", "api"):
+        app_logger = logging.getLogger(name)
+        app_logger.setLevel(logging.INFO)
+        app_logger.addHandler(handler)
+
+    # Every OpenRouter call is an httpx request, so this is what puts the
+    # individual model calls on the turn's waterfall with their own latency.
+    # Bodies are not captured: prompts and answers would multiply the export
+    # volume and carry user text off-box for no diagnostic gain that the
+    # token counts don't already give.
+    try:
+        logfire.instrument_httpx()
+    except Exception as exc:  # noqa: BLE001 - never fail startup over tracing
+        logger.warning(
+            "telemetry: HTTPX instrumentation skipped (%s) — model-call "
+            "latency will not appear as spans", exc,
+        )
 
     if app is not None:
         # Root HTTP span per request, so a /chat trace shows the full

@@ -121,8 +121,10 @@ def test_group_lots_first_non_null_wins():
 
 # ── match_lots_to_listings ───────────────────────────────────────────────────
 
-def _lot(reserve, desc="d"):
-    return {"description": desc, "fields": {"village": "V"}, "reserve": reserve}
+def _lot(reserve, desc="d", emd=None, borrowers=None):
+    return {"description": desc, "fields": {"village": "V"},
+            "reserve": reserve, "emd": emd,
+            "borrower_tokens": AX._name_tokens(borrowers or "")}
 
 
 def test_match_single_lot_applies_to_all_listings():
@@ -160,7 +162,7 @@ def test_match_unique_remainder_pairs_last_lot_and_listing():
     assert reasons["a2"] == "remainder"
 
 
-def test_match_no_price_multi_lot_unmatched():
+def test_match_no_price_no_emd_multi_lot_unmatched():
     lots = {"1": _lot(500000), "2": _lot(600000)}
     listings = [{"aid": "a1", "price": None}]
     matches, unmatched = AX.match_lots_to_listings(lots, listings)
@@ -168,9 +170,153 @@ def test_match_no_price_multi_lot_unmatched():
     assert unmatched[0][1] == "no_listing_price"
 
 
-# ── write guards ─────────────────────────────────────────────────────────────
+def test_match_emd_rescues_listing_without_reserve_price():
+    lots = {"1": _lot(500000, emd=50000), "2": _lot(600000, emd=60000)}
+    listings = [{"aid": "a1", "price": None, "emd": 60000}]
+    matches, unmatched = AX.match_lots_to_listings(lots, listings)
+    assert unmatched == []
+    assert matches[0][1]["reserve"] == 600000
+    assert matches[0][2] == "emd"
 
-def test_write_descriptions_has_human_guard(monkeypatch):
+
+def test_match_emd_tolerance():
+    lots = {"1": _lot(500000, emd=50000), "2": _lot(600000, emd=60000)}
+    listings = [{"aid": "a1", "price": None, "emd": 60300}]  # within 1%
+    matches, _ = AX.match_lots_to_listings(lots, listings)
+    assert matches[0][2] == "emd_tolerance"
+
+
+def test_match_emd_rescues_price_that_matches_no_lot():
+    # portal price is a 10x typo, but its EMD still pins the lot
+    lots = {"1": _lot(500000, emd=50000), "2": _lot(600000, emd=60000)}
+    listings = [{"aid": "a1", "price": 5_000_000, "emd": 50000}]
+    matches, _ = AX.match_lots_to_listings(lots, listings)
+    assert matches[0][1]["reserve"] == 500000
+    assert matches[0][2] == "emd"
+
+
+def test_match_equal_emds_stay_ambiguous():
+    lots = {"1": _lot(500000, emd=50000), "2": _lot(600000, emd=50000)}
+    listings = [{"aid": "a1", "price": None, "emd": 50000}]
+    matches, unmatched = AX.match_lots_to_listings(lots, listings)
+    assert matches == []
+    assert unmatched[0][1] == "ambiguous"
+
+
+def test_match_price_still_wins_over_emd():
+    # price matches lot 1 exactly; a misleading emd points at lot 2
+    lots = {"1": _lot(500000, emd=50000), "2": _lot(600000, emd=60000)}
+    listings = [{"aid": "a1", "price": 500000, "emd": 60000}]
+    matches, _ = AX.match_lots_to_listings(lots, listings)
+    assert matches[0][1]["reserve"] == 500000
+    assert matches[0][2] == "exact"
+
+
+def test_match_borrower_separates_equal_reserve_prices():
+    # two lots, same reserve — EMD ties too (10% of reserve); borrower decides
+    lots = {"1": _lot(500000, emd=50000, borrowers="Smt. J. Ida Priscilla"),
+            "2": _lot(500000, emd=50000, borrowers="Sri. E. Rajendran")}
+    listings = [{"aid": "a1", "price": 500000, "emd": 50000,
+                 "borrowers": ["Mrs Ida Priscilla W/o Moses"]},
+                {"aid": "a2", "price": 500000, "emd": 50000,
+                 "borrowers": ["Mr E Rajendran"]}]
+    matches, unmatched = AX.match_lots_to_listings(lots, listings)
+    assert unmatched == []
+    got = {m[0]["aid"]: (m[1]["reserve"], m[2]) for m in matches}
+    assert got["a1"][1] == "borrower"
+    assert got["a2"][1] == "borrower"
+    assert matches[0][1] is not matches[1][1]   # different lots
+
+
+def test_match_borrower_alone_can_pair_when_money_is_missing():
+    lots = {"1": _lot(None, borrowers="Musthafa M"),
+            "2": _lot(None, borrowers="Sabeena A")}
+    listings = [{"aid": "a1", "price": None, "emd": None,
+                 "borrowers": ["Mr/Mrs Musthafa M"]}]
+    matches, unmatched = AX.match_lots_to_listings(lots, listings)
+    assert unmatched == []
+    assert matches[0][2] == "borrower"
+
+
+def test_match_shared_borrower_stays_ambiguous():
+    # sibling lots of one borrower — same money, same name: never guess
+    lots = {"1": _lot(500000, borrowers="Ramayee Chellammal"),
+            "2": _lot(500000, borrowers="Ramayee Prakash")}
+    listings = [{"aid": "a1", "price": 500000, "borrowers": ["Ramayee"]}]
+    matches, unmatched = AX.match_lots_to_listings(lots, listings)
+    assert matches == []
+    assert unmatched[0][1] == "ambiguous"
+
+
+def test_match_ocr_fused_borrower_name_still_hits():
+    lots = {"1": _lot(500000, borrowers="SGayathri"),
+            "2": _lot(500000, borrowers="Karuppan")}
+    listings = [{"aid": "a1", "price": 500000, "borrowers": ["Mrs S Gayathri"]}]
+    matches, _ = AX.match_lots_to_listings(lots, listings)
+    assert matches[0][2] == "borrower"
+
+
+def test_match_identifier_separates_lots_sharing_borrower_and_money():
+    # sibling lots: same borrower, same reserve — survey number decides
+    l1 = _lot(500000, borrowers="Ramayee")
+    l1["id_tokens"] = AX._id_tokens("S.F.No. 491/1")
+    l2 = _lot(500000, borrowers="Ramayee")
+    l2["id_tokens"] = AX._id_tokens("S.F.No. 203/2A")
+    lots = {"1": l1, "2": l2}
+    listings = [{"aid": "a1", "price": 500000, "borrowers": ["Ramayee"],
+                 "id_text": "Vacant land in S F No.203/2A Kanakkampalayam"}]
+    matches, unmatched = AX.match_lots_to_listings(lots, listings)
+    assert unmatched == []
+    assert matches[0][1] is l2
+    assert matches[0][2] == "identifier"
+
+
+def test_id_tokens_normalize_separators_and_drop_years_pincodes():
+    toks = AX._id_tokens("R.S. No. 32-12B, dated 12.05.2026, Cuddalore-608502")
+    assert "32/12b" in toks
+    assert not any(t in ("2026", "608502") for t in toks)
+    # date fragments normalize but full years/pincodes as bare tokens are gone
+    assert AX._id_tokens("built in 2019 pin 641604") == set()
+
+
+def test_match_identifier_does_not_fire_on_no_overlap():
+    l1 = _lot(500000)
+    l1["id_tokens"] = AX._id_tokens("491/1")
+    l2 = _lot(500000)
+    l2["id_tokens"] = AX._id_tokens("203/2A")
+    lots = {"1": l1, "2": l2}
+    listings = [{"aid": "a1", "price": 500000, "id_text": "no ids here"}]
+    matches, unmatched = AX.match_lots_to_listings(lots, listings)
+    assert matches == []
+    assert unmatched[0][1] == "ambiguous"
+
+
+def test_name_tokens_drop_honorifics_and_initials():
+    toks = AX._name_tokens("Smt. P. Karnagi W/o. Mr. Pavadai (Borrower)")
+    assert toks == {"karnagi", "pavadai"}
+
+
+def test_group_lots_captures_borrower_tokens():
+    ents = [ent("borrower", "Sri. Ganeshkumar S/o. Mr. Pavadai",
+                {"role": "guarantor", "lot_index": "1"})]
+    lots = AX.group_lots(ents)
+    assert "ganeshkumar" in lots["1"]["borrower_tokens"]
+
+
+def test_group_lots_captures_emd():
+    ents = [ent("auction_terms", "",
+                {"reserve_price_num": "500000", "emd_num": "50000",
+                 "lot_index": "1"})]
+    lots = AX.group_lots(ents)
+    assert lots["1"]["reserve"] == 500000
+    assert lots["1"]["emd"] == 50000
+
+
+# ── write behavior ───────────────────────────────────────────────────────────
+
+def test_write_descriptions_overwrites_all_but_backs_up_human(monkeypatch):
+    """Notice text is the sole source: no human/verified guard remains, and a
+    human-entered description is stashed once into description_human_backup."""
     captured = {}
 
     def _cap(cypher, params=None):
@@ -181,8 +327,12 @@ def test_write_descriptions_has_human_guard(monkeypatch):
     monkeypatch.setattr(AX, "run_query", _cap)
     n = AX.write_descriptions([{"aid": "a1", "desc": "D"}])
     assert n == 1
-    assert "description_verified" in captured["cypher"]
-    assert "'human'" in captured["cypher"]
+    assert "description_verified" not in captured["cypher"]
+    assert "description_human_backup" in captured["cypher"]
+    # backup only fills once — a second run must not clobber the stash
+    assert "description_human_backup IS NULL" in captured["cypher"]
+    # a reviewer's correction outranks the automated write
+    assert "<> 'reviewer'" in captured["cypher"]
 
 
 def test_write_fields_sets_provenance(monkeypatch):

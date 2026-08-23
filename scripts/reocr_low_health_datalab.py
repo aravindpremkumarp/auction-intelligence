@@ -166,6 +166,7 @@ def reocr_one(t: dict) -> dict:
         out["blocks"] = blocks
         out["new_score"] = health["score"]
         out["new_flags"] = health["flags"]
+        out["parse_quality"] = datalab_api.parse_quality(result)
         if not markdown.strip() or health["score"] is None:
             out["note"] = "empty result — skipped"
         elif t["old_score"] is not None and health["score"] <= t["old_score"]:
@@ -203,6 +204,9 @@ def write_back(results: list[dict]) -> int:
             "model":      f"datalab-{r['mode']}",
             "score":      r["new_score"],
             "flags":      r["new_flags"],
+            # Datalab's own 0–5 parse verdict; None on a cache-hit replay, and
+            # then coalesce below keeps whatever the Document already had.
+            "parse_quality": r.get("parse_quality"),
         })
     if not rows:
         return 0
@@ -221,7 +225,11 @@ def write_back(results: list[dict]) -> int:
             d.blocks_revision    = coalesce(d.blocks_revision, 0) + 1,
             d.ocr_health_score   = row.score,
             d.ocr_health_flags   = row.flags,
-            d.ocr_health_at      = datetime()
+            d.ocr_health_at      = datetime(),
+            d.parse_quality_score = coalesce(row.parse_quality,
+                                             d.parse_quality_score),
+            d.parse_quality_at    = CASE WHEN row.parse_quality IS NULL
+                                        THEN d.parse_quality_at ELSE datetime() END
         """,
         {"rows": rows},
     )

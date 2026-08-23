@@ -1,89 +1,103 @@
 """
 tests/api/test_semantic_hybrid.py
 ---------------------------------
-Hybrid (vector + Lucene fulltext) retrieval in semantic_search:
+Two-lens Lucene retrieval in semantic_search (the vector lenses were retired
+— see docs/design/2026-08-22-retire-embeddings.md):
 
-- the keyword branch + score normalization appear in the Cypher when the
-  query yields searchable Lucene terms;
-- Lucene specials are stripped before the text reaches the index;
-- a missing fulltext index degrades to the vector-only query instead of
-  failing the search;
+- both fulltext branches — lot schedule text and property blurb — appear in
+  the Cypher, with per-source score normalization;
+- Lucene specials are stripped, quoted phrases survive;
+- a query with nothing searchable returns a hint instead of hitting Neo4j;
 - search_auctions' UI fetch is clamped to the hard cap even when the model
   asks for more.
 """
 from __future__ import annotations
 
-import pytest
-
 import api.tools.cypher_tools as ct
-from neo4j.exceptions import Neo4jError
-
-
-@pytest.fixture(autouse=True)
-def _fake_embedding(monkeypatch):
-    monkeypatch.setattr(ct, "embed_query_gemini", lambda q: [0.0] * 4)
 
 
 def test_lucene_query_strips_specials():
-    assert ct._lucene_query('plot "no: 46" + (Adyar)/~flat') == "plot no 46 Adyar flat"
+    assert ct._lucene_query("plot no 46 (Adyar)/~flat") == "plot no 46 Adyar flat"
     assert ct._lucene_query("AND-OR && || !") == "AND OR"
     assert ct._lucene_query("  ") is None
     assert ct._lucene_query(":+!") is None
 
 
-def test_semantic_search_includes_keyword_branch(monkeypatch):
+def test_lucene_query_preserves_quoted_phrases():
+    """A quoted phrase passes through intact so the caller can demand exact
+    word order; bare terms alongside it are still OR-joined."""
+    assert ct._lucene_query('"corner plot" near highway') == '"corner plot" near highway'
+    assert ct._lucene_query('"corner plot"') == '"corner plot"'
+
+
+def test_lucene_query_neutralizes_backslash_in_phrase():
+    """A trailing backslash inside a phrase would escape the closing quote we
+    re-add, handing Lucene an unterminated phrase — a parse error, i.e. a 500
+    rather than a bad result. Strip backslashes before re-quoting."""
+    assert ct._lucene_query('"foo\\"') == '"foo"'
+    assert ct._lucene_query('"a\\b c"') == '"a b c"'
+    assert ct._lucene_query('"\\"') is None
+
+
+def test_semantic_search_queries_both_fulltext_lenses(monkeypatch):
     captured = {}
 
     def fake_read(cypher, params=None, timeout=10.0, max_rows=200):
         captured["cypher"] = cypher
         captured["params"] = params
-        # Nonzero hits: a zero-hit primary now triggers a no-floor diagnostic
+        # Nonzero hits: a zero-hit primary triggers a no-floor diagnostic
         # rerun which would overwrite `captured` — this test is about the
-        # PRIMARY query's keyword branch.
-        return [{"auction_id": "a1", "score": 0.9, "hit_sources": ["keyword"]}]
+        # PRIMARY query.
+        return [{"auction_id": "a1", "score": 0.9, "hit_sources": ["schedule"]}]
 
     monkeypatch.setattr(ct, "run_read_query", fake_read)
     out = ct.semantic_search("flat in Balaraman Nagar")
+
     assert out["returned"] == 1
+    assert ct.LOT_FULLTEXT_INDEX in captured["cypher"]
     assert ct.PROPERTY_FULLTEXT_INDEX in captured["cypher"]
-    assert "'keyword' AS source" in captured["cypher"]
-    # Normalization stage rides along with the keyword branch.
-    assert "ft_max" in captured["cypher"]
+    assert "'schedule' AS source" in captured["cypher"]
+    assert "'description' AS source" in captured["cypher"]
     assert captured["params"]["ft_query"] == "flat in Balaraman Nagar"
-    assert captured["params"]["keyword_weight"] == ct._KEYWORD_WEIGHT
+    # No vector parameter survives the retirement.
+    assert "qvec" not in captured["params"]
 
 
-def test_semantic_search_falls_back_when_fulltext_index_missing(monkeypatch):
+def test_semantic_search_normalizes_each_source_separately(monkeypatch):
+    """BM25 scores from the two indexes are not comparable — the lot index
+    scores over much longer documents — so each is divided by its own max
+    before the weighted merge."""
+    captured = {}
+
+    def fake_read(cypher, params=None, timeout=10.0, max_rows=200):
+        captured["cypher"] = cypher
+        return [{"auction_id": "a1", "score": 0.9, "hit_sources": ["schedule"]}]
+
+    monkeypatch.setattr(ct, "run_read_query", fake_read)
+    ct.semantic_search("borewell on agricultural land")
+
+    assert "lot_max" in captured["cypher"]
+    assert "prop_max" in captured["cypher"]
+    assert str(ct._SOURCE_WEIGHTS["schedule"]) in captured["cypher"]
+    assert str(ct._SOURCE_WEIGHTS["description"]) in captured["cypher"]
+
+
+def test_semantic_search_unsearchable_query_returns_hint_without_querying(monkeypatch):
+    """Nothing survives sanitizing and there is no second engine to fall back
+    on, so the tool must say so rather than run an unmatchable query."""
     calls = []
 
     def fake_read(cypher, params=None, timeout=10.0, max_rows=200):
         calls.append(cypher)
-        if ct.PROPERTY_FULLTEXT_INDEX in cypher:
-            raise Neo4jError("no such fulltext index")
-        return [{"auction_id": "a1", "score": 0.9, "hit_sources": ["desc"]}]
+        return []
 
     monkeypatch.setattr(ct, "run_read_query", fake_read)
-    out = ct.semantic_search("villa in Adyar")
-    assert len(calls) == 2
-    assert ct.PROPERTY_FULLTEXT_INDEX not in calls[1]
-    assert out["returned"] == 1
-    assert out["results"][0]["auction_id"] == "a1"
+    out = ct.semantic_search(":::")
 
-
-def test_semantic_search_unsearchable_query_skips_keyword(monkeypatch):
-    captured = {}
-
-    def fake_read(cypher, params=None, timeout=10.0, max_rows=200):
-        captured["cypher"] = cypher
-        captured["params"] = params
-        # Nonzero hits so the zero-hit diagnostic rerun doesn't overwrite
-        # `captured` — the assertions target the PRIMARY query.
-        return [{"auction_id": "a1", "score": 0.9, "hit_sources": ["desc"]}]
-
-    monkeypatch.setattr(ct, "run_read_query", fake_read)
-    ct.semantic_search(":::")
-    assert ct.PROPERTY_FULLTEXT_INDEX not in captured["cypher"]
-    assert "ft_query" not in captured["params"]
+    assert calls == []
+    assert out["returned"] == 0
+    assert out["results"] == []
+    assert "no searchable words" in out["hint"]
 
 
 def test_semantic_search_caps_llm_rows_and_offloads_overflow(monkeypatch):
@@ -92,7 +106,7 @@ def test_semantic_search_caps_llm_rows_and_offloads_overflow(monkeypatch):
     search_auctions). This is what keeps a large `limit` from dumping dozens
     of rows into the model's replayed history."""
     n = ct._SEMANTIC_ROWS_TO_MODEL + 15
-    rows = [{"auction_id": f"a{i}", "score": 0.9, "hit_sources": ["desc"]}
+    rows = [{"auction_id": f"a{i}", "score": 0.9, "hit_sources": ["schedule"]}
             for i in range(n)]
 
     def fake_read(cypher, params=None, timeout=10.0, max_rows=200):
@@ -116,7 +130,7 @@ def test_semantic_search_reports_total_ranked_not_just_slice(monkeypatch):
     "14 properties written from a 10-row sample" failure the search_auctions
     docstring warns about."""
     n = ct._SEMANTIC_ROWS_TO_MODEL + 7
-    rows = [{"auction_id": f"a{i}", "score": 0.9, "hit_sources": ["desc"]}
+    rows = [{"auction_id": f"a{i}", "score": 0.9, "hit_sources": ["schedule"]}
             for i in range(n)]
 
     monkeypatch.setattr(ct, "run_read_query",
@@ -138,7 +152,7 @@ def test_semantic_slice_is_not_wider_than_structured_search():
 def test_semantic_search_no_overflow_key_when_within_cap(monkeypatch):
     """At or below the LLM cap there's no overflow, so no _ui_results key is
     attached (keeps the small-result payload clean)."""
-    rows = [{"auction_id": f"a{i}", "score": 0.9, "hit_sources": ["desc"]}
+    rows = [{"auction_id": f"a{i}", "score": 0.9, "hit_sources": ["description"]}
             for i in range(5)]
 
     monkeypatch.setattr(ct, "run_read_query",

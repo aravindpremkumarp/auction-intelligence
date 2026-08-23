@@ -147,21 +147,52 @@ _SHARED_MD = _REPO_ROOT / "modes" / "_shared.md"
 # that stray search also drops a whole tool round-trip plus a ~20-row result
 # block replayed through the rest of the turn, so it earns its per-call cost.
 # Measured ~15,786; ceiling 15,900.
-BUDGET_CHARS = 15_900
+#
+# 2026-08 (batched get_auction_detail): NET +26 — deliberately flat. The tool
+# now takes `auction_id: str | list[str]` (up to 10 per call), so the docstring
+# gained "pass a LIST / never one call per id" and the `missing_ids` contract
+# while `modes/_shared.md` lost the routing bullet's "batch the calls in one
+# step" and the deep-research cross-reference. The win is NOT in this number:
+# Logfire showed `get_auction_detail` firing 3.73× per turn that used it (worst
+# 15), and since every extra LLM round-trip re-sends the whole accumulated
+# context, the top 20% of turns (6-10 calls each) burned 61% of all input
+# tokens. Collapsing an N-id fan-out to one call removes N-1 of those
+# round-trips — worth far more than the ~500 tokens/turn a prose trim of this
+# size could ever recover. Measured ~15,812; ceiling held at 15,900.
+#
+# 2026-08 (semantic row cap): NET +99, ceiling 15,900 → 16,000. Two things
+# landed close together and together ate the old headroom. #401 ("Retire
+# embeddings") added the `score` caveat — normalization is per-result-set, so
+# the top hit is ~1.0 even for a query nothing matches, and the model must not
+# read it as confidence. This PR then capped `semantic_search` at 10
+# model-visible rows and added `total_ranked`, which needs one line telling the
+# model to count with it rather than `len(results)` — without that the cap
+# reintroduces the "14 properties written from a 10-row sample" bug.
+#
+# Bumped rather than trimmed because the trade is lopsided: ~99 chars (~25
+# tokens) ride on every call, while the row cap it documents removes ~134k
+# input tokens/week (semantic_search p95 fell 16,305 → ~6,500 chars, and every
+# row saved is re-sent on each later step of the turn). Trimming #401's caveat
+# to make room would have bought ~100 chars at the cost of a correctness
+# guard someone deliberately added days earlier. Measured 15,978.
+BUDGET_CHARS = 16_000
 
 
 def _agent_module() -> ast.Module:
     return ast.parse(_AGENT_PY.read_text(encoding="utf-8"))
 
 
-def _role_prompt(mod: ast.Module) -> str:
-    for node in mod.body:
-        if isinstance(node, ast.Assign) and any(
-            getattr(t, "id", None) == "_ROLE_PROMPT" for t in node.targets
-        ):
-            assert isinstance(node.value, ast.Constant), "_ROLE_PROMPT must be a literal"
-            return node.value.value
-    raise AssertionError("_ROLE_PROMPT not found in api/agent.py")
+def _role_prompt(mod: ast.Module | None = None) -> str:
+    """The role prompt text, read from `api/policy.py` where it now lives.
+
+    It moved out of `api/agent.py` so /chat/v2 could share the policy rules
+    instead of keeping a paraphrase. The budget this file guards is unchanged
+    — the composed string is byte-identical to the literal it replaced, which
+    `tests/api/test_policy.py` pins.
+    """
+    from api.policy import ROLE_PROMPT
+
+    return ROLE_PROMPT
 
 
 def _decorator_owner(dec: ast.expr) -> str | None:

@@ -12,39 +12,61 @@ import re
 import time
 from datetime import datetime, timedelta, timezone
 from api.neo4j_client import run_query, run_read_query, run_read_query_async
-from pipeline.embeddings import embed_query_gemini
 
-# Three Gemini vector indexes, all 3072-dim, all over gemini-embedding-2.
-# Scores are directly comparable across indexes, so `semantic_search` ranks
-# by max cosine.
-PROPERTY_DESC_INDEX = "property_desc_idx"        # AuctionProperty.description_embedding (text)
-NOTICE_MARKDOWN_INDEX = "notice_markdown_idx"    # Document.markdown_embedding (structured text)
-NOTICE_IMAGE_INDEX = "notice_image_idx"          # Document.image_embedding (image / PDF bytes)
-
-# Lucene fulltext index over AuctionProperty title + description. Adds a
-# lexical "keyword" lens to semantic_search so exact tokens the embedding
-# may smear out — locality names ("Balaraman Nagar"), survey/plot numbers,
-# bank names — rank properties directly. Created by
-# scripts/load_tn_to_neo4j.py; semantic_search degrades to vector-only when
-# the index is absent.
+# Two Lucene fulltext indexes back `semantic_search`. Both are lexical: the
+# Gemini vector indexes this tool used to fan out across were retired once
+# LangExtract began resolving every notice into typed entities, because the
+# questions embeddings were answering approximately (type, place, extent,
+# price, possession) are now exact filters on the graph, and the questions
+# they answered badly (term presence — "borewell", "disputed pathway") are
+# what Lucene is actually for. See docs/design/2026-08-22-retire-embeddings.md.
+#
+#   property_text_idx    AuctionProperty.title + description  (the portal blurb)
+#   lot_description_ft   Lot.full_description                 (the schedule text)
+#
+# The lot index is the richer of the two — LangExtract copies the complete
+# verbatim description block into `Lot.full_description`, so boundaries,
+# survey numbers and per-side measurements are all in it. A hit there is
+# mapped back up to its AuctionProperty so both lenses rank the same entity.
 PROPERTY_FULLTEXT_INDEX = "property_text_idx"
+LOT_FULLTEXT_INDEX = "lot_description_ft"
 
-# Lucene scores are unbounded, so the keyword branch max-normalizes them to
-# [0, 1] per query and scales by this weight to sit in the same range as the
-# vector cosines. < 1.0 so a weak best-keyword hit can't outrank a strong
-# vector consensus (same alpha idea as neo4j-graphrag's HybridRetriever).
-_KEYWORD_WEIGHT = 0.8
+# Lucene/BM25 scores are unbounded and are not comparable between indexes —
+# the lot index scores over much longer documents than the property blurb. So
+# each branch is max-normalized to [0, 1] *within its own source* before the
+# two are merged, and the lot lens carries the higher weight because it reads
+# the authoritative description rather than the portal summary.
+_SOURCE_WEIGHTS = {"schedule": 1.0, "description": 0.85}
 
 # Strip Lucene operators so raw user text can't break query parsing or smuggle
-# in boolean syntax; terms are left OR-joined (Lucene's default).
+# in boolean syntax. Quoted phrases survive: `_lucene_query` pulls them out
+# first and passes them through so a caller can demand exact word order.
 _LUCENE_SPECIALS_RE = re.compile(r'[+\-&|!(){}\[\]^"~*?:\\/]')
+_PHRASE_RE = re.compile(r'"([^"]+)"')
 
 
 def _lucene_query(text: str) -> str | None:
     """Sanitize free text into a safe Lucene query, or None if nothing
-    searchable survives."""
-    terms = _LUCENE_SPECIALS_RE.sub(" ", text or "").split()
-    return " ".join(terms) if terms else None
+    searchable survives.
+
+    Terms are OR-joined (Lucene's default) rather than AND-joined, which is
+    the opposite of `api/agent3/search_notices.py`, and deliberately so: that
+    tool answers "does this exact term appear", where AND is right and OR
+    matches almost the whole corpus. This one is the broad-recall lens, so it
+    keeps OR and leans on BM25 to rank — a lot matching four of the query's
+    terms scores far above one matching a single common word, without the
+    brittleness of requiring every term to be present.
+    """
+    phrases = _PHRASE_RE.findall(text or "")
+    remainder = _PHRASE_RE.sub(" ", text or "")
+    bare = [t for t in _LUCENE_SPECIALS_RE.sub(" ", remainder).split() if t]
+    # Backslashes must go before the phrase is re-quoted: a trailing one
+    # would escape the closing quote we add and hand Lucene an unterminated
+    # phrase, which is a parse error and a 500 rather than a bad result.
+    quoted = [f'"{c}"' for c in
+              (" ".join(p.replace("\\", " ").split()) for p in phrases) if c]
+    parts = quoted + bare
+    return " ".join(parts) if parts else None
 
 # ── run_cypher guardrails ──────────────────────────────────────────────────
 
@@ -723,44 +745,71 @@ def semantic_search(
     limit: int = 20,
     include_past: bool = False,
 ) -> dict:
-    """Unified semantic search across descriptions, notice markdown, and notice files.
+    """Free-text search across the sale-notice schedule text and the portal blurb.
 
-    Embeds the query once via gemini-embedding-2 (3072-dim) and ranks
-    AuctionProperty results across three indexes that share the same vector
-    space, so cosine scores are directly comparable:
+    Ranks AuctionProperty results across two Lucene fulltext lenses:
 
-      - property_desc_idx     (AuctionProperty.description_embedding) —
-        tight property text, post-extraction. Best for narrow queries
-        like "3-BR flat in Adyar with elevator".
-      - notice_markdown_idx   (Document.markdown_embedding) — structured
-        notice text from MinerU. Best for queries that touch the formal
-        notice content (bank framing, parties, schedule, terms).
-      - notice_image_idx      (Document.image_embedding) — multimodal
-        notice file (image / PDF bytes). Best for layout / visual signal
-        ("tabular SFC notices in Villupuram") and as a fallback when the
-        text-side description is sparse.
-      - property_text_idx     (Lucene fulltext over title + description) —
-        lexical "keyword" lens. Catches exact tokens embeddings smear out:
-        locality names, survey/plot numbers, bank names. Scores are
-        max-normalized per query and weighted into the cosine range.
+      - lot_description_ft   (Lot.full_description) — the verbatim
+        description block LangExtract copies out of the notice. The
+        authoritative text: boundaries, survey numbers, per-side
+        measurements, title/possession wording. A lot hit resolves up to
+        its parent AuctionProperty.
+      - property_text_idx    (AuctionProperty.title + description) — the
+        portal summary. Thinner, but present on listings whose notice has
+        not been through extraction yet.
 
-    For each property the best score from any lens wins, and `hit_sources`
-    indicates which lenses matched. Defaults to future-only auctions; pass
-    include_past=True for retrospective queries. If the fulltext index is
-    missing the search silently degrades to vector-only.
+    Scores are BM25 and not comparable between the two indexes, so each is
+    max-normalized within its own source and weighted before merging; the
+    best score from either lens wins and `hit_sources` says which matched.
+
+    CAVEAT on `score`: normalization is per-result-set, so the top hit is
+    always ~1.0 by construction — even for a query nothing really matches.
+    It ranks rows against each other, it does NOT measure absolute
+    relevance. Ties at 1.0 are common and real (BM25 scores identically for
+    a single term appearing once in similarly sized notices). Treat a low
+    score as "worse than the others here", never a 1.0 as "certain".
+
+    Use this for anything a buyer would ask *in words about the property* —
+    "borewell", "tiled roof shed", "disputed pathway", "corner plot facing a
+    highway". Quote a phrase ("corner plot") to require exact word order.
+    For structured constraints — type, city, extent, price band, dates,
+    possession — prefer `search_auctions`, which filters the graph exactly
+    instead of matching words.
+
+    Defaults to future-only auctions; pass include_past=True for
+    retrospective queries.
 
     Returns {returned, total_ranked, limit, results} where each result
-    carries `score` (higher is better) and `hit_sources` (list of 'desc' /
-    'markdown' / 'image' / 'keyword'). `results` is the top
-    `_SEMANTIC_ROWS_TO_MODEL` slice; `total_ranked` is how many rows ranked
-    overall (the UI renders all of them), so use it — not `len(results)` —
-    for "how many matched".
+    carries `score` (higher is better) and `hit_sources` (list of 'schedule'
+    / 'description'). `results` is the top `_SEMANTIC_ROWS_TO_MODEL` slice;
+    `total_ranked` is how many rows ranked overall (the UI renders all of
+    them), so use it — not `len(results)` — for "how many matched".
     """
-    qvec = embed_query_gemini(query)
     k = max(limit * 5, 50)
 
+    ft_query = _lucene_query(query)
+    if ft_query is None:
+        # Nothing survived sanitizing (punctuation-only input). There is no
+        # second engine to fall back on now that the vector lenses are gone,
+        # so say so plainly rather than running a query that cannot match.
+        return {
+            "returned": 0,
+            "total_ranked": 0,
+            "limit": limit,
+            "results": [],
+            "hint": (
+                "The query had no searchable words after sanitizing. Rewrite "
+                "it with plain descriptive terms, or use search_auctions "
+                "filters. Do not retry the same input."
+            ),
+        }
+
     where = []
-    params: dict = {"qvec": qvec, "k": k, "limit": limit}
+    params: dict = {
+        "ft_query": ft_query,
+        "k": k,
+        "limit": limit,
+    }
     if min_price is not None:
         where.append("p.reserve_price_num >= $min_price")
         params["min_price"] = min_price
@@ -794,28 +843,9 @@ def semantic_search(
 
     where_clause = ("WHERE " + " AND ".join(where)) if where else ""
 
-    ft_query = _lucene_query(query)
-    include_keyword = ft_query is not None
-    if include_keyword:
-        params["ft_query"] = ft_query
-        params["keyword_weight"] = _KEYWORD_WEIGHT
-
-    cypher = _semantic_search_cypher(optional_matches, where_clause, include_keyword)
+    cypher = _semantic_search_cypher(optional_matches, where_clause)
     max_rows = min(max(int(limit), 1), _UI_ROWS_HARD_CAP)
-    if include_keyword:
-        from neo4j.exceptions import Neo4jError
-        try:
-            results = run_read_query(cypher, params, timeout=15.0, max_rows=max_rows)
-        except Neo4jError:
-            # Most likely the fulltext index hasn't been created on this
-            # database yet — retry with the vector-only shape so search
-            # keeps working. If something else is wrong, the retry's error
-            # propagates with the real cause.
-            include_keyword = False
-            cypher = _semantic_search_cypher(optional_matches, where_clause, False)
-            results = run_read_query(cypher, params, timeout=15.0, max_rows=max_rows)
-    else:
-        results = run_read_query(cypher, params, timeout=15.0, max_rows=max_rows)
+    results = run_read_query(cypher, params, timeout=15.0, max_rows=max_rows)
 
     # LLM/UI split — same shape as search_auctions. The model only needs the
     # top slice to reason and cite; the full ranked set (up to the fetched
@@ -834,15 +864,12 @@ def semantic_search(
     if len(results) > len(llm_results):
         out["_ui_results"] = results
     if not results and default_future_only:
-        # Re-run WITHOUT the future-only floor, reusing the embedding already
-        # computed above — one extra Neo4j query, no extra Gemini call. Tells
+        # Re-run WITHOUT the future-only floor — one extra Neo4j query. Tells
         # the model whether past auctions would have matched, so a zero turns
         # into one informed decision instead of rephrased retries.
         where_no_floor = [w for w in where if w != "p.auction_start_dt >= $starts_after"]
         no_floor_clause = ("WHERE " + " AND ".join(where_no_floor)) if where_no_floor else ""
-        no_floor_cypher = _semantic_search_cypher(
-            optional_matches, no_floor_clause, include_keyword
-        )
+        no_floor_cypher = _semantic_search_cypher(optional_matches, no_floor_clause)
         no_floor_params = {k: v for k, v in params.items() if k != "starts_after"}
         try:
             past_hits = run_read_query(
@@ -856,74 +883,67 @@ def semantic_search(
         if past_hits:
             out["past_matches"] = len(past_hits)
             out["hint"] = (
-                f"The top semantic matches are all past auctions ({len(past_hits)} "
+                f"The top text matches are all past auctions ({len(past_hits)} "
                 "found) — the future-only default excluded them. For a "
                 "retrospective question retry once with include_past=true; "
                 "otherwise report no upcoming matches. Do not rephrase and retry."
             )
         elif past_hits is not None:
             out["hint"] = (
-                "No semantic matches in any time window — do not retry with "
+                "No text matches in any time window — do not retry with "
                 "rephrased wording. Switch to search_auctions filters or report "
                 "no matches."
             )
     return out
 
 
-def _semantic_search_cypher(
-    optional_matches: str, where_clause: str, include_keyword: bool
-) -> str:
-    """Compose the hybrid retrieval Cypher.
+def _semantic_search_cypher(optional_matches: str, where_clause: str) -> str:
+    """Compose the two-lens fulltext retrieval Cypher.
 
-    Fans out across the three Gemini vector indexes — plus, when
-    `include_keyword` is set, the Lucene fulltext index — inside a
-    CALL () { … UNION … } block (Neo4j 5.7+; the empty variable-scope import
-    makes $k / $qvec visible without explicit import). The block returns
+    Fans out across the lot-schedule and property-blurb Lucene indexes inside
+    a CALL () { … UNION … } block (Neo4j 5.7+; the empty variable-scope import
+    makes $k / $ft_query visible without explicit import). The block returns
     (p, score, source) rows; the outer query applies structured post-filters,
-    normalizes keyword scores into the cosine range, and dedupes by p
-    (max score across lenses).
+    normalizes each source's BM25 scores into a common [0, 1] range, and
+    dedupes by p (max score across lenses).
     """
-    keyword_branch = f"""
-            UNION
-            CALL db.index.fulltext.queryNodes('{PROPERTY_FULLTEXT_INDEX}', $ft_query, {{limit: $k}})
-            YIELD node AS p, score
-            RETURN p, score, 'keyword' AS source""" if include_keyword else ""
-
-    # Lucene scores are unbounded while cosines live in [0, 1]; max-normalize
-    # the keyword rows per query, then scale by $keyword_weight. The
-    # collect/UNWIND round-trip is bounded by 4 × $k rows.
-    keyword_normalize = """
-        WITH collect({p: p, score: score, source: source}) AS rows
-        WITH rows, reduce(m = 0.0, r IN [x IN rows WHERE x.source = 'keyword'] |
-                          CASE WHEN r.score > m THEN r.score ELSE m END) AS ft_max
+    # BM25 is unbounded and scales with document length, so the lot index and
+    # the property index produce scores an order of magnitude apart. Compute a
+    # per-source max over the fetched rows and divide by it, then apply the
+    # source weight. The collect/UNWIND round-trip is bounded by 2 × $k rows.
+    normalize = f"""
+        WITH collect({{p: p, score: score, source: source}}) AS rows
+        WITH rows,
+             reduce(m = 0.0, r IN [x IN rows WHERE x.source = 'schedule'] |
+                    CASE WHEN r.score > m THEN r.score ELSE m END) AS lot_max,
+             reduce(m = 0.0, r IN [x IN rows WHERE x.source = 'description'] |
+                    CASE WHEN r.score > m THEN r.score ELSE m END) AS prop_max
         UNWIND rows AS row
         WITH row.p AS p,
-             CASE WHEN row.source = 'keyword'
-                  THEN (row.score / CASE WHEN ft_max > 0.0 THEN ft_max ELSE 1.0 END)
-                       * $keyword_weight
-                  ELSE row.score END AS score,
-             row.source AS source""" if include_keyword else ""
+             (row.score / CASE
+                  WHEN row.source = 'schedule'
+                  THEN CASE WHEN lot_max > 0.0 THEN lot_max ELSE 1.0 END
+                  ELSE CASE WHEN prop_max > 0.0 THEN prop_max ELSE 1.0 END
+              END) * CASE WHEN row.source = 'schedule'
+                          THEN {_SOURCE_WEIGHTS['schedule']}
+                          ELSE {_SOURCE_WEIGHTS['description']} END AS score,
+             row.source AS source"""
 
     return f"""
         CALL () {{
-            CALL db.index.vector.queryNodes('{PROPERTY_DESC_INDEX}', $k, $qvec)
+            CALL db.index.fulltext.queryNodes('{LOT_FULLTEXT_INDEX}', $ft_query, {{limit: $k}})
+            YIELD node AS l, score
+            MATCH (l)<-[:HAS_LOT]-(:Document)<-[:HAS_DOCUMENT]-(p:AuctionProperty)
+            RETURN p, score, 'schedule' AS source
+            UNION
+            CALL db.index.fulltext.queryNodes('{PROPERTY_FULLTEXT_INDEX}', $ft_query, {{limit: $k}})
             YIELD node AS p, score
-            RETURN p, score, 'desc' AS source
-            UNION
-            CALL db.index.vector.queryNodes('{NOTICE_MARKDOWN_INDEX}', $k, $qvec)
-            YIELD node AS d, score
-            MATCH (d)<-[:HAS_DOCUMENT]-(p:AuctionProperty)
-            RETURN p, score, 'markdown' AS source
-            UNION
-            CALL db.index.vector.queryNodes('{NOTICE_IMAGE_INDEX}', $k, $qvec)
-            YIELD node AS d, score
-            MATCH (d)<-[:HAS_DOCUMENT]-(p:AuctionProperty)
-            RETURN p, score, 'image' AS source{keyword_branch}
+            RETURN p, score, 'description' AS source
         }}
         WITH p, score, source
         {optional_matches}
         {where_clause}
-        {keyword_normalize}
+        {normalize}
         WITH p, max(score) AS score, collect(DISTINCT source) AS hit_sources
         OPTIONAL MATCH (p)-[:LOCATED_IN_CITY]->(city:City)
         OPTIONAL MATCH (p)-[:LOCATED_IN_AREA]->(area:Area)
@@ -953,13 +973,17 @@ def _semantic_search_cypher(
     """
 
 
-def get_auction_detail(auction_id: str) -> dict | None:
-    """Full record for ONE auction: every stored node property plus related
-    entities. Uses properties(a) so new schema fields auto-surface with no
-    tool change; raw `*_embedding` vectors are stripped before return (they're
-    huge and unreadable to the model)."""
-    cypher = """
-        MATCH (a:AuctionProperty {auction_id: $auction_id})
+# Cap on how many auction_ids one `get_auction_details` call resolves. Detail
+# records are heavy (full `properties(a)`, including `description`), so this is
+# a context-cost guard, not a graph one: ~10 full records is already more than
+# a reader can compare side by side, and the agent is told to use a table above
+# that. Ids beyond the cap come back under `dropped_ids` rather than being
+# silently ignored.
+_DETAIL_MAX_IDS = 10
+
+_DETAIL_CYPHER = """
+        MATCH (a:AuctionProperty)
+        WHERE a.auction_id IN $ids
         OPTIONAL MATCH (a)-[:LOCATED_IN_CITY]->(city:City)
         OPTIONAL MATCH (a)-[:LOCATED_IN_AREA]->(area:Area)
         OPTIONAL MATCH (a)-[:LOCATED_IN_STATE]->(state:State)
@@ -1003,22 +1027,26 @@ def get_auction_detail(auction_id: str) -> dict | None:
                } AS relationships,
                documents AS documents,
                siblings  AS siblings
-    """
-    rows = run_read_query(cypher, {"auction_id": auction_id}, max_rows=1)
-    if not rows:
-        return None
+"""
+
+
+def _detail_record(row: dict) -> dict:
+    """Shape one `_DETAIL_CYPHER` row into the agent/API-facing detail record."""
     # Coerce every neo4j temporal value (top-level fields AND nested
     # related-node maps) to ISO strings up front so the response serializer
     # never sees a raw neo4j.time.* object.
-    fields = _json_safe(dict(rows[0]["fields"]))
+    fields = _json_safe(dict(row["fields"]))
+    # `properties(a)` already carries auction_id, so the batch path reads the
+    # id off the built record rather than costing an extra RETURN column.
+    auction_id = str(fields.get("auction_id") or "")
 
-    # `properties(a)` grabs EVERY node property, which includes the raw
-    # `description_embedding` vector the embed pipeline writes back onto the
-    # node (3072 gemini floats ≈ 40k chars / ~10k tokens). That array is
-    # meaningless to the model and dwarfs the useful fields, so drop any
-    # `*_embedding` key before the record ever reaches the agent. Matching by
-    # suffix (not a hardcoded name) also fences off markdown/image or any
-    # future vector field that might land on the node later.
+    # `properties(a)` grabs EVERY node property, which still includes the raw
+    # `description_embedding` vector (3072 floats ≈ 40k chars / ~10k tokens).
+    # The embed pipeline is gone, but the vectors it wrote remain on the nodes
+    # until scripts/drop_embedding_vectors.py is run, so this strip is load-
+    # bearing right now and cheap insurance afterwards. Matching by suffix
+    # (not a hardcoded name) also fences off markdown/image or any future
+    # vector field that might land on the node later.
     for key in [k for k in fields if k.endswith("_embedding")]:
         del fields[key]
 
@@ -1035,7 +1063,7 @@ def get_auction_detail(auction_id: str) -> dict | None:
     # the graph briefly holds duplicate :Document nodes (issue #45).
     documents = []
     seen_doc_keys: set[str] = set()
-    for d in (rows[0].get("documents") or []):
+    for d in (row.get("documents") or []):
         if not d or not d.get("public_url"):
             continue
         key = d.get("public_url") or d.get("filename") or ""
@@ -1045,7 +1073,7 @@ def get_auction_detail(auction_id: str) -> dict | None:
         documents.append(d)
 
     siblings = [
-        s for s in (rows[0].get("siblings") or [])
+        s for s in (row.get("siblings") or [])
         if s and s.get("auction_id")
     ]
     price_history: list[dict] = []
@@ -1082,10 +1110,66 @@ def get_auction_detail(auction_id: str) -> dict | None:
     return {
         "auction_id":    auction_id,
         "fields":        fields,
-        "relationships": _json_safe(rows[0]["relationships"]),
+        "relationships": _json_safe(row["relationships"]),
         "documents":     documents,
         "price_history": price_history,
     }
+
+
+def get_auction_details(auction_ids: list[str]) -> dict:
+    """Full records for one or more auction_ids in ONE graph round-trip.
+
+    Returns `{results: [...], returned, requested}` with records in the
+    caller's id order, plus `missing_ids` for ids the graph doesn't hold and
+    `dropped_ids` for anything past `_DETAIL_MAX_IDS`. Both are reported
+    rather than silently dropped so the agent can correct itself instead of
+    concluding a property has no data.
+    """
+    ids: list[str] = []
+    for i in auction_ids or []:
+        s = str(i).strip()
+        if s and s not in ids:
+            ids.append(s)
+    requested = len(ids)
+    dropped = ids[_DETAIL_MAX_IDS:]
+    ids = ids[:_DETAIL_MAX_IDS]
+    if not ids:
+        return {"results": [], "returned": 0, "requested": requested}
+    rows = run_read_query(
+        _DETAIL_CYPHER, {"ids": ids}, timeout=15.0, max_rows=_DETAIL_MAX_IDS
+    )
+    records = [_detail_record(r) for r in rows]
+    by_id = {r["auction_id"]: r for r in records if r["auction_id"]}
+    ordered = [by_id[i] for i in ids if i in by_id]
+    out: dict = {
+        "results": ordered,
+        "returned": len(ordered),
+        "requested": requested,
+    }
+    missing = [i for i in ids if i not in by_id]
+    if missing:
+        out["missing_ids"] = missing
+    if dropped:
+        out["dropped_ids"] = dropped
+        out["_note"] = (
+            f"only the first {_DETAIL_MAX_IDS} ids were fetched; re-call with "
+            "the remaining ids if you genuinely need them"
+        )
+    return out
+
+
+def get_auction_detail(auction_id: str) -> dict | None:
+    """Full record for ONE auction (single-record view of
+    `get_auction_details`, kept for the REST property endpoint). Uses
+    properties(a) so new schema fields auto-surface with no tool change; raw
+    `*_embedding` vectors are stripped before return (they're huge and
+    unreadable to the model)."""
+    rows = run_read_query(
+        _DETAIL_CYPHER, {"ids": [auction_id]}, max_rows=1
+    )
+    if not rows:
+        return None
+    return _detail_record(rows[0])
 
 
 # ── Phase 1: schema introspection + escape-hatch tools ─────────────────────
@@ -1151,7 +1235,14 @@ async def graph_property_count_async(refresh: bool = False) -> int | None:
 # per-turn system prompt. The agent only needs these when composing
 # run_cypher queries; pulling them on demand keeps the baseline chat
 # prompt ~1.5K tokens lighter.
-_CYPHER_PATTERN_RULES = [
+#
+# Public because the v2 tier-3 composer renders the same list into its prompt
+# rather than keeping a third hand-transcribed copy — the spike had one and it
+# drifted. (The second copy, `api/agent.py::_CYPHER_CAPABILITY.instructions`,
+# is deliberately left alone: it is a denser rewrite carrying one extra rule,
+# it is part of v1's frozen prompt prefix, and rewriting it would bust the
+# DeepSeek prompt cache for every v1 turn to no benefit. It retires with v1.)
+CYPHER_PATTERN_RULES = [
     "HAS_ASSET_CATEGORY, HAS_PROPERTY_TYPE, CONDUCTED_BY, HAS_BORROWER, "
     "and LOCATED_IN_* all start on AuctionProperty. MATCH each relationship "
     "independently from `a` and join with commas. Do NOT chain "
@@ -1450,7 +1541,7 @@ _SCHEMA_CACHE_NODE_ID = "default"
 def _cypher_patterns() -> dict:
     """Static run_cypher guidance, always sourced from code (never the durable
     cache) so edits to the rules/examples take effect immediately."""
-    return {"rules": _CYPHER_PATTERN_RULES, "examples": _CYPHER_PATTERN_EXAMPLES}
+    return {"rules": CYPHER_PATTERN_RULES, "examples": _CYPHER_PATTERN_EXAMPLES}
 
 
 def _read_schema_cache_node() -> dict | None:

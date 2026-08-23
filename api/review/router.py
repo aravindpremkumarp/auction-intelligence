@@ -17,32 +17,10 @@ from api.auth.schemas import UserOut
 from api.neo4j_client import run_read_query
 from api.review import blocks as block_ops
 from api.review import queries as q
+from pipeline.ocr_health import HEALTH_FLAGS
 
 
 router = APIRouter(prefix="/review", tags=["review"])
-
-
-class ReviewQueueRow(BaseModel):
-    auction_id: str
-    title: str | None = None
-    borrowers: list[str] = []
-    reserve_price: float | None = None
-    completeness: float | None = None
-    wrong_property: bool | None = None
-    text_overlap: float | None = None
-    source: str | None = None
-    verified: bool = False
-    verified_at: str | None = None
-    verified_by: str | None = None
-    notice_type: str | None = None
-    has_pdf: bool = False
-
-
-class ReviewQueueOut(BaseModel):
-    page: int
-    size: int
-    total: int
-    rows: list[ReviewQueueRow]
 
 
 class ReviewNoticeProperty(BaseModel):
@@ -55,26 +33,6 @@ class ReviewNoticeProperty(BaseModel):
     verified: bool = False
     verified_at: str | None = None
     verified_by: str | None = None
-
-
-class ReviewNoticeRow(BaseModel):
-    filename: str | None = None
-    file_path: str | None = None
-    public_url: str | None = None
-    notice_type: str | None = None
-    doc_property_count: int | None = None
-    total_count: int = 0
-    pending_count: int = 0
-    verified_count: int = 0
-    edited_count: int = 0
-    properties: list[ReviewNoticeProperty] = []
-
-
-class ReviewNoticeQueueOut(BaseModel):
-    page: int
-    size: int
-    total: int
-    rows: list[ReviewNoticeRow]
 
 
 class ReviewSiblingsOut(BaseModel):
@@ -145,31 +103,18 @@ class EditBody(BaseModel):
     notes: str | None = Field(default=None, max_length=2000)
 
 
-class ReviewStats(BaseModel):
-    total: int
-    pending: int
-    verified: int
-    edited: int
-
-
 class ClassificationRow(BaseModel):
     filename: str | None = None
     file_path: str | None = None
     public_url: str | None = None
     notice_type: str | None = None
     property_count: int | None = None
-    classifier_pred: str | None = None
-    classifier_confidence: float | None = None
-    classifier_reasoning: str | None = None
-    classifier_model: str | None = None
-    classified_at: str | None = None
+    expected_lot_count: int | None = None
     overridden: bool = False
     verified: bool = False
     verified_at: str | None = None
     verified_by: str | None = None
     review_notes: str | None = None
-    extraction_status: str | None = None
-    disagreement: bool = False
     sample_titles: list[str] = []
     auction_id_count: int = 0
 
@@ -190,22 +135,23 @@ class ClassificationStats(BaseModel):
 
 class ClassifyBody(BaseModel):
     notice_type: Literal["single", "multi"]
+    # Reviewer's lot count — the downstream LangExtract checksum. 'single'
+    # implies 1 (server fills it in); for 'multi' it must be >= 2 when given.
+    expected_lot_count: int | None = Field(default=None, ge=1, le=500)
     notes: str | None = Field(default=None, max_length=2000)
 
 
 class ClassifyResult(BaseModel):
     filename: str | None = None
     notice_type: str | None = None
+    expected_lot_count: int | None = None
     verified_at: str | None = None
     verified_by: str | None = None
     review_notes: str | None = None
-    extraction_status: str | None = None
     invalidated_count: int = 0
 
 
 class BulkConfirmBody(BaseModel):
-    confidence_min: float = Field(ge=0.0, le=1.0)
-    confidence_max: float = Field(default=1.0, ge=0.0, le=1.0)
     notice_type: Literal["all", "single", "multi", "unclassified"] = "all"
     date_from: str | None = Field(default=None, max_length=20)
     date_to:   str | None = Field(default=None, max_length=20)
@@ -219,19 +165,6 @@ class BulkConfirmResult(BaseModel):
     dry_run: bool
 
 
-class DescriptionBulkConfirmBody(BaseModel):
-    # Completeness-judge confidence band (0–1). The review UI's 0–100 score
-    # inputs are divided by 100 before they reach here.
-    judge_min: float = Field(ge=0.0, le=1.0)
-    judge_max: float = Field(default=1.0, ge=0.0, le=1.0)
-    notice_type: Literal["all", "single", "multi", "unclassified"] = "all"
-    date_from: str | None = Field(default=None, max_length=20)
-    date_to:   str | None = Field(default=None, max_length=20)
-    q:         str | None = Field(default=None, max_length=200)
-    notes: str | None = Field(default=None, max_length=2000)
-    dry_run: bool = False
-
-
 class ClassificationPropertyRow(BaseModel):
     auction_id: str
     title: str | None = None
@@ -239,7 +172,6 @@ class ClassificationPropertyRow(BaseModel):
     reserve_price: float | None = None
     notice_filename: str | None = None
     notice_type: str | None = None
-    notice_type_confidence: float | None = None
     overridden: bool = False
     verified: bool = False
     verified_at: str | None = None
@@ -273,6 +205,15 @@ class MarkdownRow(BaseModel):
     # regression test guards.
     ocr_health_score: int | None = None
     ocr_health_flags: list[str] | None = None
+    # Datalab's own parse verdict, 0–5 (pipeline/datalab_api.parse_quality).
+    # Complements health rather than duplicating it: health reads only the text
+    # we got, so it cannot see dropped content; this is the engine's own read of
+    # the page. NULL on MinerU docs and on anything not yet re-parsed.
+    parse_quality_score: float | None = None
+    # Share of the page's ink no block covered (pipeline/ink_coverage.py). Set
+    # alongside the `missing-region` flag; carried here so the health pill can
+    # say *how much* was dropped, not just that something was.
+    ink_uncovered_ratio: float | None = None
     quality: Literal["good", "bad"] | None = None
     verified: bool = False
     verified_at: str | None = None
@@ -308,6 +249,14 @@ class VerifyMarkdownBody(BaseModel):
 class MarkdownBulkConfirmBody(BaseModel):
     score_min: float = Field(ge=0.0, le=100.0)
     score_max: float = Field(default=100.0, ge=0.0, le=100.0)
+    # Must mirror the queue's parse-quality filter: the button is labelled with
+    # the filtered queue's count, so dropping these bounds here would verify
+    # documents the reviewer never saw.
+    pq_min: float | None = Field(default=None, ge=0.0, le=5.0)
+    pq_max: float | None = Field(default=None, ge=0.0, le=5.0)
+    # Same reasoning as the bounds above: the flag filter narrows the queue the
+    # count is taken from, so it has to narrow the action too.
+    flags: list[str] | None = Field(default=None)
     notice_type: Literal["all", "single", "multi", "unclassified"] = "all"
     date_from: str | None = Field(default=None, max_length=20)
     date_to:   str | None = Field(default=None, max_length=20)
@@ -328,6 +277,7 @@ class MarkdownPropertyRow(BaseModel):
     # so FastAPI projects it into the by-property table too.
     ocr_health_score: int | None = None
     ocr_health_flags: list[str] | None = None
+    parse_quality_score: float | None = None
     quality: Literal["good", "bad"] | None = None
     verified: bool = False
     verified_at: str | None = None
@@ -363,7 +313,17 @@ class Block(BaseModel):
     label: str
     text: str | None = None
     reading_order: int = 0
-    source: Literal["mineru", "human"] = "mineru"
+    # Deliberately an open `str`, not a closed Literal. This field is pure
+    # provenance the annotator only ever shows as a pill — it drives no logic
+    # beyond an "is it human?" check — but a Literal made every unlisted value
+    # a pydantic ValidationError, which `_wrap_block_errors` turns into a 400
+    # for the WHOLE document. That took the annotator down twice: once for
+    # "datalab" (661 notices) and again for "datalab-patchfix" written by
+    # scripts/fix_missing_regions.py (61 notices) — in both cases locking
+    # reviewers out of exactly the documents that most needed correcting.
+    # The allowlist lives on the write path instead, as
+    # api.review.blocks.KNOWN_BLOCK_SOURCES.
+    source: str = "mineru"
     confidence: float | None = None
     table: TableShape | None = None
     edited_at: str | None = None
@@ -391,6 +351,19 @@ class BlocksDoc(BaseModel):
     storage_key: str | None = None
     notice_type: str | None = None
     markdown: str | None = None
+    markdown_model: str | None = None
+    # Queue-parity badge data. The annotator shows the same strip as the
+    # markdown queue (type · OCR health · quality · lot count · size), so a
+    # reviewer who has drilled into one notice keeps that context on screen.
+    property_count: int | None = None
+    markdown_length: int | None = None
+    ocr_health_score: int | None = None
+    ocr_health_flags: list[str] | None = None
+    parse_quality_score: float | None = None
+    ink_uncovered_ratio: float | None = None
+    markdown_quality: Literal["good", "bad"] | None = None
+    markdown_verified: bool = False
+    markdown_reextracted_at: str | None = None
     schema_version: int = 1
     source_dims: list[SourceDim] = []
     blocks: list[Block] = []
@@ -515,65 +488,6 @@ def _row_to_str(row: dict) -> dict:
     return out
 
 
-@router.get("/stats", response_model=ReviewStats)
-def review_stats(
-    date_from: str | None = Query(default=None, max_length=20),
-    date_to: str | None = Query(default=None, max_length=20),
-    notice_type: Literal["all", "single", "multi", "unclassified"] = Query(default="all"),
-    _admin: UserOut = Depends(get_current_admin),
-) -> ReviewStats:
-    return ReviewStats(**q.stats(
-        date_from=date_from, date_to=date_to,
-        notice_type=notice_type if notice_type != "all" else None,
-    ))
-
-
-@router.get("/queue", response_model=ReviewQueueOut)
-def review_queue(
-    status: Literal["pending", "verified", "edited", "all"] = "pending",
-    q_search: str | None = Query(default=None, alias="q", max_length=200),
-    page: int = Query(default=1, ge=1),
-    size: int = Query(default=50, ge=1, le=200),
-    date_from: str | None = Query(default=None, max_length=20),
-    date_to: str | None = Query(default=None, max_length=20),
-    notice_type: Literal["all", "single", "multi", "unclassified"] = Query(default="all"),
-    judge_min: float | None = Query(default=None, ge=0.0, le=1.0),
-    judge_max: float | None = Query(default=None, ge=0.0, le=1.0),
-    _admin: UserOut = Depends(get_current_admin),
-) -> ReviewQueueOut:
-    result = q.list_queue(
-        status=status, q=q_search, page=page, size=size,
-        date_from=date_from, date_to=date_to,
-        notice_type=notice_type if notice_type != "all" else None,
-        judge_min=judge_min, judge_max=judge_max,
-    )
-    rows = [ReviewQueueRow(**_row_to_str(r)) for r in result["rows"]]
-    return ReviewQueueOut(page=result["page"], size=result["size"], total=result["total"], rows=rows)
-
-
-@router.get("/notices", response_model=ReviewNoticeQueueOut)
-def review_notices(
-    status: Literal["pending", "verified", "edited", "all"] = "pending",
-    q_search: str | None = Query(default=None, alias="q", max_length=200),
-    page: int = Query(default=1, ge=1),
-    size: int = Query(default=50, ge=1, le=200),
-    date_from: str | None = Query(default=None, max_length=20),
-    date_to: str | None = Query(default=None, max_length=20),
-    notice_type: Literal["all", "single", "multi", "unclassified"] = Query(default="all"),
-    judge_min: float | None = Query(default=None, ge=0.0, le=1.0),
-    judge_max: float | None = Query(default=None, ge=0.0, le=1.0),
-    _admin: UserOut = Depends(get_current_admin),
-) -> ReviewNoticeQueueOut:
-    result = q.list_notice_queue(
-        status=status, q=q_search, page=page, size=size,
-        date_from=date_from, date_to=date_to,
-        notice_type=notice_type if notice_type != "all" else None,
-        judge_min=judge_min, judge_max=judge_max,
-    )
-    rows = [ReviewNoticeRow(**r) for r in result["rows"]]
-    return ReviewNoticeQueueOut(page=result["page"], size=result["size"], total=result["total"], rows=rows)
-
-
 @router.get("/property/{auction_id}", response_model=ReviewPropertyOut)
 def review_property(
     auction_id: str,
@@ -644,25 +558,6 @@ def review_unverify(
     return ReviewPropertyOut(**_row_to_str(row))
 
 
-@router.post("/bulk-confirm", response_model=BulkConfirmResult)
-def review_description_bulk_confirm(
-    body: DescriptionBulkConfirmBody,
-    admin: UserOut = Depends(get_current_admin),
-) -> BulkConfirmResult:
-    result = q.auto_confirm_descriptions(
-        judge_min=body.judge_min,
-        judge_max=body.judge_max,
-        notice_type=body.notice_type if body.notice_type != "all" else None,
-        date_from=body.date_from,
-        date_to=body.date_to,
-        q=body.q,
-        by_email=admin.email,
-        notes=body.notes,
-        dry_run=body.dry_run,
-    )
-    return BulkConfirmResult(**result)
-
-
 # ── Classification review ───────────────────────────────────────────────────
 
 
@@ -672,9 +567,6 @@ def review_classifications(
     q_search: str | None = Query(default=None, alias="q", max_length=200),
     page: int = Query(default=1, ge=1),
     size: int = Query(default=50, ge=1, le=200),
-    confidence_min: float | None = Query(default=None, ge=0.0, le=1.0),
-    confidence_max: float | None = Query(default=None, ge=0.0, le=1.0),
-    agrees_only: bool = Query(default=False),
     notice_type: Literal["all", "single", "multi", "unclassified"] = Query(default="all"),
     date_from: str | None = Query(default=None, max_length=20),
     date_to: str | None = Query(default=None, max_length=20),
@@ -682,8 +574,6 @@ def review_classifications(
 ) -> ClassificationQueueOut:
     result = q.list_classification_queue(
         status=status, q=q_search, page=page, size=size,
-        confidence_min=confidence_min, confidence_max=confidence_max,
-        agrees_only=agrees_only,
         notice_type=notice_type if notice_type != "all" else None,
         date_from=date_from, date_to=date_to,
     )
@@ -703,8 +593,6 @@ def review_classifications_by_property(
     q_search: str | None = Query(default=None, alias="q", max_length=200),
     page: int = Query(default=1, ge=1),
     size: int = Query(default=100, ge=1, le=200),
-    confidence_min: float | None = Query(default=None, ge=0.0, le=1.0),
-    confidence_max: float | None = Query(default=None, ge=0.0, le=1.0),
     notice_type: Literal["all", "single", "multi", "unclassified"] = Query(default="all"),
     date_from: str | None = Query(default=None, max_length=20),
     date_to: str | None = Query(default=None, max_length=20),
@@ -712,7 +600,6 @@ def review_classifications_by_property(
 ) -> ClassificationPropertyQueueOut:
     result = q.list_classification_queue_by_property(
         status=status, q=q_search, page=page, size=size,
-        confidence_min=confidence_min, confidence_max=confidence_max,
         notice_type=notice_type if notice_type != "all" else None,
         date_from=date_from, date_to=date_to,
     )
@@ -729,8 +616,6 @@ def review_bulk_confirm(
     admin: UserOut = Depends(get_current_admin),
 ) -> BulkConfirmResult:
     result = q.auto_confirm_classifications(
-        confidence_min=body.confidence_min,
-        confidence_max=body.confidence_max,
         notice_type=body.notice_type if body.notice_type != "all" else None,
         date_from=body.date_from,
         date_to=body.date_to,
@@ -761,13 +646,233 @@ def review_classify(
     body: ClassifyBody,
     admin: UserOut = Depends(get_current_admin),
 ) -> ClassifyResult:
-    row = q.verify_classification(
-        filename=filename, notice_type=body.notice_type,
-        by_email=admin.email, notes=body.notes,
-    )
+    try:
+        row = q.verify_classification(
+            filename=filename, notice_type=body.notice_type,
+            by_email=admin.email, notes=body.notes,
+            expected_lot_count=body.expected_lot_count,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
     if row is None:
         raise HTTPException(status_code=404, detail="notice not found")
     return ClassifyResult(**row)
+
+
+# ── Pipeline overview ───────────────────────────────────────────────────────
+
+
+class PipelineStage(BaseModel):
+    key: str
+    label: str
+    # None for a stage the pipeline does not have yet — distinct from 0, which
+    # would read as "built, nothing reached it".
+    count: int | None = None
+    planned: bool = False
+
+
+class PipelineFlag(BaseModel):
+    flag: str
+    total: int
+    upcoming: int
+
+
+class PipelineOverview(BaseModel):
+    stages: list[PipelineStage]
+    upcoming_stages: list[PipelineStage]
+    flags: list[PipelineFlag]
+    extraction_pending: int = 0
+    extraction_stale: int = 0
+    unmeasured: int = 0
+    no_blocks: int = 0
+    parse_quality_scored: int = 0
+
+
+class PipelineRow(BaseModel):
+    label: str
+    count: int
+    pct: float = 0.0
+    href: str | None = None
+
+
+class PipelinePanel(BaseModel):
+    kind: str = "bars"
+    title: str
+    note: str = ""
+    rows: list[PipelineRow] = []
+
+
+class PipelineStageDetail(BaseModel):
+    key: str
+    label: str
+    panels: list[PipelinePanel] = []
+
+
+@router.get("/pipeline/{stage_key}", response_model=PipelineStageDetail)
+def review_pipeline_stage(
+    stage_key: str,
+    sample: int = Query(default=q.ENTITY_COVERAGE_SAMPLE, ge=50, le=3000),
+    _admin: UserOut = Depends(get_current_admin),
+) -> PipelineStageDetail:
+    """Detail panels for one pipeline stage."""
+    try:
+        return PipelineStageDetail(**q.pipeline_stage_detail(stage_key, sample=sample))
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.get("/pipeline", response_model=PipelineOverview)
+def review_pipeline_overview(
+    _admin: UserOut = Depends(get_current_admin),
+) -> PipelineOverview:
+    """Stage-by-stage counts for the review dashboard."""
+    return PipelineOverview(**q.pipeline_overview())
+
+
+# ── Entity-resolution review ────────────────────────────────────────────────
+
+
+class ResolutionBankPair(BaseModel):
+    score: float
+    a: str
+    b: str
+    a_count: int
+    b_count: int
+    a_files: list[str] = []
+    b_files: list[str] = []
+
+
+class ResolutionBranchPair(BaseModel):
+    score: float
+    a: str
+    b: str
+    a_count: int
+    b_count: int
+    bank: str
+
+
+class ResolutionConflict(BaseModel):
+    raw_district: str | None = None
+    taluk: str | None = None
+    resolved_district: str | None = None
+    count: int
+    auction_ids: list[str] = []
+
+
+class VillageCandidate(BaseModel):
+    name: str
+    score: float
+
+
+class ResolutionVillage(BaseModel):
+    village: str
+    taluk: str
+    district: str | None = None
+    count: int
+    auction_ids: list[str] = []
+    candidates: list[VillageCandidate] = []
+
+
+class ResolutionReviewOut(BaseModel):
+    """The queues a human works through. Every row is a fact to settle, not a
+    document to walk — one verdict covers every notice the fact touches."""
+    bank_pairs: list[ResolutionBankPair] = []
+    branch_pairs: list[ResolutionBranchPair] = []
+    district_conflicts: list[ResolutionConflict] = []
+    unmatched_villages: list[ResolutionVillage] = []
+    decided: int = 0
+    open: int = 0
+
+
+class ResolutionDecisionIn(BaseModel):
+    kind: Literal["bank-merge", "branch-merge", "district-conflict",
+                  "village-alias", "village-skip"]
+    verdict: Literal["approved", "rejected"]
+    # What the decision is about; fields depend on kind (see
+    # pipeline/resolution_review.py). The stored key is always derived from
+    # this server-side — a caller can never aim a verdict at other strings.
+    payload: dict
+
+
+class ResolutionDecisionOut(BaseModel):
+    key: str
+    kind: str
+    verdict: str
+
+
+class ResolutionUndoOut(BaseModel):
+    key: str
+    deleted: bool
+
+
+@router.get("/resolution", response_model=ResolutionReviewOut)
+def review_resolution_queues(
+    _admin: UserOut = Depends(get_current_admin),
+) -> ResolutionReviewOut:
+    """Open resolution questions, with evidence beside every row."""
+    return ResolutionReviewOut(**q.resolution_review())
+
+
+@router.post("/resolution/decide", response_model=ResolutionDecisionOut)
+def review_resolution_decide(
+    body: ResolutionDecisionIn,
+    admin: UserOut = Depends(get_current_admin),
+) -> ResolutionDecisionOut:
+    """Record one verdict, permanently — the resolvers consult it on every
+    subsequent run, so a decision is applied forever rather than once."""
+    try:
+        return ResolutionDecisionOut(**q.record_resolution_decision(
+            body.kind, body.payload, body.verdict, by_email=admin.email))
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+class ResolutionApplyStatus(BaseModel):
+    status: str                      # never-run | running | done | error | stale
+    started_ts: float | None = None
+    finished_ts: float | None = None
+    by: str | None = None
+    summary_json: str | None = None
+    error: str | None = None
+
+
+@router.post("/resolution/apply", response_model=ResolutionApplyStatus,
+             status_code=202)
+def review_resolution_apply(
+    background: BackgroundTasks,
+    admin: UserOut = Depends(get_current_admin),
+) -> ResolutionApplyStatus:
+    """Re-run both resolvers now, applying every stored verdict. Returns 202
+    immediately; poll GET /resolution/apply for the outcome. 409 while a run
+    is already in progress."""
+    try:
+        q.start_resolution_apply(by_email=admin.email)
+    except RuntimeError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    background.add_task(q.run_resolution_apply)
+    return ResolutionApplyStatus(**q.resolution_apply_status())
+
+
+@router.get("/resolution/apply", response_model=ResolutionApplyStatus)
+def review_resolution_apply_status(
+    _admin: UserOut = Depends(get_current_admin),
+) -> ResolutionApplyStatus:
+    """State of the last apply run — running, done with a summary, or error."""
+    return ResolutionApplyStatus(**q.resolution_apply_status())
+
+
+@router.post("/resolution/undo", response_model=ResolutionUndoOut)
+def review_resolution_undo(
+    body: ResolutionDecisionIn,
+    _admin: UserOut = Depends(get_current_admin),
+) -> ResolutionUndoOut:
+    """Delete a stored verdict so the question reopens. The body's verdict
+    field is ignored; the key is recomputed from kind + payload."""
+    try:
+        return ResolutionUndoOut(**q.undo_resolution_decision(
+            body.kind, body.payload))
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
 
 
 # ── Markdown-quality review ─────────────────────────────────────────────────
@@ -798,6 +903,12 @@ def review_markdown_queue(
     size: int = Query(default=50, ge=1, le=200),
     score_min: float | None = Query(default=None, ge=0.0, le=100.0),
     score_max: float | None = Query(default=None, ge=0.0, le=100.0),
+    # Datalab parse quality is a 0–5 scale, not 0–100 like OCR health.
+    pq_min: float | None = Query(default=None, ge=0.0, le=5.0),
+    pq_max: float | None = Query(default=None, ge=0.0, le=5.0),
+    # Repeatable: ?flags=missing-region&flags=repetition — matches docs carrying
+    # ANY of them, so a reviewer can work one failure mode at a time.
+    flags: list[str] | None = Query(default=None),
     notice_type: Literal["all", "single", "multi", "unclassified"] = Query(default="all"),
     date_from: str | None = Query(default=None, max_length=20),
     date_to: str | None = Query(default=None, max_length=20),
@@ -806,6 +917,7 @@ def review_markdown_queue(
     result = q.list_markdown_queue(
         status=status, q=q_search, page=page, size=size,
         score_min=score_min, score_max=score_max,
+        pq_min=pq_min, pq_max=pq_max, flags=_clean_health_flags(flags),
         notice_type=notice_type if notice_type != "all" else None,
         date_from=date_from, date_to=date_to,
     )
@@ -827,6 +939,9 @@ def review_markdown_by_property(
     size: int = Query(default=100, ge=1, le=200),
     score_min: float | None = Query(default=None, ge=0.0, le=100.0),
     score_max: float | None = Query(default=None, ge=0.0, le=100.0),
+    pq_min: float | None = Query(default=None, ge=0.0, le=5.0),
+    pq_max: float | None = Query(default=None, ge=0.0, le=5.0),
+    flags: list[str] | None = Query(default=None),
     notice_type: Literal["all", "single", "multi", "unclassified"] = Query(default="all"),
     date_from: str | None = Query(default=None, max_length=20),
     date_to: str | None = Query(default=None, max_length=20),
@@ -835,6 +950,7 @@ def review_markdown_by_property(
     result = q.list_markdown_queue_by_property(
         status=status, q=q_search, page=page, size=size,
         score_min=score_min, score_max=score_max,
+        pq_min=pq_min, pq_max=pq_max, flags=_clean_health_flags(flags),
         notice_type=notice_type if notice_type != "all" else None,
         date_from=date_from, date_to=date_to,
     )
@@ -853,6 +969,9 @@ def review_markdown_bulk_confirm(
     result = q.auto_confirm_markdown(
         score_min=body.score_min,
         score_max=body.score_max,
+        pq_min=body.pq_min,
+        pq_max=body.pq_max,
+        flags=_clean_health_flags(body.flags),
         notice_type=body.notice_type if body.notice_type != "all" else None,
         date_from=body.date_from,
         date_to=body.date_to,
@@ -903,6 +1022,49 @@ def _ok_block(b: dict) -> Block:
     return Block(**_with_block_health(b))
 
 
+def _opt_int(v) -> int | None:
+    """Coerce a Neo4j numeric to int, or None when absent/unparseable."""
+    if v is None:
+        return None
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _clean_health_flags(flags: list[str] | None) -> list[str] | None:
+    """Keep only flags pipeline/ocr_health.py actually emits.
+
+    An unknown value would silently match nothing and hand the reviewer an
+    empty queue that looks like "no failures of this kind" — so it is a 422,
+    not a silent no-op.
+    """
+    if not flags:
+        return None
+    unknown = sorted({f for f in flags if f not in HEALTH_FLAGS})
+    if unknown:
+        raise HTTPException(
+            status_code=422,
+            detail=f"unknown health flag(s): {', '.join(unknown)}; "
+                   f"expected any of: {', '.join(HEALTH_FLAGS)}")
+    # De-duplicate, preserving the canonical severity order.
+    return [f for f in HEALTH_FLAGS if f in set(flags)]
+
+
+def _opt_float(v) -> float | None:
+    """Coerce a Neo4j numeric to float, or None when absent/unparseable.
+
+    Parse quality is fractional (3.0, 4.5 …), so it must not go through
+    ``_opt_int`` — that would silently truncate the reviewer's signal.
+    """
+    if v is None:
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
 def _ok_doc(doc: dict) -> BlocksDoc:
     blocks = [Block(**_with_block_health(b)) for b in (doc.get("blocks") or [])]
     raw_crop = doc.get("crop_bbox")
@@ -924,6 +1086,10 @@ def _ok_doc(doc: dict) -> BlocksDoc:
         rotation = 0
     if rotation not in (0, 90, 180, 270):
         rotation = 0
+    quality = doc.get("markdown_quality")
+    if quality not in ("good", "bad"):
+        quality = None
+    flags = doc.get("ocr_health_flags")
     return BlocksDoc(
         filename=doc.get("filename"),
         file_path=doc.get("file_path"),
@@ -931,6 +1097,16 @@ def _ok_doc(doc: dict) -> BlocksDoc:
         storage_key=doc.get("storage_key"),
         notice_type=doc.get("notice_type"),
         markdown=doc.get("markdown"),
+        markdown_model=doc.get("markdown_model"),
+        property_count=_opt_int(doc.get("property_count")),
+        markdown_length=_opt_int(doc.get("markdown_length")),
+        ocr_health_score=_opt_int(doc.get("ocr_health_score")),
+        ocr_health_flags=[str(f) for f in flags] if isinstance(flags, list) else None,
+        parse_quality_score=_opt_float(doc.get("parse_quality_score")),
+        ink_uncovered_ratio=_opt_float(doc.get("ink_uncovered_ratio")),
+        markdown_quality=quality,
+        markdown_verified=bool(doc.get("markdown_verified")),
+        markdown_reextracted_at=doc.get("markdown_reextracted_at"),
         schema_version=int(doc.get("schema_version") or 1),
         source_dims=[SourceDim(**d) for d in (doc.get("source_dims") or [])
                      if isinstance(d, dict) and "page" in d],

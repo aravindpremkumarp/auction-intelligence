@@ -1,0 +1,5 @@
+# Spike-only deps, on top of the repo root requirements.txt.
+# deepagents pins langchain/langgraph as peer deps; let pip resolve them.
+deepagents>=0.3,<1
+langchain-openai>=0.3,<2
+langchain>=1.0,<2

@@ -130,3 +130,23 @@ def test_mineru_fields_default_none_for_human_block():
     assert out[0]["img_url"] is None
     assert out[0]["text_level"] is None
     assert out[0]["table_caption"] is None
+
+
+def test_preserves_datalab_provenance():
+    """Regression: the allowlist here must match Block.source in router.py.
+
+    "datalab" was missing, so every Datalab-OCR'd block that round-tripped
+    through replace-all (undo/redo, multi-delete restore) had its provenance
+    silently rewritten to "human". The review UI renders source == 'human' as
+    an "edited" pill, so machine OCR displayed as human-verified — the review
+    signal inverted for 661 documents' worth of blocks.
+    """
+    out = _normalize([_blk(source="datalab")], "me@x.com")
+    assert out[0]["source"] == "datalab"
+
+
+def test_unknown_source_still_falls_back_to_human():
+    """The allowlist must stay closed — widening it for datalab must not turn
+    it into a passthrough for arbitrary strings."""
+    out = _normalize([_blk(source="tesseract")], "me@x.com")
+    assert out[0]["source"] == "human"

@@ -21,6 +21,7 @@ mounted alongside the main review router without touching the large queries.py.
 from __future__ import annotations
 
 import json
+import threading
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -29,6 +30,7 @@ from pydantic import BaseModel, Field
 from api.auth.dependencies import get_current_admin
 from api.auth.schemas import UserOut
 from api.neo4j_client import run_query, run_read_query
+from api.review.queries import _date_exists_clause, _notice_type_clause
 
 router = APIRouter(prefix="/review/extraction", tags=["review-extraction"])
 
@@ -64,8 +66,14 @@ class ExtractionReviewOut(BaseModel):
     content_type: str | None = None
     # True when the markdown was re-ingested AFTER this extraction ran, so the
     # stored fields (and their char offsets) no longer match the source text —
-    # the reviewer should re-run LangExtract (load_extractions --filename --force).
+    # the reviewer should re-run LangExtract (the ▶ button, or
+    # load_extractions --filename --force from a shell).
     stale: bool = False
+    # A POST /rerun is in flight for this document; poll the detail endpoint
+    # until this clears, then re-render. rerun_error carries the last rerun's
+    # failure so the reviewer sees why nothing changed.
+    rerun_running: bool = False
+    rerun_error: str | None = None
     fields: list[ExtractionField] = []
 
 
@@ -87,6 +95,13 @@ class ExtractionQueueRow(BaseModel):
     extraction_batch: int | None = None
     # Markdown re-ingested after this extraction ran -> a re-run is required.
     stale: bool = False
+    # Reviewer's lot count from the classification gate (Document.
+    # expected_lot_count) vs distinct lot_index values in this extraction.
+    # mismatch=True is the checksum firing: LangExtract missed lots or
+    # invented extras. Either count None -> mismatch stays False (no claim).
+    expected_lot_count: int | None = None
+    extracted_lot_count: int | None = None
+    lot_count_mismatch: bool = False
 
 
 class ExtractionQueueOut(BaseModel):
@@ -151,9 +166,23 @@ def get_extraction(filename: str) -> dict | None:
     return rows[0] if rows else None
 
 
-def list_extraction_queue(status: str | None, limit: int, sort: str = "recent",
-                          score_min: float | None = None,
-                          score_max: float | None = None) -> list[dict]:
+def _extraction_filter_clause(
+    status: str | None,
+    score_min: float | None,
+    score_max: float | None,
+    notice_type: str | None,
+    date_from: str | None,
+    date_to: str | None,
+    q: str | None,
+) -> str:
+    """Shared WHERE tail for the extraction queue and its stats.
+
+    Keeping list + stats on one clause builder stops the header pills from
+    counting a different set than the queue shows — the same trap
+    ``_classification_where`` exists to avoid on the other stages. The
+    notice_type / date helpers are imported from ``queries`` rather than
+    re-written so every stage filters a notice identically.
+    """
     clause = "AND coalesce(d.extraction_review_status,'pending') = $status" if status else ""
     # Rows without a score (pre-scoring extractions) are excluded once either
     # bound narrows the default 0-100 range — nothing to compare against.
@@ -161,6 +190,35 @@ def list_extraction_queue(status: str | None, limit: int, sort: str = "recent",
         clause += " AND d.extraction_score >= $score_min"
     if score_max is not None:
         clause += " AND d.extraction_score <= $score_max"
+    nt = _notice_type_clause(notice_type, alias="d")
+    if nt:
+        clause += f" AND {nt}"
+    dt = _date_exists_clause(date_from, date_to, alias="d")
+    if dt:
+        clause += f" AND {dt}"
+    if q:
+        # Filename OR any linked listing's title/borrower, so the one search box
+        # works whether the reviewer remembers the file or the property.
+        clause += (
+            " AND (toLower(coalesce(d.filename, '')) CONTAINS toLower($q)"
+            " OR EXISTS { MATCH (d)<-[:HAS_DOCUMENT]-(_p:AuctionProperty)"
+            "   WHERE toLower(coalesce(_p.title, '')) CONTAINS toLower($q) }"
+            " OR EXISTS { MATCH (d)<-[:HAS_DOCUMENT]-(:AuctionProperty)"
+            "   -[:HAS_BORROWER]->(_b:Borrower)"
+            "   WHERE toLower(coalesce(_b.name, '')) CONTAINS toLower($q) })"
+        )
+    return clause
+
+
+def list_extraction_queue(status: str | None, limit: int, sort: str = "recent",
+                          score_min: float | None = None,
+                          score_max: float | None = None,
+                          notice_type: str | None = None,
+                          date_from: str | None = None,
+                          date_to: str | None = None,
+                          q: str | None = None) -> list[dict]:
+    clause = _extraction_filter_clause(status, score_min, score_max,
+                                       notice_type, date_from, date_to, q)
     # "recent" (default): latest batch first (then newest extraction within it) so
     # a just-run batch groups at the top; docs missing extraction data (extracted
     # before it was tracked) fall to the bottom. "name": alphabetical by filename.
@@ -181,14 +239,112 @@ def list_extraction_queue(status: str | None, limit: int, sort: str = "recent",
                toString(d.markdown_reextracted_at) AS markdown_reextracted_at,
                toString(d.markdown_loaded_at) AS markdown_loaded_at,
                d.extraction_batch AS extraction_batch,
+               d.expected_lot_count AS expected_lot_count,
                d.extraction_json AS extraction_json
         ORDER BY {order}
         LIMIT $limit
         """,
         {"status": status, "limit": limit,
-         "score_min": score_min, "score_max": score_max},
+         "score_min": score_min, "score_max": score_max,
+         "date_from": date_from, "date_to": date_to, "q": q},
         max_rows=5000,
     )
+
+
+def count_extraction_queue(status: str | None,
+                           score_min: float | None = None,
+                           score_max: float | None = None,
+                           notice_type: str | None = None,
+                           date_from: str | None = None,
+                           date_to: str | None = None,
+                           q: str | None = None) -> int:
+    """How many documents match the queue filters, ignoring the row limit."""
+    clause = _extraction_filter_clause(status, score_min, score_max,
+                                       notice_type, date_from, date_to, q)
+    rows = run_read_query(
+        f"MATCH (d:Document) WHERE d.extraction_json IS NOT NULL {clause} "
+        "RETURN count(d) AS n",
+        {"status": status, "score_min": score_min, "score_max": score_max,
+         "date_from": date_from, "date_to": date_to, "q": q},
+        max_rows=1, timeout=30.0)
+    return int(rows[0]["n"]) if rows else 0
+
+
+def bulk_verify_extractions(by_email: str,
+                            score_min: float | None = None,
+                            score_max: float | None = None,
+                            notice_type: str | None = None,
+                            date_from: str | None = None,
+                            date_to: str | None = None,
+                            q: str | None = None,
+                            dry_run: bool = False) -> dict:
+    """Mark every PENDING extraction matching the reviewer's current filters as
+    verified.
+
+    Shares ``_extraction_filter_clause`` with the queue and the stats, so the
+    "Confirm all N" button acts on exactly the set it counted. Status is pinned
+    to 'pending' rather than taken from the caller: re-verifying something
+    already verified is a no-op, and sweeping 'edited' rows back to 'verified'
+    would silently discard the fact that a human changed fields there.
+
+    The intended use is with the score filter — confirm the high-scoring tail in
+    one action and spend review time on the low scores.
+    """
+    clause = _extraction_filter_clause("pending", score_min, score_max,
+                                       notice_type, date_from, date_to, q)
+    params = {"status": "pending", "score_min": score_min, "score_max": score_max,
+              "date_from": date_from, "date_to": date_to, "q": q, "by": by_email}
+    if dry_run:
+        rows = run_read_query(
+            f"MATCH (d:Document) WHERE d.extraction_json IS NOT NULL {clause} "
+            "RETURN count(d) AS n",
+            params, max_rows=1, timeout=30.0)
+        return {"count": int(rows[0]["n"]) if rows else 0, "dry_run": True}
+    rows = run_query(
+        f"""
+        MATCH (d:Document)
+        WHERE d.extraction_json IS NOT NULL {clause}
+        SET d.extraction_review_status = 'verified',
+            d.extraction_verified_by   = $by,
+            d.extraction_verified_at   = datetime()
+        RETURN count(d) AS n
+        """,
+        params)
+    return {"count": int(rows[0]["n"]) if rows else 0, "dry_run": False}
+
+
+def extraction_stats(score_min: float | None = None,
+                     score_max: float | None = None,
+                     notice_type: str | None = None,
+                     date_from: str | None = None,
+                     date_to: str | None = None,
+                     q: str | None = None) -> dict:
+    """Header pill counts for the extraction stage, under the reviewer's
+    current filters (status is deliberately NOT applied — the pills ARE the
+    status breakdown)."""
+    clause = _extraction_filter_clause(None, score_min, score_max,
+                                       notice_type, date_from, date_to, q)
+    rows = run_read_query(
+        f"""
+        MATCH (d:Document)
+        WHERE d.extraction_json IS NOT NULL {clause}
+        WITH coalesce(d.extraction_review_status,'pending') AS st
+        RETURN count(*) AS total,
+               sum(CASE WHEN st = 'pending'  THEN 1 ELSE 0 END) AS pending,
+               sum(CASE WHEN st = 'verified' THEN 1 ELSE 0 END) AS verified,
+               sum(CASE WHEN st = 'edited'   THEN 1 ELSE 0 END) AS edited
+        """,
+        {"score_min": score_min, "score_max": score_max,
+         "date_from": date_from, "date_to": date_to, "q": q},
+        max_rows=1, timeout=30.0,
+    )
+    r = rows[0] if rows else {}
+    return {
+        "total":    int(r.get("total") or 0),
+        "pending":  int(r.get("pending") or 0),
+        "verified": int(r.get("verified") or 0),
+        "edited":   int(r.get("edited") or 0),
+    }
 
 
 def save_field_correction(filename: str, field_id: str, value: str,
@@ -241,6 +397,27 @@ def unverify_extraction(filename: str) -> bool:
 
 
 # ── shaping ──────────────────────────────────────────────────────────────────
+def count_extracted_lots(ents: list[dict]) -> int | None:
+    """Distinct lots in one extraction, from entity ``lot_index`` attributes.
+
+    Multi-notice extractions stamp every entity with its lot's index
+    (pipeline/langextract_examples.py); single-notice extractions usually
+    carry none, so any entities without a single lot_index count as 1 lot.
+    Returns None for an empty extraction — no entities is "no claim", not
+    "zero lots".
+    """
+    if not ents:
+        return None
+    idxs = set()
+    for e in ents:
+        attrs = e.get("attrs")
+        if isinstance(attrs, dict):
+            li = attrs.get("lot_index")
+            if li not in (None, ""):
+                idxs.add(str(li))
+    return len(idxs) if idxs else 1
+
+
 def _build_fields(extraction_json: str, corrections_json: str) -> list[ExtractionField]:
     try:
         ents = json.loads(extraction_json or "[]")
@@ -267,7 +444,118 @@ def _build_fields(extraction_json: str, corrections_json: str) -> list[Extractio
     return out
 
 
+# ── single-document LangExtract rerun ────────────────────────────────────────
+# In-process job registry: one rerun per document at a time. Entries live only
+# for the server process — a restart forgets a finished error, which is fine;
+# the graph's extraction_at is the durable record of success.
+_RERUNS: dict[str, dict] = {}
+_RERUNS_LOCK = threading.Lock()
+
+
+def _rerun_state(filename: str) -> tuple[bool, str | None]:
+    with _RERUNS_LOCK:
+        st = _RERUNS.get(filename)
+        if not st:
+            return False, None
+        return st["status"] == "running", st.get("error")
+
+
+def _rerun_worker(filename: str) -> None:
+    """Run the canonical single-document LangExtract path (same code the batch
+    scripts use: per-notice-type model routing, validators score, load_extractions
+    write shape). Any failure — including langextract not being installed on
+    this server — lands in the registry for the UI to surface."""
+    try:
+        rows = run_read_query(
+            "MATCH (d:Document {filename: $fn}) "
+            "RETURN d.filename AS filename, d.markdown AS md, "
+            "       d.notice_type AS notice_type, "
+            "       d.expected_lot_count AS expected_lot_count",
+            {"fn": filename})
+        if not rows or not (rows[0].get("md") or "").strip():
+            raise RuntimeError("document has no markdown to extract from")
+        from pipeline.load_extractions import _next_batch
+        from scripts.reset_langextract_and_extract import _extract_one
+        _extract_one(rows[0], _next_batch(), route=True)
+        with _RERUNS_LOCK:
+            _RERUNS.pop(filename, None)
+    except Exception as e:  # surfaced via rerun_error, never crashes the app
+        with _RERUNS_LOCK:
+            _RERUNS[filename] = {"status": "error", "error": f"{type(e).__name__}: {e}"}
+
+
 # ── endpoints ────────────────────────────────────────────────────────────────
+def _no_all(v) -> str | None:
+    """Normalise an optional filter value to a real string or None.
+
+    The shared filter bar sends 'all' to mean "no filter"; the query layer
+    expects None, and blank strings collapse the same way. Anything that is not
+    a string also becomes None — calling an endpoint function directly (as the
+    tests do) leaves FastAPI's ``Query(default=None)`` sentinel in place, and
+    passing that object down reaches `_notice_type_clause` as an unknown filter.
+    """
+    if not isinstance(v, str):
+        return None
+    v = v.strip()
+    return None if v in ("", "all") else v
+
+
+class ExtractionStats(BaseModel):
+    total: int
+    pending: int
+    verified: int
+    edited: int
+
+
+# NOTE: declared before the `/{filename:path}` catch-all below, or that route
+# swallows it and /stats resolves as a filename.
+@router.get("/stats", response_model=ExtractionStats)
+def extraction_stats_endpoint(
+    score_min: float | None = Query(default=None, ge=0.0, le=100.0),
+    score_max: float | None = Query(default=None, ge=0.0, le=100.0),
+    notice_type: str | None = Query(default=None),
+    date_from: str | None = Query(default=None, max_length=20),
+    date_to: str | None = Query(default=None, max_length=20),
+    q: str | None = Query(default=None, max_length=200),
+    _admin: UserOut = Depends(get_current_admin),
+) -> ExtractionStats:
+    return ExtractionStats(**extraction_stats(
+        score_min=score_min, score_max=score_max,
+        notice_type=_no_all(notice_type),
+        date_from=_no_all(date_from), date_to=_no_all(date_to), q=_no_all(q),
+    ))
+
+
+class ExtractionBulkConfirmBody(BaseModel):
+    score_min: float | None = Field(default=None, ge=0.0, le=100.0)
+    score_max: float | None = Field(default=None, ge=0.0, le=100.0)
+    notice_type: str | None = Field(default=None, max_length=20)
+    date_from: str | None = Field(default=None, max_length=20)
+    date_to: str | None = Field(default=None, max_length=20)
+    q: str | None = Field(default=None, max_length=200)
+    dry_run: bool = False
+
+
+class ExtractionBulkConfirmResult(BaseModel):
+    count: int
+    dry_run: bool
+
+
+# Declared before the `/{filename:path}` catch-all, like /stats.
+@router.post("/bulk-confirm", response_model=ExtractionBulkConfirmResult)
+def extraction_bulk_confirm(
+    body: ExtractionBulkConfirmBody,
+    admin: UserOut = Depends(get_current_admin),
+) -> ExtractionBulkConfirmResult:
+    return ExtractionBulkConfirmResult(**bulk_verify_extractions(
+        by_email=admin.email,
+        score_min=body.score_min, score_max=body.score_max,
+        notice_type=_no_all(body.notice_type),
+        date_from=body.date_from, date_to=body.date_to, q=body.q,
+        dry_run=body.dry_run,
+    ))
+
+
 @router.get("/queue", response_model=ExtractionQueueOut)
 def extraction_queue(
     status: str | None = Query(default=None),
@@ -275,10 +563,18 @@ def extraction_queue(
     sort: str = Query(default="recent", pattern="^(recent|name)$"),
     score_min: float | None = Query(default=None, ge=0.0, le=100.0),
     score_max: float | None = Query(default=None, ge=0.0, le=100.0),
+    notice_type: str | None = Query(default=None),
+    date_from: str | None = Query(default=None, max_length=20),
+    date_to: str | None = Query(default=None, max_length=20),
+    q: str | None = Query(default=None, max_length=200),
     _admin: UserOut = Depends(get_current_admin),
 ) -> ExtractionQueueOut:
+    status, notice_type = _no_all(status), _no_all(notice_type)
+    date_from, date_to, q = _no_all(date_from), _no_all(date_to), _no_all(q)
     rows = list_extraction_queue(status, limit, sort,
-                                 score_min=score_min, score_max=score_max)
+                                 score_min=score_min, score_max=score_max,
+                                 notice_type=notice_type,
+                                 date_from=date_from, date_to=date_to, q=q)
     out = []
     for r in rows:
         try:
@@ -287,6 +583,9 @@ def extraction_queue(
             ents = []
         b = r.get("extraction_batch")
         s = r.get("score")
+        elc = r.get("expected_lot_count")
+        expected = int(elc) if elc is not None else None
+        extracted = count_extracted_lots(ents)
         out.append(ExtractionQueueRow(
             filename=r["filename"], status=r["status"], n_fields=len(ents),
             n_ungrounded=sum(1 for e in ents if e.get("start") is None),
@@ -295,8 +594,20 @@ def extraction_queue(
             extraction_batch=int(b) if b is not None else None,
             stale=extraction_stale(r.get("markdown_reextracted_at"),
                                    r.get("markdown_loaded_at"),
-                                   r.get("extraction_at"))))
-    return ExtractionQueueOut(rows=out, total=len(out))
+                                   r.get("extraction_at")),
+            expected_lot_count=expected,
+            extracted_lot_count=extracted,
+            lot_count_mismatch=(expected is not None
+                                and extracted is not None
+                                and expected != extracted)))
+    # A genuine count, not len(out): the row list is capped by $limit, and the
+    # "Confirm all N in range" button acts on the whole matching set — so a
+    # capped total would understate what the button is about to verify.
+    total = count_extraction_queue(status, score_min=score_min,
+                                   score_max=score_max,
+                                   notice_type=notice_type,
+                                   date_from=date_from, date_to=date_to, q=q)
+    return ExtractionQueueOut(rows=out, total=total)
 
 
 @router.get("/{filename:path}", response_model=ExtractionReviewOut)
@@ -307,6 +618,7 @@ def extraction_detail(
     row = get_extraction(filename)
     if row is None:
         raise HTTPException(status_code=404, detail="extraction not found")
+    running, error = _rerun_state(filename)
     return ExtractionReviewOut(
         filename=row["filename"], markdown=row.get("markdown"),
         status=row.get("status", "pending"), score=row.get("score"),
@@ -316,6 +628,7 @@ def extraction_detail(
         stale=extraction_stale(row.get("markdown_reextracted_at"),
                                row.get("markdown_loaded_at"),
                                row.get("extraction_at")),
+        rerun_running=running, rerun_error=error,
         fields=_build_fields(row["extraction_json"], row["corrections_json"]),
     )
 
@@ -329,6 +642,28 @@ def extraction_edit_field(
     if not save_field_correction(filename, body.field_id, body.value,
                                  admin.email, body.notes):
         raise HTTPException(status_code=404, detail="extraction not found")
+    return extraction_detail(filename, admin)
+
+
+@router.post("/{filename:path}/rerun", response_model=ExtractionReviewOut)
+def extraction_rerun(
+    filename: str,
+    admin: UserOut = Depends(get_current_admin),
+) -> ExtractionReviewOut:
+    """Re-run LangExtract for one document — the reviewer's follow-through
+    after fixing its markdown (re-ingest / block re-OCR). Kicks off a
+    background worker and returns immediately with rerun_running=true; the UI
+    polls the detail endpoint until it clears. One rerun per document at a
+    time; a second click while running is a 409."""
+    if get_extraction(filename) is None:
+        raise HTTPException(status_code=404, detail="extraction not found")
+    with _RERUNS_LOCK:
+        st = _RERUNS.get(filename)
+        if st and st["status"] == "running":
+            raise HTTPException(status_code=409, detail="rerun already running")
+        _RERUNS[filename] = {"status": "running"}
+    threading.Thread(target=_rerun_worker, args=(filename,),
+                     daemon=True, name=f"rerun-{filename[:40]}").start()
     return extraction_detail(filename, admin)
 
 

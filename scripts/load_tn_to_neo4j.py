@@ -89,69 +89,70 @@ SET
   a.contact_details          = r.contact_details,
   a.service_provider         = r.service_provider
 
-// ── Bank ─────────────────────────────────────────────────────────────────
-WITH a, r
-WHERE r.bank_name IS NOT NULL AND r.bank_name <> ''
-MERGE (b:Bank {name: r.bank_name})
-SET b.short_name = r.bank_short_name
-MERGE (a)-[:CONDUCTED_BY]->(b)
+// Every block below is guarded by its own FOREACH rather than a shared
+// `WITH a, r WHERE ...`. That chained form filtered the ROW, not just the
+// block, so a single empty field silently suppressed every block after it —
+// an empty auction_type cost 646 properties their Borrower edge too, and an
+// empty property_types list did the same via `UNWIND []` yielding no rows.
+// FOREACH over a 0-or-1 element list skips only its own body.
 
-// ── Branch ────────────────────────────────────────────────────────────────
-WITH a, b, r
-WHERE r.branch_name IS NOT NULL AND r.branch_name <> ''
-MERGE (br:Branch {name: r.branch_name})
-MERGE (b)-[:HAS_BRANCH]->(br)
-MERGE (a)-[:LISTED_BY_BRANCH]->(br)
+// ── Bank (+ Branch, which needs the Bank node) ────────────────────────────
+FOREACH (_ IN CASE WHEN coalesce(r.bank_name, '') <> '' THEN [1] ELSE [] END |
+  MERGE (b:Bank {name: r.bank_name})
+  SET b.short_name = r.bank_short_name
+  MERGE (a)-[:CONDUCTED_BY]->(b)
+  FOREACH (__ IN CASE WHEN coalesce(r.branch_name, '') <> '' THEN [1] ELSE [] END |
+    MERGE (br:Branch {name: r.branch_name})
+    MERGE (b)-[:HAS_BRANCH]->(br)
+    MERGE (a)-[:LISTED_BY_BRANCH]->(br)
+  )
+)
 
-// ── State ─────────────────────────────────────────────────────────────────
-WITH a, r
-WHERE r.state IS NOT NULL AND r.state <> ''
-MERGE (st:State {name: r.state})
-MERGE (a)-[:LOCATED_IN_STATE]->(st)
-
-// ── City ──────────────────────────────────────────────────────────────────
-WITH a, st, r
-WHERE r.city IS NOT NULL AND r.city <> ''
-MERGE (ci:City {name: r.city})
-MERGE (ci)-[:IN_STATE]->(st)
-MERGE (a)-[:LOCATED_IN_CITY]->(ci)
-
-// ── Area ──────────────────────────────────────────────────────────────────
-WITH a, ci, r
-WHERE r.area IS NOT NULL AND r.area <> ''
-MERGE (ar:Area {name: r.area})
-MERGE (ar)-[:PART_OF_CITY]->(ci)
-MERGE (a)-[:LOCATED_IN_AREA]->(ar)
+// ── State → City → Area (each nested inside its parent) ───────────────────
+FOREACH (_ IN CASE WHEN coalesce(r.state, '') <> '' THEN [1] ELSE [] END |
+  MERGE (st:State {name: r.state})
+  MERGE (a)-[:LOCATED_IN_STATE]->(st)
+  FOREACH (__ IN CASE WHEN coalesce(r.city, '') <> '' THEN [1] ELSE [] END |
+    MERGE (ci:City {name: r.city})
+    MERGE (ci)-[:IN_STATE]->(st)
+    MERGE (a)-[:LOCATED_IN_CITY]->(ci)
+    FOREACH (___ IN CASE WHEN coalesce(r.area, '') <> '' THEN [1] ELSE [] END |
+      MERGE (ar:Area {name: r.area})
+      MERGE (ar)-[:PART_OF_CITY]->(ci)
+      MERGE (a)-[:LOCATED_IN_AREA]->(ar)
+    )
+  )
+)
 
 // ── AssetCategory ─────────────────────────────────────────────────────────
-WITH a, r
-WHERE r.asset_category IS NOT NULL AND r.asset_category <> ''
-MERGE (ac:AssetCategory {name: r.asset_category})
-MERGE (a)-[:HAS_ASSET_CATEGORY]->(ac)
+FOREACH (_ IN CASE WHEN coalesce(r.asset_category, '') <> '' THEN [1] ELSE [] END |
+  MERGE (ac:AssetCategory {name: r.asset_category})
+  MERGE (a)-[:HAS_ASSET_CATEGORY]->(ac)
+)
 
 // ── PropertyType ──────────────────────────────────────────────────────────
 // Auctions can have multiple property types (comma-separated in source).
 // Link each directly from the auction, NOT through AssetCategory — the
 // AssetCategory node is shared across auctions, so routing PropertyType
 // through it leaked types across unrelated auctions.
-WITH a, r
-UNWIND coalesce(r.property_types, []) AS pt_name
-WITH a, r, pt_name
-WHERE pt_name IS NOT NULL AND pt_name <> ''
-MERGE (pt:PropertyType {name: pt_name})
-MERGE (a)-[:HAS_PROPERTY_TYPE]->(pt)
+// FOREACH over the list, not UNWIND: an empty list must skip this block only.
+FOREACH (pt_name IN [x IN coalesce(r.property_types, [])
+                     WHERE x IS NOT NULL AND x <> ''] |
+  MERGE (pt:PropertyType {name: pt_name})
+  MERGE (a)-[:HAS_PROPERTY_TYPE]->(pt)
+)
 
 // ── AuctionType ───────────────────────────────────────────────────────────
-WITH a, r
-WHERE r.auction_type IS NOT NULL AND r.auction_type <> ''
-MERGE (at:AuctionType {name: r.auction_type})
-MERGE (a)-[:IS_AUCTION_TYPE]->(at)
+FOREACH (_ IN CASE WHEN coalesce(r.auction_type, '') <> '' THEN [1] ELSE [] END |
+  MERGE (at:AuctionType {name: r.auction_type})
+  MERGE (a)-[:IS_AUCTION_TYPE]->(at)
+)
 
 // ── Borrower ──────────────────────────────────────────────────────────────
-WITH a, r
-WHERE r.borrower_name IS NOT NULL AND r.borrower_name <> ''
-MERGE (bw:Borrower {name: r.borrower_name})
-MERGE (a)-[:HAS_BORROWER]->(bw)
+FOREACH (_ IN CASE WHEN coalesce(r.borrower_name, '') <> '' THEN [1] ELSE [] END |
+  MERGE (bw:Borrower {name: r.borrower_name})
+  MERGE (a)-[:HAS_BORROWER]->(bw)
+)
 """
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

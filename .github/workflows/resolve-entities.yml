@@ -1,0 +1,52 @@
+# Weekly entity-resolution pass — the safety net behind the review page's
+# "Apply my decisions" button. Most runs are that button; this schedule only
+# guarantees stored verdicts and freshly extracted notices are never left
+# unapplied for more than a week if nobody presses it.
+#
+# Both resolvers are idempotent: they replace their own edges and stamps,
+# MATCH (never MERGE) gazetteer nodes, and a week with no new verdicts or
+# notices recomputes the same answer. A failed run is a red badge and an
+# email, not damaged data.
+name: Weekly entity resolution
+
+on:
+  schedule:
+    - cron: "30 21 * * 0" # Sundays 21:30 UTC = 03:00 IST Monday
+  workflow_dispatch:
+
+# Two resolver runs would race on the same nodes — queue, don't overlap.
+concurrency:
+  group: resolve-entities
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NEO4J_URI:      ${{ secrets.NEO4J_URI }}
+      NEO4J_USERNAME: ${{ secrets.NEO4J_USERNAME }}
+      NEO4J_PASSWORD: ${{ secrets.NEO4J_PASSWORD }}
+      NEO4J_DATABASE: ${{ secrets.NEO4J_DATABASE }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Resolve lenders (applies stored verdicts)
+        run: python -m scripts.resolve_bank_names
+
+      # Branches after lenders: their scope is d.bank_canonical, which the
+      # lender pass may have just rewritten.
+      - name: Resolve branches (applies stored verdicts)
+        run: python -m scripts.resolve_branches
+
+      - name: Resolve places (applies stored verdicts)
+        run: python -m scripts.resolve_places
