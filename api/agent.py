@@ -304,13 +304,10 @@ async def inject_graph_size() -> str:
     )
 
 
-# Rows a search hands the model. Deliberately small (the UI side-channel
-# shows every match regardless): rows re-serialize into every later
-# round-trip of the turn, so this is a per-turn cost knob, not a coverage
-# knob — counts/stats always come from total_count/aggregations. There is
-# no model-facing `limit` arg on purpose (see the wrapper comment below).
-# Keep the Broad-result nudge's "10 or fewer" in modes/_shared.md in sync.
-_SEARCH_ROWS_TO_MODEL = 10
+# Rows a search hands the model. Defined in the tools layer next to
+# `_SEMANTIC_ROWS_TO_MODEL` so both per-turn context knobs live together and
+# can be compared without importing this module (which the test suite stubs).
+_SEARCH_ROWS_TO_MODEL = T.SEARCH_ROWS_TO_MODEL
 
 
 @agent.tool_plain
@@ -448,7 +445,9 @@ def semantic_search(
     window post-filter. Future-only by default; `include_past=True` for
     retrospective queries. `score` ranks rows against EACH OTHER — the top
     hit is ~1.0 even when nothing matches well, so never read it as
-    confidence. A zero-hit result carries a `hint` — follow it.
+    confidence. `results` is a top-ranked sample; use `total_ranked` for
+    "how many", never `len(results)`. A zero-hit result carries a `hint` —
+    follow it.
     """
     try:
         return split_ui_overflow(T.semantic_search(
@@ -459,7 +458,10 @@ def semantic_search(
             limit=limit, include_past=include_past,
         ))
     except RuntimeError as e:
-        return {"error": str(e), "results": [], "returned": 0, "limit": limit}
+        return {
+            "error": str(e), "results": [],
+            "returned": 0, "total_ranked": 0, "limit": limit,
+        }
 
 
 # Name kept (not `get_auction_details`) so stored conversations, the panel

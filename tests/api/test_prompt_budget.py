@@ -159,7 +159,23 @@ _SHARED_MD = _REPO_ROOT / "modes" / "_shared.md"
 # tokens. Collapsing an N-id fan-out to one call removes N-1 of those
 # round-trips — worth far more than the ~500 tokens/turn a prose trim of this
 # size could ever recover. Measured ~15,812; ceiling held at 15,900.
-BUDGET_CHARS = 15_900
+#
+# 2026-08 (semantic row cap): NET +99, ceiling 15,900 → 16,000. Two things
+# landed close together and together ate the old headroom. #401 ("Retire
+# embeddings") added the `score` caveat — normalization is per-result-set, so
+# the top hit is ~1.0 even for a query nothing matches, and the model must not
+# read it as confidence. This PR then capped `semantic_search` at 10
+# model-visible rows and added `total_ranked`, which needs one line telling the
+# model to count with it rather than `len(results)` — without that the cap
+# reintroduces the "14 properties written from a 10-row sample" bug.
+#
+# Bumped rather than trimmed because the trade is lopsided: ~99 chars (~25
+# tokens) ride on every call, while the row cap it documents removes ~134k
+# input tokens/week (semantic_search p95 fell 16,305 → ~6,500 chars, and every
+# row saved is re-sent on each later step of the turn). Trimming #401's caveat
+# to make room would have bought ~100 chars at the cost of a correctness
+# guard someone deliberately added days earlier. Measured 15,978.
+BUDGET_CHARS = 16_000
 
 
 def _agent_module() -> ast.Module:

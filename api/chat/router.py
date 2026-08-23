@@ -87,13 +87,36 @@ _MAX_PANEL_IDS = 50
 # (not at import) so tests and ops can retune without a restart.
 _CHAT_REQUEST_LIMIT_DEFAULT = 15
 
+# Per-run ceiling on *input* tokens, summed across the turn's round-trips.
+# `request_limit` alone bounds the number of steps but not their size, and
+# input grows superlinearly within a turn: every step re-sends the whole
+# accumulated prefix, so step N costs roughly the sum of everything before
+# it. Observed worst case: a 13-step turn billed 634,750 input tokens to
+# produce 2,632 tokens of answer, and a second one hit `request_limit`
+# after 318,856 input tokens and then failed — the user paid for all of it
+# and got an error.
+#
+# 250k leaves ample headroom over the observed p95 turn (~195k) while
+# turning the unbounded tail into a bounded, explainable failure. Counted
+# against cumulative usage, so cache hits still count — this is a blast
+# radius guard, not a cost target.
+_CHAT_INPUT_TOKEN_LIMIT_DEFAULT = 250_000
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, str(default)))
+    except ValueError:
+        return default
+
 
 def _usage_limits() -> UsageLimits:
-    try:
-        limit = int(os.environ.get("CHAT_REQUEST_LIMIT", str(_CHAT_REQUEST_LIMIT_DEFAULT)))
-    except ValueError:
-        limit = _CHAT_REQUEST_LIMIT_DEFAULT
-    return UsageLimits(request_limit=limit)
+    return UsageLimits(
+        request_limit=_env_int("CHAT_REQUEST_LIMIT", _CHAT_REQUEST_LIMIT_DEFAULT),
+        input_tokens_limit=_env_int(
+            "CHAT_INPUT_TOKEN_LIMIT", _CHAT_INPUT_TOKEN_LIMIT_DEFAULT
+        ),
+    )
 
 
 # Friendly status labels for the streaming UI, keyed by tool name. Anything
@@ -651,8 +674,12 @@ def list_chat_models(user: UserOut | None = Depends(get_optional_user)) -> dict:
     }
 
 
+# Covers both usage ceilings in `_usage_limits()` — too many round-trips
+# (`request_limit`) and too much accumulated context (`input_tokens_limit`).
+# Deliberately vague about which one tripped: the user's remedy is the same
+# either way, and naming the limit invites "raise it" rather than "narrow it".
 _USAGE_LIMIT_DETAIL = (
-    "this question needed too many steps — try asking it more narrowly"
+    "this question grew too large to answer in one go — try asking it more narrowly"
 )
 
 
