@@ -65,11 +65,37 @@ async def build_artifacts(result, *, panel_before: list[str] | None = None
     """
     try:
         if result.panel_rows:
-            return [_search_artifact(result)]
-        return await _fallback_artifacts(result, panel_before)
+            out = [_search_artifact(result)]
+        else:
+            out = await _fallback_artifacts(result, panel_before)
+        # Independent of the panel: a turn can cite web sources with or
+        # without touching the graph, and the citation chips must show either
+        # way. Appended rather than returned early for the same reason.
+        web = _web_artifact(result)
+        if web is not None:
+            out.append(web)
+        return out
     except Exception:  # noqa: BLE001 - cosmetic, never fatal
         logger.exception("agent3 artifact build failed — leaving panel as-is")
         return []
+
+
+def _web_artifact(result) -> dict[str, Any] | None:
+    """Sources for the frontend's citation chips.
+
+    The tool name is `internet_search` because `web/app.js::extractWebSources`
+    matches on exactly that string. Renaming it here silently removes the
+    chips with nothing failing.
+    """
+    sources = getattr(result, "web_sources", None)
+    if not sources:
+        return None
+    return {
+        "tool": "internet_search",
+        "args": {"synthetic": True, "source": "sink"},
+        "result": {"sources": sources},
+        "ui_rows": None,
+    }
 
 
 def _search_artifact(result) -> dict[str, Any]:

@@ -42,6 +42,10 @@ class TurnResult:
     answer: str
     auction_ids: list[str] = field(default_factory=list)
     panel_rows: list[dict] = field(default_factory=list)
+    #: Web pages cited this turn. Rendered as source chips by the frontend's
+    #: existing `extractWebSources`, which keys off an artifact named
+    #: `internet_search` — so this needs no new UI.
+    web_sources: list[dict] = field(default_factory=list)
     skills_loaded: list[str] = field(default_factory=list)
     model_calls: int = 0
     tool_calls: int = 0
@@ -230,6 +234,7 @@ async def run_turn(question: str, *, thread_id: str, model_name: str = "flash",
         answer=answer or "",
         auction_ids=list(sink.auction_ids),
         panel_rows=list(sink.panel_rows),
+        web_sources=list(sink.web_sources),
         skills_loaded=[s.name for s in skills],
         model_calls=model_calls,
         tool_calls=tool_calls,

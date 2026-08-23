@@ -29,7 +29,13 @@ def test_the_bound_tool_surface_is_exactly_ours():
     names = {getattr(f, "__name__", "") for f in A.bind_tools()}
     assert names == {"find_properties", "get_property", "search_notices",
                      "find_by_identifier", "benchmark_price",
-                     "reauction_history"}
+                     "reauction_history",
+                     # The only tool that leaves the graph. Added because a
+                     # real session showed the agent answering a distance
+                     # question from memory after correctly saying it had no
+                     # mapping data — a missing capability, not a missing
+                     # rule. See api/agent3/web_search.py.
+                     "internet_search"}
 
 
 def test_no_filesystem_or_shell_tool_is_bound():
