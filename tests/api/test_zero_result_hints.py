@@ -107,11 +107,10 @@ def _patch_semantic(monkeypatch, *, floor_hits: int, no_floor_hits: int):
 
     import api.tools.cypher_tools as ct
     monkeypatch.setattr(ct, "run_read_query", fake)
-    monkeypatch.setattr(ct, "embed_query_gemini", lambda q: [0.0] * 3072)
     return calls
 
 
-def test_semantic_zero_reports_past_matches_without_reembedding(monkeypatch) -> None:
+def test_semantic_zero_reports_past_matches(monkeypatch) -> None:
     calls = _patch_semantic(monkeypatch, floor_hits=0, no_floor_hits=7)
     from api.tools.cypher_tools import semantic_search
 
@@ -120,7 +119,7 @@ def test_semantic_zero_reports_past_matches_without_reembedding(monkeypatch) -> 
     assert out["returned"] == 0
     assert out["past_matches"] == 7
     assert "include_past" in out["hint"]
-    # Exactly two Neo4j queries (floor + no-floor); the embedding is reused.
+    # Exactly two Neo4j queries (floor + no-floor).
     assert len(calls) == 2
     assert "starts_after" not in calls[-1][1]
 
@@ -188,7 +187,6 @@ def test_semantic_diagnostic_failure_gets_no_confident_hint(monkeypatch) -> None
         return []
 
     monkeypatch.setattr(ct, "run_read_query", fake)
-    monkeypatch.setattr(ct, "embed_query_gemini", lambda q: [0.0] * 3072)
     out = ct.semantic_search("near industrial area", limit=20)
 
     assert out["returned"] == 0

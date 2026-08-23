@@ -234,12 +234,12 @@ large one may carry `refine` buckets; follow them rather than retrying blind.
 Every row carries is_reauction, reauction_count and previous_reserve_price
 (vs reserve_price — the price-drop signal)."""
 
-semantic_search.__doc__ = """Semantic + keyword search over property
-descriptions and sale-notice text. Use for qualitative questions the
-structured filters can't express: neighbourhood character, condition,
-boundaries, legal wording, "near a school". Sizes and sub-locality
-(village/taluk) exist only in this text, never as fields. Optional city and
-price filters."""
+semantic_search.__doc__ = """Free-text search over sale-notice schedule text
+and property descriptions (Lucene, BM25-ranked). Use for qualitative
+questions the structured filters can't express: neighbourhood character,
+condition, boundaries, legal wording. Matching is LEXICAL — pass the words a
+notice would use, not a paraphrase; "quote a phrase" to require word order.
+Optional city and price filters."""
 
 get_auction_detail.__doc__ = """Full records for one or more auction_ids —
 every stored field plus related city / area / state / bank / borrower /

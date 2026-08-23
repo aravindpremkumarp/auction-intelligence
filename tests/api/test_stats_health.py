@@ -24,7 +24,7 @@ def test_health_deep_shape() -> None:
     assert deep["status"] in {"ok", "degraded"}
     # Freshness + connectivity fields are always present, even on an empty graph.
     assert "auction_count" in deep
-    assert "vector_index" in deep
+    assert "fulltext_indexes" in deep
     assert "last_enriched" in deep
 
 
