@@ -163,7 +163,7 @@ Copy `.env.example` → `.env`. Never commit the filled-in file. Key groups:
 | **Graph** | `NEO4J_URI`, `NEO4J_USERNAME`, `NEO4J_PASSWORD`, `NEO4J_DATABASE` | Neo4j Aura. |
 | **Auth** | `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `AUTH_ENABLED`, `ADMIN_BOOTSTRAP_EMAIL` | Anon key is browser-safe; service-role key is server-only (admin bootstrap script). |
 | **Storage** | `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, `R2_PUBLIC_BASE_URL` | Public Cloudflare R2 bucket serving sale notices. |
-| **Observability** | `LOGFIRE_TOKEN`, `LOGFIRE_ENVIRONMENT`, `OTEL_EXPORTER_OTLP_*` | Optional OpenTelemetry tracing; unset = no-op. |
+| **Observability** | `LOGFIRE_TOKEN`, `LOGFIRE_ENVIRONMENT`, `OTEL_EXPORTER_OTLP_*`, `AGENT3_CHATLOG`, `AGENT3_CHATLOG_MAX_CHARS` | Optional OpenTelemetry tracing; unset = no-op. `AGENT3_CHATLOG=0` stops agent3 chat transcripts being exported (default on, 4000 chars per field). |
 | **Eval** | `EVAL_JUDGE_MODEL` | LLM-as-judge model for the golden eval. |
 | **App** | `APP_BASE_URL`, `APP_ENV`, `FEEDBACK_RESOLVE_TOKEN`, `RATELIMIT_DISABLED` | CORS origins, env mode, feedback-resolve guard. |
 | **Scraping** | `FINDAUCTION_EMAIL`, `FINDAUCTION_PASSWORD` | Local-only; not needed in production. |
@@ -398,6 +398,30 @@ lights up a full trace per chat turn — request → agent run → every LLM cal
 (prompt, response, tokens, cost) → every tool call. Unset, it's a no-op. Because
 the transport is OTLP, the same instrumentation can target any OTel backend
 (LangSmith, Langfuse, Honeycomb) via `OTEL_EXPORTER_OTLP_*` instead.
+
+**Agent3 chat transcripts** — every agent3 turn also emits an
+`agent3.chatlog` line carrying the text of the turn: the user's question, the
+answer, and each tool step (name, arguments, result) as Logfire *attributes*,
+not buried in the message. That makes a turn readable where it was previously
+only countable — the transcript itself lives in the Neo4j checkpoint, base64
+per blob, which nobody reads:
+
+```sql
+SELECT start_timestamp,
+       attributes->>'thread_'   AS thread,
+       attributes->>'question'  AS question,
+       attributes->>'answer'    AS answer,
+       attributes->>'steps_json' AS steps
+FROM records
+WHERE attributes->>'op' = 'agent3.chatlog'
+ORDER BY start_timestamp DESC LIMIT 20
+```
+
+This is user text leaving the box, so it has an off switch and a ceiling:
+`AGENT3_CHATLOG=0` disables capture without a deploy (the token/latency lines
+keep flowing), and `AGENT3_CHATLOG_MAX_CHARS` (default 4000) caps each field —
+tool payloads get a quarter of that. Clipped values carry a `… (+N chars)`
+suffix rather than looking complete.
 
 Point uptime monitoring at `GET /health/deep`.
 

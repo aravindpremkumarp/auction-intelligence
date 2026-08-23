@@ -112,9 +112,11 @@ def configure_telemetry(app: object | None = None) -> bool:
 
     # Every OpenRouter call is an httpx request, so this is what puts the
     # individual model calls on the turn's waterfall with their own latency.
-    # Bodies are not captured: prompts and answers would multiply the export
-    # volume and carry user text off-box for no diagnostic gain that the
-    # token counts don't already give.
+    # Bodies are not captured: the prompt is the system block plus the whole
+    # replayed history on every one of a turn's model calls, so capturing it
+    # here would export the same bytes four times over. agent3 ships the text
+    # once per turn instead — see api/agent3/chatlog.py, which records the
+    # question, the answer and the tool steps as queryable attributes.
     try:
         logfire.instrument_httpx()
     except Exception as exc:  # noqa: BLE001 - never fail startup over tracing
