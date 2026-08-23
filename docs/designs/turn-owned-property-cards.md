@@ -63,7 +63,7 @@ One record per assistant turn, produced by `run_turn` alongside
 TurnManifest {
   thread_id:      str
   turn_index:     int          # see "turn_index provenance" below
-  kind:           "search" | "detail" | "distribution" | "empty"
+  kind:           "search" | "detail" | "distribution" | "empty" | "none"
   produced_at:    datetime
   card_rows:      [dict]       # snapshot rows: auction_id + the volatile
                                # card fields only (reserve price, EMD
@@ -84,35 +84,60 @@ TurnManifest {
 }
 ```
 
-**turn_index provenance.** The server computes it: the count of assistant
-messages in the thread's checkpoint at write time. The server-side thread
-is the source of truth for ordering — the client-saved history copy is
+**turn_index provenance.** The server computes it once, at manifest write
+time, and never re-derives it: the count of *final* assistant messages in
+the thread's checkpoint — AIMessages with no `tool_calls`, the same
+finality test `AnswerGate.after_model` uses. (A naive AIMessage count is
+wrong: a tool-using turn checkpoints several AIMessages, and gate repairs
+insert extra messages; a turn that dies mid-flight can also leave partial
+messages behind. Counting only final answers makes the ordinal equal the
+number of answers the user actually received.) It is **1-based and
+includes the answer this manifest describes** — at write time the current
+answer is already checkpointed, so the first turn's manifest has
+turn_index 1; the frontend's reload ordinal counts final assistant
+messages the same way, so the two sides can never disagree by one. The
+server-side thread is the source of truth for ordering — the client-saved history copy is
 display-only and never used to join. The join key is `(thread_id,
-turn_index)`; each chat response (and the SSE `manifest` event) carries its
-own `turn_index`, so the frontend tags the message it just rendered and the
-reload path matches manifests to the server-fetched history by the same
-ordinal. A failed turn writes no manifest and no assistant message, so
-ordinals cannot drift.
+turn_index)`; each chat response (and the SSE `manifest` event) carries
+its own `turn_index` so the frontend tags the message it just rendered.
+On reload, the frontend joins manifests to the server history fetch (a
+new endpoint — see Dependencies) by the same ordinal. Any message with no
+matching manifest renders card-less; ordinals never shift to compensate.
 
 **Manifest kinds.** `search`: sink has rows. `detail`: no search ran,
 `discussed_ids` non-empty (get_property / benchmark / reauction turns).
 `distribution`: `find_properties` ran with `group_by` — the tool returns a
 breakdown and absorbs no rows; the manifest carries the breakdown table and
 renders it as such, never as "0 matches". `empty`: a search ran and matched
-nothing.
+nothing. `none`: no search, no ids — a greeting, an IntentGate refusal
+(which does emit a final answer and so does consume a turn_index), or a
+web-only turn; carries only `web_sources` and renders no card strip.
+"One record per assistant turn" holds without exception — every final
+answer gets a manifest, so ordinals and manifests can never disagree.
 
 **Multi-search turns.** `ToolSink.absorb` replaces `panel_rows`, so a turn
 that searches twice keeps the last set. The manifest adopts that rule
 explicitly: `card_rows`/`query_echo`/`counts` describe the LAST search of
-the turn. Annotations still cover every discussed id, including ones only
-present in an earlier search of the same turn (they resolve via the
-current-turn tool outputs — see edge cases).
+the turn. A discussed id that appeared only in an *earlier* search of the
+same turn is not in `card_rows` — its card facts come from the same by-id
+fetch the `detail` kind uses, so it still renders a full card, never an
+annotation with no facts.
 
 **Annotation extraction is deterministic, not a model call.** Split the
-final answer into sentences — splitter named so tests are writable: split
-on `.`, `!` or `?` followed by whitespace and an uppercase letter or a
-digit-free line start; markdown list items and headings are their own
-units. A sentence that names a discussed id (via the gate's guarded
+final answer into sentences with, concretely,
+`re.split(r"(?<=[.!?])\s+(?=[A-Z0-9₹(])", text)` applied per line;
+markdown list items and headings are their own units. Digits are in the
+lookahead ON PURPOSE — a sentence starting with an id must split — and
+decimals are safe anyway because `₹1.5` has no whitespace after its dot.
+Worked examples: `"748779 looks strong. 812440 is riskier."` → two units,
+one per id. `"priced at ₹1.5 Cr. 812440 is next"` → splits after `Cr.`,
+so 812440's card does not inherit the other property's price. `"- 748779:
+symbolic possession"` → the list item is its own unit. Known imperfection,
+accepted: `"748779 costs Rs. 50 lakh"` splits after `Rs.` (period +
+whitespace + digit), so the id's unit is the truncated `"748779 costs
+Rs."` — a clipped quote on the card, not a wrong attribution. Implementers
+should treat clipped quotes as this documented limitation, not a bug;
+tightening needs a `Rs`/`No` abbreviation lookbehind and is optional. A sentence that names a discussed id (via the gate's guarded
 extraction) is attached to that id's card. Zero extra tokens, zero
 latency, and the quote is verbatim — it cannot disagree with the chat
 because it *is* the chat. A sentence naming two ids attaches to both.
@@ -190,11 +215,12 @@ Turn 2  user: "only ones with physical possession"
 in the sink. Their manifest is `kind: "detail"` with `card_rows` built from
 a by-id fetch (the exact fallback `artifacts._fallback_artifacts` performs
 today, reused). The collapsed "all matches" section is simply absent —
-honest: this turn was not a search. For card eligibility, "known ids"
-means: this turn's tool outputs (the same thread-wide scan
-`gates.tool_output_text` performs), plus all earlier manifests — so a
-fresh id the user pasted into a `get_property` turn gets its card, because
-the tool result grounds it.
+honest: this turn was not a search. Card eligibility uses the gate's own
+grounding rule, which is deliberately **thread-wide**: an id is eligible
+if it appears anywhere in the thread's tool outputs
+(`gates.tool_output_text`) or in any manifest. So a fresh id the user
+pasted into a `get_property` turn gets its card (this turn's tool result
+grounds it), and an id from turn 1 discussed again in turn 5 does too.
 
 ### Edge cases (each is a test)
 
@@ -207,11 +233,17 @@ the tool result grounds it.
   → no card (gate territory); log it — it is a gate escape worth counting.
 - **True total > PANEL_ROW_CAP (500)** → the collapsed section says
   "showing 500 of 812", never silently truncates (no-silent-caps rule).
-- **Sentence-split failures** (abbreviations, ₹ decimals) → an annotation
-  that can't be attributed cleanly attaches nothing; the card still renders
-  with facts only. Annotation is enhancement, never a gate on rendering.
-- **Two chats open on one thread** → manifests are append-only per turn
-  index; last-writer-wins on the same index is acceptable and logged.
+- **Sentence-split failures** (abbreviations, unusual punctuation) → an
+  annotation that can't be attributed cleanly attaches nothing; the card
+  still renders with facts only. Annotation is enhancement, never a gate
+  on rendering.
+- **Two chats open on one thread** → both writers compute the same
+  turn_index, so one manifest is silently lost while both assistant
+  messages persist — a real misalignment, not a benign race. Recovery is
+  the card-less rule above: a message with no matching manifest renders
+  without cards; ordinals never shift to make later joins lie. The lost
+  manifest is logged. (Preventing it outright needs per-thread write
+  locking — out of scope, noted.)
 
 ## Approaches considered
 
@@ -229,8 +261,15 @@ the tool result grounds it.
 1. Does the tiered (v1/v2) surface adopt manifests too, or is this
    agent3-only until agent3 becomes the default loop? (Recommendation:
    agent3-only; v1/v2 keep `panel_sync_ids` until retired.)
-2. Card visual design — density, thumbnails, mobile layout — is deliberately
-   out of scope here; it goes to /plan-design-review after this doc.
+2. Card *visual* design — density, thumbnails, mobile layout — is
+   deliberately out of scope; it goes to /plan-design-review after this
+   doc. The *structural* frontend change is in scope and small in surface:
+   `web/app.js` renders a card strip inside each assistant message bubble
+   from the response's `manifest` (new render function beside the existing
+   `extractResultsFromArtifacts` path), the stream handler consumes the
+   `manifest` SSE event, and thread-open calls `/history` + `/manifests`
+   and joins by `turn_index`. The old side-panel path stays behind the
+   loop switch until agent3's new UI is default.
 3. Should `query_echo` render technical filter names or natural language?
    (Leaning natural language generated deterministically from args.)
 
@@ -238,10 +277,11 @@ the tool result grounds it.
 
 - Reloading a thread reproduces every turn's cards exactly — verified by a
   test that runs 3 turns, refetches manifests, and diffs.
-- No code path in the display pipeline parses prose to decide *which rows*
-  render: verified by a test that renders a manifest whose answer text is
-  replaced with garbage — the card set must be unchanged (only annotations
-  may go empty).
+- No code path in the display pipeline parses prose at render time:
+  verified by a test that renders a stored manifest after deleting the
+  thread's message history — cards AND annotations must both be intact,
+  because both live in the manifest; nothing is re-derived from prose
+  after the write.
 - Each assistant message's cards derive solely from its own manifest —
   verified by rendering turn N's cards with all other manifests deleted.
 - A multi-lot notice's card shows its scope badge — the UI can never state
@@ -251,9 +291,17 @@ the tool result grounds it.
 
 - **ToolSink additions (counted as part of this work, not free):** `total`
   (the true match count from the aggregation), `query_args` (the last
-  search's arguments for `query_echo`), and absorbs on the zero-result and
-  `group_by` paths of `find_properties`, which today skip the sink
-  entirely. Plus a shared export of the gate's guarded id extraction.
+  search's arguments for `query_echo`), `breakdown` (the group_by table —
+  today it goes only to the model's tool message, never the sink), and
+  absorbs on the zero-result and `group_by` paths of `find_properties`,
+  which today skip the sink entirely. Plus a shared export of the gate's
+  guarded id extraction.
+- **New endpoint `GET /chat/agent3/{thread_id}/history`** — does not exist
+  today (the router has only POST, POST /stream, DELETE; history is a
+  client-saved copy, which this design bans from joins). It returns the
+  thread's final assistant/user messages in ordinal order and ships in the
+  same change as `/manifests`; the reload join is between these two
+  server responses.
 - Deferred-but-related: the diligence dossier ("not now", 2026-08-23 CEO
   review) would hang off these same cards later; vector search changes
   what `query_echo` contains but not the manifest shape.
