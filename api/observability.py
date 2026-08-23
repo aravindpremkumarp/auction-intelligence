@@ -17,10 +17,12 @@ Log line shape (space-separated key=value, easy to grep/parse):
     auction.obs chat.agent_run status=error elapsed_ms=9120 mode=ask err=...
     auction.obs agent3.turn.usage in_tok=18422 cached_tok=16128 out_tok=311
 
-Two emitters, one channel. :func:`timed` answers "how long did it take";
+Three emitters, one channel. :func:`timed` answers "how long did it take";
 :func:`record` answers "what did it cost" — token counts, call counts, the
-per-model-call breakdown. Same logger and same `k=v` shape, so one grep (and
-one Logfire query) reads both.
+per-model-call breakdown; :func:`record_text` answers "what was actually
+said", carrying payloads (a chat transcript) too long for a log line as
+record attributes instead. Same logger, so one grep — and one Logfire query
+— reads all three.
 
 **Fields are attached to the LogRecord as well as formatted into the
 message.** `api/telemetry.py` ships this logger to Logfire, and a handler
@@ -106,3 +108,20 @@ def timed(op: str, *, slow_ms: float | None = None, **fields: Any) -> Iterator[d
             op, elapsed_ms, _fmt_fields(extra),
             extra=_extra({**extra, "op": op, "elapsed_ms": round(elapsed_ms)}),
         )
+
+
+def record_text(op: str, *, texts: dict[str, Any], **fields: Any) -> None:
+    """Log one fact whose payload is text too long to live in the message.
+
+    :func:`record` renders every field into the `k=v` line, which is right for
+    counts and wrong for a chat transcript: a 4,000-character answer inside a
+    log message is unreadable in a terminal and unsearchable in Logfire, where
+    the useful shape is an *attribute* you can select (`attributes->>'answer'`).
+
+    So the split: ``fields`` describe the fact and go on the line, ``texts``
+    ride along as record attributes only. Same logger, same handler, so a
+    transcript lands next to the token counts for the same turn rather than in
+    a second system someone has to join by hand.
+    """
+    logger.info("%s %s", op, _fmt_fields(fields),
+                extra=_extra({**fields, **texts, "op": op}))

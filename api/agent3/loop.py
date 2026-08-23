@@ -26,6 +26,7 @@ from datetime import date
 from typing import Any
 
 from api.agent3.agent import build_agent
+from api.agent3.chatlog import record_turn as record_chatlog
 from api.agent3.common import ToolSink
 from api.agent3.skills import USER_TEXT_DELIMITER, render_skills, select_skills
 from api.observability import SLOW_AGENT_MS, record, timed
@@ -229,6 +230,16 @@ async def run_turn(question: str, *, thread_id: str, model_name: str = "flash",
         )
 
     _record_model_calls(turn_msgs, thread_id=thread_id, model=model_name)
+    # The turn's text, on the same channel as its numbers. `question` and not
+    # the composed input: the skill material and the date line are ours, and a
+    # reader looking for what the user asked should not have to scroll past
+    # them. See chatlog.py for the off switch.
+    record_chatlog(
+        thread_id=thread_id, model=model_name, question=question,
+        answer=answer or "", turn_msgs=turn_msgs,
+        skills=[s.name for s in skills],
+        seconds=round(time.perf_counter() - started, 2),
+    )
 
     return TurnResult(
         answer=answer or "",
