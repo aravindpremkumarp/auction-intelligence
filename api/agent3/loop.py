@@ -27,7 +27,7 @@ from typing import Any
 
 from api.agent3.agent import build_agent
 from api.agent3.chatlog import record_turn as record_chatlog
-from api.agent3.common import ToolSink
+from api.agent3.common import ToolSink, turn_context
 from api.agent3.skills import USER_TEXT_DELIMITER, render_skills, select_skills
 from api.observability import SLOW_AGENT_MS, record, timed
 
@@ -191,17 +191,47 @@ async def run_turn(question: str, *, thread_id: str, model_name: str = "flash",
                             reasoning_effort=reasoning_effort,
                             sink=sink, checkpointer=saver)
 
+    # `turn_context` is what puts the thread id on every `agent3.tool` line
+    # this turn emits, and what gives a *failed* turn something to report:
+    # tools append to it as they run, so an exception out of `ainvoke` — which
+    # returns no messages at all — still leaves a transcript of how far the
+    # turn got. See common.TurnContext.
+    with turn_context(thread_id) as turn:
+        return await _run(
+            question, skills=skills, skills_text=skills_text, sink=sink,
+            agent=agent, turn=turn, thread_id=thread_id,
+            model_name=model_name, reasoning_effort=reasoning_effort,
+            started=started,
+        )
+
+
+async def _run(question: str, *, skills, skills_text: str, sink: ToolSink,
+               agent: Any, turn, thread_id: str, model_name: str,
+               reasoning_effort: str | None, started: float) -> TurnResult:
+    """The turn itself, inside the context the tools read."""
     # The whole turn under one `timed` block, so latency and cost are one
     # line rather than two things a reader has to join by timestamp. It wraps
     # the accounting as well as the call because the token counts are only
     # knowable once the messages are back, and they belong on this line.
     with timed("agent3.turn", slow_ms=SLOW_AGENT_MS, model=model_name,
                thread=thread_id, effort=reasoning_effort) as obs:
-        result = await agent.ainvoke(
-            {"messages": [{"role": "user",
-                           "content": compose_input(question, skills_text)}]},
-            config={"configurable": {"thread_id": thread_id}},
-        )
+        try:
+            result = await agent.ainvoke(
+                {"messages": [{"role": "user",
+                               "content": compose_input(question, skills_text)}]},
+                config={"configurable": {"thread_id": thread_id}},
+            )
+        except BaseException as exc:
+            # BaseException, not Exception: a client that closes the tab
+            # cancels this task, and a cancelled turn is one of the cases
+            # worth being able to read back. Recorded, then re-raised
+            # untouched — the caller's handling is unchanged.
+            record_chatlog(
+                thread_id=thread_id, model=model_name, question=question,
+                live_steps=turn.steps, skills=[s.name for s in skills],
+                seconds=round(time.perf_counter() - started, 2), error=exc,
+            )
+            raise
 
         messages = result.get("messages") or []
         final = messages[-1] if messages else None

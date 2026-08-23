@@ -417,6 +417,14 @@ WHERE attributes->>'op' = 'agent3.chatlog'
 ORDER BY start_timestamp DESC LIMIT 20
 ```
 
+A turn that *fails* gets a line too — `outcome` is `ok`, `error` or
+`cancelled` (a closed tab cancels the turn; that is not an error), with `err`
+naming what broke. The graph returns no messages on an exception, so the steps
+on those lines come from the tools recording themselves as they ran: name,
+arguments, result status and duration, but size summaries rather than payloads.
+Every `agent3.tool` line also carries `thread`, so tool timings join to a
+conversation without needing the trace.
+
 This is user text leaving the box, so it has an off switch and a ceiling:
 `AGENT3_CHATLOG=0` disables capture without a deploy (the token/latency lines
 keep flowing), and `AGENT3_CHATLOG_MAX_CHARS` (default 4000) caps each field —

@@ -17,6 +17,7 @@ import pytest
 
 from api.agent3 import chatlog as C
 from api.agent3 import loop as L
+from api.agent3.common import tool as C_tool
 
 
 class _Msg:
@@ -161,3 +162,161 @@ def test_a_broken_transcript_never_costs_the_answer(monkeypatch, caplog):
         out = asyncio.run(L.run_turn("q", thread_id="t1", agent=agent))
 
     assert out.answer == "the answer"
+
+
+# ── the failing turn ─────────────────────────────────────────────────────
+
+class _Boom:
+    """An agent whose turn dies the way a real one does — mid-graph."""
+
+    def __init__(self, exc):
+        self._exc = exc
+
+    async def ainvoke(self, payload, config=None):
+        raise self._exc
+
+
+def test_a_turn_that_raises_still_leaves_a_transcript(caplog):
+    """The turns worth reading were the only ones leaving nothing to read:
+    `ainvoke` throws, so there are no messages and no answer to build one
+    from."""
+    with caplog.at_level(logging.INFO, logger="auction.obs"):
+        try:
+            asyncio.run(L.run_turn("why did 748779 not sell?", thread_id="t9",
+                                   model_name="flash",
+                                   agent=_Boom(RuntimeError("model timed out"))))
+        except RuntimeError:
+            pass
+        else:
+            raise AssertionError("the error was swallowed")
+
+    line = _chatlog(caplog)
+    assert line.question == "why did 748779 not sell?"
+    assert line.outcome == "error"
+    assert "RuntimeError: model timed out" in line.err
+    assert line.thread_ == "t9"
+
+
+def test_a_cancelled_turn_is_not_reported_as_an_error(caplog):
+    """The streaming endpoint cancels the turn when the browser goes away.
+    Counting those as errors invents an error rate out of closed tabs."""
+    async def _cancelled():
+        try:
+            await L.run_turn("q", thread_id="t9", agent=_Boom(asyncio.CancelledError()))
+        except asyncio.CancelledError:
+            pass
+
+    with caplog.at_level(logging.INFO, logger="auction.obs"):
+        asyncio.run(_cancelled())
+
+    assert _chatlog(caplog).outcome == "cancelled"
+
+
+def test_the_failing_turn_reports_the_tools_that_already_ran(caplog):
+    """How far it got is the whole value of the line. The graph returns
+    nothing on an exception, so this can only come from the tools
+    themselves."""
+    @C_tool
+    def find_properties(town=None):
+        return {"rows": [1, 2, 3], "total_count": 9}
+
+    class _RunsThenDies:
+        async def ainvoke(self, payload, config=None):
+            find_properties(town="Leeds")
+            raise RuntimeError("died after the tool")
+
+    with caplog.at_level(logging.INFO, logger="auction.obs"):
+        try:
+            asyncio.run(L.run_turn("q", thread_id="t9", agent=_RunsThenDies()))
+        except RuntimeError:
+            pass
+
+    step = json.loads(_chatlog(caplog).steps_json)[0]
+    assert step["tool"] == "find_properties"
+    assert step["args"] == {"town": "Leeds"}
+    assert step["result"] == "ok" and step["rows"] == 3
+    assert isinstance(step["ms"], int)
+
+
+def test_a_successful_turn_is_marked_ok(caplog):
+    agent = _Agent([_Msg("human", "x"), _Msg("ai", "a")])
+
+    with caplog.at_level(logging.INFO, logger="auction.obs"):
+        asyncio.run(L.run_turn("q", thread_id="t1", agent=agent))
+
+    line = _chatlog(caplog)
+    assert line.outcome == "ok"
+    assert not hasattr(line, "err")
+
+
+# ── the tool line ────────────────────────────────────────────────────────
+
+def test_a_tool_call_carries_the_thread_it_ran_for(caplog):
+    """`agent3.tool` could only be tied to a conversation through the trace,
+    and a trace is exactly what a log drain does not have."""
+    @C_tool
+    def get_property(auction_id=None):
+        return {"ok": True}
+
+    class _CallsTool:
+        async def ainvoke(self, payload, config=None):
+            get_property(auction_id="748779")
+            return {"messages": [_Msg("human", "x"), _Msg("ai", "done")]}
+
+    with caplog.at_level(logging.INFO, logger="auction.obs"):
+        asyncio.run(L.run_turn("q", thread_id="t-42", agent=_CallsTool()))
+
+    line = [r for r in caplog.records
+            if r.getMessage().startswith("agent3.tool")][0]
+    assert "thread=t-42" in line.getMessage()
+    assert line.thread_ == "t-42"
+
+
+def test_a_tool_called_outside_a_turn_still_works(caplog):
+    """Eval scripts and tests call tools directly. No context is not an
+    error — it just means there is no thread to name."""
+    @C_tool
+    def standalone():
+        return {"ok": True}
+
+    with caplog.at_level(logging.INFO, logger="auction.obs"):
+        assert standalone() == {"ok": True}
+
+    message = [r for r in caplog.records
+               if r.getMessage().startswith("agent3.tool")][0].getMessage()
+    assert "thread=" not in message
+
+
+def test_the_turn_context_does_not_leak_into_the_next_turn():
+    """A leaked context labels the next turn's tool calls with the previous
+    thread — worse than no label at all."""
+    from api.agent3.common import current_turn, turn_context
+
+    assert current_turn() is None
+    with turn_context("t1") as ctx:
+        assert current_turn() is ctx
+    assert current_turn() is None
+
+
+def test_the_thread_survives_the_hop_into_langchains_executor(caplog):
+    """LangChain runs a sync tool off the event loop. It copies the context
+    to get there — this pins that, because if it ever stopped, the thread id
+    would silently vanish from every tool line again."""
+    from langchain_core.runnables.config import run_in_executor
+
+    from api.agent3.common import turn_context
+
+    @C_tool
+    def in_a_thread():
+        return {"ok": True}
+
+    async def _drive():
+        with turn_context("t-executor"):
+            await run_in_executor(None, in_a_thread)
+
+    with caplog.at_level(logging.INFO, logger="auction.obs"):
+        asyncio.run(_drive())
+
+    line = [r for r in caplog.records
+            if r.getMessage().startswith("agent3.tool")][0]
+    assert line.thread_ == "t-executor"
