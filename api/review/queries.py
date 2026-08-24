@@ -1827,7 +1827,7 @@ def resolution_review() -> dict:
         "candidates": top3(r["village"], r["taluk"]),
     } for r in open_rows]
 
-    lot_matches = _lot_match_candidates()
+    lot_matches = _lot_match_candidates(decisions)
 
     return {
         "bank_pairs": bank_pairs,
@@ -1850,7 +1850,7 @@ def resolution_review() -> dict:
 _LOT_MATCH_LIMIT = 200
 
 
-def _lot_match_candidates() -> list[dict]:
+def _lot_match_candidates(decisions: list[dict]) -> list[dict]:
     """Listings on a multi-lot notice `pipeline/lot_resolution.py` could not
     place on its own — the queue a human works through.
 
@@ -1858,26 +1858,42 @@ def _lot_match_candidates() -> list[dict]:
     the resolver's `reserve_price_num` join is exact and cheap to recompute
     on every load, and "still ambiguous" is already the WHOLE definition of
     the queue (`resolved_lot_key IS NULL` on a multi-lot notice) — there is
-    no separate fuzzy-candidate-generation step to cache.
+    no separate fuzzy-candidate-generation step to cache. The exception is
+    a decision that hasn't been applied to the graph yet (see
+    `decided_lot_matches`): approving a lot, or rejecting all of them,
+    leaves `resolved_lot_key` untouched until the next "Apply my
+    decisions" run — a row must still drop off the queue the instant it's
+    decided, so it's filtered here in Python instead.
 
     Each row carries the SAME evidence the resolver itself compared —
     reserve price and borrower name — on both the listing and every
     candidate lot, so a human sees exactly what the rule saw and why it
-    couldn't decide, not just a bare "pick one".
+    couldn't decide, not just a bare "pick one". It also carries the notice
+    image (`public_url`), this listing's own eauctionsindia link
+    (`listing_url`), and every other AuctionProperty sharing the same
+    notice (`db_properties`, each with its own eauctionsindia link) — a
+    9-lot notice the portal only scraped once should read as "1 property in
+    our DB", not be confused with the notice's own lot count.
     """
     from pipeline.lot_resolution import resolve_lot
+    from pipeline.resolution_review import decided_lot_matches
+
+    skipped = decided_lot_matches(decisions)
 
     rows = run_read_query(
         """
         MATCH (p:AuctionProperty)-[:HAS_DOCUMENT]->(d:Document)-[:HAS_LOT]->(l:Lot)
         WITH p, d, count(l) AS lot_count
         WHERE lot_count > 1 AND p.resolved_lot_key IS NULL
-        RETURN p.auction_id AS auction_id, p.title AS title, d.file_path AS file_path,
+          AND NOT p.auction_id IN $skipped
+        RETURN p.auction_id AS auction_id, p.title AS title, p.url AS listing_url,
+               d.file_path AS file_path, d.public_url AS public_url,
                p.reserve_price_num AS reserve, lot_count,
                [(p)-[:HAS_BORROWER]->(b:Borrower) | b.name][0] AS borrower
         ORDER BY lot_count, auction_id
         LIMIT $limit
-        """, {"limit": _LOT_MATCH_LIMIT}, max_rows=_LOT_MATCH_LIMIT, timeout=60.0)
+        """, {"limit": _LOT_MATCH_LIMIT, "skipped": sorted(skipped)},
+        max_rows=_LOT_MATCH_LIMIT, timeout=60.0)
     if not rows:
         return []
 
@@ -1900,6 +1916,25 @@ def _lot_match_candidates() -> list[dict]:
             "address": r["address"], "borrowers": [b for b in (r["borrowers"] or []) if b],
         })
 
+    # Every AuctionProperty that shares this notice's Document — not just
+    # the ones with >1 Lot. Answers "how many properties do we actually
+    # have for this notice" directly: a 9-lot notice with one scraped
+    # listing shows a db_properties list of length 1, not 9.
+    sib_rows = run_read_query(
+        """
+        MATCH (d:Document)-[:HAS_DOCUMENT]-(sib:AuctionProperty)
+        WHERE d.file_path IN $paths
+        RETURN d.file_path AS file_path, sib.auction_id AS auction_id,
+               sib.title AS title, sib.url AS url,
+               sib.reserve_price_num AS reserve
+        """, {"paths": file_paths}, max_rows=5000, timeout=60.0)
+    sibs_by_fp: dict[str, list[dict]] = {}
+    for r in sib_rows:
+        sibs_by_fp.setdefault(r["file_path"], []).append({
+            "auction_id": r["auction_id"], "title": r["title"],
+            "url": r["url"], "reserve": r["reserve"],
+        })
+
     out = []
     for r in rows:
         candidates = lots_by_fp.get(r["file_path"], [])
@@ -1909,6 +1944,7 @@ def _lot_match_candidates() -> list[dict]:
                         "borrowers": c["borrowers"]} for c in candidates])
         out.append({
             "auction_id": r["auction_id"], "title": r["title"],
+            "listing_url": r["listing_url"], "public_url": r["public_url"],
             "reserve": r["reserve"], "borrower": r["borrower"],
             "lot_count": r["lot_count"],
             "reason": verdict["reason"],
@@ -1917,6 +1953,7 @@ def _lot_match_candidates() -> list[dict]:
                 "sqft": round(c["sqft"], 1) if c["sqft"] is not None else None,
                 "address": c["address"], "borrowers": c["borrowers"],
             } for c in candidates],
+            "db_properties": sibs_by_fp.get(r["file_path"], []),
         })
     return out
 

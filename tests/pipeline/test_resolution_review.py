@@ -167,3 +167,22 @@ def test_lot_match_key_is_a_registered_decision_kind():
     assert decision_key("lot-match", {"auction_id": "796269",
                                       "lot_key": "notice.jpg#3"}) == \
         lot_match_key("796269", "notice.jpg#3")
+
+
+def test_decided_lot_matches_counts_approvals_and_none_of_these():
+    from pipeline.resolution_review import NONE_LOT_KEY, decided_lot_matches
+
+    none_of_these = _decision(
+        "lot-match", {"auction_id": "796269", "lot_key": NONE_LOT_KEY},
+        "rejected")
+    approved = _decision(
+        "lot-match", {"auction_id": "700002", "lot_key": "notice3.jpg#1"},
+        "approved")
+    # A rejection naming a real lot (not the sentinel) is a different
+    # question — "that specific lot is wrong" — and must not silence the
+    # whole listing.
+    rejected_one_lot = _decision(
+        "lot-match", {"auction_id": "700001", "lot_key": "notice2.jpg#1"},
+        "rejected")
+    out = decided_lot_matches([none_of_these, approved, rejected_one_lot])
+    assert out == {"796269", "700002"}

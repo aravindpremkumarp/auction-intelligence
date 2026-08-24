@@ -147,11 +147,14 @@ def test_queues_filter_decided_rows_at_read_time(monkeypatch):
 
 def test_lot_match_candidates_carries_the_resolver_s_own_evidence(monkeypatch):
     """Each row shows what the rule saw and why it couldn't decide — same
-    reserve price / borrower comparison `resolve_lot` itself makes."""
+    reserve price / borrower comparison `resolve_lot` itself makes — plus
+    the notice image, this listing's portal link, and every DB property
+    sharing the notice (so "9 lots, 1 property in our DB" is visible)."""
     listing_rows = [
         {"auction_id": "796269", "title": "Sriperumbudur plot",
-         "file_path": "notice.jpg", "reserve": 999, "lot_count": 6,
-         "borrower": None},
+         "listing_url": "https://www.eauctionsindia.com/properties/796269",
+         "file_path": "notice.jpg", "public_url": "https://cdn/notice.jpg",
+         "reserve": 999, "lot_count": 6, "borrower": None},
     ]
     lot_rows = [
         {"file_path": "notice.jpg", "lot_key": "notice.jpg#1",
@@ -161,20 +164,34 @@ def test_lot_match_candidates_carries_the_resolver_s_own_evidence(monkeypatch):
          "reserve": 8355000, "sqft": None, "address": "Plot 2",
          "borrowers": ["Mr. Y"]},
     ]
+    sib_rows = [
+        {"file_path": "notice.jpg", "auction_id": "796269",
+         "title": "Sriperumbudur plot",
+         "url": "https://www.eauctionsindia.com/properties/796269",
+         "reserve": 999},
+    ]
 
     def fake_read(cypher, params=None, **kw):
         if "count(l) AS lot_count" in cypher:
             return listing_rows
+        if "sib:AuctionProperty" in cypher:
+            return sib_rows
         if "HAS_LOT" in cypher:
             return lot_rows
         raise AssertionError(f"unexpected read: {cypher[:60]}")
 
     monkeypatch.setattr(q, "run_read_query", fake_read)
-    out = q._lot_match_candidates()
+    out = q._lot_match_candidates([])
     assert len(out) == 1
     row = out[0]
     assert row["auction_id"] == "796269"
     assert row["lot_count"] == 6
+    assert row["public_url"] == "https://cdn/notice.jpg"
+    assert row["listing_url"] == "https://www.eauctionsindia.com/properties/796269"
+    # The notice has 6 lots but only 1 AuctionProperty in our DB — the two
+    # counts must stay visibly distinct, not collapsed into one number.
+    assert len(row["db_properties"]) == 1
+    assert row["db_properties"][0]["auction_id"] == "796269"
     assert [c["lot_key"] for c in row["candidates"]] == \
         ["notice.jpg#1", "notice.jpg#2"]
     # sqft is rounded for display; a missing one stays None, not 0.
@@ -191,9 +208,58 @@ def test_lot_match_candidates_short_circuits_on_no_open_listings(monkeypatch):
         return []
 
     monkeypatch.setattr(q, "run_read_query", fake_read)
-    assert q._lot_match_candidates() == []
-    # The second (lot-detail) query never fires when there's nothing to join.
+    assert q._lot_match_candidates([]) == []
+    # The lot-detail and sibling-count queries never fire when there's
+    # nothing to join.
     assert len(calls) == 1
+
+
+def test_lot_match_candidates_excludes_a_reviewed_none_of_these(monkeypatch):
+    """A human's "none of these" verdict must not keep coming back — the
+    listing is filtered before the query even runs, not after."""
+    from pipeline.resolution_review import NONE_LOT_KEY, lot_match_key
+
+    seen_params = {}
+
+    def fake_read(cypher, params=None, **kw):
+        if "count(l) AS lot_count" in cypher:
+            seen_params.update(params or {})
+            return []
+        raise AssertionError(f"unexpected read: {cypher[:60]}")
+
+    monkeypatch.setattr(q, "run_read_query", fake_read)
+    decisions = [{
+        "key": lot_match_key("796269", NONE_LOT_KEY), "kind": "lot-match",
+        "verdict": "rejected",
+        "payload": {"auction_id": "796269", "lot_key": NONE_LOT_KEY},
+    }]
+    assert q._lot_match_candidates(decisions) == []
+    assert seen_params["skipped"] == ["796269"]
+
+
+def test_lot_match_candidates_excludes_an_approved_pick_before_it_applies(
+        monkeypatch):
+    """A candidate a human already picked must vanish from the queue right
+    away — not linger until the next "Apply my decisions" run writes
+    resolved_lot_key."""
+    from pipeline.resolution_review import lot_match_key
+
+    seen_params = {}
+
+    def fake_read(cypher, params=None, **kw):
+        if "count(l) AS lot_count" in cypher:
+            seen_params.update(params or {})
+            return []
+        raise AssertionError(f"unexpected read: {cypher[:60]}")
+
+    monkeypatch.setattr(q, "run_read_query", fake_read)
+    decisions = [{
+        "key": lot_match_key("796269", "notice.jpg#3"), "kind": "lot-match",
+        "verdict": "approved",
+        "payload": {"auction_id": "796269", "lot_key": "notice.jpg#3"},
+    }]
+    assert q._lot_match_candidates(decisions) == []
+    assert seen_params["skipped"] == ["796269"]
 
 
 def test_lot_match_decision_rejects_a_lot_key_off_the_listing_s_notice(

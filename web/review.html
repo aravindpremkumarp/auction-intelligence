@@ -67,6 +67,20 @@
   .ov-planned a.ov-label { border-bottom: none; }
   .ov-track { background: #f0efe9; height: 16px; position: relative; }
   .ov-bar { background: var(--accent); height: 100%; }
+  .lot-row { border-top: 1px solid var(--ink); padding: 8px 0; }
+  .lot-row:first-child { border-top: none; }
+  .lot-row-head { display: flex; gap: 10px; align-items: baseline; }
+  .lot-row-body { padding: 10px 0 4px; }
+  .lot-notice-img { border: 1px solid var(--ink); background: #2a2a2a;
+                     max-height: 60vh; overflow: auto; display: flex;
+                     justify-content: center; }
+  .lot-notice-img img { max-width: 100%; height: auto; background: #fff; }
+  .lot-sibling { padding: 3px 0 3px 10px; font-size: 13px; }
+  .lot-note { width: 100%; box-sizing: border-box; font-family: inherit;
+              font-size: 12px; padding: 6px 8px; border: 1px solid var(--muted);
+              resize: vertical; }
+  .lot-candidate { display: flex; gap: 8px; align-items: baseline;
+                    border: 1px solid var(--muted); padding: 6px 8px; }
   .ov-bar.drop { background: #e8b4ae; }
   .ov-planned { opacity: .55; }
   .ov-planned .ov-track { border: 1px dashed var(--muted); background: transparent; }
@@ -1228,6 +1242,73 @@
       escapeHtml(JSON.stringify(args))}'>${escapeHtml(label)}</button>`;
   }
 
+  // Must match pipeline/resolution_review.py's NONE_LOT_KEY — the sentinel
+  // lot_key that means "reviewed, no candidate fits" rather than "not yet
+  // reviewed". A plain rejection of one real lot_key means something else
+  // (that specific lot is wrong) and must not be confused with this.
+  const NONE_LOT_KEY = '__none__';
+
+  function currency(n) {
+    return n != null ? '₹' + n.toLocaleString('en-IN') : null;
+  }
+
+  // One row of the lot-match queue: collapsed to a one-line summary by
+  // default (this queue can run to 150+ rows, and a wall of expanded
+  // notices open at once is what made the old layout unreviewable), with
+  // the notice image, sibling DB properties, and candidate lots revealed
+  // on open. The notice image loads lazily — only once a row is opened —
+  // so the panel doesn't fire 150 image requests on page load.
+  function lotMatchRow(m) {
+    const dbCount = m.db_properties.length;
+    const portalLink = m.listing_url
+      ? ` · <a href="${escapeHtml(m.listing_url)}" target="_blank" rel="noopener">this listing on the portal ↗</a>`
+      : '';
+    const siblingRows = m.db_properties.map(sp => `<div class="lot-sibling">
+        ${escapeHtml(sp.title || sp.auction_id)}
+        <small style="color:var(--muted)"> · ${escapeHtml(sp.auction_id)}${
+          currency(sp.reserve) ? ' · ' + currency(sp.reserve) : ''}${
+          sp.url ? ' · <a href="' + escapeHtml(sp.url) + '" target="_blank" rel="noopener">portal ↗</a>' : ''
+        }</small>
+      </div>`).join('');
+    const noticeImg = m.public_url
+      ? `<div class="lot-notice-img"><img data-src="${escapeHtml(m.public_url)}" alt="sale notice"></div>`
+      : `<p class="meta" style="color:var(--muted)">no notice image on file</p>`;
+    const candidateRows = m.candidates.map(c => `<div class="lot-candidate">
+        <span style="flex:1">${escapeHtml(c.lot_key)}
+          <small style="color:var(--muted)">${
+            currency(c.reserve) || 'no reserve'}${
+            c.sqft != null ? ' · ' + c.sqft + ' sqft' : ''}${
+            c.address ? ' · ' + escapeHtml(c.address) : ''}${
+            c.borrowers.length ? ' · ' + escapeHtml(c.borrowers.join(', ')) : ''
+          }</small></span>
+        ${rrBtn('This one', { kind: 'lot-match',
+            payload: { auction_id: m.auction_id, lot_key: c.lot_key },
+            verdict: 'approved' })}
+      </div>`).join('');
+
+    return `<div class="lot-row" data-auction="${escapeHtml(m.auction_id)}">
+      <div class="lot-row-head">
+        <span class="ov-label" style="flex:1; white-space:normal">
+          <b>${escapeHtml(m.title || m.auction_id)}</b>
+          <small style="color:var(--muted)"> · ${escapeHtml(m.auction_id)} · ${
+            m.lot_count} lots on the notice · ${dbCount} propert${
+            dbCount === 1 ? 'y' : 'ies'} in our DB${portalLink}</small>
+        </span>
+        <button class="ghost lot-toggle">Review →</button>
+      </div>
+      <div class="lot-row-body" hidden>
+        ${noticeImg}
+        <p class="meta" style="color:var(--muted); margin-top:8px">${escapeHtml(m.reason)}</p>
+        ${dbCount > 1 ? `<div style="margin-top:8px"><b style="font-size:12px">other properties on this notice</b>${siblingRows}</div>` : ''}
+        <textarea class="lot-note" rows="1" placeholder="optional note — special case, why this one, anything worth flagging"></textarea>
+        <div style="display:flex; flex-direction:column; gap:4px; margin-top:8px">${candidateRows}</div>
+        <div style="margin-top:8px">${rrBtn('None of these', { kind: 'lot-match',
+            payload: { auction_id: m.auction_id, lot_key: NONE_LOT_KEY },
+            verdict: 'rejected' })}</div>
+      </div>
+    </div>`;
+  }
+
   // Verdicts land instantly in the queue but are applied to the graph by the
   // resolvers. The apply button closes that gap on demand: it re-runs both
   // resolvers server-side and the funnel catches up when they finish.
@@ -1368,30 +1449,9 @@
     if (d.lot_matches.length) {
       blocks.push(`<div class="ov-panel"><div class="ov-head">Multi-lot listings — which lot is this one?</div>
         <p class="meta" style="color:var(--muted)">the resolver already tried
-        reserve price and borrower name and couldn't decide; pick the lot
-        that matches, or say none of them do</p>` +
-        d.lot_matches.map(m => rrRow(
-          `<b>${escapeHtml(m.title || m.auction_id)}</b>
-           <small style="color:var(--muted)"> · ${escapeHtml(m.auction_id)} · ${
-             m.lot_count} lots · reserve ${m.reserve != null ? '₹' + m.reserve.toLocaleString('en-IN') : '—'}${
-             m.borrower ? ' · borrower ' + escapeHtml(m.borrower) : ''}</small><br>
-           <small style="color:var(--muted)">${escapeHtml(m.reason)}</small>
-           <div style="display:flex; flex-direction:column; gap:4px; margin-top:6px">${
-             m.candidates.map(c => `<div style="display:flex; gap:8px; align-items:baseline">
-               <span style="flex:1">${escapeHtml(c.lot_key)}
-                 <small style="color:var(--muted)">${
-                   c.reserve != null ? '₹' + c.reserve.toLocaleString('en-IN') : 'no reserve'}${
-                   c.sqft != null ? ' · ' + c.sqft + ' sqft' : ''}${
-                   c.address ? ' · ' + escapeHtml(c.address) : ''}${
-                   c.borrowers.length ? ' · ' + escapeHtml(c.borrowers.join(', ')) : ''
-                 }</small></span>
-               ${rrBtn('This one', { kind: 'lot-match',
-                   payload: { auction_id: m.auction_id, lot_key: c.lot_key },
-                   verdict: 'approved' })}
-             </div>`).join('')
-           }</div>`,
-          ''
-        )).join('') + `</div>`);
+        reserve price and borrower name and couldn't decide; open a row to
+        see the notice, pick the lot that matches, or say none of them do</p>
+        ${d.lot_matches.map(lotMatchRow).join('')}</div>`);
     }
 
     if (blocks.length === 1) {
@@ -1400,7 +1460,25 @@
     host.innerHTML = blocks.join('');
     host.querySelectorAll('.rr-btn').forEach(b => b.addEventListener('click', () => {
       const args = JSON.parse(b.dataset.rr);
+      if (args.kind === 'lot-match') {
+        // The note is typed in after the button's data-rr is baked, so it's
+        // read live off the row rather than being part of the static payload.
+        const note = b.closest('.lot-row')
+          ?.querySelector('.lot-note')?.value.trim();
+        if (note) args.payload.note = note;
+      }
       decideResolution(args.kind, args.payload, args.verdict, b);
+    }));
+    host.querySelectorAll('.lot-toggle').forEach(btn => btn.addEventListener('click', () => {
+      const row = btn.closest('.lot-row');
+      const body = row.querySelector('.lot-row-body');
+      const opening = body.hidden;
+      body.hidden = !opening;
+      btn.textContent = opening ? 'Hide' : 'Review →';
+      if (opening) {
+        const img = body.querySelector('img[data-src]');
+        if (img) { img.src = img.dataset.src; img.removeAttribute('data-src'); }
+      }
     }));
     wireApplyButton();
     if (applyState.status === 'running' && !rrPollTimer) rrPollApply();
