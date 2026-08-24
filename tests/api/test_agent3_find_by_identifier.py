@@ -13,7 +13,7 @@ def _row(auction_id="A1", kind="survey_new", value="331/1", lot_count=1, **kw):
     base = {"auction_id": auction_id, "matched_kind": kind, "matched_value": value,
             "score": 4.0, "lot_key": "k#1", "lot_property_type": "Land",
             "lot_count": lot_count, "city": "Coimbatore", "bank": "SIB",
-            "title": "t"}
+            "title": "t", "resolved_lot_key": None}
     base.update(kw)
     return base
 
@@ -43,6 +43,39 @@ def test_multi_lot_notice_is_scoped_as_notice(monkeypatch):
     listing = out["matches"][0]["listings"][0]
     assert listing["scope"] == "notice"
     assert "does not say which one" in listing["scope_note"]
+
+
+def test_a_resolved_listing_is_lot_scoped_when_it_names_the_matched_lot(monkeypatch):
+    """The resolver named THIS lot as the listing's own, and the identifier
+    was found on that same lot — safely the property's own."""
+    monkeypatch.setattr(FBI, "resolve_identifier_detail", lambda *a, **k: [
+        _row(lot_count=6, lot_key="k#3", resolved_lot_key="k#3")])
+    out = FBI.find_by_identifier("331/1")
+    listing = out["matches"][0]["listings"][0]
+    assert listing["scope"] == "lot"
+    assert "scope_note" not in listing
+
+
+def test_a_resolution_to_a_different_lot_does_not_borrow_confidence(monkeypatch):
+    """The listing resolved to lot #2, but the identifier was found on lot
+    #5 of the same notice — that says NOTHING about whether the identifier
+    is this listing's own. Must stay notice-scoped, not silently upgraded."""
+    monkeypatch.setattr(FBI, "resolve_identifier_detail", lambda *a, **k: [
+        _row(lot_count=6, lot_key="k#5", resolved_lot_key="k#2")])
+    out = FBI.find_by_identifier("331/1")
+    listing = out["matches"][0]["listings"][0]
+    assert listing["scope"] == "notice"
+
+
+def test_a_parcel_matched_row_with_no_lot_key_is_never_falsely_resolved(monkeypatch):
+    """The Parcel-matched branch of `_DETAIL_CYPHER` returns `lot_key=None`
+    by construction — a resolved AuctionProperty must not be read as
+    confirming a lot the row never named."""
+    monkeypatch.setattr(FBI, "resolve_identifier_detail", lambda *a, **k: [
+        _row(lot_count=6, lot_key=None, resolved_lot_key="k#2")])
+    out = FBI.find_by_identifier("331/1")
+    listing = out["matches"][0]["listings"][0]
+    assert listing["scope"] == "notice"
 
 
 def test_listings_sharing_one_notice_are_grouped_under_one_match(monkeypatch):

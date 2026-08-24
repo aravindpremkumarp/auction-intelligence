@@ -64,7 +64,8 @@ RETURN a.auction_id AS auction_id, a.title AS title, a.url AS url,
        ac.name AS asset_category, at.name AS auction_type,
        [(a)-[:HAS_PROPERTY_TYPE]->(pt:PropertyType) | pt.name] AS property_types,
        [(a)-[:HAS_BORROWER]->(b:Borrower) | b.name] AS borrowers,
-       [(a)-[:SAME_PROPERTY_AS]->(o:AuctionProperty) | o.auction_id] AS same_property_as
+       [(a)-[:SAME_PROPERTY_AS]->(o:AuctionProperty) | o.auction_id] AS same_property_as,
+       a.resolved_lot_key AS resolved_lot_key
 """
 
 _DOCUMENT_CYPHER = """
@@ -308,26 +309,35 @@ def get_property(auction_ids: str | int | list[str | int],
         doc = by_doc.get(aid, {})
         lots = by_lots.get(aid, [])
         lot_count = len(lots)
-        scope = scope_of(lot_count)
+        resolved = bool(listing.get("resolved_lot_key"))
+        scope = scope_of(lot_count, resolved)
 
         prop: dict = {
             "auction_id": aid,
             "scope": scope,
             "notice_lot_count": lot_count,
             "listing": {k: v for k, v in listing.items()
-                        if k != "auction_id" and v not in (None, [], "")},
+                        if k not in ("auction_id", "resolved_lot_key")
+                        and v not in (None, [], "")},
             "notice": {k: v for k, v in doc.items()
                        if k != "auction_id" and v not in (None, [], "")},
             "gaps": _gaps(listing, doc, lots),
         }
-        note = scope_note("the notice detail below", lot_count)
+        note = scope_note("the notice detail below", lot_count, resolved)
         if note:
             prop["scope_note"] = note
 
         if scope == "lot" and lots:
-            # Single-lot notice: this IS the property. Flat shape, safe to
-            # state directly.
-            prop["property"] = lots[0]
+            # Single-lot notice: `lots[0]` IS the property, by construction.
+            # A resolved multi-lot notice has several lots in `lots` and
+            # must pick the SPECIFIC one the resolver named — never assume
+            # list order lines up with `resolved_lot_key`.
+            own_lot = lots[0]
+            if resolved and lot_count > 1:
+                key = listing.get("resolved_lot_key")
+                own_lot = next((x for x in lots if x.get("lot_key") == key),
+                               lots[0])
+            prop["property"] = own_lot
             if depth == "standard":
                 prop["property"].pop("description", None)
                 prop["property"].pop("schedules", None)

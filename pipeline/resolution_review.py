@@ -32,17 +32,20 @@ Decision kinds and their payloads::
     village-skip      {"raw": str}                  approve = not a revenue
                                                     village (urban locality);
                                                     drop it from the queue
+    lot-match         {"auction_id": str,            approve = this listing IS
+                       "lot_key": str}                this lot on its notice
 """
 from __future__ import annotations
 
 from pipeline.entity_resolution import branch_key, canonical_label, org_key
+from pipeline.lot_resolution import lot_match_key
 from pipeline.place_resolution import normalize_place
 
 APPROVED = "approved"
 REJECTED = "rejected"
 
 KINDS = ("bank-merge", "branch-merge", "district-conflict",
-         "village-alias", "village-skip")
+         "village-alias", "village-skip", "lot-match")
 
 
 def bank_pair_key(a: str, b: str) -> str:
@@ -99,6 +102,8 @@ def decision_key(kind: str, payload: dict) -> str:
         return village_alias_key(payload["raw"], payload["taluk"])
     if kind == "village-skip":
         return village_skip_key(payload["raw"])
+    if kind == "lot-match":
+        return lot_match_key(payload["auction_id"], payload["lot_key"])
     raise ValueError(f"unknown decision kind: {kind!r}")
 
 
@@ -231,3 +236,17 @@ def settled_conflicts(decisions: list[dict]) -> set[str]:
     """Keys of district-conflict patterns a human has confirmed or overruled —
     either way the pattern leaves the queue."""
     return set(_decided(decisions, "district-conflict"))
+
+
+def resolved_lot_matches(decisions: list[dict]) -> set[str]:
+    """`auction_id`s that already carry an approved lot-match decision.
+
+    The resolver skips these on later runs — the same idempotency the other
+    resolvers get from `ruled_pairs` (bank-merge) and `settled_conflicts`
+    (district-conflict): re-running must not re-timestamp a decision that
+    already stands, auto-applied or human-verified alike.
+    """
+    return {d["payload"]["auction_id"]
+            for d in _decided(decisions, "lot-match").values()
+            if d.get("verdict") == APPROVED
+            and (d.get("payload") or {}).get("auction_id")}

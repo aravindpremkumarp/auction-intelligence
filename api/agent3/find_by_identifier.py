@@ -75,7 +75,12 @@ def find_by_identifier(value: str | int, identifier_kind: str | None = None,
     by_value: dict[tuple[str, str], dict] = {}
     for r in rows:
         lot_count = r.get("lot_count") or 0
-        scope = scope_of(lot_count)
+        matched_lot = r.get("lot_key")
+        # Resolved only counts here when it names the SAME lot the identifier
+        # was found on — a listing resolved to lot #2 says nothing about
+        # whether an identifier found on lot #5 is this listing's own.
+        resolved = bool(matched_lot) and r.get("resolved_lot_key") == matched_lot
+        scope = scope_of(lot_count, resolved)
         key = (r["matched_kind"], r["matched_value"])
         group = by_value.setdefault(key, {
             "identifier_kind": r["matched_kind"],
@@ -91,7 +96,8 @@ def find_by_identifier(value: str | int, identifier_kind: str | None = None,
             "notice_lot_count": lot_count,
             "scope": scope,
         }
-        note = scope_note("this identifier's exact location on the property", lot_count)
+        note = scope_note("this identifier's exact location on the property",
+                          lot_count, resolved)
         if note:
             listing["scope_note"] = note
         group["listings"].append({k: v for k, v in listing.items() if v is not None})

@@ -59,7 +59,8 @@ WITH a, l, score
 MATCH (a)-[:HAS_DOCUMENT]->(:Document)-[:HAS_LOT]->(anylot:Lot)
 WITH a, l, score, count(DISTINCT anylot) AS lot_count
 RETURN a.auction_id AS auction_id, 'lot' AS source, score,
-       left(l.full_description, $snippet_chars) AS snippet, lot_count
+       left(l.full_description, $snippet_chars) AS snippet, lot_count,
+       a.resolved_lot_key AS resolved_lot_key
 ORDER BY score DESC LIMIT $limit
 """
 
@@ -69,7 +70,8 @@ WITH a, score
 MATCH (a)-[:HAS_DOCUMENT]->(:Document)-[:HAS_LOT]->(anylot:Lot)
 WITH a, score, count(DISTINCT anylot) AS lot_count
 RETURN a.auction_id AS auction_id, 'listing' AS source, score,
-       left(a.description, $snippet_chars) AS snippet, lot_count
+       left(a.description, $snippet_chars) AS snippet, lot_count,
+       a.resolved_lot_key AS resolved_lot_key
 ORDER BY score DESC LIMIT $limit
 """
 
@@ -120,15 +122,16 @@ def search_notices(query: str, limit: int = 10) -> dict:
     for row in [*lot_rows, *listing_rows]:
         aid = row["auction_id"]
         lot_count = row.get("lot_count") or 0
+        resolved = bool(row.get("resolved_lot_key"))
         shaped = {
             "auction_id": aid,
             "matched_in": row["source"],
             "snippet": row["snippet"],
             "score": round(float(row["score"]), 3),
             "notice_lot_count": lot_count,
-            "scope": scope_of(lot_count),
+            "scope": scope_of(lot_count, resolved),
         }
-        note = scope_note("this snippet", lot_count)
+        note = scope_note("this snippet", lot_count, resolved)
         if note:
             shaped["scope_note"] = note
         existing = merged.get(aid)

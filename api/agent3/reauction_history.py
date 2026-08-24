@@ -42,7 +42,8 @@ CALL (a) {
   }) AS attempts
 }
 RETURN a.auction_id AS auction_id, a.reserve_price_num AS reserve_price,
-       a.auction_start_dt AS auction_start, lot_count, attempts
+       a.auction_start_dt AS auction_start, lot_count, attempts,
+       a.resolved_lot_key AS resolved_lot_key
 """
 
 #: Traversed in BOTH directions: the link is stored one-way but means "the
@@ -98,6 +99,7 @@ def reauction_history(auction_id: str | int) -> dict:
 
     row = json_safe(rows[0])
     lot_count = row.get("lot_count") or 0
+    resolved = bool(row.get("resolved_lot_key"))
     attempts = [a for a in (row.get("attempts") or []) if a.get("attempt_no")]
     attempts.sort(key=lambda a: a["attempt_no"])
     max_attempt = max((a["attempt_no"] for a in attempts), default=None)
@@ -126,8 +128,8 @@ def reauction_history(auction_id: str | int) -> dict:
     }
 
     if max_attempt and max_attempt >= 2:
-        out["scope"] = scope_of(lot_count)
-        if lot_count > 1:
+        out["scope"] = scope_of(lot_count, resolved)
+        if lot_count > 1 and not resolved:
             out["scope_note"] = (
                 f"`attempt_no` comes from the sale notice, which covers "
                 f"{lot_count} lots — it describes the notice's auction, not "

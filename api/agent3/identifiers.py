@@ -82,7 +82,7 @@ OPTIONAL MATCH (a:AuctionProperty {auction_id: auction_id})-[:LOCATED_IN_CITY]->
 OPTIONAL MATCH (a)-[:CONDUCTED_BY]->(b:Bank)
 RETURN auction_id, matched_kind, matched_value, match_score AS score, lot_key,
        lot_property_type, lot_count, c.name AS city, b.name AS bank,
-       a.title AS title
+       a.title AS title, a.resolved_lot_key AS resolved_lot_key
 ORDER BY score DESC LIMIT $limit
 """
 
