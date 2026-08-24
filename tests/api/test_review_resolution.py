@@ -119,6 +119,8 @@ def test_queues_filter_decided_rows_at_read_time(monkeypatch):
             return []
         if "RevenueVillage" in cypher:
             return []
+        if "HAS_LOT" in cypher:
+            return []
         raise AssertionError(f"unexpected read: {cypher[:60]}")
 
     def fake_count(cypher, params=None):
@@ -141,6 +143,93 @@ def test_queues_filter_decided_rows_at_read_time(monkeypatch):
         ["Kanchipuram"]
     assert out["decided"] == 3
     assert out["open"] == 3
+
+
+def test_lot_match_candidates_carries_the_resolver_s_own_evidence(monkeypatch):
+    """Each row shows what the rule saw and why it couldn't decide — same
+    reserve price / borrower comparison `resolve_lot` itself makes."""
+    listing_rows = [
+        {"auction_id": "796269", "title": "Sriperumbudur plot",
+         "file_path": "notice.jpg", "reserve": 999, "lot_count": 6,
+         "borrower": None},
+    ]
+    lot_rows = [
+        {"file_path": "notice.jpg", "lot_key": "notice.jpg#1",
+         "reserve": 4160000, "sqft": 1200.456, "address": "Plot 1",
+         "borrowers": ["Mr. X"]},
+        {"file_path": "notice.jpg", "lot_key": "notice.jpg#2",
+         "reserve": 8355000, "sqft": None, "address": "Plot 2",
+         "borrowers": ["Mr. Y"]},
+    ]
+
+    def fake_read(cypher, params=None, **kw):
+        if "count(l) AS lot_count" in cypher:
+            return listing_rows
+        if "HAS_LOT" in cypher:
+            return lot_rows
+        raise AssertionError(f"unexpected read: {cypher[:60]}")
+
+    monkeypatch.setattr(q, "run_read_query", fake_read)
+    out = q._lot_match_candidates()
+    assert len(out) == 1
+    row = out[0]
+    assert row["auction_id"] == "796269"
+    assert row["lot_count"] == 6
+    assert [c["lot_key"] for c in row["candidates"]] == \
+        ["notice.jpg#1", "notice.jpg#2"]
+    # sqft is rounded for display; a missing one stays None, not 0.
+    assert row["candidates"][0]["sqft"] == 1200.5
+    assert row["candidates"][1]["sqft"] is None
+    assert row["reason"]
+
+
+def test_lot_match_candidates_short_circuits_on_no_open_listings(monkeypatch):
+    calls = []
+
+    def fake_read(cypher, params=None, **kw):
+        calls.append(cypher)
+        return []
+
+    monkeypatch.setattr(q, "run_read_query", fake_read)
+    assert q._lot_match_candidates() == []
+    # The second (lot-detail) query never fires when there's nothing to join.
+    assert len(calls) == 1
+
+
+def test_lot_match_decision_rejects_a_lot_key_off_the_listing_s_notice(
+        monkeypatch):
+    monkeypatch.setattr(q, "_count_query", lambda *a, **k: {"n": 0})
+    with pytest.raises(ValueError, match="not a lot on"):
+        q.record_resolution_decision(
+            "lot-match", {"auction_id": "796269", "lot_key": "wrong.jpg#9"},
+            "approved", by_email="x")
+
+
+def test_lot_match_decision_accepts_a_lot_key_on_the_listing_s_notice(
+        monkeypatch):
+    written = {}
+    monkeypatch.setattr(q, "_count_query", lambda *a, **k: {"n": 1})
+    monkeypatch.setattr(
+        q, "run_query",
+        lambda cypher, params=None: written.update(params or {}) or [{"n": 1}])
+    out = q.record_resolution_decision(
+        "lot-match", {"auction_id": "796269", "lot_key": "notice.jpg#3"},
+        "approved", by_email="reviewer@example.com")
+    assert out["key"].startswith("lot-match:")
+    assert written["by"] == "reviewer@example.com"
+
+
+def test_lot_match_rejection_skips_the_notice_check(monkeypatch):
+    """A rejection ("none of these") doesn't need the lot to exist — there's
+    nothing to point `resolved_lot_key` at."""
+    monkeypatch.setattr(
+        q, "_count_query",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("should not run")))
+    monkeypatch.setattr(q, "run_query", lambda c, p=None: [{"n": 1}])
+    out = q.record_resolution_decision(
+        "lot-match", {"auction_id": "796269", "lot_key": "notice.jpg#3"},
+        "rejected", by_email="x")
+    assert out["key"].startswith("lot-match:")
 
 
 def test_undo_recomputes_the_same_key(monkeypatch):

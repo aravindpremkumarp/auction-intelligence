@@ -773,6 +773,27 @@ class ResolutionVillage(BaseModel):
     candidates: list[VillageCandidate] = []
 
 
+class LotMatchCandidate(BaseModel):
+    lot_key: str
+    reserve: float | None = None
+    sqft: float | None = None
+    address: str | None = None
+    borrowers: list[str] = []
+
+
+class ResolutionLotMatch(BaseModel):
+    """A listing on a multi-lot notice `pipeline/lot_resolution.py` could
+    not place — same evidence (reserve price, borrower name) the resolver
+    itself compared, on the listing and every candidate lot."""
+    auction_id: str
+    title: str | None = None
+    reserve: float | None = None
+    borrower: str | None = None
+    lot_count: int
+    reason: str
+    candidates: list[LotMatchCandidate] = []
+
+
 class ResolutionReviewOut(BaseModel):
     """The queues a human works through. Every row is a fact to settle, not a
     document to walk — one verdict covers every notice the fact touches."""
@@ -780,13 +801,14 @@ class ResolutionReviewOut(BaseModel):
     branch_pairs: list[ResolutionBranchPair] = []
     district_conflicts: list[ResolutionConflict] = []
     unmatched_villages: list[ResolutionVillage] = []
+    lot_matches: list[ResolutionLotMatch] = []
     decided: int = 0
     open: int = 0
 
 
 class ResolutionDecisionIn(BaseModel):
     kind: Literal["bank-merge", "branch-merge", "district-conflict",
-                  "village-alias", "village-skip"]
+                  "village-alias", "village-skip", "lot-match"]
     verdict: Literal["approved", "rejected"]
     # What the decision is about; fields depend on kind (see
     # pipeline/resolution_review.py). The stored key is always derived from

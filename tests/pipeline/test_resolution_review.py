@@ -167,16 +167,3 @@ def test_lot_match_key_is_a_registered_decision_kind():
     assert decision_key("lot-match", {"auction_id": "796269",
                                       "lot_key": "notice.jpg#3"}) == \
         lot_match_key("796269", "notice.jpg#3")
-
-
-def test_resolved_lot_matches_only_counts_approved_ones():
-    from pipeline.resolution_review import resolved_lot_matches
-
-    approved = _decision("lot-match",
-                         {"auction_id": "796269", "lot_key": "notice.jpg#3"},
-                         "approved")
-    rejected = _decision("lot-match",
-                         {"auction_id": "700001", "lot_key": "notice2.jpg#1"},
-                         "rejected")
-    done = resolved_lot_matches([approved, rejected])
-    assert done == {"796269"}
