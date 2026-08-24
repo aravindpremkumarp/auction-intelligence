@@ -18,14 +18,16 @@ def _stub(monkeypatch, lot_rows=None, listing_rows=None):
     monkeypatch.setattr(SN, "run_read_query", fake)
 
 
-def _lot_row(auction_id="A1", score=3.0, lot_count=1):
+def _lot_row(auction_id="A1", score=3.0, lot_count=1, resolved_lot_key=None):
     return {"auction_id": auction_id, "source": "lot", "score": score,
-            "snippet": "borewell mentioned here", "lot_count": lot_count}
+            "snippet": "borewell mentioned here", "lot_count": lot_count,
+            "resolved_lot_key": resolved_lot_key}
 
 
-def _listing_row(auction_id="A1", score=3.0, lot_count=1):
+def _listing_row(auction_id="A1", score=3.0, lot_count=1, resolved_lot_key=None):
     return {"auction_id": auction_id, "source": "listing", "score": score,
-            "snippet": "a listing blurb", "lot_count": lot_count}
+            "snippet": "a listing blurb", "lot_count": lot_count,
+            "resolved_lot_key": resolved_lot_key}
 
 
 # ── the query builder ───────────────────────────────────────────────────
@@ -83,6 +85,15 @@ def test_multi_lot_hit_is_scoped_as_notice(monkeypatch):
     row = out["results"][0]
     assert row["scope"] == "notice"
     assert "does not say which one" in row["scope_note"]
+
+
+def test_a_resolved_multi_lot_hit_reads_as_lot_scoped(monkeypatch):
+    _stub(monkeypatch, lot_rows=[_lot_row(auction_id="796269", lot_count=6,
+                                         resolved_lot_key="notice.jpg#3")])
+    out = SN.search_notices("borewell")
+    row = out["results"][0]
+    assert row["scope"] == "lot"
+    assert "scope_note" not in row
 
 
 def test_same_auction_id_from_both_indexes_merges_into_one_result(monkeypatch):

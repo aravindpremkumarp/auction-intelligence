@@ -358,7 +358,7 @@ RETURN a.auction_id AS auction_id,
        [(a)-[:HAS_PROPERTY_TYPE]->(pt:PropertyType) | pt.name] AS property_types,
        a.reserve_price_num AS reserve_price, a.emd_num AS emd,
        a.auction_start_dt AS auction_start, a.application_deadline_dt AS deadline,
-       a.url AS url,
+       a.url AS url, a.resolved_lot_key AS resolved_lot_key,
        lot_count, sqft_min, sqft_max, max_attempt
 """
 
@@ -366,7 +366,8 @@ RETURN a.auction_id AS auction_id,
 def _shape_row(r: dict) -> dict:
     """One listing, with its lot-derived values scope-tagged."""
     lot_count = r.get("lot_count") or 0
-    scope = scope_of(lot_count)
+    resolved = bool(r.get("resolved_lot_key"))
+    scope = scope_of(lot_count, resolved)
     lo, hi = r.get("sqft_min"), r.get("sqft_max")
     row = {
         "auction_id": r.get("auction_id"),

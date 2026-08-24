@@ -260,22 +260,29 @@ def now_utc() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def scope_of(lot_count: int | None) -> str:
-    """`lot` when the notice describes exactly one lot, else `notice`.
+def scope_of(lot_count: int | None, resolved: bool = False) -> str:
+    """`lot` when the notice describes exactly one lot, else `notice` —
+    unless `resolved` says a resolver already identified which lot on a
+    multi-lot notice this listing is, in which case it is `lot` too.
 
     This is the whole scope-honesty mechanism. A `lot`-scoped value is a fact
     about this property. A `notice`-scoped value is a fact about the notice
     the property was listed in, which covers several lots — stating it as a
     property fact is wrong, and the answer gate treats it as a failure.
+
+    `resolved` comes from `AuctionProperty.resolved_lot_key` — see
+    `pipeline/lot_resolution.py`. Most multi-lot notices resolve on an exact
+    reserve-price join nobody used to query; a listing this decisive is a
+    fact about THIS property, same as a single-lot notice, not a guess.
     """
-    if lot_count == 1:
+    if resolved or lot_count == 1:
         return "lot"
     return "notice"
 
 
-def scope_note(field: str, lot_count: int | None) -> str | None:
+def scope_note(field: str, lot_count: int | None, resolved: bool = False) -> str | None:
     """The sentence the agent must carry when a value is notice-scoped."""
-    if scope_of(lot_count) == "lot":
+    if scope_of(lot_count, resolved) == "lot":
         return None
     if not lot_count:
         return (f"No sale-notice lot could be read for this listing, so "

@@ -155,3 +155,28 @@ def test_decided_branch_pairs_leave_the_queue_either_way():
                   "rejected")
     left = filter_branch_proposals(proposals, [d])
     assert [p["bank"] for p in left] == ["Indian Overseas Bank"]
+
+
+def test_lot_match_key_is_a_registered_decision_kind():
+    """`decision_key` is the single dispatcher every write and undo goes
+    through — a kind missing here can never be recorded at all."""
+    from pipeline.lot_resolution import lot_match_key
+    from pipeline.resolution_review import KINDS
+
+    assert "lot-match" in KINDS
+    assert decision_key("lot-match", {"auction_id": "796269",
+                                      "lot_key": "notice.jpg#3"}) == \
+        lot_match_key("796269", "notice.jpg#3")
+
+
+def test_resolved_lot_matches_only_counts_approved_ones():
+    from pipeline.resolution_review import resolved_lot_matches
+
+    approved = _decision("lot-match",
+                         {"auction_id": "796269", "lot_key": "notice.jpg#3"},
+                         "approved")
+    rejected = _decision("lot-match",
+                         {"auction_id": "700001", "lot_key": "notice2.jpg#1"},
+                         "rejected")
+    done = resolved_lot_matches([approved, rejected])
+    assert done == {"796269"}

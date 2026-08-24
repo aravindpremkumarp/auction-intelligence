@@ -108,6 +108,27 @@ def test_multi_lot_notice_has_no_flat_property_field_at_all(monkeypatch):
     assert "2 lots" in prop["scope_note"]
 
 
+def test_a_resolved_lot_on_a_multi_lot_notice_reads_as_the_property_s_own(monkeypatch):
+    """The whole point of the resolver: once `AuctionProperty.resolved_lot_key`
+    is set, a multi-lot notice's listing gets the SAME shape a single-lot
+    notice gets — `property`, not `notice_lots`, and no scope_note."""
+    # Resolved lot is "k#2", listed SECOND — proves the property comes from
+    # matching `resolved_lot_key`, not from taking whichever lot sorts first.
+    _stub(monkeypatch, listings=[_listing("A2", resolved_lot_key="k#2")],
+          docs=[_doc("A2")],
+          lots=[_lot("A2", "k#1", sqft=7040.0), _lot("A2", "k#2", sqft=3359.0)])
+    out = GP.get_property("A2", depth="full")
+    prop = out["properties"][0]
+    assert prop["scope"] == "lot"
+    assert prop["notice_lot_count"] == 2
+    assert prop["property"]["lot_key"] == "k#2"
+    assert prop["property"]["headline_sqft"] == 3359.0
+    assert "scope_note" not in prop
+    assert "notice_lots" not in prop
+    assert "resolved_lot_key" not in prop["listing"], \
+        "internal bookkeeping field leaked into the model-facing payload"
+
+
 def test_standard_depth_withholds_the_lot_list_but_keeps_the_summary(monkeypatch):
     _stub(monkeypatch, listings=[_listing("A2")], docs=[_doc("A2")],
           lots=[_lot("A2", "k#1"), _lot("A2", "k#2")])
