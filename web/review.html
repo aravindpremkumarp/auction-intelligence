@@ -1365,6 +1365,35 @@
         )).join('') + `</div>`);
     }
 
+    if (d.lot_matches.length) {
+      blocks.push(`<div class="ov-panel"><div class="ov-head">Multi-lot listings — which lot is this one?</div>
+        <p class="meta" style="color:var(--muted)">the resolver already tried
+        reserve price and borrower name and couldn't decide; pick the lot
+        that matches, or say none of them do</p>` +
+        d.lot_matches.map(m => rrRow(
+          `<b>${escapeHtml(m.title || m.auction_id)}</b>
+           <small style="color:var(--muted)"> · ${escapeHtml(m.auction_id)} · ${
+             m.lot_count} lots · reserve ${m.reserve != null ? '₹' + m.reserve.toLocaleString('en-IN') : '—'}${
+             m.borrower ? ' · borrower ' + escapeHtml(m.borrower) : ''}</small><br>
+           <small style="color:var(--muted)">${escapeHtml(m.reason)}</small>
+           <div style="display:flex; flex-direction:column; gap:4px; margin-top:6px">${
+             m.candidates.map(c => `<div style="display:flex; gap:8px; align-items:baseline">
+               <span style="flex:1">${escapeHtml(c.lot_key)}
+                 <small style="color:var(--muted)">${
+                   c.reserve != null ? '₹' + c.reserve.toLocaleString('en-IN') : 'no reserve'}${
+                   c.sqft != null ? ' · ' + c.sqft + ' sqft' : ''}${
+                   c.address ? ' · ' + escapeHtml(c.address) : ''}${
+                   c.borrowers.length ? ' · ' + escapeHtml(c.borrowers.join(', ')) : ''
+                 }</small></span>
+               ${rrBtn('This one', { kind: 'lot-match',
+                   payload: { auction_id: m.auction_id, lot_key: c.lot_key },
+                   verdict: 'approved' })}
+             </div>`).join('')
+           }</div>`,
+          ''
+        )).join('') + `</div>`);
+    }
+
     if (blocks.length === 1) {
       blocks.push('<div class="ov-panel">nothing waiting — every question is settled</div>');
     }

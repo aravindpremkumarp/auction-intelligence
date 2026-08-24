@@ -1827,15 +1827,98 @@ def resolution_review() -> dict:
         "candidates": top3(r["village"], r["taluk"]),
     } for r in open_rows]
 
+    lot_matches = _lot_match_candidates()
+
     return {
         "bank_pairs": bank_pairs,
         "branch_pairs": branch_pairs,
         "district_conflicts": district_conflicts,
         "unmatched_villages": unmatched_villages,
+        "lot_matches": lot_matches,
         "decided": len(decisions),
         "open": (len(bank_pairs) + len(branch_pairs)
-                 + len(district_conflicts) + len(unmatched_villages)),
+                 + len(district_conflicts) + len(unmatched_villages)
+                 + len(lot_matches)),
     }
+
+
+#: Cap on rows in one queue load — this queue is a fully-computed exact
+#: count (not a corpus-wide fuzzy proposal set that could run unbounded), so
+#: 200 comfortably covers everything seen live (160) with headroom, while
+#: still bounding the query if the backlog ever grows past what one page
+#: should show at once.
+_LOT_MATCH_LIMIT = 200
+
+
+def _lot_match_candidates() -> list[dict]:
+    """Listings on a multi-lot notice `pipeline/lot_resolution.py` could not
+    place on its own — the queue a human works through.
+
+    A live query, not a stored proposal set (unlike bank/branch lookalikes):
+    the resolver's `reserve_price_num` join is exact and cheap to recompute
+    on every load, and "still ambiguous" is already the WHOLE definition of
+    the queue (`resolved_lot_key IS NULL` on a multi-lot notice) — there is
+    no separate fuzzy-candidate-generation step to cache.
+
+    Each row carries the SAME evidence the resolver itself compared —
+    reserve price and borrower name — on both the listing and every
+    candidate lot, so a human sees exactly what the rule saw and why it
+    couldn't decide, not just a bare "pick one".
+    """
+    from pipeline.lot_resolution import resolve_lot
+
+    rows = run_read_query(
+        """
+        MATCH (p:AuctionProperty)-[:HAS_DOCUMENT]->(d:Document)-[:HAS_LOT]->(l:Lot)
+        WITH p, d, count(l) AS lot_count
+        WHERE lot_count > 1 AND p.resolved_lot_key IS NULL
+        RETURN p.auction_id AS auction_id, p.title AS title, d.file_path AS file_path,
+               p.reserve_price_num AS reserve, lot_count,
+               [(p)-[:HAS_BORROWER]->(b:Borrower) | b.name][0] AS borrower
+        ORDER BY lot_count, auction_id
+        LIMIT $limit
+        """, {"limit": _LOT_MATCH_LIMIT}, max_rows=_LOT_MATCH_LIMIT, timeout=60.0)
+    if not rows:
+        return []
+
+    file_paths = sorted({r["file_path"] for r in rows})
+    lot_rows = run_read_query(
+        """
+        MATCH (d:Document)-[:HAS_LOT]->(l:Lot)
+        WHERE d.file_path IN $paths
+        OPTIONAL MATCH (l)-[:OFFERED_IN]->(au:Auction)
+        OPTIONAL MATCH (l)-[e:HAS_EXTENT]->(m:Measurement) WHERE e.is_headline
+        RETURN d.file_path AS file_path, l.lot_key AS lot_key,
+               au.reserve_price_num AS reserve, m.sqft_norm AS sqft,
+               l.address AS address,
+               [(l)-[:HAS_PARTY|TITLE_HELD_BY]->(b:Borrower) | b.name] AS borrowers
+        """, {"paths": file_paths}, max_rows=5000, timeout=60.0)
+    lots_by_fp: dict[str, list[dict]] = {}
+    for r in lot_rows:
+        lots_by_fp.setdefault(r["file_path"], []).append({
+            "lot_key": r["lot_key"], "reserve": r["reserve"], "sqft": r["sqft"],
+            "address": r["address"], "borrowers": [b for b in (r["borrowers"] or []) if b],
+        })
+
+    out = []
+    for r in rows:
+        candidates = lots_by_fp.get(r["file_path"], [])
+        verdict = resolve_lot(
+            listing_reserve=r["reserve"], listing_borrower=r["borrower"],
+            candidates=[{"lot_key": c["lot_key"], "reserve": c["reserve"],
+                        "borrowers": c["borrowers"]} for c in candidates])
+        out.append({
+            "auction_id": r["auction_id"], "title": r["title"],
+            "reserve": r["reserve"], "borrower": r["borrower"],
+            "lot_count": r["lot_count"],
+            "reason": verdict["reason"],
+            "candidates": [{
+                "lot_key": c["lot_key"], "reserve": c["reserve"],
+                "sqft": round(c["sqft"], 1) if c["sqft"] is not None else None,
+                "address": c["address"], "borrowers": c["borrowers"],
+            } for c in candidates],
+        })
+    return out
 
 
 def record_resolution_decision(kind: str, payload: dict, verdict: str,
@@ -1844,8 +1927,9 @@ def record_resolution_decision(kind: str, payload: dict, verdict: str,
 
     The key is always derived from the kind and payload — never accepted from
     the caller — so a decision can only land on the strings it names. An
-    approved village alias is checked against the gazetteer first: a typo in
-    the target must fail loudly here, not invent a place downstream.
+    approved village alias is checked against the gazetteer first, and an
+    approved lot-match against the listing's own document: either one, a bad
+    value here must fail loudly rather than invent a place or a lot downstream.
     """
     import json as _json
 
@@ -1870,6 +1954,24 @@ def record_resolution_decision(kind: str, payload: dict, verdict: str,
             raise ValueError(
                 f"{payload.get('target')!r} is not a revenue village of "
                 f"{payload.get('taluk')!r} — the alias would point nowhere")
+
+    if kind == "lot-match" and verdict == APPROVED:
+        # A picked lot_key must actually be on THIS listing's document — the
+        # review UI only ever offers lots from the listing's own candidate
+        # list, but the endpoint accepts arbitrary payloads, and a bad key
+        # here would silently point `resolved_lot_key` at nothing.
+        hit = _count_query(
+            """
+            MATCH (p:AuctionProperty {auction_id: $auction_id})
+                  -[:HAS_DOCUMENT]->(:Document)-[:HAS_LOT]->
+                  (l:Lot {lot_key: $lot_key})
+            RETURN count(l) AS n
+            """, {"auction_id": payload.get("auction_id"),
+                  "lot_key": payload.get("lot_key")})
+        if not int(hit.get("n") or 0):
+            raise ValueError(
+                f"{payload.get('lot_key')!r} is not a lot on "
+                f"{payload.get('auction_id')!r}'s sale notice")
 
     run_query(
         """
@@ -1936,6 +2038,7 @@ def _resolution_review_panels() -> list[dict]:
             ("branch lookalike pairs", len(queues["branch_pairs"])),
             ("district conflict patterns", len(queues["district_conflicts"])),
             ("unmatched village strings", len(queues["unmatched_villages"])),
+            ("lot matches to review", len(queues["lot_matches"])),
         ], max(queues["open"], 1)),
                "each row on the review queue settles every notice it touches"),
         _panel("Verdicts banked", _rows(
@@ -2000,11 +2103,13 @@ def run_resolution_apply() -> None:
     try:
         from scripts.resolve_bank_names import run as run_banks
         from scripts.resolve_branches import run as run_branches
+        from scripts.resolve_lots import run as run_lots
         from scripts.resolve_places import run as run_places
         # Branches after banks: their scope is d.bank_canonical, which the
-        # lender pass may have just rewritten.
+        # lender pass may have just rewritten. Lots is independent of both —
+        # order doesn't matter, it only reads reserve price and borrower name.
         summary = {"banks": run_banks(), "branches": run_branches(),
-                   "places": run_places()}
+                   "places": run_places(), "lots": run_lots()}
         run_query(
             """
             MERGE (s:PipelineState {key:'resolution_apply'})

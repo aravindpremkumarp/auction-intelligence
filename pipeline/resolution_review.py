@@ -236,17 +236,3 @@ def settled_conflicts(decisions: list[dict]) -> set[str]:
     """Keys of district-conflict patterns a human has confirmed or overruled —
     either way the pattern leaves the queue."""
     return set(_decided(decisions, "district-conflict"))
-
-
-def resolved_lot_matches(decisions: list[dict]) -> set[str]:
-    """`auction_id`s that already carry an approved lot-match decision.
-
-    The resolver skips these on later runs — the same idempotency the other
-    resolvers get from `ruled_pairs` (bank-merge) and `settled_conflicts`
-    (district-conflict): re-running must not re-timestamp a decision that
-    already stands, auto-applied or human-verified alike.
-    """
-    return {d["payload"]["auction_id"]
-            for d in _decided(decisions, "lot-match").values()
-            if d.get("verdict") == APPROVED
-            and (d.get("payload") or {}).get("auction_id")}

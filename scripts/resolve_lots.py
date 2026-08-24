@@ -45,7 +45,7 @@ import urllib.request
 from collections import defaultdict
 
 from pipeline.lot_resolution import resolve_lot
-from pipeline.resolution_review import lot_match_key, resolved_lot_matches
+from pipeline.resolution_review import lot_match_key
 from scripts.resolution_decisions import load_decisions
 
 
@@ -200,16 +200,77 @@ def write_back(resolved: list[dict]) -> int:
     return len(rows)
 
 
+def _approved_lot_keys(decisions: list[dict]) -> dict[str, str]:
+    """``auction_id -> lot_key`` for every approved lot-match decision,
+    whoever made it. A human's pick from the review queue and the
+    resolver's own auto-approval are indistinguishable once decided — both
+    get applied to the graph the same way, by :func:`apply_decided`.
+    """
+    out: dict[str, str] = {}
+    for d in decisions:
+        if d.get("kind") != "lot-match" or d.get("verdict") != "approved":
+            continue
+        payload = d.get("payload") or {}
+        aid, lot_key = payload.get("auction_id"), payload.get("lot_key")
+        if aid and lot_key:
+            out[aid] = lot_key
+    return out
+
+
+def apply_decided(approved: dict[str, str]) -> int:
+    """Write `resolved_lot_key` for every already-DECIDED listing whose
+    property doesn't reflect it yet — this is what makes a human's pick in
+    the review queue actually take effect.
+
+    A `ResolutionDecision` alone changes nothing on the `AuctionProperty`
+    node; the property is what every agent3 tool actually reads. Only the
+    DELTA is written (current value compared against the decision), not
+    every already-applied one on every run — re-touching 1,800+ correct
+    properties on every "Apply my decisions" click would be both wasteful
+    and would blur `lot_resolved_at` into meaning nothing.
+    """
+    if not approved:
+        return 0
+    ids = list(approved.keys())
+    current: dict[str, str | None] = {}
+    for i in range(0, len(ids), 1000):
+        batch = ids[i:i + 1000]
+        for aid, key in nq("""
+            UNWIND $ids AS aid
+            MATCH (p:AuctionProperty {auction_id: aid})
+            RETURN p.auction_id, p.resolved_lot_key
+        """, {"ids": batch}):
+            current[aid] = key
+    stale = [{"auction_id": aid, "lot_key": lot_key}
+            for aid, lot_key in approved.items() if current.get(aid) != lot_key]
+    if not stale:
+        return 0
+    for i in range(0, len(stale), 500):
+        nq("""
+            UNWIND $rows AS row
+            MATCH (p:AuctionProperty {auction_id: row.auction_id})
+            SET p.resolved_lot_key = row.lot_key,
+                p.lot_resolved_at  = datetime()
+        """, {"rows": stale[i:i + 500]})
+    return len(stale)
+
+
 def run(*, dry_run: bool = False) -> dict:
-    """One full resolution pass; the CLI lands here. Returns a summary the
-    caller can print or store."""
+    """One full resolution pass; the CLI and the review app's "Apply my
+    decisions" button both land here. Returns a summary the caller can
+    print or store.
+
+    Two things happen, in order: every already-decided listing (auto or
+    human) is applied to the graph if it isn't already, THEN the rule tries
+    to auto-resolve whatever nobody has decided on at all.
+    """
     listings, lots_by_file_path = collect()
     decisions = load_decisions()
-    already_done = resolved_lot_matches(decisions)
+    approved = _approved_lot_keys(decisions)
 
-    pending = [l for l in listings if l["auction_id"] not in already_done]
+    pending = [l for l in listings if l["auction_id"] not in approved]
     print(f"{len(listings)} listing(s) on multi-lot notices; "
-          f"{len(already_done)} already resolved, {len(pending)} to try")
+          f"{len(approved)} already decided, {len(pending)} to try")
 
     resolved: list[dict] = []
     by_method: dict[str, int] = defaultdict(int)
@@ -233,15 +294,19 @@ def run(*, dry_run: bool = False) -> dict:
         print(f"  {n:>4}  {method}")
     print(f"  {unresolved:>4}  left ambiguous (no decision written)")
 
-    summary = {"listings": len(listings), "already_resolved": len(already_done),
+    summary = {"listings": len(listings), "already_decided": len(approved),
                "attempted": len(pending), "resolved": len(resolved),
                "by_method": dict(by_method), "unresolved": unresolved}
     if dry_run:
         print("\n[dry-run] nothing written")
         return summary
 
+    applied = apply_decided(approved)
     wrote = write_back(resolved)
-    print(f"\nwrote resolved_lot_key + lot-match decision for {wrote} listing(s)")
+    print(f"\napplied {applied} previously-decided listing(s) to the graph "
+          f"(human picks not yet reflected); "
+          f"auto-resolved {wrote} new listing(s) this run")
+    summary["applied"] = applied
     return summary
 
 
