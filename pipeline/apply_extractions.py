@@ -27,6 +27,15 @@ Per Document:
      description_human_backup). Enrichment fields use the same
      property names as pipeline/load_enriched.flatten_enrichment so the API
      and UI keep working unchanged; only non-null values are written (SET +=).
+  5. Also write AuctionProperty.resolved_lot_key from the SAME lot match
+     step 3 already computed — the match was previously used only to route
+     field/description writes and then discarded. This is a strictly better
+     source for "which lot is this listing" than pipeline/lot_resolution.py
+     (reserve+borrower only, run separately against the :Lot graph): it adds
+     EMD and survey/door-identifier tiers, and reads the live extraction
+     directly rather than a possibly-stale graph copy of it. It overwrites
+     any prior AUTOMATED lot-match verdict when the two disagree, but never
+     a human's (see human_decided_lot_matches / write_lot_matches).
 
 Run:  python -m pipeline.apply_extractions [--limit N] [--dry-run]
 """
@@ -44,6 +53,7 @@ from datetime import datetime, timezone
 from api.neo4j_client import run_query, run_read_query
 from pipeline.obs import get_logger
 from pipeline.property_taxonomy import asset_category, classify_property_type
+from pipeline.resolution_review import lot_match_key
 
 log = get_logger(__name__)
 
@@ -262,6 +272,7 @@ def group_lots(entities: list[dict]) -> dict[str, dict]:
         if rec["doors_new"]:
             f["door_numbers_new"] = ", ".join(dict.fromkeys(rec["doors_new"]))
         out[li] = {
+            "lot_index": li,
             "description": "\n\n".join(rec["description_parts"]) or None,
             "fields": f,
             "reserve": rec["reserve"],
@@ -456,16 +467,98 @@ def write_descriptions(rows: list[dict]) -> int:
     return written
 
 
+def human_decided_lot_matches() -> set[str]:
+    """`auction_id`s whose lot-match decision was made by a person, not a
+    rule — a reviewer who opened the notice and picked a lot outranks any
+    automated matcher, this one included, so `write_lot_matches` must never
+    touch them."""
+    rows = run_read_query(
+        """
+        MATCH (r:ResolutionDecision {kind: 'lot-match', verdict: 'approved'})
+        WHERE r.decided_by IS NOT NULL
+          AND NOT r.decided_by STARTS WITH 'system:'
+        RETURN r.payload_json AS payload_json
+        """, max_rows=5000, timeout=30.0)
+    out: set[str] = set()
+    for r in rows:
+        try:
+            payload = json.loads(r.get("payload_json") or "{}")
+        except (TypeError, ValueError):
+            continue
+        aid = payload.get("auction_id")
+        if aid:
+            out.add(aid)
+    return out
+
+
+def write_lot_matches(rows: list[dict]) -> int:
+    """Persist `resolved_lot_key` from THIS pipeline's own listing<->lot
+    match — `match_lots_to_listings()` already computes it (reserve price,
+    then EMD, then borrower-name overlap, then survey/door identifiers, then
+    unique-remainder pairing) to route field/description writes; recording
+    it is what makes `api/agent3/common.py::scope_of()` and the agent3 tools
+    actually see it as lot-scoped, not just this pipeline's own writes.
+
+    Overwrites unconditionally against any prior AUTOMATED verdict —
+    `pipeline/lot_resolution.py`'s reserve+borrower-only pass over the `Lot`
+    graph is strictly less evidence than this pipeline's four-tier match run
+    directly against the live extraction, so a disagreement means the older
+    write was more likely wrong. Never touches a human's verdict (filtered
+    out by the caller via `human_decided_lot_matches()`).
+
+    A lot-key change deletes the superseded `ResolutionDecision` (its key
+    embeds the lot_key, so a new pick is a new node) rather than leaving a
+    now-wrong verdict sitting in the audit trail next to the current one.
+    """
+    if not rows:
+        return 0
+    written = 0
+    now_iso = datetime.now(timezone.utc).isoformat()
+    for batch in chunked(rows, WRITE_CHUNK):
+        for row in batch:
+            row["decision_key"] = lot_match_key(row["aid"], row["lot_key"])
+            row["payload"] = json.dumps(
+                {"auction_id": row["aid"], "lot_key": row["lot_key"],
+                 "method": row["reason"]}, ensure_ascii=False)
+        res = run_query("""
+            UNWIND $rows AS row
+            MATCH (a:AuctionProperty {auction_id: row.aid})
+            SET a.resolved_lot_key = row.lot_key,
+                a.lot_resolved_at  = datetime($at)
+            RETURN a.auction_id AS aid
+        """, {"rows": batch, "at": now_iso})
+        run_query("""
+            UNWIND $rows AS row
+            MATCH (old:ResolutionDecision {kind: 'lot-match'})
+            WHERE old.key STARTS WITH ('lot-match:' + row.aid + '|')
+              AND old.key <> row.decision_key
+            DETACH DELETE old
+        """, {"rows": batch})
+        run_query("""
+            UNWIND $rows AS row
+            MERGE (r:ResolutionDecision {key: row.decision_key})
+            SET r.kind = 'lot-match', r.verdict = 'approved',
+                r.payload_json = row.payload, r.decided_at = datetime(),
+                r.decided_by = 'system:apply_extractions'
+        """, {"rows": batch})
+        written += len(res) if res else 0
+    return written
+
+
 # ── main ─────────────────────────────────────────────────────────────────────
 
 def run(limit: int | None = None, dry_run: bool = False) -> int:
     work = fetch_work(limit)
     print(f"Documents with grounded extraction: {len(work)}")
 
+    human_decided = human_decided_lot_matches()
+
     field_rows: list[dict] = []
     desc_rows: list[dict] = []
+    lot_key_rows: list[dict] = []
     unmatched_out: list[dict] = []
     stats = defaultdict(int)
+    human_skipped = 0
 
     for w in work:
         ents = entities_with_corrections(w["extraction_json"],
@@ -485,6 +578,18 @@ def run(limit: int | None = None, dry_run: bool = False) -> int:
             if lot["description"]:
                 desc_rows.append({"aid": listing["aid"],
                                   "desc": lot["description"]})
+            # Only a genuinely multi-lot notice needs resolved_lot_key —
+            # scope_of() already reads a single-lot notice as lot-scoped
+            # without it, same as scripts/resolve_lots.py's own scope.
+            if len(lots) > 1:
+                if listing["aid"] in human_decided:
+                    human_skipped += 1
+                else:
+                    lot_key_rows.append({
+                        "aid": listing["aid"],
+                        "lot_key": f"{w['filename']}#{lot['lot_index']}",
+                        "reason": reason,
+                    })
         for listing, reason in unmatched:
             stats[f"unmatched_{reason}"] += 1
             unmatched_out.append({"aid": listing["aid"],
@@ -496,6 +601,8 @@ def run(limit: int | None = None, dry_run: bool = False) -> int:
 
     print(f"  match/unmatch stats: {dict(stats)}")
     print(f"  field rows: {len(field_rows)}  description rows: {len(desc_rows)}  "
+          f"lot-key rows: {len(lot_key_rows)}  "
+          f"skipped (human-decided): {human_skipped}  "
           f"unmatched: {len(unmatched_out)}")
 
     if unmatched_out and not dry_run:
@@ -515,8 +622,10 @@ def run(limit: int | None = None, dry_run: bool = False) -> int:
 
     nf = write_fields(field_rows)
     nd = write_descriptions(desc_rows)
+    nl = write_lot_matches(lot_key_rows)
     print(f"  wrote fields to {nf} listings, descriptions to {nd} listings "
-          f"(legacy human descriptions overwritten, backed up once)")
+          f"(legacy human descriptions overwritten, backed up once), "
+          f"lot key to {nl} listings")
     return 0
 
 

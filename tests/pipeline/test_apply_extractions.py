@@ -119,6 +119,19 @@ def test_group_lots_first_non_null_wins():
     assert AX.group_lots(ents)["1"]["fields"]["village"] == "First"
 
 
+def test_group_lots_carries_its_own_index():
+    """lot_index travels with the lot record through match_lots_to_listings
+    unchanged — it's what write_lot_matches uses to rebuild the SAME
+    lot_key promote_extractions.py wrote onto the :Lot graph node."""
+    ents = [
+        ent("location", "", {"village": "A", "lot_index": "1"}),
+        ent("location", "", {"village": "B", "lot_index": "2"}),
+    ]
+    lots = AX.group_lots(ents)
+    assert lots["1"]["lot_index"] == "1"
+    assert lots["2"]["lot_index"] == "2"
+
+
 # ── match_lots_to_listings ───────────────────────────────────────────────────
 
 def _lot(reserve, desc="d", emd=None, borrowers=None):
@@ -349,3 +362,58 @@ def test_write_fields_sets_provenance(monkeypatch):
     assert n == 1
     assert "grounded_extraction" in captured["cypher"]
     assert captured["params"]["rows"][0]["props"] == {"village": "Padur"}
+
+
+def test_write_lot_matches_sets_key_and_decision(monkeypatch):
+    calls = []
+
+    def _cap(cypher, params=None):
+        calls.append((cypher, params))
+        return [{"aid": "a1"}]
+
+    monkeypatch.setattr(AX, "run_query", _cap)
+    n = AX.write_lot_matches(
+        [{"aid": "a1", "lot_key": "notice.jpg#3", "reason": "exact"}])
+    assert n == 1
+    assert len(calls) == 3   # set resolved_lot_key, delete stale, merge new
+
+    set_cypher, set_params = calls[0]
+    assert "resolved_lot_key" in set_cypher
+    assert "lot_resolved_at" in set_cypher
+    row = set_params["rows"][0]
+    assert row["lot_key"] == "notice.jpg#3"
+    assert row["decision_key"] == "lot-match:a1|notice.jpg#3"
+
+    delete_cypher, delete_params = calls[1]
+    assert "DETACH DELETE" in delete_cypher
+    assert delete_params["rows"][0]["aid"] == "a1"
+
+    merge_cypher, merge_params = calls[2]
+    assert "MERGE (r:ResolutionDecision" in merge_cypher
+    assert "system:apply_extractions" in merge_cypher
+    payload = json.loads(merge_params["rows"][0]["payload"])
+    assert payload == {"auction_id": "a1", "lot_key": "notice.jpg#3",
+                       "method": "exact"}
+
+
+def test_write_lot_matches_empty_is_a_noop(monkeypatch):
+    monkeypatch.setattr(
+        AX, "run_query",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("should not run")))
+    assert AX.write_lot_matches([]) == 0
+
+
+def test_human_decided_lot_matches_excludes_automated_verdicts(monkeypatch):
+    """Only a person's decided_by (not a 'system:' prefix) counts — the
+    result gates write_lot_matches from ever touching a human's pick."""
+    rows = [
+        {"payload_json": json.dumps({"auction_id": "a1", "lot_key": "x#1"})},
+        {"payload_json": json.dumps({"auction_id": "a2", "lot_key": "y#1"})},
+    ]
+
+    def _fake_read(cypher, params=None, **kw):
+        assert "NOT r.decided_by STARTS WITH 'system:'" in cypher
+        return rows
+
+    monkeypatch.setattr(AX, "run_read_query", _fake_read)
+    assert AX.human_decided_lot_matches() == {"a1", "a2"}
