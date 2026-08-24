@@ -200,6 +200,31 @@ def test_lot_match_candidates_carries_the_resolver_s_own_evidence(monkeypatch):
     assert row["reason"]
 
 
+def test_lot_match_candidates_shows_a_listing_once_per_notice(monkeypatch):
+    """A listing can link to more than one scan of the SAME notice — 9 do on
+    the live graph. One row per (listing, document) put those on the queue
+    TWICE, each offering that scan's lots, so the reviewer saw the same
+    listing as two separate questions. The collapse happens in Cypher (the
+    DB picks one document per listing), so this guards the query text: the
+    grouping step must survive any later edit to this query.
+    """
+    seen = {}
+
+    def fake_read(cypher, params=None, **kw):
+        if "count(l) AS lot_count" in cypher:
+            seen["cypher"] = cypher
+        return []
+
+    monkeypatch.setattr(q, "run_read_query", fake_read)
+    q._lot_match_candidates([])
+    cypher = seen["cypher"]
+    # one document per listing, chosen deterministically and preferring one
+    # that actually has an image to review
+    assert "collect(d)[0] AS d" in cypher
+    assert "collect(lot_count)[0] AS lot_count" in cypher
+    assert "CASE WHEN d.public_url IS NULL THEN 1 ELSE 0 END" in cypher
+
+
 def test_lot_match_candidates_short_circuits_on_no_open_listings(monkeypatch):
     calls = []
 
