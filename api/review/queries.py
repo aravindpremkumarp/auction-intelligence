@@ -1886,6 +1886,15 @@ def _lot_match_candidates(decisions: list[dict]) -> list[dict]:
         WITH p, d, count(l) AS lot_count
         WHERE lot_count > 1 AND p.resolved_lot_key IS NULL
           AND NOT p.auction_id IN $skipped
+        // A listing can link to more than one scan of the SAME notice (9 do),
+        // and one row per (listing, document) would put that listing on the
+        // queue twice, offering each scan's lots separately. Keep one
+        // document per listing: prefer one with a public_url so the reviewer
+        // gets a notice image, then by file_path so the pick is stable
+        // between loads — the convention list_notice_siblings already uses.
+        WITH p, d, lot_count
+          ORDER BY (CASE WHEN d.public_url IS NULL THEN 1 ELSE 0 END), d.file_path
+        WITH p, collect(d)[0] AS d, collect(lot_count)[0] AS lot_count
         RETURN p.auction_id AS auction_id, p.title AS title, p.url AS listing_url,
                d.file_path AS file_path, d.public_url AS public_url,
                p.reserve_price_num AS reserve, lot_count,
