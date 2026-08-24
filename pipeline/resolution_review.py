@@ -33,7 +33,10 @@ Decision kinds and their payloads::
                                                     village (urban locality);
                                                     drop it from the queue
     lot-match         {"auction_id": str,            approve = this listing IS
-                       "lot_key": str}                this lot on its notice
+                       "lot_key": str,                this lot on its notice;
+                       "note": str (optional)}        reject + lot_key
+                                                       NONE_LOT_KEY = none of
+                                                       the candidates fit
 """
 from __future__ import annotations
 
@@ -236,3 +239,34 @@ def settled_conflicts(decisions: list[dict]) -> set[str]:
     """Keys of district-conflict patterns a human has confirmed or overruled —
     either way the pattern leaves the queue."""
     return set(_decided(decisions, "district-conflict"))
+
+
+#: Sentinel `lot_key` for "a human reviewed this listing and none of the
+#: candidate lots fit" — a real decision (with its own stable key, via
+#: `lot_match_key`), just naming no lot rather than one. Distinct from
+#: leaving a listing untouched, which the queue keeps re-offering.
+NONE_LOT_KEY = "__none__"
+
+
+def decided_lot_matches(decisions: list[dict]) -> set[str]:
+    """`auction_id`s a human (or the resolver) has already settled — approved
+    (a lot was picked) or rejected with `NONE_LOT_KEY` (none fit).
+
+    An approval alone doesn't move `resolved_lot_key` on the graph — that
+    still needs the resolver's apply step — but the DECISION is what
+    settles the question, same distinction `ruled_pairs`/`settled_conflicts`/
+    `skipped_villages` already draw for their kinds: the queue stops asking
+    the moment a human answers, not the moment the answer is applied.
+    """
+    out: set[str] = set()
+    for d in _decided(decisions, "lot-match").values():
+        payload = d.get("payload") or {}
+        aid = payload.get("auction_id")
+        if not aid:
+            continue
+        if d.get("verdict") == APPROVED and payload.get("lot_key"):
+            out.add(aid)
+        elif (d.get("verdict") == REJECTED
+              and payload.get("lot_key") == NONE_LOT_KEY):
+            out.add(aid)
+    return out

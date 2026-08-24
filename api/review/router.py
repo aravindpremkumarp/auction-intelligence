@@ -781,17 +781,30 @@ class LotMatchCandidate(BaseModel):
     borrowers: list[str] = []
 
 
+class LotMatchDbProperty(BaseModel):
+    """One AuctionProperty sharing this listing's notice — how the reviewer
+    sees "we only have 1 of this notice's 9 properties" instead of guessing
+    from the lot count alone."""
+    auction_id: str
+    title: str | None = None
+    url: str | None = None
+    reserve: float | None = None
+
+
 class ResolutionLotMatch(BaseModel):
     """A listing on a multi-lot notice `pipeline/lot_resolution.py` could
     not place — same evidence (reserve price, borrower name) the resolver
     itself compared, on the listing and every candidate lot."""
     auction_id: str
     title: str | None = None
+    listing_url: str | None = None
+    public_url: str | None = None
     reserve: float | None = None
     borrower: str | None = None
     lot_count: int
     reason: str
     candidates: list[LotMatchCandidate] = []
+    db_properties: list[LotMatchDbProperty] = []
 
 
 class ResolutionReviewOut(BaseModel):
