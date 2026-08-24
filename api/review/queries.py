@@ -1870,10 +1870,14 @@ def _lot_match_candidates(decisions: list[dict]) -> list[dict]:
     candidate lot, so a human sees exactly what the rule saw and why it
     couldn't decide, not just a bare "pick one". It also carries the notice
     image (`public_url`), this listing's own eauctionsindia link
-    (`listing_url`), and every other AuctionProperty sharing the same
-    notice (`db_properties`, each with its own eauctionsindia link) — a
-    9-lot notice the portal only scraped once should read as "1 property in
-    our DB", not be confused with the notice's own lot count.
+    (`listing_url`), the portal's own description of the listing
+    (`listing_description` — what the reviewer compares the candidate lots
+    AGAINST; sibling flats differ only in a door or assessment number, and
+    without this the row shows the candidates with nothing to weigh them
+    against), and every other AuctionProperty sharing the same notice
+    (`db_properties`, each with its own eauctionsindia link) — a 9-lot
+    notice the portal only scraped once should read as "1 property in our
+    DB", not be confused with the notice's own lot count.
     """
     from pipeline.lot_resolution import resolve_lot
     from pipeline.resolution_review import decided_lot_matches
@@ -1898,7 +1902,17 @@ def _lot_match_candidates(decisions: list[dict]) -> list[dict]:
         RETURN p.auction_id AS auction_id, p.title AS title, p.url AS listing_url,
                d.file_path AS file_path, d.public_url AS public_url,
                p.reserve_price_num AS reserve, lot_count,
-               [(p)-[:HAS_BORROWER]->(b:Borrower) | b.name][0] AS borrower
+               [(p)-[:HAS_BORROWER]->(b:Borrower) | b.name][0] AS borrower,
+               // The portal's OWN words for this listing. Without it the row
+               // shows each candidate lot's address but nothing to compare
+               // them against, and a reviewer looking at sibling flats has
+               // no way to tell which one the listing is — the deciding
+               // detail (a door number, an assessment number) is in here.
+               // website_description, not description: the latter is
+               // overwritten from the notice by apply_extractions, so it
+               // would echo a lot back at itself instead of being
+               // independent evidence.
+               p.website_description AS listing_description
         ORDER BY lot_count, auction_id
         LIMIT $limit
         """, {"limit": _LOT_MATCH_LIMIT, "skipped": sorted(skipped)},
@@ -1956,6 +1970,7 @@ def _lot_match_candidates(decisions: list[dict]) -> list[dict]:
             "listing_url": r["listing_url"], "public_url": r["public_url"],
             "reserve": r["reserve"], "borrower": r["borrower"],
             "lot_count": r["lot_count"],
+            "listing_description": r["listing_description"],
             "reason": verdict["reason"],
             "candidates": [{
                 "lot_key": c["lot_key"], "reserve": c["reserve"],
