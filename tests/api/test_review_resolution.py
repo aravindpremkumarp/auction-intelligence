@@ -154,7 +154,8 @@ def test_lot_match_candidates_carries_the_resolver_s_own_evidence(monkeypatch):
         {"auction_id": "796269", "title": "Sriperumbudur plot",
          "listing_url": "https://www.eauctionsindia.com/properties/796269",
          "file_path": "notice.jpg", "public_url": "https://cdn/notice.jpg",
-         "reserve": 999, "lot_count": 6, "borrower": None},
+         "reserve": 999, "lot_count": 6, "borrower": None,
+         "listing_description": "Plot 3, Assessment No. 115/025/00209"},
     ]
     lot_rows = [
         {"file_path": "notice.jpg", "lot_key": "notice.jpg#1",
@@ -188,6 +189,10 @@ def test_lot_match_candidates_carries_the_resolver_s_own_evidence(monkeypatch):
     assert row["lot_count"] == 6
     assert row["public_url"] == "https://cdn/notice.jpg"
     assert row["listing_url"] == "https://www.eauctionsindia.com/properties/796269"
+    # The portal's own words — what the reviewer weighs the lots against.
+    # Sibling flats differ only in a door or assessment number, and that
+    # detail is in here, not in any structured field on the row.
+    assert row["listing_description"] == "Plot 3, Assessment No. 115/025/00209"
     # The notice has 6 lots but only 1 AuctionProperty in our DB — the two
     # counts must stay visibly distinct, not collapsed into one number.
     assert len(row["db_properties"]) == 1

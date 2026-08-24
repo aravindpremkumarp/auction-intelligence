@@ -205,6 +205,17 @@ def group_lots(entities: list[dict]) -> dict[str, dict]:
         if cls == "full_description":
             if text:
                 rec["description_parts"].append(text)
+                # The schedule text is where a per-unit identifier actually
+                # lives — a property tax assessment number, most usefully.
+                # Sibling flats in one building share their price, extent,
+                # borrower and even the survey number of the land under
+                # them, so those tiers all tie; the assessment number is
+                # assigned per unit and is the one thing that differs.
+                # Tokens shared across lots (the common survey number, the
+                # neighbouring plot numbers in the boundaries) simply never
+                # narrow the candidate set, so harvesting the whole schedule
+                # costs nothing and catches the one token that does.
+                rec["id_tokens"] |= _id_tokens(text)
 
         elif cls == "location":
             for k in ("village", "taluk", "district",
@@ -371,13 +382,31 @@ def match_lots_to_listings(lots: dict[str, dict],
         if len(cands) > 1:
             listing_ids = _id_tokens(listing.get("id_text") or "")
             if listing_ids:
-                idx = [i for i in cands
-                       if listing_ids & (lot_list[i].get("id_tokens") or set())]
-                if idx and len(idx) < len(cands):
-                    cands = idx
-                    reason = reason or "identifier"
-                    if len(cands) == 1:
-                        reason = "identifier"
+                # Only what the candidates DON'T say in common can separate
+                # them. Sibling flats quote the same land in their schedules
+                # — the survey number, the neighbouring plots, the parcel's
+                # measurements — so every candidate overlaps the listing and
+                # a plain "has any overlap" test matches all of them. Discount
+                # that shared ground, and what remains is the per-unit
+                # identifier: an assessment number the listing quotes for
+                # exactly one lot.
+                #
+                # Then demand that exactly ONE candidate has any of it. Ranking
+                # by raw overlap instead would let a one-token lead decide, and
+                # a one-token lead over sixteen shared is OCR noise, not
+                # evidence — on the 12-lot PNB notice it picked lot 3 (17
+                # tokens) over lot 2 (16) for two different listings at once,
+                # which cannot both be right. Two candidates still carrying a
+                # distinguishing token means the notice does not separate them,
+                # so this leaves the listing for a human, as everywhere else
+                # in this function.
+                sets = [lot_list[i].get("id_tokens") or set() for i in cands]
+                shared = set.intersection(*sets) if sets else set()
+                distinct = [listing_ids & (s - shared) for s in sets]
+                hits = [c for c, d in zip(cands, distinct) if d]
+                if len(hits) == 1 and len(hits) < len(cands):
+                    cands = hits
+                    reason = "identifier"
 
         if reason is None:
             # no key hit anything — leave for the unique-remainder rule
@@ -397,6 +426,27 @@ def match_lots_to_listings(lots: dict[str, dict],
         unmatched.extend((l, "none") for l in pending)
 
     return matches, unmatched
+
+
+def sole_claimants(matches: list[tuple[dict, dict, str]]) -> list[tuple[dict, dict, str]]:
+    """The subset of ``matches`` whose lot no other listing also claims.
+
+    One lot is one property, so two listings resolving to it cannot both be
+    right. It happens when a notice yields more listings than the extraction
+    found lots — a 12-lot PNB notice in the corpus carries 19 listings — and
+    the surplus listings pile onto whichever lots they most resemble.
+
+    Used to gate the ``resolved_lot_key`` write only. That property is a
+    lot-scoped claim every agent3 tool trusts, so a value known to be wrong
+    for at least one of the rivals is worse than no value: the rivals keep
+    today's notice-scoped reading and stay on the human review queue. The
+    field and description writes deliberately do NOT go through this — they
+    predate the lot key and narrowing them is a separate question.
+    """
+    claims: dict[int, int] = defaultdict(int)
+    for _listing, lot, _reason in matches:
+        claims[id(lot)] += 1
+    return [m for m in matches if claims[id(m[1])] == 1]
 
 
 # ── Neo4j I/O ────────────────────────────────────────────────────────────────
@@ -569,6 +619,7 @@ def run(limit: int | None = None, dry_run: bool = False) -> int:
         lots = group_lots(ents)
         listings = [l for l in (w.get("listings") or []) if l.get("aid")]
         matches, unmatched = match_lots_to_listings(lots, listings)
+        sole = {id(m[0]) for m in sole_claimants(matches)}
         for listing, lot, reason in matches:
             stats[f"match_{reason}"] += 1
             if lot["fields"]:
@@ -582,7 +633,9 @@ def run(limit: int | None = None, dry_run: bool = False) -> int:
             # scope_of() already reads a single-lot notice as lot-scoped
             # without it, same as scripts/resolve_lots.py's own scope.
             if len(lots) > 1:
-                if listing["aid"] in human_decided:
+                if id(listing) not in sole:
+                    stats["lot_key_dropped_claimed_by_several"] += 1
+                elif listing["aid"] in human_decided:
                     human_skipped += 1
                 else:
                     lot_key_rows.append({

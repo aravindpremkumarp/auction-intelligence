@@ -44,6 +44,7 @@ from collections import defaultdict
 
 from pipeline.apply_extractions import (
     entities_with_corrections, group_lots, match_lots_to_listings,
+    sole_claimants,
 )
 from pipeline.resolution_review import lot_match_key
 
@@ -256,6 +257,13 @@ def run(*, dry_run: bool = False, limit: int | None = None) -> dict:
             matches, unmatched = match_lots_to_listings(lots, w["listings"])
             for listing, lot, reason in matches:
                 stats[f"match_{reason}"] += 1
+            for _listing, reason in unmatched:
+                stats[f"unmatched_{reason}"] += 1
+
+            # One lot, one listing — see apply_extractions.sole_claimants.
+            sole = sole_claimants(matches)
+            stats["lot_key_dropped_claimed_by_several"] += len(matches) - len(sole)
+            for listing, lot, reason in sole:
                 if listing["aid"] in human_decided:
                     human_skipped += 1
                     continue
@@ -263,8 +271,6 @@ def run(*, dry_run: bool = False, limit: int | None = None) -> dict:
                     "lot_key": f"{w['filename']}#{lot['lot_index']}",
                     "reason": reason,
                 }
-            for _listing, reason in unmatched:
-                stats[f"unmatched_{reason}"] += 1
 
     print(f"match/unmatch stats: {dict(stats)}")
     print(f"skipped (human-decided): {human_skipped}")

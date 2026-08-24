@@ -81,6 +81,11 @@
               resize: vertical; }
   .lot-candidate { display: flex; gap: 8px; align-items: baseline;
                     border: 1px solid var(--muted); padding: 6px 8px; }
+  .lot-lbl { font-size: 11px; text-transform: uppercase; letter-spacing: .06em;
+             color: var(--muted); font-weight: 600; margin: 10px 0 4px; }
+  .lot-desc { border: 1px solid var(--muted); background: #fff; padding: 7px 9px;
+              font-size: 12.5px; line-height: 1.5; max-height: 160px;
+              overflow-y: auto; white-space: pre-wrap; word-break: break-word; }
   .ov-bar.drop { background: #e8b4ae; }
   .ov-planned { opacity: .55; }
   .ov-planned .ov-track { border: 1px dashed var(--muted); background: transparent; }
@@ -1300,8 +1305,13 @@
         ${noticeImg}
         <p class="meta" style="color:var(--muted); margin-top:8px">${escapeHtml(m.reason)}</p>
         ${dbCount > 1 ? `<div style="margin-top:8px"><b style="font-size:12px">other properties on this notice</b>${siblingRows}</div>` : ''}
+        <div class="lot-lbl">what the portal says this property is — compare it against the lots below</div>
+        <div class="lot-desc">${m.listing_description
+            ? escapeHtml(m.listing_description)
+            : '<i style="color:var(--muted)">the portal gave no description for this listing</i>'}</div>
         <textarea class="lot-note" rows="1" placeholder="optional note — special case, why this one, anything worth flagging"></textarea>
-        <div style="display:flex; flex-direction:column; gap:4px; margin-top:8px">${candidateRows}</div>
+        <div class="lot-lbl">the lots this notice sells</div>
+        <div style="display:flex; flex-direction:column; gap:4px">${candidateRows}</div>
         <div style="margin-top:8px">${rrBtn('None of these', { kind: 'lot-match',
             payload: { auction_id: m.auction_id, lot_key: NONE_LOT_KEY },
             verdict: 'rejected' })}</div>

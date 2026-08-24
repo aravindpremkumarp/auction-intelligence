@@ -292,6 +292,84 @@ def test_id_tokens_normalize_separators_and_drop_years_pincodes():
     assert AX._id_tokens("built in 2019 pin 641604") == set()
 
 
+def test_match_strongest_identifier_overlap_wins_over_shared_land():
+    """Shaped after auction 682880: two flats in one building, same reserve
+    (₹45L), same borrower, and schedules quoting the SAME land underneath —
+    survey number, neighbouring plots, parcel measurements. Every candidate
+    therefore shares tokens with the listing, so 'has any overlap' matches
+    both. The assessment number is assigned per flat and is the only
+    discriminator: the right lot is the one overlapping MOST.
+    """
+    shared = "S.No.68/5C Plot No.15 North by Plot No.14 South by Plot No.16"
+    l1 = _lot(4500000, borrowers="SRK Building Mall")
+    l1["id_tokens"] = AX._id_tokens(shared + " Assessment No.115/025/00207")
+    l2 = _lot(4500000, borrowers="SRK Building Mall")
+    l2["id_tokens"] = AX._id_tokens(shared + " Assessment No.115/025/00209")
+    lots = {"1": l1, "2": l2}
+    listings = [{"aid": "682880", "price": 4500000, "emd": 450000,
+                 "borrowers": ["M/s.SRK Building Mall"],
+                 "id_text": shared + " Assessment No. 115/025/00209"}]
+    matches, unmatched = AX.match_lots_to_listings(lots, listings)
+    assert unmatched == []
+    assert matches[0][1] is l2
+    assert matches[0][2] == "identifier"
+
+
+def test_sole_claimants_drops_a_lot_two_listings_both_claim():
+    """From the 12-lot PNB notice, which carries 19 listings: the surplus
+    listings pile onto whichever lots they most resemble, and 802424 and
+    802425 both landed on lot 3 — which 802413 already owns on an exact
+    price. At most one can be right, so none of the rivals may assert a
+    lot-scoped key; the lot only one listing claims is untouched.
+    """
+    solo, contested = _lot(1813000), _lot(3240000)
+    a = {"aid": "802420"}
+    b, c = {"aid": "802424"}, {"aid": "802425"}
+    matches = [(a, solo, "exact"), (b, contested, "identifier"),
+               (c, contested, "identifier")]
+    kept = AX.sole_claimants(matches)
+    assert [m[0]["aid"] for m in kept] == ["802420"]
+
+
+def test_sole_claimants_keeps_distinct_lots_that_merely_look_alike():
+    """Sibling flats are equal by value — same price, same fields — so the
+    check has to be per lot RECORD, not per equal-looking dict, or two
+    correct matches onto two indistinguishable lots would cancel out."""
+    twin_a, twin_b = _lot(4500000), _lot(4500000)
+    assert twin_a == twin_b            # equal by value, distinct records
+    matches = [({"aid": "1"}, twin_a, "identifier"),
+               ({"aid": "2"}, twin_b, "identifier")]
+    assert len(AX.sole_claimants(matches)) == 2
+
+
+def test_match_equal_identifier_overlap_stays_ambiguous():
+    """Only a STRICTLY strongest overlap decides. Two lots quoting the same
+    land and nothing unit-specific tie, and a tie must never be guessed."""
+    shared = "S.No.68/5C Plot No.15 North by Plot No.14"
+    l1 = _lot(4500000)
+    l1["id_tokens"] = AX._id_tokens(shared)
+    l2 = _lot(4500000)
+    l2["id_tokens"] = AX._id_tokens(shared)
+    lots = {"1": l1, "2": l2}
+    listings = [{"aid": "a1", "price": 4500000, "id_text": shared}]
+    matches, unmatched = AX.match_lots_to_listings(lots, listings)
+    assert matches == []
+    assert unmatched[0][1] == "ambiguous"
+
+
+def test_group_lots_harvests_identifiers_from_the_schedule_text():
+    """The assessment number lives in the schedule prose, not in an
+    `identifier` entity — without harvesting full_description it never
+    becomes a token and can never separate sibling flats."""
+    ents = [ent("full_description",
+                "Flat B4 ... Assessment No.115/025/00209 Old Assessment "
+                "No.115/347430 in S.No.68/5C", {"lot_index": "1"})]
+    toks = AX.group_lots(ents)["1"]["id_tokens"]
+    assert "115/025/00209" in toks
+    assert "115/347430" in toks
+    assert "68/5c" in toks
+
+
 def test_match_identifier_does_not_fire_on_no_overlap():
     l1 = _lot(500000)
     l1["id_tokens"] = AX._id_tokens("491/1")

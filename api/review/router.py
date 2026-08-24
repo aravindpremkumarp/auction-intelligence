@@ -803,6 +803,10 @@ class ResolutionLotMatch(BaseModel):
     borrower: str | None = None
     lot_count: int
     reason: str
+    #: The portal's own words for this listing — what the candidate lots get
+    #: compared against. Sibling flats differ only in a door or assessment
+    #: number, and that detail lives here, not in the structured fields.
+    listing_description: str | None = None
     candidates: list[LotMatchCandidate] = []
     db_properties: list[LotMatchDbProperty] = []
 
