@@ -82,7 +82,27 @@ COVERAGE_FIELDS = (
     "flat", "floor", "block", "measurement", "undivided_share",
     "address", "encumbrance", "hobli",
 )
-_LOT_MARKER = re.compile(r"\b(S\.?\s?No|Sr\.?\s?No|Sl\.?\s?No|Item\s*No)\b", re.I)
+# A lot marker is a serial-number label followed by a PLAIN small integer —
+# "S. No. 1", "Sl.No 2", "Item No. 3" — the numbering of a multi-lot listing.
+# It must NOT match a survey-number citation ("S.No.48/30", "Old.S No.48/3A1AM"):
+# those carry a subdivision (slash, dash, or letter suffix) and appear in the
+# property description of nearly EVERY notice, single-lot ones included, so
+# counting them made lot_under_recall fire on notices with nothing missing.
+# A bare table header ("<th>S. No.</th>") carries no number and is skipped too.
+# The lookbehind drops survey-number families that only differ by a prefix
+# letter — "R.S. No. 102" (re-survey), "T.S.No" (town survey), "Old.S No" — which
+# carry no subdivision and would otherwise read as a lot number.
+_LOT_MARKER = re.compile(
+    r"(?<![A-Za-z]\.)\b(?:S|Sr|Sl|Item)\.?\s*No\.?\s*(\d{1,3})\b"
+    r"(?!\s*[/-]|[A-Za-z])", re.I)
+
+# Tokens used by the order-insensitive coverage arm below: 3+ chars, lowercased,
+# so punctuation and word ORDER stop mattering when checking derivability.
+_COVERAGE_TOKEN = re.compile(r"[0-9a-z]+")
+
+
+def _cov_tokens(s: str) -> list:
+    return [t for t in _COVERAGE_TOKEN.findall((s or "").lower()) if len(t) >= 3]
 
 # Classes that make up a lot's property DESCRIPTION — every one of these must fall
 # INSIDE that lot's full_description span (full_description is their verbatim
@@ -124,19 +144,32 @@ def full_description_coverage(extractions) -> dict:
     boundary must be DERIVABLE from it. A descriptive entity counts as covered
     when its char span sits INSIDE that lot's full_description span OR its text
     appears within the full_description text (the text arm forgives a value that
-    is merely repeated at a second position outside the block — still derivable).
-    An entity covered by neither means full_description was truncated before that
-    detail, so the field can no longer be derived from it.
+    is merely repeated at a second position outside the block — still derivable)
+    OR every meaningful token of its text appears somewhere in that text.
+
+    That third (token) arm exists because the extractor often SYNTHESISES an
+    entity rather than copying it — emitting a location in canonical order
+    ("Village, Taluk, District, State") where the notice reads "District, ...,
+    Taluk, ..., Village". Nothing is missing there, but neither the span arm
+    (a synthesised entity is ungrounded, so it has no span) nor the substring
+    arm can see that, and the lot was flagged incomplete over pure word order.
+    Requiring ALL tokens keeps the check's teeth: a genuinely truncated
+    description loses whole values, not merely their ordering.
+
+    An entity covered by none of the three means full_description was truncated
+    before that detail, so the field can no longer be derived from it.
 
     Returns per-notice aggregates: lots that have descriptive spans but no
     full_description, and lots with detail falling outside it (offending classes).
     Entities with neither a span nor text are skipped (nothing to check).
     """
     fd_by_lot: dict = {}          # lot -> {"span": (s,e)|None, "text": str}
-    gran_by_lot: dict = {}        # lot -> [(span|None, text, cls), ...]
+    gran_by_lot: dict = {}        # lot -> [(span|None, text, cls, attrs), ...]
     for e in extractions:
         c = getattr(e, "extraction_class", None)
-        li = (getattr(e, "attributes", None) or {}).get("lot_index") or "1"
+        # str(): lot_index arrives as an int on some extractions, and the
+        # sorted() calls below raise TypeError on a mixed int/str set.
+        li = str((getattr(e, "attributes", None) or {}).get("lot_index") or "1")
         sp = _span_of(e)
         txt = _norm_ws(getattr(e, "extraction_text", ""))
         if c == "full_description":
@@ -147,7 +180,8 @@ def full_description_coverage(extractions) -> dict:
             if txt:
                 slot["text"] = (slot["text"] + " " + txt).strip()
         elif c in _DESCRIPTION_CLASSES and (sp or txt):
-            gran_by_lot.setdefault(li, []).append((sp, txt, c))
+            attrs = getattr(e, "attributes", None) or {}
+            gran_by_lot.setdefault(li, []).append((sp, txt, c, attrs))
 
     missing_fd, incomplete = [], {}
     for li, spans in gran_by_lot.items():
@@ -156,10 +190,20 @@ def full_description_coverage(extractions) -> dict:
             missing_fd.append(li)
             continue
         outside = set()
-        for sp, txt, cls in spans:
+        for sp, txt, cls, attrs in spans:
             by_span = (sp and fd["span"] and fd["span"][0] <= sp[0] <= sp[1] <= fd["span"][1])
             by_text = (txt and fd["text"] and txt in fd["text"])
-            if not (by_span or by_text):
+            by_tokens = False
+            if txt and fd["text"] and not (by_span or by_text):
+                toks = _cov_tokens(txt)
+                block = fd["text"].lower()
+                missing = [t for t in toks if t not in block]
+                # The state is derivable from the district (place resolution
+                # fills it in) and notices routinely omit it, so a state the
+                # description never spells out is not evidence of truncation.
+                exempt = set(_cov_tokens(str(attrs.get("state") or "")))
+                by_tokens = bool(toks) and all(t in exempt for t in missing)
+            if not (by_span or by_text or by_tokens):
                 outside.add(cls)
         if outside:
             incomplete[li] = sorted(outside)
@@ -198,7 +242,7 @@ def validate(extractions, source_text: str = "") -> dict:
         c = e.extraction_class
         classes[c] += 1
         present_fields.add(c)             # class presence (borrower/location/...)
-        li = a.get("lot_index") or "1"
+        li = str(a.get("lot_index") or "1")   # see full_description_coverage
         lots.add(li)
         if getattr(e, "char_interval", None) is None:
             ungrounded += 1
@@ -315,9 +359,11 @@ def validate(extractions, source_text: str = "") -> dict:
     if bad_emd:
         flag("emd_ratio_off", "low", "emd/reserve off (expect ~0.10): " + ", ".join(
             f"lot {li}={ratio:.2f}" for li, ratio in bad_emd))
-    # A flat's UDS parent-plot extent must live ONLY in uds_parent_extent — never
-    # be echoed as the property's own area. Overlap means the whole plot got
-    # recorded as the flat's size (e.g. a 760 sq.ft flat shown as 2257 sq.ft).
+    # A parent-plot extent must live ONLY in uds_parent_extent — never be echoed
+    # as the property's own area. Overlap means the whole plot got recorded as
+    # the property's size (e.g. a 760 sq.ft flat shown as 2257 sq.ft). This is
+    # most common for flats but is NOT flat-specific: any "X out of Y" parcel
+    # (land + building included) hits it, so the message stays type-neutral.
     uds_overlap = {li: sorted(parents & own_area.get(li, set()))
                    for li, parents in uds_parent.items()
                    if parents & own_area.get(li, set())}
@@ -325,13 +371,16 @@ def validate(extractions, source_text: str = "") -> dict:
         flag("uds_parent_as_own_area", "high",
              "lot(s) " + "; ".join(f"{li}: {vals}" for li, vals
                                    in sorted(uds_overlap.items()))
-             + " record the UDS parent extent as the property's own area "
-               "(total_area/extent_sqft) — for a flat that value belongs only in "
-               "uds_parent_extent")
+             + " record the parent-plot extent as the property's own area "
+               "(total_area/extent_sqft) — the parcel sold is a share OF that "
+               "plot, so the figure belongs only in uds_parent_extent")
 
     # ── multi-lot recall heuristic ───────────────────────────────────────────
     if source_text:
-        markers = len(_LOT_MARKER.findall(source_text))
+        # DISTINCT serial numbers, not raw hits: a notice restates "For S.No.1"
+        # in its contact block, and counting those back-references as separate
+        # lots made a correctly-extracted 2-lot notice look under-recalled.
+        markers = len({int(m) for m in _LOT_MARKER.findall(source_text)})
         # crude: many lot markers but few distinct lots extracted -> under-recall
         if markers >= 3 and len(lots) * 2 < markers:
             flag("lot_under_recall", "med",
