@@ -24,9 +24,13 @@ Per Document:
   4. Write fields onto AuctionProperty. The description write treats the
      grounded notice text as the sole source — it overwrites even the legacy
      pipeline's human-verified rows (stashing them once into
-     description_human_backup). Enrichment fields use the same
-     property names as pipeline/load_enriched.flatten_enrichment so the API
-     and UI keep working unchanged; only non-null values are written (SET +=).
+     description_human_backup) — but on a multi-lot notice only for a listing
+     that is its lot's SOLE claimant. A schedule published on two rival
+     listings is false about at least one of them, and reads as authoritative
+     while it is; the portal's own text is the honest fallback. Enrichment
+     fields use the same property names as
+     pipeline/load_enriched.flatten_enrichment so the API and UI keep working
+     unchanged; only non-null values are written (SET +=).
   5. Also write AuctionProperty.resolved_lot_key from the SAME lot match
      step 3 already computed — the match was previously used only to route
      field/description writes and then discarded. This is a strictly better
@@ -436,12 +440,16 @@ def sole_claimants(matches: list[tuple[dict, dict, str]]) -> list[tuple[dict, di
     found lots — a 12-lot PNB notice in the corpus carries 19 listings — and
     the surplus listings pile onto whichever lots they most resemble.
 
-    Used to gate the ``resolved_lot_key`` write only. That property is a
-    lot-scoped claim every agent3 tool trusts, so a value known to be wrong
-    for at least one of the rivals is worse than no value: the rivals keep
-    today's notice-scoped reading and stay on the human review queue. The
-    field and description writes deliberately do NOT go through this — they
-    predate the lot key and narrowing them is a separate question.
+    Gates the ``resolved_lot_key`` write and, on a multi-lot notice, the
+    description write. Both are lot-scoped claims a reader trusts: the lot key
+    is what every agent3 tool reads as "this listing IS that lot", and the
+    notice-grounded description reads as authoritative in a way the portal's
+    own vague text does not. A value known to be wrong for at least one rival
+    is worse than no value, so the rivals keep today's notice-scoped reading
+    and stay on the human review queue.
+
+    The field write deliberately does NOT go through this — it predates the
+    lot key and narrowing it is a separate question.
     """
     claims: dict[int, int] = defaultdict(int)
     for _listing, lot, _reason in matches:
@@ -495,7 +503,11 @@ def write_descriptions(rows: list[dict]) -> int:
     human-verified rows (that pipeline is being scrapped; those texts are
     stashed once into description_human_backup). The one thing it never
     touches is description_source='reviewer' — a correction someone made
-    after eyeballing the sale notice outranks any automated write."""
+    after eyeballing the sale notice outranks any automated write.
+
+    ``rows`` reaches here already filtered by ``sole_claimants`` on multi-lot
+    notices (see ``run``), so a listing whose lot another listing also claims
+    keeps its portal text rather than being handed a rival's schedule."""
     if not rows:
         return 0
     written = 0
@@ -626,9 +638,29 @@ def run(limit: int | None = None, dry_run: bool = False) -> int:
                 field_rows.append({"aid": listing["aid"],
                                    "filename": w["filename"],
                                    "props": lot["fields"]})
-            if lot["description"]:
+            # The description goes through `sole_claimants` for the same
+            # reason `resolved_lot_key` does: when two listings claim one lot,
+            # at most one of them is that property, so publishing the lot's
+            # schedule on both states something false about at least one — and
+            # a notice-grounded description reads as authoritative in a way the
+            # portal's own vague text does not. Leaving the portal text in
+            # place is the honest fallback.
+            #
+            # Reviewing the 26 rows scripts/desc_divergence.py flags turned
+            # this from a theory into four counted cases: 794656, 811144,
+            # 837423 and 837424 each carry a neighbouring lot's schedule while
+            # `resolved_lot_key` is NULL, because this write was the one path
+            # the gate did not cover.
+            #
+            # Single-lot notices are exempt, exactly as the lot-key write is:
+            # every listing there legitimately claims the only lot, so
+            # `sole_claimants` would drop all of them and strip descriptions
+            # from the notices that are least ambiguous.
+            if lot["description"] and (len(lots) == 1 or id(listing) in sole):
                 desc_rows.append({"aid": listing["aid"],
                                   "desc": lot["description"]})
+            elif lot["description"]:
+                stats["description_dropped_claimed_by_several"] += 1
             # Only a genuinely multi-lot notice needs resolved_lot_key —
             # scope_of() already reads a single-lot notice as lot-scoped
             # without it, same as scripts/resolve_lots.py's own scope.

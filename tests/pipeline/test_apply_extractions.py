@@ -495,3 +495,95 @@ def test_human_decided_lot_matches_excludes_automated_verdicts(monkeypatch):
 
     monkeypatch.setattr(AX, "run_read_query", _fake_read)
     assert AX.human_decided_lot_matches() == {"a1", "a2"}
+
+
+# ── run(): the description write is gated the same way the lot key is ────────
+
+def _lot_ents(lot_index, desc, reserve):
+    """A minimal lot: one schedule span plus its reserve price."""
+    return [
+        ent("full_description", desc, {"lot_index": lot_index}),
+        ent("auction_terms", "", {"lot_index": lot_index,
+                                  "reserve_price_num": reserve}),
+    ]
+
+
+def _run_capturing(monkeypatch, tmp_path, work):
+    """Run the pipeline against `work`, returning what each write received."""
+    seen = {}
+    # keep the unmatched-CSV side effect out of the repo
+    monkeypatch.setattr(AX, "UNMATCHED_CSV", tmp_path / "unmatched.csv")
+    monkeypatch.setattr(AX, "fetch_work", lambda limit=None: work)
+    monkeypatch.setattr(AX, "human_decided_lot_matches", lambda: set())
+    for name in ("write_fields", "write_descriptions", "write_lot_matches"):
+        monkeypatch.setattr(
+            AX, name,
+            (lambda key: lambda rows: seen.setdefault(key, rows) and len(rows))(name))
+    AX.run()
+    return {k: {r["aid"] for r in seen.get(k, [])}
+            for k in ("write_fields", "write_descriptions", "write_lot_matches")}
+
+
+def test_rival_listings_on_a_multi_lot_notice_get_no_description(monkeypatch, tmp_path):
+    """Two listings claiming one lot cannot both be that property, so neither
+    may be handed its schedule — the portal's own text is the honest fallback.
+
+    Reproduces the four counted cases (794656, 811144, 837423, 837424) where a
+    listing carried a neighbouring lot's description while resolved_lot_key
+    was NULL, because only the lot-key write was gated.
+    """
+    work = [{
+        "filename": "n.pdf",
+        "extraction_json": json.dumps(
+            _lot_ents("1", "Flat A schedule", 5000000)
+            + _lot_ents("2", "Flat B schedule", 7000000)),
+        "corrections_json": None,
+        "listings": [
+            # both tie on lot 1's reserve, so both claim it
+            {"aid": "rivalA", "price": 5000000, "emd": None, "borrowers": []},
+            {"aid": "rivalB", "price": 5000000, "emd": None, "borrowers": []},
+            {"aid": "clean", "price": 7000000, "emd": None, "borrowers": []},
+        ],
+    }]
+    got = _run_capturing(monkeypatch, tmp_path, work)
+    assert got["write_descriptions"] == {"clean"}
+    assert got["write_lot_matches"] == {"clean"}
+
+
+def test_the_rivals_still_get_their_fields(monkeypatch, tmp_path):
+    """The field write is deliberately outside this gate — narrowing it is a
+    separate question, and this fix must not quietly change it."""
+    work = [{
+        "filename": "n.pdf",
+        "extraction_json": json.dumps(
+            [ent("location", "", {"lot_index": "1", "village": "Padur"})]
+            + _lot_ents("1", "Flat A schedule", 5000000)
+            + _lot_ents("2", "Flat B schedule", 7000000)),
+        "corrections_json": None,
+        "listings": [
+            {"aid": "rivalA", "price": 5000000, "emd": None, "borrowers": []},
+            {"aid": "rivalB", "price": 5000000, "emd": None, "borrowers": []},
+        ],
+    }]
+    got = _run_capturing(monkeypatch, tmp_path, work)
+    assert got["write_fields"] == {"rivalA", "rivalB"}
+    assert got["write_descriptions"] == set()
+
+
+def test_a_single_lot_notice_keeps_every_listings_description(monkeypatch, tmp_path):
+    """Every listing on a one-lot notice legitimately claims the only lot, so
+    sole_claimants drops all of them. Applying the gate there would strip
+    descriptions from the least ambiguous notices in the corpus."""
+    work = [{
+        "filename": "solo.pdf",
+        "extraction_json": json.dumps(_lot_ents("1", "The only schedule", 900000)),
+        "corrections_json": None,
+        "listings": [
+            {"aid": "one", "price": 900000, "emd": None, "borrowers": []},
+            {"aid": "two", "price": 900000, "emd": None, "borrowers": []},
+        ],
+    }]
+    got = _run_capturing(monkeypatch, tmp_path, work)
+    assert got["write_descriptions"] == {"one", "two"}
+    # ...and a single-lot notice never needs a lot key
+    assert got["write_lot_matches"] == set()
