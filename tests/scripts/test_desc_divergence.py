@@ -66,7 +66,14 @@ def test_match_score_of_empty_portal_never_wins():
 
 
 def test_absolute_overlap_is_jaccard():
-    assert absolute_overlap({"a", "b"}, {"b", "c"}) == round(1 / 3, 4)
+    assert absolute_overlap("alpha beta", "beta gamma") == round(1 / 3, 4)
+
+
+def test_absolute_overlap_is_the_shared_pipeline_function():
+    """The report and the write-time guard must score tokens identically —
+    a report that disagreed with the gate it informs would be worse than none."""
+    from pipeline.text_overlap import description_overlap
+    assert absolute_overlap is description_overlap
 
 
 def test_bucket_boundaries():

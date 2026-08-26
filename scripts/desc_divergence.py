@@ -50,10 +50,12 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import sys
 from collections import Counter
 from pathlib import Path
+
+from pipeline.text_overlap import description_overlap as absolute_overlap
+from pipeline.text_overlap import tokenize
 
 OUT = Path("output/desc_divergence.jsonl")
 
@@ -72,23 +74,12 @@ ABSOLUTE_BUCKETS = (
     (0.00, "very_different"),
 )
 
-_TOKEN = re.compile(r"[a-z0-9]+")
-
-
 # ── pure: tokens ─────────────────────────────────────────────────────────────
 
-def tokenize(text: str | None) -> set[str]:
-    """Lowercase alphanumeric tokens, single characters dropped.
-
-    Numbers are kept deliberately — a door number, a plot number and a survey
-    number are the whole point of this comparison. No stopword list: tokens
-    that carry no signal are the ones most siblings share, and `shared_tokens`
-    removes those on the evidence of the notice itself rather than a list
-    someone has to maintain.
-    """
-    if not text:
-        return set()
-    return {t for t in _TOKEN.findall(text.lower()) if len(t) > 1}
+# `tokenize` and `absolute_overlap` live in pipeline/text_overlap.py rather
+# than here: the same two functions now gate the write in
+# pipeline/apply_extractions.description_verdict, and a report that scored
+# tokens differently from the guard it informs would be worse than no report.
 
 
 def shared_tokens(sets: list[set[str]]) -> set[str]:
@@ -121,13 +112,6 @@ def match_score(notice: set[str], portal: set[str]) -> float:
     if not portal:
         return 0.0
     return round(len(notice & portal) / len(portal), 4)
-
-
-def absolute_overlap(notice: set[str], portal: set[str]) -> float:
-    """The original check: plain Jaccard between the two token sets."""
-    if not notice or not portal:
-        return 0.0
-    return round(len(notice & portal) / len(notice | portal), 4)
 
 
 def bucket(overlap: float) -> str:
@@ -172,7 +156,7 @@ def assess_notice(listings: list[dict], margin: float = DEFAULT_MARGIN) -> list[
     # Single listing on the notice: nothing to compare against, so fall back to
     # the original absolute question.
     if len(usable) == 1:
-        ov = absolute_overlap(notice_tok[0], portal_tok[0])
+        ov = absolute_overlap(usable[0]["notice"], usable[0]["portal"])
         rows.append({"auction_id": usable[0]["aid"], "verdict": "no_siblings",
                      "absolute_overlap": ov, "bucket": bucket(ov),
                      "reason": "only listing on this notice"})
@@ -195,7 +179,7 @@ def assess_notice(listings: list[dict], margin: float = DEFAULT_MARGIN) -> list[
             "best_sibling_score": best,
             "best_sibling_id": usable[best_j]["aid"] if best_j is not None else None,
             "lead": round(best - own, 4),
-            "absolute_overlap": absolute_overlap(notice_tok[i], portal_tok[i]),
+            "absolute_overlap": absolute_overlap(x["notice"], x["portal"]),
             "siblings": len(usable),
         }
         row["bucket"] = bucket(row["absolute_overlap"])

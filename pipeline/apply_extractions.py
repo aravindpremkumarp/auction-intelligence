@@ -58,6 +58,7 @@ from api.neo4j_client import run_query, run_read_query
 from pipeline.obs import get_logger
 from pipeline.property_taxonomy import asset_category, classify_property_type
 from pipeline.resolution_review import lot_match_key
+from pipeline.text_overlap import description_overlap
 
 log = get_logger(__name__)
 
@@ -175,6 +176,8 @@ def _id_tokens(text: str) -> set[str]:
             continue
         out.add(tok)
     return out
+
+
 
 
 def group_lots(entities: list[dict]) -> dict[str, dict]:
@@ -432,6 +435,46 @@ def match_lots_to_listings(lots: dict[str, dict],
     return matches, unmatched
 
 
+#: Below this Jaccard overlap with the portal's own text, a notice description
+#: is withheld. Set at the boundary of the "different" band in
+#: scripts/desc_divergence.py, because every listing under it in the live
+#: corpus was wrong on review — two of the eight publish property in
+#: Chhattisgarh and Bihar against Tamil Nadu listings, and seven of the eight
+#: also carry an extraction score below 60. The band above it ("moderate",
+#: 0.25-0.50, 86 listings) is mostly the notice supplying real detail the
+#: portal's blurb omitted, which is the entire point of reading the notice —
+#: so the cut-off sits here rather than higher.
+MIN_DESCRIPTION_OVERLAP = 0.25
+
+
+def description_verdict(description: str, portal: str | None, *,
+                        sole_claimant: bool) -> str | None:
+    """Why this description must not be published, or None to publish it.
+
+    Two independent ways a grounded description can be about the wrong
+    property, so two gates:
+
+    ``claimed_by_several`` — another listing on the same notice resolved to
+    this same lot. One lot is one property, so at most one of them is it.
+
+    ``diverges_from_portal`` — the text shares almost no wording with what the
+    portal itself says about this listing. That catches what the first gate
+    structurally cannot: a notice selling more lots than the portal scraped
+    listings, where the one listing IS its lot's sole claimant and still gets
+    handed the wrong lot. 837422 and 781964 are exactly that shape.
+
+    A listing with no portal text is not gated on overlap: silence is not
+    disagreement, and withholding there would strip descriptions from rows
+    whose portal text was simply never scraped.
+    """
+    if not sole_claimant:
+        return "claimed_by_several"
+    if (portal or "").strip() and \
+            description_overlap(portal, description) < MIN_DESCRIPTION_OVERLAP:
+        return "diverges_from_portal"
+    return None
+
+
 def sole_claimants(matches: list[tuple[dict, dict, str]]) -> list[tuple[dict, dict, str]]:
     """The subset of ``matches`` whose lot no other listing also claims.
 
@@ -470,6 +513,7 @@ def fetch_work(limit: int | None = None) -> list[dict]:
         "       collect({aid: a.auction_id, price: a.reserve_price_num, "
         "                emd: a.emd_num, "
         "                borrowers: [(a)-[:HAS_BORROWER]->(bo) | bo.name], "
+        "                portal: a.website_description, "
         "                id_text: a.title + ' ' + coalesce(a.website_description, '')}) "
         "       AS listings "
         "ORDER BY d.filename"
@@ -656,11 +700,16 @@ def run(limit: int | None = None, dry_run: bool = False) -> int:
             # every listing there legitimately claims the only lot, so
             # `sole_claimants` would drop all of them and strip descriptions
             # from the notices that are least ambiguous.
-            if lot["description"] and (len(lots) == 1 or id(listing) in sole):
-                desc_rows.append({"aid": listing["aid"],
-                                  "desc": lot["description"]})
-            elif lot["description"]:
-                stats["description_dropped_claimed_by_several"] += 1
+            if lot["description"]:
+                verdict = description_verdict(lot["description"],
+                                              listing.get("portal"),
+                                              sole_claimant=(len(lots) == 1
+                                                             or id(listing) in sole))
+                if verdict is None:
+                    desc_rows.append({"aid": listing["aid"],
+                                      "desc": lot["description"]})
+                else:
+                    stats[f"description_dropped_{verdict}"] += 1
             # Only a genuinely multi-lot notice needs resolved_lot_key —
             # scope_of() already reads a single-lot notice as lot-scoped
             # without it, same as scripts/resolve_lots.py's own scope.

@@ -587,3 +587,74 @@ def test_a_single_lot_notice_keeps_every_listings_description(monkeypatch, tmp_p
     assert got["write_descriptions"] == {"one", "two"}
     # ...and a single-lot notice never needs a lot key
     assert got["write_lot_matches"] == set()
+
+
+# ── description_verdict: the two ways a description can be about the wrong lot ─
+
+_SCHEDULE = ("All that piece and parcel of land in Semmar Village, "
+             "Villupuram District, Survey No 45/2, extent 1168 sq ft")
+
+
+def test_a_description_matching_its_portal_text_is_published():
+    assert AX.description_verdict(_SCHEDULE, _SCHEDULE, sole_claimant=True) is None
+
+
+def test_a_rival_claimant_is_withheld_before_overlap_is_even_considered():
+    """The rivalry gate runs first: a perfect textual match cannot rescue a lot
+    two listings both claim, because at most one of them is that property."""
+    assert AX.description_verdict(_SCHEDULE, _SCHEDULE,
+                                  sole_claimant=False) == "claimed_by_several"
+
+
+def test_a_description_about_another_state_is_withheld():
+    """The shape of 840337: a Chennai listing handed a Chhattisgarh schedule.
+    It is its lot's sole claimant, so only the overlap gate can catch it."""
+    portal = ("THE ENTIRE SECOND FLOOR residential portion, Old Door No 33/6, "
+              "Varadha Muthiappan Street, George Town, Chennai 600001")
+    notice = ("Land and double storied residential building at Plot No 10, "
+              "Kh No 40/36, Mouza Dung, Durg, Chhattisgarh, area 1305 sq ft")
+    assert AX.description_overlap(portal, notice) < AX.MIN_DESCRIPTION_OVERLAP
+    assert AX.description_verdict(notice, portal,
+                                  sole_claimant=True) == "diverges_from_portal"
+
+
+def test_a_notice_that_merely_adds_detail_is_still_published():
+    """The point of reading the notice is the detail the portal's blurb omits;
+    the guard must not treat that as disagreement."""
+    portal = "Land in Semmar Village, Villupuram District, Survey No 45/2"
+    notice = _SCHEDULE + ", bounded north by road and south by channel"
+    assert AX.description_overlap(portal, notice) >= AX.MIN_DESCRIPTION_OVERLAP
+    assert AX.description_verdict(notice, portal, sole_claimant=True) is None
+
+
+def test_a_listing_with_no_portal_text_is_not_gated_on_overlap():
+    """Silence is not disagreement. Gating here would strip descriptions from
+    rows whose portal text was simply never scraped."""
+    assert AX.description_verdict(_SCHEDULE, None, sole_claimant=True) is None
+    assert AX.description_verdict(_SCHEDULE, "   ", sole_claimant=True) is None
+
+
+def test_overlap_is_symmetric_so_a_long_notice_cannot_pass_on_length():
+    a, b = "alpha beta gamma", "beta gamma " + " ".join(f"w{i}" for i in range(50))
+    assert AX.description_overlap(a, b) == AX.description_overlap(b, a)
+
+
+def test_run_withholds_a_diverging_description_but_keeps_the_fields(monkeypatch, tmp_path):
+    """End to end through run(): the single listing on this notice IS its lot's
+    sole claimant, so only the overlap gate stands between it and a description
+    about a different property."""
+    work = [{
+        "filename": "n.pdf",
+        "extraction_json": json.dumps(
+            [ent("location", "", {"lot_index": "1", "village": "Dung"})]
+            + _lot_ents("1", "Land at Mouza Dung, Durg, Chhattisgarh, 1305 sq ft",
+                        900000)),
+        "corrections_json": None,
+        "listings": [{
+            "aid": "chennai", "price": 900000, "emd": None, "borrowers": [],
+            "portal": "Second floor flat, Varadha Muthiappan Street, George Town, Chennai",
+        }],
+    }]
+    got = _run_capturing(monkeypatch, tmp_path, work)
+    assert got["write_descriptions"] == set()
+    assert got["write_fields"] == {"chennai"}
