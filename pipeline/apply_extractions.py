@@ -27,8 +27,10 @@ Per Document:
      description_human_backup) — but on a multi-lot notice only for a listing
      that is its lot's SOLE claimant. A schedule published on two rival
      listings is false about at least one of them, and reads as authoritative
-     while it is; the portal's own text is the honest fallback. Enrichment
-     fields use the same property names as
+     while it is; the portal's own text is the honest fallback, and a listing
+     withheld here is REVERTED to it (see revert_withheld_descriptions) —
+     a gate alone only stops the next write and leaves everything an earlier
+     run published still live. Enrichment fields use the same property names as
      pipeline/load_enriched.flatten_enrichment so the API and UI keep working
      unchanged; only non-null values are written (SET +=).
   5. Also write AuctionProperty.resolved_lot_key from the SAME lot match
@@ -573,6 +575,49 @@ def write_descriptions(rows: list[dict]) -> int:
     return written
 
 
+def revert_withheld_descriptions(rows: list[dict]) -> int:
+    """Put the portal's own text back on a listing whose notice description we
+    have withdrawn.
+
+    Withholding only stops the NEXT write; on its own it leaves whatever this
+    pipeline published on an earlier run sitting in the graph, still labelled
+    `description_source = 'notice'` and still reading as authoritative. A gate
+    with no revert therefore fixes nothing already live — the 126 rows the two
+    gates now withhold were all written before the gates existed.
+
+    So a withheld listing is restored to `website_description` and relabelled
+    `description_source = 'website'`, with the gate's own verdict kept on
+    `description_withheld_reason` so the row stays queryable and a later run
+    can tell a deliberate revert from a listing that never had a notice
+    description at all.
+
+    Two things are never touched. A reviewer's text (`'reviewer'`, and the
+    legacy `'human'`) outranks every automated write, revert included. And a
+    listing with no portal text is skipped rather than blanked: an empty
+    description is its own kind of wrong, and the caller reports the residue
+    instead of hiding it.
+    """
+    if not rows:
+        return 0
+    reverted = 0
+    now_iso = datetime.now(timezone.utc).isoformat()
+    for batch in chunked(rows, WRITE_CHUNK):
+        res = run_query("""
+            UNWIND $rows AS row
+            MATCH (a:AuctionProperty {auction_id: row.aid})
+            WHERE a.description_source = 'notice'
+              AND a.website_description IS NOT NULL
+              AND trim(a.website_description) <> ''
+            SET a.description = a.website_description,
+                a.description_source = 'website',
+                a.description_withheld_reason = row.reason,
+                a.description_withheld_at = datetime($at)
+            RETURN a.auction_id AS aid
+        """, {"rows": batch, "at": now_iso})
+        reverted += len(res) if res else 0
+    return reverted
+
+
 def human_decided_lot_matches() -> set[str]:
     """`auction_id`s whose lot-match decision was made by a person, not a
     rule — a reviewer who opened the notice and picked a lot outranks any
@@ -661,6 +706,7 @@ def run(limit: int | None = None, dry_run: bool = False) -> int:
 
     field_rows: list[dict] = []
     desc_rows: list[dict] = []
+    revert_rows: list[dict] = []
     lot_key_rows: list[dict] = []
     unmatched_out: list[dict] = []
     stats = defaultdict(int)
@@ -710,6 +756,8 @@ def run(limit: int | None = None, dry_run: bool = False) -> int:
                                       "desc": lot["description"]})
                 else:
                     stats[f"description_dropped_{verdict}"] += 1
+                    revert_rows.append({"aid": listing["aid"],
+                                        "reason": verdict})
             # Only a genuinely multi-lot notice needs resolved_lot_key —
             # scope_of() already reads a single-lot notice as lot-scoped
             # without it, same as scripts/resolve_lots.py's own scope.
@@ -726,6 +774,10 @@ def run(limit: int | None = None, dry_run: bool = False) -> int:
                     })
         for listing, reason in unmatched:
             stats[f"unmatched_{reason}"] += 1
+            # No lot means no description this run. Anything an earlier run
+            # published is now unbacked by a match, so it reverts as well.
+            revert_rows.append({"aid": listing["aid"],
+                                "reason": f"unmatched_{reason}"})
             unmatched_out.append({"aid": listing["aid"],
                                   "filename": w["filename"],
                                   "price": listing.get("price"),
@@ -736,6 +788,7 @@ def run(limit: int | None = None, dry_run: bool = False) -> int:
     print(f"  match/unmatch stats: {dict(stats)}")
     print(f"  field rows: {len(field_rows)}  description rows: {len(desc_rows)}  "
           f"lot-key rows: {len(lot_key_rows)}  "
+          f"descriptions to revert: {len(revert_rows)}  "
           f"skipped (human-decided): {human_skipped}  "
           f"unmatched: {len(unmatched_out)}")
 
@@ -757,9 +810,17 @@ def run(limit: int | None = None, dry_run: bool = False) -> int:
     nf = write_fields(field_rows)
     nd = write_descriptions(desc_rows)
     nl = write_lot_matches(lot_key_rows)
+    # Revert last: a listing can only appear in one of desc_rows/revert_rows
+    # per run, but ordering it after the write keeps the invariant obvious —
+    # nothing this run published can then be reverted by it.
+    nr = revert_withheld_descriptions(revert_rows)
     print(f"  wrote fields to {nf} listings, descriptions to {nd} listings "
           f"(legacy human descriptions overwritten, backed up once), "
-          f"lot key to {nl} listings")
+          f"lot key to {nl} listings, reverted {nr} listings to portal text")
+    if nr < len(revert_rows):
+        print(f"  NOTE: {len(revert_rows) - nr} withheld listings kept their old "
+              f"description — no portal text to fall back on, or already "
+              f"reverted / reviewer-owned")
     return 0
 
 

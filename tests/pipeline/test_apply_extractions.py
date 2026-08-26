@@ -515,10 +515,13 @@ def _run_capturing(monkeypatch, tmp_path, work):
     monkeypatch.setattr(AX, "UNMATCHED_CSV", tmp_path / "unmatched.csv")
     monkeypatch.setattr(AX, "fetch_work", lambda limit=None: work)
     monkeypatch.setattr(AX, "human_decided_lot_matches", lambda: set())
-    for name in ("write_fields", "write_descriptions", "write_lot_matches"):
+    for name in ("write_fields", "write_descriptions", "write_lot_matches",
+                 "revert_withheld_descriptions"):
         monkeypatch.setattr(
             AX, name,
-            (lambda key: lambda rows: seen.setdefault(key, rows) and len(rows))(name))
+            # tuple-index, not `and`: an empty rows list is falsy and would
+            # short-circuit to [], which run() then compares against an int
+            (lambda key: lambda rows: (seen.setdefault(key, rows), len(rows))[1])(name))
     AX.run()
     return {k: {r["aid"] for r in seen.get(k, [])}
             for k in ("write_fields", "write_descriptions", "write_lot_matches")}
@@ -658,3 +661,111 @@ def test_run_withholds_a_diverging_description_but_keeps_the_fields(monkeypatch,
     got = _run_capturing(monkeypatch, tmp_path, work)
     assert got["write_descriptions"] == set()
     assert got["write_fields"] == {"chennai"}
+
+
+# ── revert: withholding must also undo what an earlier run published ─────────
+
+def test_revert_restores_the_portal_text_and_relabels_the_source(monkeypatch):
+    captured = {}
+
+    def _cap(cypher, params=None):
+        captured["cypher"] = cypher
+        captured["params"] = params
+        return [{"aid": "a1"}]
+
+    monkeypatch.setattr(AX, "run_query", _cap)
+    n = AX.revert_withheld_descriptions(
+        [{"aid": "a1", "reason": "diverges_from_portal"}])
+    assert n == 1
+    assert "a.description = a.website_description" in captured["cypher"]
+    assert "a.description_source = 'website'" in captured["cypher"]
+    assert captured["params"]["rows"][0]["reason"] == "diverges_from_portal"
+
+
+def test_revert_only_touches_rows_this_pipeline_published(monkeypatch):
+    """A reviewer's text outranks every automated write, revert included, and
+    a row that never carried a notice description has nothing to undo."""
+    captured = {}
+    monkeypatch.setattr(AX, "run_query",
+                        lambda c, p=None: captured.setdefault("cypher", c) and [])
+    AX.revert_withheld_descriptions([{"aid": "a1", "reason": "x"}])
+    assert "a.description_source = 'notice'" in captured["cypher"]
+
+
+def test_revert_skips_a_listing_with_no_portal_text_to_fall_back_on(monkeypatch):
+    """Blanking a description is its own kind of wrong — the Cypher requires a
+    non-empty website_description, and run() reports the residue."""
+    captured = {}
+    monkeypatch.setattr(AX, "run_query",
+                        lambda c, p=None: captured.setdefault("cypher", c) and [])
+    AX.revert_withheld_descriptions([{"aid": "a1", "reason": "x"}])
+    assert "a.website_description IS NOT NULL" in captured["cypher"]
+    assert "trim(a.website_description) <> ''" in captured["cypher"]
+
+
+def test_revert_empty_is_a_noop(monkeypatch):
+    monkeypatch.setattr(
+        AX, "run_query",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("should not run")))
+    assert AX.revert_withheld_descriptions([]) == 0
+
+
+def _run_capturing_reverts(monkeypatch, tmp_path, work):
+    """run(), returning {aid: reason} for everything queued to revert."""
+    seen = {}
+    monkeypatch.setattr(AX, "UNMATCHED_CSV", tmp_path / "unmatched.csv")
+    monkeypatch.setattr(AX, "fetch_work", lambda limit=None: work)
+    monkeypatch.setattr(AX, "human_decided_lot_matches", lambda: set())
+    for name in ("write_fields", "write_descriptions", "write_lot_matches"):
+        monkeypatch.setattr(AX, name, lambda rows: len(rows))
+    monkeypatch.setattr(
+        AX, "revert_withheld_descriptions",
+        lambda rows: (seen.update({r["aid"]: r["reason"] for r in rows}), len(rows))[1])
+    AX.run()
+    return seen
+
+
+def test_a_withheld_listing_is_queued_for_revert(monkeypatch, tmp_path):
+    """The gate stops the next write; the revert is what fixes the 126 rows
+    published before the gates existed."""
+    work = [{
+        "filename": "n.pdf",
+        "extraction_json": json.dumps(
+            _lot_ents("1", "Flat A schedule", 5000000)
+            + _lot_ents("2", "Flat B schedule", 7000000)),
+        "corrections_json": None,
+        "listings": [
+            {"aid": "rivalA", "price": 5000000, "emd": None, "borrowers": []},
+            {"aid": "rivalB", "price": 5000000, "emd": None, "borrowers": []},
+            {"aid": "clean", "price": 7000000, "emd": None, "borrowers": []},
+        ],
+    }]
+    got = _run_capturing_reverts(monkeypatch, tmp_path, work)
+    assert got == {"rivalA": "claimed_by_several", "rivalB": "claimed_by_several"}
+
+
+def test_an_unmatched_listing_is_reverted_too(monkeypatch, tmp_path):
+    """No lot means no description this run, so anything an earlier run left
+    behind is now unbacked by any match."""
+    work = [{
+        "filename": "n.pdf",
+        "extraction_json": json.dumps(
+            _lot_ents("1", "Flat A schedule", 5000000)
+            + _lot_ents("2", "Flat B schedule", 7000000)),
+        "corrections_json": None,
+        "listings": [
+            {"aid": "nomoney", "price": None, "emd": None, "borrowers": []},
+        ],
+    }]
+    got = _run_capturing_reverts(monkeypatch, tmp_path, work)
+    assert got == {"nomoney": "unmatched_no_listing_price"}
+
+
+def test_a_published_listing_is_never_queued_for_revert(monkeypatch, tmp_path):
+    work = [{
+        "filename": "solo.pdf",
+        "extraction_json": json.dumps(_lot_ents("1", "The only schedule", 900000)),
+        "corrections_json": None,
+        "listings": [{"aid": "one", "price": 900000, "emd": None, "borrowers": []}],
+    }]
+    assert _run_capturing_reverts(monkeypatch, tmp_path, work) == {}
