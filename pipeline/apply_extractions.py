@@ -448,6 +448,24 @@ def match_lots_to_listings(lots: dict[str, dict],
 #: so the cut-off sits here rather than higher.
 MIN_DESCRIPTION_OVERLAP = 0.25
 
+#: auction_ids a human confirmed, by reading the actual sale notice, sit on
+#: the OTHER side of the overlap gate than the automatic script found: the
+#: notice text is correct and it is the PORTAL's scraped text that is wrong
+#: (bad scrape or a mismatched listing), so gating — or reverting — these on
+#: overlap would replace a correct description with an incorrect one. The
+#: overlap score cannot tell "our text is wrong" apart from "their text is
+#: wrong"; only a human reading the source document can, which is exactly
+#: what happened here (2026-08-26 review of the "very different" / "different"
+#: tiers in scripts/desc_divergence.py's output).
+#:
+#: 840337 — notice: land in Durg, Chhattisgarh. Portal: a Chennai flat. The
+#:          notice is this auction's actual property; the portal's own text
+#:          does not even match its own title ("Muthailpet, Chennai" vs the
+#:          George Town address it scraped).
+#: 839880 — notice: land in Sheikhpura, Bihar. Portal: a Coimbatore building.
+#:          Same shape as 840337.
+DESCRIPTION_OVERLAP_REVIEWED_CORRECT = {"840337", "839880"}
+
 
 def description_verdict(description: str, portal: str | None, *,
                         sole_claimant: bool) -> str | None:
@@ -751,6 +769,15 @@ def run(limit: int | None = None, dry_run: bool = False) -> int:
                                               listing.get("portal"),
                                               sole_claimant=(len(lots) == 1
                                                              or id(listing) in sole))
+                # A human read the actual notice for this specific listing and
+                # found the OVERLAP gate wrong about it (our text is correct;
+                # the portal's is not) — that reviewed fact overrides the
+                # overlap heuristic, but not the rivalry gate: if two listings
+                # are still fighting over this lot, that conflict is real
+                # regardless of what the text says.
+                if (verdict == "diverges_from_portal"
+                        and listing["aid"] in DESCRIPTION_OVERLAP_REVIEWED_CORRECT):
+                    verdict = None
                 if verdict is None:
                     desc_rows.append({"aid": listing["aid"],
                                       "desc": lot["description"]})

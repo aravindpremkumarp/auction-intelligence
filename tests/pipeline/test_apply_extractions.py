@@ -769,3 +769,49 @@ def test_a_published_listing_is_never_queued_for_revert(monkeypatch, tmp_path):
         "listings": [{"aid": "one", "price": 900000, "emd": None, "borrowers": []}],
     }]
     assert _run_capturing_reverts(monkeypatch, tmp_path, work) == {}
+
+
+# ── DESCRIPTION_OVERLAP_REVIEWED_CORRECT: a human's call beats the heuristic ──
+
+def test_a_reviewed_listing_publishes_despite_low_overlap(monkeypatch, tmp_path):
+    """840337's own case: notice text is correct (Durg, Chhattisgarh), the
+    portal's scraped text is wrong (a mismatched Chennai flat). A human
+    confirmed this by reading the actual notice, so the overlap gate — which
+    cannot tell 'our text is wrong' apart from 'their text is wrong' — must
+    not override that."""
+    assert "840337" in AX.DESCRIPTION_OVERLAP_REVIEWED_CORRECT
+    work = [{
+        "filename": "n.pdf",
+        "extraction_json": json.dumps(
+            [ent("location", "", {"lot_index": "1", "village": "Dung"})]
+            + _lot_ents("1", "Land at Mouza Dung, Durg, Chhattisgarh, 1305 sq ft",
+                        900000)),
+        "corrections_json": None,
+        "listings": [{
+            "aid": "840337", "price": 900000, "emd": None, "borrowers": [],
+            "portal": "Second floor flat, Varadha Muthiappan Street, George Town, Chennai",
+        }],
+    }]
+    got = _run_capturing(monkeypatch, tmp_path, work)
+    assert got["write_descriptions"] == {"840337"}
+
+
+def test_the_review_override_does_not_excuse_a_rival_claimant(monkeypatch, tmp_path):
+    """The reviewed fact is about the TEXT, not about which lot the listing
+    resolved to — if 840337 were still fighting another listing over the same
+    lot, that conflict is unaffected by the override."""
+    work = [{
+        "filename": "n.pdf",
+        "extraction_json": json.dumps(
+            _lot_ents("1", "Flat A schedule", 5000000)
+            + _lot_ents("2", "Flat B schedule", 7000000)),
+        "corrections_json": None,
+        "listings": [
+            {"aid": "840337", "price": 5000000, "emd": None, "borrowers": [],
+             "portal": "unrelated text"},
+            {"aid": "rival", "price": 5000000, "emd": None, "borrowers": [],
+             "portal": "unrelated text"},
+        ],
+    }]
+    got = _run_capturing(monkeypatch, tmp_path, work)
+    assert "840337" not in got["write_descriptions"]
