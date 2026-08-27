@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import functools
 import logging
+import re
 import time
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -342,9 +343,40 @@ class ToolSink:
         #: sink carries them so the response can render citation chips
         #: without re-deriving them from the answer text.
         self.web_sources: list[dict] = []
+        #: The TRUE match count from the search's aggregation, which is exact
+        #: over every match — not `len(panel_rows)`, which stops at
+        #: PANEL_ROW_CAP. Without this the UI can only report the capped
+        #: number, so a 812-match search has always displayed "500 matches".
+        #: None means no search ran this turn.
+        self.total: int | None = None
+        #: The last search's arguments, for the UI's query echo ("Coimbatore ·
+        #: ≤ ₹60L · physical possession"). Filters only — `sink` and `limit`
+        #: are plumbing, not something to show a buyer.
+        self.query_args: dict | None = None
+        #: The `group_by` distribution table. Today it reaches only the
+        #: model's tool message, so a breakdown turn arrives at the UI looking
+        #: identical to a zero-match one.
+        self.breakdown: list[dict] | None = None
+        #: True once a search ran, whatever it returned. Distinguishes "asked
+        #: and got nothing" from "never asked" — the first is an empty state
+        #: worth rendering, the second is not.
+        self.searched: bool = False
 
-    def absorb(self, rows: list[dict]) -> None:
+    def absorb(self, rows: list[dict], *, total: int | None = None,
+               query_args: dict | None = None) -> None:
+        """Take a search's rows. Replaces, never accumulates.
+
+        `total`/`query_args` are keyword-only and optional so the many
+        existing callers and tests that pass rows alone keep working; a caller
+        that omits `total` gets the row count, which is what the UI showed
+        before this field existed.
+        """
+        self.searched = True
         self.panel_rows = rows
+        self.total = len(rows) if total is None else int(total)
+        if query_args is not None:
+            self.query_args = query_args
+        self.breakdown = None
         seen: set[str] = set()
         ids: list[str] = []
         for r in rows:
@@ -353,6 +385,38 @@ class ToolSink:
                 seen.add(aid)
                 ids.append(aid)
         self.auction_ids = ids
+
+    def absorb_empty(self, *, query_args: dict | None = None) -> None:
+        """A search that matched nothing.
+
+        `find_properties` returns early on this path and used to skip the sink
+        entirely, so the turn was indistinguishable from one that never
+        searched. "0 matches for {query}" is a state worth rendering; nothing
+        at all is not.
+        """
+        self.searched = True
+        self.panel_rows = []
+        self.auction_ids = []
+        self.total = 0
+        self.breakdown = None
+        if query_args is not None:
+            self.query_args = query_args
+
+    def absorb_breakdown(self, distribution: list[dict], *, total: int | None = None,
+                         query_args: dict | None = None) -> None:
+        """A `group_by` search: the buckets are the answer, there are no rows.
+
+        Kept distinct from `absorb_empty` because rendering a breakdown turn
+        as "0 matches" would be a lie — it matched `total` listings and
+        grouped them.
+        """
+        self.searched = True
+        self.panel_rows = []
+        self.auction_ids = []
+        self.total = int(total or 0)
+        self.breakdown = list(distribution or [])
+        if query_args is not None:
+            self.query_args = query_args
 
     def absorb_web(self, sources: list[dict]) -> None:
         """Accumulate, don't replace — a turn may search more than once.
@@ -366,3 +430,85 @@ class ToolSink:
             if url and url not in seen:
                 seen.add(url)
                 self.web_sources.append(s)
+
+
+# ── id and message-text extraction ───────────────────────────────────────
+#
+# These lived in `gates.py` until the manifest needed them too. They are here
+# and not there for an import reason that matters: `gates.py` imports
+# langchain middleware at module level, and `api/agent3/router.py` documents
+# why every import that reaches the loop stays inside a handler — langchain
+# is ~28 MB of RSS against a 512 MB instance. The manifest is built on the
+# request path, so it needs these primitives without that cost. `gates.py`
+# re-exports them, so `gates.ID_LIKE` and `gates.tool_output_text` still
+# resolve for every existing caller.
+
+#: A portal `auction_id` is exactly six digits — verified across all 2,964
+#: listings (658842–842929, `size(auction_id)` 6 for every one). The band
+#: below is deliberately wider than the observed range, because ids are a
+#: portal sequence that grows as new listings are scraped; the check does not
+#: want to start flagging real ids the day the range moves.
+#:
+#: The lookarounds reject a six-digit run that is part of a longer number:
+#: a bare digit either side, or a comma/period that is itself between digits
+#: (`1,234,567`, `1234.567890`). They must NOT reject a trailing sentence
+#: period — the first draft used `(?![\d,.])` and silently matched nothing at
+#: the end of a sentence, which is where an id in prose almost always sits.
+ID_LIKE = re.compile(r"(?<!\d)(?<!\d,)(?<!\d\.)(\d{6})(?!\d)(?!,\d)(?!\.\d)")
+ID_BAND = (600_000, 999_999)
+
+#: Currency context around a number, checked so a six-digit *price* is not
+#: mistaken for an id. `₹6,50,000` normalises to 650000, which is inside the
+#: id band; without this every correctly-quoted reserve reads as a citation.
+_CURRENCY_BEFORE = re.compile(r"(₹|rs\.?|inr)\s*$", re.I)
+_CURRENCY_AFTER = re.compile(
+    r"^\s*(lakh|lakhs|lac|crore|crores|cr\b|l\b|rupees)", re.I)
+
+
+def message_text(message: Any) -> str:
+    """A message's text, whether the provider sent a string or content blocks."""
+    content = getattr(message, "content", "")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return " ".join(part.get("text", "") for part in content
+                        if isinstance(part, dict))
+    return str(content or "")
+
+
+def tool_output_text(messages: list) -> str:
+    """Every tool result in the thread, concatenated.
+
+    The whole thread rather than the current turn, deliberately: on a
+    follow-up ("tell me more about the second one") the model cites ids that
+    a *previous* turn's search returned, and scoping this to the current turn
+    would flag every one of them.
+    """
+    return "\n".join(message_text(m) for m in messages
+                     if getattr(m, "type", "") == "tool")
+
+
+def guarded_ids(text: str) -> list[str]:
+    """Six-digit portal ids in prose, in order, deduplicated.
+
+    The band and currency guards are the whole value: without them every
+    correctly-quoted six-digit price reads as a citation.
+
+    Shared on purpose. The answer gate uses it to catch hallucinated ids and
+    the manifest uses it to decide which properties the agent discussed; a
+    second, looser regex for the second job is how the two drift apart.
+    `artifacts.cited_ids` IS that looser variant — no band, no currency check
+    — and is deliberately not what to reach for here.
+    """
+    out: list[str] = []
+    for m in ID_LIKE.finditer(text or ""):
+        token = m.group(1)
+        if not (ID_BAND[0] <= int(token) <= ID_BAND[1]):
+            continue
+        if _CURRENCY_BEFORE.search(text[max(0, m.start() - 6):m.start()]):
+            continue
+        if _CURRENCY_AFTER.match(text[m.end():m.end() + 12]):
+            continue
+        if token not in out:
+            out.append(token)
+    return out
