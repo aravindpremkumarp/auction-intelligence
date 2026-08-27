@@ -148,7 +148,7 @@ def backfill_one(t: dict) -> dict:
     """
     mode = datalab_mode_for(t["notice_type"])
     out = {**t, "mode": mode, "blocks": None, "pq": None, "ratio": None,
-           "gain": None, "chars": None, "note": ""}
+           "gain": None, "chars": None, "note": "", "ink_skip": None}
     src: Path | None = None
     try:
         r = requests.get(t["public_url"], timeout=120)
@@ -178,6 +178,7 @@ def backfill_one(t: dict) -> dict:
         out["blocks"] = blocks
         out["pq"] = datalab_api.parse_quality(result)
         out["ratio"] = region["uncovered_ratio"]
+        out["ink_skip"] = (region.get("details") or {}).get("skipped")
         out["chars"] = len(text or "")
         stored = t["stored_chars"] or 0
         out["gain"] = round(out["chars"] / stored, 3) if stored else None
@@ -336,6 +337,24 @@ def main() -> int:
         for r in sorted(big, key=lambda r: -r["gain"])[:20]:
             print(f"    x{r['gain']:<6} {r['stored_chars']:>6} -> {r['chars']:<6} "
                   f"{r['filename'][:50]}")
+    # A null ink ratio is banked as a completed measurement — the cohort filter
+    # keys on shadow_char_gain, so these notices never come back round. When the
+    # cause is environmental (Pillow missing, an unreadable download) that is a
+    # silent hole in the sweep, so say so loudly rather than leaving it in a
+    # column of "n/a".
+    skips: dict[str, int] = {}
+    for r in ok:
+        if r["ratio"] is None:
+            skips[r.get("ink_skip") or "unknown"] = \
+                skips.get(r.get("ink_skip") or "unknown", 0) + 1
+    if skips:
+        print(f"\nWARNING: {sum(skips.values())} notice(s) recorded no ink "
+              f"coverage: {skips}")
+        if any(s.startswith("unreadable-image: ModuleNotFoundError")
+               for s in skips):
+            print("  'ModuleNotFoundError' means Pillow is missing — install it "
+                  "and re-measure these, or the sweep has a hole in it.")
+
     print("markdown and extraction_json untouched — no re-extraction triggered")
     if wrote_blocks == 0:
         print("existing block layers left intact — human re-extractions preserved")
