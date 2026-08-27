@@ -1535,14 +1535,52 @@ const INLINE_MATCHES_MAX = 4;
 // Cards are built with the panel's own toCard/propCardHtml, so they stay
 // identical in content and stay wired by the same wireCardClicks() — the
 // difference is purely where they are mounted.
-function _inlineMatchesHtml(snap) {
-  if (!snap) return '';
+//
+// **Where the rows come from, and why it matters.** A turn's own manifest
+// (`m.manifest`, from /chat/agent3) is the source of truth: it was written
+// server-side when the turn ran, so scrolling back shows what THAT answer
+// produced rather than whatever the browser last held. `snap` — rebuilt
+// client-side from the message's artifacts — is the fallback for the tiered
+// and deep loops, which have no manifest, and for conversations saved before
+// manifests existed. See docs/designs/turn-owned-property-cards.md.
+//
+// **The reason line is per-turn, never global.** It is passed down from this
+// turn's `annotations`, not read from `currentPicks`, which is replaced every
+// turn: sourcing it globally would show every scrolled-up answer the LATEST
+// turn's reasons. That mis-attribution is the exact defect the manifest
+// design exists to remove, and it would look like the feature working.
+function _inlineMatchesHtml(m, snap) {
   if (document.documentElement.getAttribute('data-shell') !== 'chatgpt') return '';
-  const cards = (snap.rows || []).map(row => toCard(row)).filter(c => c.id);
+  const man = (m && m.manifest) || null;
+  const rows = (man && man.card_rows && man.card_rows.length)
+    ? man.card_rows
+    : ((snap && snap.rows) || []);
+  const cards = rows.map(row => toCard(row)).filter(c => c.id);
   if (!cards.length) return '';
+  const notes = (man && man.annotations) || null;
+  const withNotes = cards.map(c => {
+    const quotes = notes && notes[String(c.id)];
+    return { card: c, said: (quotes && quotes.length) ? quotes.join(' ') : '' };
+  });
+  // Properties the agent actually discussed come first. A card the answer
+  // named is a recommendation; the rest are matches, and with only four slots
+  // the recommendations are the ones worth the room. Stable, so within each
+  // group the search's own order survives.
+  withNotes.sort((a, b) => (b.said ? 1 : 0) - (a.said ? 1 : 0));
   return `<div class="inline-matches">` +
-    cards.slice(0, INLINE_MATCHES_MAX).map(c => propCardHtml(c, false, '', false)).join('') +
+    withNotes.slice(0, INLINE_MATCHES_MAX)
+      .map(x => propCardHtml(x.card, false, '', false, x.said)).join('') +
     `</div>`;
+}
+
+// The count to show for a turn: the manifest's exact total when there is one.
+// `snap.total` comes from the artifact, whose `total_count` is the number of
+// rows it carried — capped at PANEL_ROW_CAP — so an 812-match search has
+// always displayed as 500.
+function _turnTotal(m, snap) {
+  const counts = m && m.manifest && m.manifest.counts;
+  if (counts && typeof counts.total === 'number') return counts.total;
+  return snap ? snap.total : 0;
 }
 
 // A synthetic select_properties artifact means the agent re-ranked the panel
@@ -1600,9 +1638,15 @@ async function askAI(userText, opts = {}) {
       window.track('search', { source: _src, mode: _mode });
       if (_mode === 'deep-research') window.track('deep_research_open', { source: _src });
     }
+    // agent3's stream emits `manifest` just before `final`. The final payload
+    // carries the same body, so this is a belt-and-braces capture: a fallback
+    // transport that never sees the event still gets the manifest from
+    // `resp`, and a stream that dies after the event keeps what it sent.
+    let streamedManifest = null;
     try {
       resp = await apiChatStream(reqBody, (ev, data) => {
         const cur = chatHistory[chatHistory.length - 1];
+        if (ev === 'manifest') { streamedManifest = data || null; return; }
         if (!cur) return;
         if (ev === 'status' && cur.role === 'ai thinking') {
           cur.text = data.label || 'thinking';
@@ -1651,7 +1695,13 @@ async function askAI(userText, opts = {}) {
       setPanelSource(extracted.tool);
     }
     dropTransient();
-    chatHistory.push({ role: 'ai', text: (resp.answer || '').trim(), artifacts: resp.artifacts || [], elapsedMs: performance.now() - startedAt });
+    // The manifest rides on the message, so this turn's cards belong to this
+    // turn for as long as the message exists — including in the saved
+    // conversation, which persists the message objects whole. agent3 only;
+    // the other loops leave it null and fall back to artifacts.
+    chatHistory.push({ role: 'ai', text: (resp.answer || '').trim(), artifacts: resp.artifacts || [],
+      manifest: resp.manifest || streamedManifest || null,
+      elapsedMs: performance.now() - startedAt });
   } catch(e) {
     console.error(e);
     dropTransient();
@@ -1745,8 +1795,8 @@ function renderChat(history, logEl, opts) {
       // Per-turn matches chip (main chat only) — click to flip the matches
       // panel back to what this answer found.
       const snap = !scope ? _msgMatches(m) : null;
-      const snapTotal = snap ? snap.total : 0;
-      const inlineHtml = _inlineMatchesHtml(snap);
+      const snapTotal = !scope ? _turnTotal(m, snap) : 0;
+      const inlineHtml = !scope ? _inlineMatchesHtml(m, snap) : '';
       if (inlineHtml) renderedInlineCards = true;
       // The chip exists to open the fuller list. Once every match is already
       // inline there is no fuller list, so it would be a button to nowhere.
@@ -2035,7 +2085,12 @@ function _pickHtml(id, withReason) {
         ).join('')}</div>` : ''}`;
 }
 
-function propCardHtml(c, urgent, countdown, withReason) {
+// `reason`, when given, is THIS turn's sentence about THIS property, passed
+// down from the manifest's annotations. It takes precedence over `_pickHtml`
+// deliberately: that reads the global `currentPicks`, which the newest turn
+// replaces, so a scrolled-up answer rendered through it would quote the wrong
+// turn. A per-turn string cannot make that mistake.
+function propCardHtml(c, urgent, countdown, withReason, reason) {
   const isSaved = saved.has(c.id);
   const dropBadge = c.drop
     ? `<div class="price-drop" title="Reserve price previously ${escapeHtml(c.drop.previous)}">${c.drop.pct}% drop from ${escapeHtml(c.drop.previous)}</div>`
@@ -2055,7 +2110,9 @@ function propCardHtml(c, urgent, countdown, withReason) {
         </div>
         <div class="price">${escapeHtml(c.price)}</div>
         ${dropBadge}
-        ${_pickHtml(c.id, withReason)}
+        ${reason
+          ? `<div class="card-reason">${escapeHtml(reason)}</div>`
+          : _pickHtml(c.id, withReason)}
         ${urgent && countdown ? `<div class="countdown">${_CARD_ICO_CLOCK}<span>auction ${escapeHtml(countdown)}</span></div>` : ''}
       </div>
       <button class="card-save ${isSaved ? 'saved' : ''}" data-save-id="${escapeHtml(c.id)}" title="${isSaved ? 'saved' : 'save to watchlist'}" aria-label="save">
@@ -2798,6 +2855,44 @@ async function syncConversationsFromServer() {
   } catch (e) { console.error('[chats] sync failed', e); }
 }
 
+// Re-attach each turn's cards from the server when a saved chat is reopened.
+//
+// The conversation the browser saved carries its own copy of every message,
+// manifest included, and that copy is display state: it can be stale, and it
+// is not what the design lets us join on. The server wrote one manifest per
+// answer when the answer happened, so this replaces the local copy with it —
+// making a reopened thread indistinguishable from a live one.
+//
+// **The count guard.** The join key is the ordinal: the nth assistant message
+// is turn n. A failed turn pushes an "I couldn't reach the server" message
+// into `chatHistory` that never existed server-side, and one of those shifts
+// every later turn onto the wrong manifest — cards silently belonging to a
+// different question, which is worse than no cards at all. So the join only
+// runs when the two sides agree on how many answers there were; when they do
+// not, the turns keep whatever they were saved with and the mismatch is
+// logged. Ordinals never shift to close a gap.
+async function _rehydrateManifests() {
+  if (!CHAT_AGENT3 || !apiChatThreadId) return;
+  try {
+    const r = await authFetch(
+      `${API_BASE}/chat/agent3/${encodeURIComponent(apiChatThreadId)}/manifests`);
+    if (!r.ok) return;
+    const data = await r.json();
+    const manifests = Array.isArray(data.manifests) ? data.manifests : [];
+    if (!manifests.length) return;
+    const answers = chatHistory.filter(m => m.role === 'ai');
+    if (answers.length !== manifests.length) {
+      console.warn('[manifests] %d answers vs %d manifests — leaving cards as saved',
+                   answers.length, manifests.length);
+      return;
+    }
+    answers.forEach((m, k) => { m.manifest = manifests[k]; });
+  } catch (e) {
+    // Reload fidelity is a nicety; a reopened chat must still open.
+    console.warn('[manifests] fetch failed', e);
+  }
+}
+
 async function loadConversation(id) {
   if (!isSignedIn()) return;
   try {
@@ -2835,6 +2930,7 @@ async function loadConversation(id) {
       }
     }
     setPanelSource(liveTool);
+    await _rehydrateManifests();
     // go('results') syncs the URL to /chat/{id} via pathForScreen; when already
     // on the chat screen go() is skipped, so push the deep link explicitly.
     if (currentScreen !== 'results') go('results');

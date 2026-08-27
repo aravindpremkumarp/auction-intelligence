@@ -422,3 +422,37 @@ def test_history_of_an_empty_thread_is_empty_not_an_error():
     from api.agent3.manifest import history_from_messages
 
     assert history_from_messages([]) == []
+
+
+# ── the artifact's count ─────────────────────────────────────────────────
+#
+# `build_artifacts` is exercised in test_agent3_router.py, but that module
+# imports api.main through conftest. These two live here so the count
+# contract — the one number the panel and the inline chip must agree on —
+# is covered by a module that collects without the web stack.
+
+def test_the_artifact_reports_the_search_total_not_the_rows_it_carries():
+    """`len(rows)` stops at PANEL_ROW_CAP, so an 812-match search reported
+    500: the cap, presented as the answer. The panel already knows how to say
+    "showing 500 · sorted by deadline" once the total exceeds what it holds."""
+    from api.agent3.artifacts import build_artifacts
+
+    rows = [_row(str(700000 + i)) for i in range(500)]
+    arts = asyncio.run(build_artifacts(
+        _Result(answer="Lots.", panel_rows=rows, total=812, searched=True)))
+    assert arts[0]["result"]["total_count"] == 812
+    assert len(arts[0]["ui_rows"]) == 500
+
+
+def test_the_artifact_falls_back_to_the_row_count_without_a_total():
+    """Every caller predating the sink carrying a total, including the
+    existing router tests."""
+    from api.agent3.artifacts import build_artifacts
+
+    class _Old:
+        answer = "Two matches."
+        panel_rows = [_row("748779"), _row("744314")]
+        web_sources: list = []
+
+    arts = asyncio.run(build_artifacts(_Old()))
+    assert arts[0]["result"]["total_count"] == 2

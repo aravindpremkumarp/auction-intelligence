@@ -22,21 +22,22 @@ client-side artifacts; #404 requires they come from a server-side per-turn
 manifest.** Nothing in #417 has to be thrown away to get there, but three of
 #404's four success criteria fail today.
 
-`TurnManifest` does not exist anywhere in `api/`. No backend work has
-started.
+*Written when `TurnManifest` did not exist anywhere in `api/`. Stages 0–2
+below have since shipped on this branch; the table records where each
+requirement now stands.*
 
 ## Conformance
 
-| #404 requires | #417 today | Gap |
+| #404 requires | Status | Note |
 | --- | --- | --- |
-| Cards render inside the assistant message that produced them | Yes — `_inlineMatchesHtml` in `.bubble-wrap.ai` | none |
-| Which rows exist comes from the sink, never from parsing prose | Comes from `m.artifacts` via `extractResultsFromArtifacts` | Right source, wrong side of the wire. Not prose-parsing, but re-derived per render on the client |
-| Each card carries the agent's own sentence(s) about that property | Facts only — inline cards pass `withReason: false` | **The recommendation is missing.** This is #404's Premise 2 and the reason the whole design exists |
-| Panel state is part of the thread; reload restores every turn's cards | Client-saved history only; no `/manifests`, no server `/history` | Reload fidelity is whatever the browser copy holds |
-| Scope badge on multi-lot notices | Not rendered | Card can state a lot fact as a property fact |
-| Collapsed "all N matches" with `query_echo` and the count delta ("21 → 6") | A "N matches" chip that opens a drawer | Different affordance; no query echo, no delta, no "showing 500 of 812" |
-| Empty result renders a "0 matches for {query}" card | Renders nothing inline | "An empty state is a feature" — we have no state |
-| `kind: distribution` renders the breakdown table | Not modelled | A `group_by` turn reads as "no matches" |
+| Cards render inside the assistant message that produced them | done | `_inlineMatchesHtml` in `.bubble-wrap.ai` |
+| Which rows exist comes from the sink, never from parsing prose | done | `card_rows` is written server-side from the sink; the client no longer re-derives them when a manifest is present |
+| Each card carries the agent's own sentence(s) about that property | done | `annotations`, quoted verbatim off the answer — #404's Premise 2 and the reason the design exists |
+| Panel state is part of the thread; reload restores every turn's cards | done | `/manifests` + `/history`, joined on `turn_index` |
+| Scope badge on multi-lot notices | **open** | `notice_lot_count` and `area_sqft_scope` are in `card_rows`; nothing renders them yet, so a card can still state a lot fact as a property fact |
+| Collapsed "all N matches" with `query_echo` and the count delta ("21 → 6") | **open** | The chip and drawer stand in for it. `query_echo` and `counts` are stored and unused |
+| Empty result renders a "0 matches for {query}" card | **open** | `kind: "empty"` is recorded; nothing renders it |
+| `kind: distribution` renders the breakdown table | **open** | Recorded and unused — a `group_by` turn still reads as no matches |
 
 Two things that are **already right** and should not be disturbed:
 
@@ -51,7 +52,7 @@ Two things that are **already right** and should not be disturbed:
 
 Four stages. Each is shippable on its own and leaves `/lab` working.
 
-### Stage 0 — land #417 as-is
+### Stage 0 — land #417 as-is — **done, on this branch**
 
 It is green, scoped to `/lab`, and the public site is untouched. Landing it
 now gets the layout in front of real turns, which is what the visual half
@@ -60,7 +61,7 @@ was for. Nothing below is blocked by it.
 Add to the PR body: this doc, and the fact that inline cards are
 presentation-only until Stage 2.
 
-### Stage 1 — backend: the manifest (no UI change)
+### Stage 1 — backend: the manifest (no UI change) — **done**
 
 The dependency list #404 already wrote, against the real code:
 
@@ -90,26 +91,30 @@ Annotation extraction is the deterministic sentence split #404 specifies —
 no model call, zero added latency, verbatim quotes. Its known imperfection
 (`"Rs. 50 lakh"` clips the quote) is documented there as accepted.
 
-### Stage 2 — frontend: cards read the manifest
+### Stage 2 — frontend: cards read the manifest — **done**
 
-The change is narrow and lands entirely inside what #417 already built.
+- `_inlineMatchesHtml(m, snap)` reads `m.manifest.card_rows` when there is
+  one and falls back to the artifact-derived `snap` for the tiered and deep
+  loops and for conversations saved before manifests existed.
+- Each card renders its `annotations[id]` as the reason line, and the
+  properties the answer discussed sort to the front — with four slots, a
+  recommendation earns the room ahead of a match.
+- `propCardHtml` grew a fifth argument, `reason`, rather than switching
+  `withReason` on. That was the trap: `_pickHtml` reads the global
+  `currentPicks`, which the newest turn replaces, so a scrolled-up answer
+  rendered through it quotes the wrong turn. A string passed down from the
+  turn's own manifest cannot make that mistake.
+- The stream handler consumes the `manifest` SSE event; reopening a saved
+  chat re-fetches `/manifests` and joins by ordinal, and refuses the join
+  when the two sides disagree on how many answers there were (a failed turn
+  leaves a local-only message, and a shifted ordinal shows a turn another
+  turn's properties).
+- `_search_artifact` now reports the search's exact `total_count` instead of
+  `len(rows)`, so the chip and the panel agree. That was a real defect on its
+  own: an 812-match search displayed "500 matches" — the cap, presented as
+  the answer.
 
-- `_inlineMatchesHtml(snap)` becomes `_inlineMatchesHtml(manifest)`. It
-  reads `card_rows` + `annotations` instead of `_msgMatches(m)`.
-- Each card renders its `annotations[id]` as the reason line. The plumbing
-  exists: `propCardHtml(c, urgent, countdown, withReason)` and `_pickHtml`
-  already render a reason and badges from `currentPicks`.
-- The stream handler consumes the `manifest` SSE event; thread-open calls
-  `/history` + `/manifests` and joins on `turn_index`. A message with no
-  matching manifest renders card-less — ordinals never shift to compensate.
-
-**Do not flip `withReason` to `true` before this stage.** `currentPicks` is
-global and replaced every turn, so scrolled-up answers would show the
-*latest* turn's reasons. That mis-attribution is the exact defect #404
-exists to kill, and it would look like the feature working. `false` is
-correct until reasons are per-turn.
-
-### Stage 3 — the rest of #404's card
+### Stage 3 — the rest of #404's card — **next**
 
 Once cards are manifest-driven these are each small and independent:
 scope badge for multi-lot notices; the collapsed "all N matches" section

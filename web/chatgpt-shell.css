@@ -365,6 +365,22 @@ html[data-shell="chatgpt"] .inline-matches .price {
   color: var(--cg-fg-strong);
   white-space: nowrap;
 }
+/* The agent's own sentence about this property, quoted off the answer above.
+   Given the full row width — the price column is reserved on the lines above
+   it, not here — because a recommendation clipped to a third of a line reads
+   as decoration rather than as something the agent said. */
+html[data-shell="chatgpt"] .inline-matches .card-reason {
+  font-family: inherit; font-size: 13.5px; line-height: 1.45;
+  color: var(--cg-fg-muted);
+  margin-top: 6px;
+  margin-right: -110px;
+  -webkit-line-clamp: 3;
+}
+html[data-shell="chatgpt"] .inline-matches .prop:hover .card-reason { color: var(--cg-fg); }
+@media (max-width: 640px) {
+  html[data-shell="chatgpt"] .inline-matches .card-reason { margin-right: 0; }
+}
+
 html[data-shell="chatgpt"] .inline-matches .card-save {
   color: var(--cg-fg-faint);
   border: 0; background: transparent;

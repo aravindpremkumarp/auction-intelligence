@@ -105,12 +105,22 @@ def _search_artifact(result) -> dict[str, Any]:
     not the ten-row sample the model was shown. That asymmetry is the whole
     point of the sink: the panel stays complete while the transcript stays
     small.
+
+    `total_count` is the search's exact count, not the number of rows carried.
+    It used to be `len(rows)`, which meant an 812-match search reported 500 —
+    the cap, presented as the answer. The panel already knows how to say
+    "showing 500 · sorted by deadline" when the total exceeds what it holds
+    (`renderResultsList`), so the honest number simply switches that on.
+    Falls back to the row count for a `TurnResult` with no total, which is
+    every caller that predates the sink carrying one.
     """
+    total = getattr(result, "total", None)
     return {
         "tool": "find_properties",
         "args": {"synthetic": True, "source": "sink"},
         "result": {"rows": result.panel_rows,
-                   "total_count": len(result.panel_rows)},
+                   "total_count": (len(result.panel_rows) if total is None
+                                   else int(total))},
         "ui_rows": result.panel_rows,
     }
 
