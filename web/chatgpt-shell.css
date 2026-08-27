@@ -1,0 +1,476 @@
+/* =====================================================================
+   chatgpt-shell.css — the ChatGPT-style chat shell, ported from
+   redesign/chatgpt-shell/index.html onto the real chat screen.
+
+   SCOPE: every rule below is prefixed with html[data-shell="chatgpt"].
+   chatgpt-shell.js only sets that attribute on /lab (or on any page with
+   ?shell=chatgpt), so the public site renders exactly as before and this
+   file is inert everywhere else.
+
+   It restyles the markup index.html already has — .chat-sidebar,
+   .transcript-pane, .chat-empty, .chat-log, .bubble, .chat-input — rather
+   than introducing a parallel DOM. The one structural change is the
+   matches pane, which becomes a right-hand drawer instead of a third grid
+   column so the thread can take ChatGPT's full-width centred column.
+   ===================================================================== */
+
+/* ── Tokens ───────────────────────────────────────────────────────────
+   Scoped to the chat screen, not :root — the browse / watchlist screens
+   and the top bar keep the app's own palette. Dark is the reference; the
+   light set mirrors it. */
+html[data-shell="chatgpt"] .screen[data-screen="results"],
+html[data-shell="chatgpt"] .cg-drawer {
+  --cg-bg:        #0d0d0d;
+  --cg-surface:   #1c1c1c;   /* hover fills            */
+  --cg-surface-2: #2a2a2a;   /* active row             */
+  --cg-composer:  #2f2f2f;   /* the input pill         */
+  --cg-composer-2:#3a3a3a;   /* pill hover             */
+  --cg-fg:        #ececec;
+  --cg-fg-strong: #ffffff;
+  --cg-fg-muted:  #9b9b9b;
+  --cg-fg-faint:  #7d7d7d;
+  --cg-accent:    #2f6fed;
+  --cg-on-accent: #ffffff;
+  --cg-border:    rgba(255,255,255,0.10);
+
+  --cg-rail:      52px;
+  --cg-sidebar:   260px;
+  --cg-col:       768px;     /* thread + composer column */
+}
+html[data-theme="light"][data-shell="chatgpt"] .screen[data-screen="results"],
+html[data-theme="light"][data-shell="chatgpt"] .cg-drawer {
+  --cg-bg:        #ffffff;
+  --cg-surface:   #f0f0f0;
+  --cg-surface-2: #e8e8e8;
+  --cg-composer:  #f4f4f4;
+  --cg-composer-2:#e8e8e8;
+  --cg-fg:        #0d0d0d;
+  --cg-fg-strong: #000000;
+  --cg-fg-muted:  #5d5d5d;
+  --cg-fg-faint:  #767676;
+  --cg-border:    rgba(0,0,0,0.10);
+}
+
+/* ── The screen ───────────────────────────────────────────────────────
+   The app pads every .screen; the shell paints edge to edge instead. */
+html[data-shell="chatgpt"] .screen[data-screen="results"] {
+  padding: 0;
+  background: var(--cg-bg);
+  color: var(--cg-fg);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+/* Two columns: sidebar (or rail) and the thread. The matches pane leaves
+   the grid entirely — see the drawer block below. */
+html[data-shell="chatgpt"] .results {
+  grid-template-columns: var(--cg-sidebar) 1fr;
+}
+html[data-shell="chatgpt"] .results.sb-collapsed {
+  grid-template-columns: var(--cg-rail) 1fr;
+}
+
+/* ── Sidebar ──────────────────────────────────────────────────────────
+   Collapsed, it stays on screen as an icon rail (ChatGPT keeps its rail)
+   rather than vanishing, so #sb-toggle remains the one expand control and
+   the header's .tp-reopen is redundant. */
+html[data-shell="chatgpt"] .chat-sidebar,
+html[data-shell="chatgpt"] .results.sb-collapsed .chat-sidebar {
+  display: flex;
+  border: 0;
+  box-shadow: none;
+  background: var(--cg-bg);
+  margin-right: 0;
+  padding: 10px 8px;
+  gap: 2px;
+}
+html[data-shell="chatgpt"] .results.sb-collapsed .chat-sidebar {
+  padding: 12px 0;
+  align-items: center;
+}
+html[data-shell="chatgpt"] .tp-reopen,
+html[data-shell="chatgpt"] .tp-resize { display: none !important; }
+
+html[data-shell="chatgpt"] .sb-head { padding: 0 2px 4px; min-height: 34px; }
+html[data-shell="chatgpt"] .sb-title {
+  font-family: inherit;
+  font-size: 17px; font-weight: 600; letter-spacing: -0.01em;
+  color: var(--cg-fg-strong);
+}
+/* Size is left alone on purpose — styles.css gives .sb-toggle the 44px WCAG
+   2.5.5 touch target, and ChatGPT's tighter 32px is not worth regressing it. */
+html[data-shell="chatgpt"] .sb-toggle {
+  border: 0; border-radius: 8px;
+  background: transparent; color: var(--cg-fg-muted);
+  box-shadow: none;
+}
+/* app.js swaps the button's aria-label on collapse but not its chevron, which
+   would then point the wrong way in the rail. */
+html[data-shell="chatgpt"] .results.sb-collapsed .sb-toggle svg { transform: rotate(180deg); }
+html[data-shell="chatgpt"] .sb-toggle:hover { background: var(--cg-surface); color: var(--cg-fg); }
+
+html[data-shell="chatgpt"] .sb-new {
+  border: 0; border-radius: 10px;
+  background: transparent; color: var(--cg-fg);
+  box-shadow: none;
+  font-family: inherit; font-size: 14px; font-weight: 400;
+  padding: 8px 10px;
+  justify-content: flex-start; gap: 10px;
+}
+html[data-shell="chatgpt"] .sb-new:hover { background: var(--cg-surface); transform: none; }
+html[data-shell="chatgpt"] .sb-new > span:first-child {
+  font-size: 17px; line-height: 1; color: var(--cg-fg-muted); width: 18px; text-align: center;
+}
+
+html[data-shell="chatgpt"] .sb-search {
+  border: 0; border-radius: 10px;
+  background: var(--cg-surface);
+  color: var(--cg-fg);
+  font-family: inherit; font-size: 13px;
+  padding: 8px 10px;
+  margin: 4px 0 2px;
+}
+html[data-shell="chatgpt"] .sb-search::placeholder { color: var(--cg-fg-faint); }
+
+html[data-shell="chatgpt"] .sb-group-label {
+  font-family: inherit; font-size: 12px; font-weight: 500;
+  text-transform: none; letter-spacing: 0;
+  color: var(--cg-fg-faint);
+  margin: 14px 10px 4px;
+}
+html[data-shell="chatgpt"] .sb-item {
+  border: 0; border-radius: 10px;
+  padding: 8px 10px;
+  font-family: inherit; font-size: 14px;
+  color: var(--cg-fg);
+}
+html[data-shell="chatgpt"] .sb-item:hover { background: var(--cg-surface); border-color: transparent; }
+html[data-shell="chatgpt"] .sb-item.active { background: var(--cg-surface-2); border-color: transparent; }
+html[data-shell="chatgpt"] .sb-item-pin,
+html[data-shell="chatgpt"] .sb-item-del { color: var(--cg-fg-faint); }
+/* The signed-out hint uses the global .lbl (uppercase mono); in this sidebar
+   it should read like the section headers around it. */
+html[data-shell="chatgpt"] .chat-sidebar .lbl {
+  font-family: inherit; font-size: 12px;
+  text-transform: none; letter-spacing: 0;
+  color: var(--cg-fg-faint);
+  padding: 0 10px;
+}
+
+/* Collapsed rail: icons only. */
+html[data-shell="chatgpt"] .results.sb-collapsed .sb-title,
+html[data-shell="chatgpt"] .results.sb-collapsed .sb-search,
+html[data-shell="chatgpt"] .results.sb-collapsed .sb-body,
+html[data-shell="chatgpt"] .results.sb-collapsed .sb-new > span:last-child { display: none; }
+html[data-shell="chatgpt"] .results.sb-collapsed .sb-head { padding: 0; }
+html[data-shell="chatgpt"] .results.sb-collapsed .sb-new {
+  width: 36px; height: 36px; padding: 0; justify-content: center;
+}
+
+/* ── Thread column ────────────────────────────────────────────────────
+   The card chrome (2px border, shadow, paper fill) comes off; the pane is
+   just the canvas the thread sits on. */
+html[data-shell="chatgpt"] .transcript-pane {
+  border: 0; box-shadow: none;
+  background: var(--cg-bg);
+  padding: 0;
+  gap: 0;
+}
+/* Left group, then everything else pinned right — the app's space-between
+   would strand "+ new" in the middle once the Matches button is added. */
+html[data-shell="chatgpt"] .transcript-head {
+  border-bottom: 0;
+  padding: 10px 16px;
+  min-height: 52px;
+  justify-content: flex-start;
+  gap: 4px;
+}
+html[data-shell="chatgpt"] .transcript-head .th-left { margin-right: auto; }
+html[data-shell="chatgpt"] .transcript-head .hand {
+  font-family: inherit; font-size: 14px; color: var(--cg-fg-muted);
+}
+html[data-shell="chatgpt"] .transcript-head .chip {
+  border: 0; border-radius: 999px;
+  background: transparent; color: var(--cg-fg);
+  font-family: inherit; font-size: 14px;
+  padding: 6px 12px;
+}
+html[data-shell="chatgpt"] .transcript-head .chip:hover { background: var(--cg-surface); }
+
+/* ── Empty state ──────────────────────────────────────────────────────
+   Greeting, then the composer, then the suggestions — chatgpt-shell.js
+   moves .chat-input and .landing-suggest into .chat-empty to get that
+   order, and moves them back out when the thread has messages. */
+/* The app hides .chat-empty with :has(#chat-log:not(:empty)). Under the
+   shell the composer lives inside .chat-empty while the thread is empty,
+   so visibility is driven by the data-cg attribute the script sets AFTER
+   it has moved the composer back out — otherwise the input would be a
+   child of a display:none element for a frame. */
+   !important because the app's rule is an id-in-:has() selector and so wins
+   on specificity; these two must beat it in BOTH directions. */
+html[data-shell="chatgpt"] .transcript-pane[data-cg="empty"] .chat-empty { display: flex !important; }
+html[data-shell="chatgpt"] .transcript-pane[data-cg="thread"] .chat-empty { display: none !important; }
+
+html[data-shell="chatgpt"] .chat-empty {
+  gap: 22px;
+  padding: 0 20px 8vh;
+  color: var(--cg-fg-muted);
+}
+html[data-shell="chatgpt"] .chat-empty-title {
+  font-size: 30px; font-weight: 500; letter-spacing: -0.02em;
+  color: var(--cg-fg-strong);
+  margin-bottom: 6px;
+}
+html[data-shell="chatgpt"] .chat-empty-sub,
+html[data-shell="chatgpt"] .chat-empty .lbl { display: none; }
+
+/* Suggestions become ChatGPT's icon rows: one per line, left-aligned in
+   the composer's column, indented just inside the pill's edge. */
+html[data-shell="chatgpt"] .chat-empty .landing-suggest {
+  flex-direction: column; flex-wrap: nowrap;
+  align-items: flex-start; justify-content: flex-start;
+  width: min(100%, var(--cg-col));
+  max-width: var(--cg-col);
+  padding-left: 26px;
+  margin-top: 0;
+  gap: 2px;
+}
+html[data-shell="chatgpt"] .chat-empty .landing-suggest .chip {
+  display: flex; align-items: center; gap: 14px;
+  border: 0; border-radius: 12px;
+  background: transparent;
+  color: var(--cg-fg-muted);
+  font-family: inherit; font-size: 15px; font-weight: 400;
+  padding: 11px 14px;
+  text-align: left;
+}
+/* One icon for every row rather than a different one per suggestion: the
+   chips are generated by app.js and every one of them is a search, so a
+   per-row icon would be decoration standing in for a distinction that does
+   not exist. Masked so it takes the row's colour in both themes. */
+html[data-shell="chatgpt"] .chat-empty .landing-suggest .chip::before {
+  content: ''; flex: none;
+  width: 18px; height: 18px;
+  background: currentColor;
+  -webkit-mask: var(--cg-ico) center / contain no-repeat;
+          mask: var(--cg-ico) center / contain no-repeat;
+}
+html[data-shell="chatgpt"] .chat-empty .landing-suggest {
+  --cg-ico: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="1.7" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M16.2 16.2 21 21"/></svg>');
+}
+html[data-shell="chatgpt"] .chat-empty .landing-suggest .chip:hover {
+  background: var(--cg-surface); color: var(--cg-fg);
+}
+
+/* ── Thread ───────────────────────────────────────────────────────────*/
+html[data-shell="chatgpt"] .chat-log {
+  padding: 8px 20px 12px;
+  gap: 0;
+  scroll-behavior: smooth;
+}
+html[data-shell="chatgpt"] .chat-log > * {
+  width: min(100%, var(--cg-col));
+  margin-left: auto; margin-right: auto;
+}
+
+/* User turns: blue rounded bubbles on the right. */
+html[data-shell="chatgpt"] .bubble-wrap.user { margin-bottom: 26px; }
+html[data-shell="chatgpt"] .bubble.user {
+  border: 0; border-radius: 20px;
+  background: var(--cg-accent); color: var(--cg-on-accent);
+  font-family: inherit; font-size: 16px; line-height: 1.5;
+  padding: 10px 18px;
+  max-width: 75%;
+}
+
+/* Assistant turns: bare text, no card, no border. */
+html[data-shell="chatgpt"] .bubble-wrap.ai { margin-bottom: 26px; gap: 0; }
+html[data-shell="chatgpt"] .bubble.ai {
+  border: 0; background: transparent;
+  font-family: inherit; font-size: 16px; line-height: 1.75;
+  color: var(--cg-fg);
+  padding: 0;
+}
+html[data-shell="chatgpt"] .bubble.ai.md strong { color: var(--cg-fg-strong); font-weight: 600; }
+html[data-shell="chatgpt"] .bubble.ai.md a { background: transparent; color: var(--cg-accent); }
+html[data-shell="chatgpt"] .bubble.ai.md a:hover { background: transparent; text-decoration: underline; }
+html[data-shell="chatgpt"] .bubble.ai.md .md-h {
+  border-bottom: 0; padding-bottom: 0; color: var(--cg-fg-strong);
+}
+html[data-shell="chatgpt"] .bubble.ai.thinking { font-family: inherit; font-size: 16px; color: var(--cg-fg-muted); }
+
+/* Per-message actions sit under the answer and stay visible, the way
+   ChatGPT shows them, instead of appearing on hover. */
+html[data-shell="chatgpt"] .bubble-actions { opacity: 1; margin-top: 12px; gap: 2px; }
+html[data-shell="chatgpt"] .bubble-wrap.user .bubble-actions { opacity: 0; }
+html[data-shell="chatgpt"] .bubble-wrap.user:hover .bubble-actions { opacity: 1; }
+html[data-shell="chatgpt"] .b-act {
+  border: 0; border-radius: 7px;
+  background: transparent; color: var(--cg-fg-muted);
+  width: 30px; height: 30px; padding: 0;
+}
+html[data-shell="chatgpt"] .b-act svg { width: 15px; height: 15px; }
+html[data-shell="chatgpt"] .b-act:hover { background: var(--cg-surface); color: var(--cg-fg); }
+
+/* The per-answer matches chip keeps its job (flip the panel back to what
+   this turn found) but loses the sketchbook outline. */
+html[data-shell="chatgpt"] .matches-chip {
+  border: 0; border-radius: 999px;
+  background: var(--cg-surface); color: var(--cg-fg-muted);
+  font-family: inherit; font-size: 13px;
+  padding: 5px 11px;
+  margin-top: 12px;
+}
+html[data-shell="chatgpt"] .matches-chip:hover,
+html[data-shell="chatgpt"] .matches-chip.active { background: var(--cg-surface-2); color: var(--cg-fg); }
+html[data-shell="chatgpt"] .sources-row,
+html[data-shell="chatgpt"] .resp-time { color: var(--cg-fg-faint); font-family: inherit; font-size: 12px; }
+html[data-shell="chatgpt"] .source-chip {
+  border: 0; border-radius: 999px; background: var(--cg-surface); color: var(--cg-fg-muted);
+}
+html[data-shell="chatgpt"] .b-act.active,
+html[data-shell="chatgpt"] .b-act.flash { background: var(--cg-surface-2); color: var(--cg-fg); }
+
+/* ── Composer ─────────────────────────────────────────────────────────*/
+/* The app stacks this composer (.chat-input--stacked wraps the textarea onto
+   its own row above the controls). ChatGPT keeps everything on one row, so
+   un-wrap it and re-order: text field, then the mode control, then send. */
+html[data-shell="chatgpt"] .transcript-pane .chat-input {
+  border: 0; border-radius: 26px;
+  background: var(--cg-composer);
+  box-shadow: none;
+  width: min(100%, var(--cg-col));
+  max-width: var(--cg-col);
+  margin: 0 auto 18px;
+  min-height: 52px;
+  padding: 6px 8px 6px 18px !important;
+  gap: 6px;
+  flex-wrap: nowrap;
+}
+html[data-shell="chatgpt"] .transcript-pane .chat-input > textarea {
+  order: 1; flex: 1 1 auto; width: auto;
+}
+html[data-shell="chatgpt"] .transcript-pane .chat-input > .mode-picker,
+html[data-shell="chatgpt"] .transcript-pane .chat-input > .model-picker { order: 2; flex: none; }
+html[data-shell="chatgpt"] .transcript-pane .chat-input > .send { order: 3; margin-left: 0; }
+html[data-shell="chatgpt"] .transcript-pane .chat-input textarea {
+  font-family: inherit; font-size: 16px; line-height: 1.5;
+  color: var(--cg-fg);
+  padding: 8px 4px;
+  max-height: 180px;
+}
+html[data-shell="chatgpt"] .transcript-pane .chat-input textarea::placeholder {
+  font-family: inherit; font-size: 16px; color: var(--cg-fg-muted);
+}
+html[data-shell="chatgpt"] .transcript-pane .chat-input .send {
+  width: 38px; height: 38px;
+  border: 0; border-radius: 50%;
+  background: var(--cg-accent); color: var(--cg-on-accent);
+  font-family: inherit; font-size: 17px;
+}
+html[data-shell="chatgpt"] .transcript-pane .chat-input .send:hover { background: #4b83f2; color: var(--cg-on-accent); }
+
+/* The mode / model pickers live inside the pill; make them read as the
+   inline controls ChatGPT puts there (its "Think" pill). */
+html[data-shell="chatgpt"] .transcript-pane .mode-picker-trigger,
+html[data-shell="chatgpt"] .transcript-pane .model-picker-trigger {
+  border: 0; border-radius: 999px;
+  background: transparent; color: var(--cg-fg);
+  font-family: inherit; font-size: 14px;
+  padding: 7px 12px;
+}
+html[data-shell="chatgpt"] .transcript-pane .mode-picker-trigger:hover,
+html[data-shell="chatgpt"] .transcript-pane .model-picker-trigger:hover { background: var(--cg-composer-2); }
+
+/* ── Matches drawer ───────────────────────────────────────────────────
+   The third column becomes a right-hand drawer so the thread gets the
+   full width. chatgpt-shell.js adds the toggle and mirrors the count. */
+/* Absolute inside .results (already position:relative), not fixed to the
+   viewport: that keeps the drawer inside the chat area instead of covering
+   the app's top bar, and gives it the right height for free. */
+html[data-shell="chatgpt"] .results-pane {
+  position: absolute; top: 0; right: 0; bottom: 0;
+  z-index: 20;
+  width: min(420px, 92vw);
+  margin-left: 0;
+  background: var(--cg-bg);
+  border-left: 1px solid var(--cg-border);
+  box-shadow: -16px 0 32px -24px rgba(0,0,0,0.6);
+  transform: translateX(101%);   /* 101% so the shadow clears the edge too */
+  transition: transform 160ms cubic-bezier(0.2, 0, 0, 1);
+  display: flex; flex-direction: column;
+  padding: 14px;
+  overflow: hidden;
+}
+html[data-shell="chatgpt"][data-matches="open"] .results-pane { transform: none; }
+html[data-shell="chatgpt"] .results-pane .results-head {
+  color: var(--cg-fg);
+  padding-bottom: 10px;
+}
+html[data-shell="chatgpt"] .results-pane .count {
+  color: var(--cg-fg-strong); font-family: inherit; font-size: 15px; font-weight: 600;
+}
+html[data-shell="chatgpt"] .results-pane .lbl {
+  color: var(--cg-fg-faint); font-family: inherit; font-size: 12px;
+  text-transform: none; letter-spacing: 0;
+}
+html[data-shell="chatgpt"] .results-pane .results-sort {
+  border: 0; border-radius: 8px;
+  background: var(--cg-surface); color: var(--cg-fg);
+  font-family: inherit; font-size: 12px;
+  padding: 6px 8px;
+}
+html[data-shell="chatgpt"] .results-pane .results-list { flex: 1; overflow-y: auto; min-height: 0; }
+
+/* Wide screens: give the drawer its own space instead of letting it sit on
+   top of the thread, so the message column just re-centres in what's left. */
+@media (min-width: 1200px) {
+  html[data-shell="chatgpt"] .transcript-pane {
+    transition: margin-right 160ms cubic-bezier(0.2, 0, 0, 1);
+  }
+  html[data-shell="chatgpt"][data-matches="open"] .transcript-pane { margin-right: 420px; }
+}
+
+/* The toggle, injected into .transcript-head by chatgpt-shell.js. */
+html[data-shell="chatgpt"] .cg-matches-btn {
+  display: flex; align-items: center; gap: 7px;
+  border: 0; border-radius: 999px;
+  background: transparent; color: var(--cg-fg);
+  font-family: inherit; font-size: 14px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+html[data-shell="chatgpt"] .cg-matches-btn:hover { background: var(--cg-surface); }
+html[data-shell="chatgpt"] .cg-matches-btn .cg-count {
+  font-size: 12px; color: var(--cg-fg-faint);
+}
+html[data-shell="chatgpt"] .cg-drawer-close {
+  position: absolute; top: 12px; right: 12px;
+  width: 30px; height: 30px;
+  display: grid; place-items: center;
+  border: 0; border-radius: 8px;
+  background: transparent; color: var(--cg-fg-muted);
+  cursor: pointer;
+}
+html[data-shell="chatgpt"] .cg-drawer-close:hover { background: var(--cg-surface); color: var(--cg-fg); }
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-shell="chatgpt"] .results-pane { transition: none; }
+  html[data-shell="chatgpt"] .chat-log { scroll-behavior: auto; }
+}
+
+/* ── Mobile ───────────────────────────────────────────────────────────
+   Below 1000px the app already stacks the panes and shows its own tab
+   bar; that stays. Only the pill needs to give the text field room. */
+@media (max-width: 1000px) {
+  html[data-shell="chatgpt"] .results,
+  html[data-shell="chatgpt"] .results.sb-collapsed { grid-template-columns: 1fr; }
+  html[data-shell="chatgpt"] .results-pane {
+    position: static; transform: none; width: auto;
+    border-left: 0; padding: 0;
+  }
+  html[data-shell="chatgpt"] .cg-matches-btn,
+  html[data-shell="chatgpt"] .cg-drawer-close { display: none; }
+  html[data-shell="chatgpt"] .chat-empty-title { font-size: 24px; }
+  html[data-shell="chatgpt"] .transcript-pane .mode-picker-trigger .mpt-mode,
+  html[data-shell="chatgpt"] .transcript-pane .model-picker-trigger .mpt-effort { display: none; }
+}

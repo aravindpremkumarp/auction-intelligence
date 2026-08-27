@@ -26,13 +26,13 @@
       ]
     },
     {
-      "source": "/(app|auth|dossiers|lab)\\.js",
+      "source": "/(app|auth|dossiers|lab|chatgpt-shell)\\.js",
       "headers": [
         { "key": "Cache-Control", "value": "public, max-age=300, stale-while-revalidate=86400" }
       ]
     },
     {
-      "source": "/styles.css",
+      "source": "/(styles|chatgpt-shell).css",
       "headers": [
         { "key": "Cache-Control", "value": "public, max-age=300, stale-while-revalidate=86400" }
       ]

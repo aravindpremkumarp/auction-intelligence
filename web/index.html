@@ -125,6 +125,13 @@
   })();
 </script>
 <link rel="stylesheet" href="/styles.css">
+<!-- ChatGPT-style chat shell. Inert unless chatgpt-shell.js turns it on
+     (/lab, or ?shell=chatgpt anywhere); the public site is unaffected.
+     The script is deliberately render-blocking here so the data-shell
+     attribute lands before first paint — same reason as the theme
+     bootstrap above. -->
+<link rel="stylesheet" href="/chatgpt-shell.css">
+<script src="/chatgpt-shell.js"></script>
 </head>
 <body>
 
