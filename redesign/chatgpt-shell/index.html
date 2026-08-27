@@ -1,0 +1,780 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>Auctionscope — ChatGPT-style chat shell (mockup)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* =====================================================================
+   Auctionscope — ChatGPT-style chat shell. STANDALONE MOCKUP.
+   Nothing here is wired to the real app: no API calls, no auth, no data.
+   Open the file in any browser. Every number below is measured off the
+   reference screenshots, then re-expressed as a token so the live app can
+   adopt it wholesale later.
+   ===================================================================== */
+
+:root {
+  /* ---- Surfaces (dark is the reference; light is the mirrored set) ---- */
+  --bg:            #0d0d0d;   /* main canvas                              */
+  --bg-sidebar:    #0d0d0d;   /* rail + sidebar share the canvas          */
+  --surface:       #1c1c1c;   /* hover fills                              */
+  --surface-2:     #2a2a2a;   /* active sidebar row                       */
+  --composer:      #2f2f2f;   /* the input pill                           */
+  --composer-2:    #3a3a3a;   /* pill hover / inner buttons               */
+
+  /* ---- Text ---- */
+  --fg:            #ececec;   /* body + assistant text                    */
+  --fg-strong:     #ffffff;   /* the big greeting                         */
+  --fg-muted:      #9b9b9b;   /* sidebar labels, placeholders, meta       */
+  --fg-faint:      #7d7d7d;   /* section headers, disclaimer              */
+
+  /* ---- Accent ---- */
+  --accent:        #2f6fed;   /* user bubble + voice button               */
+  --accent-hover:  #4b83f2;
+  --on-accent:     #ffffff;
+
+  --border:        rgba(255,255,255,0.10);
+  --ring:          rgba(47,111,237,0.55);
+
+  /* ---- Geometry, straight off the screenshots ---- */
+  --rail-w:        52px;      /* collapsed icon rail                      */
+  --sidebar-w:     260px;     /* expanded sidebar                         */
+  --thread-w:      768px;     /* message column                           */
+  --composer-w:    768px;     /* input pill column                        */
+  --pill-r:        26px;      /* composer radius (fully round at 52px)    */
+  --row-r:         10px;      /* sidebar row radius                       */
+  --bubble-r:      20px;      /* user message radius                      */
+
+  --dur:           140ms;
+  --ease:          cubic-bezier(0.2, 0, 0, 1);
+}
+
+html[data-theme="light"] {
+  --bg:            #ffffff;
+  --bg-sidebar:    #f9f9f9;
+  --surface:       #f0f0f0;
+  --surface-2:     #e8e8e8;
+  --composer:      #f4f4f4;
+  --composer-2:    #e8e8e8;
+  --fg:            #0d0d0d;
+  --fg-strong:     #000000;
+  --fg-muted:      #5d5d5d;
+  --fg-faint:      #767676;
+  --border:        rgba(0,0,0,0.10);
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }   /* beats the display: on .top-btn / .icon-btn */
+html, body { height: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 16px;
+  line-height: 1.6;
+  overflow-x: hidden;   /* the off-canvas mobile sidebar must not add scroll */
+  -webkit-font-smoothing: antialiased;
+}
+button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+
+/* ===================================================================
+   SHELL — rail/sidebar + main. One grid; the first column animates
+   between --rail-w and --sidebar-w, which is the whole collapse trick.
+   =================================================================== */
+.shell {
+  display: grid;
+  grid-template-columns: var(--rail-w) 1fr;
+  height: 100vh;
+  transition: grid-template-columns var(--dur) var(--ease);
+}
+.shell[data-sidebar="open"] { grid-template-columns: var(--sidebar-w) 1fr; }
+
+/* ---- Sidebar ------------------------------------------------------ */
+.side {
+  background: var(--bg-sidebar);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+  min-height: 0;
+}
+.side-top {
+  display: flex; align-items: center; gap: 4px;
+  padding: 10px 8px 6px;
+  min-height: 48px;
+}
+.shell[data-sidebar="closed"] .side-top { flex-direction: column; padding: 12px 0 4px; }
+
+.logo {
+  width: 32px; height: 32px; flex: none;
+  display: grid; place-items: center;
+  border-radius: 8px;
+  color: var(--fg);
+}
+.logo:hover { background: var(--surface); }
+.wordmark {
+  font-size: 17px; font-weight: 600; letter-spacing: -0.01em;
+  color: var(--fg-strong); white-space: nowrap;
+  margin-right: auto; padding-left: 2px;
+}
+/* Collapsed: the expand control moves to the topbar, so the rail drops its own. */
+.shell[data-sidebar="closed"] #collapse,
+.shell[data-sidebar="closed"] .wordmark,
+.shell[data-sidebar="closed"] .side-scroll,
+.shell[data-sidebar="closed"] .row-label,
+.shell[data-sidebar="closed"] .side-section,
+.shell[data-sidebar="closed"] .acct-text { display: none; }
+
+.icon-btn {
+  width: 32px; height: 32px; flex: none;
+  display: grid; place-items: center;
+  border-radius: 8px;
+  color: var(--fg-muted);
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.icon-btn:hover { background: var(--surface); color: var(--fg); }
+
+/* ---- Sidebar rows ------------------------------------------------- */
+.side-nav { padding: 4px 8px; display: flex; flex-direction: column; gap: 1px; }
+.shell[data-sidebar="closed"] .side-nav { align-items: center; padding: 4px 0; gap: 2px; }
+
+.row {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: var(--row-r);
+  color: var(--fg);
+  font-size: 14px;
+  text-align: left;
+  white-space: nowrap;
+  transition: background var(--dur) var(--ease);
+}
+.row:hover { background: var(--surface); }
+.row[aria-current="true"] { background: var(--surface-2); }
+.row svg { flex: none; color: var(--fg-muted); }
+.shell[data-sidebar="closed"] .row { width: 36px; height: 36px; padding: 0; justify-content: center; }
+
+.side-scroll { flex: 1; overflow-y: auto; padding: 8px 8px 4px; min-height: 0; }
+.side-scroll::-webkit-scrollbar { width: 6px; }
+.side-scroll::-webkit-scrollbar-thumb { background: var(--surface-2); border-radius: 3px; }
+
+.side-section {
+  font-size: 12px; font-weight: 500; color: var(--fg-faint);
+  padding: 14px 10px 6px;
+}
+.row-sm { font-size: 14px; padding: 7px 10px; }
+.row-more {
+  font-size: 13px; color: var(--fg-faint);
+  padding: 6px 10px; border-radius: var(--row-r);
+}
+.row-more:hover { background: var(--surface); color: var(--fg); }
+.chat-title { overflow: hidden; text-overflow: ellipsis; }
+
+/* ---- Account row -------------------------------------------------- */
+.acct {
+  display: flex; align-items: center; gap: 10px;
+  margin: 4px 8px 10px;
+  padding: 8px 10px;
+  border-radius: var(--row-r);
+  width: calc(100% - 16px);
+  text-align: left;
+}
+.acct:hover { background: var(--surface); }
+.shell[data-sidebar="closed"] .acct { width: 36px; margin: 4px auto 12px; padding: 0; height: 36px; justify-content: center; }
+.avatar {
+  width: 26px; height: 26px; flex: none;
+  border-radius: 50%;
+  background: #12a37f; color: #fff;
+  display: grid; place-items: center;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.02em;
+}
+.acct-text { min-width: 0; line-height: 1.25; }
+.acct-name { font-size: 13px; color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acct-plan { font-size: 12px; color: var(--fg-faint); }
+
+/* ===================================================================
+   MAIN
+   =================================================================== */
+/* min-height:0 on both the grid item and the scroll pane — without it the
+   default min-height:auto lets a long thread push the page past 100vh. */
+.main { display: flex; flex-direction: column; min-width: 0; min-height: 0; position: relative; }
+
+.topbar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 16px;
+  min-height: 52px;
+}
+.topbar .spacer { flex: 1; }
+.top-btn {
+  display: flex; align-items: center; gap: 7px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 14px; color: var(--fg);
+}
+.top-btn:hover { background: var(--surface); }
+
+/* ---- Empty state -------------------------------------------------- */
+/* The composer is MOVED into this stack when the thread is empty (that is what
+   the reference does: greeting, then input, then suggestions, all vertically
+   centred) and moved back down to the dock once a conversation starts. */
+.empty {
+  flex: 1;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: 0 20px 8vh;
+  gap: 22px;
+  width: 100%;
+}
+.empty .composer-wrap { padding: 0; width: min(100%, var(--composer-w)); }
+.greeting {
+  font-size: 30px; font-weight: 500; letter-spacing: -0.02em;
+  color: var(--fg-strong);
+  text-align: center;
+  margin: 0 0 6px;
+}
+/* Same column as the composer, indented ~22px so the icons hang just inside
+   the pill's left edge — that is the alignment in the reference. */
+.suggestions {
+  display: flex; flex-direction: column; align-items: flex-start;
+  width: min(100%, var(--composer-w));
+  padding-left: 22px;
+  gap: 2px;
+}
+.suggest {
+  display: flex; align-items: center; gap: 14px;
+  padding: 11px 14px;
+  border-radius: 12px;
+  font-size: 15px; color: var(--fg-muted);
+  text-align: left;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.suggest:hover { background: var(--surface); color: var(--fg); }
+.suggest svg { flex: none; }
+
+/* ---- Thread ------------------------------------------------------- */
+.thread { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 20px 12px; }
+.thread-inner { width: min(100%, var(--thread-w)); margin: 0 auto; }
+
+.msg { margin-bottom: 26px; }
+.msg-user { display: flex; justify-content: flex-end; }
+.bubble {
+  background: var(--accent); color: var(--on-accent);
+  padding: 10px 18px;
+  border-radius: var(--bubble-r);
+  max-width: 75%;
+  font-size: 16px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.msg-bot { font-size: 16px; line-height: 1.75; color: var(--fg); }
+.msg-bot p { margin: 0 0 14px; }
+.msg-bot p:last-child { margin-bottom: 0; }
+.msg-bot strong { font-weight: 600; color: var(--fg-strong); }
+
+.msg-actions { display: flex; gap: 2px; margin-top: 12px; }
+.act {
+  width: 30px; height: 30px;
+  display: grid; place-items: center;
+  border-radius: 7px;
+  color: var(--fg-muted);
+}
+.act:hover { background: var(--surface); color: var(--fg); }
+
+/* Property cards — the one place this shell must differ from ChatGPT:
+   matches are the product, so they render inline in the answer. */
+.cards { display: grid; gap: 8px; margin: 4px 0 14px; }
+.card {
+  display: flex; align-items: center; gap: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: transparent;
+  text-align: left; width: 100%;
+  transition: background var(--dur) var(--ease);
+}
+.card:hover { background: var(--surface); }
+.card-thumb {
+  width: 40px; height: 40px; flex: none;
+  border-radius: 10px;
+  background: var(--surface-2);
+  display: grid; place-items: center;
+  color: var(--fg-muted);
+}
+.card-body { min-width: 0; flex: 1; }
+.card-title { font-size: 15px; color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card-meta { font-size: 13px; color: var(--fg-faint); }
+.card-price { font-size: 15px; font-weight: 600; color: var(--fg-strong); white-space: nowrap; }
+
+/* ---- Typing dots -------------------------------------------------- */
+.dots { display: inline-flex; gap: 5px; padding: 4px 0; }
+.dots i {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--fg-muted);
+  animation: blink 1.2s infinite ease-in-out;
+}
+.dots i:nth-child(2) { animation-delay: 0.15s; }
+.dots i:nth-child(3) { animation-delay: 0.3s; }
+@keyframes blink { 0%, 60%, 100% { opacity: 0.25; } 30% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .dots i { animation: none; opacity: 0.6; }
+  .shell, .row, .suggest, .act { transition: none; }
+}
+
+/* ---- Composer ----------------------------------------------------- */
+.composer-wrap { padding: 0 20px 18px; }
+.composer {
+  width: min(100%, var(--composer-w));
+  margin: 0 auto;
+  display: flex; align-items: center; gap: 6px;
+  background: var(--composer);
+  border-radius: var(--pill-r);
+  padding: 6px 8px 6px 6px;
+  min-height: 52px;
+}
+/* No focus ring on the pill itself — the reference shows none, and the caret
+   already signals focus. Keyboard focus on the pill's buttons still rings. */
+.comp-btn {
+  width: 38px; height: 38px; flex: none;
+  display: grid; place-items: center;
+  border-radius: 50%;
+  color: var(--fg);
+}
+.comp-btn:hover { background: var(--composer-2); }
+.comp-input {
+  flex: 1; min-width: 0;
+  background: none; border: 0; outline: none; resize: none;
+  color: var(--fg);
+  font: inherit; font-size: 16px; line-height: 1.5;
+  padding: 8px 4px;
+  max-height: 180px;
+}
+.comp-input::placeholder { color: var(--fg-muted); }
+.think {
+  display: flex; align-items: center; gap: 7px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  font-size: 15px; color: var(--fg);
+  white-space: nowrap;
+}
+.think:hover { background: var(--composer-2); }
+.think[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
+.voice {
+  width: 38px; height: 38px; flex: none;
+  display: grid; place-items: center;
+  border-radius: 50%;
+  background: var(--accent); color: var(--on-accent);
+}
+.voice:hover { background: var(--accent-hover); }
+
+.disclaimer {
+  text-align: center;
+  font-size: 12px; color: var(--fg-faint);
+  padding: 0 20px 8px;
+}
+
+/* ---- Mockup-only controls (delete when this lands in the app) ------ */
+.demo {
+  position: fixed; top: 10px; left: 50%; transform: translateX(-50%); z-index: 50;
+  display: flex; gap: 6px;
+  background: var(--composer);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 5px;
+}
+.demo button {
+  font-size: 12px; color: var(--fg-muted);
+  padding: 5px 11px; border-radius: 999px;
+}
+.demo button:hover { background: var(--composer-2); color: var(--fg); }
+
+/* ---- Mobile ------------------------------------------------------- */
+@media (max-width: 760px) {
+  .shell, .shell[data-sidebar="open"] { grid-template-columns: 1fr; }
+  .side {
+    position: fixed; inset: 0 auto 0 0; z-index: 40;
+    width: var(--sidebar-w);
+    transform: translateX(-100%);
+    transition: transform var(--dur) var(--ease);
+    border-right: 1px solid var(--border);
+  }
+  .shell[data-sidebar="open"] .side { transform: none; }
+  .shell[data-sidebar="closed"] .side-scroll,
+  .shell[data-sidebar="closed"] .row-label,
+  .shell[data-sidebar="closed"] .side-section,
+  .shell[data-sidebar="closed"] .acct-text,
+  .shell[data-sidebar="closed"] .wordmark { display: revert; }
+  .shell[data-sidebar="closed"] .row { width: 100%; height: auto; padding: 8px 10px; justify-content: flex-start; }
+  .shell[data-sidebar="closed"] .acct { width: calc(100% - 16px); height: auto; padding: 8px 10px; justify-content: flex-start; margin: 4px 8px 10px; }
+  .shell[data-sidebar="closed"] .side-top { flex-direction: row; padding: 10px 8px 6px; }
+  .shell[data-sidebar="closed"] .side-nav { align-items: stretch; padding: 4px 8px; }
+  .greeting { font-size: 24px; }
+  .bubble { max-width: 88%; }
+  /* Narrow pill: drop the dictate button and the Think label so the text
+     field keeps a usable width. */
+  .mic { display: none; }
+  .think-label { display: none; }
+  .think { padding: 9px; }
+  .backdrop {
+    position: fixed; inset: 0; z-index: 39;
+    background: rgba(0,0,0,0.5);
+  }
+}
+.backdrop { display: none; }
+@media (max-width: 760px) { .shell[data-sidebar="open"] .backdrop { display: block; } }
+</style>
+</head>
+<body>
+
+<div class="shell" id="shell" data-sidebar="open">
+
+  <!-- ============================ SIDEBAR ============================ -->
+  <aside class="side" aria-label="chat navigation">
+    <div class="side-top">
+      <button class="logo" id="logo" aria-label="Auctionscope home">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="11" cy="11" r="6.5"/><path d="M15.8 15.8 L21 21"/><path d="M8.5 11h5"/>
+        </svg>
+      </button>
+      <span class="wordmark">Auctionscope</span>
+      <button class="icon-btn" aria-label="Search chats">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+          <circle cx="11" cy="11" r="7"/><path d="M16.2 16.2 L21 21"/>
+        </svg>
+      </button>
+      <button class="icon-btn" id="collapse" aria-label="Toggle sidebar">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true">
+          <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/>
+        </svg>
+      </button>
+    </div>
+
+    <nav class="side-nav" aria-label="primary">
+      <button class="row" aria-current="true" onclick="resetThread()">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>
+        </svg>
+        <span class="row-label">New chat</span>
+      </button>
+      <button class="row">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true">
+          <path d="M11 19V6.5a2.5 2.5 0 0 0-2.5-2.5H4v13h4.5A2.5 2.5 0 0 1 11 19Z"/>
+          <path d="M13 19V6.5A2.5 2.5 0 0 1 15.5 4H20v13h-4.5A2.5 2.5 0 0 0 13 19Z"/>
+        </svg>
+        <span class="row-label">Watchlist</span>
+      </button>
+      <button class="row">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M3 7a1 1 0 0 1 1-1h5l2 2h8a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1Z"/>
+        </svg>
+        <span class="row-label">Dossiers</span>
+      </button>
+      <button class="row">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 1.8"/>
+        </svg>
+        <span class="row-label">Alerts</span>
+      </button>
+      <button class="row">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
+          <path d="M5 12h.01M12 12h.01M19 12h.01"/>
+        </svg>
+        <span class="row-label">More</span>
+      </button>
+    </nav>
+
+    <div class="side-scroll">
+      <div class="side-section">Saved searches</div>
+      <button class="row row-sm"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a1 1 0 0 1 1-1h5l2 2h8a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1Z"/></svg><span class="chat-title">Chennai flats under 50L</span></button>
+      <button class="row row-sm"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a1 1 0 0 1 1-1h5l2 2h8a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1Z"/></svg><span class="chat-title">Coimbatore commercial</span></button>
+      <button class="row row-sm"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a1 1 0 0 1 1-1h5l2 2h8a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1Z"/></svg><span class="chat-title">SBI · Trichy</span></button>
+      <button class="row row-sm"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a1 1 0 0 1 1-1h5l2 2h8a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1Z"/></svg><span class="chat-title">Agri land · Madurai belt</span></button>
+      <button class="row-more">Show more</button>
+
+      <div class="side-section">Chats</div>
+      <div id="chat-list">
+        <button class="row row-sm"><span class="chat-title">EMD for the Anna Nagar flat</span></button>
+        <button class="row row-sm"><span class="chat-title">Compare two Salem plots</span></button>
+        <button class="row row-sm"><span class="chat-title">What does 'symbolic possession' mean</span></button>
+        <button class="row row-sm"><span class="chat-title">Reserve price dropped — worth it?</span></button>
+        <button class="row row-sm"><span class="chat-title">Auctions closing this week</span></button>
+        <button class="row row-sm"><span class="chat-title">Canara Bank notice — Erode</span></button>
+        <button class="row row-sm"><span class="chat-title">Villas near OMR</span></button>
+      </div>
+    </div>
+
+    <button class="acct">
+      <span class="avatar">AR</span>
+      <span class="acct-text">
+        <span class="acct-name">aravindpremkumar prab…</span>
+        <span class="acct-plan">Free</span>
+      </span>
+    </button>
+  </aside>
+
+  <div class="backdrop" onclick="setSidebar(false)"></div>
+
+  <!-- ============================= MAIN ============================== -->
+  <div class="main">
+    <div class="topbar">
+      <button class="icon-btn" id="collapse-2" aria-label="Toggle sidebar" hidden>
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true">
+          <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/>
+        </svg>
+      </button>
+      <span class="spacer"></span>
+      <button class="top-btn" id="share-btn" hidden>
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M12 15V4"/><path d="m8 8 4-4 4 4"/><path d="M5 14v5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-5"/>
+        </svg>
+        Share
+      </button>
+      <button class="icon-btn" aria-label="More options">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
+          <path d="M5 12h.01M12 12h.01M19 12h.01"/>
+        </svg>
+      </button>
+    </div>
+
+    <!-- Empty state -->
+    <div class="empty" id="empty">
+      <h1 class="greeting">What are you looking for today?</h1>
+      <!-- #composer-wrap is moved in here by resetThread() -->
+      <div class="suggestions" id="suggestions">
+        <button class="suggest" data-q="Flats in Chennai under 50 lakhs, auction in the next 30 days">
+          <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="5" y="3" width="14" height="18" rx="1.5"/><path d="M8.5 7h2M13.5 7h2M8.5 11h2M13.5 11h2M8.5 15h2M13.5 15h2"/>
+          </svg>
+          Find auctions near me
+        </button>
+        <button class="suggest" data-q="Compare the two Salem plots on my watchlist">
+          <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M4 6h7M13 6h7M7.5 6l-3.5 7h7ZM16.5 6 13 13h7Z"/><path d="M12 4v16M8 20h8"/>
+          </svg>
+          Compare two properties
+        </button>
+        <button class="suggest" data-q="Explain this auction notice in plain English">
+          <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M6 3h8l4 4v14H6Z"/><path d="M14 3v4h4"/><path d="M9 12h6M9 16h4"/>
+          </svg>
+          Explain an auction notice
+        </button>
+      </div>
+    </div>
+
+    <!-- Thread -->
+    <div class="thread" id="thread" hidden>
+      <div class="thread-inner" id="thread-inner"></div>
+    </div>
+
+    <p class="disclaimer" id="disclaimer" hidden>
+      Auctionscope can make mistakes. Always verify details with the bank notice.
+    </p>
+
+    <!-- Composer. Lives here while a thread is open; resetThread() lifts it
+         into the centred empty state. -->
+    <div class="composer-wrap" id="composer-wrap">
+      <form class="composer" id="composer" autocomplete="off">
+        <button class="comp-btn" type="button" aria-label="Attach a notice or document">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true">
+            <path d="M12 5v14M5 12h14"/>
+          </svg>
+        </button>
+        <textarea class="comp-input" id="input" rows="1" placeholder="Ask anything" aria-label="Ask anything"></textarea>
+        <button class="think" type="button" id="think" aria-pressed="false">
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 4a4 4 0 0 0-4 4v8a4 4 0 0 0 8 0V8a4 4 0 0 0-4-4Z"/><path d="M12 4v16"/>
+          </svg>
+          <span class="think-label">Think</span>
+        </button>
+        <button class="comp-btn mic" type="button" aria-label="Dictate">
+          <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+            <rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 12a6.5 6.5 0 0 0 13 0"/><path d="M12 18.5V21"/>
+          </svg>
+        </button>
+        <button class="voice" type="submit" id="send" aria-label="Send">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true">
+            <path d="M6 10v4M10 7v10M14 5v14M18 9v6"/>
+          </svg>
+        </button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Mockup-only: jump between the three reference states -->
+<div class="demo" aria-label="mockup controls">
+  <button onclick="resetThread()">Empty</button>
+  <button onclick="demoThread()">Conversation</button>
+  <button onclick="setSidebar(!open_)">Sidebar</button>
+  <button onclick="toggleTheme()">Theme</button>
+</div>
+
+<script>
+/* =====================================================================
+   Mockup behaviour only. Replies are canned strings — this file never
+   talks to the API. The point is to judge layout, rhythm and motion.
+   ===================================================================== */
+var shell = document.getElementById('shell');
+var thread = document.getElementById('thread');
+var inner = document.getElementById('thread-inner');
+var empty = document.getElementById('empty');
+var input = document.getElementById('input');
+var open_ = true;
+
+/* ---- Sidebar ------------------------------------------------------ */
+function setSidebar(v) {
+  open_ = v;
+  shell.dataset.sidebar = v ? 'open' : 'closed';
+  document.getElementById('collapse-2').hidden = v;
+}
+document.getElementById('collapse').onclick = function () { setSidebar(false); };
+document.getElementById('collapse-2').onclick = function () { setSidebar(true); };
+document.getElementById('logo').onclick = function () { if (!open_) setSidebar(true); };
+
+/* ---- Theme -------------------------------------------------------- */
+function toggleTheme() {
+  var el = document.documentElement;
+  el.dataset.theme = el.dataset.theme === 'dark' ? 'light' : 'dark';
+}
+
+/* ---- Think toggle ------------------------------------------------- */
+var think = document.getElementById('think');
+think.onclick = function () {
+  think.setAttribute('aria-pressed', think.getAttribute('aria-pressed') === 'true' ? 'false' : 'true');
+};
+
+/* ---- Composer auto-grow ------------------------------------------- */
+input.addEventListener('input', function () {
+  input.style.height = 'auto';
+  input.style.height = Math.min(input.scrollHeight, 180) + 'px';
+});
+input.addEventListener('keydown', function (e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); }
+});
+document.getElementById('composer').addEventListener('submit', function (e) {
+  e.preventDefault(); submit();
+});
+
+/* ---- Suggestions -------------------------------------------------- */
+Array.prototype.forEach.call(document.querySelectorAll('.suggest'), function (b) {
+  b.onclick = function () { send(b.dataset.q); };
+});
+
+/* ---- Rendering ---------------------------------------------------- */
+var ACTIONS =
+  '<div class="msg-actions">' +
+  '<button class="act" aria-label="Copy"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8"/></svg></button>' +
+  '<button class="act" aria-label="Share"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V4"/><path d="m8 8 4-4 4 4"/><path d="M5 14v5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-5"/></svg></button>' +
+  '<button class="act" aria-label="Regenerate"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.6-5.9"/><path d="M20 4v5h-5"/></svg></button>' +
+  '<button class="act" aria-label="More"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M5 12h.01M12 12h.01M19 12h.01"/></svg></button>' +
+  '</div>';
+
+function card(title, meta, price) {
+  return '<button class="card">' +
+    '<span class="card-thumb"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M4 11l8-6 8 6"/><path d="M6 10v10h12V10"/><path d="M10.5 20v-5h3v5"/></svg></span>' +
+    '<span class="card-body"><span class="card-title">' + title + '</span><br><span class="card-meta">' + meta + '</span></span>' +
+    '<span class="card-price">' + price + '</span>' +
+    '</button>';
+}
+
+var composerWrap = document.getElementById('composer-wrap');
+var suggestions = document.getElementById('suggestions');
+var main = document.querySelector('.main');
+
+function showThread() {
+  empty.hidden = true;
+  thread.hidden = false;
+  main.appendChild(composerWrap);          // dock the input at the bottom
+  document.getElementById('disclaimer').hidden = false;
+  document.getElementById('share-btn').hidden = false;
+}
+
+function addUser(text) {
+  var d = document.createElement('div');
+  d.className = 'msg msg-user';
+  d.innerHTML = '<div class="bubble"></div>';
+  d.firstChild.textContent = text;
+  inner.appendChild(d);
+  thread.scrollTop = thread.scrollHeight;
+}
+
+function addBot(html) {
+  var d = document.createElement('div');
+  d.className = 'msg msg-bot';
+  d.innerHTML = html + ACTIONS;
+  inner.appendChild(d);
+  thread.scrollTop = thread.scrollHeight;
+  return d;
+}
+
+function addTyping() {
+  var d = document.createElement('div');
+  d.className = 'msg msg-bot';
+  d.innerHTML = '<div class="dots"><i></i><i></i><i></i></div>';
+  inner.appendChild(d);
+  thread.scrollTop = thread.scrollHeight;
+  return d;
+}
+
+/* Canned answer. Real app swaps this for the streamed agent response. */
+var REPLY =
+  '<p>I found <strong>3 flats in Chennai</strong> under ₹50L with auctions in the next 30 days.</p>' +
+  '<div class="cards">' +
+  card('2BHK flat · Anna Nagar West', 'Indian Bank · auction 12 Sep · 842 sqft', '₹42.5L') +
+  card('3BHK flat · Porur', 'SBI · auction 19 Sep · 1,120 sqft', '₹47.0L') +
+  card('2BHK flat · Ambattur', 'Canara Bank · auction 26 Sep · 780 sqft', '₹38.9L') +
+  '</div>' +
+  '<p>The Ambattur one is the cheapest per square foot at about ₹4,990. Want me to pull the EMD and inspection dates for all three?</p>';
+
+function send(text) {
+  if (!text) return;
+  showThread();
+  addUser(text);
+  var t = addTyping();
+  setTimeout(function () {
+    t.remove();
+    addBot(REPLY);
+  }, 700);
+}
+
+function submit() {
+  var v = input.value.trim();
+  if (!v) return;
+  input.value = '';
+  input.style.height = 'auto';
+  send(v);
+}
+
+function resetThread() {
+  inner.innerHTML = '';
+  thread.hidden = true;
+  empty.hidden = false;
+  empty.insertBefore(composerWrap, suggestions);   // lift the input into the centre
+  document.getElementById('disclaimer').hidden = true;
+  document.getElementById('share-btn').hidden = true;
+  input.focus();
+}
+
+/* Pre-baked conversation, matching the third reference screenshot. */
+function demoThread() {
+  inner.innerHTML = '';
+  showThread();
+  addUser('flats in chennai under 50 lakhs');
+  addBot(REPLY);
+  addUser('what is the EMD on the Porur one?');
+  addBot(
+    '<p>The Porur flat asks <strong>₹4.70L</strong> as EMD — 10% of the ₹47.0L reserve price.</p>' +
+    '<p>It has to reach SBI by <strong>17 Sep, 5:00 PM</strong>, two days before the auction, by NEFT/RTGS to the account on the notice. Bring the transfer receipt to the inspection on 15 Sep.</p>'
+  );
+}
+
+resetThread();                                  /* composer starts centred     */
+if (window.innerWidth <= 760) setSidebar(false); /* drawer starts closed on phones */
+</script>
+</body>
+</html>
