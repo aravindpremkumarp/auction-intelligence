@@ -1,8 +1,13 @@
 name: Sync feedback
 
+# Manual only. This ran on "*/15 * * * *" — ~2,880 runs a month, which on its
+# own exceeded the account's whole Actions allowance and took CI down for every
+# workflow in the repo (see the 2026-08-26 outage: every job across every
+# workflow died in ~3s with no logs once the minutes ran out). Feedback triage
+# does not need 15-minute freshness; run it from the Actions tab when you want
+# a fresh snapshot. Re-adding a schedule here is a billing decision — if it
+# comes back, make it hourly at most, and check the minute budget first.
 on:
-  schedule:
-    - cron: "*/15 * * * *"
   workflow_dispatch:
 
 concurrency:
