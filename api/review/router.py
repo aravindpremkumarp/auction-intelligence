@@ -466,6 +466,18 @@ class ReExtractBody(BaseModel):
     auto: bool = False
 
 
+class ReingestBody(BaseModel):
+    """Optional body for the re-ingest endpoint: which OCR engine to run.
+
+    ``"datalab"`` or ``"mineru"``; anything else (including an absent body)
+    resolves to ``pipeline.config.DESCRIPTION_OCR_ENGINE`` server-side. The
+    choice is load-bearing — MinerU reads a fully-ruled notice as one giant
+    ``<table>`` (the ``table-collapse`` health flag) while Datalab decomposes
+    the same page into separate Title / Text / Table blocks.
+    """
+    engine: str | None = None
+
+
 class ReingestStarted(BaseModel):
     """Returned immediately when a reingest is scheduled in the background.
 
@@ -476,6 +488,9 @@ class ReingestStarted(BaseModel):
     started: bool = True
     filename: str
     blocks_revision: int
+    #: The engine the scheduled run will actually use, after server-side
+    #: normalization — so the UI can report what it got, not what it asked for.
+    engine: str
 
 
 def _row_to_str(row: dict) -> dict:
@@ -1342,11 +1357,12 @@ def review_notice_set_rotation(
 def review_notice_reingest(
     filename: str,
     background_tasks: BackgroundTasks,
+    body: ReingestBody | None = None,
     admin: UserOut = Depends(get_current_admin),
 ) -> ReingestStarted:
-    """Schedule a single-document MinerU re-OCR.
+    """Schedule a single-document re-OCR with the reviewer's chosen engine.
 
-    The full pipeline — download from R2, MinerU upload + poll, zip parse,
+    The full pipeline — download from R2, engine upload + poll, result parse,
     Neo4j write — can take 30s-5min, well over Render's per-request
     timeout. Returning 202 immediately lets the connection close cleanly;
     the UI polls ``GET .../blocks`` and stops when ``blocks_revision``
@@ -1354,12 +1370,25 @@ def review_notice_reingest(
     """
     # Validate the notice exists + capture the current rev before scheduling.
     doc = block_ops.get_blocks(filename)
+    engine = block_ops._clean_engine(body.engine if body else None)
+    # Fail here, not in the background task: the 202 has no error channel, so
+    # a missing key would otherwise cost the reviewer the UI's full 5-minute
+    # poll before anything told them why nothing happened.
+    if engine == "datalab":
+        from pipeline.datalab_api import DATALAB_API_KEY
+        if not DATALAB_API_KEY:
+            raise HTTPException(
+                status_code=503,
+                detail="DATALAB_API_KEY is not configured on this host; "
+                       "pick MinerU in the engine selector or set the key",
+            )
     background_tasks.add_task(
-        block_ops.reingest_notice_safe, filename, admin.email,
+        block_ops.reingest_notice_safe, filename, admin.email, engine,
     )
     return ReingestStarted(
         filename=filename,
         blocks_revision=int(doc.get("blocks_revision") or 0),
+        engine=engine,
     )
 
 

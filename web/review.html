@@ -874,8 +874,8 @@
         <span id="ann-zoom-pct" class="meta zoom-pct">Fit</span>
         <button id="ann-zoom-in" class="ghost zoom-btn" title="zoom in (or scroll wheel up)">+</button>
       </span>
-      <label class="meta" id="ann-engine-wrap" title="OCR engine used when you re-extract a drawn block. Datalab is the default (faster, cleaner on raster notices); MinerU segments dense multi-lot notices into finer blocks.">engine <select class="page-select" id="ann-engine"><option value="datalab">Datalab</option><option value="mineru">MinerU</option></select></label>
-      <button id="ann-reingest-btn" class="ghost" title="re-run MinerU layout extraction (applies saved rotation + crop / regions; regions win over a single crop)">Re-ingest</button>
+      <label class="meta" id="ann-engine-wrap" title="OCR engine for BOTH Re-ingest and re-extracting a drawn block. Datalab is the default (faster, cleaner on raster notices, and it decomposes a fully-ruled notice into separate blocks); MinerU segments dense multi-lot notices into finer blocks but reads a fully-ruled notice as one giant table.">engine <select class="page-select" id="ann-engine"><option value="datalab">Datalab</option><option value="mineru">MinerU</option></select></label>
+      <button id="ann-reingest-btn" class="ghost" title="re-run layout extraction with the engine picked on the left (applies saved rotation + crop / regions; regions win over a single crop)">Re-ingest</button>
       <button id="ann-fix-flagged" class="ghost" title="re-run extraction on every block flagged with an OCR artifact (repetition / token-leak / foreign-script) in this notice" style="display:none;background:#fde7e7;border-color:#dc2626;color:#991b1b"></button>
       <button id="ann-reload" class="ghost">Reload</button>
       <a class="link" id="ann-open-src" target="_blank" rel="noopener" style="display:none">open source ↗</a>
@@ -3677,7 +3677,7 @@
     hintsDismissed: new Set(),  // block ids the reviewer has × dismissed this session
     reextractInflight: new Set(), // block ids currently being re-extracted
     fixFlaggedRunning: false,   // "Fix flagged" batch re-extract in progress
-    reextractEngine: 'datalab', // OCR engine for drawn-block re-extract (ann-engine select)
+    reextractEngine: 'datalab', // OCR engine for re-ingest AND drawn-block re-extract (ann-engine select)
   };
 
   function annToast(msg, kind) {
@@ -3845,14 +3845,20 @@
     const originalLabel = btn.textContent;
     btn.disabled = true;
     const filename = ann.filename;
+    // The toolbar's engine picker drives the whole-document re-ingest too, not
+    // just drawn-block re-extract. It matters: MinerU reads a fully-ruled
+    // notice as ONE giant <table> (the table-collapse health flag), so
+    // re-ingesting such a notice through MinerU keeps handing back a single
+    // Table block; Datalab decomposes the same page into Title/Text/Table.
+    const engine = ann.reextractEngine === 'mineru' ? 'mineru' : 'datalab';
     let elapsed = 0;
-    btn.textContent = 're-ingesting… 0s';
+    btn.textContent = `re-ingesting (${engine})… 0s`;
     const tickElapsed = setInterval(() => {
       elapsed += 1;
-      if (btn.isConnected) btn.textContent = `re-ingesting… ${elapsed}s`;
+      if (btn.isConnected) btn.textContent = `re-ingesting (${engine})… ${elapsed}s`;
     }, 1000);
 
-    // The server returns 202 immediately and runs the actual MinerU
+    // The server returns 202 immediately and runs the actual OCR
     // pipeline in a background task — Render's per-request timeout
     // would otherwise kill the connection mid-flight. We then poll
     // GET /blocks until blocks_revision advances past the rev the
@@ -3861,7 +3867,11 @@
     try {
       const r = await authFetch(
         API + '/review/notice/' + encodeURIComponent(filename) + '/reingest',
-        { method: 'POST' }
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ engine }),
+        }
       );
       if (!r.ok) {
         clearInterval(tickElapsed);
@@ -3879,7 +3889,7 @@
     }
 
     // Poll until the document's revision moves past startedRev, or 5
-    // minutes elapses. The MinerU job for a single notice usually
+    // minutes elapses. The OCR job for a single notice usually
     // completes in 15-90 seconds.
     const POLL_INTERVAL_MS = 3000;
     const MAX_WAIT_MS      = 5 * 60 * 1000;
@@ -3896,10 +3906,11 @@
         // Rev-only: the server always bumps blocks_revision on a
         // successful re-ingest, and the OR fallback on blocks.length > 0
         // falsely fires whenever blocks already existed (crop path,
-        // always-visible toolbar button) before MinerU has finished.
+        // always-visible toolbar button) before the engine has finished.
         if (Number(doc.blocks_revision || 0) > startedRev) {
           clearInterval(tickElapsed);
-          annToast('re-ingested', 'ok');
+          annToast(`re-ingested with ${engine} — `
+                   + `${(doc.blocks || []).length} block(s)`, 'ok');
           await loadAnnotator(filename);
           return;
         }
