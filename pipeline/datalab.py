@@ -74,6 +74,13 @@ DATALAB_LABEL_MAP: dict[str, str] = {
     "listitem":        "List",
     "list":            "List",
     "reference":       "Reference",
+    # Group wrappers normally never reach the label map (we descend into their
+    # children instead). They only do when a group comes back childless and
+    # _walk emits it as a leaf — see the fallback there.
+    "listgroup":       "List",
+    "figuregroup":     "Image",
+    "picturegroup":    "Image",
+    "tablegroup":      "Table",
 }
 DEFAULT_LABEL = "Text"
 
@@ -148,10 +155,19 @@ def _walk(block: dict, parent_group: str | None, acc: list[tuple[dict, str | Non
     """DFS a page subtree, collecting (leaf_block, parent_group) in reading order."""
     bt = (block.get("block_type") or "").strip().lower()
     if bt in _STRUCTURAL or bt in _GROUP_TYPES:
-        pg = block.get("block_type") if bt in _GROUP_TYPES else None
-        for ch in (block.get("children") or []):
-            if isinstance(ch, dict):
+        kids = [ch for ch in (block.get("children") or []) if isinstance(ch, dict)]
+        if kids:
+            pg = block.get("block_type") if bt in _GROUP_TYPES else None
+            for ch in kids:
                 _walk(ch, pg, acc)
+            return
+        # Datalab sometimes returns a group with NO children and the whole
+        # region's content in the group's own html — a numbered-clause
+        # ListGroup is the common case. Descending found nothing, so emit the
+        # group itself; dropping it silently loses the region entirely (the
+        # block goes missing at ingest AND a drawn box re-extracts to "").
+        if bt in _GROUP_TYPES and (block.get("html") or "").strip():
+            acc.append((block, parent_group))
         return
     if bt in _SKIP or not bt:
         return

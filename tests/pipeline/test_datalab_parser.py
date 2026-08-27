@@ -126,3 +126,53 @@ def test_garbage_input_returns_empty():
     assert parse_datalab_blocks(None) == []
     assert parse_datalab_blocks({}) == []
     assert parse_datalab_blocks({"block_type": "Document", "children": []}) == []
+
+
+# Datalab sometimes returns a group wrapper with NO children, carrying the whole
+# region's content in its own html — a numbered-clause ListGroup is the common
+# case on SARFAESI notices. Descending into it finds nothing, so the region used
+# to vanish: missing at ingest, and a hand-drawn box over it re-extracted to "".
+CHILDLESS_LISTGROUP = {
+    "block_type": "Document",
+    "children": [
+        {
+            "block_type": "Page",
+            "bbox": [0, 0, 1000, 1400],
+            "children": [
+                {"block_type": "ListGroup",
+                 "bbox": [100, 200, 900, 400],
+                 "html": '<ol style="list-style-type: none">'
+                         "<li>1) For detailed terms, refer the website.</li>"
+                         "<li>2) Bidders must submit EMD by RTGS/NEFT.</li></ol>",
+                 "children": []},
+            ],
+        },
+    ],
+}
+
+
+def test_childless_group_is_emitted_not_dropped():
+    blocks = parse_datalab_blocks(CHILDLESS_LISTGROUP)
+    assert len(blocks) == 1
+    assert blocks[0]["label"] == "List"
+    assert "For detailed terms" in blocks[0]["text"]
+    assert "submit EMD by RTGS/NEFT" in blocks[0]["text"]
+    assert blocks[0]["bbox"] == [0.1, 200 / 1400, 0.9, 400 / 1400]
+
+
+def test_childless_group_without_html_is_still_dropped():
+    doc = {"block_type": "Document", "children": [
+        {"block_type": "Page", "bbox": [0, 0, 1000, 1400], "children": [
+            {"block_type": "ListGroup", "bbox": [1, 2, 3, 4],
+             "html": "  ", "children": []},
+        ]},
+    ]}
+    assert parse_datalab_blocks(doc) == []
+
+
+def test_group_with_children_still_descends():
+    # The fallback must not change the normal path: TableGroup/PictureGroup in
+    # DOC still yield their leaves, never the wrapper itself.
+    assert [b["label"] for b in parse_datalab_blocks(DOC)] == [
+        "Title", "Text", "Table", "TableCaption", "Image", "ImageCaption",
+    ]
