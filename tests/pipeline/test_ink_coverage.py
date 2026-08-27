@@ -16,8 +16,34 @@ from pipeline.ocr_health import PENALTY, score_ocr_health
 W = H = 400
 
 
+# Word-like marks: wide enough not to read as a rule, short enough not to read
+# as one, and thin enough vertically not to read as a solid graphic. The module
+# distinguishes text ink from rules and from graphics, so a test page has to
+# lay down ink shaped like text — a solid rectangle is, correctly, a picture.
+WORD_W, WORD_H, GAP_X, GAP_Y = 16, 7, 6, 5
+
+
 def _page(ink_boxes: list[tuple[float, float, float, float]]) -> bytes:
-    """A white page with solid black rectangles at the given 0..1 boxes."""
+    """A white page whose given 0..1 boxes are filled with lines of "words"."""
+    from PIL import Image, ImageDraw
+    img = Image.new("RGB", (W, H), "white")
+    d = ImageDraw.Draw(img)
+    for x0, y0, x1, y1 in ink_boxes:
+        px0, py0, px1, py1 = x0 * W, y0 * H, x1 * W, y1 * H
+        y = py0
+        while y + WORD_H <= py1:
+            x = px0
+            while x + WORD_W <= px1:
+                d.rectangle([x, y, x + WORD_W, y + WORD_H], fill="black")
+                x += WORD_W + GAP_X
+            y += WORD_H + GAP_Y
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def _solid_page(ink_boxes: list[tuple[float, float, float, float]]) -> bytes:
+    """A white page with SOLID black rectangles — graphics, not text."""
     from PIL import Image, ImageDraw
     img = Image.new("RGB", (W, H), "white")
     d = ImageDraw.Draw(img)
@@ -160,10 +186,8 @@ def _ruled_page(cells: list[tuple[float, float, float, float]],
                 thickness: int = 2) -> bytes:
     """A page whose cells hold text and whose grid is drawn as thin rules."""
     from PIL import Image, ImageDraw
-    img = Image.new("RGB", (W, H), "white")
+    img = Image.open(io.BytesIO(_page(cells))).convert("RGB")
     d = ImageDraw.Draw(img)
-    for x0, y0, x1, y1 in cells:
-        d.rectangle([x0 * W, y0 * H, x1 * W, y1 * H], fill="black")
     for y in rules_h:
         d.rectangle([0, y * H, W - 1, y * H + thickness], fill="black")
     for x in rules_v:
@@ -204,9 +228,30 @@ def test_a_missing_cell_still_flags_on_a_ruled_page():
     assert r["details"]["worst_column"]["where"] == "right"
 
 
-def test_a_filled_banner_is_content_not_a_rule():
-    """A reversed-out title banner also spans the page, but it is thick — it
-    must survive the rule strip, or an unread banner would go unflagged."""
-    page = _page([(0.0, 0.02, 1.0, 0.22)])          # solid full-width bar
+def test_solid_graphics_are_not_unread_text():
+    """A logo, seal or reversed-out banner is ink, but not text we failed to
+    read. It survives the rule strip (it is far too thick to be a rule) and is
+    then dropped as a solid blob. Nothing is lost by that: a reversed banner's
+    glyphs are white, so the only dark ink there was ever the bar behind them."""
+    page = _solid_page([(0.0, 0.02, 1.0, 0.22)])     # solid full-width bar
     r = score_ink_coverage(page, [_block(0.0, 0.5, 1.0, 0.9)])
+    assert r["flag"] is False
+
+
+def test_newspaper_chrome_at_the_page_edge_is_ignored():
+    """These scans are clippings: the epaper's date line and URL sit past the
+    notice behind a wide white gutter, and no block will ever cover them."""
+    page = _page([(0.05, 0.10, 0.95, 0.80),          # the notice itself
+                  (0.05, 0.93, 0.95, 0.99)])         # the epaper footer strip
+    r = score_ink_coverage(page, [_block(0.03, 0.08, 0.97, 0.82)])
+    assert r["flag"] is False
+
+
+def test_an_unread_footer_is_not_mistaken_for_chrome():
+    """The guard on the rule above: a footer that belongs to the notice butts up
+    against the text that was read, so it must still be measured."""
+    page = _page([(0.05, 0.10, 0.95, 0.60),
+                  (0.05, 0.62, 0.95, 0.95)])         # unread, no gutter above
+    r = score_ink_coverage(page, [_block(0.03, 0.08, 0.97, 0.61)])
     assert r["flag"] is True
+    assert r["details"]["worst_band"]["where"] == "bottom"

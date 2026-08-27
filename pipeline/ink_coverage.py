@@ -60,6 +60,29 @@ RULE_MIN_LEN_FRAC = 0.06    # of page width (horizontal) / height (vertical)
 RULE_MIN_LEN_PX = 24        # floor for small scans; still >> any glyph stroke
 RULE_MAX_THICK_FRAC = 0.008  # matches region_detect's filled-bar cutoff
 RULE_MAX_THICK_PX = 6
+# Graphics are ink that is not text: bank logos, seals, photos, QR codes, and
+# reversed-out banners. None of it is text we failed to read, but all of it is
+# dark ink outside every block whenever the parser emitted no Image block for
+# it — which is exactly when it lands in the unread patch and flags a notice.
+#
+# Text gives itself away by its strokes: a glyph is thin in at least one
+# direction (a few px of pen width) no matter how large the type. Graphics are
+# solid — ink that survives erosion in BOTH directions at once. That is the
+# test. Note this makes white-on-black banner text invisible to the measure,
+# which costs nothing: those glyphs are white, so they were never dark ink to
+# begin with — only the bar behind them ever was.
+BLOB_MIN_PX = 10
+BLOB_MIN_FRAC = 0.012       # of the page's short edge
+# Newspaper chrome: these scans are clippings, so the page often carries the
+# masthead, edition date and epaper URL of the paper it was cut from. That is
+# not notice content and no block will ever cover it, so it lands in the unread
+# measure forever.
+#
+# What separates chrome from a genuinely unread footer is the gutter: chrome is
+# marooned at the page edge behind a band of white far wider than any line gap
+# inside the notice, whereas an unread footer butts up against the text above
+# it. So walk in from each edge and drop only what sits beyond such a gap.
+CHROME_GUTTER_TILES = 3     # ~24px at TILE_PX — well past any line spacing
 # Tile edge in source pixels. 8px is about half an x-height at notice
 # resolution: fine enough to localize a missing column, coarse enough that one
 # stray descender outside a bbox doesn't register as unread content.
@@ -134,6 +157,17 @@ def _thin_rules(mask, length: int, thickness: int, *, horizontal: bool):
     return ImageChops.subtract(long_, thick)
 
 
+def _solid_blobs(mask, size: int):
+    """Ink thick in both directions at once — graphics, not glyph strokes.
+
+    Erode along each axis in turn (so only ink at least ``size`` px across both
+    ways survives), then dilate back the same way to restore the blob's real
+    extent.
+    """
+    return _long_runs(_long_runs(mask, size, horizontal=True),
+                      size, horizontal=False)
+
+
 def _strip_rules(mask, w: int, h: int):
     """``mask`` minus its horizontal and vertical ruling lines."""
     from PIL import ImageChops
@@ -162,9 +196,13 @@ def _tile_ink(image_bytes: bytes) -> tuple[list[float], int, int]:
         g = im.convert("L")
         w, h = g.width, g.height
         tw, th = max(1, w // TILE_PX), max(1, h // TILE_PX)
+        from PIL import ImageChops
         # dark → 255 so the BOX mean IS the dark fraction (×255).
         mask = _strip_rules(g.point(lambda p: 255 if p < DARK_THRESHOLD else 0),
                             w, h)
+        mask = ImageChops.subtract(
+            mask, _solid_blobs(mask, max(BLOB_MIN_PX,
+                                         int(min(w, h) * BLOB_MIN_FRAC))))
         small = mask.resize((tw, th), Image.BOX)
         return [v / 255.0 for v in small.getdata()], tw, th
 
@@ -200,6 +238,66 @@ def _covers(block: dict) -> bool:
                 return False
             return 0 < area < IMAGE_MAX_AREA
     return False
+
+
+def _drop_detached_chrome(ink: list[float], covered: bytearray,
+                          tw: int, th: int) -> list[float]:
+    """Blank the ink in edge bands cut off from the read page by a wide gutter.
+
+    Works on the tile grid, one axis at a time: from each of the four edges,
+    walk inward to the first tile line any block covers. If a run of at least
+    ``CHROME_GUTTER_TILES`` blank lines sits between the edge and that line,
+    everything outside the run is chrome and its ink is dropped.
+
+    Anchoring on covered lines rather than inked ones is what keeps this
+    honest: an unread footer is separated from the *read* page by the same kind
+    of gap, so the rule would eat it. Instead the walk stops at the first blank
+    run it meets coming inward, which for an unread footer is the gap above the
+    footer's own ink — leaving the footer itself measured.
+    """
+    def line_state(i: int, vertical: bool) -> tuple[bool, bool]:
+        """(has ink, has a covered tile) for row/column ``i``."""
+        inked = cov = False
+        rng = range(tw) if vertical else range(th)
+        for j in rng:
+            t = i * tw + j if vertical else j * tw + i
+            if ink[t] >= INK_TILE_MIN:
+                inked = True
+            if covered[t]:
+                cov = True
+            if inked and cov:
+                break
+        return inked, cov
+
+    out = list(ink)
+    for vertical in (True, False):
+        span = th if vertical else tw
+        states = [line_state(i, vertical) for i in range(span)]
+        if not any(c for _, c in states):
+            continue                            # nothing read on this axis
+        for from_start in (True, False):
+            order = range(span) if from_start else range(span - 1, -1, -1)
+            blank_run, cut = 0, None
+            for i in order:
+                inked, cov = states[i]
+                if cov:
+                    break                       # reached the read page
+                if inked:
+                    blank_run = 0
+                    continue
+                blank_run += 1
+                if blank_run >= CHROME_GUTTER_TILES:
+                    cut = i                     # chrome lies beyond this run
+                    break
+            if cut is None:
+                continue
+            dead = (range(0, cut + 1) if from_start
+                    else range(cut, span))
+            for i in dead:
+                rng = range(tw) if vertical else range(th)
+                for j in rng:
+                    out[i * tw + j if vertical else j * tw + i] = 0.0
+    return out
 
 
 def _covered_tiles(blocks: list[dict], tw: int, th: int, page: int) -> bytearray:
@@ -338,6 +436,7 @@ def score_ink_coverage(image_bytes: bytes | None, blocks: list[dict] | None,
         return out
 
     covered = _covered_tiles(blocks, tw, th, page)
+    ink = _drop_detached_chrome(ink, covered, tw, th)
     total = missed = 0.0
     for i, v in enumerate(ink):
         if v < INK_TILE_MIN:
