@@ -50,7 +50,8 @@ Two things that are **already right** and should not be disturbed:
 
 ## The path
 
-Four stages. Each is shippable on its own and leaves `/lab` working.
+Four stages, then the drawer. Each was shippable on its own and left `/lab`
+working; all of them have landed.
 
 ### Stage 0 — land #417 as-is — **done, on this branch**
 
@@ -131,9 +132,8 @@ manifest:
   when the number moved. An `empty` turn counts as the previous set;
   skipping it made the next delta quote a total two turns old.
 - **"showing 5 of 812"** — the count doubles as the way into the full list
-  (it carries `matches-chip`, so app.js's handler and the drawer opener both
-  keep working), and is plain text when everything is already on screen.
-  Never a silent truncation at `PANEL_ROW_CAP`.
+  (see "The drawer — removed" below), and is plain text when everything is
+  already on screen. Never a silent truncation at `PANEL_ROW_CAP`.
 - **Empty state** — "No auctions matched" under the echo, instead of
   rendering nothing, which was indistinguishable from a turn that never
   searched.
