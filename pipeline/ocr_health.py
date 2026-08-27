@@ -47,6 +47,13 @@ MinerU's vlm model actually exhibits on full-page ruled notices:
     in via the ``region`` argument rather than computed here) and flagged above
     ``MISSING_REGION_MIN_RATIO`` of unread ink.
 
+  - **block-order** — the blocks were read, but out of reading order. The text
+    checks cannot see this either: an interleaved two-column notice covers all
+    of its ink and is well-formed, yet the markdown pairs each lot with its
+    neighbour's details. Measured by ``pipeline/block_order.py`` against the
+    page's own columns and passed in via ``order``, for the same reason
+    ``region`` is: it needs the source image.
+
 Score = 100 minus per-flag penalties, clamped to 0–100. A document with no
 flags scores 100. Fields written (additive — ``markdown_quality_score`` is
 untouched):
@@ -135,13 +142,19 @@ PENALTY = {"repetition": 0, "token-leak": 40, "truncated": 30,
            # Lost content is the worst outcome for downstream extraction: the
            # properties in an unread column simply do not exist for us. Priced
            # above table-collapse, which at least keeps the text.
-           "missing-region": 45}  # repetition scaled
+           "missing-region": 45,
+           # Every word is present, so this is priced below the flags that lose
+           # content — but not far below: markdown is assembled in block order
+           # and extraction reads lot details positionally, so a scrambled
+           # sequence silently attaches each lot to the wrong numbers, which is
+           # worse to consume than an obvious gap.
+           "block-order": 25}  # repetition scaled
 
 # The canonical failure vocabulary, in severity order. The review API validates
 # its flag filter against this, so a renamed or added flag reaches the UI by
 # changing this module alone — no second list to drift out of sync.
 HEALTH_FLAGS: tuple[str, ...] = (
-    "missing-region", "table-collapse", "truncated",
+    "missing-region", "table-collapse", "truncated", "block-order",
     "repetition", "token-leak", "foreign-script",
 )
 
@@ -208,7 +221,8 @@ def _table_collapse(text: str) -> dict | None:
     }
 
 
-def score_ocr_health(markdown: str | None, *, region: dict | None = None) -> dict:
+def score_ocr_health(markdown: str | None, *, region: dict | None = None,
+                     order: dict | None = None) -> dict:
     """Score one document's OCR markdown.
 
     Returns ``{"score": int|None, "flags": [str], "details": {…}}``.
@@ -219,6 +233,10 @@ def score_ocr_health(markdown: str | None, *, region: dict | None = None) -> dic
     source image, which this module (pure text, called in bulk over Neo4j rows)
     deliberately never fetches. Omitted or unscorable → no ``missing-region``
     flag, and every existing caller keeps its exact behaviour.
+
+    ``order`` is the same arrangement for
+    :func:`pipeline.block_order.score_block_order`: image-derived, passed in,
+    and omitted by default so no existing caller's score moves.
     """
     if not markdown or not markdown.strip():
         return {"score": None, "flags": [], "details": {}}
@@ -279,6 +297,12 @@ def score_ocr_health(markdown: str | None, *, region: dict | None = None) -> dic
         details["missing_region"] = region.get("details") or {
             "uncovered_ratio": region.get("uncovered_ratio")}
         penalty += PENALTY["missing-region"]
+
+    if order and order.get("flag"):
+        flags.append("block-order")
+        details["block_order"] = order.get("details") or {
+            "inversion_ratio": order.get("inversion_ratio")}
+        penalty += PENALTY["block-order"]
 
     return {"score": max(0, 100 - penalty), "flags": flags, "details": details}
 
