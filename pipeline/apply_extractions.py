@@ -24,9 +24,15 @@ Per Document:
   4. Write fields onto AuctionProperty. The description write treats the
      grounded notice text as the sole source — it overwrites even the legacy
      pipeline's human-verified rows (stashing them once into
-     description_human_backup). Enrichment fields use the same
-     property names as pipeline/load_enriched.flatten_enrichment so the API
-     and UI keep working unchanged; only non-null values are written (SET +=).
+     description_human_backup) — but on a multi-lot notice only for a listing
+     that is its lot's SOLE claimant. A schedule published on two rival
+     listings is false about at least one of them, and reads as authoritative
+     while it is; the portal's own text is the honest fallback, and a listing
+     withheld here is REVERTED to it (see revert_withheld_descriptions) —
+     a gate alone only stops the next write and leaves everything an earlier
+     run published still live. Enrichment fields use the same property names as
+     pipeline/load_enriched.flatten_enrichment so the API and UI keep working
+     unchanged; only non-null values are written (SET +=).
   5. Also write AuctionProperty.resolved_lot_key from the SAME lot match
      step 3 already computed — the match was previously used only to route
      field/description writes and then discarded. This is a strictly better
@@ -54,6 +60,7 @@ from api.neo4j_client import run_query, run_read_query
 from pipeline.obs import get_logger
 from pipeline.property_taxonomy import asset_category, classify_property_type
 from pipeline.resolution_review import lot_match_key
+from pipeline.text_overlap import description_overlap
 
 log = get_logger(__name__)
 
@@ -171,6 +178,8 @@ def _id_tokens(text: str) -> set[str]:
             continue
         out.add(tok)
     return out
+
+
 
 
 def group_lots(entities: list[dict]) -> dict[str, dict]:
@@ -428,6 +437,64 @@ def match_lots_to_listings(lots: dict[str, dict],
     return matches, unmatched
 
 
+#: Below this Jaccard overlap with the portal's own text, a notice description
+#: is withheld. Set at the boundary of the "different" band in
+#: scripts/desc_divergence.py, because every listing under it in the live
+#: corpus was wrong on review — two of the eight publish property in
+#: Chhattisgarh and Bihar against Tamil Nadu listings, and seven of the eight
+#: also carry an extraction score below 60. The band above it ("moderate",
+#: 0.25-0.50, 86 listings) is mostly the notice supplying real detail the
+#: portal's blurb omitted, which is the entire point of reading the notice —
+#: so the cut-off sits here rather than higher.
+MIN_DESCRIPTION_OVERLAP = 0.25
+
+#: auction_ids a human confirmed, by reading the actual sale notice, sit on
+#: the OTHER side of the overlap gate than the automatic script found: the
+#: notice text is correct and it is the PORTAL's scraped text that is wrong
+#: (bad scrape or a mismatched listing), so gating — or reverting — these on
+#: overlap would replace a correct description with an incorrect one. The
+#: overlap score cannot tell "our text is wrong" apart from "their text is
+#: wrong"; only a human reading the source document can, which is exactly
+#: what happened here (2026-08-26 review of the "very different" / "different"
+#: tiers in scripts/desc_divergence.py's output).
+#:
+#: 840337 — notice: land in Durg, Chhattisgarh. Portal: a Chennai flat. The
+#:          notice is this auction's actual property; the portal's own text
+#:          does not even match its own title ("Muthailpet, Chennai" vs the
+#:          George Town address it scraped).
+#: 839880 — notice: land in Sheikhpura, Bihar. Portal: a Coimbatore building.
+#:          Same shape as 840337.
+DESCRIPTION_OVERLAP_REVIEWED_CORRECT = {"840337", "839880"}
+
+
+def description_verdict(description: str, portal: str | None, *,
+                        sole_claimant: bool) -> str | None:
+    """Why this description must not be published, or None to publish it.
+
+    Two independent ways a grounded description can be about the wrong
+    property, so two gates:
+
+    ``claimed_by_several`` — another listing on the same notice resolved to
+    this same lot. One lot is one property, so at most one of them is it.
+
+    ``diverges_from_portal`` — the text shares almost no wording with what the
+    portal itself says about this listing. That catches what the first gate
+    structurally cannot: a notice selling more lots than the portal scraped
+    listings, where the one listing IS its lot's sole claimant and still gets
+    handed the wrong lot. 837422 and 781964 are exactly that shape.
+
+    A listing with no portal text is not gated on overlap: silence is not
+    disagreement, and withholding there would strip descriptions from rows
+    whose portal text was simply never scraped.
+    """
+    if not sole_claimant:
+        return "claimed_by_several"
+    if (portal or "").strip() and \
+            description_overlap(portal, description) < MIN_DESCRIPTION_OVERLAP:
+        return "diverges_from_portal"
+    return None
+
+
 def sole_claimants(matches: list[tuple[dict, dict, str]]) -> list[tuple[dict, dict, str]]:
     """The subset of ``matches`` whose lot no other listing also claims.
 
@@ -436,12 +503,16 @@ def sole_claimants(matches: list[tuple[dict, dict, str]]) -> list[tuple[dict, di
     found lots — a 12-lot PNB notice in the corpus carries 19 listings — and
     the surplus listings pile onto whichever lots they most resemble.
 
-    Used to gate the ``resolved_lot_key`` write only. That property is a
-    lot-scoped claim every agent3 tool trusts, so a value known to be wrong
-    for at least one of the rivals is worse than no value: the rivals keep
-    today's notice-scoped reading and stay on the human review queue. The
-    field and description writes deliberately do NOT go through this — they
-    predate the lot key and narrowing them is a separate question.
+    Gates the ``resolved_lot_key`` write and, on a multi-lot notice, the
+    description write. Both are lot-scoped claims a reader trusts: the lot key
+    is what every agent3 tool reads as "this listing IS that lot", and the
+    notice-grounded description reads as authoritative in a way the portal's
+    own vague text does not. A value known to be wrong for at least one rival
+    is worse than no value, so the rivals keep today's notice-scoped reading
+    and stay on the human review queue.
+
+    The field write deliberately does NOT go through this — it predates the
+    lot key and narrowing it is a separate question.
     """
     claims: dict[int, int] = defaultdict(int)
     for _listing, lot, _reason in matches:
@@ -462,6 +533,7 @@ def fetch_work(limit: int | None = None) -> list[dict]:
         "       collect({aid: a.auction_id, price: a.reserve_price_num, "
         "                emd: a.emd_num, "
         "                borrowers: [(a)-[:HAS_BORROWER]->(bo) | bo.name], "
+        "                portal: a.website_description, "
         "                id_text: a.title + ' ' + coalesce(a.website_description, '')}) "
         "       AS listings "
         "ORDER BY d.filename"
@@ -495,7 +567,11 @@ def write_descriptions(rows: list[dict]) -> int:
     human-verified rows (that pipeline is being scrapped; those texts are
     stashed once into description_human_backup). The one thing it never
     touches is description_source='reviewer' — a correction someone made
-    after eyeballing the sale notice outranks any automated write."""
+    after eyeballing the sale notice outranks any automated write.
+
+    ``rows`` reaches here already filtered by ``sole_claimants`` on multi-lot
+    notices (see ``run``), so a listing whose lot another listing also claims
+    keeps its portal text rather than being handed a rival's schedule."""
     if not rows:
         return 0
     written = 0
@@ -515,6 +591,49 @@ def write_descriptions(rows: list[dict]) -> int:
         """, {"rows": batch})
         written += len(res) if res else 0
     return written
+
+
+def revert_withheld_descriptions(rows: list[dict]) -> int:
+    """Put the portal's own text back on a listing whose notice description we
+    have withdrawn.
+
+    Withholding only stops the NEXT write; on its own it leaves whatever this
+    pipeline published on an earlier run sitting in the graph, still labelled
+    `description_source = 'notice'` and still reading as authoritative. A gate
+    with no revert therefore fixes nothing already live — the 126 rows the two
+    gates now withhold were all written before the gates existed.
+
+    So a withheld listing is restored to `website_description` and relabelled
+    `description_source = 'website'`, with the gate's own verdict kept on
+    `description_withheld_reason` so the row stays queryable and a later run
+    can tell a deliberate revert from a listing that never had a notice
+    description at all.
+
+    Two things are never touched. A reviewer's text (`'reviewer'`, and the
+    legacy `'human'`) outranks every automated write, revert included. And a
+    listing with no portal text is skipped rather than blanked: an empty
+    description is its own kind of wrong, and the caller reports the residue
+    instead of hiding it.
+    """
+    if not rows:
+        return 0
+    reverted = 0
+    now_iso = datetime.now(timezone.utc).isoformat()
+    for batch in chunked(rows, WRITE_CHUNK):
+        res = run_query("""
+            UNWIND $rows AS row
+            MATCH (a:AuctionProperty {auction_id: row.aid})
+            WHERE a.description_source = 'notice'
+              AND a.website_description IS NOT NULL
+              AND trim(a.website_description) <> ''
+            SET a.description = a.website_description,
+                a.description_source = 'website',
+                a.description_withheld_reason = row.reason,
+                a.description_withheld_at = datetime($at)
+            RETURN a.auction_id AS aid
+        """, {"rows": batch, "at": now_iso})
+        reverted += len(res) if res else 0
+    return reverted
 
 
 def human_decided_lot_matches() -> set[str]:
@@ -605,6 +724,7 @@ def run(limit: int | None = None, dry_run: bool = False) -> int:
 
     field_rows: list[dict] = []
     desc_rows: list[dict] = []
+    revert_rows: list[dict] = []
     lot_key_rows: list[dict] = []
     unmatched_out: list[dict] = []
     stats = defaultdict(int)
@@ -626,9 +746,45 @@ def run(limit: int | None = None, dry_run: bool = False) -> int:
                 field_rows.append({"aid": listing["aid"],
                                    "filename": w["filename"],
                                    "props": lot["fields"]})
+            # The description goes through `sole_claimants` for the same
+            # reason `resolved_lot_key` does: when two listings claim one lot,
+            # at most one of them is that property, so publishing the lot's
+            # schedule on both states something false about at least one — and
+            # a notice-grounded description reads as authoritative in a way the
+            # portal's own vague text does not. Leaving the portal text in
+            # place is the honest fallback.
+            #
+            # Reviewing the 26 rows scripts/desc_divergence.py flags turned
+            # this from a theory into four counted cases: 794656, 811144,
+            # 837423 and 837424 each carry a neighbouring lot's schedule while
+            # `resolved_lot_key` is NULL, because this write was the one path
+            # the gate did not cover.
+            #
+            # Single-lot notices are exempt, exactly as the lot-key write is:
+            # every listing there legitimately claims the only lot, so
+            # `sole_claimants` would drop all of them and strip descriptions
+            # from the notices that are least ambiguous.
             if lot["description"]:
-                desc_rows.append({"aid": listing["aid"],
-                                  "desc": lot["description"]})
+                verdict = description_verdict(lot["description"],
+                                              listing.get("portal"),
+                                              sole_claimant=(len(lots) == 1
+                                                             or id(listing) in sole))
+                # A human read the actual notice for this specific listing and
+                # found the OVERLAP gate wrong about it (our text is correct;
+                # the portal's is not) — that reviewed fact overrides the
+                # overlap heuristic, but not the rivalry gate: if two listings
+                # are still fighting over this lot, that conflict is real
+                # regardless of what the text says.
+                if (verdict == "diverges_from_portal"
+                        and listing["aid"] in DESCRIPTION_OVERLAP_REVIEWED_CORRECT):
+                    verdict = None
+                if verdict is None:
+                    desc_rows.append({"aid": listing["aid"],
+                                      "desc": lot["description"]})
+                else:
+                    stats[f"description_dropped_{verdict}"] += 1
+                    revert_rows.append({"aid": listing["aid"],
+                                        "reason": verdict})
             # Only a genuinely multi-lot notice needs resolved_lot_key —
             # scope_of() already reads a single-lot notice as lot-scoped
             # without it, same as scripts/resolve_lots.py's own scope.
@@ -645,6 +801,10 @@ def run(limit: int | None = None, dry_run: bool = False) -> int:
                     })
         for listing, reason in unmatched:
             stats[f"unmatched_{reason}"] += 1
+            # No lot means no description this run. Anything an earlier run
+            # published is now unbacked by a match, so it reverts as well.
+            revert_rows.append({"aid": listing["aid"],
+                                "reason": f"unmatched_{reason}"})
             unmatched_out.append({"aid": listing["aid"],
                                   "filename": w["filename"],
                                   "price": listing.get("price"),
@@ -655,6 +815,7 @@ def run(limit: int | None = None, dry_run: bool = False) -> int:
     print(f"  match/unmatch stats: {dict(stats)}")
     print(f"  field rows: {len(field_rows)}  description rows: {len(desc_rows)}  "
           f"lot-key rows: {len(lot_key_rows)}  "
+          f"descriptions to revert: {len(revert_rows)}  "
           f"skipped (human-decided): {human_skipped}  "
           f"unmatched: {len(unmatched_out)}")
 
@@ -676,9 +837,17 @@ def run(limit: int | None = None, dry_run: bool = False) -> int:
     nf = write_fields(field_rows)
     nd = write_descriptions(desc_rows)
     nl = write_lot_matches(lot_key_rows)
+    # Revert last: a listing can only appear in one of desc_rows/revert_rows
+    # per run, but ordering it after the write keeps the invariant obvious —
+    # nothing this run published can then be reverted by it.
+    nr = revert_withheld_descriptions(revert_rows)
     print(f"  wrote fields to {nf} listings, descriptions to {nd} listings "
           f"(legacy human descriptions overwritten, backed up once), "
-          f"lot key to {nl} listings")
+          f"lot key to {nl} listings, reverted {nr} listings to portal text")
+    if nr < len(revert_rows):
+        print(f"  NOTE: {len(revert_rows) - nr} withheld listings kept their old "
+              f"description — no portal text to fall back on, or already "
+              f"reverted / reviewer-owned")
     return 0
 
 

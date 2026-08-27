@@ -495,3 +495,323 @@ def test_human_decided_lot_matches_excludes_automated_verdicts(monkeypatch):
 
     monkeypatch.setattr(AX, "run_read_query", _fake_read)
     assert AX.human_decided_lot_matches() == {"a1", "a2"}
+
+
+# ── run(): the description write is gated the same way the lot key is ────────
+
+def _lot_ents(lot_index, desc, reserve):
+    """A minimal lot: one schedule span plus its reserve price."""
+    return [
+        ent("full_description", desc, {"lot_index": lot_index}),
+        ent("auction_terms", "", {"lot_index": lot_index,
+                                  "reserve_price_num": reserve}),
+    ]
+
+
+def _run_capturing(monkeypatch, tmp_path, work):
+    """Run the pipeline against `work`, returning what each write received."""
+    seen = {}
+    # keep the unmatched-CSV side effect out of the repo
+    monkeypatch.setattr(AX, "UNMATCHED_CSV", tmp_path / "unmatched.csv")
+    monkeypatch.setattr(AX, "fetch_work", lambda limit=None: work)
+    monkeypatch.setattr(AX, "human_decided_lot_matches", lambda: set())
+    for name in ("write_fields", "write_descriptions", "write_lot_matches",
+                 "revert_withheld_descriptions"):
+        monkeypatch.setattr(
+            AX, name,
+            # tuple-index, not `and`: an empty rows list is falsy and would
+            # short-circuit to [], which run() then compares against an int
+            (lambda key: lambda rows: (seen.setdefault(key, rows), len(rows))[1])(name))
+    AX.run()
+    return {k: {r["aid"] for r in seen.get(k, [])}
+            for k in ("write_fields", "write_descriptions", "write_lot_matches")}
+
+
+def test_rival_listings_on_a_multi_lot_notice_get_no_description(monkeypatch, tmp_path):
+    """Two listings claiming one lot cannot both be that property, so neither
+    may be handed its schedule — the portal's own text is the honest fallback.
+
+    Reproduces the four counted cases (794656, 811144, 837423, 837424) where a
+    listing carried a neighbouring lot's description while resolved_lot_key
+    was NULL, because only the lot-key write was gated.
+    """
+    work = [{
+        "filename": "n.pdf",
+        "extraction_json": json.dumps(
+            _lot_ents("1", "Flat A schedule", 5000000)
+            + _lot_ents("2", "Flat B schedule", 7000000)),
+        "corrections_json": None,
+        "listings": [
+            # both tie on lot 1's reserve, so both claim it
+            {"aid": "rivalA", "price": 5000000, "emd": None, "borrowers": []},
+            {"aid": "rivalB", "price": 5000000, "emd": None, "borrowers": []},
+            {"aid": "clean", "price": 7000000, "emd": None, "borrowers": []},
+        ],
+    }]
+    got = _run_capturing(monkeypatch, tmp_path, work)
+    assert got["write_descriptions"] == {"clean"}
+    assert got["write_lot_matches"] == {"clean"}
+
+
+def test_the_rivals_still_get_their_fields(monkeypatch, tmp_path):
+    """The field write is deliberately outside this gate — narrowing it is a
+    separate question, and this fix must not quietly change it."""
+    work = [{
+        "filename": "n.pdf",
+        "extraction_json": json.dumps(
+            [ent("location", "", {"lot_index": "1", "village": "Padur"})]
+            + _lot_ents("1", "Flat A schedule", 5000000)
+            + _lot_ents("2", "Flat B schedule", 7000000)),
+        "corrections_json": None,
+        "listings": [
+            {"aid": "rivalA", "price": 5000000, "emd": None, "borrowers": []},
+            {"aid": "rivalB", "price": 5000000, "emd": None, "borrowers": []},
+        ],
+    }]
+    got = _run_capturing(monkeypatch, tmp_path, work)
+    assert got["write_fields"] == {"rivalA", "rivalB"}
+    assert got["write_descriptions"] == set()
+
+
+def test_a_single_lot_notice_keeps_every_listings_description(monkeypatch, tmp_path):
+    """Every listing on a one-lot notice legitimately claims the only lot, so
+    sole_claimants drops all of them. Applying the gate there would strip
+    descriptions from the least ambiguous notices in the corpus."""
+    work = [{
+        "filename": "solo.pdf",
+        "extraction_json": json.dumps(_lot_ents("1", "The only schedule", 900000)),
+        "corrections_json": None,
+        "listings": [
+            {"aid": "one", "price": 900000, "emd": None, "borrowers": []},
+            {"aid": "two", "price": 900000, "emd": None, "borrowers": []},
+        ],
+    }]
+    got = _run_capturing(monkeypatch, tmp_path, work)
+    assert got["write_descriptions"] == {"one", "two"}
+    # ...and a single-lot notice never needs a lot key
+    assert got["write_lot_matches"] == set()
+
+
+# ── description_verdict: the two ways a description can be about the wrong lot ─
+
+_SCHEDULE = ("All that piece and parcel of land in Semmar Village, "
+             "Villupuram District, Survey No 45/2, extent 1168 sq ft")
+
+
+def test_a_description_matching_its_portal_text_is_published():
+    assert AX.description_verdict(_SCHEDULE, _SCHEDULE, sole_claimant=True) is None
+
+
+def test_a_rival_claimant_is_withheld_before_overlap_is_even_considered():
+    """The rivalry gate runs first: a perfect textual match cannot rescue a lot
+    two listings both claim, because at most one of them is that property."""
+    assert AX.description_verdict(_SCHEDULE, _SCHEDULE,
+                                  sole_claimant=False) == "claimed_by_several"
+
+
+def test_a_description_about_another_state_is_withheld():
+    """The shape of 840337: a Chennai listing handed a Chhattisgarh schedule.
+    It is its lot's sole claimant, so only the overlap gate can catch it."""
+    portal = ("THE ENTIRE SECOND FLOOR residential portion, Old Door No 33/6, "
+              "Varadha Muthiappan Street, George Town, Chennai 600001")
+    notice = ("Land and double storied residential building at Plot No 10, "
+              "Kh No 40/36, Mouza Dung, Durg, Chhattisgarh, area 1305 sq ft")
+    assert AX.description_overlap(portal, notice) < AX.MIN_DESCRIPTION_OVERLAP
+    assert AX.description_verdict(notice, portal,
+                                  sole_claimant=True) == "diverges_from_portal"
+
+
+def test_a_notice_that_merely_adds_detail_is_still_published():
+    """The point of reading the notice is the detail the portal's blurb omits;
+    the guard must not treat that as disagreement."""
+    portal = "Land in Semmar Village, Villupuram District, Survey No 45/2"
+    notice = _SCHEDULE + ", bounded north by road and south by channel"
+    assert AX.description_overlap(portal, notice) >= AX.MIN_DESCRIPTION_OVERLAP
+    assert AX.description_verdict(notice, portal, sole_claimant=True) is None
+
+
+def test_a_listing_with_no_portal_text_is_not_gated_on_overlap():
+    """Silence is not disagreement. Gating here would strip descriptions from
+    rows whose portal text was simply never scraped."""
+    assert AX.description_verdict(_SCHEDULE, None, sole_claimant=True) is None
+    assert AX.description_verdict(_SCHEDULE, "   ", sole_claimant=True) is None
+
+
+def test_overlap_is_symmetric_so_a_long_notice_cannot_pass_on_length():
+    a, b = "alpha beta gamma", "beta gamma " + " ".join(f"w{i}" for i in range(50))
+    assert AX.description_overlap(a, b) == AX.description_overlap(b, a)
+
+
+def test_run_withholds_a_diverging_description_but_keeps_the_fields(monkeypatch, tmp_path):
+    """End to end through run(): the single listing on this notice IS its lot's
+    sole claimant, so only the overlap gate stands between it and a description
+    about a different property."""
+    work = [{
+        "filename": "n.pdf",
+        "extraction_json": json.dumps(
+            [ent("location", "", {"lot_index": "1", "village": "Dung"})]
+            + _lot_ents("1", "Land at Mouza Dung, Durg, Chhattisgarh, 1305 sq ft",
+                        900000)),
+        "corrections_json": None,
+        "listings": [{
+            "aid": "chennai", "price": 900000, "emd": None, "borrowers": [],
+            "portal": "Second floor flat, Varadha Muthiappan Street, George Town, Chennai",
+        }],
+    }]
+    got = _run_capturing(monkeypatch, tmp_path, work)
+    assert got["write_descriptions"] == set()
+    assert got["write_fields"] == {"chennai"}
+
+
+# ── revert: withholding must also undo what an earlier run published ─────────
+
+def test_revert_restores_the_portal_text_and_relabels_the_source(monkeypatch):
+    captured = {}
+
+    def _cap(cypher, params=None):
+        captured["cypher"] = cypher
+        captured["params"] = params
+        return [{"aid": "a1"}]
+
+    monkeypatch.setattr(AX, "run_query", _cap)
+    n = AX.revert_withheld_descriptions(
+        [{"aid": "a1", "reason": "diverges_from_portal"}])
+    assert n == 1
+    assert "a.description = a.website_description" in captured["cypher"]
+    assert "a.description_source = 'website'" in captured["cypher"]
+    assert captured["params"]["rows"][0]["reason"] == "diverges_from_portal"
+
+
+def test_revert_only_touches_rows_this_pipeline_published(monkeypatch):
+    """A reviewer's text outranks every automated write, revert included, and
+    a row that never carried a notice description has nothing to undo."""
+    captured = {}
+    monkeypatch.setattr(AX, "run_query",
+                        lambda c, p=None: captured.setdefault("cypher", c) and [])
+    AX.revert_withheld_descriptions([{"aid": "a1", "reason": "x"}])
+    assert "a.description_source = 'notice'" in captured["cypher"]
+
+
+def test_revert_skips_a_listing_with_no_portal_text_to_fall_back_on(monkeypatch):
+    """Blanking a description is its own kind of wrong — the Cypher requires a
+    non-empty website_description, and run() reports the residue."""
+    captured = {}
+    monkeypatch.setattr(AX, "run_query",
+                        lambda c, p=None: captured.setdefault("cypher", c) and [])
+    AX.revert_withheld_descriptions([{"aid": "a1", "reason": "x"}])
+    assert "a.website_description IS NOT NULL" in captured["cypher"]
+    assert "trim(a.website_description) <> ''" in captured["cypher"]
+
+
+def test_revert_empty_is_a_noop(monkeypatch):
+    monkeypatch.setattr(
+        AX, "run_query",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("should not run")))
+    assert AX.revert_withheld_descriptions([]) == 0
+
+
+def _run_capturing_reverts(monkeypatch, tmp_path, work):
+    """run(), returning {aid: reason} for everything queued to revert."""
+    seen = {}
+    monkeypatch.setattr(AX, "UNMATCHED_CSV", tmp_path / "unmatched.csv")
+    monkeypatch.setattr(AX, "fetch_work", lambda limit=None: work)
+    monkeypatch.setattr(AX, "human_decided_lot_matches", lambda: set())
+    for name in ("write_fields", "write_descriptions", "write_lot_matches"):
+        monkeypatch.setattr(AX, name, lambda rows: len(rows))
+    monkeypatch.setattr(
+        AX, "revert_withheld_descriptions",
+        lambda rows: (seen.update({r["aid"]: r["reason"] for r in rows}), len(rows))[1])
+    AX.run()
+    return seen
+
+
+def test_a_withheld_listing_is_queued_for_revert(monkeypatch, tmp_path):
+    """The gate stops the next write; the revert is what fixes the 126 rows
+    published before the gates existed."""
+    work = [{
+        "filename": "n.pdf",
+        "extraction_json": json.dumps(
+            _lot_ents("1", "Flat A schedule", 5000000)
+            + _lot_ents("2", "Flat B schedule", 7000000)),
+        "corrections_json": None,
+        "listings": [
+            {"aid": "rivalA", "price": 5000000, "emd": None, "borrowers": []},
+            {"aid": "rivalB", "price": 5000000, "emd": None, "borrowers": []},
+            {"aid": "clean", "price": 7000000, "emd": None, "borrowers": []},
+        ],
+    }]
+    got = _run_capturing_reverts(monkeypatch, tmp_path, work)
+    assert got == {"rivalA": "claimed_by_several", "rivalB": "claimed_by_several"}
+
+
+def test_an_unmatched_listing_is_reverted_too(monkeypatch, tmp_path):
+    """No lot means no description this run, so anything an earlier run left
+    behind is now unbacked by any match."""
+    work = [{
+        "filename": "n.pdf",
+        "extraction_json": json.dumps(
+            _lot_ents("1", "Flat A schedule", 5000000)
+            + _lot_ents("2", "Flat B schedule", 7000000)),
+        "corrections_json": None,
+        "listings": [
+            {"aid": "nomoney", "price": None, "emd": None, "borrowers": []},
+        ],
+    }]
+    got = _run_capturing_reverts(monkeypatch, tmp_path, work)
+    assert got == {"nomoney": "unmatched_no_listing_price"}
+
+
+def test_a_published_listing_is_never_queued_for_revert(monkeypatch, tmp_path):
+    work = [{
+        "filename": "solo.pdf",
+        "extraction_json": json.dumps(_lot_ents("1", "The only schedule", 900000)),
+        "corrections_json": None,
+        "listings": [{"aid": "one", "price": 900000, "emd": None, "borrowers": []}],
+    }]
+    assert _run_capturing_reverts(monkeypatch, tmp_path, work) == {}
+
+
+# ── DESCRIPTION_OVERLAP_REVIEWED_CORRECT: a human's call beats the heuristic ──
+
+def test_a_reviewed_listing_publishes_despite_low_overlap(monkeypatch, tmp_path):
+    """840337's own case: notice text is correct (Durg, Chhattisgarh), the
+    portal's scraped text is wrong (a mismatched Chennai flat). A human
+    confirmed this by reading the actual notice, so the overlap gate — which
+    cannot tell 'our text is wrong' apart from 'their text is wrong' — must
+    not override that."""
+    assert "840337" in AX.DESCRIPTION_OVERLAP_REVIEWED_CORRECT
+    work = [{
+        "filename": "n.pdf",
+        "extraction_json": json.dumps(
+            [ent("location", "", {"lot_index": "1", "village": "Dung"})]
+            + _lot_ents("1", "Land at Mouza Dung, Durg, Chhattisgarh, 1305 sq ft",
+                        900000)),
+        "corrections_json": None,
+        "listings": [{
+            "aid": "840337", "price": 900000, "emd": None, "borrowers": [],
+            "portal": "Second floor flat, Varadha Muthiappan Street, George Town, Chennai",
+        }],
+    }]
+    got = _run_capturing(monkeypatch, tmp_path, work)
+    assert got["write_descriptions"] == {"840337"}
+
+
+def test_the_review_override_does_not_excuse_a_rival_claimant(monkeypatch, tmp_path):
+    """The reviewed fact is about the TEXT, not about which lot the listing
+    resolved to — if 840337 were still fighting another listing over the same
+    lot, that conflict is unaffected by the override."""
+    work = [{
+        "filename": "n.pdf",
+        "extraction_json": json.dumps(
+            _lot_ents("1", "Flat A schedule", 5000000)
+            + _lot_ents("2", "Flat B schedule", 7000000)),
+        "corrections_json": None,
+        "listings": [
+            {"aid": "840337", "price": 5000000, "emd": None, "borrowers": [],
+             "portal": "unrelated text"},
+            {"aid": "rival", "price": 5000000, "emd": None, "borrowers": [],
+             "portal": "unrelated text"},
+        ],
+    }]
+    got = _run_capturing(monkeypatch, tmp_path, work)
+    assert "840337" not in got["write_descriptions"]
