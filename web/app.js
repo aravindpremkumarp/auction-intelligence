@@ -594,6 +594,16 @@ function toCard(row) {
     ended: !!(startD && startD < new Date()),
     url: row.url || null,
     drop,
+    // Scope honesty, carried through to the card. A sale notice fans out to
+    // 4.4 lots on average, and a lot-derived value on a multi-lot notice
+    // describes the notice, not this listing. The tools tag every such value
+    // (`api/agent3/common.py::scope_of`); dropping the tag here would let the
+    // UI state a lot fact as a property fact, which is the one thing the
+    // whole scope mechanism exists to prevent. Only a tag that says "notice"
+    // is a caveat — a resolved multi-lot notice is tagged "lot" and needs no
+    // badge.
+    noticeScope: (row.area_sqft_scope === 'notice' || row.attempt_scope === 'notice'),
+    noticeLots: Number(row.notice_lot_count) || 0,
   };
 }
 
@@ -1522,6 +1532,268 @@ function _msgMatches(m) {
   return { rows: ext.rows, total: (ext.total != null) ? ext.total : ext.rows.length, tool: ext.tool };
 }
 
+// How many of a turn's matches the answer carries inline before it defers to
+// the full list. This was four while the cards stacked vertically, where each
+// one pushed the next question further off screen. They scroll horizontally
+// now, so the answer costs one card's height whatever the count and the limit
+// is only about how much DOM a turn is worth — past a dozen, the panel's
+// sorting and paging are the better tool anyway.
+const INLINE_MATCHES_MAX = 12;
+
+// Inline matches — the ChatGPT shell renders a turn's properties inside the
+// answer instead of pushing them to a side panel, so the cards sit next to the
+// sentence that describes them. Returns '' everywhere else, which is what
+// keeps the public chat screen on the panel it has always used.
+//
+// Cards are built with the panel's own toCard/propCardHtml, so they stay
+// identical in content and stay wired by the same wireCardClicks() — the
+// difference is purely where they are mounted.
+//
+// **Where the rows come from, and why it matters.** A turn's own manifest
+// (`m.manifest`, from /chat/agent3) is the source of truth: it was written
+// server-side when the turn ran, so scrolling back shows what THAT answer
+// produced rather than whatever the browser last held. `snap` — rebuilt
+// client-side from the message's artifacts — is the fallback for the tiered
+// and deep loops, which have no manifest, and for conversations saved before
+// manifests existed. See docs/designs/turn-owned-property-cards.md.
+//
+// **The reason line is per-turn, never global.** It is passed down from this
+// turn's `annotations`, not read from `currentPicks`, which is replaced every
+// turn: sourcing it globally would show every scrolled-up answer the LATEST
+// turn's reasons. That mis-attribution is the exact defect the manifest
+// design exists to remove, and it would look like the feature working.
+// Is the ChatGPT shell on? One reader, so the answer cannot differ between
+// the places that ask — and so turning the shell off can never leave a
+// half-shell rendering behind.
+function _shellOn() {
+  return document.documentElement.getAttribute('data-shell') === 'chatgpt';
+}
+
+const _NO_CARDS = { html: '', shown: 0 };
+
+function _inlineMatchesHtml(m, snap) {
+  if (!_shellOn()) return _NO_CARDS;
+  const man = (m && m.manifest) || null;
+  const rows = (man && man.card_rows && man.card_rows.length)
+    ? man.card_rows
+    : ((snap && snap.rows) || []);
+  const cards = rows.map(row => toCard(row)).filter(c => c.id);
+  if (!cards.length) return _NO_CARDS;
+  const notes = (man && man.annotations) || null;
+  const withNotes = cards.map(c => {
+    const quotes = notes && notes[String(c.id)];
+    return { card: c, said: (quotes && quotes.length) ? quotes.join(' ') : '' };
+  });
+  // Properties the agent actually discussed come first. A card the answer
+  // named is a recommendation; the rest are matches, and with only four slots
+  // the recommendations are the ones worth the room. Stable, so within each
+  // group the search's own order survives.
+  withNotes.sort((a, b) => (b.said ? 1 : 0) - (a.said ? 1 : 0));
+  const drawn = withNotes.slice(0, INLINE_MATCHES_MAX);
+  // `shown` is what was actually drawn, not what was available: it is half of
+  // the "showing 5 of 812" claim, and a claim about the screen has to be
+  // counted off the screen.
+  return {
+    shown: drawn.length,
+    html: `<div class="inline-matches">` +
+      drawn.map(x => propCardHtml(x.card, false, '', false, x.said)).join('') +
+      `</div>`,
+  };
+}
+
+// The count to show for a turn: the manifest's exact total when there is one.
+// `snap.total` comes from the artifact, whose `total_count` is the number of
+// rows it carried — capped at PANEL_ROW_CAP — so an 812-match search has
+// always displayed as 500.
+function _turnTotal(m, snap) {
+  const counts = m && m.manifest && m.manifest.counts;
+  if (counts && typeof counts.total === 'number') return counts.total;
+  return snap ? snap.total : 0;
+}
+
+// ── The rest of a turn's manifest ────────────────────────────────────────
+//
+// #404 asks the card strip to carry four things beyond the cards themselves,
+// each of which exists to stop the UI stating something it cannot support:
+//
+//   · the query echo — what was actually searched, in words
+//   · the count delta — "21 → 6" when a follow-up narrowed the set
+//   · "showing 5 of 812" — never a silent truncation at PANEL_ROW_CAP
+//   · the empty and distribution states — a search that matched nothing and a
+//     group_by that matched plenty are different answers, and neither is
+//     "no matches"
+//
+// All four are already in the manifest; these render them.
+
+// The filters this turn ran, joined. Built server-side from the query's own
+// active-filter list (find_properties::query_echo), so it cannot drift from
+// what was searched — a hand-written echo would be a second description of
+// the same thing, free to disagree with the first.
+function _echoText(echo) {
+  if (!echo) return '';
+  const parts = (echo.filters || []).slice();
+  if (echo.group_by) parts.push(`grouped by ${echo.group_by}`);
+  else if (echo.upcoming_only === false) parts.push('including past auctions');
+  return parts.join(' · ');
+}
+
+// The previous panel-touching turn's total, for the delta. Walks back over
+// turns that ran no search — a "what is the EMD on the second one" in the
+// middle must not read as a drop to zero and back.
+function _prevTurnTotal(history, i) {
+  for (let k = i - 1; k >= 0; k--) {
+    const man = history[k] && history[k].manifest;
+    if (!man || !man.counts) continue;
+    // `empty` counts: a search that matched nothing IS the previous set, and
+    // skipping it makes the next delta quote a total two turns old as if it
+    // were the one just replaced.
+    if (man.kind === 'search' || man.kind === 'distribution' || man.kind === 'empty') {
+      return man.counts.total;
+    }
+  }
+  return null;
+}
+
+// The whole strip for one turn: header, then cards / breakdown / empty state.
+// Returns '' when there is nothing to say about matches at all, which is the
+// common case for a greeting or a follow-up question about one property.
+function _turnMatchesHtml(m, snap, history, i) {
+  if (!_shellOn()) return '';
+  const man = (m && m.manifest) || null;
+  const cards = _inlineMatchesHtml(m, snap);
+  const cardsHtml = cards.html;
+  const shown = cards.shown;
+  const kind = man ? man.kind : (cardsHtml ? 'search' : 'none');
+  if (!cardsHtml && kind !== 'empty' && kind !== 'distribution') return '';
+
+  const total = _turnTotal(m, snap);
+  const echo = _echoText(man && man.query_echo);
+  const prev = _prevTurnTotal(history, i);
+  // Only when it actually moved: "812 → 812" is noise, and a delta against a
+  // turn that searched something unrelated is worse than none.
+  const deltaHtml = (prev != null && prev !== total)
+    ? `<span class="tm-delta">${prev.toLocaleString('en-IN')} → ${total.toLocaleString('en-IN')}</span>`
+    : '';
+
+  // The count is a button whenever there is more behind it — that IS the way
+  // into the full list, so it carries `matches-chip` and app.js's own handler
+  // and the shell's drawer opener both keep working. When everything is
+  // already on screen it is plain text: a button to nowhere is worse than no
+  // button.
+  let countHtml = '';
+  if (kind === 'search' || kind === 'detail') {
+    const label = (total > shown && shown > 0)
+      ? `showing ${shown} of ${total.toLocaleString('en-IN')}`
+      : `${total.toLocaleString('en-IN')} match${total === 1 ? '' : 'es'}`;
+    // Deliberately NOT a `.matches-chip`. That class carries app.js's own
+    // handler, which repoints the shared panel and re-renders the log — and a
+    // re-render would wipe the list this button just opened. The full list
+    // lives in the answer now; nothing outside it needs to move.
+    countHtml = (total > shown)
+      ? `<button class="tm-all" data-i="${i}" aria-expanded="false" title="show every match this answer found">${escapeHtml(label)}</button>`
+      : `<span class="tm-count">${escapeHtml(label)}</span>`;
+  } else if (kind === 'distribution') {
+    countHtml = `<span class="tm-count">${total.toLocaleString('en-IN')} listing${total === 1 ? '' : 's'} grouped</span>`;
+  }
+
+  const headHtml = (echo || countHtml || deltaHtml)
+    ? `<div class="tm-head">${echo ? `<span class="tm-echo">${escapeHtml(echo)}</span>` : ''}${deltaHtml}${countHtml}</div>`
+    : '';
+
+  let bodyHtml = cardsHtml;
+  if (kind === 'empty') bodyHtml = _emptyMatchesHtml(man);
+  else if (kind === 'distribution') bodyHtml = _breakdownHtml(man);
+  if (!bodyHtml) return '';
+  return `<div class="turn-matches">${headHtml}${bodyHtml}</div>`;
+}
+
+// A search that matched nothing. #404: "the turn renders a '0 matches for
+// {query}' card, not nothing. An empty state is a feature." Rendering nothing
+// is indistinguishable from a turn that never searched, and the user cannot
+// tell whether their filters were too tight or the question was misread.
+function _emptyMatchesHtml(man) {
+  // No echo here: the header directly above already carries it, and printing
+  // the filter list twice in six vertical centimetres reads as a rendering
+  // bug rather than as emphasis.
+  const echo = _echoText(man && man.query_echo);
+  return `<div class="tm-empty">` +
+    `<div class="tm-empty-title">No auctions matched</div>` +
+    `<div class="tm-empty-sub">${escapeHtml(echo
+      ? 'Try relaxing one of the filters above.'
+      : 'Nothing in the graph matches this search.')}</div>` +
+    `</div>`;
+}
+
+// A group_by turn. It matched plenty and grouped it, so rendering it through
+// the "0 matches" path — which is what happened before the manifest carried
+// `breakdown` — states the opposite of what the agent found.
+function _breakdownHtml(man) {
+  const rows = (man && man.breakdown) || [];
+  if (!rows.length) return '';
+  const max = rows.reduce((n, r) => Math.max(n, Number(r.listings) || 0), 0) || 1;
+  return `<div class="tm-breakdown">` + rows.slice(0, 12).map(r => {
+    const n = Number(r.listings) || 0;
+    return `<div class="tm-bar-row">` +
+      `<span class="tm-bar-label" title="${escapeHtml(String(r.value || '—'))}">${escapeHtml(String(r.value || '—'))}</span>` +
+      `<span class="tm-bar"><i style="width:${Math.max(2, Math.round(n / max * 100))}%"></i></span>` +
+      `<span class="tm-bar-n">${n.toLocaleString('en-IN')}</span>` +
+      `</div>`;
+  }).join('') + `</div>`;
+}
+
+//: How `find_properties` ordered a search, in words. Mirrors that tool's
+//: `_SORTS` keys — a key it grows and this map does not falls through to the
+//: raw string, which is ugly but never wrong.
+const AGENT_SORT_LABEL = {
+  deadline: 'application deadline',
+  auction_date: 'auction date',
+  price_asc: 'price, low to high',
+  price_desc: 'price, high to low',
+  area_desc: 'largest first',
+  recent: 'most recently listed',
+};
+
+// Every match a turn found, as compact rows — what the matches drawer used to
+// hold, now a child of the answer that produced it.
+//
+// Called imperatively by chatgpt-shell.js when the count is clicked, not
+// rendered with the turn: `renderChat` rebuilds the log's innerHTML once per
+// animation frame while an answer streams, and putting several hundred rows
+// through that loop costs real time for a list nobody has asked for yet.
+//
+// Rows come from the turn's own manifest, so this is the set THAT answer
+// found — the drawer, being one shared surface, always showed the newest
+// turn's set no matter which answer you were reading.
+function allMatchesRowsHtml(index) {
+  const m = chatHistory[Number(index)];
+  if (!m) return '';
+  const man = m.manifest || null;
+  const rows = (man && man.card_rows && man.card_rows.length)
+    ? man.card_rows
+    : ((_msgMatches(m) || {}).rows || []);
+  const cards = rows.map(row => toCard(row)).filter(c => c.id);
+  if (!cards.length) return '';
+  const notes = (man && man.annotations) || null;
+  const sort = (man && man.query_echo && man.query_echo.sort) || null;
+  // Say how the list is ordered rather than offering to re-sort it. The order
+  // is the search's own (or the agent's ranking); a sort control here would be
+  // a second ordering the answer above never mentioned.
+  //
+  // Its own map, not SORT_LABEL: that one is keyed by the PANEL's sort values
+  // (date_asc, price_asc), and this key comes from find_properties::_SORTS,
+  // which is a different vocabulary. Reusing it printed the raw key.
+  const sortNote = sort
+    ? `ordered by ${escapeHtml(AGENT_SORT_LABEL[sort] || sort)}`
+    : '';
+  return `<div class="tm-all-list">` +
+    (sortNote ? `<div class="tm-all-note">${sortNote}</div>` : '') +
+    cards.map(c => {
+      const quotes = notes && notes[String(c.id)];
+      return propCardHtml(c, false, '', false, (quotes && quotes.length) ? quotes.join(' ') : '');
+    }).join('') +
+    `</div>`;
+}
+
 // A synthetic select_properties artifact means the agent re-ranked the panel
 // to match its answer (see api/chat/panel.py). Those rows arrive pre-ordered,
 // so the panel must preserve that order rather than fall back to date/price.
@@ -1577,9 +1849,15 @@ async function askAI(userText, opts = {}) {
       window.track('search', { source: _src, mode: _mode });
       if (_mode === 'deep-research') window.track('deep_research_open', { source: _src });
     }
+    // agent3's stream emits `manifest` just before `final`. The final payload
+    // carries the same body, so this is a belt-and-braces capture: a fallback
+    // transport that never sees the event still gets the manifest from
+    // `resp`, and a stream that dies after the event keeps what it sent.
+    let streamedManifest = null;
     try {
       resp = await apiChatStream(reqBody, (ev, data) => {
         const cur = chatHistory[chatHistory.length - 1];
+        if (ev === 'manifest') { streamedManifest = data || null; return; }
         if (!cur) return;
         if (ev === 'status' && cur.role === 'ai thinking') {
           cur.text = data.label || 'thinking';
@@ -1628,7 +1906,13 @@ async function askAI(userText, opts = {}) {
       setPanelSource(extracted.tool);
     }
     dropTransient();
-    chatHistory.push({ role: 'ai', text: (resp.answer || '').trim(), artifacts: resp.artifacts || [], elapsedMs: performance.now() - startedAt });
+    // The manifest rides on the message, so this turn's cards belong to this
+    // turn for as long as the message exists — including in the saved
+    // conversation, which persists the message objects whole. agent3 only;
+    // the other loops leave it null and fall back to artifacts.
+    chatHistory.push({ role: 'ai', text: (resp.answer || '').trim(), artifacts: resp.artifacts || [],
+      manifest: resp.manifest || streamedManifest || null,
+      elapsedMs: performance.now() - startedAt });
   } catch(e) {
     console.error(e);
     dropTransient();
@@ -1688,6 +1972,11 @@ function renderChat(history, logEl, opts) {
     }
   }
 
+  // Set when a turn rendered its matches inline (ChatGPT shell only), so the
+  // card wiring below runs for those and not on every render — this function
+  // re-runs once per animation frame while an answer streams.
+  let renderedInlineCards = false;
+
   logEl.innerHTML = history.map((m, i) => {
     // Streaming statuses ("Searching auctions…") ride in m.text; the CSS
     // ::after dots keep animating whatever the label says.
@@ -1717,8 +2006,14 @@ function renderChat(history, logEl, opts) {
       // Per-turn matches chip (main chat only) — click to flip the matches
       // panel back to what this answer found.
       const snap = !scope ? _msgMatches(m) : null;
-      const snapTotal = snap ? snap.total : 0;
-      const matchesHtml = snap ? `
+      const snapTotal = !scope ? _turnTotal(m, snap) : 0;
+      const inlineHtml = !scope ? _turnMatchesHtml(m, snap, history, i) : '';
+      if (inlineHtml) renderedInlineCards = true;
+      // The strip carries its own count, and that count IS the way into the
+      // full list (`.tm-all` is a `.matches-chip`), so a second chip below
+      // would be the same control twice with the same number on it.
+      const chipRedundant = !!inlineHtml;
+      const matchesHtml = (snap && !chipRedundant) ? `
         <button class="matches-chip${i === activeSnapIdx ? ' active' : ''}" data-i="${i}" title="show this answer's matches in the panel" aria-label="show this answer's ${snapTotal} matches in the panel">
           <svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true"><rect x="2" y="2" width="12" height="12" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.5"/><line x1="6.5" y1="2.75" x2="6.5" y2="13.25" stroke="currentColor" stroke-width="1.5"/></svg>
           <span>${snapTotal.toLocaleString('en-IN')} match${snapTotal === 1 ? '' : 'es'}</span>
@@ -1745,6 +2040,7 @@ function renderChat(history, logEl, opts) {
         <div class="ai-meta">${matchesHtml}${timeHtml}</div>` : '';
       return `<div class="bubble-wrap ai">
         <div class="bubble ai md">${linkifyAnswerHtml(renderMarkdown(m.text), m)}</div>
+        ${inlineHtml}
         ${sourcesHtml}
         ${metaHtml}
         <div class="bubble-actions">
@@ -1766,6 +2062,9 @@ function renderChat(history, logEl, opts) {
     return `<div class="bubble ${m.role}">${escapeHtml(m.text)}</div>`;
   }).join('');
   logEl.scrollTop = logEl.scrollHeight;
+  // Inline match cards land in the transcript, not the panel, so they need the
+  // same click/save wiring the panel's cards get.
+  if (renderedInlineCards) wireCardClicks();
   logEl.querySelectorAll('.b-act').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -1998,7 +2297,12 @@ function _pickHtml(id, withReason) {
         ).join('')}</div>` : ''}`;
 }
 
-function propCardHtml(c, urgent, countdown, withReason) {
+// `reason`, when given, is THIS turn's sentence about THIS property, passed
+// down from the manifest's annotations. It takes precedence over `_pickHtml`
+// deliberately: that reads the global `currentPicks`, which the newest turn
+// replaces, so a scrolled-up answer rendered through it would quote the wrong
+// turn. A per-turn string cannot make that mistake.
+function propCardHtml(c, urgent, countdown, withReason, reason) {
   const isSaved = saved.has(c.id);
   const dropBadge = c.drop
     ? `<div class="price-drop" title="Reserve price previously ${escapeHtml(c.drop.previous)}">${c.drop.pct}% drop from ${escapeHtml(c.drop.previous)}</div>`
@@ -2015,10 +2319,13 @@ function propCardHtml(c, urgent, countdown, withReason) {
           ${showBank ? `<span class="card-bank" title="${escapeHtml(c.bank)}">${_CARD_ICO_BANK}<span class="card-bank-name">${escapeHtml(c.bankShort)}</span></span>` : ''}
           ${c.date ? `<span class="card-date">${_CARD_ICO_CAL}<span>${escapeHtml(c.date)}</span></span>` : ''}
           ${c.ended ? '<span class="ended-tag">auction ended</span>' : ''}
+          ${(c.noticeScope && _shellOn()) ? `<span class="scope-tag" title="This notice covers ${c.noticeLots || 'several'} lots — the measurement above describes the notice, not necessarily this listing.">${c.noticeLots > 1 ? `notice · ${c.noticeLots} lots` : 'notice-level'}</span>` : ''}
         </div>
         <div class="price">${escapeHtml(c.price)}</div>
         ${dropBadge}
-        ${_pickHtml(c.id, withReason)}
+        ${reason
+          ? `<div class="card-reason">${escapeHtml(reason)}</div>`
+          : _pickHtml(c.id, withReason)}
         ${urgent && countdown ? `<div class="countdown">${_CARD_ICO_CLOCK}<span>auction ${escapeHtml(countdown)}</span></div>` : ''}
       </div>
       <button class="card-save ${isSaved ? 'saved' : ''}" data-save-id="${escapeHtml(c.id)}" title="${isSaved ? 'saved' : 'save to watchlist'}" aria-label="save">
@@ -2761,6 +3068,44 @@ async function syncConversationsFromServer() {
   } catch (e) { console.error('[chats] sync failed', e); }
 }
 
+// Re-attach each turn's cards from the server when a saved chat is reopened.
+//
+// The conversation the browser saved carries its own copy of every message,
+// manifest included, and that copy is display state: it can be stale, and it
+// is not what the design lets us join on. The server wrote one manifest per
+// answer when the answer happened, so this replaces the local copy with it —
+// making a reopened thread indistinguishable from a live one.
+//
+// **The count guard.** The join key is the ordinal: the nth assistant message
+// is turn n. A failed turn pushes an "I couldn't reach the server" message
+// into `chatHistory` that never existed server-side, and one of those shifts
+// every later turn onto the wrong manifest — cards silently belonging to a
+// different question, which is worse than no cards at all. So the join only
+// runs when the two sides agree on how many answers there were; when they do
+// not, the turns keep whatever they were saved with and the mismatch is
+// logged. Ordinals never shift to close a gap.
+async function _rehydrateManifests() {
+  if (!CHAT_AGENT3 || !apiChatThreadId) return;
+  try {
+    const r = await authFetch(
+      `${API_BASE}/chat/agent3/${encodeURIComponent(apiChatThreadId)}/manifests`);
+    if (!r.ok) return;
+    const data = await r.json();
+    const manifests = Array.isArray(data.manifests) ? data.manifests : [];
+    if (!manifests.length) return;
+    const answers = chatHistory.filter(m => m.role === 'ai');
+    if (answers.length !== manifests.length) {
+      console.warn('[manifests] %d answers vs %d manifests — leaving cards as saved',
+                   answers.length, manifests.length);
+      return;
+    }
+    answers.forEach((m, k) => { m.manifest = manifests[k]; });
+  } catch (e) {
+    // Reload fidelity is a nicety; a reopened chat must still open.
+    console.warn('[manifests] fetch failed', e);
+  }
+}
+
 async function loadConversation(id) {
   if (!isSignedIn()) return;
   try {
@@ -2798,6 +3143,7 @@ async function loadConversation(id) {
       }
     }
     setPanelSource(liveTool);
+    await _rehydrateManifests();
     // go('results') syncs the URL to /chat/{id} via pathForScreen; when already
     // on the chat screen go() is skipped, so push the deep link explicitly.
     if (currentScreen !== 'results') go('results');

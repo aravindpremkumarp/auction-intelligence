@@ -552,6 +552,19 @@ def find_properties(
     params = dict(q.params)
     params.update({"sqft_floor": SQFT_FLOOR, "sqft_ceil": SQFT_CEIL})
 
+    # What the UI echoes above a turn's matches ("Coimbatore · ≤ ₹60L ·
+    # physical possession"). `q.active` already carries deterministic
+    # human-readable descriptions — the same list `filters_applied` returns —
+    # so the echo needs no second renderer and cannot drift from the filters
+    # that actually ran.
+    query_echo: dict = {
+        "filters": [d for _, d in q.active],
+        "sort": sort,
+        "upcoming_only": upcoming_only,
+    }
+    if group_by:
+        query_echo["group_by"] = group_by
+
     # ── count + aggregates, one query ────────────────────────────────────
     agg_rows = run_read_query(f"""
     {base}
@@ -606,12 +619,20 @@ def find_properties(
         out["group_by"] = group_by
         out["distribution"] = _distribution(base, params, group_by)
         out["rows"] = []
+        # Both early-return paths below used to skip the sink entirely, which
+        # made a breakdown and a zero-match turn arrive at the UI looking like
+        # a turn that never searched. They are three different things.
+        if sink is not None:
+            sink.absorb_breakdown(out["distribution"], total=total,
+                                  query_args=query_echo)
         return out
 
     if not total:
         out["rows"] = []
         out["relax"] = _relax(q, params)
         out["hint"] = _zero_hint(q, out["relax"], upcoming_only)
+        if sink is not None:
+            sink.absorb_empty(query_args=query_echo)
         return out
 
     # ── rows ─────────────────────────────────────────────────────────────
@@ -626,7 +647,10 @@ def find_properties(
         row_params, timeout=25.0, max_rows=fetch)
     shaped = [_shape_row(r) for r in raw]
     if sink is not None:
-        sink.absorb(shaped)
+        # `total`, not len(shaped): the rows stop at PANEL_ROW_CAP but the
+        # count is exact over every match, and the UI has to be able to say
+        # "showing 500 of 812" rather than silently claiming 500.
+        sink.absorb(shaped, total=total, query_args=query_echo)
     out["rows"] = [_for_model(r) for r in shaped[:limit]]
     out["rows_shown"] = len(out["rows"])
     out["sort"] = sort

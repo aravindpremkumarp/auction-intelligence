@@ -47,32 +47,25 @@ from typing import Any, NotRequired
 from langchain.agents.middleware import AgentMiddleware, AgentState, hook_config
 from langchain_core.messages import AIMessage, HumanMessage, RemoveMessage
 
+from api.agent3.common import (  # noqa: F401 - re-exported for existing callers
+    ID_BAND,
+    ID_LIKE,
+    guarded_ids,
+    message_text as _text_of,
+    tool_output_text,
+)
 from api.agent3.skills import USER_TEXT_DELIMITER
 
 logger = logging.getLogger("api.agent3.gates")
 
 # ── shared extraction ────────────────────────────────────────────────────
-
-#: A portal `auction_id` is exactly six digits — verified across all 2,964
-#: listings (658842–842929, `size(auction_id)` 6 for every one). The band
-#: below is deliberately wider than the observed range, because ids are a
-#: portal sequence that grows as new listings are scraped; the check does not
-#: want to start flagging real ids the day the range moves.
-#:
-#: The lookarounds reject a six-digit run that is part of a longer number:
-#: a bare digit either side, or a comma/period that is itself between digits
-#: (`1,234,567`, `1234.567890`). They must NOT reject a trailing sentence
-#: period — the first draft used `(?![\d,.])` and silently matched nothing at
-#: the end of a sentence, which is where an id in prose almost always sits.
-#: Caught by this file's first test on its first run.
-ID_LIKE = re.compile(r"(?<!\d)(?<!\d,)(?<!\d\.)(\d{6})(?!\d)(?!,\d)(?!\.\d)")
-ID_BAND = (600_000, 999_999)
-
-#: Currency context around a number, checked so a six-digit *price* is not
-#: mistaken for an id. `₹6,50,000` normalises to 650000, which is inside the
-#: id band; without this the gate would flag a correctly-quoted reserve.
-_CURRENCY_BEFORE = re.compile(r"(₹|rs\.?|inr)\s*$", re.I)
-_CURRENCY_AFTER = re.compile(r"^\s*(lakh|lakhs|lac|crore|crores|cr\b|l\b|rupees)", re.I)
+#
+# `ID_LIKE`, `ID_BAND`, `guarded_ids`, `tool_output_text` and `_text_of` moved
+# to `common.py` when the manifest builder needed them: this module imports
+# langchain middleware at import time, and the manifest is built on the
+# request path where that 28 MB is exactly what `router.py` keeps out. Bound
+# here so `gates.ID_LIKE` and `gates.tool_output_text` still resolve — every
+# existing caller and test is unaffected.
 
 #: A sale verb carrying a figure. Each of these asserts something
 #: `Auction.outcome` cannot support. The figure requirement is what keeps
@@ -101,49 +94,13 @@ _EXTENT_CLAIM = re.compile(
     r"\bgrounds?\b|\bhectares?\b|extent\s+of|measur\w+\s+\d)", re.I)
 
 
-def _text_of(message: Any) -> str:
-    """A message's text, whether the provider sent a string or content blocks."""
-    content = getattr(message, "content", "")
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        return " ".join(part.get("text", "") for part in content
-                        if isinstance(part, dict))
-    return str(content or "")
-
-
-def tool_output_text(messages: list) -> str:
-    """Every tool result in the thread, concatenated.
-
-    The whole thread rather than the current turn, deliberately: on a
-    follow-up ("tell me more about the second one") the model cites ids that
-    a *previous* turn's search returned, and scoping this to the current turn
-    would flag every one of them.
-    """
-    return "\n".join(_text_of(m) for m in messages
-                     if getattr(m, "type", "") == "tool")
-
-
 def ungrounded_ids(answer: str, evidence: str) -> list[str]:
     """Six-digit ids in the prose that appear nowhere in any tool result.
 
     The currency guard is what makes this safe to hard-gate: a number written
     as a price is skipped entirely rather than being checked as an id.
     """
-    out: list[str] = []
-    for m in ID_LIKE.finditer(answer or ""):
-        token = m.group(1)
-        if not (ID_BAND[0] <= int(token) <= ID_BAND[1]):
-            continue
-        if _CURRENCY_BEFORE.search(answer[max(0, m.start() - 6):m.start()]):
-            continue
-        if _CURRENCY_AFTER.match(answer[m.end():m.end() + 12]):
-            continue
-        if token in evidence:
-            continue
-        if token not in out:
-            out.append(token)
-    return out
+    return [t for t in guarded_ids(answer) if t not in evidence]
 
 
 def sale_claims(answer: str) -> list[str]:

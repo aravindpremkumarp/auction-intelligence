@@ -102,6 +102,13 @@ class ChatAgent3Response(BaseModel):
     skills: list[str] = Field(default_factory=list)
     usage: dict[str, Any] = Field(default_factory=dict)
     gate: GateOut | None = None
+    #: What the UI should show for THIS turn — cards, the agent's own sentence
+    #: per card, the query echo, the counts. Carries its own `turn_index` so
+    #: the frontend can tag the message it just rendered and join by the same
+    #: ordinal on reload. See api/agent3/manifest.py and
+    #: docs/designs/turn-owned-property-cards.md. None if the build failed:
+    #: the answer still stands, it just renders without cards.
+    manifest: dict[str, Any] | None = None
 
 
 def _thread_id(raw: str | None) -> str:
@@ -157,10 +164,37 @@ async def _prepare(request: Request, req: ChatAgent3Request,
     }
 
 
+async def _persist_manifest(result) -> dict[str, Any] | None:
+    """Store this turn's manifest and return it for the response.
+
+    Best-effort by design, the same rule `artifacts.py` runs under: the
+    manifest says how to *draw* a turn, and losing it must never cost the user
+    an answer they already paid for. A turn whose manifest failed to store
+    renders card-less on reload — visibly degraded, never wrong.
+
+    Two writers on one thread compute the same `turn_index`, so one manifest
+    silently overwrites the other while both answers persist. That is a real
+    misalignment rather than a benign race, so it is logged here; recovery is
+    the card-less rule above, because shifting ordinals to absorb it would
+    make every later join lie.
+    """
+    manifest = getattr(result, "manifest", None)
+    if manifest is None:
+        return None
+    from api.agent3 import manifest_store
+
+    try:
+        await manifest_store.save(manifest)
+    except Exception:  # noqa: BLE001 - display metadata, never fatal
+        logger.exception("manifest store failed — turn stands without cards")
+    return manifest.to_dict()
+
+
 async def _build_response(ctx: dict, result) -> ChatAgent3Response:
     from api.agent3.artifacts import build_artifacts
 
     artifacts = await build_artifacts(result, panel_before=ctx["panel"])
+    manifest = await _persist_manifest(result)
     findings = result.gate_findings or {}
     # On `auction.obs`, not this module's logger. The line this replaced went
     # to `api.agent3.router`, which has no handler on it in any environment —
@@ -202,6 +236,7 @@ async def _build_response(ctx: dict, result) -> ChatAgent3Response:
             repaired=list(result.gate_repaired),
             advisory=list(findings.get("advisory") or []),
         ),
+        manifest=manifest,
     )
 
 
@@ -280,7 +315,61 @@ async def _stream_turn(ctx: dict, sse) -> AsyncIterator[str]:
     if result.answer:
         yield sse("delta", {"text": result.answer})
     response = await _build_response(ctx, result)
+    # A dedicated event immediately before `final`, carrying the same body the
+    # non-stream response puts in its `manifest` field. Separate so a client
+    # can draw the cards the moment they are known without having to wait for
+    # (or re-parse) the full payload.
+    if response.manifest is not None:
+        yield sse("manifest", response.manifest)
     yield sse("final", response.model_dump(mode="json"))
+
+
+async def _thread_messages(thread_id: str) -> list:
+    """The thread's checkpointed messages, or [] if it has none."""
+    tup = await _saver().aget_tuple({"configurable": {"thread_id": thread_id}})
+    if tup is None:
+        return []
+    values = (tup.checkpoint or {}).get("channel_values") or {}
+    return list(values.get("messages") or [])
+
+
+@router.get("/chat/agent3/{thread_id}/history")
+async def thread_history(thread_id: str,
+                         user: UserOut = Depends(get_current_admin)) -> dict:
+    """The thread's user questions and final answers, in order.
+
+    The client keeps its own copy of the conversation for display, and #404
+    bans joining on it: a copy the browser owns can be edited, truncated or
+    stale, and an ordinal computed from it would silently attach turn 4's
+    cards to turn 3. This is the server's count, and it is the only one the
+    manifest join may use.
+
+    Which messages count and which are dropped lives in
+    `manifest.history_from_messages`, so the ordinal rule is one function with
+    tests rather than logic buried in an endpoint.
+    """
+    from api.agent3.manifest import history_from_messages
+
+    key = _thread_id(thread_id)
+    return {"thread_id": key,
+            "messages": history_from_messages(await _thread_messages(key))}
+
+
+@router.get("/chat/agent3/{thread_id}/manifests")
+async def thread_manifests(thread_id: str,
+                           user: UserOut = Depends(get_current_admin)) -> dict:
+    """Every turn's manifest for a thread, in turn order.
+
+    The other half of reload: the frontend fetches this alongside `/history`
+    and joins on `turn_index`, so a reopened thread draws exactly the cards
+    each answer produced. A turn with no matching manifest renders card-less
+    — ordinals never shift to close a gap, because a shifted ordinal makes
+    every later turn show another turn's properties.
+    """
+    from api.agent3 import manifest_store
+
+    key = _thread_id(thread_id)
+    return {"thread_id": key, "manifests": await manifest_store.load_thread(key)}
 
 
 @router.delete("/chat/agent3/{thread_id}")
@@ -292,6 +381,14 @@ async def forget_thread(thread_id: str,
     client asks the server to forget, and a client that forgets to ask leaks
     memory into the next conversation exactly the way `apiChatScope` did.
     """
+    from api.agent3 import manifest_store
+
     key = _thread_id(thread_id)
     await _saver().adelete_thread(key)
+    # Manifests are part of the thread, so they go with it — retention is the
+    # thread's lifetime and there is no separate story to tell. Kept here
+    # rather than inside `adelete_thread` because `api/checkpointer.py` is
+    # deliberately generic: it must stay importable with nothing but the Neo4j
+    # driver, and reaching into `api/agent3` from there would end that.
+    await manifest_store.delete_thread(key)
     return {"thread_id": key, "forgotten": True}

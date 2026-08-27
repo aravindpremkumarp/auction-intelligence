@@ -68,6 +68,21 @@ class TurnResult:
     #: across real runs is the only evidence that could ever justify
     #: promoting that tier — see gates.py.
     gate_findings: dict = field(default_factory=dict)
+    #: The TRUE match count, exact over every match. `len(panel_rows)` stops
+    #: at PANEL_ROW_CAP, so a 812-match search has always displayed as 500.
+    #: None means no search ran.
+    total: int | None = None
+    #: The last search's filters, in words, for the UI's query echo.
+    query_echo: dict | None = None
+    #: A `group_by` turn's distribution table. Without it such a turn reaches
+    #: the UI looking identical to one that matched nothing.
+    breakdown: list[dict] | None = None
+    #: Whether a search ran at all, whatever it returned — "asked and got
+    #: nothing" is an empty state worth rendering, "never asked" is not.
+    searched: bool = False
+    #: This turn's `TurnManifest` — what the UI should show for it. See
+    #: api/agent3/manifest.py and docs/designs/turn-owned-property-cards.md.
+    manifest: Any = None
 
 
 def today_line(today: date | None = None) -> str:
@@ -271,7 +286,7 @@ async def _run(question: str, *, skills, skills_text: str, sink: ToolSink,
         seconds=round(time.perf_counter() - started, 2),
     )
 
-    return TurnResult(
+    turn_result = TurnResult(
         answer=answer or "",
         auction_ids=list(sink.auction_ids),
         panel_rows=list(sink.panel_rows),
@@ -284,7 +299,22 @@ async def _run(question: str, *, skills, skills_text: str, sink: ToolSink,
         gate_repairs=result.get("answer_gate_repairs") or 0,
         gate_repaired=list(result.get("answer_gate_problems") or []),
         gate_findings=_gate_findings(answer or "", messages),
+        total=sink.total,
+        query_echo=sink.query_args,
+        breakdown=sink.breakdown,
+        searched=sink.searched,
     )
+
+    # Built here rather than in the router because `messages` is the whole
+    # checkpointed thread and it does not leave this function: the manifest's
+    # turn ordinal and its id grounding both need it. `build_manifest` is
+    # best-effort inside — a turn with a good answer never fails over the
+    # metadata describing how to draw it.
+    from api.agent3.manifest import build_manifest
+
+    turn_result.manifest = await build_manifest(
+        turn_result, messages, thread_id=thread_id)
+    return turn_result
 
 
 def _record_model_calls(turn_msgs: list, *, thread_id: str, model: str) -> None:
