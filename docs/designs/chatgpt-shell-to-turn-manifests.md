@@ -148,15 +148,41 @@ The badge is gated to the shell for now. The caveat is just as true on the
 public panel, but styling it there is a change worth making deliberately
 rather than as a side effect of this one — a small follow-up.
 
-### What is left
+### The drawer — **removed**
 
-The matches drawer. #404 expects the collapsed in-turn section to replace
-it, and with the header now carrying the echo, the delta and the count, the
-drawer's remaining job is the sortable full list. Removing it is the signal
-that convergence is done, and it is the moment to revisit #404's Open
-Question 1 (does the tiered v1/v2 surface adopt manifests, or stay on
-`panel_sync_ids` until retired — the doc's own recommendation is
-agent3-only).
+The matches pane was the last of the old shared panel: one surface, refilled
+every turn. While it existed the panel/chat split #404 set out to remove
+still existed — scroll to an older answer and the drawer beside it held the
+newest question's results.
+
+The full list moved inside the answer. The strip header's count
+(`showing 5 of 812`) expands `.tm-all-list` below it: the same rows, as a
+compact list, built from that turn's own manifest and therefore incapable of
+drifting from it. It is built imperatively on click rather than rendered with
+the turn, because `renderChat` rebuilds the log's innerHTML once per
+animation frame while an answer streams and several hundred rows through that
+loop is a real cost for a list nobody has opened. The trade is that a new turn
+collapses an open list, which is what asking a new question means anyway.
+
+The count deliberately stopped being a `.matches-chip`: that class carries
+app.js's own handler, which repoints the shared panel and re-renders the log
+— and the re-render would wipe the list it had just opened.
+
+The pane is hidden, not deleted from the markup. `renderResultsList` still
+fills it and still feeds the mobile tab badge; unpicking that is an app.js
+change with no user-visible payoff. Its mobile tab is hidden too, since
+matches are in the answer on every screen size.
+
+**Not carried over: sorting.** The drawer could re-sort all 812 by price or
+date; the in-answer list is the search's own order and says so ("ordered by
+application deadline"). That is deliberate for now — a sort control here
+would be a second ordering the answer above never mentioned — but if the
+list gets used and the order is the thing people fight, it is the obvious
+next addition.
+
+With this, #404's Open Question 1 is the live one: does the tiered v1/v2
+surface adopt manifests, or stay on `panel_sync_ids` until retired? The
+doc's own recommendation is agent3-only.
 
 ## Success criteria
 

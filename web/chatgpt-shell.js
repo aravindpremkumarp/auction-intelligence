@@ -89,66 +89,40 @@
     sync();
     new MutationObserver(sync).observe(log, { childList: true });
 
-    // ── 3. matches drawer ──────────────────────────────────────────────────
-    var head = pane.querySelector('.transcript-head');
-    var results = document.querySelector('.results-pane');
-    var countEl = document.getElementById('results-count');
-    if (!head || !results) return;
-
-    var btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'cg-matches-btn';
-    btn.setAttribute('aria-expanded', 'false');
-    btn.innerHTML =
-      '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" ' +
-      'stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-      '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M9 10v10"/></svg>' +
-      '<span>Matches</span><span class="cg-count"></span>';
-    head.appendChild(btn);
-
-    var close = document.createElement('button');
-    close.type = 'button';
-    close.className = 'cg-drawer-close';
-    close.setAttribute('aria-label', 'Close matches');
-    close.innerHTML =
-      '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" ' +
-      'stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
-    results.appendChild(close);
-
-    function setDrawer(open) {
-      if (open) document.documentElement.setAttribute('data-matches', 'open');
-      else document.documentElement.removeAttribute('data-matches');
-      btn.setAttribute('aria-expanded', open ? 'true' : 'false');
-    }
-    btn.addEventListener('click', function () {
-      setDrawer(document.documentElement.getAttribute('data-matches') !== 'open');
-    });
-    close.addEventListener('click', function () { setDrawer(false); });
-    document.addEventListener('keydown', function (e) {
-      if (e.key === 'Escape') setDrawer(false);
-    });
-
-    // A turn's cards are inline now, so the "N matches" chip only appears when
-    // there are more than fit. app.js already repoints the panel at that turn;
-    // the drawer has to be opened too, or the chip looks like it did nothing.
-    // Capture phase: app.js's own chip handler calls stopPropagation(), so a
-    // bubbling listener here would never fire.
+    // ── 3. the full list, in the answer ────────────────────────────────────
+    //
+    // This replaces the matches drawer. The drawer was the last of the old
+    // shared panel — one surface, refilled on every turn — and while it
+    // existed the panel/chat split #404 set out to remove still existed:
+    // scroll to an older answer and the drawer beside it belonged to the
+    // newest question.
+    //
+    // Expanding in place cannot drift, because the list is a child of the
+    // answer that produced it. Built imperatively on click rather than
+    // rendered with the turn: renderChat rebuilds the whole log's innerHTML
+    // once per animation frame while an answer streams, and several hundred
+    // rows through that loop is a real cost for a list nobody is reading yet.
+    // The trade is that a new turn collapses an open list — which is what
+    // asking a new question means anyway.
     log.addEventListener('click', function (e) {
-      if (e.target.closest('.matches-chip')) setDrawer(true);
-    }, true);
-
-    // Mirror the count app.js writes into #results-count. Reading it beats
-    // re-deriving the number here — one source of truth, and it cannot drift
-    // when the matching logic changes.
-    function syncCount() {
-      if (!countEl) return;
-      var t = (countEl.textContent || '').trim();
-      var m = t.match(/\d[\d,]*/);
-      btn.querySelector('.cg-count').textContent = m ? m[0] : '';
-    }
-    syncCount();
-    if (countEl) new MutationObserver(syncCount).observe(countEl, {
-      childList: true, characterData: true, subtree: true
+      var btn = e.target.closest('.tm-all');
+      if (!btn) return;
+      var strip = btn.closest('.turn-matches');
+      if (!strip) return;
+      var open = strip.querySelector('.tm-all-list');
+      if (open) {
+        open.remove();
+        btn.setAttribute('aria-expanded', 'false');
+        return;
+      }
+      var html = (typeof window.allMatchesRowsHtml === 'function')
+        ? window.allMatchesRowsHtml(btn.dataset.i) : '';
+      if (!html) return;
+      strip.insertAdjacentHTML('beforeend', html);
+      btn.setAttribute('aria-expanded', 'true');
+      // The rows are .prop[data-id] like every other card, so the app's own
+      // click and save wiring picks them up; it skips anything already wired.
+      if (typeof window.wireCardClicks === 'function') window.wireCardClicks();
     });
   }
 

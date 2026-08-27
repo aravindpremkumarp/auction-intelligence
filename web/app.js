@@ -1685,8 +1685,12 @@ function _turnMatchesHtml(m, snap, history, i) {
     const label = (total > shown && shown > 0)
       ? `showing ${shown} of ${total.toLocaleString('en-IN')}`
       : `${total.toLocaleString('en-IN')} match${total === 1 ? '' : 'es'}`;
+    // Deliberately NOT a `.matches-chip`. That class carries app.js's own
+    // handler, which repoints the shared panel and re-renders the log — and a
+    // re-render would wipe the list this button just opened. The full list
+    // lives in the answer now; nothing outside it needs to move.
     countHtml = (total > shown)
-      ? `<button class="matches-chip tm-all" data-i="${i}" title="open the full list">${escapeHtml(label)}</button>`
+      ? `<button class="tm-all" data-i="${i}" aria-expanded="false" title="show every match this answer found">${escapeHtml(label)}</button>`
       : `<span class="tm-count">${escapeHtml(label)}</span>`;
   } else if (kind === 'distribution') {
     countHtml = `<span class="tm-count">${total.toLocaleString('en-IN')} listing${total === 1 ? '' : 's'} grouped</span>`;
@@ -1735,6 +1739,59 @@ function _breakdownHtml(man) {
       `<span class="tm-bar-n">${n.toLocaleString('en-IN')}</span>` +
       `</div>`;
   }).join('') + `</div>`;
+}
+
+//: How `find_properties` ordered a search, in words. Mirrors that tool's
+//: `_SORTS` keys — a key it grows and this map does not falls through to the
+//: raw string, which is ugly but never wrong.
+const AGENT_SORT_LABEL = {
+  deadline: 'application deadline',
+  auction_date: 'auction date',
+  price_asc: 'price, low to high',
+  price_desc: 'price, high to low',
+  area_desc: 'largest first',
+  recent: 'most recently listed',
+};
+
+// Every match a turn found, as compact rows — what the matches drawer used to
+// hold, now a child of the answer that produced it.
+//
+// Called imperatively by chatgpt-shell.js when the count is clicked, not
+// rendered with the turn: `renderChat` rebuilds the log's innerHTML once per
+// animation frame while an answer streams, and putting several hundred rows
+// through that loop costs real time for a list nobody has asked for yet.
+//
+// Rows come from the turn's own manifest, so this is the set THAT answer
+// found — the drawer, being one shared surface, always showed the newest
+// turn's set no matter which answer you were reading.
+function allMatchesRowsHtml(index) {
+  const m = chatHistory[Number(index)];
+  if (!m) return '';
+  const man = m.manifest || null;
+  const rows = (man && man.card_rows && man.card_rows.length)
+    ? man.card_rows
+    : ((_msgMatches(m) || {}).rows || []);
+  const cards = rows.map(row => toCard(row)).filter(c => c.id);
+  if (!cards.length) return '';
+  const notes = (man && man.annotations) || null;
+  const sort = (man && man.query_echo && man.query_echo.sort) || null;
+  // Say how the list is ordered rather than offering to re-sort it. The order
+  // is the search's own (or the agent's ranking); a sort control here would be
+  // a second ordering the answer above never mentioned.
+  //
+  // Its own map, not SORT_LABEL: that one is keyed by the PANEL's sort values
+  // (date_asc, price_asc), and this key comes from find_properties::_SORTS,
+  // which is a different vocabulary. Reusing it printed the raw key.
+  const sortNote = sort
+    ? `ordered by ${escapeHtml(AGENT_SORT_LABEL[sort] || sort)}`
+    : '';
+  return `<div class="tm-all-list">` +
+    (sortNote ? `<div class="tm-all-note">${sortNote}</div>` : '') +
+    cards.map(c => {
+      const quotes = notes && notes[String(c.id)];
+      return propCardHtml(c, false, '', false, (quotes && quotes.length) ? quotes.join(' ') : '');
+    }).join('') +
+    `</div>`;
 }
 
 // A synthetic select_properties artifact means the agent re-ranked the panel
