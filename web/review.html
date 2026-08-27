@@ -2346,7 +2346,7 @@
     const verifiedFooter = n.verified
       ? `<div class="audit">verified by <code>${escapeHtml(n.verified_by || '?')}</code> at <code>${escapeHtml(fmtWhen(n.verified_at))}</code></div>`
       : '<div class="audit">not yet verified</div>';
-    const lotsPrefill = n.expected_lot_count ?? n.property_count ?? 1;
+    const lotsPrefill = lotsPrefillFor(n);
     right.innerHTML = `
       <div class="cactions">
         <label class="clots-wrap" title="how many lots does this notice sell? (the downstream extraction checksum)">lots
@@ -2372,14 +2372,40 @@
     return card;
   }
 
+  // What to seed the lots box with. A stored count always wins. Otherwise the
+  // clustered property_count is a reasonable guess, but only where it is a
+  // legal multi count: seeding a multi notice with 1 (the common case for a
+  // notice whose clustering collapsed to one property) put an unsubmittable
+  // value in the box by default. Blank is honest — the reviewer types the count.
+  function lotsPrefillFor(n) {
+    if (n.expected_lot_count != null) return n.expected_lot_count;
+    if (n.notice_type === 'multi') return n.property_count >= 2 ? n.property_count : '';
+    return n.property_count ?? 1;
+  }
+
+  // Returned when the lots box cannot be honoured for the type being confirmed.
+  // It must not be sent as "no opinion": omitting the field makes the server
+  // keep the old count and reply 200, which the UI then reports as "saved" —
+  // the reviewer sees their number accepted and nothing stores it.
+  const LOTS_INVALID = 'invalid';
+
   // The reviewer's lot count for one classification decision. 'single' IS a
-  // count of 1, so the input is ignored there; for 'multi' an out-of-range or
-  // blank input returns null (the server then keeps whatever count exists).
+  // count of 1, so the input is ignored there. A 'multi' needs 2..500; blank
+  // or out-of-range is refused rather than dropped, so the caller can say so.
   function readLotCount(scope, noticeType) {
     if (noticeType === 'single') return 1;
     const inp = scope ? scope.querySelector('.clots') : null;
     const v = inp ? parseInt(inp.value, 10) : NaN;
-    return (Number.isInteger(v) && v >= 2 && v <= 500) ? v : null;
+    return (Number.isInteger(v) && v >= 2 && v <= 500) ? v : LOTS_INVALID;
+  }
+
+  // True when the submit should be refused. Reports why, and leaves the card
+  // untouched so the reviewer can correct the number and try again.
+  function lotCountRejected(lotCount) {
+    if (lotCount !== LOTS_INVALID) return false;
+    setMsg('<span class="err">a multi notice needs a lot count of 2 or more — '
+           + 'nothing saved</span>', 4000);
+    return true;
   }
 
   function classifyBody(noticeType, notes, lotCount) {
@@ -2390,6 +2416,7 @@
 
   async function submitClassification(card, filename, noticeType, notes, lotCount) {
     if (!filename) { setMsg('<span class="err">notice has no filename — cannot save</span>', 3000); return; }
+    if (lotCountRejected(lotCount)) return;
     const buttons = $$('button', card);
     buttons.forEach(b => b.disabled = true);
     try {
@@ -2564,7 +2591,7 @@
       <div class="gr-row">${currentBadge} ${overriddenBadge} ${propCountBadge} ${lotCountBadge} ${statusBadge}</div>
       <div class="gr-actions">
         <label class="clots-wrap" title="how many lots does this notice sell? (the downstream extraction checksum)">lots
-          <input type="number" class="clots" min="1" max="500" value="${n.expected_lot_count ?? n.property_count ?? 1}"></label>
+          <input type="number" class="clots" min="1" max="500" value="${lotsPrefillFor(n)}"></label>
         <input type="text" class="cnotes" placeholder="notes (optional)">
         <button class="primary" data-act="confirm">Confirm as ${escapeHtml(n.notice_type || 'single')} <span class="kbd">V</span></button>
         <button data-act="flip">Flip to ${escapeHtml(altType)} <span class="kbd">F</span></button>
@@ -2608,6 +2635,7 @@
 
   async function submitClassificationFromGallery(filename, noticeType, notes, lotCount) {
     if (!filename) { setMsg('<span class="err">notice has no filename — cannot save</span>', 3000); return; }
+    if (lotCountRejected(lotCount)) return;
     const right = $('gallery-right');
     const buttons = right ? $$('button', right) : [];
     buttons.forEach(b => b.disabled = true);
