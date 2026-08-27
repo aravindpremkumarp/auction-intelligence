@@ -1523,9 +1523,12 @@ function _msgMatches(m) {
 }
 
 // How many of a turn's matches the answer carries inline before it defers to
-// the full list. Four keeps the cards inside one screen of answer; past that
-// the panel's sorting and paging are the better tool.
-const INLINE_MATCHES_MAX = 4;
+// the full list. This was four while the cards stacked vertically, where each
+// one pushed the next question further off screen. They scroll horizontally
+// now, so the answer costs one card's height whatever the count and the limit
+// is only about how much DOM a turn is worth — past a dozen, the panel's
+// sorting and paging are the better tool anyway.
+const INLINE_MATCHES_MAX = 12;
 
 // Inline matches — the ChatGPT shell renders a turn's properties inside the
 // answer instead of pushing them to a side panel, so the cards sit next to the

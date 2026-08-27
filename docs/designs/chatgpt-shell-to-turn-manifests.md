@@ -97,8 +97,13 @@ no model call, zero added latency, verbatim quotes. Its known imperfection
   one and falls back to the artifact-derived `snap` for the tiered and deep
   loops and for conversations saved before manifests existed.
 - Each card renders its `annotations[id]` as the reason line, and the
-  properties the answer discussed sort to the front — with four slots, a
-  recommendation earns the room ahead of a match.
+  properties the answer discussed sort to the front.
+- The cards are a horizontal rail of portrait tiles rather than a vertical
+  stack. Stacked full-width rows pushed the next question off screen, which
+  is what forced the four-card cap #404 does not have; a rail costs one
+  card's height whatever the count, so the cap rose to twelve. Not squares:
+  the quote needs three lines at tile width, and a square spends its height
+  on whitespace above them.
 - `propCardHtml` grew a fifth argument, `reason`, rather than switching
   `withReason` on. That was the trap: `_pickHtml` reads the global
   `currentPicks`, which the newest turn replaces, so a scrolled-up answer

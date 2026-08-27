@@ -174,7 +174,15 @@ html[data-shell="chatgpt"] .transcript-pane {
   background: var(--cg-bg);
   padding: 0;
   gap: 0;
+  /* The grid's `1fr` track and every flex box down to the message take their
+     automatic minimum size from their content. The horizontal card rail is
+     wider than the column by design, so without a floor of zero at each of
+     these the track grows to fit it and the whole thread drifts right off the
+     viewport instead of the rail scrolling. */
+  min-width: 0;
 }
+html[data-shell="chatgpt"] .chat-log,
+html[data-shell="chatgpt"] .bubble-wrap.ai { min-width: 0; }
 /* Left group, then everything else pinned right — the app's space-between
    would strand "+ new" in the middle once the Matches button is added. */
 html[data-shell="chatgpt"] .transcript-head {
@@ -313,40 +321,83 @@ html[data-shell="chatgpt"] .b-act:hover { background: var(--cg-surface); color: 
 
 /* ── Inline match cards ───────────────────────────────────────────────
    app.js renders a turn's properties inside the answer under this shell
-   (see _inlineMatchesHtml). They are the same .prop cards the panel uses,
-   so this block re-proportions them for a message: a compact row with a
-   small thumb and the price on the right, rather than the panel's tall
-   card with a 130px image. */
-/* align-self:stretch because .bubble-wrap.ai is a flex column with
-   align-items:flex-start — without it the cards shrink to their content
-   instead of filling the message column. */
+   (see _inlineMatchesHtml). They are the same .prop cards the panel uses;
+   this block re-proportions them for a message.
+
+   **A horizontal rail, not a stack.** Stacked full-width rows push the next
+   question off the screen, which is why the count had to be capped at four
+   — a cap #404 does not have (there, `discussed_ids` decides how many
+   render). A rail costs one card's height whatever the count, so the cap can
+   rise and the answer stays readable underneath.
+
+   **Portrait tiles, not squares.** A square is the wrong aspect for the
+   thing that makes these cards worth having: the agent's own sentence about
+   the property. At tile width that quote needs three lines, and a square
+   spends its height on whitespace above them. ~264x auto gets both the facts
+   and the sentence without either being clipped. */
 html[data-shell="chatgpt"] .inline-matches {
-  display: grid; gap: 8px;
+  display: flex;
   align-self: stretch;
-  margin: 4px 0 14px;
+  gap: 10px;
+  margin: 6px 0 14px;
+  /* Both are load-bearing. The cards are `flex: 0 0 264px` and so cannot
+     shrink; without a floor of zero here the rail's automatic minimum size is
+     its content width, and it widens .chat-log instead of scrolling — which
+     shows up as the whole message column drifting right, not as an obvious
+     overflow. */
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+  /* Keep a swipe that runs out of rail from scrolling the thread behind it —
+     without this, flicking the last card jumps the whole conversation. */
+  overscroll-behavior-x: contain;
+  /* Bleed the rail to the edges of the message column so a card can sit
+     half-visible at the right, which is the only honest signal that there
+     are more. The padding puts the first card back on the text margin. */
+  padding: 2px 4px 10px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--cg-surface-2) transparent;
 }
+html[data-shell="chatgpt"] .inline-matches::-webkit-scrollbar { height: 8px; }
+html[data-shell="chatgpt"] .inline-matches::-webkit-scrollbar-track { background: transparent; }
+html[data-shell="chatgpt"] .inline-matches::-webkit-scrollbar-thumb {
+  background: var(--cg-surface-2); border-radius: 4px;
+}
+html[data-shell="chatgpt"] .inline-matches:hover::-webkit-scrollbar-thumb {
+  background: var(--cg-fg-faint);
+}
+
 html[data-shell="chatgpt"] .inline-matches .prop {
-  align-items: center; gap: 14px;
+  flex: 0 0 264px;
+  width: 264px;
+  /* Column, not row: the panel's .prop is a horizontal thumb-then-text
+     layout, and at tile width that leaves the text about 180px. */
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  scroll-snap-align: start;
   border: 1px solid var(--cg-border);
-  border-radius: 14px;
+  border-radius: 16px;
   background: transparent;
-  padding: 12px 14px;
+  padding: 14px;
   transition: background 140ms cubic-bezier(0.2, 0, 0, 1);
 }
 html[data-shell="chatgpt"] .inline-matches .prop:hover {
   background: var(--cg-surface);
   transform: none; box-shadow: none;
 }
+/* A wide, short band rather than the panel's 130x96 block: at this width the
+   type icon is the only thing in it, and a tall box of empty tint above four
+   lines of text is what makes a card feel like a placeholder. */
 html[data-shell="chatgpt"] .inline-matches .thumb {
-  width: 40px; height: 40px;
+  width: 100%; height: 64px;
   border: 0; border-radius: 10px;
   background: var(--cg-surface-2);
   color: var(--cg-fg-muted);
-  padding: 8px;
+  padding: 16px;
 }
-/* Reserve the strip the out-of-flow price and save button occupy, so a long
-   title ellipsises instead of running underneath them. */
-html[data-shell="chatgpt"] .inline-matches .meta { gap: 2px; padding-right: 118px; }
+html[data-shell="chatgpt"] .inline-matches .meta { gap: 3px; padding-right: 0; }
 html[data-shell="chatgpt"] .inline-matches .title {
   font-family: inherit; font-size: 15px; line-height: 1.35;
   color: var(--cg-fg);
@@ -356,50 +407,54 @@ html[data-shell="chatgpt"] .inline-matches .prop-foot {
   font-family: inherit; font-size: 13px; color: var(--cg-fg-faint);
   text-transform: none; letter-spacing: 0;
 }
-/* Price moves out of the text column to the right edge of the row, which is
-   where the eye looks for it when the cards are stacked in a message. */
+html[data-shell="chatgpt"] .inline-matches .prop-foot { flex-wrap: wrap; gap: 4px 10px; }
+/* In the flow now. The rail's absolute price column was for the stacked
+   row, where the eye scans a right-hand edge; in a tile there is no such
+   edge and the price belongs with the facts it qualifies. */
 html[data-shell="chatgpt"] .inline-matches .price {
-  position: absolute; right: 52px; top: 50%; transform: translateY(-50%);
-  margin-top: 0;
-  font-family: inherit; font-size: 15px; font-weight: 600;
+  position: static; transform: none;
+  margin-top: 6px;
+  font-family: inherit; font-size: 17px; font-weight: 600;
   color: var(--cg-fg-strong);
   white-space: nowrap;
 }
 /* The agent's own sentence about this property, quoted off the answer above.
-   Given the full row width — the price column is reserved on the lines above
-   it, not here — because a recommendation clipped to a third of a line reads
-   as decoration rather than as something the agent said. */
+   Three lines, and separated by a rule: it is a different KIND of claim from
+   the facts above it — those come from the graph, this came from the model —
+   and the card should not blur that. */
 html[data-shell="chatgpt"] .inline-matches .card-reason {
-  font-family: inherit; font-size: 13.5px; line-height: 1.45;
+  font-family: inherit; font-size: 13px; line-height: 1.45;
   color: var(--cg-fg-muted);
-  margin-top: 6px;
-  margin-right: -110px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--cg-border);
   -webkit-line-clamp: 3;
 }
 html[data-shell="chatgpt"] .inline-matches .prop:hover .card-reason { color: var(--cg-fg); }
-@media (max-width: 640px) {
-  html[data-shell="chatgpt"] .inline-matches .card-reason { margin-right: 0; }
-}
 
+/* Save sits over the thumb — in a column card there is no trailing cell for
+   it, and floating it over the tint keeps it off the text. */
 html[data-shell="chatgpt"] .inline-matches .card-save {
+  position: absolute; top: 10px; right: 10px;
   color: var(--cg-fg-faint);
-  border: 0; background: transparent;
+  border: 0;
+  background: var(--cg-bg);
+  border-radius: 8px;
+  min-width: 28px; min-height: 28px;
 }
 html[data-shell="chatgpt"] .inline-matches .card-save:hover,
 html[data-shell="chatgpt"] .inline-matches .card-save.saved { color: var(--cg-accent); }
-/* Narrow screens: there is no room for a price column, and reserving one
-   truncates the title to nothing. Put the price back in the text flow. */
-@media (max-width: 640px) {
-  html[data-shell="chatgpt"] .inline-matches .meta { padding-right: 0; }
-  html[data-shell="chatgpt"] .inline-matches .price {
-    position: static; transform: none; margin-top: 4px;
-  }
-}
 html[data-shell="chatgpt"] .inline-matches .price-drop {
   font-family: inherit; font-size: 12px;
   border: 0; border-radius: 999px;
   background: var(--cg-surface-2); color: var(--cg-fg-muted);
   padding: 2px 8px;
+  align-self: flex-start;
+}
+/* Phones: a hair narrower so the next card always peeks, which is what tells
+   someone the rail scrolls at all. */
+@media (max-width: 640px) {
+  html[data-shell="chatgpt"] .inline-matches .prop { flex: 0 0 232px; width: 232px; }
 }
 
 /* The per-answer matches chip keeps its job (flip the panel back to what
