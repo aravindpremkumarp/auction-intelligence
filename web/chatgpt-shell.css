@@ -457,6 +457,114 @@ html[data-shell="chatgpt"] .inline-matches .price-drop {
   html[data-shell="chatgpt"] .inline-matches .prop { flex: 0 0 232px; width: 232px; }
 }
 
+/* ── The turn's matches strip ─────────────────────────────────────────
+   Header (what was searched, how the count moved, how many are on screen)
+   then one of three bodies: the card rail, the breakdown table, or the
+   empty state. All four pieces come from the manifest — see
+   _turnMatchesHtml in app.js and docs/designs/turn-owned-property-cards.md.
+   =================================================================== */
+html[data-shell="chatgpt"] .turn-matches { align-self: stretch; min-width: 0; }
+html[data-shell="chatgpt"] .tm-head {
+  display: flex; align-items: baseline; flex-wrap: wrap;
+  gap: 4px 10px;
+  margin: 10px 0 2px;
+  font-size: 13px;
+}
+/* What was actually searched, in the query's own words. It wraps rather than
+   truncates: a filter list clipped mid-way is worse than none, because the
+   reader cannot tell whether the missing filter was applied. */
+html[data-shell="chatgpt"] .tm-echo {
+  color: var(--cg-fg-muted);
+  margin-right: auto;
+  min-width: 0;
+}
+/* "21 → 6". Only rendered when the number moved, so its presence alone means
+   the follow-up narrowed (or widened) the set. */
+html[data-shell="chatgpt"] .tm-delta {
+  font-variant-numeric: tabular-nums;
+  color: var(--cg-fg-faint);
+  white-space: nowrap;
+}
+html[data-shell="chatgpt"] .tm-count {
+  color: var(--cg-fg-faint);
+  white-space: nowrap;
+}
+/* The count doubles as the way into the full list whenever there is more
+   behind it — same .matches-chip wiring, so app.js repoints the panel and
+   the shell opens the drawer, both unchanged. */
+html[data-shell="chatgpt"] .tm-all {
+  border: 0; border-radius: 999px;
+  background: var(--cg-surface); color: var(--cg-fg-muted);
+  font-family: inherit; font-size: 13px;
+  padding: 3px 10px;
+  margin: 0;
+  white-space: nowrap;
+  cursor: pointer;
+}
+html[data-shell="chatgpt"] .tm-all:hover { background: var(--cg-surface-2); color: var(--cg-fg); }
+
+/* A search that matched nothing. Rendering nothing at all is what this
+   replaces, and it was indistinguishable from a turn that never searched. */
+html[data-shell="chatgpt"] .tm-empty {
+  border: 1px dashed var(--cg-border);
+  border-radius: 14px;
+  padding: 16px 18px;
+  margin: 6px 0 14px;
+}
+html[data-shell="chatgpt"] .tm-empty-title { font-size: 15px; color: var(--cg-fg); }
+html[data-shell="chatgpt"] .tm-empty-sub {
+  font-size: 13px; color: var(--cg-fg-faint); margin-top: 3px;
+}
+
+/* A group_by turn: the buckets ARE the answer. Bars rather than a table
+   because the question behind a breakdown is always comparative — "where are
+   most of them" — and a column of numbers answers that slower. */
+html[data-shell="chatgpt"] .tm-breakdown {
+  display: grid; gap: 4px;
+  margin: 8px 0 14px;
+}
+html[data-shell="chatgpt"] .tm-bar-row {
+  display: grid;
+  grid-template-columns: minmax(0, 9rem) 1fr auto;
+  align-items: center; gap: 10px;
+  font-size: 13px;
+}
+html[data-shell="chatgpt"] .tm-bar-label {
+  color: var(--cg-fg);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+html[data-shell="chatgpt"] .tm-bar {
+  height: 8px; border-radius: 999px;
+  background: var(--cg-surface);
+  overflow: hidden;
+}
+html[data-shell="chatgpt"] .tm-bar i {
+  display: block; height: 100%;
+  background: var(--cg-accent);
+  border-radius: 999px;
+}
+html[data-shell="chatgpt"] .tm-bar-n {
+  color: var(--cg-fg-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The scope caveat, on any card whose lot-derived value describes the notice
+   rather than this listing. Amber rather than neutral on purpose: it is a
+   correctness warning, not a label, and the one thing the graph's scope
+   tagging exists to keep the UI from swallowing. */
+html[data-shell="chatgpt"] .scope-tag {
+  font-family: inherit; font-size: 11.5px;
+  border-radius: 999px;
+  padding: 1px 8px;
+  background: rgba(210, 140, 40, 0.16);
+  color: #d9a441;
+  white-space: nowrap;
+}
+html[data-theme="light"][data-shell="chatgpt"] .scope-tag {
+  background: rgba(180, 110, 20, 0.14);
+  color: #96650f;
+}
+
 /* The per-answer matches chip keeps its job (flip the panel back to what
    this turn found) but loses the sketchbook outline. */
 html[data-shell="chatgpt"] .matches-chip {

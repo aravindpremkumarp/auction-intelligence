@@ -34,10 +34,10 @@ requirement now stands.*
 | Which rows exist comes from the sink, never from parsing prose | done | `card_rows` is written server-side from the sink; the client no longer re-derives them when a manifest is present |
 | Each card carries the agent's own sentence(s) about that property | done | `annotations`, quoted verbatim off the answer — #404's Premise 2 and the reason the design exists |
 | Panel state is part of the thread; reload restores every turn's cards | done | `/manifests` + `/history`, joined on `turn_index` |
-| Scope badge on multi-lot notices | **open** | `notice_lot_count` and `area_sqft_scope` are in `card_rows`; nothing renders them yet, so a card can still state a lot fact as a property fact |
-| Collapsed "all N matches" with `query_echo` and the count delta ("21 → 6") | **open** | The chip and drawer stand in for it. `query_echo` and `counts` are stored and unused |
-| Empty result renders a "0 matches for {query}" card | **open** | `kind: "empty"` is recorded; nothing renders it |
-| `kind: distribution` renders the breakdown table | **open** | Recorded and unused — a `group_by` turn still reads as no matches |
+| Scope badge on multi-lot notices | done | Amber tag when the graph's scope tag says `notice`; shell-only for now |
+| Collapsed "all N matches" with `query_echo` and the count delta ("21 → 6") | done | The strip header, with "showing 5 of 812" as the way into the full list |
+| Empty result renders a "0 matches for {query}" card | done | "No auctions matched" under the echo |
+| `kind: distribution` renders the breakdown table | done | Rendered as bars |
 
 Two things that are **already right** and should not be disturbed:
 
@@ -119,18 +119,44 @@ no model call, zero added latency, verbatim quotes. Its known imperfection
   own: an 812-match search displayed "500 matches" — the cap, presented as
   the answer.
 
-### Stage 3 — the rest of #404's card — **next**
+### Stage 3 — the rest of #404's card — **done**
 
-Once cards are manifest-driven these are each small and independent:
-scope badge for multi-lot notices; the collapsed "all N matches" section
-with `query_echo` in words and the "21 → 6" delta; "showing 500 of 812" at
-the `PANEL_ROW_CAP`; the `empty` and `distribution` kinds.
+Each turn's strip gained a header and two more bodies, all read from the
+manifest:
 
-At that point the matches drawer #417 added has no job left — the collapsed
-section inside each turn replaces it. Removing it is the signal that
-convergence is done, and it is the moment to revisit #404's Open Question 1
-(does the tiered v1/v2 surface adopt manifests, or stay on `panel_sync_ids`
-until retired — the doc's own recommendation is agent3-only).
+- **Query echo** — the filters that actually ran, in the query's own words
+  (`find_properties` builds it from `q.active`, so it cannot drift from what
+  was searched).
+- **Count delta** — "812 → 6" when a follow-up narrowed the set, and only
+  when the number moved. An `empty` turn counts as the previous set;
+  skipping it made the next delta quote a total two turns old.
+- **"showing 5 of 812"** — the count doubles as the way into the full list
+  (it carries `matches-chip`, so app.js's handler and the drawer opener both
+  keep working), and is plain text when everything is already on screen.
+  Never a silent truncation at `PANEL_ROW_CAP`.
+- **Empty state** — "No auctions matched" under the echo, instead of
+  rendering nothing, which was indistinguishable from a turn that never
+  searched.
+- **Distribution** — the `group_by` table as bars, because the question
+  behind a breakdown is comparative. It used to read as no matches.
+- **Scope badge** — an amber "notice · 6 lots" on any card whose lot-derived
+  value describes the notice rather than the listing. Only when the graph's
+  own scope tag says `notice`: a resolved multi-lot notice is tagged `lot`
+  and needs no caveat.
+
+The badge is gated to the shell for now. The caveat is just as true on the
+public panel, but styling it there is a change worth making deliberately
+rather than as a side effect of this one — a small follow-up.
+
+### What is left
+
+The matches drawer. #404 expects the collapsed in-turn section to replace
+it, and with the header now carrying the echo, the delta and the count, the
+drawer's remaining job is the sortable full list. Removing it is the signal
+that convergence is done, and it is the moment to revisit #404's Open
+Question 1 (does the tiered v1/v2 surface adopt manifests, or stay on
+`panel_sync_ids` until retired — the doc's own recommendation is
+agent3-only).
 
 ## Success criteria
 

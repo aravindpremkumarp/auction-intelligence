@@ -594,6 +594,16 @@ function toCard(row) {
     ended: !!(startD && startD < new Date()),
     url: row.url || null,
     drop,
+    // Scope honesty, carried through to the card. A sale notice fans out to
+    // 4.4 lots on average, and a lot-derived value on a multi-lot notice
+    // describes the notice, not this listing. The tools tag every such value
+    // (`api/agent3/common.py::scope_of`); dropping the tag here would let the
+    // UI state a lot fact as a property fact, which is the one thing the
+    // whole scope mechanism exists to prevent. Only a tag that says "notice"
+    // is a caveat — a resolved multi-lot notice is tagged "lot" and needs no
+    // badge.
+    noticeScope: (row.area_sqft_scope === 'notice' || row.attempt_scope === 'notice'),
+    noticeLots: Number(row.notice_lot_count) || 0,
   };
 }
 
@@ -1552,14 +1562,23 @@ const INLINE_MATCHES_MAX = 12;
 // turn: sourcing it globally would show every scrolled-up answer the LATEST
 // turn's reasons. That mis-attribution is the exact defect the manifest
 // design exists to remove, and it would look like the feature working.
+// Is the ChatGPT shell on? One reader, so the answer cannot differ between
+// the places that ask — and so turning the shell off can never leave a
+// half-shell rendering behind.
+function _shellOn() {
+  return document.documentElement.getAttribute('data-shell') === 'chatgpt';
+}
+
+const _NO_CARDS = { html: '', shown: 0 };
+
 function _inlineMatchesHtml(m, snap) {
-  if (document.documentElement.getAttribute('data-shell') !== 'chatgpt') return '';
+  if (!_shellOn()) return _NO_CARDS;
   const man = (m && m.manifest) || null;
   const rows = (man && man.card_rows && man.card_rows.length)
     ? man.card_rows
     : ((snap && snap.rows) || []);
   const cards = rows.map(row => toCard(row)).filter(c => c.id);
-  if (!cards.length) return '';
+  if (!cards.length) return _NO_CARDS;
   const notes = (man && man.annotations) || null;
   const withNotes = cards.map(c => {
     const quotes = notes && notes[String(c.id)];
@@ -1570,10 +1589,16 @@ function _inlineMatchesHtml(m, snap) {
   // the recommendations are the ones worth the room. Stable, so within each
   // group the search's own order survives.
   withNotes.sort((a, b) => (b.said ? 1 : 0) - (a.said ? 1 : 0));
-  return `<div class="inline-matches">` +
-    withNotes.slice(0, INLINE_MATCHES_MAX)
-      .map(x => propCardHtml(x.card, false, '', false, x.said)).join('') +
-    `</div>`;
+  const drawn = withNotes.slice(0, INLINE_MATCHES_MAX);
+  // `shown` is what was actually drawn, not what was available: it is half of
+  // the "showing 5 of 812" claim, and a claim about the screen has to be
+  // counted off the screen.
+  return {
+    shown: drawn.length,
+    html: `<div class="inline-matches">` +
+      drawn.map(x => propCardHtml(x.card, false, '', false, x.said)).join('') +
+      `</div>`,
+  };
 }
 
 // The count to show for a turn: the manifest's exact total when there is one.
@@ -1584,6 +1609,132 @@ function _turnTotal(m, snap) {
   const counts = m && m.manifest && m.manifest.counts;
   if (counts && typeof counts.total === 'number') return counts.total;
   return snap ? snap.total : 0;
+}
+
+// ── The rest of a turn's manifest ────────────────────────────────────────
+//
+// #404 asks the card strip to carry four things beyond the cards themselves,
+// each of which exists to stop the UI stating something it cannot support:
+//
+//   · the query echo — what was actually searched, in words
+//   · the count delta — "21 → 6" when a follow-up narrowed the set
+//   · "showing 5 of 812" — never a silent truncation at PANEL_ROW_CAP
+//   · the empty and distribution states — a search that matched nothing and a
+//     group_by that matched plenty are different answers, and neither is
+//     "no matches"
+//
+// All four are already in the manifest; these render them.
+
+// The filters this turn ran, joined. Built server-side from the query's own
+// active-filter list (find_properties::query_echo), so it cannot drift from
+// what was searched — a hand-written echo would be a second description of
+// the same thing, free to disagree with the first.
+function _echoText(echo) {
+  if (!echo) return '';
+  const parts = (echo.filters || []).slice();
+  if (echo.group_by) parts.push(`grouped by ${echo.group_by}`);
+  else if (echo.upcoming_only === false) parts.push('including past auctions');
+  return parts.join(' · ');
+}
+
+// The previous panel-touching turn's total, for the delta. Walks back over
+// turns that ran no search — a "what is the EMD on the second one" in the
+// middle must not read as a drop to zero and back.
+function _prevTurnTotal(history, i) {
+  for (let k = i - 1; k >= 0; k--) {
+    const man = history[k] && history[k].manifest;
+    if (!man || !man.counts) continue;
+    // `empty` counts: a search that matched nothing IS the previous set, and
+    // skipping it makes the next delta quote a total two turns old as if it
+    // were the one just replaced.
+    if (man.kind === 'search' || man.kind === 'distribution' || man.kind === 'empty') {
+      return man.counts.total;
+    }
+  }
+  return null;
+}
+
+// The whole strip for one turn: header, then cards / breakdown / empty state.
+// Returns '' when there is nothing to say about matches at all, which is the
+// common case for a greeting or a follow-up question about one property.
+function _turnMatchesHtml(m, snap, history, i) {
+  if (!_shellOn()) return '';
+  const man = (m && m.manifest) || null;
+  const cards = _inlineMatchesHtml(m, snap);
+  const cardsHtml = cards.html;
+  const shown = cards.shown;
+  const kind = man ? man.kind : (cardsHtml ? 'search' : 'none');
+  if (!cardsHtml && kind !== 'empty' && kind !== 'distribution') return '';
+
+  const total = _turnTotal(m, snap);
+  const echo = _echoText(man && man.query_echo);
+  const prev = _prevTurnTotal(history, i);
+  // Only when it actually moved: "812 → 812" is noise, and a delta against a
+  // turn that searched something unrelated is worse than none.
+  const deltaHtml = (prev != null && prev !== total)
+    ? `<span class="tm-delta">${prev.toLocaleString('en-IN')} → ${total.toLocaleString('en-IN')}</span>`
+    : '';
+
+  // The count is a button whenever there is more behind it — that IS the way
+  // into the full list, so it carries `matches-chip` and app.js's own handler
+  // and the shell's drawer opener both keep working. When everything is
+  // already on screen it is plain text: a button to nowhere is worse than no
+  // button.
+  let countHtml = '';
+  if (kind === 'search' || kind === 'detail') {
+    const label = (total > shown && shown > 0)
+      ? `showing ${shown} of ${total.toLocaleString('en-IN')}`
+      : `${total.toLocaleString('en-IN')} match${total === 1 ? '' : 'es'}`;
+    countHtml = (total > shown)
+      ? `<button class="matches-chip tm-all" data-i="${i}" title="open the full list">${escapeHtml(label)}</button>`
+      : `<span class="tm-count">${escapeHtml(label)}</span>`;
+  } else if (kind === 'distribution') {
+    countHtml = `<span class="tm-count">${total.toLocaleString('en-IN')} listing${total === 1 ? '' : 's'} grouped</span>`;
+  }
+
+  const headHtml = (echo || countHtml || deltaHtml)
+    ? `<div class="tm-head">${echo ? `<span class="tm-echo">${escapeHtml(echo)}</span>` : ''}${deltaHtml}${countHtml}</div>`
+    : '';
+
+  let bodyHtml = cardsHtml;
+  if (kind === 'empty') bodyHtml = _emptyMatchesHtml(man);
+  else if (kind === 'distribution') bodyHtml = _breakdownHtml(man);
+  if (!bodyHtml) return '';
+  return `<div class="turn-matches">${headHtml}${bodyHtml}</div>`;
+}
+
+// A search that matched nothing. #404: "the turn renders a '0 matches for
+// {query}' card, not nothing. An empty state is a feature." Rendering nothing
+// is indistinguishable from a turn that never searched, and the user cannot
+// tell whether their filters were too tight or the question was misread.
+function _emptyMatchesHtml(man) {
+  // No echo here: the header directly above already carries it, and printing
+  // the filter list twice in six vertical centimetres reads as a rendering
+  // bug rather than as emphasis.
+  const echo = _echoText(man && man.query_echo);
+  return `<div class="tm-empty">` +
+    `<div class="tm-empty-title">No auctions matched</div>` +
+    `<div class="tm-empty-sub">${escapeHtml(echo
+      ? 'Try relaxing one of the filters above.'
+      : 'Nothing in the graph matches this search.')}</div>` +
+    `</div>`;
+}
+
+// A group_by turn. It matched plenty and grouped it, so rendering it through
+// the "0 matches" path — which is what happened before the manifest carried
+// `breakdown` — states the opposite of what the agent found.
+function _breakdownHtml(man) {
+  const rows = (man && man.breakdown) || [];
+  if (!rows.length) return '';
+  const max = rows.reduce((n, r) => Math.max(n, Number(r.listings) || 0), 0) || 1;
+  return `<div class="tm-breakdown">` + rows.slice(0, 12).map(r => {
+    const n = Number(r.listings) || 0;
+    return `<div class="tm-bar-row">` +
+      `<span class="tm-bar-label" title="${escapeHtml(String(r.value || '—'))}">${escapeHtml(String(r.value || '—'))}</span>` +
+      `<span class="tm-bar"><i style="width:${Math.max(2, Math.round(n / max * 100))}%"></i></span>` +
+      `<span class="tm-bar-n">${n.toLocaleString('en-IN')}</span>` +
+      `</div>`;
+  }).join('') + `</div>`;
 }
 
 // A synthetic select_properties artifact means the agent re-ranked the panel
@@ -1799,11 +1950,12 @@ function renderChat(history, logEl, opts) {
       // panel back to what this answer found.
       const snap = !scope ? _msgMatches(m) : null;
       const snapTotal = !scope ? _turnTotal(m, snap) : 0;
-      const inlineHtml = !scope ? _inlineMatchesHtml(m, snap) : '';
+      const inlineHtml = !scope ? _turnMatchesHtml(m, snap, history, i) : '';
       if (inlineHtml) renderedInlineCards = true;
-      // The chip exists to open the fuller list. Once every match is already
-      // inline there is no fuller list, so it would be a button to nowhere.
-      const chipRedundant = !!inlineHtml && snapTotal <= INLINE_MATCHES_MAX;
+      // The strip carries its own count, and that count IS the way into the
+      // full list (`.tm-all` is a `.matches-chip`), so a second chip below
+      // would be the same control twice with the same number on it.
+      const chipRedundant = !!inlineHtml;
       const matchesHtml = (snap && !chipRedundant) ? `
         <button class="matches-chip${i === activeSnapIdx ? ' active' : ''}" data-i="${i}" title="show this answer's matches in the panel" aria-label="show this answer's ${snapTotal} matches in the panel">
           <svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true"><rect x="2" y="2" width="12" height="12" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.5"/><line x1="6.5" y1="2.75" x2="6.5" y2="13.25" stroke="currentColor" stroke-width="1.5"/></svg>
@@ -2110,6 +2262,7 @@ function propCardHtml(c, urgent, countdown, withReason, reason) {
           ${showBank ? `<span class="card-bank" title="${escapeHtml(c.bank)}">${_CARD_ICO_BANK}<span class="card-bank-name">${escapeHtml(c.bankShort)}</span></span>` : ''}
           ${c.date ? `<span class="card-date">${_CARD_ICO_CAL}<span>${escapeHtml(c.date)}</span></span>` : ''}
           ${c.ended ? '<span class="ended-tag">auction ended</span>' : ''}
+          ${(c.noticeScope && _shellOn()) ? `<span class="scope-tag" title="This notice covers ${c.noticeLots || 'several'} lots — the measurement above describes the notice, not necessarily this listing.">${c.noticeLots > 1 ? `notice · ${c.noticeLots} lots` : 'notice-level'}</span>` : ''}
         </div>
         <div class="price">${escapeHtml(c.price)}</div>
         ${dropBadge}
