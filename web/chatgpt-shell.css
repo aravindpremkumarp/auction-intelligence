@@ -311,6 +311,81 @@ html[data-shell="chatgpt"] .b-act {
 html[data-shell="chatgpt"] .b-act svg { width: 15px; height: 15px; }
 html[data-shell="chatgpt"] .b-act:hover { background: var(--cg-surface); color: var(--cg-fg); }
 
+/* ── Inline match cards ───────────────────────────────────────────────
+   app.js renders a turn's properties inside the answer under this shell
+   (see _inlineMatchesHtml). They are the same .prop cards the panel uses,
+   so this block re-proportions them for a message: a compact row with a
+   small thumb and the price on the right, rather than the panel's tall
+   card with a 130px image. */
+/* align-self:stretch because .bubble-wrap.ai is a flex column with
+   align-items:flex-start — without it the cards shrink to their content
+   instead of filling the message column. */
+html[data-shell="chatgpt"] .inline-matches {
+  display: grid; gap: 8px;
+  align-self: stretch;
+  margin: 4px 0 14px;
+}
+html[data-shell="chatgpt"] .inline-matches .prop {
+  align-items: center; gap: 14px;
+  border: 1px solid var(--cg-border);
+  border-radius: 14px;
+  background: transparent;
+  padding: 12px 14px;
+  transition: background 140ms cubic-bezier(0.2, 0, 0, 1);
+}
+html[data-shell="chatgpt"] .inline-matches .prop:hover {
+  background: var(--cg-surface);
+  transform: none; box-shadow: none;
+}
+html[data-shell="chatgpt"] .inline-matches .thumb {
+  width: 40px; height: 40px;
+  border: 0; border-radius: 10px;
+  background: var(--cg-surface-2);
+  color: var(--cg-fg-muted);
+  padding: 8px;
+}
+/* Reserve the strip the out-of-flow price and save button occupy, so a long
+   title ellipsises instead of running underneath them. */
+html[data-shell="chatgpt"] .inline-matches .meta { gap: 2px; padding-right: 118px; }
+html[data-shell="chatgpt"] .inline-matches .title {
+  font-family: inherit; font-size: 15px; line-height: 1.35;
+  color: var(--cg-fg);
+}
+html[data-shell="chatgpt"] .inline-matches .loc,
+html[data-shell="chatgpt"] .inline-matches .prop-foot {
+  font-family: inherit; font-size: 13px; color: var(--cg-fg-faint);
+  text-transform: none; letter-spacing: 0;
+}
+/* Price moves out of the text column to the right edge of the row, which is
+   where the eye looks for it when the cards are stacked in a message. */
+html[data-shell="chatgpt"] .inline-matches .price {
+  position: absolute; right: 52px; top: 50%; transform: translateY(-50%);
+  margin-top: 0;
+  font-family: inherit; font-size: 15px; font-weight: 600;
+  color: var(--cg-fg-strong);
+  white-space: nowrap;
+}
+html[data-shell="chatgpt"] .inline-matches .card-save {
+  color: var(--cg-fg-faint);
+  border: 0; background: transparent;
+}
+html[data-shell="chatgpt"] .inline-matches .card-save:hover,
+html[data-shell="chatgpt"] .inline-matches .card-save.saved { color: var(--cg-accent); }
+/* Narrow screens: there is no room for a price column, and reserving one
+   truncates the title to nothing. Put the price back in the text flow. */
+@media (max-width: 640px) {
+  html[data-shell="chatgpt"] .inline-matches .meta { padding-right: 0; }
+  html[data-shell="chatgpt"] .inline-matches .price {
+    position: static; transform: none; margin-top: 4px;
+  }
+}
+html[data-shell="chatgpt"] .inline-matches .price-drop {
+  font-family: inherit; font-size: 12px;
+  border: 0; border-radius: 999px;
+  background: var(--cg-surface-2); color: var(--cg-fg-muted);
+  padding: 2px 8px;
+}
+
 /* The per-answer matches chip keeps its job (flip the panel back to what
    this turn found) but loses the sketchbook outline. */
 html[data-shell="chatgpt"] .matches-chip {

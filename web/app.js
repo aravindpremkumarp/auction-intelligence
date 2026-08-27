@@ -1522,6 +1522,29 @@ function _msgMatches(m) {
   return { rows: ext.rows, total: (ext.total != null) ? ext.total : ext.rows.length, tool: ext.tool };
 }
 
+// How many of a turn's matches the answer carries inline before it defers to
+// the full list. Four keeps the cards inside one screen of answer; past that
+// the panel's sorting and paging are the better tool.
+const INLINE_MATCHES_MAX = 4;
+
+// Inline matches — the ChatGPT shell renders a turn's properties inside the
+// answer instead of pushing them to a side panel, so the cards sit next to the
+// sentence that describes them. Returns '' everywhere else, which is what
+// keeps the public chat screen on the panel it has always used.
+//
+// Cards are built with the panel's own toCard/propCardHtml, so they stay
+// identical in content and stay wired by the same wireCardClicks() — the
+// difference is purely where they are mounted.
+function _inlineMatchesHtml(snap) {
+  if (!snap) return '';
+  if (document.documentElement.getAttribute('data-shell') !== 'chatgpt') return '';
+  const cards = (snap.rows || []).map(row => toCard(row)).filter(c => c.id);
+  if (!cards.length) return '';
+  return `<div class="inline-matches">` +
+    cards.slice(0, INLINE_MATCHES_MAX).map(c => propCardHtml(c, false, '', false)).join('') +
+    `</div>`;
+}
+
 // A synthetic select_properties artifact means the agent re-ranked the panel
 // to match its answer (see api/chat/panel.py). Those rows arrive pre-ordered,
 // so the panel must preserve that order rather than fall back to date/price.
@@ -1688,6 +1711,11 @@ function renderChat(history, logEl, opts) {
     }
   }
 
+  // Set when a turn rendered its matches inline (ChatGPT shell only), so the
+  // card wiring below runs for those and not on every render — this function
+  // re-runs once per animation frame while an answer streams.
+  let renderedInlineCards = false;
+
   logEl.innerHTML = history.map((m, i) => {
     // Streaming statuses ("Searching auctions…") ride in m.text; the CSS
     // ::after dots keep animating whatever the label says.
@@ -1718,7 +1746,12 @@ function renderChat(history, logEl, opts) {
       // panel back to what this answer found.
       const snap = !scope ? _msgMatches(m) : null;
       const snapTotal = snap ? snap.total : 0;
-      const matchesHtml = snap ? `
+      const inlineHtml = _inlineMatchesHtml(snap);
+      if (inlineHtml) renderedInlineCards = true;
+      // The chip exists to open the fuller list. Once every match is already
+      // inline there is no fuller list, so it would be a button to nowhere.
+      const chipRedundant = !!inlineHtml && snapTotal <= INLINE_MATCHES_MAX;
+      const matchesHtml = (snap && !chipRedundant) ? `
         <button class="matches-chip${i === activeSnapIdx ? ' active' : ''}" data-i="${i}" title="show this answer's matches in the panel" aria-label="show this answer's ${snapTotal} matches in the panel">
           <svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true"><rect x="2" y="2" width="12" height="12" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.5"/><line x1="6.5" y1="2.75" x2="6.5" y2="13.25" stroke="currentColor" stroke-width="1.5"/></svg>
           <span>${snapTotal.toLocaleString('en-IN')} match${snapTotal === 1 ? '' : 'es'}</span>
@@ -1745,6 +1778,7 @@ function renderChat(history, logEl, opts) {
         <div class="ai-meta">${matchesHtml}${timeHtml}</div>` : '';
       return `<div class="bubble-wrap ai">
         <div class="bubble ai md">${linkifyAnswerHtml(renderMarkdown(m.text), m)}</div>
+        ${inlineHtml}
         ${sourcesHtml}
         ${metaHtml}
         <div class="bubble-actions">
@@ -1766,6 +1800,9 @@ function renderChat(history, logEl, opts) {
     return `<div class="bubble ${m.role}">${escapeHtml(m.text)}</div>`;
   }).join('');
   logEl.scrollTop = logEl.scrollHeight;
+  // Inline match cards land in the transcript, not the panel, so they need the
+  // same click/save wiring the panel's cards get.
+  if (renderedInlineCards) wireCardClicks();
   logEl.querySelectorAll('.b-act').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();

@@ -128,6 +128,15 @@
       if (e.key === 'Escape') setDrawer(false);
     });
 
+    // A turn's cards are inline now, so the "N matches" chip only appears when
+    // there are more than fit. app.js already repoints the panel at that turn;
+    // the drawer has to be opened too, or the chip looks like it did nothing.
+    // Capture phase: app.js's own chip handler calls stopPropagation(), so a
+    // bubbling listener here would never fire.
+    log.addEventListener('click', function (e) {
+      if (e.target.closest('.matches-chip')) setDrawer(true);
+    }, true);
+
     // Mirror the count app.js writes into #results-count. Reading it beats
     // re-deriving the number here — one source of truth, and it cannot drift
     // when the matching logic changes.
