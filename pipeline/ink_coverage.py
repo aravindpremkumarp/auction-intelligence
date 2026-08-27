@@ -41,6 +41,25 @@ import io
 
 # Binarization threshold on the 0-255 grayscale — shared with region_detect.
 DARK_THRESHOLD = 160
+# Ruling lines are ink no block ever claims. Block bboxes hug their text, so a
+# bordered notice's grid — outer border, row separators, column rules — always
+# falls outside every box. Worse, the grid is CONNECTED: every rule touches
+# every other, so the largest-contiguous-patch test (the whole point of which is
+# that a dropped region is one solid mass) sees the table skeleton as one huge
+# unread patch and flags a notice whose every cell was read correctly.
+#
+# Measured over a sample of flagged notices: rule ink is 12-52% of all page ink
+# (median ~34%), and 5 of the 6 that flagged stopped flagging once it was
+# removed. So strip long runs before measuring — a rule is ink that runs
+# straight for a distance no glyph does.
+#
+# Long is not enough on its own: a filled title banner ("E-AUCTION SALE NOTICE"
+# reversed out of black) also runs the width of the page, and that is content.
+# A rule is long AND THIN, so anything thicker than RULE_MAX_THICK is kept.
+RULE_MIN_LEN_FRAC = 0.06    # of page width (horizontal) / height (vertical)
+RULE_MIN_LEN_PX = 24        # floor for small scans; still >> any glyph stroke
+RULE_MAX_THICK_FRAC = 0.008  # matches region_detect's filled-bar cutoff
+RULE_MAX_THICK_PX = 6
 # Tile edge in source pixels. 8px is about half an x-height at notice
 # resolution: fine enough to localize a missing column, coarse enough that one
 # stray descender outside a bbox doesn't register as unread content.
@@ -66,11 +85,77 @@ MISSING_REGION_MIN_RATIO = 0.12
 MIN_TOTAL_INK = 50.0
 
 
+def _shift(mask, dx: int, dy: int):
+    """``mask`` translated by (dx, dy), vacated edges filled black.
+
+    Pillow's ``ImageChops.offset`` wraps around, which would smear the right
+    edge onto the left and invent rules; pasting onto a black canvas does not.
+    """
+    from PIL import Image
+    out = Image.new("L", mask.size, 0)
+    out.paste(mask, (dx, dy))
+    return out
+
+
+def _long_runs(mask, length: int, *, horizontal: bool):
+    """Pixels belonging to a straight dark run of at least ``length`` px.
+
+    Erode along the axis (a pixel survives only if the whole run does), then
+    dilate back so the rule returns to its real thickness. Both use doubling
+    shifts, so it is O(log length) Pillow ops rather than a Python pixel loop —
+    ~15ms on a full-page notice.
+    """
+    from PIL import ImageChops
+    step, eroded = 1, mask
+    while step < length:
+        eroded = ImageChops.darker(
+            eroded, _shift(eroded, -step if horizontal else 0,
+                           0 if horizontal else -step))
+        step *= 2
+    step, out = 1, eroded
+    while step < length:
+        out = ImageChops.lighter(
+            out, _shift(out, step if horizontal else 0,
+                        0 if horizontal else step))
+        step *= 2
+    return out
+
+
+def _thin_rules(mask, length: int, thickness: int, *, horizontal: bool):
+    """Long runs along the axis, minus the parts thick across it.
+
+    The thickness pass is the same erode-dilate run the other way: whatever
+    survives it is a filled bar (a reversed-out title banner, a logo strip) and
+    is content, so it is put back.
+    """
+    from PIL import ImageChops
+    long_ = _long_runs(mask, length, horizontal=horizontal)
+    thick = _long_runs(long_, thickness + 1, horizontal=not horizontal)
+    return ImageChops.subtract(long_, thick)
+
+
+def _strip_rules(mask, w: int, h: int):
+    """``mask`` minus its horizontal and vertical ruling lines."""
+    from PIL import ImageChops
+    rules = ImageChops.lighter(
+        _thin_rules(mask,
+                    max(RULE_MIN_LEN_PX, int(w * RULE_MIN_LEN_FRAC)),
+                    max(RULE_MAX_THICK_PX, int(h * RULE_MAX_THICK_FRAC)),
+                    horizontal=True),
+        _thin_rules(mask,
+                    max(RULE_MIN_LEN_PX, int(h * RULE_MIN_LEN_FRAC)),
+                    max(RULE_MAX_THICK_PX, int(w * RULE_MAX_THICK_FRAC)),
+                    horizontal=False),
+    )
+    return ImageChops.subtract(mask, rules)
+
+
 def _tile_ink(image_bytes: bytes) -> tuple[list[float], int, int]:
     """Per-tile dark fraction in reading order, plus the tile grid dimensions.
 
-    One BOX resample of the dark mask gives exact per-tile means, so this stays
-    a single Pillow operation regardless of page size.
+    Ruling lines are removed first (see RULE_MIN_LEN_FRAC) so a bordered grid
+    doesn't read as unread content. One BOX resample of the remaining dark mask
+    gives exact per-tile means, so this stays cheap regardless of page size.
     """
     from PIL import Image
     with Image.open(io.BytesIO(image_bytes)) as im:
@@ -78,7 +163,8 @@ def _tile_ink(image_bytes: bytes) -> tuple[list[float], int, int]:
         w, h = g.width, g.height
         tw, th = max(1, w // TILE_PX), max(1, h // TILE_PX)
         # dark → 255 so the BOX mean IS the dark fraction (×255).
-        mask = g.point(lambda p: 255 if p < DARK_THRESHOLD else 0)
+        mask = _strip_rules(g.point(lambda p: 255 if p < DARK_THRESHOLD else 0),
+                            w, h)
         small = mask.resize((tw, th), Image.BOX)
         return [v / 255.0 for v in small.getdata()], tw, th
 

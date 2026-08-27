@@ -153,3 +153,60 @@ def test_health_unchanged_when_region_is_absent_or_clean():
     assert score_ocr_health(md, region=None)["flags"] == []
     assert score_ocr_health(md, region={"flag": False,
                                         "uncovered_ratio": 0.01})["flags"] == []
+
+
+def _ruled_page(cells: list[tuple[float, float, float, float]],
+                rules_h: list[float], rules_v: list[float], *,
+                thickness: int = 2) -> bytes:
+    """A page whose cells hold text and whose grid is drawn as thin rules."""
+    from PIL import Image, ImageDraw
+    img = Image.new("RGB", (W, H), "white")
+    d = ImageDraw.Draw(img)
+    for x0, y0, x1, y1 in cells:
+        d.rectangle([x0 * W, y0 * H, x1 * W, y1 * H], fill="black")
+    for y in rules_h:
+        d.rectangle([0, y * H, W - 1, y * H + thickness], fill="black")
+    for x in rules_v:
+        d.rectangle([x * W, 0, x * W + thickness, H - 1], fill="black")
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def test_table_rules_are_not_unread_content():
+    """The false positive this guards: block bboxes hug their text, so a fully
+    bordered notice's grid always falls outside every box — and because every
+    rule touches every other, the skeleton reads as ONE huge connected patch and
+    flags a notice whose cells were all read."""
+    page = _ruled_page(
+        cells=[(0.08, 0.12, 0.45, 0.38), (0.55, 0.12, 0.92, 0.38),
+               (0.08, 0.62, 0.45, 0.88), (0.55, 0.62, 0.92, 0.88)],
+        rules_h=[0.05, 0.5, 0.95], rules_v=[0.02, 0.5, 0.97],
+    )
+    blocks = [_block(0.07, 0.11, 0.46, 0.39), _block(0.54, 0.11, 0.93, 0.39),
+              _block(0.07, 0.61, 0.46, 0.89), _block(0.54, 0.61, 0.93, 0.89)]
+    r = score_ink_coverage(page, blocks)
+    assert r["flag"] is False
+    assert r["uncovered_ratio"] < MISSING_REGION_MIN_RATIO
+
+
+def test_a_missing_cell_still_flags_on_a_ruled_page():
+    """Stripping rules must not blind the detector: the same grid with one
+    column unread is still a real missing region."""
+    page = _ruled_page(
+        cells=[(0.08, 0.12, 0.45, 0.38), (0.55, 0.12, 0.92, 0.38),
+               (0.08, 0.62, 0.45, 0.88), (0.55, 0.62, 0.92, 0.88)],
+        rules_h=[0.05, 0.5, 0.95], rules_v=[0.02, 0.5, 0.97],
+    )
+    blocks = [_block(0.07, 0.11, 0.46, 0.39), _block(0.07, 0.61, 0.46, 0.89)]
+    r = score_ink_coverage(page, blocks)
+    assert r["flag"] is True
+    assert r["details"]["worst_column"]["where"] == "right"
+
+
+def test_a_filled_banner_is_content_not_a_rule():
+    """A reversed-out title banner also spans the page, but it is thick — it
+    must survive the rule strip, or an unread banner would go unflagged."""
+    page = _page([(0.0, 0.02, 1.0, 0.22)])          # solid full-width bar
+    r = score_ink_coverage(page, [_block(0.0, 0.5, 1.0, 0.9)])
+    assert r["flag"] is True
