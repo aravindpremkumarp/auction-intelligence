@@ -336,3 +336,54 @@ def test_guide_names_the_classes_that_get_this_wrong_and_the_way_out():
     guide = _guide_text()
     assert "auction_terms" in guide and "outstanding" in guide
     assert "attrs" in guide
+
+
+# ── the closed class set ────────────────────────────────────────────────────
+# 545 entities across 18 notices were emitted under classes that do not exist —
+# and every one of them was a key from LangExtract's own output envelope
+# (`extraction_text`, `extraction_class`, `extraction_type`, `entity`, `class`,
+# `entity_type`), plus one plain typo, `bororrower`. The model was describing
+# the wrapper instead of filling it. `liq-117768686886833.jpg` came back 210
+# junk entities out of 226. Nothing downstream reads those classes, so the facts
+# inside them are dropped in silence.
+
+def _declared_classes() -> list[str]:
+    """The class names the guide actually defines, read off its bullet list."""
+    head = _guide_text().split("CONVENTIONS:")[0]
+    found = re.findall(r"^- ([a-z_]+)\s+:", head, re.M)
+    assert found, "no `- class_name :` declarations found in the guide"
+    return found
+
+
+def test_the_closed_set_lists_every_class_the_guide_declares():
+    """The enumeration and the declarations must not drift apart. A class added
+    above but missing from the list reads to the model as not allowed; one
+    listed but never defined is a class with no meaning."""
+    conventions = _guide_text().split("CONVENTIONS:", 1)[1]
+    closed = conventions.split("- extraction_text MUST", 1)[0]
+    for cls in _declared_classes():
+        assert cls in closed, f"{cls} is declared but missing from the closed set"
+
+
+def test_the_closed_set_is_stated_as_closed():
+    guide = _guide_text()
+    assert "CLOSED" in guide
+    assert "extras" in guide, "the model needs somewhere to put an unlisted fact"
+
+
+def test_guide_forbids_the_output_envelope_keys_as_classes():
+    """Every junk class observed in production was one of these. Naming them is
+    the point — a generic 'do not invent classes' rule was already implied by
+    'EXACTLY these extraction classes' and did not stop it."""
+    guide = _guide_text()
+    for key in ("extraction_text", "extraction_class", "extraction_type",
+                "entity_type", "entity"):
+        assert key in guide, f"{key} is not named as a forbidden class"
+
+
+def test_guide_says_what_an_invented_class_costs():
+    """Without the consequence the rule is a style note. Unknown classes are
+    dropped whole, so the model has to know the fact dies with the label."""
+    guide = _guide_text().lower()
+    assert "discarded" in guide or "discard" in guide
+    assert "misspelling" in guide or "typo" in guide

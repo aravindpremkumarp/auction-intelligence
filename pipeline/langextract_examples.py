@@ -143,6 +143,17 @@ entities using EXACTLY these extraction classes (one span each, copied VERBATIM)
   terms-of-sale boilerplate; at most ~5 per notice.
 
 CONVENTIONS:
+- The fifteen classes above are the COMPLETE and CLOSED set: secured_creditor,
+  contact, borrower, property, full_description, location, identifier, extent,
+  boundary, schedule, auction_terms, outstanding, emd_account, full_terms,
+  extras. Spell each one EXACTLY as listed — a misspelling is an invented class.
+  In particular NEVER use one of the OUTPUT FORMAT's own key names as a class:
+  extraction_text, extraction_class, extraction_type, entity, entity_type and
+  class describe the envelope every entity is written in — they are not things
+  to extract. An entity emitted under any name outside the fifteen is DISCARDED
+  WHOLE, so a real fact filed under one is lost exactly as if you had never read
+  it. If a fact fits none of the fifteen, it goes in `extras` with a snake_case
+  `key` — never in a class of its own.
 - extraction_text MUST be copied verbatim from the document (for source
   grounding) AND must be ONE CONTIGUOUS run of characters — a single unbroken
   quote you could select with one drag. NEVER stitch it together from pieces
