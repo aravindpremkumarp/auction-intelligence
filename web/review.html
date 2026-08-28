@@ -440,6 +440,15 @@
   .resizer.b  { left: 50%;  bottom: -5px; transform: translateX(-50%); cursor: ns-resize; }
   .resizer.l  { left: -5px; top: 50%;     transform: translateY(-50%); cursor: ew-resize; }
   .resizer.r  { right: -5px; top: 50%;    transform: translateY(-50%); cursor: ew-resize; }
+  /* Locked (the default): geometry is read-only, so a stray drag on the page
+     can't nudge a box the reviewer only meant to click. Selecting, editing
+     text, drawing, cropping and re-extracting all still work — only move and
+     resize are off, and the handles come off with them so the box doesn't
+     advertise a drag that won't happen. */
+  .ann-overlay.locked .ann-block,
+  .ann-overlay.locked .ann-region { cursor: pointer; }
+  .ann-overlay.locked .ann-block .resizer,
+  .ann-overlay.locked .ann-region .resizer { display: none; }
   .ann-block .grid-row, .ann-block .grid-col { position: absolute; background: rgba(0,0,0,0.5); pointer-events: auto; }
   .ann-block .grid-row { left: 0; right: 0; height: 1px; cursor: row-resize; }
   .ann-block .grid-row::after { content: ''; position: absolute; inset: -4px 0; }
@@ -893,6 +902,7 @@
         <button id="ann-rotate-left" class="ghost zoom-btn" title="rotate 90° counter-clockwise">↺</button>
         <button id="ann-rotate-right" class="ghost zoom-btn" title="rotate 90° clockwise">↻</button>
       </span>
+      <button id="ann-lock" class="ghost" title="lock block + region geometry (L) — while locked a drag on the page can't move or resize a box; clicking to select, editing text, drawing, cropping and re-extracting all still work">🔒 Locked</button>
       <button id="ann-toggle-boxes" class="ghost" title="show / hide block bounding boxes (regions stay visible)">Hide boxes</button>
       <button id="ann-toggle-regions" class="ghost" title="show / hide the R1/R2/… crop regions — hide them to click and adjust blocks sitting underneath a region">Hide regions</button>
       <span class="zoom-group" title="wheel to zoom · middle-click or alt+drag to pan">
@@ -3689,6 +3699,13 @@
           (((e.key === 'z' || e.key === 'Z') && e.shiftKey) || e.key === 'y' || e.key === 'Y')) {
         e.preventDefault(); annRedo(); return;
       }
+      if ((e.key === 'l' || e.key === 'L') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        setAnnLocked(!ann.locked);
+        annToast(ann.locked ? '🔒 boxes locked' : '🔓 boxes unlocked — drag to move / resize',
+                 ann.locked ? '' : 'warn');
+        return;
+      }
     }
 
     // Detail-screen shortcuts (unchanged)
@@ -3745,6 +3762,11 @@
     selectedRegion: null,  // index into crop_regions of the region being edited (move/resize), or null
     boxesHidden: false,    // hide block boxes only (regions unaffected)
     regionsHidden: false,  // hide crop regions only — lets blocks under a region be clicked
+    // Geometry lock. ON by default: a reviewer reads far more boxes than they
+    // move, and a click that slips a few pixels used to silently rewrite a
+    // bbox on the server. Unlock explicitly (button or L) to move/resize.
+    // Persisted per browser so the choice survives notices and reloads.
+    locked: true,
     rotation: 0,       // degrees CW the source should be displayed at; 0|90|180|270
     dragSession: null,
     hintsDismissed: new Set(),  // block ids the reviewer has × dismissed this session
@@ -4208,6 +4230,52 @@
       // disappears is harder to find than one that is always in the same spot.
       rBtn.disabled = !ann.crop_regions.length;
     }
+    applyAnnLockState();
+  }
+
+  // The lock lives in `ann` (and localStorage), never on the DOM node — the
+  // overlay is rebuilt on every paint, same as the visibility toggles above.
+  function applyAnnLockState() {
+    const wrap = $('ann-page-wrap-inner');
+    const overlay = wrap && wrap.querySelector('.ann-overlay');
+    if (overlay) overlay.classList.toggle('locked', !!ann.locked);
+    const btn = $('ann-lock');
+    if (btn) {
+      btn.textContent = ann.locked ? '🔒 Locked' : '🔓 Unlocked';
+      btn.classList.toggle('mode-on', !ann.locked);
+    }
+  }
+
+  function setAnnLocked(next) {
+    ann.locked = !!next;
+    try { localStorage.setItem('ann-geometry-locked', ann.locked ? '1' : '0'); } catch {}
+    // The button label is updated directly — paintAnnOverlay bails out when no
+    // notice is loaded yet, and the toolbar must still reflect the change.
+    applyAnnLockState();
+    // Repaint too: unlocking has to grow the resize handles on whatever is
+    // already selected.
+    paintAnnOverlay();
+  }
+
+  // A locked press still selects, so complaining on every click would be
+  // noise. Only speak up when the reviewer actually tried to *drag*.
+  let lastLockToastAt = 0;
+  function warnLockedDrag(ev) {
+    const x0 = ev.clientX, y0 = ev.clientY;
+    const stop = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', stop);
+    };
+    const onMove = (e) => {
+      if (Math.abs(e.clientX - x0) < 4 && Math.abs(e.clientY - y0) < 4) return;
+      stop();
+      const now = Date.now();
+      if (now - lastLockToastAt < 5000) return;
+      lastLockToastAt = now;
+      annToast('locked — press L (or click 🔒 Locked) to move or resize', 'warn');
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', stop);
   }
 
   // Visually clip the displayed page down to the saved crop region. We size
@@ -4825,6 +4893,10 @@
         return deleteRegion(ri);
       }
       selectRegion(ri);
+      if (ann.locked) {
+        ev.preventDefault();
+        return warnLockedDrag(ev);
+      }
       if (target.classList.contains('resizer')) {
         ev.preventDefault();
         return startRegionResize(ev, ri, target.dataset.handle);
@@ -4844,13 +4916,20 @@
       return selectBlock(id, { additive: true });
     }
     selectBlock(id);
-    if (target.classList.contains('resizer')) {
-      ev.preventDefault();
-      return startResize(ev, id, target.dataset.handle);
-    }
+    // Table guide lines stay draggable while locked: they are part of the
+    // explicit table-hints flow (open hints → drag lines → re-extract) and
+    // they change the hint, not the block's geometry.
     if (target.classList.contains('grid-row') || target.classList.contains('grid-col')) {
       ev.preventDefault();
       return startGuideDrag(ev, id, target.dataset.guide, parseInt(target.dataset.idx, 10));
+    }
+    if (ann.locked) {
+      ev.preventDefault();
+      return warnLockedDrag(ev);
+    }
+    if (target.classList.contains('resizer')) {
+      ev.preventDefault();
+      return startResize(ev, id, target.dataset.handle);
     }
     ev.preventDefault();
     return startMove(ev, id);
@@ -6019,6 +6098,16 @@
     // Some browsers fire auxclick for middle button; suppress it during pan.
     stage.addEventListener('auxclick', (ev) => { if (ev.button === 1) ev.preventDefault(); });
   })();
+
+  // Geometry lock. Defaults to locked; only an explicit "0" unlocks, so a
+  // browser with no stored preference (or with storage blocked) starts safe.
+  (function initAnnLock() {
+    let saved = null;
+    try { saved = localStorage.getItem('ann-geometry-locked'); } catch {}
+    ann.locked = saved !== '0';
+    applyAnnLockState();
+  })();
+  $('ann-lock').addEventListener('click', () => setAnnLocked(!ann.locked));
 
   $('ann-toggle-boxes').addEventListener('click', () => {
     ann.boxesHidden = !ann.boxesHidden;
