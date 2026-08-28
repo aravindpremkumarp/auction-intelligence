@@ -240,13 +240,27 @@ def test_normalize_identifier_kind_roundtrip():
 # same no-import discipline as the rest of this file.
 
 
-def _prompt_description_for():
+# prompt_description_for now composes the portal-roster block, so its helpers
+# have to come along or the exec'd copy hits a NameError.
+_PROMPT_FNS = ("_roster_row", "portal_roster_block", "prompt_description_for")
+
+
+def _prompt_ns():
     tree = ast.parse(_SRC.read_text(encoding="utf-8"))
-    fn = next(n for n in tree.body
-              if isinstance(n, ast.FunctionDef) and n.name == "prompt_description_for")
+    wanted = [n for n in tree.body
+              if isinstance(n, ast.FunctionDef) and n.name in _PROMPT_FNS]
+    assert len(wanted) == len(_PROMPT_FNS), "prompt helper renamed or removed"
+    # MAX_ROSTER_ROWS is a module-level constant the block reads.
+    consts = [n for n in tree.body
+              if isinstance(n, ast.Assign)
+              and any(getattr(t, "id", None) == "MAX_ROSTER_ROWS" for t in n.targets)]
     ns = {"PROMPT_DESCRIPTION": "BASE_PROMPT"}
-    exec(compile(ast.Module(body=[fn], type_ignores=[]), "<ast>", "exec"), ns)
-    return ns["prompt_description_for"]
+    exec(compile(ast.Module(body=consts + wanted, type_ignores=[]), "<ast>", "exec"), ns)
+    return ns
+
+
+def _prompt_description_for():
+    return _prompt_ns()["prompt_description_for"]
 
 
 def test_lot_count_none_leaves_prompt_unchanged():
@@ -275,3 +289,22 @@ def test_extract_signature_accepts_expected_lot_count():
     fn = next(n for n in tree.body
               if isinstance(n, ast.FunctionDef) and n.name == "extract")
     assert "expected_lot_count" in [a.arg for a in fn.args.args]
+
+
+def test_roster_block_is_appended_and_marked_reference_only():
+    """The portal roster rides along with the lot-count hint, and must always
+    carry its two guardrails: don't copy values, don't read it as lot order."""
+    ns = _prompt_ns()
+    out = ns["prompt_description_for"](2, [{"reserve": 100, "village": "X"},
+                                           {"reserve": 200, "village": "Y"}])
+    assert out.startswith("BASE_PROMPT")
+    assert "EXACTLY 2" in out
+    assert "PORTAL LISTINGS" in out
+    assert "NEVER copy a value" in out
+    assert "no particular order" in out
+
+
+def test_no_roster_leaves_the_prompt_exactly_as_before():
+    ns = _prompt_ns()
+    assert ns["prompt_description_for"](None, None) == "BASE_PROMPT"
+    assert ns["prompt_description_for"](3, []) == ns["prompt_description_for"](3)

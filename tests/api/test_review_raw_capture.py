@@ -42,7 +42,13 @@ def test_save_doc_never_writes_raw(monkeypatch):
         return [{"rev": 2}]
 
     monkeypatch.setattr(B, "run_query", _capture)
-    B._save_doc("n.jpg", {"schema_version": 1, "blocks": []}, 0)
+    # A non-empty block list: _save_doc refuses to persist an empty one (it
+    # would blank the markdown too — see test_review_empty_blocks_guard.py).
+    # This test is about which fields the cypher touches, so any block does.
+    B._save_doc("n.jpg", {"schema_version": 1, "blocks": [
+        {"id": "blk_a", "page": 1, "bbox": [0.1, 0.1, 0.5, 0.5],
+         "label": "Text", "text": "hi", "reading_order": 1},
+    ]}, 0)
     assert "markdown_raw" not in captured["cypher"]
     assert "blocks_raw" not in captured["cypher"]
 

@@ -76,6 +76,18 @@ class BlocksNotFound(RuntimeError):
     """Raised when the Document or the block id doesn't exist."""
 
 
+class BlocksWouldEmptyDoc(ValueError):
+    """Raised when an edit would leave a Document with no blocks at all.
+
+    ``_save_doc`` rebuilds ``d.markdown`` from the block list, so persisting an
+    empty one blanks the notice's text as well — the reviewer loses the parse
+    and the document reads as never-OCR'd ("backfill required"). No edit is
+    worth that, and a reviewer who wants a block gone can delete every block
+    but the last. Subclasses ``ValueError`` so the router's existing handler
+    maps it to HTTP 400 with this message.
+    """
+
+
 class BlocksUpstreamError(RuntimeError):
     """Raised when the OCR/extraction upstream (MinerU or network) fails.
 
@@ -461,6 +473,10 @@ def _save_doc(filename: str, doc: dict, expected_rev: int) -> int:
     Raises :class:`BlocksConflict` when the revision moved under our feet,
     so the caller can re-read and re-apply.
     """
+    if not doc.get("blocks"):
+        raise BlocksWouldEmptyDoc(
+            f"refusing to save {filename} with no blocks: the markdown is "
+            f"rebuilt from the block list, so this would also erase the text")
     blocks_json = json.dumps(doc, ensure_ascii=False)
     new_md = assemble_markdown(doc.get("blocks") or [])
     rows = run_query(
@@ -1145,12 +1161,19 @@ def _reingest_multi_region(*, filename: str, fp: str, src_filename: str,
                 if blocks_raw is None:
                     raise RuntimeError(
                         f"region {i + 1} returned no content-list JSON")
+                region_blocks = parse_mineru_content_list(
+                    blocks_raw, img_map=merged_img_map)
+                # Same rule the Datalab branch above applies: a region that
+                # parses to nothing is a failed region. Letting it through
+                # merges to an empty document and persists that over the real
+                # block layer, while the region's markdown still lands.
+                if not region_blocks:
+                    raise RuntimeError(
+                        f"MinerU returned no parseable blocks for crop region "
+                        f"{i + 1}/{len(regions)}")
                 region_mds.append((md_text or "").strip())
                 raw_lists.append(blocks_raw)
-                per_region.append(
-                    (region,
-                     parse_mineru_content_list(blocks_raw,
-                                               img_map=merged_img_map)))
+                per_region.append((region, region_blocks))
     finally:
         for p in crop_tmps:
             try:
@@ -1537,7 +1560,20 @@ def reingest_notice(filename: str, by_email: str,
     from pipeline.load_markdowns_to_neo4j import load_blocks_for, read_parse_quality
     from pipeline.mineru import read_mineru_meta
     archive_meta = {} if engine == "datalab" else read_mineru_meta(fp)
-    blocks = load_blocks_for(fp, img_map=archive_meta.get("img_map") or {}) or []
+    # A run whose content-list is missing or yields nothing is a FAILED run,
+    # not a document that legitimately has no blocks. load_blocks_for returns
+    # None there, and coercing that to [] used to persist an empty layer over
+    # the real one — invisibly, because markdown and blocks_raw are read from
+    # different files and both survive, so the result looks like a successful
+    # re-ingest with a document that simply has no blocks. Fail instead: the
+    # caller logs it, blocks_revision never advances (which is exactly how the
+    # frontend detects failure), and the reviewer can press Re-ingest again.
+    # This mirrors the guard the Datalab multi-region branch already has.
+    blocks = load_blocks_for(fp, img_map=archive_meta.get("img_map") or {})
+    if not blocks:
+        raise BlocksUpstreamError(
+            f"{engine} re-ingest produced no parseable blocks for {filename}; "
+            f"keeping the existing block layer")
 
     # The page the user was viewing when they set rotation/crop. Whenever
     # we flattened the source to a single-page PNG (via either step) the
