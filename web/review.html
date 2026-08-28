@@ -48,6 +48,22 @@
      complaint is total space above the first row of work. */
   h1 { margin-bottom: 6px; }
   .wrap > .actions:not(.filters) { margin-bottom: 8px; }
+  /* Sticky page head. Title, global nav and the queue's filter rows are all
+     controls the reviewer reaches for mid-scroll, so they stay pinned instead
+     of scrolling away — same idea as the annotator's always-visible toolbar.
+     Title and nav share one row; the negative margins let the head's paper
+     background cover the body padding so rows don't peek out above it.
+     --topbar-h / --head-h are measured in syncStickyHeads() because the rows
+     wrap at narrow widths and nothing else can know their height. */
+  .topbar { position: sticky; top: 0; z-index: 60; background: var(--paper);
+            margin: -18px -18px 0; padding: 12px 18px 4px;
+            display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+  .topbar h1 { font-size: 26px; margin: 0; flex: none; }
+  .topbar > .actions { margin: 0; flex: 1 1 320px; }
+  #queue-filters { position: sticky; top: var(--topbar-h, 0px); z-index: 50;
+                   background: var(--paper); padding: 2px 0 4px;
+                   border-bottom: 1.5px solid var(--ink); margin-bottom: 8px; }
+  #queue-filters .actions.filters:last-child { margin-bottom: 0; }
   #msg:empty { display: none; }
   /* Pipeline overview. A funnel is a comparison, so every bar shares one
      baseline (the widest stage) and carries its own count — no colour coding
@@ -291,7 +307,8 @@
   .gallery-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 14px; align-items: start; }
   @media (max-width: 1100px) { .gallery-grid { grid-template-columns: 1fr; } }
   .gallery-left { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; align-content: start; }
-  .gallery-right { position: sticky; top: 12px; border: 2px solid var(--ink); background: #fff; box-shadow: 2px 3px 0 rgba(0,0,0,0.9); display: flex; flex-direction: column; max-height: calc(100vh - 24px); overflow: hidden; }
+  /* Preview pane sticks below the sticky head, not under it. */
+  .gallery-right { position: sticky; top: calc(var(--head-h, 0px) + 8px); border: 2px solid var(--ink); background: #fff; box-shadow: 2px 3px 0 rgba(0,0,0,0.9); display: flex; flex-direction: column; max-height: calc(100vh - var(--head-h, 0px) - 20px); overflow: hidden; }
   .gallery-right .gr-header { padding: 10px 12px; border-bottom: 2px solid var(--ink); background: var(--paper); flex-shrink: 0; }
   .gallery-right .gr-title { font-family: 'IBM Plex Mono', monospace; font-size: 13px; font-weight: 600; word-break: break-all; margin-bottom: 6px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
   .gallery-right .gr-title .gr-fname { flex: 1; min-width: 0; }
@@ -339,7 +356,7 @@
      scrolls and the iframe gets every pixel below the toolbar. */
   #screen-extraction iframe { width: 100%; height: 78vh; min-height: 480px; display: block; border: 2px solid var(--ink); box-shadow: 2px 3px 0 rgba(0,0,0,0.9); background: #fff; box-sizing: border-box; }
   body.extraction-active { padding-top: 8px; padding-bottom: 8px; }
-  body.extraction-active .wrap > h1,
+  body.extraction-active .wrap > .topbar,
   body.extraction-active .wrap > .actions { display: none; }
   body.extraction-active .wrap > #msg:empty { display: none; }
   body.extraction-active .ann-toolbar { gap: 6px; margin-bottom: 6px; }
@@ -356,7 +373,7 @@
      them here only — "← Back to queue" in the toolbar is the way out — and
      tighten the toolbar so it wraps to fewer rows. */
   body.annotator-active { padding-top: 8px; padding-bottom: 8px; }
-  body.annotator-active .wrap > h1,
+  body.annotator-active .wrap > .topbar,
   body.annotator-active .wrap > .actions { display: none; }
   body.annotator-active .wrap > #msg:empty { display: none; }
   body.annotator-active .ann-toolbar { gap: 6px; margin-bottom: 6px; }
@@ -531,14 +548,16 @@
 </head>
 <body>
 <div class="wrap">
-  <h1><em>Review</em> · enrichment</h1>
-  <div class="actions">
-    <a class="link" href="/">← Back to app</a>
-    <a class="link" href="#overview" id="overview-link">Pipeline</a>
-    <a class="link" href="/admin">Admin</a>
-    <a class="link" href="/social">Social</a>
-    <span style="flex:1"></span>
-    <span class="stats" id="stats"></span>
+  <div class="topbar" id="topbar">
+    <h1><em>Review</em> · enrichment</h1>
+    <div class="actions">
+      <a class="link" href="/">← Back to app</a>
+      <a class="link" href="#overview" id="overview-link">Pipeline</a>
+      <a class="link" href="/admin">Admin</a>
+      <a class="link" href="/social">Social</a>
+      <span style="flex:1"></span>
+      <span class="stats" id="stats"></span>
+    </div>
   </div>
   <div id="msg"></div>
 
@@ -595,7 +614,9 @@
          what narrows it. Each control keeps its own id so the per-stage
          show-hide logic in syncStatusButtons() works on the group, not the row
          — that is what lets six rows collapse into three without any stage
-         showing a filter it doesn't have. -->
+         showing a filter it doesn't have. The three rows share one wrapper so
+         they pin below the masthead as a single block while the cards scroll. -->
+    <div id="queue-filters">
     <div class="actions filters">
       <span class="flabel">Stage:</span>
       <span class="group-toggle" id="stage-tabs">
@@ -704,6 +725,7 @@
         </span>
         <button id="flag-clear" class="ghost" title="show all notices again">clear</button>
       </span>
+    </div>
     </div>
     <div id="queue-by-classification" class="notice-list"></div>
     <div id="queue-by-classification-gallery" class="gallery-grid hidden"></div>
@@ -1073,7 +1095,23 @@
     $('screen-extraction').classList.toggle('hidden', screen !== 'extraction');
     document.body.classList.toggle('annotator-active', screen === 'annotator');
     document.body.classList.toggle('extraction-active', screen === 'extraction');
+    syncStickyHeads();
   }
+
+  // Measure the pinned chrome so the pieces below it know where it ends:
+  // the filter block sticks under the masthead (--topbar-h) and the gallery
+  // preview pane sticks under both (--head-h). Both rows wrap at narrow
+  // widths, and the filter block changes height per stage, so the heights are
+  // read from the DOM rather than hard-coded. Hidden screens measure 0.
+  function syncStickyHeads() {
+    const px = (el) => (el && el.offsetParent !== null) ? el.offsetHeight : 0;
+    const topH = px($('topbar'));
+    const headH = topH + px($('queue-filters'));
+    const root = document.documentElement;
+    root.style.setProperty('--topbar-h', topH + 'px');
+    root.style.setProperty('--head-h', headH + 'px');
+  }
+  window.addEventListener('resize', syncStickyHeads);
 
   async function route() {
     const r = parseHash();
@@ -6813,6 +6851,16 @@
   }
 
   // Boot
+  // Re-measure the pinned chrome whenever it reflows — the stats badges land
+  // after a fetch, and each stage shows a different set of filter chips.
+  if (window.ResizeObserver) {
+    const headObserver = new ResizeObserver(() => syncStickyHeads());
+    for (const id of ['topbar', 'queue-filters']) {
+      const el = $(id);
+      if (el) headObserver.observe(el);
+    }
+  }
+  syncStickyHeads();
   route();
 </script>
 </body>
