@@ -47,6 +47,28 @@ _FAILED_STATES = {"failed", "error"}
 _RETRY_STATUSES = {429, 500, 502, 503, 504}
 _MAX_SUBMIT_RETRIES = 6
 
+# Marker EXCLUDES page headers and footers from its output by default: the
+# block still comes back in the JSON tree, with its bbox and an EMPTY ``html``.
+# On these notices that silently drops the letterhead (bank name, CIN, regd.
+# office, contact) and the sign-off (authorised officer, place, date) — real
+# notice content, not running heads, because a one-page clipping's "page
+# header" IS the letterhead.
+#
+# Worse, it costs health twice over: the text is gone from the markdown, and
+# because the empty block covers no ink, ``pipeline/ink_coverage.py`` counts
+# the whole band as unread and the doc picks up ``missing-region`` (-45).
+# Measured on 08227169-…jpg: unread ink 15.9% -> 1.3%, health 55 -> 100 with
+# these on, and the 5 empty Header + 2 empty Footer blocks come back carrying
+# their text.
+#
+# The keys ONLY take effect inside ``additional_config`` (a JSON string) —
+# passed as top-level form fields the API accepts the request and ignores
+# them, which reads exactly like the feature not existing.
+DEFAULT_ADDITIONAL_CONFIG = {
+    "keep_pageheader_in_output": True,
+    "keep_pagefooter_in_output": True,
+}
+
 
 class DatalabError(RuntimeError):
     """Raised when a Datalab API call fails or returns an unexpected payload."""
@@ -83,9 +105,18 @@ def submit(disk_path: str | Path, *, output_format: str = "json",
     ``output_format`` is ``json`` (block tree with bboxes), ``markdown``,
     ``html`` or ``chunks``. ``extra`` passes any additional multipart fields
     verbatim (``max_pages``, ``page_range``, ``disable_image_extraction`` …).
+
+    Every submit carries :data:`DEFAULT_ADDITIONAL_CONFIG` so page headers and
+    footers keep their text (see that constant). A caller that passes its own
+    ``additional_config`` in ``extra`` REPLACES it wholesale — merge the
+    defaults in yourself if you still want them.
     """
     path = Path(disk_path)
-    data: dict[str, str] = {"output_format": output_format, "mode": mode}
+    data: dict[str, str] = {
+        "output_format": output_format,
+        "mode": mode,
+        "additional_config": json.dumps(DEFAULT_ADDITIONAL_CONFIG),
+    }
     if extra:
         data.update({k: str(v) for k, v in extra.items()})
     last_status: int | None = None
