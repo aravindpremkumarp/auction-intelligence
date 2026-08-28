@@ -1,0 +1,227 @@
+{
+  "737508": {
+    "expected_lot_count": 1,
+    "filename": "c-1rrr1775043377378.jpg",
+    "roster": [
+      {
+        "aid": "737508",
+        "area": "252 Sqmeters",
+        "district": null,
+        "emd": 1340000.0,
+        "ptype": "house",
+        "reserve": 13400000.0,
+        "village": "Sathyamangala"
+      }
+    ]
+  },
+  "747290": {
+    "expected_lot_count": 1,
+    "filename": "omkara17763301145960.jpg",
+    "roster": [
+      {
+        "aid": "747290",
+        "area": null,
+        "district": "Chennai",
+        "emd": 330000.0,
+        "ptype": "flat",
+        "reserve": 3300000.0,
+        "village": "Puliyur"
+      }
+    ]
+  },
+  "749433": {
+    "expected_lot_count": 2,
+    "filename": "CANR-2-1776667965182.jpg",
+    "roster": [
+      {
+        "aid": "749433",
+        "area": "1800 sq.ft",
+        "district": "Tirupathur",
+        "emd": 1320400.0,
+        "ptype": "house",
+        "reserve": 13204000.0,
+        "village": "Panchal"
+      },
+      {
+        "aid": "749431",
+        "area": "1255 ¼ sq.ft",
+        "district": "Vellore",
+        "emd": 125000.0,
+        "ptype": "house",
+        "reserve": 1250000.0,
+        "village": "Periyankuppam"
+      }
+    ]
+  },
+  "750348": {
+    "expected_lot_count": 5,
+    "filename": "CB17767669373793.jpg",
+    "roster": [
+      {
+        "aid": "750348",
+        "area": null,
+        "district": "Chennai",
+        "emd": 512960.0,
+        "ptype": "flat",
+        "reserve": 5129600.0,
+        "village": "Saidapet"
+      },
+      {
+        "aid": "750349",
+        "area": "0.75 Acres",
+        "district": null,
+        "emd": 1344000.0,
+        "ptype": "industrial",
+        "reserve": 13440000.0,
+        "village": "Narasingapuram"
+      },
+      {
+        "aid": "750336",
+        "area": null,
+        "district": "Chengalpattu",
+        "emd": 281760.0,
+        "ptype": "flat",
+        "reserve": 2817600.0,
+        "village": "Ninnaikarai"
+      },
+      {
+        "aid": "750337",
+        "area": null,
+        "district": "Thiruvellu",
+        "emd": 263500.0,
+        "ptype": "flat",
+        "reserve": 2635000.0,
+        "village": "Ayappakkam"
+      },
+      {
+        "aid": "750335",
+        "area": null,
+        "district": "Kancheepuram",
+        "emd": 237500.0,
+        "ptype": "flat",
+        "reserve": 2375000.0,
+        "village": "Varadharajapuram"
+      },
+      {
+        "aid": "750334",
+        "area": null,
+        "district": "Kancheepuram",
+        "emd": 351500.0,
+        "ptype": "flat",
+        "reserve": 3515000.0,
+        "village": "Varadharajapuram"
+      }
+    ]
+  },
+  "750600": {
+    "expected_lot_count": 1,
+    "filename": "drt17767883718903.jpg",
+    "roster": [
+      {
+        "aid": "750600",
+        "area": "2.35 Acres",
+        "district": "Kancheepuram",
+        "emd": 2000000.0,
+        "ptype": "land",
+        "reserve": 20000000.0,
+        "village": "Nynarkuppam"
+      }
+    ]
+  },
+  "752245": {
+    "expected_lot_count": 1,
+    "filename": "ARCL17770212396202.jpg",
+    "roster": [
+      {
+        "aid": "752245",
+        "area": "7302 sq.ft (16 Cents and 332 sq.ft)",
+        "district": "Coimbatore",
+        "emd": 288900.0,
+        "ptype": "flat",
+        "reserve": 2889000.0,
+        "village": "KALAPATTY"
+      }
+    ]
+  },
+  "753006": {
+    "expected_lot_count": 5,
+    "filename": "6e112e13-9206-4793-8220-21c3c11b89d617771046975265.jpg",
+    "roster": [
+      {
+        "aid": "753004",
+        "area": null,
+        "district": "Kancheepuram",
+        "emd": 700000.0,
+        "ptype": "flat",
+        "reserve": 7000000.0,
+        "village": "Kolathuvanchery"
+      },
+      {
+        "aid": "753005",
+        "area": "3200 sq.ft",
+        "district": "Kancheepuram",
+        "emd": 380000.0,
+        "ptype": "land",
+        "reserve": 3800000.0,
+        "village": "Melakuppam"
+      },
+      {
+        "aid": "753009",
+        "area": null,
+        "district": null,
+        "emd": 310000.0,
+        "ptype": "flat",
+        "reserve": 3100000.0,
+        "village": "Paruthipattu"
+      },
+      {
+        "aid": "753006",
+        "area": null,
+        "district": "Thiruvallur",
+        "emd": 350000.0,
+        "ptype": "flat",
+        "reserve": 3500000.0,
+        "village": "Surapet"
+      },
+      {
+        "aid": "753011",
+        "area": null,
+        "district": null,
+        "emd": 310000.0,
+        "ptype": "flat",
+        "reserve": 3100000.0,
+        "village": "Paruthipattu"
+      }
+    ]
+  },
+  "755527": {
+    "expected_lot_count": 2,
+    "filename": "dcb-2rrrrr17774473711776.jpg",
+    "roster": [
+      {
+        "aid": "755527",
+        "area": "2433 Sq.ft (226.00 sq.m)",
+        "district": "Madurai",
+        "emd": 1200000.0,
+        "ptype": "house",
+        "reserve": 12000000.0,
+        "village": "Anaiyur II"
+      }
+    ]
+  },
+  "758158": {
+    "expected_lot_count": 1,
+    "filename": "b08c786e-96d7-4ceb-af40-3548fb1a213917779021825937.jpg",
+    "roster": [
+      {
+        "aid": "758158",
+        "area": null,
+        "district": "Thiruvallur",
+        "emd": 751000.0,
+        "ptype": "flat",
+        "reserve": 7510000.0,
+        "village": "Nerkundram"
+      }
+    ]
+  }
+}

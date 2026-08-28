@@ -11,6 +11,9 @@ the only thing that varies is how the extraction is orchestrated:
                  notice-level call. See evals/contextgem_pipeline.py.
 
 Neither engine is told the gold lot count: finding it is the thing being measured.
+(So this eval deliberately does NOT pass expected_lot_count / roster, unlike
+langextract_eval and eval_prf which mirror the production prompt. Feeding the
+count here would hand LangExtract the answer to the question being asked.)
 (Production CAN inject a reviewer-confirmed count via expected_lot_count; handing it
 over would erase the metric, so this run leaves it None for both.)
 

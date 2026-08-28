@@ -18,7 +18,8 @@ import os
 import sys
 from pathlib import Path
 
-from evals.langextract_eval import (FIX, load_gold, score_records, _records)
+from evals.langextract_eval import (FIX, load_gold, load_notice_context,
+                                    score_records, _records)
 from evals import prf_score
 
 CACHE = Path(__file__).resolve().parent / ".prf_cache.json"
@@ -33,15 +34,21 @@ def _extract_all(gold) -> dict[str, list[dict]]:
     from pipeline import langextract_examples as LX
     from pipeline.extract_routing import select_extract_model
     LR.install_usage_tracking()
+    # Same per-notice context production sends (lot count + portal roster);
+    # without it the eval scores a prompt the pipeline never runs.
+    ctx = load_notice_context()
     out: dict[str, list[dict]] = {}
     for g in gold:
         md = (FIX / f"{g['aid']}.txt").read_text(encoding="utf-8")
         # Route on the gold notice_type.
         model_id, reasoning_off = select_extract_model(g.get("notice_type"))
+        c = ctx.get(g["aid"]) or {}
         LR.USAGE.docs += 1
         res = None
         for _ in range(3):                      # retry transient empty response
-            res = LX.extract(md, model_id=model_id, reasoning_off=reasoning_off)
+            res = LX.extract(md, model_id=model_id, reasoning_off=reasoning_off,
+                             expected_lot_count=c.get("expected_lot_count"),
+                             roster=c.get("roster"))
             if res.extractions:
                 break
         out[g["aid"]] = _records(res)

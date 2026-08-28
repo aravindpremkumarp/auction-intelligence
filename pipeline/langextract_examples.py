@@ -239,14 +239,92 @@ catalogue's nested paths onto entity attrs like this:
 PROMPT_DESCRIPTION = _LANGEXTRACT_GUIDE + load_canonical_scheme()
 
 
-def prompt_description_for(expected_lot_count: int | None) -> str:
+# A roster longer than this stops being a scaffold and starts crowding out the
+# notice itself; the tail is summarised instead of listed.
+MAX_ROSTER_ROWS = 40
+
+
+def _roster_row(row: dict) -> str | None:
+    """One portal listing as a single compact line, or None when it carries
+    nothing worth showing."""
+    reserve, emd = row.get("reserve"), row.get("emd")
+    where = " ".join(str(v).strip() for v in (row.get("village"),
+                                              row.get("district")) if v)
+    parts: list[str] = []
+    if reserve is not None:
+        parts.append(f"reserve {int(reserve)}")
+    if emd is not None:
+        parts.append(f"emd {int(emd)}")
+    if where:
+        parts.append(where)
+    for key in ("area", "ptype"):
+        if row.get(key):
+            parts.append(str(row[key]).strip())
+    return " | ".join(parts) if parts else None
+
+
+def portal_roster_block(roster: list[dict] | None) -> str:
+    """Render this notice's portal listings as reference context.
+
+    The auction portal carries its own structured row per lot — reserve price,
+    EMD, village, area, property type — scraped independently of the notice
+    image. ``pipeline.apply_extractions`` already matches extracted lots back
+    onto these rows using exactly those fields; showing them BEFORE extraction
+    turns that after-the-fact reconciliation into a segmentation scaffold, so
+    the model matches lots it can see against lots known to exist instead of
+    guessing where one lot ends and the next begins.
+
+    Two things this block must never become:
+
+    * **A source of values.** Every emitted value has to be a verbatim span of
+      the notice — LangExtract grounds each extraction to a character interval,
+      so a value copied from here has no honest span and corrupts the grounding
+      the whole schema rests on.
+    * **A lot ordering.** The portal's row order is not the notice's lot order,
+      so it cannot be used to assign ``lot_index``.
+
+    Both are stated to the model in the text below. Returns "" when there is
+    nothing usable, leaving the prompt byte-identical to before.
+    """
+    lines = [ln for ln in (_roster_row(r) for r in (roster or [])) if ln]
+    if not lines:
+        return ""
+    shown, hidden = lines[:MAX_ROSTER_ROWS], max(0, len(lines) - MAX_ROSTER_ROWS)
+    body = "\n".join(f"  - {ln}" for ln in shown)
+    if hidden:
+        body += f"\n  - (+{hidden} further listings not shown)"
+    return (
+        "\n\n=== PORTAL LISTINGS FOR THIS NOTICE (reference only) ===\n"
+        f"The auction portal separately lists {len(lines)} lot(s) for this "
+        "notice. This is external data scraped from the portal — it is NOT "
+        "part of the notice text.\n\n"
+        "Use it ONLY to:\n"
+        "  - judge where one lot ends and the next begins,\n"
+        "  - check you have not merged two lots or split one in half,\n"
+        "  - sanity-check a figure you read from the notice, since OCR mangles "
+        "digits.\n\n"
+        "NEVER copy a value from this list into your output. Every value you "
+        "emit must be text you actually found in the notice and can quote "
+        "verbatim from it. Where the notice and this list disagree, extract "
+        "what the NOTICE says — the notice is the legal document.\n"
+        "The rows are in no particular order: do NOT treat their order as the "
+        "notice's lot order and do NOT use it to assign lot_index.\n\n"
+        f"{body}\n"
+    )
+
+
+def prompt_description_for(expected_lot_count: int | None,
+                           roster: list[dict] | None = None) -> str:
     """The per-notice prompt: the shared guide + scheme, plus the reviewer's
     lot count when one exists (Document.expected_lot_count, stamped at the
-    classification review gate). Priming the model with the confirmed count
-    is the recall lever for multi-lot notices — it knows when it has found
-    them all and when it has invented extras. None -> unchanged prompt."""
+    classification review gate) and this notice's portal listings when it has
+    any. Priming the model with the confirmed count is the recall lever for
+    multi-lot notices — it knows when it has found them all and when it has
+    invented extras; the roster then tells it what those lots look like.
+    Neither present -> unchanged prompt."""
+    roster_block = portal_roster_block(roster)
     if expected_lot_count is None:
-        return PROMPT_DESCRIPTION
+        return PROMPT_DESCRIPTION + roster_block
     n = int(expected_lot_count)
     if n <= 1:
         hint = (
@@ -262,7 +340,7 @@ def prompt_description_for(expected_lot_count: int | None) -> str:
             f"through {n} — do not merge distinct lots and do not invent "
             "extras beyond the confirmed count."
         )
-    return PROMPT_DESCRIPTION + hint
+    return PROMPT_DESCRIPTION + hint + roster_block
 
 
 def E(cls, text, **attrs):
@@ -1115,12 +1193,19 @@ def _openrouter_model(model_id: str | None = None, reasoning_off: bool = False):
 
 def extract(markdown: str, model_id: str | None = None,
             reasoning_off: bool = False,
-            expected_lot_count: int | None = None):
+            expected_lot_count: int | None = None,
+            roster: list[dict] | None = None):
     """Run LangExtract over one notice's MinerU markdown.
 
     ``expected_lot_count`` — the reviewer-confirmed lot count from the
     classification gate, injected into the prompt so the model knows how many
     lots to find (see prompt_description_for). None leaves the prompt as-is.
+
+    ``roster`` — this notice's portal listings ({reserve, emd, village,
+    district, area, ptype} per lot), injected as reference context so the model
+    can segment the notice against lots already known to exist. Reference only:
+    the block tells the model never to copy a value from it (see
+    portal_roster_block). None/empty leaves the prompt as-is.
 
     Provider is env-driven via LANGEXTRACT_PROVIDER:
       'openrouter' (default) -> OpenRouter, OpenAI-compatible; model
@@ -1144,7 +1229,7 @@ def extract(markdown: str, model_id: str | None = None,
     from pipeline.extract_routing import char_buffer_for
     common = dict(
         text_or_documents=markdown,
-        prompt_description=prompt_description_for(expected_lot_count),
+        prompt_description=prompt_description_for(expected_lot_count, roster),
         examples=EXAMPLES, extraction_passes=int(os.environ.get("LANGEXTRACT_PASSES", "2")),
         max_char_buffer=char_buffer_for(markdown), max_workers=4,
     )

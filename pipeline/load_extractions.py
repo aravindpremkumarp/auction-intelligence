@@ -43,6 +43,29 @@ DEFAULT_WORKERS = int(os.environ.get("LOAD_EXTRACTIONS_WORKERS", "8"))
 # the batch-numbering helper (or its unit tests).
 
 
+# The portal's own row per lot, scraped independently of the notice image, fed
+# to the prompt as segmentation context (see
+# langextract_examples.portal_roster_block). Shared with
+# scripts/reset_langextract_and_extract.py so both extraction entry points send
+# the model the same context — a notice must not be extracted differently
+# depending on which script ran it. Expects `d` in scope and yields `roster`;
+# rows with nothing usable are dropped here so the renderer sees a clean list.
+ROSTER_CYPHER = (
+    "OPTIONAL MATCH (a:AuctionProperty)-[:HAS_DOCUMENT]->(d) "
+    # aid is carried purely to keep rows unique. Without it, DISTINCT collapses
+    # two listings whose visible fields happen to match — real on notices that
+    # sell several identical flats — and the roster would then under-report its
+    # own length to the model. It is never rendered into the prompt.
+    "WITH d, [row IN collect(DISTINCT {"
+    "     aid: a.auction_id, "
+    "     reserve: a.reserve_price_num, emd: a.emd_num, "
+    "     village: a.village, district: a.district, "
+    "     area: a.total_area, ptype: a.property_type_norm}) "
+    "  WHERE row.reserve IS NOT NULL OR row.emd IS NOT NULL "
+    "     OR row.village IS NOT NULL] AS roster "
+)
+
+
 def _fetch(limit: int | None, force: bool, filename: str | None) -> list[dict]:
     where = "d.markdown IS NOT NULL AND d.markdown <> ''"
     if not force:
@@ -51,9 +74,11 @@ def _fetch(limit: int | None, force: bool, filename: str | None) -> list[dict]:
         where += " AND d.filename = $fn"
     return run_read_query(
         f"MATCH (d:Document) WHERE {where} "
+        + ROSTER_CYPHER +
         "RETURN d.filename AS filename, d.markdown AS md, "
         "       d.notice_type AS notice_type, "
-        "       d.expected_lot_count AS expected_lot_count "
+        "       d.expected_lot_count AS expected_lot_count, "
+        "       roster AS roster "
         "ORDER BY d.filename"
         + (f" LIMIT {int(limit)}" if limit else ""),
         {"fn": filename} if filename else None,
@@ -126,7 +151,8 @@ def _extract_one(d: dict, batch: int, route: bool, LX) -> tuple[bool, str | None
     effective_model = _effective_model(model_id, route)
     try:
         res = LX.extract(d["md"], model_id=model_id, reasoning_off=reasoning_off,
-                         expected_lot_count=d.get("expected_lot_count"))
+                         expected_lot_count=d.get("expected_lot_count"),
+                         roster=d.get("roster"))
     except Exception as e:  # keep going; one bad doc shouldn't stop the load
         return False, model_id, f"[fail] {fn}: {e}"
     ents = _entities(res)

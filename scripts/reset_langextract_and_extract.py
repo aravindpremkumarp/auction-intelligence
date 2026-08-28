@@ -51,7 +51,7 @@ from datetime import datetime, timezone
 
 from api.neo4j_client import run_query, run_read_query
 from pipeline.extract_routing import select_extract_model
-from pipeline.load_extractions import _entities, _next_batch
+from pipeline.load_extractions import ROSTER_CYPHER, _entities, _next_batch
 from pipeline.validators import validate
 
 # Every LangExtract-owned field on :Document. Clearing these returns a notice to
@@ -96,9 +96,11 @@ def select_docs(since: str, min_ocr: int, resume: bool,
         "MATCH (a:AuctionProperty)-[:HAS_DOCUMENT]->(d:Document) "
         f"WHERE {' AND '.join(where)} "
         "WITH DISTINCT d "
+        + ROSTER_CYPHER +
         "RETURN d.filename AS filename, d.markdown AS md, "
         "       d.notice_type AS notice_type, "
-        "       d.expected_lot_count AS expected_lot_count "
+        "       d.expected_lot_count AS expected_lot_count, "
+        "       roster AS roster "
         "ORDER BY d.filename"
         + (f" LIMIT {int(limit)}" if limit else "")
     )
@@ -126,9 +128,11 @@ def select_stale_docs(min_ocr: int, limit: int | None) -> list[dict]:
         "WHERE d.extraction_stale_at IS NOT NULL "
         "  AND d.markdown IS NOT NULL AND d.markdown <> '' "
         "  AND d.ocr_health_score > $min_ocr "
+        + ROSTER_CYPHER +
         "RETURN d.filename AS filename, d.markdown AS md, "
         "       d.notice_type AS notice_type, "
-        "       d.expected_lot_count AS expected_lot_count "
+        "       d.expected_lot_count AS expected_lot_count, "
+        "       roster AS roster "
         "ORDER BY d.filename"
         + (f" LIMIT {int(limit)}" if limit else "")
     )
@@ -147,7 +151,8 @@ def _extract_one(d: dict, batch: int, route: bool):
     else:
         model_id, reasoning_off = None, False
     res = LX.extract(d["md"], model_id=model_id, reasoning_off=reasoning_off,
-                     expected_lot_count=d.get("expected_lot_count"))
+                     expected_lot_count=d.get("expected_lot_count"),
+                     roster=d.get("roster"))
     ents = _entities(res)
     score = validate(res.extractions, source_text=d["md"])["score"]
     run_query(
