@@ -9,7 +9,12 @@ import io
 
 import pytest
 
-from pipeline.ink_coverage import MISSING_REGION_MIN_RATIO, score_ink_coverage
+from pipeline.ink_coverage import (
+    MISSING_REGION_MIN_RATIO,
+    TILE_PX,
+    coverage_map,
+    score_ink_coverage,
+)
 from pipeline.ocr_health import PENALTY, score_ocr_health
 
 
@@ -255,3 +260,42 @@ def test_an_unread_footer_is_not_mistaken_for_chrome():
     r = score_ink_coverage(page, [_block(0.03, 0.08, 0.97, 0.61)])
     assert r["flag"] is True
     assert r["details"]["worst_band"]["where"] == "bottom"
+
+
+# ── coverage_map: the same measurement, plus the grids the UI paints ─────────
+
+def test_coverage_map_carries_the_grids_the_verdict_was_read_off():
+    """The annotator's Ink tab renders these tiles, so they must agree with the
+    verdict exactly — a UI that disagreed with the flag would be worse than no
+    UI at all."""
+    page = _page([(0.05, 0.10, 0.95, 0.60),
+                  (0.05, 0.62, 0.95, 0.95)])         # second band unread
+    blocks = [_block(0.03, 0.08, 0.97, 0.61)]
+    verdict = score_ink_coverage(page, blocks)
+    m = coverage_map(page, blocks)
+
+    # Same numbers, whichever entry point the caller used.
+    for k in ("uncovered_ratio", "patch_ratio", "flag"):
+        assert m[k] == verdict[k]
+    assert len(m["ink"]) == len(m["covered"]) == m["tile_w"] * m["tile_h"]
+    assert m["tile_px"] == TILE_PX
+
+    inked = [i for i, v in enumerate(m["ink"]) if v >= m["ink_min"] * 255]
+    unread = [i for i in inked if not m["covered"][i]]
+    assert inked and unread, "a flagged page has both covered and unread ink"
+    # The unread tiles are the bottom band the block does not reach.
+    assert min(i // m["tile_w"] for i in unread) > m["tile_h"] * 0.5
+
+
+def test_coverage_map_omits_the_grids_when_the_page_is_unscorable():
+    """Unscorable is a real answer (the UI says why), not an error — and it
+    must not ship half a map the caller would paint as "all missing"."""
+    page = _page([(0.1, 0.1, 0.9, 0.9)])
+    for m in (coverage_map(page, []),
+              coverage_map(None, [_block(0, 0, 1, 1)]),
+              coverage_map(page, [_block(0, 0, 1, 1, page=2)]),
+              coverage_map(b"not-an-image", [_block(0, 0, 1, 1)])):
+        assert m["flag"] is False
+        assert m["uncovered_ratio"] is None
+        assert "ink" not in m and "covered" not in m
+        assert m["details"].get("skipped")

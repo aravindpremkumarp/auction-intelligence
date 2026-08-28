@@ -407,24 +407,25 @@ def _worst_third(ink: list[float], covered: bytearray, tw: int, th: int,
     return {"where": best_label, "ratio": round(best_ratio, 3)}
 
 
-def score_ink_coverage(image_bytes: bytes | None, blocks: list[dict] | None,
-                       *, page: int = 1) -> dict:
-    """Measure how much of the page's ink no parsed block covers.
+def _measure(image_bytes: bytes | None, blocks: list[dict] | None,
+             page: int) -> tuple[dict, list[float] | None, bytearray | None,
+                                 int, int]:
+    """The measurement itself: verdict plus the tile grids it was read off.
 
-    Returns ``{"uncovered_ratio": float|None, "flag": bool, "details": {…}}``.
-    ``uncovered_ratio`` is ``None`` — unscorable, never flagged — when there is
-    no image, no block for the page, or too little ink to judge. "No blocks" in
-    particular must not read as "100% missing": a doc that never produced blocks
-    is a different failure, already visible upstream.
+    Returns ``(verdict, ink, covered, tw, th)``; the grids are ``None`` on an
+    unscorable page. Split out so the annotator's coverage map
+    (:func:`coverage_map`) shows the reviewer the exact tiles the score was
+    computed from — a second implementation for the UI would drift from the
+    verdict the queue is filtered on.
     """
     out: dict = {"uncovered_ratio": None, "flag": False, "details": {}}
     if not image_bytes or not blocks:
         out["details"]["skipped"] = "no-image" if not image_bytes else "no-blocks"
-        return out
+        return out, None, None, 0, 0
     if not any(isinstance(b, dict) and int(b.get("page") or 1) == page
                for b in blocks):
         out["details"]["skipped"] = "no-blocks-on-page"
-        return out
+        return out, None, None, 0, 0
     # Blocks that exist but carry nothing (the page-sized empty block above) are
     # a total parse failure, and reporting ~100% unread is the honest reading —
     # so this deliberately does NOT bail out the way "no blocks" does.
@@ -433,7 +434,7 @@ def score_ink_coverage(image_bytes: bytes | None, blocks: list[dict] | None,
         ink, tw, th = _tile_ink(image_bytes)
     except Exception as e:                       # unreadable/corrupt image
         out["details"]["skipped"] = f"unreadable-image: {type(e).__name__}"
-        return out
+        return out, None, None, 0, 0
 
     covered = _covered_tiles(blocks, tw, th, page)
     ink = _drop_detached_chrome(ink, covered, tw, th)
@@ -446,7 +447,7 @@ def score_ink_coverage(image_bytes: bytes | None, blocks: list[dict] | None,
             missed += v
     if total < MIN_TOTAL_INK:
         out["details"]["skipped"] = "too-little-ink"
-        return out
+        return out, ink, covered, tw, th
 
     ratio = missed / total
     patch_mass, (px0, py0, px1, py1) = _largest_unread_patch(ink, covered, tw, th)
@@ -465,4 +466,46 @@ def score_ink_coverage(image_bytes: bytes | None, blocks: list[dict] | None,
         "worst_column": _worst_third(ink, covered, tw, th, vertical=False),
         "worst_band": _worst_third(ink, covered, tw, th, vertical=True),
     }
-    return out
+    return out, ink, covered, tw, th
+
+
+def score_ink_coverage(image_bytes: bytes | None, blocks: list[dict] | None,
+                       *, page: int = 1) -> dict:
+    """Measure how much of the page's ink no parsed block covers.
+
+    Returns ``{"uncovered_ratio": float|None, "flag": bool, "details": {…}}``.
+    ``uncovered_ratio`` is ``None`` — unscorable, never flagged — when there is
+    no image, no block for the page, or too little ink to judge. "No blocks" in
+    particular must not read as "100% missing": a doc that never produced blocks
+    is a different failure, already visible upstream.
+    """
+    return _measure(image_bytes, blocks, page)[0]
+
+
+def coverage_map(image_bytes: bytes | None, blocks: list[dict] | None,
+                 *, page: int = 1) -> dict:
+    """:func:`score_ink_coverage`, plus the tile grids behind the verdict.
+
+    Adds, when the page was scorable:
+
+        tile_px    int    tile edge in source pixels
+        tile_w/h   int    grid dimensions
+        ink        bytes  per-tile dark fraction, 0-255, reading order
+        covered    bytes  1 where a content-bearing block covers the tile
+
+    Both grids are ``tile_w * tile_h`` bytes in reading order, so a caller can
+    paint them straight onto the page: an inked tile (``ink >= INK_TILE_MIN``)
+    that is not covered is exactly the unread ink the flag is scored on.
+    """
+    out, ink, covered, tw, th = _measure(image_bytes, blocks, page)
+    if ink is None or covered is None:
+        return out
+    return {
+        **out,
+        "tile_px": TILE_PX,
+        "tile_w": tw,
+        "tile_h": th,
+        "ink_min": INK_TILE_MIN,
+        "ink": bytes(min(255, int(round(v * 255))) for v in ink),
+        "covered": bytes(covered),
+    }

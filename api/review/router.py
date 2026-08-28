@@ -380,6 +380,34 @@ class BlocksDoc(BaseModel):
     rotation: int = 0
 
 
+class InkCoverageOut(BaseModel):
+    """Where the page's ink is, and which of it no block covers.
+
+    The grids are base64 of ``tile_w * tile_h`` bytes in reading order:
+    ``ink_b64`` is the per-tile dark fraction scaled to 0-255, ``covered_b64``
+    is 1 where a content-bearing block covers the tile. A tile with
+    ``ink >= ink_min * 255`` and ``covered == 0`` is unread ink — what the
+    ``missing-region`` flag is scored on. Both are absent when the page could
+    not be measured; ``details.skipped`` then says why.
+    """
+    filename: str
+    page: int = 1
+    blocks_revision: int = 0
+    public_url: str | None = None
+    ocr_health_score: int | None = None
+    ocr_health_flags: list[str] = []
+    uncovered_ratio: float | None = None
+    patch_ratio: float | None = None
+    flag: bool = False
+    details: dict = {}
+    tile_px: int | None = None
+    tile_w: int | None = None
+    tile_h: int | None = None
+    ink_min: float | None = None
+    ink_b64: str | None = None
+    covered_b64: str | None = None
+
+
 class CropBody(BaseModel):
     # ``None`` clears the saved crop. A 4-element ``[x0,y0,x1,y1]`` (each
     # in [0,1], normalized to the FULL source image) saves a new one.
@@ -1210,6 +1238,21 @@ def review_notice_get_blocks(
     _admin: UserOut = Depends(get_current_admin),
 ) -> BlocksDoc:
     return _ok_doc(block_ops.get_blocks(filename))
+
+
+@router.get("/notice/{filename}/ink-coverage", response_model=InkCoverageOut)
+@_wrap_block_errors
+def review_notice_ink_coverage(
+    filename: str,
+    page: int = Query(1, ge=1, le=200),
+    _admin: UserOut = Depends(get_current_admin),
+) -> InkCoverageOut:
+    """Coverage map for the annotator's Ink tab.
+
+    Measured live against the stored blocks, so a reviewer who has just drawn
+    a box over an unread band can re-open the tab and watch the red go away.
+    """
+    return InkCoverageOut(**block_ops.ink_coverage(filename, page))
 
 
 @router.post("/notice/{filename}/blocks", response_model=Block, status_code=201)

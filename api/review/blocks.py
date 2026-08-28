@@ -531,6 +531,79 @@ def get_blocks(filename: str) -> dict:
     }
 
 
+#: Cap on the source image the coverage map will pull from R2. Notices are
+#: scans of a newspaper page — a few MB at most; anything past this is not a
+#: notice and shouldn't be downloaded into the API process to find out.
+INK_MAP_MAX_BYTES = 32 * 1024 * 1024
+
+#: Raster extensions the coverage map can read. A PDF would have to be
+#: rendered per page first (see pipeline/ink_coverage.py's scope note), which
+#: this read-only endpoint deliberately does not do.
+INK_MAP_EXTS = (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff")
+
+
+def ink_coverage(filename: str, page: int = 1) -> dict:
+    """Coverage map for one page of a notice: which ink no block covers.
+
+    The annotator renders this as the green/red overlay behind the
+    ``missing-region`` flag, so it is measured by the same code the flag is —
+    :func:`pipeline.ink_coverage.coverage_map` — against the CURRENTLY STORED
+    blocks. That means it answers the reviewer's real question ("is my box
+    fixing this?") rather than replaying the verdict stored at ingest time,
+    which may predate their edits.
+
+    Returns the verdict plus base64 tile grids (see ``coverage_map``), or a
+    verdict carrying ``details.skipped`` when the page can't be measured — no
+    blocks on it, a PDF source, an unreachable or unreadable image. Unscorable
+    is never an error: "we can't measure this" is a real answer the UI shows.
+    """
+    import base64
+
+    from pipeline.ink_coverage import coverage_map
+
+    doc, rev, meta = _load_doc(filename)
+    page = max(1, int(page or 1))
+    out: dict = {
+        "filename": meta.get("filename") or filename,
+        "page": page,
+        "blocks_revision": rev,
+        "public_url": meta.get("public_url"),
+        "ocr_health_score": meta.get("ocr_health_score"),
+        "ocr_health_flags": meta.get("ocr_health_flags") or [],
+        "uncovered_ratio": None,
+        "patch_ratio": None,
+        "flag": False,
+        "details": {},
+    }
+    url = meta.get("public_url")
+    if not url:
+        out["details"] = {"skipped": "no-public-url"}
+        return out
+    name = (meta.get("filename") or filename).lower()
+    if not name.endswith(INK_MAP_EXTS):
+        out["details"] = {"skipped": "unsupported-source"}
+        return out
+
+    import requests
+    try:
+        resp = requests.get(url, timeout=60)
+        resp.raise_for_status()
+        img = resp.content
+    except requests.RequestException as e:
+        out["details"] = {"skipped": f"fetch-failed: {type(e).__name__}"}
+        return out
+    if len(img) > INK_MAP_MAX_BYTES:
+        out["details"] = {"skipped": "source-too-large"}
+        return out
+
+    m = coverage_map(img, doc.get("blocks") or [], page=page)
+    out.update({k: v for k, v in m.items() if k not in ("ink", "covered")})
+    if "ink" in m:
+        out["ink_b64"] = base64.b64encode(m["ink"]).decode()
+        out["covered_b64"] = base64.b64encode(m["covered"]).decode()
+    return out
+
+
 def set_crop(filename: str, raw_bbox: Any, raw_page: Any = None) -> dict:
     """Persist (or clear) the Document-level ``crop_bbox`` and ``crop_page``.
 

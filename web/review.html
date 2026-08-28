@@ -440,6 +440,15 @@
   .resizer.b  { left: 50%;  bottom: -5px; transform: translateX(-50%); cursor: ns-resize; }
   .resizer.l  { left: -5px; top: 50%;     transform: translateY(-50%); cursor: ew-resize; }
   .resizer.r  { right: -5px; top: 50%;    transform: translateY(-50%); cursor: ew-resize; }
+  /* Locked (the default): geometry is read-only, so a stray drag on the page
+     can't nudge a box the reviewer only meant to click. Selecting, editing
+     text, drawing, cropping and re-extracting all still work — only move and
+     resize are off, and the handles come off with them so the box doesn't
+     advertise a drag that won't happen. */
+  .ann-overlay.locked .ann-block,
+  .ann-overlay.locked .ann-region { cursor: pointer; }
+  .ann-overlay.locked .ann-block .resizer,
+  .ann-overlay.locked .ann-region .resizer { display: none; }
   .ann-block .grid-row, .ann-block .grid-col { position: absolute; background: rgba(0,0,0,0.5); pointer-events: auto; }
   .ann-block .grid-row { left: 0; right: 0; height: 1px; cursor: row-resize; }
   .ann-block .grid-row::after { content: ''; position: absolute; inset: -4px 0; }
@@ -469,6 +478,31 @@
   .ann-tabs .md-toggle[hidden] { display: none; }
   .ann-tabs .md-toggle button { padding: 1px 8px; font-size: 11px; min-height: 0; cursor: pointer; }
   .ann-pane { flex: 1 1 auto; min-height: 0; overflow: auto; }
+  /* Ink-coverage tab: the numbers first (severity at a glance), then the map. */
+  .ink-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .ink-verdict { font-family: 'IBM Plex Mono', monospace; font-size: 12px; font-weight: 600; padding: 2px 8px; border: 1.5px solid var(--ink); }
+  .ink-verdict.bad { background: #fde7e7; color: #991b1b; border-color: #dc2626; }
+  .ink-verdict.ok  { background: #dff5e3; color: #1b6b3c; border-color: #9bd2af; }
+  .ink-refresh { margin-left: auto; font-size: 11px; padding: 2px 8px; min-height: 0; }
+  .ink-skip { font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #666; padding: 8px 0; }
+  .ink-meter { margin-bottom: 8px; }
+  /* The bar is the largest unread patch; the tick is the flag threshold, so
+     "how close is this to flagging" is one glance rather than a subtraction. */
+  .ink-meter-bar { position: relative; height: 12px; background: #eae6d6; border: 1.5px solid var(--ink); }
+  .ink-meter-bar i { display: block; height: 100%; background: var(--danger); }
+  .ink-meter-bar b { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--ink); }
+  .ink-meter-lbl { font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #444; margin-top: 3px; }
+  .ink-stats { font-family: 'IBM Plex Mono', monospace; font-size: 12px; margin-bottom: 8px; }
+  .ink-stats > div { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; border-bottom: 1px dotted #ccc; }
+  .ink-stats span { color: #666; }
+  .ink-canvas-wrap { border: 1.5px solid var(--ink); background: #fff; line-height: 0; }
+  .ink-canvas-wrap canvas { width: 100%; height: auto; }
+  .ink-legend { display: flex; flex-wrap: wrap; gap: 10px; font-family: 'IBM Plex Mono', monospace; font-size: 11px; margin-top: 6px; }
+  .ink-legend .sw { display: inline-block; width: 10px; height: 10px; margin-right: 4px; border: 1px solid var(--ink); }
+  .ink-legend .sw.green { background: rgba(34,160,80,0.45); }
+  .ink-legend .sw.red   { background: rgba(220,30,30,0.72); }
+  .ink-legend .sw.blue  { background: #1414ff; }
+  .ink-note { font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #777; margin-top: 6px; }
   .ann-pane > #ann-md-body { max-height: none; padding: 0 2px; }
   .ann-banner { background: var(--accent); border: 1.5px solid var(--ink); padding: 8px 10px; margin-bottom: 10px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; }
   .ann-row { border: 1.5px solid var(--ink); background: var(--paper); padding: 8px; margin-bottom: 8px; }
@@ -893,6 +927,7 @@
         <button id="ann-rotate-left" class="ghost zoom-btn" title="rotate 90° counter-clockwise">↺</button>
         <button id="ann-rotate-right" class="ghost zoom-btn" title="rotate 90° clockwise">↻</button>
       </span>
+      <button id="ann-lock" class="ghost" title="lock block + region geometry (L) — while locked a drag on the page can't move or resize a box; clicking to select, editing text, drawing, cropping and re-extracting all still work">🔒 Locked</button>
       <button id="ann-toggle-boxes" class="ghost" title="show / hide block bounding boxes (regions stay visible)">Hide boxes</button>
       <button id="ann-toggle-regions" class="ghost" title="show / hide the R1/R2/… crop regions — hide them to click and adjust blocks sitting underneath a region">Hide regions</button>
       <span class="zoom-group" title="wheel to zoom · middle-click or alt+drag to pan">
@@ -920,6 +955,8 @@
           <button class="ann-tab on" data-ann-tab="blocks">Blocks</button>
           <button class="ann-tab" data-ann-tab="markdown"
                   title="markdown regenerated from the blocks">Markdown</button>
+          <button class="ann-tab" data-ann-tab="ink"
+                  title="ink coverage: green = ink a block covers, red = ink no block covers. The red is what the missing-region flag is scored on.">Ink</button>
           <span class="md-toggle" id="ann-md-toggle" hidden>
             <button class="pill" data-ann-md-mode="rendered">rendered</button>
             <button class="pill" data-ann-md-mode="raw">raw</button>
@@ -930,6 +967,9 @@
         </div>
         <div class="ann-pane hidden" id="ann-pane-markdown">
           <div id="ann-md-body" class="markdown-body"></div>
+        </div>
+        <div class="ann-pane hidden" id="ann-pane-ink">
+          <div id="ann-ink-body"></div>
         </div>
       </div>
     </div>
@@ -3689,6 +3729,13 @@
           (((e.key === 'z' || e.key === 'Z') && e.shiftKey) || e.key === 'y' || e.key === 'Y')) {
         e.preventDefault(); annRedo(); return;
       }
+      if ((e.key === 'l' || e.key === 'L') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        setAnnLocked(!ann.locked);
+        annToast(ann.locked ? '🔒 boxes locked' : '🔓 boxes unlocked — drag to move / resize',
+                 ann.locked ? '' : 'warn');
+        return;
+      }
     }
 
     // Detail-screen shortcuts (unchanged)
@@ -3745,12 +3792,18 @@
     selectedRegion: null,  // index into crop_regions of the region being edited (move/resize), or null
     boxesHidden: false,    // hide block boxes only (regions unaffected)
     regionsHidden: false,  // hide crop regions only — lets blocks under a region be clicked
+    // Geometry lock. ON by default: a reviewer reads far more boxes than they
+    // move, and a click that slips a few pixels used to silently rewrite a
+    // bbox on the server. Unlock explicitly (button or L) to move/resize.
+    // Persisted per browser so the choice survives notices and reloads.
+    locked: true,
     rotation: 0,       // degrees CW the source should be displayed at; 0|90|180|270
     dragSession: null,
     hintsDismissed: new Set(),  // block ids the reviewer has × dismissed this session
     reextractInflight: new Set(), // block ids currently being re-extracted
     fixFlaggedRunning: false,   // "Fix flagged" batch re-extract in progress
     reextractEngine: 'datalab', // OCR engine for re-ingest AND drawn-block re-extract (ann-engine select)
+    ink: null,         // {rev, page, data} — cached ink-coverage map for the Ink tab
   };
 
   function annToast(msg, kind) {
@@ -3787,6 +3840,7 @@
     ann.mode = 'select';
     ann.boxesHidden = false;
     ann.regionsHidden = false;
+    ann.ink = null;              // another notice: the cached map is not ours
     $('ann-filename').textContent = filename;
     setAnnTab('blocks');
     $('ann-rows').innerHTML = '<div class="empty">loading…</div>';
@@ -4208,6 +4262,52 @@
       // disappears is harder to find than one that is always in the same spot.
       rBtn.disabled = !ann.crop_regions.length;
     }
+    applyAnnLockState();
+  }
+
+  // The lock lives in `ann` (and localStorage), never on the DOM node — the
+  // overlay is rebuilt on every paint, same as the visibility toggles above.
+  function applyAnnLockState() {
+    const wrap = $('ann-page-wrap-inner');
+    const overlay = wrap && wrap.querySelector('.ann-overlay');
+    if (overlay) overlay.classList.toggle('locked', !!ann.locked);
+    const btn = $('ann-lock');
+    if (btn) {
+      btn.textContent = ann.locked ? '🔒 Locked' : '🔓 Unlocked';
+      btn.classList.toggle('mode-on', !ann.locked);
+    }
+  }
+
+  function setAnnLocked(next) {
+    ann.locked = !!next;
+    try { localStorage.setItem('ann-geometry-locked', ann.locked ? '1' : '0'); } catch {}
+    // The button label is updated directly — paintAnnOverlay bails out when no
+    // notice is loaded yet, and the toolbar must still reflect the change.
+    applyAnnLockState();
+    // Repaint too: unlocking has to grow the resize handles on whatever is
+    // already selected.
+    paintAnnOverlay();
+  }
+
+  // A locked press still selects, so complaining on every click would be
+  // noise. Only speak up when the reviewer actually tried to *drag*.
+  let lastLockToastAt = 0;
+  function warnLockedDrag(ev) {
+    const x0 = ev.clientX, y0 = ev.clientY;
+    const stop = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', stop);
+    };
+    const onMove = (e) => {
+      if (Math.abs(e.clientX - x0) < 4 && Math.abs(e.clientY - y0) < 4) return;
+      stop();
+      const now = Date.now();
+      if (now - lastLockToastAt < 5000) return;
+      lastLockToastAt = now;
+      annToast('locked — press L (or click 🔒 Locked) to move or resize', 'warn');
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', stop);
   }
 
   // Visually clip the displayed page down to the saved crop region. We size
@@ -4712,18 +4812,22 @@
     return row;
   }
 
-  // Sidebar tabs: 'blocks' (the editable block list) or 'markdown' (the
-  // markdown regenerated from those blocks). Only one pane is mounted-visible
-  // at a time; the rendered/raw toggle belongs to the markdown tab only.
+  // Sidebar tabs: 'blocks' (the editable block list), 'markdown' (the markdown
+  // regenerated from those blocks) or 'ink' (the coverage map behind the
+  // missing-region flag). Only one pane is mounted-visible at a time; the
+  // rendered/raw toggle belongs to the markdown tab only.
+  const ANN_TABS = ['blocks', 'markdown', 'ink'];
   function setAnnTab(tab) {
-    const which = tab === 'markdown' ? 'markdown' : 'blocks';
+    const which = ANN_TABS.includes(tab) ? tab : 'blocks';
     $$('button[data-ann-tab]').forEach(b => {
       b.classList.toggle('on', b.dataset.annTab === which);
     });
-    $('ann-pane-blocks').classList.toggle('hidden', which !== 'blocks');
-    $('ann-pane-markdown').classList.toggle('hidden', which !== 'markdown');
+    for (const t of ANN_TABS) {
+      $('ann-pane-' + t).classList.toggle('hidden', which !== t);
+    }
     $('ann-md-toggle').hidden = which !== 'markdown';
     if (which === 'markdown') paintAnnMarkdown();
+    if (which === 'ink') loadAnnInk();
   }
 
   function paintAnnMarkdown() {
@@ -4741,6 +4845,132 @@
     } else {
       el.classList.remove('rendered');
       el.textContent = text || '(empty)';
+    }
+  }
+
+  // ── Ink coverage tab ─────────────────────────────────────────────────────
+  // Shows what the missing-region flag is actually scored on: green where a
+  // block covers the page's ink, red where nothing does. Measured server-side
+  // against the CURRENTLY STORED blocks (GET .../ink-coverage), so drawing a
+  // box over a red band and reopening the tab shows the red gone.
+  //
+  // Cached per (blocks_revision, page): re-opening the tab after no edit must
+  // not re-download the source image and re-tile it.
+  const INK_FLAG_AT = 0.12;   // pipeline/ink_coverage.py MISSING_REGION_MIN_RATIO
+
+  async function loadAnnInk(force) {
+    const body = $('ann-ink-body');
+    if (!body || !ann.filename) return;
+    const cached = ann.ink;
+    if (!force && cached && cached.rev === ann.rev && cached.page === ann.page) {
+      paintAnnInk();
+      return;
+    }
+    body.innerHTML = '<div class="empty">measuring ink coverage…</div>';
+    const rev = ann.rev, page = ann.page;
+    try {
+      const r = await authFetch(
+        API + '/review/notice/' + encodeURIComponent(ann.filename)
+            + '/ink-coverage?page=' + (page || 1));
+      if (!r.ok) {
+        body.innerHTML = `<div class="empty err">coverage failed (${r.status})</div>`;
+        return;
+      }
+      ann.ink = { rev, page, data: await r.json() };
+    } catch (e) {
+      body.innerHTML = `<div class="empty err">coverage failed (${escapeHtml(String(e))})</div>`;
+      return;
+    }
+    // The reviewer may have moved on (another notice, another page) while the
+    // measure was in flight — don't paint a stale map over the new one.
+    if (ann.rev !== rev || ann.page !== page) return;
+    paintAnnInk();
+  }
+
+  function paintAnnInk() {
+    const body = $('ann-ink-body');
+    if (!body || !ann.ink || !ann.ink.data) return;
+    const d = ann.ink.data;
+    const pct = (v) => (v == null ? '—' : (v * 100).toFixed(1) + '%');
+    const det = d.details || {};
+    const stale = ann.ink.rev !== ann.rev || ann.ink.page !== ann.page;
+    const where = (w) => (w && w.where) ? `${w.where} (${pct(w.ratio)})` : '—';
+
+    body.innerHTML = `
+      <div class="ink-head">
+        <span class="ink-verdict ${d.flag ? 'bad' : 'ok'}">
+          ${d.flag ? 'missing-region' : 'no missing region'}</span>
+        <button class="ghost ink-refresh" id="ann-ink-refresh"
+                title="re-measure against the blocks as they stand now">↻ recompute</button>
+      </div>
+      ${det.skipped ? `<div class="ink-skip">not measurable — ${escapeHtml(det.skipped)}</div>` : `
+      <div class="ink-meter" title="the flag is thresholded on the LARGEST CONNECTED patch of unread ink, not the page total">
+        <div class="ink-meter-bar"><i style="width:${Math.min(100, (d.patch_ratio || 0) * 100)}%"></i>
+          <b style="left:${INK_FLAG_AT * 100}%"></b></div>
+        <div class="ink-meter-lbl">largest unread patch <b>${pct(d.patch_ratio)}</b>
+          · flags at ${pct(INK_FLAG_AT)}</div>
+      </div>
+      <div class="ink-stats">
+        <div><span>unread ink (page total)</span><b>${pct(d.uncovered_ratio)}</b></div>
+        <div><span>worst band</span><b>${escapeHtml(where(det.worst_band))}</b></div>
+        <div><span>worst column</span><b>${escapeHtml(where(det.worst_column))}</b></div>
+      </div>
+      <div class="ink-canvas-wrap"><canvas id="ann-ink-canvas"></canvas></div>
+      <div class="ink-legend">
+        <span><i class="sw green"></i>ink a block covers</span>
+        <span><i class="sw red"></i>ink nothing covers</span>
+        <span><i class="sw blue"></i>largest unread patch</span>
+      </div>`}
+      <div class="ink-note">measured on the stored blocks (rev ${d.blocks_revision})${
+        stale ? ' — blocks have changed since; press recompute' : ''}</div>`;
+    const btn = $('ann-ink-refresh');
+    if (btn) btn.addEventListener('click', () => loadAnnInk(true));
+    if (!det.skipped) drawInkCanvas(d);
+  }
+
+  function drawInkCanvas(d) {
+    const cv = $('ann-ink-canvas');
+    if (!cv || !d.ink_b64 || !d.covered_b64) return;
+    const tw = d.tile_w, th = d.tile_h, tp = d.tile_px || 8;
+    const ink = atob(d.ink_b64), cov = atob(d.covered_b64);
+    const minInk = (d.ink_min || 0.02) * 255;
+    cv.width = tw * tp;
+    cv.height = th * tp;
+    const ctx = cv.getContext('2d');
+
+    const paint = () => {
+      for (let i = 0; i < tw * th; i++) {
+        if (ink.charCodeAt(i) < minInk) continue;
+        ctx.fillStyle = cov.charCodeAt(i)
+          ? 'rgba(34,160,80,0.45)' : 'rgba(220,30,30,0.72)';
+        ctx.fillRect((i % tw) * tp, ((i / tw) | 0) * tp, tp, tp);
+      }
+      const pb = (d.details || {}).patch_bbox;
+      if (Array.isArray(pb) && pb.length === 4) {
+        ctx.strokeStyle = '#1414ff';
+        ctx.lineWidth = Math.max(2, tp / 2);
+        ctx.strokeRect(pb[0] * cv.width, pb[1] * cv.height,
+                       (pb[2] - pb[0]) * cv.width, (pb[3] - pb[1]) * cv.height);
+      }
+    };
+
+    // The page underneath, faded, so red reads as "this text was missed"
+    // rather than as an abstract heat map. Tiles paint with or without it —
+    // a source that won't load (expired URL, CORS) still leaves a usable map.
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, cv.width, cv.height);
+    if (d.public_url) {
+      const img = new Image();
+      img.onload = () => {
+        ctx.drawImage(img, 0, 0, cv.width, cv.height);
+        ctx.fillStyle = 'rgba(255,255,255,0.68)';
+        ctx.fillRect(0, 0, cv.width, cv.height);
+        paint();
+      };
+      img.onerror = paint;
+      img.src = d.public_url;
+    } else {
+      paint();
     }
   }
 
@@ -4825,6 +5055,10 @@
         return deleteRegion(ri);
       }
       selectRegion(ri);
+      if (ann.locked) {
+        ev.preventDefault();
+        return warnLockedDrag(ev);
+      }
       if (target.classList.contains('resizer')) {
         ev.preventDefault();
         return startRegionResize(ev, ri, target.dataset.handle);
@@ -4844,13 +5078,20 @@
       return selectBlock(id, { additive: true });
     }
     selectBlock(id);
-    if (target.classList.contains('resizer')) {
-      ev.preventDefault();
-      return startResize(ev, id, target.dataset.handle);
-    }
+    // Table guide lines stay draggable while locked: they are part of the
+    // explicit table-hints flow (open hints → drag lines → re-extract) and
+    // they change the hint, not the block's geometry.
     if (target.classList.contains('grid-row') || target.classList.contains('grid-col')) {
       ev.preventDefault();
       return startGuideDrag(ev, id, target.dataset.guide, parseInt(target.dataset.idx, 10));
+    }
+    if (ann.locked) {
+      ev.preventDefault();
+      return warnLockedDrag(ev);
+    }
+    if (target.classList.contains('resizer')) {
+      ev.preventDefault();
+      return startResize(ev, id, target.dataset.handle);
     }
     ev.preventDefault();
     return startMove(ev, id);
@@ -6019,6 +6260,16 @@
     // Some browsers fire auxclick for middle button; suppress it during pan.
     stage.addEventListener('auxclick', (ev) => { if (ev.button === 1) ev.preventDefault(); });
   })();
+
+  // Geometry lock. Defaults to locked; only an explicit "0" unlocks, so a
+  // browser with no stored preference (or with storage blocked) starts safe.
+  (function initAnnLock() {
+    let saved = null;
+    try { saved = localStorage.getItem('ann-geometry-locked'); } catch {}
+    ann.locked = saved !== '0';
+    applyAnnLockState();
+  })();
+  $('ann-lock').addEventListener('click', () => setAnnLocked(!ann.locked));
 
   $('ann-toggle-boxes').addEventListener('click', () => {
     ann.boxesHidden = !ann.boxesHidden;
