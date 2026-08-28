@@ -20,7 +20,6 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from pathlib import Path
 
 from evals.langextract_eval import NOTICE_CONTEXT, load_gold
 from scripts.score_ink_coverage import nq
