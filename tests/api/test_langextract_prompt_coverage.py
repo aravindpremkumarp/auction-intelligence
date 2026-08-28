@@ -308,3 +308,31 @@ def test_no_roster_leaves_the_prompt_exactly_as_before():
     ns = _prompt_ns()
     assert ns["prompt_description_for"](None, None) == "BASE_PROMPT"
     assert ns["prompt_description_for"](3, []) == ns["prompt_description_for"](3)
+
+
+# ── the contiguity convention ───────────────────────────────────────────────
+# 29.5% of auction_terms extractions were ungrounded because the model
+# assembled extraction_text from pieces scattered across the notice. Every
+# fragment was verbatim, which is why "copied verbatim" alone never stopped it:
+# the guide had to say CONTIGUOUS. This is the single biggest driver of the
+# `ungrounded` flag (62% of notices), so the rule must not quietly regress.
+
+def test_guide_requires_a_contiguous_span():
+    guide = _guide_text()
+    assert "CONTIGUOUS" in guide, "the contiguity requirement is gone"
+    assert "verbatim" in guide
+
+
+def test_guide_forbids_assembling_a_span_from_pieces():
+    guide = _guide_text().lower()
+    assert "never stitch" in guide or "never assemble" in guide
+    assert "never summarise" in guide or "never summarize" in guide
+
+
+def test_guide_names_the_classes_that_get_this_wrong_and_the_way_out():
+    """Naming auction_terms/outstanding matters: those are where the values are
+    genuinely scattered, so the model needs to be told what to do INSTEAD of
+    joining — quote one anchor run, put the rest in attrs."""
+    guide = _guide_text()
+    assert "auction_terms" in guide and "outstanding" in guide
+    assert "attrs" in guide

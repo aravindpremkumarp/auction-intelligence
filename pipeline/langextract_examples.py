@@ -143,7 +143,18 @@ entities using EXACTLY these extraction classes (one span each, copied VERBATIM)
   terms-of-sale boilerplate; at most ~5 per notice.
 
 CONVENTIONS:
-- extraction_text MUST be copied verbatim from the document (for source grounding).
+- extraction_text MUST be copied verbatim from the document (for source
+  grounding) AND must be ONE CONTIGUOUS run of characters — a single unbroken
+  quote you could select with one drag. NEVER stitch it together from pieces
+  found in different places, and never summarise. A joined string matches
+  nothing in the document, so the extraction loses its grounding COMPLETELY
+  even though every fragment inside it was real.
+  When a lot's values are scattered across the notice (typically auction_terms
+  and outstanding — price here, dates in a table, deadline in a paragraph),
+  quote the ONE run that best anchors the entity, usually the clause or table
+  row carrying its principal value, and put every other value in attrs. attrs
+  are NOT span-checked, so nothing is lost by doing this — and a shorter honest
+  span always beats a longer assembled one.
 - Money -> integer rupees in attrs (Rs.9,50,000 -> 950000; "572.34 Lakh" ->
   57234000). Preserve unicode fractions ½ ¼ ¾. Dates ISO 8601 with time when given.
 - OMIT any attribute that is absent — NEVER output the string "null"/"NA"/empty.
