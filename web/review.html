@@ -4174,8 +4174,11 @@
     const rBtn = $('ann-toggle-regions');
     if (rBtn) {
       rBtn.textContent = ann.regionsHidden ? 'Show regions' : 'Hide regions';
-      // Nothing to toggle when the notice has no regions on this page.
-      rBtn.style.display = ann.crop_regions.length ? '' : 'none';
+      // Always present, next to "Hide boxes", so the pair reads as one control
+      // whether or not this notice has regions yet. Greyed out with nothing to
+      // hide rather than vanishing — a toolbar button that appears and
+      // disappears is harder to find than one that is always in the same spot.
+      rBtn.disabled = !ann.crop_regions.length;
     }
   }
 
