@@ -393,7 +393,11 @@
   .ann-content > img, .ann-content > canvas { display: block; max-width: 100%; max-height: calc(85vh - 32px); width: auto; height: auto; user-select: none; }
   .ann-page.draw { cursor: crosshair; }
   .ann-overlay { position: absolute; inset: 0; }
-  .ann-overlay.boxes-hidden { display: none; }
+  /* Two independent visibility toggles. Blocks and regions overlap on the
+     page, so hiding regions is what lets the reviewer grab a block sitting
+     underneath one (display:none also kills the region's hit-testing). */
+  .ann-overlay.boxes-hidden .ann-block { display: none; }
+  .ann-overlay.regions-hidden .ann-region { display: none; }
   .ann-block { position: absolute; border: 2px solid var(--ink); background: rgba(255,216,77,0.10); cursor: move; box-sizing: border-box; }
   .ann-block.selected { z-index: 10; border-color: var(--danger); background: rgba(214,74,46,0.10); }
   .ann-block.reextracting { border-style: dashed; opacity: 0.65; }
@@ -867,7 +871,8 @@
         <button id="ann-rotate-left" class="ghost zoom-btn" title="rotate 90° counter-clockwise">↺</button>
         <button id="ann-rotate-right" class="ghost zoom-btn" title="rotate 90° clockwise">↻</button>
       </span>
-      <button id="ann-toggle-boxes" class="ghost" title="show / hide bounding boxes">Hide boxes</button>
+      <button id="ann-toggle-boxes" class="ghost" title="show / hide block bounding boxes (regions stay visible)">Hide boxes</button>
+      <button id="ann-toggle-regions" class="ghost" title="show / hide the R1/R2/… crop regions — hide them to click and adjust blocks sitting underneath a region">Hide regions</button>
       <span class="zoom-group" title="wheel to zoom · middle-click or alt+drag to pan">
         <button id="ann-zoom-out" class="ghost zoom-btn" title="zoom out (or scroll wheel down)">−</button>
         <button id="ann-zoom-fit" class="ghost zoom-btn" title="fit image to viewport">Fit</button>
@@ -3672,6 +3677,8 @@
     crop_page: null,   // 1-indexed PDF page the crop is drawn on; null if no crop
     crop_regions: [],  // [{bbox:[x0,y0,x1,y1], page}] multi-region crop; wins over crop_bbox at re-ingest
     selectedRegion: null,  // index into crop_regions of the region being edited (move/resize), or null
+    boxesHidden: false,    // hide block boxes only (regions unaffected)
+    regionsHidden: false,  // hide crop regions only — lets blocks under a region be clicked
     rotation: 0,       // degrees CW the source should be displayed at; 0|90|180|270
     dragSession: null,
     hintsDismissed: new Set(),  // block ids the reviewer has × dismissed this session
@@ -3712,6 +3719,8 @@
     ann.anchorId = null;
     ann.selectedRegion = null;
     ann.mode = 'select';
+    ann.boxesHidden = false;
+    ann.regionsHidden = false;
     $('ann-filename').textContent = filename;
     setAnnTab('blocks');
     $('ann-rows').innerHTML = '<div class="empty">loading…</div>';
@@ -4108,7 +4117,28 @@
     }
     wrap.classList.toggle('draw', ann.mode === 'draw');
     wrap.classList.toggle('crop', ann.mode === 'crop' || ann.mode === 'crop-multi');
+    applyAnnLayerVisibility();
     applyAnnCropClip();
+  }
+
+  // Blocks and regions hide independently. The overlay element is rebuilt
+  // whenever the page source re-renders, so visibility lives in `ann` and is
+  // re-applied on every paint rather than left on the DOM node.
+  function applyAnnLayerVisibility() {
+    const wrap = $('ann-page-wrap-inner');
+    const overlay = wrap && wrap.querySelector('.ann-overlay');
+    if (overlay) {
+      overlay.classList.toggle('boxes-hidden', !!ann.boxesHidden);
+      overlay.classList.toggle('regions-hidden', !!ann.regionsHidden);
+    }
+    const bBtn = $('ann-toggle-boxes');
+    if (bBtn) bBtn.textContent = ann.boxesHidden ? 'Show boxes' : 'Hide boxes';
+    const rBtn = $('ann-toggle-regions');
+    if (rBtn) {
+      rBtn.textContent = ann.regionsHidden ? 'Show regions' : 'Hide regions';
+      // Nothing to toggle when the notice has no regions on this page.
+      rBtn.style.display = ann.crop_regions.length ? '' : 'none';
+    }
   }
 
   // Visually clip the displayed page down to the saved crop region. We size
@@ -5223,6 +5253,10 @@
     } else {
       btn.textContent = '+ Add regions';
     }
+    // Once the last region is gone the hide state is meaningless — reset it so
+    // the next region drawn is visible.
+    if (!ann.crop_regions.length) ann.regionsHidden = false;
+    applyAnnLayerVisibility();
   }
 
   // Persist (or clear with regions=null) the multi-region crop list. Each
@@ -5654,6 +5688,8 @@
     } else {
       ann.mode = 'crop-multi';
       ann.selectedRegion = null;
+      // Drawing regions while they're hidden would be blind — un-hide first.
+      ann.regionsHidden = false;
       $('ann-add').classList.remove('mode-on');
     }
     refreshCropButton();
@@ -5916,11 +5952,19 @@
   })();
 
   $('ann-toggle-boxes').addEventListener('click', () => {
-    const wrap = $('ann-page-wrap-inner');
-    const overlay = wrap && wrap.querySelector('.ann-overlay');
-    if (!overlay) return;
-    const hidden = overlay.classList.toggle('boxes-hidden');
-    $('ann-toggle-boxes').textContent = hidden ? 'Show boxes' : 'Hide boxes';
+    ann.boxesHidden = !ann.boxesHidden;
+    applyAnnLayerVisibility();
+  });
+  // Hiding regions also drops the region selection, so the handles and the
+  // delete × don't linger invisibly over the blocks underneath.
+  $('ann-toggle-regions').addEventListener('click', () => {
+    ann.regionsHidden = !ann.regionsHidden;
+    if (ann.regionsHidden && ann.selectedRegion !== null) {
+      ann.selectedRegion = null;
+      paintAnnOverlay();
+      return;
+    }
+    applyAnnLayerVisibility();
   });
   $('ann-page').addEventListener('change', async (e) => {
     ann.page = parseInt(e.target.value, 10) || 1;
