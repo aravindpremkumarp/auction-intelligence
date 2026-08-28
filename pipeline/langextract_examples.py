@@ -143,7 +143,29 @@ entities using EXACTLY these extraction classes (one span each, copied VERBATIM)
   terms-of-sale boilerplate; at most ~5 per notice.
 
 CONVENTIONS:
-- extraction_text MUST be copied verbatim from the document (for source grounding).
+- The fifteen classes above are the COMPLETE and CLOSED set: secured_creditor,
+  contact, borrower, property, full_description, location, identifier, extent,
+  boundary, schedule, auction_terms, outstanding, emd_account, full_terms,
+  extras. Spell each one EXACTLY as listed — a misspelling is an invented class.
+  In particular NEVER use one of the OUTPUT FORMAT's own key names as a class:
+  extraction_text, extraction_class, extraction_type, entity, entity_type and
+  class describe the envelope every entity is written in — they are not things
+  to extract. An entity emitted under any name outside the fifteen is DISCARDED
+  WHOLE, so a real fact filed under one is lost exactly as if you had never read
+  it. If a fact fits none of the fifteen, it goes in `extras` with a snake_case
+  `key` — never in a class of its own.
+- extraction_text MUST be copied verbatim from the document (for source
+  grounding) AND must be ONE CONTIGUOUS run of characters — a single unbroken
+  quote you could select with one drag. NEVER stitch it together from pieces
+  found in different places, and never summarise. A joined string matches
+  nothing in the document, so the extraction loses its grounding COMPLETELY
+  even though every fragment inside it was real.
+  When a lot's values are scattered across the notice (typically auction_terms
+  and outstanding — price here, dates in a table, deadline in a paragraph),
+  quote the ONE run that best anchors the entity, usually the clause or table
+  row carrying its principal value, and put every other value in attrs. attrs
+  are NOT span-checked, so nothing is lost by doing this — and a shorter honest
+  span always beats a longer assembled one.
 - Money -> integer rupees in attrs (Rs.9,50,000 -> 950000; "572.34 Lakh" ->
   57234000). Preserve unicode fractions ½ ¼ ¾. Dates ISO 8601 with time when given.
 - OMIT any attribute that is absent — NEVER output the string "null"/"NA"/empty.

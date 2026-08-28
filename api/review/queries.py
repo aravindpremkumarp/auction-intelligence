@@ -557,6 +557,13 @@ def verify_classification(
       - Human-edited rows (description_source='human') are NEVER touched;
         their edits stand regardless of classification flips.
 
+    Side effect when the notice_type OR the lot count actually changes and the
+    Document already has an extraction: ``extraction_stale_at`` is stamped, so
+    ``scripts/reset_langextract_and_extract.py --stale`` re-runs it. Without
+    this the reviewer's count reached the graph but never reached the model —
+    the prompt is built from expected_lot_count, so the stored output stayed
+    frozen at whatever the old count produced.
+
     Returns a result row or None if no Document had that filename.
     """
     if notice_type not in ("single", "multi"):
@@ -573,7 +580,7 @@ def verify_classification(
               "elc": expected_lot_count}
     rows = run_query("""
         MATCH (d:Document {filename: $filename})
-        WITH d, d.notice_type AS prior
+        WITH d, d.notice_type AS prior, d.expected_lot_count AS prior_elc
         SET d.notice_type                  = $nt,
             d.expected_lot_count           = coalesce($elc, d.expected_lot_count),
             d.notice_type_overridden       = true,
@@ -583,6 +590,19 @@ def verify_classification(
                 WHEN $notes IS NULL OR $notes = ''
                 THEN d.notice_type_review_notes
                 ELSE $notes END
+        WITH d, prior, prior_elc
+        // A stored extraction was produced from a prompt built on the OLD lot
+        // count (langextract_examples.prompt_description_for injects it) and by
+        // the model the OLD notice_type routed to. Once either changes that
+        // output is out of date, and nothing else in the system notices: the
+        // reviewer's count would sit in the graph improving nothing until
+        // somebody re-ran extraction by hand. Stamping the marker closes the
+        // loop — reset_langextract_and_extract --stale picks it up.
+        SET d.extraction_stale_at = CASE
+            WHEN d.extraction_json IS NOT NULL
+             AND (prior <> $nt
+                  OR coalesce(d.expected_lot_count, -1) <> coalesce(prior_elc, -1))
+            THEN datetime() ELSE d.extraction_stale_at END
         WITH d, prior
         OPTIONAL MATCH (d)<-[:HAS_DOCUMENT]-(a:AuctionProperty)
         WHERE prior <> $nt
@@ -656,6 +676,10 @@ def auto_confirm_classifications(
         f"""
         MATCH (d:Document)
         WHERE {where_clause}
+        // Read the count BEFORE the SET: the stale marker below keys off
+        // whether this write is the one adding it, and inside a single SET
+        // clause that read would race the assignment two lines above it.
+        WITH d, d.expected_lot_count AS prior_elc
         SET d.notice_type_verified_at  = datetime(),
             d.notice_type_verified_by  = $by,
             d.notice_type_review_notes = CASE
@@ -665,7 +689,17 @@ def auto_confirm_classifications(
             d.expected_lot_count = CASE
                 WHEN d.notice_type = 'single'
                 THEN coalesce(d.expected_lot_count, 1)
-                ELSE d.expected_lot_count END
+                ELSE d.expected_lot_count END,
+            // Same reason as verify_classification: this stamps a lot count of
+            // 1 onto singles that had none, and the stored extraction was
+            // produced from a prompt without it. Only the rows actually
+            // gaining a count are marked — a doc that already had one is
+            // unchanged here and must not be queued for a pointless re-run.
+            d.extraction_stale_at = CASE
+                WHEN d.notice_type = 'single'
+                 AND prior_elc IS NULL
+                 AND d.extraction_json IS NOT NULL
+                THEN datetime() ELSE d.extraction_stale_at END
         RETURN count(d) AS n
         """,
         params,
