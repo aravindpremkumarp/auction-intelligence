@@ -29,16 +29,38 @@ Nothing is promoted automatically. Deciding to adopt a Datalab parse means
 rewriting that notice's markdown and re-extracting it — a per-notice call for a
 human, on the much smaller set this run identifies.
 
+Two cohorts, selected with ``--cohort``:
+
+``blockless`` (default)
+    The original target set: MinerU notices carrying no ``d.blocks`` at all.
+    Writing blocks is purely additive there — they have none — so this cohort
+    writes the block layer *and* the shadow measurements.
+
+``legacy-mineru``
+    Notices still on MinerU markdown from before Datalab became the default
+    engine (``--before``, default 2026-07-22) that have never been measured
+    against Datalab. Almost all of these **already have a block layer**, and
+    ~90 of them carry human re-extractions, so this cohort writes measurements
+    ONLY — never blocks. See ``write_back``.
+
+In both cohorts the markdown is left alone, for the reason above.
+
 Writes:
-    d.blocks, d.blocks_revision (+1), d.blocks_source = 'datalab-backfill'
     d.parse_quality_score, d.parse_quality_at
     d.shadow_ink_uncovered_ratio, d.shadow_char_gain, d.shadow_chars, d.shadow_at
+    d.shadow_engine_mode
+    (blockless cohort only, and only for a Document that has no block layer:)
+    d.blocks, d.blocks_revision (+1), d.blocks_source = 'datalab-backfill'
 
 Usage:
     python -m scripts.backfill_blocks_datalab --dry-run          # select + preview
     python -m scripts.backfill_blocks_datalab --notice-type single
     python -m scripts.backfill_blocks_datalab --limit 20
-Options: --concurrency 8  --flush-every 10
+
+    # the legacy-MinerU shadow pass
+    python -m scripts.backfill_blocks_datalab --cohort legacy-mineru --dry-run
+    python -m scripts.backfill_blocks_datalab --cohort legacy-mineru --limit 25
+Options: --concurrency 8  --flush-every 10  --before 2026-07-22
 
 Auth: NEO4J_URI/USERNAME/PASSWORD(/DATABASE) + DATALAB_API_KEY.
 """
@@ -64,13 +86,34 @@ from pipeline.mineru import assemble_markdown
 from scripts.score_ink_coverage import nq
 
 
-def select_targets(notice_type: str, limit: int | None) -> list[dict]:
-    """MinerU Documents with text, a raster source, and no block layer."""
-    where = ["(d.blocks IS NULL OR d.blocks = '')",
-             "d.markdown IS NOT NULL", "d.markdown <> ''",
+# Datalab became DESCRIPTION_OCR_ENGINE's default on this date; MinerU markdown
+# loaded before it is legacy output nobody has compared against Datalab.
+LEGACY_CUTOFF = "2026-07-22"
+
+
+def select_targets(notice_type: str, limit: int | None, *,
+                   cohort: str = "blockless",
+                   before: str = LEGACY_CUTOFF) -> list[dict]:
+    """Documents with text and a raster source, narrowed by ``cohort``.
+
+    ``blockless``     — no block layer yet (the original target set).
+    ``legacy-mineru`` — still on MinerU markdown loaded before ``before``, and
+                        never measured against Datalab (no ``shadow_char_gain``).
+                        Includes Documents that already have blocks; those keep
+                        them (``write_back`` writes measurements only).
+    """
+    where = ["d.markdown IS NOT NULL", "d.markdown <> ''",
              "d.public_url IS NOT NULL",
              "toLower(d.public_url) =~ '.*\\\\.(png|jpg|jpeg|webp)$'"]
     params: dict = {}
+    if cohort == "legacy-mineru":
+        where += ["d.markdown_source = 'mineru'",
+                  "d.markdown_loaded_at IS NOT NULL",
+                  "date(d.markdown_loaded_at) < date($before)",
+                  "d.shadow_char_gain IS NULL"]
+        params["before"] = before
+    else:
+        where.append("(d.blocks IS NULL OR d.blocks = '')")
     if notice_type != "all":
         where.append("coalesce(d.notice_type,'unknown') = $nt")
         params["nt"] = notice_type
@@ -79,14 +122,17 @@ def select_targets(notice_type: str, limit: int | None) -> list[dict]:
         MATCH (d:Document)
         WHERE {' AND '.join(where)}
         RETURN d.file_path, d.filename, coalesce(d.notice_type,'unknown'),
-               d.public_url, size(d.markdown)
+               d.public_url, size(d.markdown),
+               (d.blocks IS NOT NULL AND d.blocks <> ''),
+               d.markdown_reextracted_at IS NOT NULL
         ORDER BY d.filename
         {'LIMIT $lim' if limit else ''}
         """,
         {**params, **({"lim": limit} if limit else {})},
     )
     return [{"file_path": r[0], "filename": r[1], "notice_type": r[2],
-             "public_url": r[3], "stored_chars": r[4]} for r in rows]
+             "public_url": r[3], "stored_chars": r[4],
+             "had_blocks": bool(r[5]), "human_edited": bool(r[6])} for r in rows]
 
 
 def _bid() -> str:
@@ -94,10 +140,15 @@ def _bid() -> str:
 
 
 def backfill_one(t: dict) -> dict:
-    """Re-OCR one notice for its blocks. Never raises."""
+    """Run one notice through Datalab for its blocks + measurements.
+
+    Blocks are needed either way: even where they are not written back, ink
+    coverage is scored against them. Never raises — a failure comes back as a
+    row with ``note`` set and no ``ok_to_write``.
+    """
     mode = datalab_mode_for(t["notice_type"])
     out = {**t, "mode": mode, "blocks": None, "pq": None, "ratio": None,
-           "gain": None, "chars": None, "note": ""}
+           "gain": None, "chars": None, "note": "", "ink_skip": None}
     src: Path | None = None
     try:
         r = requests.get(t["public_url"], timeout=120)
@@ -108,8 +159,12 @@ def backfill_one(t: dict) -> dict:
             f.write(img)
         src = Path(name)
 
+        # skip_cache: on a cache hit Datalab replays a prior conversion without
+        # re-scoring it, so parse_quality_score comes back null (see
+        # datalab_api.parse_quality). The score is the point of a shadow pass.
         result = datalab_api.run_file(src, output_format="json", mode=mode,
-                                      timeout_s=900)
+                                      timeout_s=900,
+                                      extra={"skip_cache": "true"})
         _md, doc, _img = datalab_api.extract_payload(result)
         blocks = parse_datalab_blocks(doc)
         if not blocks:
@@ -123,6 +178,7 @@ def backfill_one(t: dict) -> dict:
         out["blocks"] = blocks
         out["pq"] = datalab_api.parse_quality(result)
         out["ratio"] = region["uncovered_ratio"]
+        out["ink_skip"] = (region.get("details") or {}).get("skipped")
         out["chars"] = len(text or "")
         stored = t["stored_chars"] or 0
         out["gain"] = round(out["chars"] / stored, 3) if stored else None
@@ -138,39 +194,73 @@ def backfill_one(t: dict) -> dict:
     return out
 
 
-def write_back(results: list[dict]) -> int:
-    """Persist the block layer + shadow measurements. Never writes markdown."""
-    rows = [{
+def write_back(results: list[dict]) -> tuple[int, int]:
+    """Persist shadow measurements, and blocks only where there are none.
+
+    Returns ``(rows_measured, rows_given_blocks)``.
+
+    A Document that already has a block layer keeps it. Its blocks may carry
+    human re-extractions (``source: "human"`` blocks written through the
+    annotator), and this pass is a measurement, not a verdict — overwriting
+    them would discard review work to record a number. So the block write is
+    split out and gated on ``had_blocks`` being false, which in the
+    ``legacy-mineru`` cohort is essentially never.
+    """
+    ok = [r for r in results if r.get("ok_to_write")]
+    if not ok:
+        return 0, 0
+    measured = [{
         "file_path": r["file_path"],
-        "blocks_json": json.dumps({"schema_version": 1, "blocks": r["blocks"]},
-                                  ensure_ascii=False),
         "pq": r["pq"], "ratio": r["ratio"], "gain": r["gain"], "chars": r["chars"],
-    } for r in results if r.get("ok_to_write")]
-    if not rows:
-        return 0
+        "mode": r["mode"],
+    } for r in ok]
     nq(
         """
         UNWIND $rows AS row
         MATCH (d:Document {file_path: row.file_path})
-        SET d.blocks                     = row.blocks_json,
-            d.blocks_revision            = coalesce(d.blocks_revision, 0) + 1,
-            d.blocks_source              = 'datalab-backfill',
-            d.parse_quality_score        = coalesce(row.pq, d.parse_quality_score),
+        SET d.parse_quality_score        = coalesce(row.pq, d.parse_quality_score),
             d.parse_quality_at           = CASE WHEN row.pq IS NULL
                                               THEN d.parse_quality_at ELSE datetime() END,
             d.shadow_ink_uncovered_ratio = row.ratio,
             d.shadow_char_gain           = row.gain,
             d.shadow_chars               = row.chars,
+            d.shadow_engine_mode         = row.mode,
             d.shadow_at                  = datetime()
         """,
-        {"rows": rows},
+        {"rows": measured},
     )
-    return len(rows)
+
+    new_blocks = [{
+        "file_path": r["file_path"],
+        "blocks_json": json.dumps({"schema_version": 1, "blocks": r["blocks"]},
+                                  ensure_ascii=False),
+    } for r in ok if not r.get("had_blocks")]
+    if new_blocks:
+        nq(
+            """
+            UNWIND $rows AS row
+            MATCH (d:Document {file_path: row.file_path})
+            WHERE d.blocks IS NULL OR d.blocks = ''
+            SET d.blocks          = row.blocks_json,
+                d.blocks_revision = coalesce(d.blocks_revision, 0) + 1,
+                d.blocks_source   = 'datalab-backfill'
+            """,
+            {"rows": new_blocks},
+        )
+    return len(measured), len(new_blocks)
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--cohort", choices=["blockless", "legacy-mineru"],
+                    default="blockless",
+                    help="blockless: Documents with no block layer (default). "
+                         "legacy-mineru: pre-cutoff MinerU notices never "
+                         "measured against Datalab (measurements only)")
+    ap.add_argument("--before", default=LEGACY_CUTOFF,
+                    help=f"legacy-mineru cutoff date (default {LEGACY_CUTOFF}, "
+                         "when Datalab became the default engine)")
     ap.add_argument("--notice-type", choices=["single", "multi", "unknown", "all"],
                     default="all", help="restrict to one tier (cost staging)")
     ap.add_argument("--limit", type=int, default=None)
@@ -184,21 +274,31 @@ def main() -> int:
         print("DATALAB_API_KEY not set")
         return 1
 
-    targets = select_targets(args.notice_type, args.limit)
+    targets = select_targets(args.notice_type, args.limit,
+                             cohort=args.cohort, before=args.before)
     by_type: dict[str, int] = {}
     for t in targets:
         by_type[t["notice_type"]] = by_type.get(t["notice_type"], 0) + 1
-    print(f"Selected {len(targets)} block-less Document(s)  by_type={by_type}")
+    keeping = sum(1 for t in targets if t["had_blocks"])
+    human = sum(1 for t in targets if t["human_edited"])
+    label = ("block-less" if args.cohort == "blockless"
+             else f"legacy-MinerU (pre-{args.before}, unmeasured)")
+    print(f"Selected {len(targets)} {label} Document(s)  by_type={by_type}")
+    print(f"  blocks kept as-is: {keeping}  (of which human-re-extracted: {human})"
+          f"   blocks to write: {len(targets) - keeping}")
     if args.dry_run or not targets:
         for t in targets[:20]:
             print(f"  {t['notice_type']:<7} {datalab_mode_for(t['notice_type']):<8} "
-                  f"{t['stored_chars']:>6} chars  {t['filename'][:50]}")
+                  f"{t['stored_chars']:>6} chars  "
+                  f"{'keep-blocks' if t['had_blocks'] else 'write-blocks':<12} "
+                  f"{t['filename'][:50]}")
         print("[dry-run] nothing written" if args.dry_run else "")
         return 0
 
     results: list[dict] = []
     pending: list[dict] = []
     wrote = 0
+    wrote_blocks = 0
     t0 = time.time()
     with ThreadPoolExecutor(max_workers=max(1, args.concurrency)) as pool:
         futs = {pool.submit(backfill_one, t): t for t in targets}
@@ -215,21 +315,49 @@ def main() -> int:
             else:
                 print(f"  [{i}/{len(targets)}] FAIL {r['note'][:60]}  {r['filename'][:36]}")
             if len(pending) >= args.flush_every:
-                wrote += write_back(pending)
+                m, b = write_back(pending)
+                wrote += m
+                wrote_blocks += b
                 pending = []
     if pending:
-        wrote += write_back(pending)
+        m, b = write_back(pending)
+        wrote += m
+        wrote_blocks += b
 
     ok = [r for r in results if r.get("ok_to_write")]
     gains = sorted(r["gain"] for r in ok if r["gain"])
-    print(f"\nBackfilled {wrote}/{len(targets)} in {(time.time()-t0)/60:.1f} min")
+    print(f"\nMeasured {wrote}/{len(targets)} in {(time.time()-t0)/60:.1f} min  "
+          f"(block layers written: {wrote_blocks})")
     if gains:
-        big = [g for g in gains if g >= 1.5]
+        big = [r for r in ok if r["gain"] and r["gain"] >= 1.5]
         print(f"text gain vs stored markdown — min x{gains[0]}  "
               f"median x{gains[len(gains)//2]}  max x{gains[-1]}")
         print(f"{len(big)} notice(s) where Datalab read >=1.5x the stored text "
-              f"(candidates for promotion + re-extract)")
+              f"(candidates for promotion + re-extract):")
+        for r in sorted(big, key=lambda r: -r["gain"])[:20]:
+            print(f"    x{r['gain']:<6} {r['stored_chars']:>6} -> {r['chars']:<6} "
+                  f"{r['filename'][:50]}")
+    # A null ink ratio is banked as a completed measurement — the cohort filter
+    # keys on shadow_char_gain, so these notices never come back round. When the
+    # cause is environmental (Pillow missing, an unreadable download) that is a
+    # silent hole in the sweep, so say so loudly rather than leaving it in a
+    # column of "n/a".
+    skips: dict[str, int] = {}
+    for r in ok:
+        if r["ratio"] is None:
+            skips[r.get("ink_skip") or "unknown"] = \
+                skips.get(r.get("ink_skip") or "unknown", 0) + 1
+    if skips:
+        print(f"\nWARNING: {sum(skips.values())} notice(s) recorded no ink "
+              f"coverage: {skips}")
+        if any(s.startswith("unreadable-image: ModuleNotFoundError")
+               for s in skips):
+            print("  'ModuleNotFoundError' means Pillow is missing — install it "
+                  "and re-measure these, or the sweep has a hole in it.")
+
     print("markdown and extraction_json untouched — no re-extraction triggered")
+    if wrote_blocks == 0:
+        print("existing block layers left intact — human re-extractions preserved")
     return 0
 
 
