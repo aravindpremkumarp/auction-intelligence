@@ -33,6 +33,12 @@ The result feeds ``ocr_health.score_ocr_health(markdown, region=…)``, which ad
 the ``missing-region`` flag and its penalty — so a flagged doc surfaces in the
 same review queue and routes to the same crop + re-ingest path as every other
 OCR failure mode.
+
+The same tile grid answers a second question the markdown cannot: *where the
+page's columns are*. :func:`page_columns` reads them off the ink as the
+full-height whitespace channels between text, which is what
+``pipeline/block_order.py`` needs to know whether the parser emitted its blocks
+in reading order. Coverage itself never uses it — it is layout, not coverage.
 """
 from __future__ import annotations
 
@@ -106,6 +112,24 @@ MISSING_REGION_MIN_RATIO = 0.12
 # Below this much total ink the page is blank/near-blank (a scan of an empty
 # page, a photo) and the ratio is meaningless — return unscorable instead.
 MIN_TOTAL_INK = 50.0
+
+# ── page columns (read by pipeline/block_order.py) ──────────────────────────
+# A tile column reads as text when more than this share of its tiles carry ink.
+# Deliberately above zero: a gutter on these notices is not pristine white, the
+# page border and a header/footer rule cross it. 5% of the page height is a
+# handful of such crossings — while a real text column inks a third of its
+# tiles or more, so the two never trade places. The cost of this tolerance is
+# the heavily-ruled notice: a dozen full-width rules ink the gutter past 5% and
+# the page reads as one column. That is the safe way to be wrong — a fully
+# ruled notice is a table, whose cells are not independent columns anyway.
+GUTTER_MAX_OCCUPANCY = 0.05
+# A whitespace channel must be this wide (share of page width) to be counted as
+# separating columns. Cell padding inside a table grid is far narrower; a real
+# column gutter on these notices runs 3–6%.
+MIN_GUTTER_FRAC = 0.025
+# ...and each resulting column at least this wide, else it is a marginal strip
+# (a rule, a stamp, a page number) and gets folded into its neighbour.
+MIN_COLUMN_FRAC = 0.10
 
 
 def _shift(mask, dx: int, dy: int):
@@ -465,4 +489,87 @@ def score_ink_coverage(image_bytes: bytes | None, blocks: list[dict] | None,
         "worst_column": _worst_third(ink, covered, tw, th, vertical=False),
         "worst_band": _worst_third(ink, covered, tw, th, vertical=True),
     }
+    return out
+
+
+# ── page layout ─────────────────────────────────────────────────────────────
+
+def _inked_runs(ink: list[float], tw: int, th: int) -> list[list[int]]:
+    """Maximal runs of tile columns whose ink occupancy clears the gutter cut.
+
+    Occupancy — the *share of a column's tiles that carry ink*, not their ink
+    mass — is the measure that separates a gutter from text. Mass would let one
+    heavy full-width rule outweigh a whole column of light type; occupancy asks
+    only "does ink appear down the height of this strip", which is exactly what
+    a column does and a gutter does not.
+    """
+    runs: list[list[int]] = []
+    for tx in range(tw):
+        hits = sum(1 for ty in range(th) if ink[ty * tw + tx] >= INK_TILE_MIN)
+        if hits / th <= GUTTER_MAX_OCCUPANCY:
+            continue
+        if runs and tx == runs[-1][1] + 1:
+            runs[-1][1] = tx
+        else:
+            runs.append([tx, tx])
+    return runs
+
+
+def page_columns(image_bytes: bytes | None) -> dict:
+    """Where the page's text columns are, read off the ink itself.
+
+    Returns ``{"columns": [[x0, x1], …], "skipped": str|None}``, columns
+    left-to-right in normalized page coordinates. A single-column notice yields
+    one entry, not zero — "one column" is a real answer, and the caller should
+    not have to distinguish it from a failure to measure.
+
+    Detecting the layout beats assuming it. ``scripts/fix_missing_regions.py``
+    slots recovered blocks into reading order by splitting the page into fixed
+    thirds (``_column_band``); that is fine for placing one block, but a notice
+    whose columns split at 40/60 puts the boundary in the wrong third, and a
+    single-column notice gets three bands that do not exist. Here the gutters
+    come from the page.
+    """
+    out: dict = {"columns": [], "skipped": None}
+    if not image_bytes:
+        out["skipped"] = "no-image"
+        return out
+    try:
+        ink, tw, th = _tile_ink(image_bytes)
+    except Exception as e:                       # unreadable/corrupt image
+        out["skipped"] = f"unreadable-image: {type(e).__name__}"
+        return out
+
+    runs = _inked_runs(ink, tw, th)
+    if not runs:
+        out["skipped"] = "no-inked-columns"
+        return out
+
+    # Close every gap too narrow to be a column gutter (word spacing that lined
+    # up down the page, cell padding inside a grid).
+    min_gutter = max(2, int(MIN_GUTTER_FRAC * tw))
+    cols: list[list[int]] = [list(runs[0])]
+    for r in runs[1:]:
+        if r[0] - cols[-1][1] - 1 < min_gutter:
+            cols[-1][1] = r[1]
+        else:
+            cols.append(list(r))
+
+    # Fold away strips too narrow to be a column, absorbing the gutter next to
+    # them. Merging into the *closer* neighbour keeps a marginal rule with the
+    # column it belongs to rather than jumping the page.
+    min_col = max(1, int(MIN_COLUMN_FRAC * tw))
+    while len(cols) > 1:
+        i = min(range(len(cols)), key=lambda k: cols[k][1] - cols[k][0])
+        if cols[i][1] - cols[i][0] + 1 >= min_col:
+            break
+        left = cols[i][0] - cols[i - 1][1] if i else None
+        right = cols[i + 1][0] - cols[i][1] if i + 1 < len(cols) else None
+        j = i - 1 if right is None or (left is not None and left <= right) else i + 1
+        lo, hi = min(i, j), max(i, j)
+        cols[lo] = [cols[lo][0], cols[hi][1]]
+        del cols[hi]
+
+    out["columns"] = [[round(a / tw, 3), round((b + 1) / tw, 3)] for a, b in cols]
+    out["tile_grid"] = [tw, th]
     return out

@@ -15,6 +15,13 @@ Writes (only when a document is actually scored):
     d.ink_coverage_at       datetime
     d.ocr_health_score      re-scored, including the missing-region penalty
     d.ocr_health_flags      existing text flags + missing-region
+    d.block_order_ratio     float 0–1, only under --with-order
+
+``--with-order`` additionally runs ``pipeline.block_order.score_block_order``
+over the same image and blocks (no extra fetch) and folds its ``block-order``
+verdict into the health score. It is opt-in because that threshold, unlike the
+coverage one, has not been calibrated against the corpus — measure a slice with
+``--with-order --dry-run`` before letting it write.
 
 Health is recomputed from the stored markdown rather than patched, so a document
 that no longer trips a text flag loses it here too — the score always reflects
@@ -27,7 +34,7 @@ Usage:
     python -m scripts.score_ink_coverage --dry-run            # select + preview
     python -m scripts.score_ink_coverage --limit 20           # score 20, write
     python -m scripts.score_ink_coverage --all                # every doc with blocks
-Options: --since 2026-08-01  --concurrency 6  --only-unscored
+Options: --since 2026-08-01  --concurrency 6  --only-unscored  --with-order
 
 Auth: NEO4J_URI/USERNAME/PASSWORD(/DATABASE) in the environment.
 """
@@ -44,6 +51,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
 
+from pipeline.block_order import score_block_order
 from pipeline.ink_coverage import MISSING_REGION_MIN_RATIO, score_ink_coverage
 from pipeline.ocr_health import score_ocr_health
 
@@ -174,9 +182,10 @@ def select_targets(*, since_iso: str | None, limit: int | None,
 
 # ── scoring ─────────────────────────────────────────────────────────────────
 
-def score_one(t: dict) -> dict:
+def score_one(t: dict, *, with_order: bool = False) -> dict:
     """Measure one notice. Never raises — a failure is reported, not fatal."""
-    out = {**t, "ratio": None, "flags": [], "new_score": None, "note": ""}
+    out = {**t, "ratio": None, "order_ratio": None, "flags": [],
+           "new_score": None, "note": ""}
     out.pop("blocks_json", None)
     out.pop("markdown", None)
     try:
@@ -188,7 +197,12 @@ def score_one(t: dict) -> dict:
         if region["uncovered_ratio"] is None:
             out["note"] = str(region["details"].get("skipped") or "unscorable")
             return out
-        health = score_ocr_health(t.get("markdown"), region=region)
+        # Same bytes, same blocks — the order pass costs one more tile scan and
+        # no network.
+        order = score_block_order(r.content, blocks) if with_order else None
+        if order:
+            out["order_ratio"] = order["inversion_ratio"]
+        health = score_ocr_health(t.get("markdown"), region=region, order=order)
         out["ratio"] = region["uncovered_ratio"]
         out["flags"] = health["flags"]
         out["new_score"] = health["score"]
@@ -201,16 +215,21 @@ def score_one(t: dict) -> dict:
 
 def write_back(results: list[dict]) -> int:
     rows = [{"file_path": r["file_path"], "ratio": r["ratio"],
+             "order_ratio": r.get("order_ratio"),
              "score": r["new_score"], "flags": r["flags"]}
             for r in results if r.get("ok_to_write")]
     if not rows:
         return 0
     nq(
+        # coalesce on the order ratio: a run without --with-order (or a doc
+        # whose layout was unreadable) must leave an earlier measurement alone
+        # rather than null it out.
         """
         UNWIND $rows AS row
         MATCH (d:Document {file_path: row.file_path})
         SET d.ink_uncovered_ratio = row.ratio,
             d.ink_coverage_at     = datetime(),
+            d.block_order_ratio   = coalesce(row.order_ratio, d.block_order_ratio),
             d.ocr_health_score    = row.score,
             d.ocr_health_flags    = row.flags,
             d.ocr_health_at       = datetime()
@@ -238,6 +257,10 @@ def main() -> int:
                     help="re-measure backfilled docs (Datalab blocks over MinerU "
                          "markdown) into shadow_ink_uncovered_ratio; never touches "
                          "ocr_health")
+    ap.add_argument("--with-order", action="store_true",
+                    help="also score reading order (pipeline/block_order.py) and "
+                         "fold the block-order flag into health; opt-in because "
+                         "its threshold is not corpus-calibrated yet")
     ap.add_argument("--concurrency", type=int, default=6)
     args = ap.parse_args()
 
@@ -258,7 +281,8 @@ def main() -> int:
     results: list[dict] = []
     flagged = 0
     with ThreadPoolExecutor(max_workers=max(1, args.concurrency)) as pool:
-        futs = {pool.submit(score_one, t): t for t in targets}
+        futs = {pool.submit(score_one, t, with_order=args.with_order): t
+                for t in targets}
         for i, fut in enumerate(as_completed(futs), 1):
             r = fut.result()
             results.append(r)
@@ -268,10 +292,16 @@ def main() -> int:
             hit = "missing-region" in r["flags"]
             flagged += hit
             worst = r.get("worst") or {}
+            order = ""
+            if args.with_order:
+                ratio = r.get("order_ratio")
+                order = ("  order    -" if ratio is None
+                         else f"  order {ratio:5.1%}"
+                               + ("!" if "block-order" in r["flags"] else " "))
             print(f"  [{i}/{len(targets)}] unread {r['ratio']:6.1%}  "
                   f"health {str(r['old_score']):>3}->{str(r['new_score']):>4}  "
                   f"{'FLAG' if hit else '  ok'}  "
-                  f"{(worst.get('where') or '') if hit else '':<6} "
+                  f"{(worst.get('where') or '') if hit else '':<6}{order} "
                   f"{r['filename'][:44]}")
 
     scored = [r for r in results if r["ratio"] is not None]
@@ -280,6 +310,14 @@ def main() -> int:
         ratios = sorted(r["ratio"] for r in scored)
         print(f"unread ink — min {ratios[0]:.1%}  median "
               f"{ratios[len(ratios)//2]:.1%}  max {ratios[-1]:.1%}")
+    if args.with_order:
+        measured = sorted(r["order_ratio"] for r in scored
+                          if r.get("order_ratio") is not None)
+        bad = sum(1 for r in results if "block-order" in (r.get("flags") or []))
+        print(f"reading order — scorable {len(measured)}/{len(scored)}  "
+              f"flagged {bad}"
+              + (f"  median {measured[len(measured)//2]:.1%}  "
+                 f"max {measured[-1]:.1%}" if measured else ""))
     if args.dry_run:
         print("[dry-run] nothing written")
         return 0
