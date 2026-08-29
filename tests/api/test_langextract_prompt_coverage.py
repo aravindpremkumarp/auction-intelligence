@@ -338,14 +338,22 @@ def test_guide_names_the_classes_that_get_this_wrong_and_the_way_out():
     assert "attrs" in guide
 
 
-# ── the closed class set ────────────────────────────────────────────────────
-# 545 entities across 18 notices were emitted under classes that do not exist —
-# and every one of them was a key from LangExtract's own output envelope
-# (`extraction_text`, `extraction_class`, `extraction_type`, `entity`, `class`,
-# `entity_type`), plus one plain typo, `bororrower`. The model was describing
-# the wrapper instead of filling it. `liq-117768686886833.jpg` came back 210
-# junk entities out of 226. Nothing downstream reads those classes, so the facts
-# inside them are dropped in silence.
+# ── never name a bad class in the prompt ────────────────────────────────────
+# A rule was added telling the model the class set was closed and naming the
+# output-envelope keys it must never use: extraction_text, extraction_class,
+# extraction_type, entity, entity_type, class. It backfired, hard. On the
+# 39 multi-lot notices of pilot batch B27 the share of entities carrying a
+# non-existent class went from 1.3% to 53.7%, and 98.9% of that junk was
+# spelled exactly like one of the names the rule had written down.
+# `extraction_class` — a class that appeared ZERO times in the corpus before
+# the rule existed — became the single most common one at 1,635 entities.
+# The admonition to spell classes correctly produced `full_desscription`,
+# `identifer`, `outstending` and `sched ule` the same way.
+#
+# Naming a token in the prompt makes the model likelier to emit it, and a
+# negation does not reverse that. So the guide must not carry examples of bad
+# classes, however it phrases the warning. The durable fix for unknown classes
+# is a guard in code, not prose the model can pattern-match on.
 
 def _declared_classes() -> list[str]:
     """The class names the guide actually defines, read off its bullet list."""
@@ -355,35 +363,30 @@ def _declared_classes() -> list[str]:
     return found
 
 
-def test_the_closed_set_lists_every_class_the_guide_declares():
-    """The enumeration and the declarations must not drift apart. A class added
-    above but missing from the list reads to the model as not allowed; one
-    listed but never defined is a class with no meaning."""
+def test_guide_never_names_an_envelope_key():
+    """These have no legitimate use anywhere in the guide — the only reason one
+    would appear is a rule warning against it, which is what caused the
+    regression."""
+    guide = _guide_text()
+    for key in ("extraction_class", "extraction_type", "entity_type",
+                "extraction_entity"):
+        assert key not in guide, (
+            f"{key!r} is written into the prompt; naming it is what taught the "
+            "model to emit it (see pilot B27)")
+
+
+def test_guide_names_no_misspelled_class():
+    """A near-miss spelling in the prompt primes the same near-miss in the
+    output. Every declared class must appear only in its correct form."""
+    guide = _guide_text()
+    for bad in ("full_desscription", "identifer", "outstending", "bororrower",
+                "sec_creditor"):
+        assert bad not in guide, f"{bad!r} must never appear in the guide"
+
+
+def test_guide_still_gives_unlisted_facts_a_home():
+    """Dropping the closed-set rule must not drop the one part of it that was
+    positive guidance — where a fact goes when no class fits."""
     conventions = _guide_text().split("CONVENTIONS:", 1)[1]
-    closed = conventions.split("- extraction_text MUST", 1)[0]
-    for cls in _declared_classes():
-        assert cls in closed, f"{cls} is declared but missing from the closed set"
-
-
-def test_the_closed_set_is_stated_as_closed():
-    guide = _guide_text()
-    assert "CLOSED" in guide
-    assert "extras" in guide, "the model needs somewhere to put an unlisted fact"
-
-
-def test_guide_forbids_the_output_envelope_keys_as_classes():
-    """Every junk class observed in production was one of these. Naming them is
-    the point — a generic 'do not invent classes' rule was already implied by
-    'EXACTLY these extraction classes' and did not stop it."""
-    guide = _guide_text()
-    for key in ("extraction_text", "extraction_class", "extraction_type",
-                "entity_type", "entity"):
-        assert key in guide, f"{key} is not named as a forbidden class"
-
-
-def test_guide_says_what_an_invented_class_costs():
-    """Without the consequence the rule is a style note. Unknown classes are
-    dropped whole, so the model has to know the fact dies with the label."""
-    guide = _guide_text().lower()
-    assert "discarded" in guide or "discard" in guide
-    assert "misspelling" in guide or "typo" in guide
+    assert "extras" in conventions
+    assert "extras" in _declared_classes()
