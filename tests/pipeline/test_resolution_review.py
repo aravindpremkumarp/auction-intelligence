@@ -32,25 +32,28 @@ def test_pair_key_ignores_order_and_spelling_of_the_canonical():
 
 def test_approved_merge_survives_a_fresh_resolution_run():
     """The whole point: the human approves once, and every later run applies
-    it before proposing anything."""
-    decisions = [_decision("bank-merge",
-                           {"a": "Piramal Finance Ltd", "b": "Pirama Finance Ltd"},
-                           "approved")]
+    it before proposing anything.
+
+    The example is a name carrying its own abbreviation. Neither auto-merge
+    tier can join it — the token sets differ, and the difference is a whole
+    extra token rather than a misread one, which is exactly the shape
+    ``ocr_variant_of`` refuses on purpose. So it needs a human, which is what
+    this test is about."""
+    full = "Asset Reconstruction Company (India) Limited"
+    abbrev = "Asset Reconstruction Company (India) Limited (ARCIL)"
+    decisions = [_decision("bank-merge", {"a": full, "b": abbrev}, "approved")]
     # A "fresh run" — resolve from raw counts, as the script does nightly.
-    res = resolve(Counter({"Piramal Finance Ltd": 9, "Pirama Finance Ltd": 1,
-                           "Canara Bank": 240}))
-    assert len(res["groups"]) == 3          # the rule alone cannot join them
+    res = resolve(Counter({full: 28, abbrev: 4, "Canara Bank": 240}))
+    assert len(res["groups"]) == 3          # no rule alone can join them
     merged = apply_bank_merges(res, decisions)
     assert len(merged["groups"]) == 2
-    top = next(g for g in merged["groups"] if "Piramal" in g["canonical"])
-    assert top["count"] == 10
+    top = next(g for g in merged["groups"] if "Reconstruction" in g["canonical"])
+    assert top["count"] == 32
     assert top["merged_by_decision"] == 1
-    assert merged["by_value"]["Pirama Finance Ltd"] == "Piramal Finance Ltd"
+    assert merged["by_value"][abbrev] == full
     # ...and the settled pair leaves the proposal queue.
     proposals = filter_proposals(propose_merges(res["groups"]), decisions)
-    assert not any({p["a"], p["b"]} ==
-                   {"Piramal Finance Ltd", "Pirama Finance Ltd"}
-                   for p in proposals)
+    assert not any({p["a"], p["b"]} == {full, abbrev} for p in proposals)
 
 
 def test_rejected_pair_is_never_asked_again_and_never_merged():
