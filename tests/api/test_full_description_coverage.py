@@ -102,3 +102,34 @@ def test_stats_expose_coverage_counts():
     stats = validate(ex)["stats"]
     assert stats["full_description_incomplete_lots"] == 1
     assert stats["lots_missing_full_description"] == 0
+
+
+# ── lot_index arrives as a number as readily as a string ────────────────────
+# The prompt asks for `lot_index=N`, and the model obliges with a JSON number
+# about as often as a string. The "1" default here is a string, so a notice
+# carrying both used to make `sorted(missing_fd)` raise
+# `'<' not supported between instances of 'int' and 'str'` — which is not a
+# flagged issue but an exception, so load_extractions counted the whole
+# document as failed and wrote nothing. That is exactly how
+# 47bde643-ce3d-45fe-8c0f-6030a96f566c17820352146257.jpg was lost from batch
+# B30. pipeline.apply_extractions.group_lots has always normalised with str();
+# these pin the validator to the same rule.
+
+def test_numeric_and_string_lot_index_do_not_crash_the_validator():
+    ex = [E("property", 100, 180, lot="1"), E("property", 400, 480, lot=2)]
+    cov = full_description_coverage(ex)          # must not raise
+    assert cov["lots_missing_full_description"] == ["1", "2"]
+
+
+def test_numeric_lot_index_is_the_same_lot_as_its_string_form():
+    """1 and "1" are one lot, not two. Before the fix the set held both and
+    every per-lot count downstream was inflated."""
+    ex = [E("full_description", 100, 300, lot=1), E("property", 100, 180, lot="1")]
+    cov = full_description_coverage(ex)
+    assert cov["lots_with_description"] == 1
+    assert cov["lots_missing_full_description"] == []
+
+
+def test_validate_counts_one_lot_for_mixed_index_types():
+    ex = [E("property", 100, 180, lot=1), E("location", 200, 240, lot="1")]
+    assert validate(ex)["stats"]["lots"] == 1
