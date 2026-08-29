@@ -386,6 +386,10 @@ def calibrate(rows: list[dict], markdown: dict[str, str]) -> None:
                         c[1] += o >= TEXT_DUPLICATE_MIN
                     break
     print(f"\n{len(d)} distinct pages, {len(d) * (len(d) - 1) // 2} pairs")
+    print("Text agreement corroborates, it does not adjudicate: two of the "
+          "corpus's confirmed\nsame-page pairs are bad scans whose OCR agrees "
+          "only ~0.70, so this column\nundercounts near the threshold. Read a "
+          "band's pairs before moving the line on it.\n")
     print(f"{'ink distance':>16}  {'pairs':>9}  {'text agrees':>12}")
     for lo, hi in bands:
         pairs, agree, scored = counts[(lo, hi)]
