@@ -8,7 +8,8 @@ from __future__ import annotations
 from collections import Counter
 
 from pipeline.entity_resolution import (
-    canonical_label, normalize, org_key, propose_merges, resolve,
+    canonical_label, normalize, ocr_variant_of, org_key, propose_merges,
+    resolve,
 )
 
 
@@ -79,18 +80,91 @@ def test_resolve_groups_and_maps_every_variant():
     assert res["by_value"]["Bank of India"] == "Bank of India"
 
 
-def test_propose_merges_finds_ocr_damage_and_stays_advisory():
-    # "Pirama" is "Piramal" with a letter dropped by OCR: a different token set,
-    # so only similarity can surface it — as a proposal, never a merge.
+def test_resolve_absorbs_one_misread_token():
+    """"Pirama" is "Piramal" with a letter dropped by OCR. The token set differs,
+    so the equality rule cannot see it — the second auto-merge tier can."""
     res = resolve(Counter({"Piramal Finance Ltd": 9, "Pirama Finance Ltd": 1,
                            "Canara Bank": 240}))
+    assert len(res["groups"]) == 2
+    assert res["by_value"]["Pirama Finance Ltd"] == "Piramal Finance Ltd"
+    # The unrelated name keeps its own group.
+    assert res["by_value"]["Canara Bank"] == "Canara Bank"
+
+
+def test_every_ocr_pair_in_the_corpus_merges():
+    """The four the review queue used to carry, plus the two OCR pairs found
+    while labelling the corpus. All are one damaged token."""
+    pairs = [
+        ("ICICI Bank Limited", "IICI Bank Limited"),
+        ("The Karur Vysya Bank Ltd", "The Kanur Vysya Bank Ltd"),
+        ("The Karur Vysya Bank Ltd", "The Karur Vyssa Bank Ltd."),
+        ("Manappuram Home Finance Ltd", "Manapouram Home Finance Ltd"),
+        ("IFL Home Finance Limited", "IFIL Home Finance Limited"),
+        ("Hinduja Housing Finance Limited", "Hindu Housing Finance Limited"),
+        ("Vistaar Financial Services Private Limited",
+         "Vista Financial Services Private Limited"),
+        ("Cholamandalam Investment and Finance Company Limited",
+         "CHOLAMANDAM INVESTMENT AND FINANCE COMPANY LIMITED"),
+    ]
+    for a, b in pairs:
+        assert ocr_variant_of(a, b), f"{a!r} should absorb {b!r}"
+
+
+def test_a_whole_extra_or_swapped_word_is_a_different_lender():
+    """Where the second tier must stop. Each pair scores high on plain string
+    similarity, and every one is two separate institutions."""
+    different = [
+        # The 92.9-similarity trap the review queue exists for.
+        ("Asset Reconstruction Company (India) Limited",
+         "India SME Asset Reconstruction Company Limited"),
+        # A lending arm and its housing-finance sibling, four times over.
+        ("Bajaj Finance Limited", "Bajaj Housing Finance Ltd"),
+        ("Aditya Birla Capital Limited", "Aditya Birla Housing Finance Limited"),
+        ("Hero Fincorp Limited", "Hero Housing Finance Limited"),
+        ("Tata Capital Limited", "Tata Capital Housing Finance Ltd"),
+        ("ICICI Bank Limited", "ICICI Home Finance Company Ltd."),
+        ("SMFG India Credit Co. Ltd.", "SMFG India Home Finance Co. Ltd."),
+        ("Punjab National Bank", "PNB Housing Finance Limited"),
+        ("Axis Bank Ltd", "Axis Finance Limited"),
+        ("Shriram Finance Limited", "Shriram Asset Reconstruction Private Limited"),
+        ("Hinduja Housing Finance Limited", "Hinduja Leyland Finance Limited"),
+        # One swapped word, and they are different public sector banks.
+        ("Bank of India", "Bank of Baroda"),
+        ("Punjab National Bank", "Punjab & Sind Bank"),
+    ]
+    for a, b in different:
+        assert not ocr_variant_of(a, b), f"{a!r} wrongly merged with {b!r}"
+
+
+def test_short_acronyms_need_a_relative_edit_budget():
+    """Two edits is noise inside "Cholamandalam" and a different bank inside
+    "CSB". Without the relative budget these merge into one lender."""
+    assert not ocr_variant_of("CSB Bank Limited", "DCB Bank Ltd")
+    assert not ocr_variant_of("UCO Bank", "DCB Bank Ltd")
+    assert not ocr_variant_of("ICICI Bank Limited", "IDBI Bank Ltd")
+    # ...and the genuine one-letter damage on the same-length token still lands.
+    assert ocr_variant_of("ICICI Bank Limited", "IICI Bank Limited")
+
+
+def test_propose_merges_stays_advisory_for_what_the_rules_cannot_decide():
+    # Similarity alone cannot tell these two ARCs apart, so they must reach a
+    # human as a proposal and never as a merge.
+    res = resolve(Counter({
+        "Asset Reconstruction Company (India) Limited": 28,
+        "India SME Asset Reconstruction Company Limited": 2}))
+    assert len(res["groups"]) == 2
     pairs = propose_merges(res["groups"])
-    assert any({p["a"], p["b"]} == {"Piramal Finance Ltd", "Pirama Finance Ltd"}
-               for p in pairs)
-    # Proposing is not merging: the groups are still separate.
-    assert len(res["groups"]) == 3
-    # An unrelated name is not dragged in.
-    assert not any("Canara Bank" in (p["a"], p["b"]) for p in pairs)
+    assert any({p["a"], p["b"]} == {
+        "Asset Reconstruction Company (India) Limited",
+        "India SME Asset Reconstruction Company Limited"} for p in pairs)
+
+
+def test_branch_names_never_get_the_ocr_tier():
+    """"ARM I" and "ARM II" are one edit apart and are two Chennai offices, so
+    the second tier is org-only. kind="branch" must merge on equality alone."""
+    res = resolve(Counter({"ARMB I, Chennai": 3, "ARMB II, Chennai": 2}),
+                  kind="branch")
+    assert len(res["groups"]) == 2
 
 
 def test_resolve_rejects_unsupported_kinds():

@@ -10,7 +10,7 @@ distinct ``bank_name`` strings stand for roughly 130 actual institutions. Until
 they are resolved, "every Canara Bank auction" misses the ones typed in caps and
 any count of lenders is inflated.
 
-Two tiers, and the split is the whole design:
+Three tiers, and the split is the whole design:
 
 **Auto-merge — normalized key equality.** Lowercase, unescape HTML (``&amp;``
 leaks in from table cells), drop punctuation, fold ``&`` to ``and``, strip legal
@@ -19,19 +19,30 @@ tokens. Only exact set equality merges. On the live corpus this absorbs 66
 spellings into 133 groups and, verified by hand, merges nothing that should stay
 apart.
 
-**Review queue — fuzzy similarity.** Everything else is a proposal for a human,
-never an automatic merge. The corpus shows why both halves are needed:
+**Auto-merge — one misread token** (:func:`ocr_variant_of`). Token-set equality
+cannot reach ``Pirama Finance`` / ``Piramal Finance``, ``IICI Bank`` /
+``ICICI Bank``, ``Kanur Vysya`` / ``Karur Vysya`` or ``Manapouram`` /
+``Manappuram``, because the damage changes the token itself. Dropping the
+tokens two names share and demanding the single leftover pair be within a tiny
+edit budget reaches all four, and still refuses the pairs below — a name that
+gains or swaps a whole word is a different company. Measured on 192
+hand-labelled names from the live corpus, this lifts recall from 0.72 to 0.84
+with precision unchanged at 1.00.
 
-  * real merges only fuzzy can find, all OCR damage —
-    ``Pirama Finance`` / ``Piramal Finance``, ``IICI Bank`` / ``ICICI Bank``,
-    ``Kanur Vysya`` / ``Karur Vysya``, ``Manapouram`` / ``Manappuram``;
-  * a trap at 92.9 similarity — ``Asset Reconstruction Company (India) Limited``
-    and ``India SME Asset Reconstruction Company Limited`` are different
-    companies.
+**Review queue — fuzzy similarity.** Everything else is a proposal for a human,
+never an automatic merge. The corpus shows why: at 92.9 similarity,
+``Asset Reconstruction Company (India) Limited`` and ``India SME Asset
+Reconstruction Company Limited`` are different companies. Auto-merging every
+proposal at or above 88 scores 0.96 precision against the same labels — six
+wrong merges, five of them that one pair — which is why the queue stays
+advisory.
 
 Substring containment is never used: ``Bank of India`` sits inside ``State Bank
 of India`` and ``Indian Bank`` inside ``The South Indian Bank Ltd``, and those
-are four separate banks.
+are four separate banks. Nor is whole-name similarity with spaces removed: it
+buys two more true pairs and 215 wrong ones, because ``AU Small Finance Bank``
+then reaches every other small finance bank and connected components chains
+them into a single lender.
 
 Place names (district / taluk / village / area / city) are the next kind to
 resolve. They need their own rules — a village is only the same village when its
@@ -126,6 +137,93 @@ def canonical_label(variants: dict[str, int]) -> str:
     return max(variants.items(), key=rank)[0]
 
 
+#: Absolute edit budget for one damaged token. Two edits is what turns
+#: "Cholamandalam" into "Cholamandam" or "Manappuram" into "Manapouram"; three
+#: starts reaching genuinely different words.
+OCR_MAX_EDIT = 2
+#: Relative edit budget for the same token, and the half that carries the
+#: weight. Two edits inside a fourteen-letter name is noise; two edits inside
+#: "CSB" produces "DCB", a different bank. This corpus is full of three- and
+#: four-letter lender acronyms (CSB / DCB / UCO, ICICI / IDBI), and an absolute
+#: budget alone merges them.
+OCR_MAX_RELATIVE = 0.30
+
+
+def _identity_tokens(value: str) -> set[str]:
+    """The tokens that carry identity: normalized, legal form and "the" gone.
+
+    Same treatment :func:`org_key` applies, returned as a set instead of a
+    joined string so callers can ask which tokens two names do NOT share.
+    """
+    s = _LEGAL_SUFFIX.sub(" ", _LEADING_THE.sub("", normalize(value)))
+    return {t for t in s.split() if t}
+
+
+def ocr_variant_of(a: str, b: str) -> bool:
+    """True when two names differ only by damage INSIDE a shared token.
+
+    This is the distinction the corpus actually turns on. OCR breaks characters
+    within a word — ``Karur`` read as ``Kanur``, ``ICICI`` as ``IICI``,
+    ``Piramal`` as ``Pirama`` — while a genuinely different company adds or
+    swaps a whole word: ``Asset Reconstruction Company (India)`` against
+    ``India SME Asset Reconstruction Company``, ``Bajaj Finance`` against
+    ``Bajaj Housing Finance``, ``Axis Bank`` against ``Axis Finance``.
+
+    So drop every token the two names share and require what is left to pair up
+    one-for-one within the edit budget. An unmatched extra token means a
+    different lender however alike the two strings look end to end, which is
+    what keeps this rule away from the 92.9-similarity trap that makes
+    :func:`propose_merges` advisory.
+
+    Measured against 192 hand-labelled names from the live corpus: recall rises
+    from 0.72 (token-set equality alone) to 0.84 with precision still at 1.00.
+    ``rapidfuzz`` is a pipeline dependency; without it this returns False, so
+    :func:`resolve` degrades to plain token-set equality rather than failing.
+    """
+    try:
+        from rapidfuzz.distance import DamerauLevenshtein
+    except ImportError:
+        return False
+    ta, tb = _identity_tokens(a), _identity_tokens(b)
+    only_a, only_b = sorted(ta - tb), sorted(tb - ta)
+    # Exactly one unmatched token a side. Zero means org_key already merged
+    # them; two or more is a different name, not a misread one.
+    if len(only_a) != 1 or len(only_b) != 1:
+        return False
+    x, y = only_a[0], only_b[0]
+    edit = DamerauLevenshtein.distance(x, y)
+    return (edit <= OCR_MAX_EDIT
+            and edit / max(len(x), len(y)) <= OCR_MAX_RELATIVE)
+
+
+def _merge_ocr_variants(buckets: dict[str, dict[str, int]]) -> dict[str, str]:
+    """Map each bucket key to the key of the bucket it belongs with.
+
+    Compares one representative per bucket (the most frequent spelling), so the
+    cost is quadratic in *distinct lenders* rather than in notices. At the
+    corpus's ~130 lenders that is a few thousand comparisons; if the lender
+    count ever reaches the thousands this needs a blocking step, because the
+    damaged-character case defeats every prefix or token block.
+    """
+    reps = {k: canonical_label(v) for k, v in buckets.items()}
+    parent = {k: k for k in buckets}
+
+    def find(k: str) -> str:
+        while parent[k] != k:
+            parent[k] = parent[parent[k]]
+            k = parent[k]
+        return k
+
+    keys = sorted(buckets)
+    for i, ka in enumerate(keys):
+        for kb in keys[i + 1:]:
+            if ocr_variant_of(reps[ka], reps[kb]):
+                ra, rb = find(ka), find(kb)
+                if ra != rb:
+                    parent[max(ra, rb)] = min(ra, rb)
+    return {k: find(k) for k in keys}
+
+
 def resolve(values: Counter | dict[str, int], *, kind: str = "org") -> dict:
     """Group name strings that mean the same thing.
 
@@ -133,6 +231,13 @@ def resolve(values: Counter | dict[str, int], *, kind: str = "org") -> dict:
     ``{"groups": [...], "by_value": {raw: canonical}}`` where each group carries
     its canonical label, its variants and a total count. Auto-merge only — the
     fuzzy proposals live in :func:`propose_merges`, which a human reviews.
+
+    Two auto-merge tiers, both exact enough to run unattended. Token-set
+    equality folds case, punctuation and legal form. :func:`ocr_variant_of`
+    then folds misread characters inside a shared token, which token-set
+    equality cannot see because the damage changes the token. Branch names get
+    the first tier only: ``ARM I`` and ``ARM II`` are two Chennai offices one
+    edit apart, so the second tier would merge different branches.
     """
     key_fns = {"org": org_key, "branch": branch_key}
     if kind not in key_fns:
@@ -144,6 +249,14 @@ def resolve(values: Counter | dict[str, int], *, kind: str = "org") -> dict:
         if not (raw or "").strip():
             continue
         buckets[key_fn(raw)][raw] = int(count)
+
+    if kind == "org":
+        target = _merge_ocr_variants(buckets)
+        if any(k != t for k, t in target.items()):
+            folded: dict[str, dict[str, int]] = defaultdict(dict)
+            for key, variants in buckets.items():
+                folded[target[key]].update(variants)
+            buckets = folded
 
     groups = []
     by_value: dict[str, str] = {}
