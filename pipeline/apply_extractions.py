@@ -58,6 +58,7 @@ from datetime import datetime, timezone
 
 from api.neo4j_client import run_query, run_read_query
 from pipeline.obs import get_logger
+from pipeline.price_agreement import check_document
 from pipeline.property_taxonomy import asset_category, classify_property_type
 from pipeline.resolution_review import lot_match_key
 from pipeline.text_overlap import description_overlap
@@ -763,6 +764,39 @@ def clear_stale_lot_matches(rows: list[dict]) -> int:
 
 # ── main ─────────────────────────────────────────────────────────────────────
 
+def write_price_findings(rows: list[dict]) -> int:
+    """Record every price disagreement on its listing, and clear the rest.
+
+    The flag is REBUILT each pass rather than merged: a finding is a statement
+    about the current extraction, so one whose price has since been corrected
+    must disappear. Clearing first and writing second means a listing never
+    carries a verdict the present data does not support.
+
+    Written onto :AuctionProperty rather than a node of its own because it is
+    one small fact about one listing, and every reader of it already has the
+    listing in hand.
+    """
+    run_query("""
+        MATCH (a:AuctionProperty) WHERE a.price_agreement IS NOT NULL
+        REMOVE a.price_agreement, a.price_agreement_ratio,
+               a.price_agreement_severity, a.price_agreement_at
+        RETURN count(a) AS cleared
+    """, {})
+    written = 0
+    for batch in chunked(rows, WRITE_CHUNK):
+        out = run_query("""
+            UNWIND $rows AS row
+            MATCH (a:AuctionProperty {auction_id: row.aid})
+            SET a.price_agreement = row.verdict,
+                a.price_agreement_ratio = row.ratio,
+                a.price_agreement_severity = row.severity,
+                a.price_agreement_at = datetime()
+            RETURN count(a) AS n
+        """, {"rows": batch})
+        written += (out[0].get("n") or 0) if out else 0
+    return written
+
+
 def run(limit: int | None = None, dry_run: bool = False) -> int:
     work = fetch_work(limit)
     print(f"Documents with grounded extraction: {len(work)}")
@@ -774,6 +808,7 @@ def run(limit: int | None = None, dry_run: bool = False) -> int:
     revert_rows: list[dict] = []
     lot_key_rows: list[dict] = []
     stale_key_rows: list[dict] = []
+    price_rows: list[dict] = []
     unmatched_out: list[dict] = []
     stats = defaultdict(int)
     human_skipped = 0
@@ -793,6 +828,11 @@ def run(limit: int | None = None, dry_run: bool = False) -> int:
         # clear_stale_lot_matches. Filled as the loop decides, subtracted at
         # the end.
         resolved_this_doc: set[str] = set()
+        # Two independently scraped prices for the same property; nothing
+        # compared them until now. See pipeline.price_agreement.
+        for finding in check_document(matches):
+            stats[f"price_{finding['verdict']}"] += 1
+            price_rows.append(dict(finding, filename=w["filename"]))
         for listing, lot, reason in matches:
             stats[f"match_{reason}"] += 1
             if lot["fields"]:
@@ -879,6 +919,7 @@ def run(limit: int | None = None, dry_run: bool = False) -> int:
           f"stale keys to clear: {len(stale_key_rows)}  "
           f"descriptions to revert: {len(revert_rows)}  "
           f"skipped (human-decided): {human_skipped}  "
+          f"price disagreements: {len(price_rows)}  "
           f"unmatched: {len(unmatched_out)}")
 
     if unmatched_out and not dry_run:
@@ -896,6 +937,7 @@ def run(limit: int | None = None, dry_run: bool = False) -> int:
         print("  DRY RUN — nothing written")
         return 0
 
+    npf = write_price_findings(price_rows)
     nf = write_fields(field_rows)
     nd = write_descriptions(desc_rows)
     nl = write_lot_matches(lot_key_rows)
@@ -909,7 +951,8 @@ def run(limit: int | None = None, dry_run: bool = False) -> int:
     print(f"  wrote fields to {nf} listings, descriptions to {nd} listings "
           f"(legacy human descriptions overwritten, backed up once), "
           f"lot key to {nl} listings, cleared {nc} stale lot key(s), "
-          f"reverted {nr} listings to portal text")
+          f"reverted {nr} listings to portal text, "
+          f"flagged {npf} price disagreement(s)")
     if nr < len(revert_rows):
         print(f"  NOTE: {len(revert_rows) - nr} withheld listings kept their old "
               f"description — no portal text to fall back on, or already "
