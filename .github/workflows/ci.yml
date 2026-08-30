@@ -47,6 +47,13 @@ jobs:
       # directives the review page needs). They were never in CI, so those
       # guards could rot silently — they're pure-stdlib and fast, so run them
       # here rather than leaving them as local-only.
+      #
+      # test_ink_coverage.py is named individually for the same reason. The
+      # rest of tests/pipeline is not green, so the directory can't go in
+      # wholesale, but the ink measure is the one part of it the API serves
+      # directly (the annotator's Ink tab) and it is where the missing-region
+      # threshold lives — a silent regression there mis-scores the review
+      # queue. Needs only Pillow + PyMuPDF, both already in requirements.lock.
       - name: Run API tests
         env:
           SUPABASE_URL: https://fake.supabase.co
@@ -54,7 +61,9 @@ jobs:
           APP_ENV: test
           RATELIMIT_DISABLED: "1"
           AUTH_ENABLED: "true"
-        run: pytest tests/api tests/scripts tests/test_vercel_config.py -q
+        run: >
+          pytest tests/api tests/scripts tests/test_vercel_config.py
+          tests/pipeline/test_ink_coverage.py -q
 
   # Live Razorpay test-mode E2E + real-Neo4j concurrency (design D4/D5).
   # REQUIRED: this job goes red when the RAZORPAY_* secrets are absent — the gate

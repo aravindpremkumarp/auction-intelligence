@@ -5157,24 +5157,51 @@
       }
     };
 
+    // Fade whatever backdrop got drawn, then lay the tiles over it.
+    const fadeThenPaint = () => {
+      ctx.fillStyle = 'rgba(255,255,255,0.68)';
+      ctx.fillRect(0, 0, cv.width, cv.height);
+      paint();
+    };
+
     // The page underneath, faded, so red reads as "this text was missed"
     // rather than as an abstract heat map. Tiles paint with or without it —
     // a source that won't load (expired URL, CORS) still leaves a usable map.
+    //
+    // A PDF never loads through `new Image()` at all, so it reuses the pdf.js
+    // document the stage already has rather than fetching the file again —
+    // which also sidesteps the R2 CORS proxying that load went through.
     ctx.fillStyle = '#fff';
     ctx.fillRect(0, 0, cv.width, cv.height);
-    if (d.public_url) {
+    if (ann.sourceKind === 'pdf' && ann.pdfDoc) {
+      drawInkPdfBackdrop(ctx, cv, d.page || ann.page)
+        .then(fadeThenPaint, paint);
+    } else if (d.public_url) {
       const img = new Image();
       img.onload = () => {
         ctx.drawImage(img, 0, 0, cv.width, cv.height);
-        ctx.fillStyle = 'rgba(255,255,255,0.68)';
-        ctx.fillRect(0, 0, cv.width, cv.height);
-        paint();
+        fadeThenPaint();
       };
       img.onerror = paint;
       img.src = d.public_url;
     } else {
       paint();
     }
+  }
+
+  // Paint one PDF page onto the ink canvas as its backdrop. Rendered offscreen
+  // at the page's own size and scaled into the tile canvas, so the backdrop
+  // lines up with the grid whatever resolution the server rendered at.
+  async function drawInkPdfBackdrop(ctx, cv, page) {
+    const pdfPage = await ann.pdfDoc.getPage(page);
+    const viewport = pdfPage.getViewport({ scale: 1 });
+    const off = document.createElement('canvas');
+    off.width = viewport.width;
+    off.height = viewport.height;
+    await pdfPage.render({
+      canvasContext: off.getContext('2d'), viewport,
+    }).promise;
+    ctx.drawImage(off, 0, 0, cv.width, cv.height);
   }
 
   function isSelected(id) { return ann.selectedIds.has(id); }

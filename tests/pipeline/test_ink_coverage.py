@@ -11,7 +11,11 @@ import pytest
 
 from pipeline.ink_coverage import (
     MISSING_REGION_MIN_RATIO,
+    PDF_MAX_EDGE_PX,
+    PDF_RENDER_SCALE,
     TILE_PX,
+    _is_pdf,
+    _render_pdf_page,
     coverage_map,
     score_ink_coverage,
 )
@@ -299,3 +303,123 @@ def test_coverage_map_omits_the_grids_when_the_page_is_unscorable():
         assert m["uncovered_ratio"] is None
         assert "ink" not in m and "covered" not in m
         assert m["details"].get("skipped")
+
+
+# ── PDF sources ─────────────────────────────────────────────────────────────
+# A notice arrives as a scan or as a PDF, and the measure has to answer the
+# same question either way. Before PDFs were rendered here, every one of them
+# came back "unreadable-image" — the annotator's Ink tab said the source was
+# unsupported and the corpus scorer left ink_uncovered_ratio null.
+
+def _pdf(pages: list[bytes]) -> bytes:
+    """A PDF whose pages are the given rasters, one image per page.
+
+    Each page box is sized so ``PDF_RENDER_SCALE`` renders it back to exactly
+    the raster's own pixel dimensions. That makes the PDF and raster readings
+    directly comparable: any difference is the PDF path, not a resolution
+    change (the tile constants carry absolute-pixel floors, so a page rendered
+    at another scale is honestly a different measurement).
+    """
+    fitz = pytest.importorskip("fitz", reason="PDF coverage needs PyMuPDF")
+    doc = fitz.open()
+    try:
+        for raster in pages:
+            pg = doc.new_page(width=W / PDF_RENDER_SCALE,
+                              height=H / PDF_RENDER_SCALE)
+            pg.insert_image(pg.rect, stream=raster)
+        return doc.tobytes()
+    finally:
+        doc.close()
+
+
+def test_a_pdf_reads_the_same_as_the_raster_of_the_same_page():
+    """The bug this covers: a PDF notice was never measured at all."""
+    ink = [(0.05, 0.10, 0.95, 0.55), (0.05, 0.60, 0.95, 0.95)]
+    raster = _page(ink)
+    blocks = [_block(0.03, 0.08, 0.97, 0.57)]      # lower band unread
+
+    from_raster = score_ink_coverage(raster, blocks)
+    from_pdf = score_ink_coverage(_pdf([raster]), blocks)
+
+    assert from_pdf["details"].get("skipped") is None
+    assert from_pdf["flag"] is from_raster["flag"] is True
+    assert from_pdf["uncovered_ratio"] == from_raster["uncovered_ratio"]
+    assert from_pdf["patch_ratio"] == from_raster["patch_ratio"]
+    assert from_pdf["details"]["worst_band"]["where"] == "bottom"
+
+
+def test_a_pdf_page_ships_the_same_grids_a_raster_does():
+    """The Ink tab paints these, so the map has to survive the PDF path."""
+    m = coverage_map(_pdf([_page([(0.05, 0.10, 0.95, 0.95)])]),
+                     [_block(0.03, 0.08, 0.97, 0.52)])
+
+    assert m["tile_px"] == TILE_PX
+    assert len(m["ink"]) == len(m["covered"]) == m["tile_w"] * m["tile_h"]
+    unread = [i for i, v in enumerate(m["ink"])
+              if v >= m["ink_min"] * 255 and not m["covered"][i]]
+    assert unread
+    assert min(i // m["tile_w"] for i in unread) > m["tile_h"] * 0.5
+
+
+def test_the_page_argument_selects_which_pdf_page_is_rendered():
+    """Page 2's blocks must be measured against page 2's ink, not page 1's."""
+    doc = _pdf([_page([(0.05, 0.05, 0.95, 0.95)]),    # p1: ink everywhere
+                _page([(0.05, 0.60, 0.95, 0.95)])])   # p2: ink only low down
+    covers_p2 = [_block(0.03, 0.58, 0.97, 0.97, page=2)]
+
+    assert score_ink_coverage(doc, covers_p2, page=2)["uncovered_ratio"] == 0.0
+    # The same box against page 1 leaves that page's upper two thirds unread,
+    # which is only true if page 1 is what actually got rendered.
+    on_p1 = score_ink_coverage(
+        doc, [_block(0.03, 0.58, 0.97, 0.97, page=1)], page=1)
+    assert on_p1["flag"] is True
+    assert on_p1["details"]["worst_band"]["where"] == "top"
+
+
+def test_a_page_the_pdf_does_not_have_says_so():
+    """A distinct reason, not a generic decode failure: the reviewer needs to
+    know the page is absent rather than the file broken."""
+    out = score_ink_coverage(_pdf([_page([(0.1, 0.1, 0.9, 0.9)])]),
+                             [_block(0.1, 0.1, 0.9, 0.9, page=4)], page=4)
+
+    assert out["flag"] is False
+    assert out["uncovered_ratio"] is None
+    assert out["details"]["skipped"] == "page-out-of-range"
+
+
+def test_a_corrupt_pdf_is_reported_not_raised():
+    pytest.importorskip("fitz", reason="PDF coverage needs PyMuPDF")
+    out = score_ink_coverage(b"%PDF-1.7\nshredded", [_block(0, 0, 1, 1)])
+
+    assert out["uncovered_ratio"] is None
+    assert out["details"]["skipped"].startswith("unreadable-pdf")
+
+
+def test_a_pdf_is_recognised_by_its_header_not_its_name():
+    """Bytes come from R2, where the extension is a convention. A PDF stored
+    under an image name still has to measure."""
+    raster = _page([(0.05, 0.10, 0.95, 0.95)])
+    blocks = [_block(0.03, 0.08, 0.97, 0.97)]
+
+    assert _is_pdf(_pdf([raster]))
+    assert not _is_pdf(raster)
+    assert score_ink_coverage(_pdf([raster]), blocks)["uncovered_ratio"] == 0.0
+
+
+def test_an_oversized_page_box_is_rendered_within_the_pixel_cap():
+    """One page is held in memory as pixels, so a broadsheet-sized page box
+    scales down rather than rendering to whatever 2x happens to be."""
+    fitz = pytest.importorskip("fitz", reason="PDF coverage needs PyMuPDF")
+    doc = fitz.open()
+    try:
+        doc.new_page(width=6000, height=4000)       # 2x would be 12000px wide
+        huge = doc.tobytes()
+    finally:
+        doc.close()
+
+    png = _render_pdf_page(huge, 1)
+    from PIL import Image
+    with Image.open(io.BytesIO(png)) as im:
+        assert max(im.width, im.height) <= PDF_MAX_EDGE_PX
+        # Still rendered at the cap, not shrunk past it.
+        assert max(im.width, im.height) > PDF_MAX_EDGE_PX * 0.9
