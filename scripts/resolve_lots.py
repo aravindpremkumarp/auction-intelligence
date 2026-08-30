@@ -1,35 +1,37 @@
 """
 scripts/resolve_lots.py
 ------------------------
-Give every listing on a multi-lot sale notice its specific lot, where the
-data already says which one.
+Apply decided lot matches to the graph. This is what the review app's
+"Apply my decisions" button runs.
 
-655 `Document`s in the corpus bundle more than one `Lot` — 1,988
-`AuctionProperty` listings, roughly two-thirds of the portal — and
-`api/agent3/common.py::scope_of()` marks every value on those listings
-"notice-scoped" rather than "lot-scoped", because nothing links a listing to
-its specific lot. Most of the time something does: every lot's `Auction` node
-and every listing already carry their own `reserve_price_num`, an exact
-numeric join nobody queries (see `pipeline/lot_resolution.py` for the
-resolution rule).
+A `(:ResolutionDecision {kind:'lot-match', verdict:'approved'})` node on its
+own changes nothing an agent tool can read — `AuctionProperty` is what every
+agent3 tool actually queries. This script writes the delta:
 
-This script writes each resolved listing's lot back to:
+    p.resolved_lot_key    the decided Lot's lot_key
+    p.lot_resolved_at     when it was applied
 
-    p.resolved_lot_key    the matched Lot's lot_key
-    p.lot_resolved_at     when resolution last ran (mirrors entity_resolved_at)
+RETIRED: this script used to also AUTO-RESOLVE undecided listings, matching
+on reserve price and borrower name via `pipeline.lot_resolution.resolve_lot`
+and writing `decided_by='system:auto'`. That half is gone, because it had no
+rivalry gate — nothing stopped several listings landing on the same lot. The
+corpus shows the cost: of the 100 keys it ever wrote, 96 sat on a lot another
+listing also claimed (116 listings across 50 lots, one lot claimed by seven).
+Two listings cannot both be that lot, so those listings were showing each
+other's property.
 
-and records a `(:ResolutionDecision {kind:'lot-match', verdict:'approved'})`
-node per resolution — `decided_by:'system:auto'` for the rule, so a future
-human-reviewed match (Phase B, not this script) is visually distinguishable
-in the same audit trail.
+`pipeline/apply_extractions.py::write_lot_matches` is the only resolver now.
+It weighs more evidence (reserve, then EMD, then borrower, then survey/door
+identifiers), reads the live extraction rather than a graph copy of it, and
+`sole_claimants` makes it decline to write a lot two listings claim.
 
-Only ever writes an *approved* decision. There is no rejection path here:
-a listing this script cannot resolve is simply left alone, exactly today's
-notice-scoped behavior — the review queue for those cases is Phase B.
+`resolve_lot` itself is untouched and still used: `api/review/queries.py`
+calls it read-only to show a reviewer the candidate lots and the evidence the
+rule compared. Showing a human what it saw is not the same as writing its guess.
 
 Usage:
-    python -m scripts.resolve_lots --dry-run     # resolve + preview
-    python -m scripts.resolve_lots               # write
+    python -m scripts.resolve_lots --dry-run     # preview
+    python -m scripts.resolve_lots               # apply
 
 Auth: NEO4J_URI/USERNAME/PASSWORD(/DATABASE).
 """
@@ -42,9 +44,7 @@ import os
 import sys
 import time
 import urllib.request
-from collections import defaultdict
 
-from pipeline.lot_resolution import resolve_lot
 from pipeline.resolution_review import lot_match_key
 from scripts.resolution_decisions import load_decisions
 
@@ -80,125 +80,12 @@ def nq(statement: str, parameters: dict | None = None) -> list[list]:
     raise RuntimeError("unreachable")
 
 
-# ── collect ──────────────────────────────────────────────────────────────
+# ── apply decided matches ────────────────────────────────────────────────
 #
 # Five flat queries joined in Python, not one nested one — the same shape
 # `api/agent3/get_property.py` uses for listing/document/lots. Nested
 # collect()-of-maps values are avoidable risk over the HTTP query API; flat
 # rows joined by a known key are not.
-
-def _multi_lot_file_paths() -> list[str]:
-    rows = nq("""
-        MATCH (d:Document)-[:HAS_LOT]->(l:Lot)
-        WITH d, count(l) AS lot_count
-        WHERE lot_count > 1
-        RETURN d.file_path
-    """)
-    return [r[0] for r in rows if r[0]]
-
-
-def collect() -> tuple[list[dict], dict[str, list[dict]]]:
-    """Return (listings, lots_by_file_path).
-
-    ``listings``: ``[{"file_path", "auction_id", "reserve", "borrower"}]``,
-    one per `AuctionProperty` on a multi-lot notice.
-
-    ``lots_by_file_path``: ``{file_path: [{"lot_key", "reserve",
-    "borrowers"}]}`` — every candidate lot on that notice.
-    """
-    paths = _multi_lot_file_paths()
-    if not paths:
-        return [], {}
-
-    listing_rows = nq("""
-        MATCH (p:AuctionProperty)-[:HAS_DOCUMENT]->(d:Document)
-        WHERE d.file_path IN $paths
-        RETURN d.file_path, p.auction_id, p.reserve_price_num
-    """, {"paths": paths})
-    listing_borrower_rows = nq("""
-        MATCH (p:AuctionProperty)-[:HAS_DOCUMENT]->(d:Document)
-        WHERE d.file_path IN $paths
-        MATCH (p)-[:HAS_BORROWER]->(b:Borrower)
-        RETURN p.auction_id, b.name
-    """, {"paths": paths})
-    lot_rows = nq("""
-        MATCH (d:Document)-[:HAS_LOT]->(cl:Lot)
-        WHERE d.file_path IN $paths
-        OPTIONAL MATCH (cl)-[:OFFERED_IN]->(ca:Auction)
-        RETURN d.file_path, cl.lot_key, ca.reserve_price_num
-    """, {"paths": paths})
-    lot_borrower_rows = nq("""
-        MATCH (d:Document)-[:HAS_LOT]->(cl:Lot)
-        WHERE d.file_path IN $paths
-        MATCH (cl)-[:HAS_PARTY|TITLE_HELD_BY]->(b:Borrower)
-        RETURN cl.lot_key, b.name
-    """, {"paths": paths})
-
-    # First non-empty borrower per listing/lot — a notice can name several
-    # parties; the resolver only needs one representative string to match
-    # against, same as `resolve_bank_names.collect()`'s "first named wins".
-    listing_borrower: dict[str, str] = {}
-    for auction_id, name in listing_borrower_rows:
-        if name and auction_id not in listing_borrower:
-            listing_borrower[auction_id] = name
-
-    lot_borrowers: dict[str, list[str]] = defaultdict(list)
-    for lot_key, name in lot_borrower_rows:
-        if name:
-            lot_borrowers[lot_key].append(name)
-
-    lot_reserve: dict[str, float | None] = {}
-    lots_by_file_path: dict[str, list[dict]] = defaultdict(list)
-    for file_path, lot_key, reserve in lot_rows:
-        if not lot_key:
-            continue
-        lot_reserve[lot_key] = reserve
-        lots_by_file_path[file_path].append({
-            "lot_key": lot_key, "reserve": reserve,
-            "borrowers": lot_borrowers.get(lot_key, []),
-        })
-
-    listings = [{
-        "file_path": file_path, "auction_id": auction_id, "reserve": reserve,
-        "borrower": listing_borrower.get(auction_id),
-    } for file_path, auction_id, reserve in listing_rows if auction_id]
-
-    return listings, dict(lots_by_file_path)
-
-
-# ── apply ────────────────────────────────────────────────────────────────
-
-def write_back(resolved: list[dict]) -> int:
-    """Write `resolved_lot_key` + a `lot-match` decision per resolved
-    listing. `resolved` items: ``{"auction_id", "lot_key", "method",
-    "reason"}``."""
-    if not resolved:
-        return 0
-    rows = [{
-        "auction_id": r["auction_id"], "lot_key": r["lot_key"],
-        "decision_key": lot_match_key(r["auction_id"], r["lot_key"]),
-        "payload": json.dumps({
-            "auction_id": r["auction_id"], "lot_key": r["lot_key"],
-            "method": r["method"], "reason": r["reason"],
-        }, ensure_ascii=False),
-    } for r in resolved]
-    for i in range(0, len(rows), 500):
-        batch = rows[i:i + 500]
-        nq("""
-            UNWIND $rows AS row
-            MATCH (p:AuctionProperty {auction_id: row.auction_id})
-            SET p.resolved_lot_key = row.lot_key,
-                p.lot_resolved_at  = datetime()
-        """, {"rows": batch})
-        nq("""
-            UNWIND $rows AS row
-            MERGE (r:ResolutionDecision {key: row.decision_key})
-            SET r.kind = 'lot-match', r.verdict = 'approved',
-                r.payload_json = row.payload, r.decided_at = datetime(),
-                r.decided_by = 'system:auto'
-        """, {"rows": batch})
-    return len(rows)
-
 
 def _approved_lot_keys(decisions: list[dict]) -> dict[str, str]:
     """``auction_id -> lot_key`` for every approved lot-match decision,
@@ -256,58 +143,38 @@ def apply_decided(approved: dict[str, str]) -> int:
 
 
 def run(*, dry_run: bool = False) -> dict:
-    """One full resolution pass; the CLI and the review app's "Apply my
-    decisions" button both land here. Returns a summary the caller can
-    print or store.
+    """Apply every already-decided lot match to the graph. The CLI and the
+    review app's "Apply my decisions" button both land here.
 
-    Two things happen, in order: every already-decided listing (auto or
-    human) is applied to the graph if it isn't already, THEN the rule tries
-    to auto-resolve whatever nobody has decided on at all.
+    This used to ALSO auto-resolve undecided listings with
+    `pipeline.lot_resolution.resolve_lot` (reserve price + borrower name),
+    writing `resolved_lot_key` under `decided_by='system:auto'`. That half is
+    gone. It had no rivalry gate, so nothing stopped several listings resolving
+    onto one lot, and the graph shows what that cost: of the 100 keys it ever
+    wrote, 96 were on a lot another listing also claimed — 116 listings sharing
+    50 lots, one lot claimed by seven. Two listings on one lot cannot both be
+    right, so those listings were showing each other's property.
+
+    `pipeline/apply_extractions.py::write_lot_matches` is the single resolver
+    now. It compares more evidence (reserve, then EMD, then borrower, then
+    survey/door identifiers) against the live extraction rather than a graph
+    copy of it, and `sole_claimants` makes it refuse to write a lot two
+    listings claim — for the reason the corpus just demonstrated.
+
+    `resolve_lot` itself stays: `api/review/queries.py` calls it read-only to
+    show a human the candidate lots and the evidence the rule compared. Showing
+    a reviewer what it saw is a different thing from writing its guess.
     """
-    listings, lots_by_file_path = collect()
     decisions = load_decisions()
     approved = _approved_lot_keys(decisions)
-
-    pending = [l for l in listings if l["auction_id"] not in approved]
-    print(f"{len(listings)} listing(s) on multi-lot notices; "
-          f"{len(approved)} already decided, {len(pending)} to try")
-
-    resolved: list[dict] = []
-    by_method: dict[str, int] = defaultdict(int)
-    unresolved = 0
-    for listing in pending:
-        candidates = lots_by_file_path.get(listing["file_path"], [])
-        result = resolve_lot(listing_reserve=listing["reserve"],
-                             listing_borrower=listing["borrower"],
-                             candidates=candidates)
-        if result["lot_key"] is None:
-            unresolved += 1
-            continue
-        by_method[result["method"]] += 1
-        resolved.append({"auction_id": listing["auction_id"],
-                         "lot_key": result["lot_key"],
-                         "method": result["method"],
-                         "reason": result["reason"]})
-
-    print(f"\nresolved {len(resolved)} of {len(pending)} attempted:")
-    for method, n in sorted(by_method.items(), key=lambda kv: -kv[1]):
-        print(f"  {n:>4}  {method}")
-    print(f"  {unresolved:>4}  left ambiguous (no decision written)")
-
-    summary = {"listings": len(listings), "already_decided": len(approved),
-               "attempted": len(pending), "resolved": len(resolved),
-               "by_method": dict(by_method), "unresolved": unresolved}
+    print(f"{len(approved)} decided lot match(es) on record")
     if dry_run:
-        print("\n[dry-run] nothing written")
-        return summary
-
+        print("[dry-run] nothing written")
+        return {"already_decided": len(approved), "applied": 0}
     applied = apply_decided(approved)
-    wrote = write_back(resolved)
-    print(f"\napplied {applied} previously-decided listing(s) to the graph "
-          f"(human picks not yet reflected); "
-          f"auto-resolved {wrote} new listing(s) this run")
-    summary["applied"] = applied
-    return summary
+    print(f"applied {applied} previously-decided listing(s) to the graph "
+          f"(picks not yet reflected)")
+    return {"already_decided": len(approved), "applied": applied}
 
 
 def main() -> int:

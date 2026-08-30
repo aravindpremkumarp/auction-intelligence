@@ -136,7 +136,12 @@ def full_description_coverage(extractions) -> dict:
     gran_by_lot: dict = {}        # lot -> [(span|None, text, cls), ...]
     for e in extractions:
         c = getattr(e, "extraction_class", None)
-        li = (getattr(e, "attributes", None) or {}).get("lot_index") or "1"
+        # str(): the model emits lot_index as a number about as often as a
+        # string, and the "1" default is a string. Mixing the two makes the
+        # `sorted(missing_fd)` below raise TypeError, which kills the whole
+        # extraction — pipeline.apply_extractions.group_lots already normalises
+        # the same way, so this only brings the validator into line with it.
+        li = str((getattr(e, "attributes", None) or {}).get("lot_index") or "1")
         sp = _span_of(e)
         txt = _norm_ws(getattr(e, "extraction_text", ""))
         if c == "full_description":
@@ -198,7 +203,9 @@ def validate(extractions, source_text: str = "") -> dict:
         c = e.extraction_class
         classes[c] += 1
         present_fields.add(c)             # class presence (borrower/location/...)
-        li = a.get("lot_index") or "1"
+        # str() for the same reason as in full_description_coverage: without it
+        # a notice whose entities carry both 1 and "1" counts as two lots.
+        li = str(a.get("lot_index") or "1")
         lots.add(li)
         if getattr(e, "char_interval", None) is None:
             ungrounded += 1

@@ -830,6 +830,17 @@ PARCEL_IDENTIFIER_KINDS = (
     "survey_old", "survey_new", "patta", "cersai", "property_id", "sale_deed",
 )
 
+# A survey number names the LAND; a flat or plot number names the PROPERTY on
+# it. Every flat in one apartment project shares a survey number and a village,
+# so merging on the land alone folds sibling units into a single :Parcel — and
+# _ATTEMPT_NO then reads them as repeat attempts and marks the earlier ones
+# unsold. Two lots therefore merge only when these agree exactly.
+#
+# `floor` is deliberately absent: it qualifies a unit rather than naming one,
+# and only a minority of notices state it, so including it would split genuine
+# re-auctions whenever one of the two notices left it out.
+UNIT_IDENTIFIER_KINDS = ("flat", "door_old", "door_new", "plot", "block")
+
 _RESET_PARCELS = """
 MATCH (p:Parcel)
 DETACH DELETE p
@@ -846,6 +857,12 @@ RETURN l.lot_key AS lot_key,
 """
 
 _ALL_LOTS = "MATCH (l:Lot) RETURN l.lot_key AS lot_key"
+
+_UNIT_EDGES = """
+MATCH (l:Lot)-[:MENTIONS_IDENTIFIER]->(i:Identifier)
+WHERE i.kind IN $kinds
+RETURN l.lot_key AS lot_key, i.kind + ':' + i.value_norm AS unit
+"""
 
 _WRITE_PARCELS = """
 UNWIND $rows AS row
@@ -874,28 +891,56 @@ MERGE (p)-[:HAS_IDENTIFIER]->(i)
 RETURN count(*) AS links
 """
 
+# One attempt per DATE, not per auction row. Lots sold together on a single day
+# are a batch, not a sequence of failed attempts — scripts.link_reauctions
+# applies the same same-day rule for the same reason. Numbering per row instead
+# would call the second flat in a batch "attempt 2" and mark the first unsold
+# when it had in fact sold.
+#
+# `left(..., 10)` takes the ISO date off the front: auction_start_dt is a
+# string, and a few carry a bare time ("12:00") that date() refuses outright,
+# which would abort the whole statement.
 _ATTEMPT_NO = """
 MATCH (p:Parcel)<-[:IS_PARCEL]-(l:Lot)-[:OFFERED_IN]->(a:Auction)
 WHERE a.auction_start_dt IS NOT NULL
-WITH p, a ORDER BY a.auction_start_dt
-WITH p, collect(a) AS auctions
-UNWIND range(0, size(auctions) - 1) AS idx
-WITH auctions[idx] AS a, idx, size(auctions) AS total
+WITH p, left(a.auction_start_dt, 10) AS day, collect(DISTINCT a) AS sameday
+ORDER BY day
+WITH p, collect(sameday) AS rounds
+UNWIND range(0, size(rounds) - 1) AS idx
+WITH rounds[idx] AS sameday, idx, size(rounds) AS total
+UNWIND sameday AS a
 SET a.attempt_no = idx + 1,
-    // an auction followed by a later one on the same parcel did not sell
+    // an auction followed by one on a LATER day did not sell
     a.outcome = CASE WHEN idx < total - 1 THEN coalesce(a.outcome, 'unsold')
                      ELSE a.outcome END
 RETURN count(a) AS auctions
 """
 
 
-def parcel_groups(edges: list[dict], all_lots: list[str]) -> list[dict]:
+def unit_signature(units: dict[str, set[str]] | None, lot_key: str) -> str:
+    """The unit a lot names, as one comparable string.
+
+    Sorted and joined so two lots citing the same flat in either order produce
+    the same signature. A lot that names no unit gets `""`, which is a
+    signature in its own right and NOT a wildcard: treating it as "matches
+    anything" would break transitivity — flat 1 and flat 2 would merge through
+    a silent lot sitting between them.
+    """
+    return "|".join(sorted(units.get(lot_key, ()))) if units else ""
+
+
+def parcel_groups(edges: list[dict], all_lots: list[str],
+                  units: dict[str, set[str]] | None = None) -> list[dict]:
     """Connected components of "shares an identifier within one village".
 
     Pure, so the grouping is testable without a database. Returns one row per
     lot, naming the parcel it belongs to: a group of one keeps its own
     `lot-` id, a merged group is named `auto-` after its lowest lot_key so
     the id is stable across runs rather than depending on row order.
+
+    `units` maps a lot to the flat/plot numbers it cites, and splits lots that
+    share land but are different properties — see UNIT_IDENTIFIER_KINDS. Omit
+    it and the grouping is land-only, which is what it was before.
     """
     parent: dict[str, str] = {k: k for k in all_lots}
 
@@ -913,17 +958,19 @@ def parcel_groups(edges: list[dict], all_lots: list[str]) -> list[dict]:
         if ra != rb:
             parent[max(ra, rb)] = min(ra, rb)
 
-    # bucket by (identifier, village) — every lot in a bucket is the same land
-    buckets: dict[tuple[str, str], list[str]] = defaultdict(list)
+    # bucket by (identifier, village, unit) — same land AND same property
+    buckets: dict[tuple[str, str, str], list[str]] = defaultdict(list)
     for e in edges:
-        buckets[(e["ident"], e["village"])].append(e["lot_key"])
+        lot_key = e["lot_key"]
+        buckets[(e["ident"], e["village"],
+                 unit_signature(units, lot_key))].append(lot_key)
     for members in buckets.values():
         for other in members[1:]:
             union(members[0], other)
 
     # what each component was merged on, for :Parcel.evidence
     evidence: dict[str, set[str]] = defaultdict(set)
-    for (ident, _village), members in buckets.items():
+    for (ident, _village, _unit), members in buckets.items():
         if len(set(members)) > 1:
             evidence[find(members[0])].add(ident)
 
@@ -960,7 +1007,12 @@ def resolve_parcels(dry_run: bool) -> None:
                            max_rows=200_000, timeout=180.0)
     all_lots = [r["lot_key"] for r in run_read_query(_ALL_LOTS, max_rows=200_000,
                                                      timeout=120.0)]
-    rows = parcel_groups(edges, all_lots)
+    units: dict[str, set[str]] = defaultdict(set)
+    for r in run_read_query(_UNIT_EDGES, {"kinds": list(UNIT_IDENTIFIER_KINDS)},
+                            max_rows=200_000, timeout=180.0):
+        units[r["lot_key"]].add(r["unit"])
+    print(f"  units: {len(units)} lot(s) name a flat/plot number", flush=True)
+    rows = parcel_groups(edges, all_lots, units)
     merged_lots = sum(1 for r in rows if r["method"] == "identifier")
     print(f"  grouping: {len(all_lots)} lot(s), {len(edges)} identifier edge(s)"
           f" -> {len({r['parcel_id'] for r in rows})} parcel(s); "

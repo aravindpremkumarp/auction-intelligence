@@ -516,7 +516,7 @@ def _run_capturing(monkeypatch, tmp_path, work):
     monkeypatch.setattr(AX, "fetch_work", lambda limit=None: work)
     monkeypatch.setattr(AX, "human_decided_lot_matches", lambda: set())
     for name in ("write_fields", "write_descriptions", "write_lot_matches",
-                 "revert_withheld_descriptions"):
+                 "clear_stale_lot_matches", "revert_withheld_descriptions"):
         monkeypatch.setattr(
             AX, name,
             # tuple-index, not `and`: an empty rows list is falsy and would
@@ -716,7 +716,8 @@ def _run_capturing_reverts(monkeypatch, tmp_path, work):
     monkeypatch.setattr(AX, "UNMATCHED_CSV", tmp_path / "unmatched.csv")
     monkeypatch.setattr(AX, "fetch_work", lambda limit=None: work)
     monkeypatch.setattr(AX, "human_decided_lot_matches", lambda: set())
-    for name in ("write_fields", "write_descriptions", "write_lot_matches"):
+    for name in ("write_fields", "write_descriptions", "write_lot_matches",
+                 "clear_stale_lot_matches"):
         monkeypatch.setattr(AX, name, lambda rows: len(rows))
     monkeypatch.setattr(
         AX, "revert_withheld_descriptions",
@@ -815,3 +816,58 @@ def test_the_review_override_does_not_excuse_a_rival_claimant(monkeypatch, tmp_p
     }]
     got = _run_capturing(monkeypatch, tmp_path, work)
     assert "840337" not in got["write_descriptions"]
+
+
+# ── a key this run did not re-derive must not survive it ────────────────────
+# write_lot_matches only ever SET. A listing that stopped resolving kept its
+# old key forever, and the key still RESOLVED, so nothing noticed. 750335 held
+# CB17767669373793.jpg#2 after it stopped matching lot 2; a later run gave lot
+# 2 to 750336, and the notice ended with two listings claiming one property —
+# the outcome sole_claimants exists to prevent, reached by leaving a key behind
+# rather than by writing a bad one. These pin the shape of the clear.
+
+def _clear_src() -> str:
+    import inspect
+    return inspect.getsource(AX.clear_stale_lot_matches)
+
+
+def _run_src() -> str:
+    import inspect
+    return inspect.getsource(AX.run)
+
+
+def test_clear_only_touches_keys_from_this_document():
+    """lot_key embeds the filename. 12 listings link to two documents, and a
+    pass over one must not wipe a key the other legitimately wrote."""
+    src = _clear_src()
+    assert "STARTS WITH (row.filename + '#')" in src
+
+
+def test_clear_removes_the_resolution_decision_too():
+    """A decision outliving the value it justified would be re-applied by the
+    review app's next 'Apply my decisions' run."""
+    src = _clear_src()
+    assert "DETACH DELETE r" in src
+    assert "ResolutionDecision" in src
+
+
+def test_clear_never_touches_a_human_decision():
+    """Two guards: the caller filters human_decided out of the rows, and the
+    delete itself only removes verdicts a system wrote."""
+    assert "aid not in human_decided" in _run_src()
+    assert "r.decided_by STARTS WITH 'system:'" in _clear_src()
+
+
+def test_every_unresolved_listing_on_the_document_is_a_clear_candidate():
+    """Not just the contested ones — an unmatched listing, or one whose lot
+    vanished from the extraction, is equally stale."""
+    src = _run_src()
+    assert "aid not in resolved_this_doc" in src
+
+
+def test_the_clear_runs_after_the_write():
+    """Order matters: a listing that moved from one lot to another this run
+    must not be cleared by its own new key's document pass."""
+    src = _run_src()
+    assert src.index("write_lot_matches(lot_key_rows)") < \
+           src.index("clear_stale_lot_matches(stale_key_rows)")
