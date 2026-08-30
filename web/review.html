@@ -1353,6 +1353,36 @@
     loadResolutionQueues();
   }
 
+  function priceCheckRow(r) {
+    // A power-of-ten gap needs no judgement, so it is called out rather than
+    // left for the reviewer to spot among the ordinary disagreements.
+    const critical = r.severity === 'critical';
+    const badge = critical
+      ? `<span style="color:#c0392b; font-weight:600">${
+           r.ratio ? Math.round(r.ratio) + '\u00d7 off' : 'slip'}</span>`
+      : `<span style="color:var(--muted)">${
+           r.ratio ? r.ratio.toFixed(2) + '\u00d7' : ''}</span>`;
+    const notice = r.notice_price == null
+      // Neither side published a number; the finding rests on the matcher
+      // having fallen back off price, so say that rather than showing a dash
+      // the reviewer cannot act on.
+      ? '<i style="color:var(--muted)">no price in notice</i>'
+      : '\u20b9' + fmtPrice(r.notice_price);
+    const link = r.public_url
+      ? ` \u00b7 <a href="${escapeHtml(r.public_url)}" target="_blank" rel="noopener">open notice</a>`
+      : '';
+    return rrRow(
+      `${badge} <b>${escapeHtml(r.auction_id)}</b>
+       <small style="color:var(--muted)">
+         portal \u20b9${fmtPrice(r.portal_price)} vs notice ${notice}
+         \u00b7 ${r.lot_count === 1 ? 'single-lot' : r.lot_count + ' lots'}
+         \u00b7 ${escapeHtml(r.filename || '')}${link}</small>`,
+      rrBtn('Price is wrong', { kind: 'price-check',
+          payload: { auction_id: r.auction_id }, verdict: 'approved' }) +
+      rrBtn('False alarm', { kind: 'price-check',
+          payload: { auction_id: r.auction_id }, verdict: 'rejected' }));
+  }
+
   function rrRow(inner, buttons) {
     return `<div class="ov-row" style="gap:10px; align-items:baseline">
       <span class="ov-label" style="flex:1; white-space:normal">${inner}</span>
@@ -1582,6 +1612,17 @@
         reserve price and borrower name and couldn't decide; open a row to
         see the notice, pick the lot that matches, or say none of them do</p>
         ${d.lot_matches.map(lotMatchRow).join('')}</div>`);
+    }
+
+    if (d.price_checks && d.price_checks.length) {
+      const crit = d.price_checks.filter(r => r.severity === 'critical').length;
+      blocks.push(`<div class="ov-panel"><div class="ov-head">Prices that disagree with the notice</div>
+        <p class="meta" style="color:var(--muted)">the portal price and the
+        extracted price are two independent readings of one number${
+          crit ? ` \u2014 <b>${crit}</b> of these are off by a clean power of
+          ten, which is a dropped zero rather than a judgement call` : ''};
+        open the notice, read what it actually says, then mark it</p>
+        ${d.price_checks.map(priceCheckRow).join('')}</div>`);
     }
 
     if (blocks.length === 1) {

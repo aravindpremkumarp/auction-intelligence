@@ -1739,6 +1739,70 @@ def _village_candidates(taluks: list[str]) -> dict[str, list[str]]:
     return {r["taluk"]: r["villages"] for r in rows}
 
 
+#: Cap on rows in one price-check load. 261 findings live now, all of them
+#: exact reads of a stored flag rather than a fuzzy proposal set, so 400 shows
+#: the whole backlog with room to grow while still bounding the query.
+_PRICE_CHECK_LIMIT = 400
+
+
+def _price_checks(decisions: list[dict]) -> list[dict]:
+    """Listings whose extracted price disagrees with the portal's.
+
+    `pipeline.apply_extractions` writes the verdict onto the listing on every
+    run, so this is a plain read of a settled fact rather than a recomputation
+    — and because those flags are rebuilt each pass, a corrected price drops
+    off this queue by itself.
+
+    Both prices travel with the row, and so does the notice they came from:
+    the reviewer's actual job is to open the notice and read what it says, and
+    a row that only asserts "these differ" sends them hunting for the file.
+
+    A single-lot notice carries no `resolved_lot_key` by design (see
+    `apply_extractions.run`), so the notice price has to be reached through
+    the Document when the key is absent. Joining only on the key would blank
+    the price on exactly the rows that most need it — 21 of the first 34
+    critical findings sat on single-lot notices.
+    """
+    from pipeline.resolution_review import decided_price_checks
+
+    settled = decided_price_checks(decisions)
+
+    rows = run_read_query(
+        """
+        MATCH (p:AuctionProperty) WHERE p.price_agreement IS NOT NULL
+          AND NOT p.auction_id IN $settled
+        OPTIONAL MATCH (p)-[:HAS_DOCUMENT]->(d:Document)
+        WITH p, d ORDER BY (CASE WHEN d.public_url IS NULL THEN 1 ELSE 0 END),
+                           d.file_path
+        WITH p, collect(d)[0] AS d
+        OPTIONAL MATCH (keyed:Lot {lot_key: p.resolved_lot_key})
+                       -[:OFFERED_IN]->(ka:Auction)
+        OPTIONAL MATCH (d)-[:HAS_LOT]->(any:Lot)-[:OFFERED_IN]->(aa:Auction)
+        WITH p, d, ka, count(DISTINCT any) AS lot_count,
+             collect(DISTINCT aa)[0] AS only_auction
+        RETURN p.auction_id AS auction_id, p.title AS title,
+               p.price_agreement AS verdict,
+               p.price_agreement_severity AS severity,
+               p.price_agreement_ratio AS ratio,
+               p.reserve_price_num AS portal_price,
+               coalesce(ka.reserve_price_num,
+                        CASE WHEN lot_count = 1
+                             THEN only_auction.reserve_price_num END)
+                 AS notice_price,
+               lot_count AS lot_count,
+               p.resolved_lot_key AS lot_key,
+               d.filename AS filename, d.public_url AS public_url,
+               p.source_url AS listing_url
+        ORDER BY (CASE WHEN p.price_agreement_severity = 'critical'
+                       THEN 0 ELSE 1 END),
+                 p.price_agreement_ratio DESC
+        LIMIT $limit
+        """,
+        {"settled": sorted(settled), "limit": _PRICE_CHECK_LIMIT},
+        max_rows=_PRICE_CHECK_LIMIT + 1, timeout=60.0)
+    return [dict(r) for r in rows]
+
+
 def resolution_review() -> dict:
     """The three queues a human works through, with evidence on every row.
 
@@ -1862,6 +1926,7 @@ def resolution_review() -> dict:
     } for r in open_rows]
 
     lot_matches = _lot_match_candidates(decisions)
+    price_checks = _price_checks(decisions)
 
     return {
         "bank_pairs": bank_pairs,
@@ -1869,10 +1934,11 @@ def resolution_review() -> dict:
         "district_conflicts": district_conflicts,
         "unmatched_villages": unmatched_villages,
         "lot_matches": lot_matches,
+        "price_checks": price_checks,
         "decided": len(decisions),
         "open": (len(bank_pairs) + len(branch_pairs)
                  + len(district_conflicts) + len(unmatched_villages)
-                 + len(lot_matches)),
+                 + len(lot_matches) + len(price_checks)),
     }
 
 
@@ -2049,6 +2115,19 @@ def record_resolution_decision(kind: str, payload: dict, verdict: str,
             raise ValueError(
                 f"{payload.get('target')!r} is not a revenue village of "
                 f"{payload.get('taluk')!r} — the alias would point nowhere")
+
+    if kind == "price-check":
+        # The queue only ever offers listings that carry a flag, but the
+        # endpoint accepts arbitrary payloads — a verdict aimed at an
+        # auction_id that does not exist would sit in the graph forever,
+        # silently suppressing nothing.
+        hit = _count_query(
+            "MATCH (p:AuctionProperty {auction_id: $auction_id}) "
+            "RETURN count(p) AS n",
+            {"auction_id": payload.get("auction_id")})
+        if not int(hit.get("n") or 0):
+            raise ValueError(
+                f"no listing with auction_id {payload.get('auction_id')!r}")
 
     if kind == "lot-match" and verdict == APPROVED:
         # A picked lot_key must actually be on THIS listing's document — the
