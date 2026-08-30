@@ -62,10 +62,13 @@ around that shape:
   0.5× at 0.30, both outside the threshold. So a badly shrunken copy is a miss
   here, not a false negative to tune away.
 
-Scope: single-page rasters, like coverage — a PDF must be rendered per page by
-the caller. And this answers "is this the same page?", never "is this the same
-property?": two lots legitimately share one multi-property notice file, which is
-one document to store once and link twice, not a duplicate auction.
+Scope: single-page rasters — a PDF must be rendered per page by the caller.
+(``ink_coverage`` rasterizes PDFs itself; this module does not, because a
+fingerprint is only comparable against others taken at the same resolution, and
+that is a corpus-wide re-fingerprint, not a local change.) And this answers "is
+this the same page?", never "is this the same property?": two lots legitimately
+share one multi-property notice file, which is one document to store once and
+link twice, not a duplicate auction.
 """
 from __future__ import annotations
 

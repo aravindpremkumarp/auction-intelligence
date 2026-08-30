@@ -6,8 +6,9 @@ the annotator's Ink tab.
 
 The measurement itself is covered in tests/pipeline/test_ink_coverage.py; what
 matters here is the shape the endpoint hands the UI: base64 grids sized to the
-tile grid, and a *verdict with a reason* (never an error) on every page that
-can't be measured — no image, a PDF source, an unreachable or oversized fetch.
+tile grid, for a PDF notice as much as a scan, and a *verdict with a reason*
+(never an error) on every page that can't be measured — no image, a source
+neither Pillow nor PyMuPDF opens, an unreachable or oversized fetch.
 
 DB-free: blocks.py is imported in isolation with stubbed neo4j/mineru, same
 pattern as test_review_rotation.py, and ``_load_doc`` / ``requests.get`` are
@@ -139,7 +140,8 @@ def test_a_fully_covered_page_reports_no_flag_and_still_ships_a_map(stub_doc):
 
 @pytest.mark.parametrize("kwargs, expected", [
     ({"url": None}, "no-public-url"),
-    ({"filename": "n1.pdf"}, "unsupported-source"),
+    # Not a page in any renderer we have — unlike .pdf, which measures below.
+    ({"filename": "n1.docx"}, "unsupported-source"),
 ])
 def test_unmeasurable_sources_answer_with_a_reason_not_an_error(
         stub_doc, kwargs, expected):
@@ -152,6 +154,54 @@ def test_unmeasurable_sources_answer_with_a_reason_not_an_error(
     assert out["uncovered_ratio"] is None
     assert out["details"]["skipped"] == expected
     assert "ink_b64" not in out
+
+
+def _as_pdf(raster: bytes) -> bytes:
+    """``raster`` wrapped as a one-page PDF, rendering back to its own size."""
+    fitz = pytest.importorskip("fitz", reason="PDF coverage needs PyMuPDF")
+    from pipeline.ink_coverage import PDF_RENDER_SCALE
+    doc = fitz.open()
+    try:
+        pg = doc.new_page(width=W / PDF_RENDER_SCALE, height=H / PDF_RENDER_SCALE)
+        pg.insert_image(pg.rect, stream=raster)
+        return doc.tobytes()
+    finally:
+        doc.close()
+
+
+def test_a_pdf_notice_is_measured_like_a_scan(stub_doc):
+    """The bug behind this: the endpoint refused every PDF outright, so the
+    Ink tab on a PDF notice read "not measurable — unsupported-source" and no
+    reviewer could see what the missing-region flag was scored on."""
+    body = _as_pdf(_page([(0.05, 0.10, 0.95, 0.55), (0.05, 0.60, 0.95, 0.95)]))
+    stub_doc([_block(0.03, 0.08, 0.97, 0.57)], body=body, filename="n1.pdf",
+             url="https://r2.example/notices/n1.pdf")
+
+    out = _mod.ink_coverage("n1.pdf")
+
+    assert out["details"].get("skipped") is None
+    assert out["flag"] is True                      # the lower band is unread
+    ink = base64.b64decode(out["ink_b64"])
+    covered = base64.b64decode(out["covered_b64"])
+    assert len(ink) == len(covered) == out["tile_w"] * out["tile_h"]
+    thresh = out["ink_min"] * 255
+    unread = [i for i, v in enumerate(ink) if v >= thresh and not covered[i]]
+    assert unread
+    assert min(i // out["tile_w"] for i in unread) > out["tile_h"] * 0.5
+
+
+def test_a_pdf_page_the_file_does_not_have_says_so(stub_doc):
+    """Still a reason, never an error — the multi-page page picker can ask for
+    a page the source ran out of."""
+    stub_doc([_block(0.1, 0.1, 0.9, 0.9, page=3)],
+             body=_as_pdf(_page([(0.1, 0.1, 0.9, 0.9)])), filename="n1.pdf",
+             url="https://r2.example/notices/n1.pdf")
+
+    out = _mod.ink_coverage("n1.pdf", 3)
+
+    assert out["flag"] is False
+    assert out["uncovered_ratio"] is None
+    assert out["details"]["skipped"] == "page-out-of-range"
 
 
 def test_a_failed_fetch_is_reported_not_raised(stub_doc):
