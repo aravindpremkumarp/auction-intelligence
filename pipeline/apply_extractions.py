@@ -714,6 +714,53 @@ def write_lot_matches(rows: list[dict]) -> int:
     return written
 
 
+def clear_stale_lot_matches(rows: list[dict]) -> int:
+    """Remove a `resolved_lot_key` this run did NOT re-derive.
+
+    `write_lot_matches` only ever SET. A listing that stops resolving — its
+    lot vanished from the extraction, or two listings now claim it and
+    `sole_claimants` declined — kept its old key forever, and the key still
+    RESOLVED, so nothing anywhere noticed.
+
+    That is not hypothetical. 750335 held `CB17767669373793.jpg#2` after it
+    stopped matching lot 2; a later run gave lot 2 to 750336, and the notice
+    ended with two listings claiming one property — the exact outcome
+    `sole_claimants` exists to prevent, reached by leaving a key behind rather
+    than by writing a bad one.
+
+    Only a key derived from THIS document is cleared (`lot_key` embeds the
+    filename). 12 listings link to two documents, and a pass over one of them
+    must not wipe a key the other legitimately wrote.
+
+    Human decisions are filtered out by the caller and never reach here.
+    """
+    if not rows:
+        return 0
+    cleared = 0
+    for batch in chunked(rows, WRITE_CHUNK):
+        res = run_query("""
+            UNWIND $rows AS row
+            MATCH (a:AuctionProperty {auction_id: row.aid})
+            WHERE a.resolved_lot_key STARTS WITH (row.filename + '#')
+            REMOVE a.resolved_lot_key, a.lot_resolved_at
+            RETURN a.auction_id AS aid
+        """, {"rows": batch})
+        aids = [r["aid"] for r in (res or [])]
+        cleared += len(aids)
+        if aids:
+            # The decision justified a value that no longer exists; leaving it
+            # would let the review app's "Apply my decisions" put it straight
+            # back. Automated verdicts only — a person's pick is never touched.
+            run_query("""
+                UNWIND $aids AS aid
+                MATCH (r:ResolutionDecision {kind: 'lot-match'})
+                WHERE r.key STARTS WITH ('lot-match:' + aid + '|')
+                  AND r.decided_by STARTS WITH 'system:'
+                DETACH DELETE r
+            """, {"aids": aids})
+    return cleared
+
+
 # ── main ─────────────────────────────────────────────────────────────────────
 
 def run(limit: int | None = None, dry_run: bool = False) -> int:
@@ -726,6 +773,7 @@ def run(limit: int | None = None, dry_run: bool = False) -> int:
     desc_rows: list[dict] = []
     revert_rows: list[dict] = []
     lot_key_rows: list[dict] = []
+    stale_key_rows: list[dict] = []
     unmatched_out: list[dict] = []
     stats = defaultdict(int)
     human_skipped = 0
@@ -740,6 +788,11 @@ def run(limit: int | None = None, dry_run: bool = False) -> int:
         listings = [l for l in (w.get("listings") or []) if l.get("aid")]
         matches, unmatched = match_lots_to_listings(lots, listings)
         sole = {id(m[0]) for m in sole_claimants(matches)}
+        # Every listing on this document that does NOT come out of this pass
+        # with a lot key must not keep one from an earlier pass — see
+        # clear_stale_lot_matches. Filled as the loop decides, subtracted at
+        # the end.
+        resolved_this_doc: set[str] = set()
         for listing, lot, reason in matches:
             stats[f"match_{reason}"] += 1
             if lot["fields"]:
@@ -794,6 +847,7 @@ def run(limit: int | None = None, dry_run: bool = False) -> int:
                 elif listing["aid"] in human_decided:
                     human_skipped += 1
                 else:
+                    resolved_this_doc.add(listing["aid"])
                     lot_key_rows.append({
                         "aid": listing["aid"],
                         "lot_key": f"{w['filename']}#{lot['lot_index']}",
@@ -812,9 +866,17 @@ def run(limit: int | None = None, dry_run: bool = False) -> int:
                                   "lot_reserves": [lo["reserve"]
                                                    for lo in lots.values()]})
 
+        # Whatever this document did not resolve this pass must not keep a key
+        # from a previous one. A human's pick is exempt: it outranks the rule.
+        for listing in listings:
+            aid = listing["aid"]
+            if aid not in resolved_this_doc and aid not in human_decided:
+                stale_key_rows.append({"aid": aid, "filename": w["filename"]})
+
     print(f"  match/unmatch stats: {dict(stats)}")
     print(f"  field rows: {len(field_rows)}  description rows: {len(desc_rows)}  "
           f"lot-key rows: {len(lot_key_rows)}  "
+          f"stale keys to clear: {len(stale_key_rows)}  "
           f"descriptions to revert: {len(revert_rows)}  "
           f"skipped (human-decided): {human_skipped}  "
           f"unmatched: {len(unmatched_out)}")
@@ -837,13 +899,17 @@ def run(limit: int | None = None, dry_run: bool = False) -> int:
     nf = write_fields(field_rows)
     nd = write_descriptions(desc_rows)
     nl = write_lot_matches(lot_key_rows)
+    # After the write, so a listing that moved from one lot to another this run
+    # is not cleared by its own new key's document pass.
+    nc = clear_stale_lot_matches(stale_key_rows)
     # Revert last: a listing can only appear in one of desc_rows/revert_rows
     # per run, but ordering it after the write keeps the invariant obvious —
     # nothing this run published can then be reverted by it.
     nr = revert_withheld_descriptions(revert_rows)
     print(f"  wrote fields to {nf} listings, descriptions to {nd} listings "
           f"(legacy human descriptions overwritten, backed up once), "
-          f"lot key to {nl} listings, reverted {nr} listings to portal text")
+          f"lot key to {nl} listings, cleared {nc} stale lot key(s), "
+          f"reverted {nr} listings to portal text")
     if nr < len(revert_rows):
         print(f"  NOTE: {len(revert_rows) - nr} withheld listings kept their old "
               f"description — no portal text to fall back on, or already "
