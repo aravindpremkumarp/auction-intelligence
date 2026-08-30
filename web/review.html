@@ -84,6 +84,15 @@
   .ov-track { background: #f0efe9; height: 16px; position: relative; }
   .ov-bar { background: var(--accent); height: 100%; }
   .lot-row { border-top: 1px solid var(--ink); padding: 8px 0; }
+  /* The resolution queues' rrRow sets flex:1 on its label, but .ov-row is a
+     three-column GRID sized for the funnel bars (150px 1fr 92px), so that
+     flex never applies and a text label is crushed into 150px. Price rows
+     carry their own row instead of relaying out .ov-row, which the funnel
+     shares. */
+  .pc-row { display: flex; gap: 10px; align-items: baseline;
+            padding: 5px 0; border-top: 1px solid #eceae2; }
+  .pc-row .pc-text { flex: 1; min-width: 0; font-size: 13px; }
+  .pc-row .pc-btns { display: flex; gap: 6px; flex-shrink: 0; }
   .lot-row:first-child { border-top: none; }
   .lot-row-head { display: flex; gap: 10px; align-items: baseline; }
   .lot-row-body { padding: 10px 0 4px; }
@@ -1371,16 +1380,18 @@
     const link = r.public_url
       ? ` \u00b7 <a href="${escapeHtml(r.public_url)}" target="_blank" rel="noopener">open notice</a>`
       : '';
-    return rrRow(
-      `${badge} <b>${escapeHtml(r.auction_id)}</b>
+    return `<div class="pc-row"><span class="pc-text">${badge}
+       <b>${escapeHtml(r.auction_id)}</b>
        <small style="color:var(--muted)">
          portal \u20b9${fmtPrice(r.portal_price)} vs notice ${notice}
          \u00b7 ${r.lot_count === 1 ? 'single-lot' : r.lot_count + ' lots'}
-         \u00b7 ${escapeHtml(r.filename || '')}${link}</small>`,
-      rrBtn('Price is wrong', { kind: 'price-check',
-          payload: { auction_id: r.auction_id }, verdict: 'approved' }) +
-      rrBtn('False alarm', { kind: 'price-check',
-          payload: { auction_id: r.auction_id }, verdict: 'rejected' }));
+         \u00b7 ${escapeHtml(r.filename || '')}${link}</small></span>
+      <span class="pc-btns">${
+        rrBtn('Price is wrong', { kind: 'price-check',
+            payload: { auction_id: r.auction_id }, verdict: 'approved' }) +
+        rrBtn('False alarm', { kind: 'price-check',
+            payload: { auction_id: r.auction_id }, verdict: 'rejected' })
+      }</span></div>`;
   }
 
   function rrRow(inner, buttons) {
