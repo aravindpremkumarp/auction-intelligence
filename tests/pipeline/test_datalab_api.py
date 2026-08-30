@@ -62,6 +62,48 @@ def test_submit_sends_key_and_params(tmp_path, monkeypatch):
     assert captured["has_file"] is True
 
 
+def test_submit_keeps_page_headers_and_footers(tmp_path, monkeypatch):
+    """Marker drops page headers/footers unless told otherwise, and the keys
+    only work inside ``additional_config`` — passed as top-level form fields
+    the API accepts the request and silently ignores them. On a one-page
+    notice that band is the letterhead and the sign-off, so losing it costs
+    both the text and (via ink coverage) 45 points of OCR health."""
+    import json as _json
+    captured = {}
+
+    def fake_post(url, headers=None, files=None, data=None, timeout=None):
+        captured["data"] = data
+        return _Resp({"success": True, "request_id": "r1",
+                      "request_check_url": "https://chk/r1"})
+
+    monkeypatch.setattr(DLA.requests, "post", fake_post)
+    DLA.submit(_tmp_pdf(tmp_path), output_format="json", mode="fast")
+
+    cfg = _json.loads(captured["data"]["additional_config"])
+    assert cfg["keep_pageheader_in_output"] is True
+    assert cfg["keep_pagefooter_in_output"] is True
+    # The knobs must not leak out as top-level fields, where they read like
+    # they are set but do nothing.
+    assert "keep_pageheader_in_output" not in captured["data"]
+
+
+def test_caller_supplied_additional_config_wins(tmp_path, monkeypatch):
+    """``extra`` is documented as verbatim, so a caller that needs a different
+    additional_config gets exactly what it asked for."""
+    captured = {}
+
+    def fake_post(url, headers=None, files=None, data=None, timeout=None):
+        captured["data"] = data
+        return _Resp({"success": True, "request_id": "r1",
+                      "request_check_url": "https://chk/r1"})
+
+    monkeypatch.setattr(DLA.requests, "post", fake_post)
+    DLA.submit(_tmp_pdf(tmp_path), output_format="json", mode="fast",
+               extra={"additional_config": '{"keep_spreadsheet_formatting": true}'})
+
+    assert captured["data"]["additional_config"] == '{"keep_spreadsheet_formatting": true}'
+
+
 def test_submit_retries_on_429(tmp_path, monkeypatch):
     calls = {"n": 0}
 
