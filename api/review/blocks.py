@@ -536,10 +536,13 @@ def get_blocks(filename: str) -> dict:
 #: notice and shouldn't be downloaded into the API process to find out.
 INK_MAP_MAX_BYTES = 32 * 1024 * 1024
 
-#: Raster extensions the coverage map can read. A PDF would have to be
-#: rendered per page first (see pipeline/ink_coverage.py's scope note), which
-#: this read-only endpoint deliberately does not do.
-INK_MAP_EXTS = (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff")
+#: Source extensions the coverage map can read. PDFs are included: the measure
+#: rasterizes the requested page itself (pipeline/ink_coverage.py's
+#: ``_render_pdf_page``), so a PDF notice gets the same map as a scan. Anything
+#: outside this list is a source neither Pillow nor PyMuPDF opens, and is
+#: answered with a reason rather than a failed decode.
+INK_MAP_EXTS = (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff",
+                ".pdf")
 
 
 def ink_coverage(filename: str, page: int = 1) -> dict:
@@ -552,10 +555,14 @@ def ink_coverage(filename: str, page: int = 1) -> dict:
     fixing this?") rather than replaying the verdict stored at ingest time,
     which may predate their edits.
 
+    Both source kinds work: a raster is measured as fetched, a PDF is rendered
+    to the requested page by the measure itself.
+
     Returns the verdict plus base64 tile grids (see ``coverage_map``), or a
     verdict carrying ``details.skipped`` when the page can't be measured — no
-    blocks on it, a PDF source, an unreachable or unreadable image. Unscorable
-    is never an error: "we can't measure this" is a real answer the UI shows.
+    blocks on it, an unreachable or unreadable source, a page the PDF doesn't
+    have. Unscorable is never an error: "we can't measure this" is a real
+    answer the UI shows.
     """
     import base64
 

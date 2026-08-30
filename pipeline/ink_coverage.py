@@ -25,9 +25,10 @@ multi-column, so a block in the left column marks those rows "covered" and a
 missing right column becomes invisible: measured row-wise, the SBI notice above
 reports 1.1% missing instead of 38%. Coverage has to be two-dimensional.
 
-Scope: single-page raster notices (the overwhelming majority). Blocks carry a
-1-indexed ``page``; only that page's blocks are considered, and a caller with a
-multi-page PDF must render and pass each page itself.
+Scope: one page at a time. Blocks carry a 1-indexed ``page`` and only that
+page's blocks are considered. Rasters are measured as they arrive; a PDF is
+rendered to pixels here (see ``PDF_RENDER_SCALE``), so a caller passes the
+whole file and asks for the page it wants.
 
 The result feeds ``ocr_health.score_ocr_health(markdown, region=…)``, which adds
 the ``missing-region`` flag and its penalty — so a flagged doc surfaces in the
@@ -182,6 +183,65 @@ def _strip_rules(mask, w: int, h: int):
                     horizontal=False),
     )
     return ImageChops.subtract(mask, rules)
+
+
+# ── PDF sources ─────────────────────────────────────────────────────────────
+# Notices arrive as scans (PNG/JPG) and as PDFs, and the measure needs pixels
+# either way. Rendering happens here rather than at each call site, because
+# "the caller renders it" turned out to mean nobody did: the annotator's Ink
+# tab, the corpus scorer (scripts/score_ink_coverage.py) and the Datalab
+# backfill all handed the raw PDF bytes straight to Pillow, which cannot read
+# them, so every PDF notice came back unscorable — the Ink tab said
+# "unsupported-source" and the corpus carried a null ink_uncovered_ratio.
+#
+# 2x (144 DPI on a 72 DPI page box) is what pipeline/reextract.py already
+# renders PDF crops at, and puts a typical A4 notice near the resolution of the
+# scans the tile constants above were tuned on.
+PDF_RENDER_SCALE = 2.0
+# The render is held in memory as pixels, so an unusually large page box (a
+# broadsheet, a plotter sheet) scales down to keep one page bounded. Only the
+# outliers hit this: A4 at 2x is 1191x1684.
+PDF_MAX_EDGE_PX = 4000
+
+
+class PdfPageMissing(Exception):
+    """The PDF has no such page. ``page`` is 1-indexed."""
+
+
+def _is_pdf(data: bytes) -> bool:
+    """Sniff the header rather than trust the filename.
+
+    Bytes reach this module from R2, where the extension is a naming
+    convention and not a guarantee. Sniffing means a PDF saved as ``.png``
+    still gets measured instead of failing to decode.
+    """
+    return data[:5] == b"%PDF-"
+
+
+def _render_pdf_page(pdf_bytes: bytes, page: int) -> bytes:
+    """Rasterize 1-indexed ``page`` of a PDF to PNG bytes.
+
+    ``page.rect`` and ``get_pixmap`` both honour the page's ``/Rotate`` tag, so
+    the raster comes out in the same orientation the parser saw — which is what
+    keeps the stored bboxes (normalized against that orientation) landing where
+    the ink actually is.
+
+    PyMuPDF is a lazy import: an image-only caller never pays for it, and a
+    host without it degrades to an unscorable verdict rather than a crash.
+    """
+    import fitz  # type: ignore
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    try:
+        if not 1 <= page <= int(doc.page_count or 0):
+            raise PdfPageMissing(f"page {page} of {doc.page_count}")
+        pg = doc[page - 1]
+        scale = PDF_RENDER_SCALE
+        longest = max(pg.rect.width, pg.rect.height) * scale
+        if longest > PDF_MAX_EDGE_PX:
+            scale *= PDF_MAX_EDGE_PX / longest
+        return pg.get_pixmap(matrix=fitz.Matrix(scale, scale)).tobytes("png")
+    finally:
+        doc.close()
 
 
 def _tile_ink(image_bytes: bytes) -> tuple[list[float], int, int]:
@@ -430,6 +490,23 @@ def _measure(image_bytes: bytes | None, blocks: list[dict] | None,
     # a total parse failure, and reporting ~100% unread is the honest reading —
     # so this deliberately does NOT bail out the way "no blocks" does.
 
+    if _is_pdf(image_bytes):
+        # Rendering sits after the block checks so a page nobody parsed costs
+        # nothing to answer, and each failure keeps its own reason: a reviewer
+        # staring at the Ink tab needs to know whether the page is absent, the
+        # file is broken, or this host simply can't render PDFs.
+        try:
+            image_bytes = _render_pdf_page(image_bytes, page)
+        except PdfPageMissing:
+            out["details"]["skipped"] = "page-out-of-range"
+            return out, None, None, 0, 0
+        except ImportError:
+            out["details"]["skipped"] = "pdf-render-unavailable"
+            return out, None, None, 0, 0
+        except Exception as e:                   # corrupt/encrypted PDF
+            out["details"]["skipped"] = f"unreadable-pdf: {type(e).__name__}"
+            return out, None, None, 0, 0
+
     try:
         ink, tw, th = _tile_ink(image_bytes)
     except Exception as e:                       # unreadable/corrupt image
@@ -473,11 +550,15 @@ def score_ink_coverage(image_bytes: bytes | None, blocks: list[dict] | None,
                        *, page: int = 1) -> dict:
     """Measure how much of the page's ink no parsed block covers.
 
+    ``image_bytes`` is a raster page or a whole PDF; a PDF is rendered to
+    ``page`` here (:func:`_render_pdf_page`) before it is measured.
+
     Returns ``{"uncovered_ratio": float|None, "flag": bool, "details": {…}}``.
     ``uncovered_ratio`` is ``None`` — unscorable, never flagged — when there is
-    no image, no block for the page, or too little ink to judge. "No blocks" in
-    particular must not read as "100% missing": a doc that never produced blocks
-    is a different failure, already visible upstream.
+    no image, no block for the page, too little ink to judge, or the page could
+    not be rendered. "No blocks" in particular must not read as "100% missing":
+    a doc that never produced blocks is a different failure, already visible
+    upstream. ``details.skipped`` always names which of these it was.
     """
     return _measure(image_bytes, blocks, page)[0]
 

@@ -113,11 +113,13 @@ def nq(statement: str, parameters: dict | None = None) -> list[list]:
 def select_targets(*, limit: int | None, since_iso: str | None) -> list[dict]:
     """Documents with a fetchable raster source.
 
-    PDFs are excluded for the same reason coverage excludes them: the ink
-    measure needs a rendered page, and a PDF would have to be rasterized per
-    page first. The auction ids come along because a document linked to six lots
-    is the normal shape, and a reader needs that to tell a stored-once notice
-    from a stored-six-times one.
+    PDFs are excluded because ``pipeline/ink_fingerprint.py`` takes rasters
+    only — a fingerprint is comparable only against others taken at the same
+    resolution, so adding PDFs here means re-fingerprinting the corpus, not
+    just widening this query. (Coverage no longer excludes them: it rasterizes
+    the page itself.) The auction ids come along because a document linked to
+    six lots is the normal shape, and a reader needs that to tell a stored-once
+    notice from a stored-six-times one.
     """
     rows = nq(
         f"""
