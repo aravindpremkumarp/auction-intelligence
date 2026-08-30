@@ -351,6 +351,9 @@
   .ann-toolbar .zoom-btn { padding: 2px 8px; min-height: 0; font-size: 13px; }
   .ann-toolbar .zoom-pct { min-width: 36px; text-align: center; font-family: 'IBM Plex Mono', monospace; font-size: 11px; }
   .ann-toolbar .ann-badges { display: inline-flex; gap: 5px; align-items: center; flex-wrap: wrap; }
+  .ann-toolbar .ann-nav { display: inline-flex; gap: 4px; align-items: center; padding: 0 6px; border-left: 1px solid var(--muted); border-right: 1px solid var(--muted); }
+  .ann-toolbar .ann-nav .zoom-pct { min-width: 52px; }
+  .ann-toolbar #ann-mark-good, .ann-toolbar #ann-mark-bad { padding: 4px 10px; }
   /* Extraction workspace (one notice). Mirrors the annotator: the masthead
      collapses and the tool fills the viewport, so the page itself never
      scrolls and the iframe gets every pixel below the toolbar. */
@@ -689,6 +692,12 @@
       </span>
       <input type="search" id="q" placeholder="search title or borrower">
       <button id="reload" class="primary">Reload</button>
+      <!-- Cards in the markdown list start collapsed (a page of open notices is
+           unreadable); this opens or closes the whole loaded page at once. -->
+      <span id="expand-all-bar" class="fgroup hidden">
+        <button id="expand-all-btn" class="ghost"
+                title="open every notice on this page — cards start collapsed">Expand all</button>
+      </span>
       <span style="flex:1"></span>
       <span id="bulk-confirm-bar" class="fgroup hidden">
         <button id="bulk-confirm-btn" class="primary" disabled
@@ -911,11 +920,21 @@
   <!-- Annotator screen -->
   <section id="screen-annotator" class="hidden">
     <div class="ann-toolbar">
-      <a class="link" href="#">← Back to queue</a>
+      <a class="link" href="#" id="ann-back">← Back to queue</a>
       <span class="filename" id="ann-filename"></span>
       <span class="pill" id="ann-rev"></span>
       <span class="pill" id="ann-preclean" title="Source image was upscaled + sharpened before OCR (long edge was below 1500 px)" style="display:none;background:#dff5e3;color:#1b6b3c;border-color:#9bd2af">preclean 2×</span>
       <span class="ann-badges" id="ann-badges"></span>
+      <!-- Walk the markdown queue without going back to it: step through the
+           notices in queue order, and settle each one's OCR verdict here.
+           Marking loads the next notice, so a review pass is one screen. -->
+      <span class="ann-nav" id="ann-nav">
+        <button id="ann-prev" class="ghost zoom-btn" title="previous notice in the queue ([)">‹</button>
+        <span id="ann-pos" class="meta zoom-pct"></span>
+        <button id="ann-next" class="ghost zoom-btn" title="next notice in the queue (])">›</button>
+      </span>
+      <button id="ann-mark-good" class="primary" title="mark this notice's OCR good and open the next one (G)">Mark good</button>
+      <button id="ann-mark-bad" class="ghost" title="mark this notice's OCR bad and open the next one (B)">Mark bad</button>
       <span style="flex:1"></span>
       <label class="meta" style="display:none" id="ann-page-wrap">page <select class="page-select" id="ann-page"></select></label>
       <button id="ann-add" class="ghost">+ Add block</button>
@@ -1085,6 +1104,9 @@
       queueState.q          = p.get('q')           || '';
       queueState.dateFrom   = p.get('date_from')   ?? queueState.dateFrom;
       queueState.dateTo     = p.get('date_to')     ?? queueState.dateTo;
+      // A hash that carries dates (a refresh, a shared link) becomes the
+      // remembered choice, so the two ways in never disagree.
+      rememberDates();
       const sf = parseInt(p.get('score_from'), 10);
       const st = parseInt(p.get('score_to'),   10);
       if (!isNaN(sf)) queueState.scoreFrom = sf;
@@ -1115,8 +1137,11 @@
     p.set('status', queueState.status);
     p.set('notice_type', queueState.noticeType);
     if (queueState.q) p.set('q', queueState.q);
-    if (queueState.dateFrom) p.set('date_from', queueState.dateFrom);
-    if (queueState.dateTo)   p.set('date_to',   queueState.dateTo);
+    // Always written, even when empty: an omitted key reads back as "unset" and
+    // parseHash() would fall back to the default (today onwards), which turned
+    // every refresh into a re-applied date filter the reviewer had cleared.
+    p.set('date_from', queueState.dateFrom || '');
+    p.set('date_to',   queueState.dateTo   || '');
     if (queueState.scoreFrom !== 0)   p.set('score_from', String(queueState.scoreFrom));
     if (queueState.scoreTo   !== 100) p.set('score_to',   String(queueState.scoreTo));
     if (queueState.pqFrom != null) p.set('pq_from', String(queueState.pqFrom));
@@ -1625,6 +1650,30 @@
   const PAGE_SIZE_GALLERY = 100;
   const savedCView = (() => { try { return localStorage.getItem('cView'); } catch { return null; } })();
   const STAGES = ['classification', 'markdown', 'extraction'];
+
+  // The date filter is the reviewer's own choice, so it survives a refresh
+  // instead of snapping back to "today onwards" every time. Stored as a JSON
+  // pair so a *cleared* filter ("" / "") is remembered too — that is the case
+  // the old default silently overwrote. A browser that has never set it gets
+  // the upcoming-auctions default.
+  const DATE_KEY = 'queueDates';
+  const savedDates = (() => {
+    try {
+      const raw = localStorage.getItem(DATE_KEY);
+      if (!raw) return null;
+      const v = JSON.parse(raw);
+      if (!v || typeof v !== 'object') return null;
+      return { from: typeof v.from === 'string' ? v.from : '',
+               to:   typeof v.to   === 'string' ? v.to   : '' };
+    } catch { return null; }
+  })();
+  function rememberDates() {
+    try {
+      localStorage.setItem(DATE_KEY, JSON.stringify({
+        from: queueState.dateFrom || '', to: queueState.dateTo || '',
+      }));
+    } catch {}
+  }
   let queueState = {
     stage: 'classification',      // 'classification' | 'markdown' | 'extraction'
     group: 'notice',              // 'property' | 'notice'
@@ -1632,7 +1681,8 @@
     cview: (savedCView === 'cards' ? 'cards' : 'gallery'),
     noticeType: 'all',            // 'all' | 'single' | 'multi' | 'unclassified'
     q: '',
-    dateFrom: todayISO(), dateTo: '',
+    dateFrom: savedDates ? savedDates.from : todayISO(),
+    dateTo:   savedDates ? savedDates.to   : '',
     scoreFrom: 0, scoreTo: 100,
     // Datalab parse quality, 0–5. null = unset, and unset means "no filter" —
     // unlike the 0–100 health range, a 0 bound here is a real (worst) value.
@@ -1706,6 +1756,9 @@
     // Parse quality and the OCR failure flags are markdown-stage signals.
     $('pq-bar').classList.toggle('hidden', !isMd);
     $('flag-bar').classList.toggle('hidden', !isMd);
+    // Expand/collapse-all only makes sense where the cards are collapsible —
+    // the markdown stage's sales-notice list.
+    $('expand-all-bar').classList.toggle('hidden', !(isMd && isNotice));
     // Bulk-confirm is available in every stage. On extraction it pairs with the
     // score filter: confirm the high-scoring tail in one action, spend the time
     // on the low scores.
@@ -1757,6 +1810,7 @@
     }
     updateLoadMore();
     updateBulkConfirmButton();
+    syncExpandAllButton();
   }
 
   // ─── Extraction stage: list, then drill into one notice ─────────────────
@@ -1966,6 +2020,23 @@
       hint.textContent = off ? '(no parse-quality filter)' : '(scored docs only)';
     }
   }
+  // ─── Expand / collapse the whole markdown card list ─────────────────────
+  // The button is a toggle on the *loaded* page: while any card is closed it
+  // opens everything, once they are all open it closes everything again.
+  function markdownCards() {
+    const list = $('queue-by-markdown');
+    if (!list || list.classList.contains('hidden')) return [];
+    return $$('details.notice-card', list);
+  }
+
+  function syncExpandAllButton() {
+    const btn = $('expand-all-btn');
+    if (!btn) return;
+    const cards = markdownCards();
+    btn.disabled = cards.length === 0;
+    btn.textContent = cards.some(c => !c.open) ? 'Expand all' : 'Collapse all';
+  }
+
   function updateBulkConfirmButton() {
     const btn = $('bulk-confirm-btn');
     if (!btn) return;
@@ -2020,6 +2091,36 @@
     }
     queueTotal = data.total || 0;
     queueLoadedCount = (append ? queueLoadedCount : 0) + data.rows.length;
+    // Remember the order so the annotator can step through the same queue the
+    // reviewer is looking at, instead of re-deriving one of its own.
+    const names = data.rows.map(r => r.filename).filter(Boolean);
+    mdQueueOrder = append ? mdQueueOrder.concat(names) : names;
+  }
+
+  // ─── The markdown queue's order, shared with the annotator ──────────────
+  // Filled by loadMarkdownQueue above. A reviewer who lands on
+  // #notice/<filename> directly (a bookmark, a refresh) has no list yet, so
+  // one page of the queue is fetched under the current filters to place them.
+  let mdQueueOrder = [];
+  let mdOrderFetchedFor = null;   // filter signature the fetched order belongs to
+
+  async function ensureMarkdownOrder(filename) {
+    if (mdQueueOrder.includes(filename)) return;
+    const sig = buildQueueHash();
+    if (mdOrderFetchedFor === sig) return;   // already tried under these filters
+    mdOrderFetchedFor = sig;
+    const params = new URLSearchParams({
+      status: queueState.status, page: '1', size: String(PAGE_SIZE_MARKDOWN),
+    });
+    if (queueState.q) params.set('q', queueState.q);
+    appendCommonParams(params);
+    appendScoreParams(params);
+    try {
+      const r = await authFetch(API + '/review/markdown?' + params.toString());
+      if (!r.ok) return;
+      const data = await r.json();
+      mdQueueOrder = (data.rows || []).map(x => x.filename).filter(Boolean);
+    } catch { /* navigation is a convenience — never block the annotator */ }
   }
 
   // The markdown stage's single score: the intrinsic OCR-health verdict
@@ -2134,7 +2235,10 @@
   function renderMarkdownCard(row) {
     const card = document.createElement('details');
     card.className = 'notice-card';
-    card.open = !row.verified;
+    // Always collapsed on arrival: a page of 50 open notices is a wall of
+    // images and OCR text to scroll past. "Expand all" in the filter bar opens
+    // the whole page when the reviewer wants that.
+    card.open = false;
     card.dataset.filename = row.filename || '';
 
     const filename = row.filename || row.file_path || '(unnamed notice)';
@@ -2294,7 +2398,10 @@
       enableNoticeZoom(srcBox);
     }
     if (card.open) loadSource();
-    card.addEventListener('toggle', () => { if (card.open) loadSource(); });
+    card.addEventListener('toggle', () => {
+      if (card.open) loadSource();
+      syncExpandAllButton();
+    });
 
     const notes = document.createElement('input');
     notes.type = 'text';
@@ -2941,6 +3048,12 @@
     if (h.startsWith('stage/')) loadStageDetail(decodeURIComponent(h.slice(6)));
   });
   $('reload').addEventListener('click', () => { loadStats(); loadQueue(); });
+  $('expand-all-btn').addEventListener('click', () => {
+    const cards = markdownCards();
+    const open = cards.some(c => !c.open);   // any closed → open them all
+    cards.forEach(c => { c.open = open; });
+    syncExpandAllButton();
+  });
   $('q').addEventListener('input', (e) => {
     queueState.q = e.target.value.trim();
     clearTimeout(window.__qTimer);
@@ -2948,17 +3061,20 @@
   });
   $('date-from').addEventListener('change', (e) => {
     queueState.dateFrom = e.target.value || '';
+    rememberDates();
     writeHash();
     loadStats(); loadQueue();
   });
   $('date-to').addEventListener('change', (e) => {
     queueState.dateTo = e.target.value || '';
+    rememberDates();
     writeHash();
     loadStats(); loadQueue();
   });
   $('date-clear').addEventListener('click', () => {
     queueState.dateFrom = '';
     queueState.dateTo = '';
+    rememberDates();
     writeHash();
     loadStats(); loadQueue();
   });
@@ -3736,6 +3852,18 @@
                  ann.locked ? '' : 'warn');
         return;
       }
+      // Queue walking, same keys the detail screen uses to step siblings.
+      if ((e.key === '[' || e.key === ']') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        if (!annStep(e.key === '[' ? -1 : 1)) annToast('end of queue', 'warn');
+        return;
+      }
+      if ((e.key === 'g' || e.key === 'G') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault(); annMarkQuality('good'); return;
+      }
+      if ((e.key === 'b' || e.key === 'B') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault(); annMarkQuality('bad'); return;
+      }
     }
 
     // Detail-screen shortcuts (unchanged)
@@ -3832,6 +3960,74 @@
     return [x0, y0, x1, y1];
   }
 
+  // ─── Annotator: queue navigation + the markdown verdict ─────────────────
+  // The annotator is where the OCR is actually judged, so the verdict lives
+  // here too: mark good / bad, and the next notice in the queue opens by
+  // itself. ‹ / › step without deciding anything.
+  function annQueueIndex() {
+    return ann.filename ? mdQueueOrder.indexOf(ann.filename) : -1;
+  }
+
+  function syncAnnNav() {
+    const i = annQueueIndex();
+    const n = mdQueueOrder.length;
+    const pos = $('ann-pos');
+    if (pos) {
+      pos.textContent = (i >= 0 && n) ? `${i + 1}/${n}` : '—';
+      pos.title = (i >= 0 && n)
+        ? 'position in the markdown queue as currently filtered'
+        : 'this notice is not in the loaded queue page — step buttons are off';
+    }
+    const prev = $('ann-prev'), next = $('ann-next');
+    if (prev) prev.disabled = !(i > 0);
+    if (next) next.disabled = !(i >= 0 && i < n - 1);
+    // Mirror the stored verdict on the buttons, exactly as the queue card does.
+    const q = ann.doc ? ann.doc.markdown_quality : null;
+    const good = $('ann-mark-good'), bad = $('ann-mark-bad');
+    if (good) good.textContent = q === 'good' ? 'Re-mark good' : 'Mark good';
+    if (bad)  bad.textContent  = q === 'bad'  ? 'Re-mark bad'  : 'Mark bad';
+  }
+
+  // Move `delta` places along the queue. Returns false when there is nowhere
+  // to go (either end, or this notice isn't in the loaded page).
+  function annStep(delta) {
+    const i = annQueueIndex();
+    if (i < 0) return false;
+    const target = mdQueueOrder[i + delta];
+    if (!target) return false;
+    location.hash = '#notice/' + encodeURIComponent(target);
+    return true;
+  }
+
+  async function annMarkQuality(quality) {
+    if (!ann.filename) return;
+    const good = $('ann-mark-good'), bad = $('ann-mark-bad');
+    good.disabled = true; bad.disabled = true;
+    try {
+      const r = await authFetch(
+        API + '/review/markdown/' + encodeURIComponent(ann.filename) + '/verify',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ quality, notes: null }),
+        }
+      );
+      if (!r.ok) { annToast(`verify failed (${r.status})`, 'err'); return; }
+      if (ann.doc) {
+        ann.doc.markdown_quality = quality;
+        ann.doc.markdown_verified = true;
+        annRenderBadges(ann.doc);
+      }
+      annToast('marked ' + quality);
+      loadStats();
+      // Straight on to the next notice; at the end of the queue, stay put and
+      // say so rather than dumping the reviewer back on the list.
+      if (!annStep(1)) { annToast('end of queue', 'warn'); syncAnnNav(); }
+    } finally {
+      good.disabled = false; bad.disabled = false;
+    }
+  }
+
   async function loadAnnotator(filename) {
     ann.filename = filename;
     ann.selectedIds = new Set();
@@ -3842,7 +4038,13 @@
     ann.regionsHidden = false;
     ann.ink = null;              // another notice: the cached map is not ours
     $('ann-filename').textContent = filename;
+    // Back out to the queue the reviewer came from, filters and all.
+    $('ann-back').setAttribute('href', '#' + buildQueueHash());
     setAnnTab('blocks');
+    // Position in the queue: awaited only when we have to fetch the order,
+    // which is the deep-link case; from the queue it resolves immediately.
+    ensureMarkdownOrder(filename).then(syncAnnNav);
+    syncAnnNav();
     $('ann-rows').innerHTML = '<div class="empty">loading…</div>';
     $('ann-banner-wrap').innerHTML = '';
     $('ann-page-wrap-inner').innerHTML = '<div class="empty" style="padding:20px; color:#fff;">loading…</div>';
@@ -3868,6 +4070,7 @@
       $('ann-preclean').style.display =
         (doc.markdown_model === 'mineru-vlm-preclean2x') ? '' : 'none';
       annRenderBadges(doc);
+      syncAnnNav();
       const openLink = $('ann-open-src');
       if (doc.public_url) {
         openLink.href = doc.public_url;
@@ -6008,6 +6211,10 @@
   $('ann-reingest-btn').addEventListener('click', (e) => annReingest(e.currentTarget));
   $('ann-fix-flagged').addEventListener('click', () => fixFlaggedBlocks());
   $('ann-reload').addEventListener('click', () => loadAnnotator(ann.filename));
+  $('ann-prev').addEventListener('click', () => annStep(-1));
+  $('ann-next').addEventListener('click', () => annStep(1));
+  $('ann-mark-good').addEventListener('click', () => annMarkQuality('good'));
+  $('ann-mark-bad').addEventListener('click', () => annMarkQuality('bad'));
   // Engine picker for drawn-block re-extract. Persist the choice so it sticks
   // across notices/reloads within the browser.
   (function initAnnEngine() {
