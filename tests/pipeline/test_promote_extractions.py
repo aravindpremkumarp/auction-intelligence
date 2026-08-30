@@ -302,3 +302,94 @@ def test_singleton_carries_no_evidence():
     rows = P.parcel_groups([], ["a"])
     assert rows[0]["evidence"] is None
     assert rows[0]["lot_count"] == 1
+
+
+# ── sibling units must not merge into one parcel ─────────────────────────────
+
+def test_two_flats_on_one_survey_number_stay_separate():
+    """The bug this rule exists for.
+
+    Every flat in a project shares a survey number and a village, so the
+    land-only grouping folded them into one :Parcel — and the attempt
+    numbering then read them as repeat auctions of a single property.
+    """
+    rows = P.parcel_groups(
+        [_edge("a", "survey_old:12/1"), _edge("b", "survey_old:12/1")],
+        ["a", "b"],
+        {"a": {"flat:g-2"}, "b": {"flat:s-3"}})
+    assert _parcel_of(rows) == {"a": "lot-a", "b": "lot-b"}
+    assert all(r["method"] == "singleton" for r in rows)
+
+
+def test_the_same_flat_auctioned_twice_still_merges():
+    """The rule must not cost us the case parcels exist for."""
+    rows = P.parcel_groups(
+        [_edge("a", "survey_old:12/1"), _edge("b", "survey_old:12/1")],
+        ["a", "b"],
+        {"a": {"flat:g-2"}, "b": {"flat:g-2"}})
+    assert _parcel_of(rows) == {"a": "auto-a", "b": "auto-a"}
+
+
+def test_plot_numbers_split_a_layout():
+    """Adjacent plots in one layout share the parent survey number."""
+    rows = P.parcel_groups(
+        [_edge(k, "survey_new:45/3") for k in ("a", "b", "c")],
+        ["a", "b", "c"],
+        {"a": {"plot:9"}, "b": {"plot:10"}, "c": {"plot:11"}})
+    assert len({r["parcel_id"] for r in rows}) == 3
+
+
+def test_lots_naming_no_unit_still_merge_on_land_alone():
+    """No unit evidence either side means nothing to split on."""
+    rows = P.parcel_groups(
+        [_edge("a", "patta:990"), _edge("b", "patta:990")], ["a", "b"], {})
+    assert _parcel_of(rows) == {"a": "auto-a", "b": "auto-a"}
+
+
+def test_a_silent_lot_does_not_bridge_two_different_flats():
+    """`""` is a signature, not a wildcard.
+
+    If a lot naming no unit matched anything, flat 1 and flat 2 would merge
+    transitively through it — the exact fold the rule is meant to prevent.
+    """
+    rows = P.parcel_groups(
+        [_edge(k, "survey_old:12/1") for k in ("a", "b", "c")],
+        ["a", "b", "c"],
+        {"a": {"flat:1"}, "c": {"flat:2"}})
+    assert len({r["parcel_id"] for r in rows}) == 3
+
+
+def test_unit_signature_is_order_independent():
+    units = {"a": {"flat:1", "door_new:7"}, "b": {"door_new:7", "flat:1"}}
+    assert (P.unit_signature(units, "a") == P.unit_signature(units, "b")
+            != "")
+
+
+def test_unit_signature_of_an_unknown_lot_is_empty():
+    assert P.unit_signature({"a": {"flat:1"}}, "b") == ""
+    assert P.unit_signature(None, "a") == ""
+
+
+def test_floor_alone_is_not_treated_as_a_unit_identifier():
+    """It qualifies a unit rather than naming one, and is rarely stated."""
+    assert "floor" not in P.UNIT_IDENTIFIER_KINDS
+    assert "flat" in P.UNIT_IDENTIFIER_KINDS
+
+
+def test_attempt_numbering_groups_a_day_rather_than_a_row():
+    """Same-day lots are a batch sale, not attempt 1 followed by attempt 2."""
+    q = P._ATTEMPT_NO
+    assert "left(a.auction_start_dt, 10) AS day" in q
+    assert "collect(DISTINCT a) AS sameday" in q
+    # the whole point: idx counts days, so a same-day pair shares an attempt_no
+    assert "collect(sameday) AS rounds" in q
+    assert "ORDER BY a.auction_start_dt" not in q
+
+
+def test_attempt_numbering_avoids_date_on_a_string_column():
+    """auction_start_dt is a string, and a few carry a bare time.
+
+    date('12:00') raises rather than returning null, which aborts the whole
+    statement and leaves every attempt_no unwritten.
+    """
+    assert "date(a.auction_start_dt)" not in P._ATTEMPT_NO
