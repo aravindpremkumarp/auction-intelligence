@@ -34,6 +34,7 @@ Run:  python -m pipeline.langextract_examples <path-to-markdown.txt>
 """
 from __future__ import annotations
 
+import json
 import os
 import sys
 from pathlib import Path
@@ -1132,6 +1133,198 @@ EXAMPLES = [SINGLE_EXAMPLE, MULTI_EXAMPLE, APARTMENT_EXAMPLE, DRT_EXAMPLE,
             ARC_EXAMPLE, KARNATAKA_EXAMPLE, CANFIN_EXAMPLE]
 
 
+# --------------------------------------------------------------------------- #
+# Output schema (langextract >= 1.6 `output_schema=`).
+# --------------------------------------------------------------------------- #
+# The machine-readable twin of the guide's `attrs:` prose above. It exists
+# because the ONLY other way to constrain generation — use_schema_constraints —
+# derives the schema FROM THE EXAMPLES and so silently suppresses every attr no
+# example happens to demonstrate (that is why `hobli` never appeared, and why
+# both provider paths ran unconstrained; see extract()). A hand-written schema
+# inverts that: the rare prose-only attrs (liquidator, carpet_area, ward_no ...)
+# are declared here as first-class keys even though no example shows them.
+#
+# Every value is a STRING because every example attribute is a string —
+# including money (`reserve_price_num="950000"`) and `lot_index="1"` — and the
+# loader parses those strings downstream. Declaring int/number here would make
+# the schema disagree with the examples it ships alongside, which is the one
+# thing LangExtract's docs warn against. Type-tightening is a separate change.
+#
+# Enums are the payoff on top of the fixed key set: `identifier.kind` is the
+# canonical list (models otherwise invent kinds — pipeline/validators.py repairs
+# them after the fact), and `boundary.side` / `legal_basis` are closed sets.
+#
+# The table is deliberately plain literals: CI has no `langextract` installed, so
+# tests/api/test_langextract_output_schema.py reads it with `ast` and holds it
+# against the guide prose above — adding an attr to one and not the other fails.
+#: {extraction_class: (attr, ...)} — every attr the guide declares, in guide order.
+ENTITY_ATTR_NAMES: dict[str, tuple[str, ...]] = {
+    "secured_creditor": (
+        "legal_basis", "bank_name", "branch", "authorised_officer",
+        "assignor_bank", "trust_name", "assignment_date", "liquidator",
+        "court_reference", "predecessor_entity", "sale_terms",
+        "auction_platform_url"),
+    "contact": ("phones", "email"),
+    "borrower": ("role", "address", "lot_index"),
+    "property": (
+        "property_type", "asset_category", "possession_type", "possession_date",
+        "construction_type", "occupancy_status", "title_deed_holder",
+        "branch_of_lot", "address", "encumbrance", "lot_index"),
+    "full_description": ("lot_index",),
+    "location": (
+        "village", "taluk", "district", "city", "state", "area", "panchayat",
+        "municipality_corporation", "ward_no", "hobli", "registration_district",
+        "registration_sub_district", "landmark", "latitude", "longitude",
+        "lot_index"),
+    "identifier": ("kind", "value", "lot_index"),
+    "extent": (
+        "extent_sqft", "total_area", "super_built_up_area", "built_up_area",
+        "carpet_area", "undivided_share", "uds_parent_extent", "lot_index"),
+    "boundary": ("side", "adjacency", "measurement", "lot_index"),
+    "schedule": ("label", "type", "extent", "lot_index"),
+    "auction_terms": (
+        "reserve_price_num", "emd_num", "bid_increment_num", "auction_start_dt",
+        "auction_end_dt", "application_deadline_dt", "inspection_dt",
+        "auto_extension_minutes", "sarfaesi_stage", "lot_index"),
+    "outstanding": (
+        "amount_num", "as_on", "demand_notice_date", "loan_account_no",
+        "lot_index"),
+    "emd_account": ("account_name", "account_no", "ifsc", "bank",
+                    "mode_of_payment"),
+    # ONE notice-level span; deliberately no lot_index (see the guide).
+    "full_terms": (),
+    "extras": ("key", "value", "lot_index"),
+}
+
+#: The closed sets. ``identifier.kind`` is loaded from the canonical lookup
+#: (pipeline/lookups/identifier_kinds.json) rather than restated here — models
+#: invent kinds otherwise, and pipeline/validators.py has to repair them.
+ATTR_ENUMS: dict[tuple[str, str], tuple[str, ...]] = {
+    ("secured_creditor", "legal_basis"): ("SARFAESI", "DRT", "IBC"),
+    ("boundary", "side"): ("north", "south", "east", "west"),
+}
+
+
+def identifier_kinds() -> list[str]:
+    """The canonical ``identifier.kind`` enum."""
+    path = Path(__file__).resolve().parent / "lookups" / "identifier_kinds.json"
+    return list(json.loads(path.read_text(encoding="utf-8"))["canonical"])
+
+
+def _attr_schema(cls: str, attr: str) -> dict:
+    """One attribute's JSON schema — a string, or a closed set when it has one.
+
+    Wrapped ``anyOf: [<schema>, null]`` by the caller; see build_output_schema.
+    """
+    if attr == "kind" and cls == "identifier":
+        values: tuple[str, ...] | list[str] = identifier_kinds()
+    else:
+        values = ATTR_ENUMS.get((cls, attr), ())
+    return {"type": "string", "enum": list(values)} if values else {"type": "string"}
+
+
+_OUTPUT_SCHEMA: dict | None = None
+_EXAMPLES_VALIDATED: dict | None = None
+
+
+def validate_examples(level: str | None = None, strict: bool | None = None) -> dict:
+    """Alignment-check EXAMPLES against their own source text (once per process).
+
+    An example whose ``extraction_text`` no longer occurs in its ``*_TEXT`` still
+    *looks* fine — it just silently teaches the model a span that can never be
+    grounded. LangExtract can catch that before the first API call, so we run it
+    here and hand ``prompt_validation_level=OFF`` to ``lx.extract``: the examples
+    are module constants, so validating them once per process is exactly as
+    strong a guarantee as re-validating on every notice — and 496 notices x 111
+    non-exact warnings is a log nobody reads.
+
+    Levels (LANGEXTRACT_PROMPT_VALIDATION): 'error' (default) raises on a span
+    that cannot be aligned at all, 'warning' logs it, 'off' skips. Non-exact
+    (fuzzy) matches are expected — the examples are MinerU markdown, so table
+    pipes and spacing make most spans align fuzzily rather than token-exactly —
+    and only fail when LANGEXTRACT_PROMPT_VALIDATION_STRICT=1.
+
+    Returns a {'failed': n, 'non_exact': n, 'total': n} summary.
+    """
+    global _EXAMPLES_VALIDATED
+    from langextract import prompt_validation as pv, resolver
+
+    # Only the env-configured run — the one extract() makes — is cached and
+    # reused; an explicit level/strict is a caller (a test) asking to re-measure.
+    default_run = level is None and strict is None
+    if _EXAMPLES_VALIDATED is not None and default_run:
+        return _EXAMPLES_VALIDATED
+    lvl = pv.PromptValidationLevel(
+        (level if level is not None
+         else os.environ.get("LANGEXTRACT_PROMPT_VALIDATION", "error")).strip().lower())
+    if strict is None:
+        strict = os.environ.get(
+            "LANGEXTRACT_PROMPT_VALIDATION_STRICT", "").strip() == "1"
+    total = sum(len(e.extractions) for e in EXAMPLES)
+    if lvl is pv.PromptValidationLevel.OFF:
+        return {"failed": 0, "non_exact": 0, "total": total}
+
+    report = pv.validate_prompt_alignment(
+        examples=EXAMPLES, aligner=resolver.WordAligner(),
+        policy=pv.AlignmentPolicy())
+    failed = sum(1 for i in report.issues if i.issue_kind is pv.IssueKind.FAILED)
+    summary = {"failed": failed, "non_exact": len(report.issues) - failed,
+               "total": total}
+    # Raises on FAILED at ERROR level (and on non-exact too when strict), which
+    # is the whole point; the per-issue log lines it emits on the way are worth
+    # paying exactly once. A raise here kills the run, so there is no "validated
+    # but broken" state to cache.
+    pv.handle_alignment_report(report, level=lvl, strict_non_exact=strict)
+    if default_run:
+        _EXAMPLES_VALIDATED = summary
+    return summary
+
+
+def build_output_schema() -> dict:
+    """The `output_schema=` envelope for ENTITY_ATTR_NAMES (built once).
+
+    One strict-mode object variant per extraction class, wrapped in LangExtract's
+    ``{"extractions": [...]}`` envelope.
+
+    Every ATTRIBUTE is wrapped ``anyOf: [<schema>, null]`` — the span itself
+    stays a plain required string. OpenAI strict mode (which the adapter turns on
+    unconditionally for a hand-written schema) demands that every declared key be
+    listed as ``required``, and the adapter does NOT add null branches to a
+    hand-written schema the way it does to an example-derived one. Without this a
+    strict model would be forced to invent a `measurement` for every boundary and
+    a `lot_index` for every entity in a single-lot notice. The null branch is the
+    "attribute absent" signal; ``_drop_null_attrs`` strips it back out so the
+    loader and validators keep seeing the sparse dicts they always saw.
+    """
+    global _OUTPUT_SCHEMA
+    if _OUTPUT_SCHEMA is None:
+        _OUTPUT_SCHEMA = lx.schema.extractions_schema(*[
+            lx.schema.extraction_item_schema(
+                cls,
+                attributes={a: {"anyOf": [_attr_schema(cls, a),
+                                          {"type": "null"}]}
+                            for a in attrs} or None)
+            for cls, attrs in ENTITY_ATTR_NAMES.items()
+        ])
+    return _OUTPUT_SCHEMA
+
+
+def _drop_null_attrs(result):
+    """Delete null/empty attributes a schema-constrained model had to emit.
+
+    Unconstrained, the prompt's "OMIT any attribute that is absent" produces
+    sparse attribute dicts. Under a strict output schema every declared key must
+    be present, so absent ones arrive as ``None``. Strip them so both paths hand
+    the loader and the validators the same shape.
+    """
+    for extraction in getattr(result, "extractions", None) or []:
+        attrs = getattr(extraction, "attributes", None)
+        if isinstance(attrs, dict):
+            for key in [k for k, v in attrs.items() if v is None or v == ""]:
+                del attrs[key]
+    return result
+
+
 _MODEL_CACHE: dict = {}
 _REASONING_OFF_CLASS = None
 
@@ -1161,20 +1354,28 @@ def _reasoning_off_model_cls():
     return _REASONING_OFF_CLASS
 
 
-def _openrouter_model(model_id: str | None = None, reasoning_off: bool = False):
+def _openrouter_model(model_id: str | None = None, reasoning_off: bool = False,
+                      schema_active: bool = False):
     """Cached OpenAI-compatible model pointed at OpenRouter.
 
     ``model_id`` overrides the default (env LANGEXTRACT_MODEL_ID) so callers can
-    route per notice type; the cache is keyed by (model_id, reasoning_off) so
-    several models coexist in one process. ``reasoning_off`` forces provider-side
-    reasoning off for that model (see ``_reasoning_off_model_cls``)."""
+    route per notice type; the cache is keyed by (model_id, reasoning_off,
+    schema_active) so several models coexist in one process. ``reasoning_off``
+    forces provider-side reasoning off for that model (see
+    ``_reasoning_off_model_cls``).
+
+    ``schema_active`` only widens the cache key: ``lx.extract`` MUTATES the model
+    it is handed (``apply_output_schema`` / ``set_fence_output``), and a schema
+    is applied but never cleared — so a cached instance that ran once with
+    LANGEXTRACT_OUTPUT_SCHEMA=1 would keep constraining every later call. Two
+    entries keep a schema-on / schema-off A/B honest inside one process."""
     from langextract.providers.openai import OpenAILanguageModel
     key = os.environ.get("OPENROUTER_API_KEY")
     if not key:
         raise RuntimeError("OPENROUTER_API_KEY not set")
     model_id = model_id or os.environ.get("LANGEXTRACT_MODEL_ID",
                                           "google/gemini-2.5-flash")
-    cache_key = (model_id, reasoning_off)
+    cache_key = (model_id, reasoning_off, schema_active)
     if cache_key not in _MODEL_CACHE:
         base_url = os.environ.get("OPENROUTER_BASE_URL",
                                   "https://openrouter.ai/api/v1")
@@ -1233,28 +1434,56 @@ def extract(markdown: str, model_id: str | None = None,
     (LANGEXTRACT_PASSES, default 2) maximises multi-lot recall; results carry
     char_interval source grounding either way.
 
-    Both paths run WITHOUT schema constraints: on the gemini path langextract
-    would otherwise derive a response schema from EXAMPLES and silently suppress
-    any attr key not demonstrated there, while the OpenRouter path never
-    constrains — so evals would test different behaviour than production. Set
-    LANGEXTRACT_USE_SCHEMA=1 to restore constrained generation on gemini.
+    By default both paths run WITHOUT schema constraints: on the gemini path
+    langextract would otherwise derive a response schema from EXAMPLES and
+    silently suppress any attr key not demonstrated there, while the OpenRouter
+    path never constrains — so evals would test different behaviour than
+    production. Set LANGEXTRACT_USE_SCHEMA=1 to restore that example-derived
+    constrained generation on gemini (with its suppression caveat intact).
+
+    LANGEXTRACT_OUTPUT_SCHEMA=1 is the better lever, and works on BOTH paths: it
+    sends the hand-written ENTITY_ATTR_NAMES schema (see build_output_schema)
+    instead of an example-derived one, so the key set is fixed and enum-checked
+    WITHOUT dropping prose-only attrs. It requires a provider that honours strict
+    JSON structured outputs — both routed models do — so it is opt-in only until
+    measured: flip it on, run `python -m evals.langextract_eval`, and compare.
+
+    The few-shot examples are alignment-checked once per process before the
+    first call (see validate_examples): an example whose span no longer occurs in
+    its own source text silently teaches bad grounding, so it fails loudly rather
+    than quietly degrading extraction.
     """
     from pipeline.extract_routing import char_buffer_for
+    from langextract import prompt_validation as pv
+    validate_examples()
+    output_schema = (build_output_schema()
+                     if os.environ.get("LANGEXTRACT_OUTPUT_SCHEMA", "").strip() == "1"
+                     else None)
     common = dict(
         text_or_documents=markdown,
         prompt_description=prompt_description_for(expected_lot_count, roster),
         examples=EXAMPLES, extraction_passes=int(os.environ.get("LANGEXTRACT_PASSES", "2")),
         max_char_buffer=char_buffer_for(markdown), max_workers=4,
+        output_schema=output_schema,
+        # Already done above, once, for the whole process — leaving it on here
+        # re-logs every non-exact example span on every notice.
+        prompt_validation_level=pv.PromptValidationLevel.OFF,
     )
     if os.environ.get("LANGEXTRACT_PROVIDER", "openrouter").lower() == "openrouter":
-        return lx.extract(model=_openrouter_model(model_id, reasoning_off),
-                          fence_output=True, use_schema_constraints=False, **common)
-    use_schema = os.environ.get("LANGEXTRACT_USE_SCHEMA", "").strip() == "1"
-    return lx.extract(
+        # fence_output must be False under a schema: structured outputs return
+        # raw JSON, and langextract rejects fence_output=True outright.
+        return _drop_null_attrs(lx.extract(
+            model=_openrouter_model(model_id, reasoning_off,
+                                    schema_active=output_schema is not None),
+            fence_output=output_schema is None, use_schema_constraints=False,
+            **common))
+    use_schema = (output_schema is None
+                  and os.environ.get("LANGEXTRACT_USE_SCHEMA", "").strip() == "1")
+    return _drop_null_attrs(lx.extract(
         model_id=model_id or os.environ.get("LANGEXTRACT_MODEL_ID", "gemini-2.5-flash"),
         api_key=os.environ.get("LANGEXTRACT_API_KEY"),
-        fence_output=not use_schema,
-        use_schema_constraints=use_schema, **common)
+        fence_output=not use_schema and output_schema is None,
+        use_schema_constraints=use_schema, **common))
 
 
 if __name__ == "__main__":

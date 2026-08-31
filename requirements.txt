@@ -43,7 +43,10 @@ google-genai>=2.0,<3
 # extraction in-process; without it the rerun worker dies with
 # ModuleNotFoundError. Both are lazy imports, so ordinary API requests never
 # pay the (pandas/absl-py) import cost.
-langextract>=1.5,<2
+# >=1.6 for `output_schema=` (the hand-written schema in
+# pipeline/langextract_examples.build_output_schema) and the prompt
+# alignment pre-flight; both are no-ops on 1.5 and would fail loudly.
+langextract>=1.6,<2
 openai>=2.0,<3
 
 # API + Agent layer
