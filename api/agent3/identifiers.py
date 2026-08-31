@@ -82,7 +82,11 @@ OPTIONAL MATCH (a:AuctionProperty {auction_id: auction_id})-[:LOCATED_IN_CITY]->
 OPTIONAL MATCH (a)-[:CONDUCTED_BY]->(b:Bank)
 RETURN auction_id, matched_kind, matched_value, match_score AS score, lot_key,
        lot_property_type, lot_count, c.name AS city, b.name AS bank,
-       a.title AS title, a.resolved_lot_key AS resolved_lot_key
+       // Phase 2: the lot comes from the edge, not the string beside it. A
+       // key is "<filename>#<lot_index>" and lot_index is the model's own
+       // numbering, so a re-extraction renumbers the lots and a stale key
+       // still RESOLVES — to a different property. The edge names the node.
+       a.title AS title, [(a)-[:IS_LOT]->(_lot:Lot) | _lot.lot_key][0] AS resolved_lot_key
 ORDER BY score DESC LIMIT $limit
 """
 

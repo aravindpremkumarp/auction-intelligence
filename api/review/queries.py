@@ -1779,10 +1779,17 @@ def _price_checks(decisions: list[dict]) -> list[dict]:
         WITH p, d ORDER BY (CASE WHEN d.public_url IS NULL THEN 1 ELSE 0 END),
                            d.file_path
         WITH p, collect(d)[0] AS d
-        OPTIONAL MATCH (keyed:Lot {lot_key: p.resolved_lot_key})
-                       -[:OFFERED_IN]->(ka:Auction)
+        // Phase 2: through the edge, not the string. Matching a :Lot by
+        // p.resolved_lot_key finds whatever currently answers to that key,
+        // which after a re-extraction can be a different property.
+        // Two steps, not one chain: a lot without an :Auction still names the
+        // lot, and chaining would blank lot_key on every such row — the
+        // string it replaced was read straight off the listing and never had
+        // that dependency.
+        OPTIONAL MATCH (p)-[:IS_LOT]->(keyed:Lot)
+        OPTIONAL MATCH (keyed)-[:OFFERED_IN]->(ka:Auction)
         OPTIONAL MATCH (d)-[:HAS_LOT]->(any:Lot)-[:OFFERED_IN]->(aa:Auction)
-        WITH p, d, ka, count(DISTINCT any) AS lot_count,
+        WITH p, d, ka, keyed, count(DISTINCT any) AS lot_count,
              collect(DISTINCT aa)[0] AS only_auction
         RETURN p.auction_id AS auction_id, p.title AS title,
                p.price_agreement AS verdict,
@@ -1794,7 +1801,7 @@ def _price_checks(decisions: list[dict]) -> list[dict]:
                              THEN only_auction.reserve_price_num END)
                  AS notice_price,
                lot_count AS lot_count,
-               p.resolved_lot_key AS lot_key,
+               keyed.lot_key AS lot_key,
                d.filename AS filename, d.public_url AS public_url,
                // `url`, not `source_url`: source_url is empty on every
                // listing. _lot_match_candidates already reads p.url.
@@ -1994,7 +2001,10 @@ def _lot_match_candidates(decisions: list[dict]) -> list[dict]:
         """
         MATCH (p:AuctionProperty)-[:HAS_DOCUMENT]->(d:Document)-[:HAS_LOT]->(l:Lot)
         WITH p, d, count(l) AS lot_count
-        WHERE lot_count > 1 AND p.resolved_lot_key IS NULL
+        // Phase 2: no edge is what "unresolved" means now. A key whose :Lot
+        // does not exist used to read as resolved and keep the listing off
+        // this queue — the one place a broken pointer must not hide.
+        WHERE lot_count > 1 AND NOT (p)-[:IS_LOT]->(:Lot)
           AND NOT p.auction_id IN $skipped
         // A listing can link to more than one scan of the SAME notice (9 do),
         // and one row per (listing, document) would put that listing on the

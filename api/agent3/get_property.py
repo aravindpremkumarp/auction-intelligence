@@ -65,7 +65,11 @@ RETURN a.auction_id AS auction_id, a.title AS title, a.url AS url,
        [(a)-[:HAS_PROPERTY_TYPE]->(pt:PropertyType) | pt.name] AS property_types,
        [(a)-[:HAS_BORROWER]->(b:Borrower) | b.name] AS borrowers,
        [(a)-[:SAME_PROPERTY_AS]->(o:AuctionProperty) | o.auction_id] AS same_property_as,
-       a.resolved_lot_key AS resolved_lot_key
+       // Phase 2: the lot comes from the edge, not the string beside it. A
+       // key is "<filename>#<lot_index>" and lot_index is the model's own
+       // numbering, so a re-extraction renumbers the lots and a stale key
+       // still RESOLVES — to a different property. The edge names the node.
+       [(a)-[:IS_LOT]->(_lot:Lot) | _lot.lot_key][0] AS resolved_lot_key
 """
 
 _DOCUMENT_CYPHER = """

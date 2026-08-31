@@ -947,6 +947,16 @@ def run(limit: int | None = None, dry_run: bool = False) -> int:
     # Revert last: a listing can only appear in one of desc_rows/revert_rows
     # per run, but ordering it after the write keeps the invariant obvious —
     # nothing this run published can then be reverted by it.
+    # Phase 2 readers resolve a listing through (:AuctionProperty)-[:IS_LOT]->
+    # (:Lot), so the edge has to move whenever the key does. promote_extractions
+    # owns the linking (it is where the :Lot nodes are written), but this step
+    # is the OTHER place keys change, and run_pipeline calls it without calling
+    # promote — leaving the edge to a manual run would make a resolution
+    # invisible until someone remembered. Imported here rather than at module
+    # scope: promote_extractions imports from this module.
+    from pipeline.promote_extractions import link_lots
+    link_lots(dry_run=False)
+
     nr = revert_withheld_descriptions(revert_rows)
     print(f"  wrote fields to {nf} listings, descriptions to {nd} listings "
           f"(legacy human descriptions overwritten, backed up once), "
