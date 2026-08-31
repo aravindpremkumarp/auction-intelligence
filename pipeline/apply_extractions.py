@@ -21,7 +21,12 @@ Per Document:
                          that tie on money), then, if exactly one lot and one
                          listing remain, pair them
      Unmatched listings are logged to data/grounded_unmatched.csv.
-  4. Write fields onto AuctionProperty. The description write treats the
+  4. Write fields onto AuctionProperty. On a multi-lot notice a listing whose
+     lot is NOT confirmed (a rival claim, or unmatched) gets only the fields
+     every lot agrees on — notice-facts, true whichever lot it is — and any
+     contested field an earlier run wrote onto it is cleared
+     (consensus_and_contested / clear_unsafe_fields). The description write
+     treats the
      grounded notice text as the sole source — it overwrites even the legacy
      pipeline's human-verified rows (stashing them once into
      description_human_backup) — but on a multi-lot notice only for a listing
@@ -496,6 +501,38 @@ def description_verdict(description: str, portal: str | None, *,
     return None
 
 
+def consensus_and_contested(lots: dict[str, dict]) -> tuple[dict, set[str]]:
+    """Split a notice's field values into what is safe for ANY of its listings
+    and what is only safe for a listing whose lot is known.
+
+    A value every lot agrees on — same non-null value on all of them — is a
+    fact about the notice: it holds for this listing whichever lot it turns
+    out to be, so it is safe to write even when the lot match is refused.
+    A value the lots differ on (or that only some lots carry) names ONE lot,
+    so writing it to an unresolved listing asserts a match `sole_claimants`
+    declined to make. 63 unlinked listings live today carry a village copied
+    that way from notices that span more than one place — stated with full
+    confidence while the lot link itself says "unknown".
+
+    Returns ``(consensus, contested)``: the fields to write for an unresolved
+    listing, and the keys that must be CLEARED off one (they could only have
+    come from a specific lot). A single-lot notice has no contested keys by
+    construction — its one lot's fields are notice-facts.
+    """
+    lot_list = list(lots.values())
+    if not lot_list:
+        return {}, set()
+    all_keys: set[str] = set()
+    for lo in lot_list:
+        all_keys |= set(lo.get("fields") or {})
+    consensus: dict = {}
+    for k in all_keys:
+        vals = [(lo.get("fields") or {}).get(k) for lo in lot_list]
+        if all(v is not None for v in vals) and len({str(v) for v in vals}) == 1:
+            consensus[k] = vals[0]
+    return consensus, all_keys - set(consensus)
+
+
 def sole_claimants(matches: list[tuple[dict, dict, str]]) -> list[tuple[dict, dict, str]]:
     """The subset of ``matches`` whose lot no other listing also claims.
 
@@ -512,8 +549,11 @@ def sole_claimants(matches: list[tuple[dict, dict, str]]) -> list[tuple[dict, di
     is worse than no value, so the rivals keep today's notice-scoped reading
     and stay on the human review queue.
 
-    The field write deliberately does NOT go through this — it predates the
-    lot key and narrowing it is a separate question.
+    The field write goes through a finer version of the same idea:
+    `consensus_and_contested` keeps a rival listing's fields only where every
+    lot on the notice agrees on the value — those are notice-facts, safe for
+    whichever lot the listing turns out to be — and gates (and clears) the
+    rest. See `clear_unsafe_fields`.
     """
     claims: dict[int, int] = defaultdict(int)
     for _listing, lot, _reason in matches:
@@ -686,6 +726,47 @@ def write_fields(rows: list[dict]) -> int:
         """, {"rows": batch, "at": now_iso})
         written += len(res) if res else 0
     return written
+
+
+def clear_unsafe_fields(rows: list[dict]) -> int:
+    """REMOVE contested notice fields from listings whose lot is unresolved.
+
+    `write_fields` used to hand every matched listing its lot's full field
+    set, rival or not — so a listing the rivalry gate refused to link still
+    carries a specific lot's village, taluk or extent from an earlier run,
+    stated as plain fact. The new consensus write stops adding those; this
+    clears the ones already on the graph.
+
+    Only a listing whose `grounded_source_file` is THIS document is touched —
+    the same provenance rule `clear_stale_lot_matches` uses — so a value some
+    other pipeline (or the other scan of a dual-document listing) wrote is
+    never stripped by a pass over the wrong file. Consensus keys are not in
+    ``rows`` at all: they were true for the listing whichever lot it is.
+
+    Cypher has no dynamic REMOVE, so rows are grouped by their exact key set
+    and one literal REMOVE clause is built per group. Keys come from
+    `group_lots`' own field names, backtick-quoted anyway out of caution.
+    """
+    if not rows:
+        return 0
+    by_keys: dict[tuple[str, ...], list[dict]] = defaultdict(list)
+    for row in rows:
+        by_keys[tuple(row["keys"])].append(row)
+    cleared = 0
+    for keys, group in by_keys.items():
+        remove_clause = ", ".join(f"a.`{k}`" for k in keys)
+        exists_clause = " OR ".join(f"a.`{k}` IS NOT NULL" for k in keys)
+        for batch in chunked(group, WRITE_CHUNK):
+            res = run_query(f"""
+                UNWIND $rows AS row
+                MATCH (a:AuctionProperty {{auction_id: row.aid}})
+                WHERE a.grounded_source_file = row.filename
+                  AND ({exists_clause})
+                REMOVE {remove_clause}
+                RETURN a.auction_id AS aid
+            """, {"rows": batch})
+            cleared += len(res) if res else 0
+    return cleared
 
 
 def write_descriptions(rows: list[dict]) -> int:
@@ -959,6 +1040,7 @@ def run(limit: int | None = None, dry_run: bool = False) -> int:
     human_decided = human_decided_lot_matches()
 
     field_rows: list[dict] = []
+    unsafe_field_rows: list[dict] = []
     desc_rows: list[dict] = []
     revert_rows: list[dict] = []
     lot_key_rows: list[dict] = []
@@ -988,12 +1070,26 @@ def run(limit: int | None = None, dry_run: bool = False) -> int:
         for finding in check_document(matches):
             stats[f"price_{finding['verdict']}"] += 1
             price_rows.append(dict(finding, filename=w["filename"]))
+        # Fields split the same way the lot key and description do, but by
+        # VALUE rather than wholesale: what every lot agrees on is a
+        # notice-fact and stays writable for anyone; what the lots differ on
+        # is only writable for a listing whose lot is confirmed. This closes
+        # the one write path the rivalry gate did not cover — a contested
+        # listing used to get its guessed lot's village/extent stated as
+        # plain fact while the lot link itself was refused.
+        consensus, contested = consensus_and_contested(lots)
         for listing, lot, reason in matches:
             stats[f"match_{reason}"] += 1
-            if lot["fields"]:
+            safe_fields = lot["fields"] if id(listing) in sole else consensus
+            if safe_fields:
                 field_rows.append({"aid": listing["aid"],
                                    "filename": w["filename"],
-                                   "props": lot["fields"]})
+                                   "props": safe_fields})
+            if id(listing) not in sole and contested:
+                stats["fields_gated_claimed_by_several"] += 1
+                unsafe_field_rows.append({"aid": listing["aid"],
+                                          "filename": w["filename"],
+                                          "keys": sorted(contested)})
             # The description goes through `sole_claimants` for the same
             # reason `resolved_lot_key` does: when two listings claim one lot,
             # at most one of them is that property, so publishing the lot's
@@ -1058,6 +1154,13 @@ def run(limit: int | None = None, dry_run: bool = False) -> int:
                 })
         for listing, reason in unmatched:
             stats[f"unmatched_{reason}"] += 1
+            # An unmatched listing may hold contested fields from an EARLIER
+            # run, before this gate existed — clear those too. Its consensus
+            # keys survive untouched: they were true regardless of lot.
+            if contested:
+                unsafe_field_rows.append({"aid": listing["aid"],
+                                          "filename": w["filename"],
+                                          "keys": sorted(contested)})
             # No lot means no description this run. Anything an earlier run
             # published is now unbacked by a match, so it reverts as well.
             revert_rows.append({"aid": listing["aid"],
@@ -1077,7 +1180,9 @@ def run(limit: int | None = None, dry_run: bool = False) -> int:
                 stale_key_rows.append({"aid": aid, "filename": w["filename"]})
 
     print(f"  match/unmatch stats: {dict(stats)}")
-    print(f"  field rows: {len(field_rows)}  description rows: {len(desc_rows)}  "
+    print(f"  field rows: {len(field_rows)}  "
+          f"contested-field clears: {len(unsafe_field_rows)}  "
+          f"description rows: {len(desc_rows)}  "
           f"lot-key rows: {len(lot_key_rows)}  "
           f"stale keys to clear: {len(stale_key_rows)}  "
           f"descriptions to revert: {len(revert_rows)}  "
@@ -1102,6 +1207,10 @@ def run(limit: int | None = None, dry_run: bool = False) -> int:
 
     npf = write_price_findings(price_rows)
     nf = write_fields(field_rows)
+    # After the field write: a rival listing gets its consensus fields SET and
+    # its contested keys REMOVEd in the same run — disjoint key sets by
+    # construction, but this order keeps the invariant obvious.
+    ncf = clear_unsafe_fields(unsafe_field_rows)
     nd = write_descriptions(desc_rows)
     nl = write_lot_matches(lot_key_rows)
     # After the write, so a listing that moved from one lot to another this run
@@ -1111,7 +1220,8 @@ def run(limit: int | None = None, dry_run: bool = False) -> int:
     # per run, but ordering it after the write keeps the invariant obvious —
     # nothing this run published can then be reverted by it.
     nr = revert_withheld_descriptions(revert_rows)
-    print(f"  wrote fields to {nf} listings, descriptions to {nd} listings "
+    print(f"  wrote fields to {nf} listings, "
+          f"cleared contested fields off {ncf}, descriptions to {nd} listings "
           f"(legacy human descriptions overwritten, backed up once), "
           f"lot key to {nl} listings, cleared {nc} stale lot key(s), "
           f"reverted {nr} listings to portal text, "

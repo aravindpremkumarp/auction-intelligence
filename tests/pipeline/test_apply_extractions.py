@@ -519,9 +519,9 @@ def _run_capturing(monkeypatch, tmp_path, work):
     monkeypatch.setattr(AX, "UNMATCHED_CSV", tmp_path / "unmatched.csv")
     monkeypatch.setattr(AX, "fetch_work", lambda limit=None: work)
     monkeypatch.setattr(AX, "human_decided_lot_matches", lambda: set())
-    for name in ("write_fields", "write_descriptions", "write_lot_matches",
-                 "clear_stale_lot_matches", "write_price_findings",
-                 "revert_withheld_descriptions"):
+    for name in ("write_fields", "clear_unsafe_fields", "write_descriptions",
+                 "write_lot_matches", "clear_stale_lot_matches",
+                 "write_price_findings", "revert_withheld_descriptions"):
         monkeypatch.setattr(
             AX, name,
             # tuple-index, not `and`: an empty rows list is falsy and would
@@ -529,7 +529,8 @@ def _run_capturing(monkeypatch, tmp_path, work):
             (lambda key: lambda rows: (seen.setdefault(key, rows), len(rows))[1])(name))
     AX.run()
     return {k: {r["aid"] for r in seen.get(k, [])}
-            for k in ("write_fields", "write_descriptions", "write_lot_matches")}
+            for k in ("write_fields", "clear_unsafe_fields",
+                      "write_descriptions", "write_lot_matches")}
 
 
 def test_rival_listings_on_a_multi_lot_notice_get_no_description(monkeypatch, tmp_path):
@@ -558,13 +559,21 @@ def test_rival_listings_on_a_multi_lot_notice_get_no_description(monkeypatch, tm
     assert got["write_lot_matches"] == {"clean"}
 
 
-def test_the_rivals_still_get_their_fields(monkeypatch, tmp_path):
-    """The field write is deliberately outside this gate — narrowing it is a
-    separate question, and this fix must not quietly change it."""
+def test_rivals_get_consensus_fields_and_lose_contested_ones(monkeypatch, tmp_path):
+    """The field write used to sit outside the rivalry gate entirely — a
+    contested listing was handed its guessed lot's fields as plain fact. Now
+    it splits by value (2026-08-31 decision, option C): a field every lot
+    agrees on is a notice-fact and still flows to the rivals; a field only
+    one lot carries names that lot, so it is withheld AND queued for clearing
+    off any earlier run's write."""
     work = [{
         "filename": "n.pdf",
         "extraction_json": json.dumps(
-            [ent("location", "", {"lot_index": "1", "village": "Padur"})]
+            # 'Padur' on lot 1 only — contested. Both lots name taluk 'Salem'
+            # — consensus, so it survives the gate.
+            [ent("location", "", {"lot_index": "1", "village": "Padur"}),
+             ent("location", "", {"lot_index": "1", "taluk": "Salem"}),
+             ent("location", "", {"lot_index": "2", "taluk": "Salem"})]
             + _lot_ents("1", "Flat A schedule", 5000000)
             + _lot_ents("2", "Flat B schedule", 7000000)),
         "corrections_json": None,
@@ -574,7 +583,8 @@ def test_the_rivals_still_get_their_fields(monkeypatch, tmp_path):
         ],
     }]
     got = _run_capturing(monkeypatch, tmp_path, work)
-    assert got["write_fields"] == {"rivalA", "rivalB"}
+    assert got["write_fields"] == {"rivalA", "rivalB"}          # taluk only
+    assert got["clear_unsafe_fields"] == {"rivalA", "rivalB"}   # village out
     assert got["write_descriptions"] == set()
 
 
@@ -1110,3 +1120,51 @@ def test_explain_prose_exists_for_every_matcher_reason():
                    "no_listing_price", "no_lots"):
         assert f'"{reason}"' in src, f"{reason} no longer produced by matcher"
         assert reason in AX._EXPLAIN_TEXT, f"{reason} has no reviewer prose"
+
+
+# ── consensus_and_contested / the field-write gate ───────────────────────────
+
+def _flot(lot_index, fields, reserve=None):
+    return {"lot_index": lot_index, "description": None, "fields": fields,
+            "reserve": reserve, "emd": None,
+            "borrower_tokens": set(), "id_tokens": set()}
+
+
+def test_consensus_keeps_what_every_lot_agrees_on():
+    """A value identical on every lot is a notice-fact: true for a listing
+    whichever lot it turns out to be, so it survives the gate."""
+    lots = {"1": _flot("1", {"village": "Kannankurichi", "taluk": "Salem",
+                             "door_numbers_new": "12A"}),
+            "2": _flot("2", {"village": "Kannankurichi", "taluk": "Salem",
+                             "door_numbers_new": "14B"})}
+    consensus, contested = AX.consensus_and_contested(lots)
+    assert consensus == {"village": "Kannankurichi", "taluk": "Salem"}
+    assert contested == {"door_numbers_new"}
+
+
+def test_a_key_only_some_lots_carry_is_contested():
+    """Present on one lot and absent on another is not agreement — writing it
+    to an unresolved listing asserts the lot that has it."""
+    lots = {"1": _flot("1", {"village": "X", "total_area": "890 sq.ft"}),
+            "2": _flot("2", {"village": "X"})}
+    consensus, contested = AX.consensus_and_contested(lots)
+    assert consensus == {"village": "X"}
+    assert contested == {"total_area"}
+
+
+def test_single_lot_notice_has_no_contested_keys():
+    lots = {"1": _flot("1", {"village": "X", "total_area": "890 sq.ft"})}
+    consensus, contested = AX.consensus_and_contested(lots)
+    assert consensus == {"village": "X", "total_area": "890 sq.ft"}
+    assert contested == set()
+
+
+def test_confirmed_listing_still_gets_its_lot_s_full_fields():
+    """The gate narrows only unresolved listings — a sole claimant keeps the
+    exact behaviour it always had."""
+    lots = {"1": _flot("1", {"village": "V", "total_area": "1000"}, reserve=100),
+            "2": _flot("2", {"village": "V", "total_area": "2000"}, reserve=200)}
+    matches, _ = AX.match_lots_to_listings(
+        lots, [{"aid": "a", "price": 100}, {"aid": "b", "price": 200}])
+    sole = {id(m[0]) for m in AX.sole_claimants(matches)}
+    assert all(id(m[0]) in sole for m in matches)
