@@ -139,7 +139,8 @@ def test_a_verdict_on_a_real_listing_is_stored(monkeypatch):
     monkeypatch.setattr(q, "_count_query", lambda *a, **k: {"n": 1})
     monkeypatch.setattr(q, "run_query", lambda *a, **k: [{"n": 1}])
     out = q.record_resolution_decision(
-        "price-check", {"auction_id": "750895"}, "approved", "a@b.c")
+        "price-check", {"auction_id": "750895", "wrong": "notice"},
+        "approved", "a@b.c")
     assert out["key"] == "price-check:750895"
 
 
@@ -149,3 +150,68 @@ def test_a_false_alarm_is_checked_too(monkeypatch):
     with pytest.raises(ValueError, match="no listing"):
         q.record_resolution_decision(
             "price-check", {"auction_id": "nope"}, "rejected", "a@b.c")
+
+
+# ── which side is wrong ──────────────────────────────────────────────────────
+
+def test_a_verdict_must_name_the_side_at_fault(monkeypatch):
+    """"One of these two numbers is wrong" is not an answer anyone can act on.
+
+    The payload is free-form, so the vocabulary is enforced server-side rather
+    than trusted from the caller.
+    """
+    monkeypatch.setattr(q, "_count_query", lambda *a, **k: {"n": 1})
+    monkeypatch.setattr(q, "run_query", lambda *a, **k: [{"n": 1}])
+    with pytest.raises(ValueError, match="wrong"):
+        q.record_resolution_decision(
+            "price-check", {"auction_id": "1"}, "approved", "a@b.c")
+
+
+@pytest.mark.parametrize("side", ["notice", "portal", "both", "neither"])
+def test_each_side_is_accepted(monkeypatch, side):
+    monkeypatch.setattr(q, "_count_query", lambda *a, **k: {"n": 1})
+    monkeypatch.setattr(q, "run_query", lambda *a, **k: [{"n": 1}])
+    out = q.record_resolution_decision(
+        "price-check", {"auction_id": "1", "wrong": side},
+        "rejected" if side == "neither" else "approved", "a@b.c")
+    assert out["key"] == "price-check:1"
+
+
+def test_an_invented_side_is_refused(monkeypatch):
+    monkeypatch.setattr(q, "_count_query", lambda *a, **k: {"n": 1})
+    with pytest.raises(ValueError, match="wrong"):
+        q.record_resolution_decision(
+            "price-check", {"auction_id": "1", "wrong": "dunno"},
+            "approved", "a@b.c")
+
+
+def test_the_side_and_note_do_not_change_the_key():
+    """A note must not fork the decision.
+
+    If the key carried the payload, the same listing settled with a note and
+    without one would be two rows, and neither would suppress the other.
+    """
+    assert decision_key("price-check", {"auction_id": "1"}) == \
+        decision_key("price-check",
+                     {"auction_id": "1", "wrong": "notice", "note": "hi"})
+
+
+def test_the_note_rides_in_the_stored_payload(monkeypatch):
+    """The note is why the row was special; losing it loses the reason."""
+    stored = {}
+    monkeypatch.setattr(q, "_count_query", lambda *a, **k: {"n": 1})
+    monkeypatch.setattr(
+        q, "run_query",
+        lambda cy, params=None: stored.update(params or {}) or [{"n": 1}])
+    q.record_resolution_decision(
+        "price-check", {"auction_id": "1", "wrong": "notice",
+                        "note": "notice says 45L in words"},
+        "approved", "a@b.c")
+    assert "notice says 45L in words" in stored["payload"]
+    assert '"wrong": "notice"' in stored["payload"]
+
+
+def test_the_queue_offers_the_portal_listing_too():
+    """Judging WHICH side is wrong means seeing both sides."""
+    import inspect
+    assert "listing_url" in inspect.getsource(q._price_checks)
