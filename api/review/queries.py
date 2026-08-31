@@ -2115,6 +2115,13 @@ def _lot_match_candidates(decisions: list[dict]) -> list[dict]:
             # picking from N lots, and `rivals` names the rows to open.
             "blocker": verdict["outcome"],
             "rivals": verdict["rivals"],
+            # Which candidate the matcher landed on, so the UI can point at it
+            # rather than make the reviewer re-derive it from the prose. Only
+            # meaningful when `blocker` is 'rival' — an 'unmatched' listing
+            # reached no lot, and a 'linked' one never reaches this queue.
+            "matched_lot_key": (
+                f"{r['filename']}#{verdict['lot_index']}"
+                if verdict.get("lot_index") is not None else None),
             "candidates": [{
                 "lot_key": c["lot_key"], "reserve": c["reserve"],
                 "sqft": round(c["sqft"], 1) if c["sqft"] is not None else None,

@@ -220,6 +220,37 @@ def test_lot_match_candidates_carries_the_resolver_s_own_evidence(monkeypatch):
     # and `rivals` names the row to compare against.
     assert row["blocker"] == "rival"
     assert row["rivals"] == ["796270"]
+    # Which lot they are both on, so the UI can point at it instead of making
+    # the reviewer re-derive it from the prose.
+    assert row["matched_lot_key"] == "notice.jpg#2"
+
+
+def test_lot_match_row_has_no_matched_lot_key_when_nothing_matched(monkeypatch):
+    """An 'unmatched' listing reached no lot at all. The row must say so with
+    None rather than a composed key naming a lot the matcher never picked."""
+    listing_rows = [
+        {"auction_id": "800001", "title": "t", "listing_url": None,
+         "file_path": "n.jpg", "filename": "n.jpg", "public_url": None,
+         "reserve": 5, "lot_count": 4, "borrower": None,
+         "listing_description": None},
+    ]
+
+    def fake_read(cypher, params=None, **kw):
+        if "count(l) AS lot_count" in cypher:
+            return listing_rows
+        return []
+
+    import pipeline.apply_extractions as AX
+    monkeypatch.setattr(AX, "explain_documents", lambda fns: {
+        ("800001", "n.jpg"): {"outcome": "unmatched", "tier": None,
+                              "lot_index": None, "rivals": [],
+                              "reason": "several lots tie on every signal"},
+    })
+    monkeypatch.setattr(q, "run_read_query", fake_read)
+    row = q._lot_match_candidates([])[0]
+    assert row["blocker"] == "unmatched"
+    assert row["matched_lot_key"] is None
+    assert row["rivals"] == []
 
 
 def test_lot_match_candidates_shows_a_listing_once_per_notice(monkeypatch):

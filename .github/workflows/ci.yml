@@ -54,6 +54,15 @@ jobs:
       # directly (the annotator's Ink tab) and it is where the missing-region
       # threshold lives — a silent regression there mis-scores the review
       # queue. Needs only Pillow + PyMuPDF, both already in requirements.lock.
+      #
+      # test_apply_extractions.py joins it on the same grounds: the lot matcher
+      # it covers is what decides which lot a listing IS, and the review queue
+      # now explains its verdicts through the same functions
+      # (apply_extractions.explain_lot_match), so a regression there is not
+      # confined to the batch pipeline — it misinforms a human reviewer. One of
+      # its cases exists purely to hold the two callers together, and a guard
+      # nothing runs is not a guard. Needs neo4j + python-dotenv + RapidFuzz,
+      # all already in requirements.lock.
       - name: Run API tests
         env:
           SUPABASE_URL: https://fake.supabase.co
@@ -63,7 +72,8 @@ jobs:
           AUTH_ENABLED: "true"
         run: >
           pytest tests/api tests/scripts tests/test_vercel_config.py
-          tests/pipeline/test_ink_coverage.py -q
+          tests/pipeline/test_ink_coverage.py
+          tests/pipeline/test_apply_extractions.py -q
 
   # Live Razorpay test-mode E2E + real-Neo4j concurrency (design D4/D5).
   # REQUIRED: this job goes red when the RAZORPAY_* secrets are absent — the gate

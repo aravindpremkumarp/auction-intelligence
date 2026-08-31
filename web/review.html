@@ -1499,7 +1499,9 @@
       ? `<div class="lot-notice-img"><img data-src="${escapeHtml(m.public_url)}" alt="sale notice"></div>`
       : `<p class="meta" style="color:var(--muted)">no notice image on file</p>`;
     const candidateRows = m.candidates.map(c => `<div class="lot-candidate">
-        <span style="flex:1">${escapeHtml(c.lot_key)}
+        <span style="flex:1">${escapeHtml(c.lot_key)}${
+          c.lot_key === m.matched_lot_key
+            ? ' <span class="pill warn">contested</span>' : ''}
           <small style="color:var(--muted)">${
             currency(c.reserve) || 'no reserve'}${
             c.sqft != null ? ' · ' + c.sqft + ' sqft' : ''}${
@@ -1511,10 +1513,31 @@
             verdict: 'approved' })}
       </div>`).join('');
 
+    // A contested lot is a different question from an ambiguous notice: the
+    // matcher DID place this listing, and another listing landed on the same
+    // lot, so the reviewer is separating two rows rather than picking from N
+    // lots. Name the rivals and link them — `db_properties` already carries
+    // the title and portal URL for every listing on this notice, so the rival
+    // is one lookup away rather than an auction_id to go hunting for.
+    const rivals = (m.rivals || []).map(aid =>
+      m.db_properties.find(sp => sp.auction_id === aid) || { auction_id: aid });
+    const rivalBlock = rivals.length ? `<div style="margin-top:8px">
+        <div class="lot-lbl">also claims ${escapeHtml(m.matched_lot_key || 'this lot')}</div>
+        ${rivals.map(rv => `<div class="lot-sibling">
+          ${escapeHtml(rv.title || rv.auction_id)}
+          <small style="color:var(--muted)"> · ${escapeHtml(rv.auction_id)}${
+            currency(rv.reserve) ? ' · ' + currency(rv.reserve) : ''}${
+            rv.url ? ' · <a href="' + escapeHtml(rv.url) + '" target="_blank" rel="noopener">portal ↗</a>' : ''
+          }</small>
+        </div>`).join('')}
+      </div>` : '';
+
     return `<div class="lot-row" data-auction="${escapeHtml(m.auction_id)}">
       <div class="lot-row-head">
         <span class="ov-label" style="flex:1; white-space:normal">
-          <b>${escapeHtml(m.title || m.auction_id)}</b>
+          <b>${escapeHtml(m.title || m.auction_id)}</b>${
+            m.blocker === 'rival'
+              ? ' <span class="pill warn">contested lot</span>' : ''}
           <small style="color:var(--muted)"> · ${escapeHtml(m.auction_id)} · ${
             m.lot_count} lots on the notice · ${dbCount} propert${
             dbCount === 1 ? 'y' : 'ies'} in our DB${portalLink}</small>
@@ -1524,6 +1547,7 @@
       <div class="lot-row-body" hidden>
         ${noticeImg}
         <p class="meta" style="color:var(--muted); margin-top:8px">${escapeHtml(m.reason)}</p>
+        ${rivalBlock}
         ${dbCount > 1 ? `<div style="margin-top:8px"><b style="font-size:12px">other properties on this notice</b>${siblingRows}</div>` : ''}
         <div class="lot-lbl">what the portal says this property is — compare it against the lots below</div>
         <div class="lot-desc">${m.listing_description
