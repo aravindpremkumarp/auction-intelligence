@@ -907,21 +907,29 @@ def run(limit: int | None = None, dry_run: bool = False) -> int:
                     stats[f"description_dropped_{verdict}"] += 1
                     revert_rows.append({"aid": listing["aid"],
                                         "reason": verdict})
-            # Only a genuinely multi-lot notice needs resolved_lot_key —
-            # scope_of() already reads a single-lot notice as lot-scoped
-            # without it, same as scripts/resolve_lots.py's own scope.
-            if len(lots) > 1:
-                if id(listing) not in sole:
-                    stats["lot_key_dropped_claimed_by_several"] += 1
-                elif listing["aid"] in human_decided:
-                    human_skipped += 1
-                else:
-                    resolved_this_doc.add(listing["aid"])
-                    lot_key_rows.append({
-                        "aid": listing["aid"],
-                        "lot_key": f"{w['filename']}#{lot['lot_index']}",
-                        "reason": reason,
-                    })
+            # Single-lot notices are linked too. They used to be skipped —
+            # scope_of() reads them as lot-scoped without an edge, so the link
+            # added nothing. After Phase 4 the edge is the ONLY statement that
+            # a listing is a given lot, and leaving 1,009 properties without
+            # one means the graph cannot answer "which lot is this?" for a
+            # third of the corpus even where the answer is unambiguous.
+            #
+            # No special case is needed: `sole_claimants` already decides.
+            # 990 single-lot notices carry exactly one listing, so nothing
+            # rivals them; the two that carry 2 and 17 are genuinely contested
+            # (one lot cannot be all of them) and are dropped, same as any
+            # multi-lot fight.
+            if id(listing) not in sole:
+                stats["lot_key_dropped_claimed_by_several"] += 1
+            elif listing["aid"] in human_decided:
+                human_skipped += 1
+            else:
+                resolved_this_doc.add(listing["aid"])
+                lot_key_rows.append({
+                    "aid": listing["aid"],
+                    "lot_key": f"{w['filename']}#{lot['lot_index']}",
+                    "reason": reason,
+                })
         for listing, reason in unmatched:
             stats[f"unmatched_{reason}"] += 1
             # No lot means no description this run. Anything an earlier run

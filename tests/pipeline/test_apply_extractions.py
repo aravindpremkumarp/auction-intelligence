@@ -973,3 +973,40 @@ def test_apply_no_longer_calls_the_retired_link_step():
     """link_lots derived the edge FROM the string; there is no string left."""
     import inspect
     assert "link_lots" not in inspect.getsource(AX.run)
+
+
+# ── single-lot notices are linked too ────────────────────────────────────────
+
+def test_a_single_lot_notice_with_one_listing_is_linked():
+    """These used to be skipped: scope_of() reads them as lot-scoped without
+    an edge, so the link added nothing.
+
+    After Phase 4 the edge is the ONLY statement that a listing IS a given
+    lot, so skipping left 1,009 properties unable to answer "which lot?" even
+    where the answer is unambiguous.
+    """
+    lot = _lot(reserve=100)
+    matches, _ = AX.match_lots_to_listings({"1": lot}, [{"aid": "a"}])
+    assert [m[2] for m in matches] == ["single"]
+    assert {m[0]["aid"] for m in AX.sole_claimants(matches)} == {"a"}
+
+
+def test_two_listings_on_a_single_lot_notice_are_still_contested():
+    """One lot cannot be both of them.
+
+    No special case is needed for this — `sole_claimants` drops a match whose
+    lot another listing also claims, exactly as on a multi-lot notice. Two
+    notices in the corpus carry 2 and 17 listings against one lot.
+    """
+    lot = _lot(reserve=100)
+    matches, _ = AX.match_lots_to_listings({"1": lot},
+                                           [{"aid": "a"}, {"aid": "b"}])
+    assert len(matches) == 2
+    assert AX.sole_claimants(matches) == []
+
+
+def test_the_single_lot_skip_is_gone():
+    """The guard that made single-lot notices a special case."""
+    import inspect
+    src = inspect.getsource(AX.run)
+    assert "if len(lots) > 1:" not in src
