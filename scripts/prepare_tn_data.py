@@ -132,7 +132,13 @@ def main():
                 continue
 
             # ── 2. Clean prices ───────────────────────────────────────────
-            rp_raw, rp_num = clean_price(r.get('Reserve Price', ''))
+            # Same split-key hazard as auction_type below: the portal started
+            # rendering 'ReservePrice' (no space) in June 2026, and reading only
+            # the spaced spelling loaded 214 listings with no price at all. Their
+            # EMD came through the whole time because 'EMD' is spelled the same
+            # either way, which is exactly what made the gap look like a portal
+            # omission rather than a key miss. Read both.
+            rp_raw, rp_num = clean_price(r.get('Reserve Price') or r.get('ReservePrice', ''))
             emd_raw, emd_num = clean_price(r.get('EMD', ''))
 
             # ── 3. Normalize dates ────────────────────────────────────────

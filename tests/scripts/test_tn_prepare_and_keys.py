@@ -79,6 +79,33 @@ def test_missing_auction_type_stays_empty(tmp_path):
     assert rows[0]["auction_type"] == ""
 
 
+# ── prepare_tn_data: both spellings of the reserve-price key ─────────────────
+
+def test_reads_legacy_spaced_reserve_price_key(tmp_path):
+    rows = _run_prepare(tmp_path, [_record("5", **{"Reserve Price": "₹93,65,000.00"})])
+    assert rows[0]["reserve_price_num"] == 9365000
+
+
+def test_reads_current_unspaced_reserve_price_key(tmp_path):
+    """The regression: this spelling loaded 214 listings with no price at all."""
+    rows = _run_prepare(tmp_path, [_record("6", **{"Reserve Price": "",
+                                                   "ReservePrice": "₹93,65,000.00"})])
+    assert rows[0]["reserve_price_num"] == 9365000
+
+
+def test_spaced_key_wins_when_both_are_present(tmp_path):
+    """No scrape carries both, but if one ever does the older key is the one
+    the rest of the pipeline has always agreed with."""
+    rows = _run_prepare(tmp_path, [_record("7", **{"Reserve Price": "₹1,00,000.00",
+                                                   "ReservePrice": "₹2,00,000.00"})])
+    assert rows[0]["reserve_price_num"] == 100000
+
+
+def test_missing_reserve_price_stays_empty(tmp_path):
+    rows = _run_prepare(tmp_path, [_record("8")])
+    assert rows[0]["reserve_price_num"] in (0, None, "")
+
+
 def test_borrower_is_carried_regardless_of_auction_type(tmp_path):
     rows = _run_prepare(tmp_path, [_record("4")])
     assert rows[0]["borrower_name"] == "Someone"
