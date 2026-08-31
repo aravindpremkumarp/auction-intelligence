@@ -89,6 +89,16 @@
      flex never applies and a text label is crushed into 150px. Price rows
      carry their own row instead of relaying out .ov-row, which the funnel
      shares. */
+  .rr-sec > .rr-sum { cursor: pointer; list-style: none; display: flex;
+                     align-items: baseline; gap: 8px; }
+  .rr-sec > .rr-sum::-webkit-details-marker { display: none; }
+  /* A caret that turns, so a closed section reads as closed rather than as
+     an empty one. */
+  .rr-sec > .rr-sum::before { content: "\25b8"; font-size: 11px;
+                              transition: transform .12s; }
+  .rr-sec[open] > .rr-sum::before { transform: rotate(90deg); }
+  .rr-count { margin-left: auto; font-weight: 400; color: var(--muted); }
+  .rr-bar { display: flex; gap: 8px; align-items: center; margin: 6px 0 2px; }
   .pc-row { padding: 6px 0; border-top: 1px solid #eceae2; }
   .pc-line { display: flex; gap: 10px; align-items: baseline; }
   .pc-row .pc-text { flex: 1; min-width: 0; font-size: 13px; }
@@ -1368,7 +1378,22 @@
       if (btn) btn.disabled = false;
       return;
     }
-    loadResolutionQueues();
+    // Remove the settled row in place. loadResolutionQueues() used to run
+    // here, which rebuilt every queue: the page jumped back to the top and
+    // every open section closed, on every single verdict.
+    const row = btn && btn.closest('.pc-row, .lot-row, .ov-row');
+    const sec = row && row.closest('.rr-sec');
+    if (row) {
+      row.remove();
+      const count = sec && sec.querySelector('.rr-count');
+      if (count) {
+        const left = sec.querySelectorAll('.ov-row, .lot-row, .pc-row').length;
+        count.textContent = left;
+        if (!left) sec.querySelector('.rr-sum').append(' \u2014 all settled');
+      }
+    } else if (btn) {
+      btn.disabled = false;   // nothing to remove: leave the control usable
+    }
   }
 
   function priceCheckRow(r) {
@@ -1413,6 +1438,19 @@
         }</span></div>
       <textarea class="lot-note pc-note" rows="1" placeholder="optional note \u2014 what the notice actually says, why this one is odd"></textarea>
     </div>`;
+  }
+
+  function rrPanel(title, bodyHtml) {
+    // <details>, not a JS-toggled div: the browser keeps the open/closed
+    // state on the element itself, so removing a decided row cannot reset it
+    // and there is no state of ours to get out of step.
+    //
+    // Closed by default. With six queues and hundreds of rows, an all-open
+    // page means scrolling past everything to reach the one being worked.
+    const n = (bodyHtml.match(/class="(ov-row|lot-row|pc-row)"/g) || []).length;
+    return `<details class="ov-panel rr-sec">
+      <summary class="ov-head rr-sum">${title}<span class="rr-count">${
+        n}</span></summary>${bodyHtml}</details>`;
   }
 
   function rrRow(inner, buttons) {
@@ -1564,10 +1602,14 @@
     }
     const d = await r.json();
     const applyState = rs.ok ? await rs.json() : { status: 'never-run' };
-    const blocks = [rrApplyBar(applyState)];
+    const blocks = [rrApplyBar(applyState),
+      `<div class="rr-bar"><button class="ghost" id="rr-expand">Expand all</button>
+        <button class="ghost" id="rr-collapse">Collapse all</button>
+        <span class="meta" style="color:var(--muted)">sections start closed \u2014
+        open the one you are working</span></div>`];
 
     if (d.bank_pairs.length) {
-      blocks.push(`<div class="ov-panel"><div class="ov-head">Lender lookalikes — same institution?</div>
+      blocks.push(rrPanel(`Lender lookalikes — same institution?`, `
         <p class="meta" style="color:var(--muted)">the number is fuzzy similarity;
         the files are real notices naming each spelling</p>` +
         d.bank_pairs.map(p => rrRow(
@@ -1580,11 +1622,11 @@
               payload: { a: p.a, b: p.b }, verdict: 'approved' }) +
           rrBtn('Different', { kind: 'bank-merge',
               payload: { a: p.a, b: p.b }, verdict: 'rejected' })
-        )).join('') + `</div>`);
+        )).join('')));
     }
 
     if ((d.branch_pairs || []).length) {
-      blocks.push(`<div class="ov-panel"><div class="ov-head">Branch lookalikes — same office?</div>
+      blocks.push(rrPanel(`Branch lookalikes — same office?`, `
         <p class="meta" style="color:var(--muted)">each pair is inside one bank;
         a verdict here never touches another bank's identically named branch</p>` +
         d.branch_pairs.map(p => rrRow(
@@ -1595,11 +1637,11 @@
               payload: { bank: p.bank, a: p.a, b: p.b }, verdict: 'approved' }) +
           rrBtn('Different', { kind: 'branch-merge',
               payload: { bank: p.bank, a: p.a, b: p.b }, verdict: 'rejected' })
-        )).join('') + `</div>`);
+        )).join('')));
     }
 
     if (d.district_conflicts.length) {
-      blocks.push(`<div class="ov-panel"><div class="ov-head">District conflicts — the notice says one district, its taluk says another</div>
+      blocks.push(rrPanel(`District conflicts — the notice says one district, its taluk says another`, `
         <p class="meta" style="color:var(--muted)">the taluk usually knows best
         (2019 redrew several districts); one verdict settles every notice in
         the pattern</p>` +
@@ -1616,11 +1658,11 @@
           rrBtn("Something's off", { kind: 'district-conflict',
               payload: { raw: c.raw_district, taluk: c.taluk },
               verdict: 'rejected' })
-        )).join('') + `</div>`);
+        )).join('')));
     }
 
     if (d.unmatched_villages.length) {
-      blocks.push(`<div class="ov-panel"><div class="ov-head">Villages the gazetteer couldn't place</div>
+      blocks.push(rrPanel(`Villages the gazetteer couldn't place`, `
         <p class="meta" style="color:var(--muted)">pick the official name it
         stands for, or rule it out — an urban locality is not a revenue
         village, and saying so is also an answer</p>` +
@@ -1635,32 +1677,40 @@
                 verdict: 'approved' })).join('') +
           rrBtn('Not a village', { kind: 'village-skip',
               payload: { raw: v.village }, verdict: 'approved' })
-        )).join('') + `</div>`);
+        )).join('')));
     }
 
     if (d.lot_matches.length) {
-      blocks.push(`<div class="ov-panel"><div class="ov-head">Multi-lot listings — which lot is this one?</div>
+      blocks.push(rrPanel(`Multi-lot listings — which lot is this one?`, `
         <p class="meta" style="color:var(--muted)">the resolver already tried
         reserve price and borrower name and couldn't decide; open a row to
         see the notice, pick the lot that matches, or say none of them do</p>
-        ${d.lot_matches.map(lotMatchRow).join('')}</div>`);
+        ${d.lot_matches.map(lotMatchRow).join('')}`));
     }
 
     if (d.price_checks && d.price_checks.length) {
       const crit = d.price_checks.filter(r => r.severity === 'critical').length;
-      blocks.push(`<div class="ov-panel"><div class="ov-head">Prices that disagree with the notice</div>
+      blocks.push(rrPanel(`Prices that disagree with the notice`, `
         <p class="meta" style="color:var(--muted)">the portal price and the
         extracted price are two independent readings of one number${
           crit ? ` \u2014 <b>${crit}</b> of these are off by a clean power of
           ten, which is a dropped zero rather than a judgement call` : ''};
         open the notice, read what it actually says, then mark it</p>
-        ${d.price_checks.map(priceCheckRow).join('')}</div>`);
+        ${d.price_checks.map(priceCheckRow).join('')}`));
     }
 
     if (blocks.length === 1) {
       blocks.push('<div class="ov-panel">nothing waiting — every question is settled</div>');
     }
     host.innerHTML = blocks.join('');
+    const secs = () => host.querySelectorAll('.rr-sec');
+    const ex = host.querySelector('#rr-expand');
+    const co = host.querySelector('#rr-collapse');
+    if (ex) ex.addEventListener('click',
+      () => secs().forEach(d => { d.open = true; }));
+    if (co) co.addEventListener('click',
+      () => secs().forEach(d => { d.open = false; }));
+
     host.querySelectorAll('.pc-note-toggle').forEach(t =>
       t.addEventListener('click', () => {
         const row = t.closest('.pc-row');
