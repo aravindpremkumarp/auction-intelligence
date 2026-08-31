@@ -3,7 +3,7 @@
     python -m pipeline.promote_extractions [--limit N] [--filename F]
                                            [--dry-run] [--skip-parcels]
                                            [--workers N] [--places-only]
-                                           [--parcels-only] [--links-only]
+                                           [--parcels-only] [--rebuild-lots]
 
 Phase B promotes documents concurrently (--workers, default 8) — each document
 is a few small writes dominated by the round trip to Aura, so a serial run over
@@ -734,39 +734,23 @@ DETACH DELETE m, b, s, a, l
 RETURN count(DISTINCT l) AS lots
 """
 
-# A rebuilt document renumbers, so every automatic key naming it is now a
-# guess. Cleared rather than trusted: link_lots would otherwise faithfully
-# rebuild an edge to whatever new lot answers to the old number, which is the
-# precise failure this migration exists to end. The next apply_extractions run
-# re-derives them from the same extraction that built the lots, so the two
-# agree by construction.
-#
-# A human's decision is never cleared — it outranks the rule, exactly as in
-# apply_extractions.clear_stale_lot_matches.
-_INVALIDATE_DOC_KEYS = """
-MATCH (a:AuctionProperty)
-WHERE a.resolved_lot_key STARTS WITH ($filename + '#')
-  AND NOT EXISTS {
-    MATCH (r:ResolutionDecision {kind: 'lot-match'})
-    WHERE r.key STARTS WITH ('lot-match:' + a.auction_id + '|')
-      AND NOT r.decided_by STARTS WITH 'system:'
-  }
-REMOVE a.resolved_lot_key, a.lot_resolved_at
-RETURN count(a) AS cleared
-"""
+# Phase 4 removed the key-invalidation step that used to live here. It
+# existed because link_lots would rebuild an edge from a stale string after a
+# renumber; with apply_extractions writing the edge directly there is no
+# string left to go stale. DETACH DELETE on the lot takes its edges with it,
+# so a rebuilt document simply reads as unresolved until the next
+# apply_extractions re-derives it — visible, and never wrong.
 
 
-def rebuild_document_lots(filename: str) -> tuple[int, int]:
-    """Delete a document's lots and their owned children, and drop its keys.
+def rebuild_document_lots(filename: str) -> int:
+    """Delete a document's lots and the children they own outright.
 
-    Returns (lots deleted, keys cleared). The caller writes the new lots
-    immediately afterwards, so the gap is within one document's promote.
+    Their :IS_LOT edges go with them, so the document's listings read as
+    unresolved until the next apply_extractions re-derives them from the same
+    extraction that built the new lots.
     """
     out = write(_REBUILD_DOC_LOTS, {"filename": filename})
-    lots = int((list(out[0].values())[0] if out else 0) or 0)
-    out = write(_INVALIDATE_DOC_KEYS, {"filename": filename})
-    cleared = int((list(out[0].values())[0] if out else 0) or 0)
-    return lots, cleared
+    return int((list(out[0].values())[0] if out else 0) or 0)
 
 
 def promote_document(doc: dict, dry_run: bool,
@@ -1002,83 +986,10 @@ def unit_signature(units: dict[str, set[str]] | None, lot_key: str) -> str:
     return "|".join(sorted(units.get(lot_key, ()))) if units else ""
 
 
-# ── phase B2: the listing→lot relationship ──────────────────────────────────
-#
-# Phase 1 of retiring AuctionProperty.resolved_lot_key. The string is
-# "<filename>#<lot_index>", and lot_index is the extraction model's own
-# numbering: re-extract a notice, the lots renumber, and a key saying `#3`
-# still RESOLVES — to a different property. Nothing raises. A real edge
-# cannot do that, because it names the node rather than a way to find one.
-#
-# ADDITIVE for now. The key is still written by apply_extractions and still
-# read by everything; this only materialises the edge beside it so the two can
-# be compared before any reader switches over (Phase 2).
-#
-# It runs here rather than in apply_extractions because of ordering:
-# apply_extractions derives the key from extraction_json, and the :Lot it
-# names does not exist until phase B above has run. Linking after the nodes
-# exist is the same shape as _LINK_LISTINGS for :Parcel.
-
-_LINK_LOTS = """
-MATCH (a:AuctionProperty) WHERE a.resolved_lot_key IS NOT NULL
-MATCH (l:Lot {lot_key: a.resolved_lot_key})
-MERGE (a)-[r:IS_LOT]->(l)
-  ON CREATE SET r.linked_at = datetime(), r.source = 'resolved_lot_key'
-RETURN count(r) AS linked
-"""
-
-# An edge whose key has changed or gone is a claim nothing supports, exactly
-# what the string version got wrong. Dropped here rather than left to rot, so
-# the edge never says more than the key it mirrors.
-_UNLINK_LOTS = """
-MATCH (a:AuctionProperty)-[r:IS_LOT]->(l:Lot)
-WHERE a.resolved_lot_key IS NULL OR a.resolved_lot_key <> l.lot_key
-DELETE r
-RETURN count(r) AS unlinked
-"""
-
-# Keys that point at no :Lot at all. Phase 1's job is to make this visible:
-# under the string these fail silently at read time, one query at a time.
-_DANGLING_KEYS = """
-MATCH (a:AuctionProperty) WHERE a.resolved_lot_key IS NOT NULL
-  AND NOT EXISTS { MATCH (:Lot {lot_key: a.resolved_lot_key}) }
-RETURN count(a) AS dangling
-"""
-
-
-def link_lots(dry_run: bool) -> dict:
-    """Materialise (:AuctionProperty)-[:IS_LOT]->(:Lot) from resolved_lot_key.
-
-    Returns the counts so a caller can compare the edge against the string.
-    Idempotent: MERGE on re-run, and stale edges are dropped first so a
-    listing never holds two.
-    """
-    print("phase B2 — lot links", flush=True)
-    keyed = run_read_query(
-        "MATCH (a:AuctionProperty) WHERE a.resolved_lot_key IS NOT NULL "
-        "RETURN count(a) AS n", timeout=60.0)
-    keyed_n = int((keyed[0]["n"] if keyed else 0) or 0)
-    dangling = run_read_query(_DANGLING_KEYS, timeout=120.0)
-    dangling_n = int((dangling[0]["dangling"] if dangling else 0) or 0)
-
-    if dry_run:
-        print(f"  [dry-run] {keyed_n} keyed listing(s), "
-              f"{dangling_n} key(s) point at no lot", flush=True)
-        return {"keyed": keyed_n, "dangling": dangling_n,
-                "linked": 0, "unlinked": 0}
-
-    out = write(_UNLINK_LOTS, {})
-    unlinked = int((list(out[0].values())[0] if out else 0) or 0)
-    out = write(_LINK_LOTS, {})
-    linked = int((list(out[0].values())[0] if out else 0) or 0)
-    print(f"  {keyed_n} keyed listing(s) -> {linked} edge(s); "
-          f"dropped {unlinked} stale edge(s); "
-          f"{dangling_n} key(s) point at no lot", flush=True)
-    if dangling_n:
-        print("  NOTE: a dangling key means promote has not caught up with a "
-              "re-extraction — re-run phase B for those documents.", flush=True)
-    return {"keyed": keyed_n, "dangling": dangling_n,
-            "linked": linked, "unlinked": unlinked}
+# Phase 4 retired phase B2. link_lots existed only to derive
+# (:AuctionProperty)-[:IS_LOT]->(:Lot) FROM the resolved_lot_key string;
+# apply_extractions now writes that edge directly, so there is no string
+# left to derive from and nothing here to keep in step.
 
 
 def parcel_groups(edges: list[dict], all_lots: list[str],
@@ -1194,14 +1105,7 @@ def resolve_parcels(dry_run: bool) -> None:
 def run(limit: int | None, filename: str | None,
         dry_run: bool, skip_parcels: bool, workers: int = DEFAULT_WORKERS,
         places_only: bool = False, parcels_only: bool = False,
-        links_only: bool = False, rebuild_lots: bool = False) -> int:
-    # Phase B2 reads resolved_lot_key and the lots already in the graph, so it
-    # stands alone too — useful straight after an apply_extractions run that
-    # moved keys without changing any lot.
-    if links_only:
-        link_lots(dry_run)
-        return 0
-
+        rebuild_lots: bool = False) -> int:
     # Phase C is a whole-corpus rebuild, so it stands alone: re-running it
     # after a grouping change costs seconds and needs no phase-B work.
     if parcels_only:
@@ -1217,8 +1121,9 @@ def run(limit: int | None, filename: str | None,
     if rebuild_lots and not dry_run:
         print("  REBUILD: each document's existing lots and their owned "
               "Measurement/Boundary/Schedule/Auction nodes are DELETED before "
-              "the new ones are written, and its automatic lot keys are "
-              "cleared. Not recoverable by re-running — snapshot first with "
+              "the new ones are written. Their :IS_LOT edges go with them, "
+              "so run pipeline.apply_extractions afterwards to re-link the "
+              "listings. Not recoverable by re-running — snapshot first with "
               "scripts/snapshot_lots.py.", flush=True)
 
     state = {"ok": 0, "fail": 0, "lots": 0, "done": 0, "status": Counter()}
@@ -1261,11 +1166,6 @@ def run(limit: int | None, filename: str | None,
               + ", ".join(f"{k}={v}" for k, v in state["status"].most_common()),
               flush=True)
 
-    # Always, and before parcels: the lots this run just wrote are what make
-    # the edges resolvable, and --skip-parcels is about the parcel layer, not
-    # about leaving the listing→lot link stale.
-    link_lots(dry_run)
-
     if not skip_parcels:
         resolve_parcels(dry_run)
     return 1 if state["fail"] else 0
@@ -1294,10 +1194,6 @@ def main() -> int:
                          "apply_extractions re-derives them. Snapshot with "
                          "scripts/snapshot_lots.py first — this is not "
                          "recoverable by re-running.")
-    ap.add_argument("--links-only", action="store_true",
-                    help="run phase B2 alone — rebuild the "
-                         "(:AuctionProperty)-[:IS_LOT]->(:Lot) edges from the "
-                         "resolved_lot_key values already in the graph")
     ap.add_argument("--places-only", action="store_true",
                     help="skip the phase-B node writes and only (re)link "
                          "already-promoted lots to the gazetteer, then run "
@@ -1306,7 +1202,7 @@ def main() -> int:
     args = ap.parse_args()
     return run(args.limit, args.filename, args.dry_run, args.skip_parcels,
                args.workers, args.places_only, args.parcels_only,
-               args.links_only, args.rebuild_lots)
+               args.rebuild_lots)
 
 
 if __name__ == "__main__":

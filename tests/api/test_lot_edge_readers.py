@@ -90,24 +90,3 @@ def test_unresolved_means_no_edge():
 
 
 # ── keeping the edge in step with the key ────────────────────────────────────
-
-def test_apply_extractions_links_after_writing_keys():
-    """run_pipeline calls apply_extractions and never calls promote.
-
-    Leaving the edge to a manual promote run would make a resolution
-    invisible to every Phase 2 reader until someone remembered.
-    """
-    from pipeline import apply_extractions as AX
-    src = inspect.getsource(AX.run)
-    assert "link_lots(dry_run=False)" in src
-    assert src.index("write_lot_matches(") < src.index("link_lots(dry_run=False)")
-
-
-def test_the_link_import_is_local_to_avoid_a_cycle():
-    """promote_extractions imports from apply_extractions, so the reverse
-    import cannot sit at module scope."""
-    from pipeline import apply_extractions as AX
-    assert "from pipeline.promote_extractions import link_lots" in \
-        inspect.getsource(AX.run)
-    assert "from pipeline.promote_extractions import" not in \
-        inspect.getsource(AX).split("def ")[0]

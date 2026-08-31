@@ -105,16 +105,17 @@ def _approved_lot_keys(decisions: list[dict]) -> dict[str, str]:
 
 
 def apply_decided(approved: dict[str, str]) -> int:
-    """Write `resolved_lot_key` for every already-DECIDED listing whose
-    property doesn't reflect it yet — this is what makes a human's pick in
-    the review queue actually take effect.
+    """Link every already-DECIDED listing whose edge doesn't reflect its
+    verdict yet — this is what makes a human's pick in the review queue
+    actually take effect.
 
-    A `ResolutionDecision` alone changes nothing on the `AuctionProperty`
-    node; the property is what every agent3 tool actually reads. Only the
+    A `ResolutionDecision` alone creates no
+    `(:AuctionProperty)-[:IS_LOT]->(:Lot)` edge; that edge is what every
+    agent3 tool actually reads. Only the
     DELTA is written (current value compared against the decision), not
     every already-applied one on every run — re-touching 1,800+ correct
-    properties on every "Apply my decisions" click would be both wasteful
-    and would blur `lot_resolved_at` into meaning nothing.
+    edges on every "Apply my decisions" click would be both wasteful and
+    would blur `linked_at` into meaning nothing.
     """
     if not approved:
         return 0
@@ -122,10 +123,13 @@ def apply_decided(approved: dict[str, str]) -> int:
     current: dict[str, str | None] = {}
     for i in range(0, len(ids), 1000):
         batch = ids[i:i + 1000]
+        # Phase 4: the edge is the resolution, so the current value is the
+        # lot it points at rather than a string stored on the listing.
         for aid, key in nq("""
             UNWIND $ids AS aid
             MATCH (p:AuctionProperty {auction_id: aid})
-            RETURN p.auction_id, p.resolved_lot_key
+            OPTIONAL MATCH (p)-[:IS_LOT]->(l:Lot)
+            RETURN p.auction_id, l.lot_key
         """, {"ids": batch}):
             current[aid] = key
     stale = [{"auction_id": aid, "lot_key": lot_key}
@@ -133,11 +137,19 @@ def apply_decided(approved: dict[str, str]) -> int:
     if not stale:
         return 0
     for i in range(0, len(stale), 500):
+        # A decision replaces whatever edge is there: one listing is one lot,
+        # so the old edge goes before the new one is made. `method` says the
+        # edge came from a stored verdict rather than from the matcher —
+        # _approved_lot_keys deliberately does not record WHO decided, so
+        # nothing here may claim to.
         nq("""
             UNWIND $rows AS row
             MATCH (p:AuctionProperty {auction_id: row.auction_id})
-            SET p.resolved_lot_key = row.lot_key,
-                p.lot_resolved_at  = datetime()
+            MATCH (l:Lot {lot_key: row.lot_key})
+            OPTIONAL MATCH (p)-[old:IS_LOT]->(:Lot)
+            DELETE old
+            MERGE (p)-[r:IS_LOT]->(l)
+            SET r.linked_at = datetime(), r.method = 'decision'
         """, {"rows": stale[i:i + 500]})
     return len(stale)
 

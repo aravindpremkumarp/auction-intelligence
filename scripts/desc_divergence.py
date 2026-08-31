@@ -228,7 +228,8 @@ def fetch_work(limit: int | None = None) -> list[dict]:
                collect({aid:    a.auction_id,
                         notice: a.description,
                         portal: a.website_description,
-                        lot:    a.resolved_lot_key}) AS listings
+                        lot:    [(a)-[:IS_LOT]->(_l:Lot) | _l.lot_key][0]})
+                       AS listings
         ORDER BY d.filename
         """ + (f" LIMIT {int(limit)}" if limit else ""),
         max_rows=20_000, timeout=120.0)

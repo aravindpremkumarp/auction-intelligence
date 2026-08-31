@@ -442,7 +442,7 @@ def test_write_fields_sets_provenance(monkeypatch):
     assert captured["params"]["rows"][0]["props"] == {"village": "Padur"}
 
 
-def test_write_lot_matches_sets_key_and_decision(monkeypatch):
+def test_write_lot_matches_links_the_lot_and_records_the_decision(monkeypatch):
     calls = []
 
     def _cap(cypher, params=None):
@@ -453,12 +453,16 @@ def test_write_lot_matches_sets_key_and_decision(monkeypatch):
     n = AX.write_lot_matches(
         [{"aid": "a1", "lot_key": "notice.jpg#3", "reason": "exact"}])
     assert n == 1
-    assert len(calls) == 3   # set resolved_lot_key, delete stale, merge new
+    assert len(calls) == 3   # link the lot, delete stale decision, merge new
 
-    set_cypher, set_params = calls[0]
-    assert "resolved_lot_key" in set_cypher
-    assert "lot_resolved_at" in set_cypher
-    row = set_params["rows"][0]
+    link_cypher, link_params = calls[0]
+    # Phase 4: the edge IS the resolution — the string it replaced is gone.
+    assert "MERGE (a)-[r:IS_LOT]->(l)" in link_cypher
+    assert "resolved_lot_key" not in link_cypher
+    # MATCH, not MERGE, on the lot: a listing whose lot does not exist yet
+    # must come back unwritten rather than conjuring an empty :Lot.
+    assert "MATCH (l:Lot {lot_key: row.lot_key})" in link_cypher
+    row = link_params["rows"][0]
     assert row["lot_key"] == "notice.jpg#3"
     assert row["decision_key"] == "lot-match:a1|notice.jpg#3"
 
@@ -922,3 +926,50 @@ def test_price_findings_are_rebuilt_not_merged():
     assert "REMOVE a.price_agreement" in src
     clear_at = src.index("REMOVE a.price_agreement")
     assert clear_at < src.index("SET a.price_agreement =")
+
+
+# ── phase 4: the edge is the resolution ──────────────────────────────────────
+
+def _link_src() -> str:
+    import inspect
+    return inspect.getsource(AX.write_lot_matches)
+
+
+def test_the_matcher_writes_no_string_at_all():
+    """Phase 4 removed resolved_lot_key. Leaving a write behind would put the
+    graph back to two sources of truth that only mostly agree.
+
+    The Cypher only — the docstring names the retired property on purpose,
+    to say what this replaced and why.
+    """
+    import re
+    cypher = "\n".join(re.findall(r'"""(.*?)"""', _link_src(), re.S)[1:])
+    assert "resolved_lot_key" not in cypher
+    assert "lot_resolved_at" not in cypher
+    assert "MERGE (a)-[r:IS_LOT]->(l)" in cypher
+
+
+def test_a_missing_lot_is_reported_rather_than_swallowed():
+    """After Phase 4 the edge IS the resolution, so a row with no :Lot is a
+    listing left UNRESOLVED — not merely a key that fails to dereference."""
+    src = _link_src()
+    assert "missing = len(rows) - written" in src
+    assert "promote_extractions" in src
+
+
+def test_clearing_drops_the_edge_not_a_property():
+    src = _clear_src()
+    assert "DELETE r" in src
+    assert "REMOVE a.resolved_lot_key" not in src
+
+
+def test_clearing_still_only_touches_this_documents_lots():
+    """12 listings link to two notices. The filename guard the key version
+    carried, now expressed against the lot instead of a string prefix."""
+    assert "l.lot_key STARTS WITH (row.filename + '#')" in _clear_src()
+
+
+def test_apply_no_longer_calls_the_retired_link_step():
+    """link_lots derived the edge FROM the string; there is no string left."""
+    import inspect
+    assert "link_lots" not in inspect.getsource(AX.run)

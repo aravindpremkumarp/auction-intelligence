@@ -402,83 +402,6 @@ def _link_src() -> str:
     return inspect.getsource(P.link_lots)
 
 
-def test_the_edge_is_built_from_the_key_it_replaces():
-    """Phase 1 is additive: the string still decides, the edge only mirrors it.
-
-    Deriving the edge from anything else would make the two disagree before a
-    single reader had moved over, which is the opposite of the point.
-    """
-    assert "MATCH (l:Lot {lot_key: a.resolved_lot_key})" in P._LINK_LOTS
-    assert "MERGE (a)-[r:IS_LOT]->(l)" in P._LINK_LOTS
-
-
-def test_relinking_does_not_duplicate():
-    """MERGE, not CREATE — the step is run on every promote."""
-    assert "CREATE (a)-[" not in P._LINK_LOTS
-    assert "MERGE (a)-[r:IS_LOT]->(l)" in P._LINK_LOTS
-
-
-def test_an_edge_whose_key_moved_is_dropped():
-    """A claim nothing supports is exactly what the string version got wrong.
-
-    A listing that stops resolving, or resolves elsewhere, must not keep an
-    edge to the lot it used to name.
-    """
-    q = P._UNLINK_LOTS
-    assert "a.resolved_lot_key IS NULL OR a.resolved_lot_key <> l.lot_key" in q
-    assert "DELETE r" in q
-
-
-def test_stale_edges_are_dropped_before_new_ones_are_written():
-    """Order matters: linking first would leave a listing holding two edges
-    for the length of the run."""
-    src = _link_src()
-    assert src.index("_UNLINK_LOTS") < src.index("_LINK_LOTS")
-
-
-def test_a_key_pointing_at_no_lot_is_counted_not_hidden():
-    """Under the string these fail silently, one read at a time. Phase 1's
-    job is to make the number visible."""
-    assert "NOT EXISTS { MATCH (:Lot {lot_key: a.resolved_lot_key}) }" in \
-        P._DANGLING_KEYS
-
-
-def test_a_dry_run_writes_nothing():
-    src = _link_src()
-    head = src[:src.index("if dry_run")]
-    assert "write(" not in head, "a dry run must not reach a writer"
-
-
-def test_linking_runs_even_when_parcels_are_skipped():
-    """--skip-parcels is about the parcel layer, not about leaving the
-    listing→lot link stale."""
-    import inspect
-    src = inspect.getsource(P.run)
-    assert src.index("link_lots(dry_run)") < src.index("if not skip_parcels")
-
-
-def test_linking_runs_after_the_lots_are_written():
-    """apply_extractions derives the key before the :Lot exists, so the edge
-    can only be made once phase B has created the nodes.
-
-    rindex, not index: run() calls link_lots twice — once for the
-    --links-only early return, once in the pipeline. The pipeline call is the
-    later one, and it is the one that has to follow phase B.
-    """
-    import inspect
-    src = inspect.getsource(P.run)
-    assert src.index("phase B done") < src.rindex("link_lots(dry_run)")
-
-
-def test_links_only_returns_before_promoting_anything():
-    """The edges are derived from keys and lots already in the graph, so
-    rebuilding them must not require re-promoting the corpus."""
-    import inspect
-    src = inspect.getsource(P.run)
-    assert src.index("if links_only") < src.index("docs = fetch_documents")
-    assert src.index("link_lots(dry_run)") < src.index("docs = fetch_documents")
-
-
 # ── phase 3: disposable lots ─────────────────────────────────────────────────
 
 def _rebuild_src() -> str:
@@ -506,36 +429,6 @@ def test_the_rebuild_is_scoped_to_one_document():
     """A corpus-wide delete would take out lots this run is not rewriting."""
     assert "MATCH (d:Document {filename: $filename})-[:HAS_LOT]->(l:Lot)" in \
         P._REBUILD_DOC_LOTS
-
-
-def test_a_rebuilt_document_drops_its_automatic_keys():
-    """A rebuild renumbers, so every automatic key naming it is a guess.
-
-    link_lots would otherwise rebuild an edge to whatever new lot answers to
-    the old number — the precise failure this migration exists to end.
-    """
-    assert "REMOVE a.resolved_lot_key" in P._INVALIDATE_DOC_KEYS
-    assert "a.resolved_lot_key STARTS WITH ($filename + '#')" in \
-        P._INVALIDATE_DOC_KEYS
-
-
-def test_a_humans_decision_is_never_cleared():
-    q = P._INVALIDATE_DOC_KEYS
-    assert "NOT r.decided_by STARTS WITH 'system:'" in q
-
-
-def test_only_keys_naming_this_document_are_cleared():
-    """12 listings link to two notices; clearing one must not wipe the key the
-    other legitimately wrote."""
-    assert "STARTS WITH ($filename + '#')" in P._INVALIDATE_DOC_KEYS
-
-
-def test_lots_are_deleted_before_the_keys_are_cleared():
-    """Either order is correct, but the delete is the expensive half: doing it
-    first means a failure between the two leaves no lots AND no keys pointing
-    at them, rather than keys pointing at lots that no longer exist."""
-    src = _rebuild_src()
-    assert src.index("_REBUILD_DOC_LOTS") < src.index("_INVALIDATE_DOC_KEYS")
 
 
 def test_rebuilding_is_opt_in():
