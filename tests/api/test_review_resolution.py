@@ -146,14 +146,19 @@ def test_queues_filter_decided_rows_at_read_time(monkeypatch):
 
 
 def test_lot_match_candidates_carries_the_resolver_s_own_evidence(monkeypatch):
-    """Each row shows what the rule saw and why it couldn't decide — same
-    reserve price / borrower comparison `resolve_lot` itself makes — plus
-    the notice image, this listing's portal link, and every DB property
-    sharing the notice (so "9 lots, 1 property in our DB" is visible)."""
+    """Each row shows what the rule saw and why it couldn't decide — the
+    reserve price / borrower comparison, plus the notice image, this listing's
+    portal link, and every DB property sharing the notice (so "9 lots, 1
+    property in our DB" is visible).
+
+    The reason now comes from the WRITER's matcher via `explain_documents`,
+    not from the second, weaker `resolve_lot` rule the queue used to call.
+    """
     listing_rows = [
         {"auction_id": "796269", "title": "Sriperumbudur plot",
          "listing_url": "https://www.eauctionsindia.com/properties/796269",
-         "file_path": "notice.jpg", "public_url": "https://cdn/notice.jpg",
+         "file_path": "notice.jpg", "filename": "notice.jpg",
+         "public_url": "https://cdn/notice.jpg",
          "reserve": 999, "lot_count": 6, "borrower": None,
          "listing_description": "Plot 3, Assessment No. 115/025/00209"},
     ]
@@ -181,6 +186,12 @@ def test_lot_match_candidates_carries_the_resolver_s_own_evidence(monkeypatch):
             return lot_rows
         raise AssertionError(f"unexpected read: {cypher[:60]}")
 
+    import pipeline.apply_extractions as AX
+    monkeypatch.setattr(AX, "explain_documents", lambda fns: {
+        ("796269", "notice.jpg"): {
+            "outcome": "rival", "tier": "exact", "lot_index": "2",
+            "rivals": ["796270"], "reason": "matched lot 2, but 796270 too"},
+    })
     monkeypatch.setattr(q, "run_read_query", fake_read)
     out = q._lot_match_candidates([])
     assert len(out) == 1
@@ -203,6 +214,43 @@ def test_lot_match_candidates_carries_the_resolver_s_own_evidence(monkeypatch):
     assert row["candidates"][0]["sqft"] == 1200.5
     assert row["candidates"][1]["sqft"] is None
     assert row["reason"]
+    # The two failures the old queue collapsed into one word. 'rival' means
+    # the notice was clear and another listing claimed the same lot — a
+    # different question for the reviewer than "which of these 6 lots is it",
+    # and `rivals` names the row to compare against.
+    assert row["blocker"] == "rival"
+    assert row["rivals"] == ["796270"]
+    # Which lot they are both on, so the UI can point at it instead of making
+    # the reviewer re-derive it from the prose.
+    assert row["matched_lot_key"] == "notice.jpg#2"
+
+
+def test_lot_match_row_has_no_matched_lot_key_when_nothing_matched(monkeypatch):
+    """An 'unmatched' listing reached no lot at all. The row must say so with
+    None rather than a composed key naming a lot the matcher never picked."""
+    listing_rows = [
+        {"auction_id": "800001", "title": "t", "listing_url": None,
+         "file_path": "n.jpg", "filename": "n.jpg", "public_url": None,
+         "reserve": 5, "lot_count": 4, "borrower": None,
+         "listing_description": None},
+    ]
+
+    def fake_read(cypher, params=None, **kw):
+        if "count(l) AS lot_count" in cypher:
+            return listing_rows
+        return []
+
+    import pipeline.apply_extractions as AX
+    monkeypatch.setattr(AX, "explain_documents", lambda fns: {
+        ("800001", "n.jpg"): {"outcome": "unmatched", "tier": None,
+                              "lot_index": None, "rivals": [],
+                              "reason": "several lots tie on every signal"},
+    })
+    monkeypatch.setattr(q, "run_read_query", fake_read)
+    row = q._lot_match_candidates([])[0]
+    assert row["blocker"] == "unmatched"
+    assert row["matched_lot_key"] is None
+    assert row["rivals"] == []
 
 
 def test_lot_match_candidates_shows_a_listing_once_per_notice(monkeypatch):

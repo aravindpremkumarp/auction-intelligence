@@ -1964,26 +1964,38 @@ _LOT_MATCH_LIMIT = 200
 
 
 def _lot_match_candidates(decisions: list[dict]) -> list[dict]:
-    """Listings on a multi-lot notice `pipeline/lot_resolution.py` could not
-    place on its own — the queue a human works through.
+    """Listings on a multi-lot notice the WRITER could not place — the queue a
+    human works through.
+
+    The reason on each row comes from `apply_extractions.explain_documents`,
+    which runs the very matcher that writes the `IS_LOT` edge and reports what
+    it decided. It used to come from `pipeline/lot_resolution.resolve_lot`, a
+    second, weaker rule: reserve price and fuzzy borrower name only, read off
+    the `:Lot` graph copy rather than the extraction. Two matchers meant two
+    answers about the same listing, and the queue showed the one that does not
+    write. Concretely, the rule this replaces cannot see the EMD tier, the
+    survey/door-identifier tier, or `sole_claimants` — and of the 160 unplaced
+    listings live today, 96 are blocked by `sole_claimants`: the notice is
+    perfectly clear and a rival listing already claims that lot. That is a
+    different problem with a different fix from "the lots are indistinguish-
+    able", and the rule this replaces has no way to say it.
 
     A live query, not a stored proposal set (unlike bank/branch lookalikes):
-    the resolver's `reserve_price_num` join is exact and cheap to recompute
-    on every load, and "still ambiguous" is already the WHOLE definition of
-    the queue (`resolved_lot_key IS NULL` on a multi-lot notice) — there is
-    no separate fuzzy-candidate-generation step to cache. The exception is
-    a decision that hasn't been applied to the graph yet (see
-    `decided_lot_matches`): approving a lot, or rejecting all of them,
-    leaves `resolved_lot_key` untouched until the next "Apply my
-    decisions" run — a row must still drop off the queue the instant it's
-    decided, so it's filtered here in Python instead.
+    "still unplaced" is already the WHOLE definition of the queue (no
+    `IS_LOT` edge on a multi-lot notice), so there is no separate
+    fuzzy-candidate-generation step to cache. The exception is a decision that
+    hasn't been applied to the graph yet (see `decided_lot_matches`):
+    approving a lot, or rejecting all of them, leaves the edge untouched until
+    the next "Apply my decisions" run — a row must still drop off the queue
+    the instant it's decided, so it's filtered here in Python instead.
 
-    Each row carries the SAME evidence the resolver itself compared —
-    reserve price and borrower name — on both the listing and every
-    candidate lot, so a human sees exactly what the rule saw and why it
-    couldn't decide, not just a bare "pick one". It also carries the notice
-    image (`public_url`), this listing's own eauctionsindia link
-    (`listing_url`), the portal's own description of the listing
+    Each row carries the evidence the matcher compared — reserve price and
+    borrower name — on both the listing and every candidate lot, so a human
+    sees what the rule saw and why it couldn't decide, not just a bare "pick
+    one"; `blocker` says which of the two failures this is, and `rivals` names
+    the listings to compare against when it is a contested lot. It also
+    carries the notice image (`public_url`), this listing's own eauctionsindia
+    link (`listing_url`), the portal's own description of the listing
     (`listing_description` — what the reviewer compares the candidate lots
     AGAINST; sibling flats differ only in a door or assessment number, and
     without this the row shows the candidates with nothing to weigh them
@@ -1992,7 +2004,7 @@ def _lot_match_candidates(decisions: list[dict]) -> list[dict]:
     notice the portal only scraped once should read as "1 property in our
     DB", not be confused with the notice's own lot count.
     """
-    from pipeline.lot_resolution import resolve_lot
+    from pipeline.apply_extractions import explain_documents
     from pipeline.resolution_review import decided_lot_matches
 
     skipped = decided_lot_matches(decisions)
@@ -2016,7 +2028,8 @@ def _lot_match_candidates(decisions: list[dict]) -> list[dict]:
           ORDER BY (CASE WHEN d.public_url IS NULL THEN 1 ELSE 0 END), d.file_path
         WITH p, collect(d)[0] AS d, collect(lot_count)[0] AS lot_count
         RETURN p.auction_id AS auction_id, p.title AS title, p.url AS listing_url,
-               d.file_path AS file_path, d.public_url AS public_url,
+               d.file_path AS file_path, d.filename AS filename,
+               d.public_url AS public_url,
                p.reserve_price_num AS reserve, lot_count,
                [(p)-[:HAS_BORROWER]->(b:Borrower) | b.name][0] AS borrower,
                // The portal's OWN words for this listing. Without it the row
@@ -2074,13 +2087,21 @@ def _lot_match_candidates(decisions: list[dict]) -> list[dict]:
             "url": r["url"], "reserve": r["reserve"],
         })
 
+    # One matcher run for the whole page, not one per row: explain_documents
+    # matches every listing on a notice together, because who else claims a lot
+    # is only knowable by looking at all of them at once.
+    verdicts = explain_documents([r["filename"] for r in rows])
+
     out = []
     for r in rows:
         candidates = lots_by_fp.get(r["file_path"], [])
-        verdict = resolve_lot(
-            listing_reserve=r["reserve"], listing_borrower=r["borrower"],
-            candidates=[{"lot_key": c["lot_key"], "reserve": c["reserve"],
-                        "borrowers": c["borrowers"]} for c in candidates])
+        # Absent only when the Document lost its extraction between the two
+        # queries, or it parsed to nothing. Say that plainly rather than
+        # showing a row with no explanation at all.
+        verdict = verdicts.get((r["auction_id"], r["filename"]), {
+            "outcome": "unmatched", "rivals": [],
+            "reason": "this notice has no usable extraction to match against",
+        })
         out.append({
             "auction_id": r["auction_id"], "title": r["title"],
             "listing_url": r["listing_url"], "public_url": r["public_url"],
@@ -2088,6 +2109,19 @@ def _lot_match_candidates(decisions: list[dict]) -> list[dict]:
             "lot_count": r["lot_count"],
             "listing_description": r["listing_description"],
             "reason": verdict["reason"],
+            # 'rival' — the matcher DID place this listing, and another
+            # listing on the notice landed on the same lot. A different job
+            # from 'unmatched': the reviewer is separating two rows, not
+            # picking from N lots, and `rivals` names the rows to open.
+            "blocker": verdict["outcome"],
+            "rivals": verdict["rivals"],
+            # Which candidate the matcher landed on, so the UI can point at it
+            # rather than make the reviewer re-derive it from the prose. Only
+            # meaningful when `blocker` is 'rival' — an 'unmatched' listing
+            # reached no lot, and a 'linked' one never reaches this queue.
+            "matched_lot_key": (
+                f"{r['filename']}#{verdict['lot_index']}"
+                if verdict.get("lot_index") is not None else None),
             "candidates": [{
                 "lot_key": c["lot_key"], "reserve": c["reserve"],
                 "sqft": round(c["sqft"], 1) if c["sqft"] is not None else None,
