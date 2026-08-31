@@ -521,14 +521,111 @@ def sole_claimants(matches: list[tuple[dict, dict, str]]) -> list[tuple[dict, di
     return [m for m in matches if claims[id(m[1])] == 1]
 
 
+# ── explain: the writer's own verdict, read-only ─────────────────────────────
+
+#: One line per matching tier, phrased for a reviewer rather than for a log.
+#: Keyed by every `reason` string `match_lots_to_listings` can return — a test
+#: holds the two lists together, because a tier with no prose here reaches a
+#: reviewer as a bare token like "emd_tolerance". The `rival` outcome has no
+#: entry: it is not a tier, and its sentence is built around the tier it
+#: overrides plus the rivals' auction_ids.
+_EXPLAIN_TEXT = {
+    "single": "the notice has one lot, so this listing is it",
+    "exact": "reserve price matches this lot exactly",
+    "tolerance": "reserve price matches this lot within 1%",
+    "emd": "EMD matches this lot exactly (reserve price did not decide)",
+    "emd_tolerance": "EMD matches this lot within 1% (reserve price did not decide)",
+    "borrower": "borrower name matches this lot (money alone tied)",
+    "identifier": "a survey/door number in the listing names only this lot",
+    "remainder": "the last unplaced listing and the last free lot",
+    "ambiguous": "several lots tie on every signal — reserve price, EMD, "
+                 "borrower name and identifiers all fail to separate them",
+    "none": "no signal on this listing hit any lot on the notice",
+    "no_listing_price": "the listing has no reserve price, EMD or borrower "
+                        "name to match on",
+    "no_lots": "the notice extraction produced no lots",
+}
+
+
+def explain_lot_match(lots: dict[str, dict],
+                      listings: list[dict]) -> dict[str, dict]:
+    """Why each listing did or did not get its lot — the WRITER's verdict.
+
+    Pure, read-only, and deliberately not a second matcher: it calls the same
+    `match_lots_to_listings` and `sole_claimants` that `run()` uses to write
+    the `IS_LOT` edge, then reports what they decided. Anything that reasons
+    about lot matching from its own rules will drift from what actually gets
+    written — `scripts/resolve_lots.py`'s retired auto-resolver did, and
+    `pipeline/lot_resolution.py` still does: it weighs reserve price and
+    borrower name only, off a graph copy of the extraction, and knows nothing
+    of the EMD tier, the identifier tier, or the rivalry gate. A reviewer told
+    "ambiguous" by that rule is not being told the truth when the real blocker
+    was another listing holding the lot.
+
+    Returns {auction_id: {outcome, tier, lot_index, rivals, reason}} where
+
+      outcome  'linked'    the writer would write this edge
+               'rival'     matched, but `sole_claimants` refuses — another
+                           listing on the notice claims the same lot
+               'unmatched' the matcher could not place it
+      tier     the matching tier reached ('exact', 'borrower', …) or None
+      lot_index the lot it matched, or None; combine with the document's
+               filename for a lot_key ("<filename>#<lot_index>")
+      rivals   the other listings claiming that same lot (empty unless 'rival')
+      reason   one line of prose for the review UI
+    """
+    matches, unmatched = match_lots_to_listings(lots, listings)
+    sole = {id(m[0]) for m in sole_claimants(matches)}
+
+    # Who else landed on each lot, by auction_id — this is the fact the queue
+    # could not show before, and the one a reviewer needs most: the rival is
+    # usually the row they should be comparing against.
+    claimants: dict[int, list[str]] = defaultdict(list)
+    for listing, lot, _reason in matches:
+        claimants[id(lot)].append(listing["aid"])
+
+    out: dict[str, dict] = {}
+    for listing, lot, reason in matches:
+        rivals = [a for a in claimants[id(lot)] if a != listing["aid"]]
+        linked = id(listing) in sole
+        out[listing["aid"]] = {
+            "outcome": "linked" if linked else "rival",
+            "tier": reason,
+            "lot_index": lot["lot_index"],
+            "rivals": rivals,
+            "reason": _EXPLAIN_TEXT.get(reason, reason) if linked else
+                      (f"matched lot {lot['lot_index']} "
+                       f"({_EXPLAIN_TEXT.get(reason, reason)}), but "
+                       f"{'listing' if len(rivals) == 1 else 'listings'} "
+                       f"{', '.join(rivals)} matched it too — one lot is one "
+                       f"property, so this needs a human, not a guess"),
+        }
+    for listing, reason in unmatched:
+        out[listing["aid"]] = {
+            "outcome": "unmatched",
+            "tier": None,
+            "lot_index": None,
+            "rivals": [],
+            "reason": _EXPLAIN_TEXT.get(reason, reason),
+        }
+    return out
+
+
 # ── Neo4j I/O ────────────────────────────────────────────────────────────────
 
-def fetch_work(limit: int | None = None) -> list[dict]:
-    """Documents with a grounded extraction + their linked listings."""
+def fetch_work(limit: int | None = None,
+               filenames: list[str] | None = None) -> list[dict]:
+    """Documents with a grounded extraction + their linked listings.
+
+    ``filenames`` narrows to specific notices. The review queue passes it so
+    `explain_documents` can run this same matcher over the page of listings a
+    reviewer is looking at, instead of the whole 1,610-document corpus.
+    """
     return run_read_query(
         "MATCH (a:AuctionProperty)-[:HAS_DOCUMENT]->(d:Document) "
         "WHERE d.extraction_json IS NOT NULL "
-        "RETURN d.filename AS filename, "
+        + ("AND d.filename IN $filenames " if filenames is not None else "")
+        + "RETURN d.filename AS filename, "
         "       d.extraction_json AS extraction_json, "
         "       d.extraction_corrections_json AS corrections_json, "
         "       collect({aid: a.auction_id, price: a.reserve_price_num, "
@@ -539,7 +636,36 @@ def fetch_work(limit: int | None = None) -> list[dict]:
         "       AS listings "
         "ORDER BY d.filename"
         + (f" LIMIT {int(limit)}" if limit else ""),
+        {"filenames": filenames} if filenames is not None else None,
         max_rows=20_000, timeout=120.0)
+
+
+def explain_documents(filenames: list[str]) -> dict[tuple[str, str], dict]:
+    """`explain_lot_match` over named notices, off the live extraction.
+
+    The extraction JSON, not the `:Lot` graph copy of it, for the same reason
+    `run()` reads it: promote_extractions may not have run since the last
+    re-extraction, and a queue explaining a match off stale nodes explains a
+    match the writer is not making.
+
+    Keyed by (auction_id, filename), not auction_id alone: 12 listings link to
+    two scans of the same notice, and each scan is extracted separately, so
+    they get one verdict per scan. The caller already picked which scan it is
+    showing and looks the verdict up under that pair. Listings on documents
+    with no extraction are simply absent — the caller decides what to say.
+    """
+    if not filenames:
+        return {}
+    out: dict[tuple[str, str], dict] = {}
+    for w in fetch_work(filenames=sorted(set(filenames))):
+        ents = entities_with_corrections(w["extraction_json"],
+                                         w.get("corrections_json"))
+        if not ents:
+            continue
+        listings = [l for l in (w.get("listings") or []) if l.get("aid")]
+        for aid, verdict in explain_lot_match(group_lots(ents), listings).items():
+            out[(aid, w["filename"])] = verdict
+    return out
 
 
 def write_fields(rows: list[dict]) -> int:

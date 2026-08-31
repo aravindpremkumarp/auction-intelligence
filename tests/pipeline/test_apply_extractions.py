@@ -1010,3 +1010,103 @@ def test_the_single_lot_skip_is_gone():
     import inspect
     src = inspect.getsource(AX.run)
     assert "if len(lots) > 1:" not in src
+
+
+# ── explain_lot_match ────────────────────────────────────────────────────────
+
+def _xlot(lot_index, reserve, emd=None, borrowers=None):
+    """`_lot` plus the lot_index explain_lot_match reports back."""
+    return dict(_lot(reserve, emd=emd, borrowers=borrowers),
+                lot_index=lot_index, id_tokens=set())
+
+
+def test_explain_reports_the_tier_the_writer_actually_used():
+    """The queue's reason must name the key that decided, not a guess.
+
+    `lot_resolution.resolve_lot` — what the queue used to call — knows only
+    reserve price and borrower name, so a listing the portal published without
+    a price could only ever read as unresolvable to it, however cleanly its
+    EMD names one lot.
+    """
+    lots = {"1": _xlot("1", reserve=100, emd=10),
+            "2": _xlot("2", reserve=200, emd=20)}
+    out = AX.explain_lot_match(lots, [{"aid": "a", "price": None, "emd": 20}])
+    assert out["a"]["outcome"] == "linked"
+    assert out["a"]["tier"] == "emd"
+    assert out["a"]["lot_index"] == "2"
+    assert "EMD" in out["a"]["reason"]
+
+
+def test_explain_tier_is_the_first_key_that_hit_not_the_deciding_one():
+    """Faithful to the writer's own label, which is the contract here.
+
+    Reserve price hits both lots and EMD then narrows to one, but the matcher
+    records 'exact' — the first key that produced any hit. explain_lot_match
+    reports what the writer decided; it does not re-derive a nicer story.
+    """
+    lots = {"1": _xlot("1", reserve=100, emd=10),
+            "2": _xlot("2", reserve=100, emd=20)}
+    out = AX.explain_lot_match(lots, [{"aid": "a", "price": 100, "emd": 20}])
+    assert out["a"]["lot_index"] == "2" and out["a"]["tier"] == "exact"
+
+
+def test_explain_separates_a_contested_lot_from_a_genuine_tie():
+    """The distinction the old queue could not draw.
+
+    Both listings match lot 1 exactly, so `sole_claimants` refuses to write
+    either edge. That is NOT 'ambiguous' — the notice is perfectly clear, two
+    portal listings are fighting over one lot — and the reviewer's job is to
+    separate two rows, not to pick from N lots.
+    """
+    lots = {"1": _xlot("1", reserve=100), "2": _xlot("2", reserve=999)}
+    out = AX.explain_lot_match(lots, [{"aid": "a", "price": 100},
+                                      {"aid": "b", "price": 100}])
+    assert out["a"]["outcome"] == out["b"]["outcome"] == "rival"
+    assert out["a"]["rivals"] == ["b"] and out["b"]["rivals"] == ["a"]
+    assert "b" in out["a"]["reason"]
+
+
+def test_explain_calls_a_real_tie_ambiguous_with_no_rivals():
+    lots = {"1": _xlot("1", reserve=100), "2": _xlot("2", reserve=100)}
+    out = AX.explain_lot_match(lots, [{"aid": "a", "price": 100}])
+    assert out["a"]["outcome"] == "unmatched"
+    assert out["a"]["tier"] is None and out["a"]["rivals"] == []
+    assert "tie" in out["a"]["reason"]
+
+
+def test_explain_covers_every_listing_exactly_once():
+    """No listing may fall out of the queue silently."""
+    lots = {"1": _xlot("1", reserve=100), "2": _xlot("2", reserve=200)}
+    listings = [{"aid": "a", "price": 100}, {"aid": "b", "price": 200},
+                {"aid": "c", "price": 100}, {"aid": "d", "price": None}]
+    out = AX.explain_lot_match(lots, listings)
+    assert set(out) == {"a", "b", "c", "d"}
+
+
+def test_explain_never_disagrees_with_the_writer():
+    """The whole point: one matcher, two callers.
+
+    Whatever `explain_lot_match` calls 'linked' is exactly what `run()` would
+    write, because both go through `match_lots_to_listings` + `sole_claimants`.
+    """
+    lots = {"1": _xlot("1", reserve=100), "2": _xlot("2", reserve=200),
+            "3": _xlot("3", reserve=300)}
+    listings = [{"aid": "a", "price": 100}, {"aid": "b", "price": 200},
+                {"aid": "c", "price": 200}, {"aid": "d", "price": 999}]
+    matches, _ = AX.match_lots_to_listings(lots, listings)
+    written = {m[0]["aid"] for m in AX.sole_claimants(matches)}
+    explained = {aid for aid, v in AX.explain_lot_match(lots, listings).items()
+                 if v["outcome"] == "linked"}
+    assert explained == written
+
+
+def test_explain_prose_exists_for_every_matcher_reason():
+    """A reason string the matcher can return but the UI cannot phrase would
+    surface a bare token like 'emd_tolerance' to a reviewer."""
+    import inspect
+    src = inspect.getsource(AX.match_lots_to_listings)
+    for reason in ("single", "exact", "tolerance", "emd", "emd_tolerance",
+                   "borrower", "identifier", "remainder", "ambiguous", "none",
+                   "no_listing_price", "no_lots"):
+        assert f'"{reason}"' in src, f"{reason} no longer produced by matcher"
+        assert reason in AX._EXPLAIN_TEXT, f"{reason} has no reviewer prose"
