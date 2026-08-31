@@ -519,9 +519,11 @@ def _run_capturing(monkeypatch, tmp_path, work):
     monkeypatch.setattr(AX, "UNMATCHED_CSV", tmp_path / "unmatched.csv")
     monkeypatch.setattr(AX, "fetch_work", lambda limit=None: work)
     monkeypatch.setattr(AX, "human_decided_lot_matches", lambda: set())
+    monkeypatch.setattr(AX, "fetch_headline_sqft", lambda: {})
     for name in ("write_fields", "clear_unsafe_fields", "write_descriptions",
                  "write_lot_matches", "clear_stale_lot_matches",
-                 "write_price_findings", "revert_withheld_descriptions"):
+                 "write_price_findings", "write_area_findings",
+                 "revert_withheld_descriptions"):
         monkeypatch.setattr(
             AX, name,
             # tuple-index, not `and`: an empty rows list is falsy and would
@@ -530,7 +532,8 @@ def _run_capturing(monkeypatch, tmp_path, work):
     AX.run()
     return {k: {r["aid"] for r in seen.get(k, [])}
             for k in ("write_fields", "clear_unsafe_fields",
-                      "write_descriptions", "write_lot_matches")}
+                      "write_descriptions", "write_lot_matches",
+                      "write_area_findings")}
 
 
 def test_rival_listings_on_a_multi_lot_notice_get_no_description(monkeypatch, tmp_path):
@@ -731,8 +734,10 @@ def _run_capturing_reverts(monkeypatch, tmp_path, work):
     monkeypatch.setattr(AX, "UNMATCHED_CSV", tmp_path / "unmatched.csv")
     monkeypatch.setattr(AX, "fetch_work", lambda limit=None: work)
     monkeypatch.setattr(AX, "human_decided_lot_matches", lambda: set())
-    for name in ("write_fields", "write_descriptions", "write_lot_matches",
-                 "clear_stale_lot_matches", "write_price_findings"):
+    monkeypatch.setattr(AX, "fetch_headline_sqft", lambda: {})
+    for name in ("write_fields", "clear_unsafe_fields", "write_descriptions",
+                 "write_lot_matches", "clear_stale_lot_matches",
+                 "write_price_findings", "write_area_findings"):
         monkeypatch.setattr(AX, name, lambda rows: len(rows))
     monkeypatch.setattr(
         AX, "revert_withheld_descriptions",
@@ -1168,3 +1173,47 @@ def test_confirmed_listing_still_gets_its_lot_s_full_fields():
         lots, [{"aid": "a", "price": 100}, {"aid": "b", "price": 200}])
     sole = {id(m[0]) for m in AX.sole_claimants(matches)}
     assert all(id(m[0]) in sole for m in matches)
+
+
+# ── area agreement wiring ────────────────────────────────────────────────────
+
+def _area_ents(lot_index, reserve, area):
+    return (_lot_ents(lot_index, f"schedule {lot_index}", reserve)
+            + [ent("extent", area, {"total_area": area,
+                                    "lot_index": lot_index})])
+
+
+def test_area_findings_fire_only_for_confirmed_pairs(monkeypatch, tmp_path):
+    """'clean' matches its lot exactly and its listing area (500) is a 10x
+    slip against the notice's 5000 — a finding. The two rivals tie on one lot,
+    so their notice side is a guess: no finding, however wrong their areas
+    look against it."""
+    work = [{
+        "filename": "n.pdf",
+        "extraction_json": json.dumps(
+            _area_ents("1", 5000000, "1200 sq.ft")
+            + _area_ents("2", 7000000, "5000 sq.ft")),
+        "corrections_json": None,
+        "listings": [
+            {"aid": "rivalA", "price": 5000000, "emd": None, "borrowers": [],
+             "area_raw": "9999 sq.ft"},
+            {"aid": "rivalB", "price": 5000000, "emd": None, "borrowers": [],
+             "area_raw": "9999 sq.ft"},
+            {"aid": "clean", "price": 7000000, "emd": None, "borrowers": [],
+             "area_raw": "500 sq.ft"},
+        ],
+    }]
+    got = _run_capturing(monkeypatch, tmp_path, work)
+    assert got["write_area_findings"] == {"clean"}
+
+
+def test_agreeing_area_writes_no_finding(monkeypatch, tmp_path):
+    work = [{
+        "filename": "n.pdf",
+        "extraction_json": json.dumps(_area_ents("1", 900000, "1200 sq.ft")),
+        "corrections_json": None,
+        "listings": [{"aid": "one", "price": 900000, "emd": None,
+                      "borrowers": [], "area_raw": "1,200 Sq. Ft."}],
+    }]
+    got = _run_capturing(monkeypatch, tmp_path, work)
+    assert got["write_area_findings"] == set()

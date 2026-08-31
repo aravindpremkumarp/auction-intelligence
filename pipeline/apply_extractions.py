@@ -63,6 +63,7 @@ from datetime import datetime, timezone
 
 from api.neo4j_client import run_query, run_read_query
 from pipeline.obs import get_logger
+from pipeline.area_agreement import check_match as check_area_match
 from pipeline.price_agreement import check_document
 from pipeline.property_taxonomy import asset_category, classify_property_type
 from pipeline.resolution_review import lot_match_key
@@ -669,7 +670,7 @@ def fetch_work(limit: int | None = None,
         "       d.extraction_json AS extraction_json, "
         "       d.extraction_corrections_json AS corrections_json, "
         "       collect({aid: a.auction_id, price: a.reserve_price_num, "
-        "                emd: a.emd_num, "
+        "                emd: a.emd_num, area_raw: a.total_area, "
         "                borrowers: [(a)-[:HAS_BORROWER]->(bo) | bo.name], "
         "                portal: a.website_description, "
         "                id_text: a.title + ' ' + coalesce(a.website_description, '')}) "
@@ -678,6 +679,18 @@ def fetch_work(limit: int | None = None,
         + (f" LIMIT {int(limit)}" if limit else ""),
         {"filenames": filenames} if filenames is not None else None,
         max_rows=20_000, timeout=120.0)
+
+
+def fetch_headline_sqft() -> dict[str, float]:
+    """Each lot's headline extent in sq.ft, by lot_key — the figure agent3's
+    property block serves. The area comparer reads it because that, not the
+    extraction's own field text, is the second number a user actually sees."""
+    rows = run_read_query(
+        "MATCH (l:Lot)-[e:HAS_EXTENT]->(m:Measurement) "
+        "WHERE e.is_headline AND m.sqft_norm IS NOT NULL "
+        "RETURN l.lot_key AS lot_key, toFloat(m.sqft_norm) AS sqft",
+        max_rows=20_000, timeout=60.0)
+    return {r["lot_key"]: r["sqft"] for r in rows}
 
 
 def explain_documents(filenames: list[str]) -> dict[tuple[str, str], dict]:
@@ -1000,6 +1013,39 @@ def clear_stale_lot_matches(rows: list[dict]) -> int:
 
 # ── main ─────────────────────────────────────────────────────────────────────
 
+def write_area_findings(rows: list[dict]) -> int:
+    """Record every area disagreement on its listing, and clear the rest.
+
+    Same rebuild-each-pass contract as `write_price_findings`: a finding is a
+    statement about the current extraction, so one whose extent has since
+    been corrected must disappear. Verdicts are recorded, never auto-applied
+    (2026-08-31 plan decision: queue first, decide from the scorecard) —
+    `total_area` itself is not touched here.
+    """
+    run_query("""
+        MATCH (a:AuctionProperty) WHERE a.area_agreement IS NOT NULL
+        REMOVE a.area_agreement, a.area_agreement_ratio,
+               a.area_agreement_severity, a.area_agreement_listing_sqft,
+               a.area_agreement_notice_sqft, a.area_agreement_at
+        RETURN count(a) AS cleared
+    """, {})
+    written = 0
+    for batch in chunked(rows, WRITE_CHUNK):
+        out = run_query("""
+            UNWIND $rows AS row
+            MATCH (a:AuctionProperty {auction_id: row.aid})
+            SET a.area_agreement = row.verdict,
+                a.area_agreement_ratio = row.ratio,
+                a.area_agreement_severity = row.severity,
+                a.area_agreement_listing_sqft = row.listing_sqft,
+                a.area_agreement_notice_sqft = row.notice_sqft,
+                a.area_agreement_at = datetime()
+            RETURN count(a) AS n
+        """, {"rows": batch})
+        written += (out[0].get("n") or 0) if out else 0
+    return written
+
+
 def write_price_findings(rows: list[dict]) -> int:
     """Record every price disagreement on its listing, and clear the rest.
 
@@ -1038,9 +1084,11 @@ def run(limit: int | None = None, dry_run: bool = False) -> int:
     print(f"Documents with grounded extraction: {len(work)}")
 
     human_decided = human_decided_lot_matches()
+    headline_sqft = fetch_headline_sqft()
 
     field_rows: list[dict] = []
     unsafe_field_rows: list[dict] = []
+    area_rows: list[dict] = []
     desc_rows: list[dict] = []
     revert_rows: list[dict] = []
     lot_key_rows: list[dict] = []
@@ -1090,6 +1138,17 @@ def run(limit: int | None = None, dry_run: bool = False) -> int:
                 unsafe_field_rows.append({"aid": listing["aid"],
                                           "filename": w["filename"],
                                           "keys": sorted(contested)})
+            # Area agreement runs only on confirmed pairs: on a contested lot
+            # the notice side is a guess, and a finding built on a guess sends
+            # a reviewer to reconcile numbers from two different properties.
+            if id(listing) in sole:
+                area_finding = check_area_match(
+                    listing, lot,
+                    headline_sqft.get(f"{w['filename']}#{lot['lot_index']}"))
+                if area_finding:
+                    stats[f"area_{area_finding['verdict']}"] += 1
+                    area_rows.append(dict(area_finding,
+                                          filename=w["filename"]))
             # The description goes through `sole_claimants` for the same
             # reason `resolved_lot_key` does: when two listings claim one lot,
             # at most one of them is that property, so publishing the lot's
@@ -1188,6 +1247,7 @@ def run(limit: int | None = None, dry_run: bool = False) -> int:
           f"descriptions to revert: {len(revert_rows)}  "
           f"skipped (human-decided): {human_skipped}  "
           f"price disagreements: {len(price_rows)}  "
+          f"area disagreements: {len(area_rows)}  "
           f"unmatched: {len(unmatched_out)}")
 
     if unmatched_out and not dry_run:
@@ -1206,6 +1266,7 @@ def run(limit: int | None = None, dry_run: bool = False) -> int:
         return 0
 
     npf = write_price_findings(price_rows)
+    naf = write_area_findings(area_rows)
     nf = write_fields(field_rows)
     # After the field write: a rival listing gets its consensus fields SET and
     # its contested keys REMOVEd in the same run — disjoint key sets by
@@ -1225,7 +1286,7 @@ def run(limit: int | None = None, dry_run: bool = False) -> int:
           f"(legacy human descriptions overwritten, backed up once), "
           f"lot key to {nl} listings, cleared {nc} stale lot key(s), "
           f"reverted {nr} listings to portal text, "
-          f"flagged {npf} price disagreement(s)")
+          f"flagged {npf} price and {naf} area disagreement(s)")
     if nr < len(revert_rows):
         print(f"  NOTE: {len(revert_rows) - nr} withheld listings kept their old "
               f"description — no portal text to fall back on, or already "
