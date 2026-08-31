@@ -706,7 +706,71 @@ def fetch_documents(limit: int | None, filename: str | None) -> list[dict]:
                           max_rows=20_000, timeout=120.0)
 
 
-def promote_document(doc: dict, dry_run: bool) -> tuple[int, Counter]:
+# ── phase 3: disposable lots ────────────────────────────────────────────────
+#
+# MERGE (l:Lot {lot_key: ...}) reuses whatever already answers to that key, so
+# a re-extraction inherits the previous run's boundaries, extents and
+# identifiers, and a lot the new extraction no longer produces lives on
+# forever. 67 documents currently hold lots their own extraction disagrees
+# with. Rebuilding is the only thing that clears them.
+#
+# OPT-IN (--rebuild-lots). It deletes ~23,000 owned child nodes across the
+# corpus and, unlike everything else here, is NOT recoverable by re-running:
+# the extraction that produced them is gone. Run scripts/snapshot_lots.py
+# first.
+#
+# Only the four OWNED children are deleted. Identifier, Borrower and Parcel
+# are shared — one Identifier is cited by 175 lots — so deleting them would
+# damage notices this run never touched. DETACH DELETE on the lot drops those
+# relationships and leaves the nodes standing, which is exactly right.
+
+_REBUILD_DOC_LOTS = """
+MATCH (d:Document {filename: $filename})-[:HAS_LOT]->(l:Lot)
+OPTIONAL MATCH (l)-[:HAS_EXTENT]->(m:Measurement)
+OPTIONAL MATCH (l)-[:HAS_BOUNDARY]->(b:Boundary)
+OPTIONAL MATCH (l)-[:HAS_SCHEDULE]->(s:Schedule)
+OPTIONAL MATCH (l)-[:OFFERED_IN]->(a:Auction)
+DETACH DELETE m, b, s, a, l
+RETURN count(DISTINCT l) AS lots
+"""
+
+# A rebuilt document renumbers, so every automatic key naming it is now a
+# guess. Cleared rather than trusted: link_lots would otherwise faithfully
+# rebuild an edge to whatever new lot answers to the old number, which is the
+# precise failure this migration exists to end. The next apply_extractions run
+# re-derives them from the same extraction that built the lots, so the two
+# agree by construction.
+#
+# A human's decision is never cleared — it outranks the rule, exactly as in
+# apply_extractions.clear_stale_lot_matches.
+_INVALIDATE_DOC_KEYS = """
+MATCH (a:AuctionProperty)
+WHERE a.resolved_lot_key STARTS WITH ($filename + '#')
+  AND NOT EXISTS {
+    MATCH (r:ResolutionDecision {kind: 'lot-match'})
+    WHERE r.key STARTS WITH ('lot-match:' + a.auction_id + '|')
+      AND NOT r.decided_by STARTS WITH 'system:'
+  }
+REMOVE a.resolved_lot_key, a.lot_resolved_at
+RETURN count(a) AS cleared
+"""
+
+
+def rebuild_document_lots(filename: str) -> tuple[int, int]:
+    """Delete a document's lots and their owned children, and drop its keys.
+
+    Returns (lots deleted, keys cleared). The caller writes the new lots
+    immediately afterwards, so the gap is within one document's promote.
+    """
+    out = write(_REBUILD_DOC_LOTS, {"filename": filename})
+    lots = int((list(out[0].values())[0] if out else 0) or 0)
+    out = write(_INVALIDATE_DOC_KEYS, {"filename": filename})
+    cleared = int((list(out[0].values())[0] if out else 0) or 0)
+    return lots, cleared
+
+
+def promote_document(doc: dict, dry_run: bool,
+                     rebuild: bool = False) -> tuple[int, Counter]:
     filename = doc["filename"]
     entities = entities_with_corrections(doc["extraction_json"],
                                          doc.get("corrections_json"))
@@ -719,6 +783,9 @@ def promote_document(doc: dict, dry_run: bool) -> tuple[int, Counter]:
               f"{sum(1 for p in places if p['village'])}/{len(places)} placed "
               f"({Counter(p['status'] for p in places).most_common()})")
         return len(lots), Counter(p["status"] for p in places)
+
+    if rebuild:
+        rebuild_document_lots(filename)
 
     officer = notice.get("authorised_officer") or notice.get("liquidator")
     emd = notice.get("emd_account") or {}
@@ -1127,7 +1194,7 @@ def resolve_parcels(dry_run: bool) -> None:
 def run(limit: int | None, filename: str | None,
         dry_run: bool, skip_parcels: bool, workers: int = DEFAULT_WORKERS,
         places_only: bool = False, parcels_only: bool = False,
-        links_only: bool = False) -> int:
+        links_only: bool = False, rebuild_lots: bool = False) -> int:
     # Phase B2 reads resolved_lot_key and the lots already in the graph, so it
     # stands alone too — useful straight after an apply_extractions run that
     # moved keys without changing any lot.
@@ -1143,9 +1210,16 @@ def run(limit: int | None, filename: str | None,
 
     docs = fetch_documents(limit, filename)
     workers = max(1, workers if not dry_run else 1)
-    label = "places" if places_only else "promoting"
+    label = ("places" if places_only
+             else "rebuilding" if rebuild_lots else "promoting")
     print(f"phase B — {label} {len(docs)} document(s) "
           f"across {workers} worker(s)", flush=True)
+    if rebuild_lots and not dry_run:
+        print("  REBUILD: each document's existing lots and their owned "
+              "Measurement/Boundary/Schedule/Auction nodes are DELETED before "
+              "the new ones are written, and its automatic lot keys are "
+              "cleared. Not recoverable by re-running — snapshot first with "
+              "scripts/snapshot_lots.py.", flush=True)
 
     state = {"ok": 0, "fail": 0, "lots": 0, "done": 0, "status": Counter()}
     lock = threading.Lock()
@@ -1153,7 +1227,7 @@ def run(limit: int | None, filename: str | None,
     def one(doc: dict) -> None:
         try:
             n, statuses = (place_document(doc, dry_run) if places_only
-                           else promote_document(doc, dry_run))
+                           else promote_document(doc, dry_run, rebuild_lots))
             with lock:
                 state["ok"] += 1
                 state["lots"] += n
@@ -1213,6 +1287,13 @@ def main() -> int:
                     help="run phase C alone against the lots already in the "
                          "graph — it rebuilds the derived :Parcel layer, so "
                          "it is safe to re-run on its own")
+    ap.add_argument("--rebuild-lots", action="store_true",
+                    help="DESTRUCTIVE: delete each document's existing lots "
+                         "and their owned children before rewriting them, and "
+                         "clear its automatic lot keys so the next "
+                         "apply_extractions re-derives them. Snapshot with "
+                         "scripts/snapshot_lots.py first — this is not "
+                         "recoverable by re-running.")
     ap.add_argument("--links-only", action="store_true",
                     help="run phase B2 alone — rebuild the "
                          "(:AuctionProperty)-[:IS_LOT]->(:Lot) edges from the "
@@ -1225,7 +1306,7 @@ def main() -> int:
     args = ap.parse_args()
     return run(args.limit, args.filename, args.dry_run, args.skip_parcels,
                args.workers, args.places_only, args.parcels_only,
-               args.links_only)
+               args.links_only, args.rebuild_lots)
 
 
 if __name__ == "__main__":

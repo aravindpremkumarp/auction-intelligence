@@ -477,3 +477,83 @@ def test_links_only_returns_before_promoting_anything():
     src = inspect.getsource(P.run)
     assert src.index("if links_only") < src.index("docs = fetch_documents")
     assert src.index("link_lots(dry_run)") < src.index("docs = fetch_documents")
+
+
+# ── phase 3: disposable lots ─────────────────────────────────────────────────
+
+def _rebuild_src() -> str:
+    import inspect
+    return inspect.getsource(P.rebuild_document_lots)
+
+
+def test_only_the_owned_children_are_deleted():
+    """Identifier, Borrower and Parcel are SHARED — one Identifier is cited by
+    175 lots. Deleting one would damage notices the run never touched."""
+    q = P._REBUILD_DOC_LOTS
+    for owned in ("Measurement", "Boundary", "Schedule", "Auction"):
+        assert owned in q, owned
+    for shared in ("Identifier", "Borrower", "Parcel"):
+        assert shared not in q, f"{shared} is shared and must never be deleted"
+
+
+def test_shared_nodes_are_detached_not_orphaned():
+    """DETACH DELETE on the lot drops its relationships to shared nodes and
+    leaves those nodes standing, which is the whole distinction."""
+    assert "DETACH DELETE" in P._REBUILD_DOC_LOTS
+
+
+def test_the_rebuild_is_scoped_to_one_document():
+    """A corpus-wide delete would take out lots this run is not rewriting."""
+    assert "MATCH (d:Document {filename: $filename})-[:HAS_LOT]->(l:Lot)" in \
+        P._REBUILD_DOC_LOTS
+
+
+def test_a_rebuilt_document_drops_its_automatic_keys():
+    """A rebuild renumbers, so every automatic key naming it is a guess.
+
+    link_lots would otherwise rebuild an edge to whatever new lot answers to
+    the old number — the precise failure this migration exists to end.
+    """
+    assert "REMOVE a.resolved_lot_key" in P._INVALIDATE_DOC_KEYS
+    assert "a.resolved_lot_key STARTS WITH ($filename + '#')" in \
+        P._INVALIDATE_DOC_KEYS
+
+
+def test_a_humans_decision_is_never_cleared():
+    q = P._INVALIDATE_DOC_KEYS
+    assert "NOT r.decided_by STARTS WITH 'system:'" in q
+
+
+def test_only_keys_naming_this_document_are_cleared():
+    """12 listings link to two notices; clearing one must not wipe the key the
+    other legitimately wrote."""
+    assert "STARTS WITH ($filename + '#')" in P._INVALIDATE_DOC_KEYS
+
+
+def test_lots_are_deleted_before_the_keys_are_cleared():
+    """Either order is correct, but the delete is the expensive half: doing it
+    first means a failure between the two leaves no lots AND no keys pointing
+    at them, rather than keys pointing at lots that no longer exist."""
+    src = _rebuild_src()
+    assert src.index("_REBUILD_DOC_LOTS") < src.index("_INVALIDATE_DOC_KEYS")
+
+
+def test_rebuilding_is_opt_in():
+    """It deletes ~23,000 owned child nodes and is not recoverable by
+    re-running — the extraction that produced them is gone."""
+    import inspect
+    assert "rebuild: bool = False" in inspect.getsource(P.promote_document)
+    assert "rebuild_lots: bool = False" in inspect.getsource(P.run)
+
+
+def test_the_rebuild_happens_before_the_new_lots_are_written():
+    """Writing first and deleting after would delete what was just written."""
+    import inspect
+    src = inspect.getsource(P.promote_document)
+    assert src.index("rebuild_document_lots(filename)") < src.index("_WRITE_NOTICE")
+
+
+def test_a_dry_run_never_rebuilds():
+    import inspect
+    src = inspect.getsource(P.promote_document)
+    assert src.index("if dry_run") < src.index("rebuild_document_lots(filename)")
