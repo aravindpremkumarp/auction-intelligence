@@ -1739,6 +1739,10 @@ def _village_candidates(taluks: list[str]) -> dict[str, list[str]]:
     return {r["taluk"]: r["villages"] for r in rows}
 
 
+#: Which side a reviewer found at fault. 'neither' rides with the `rejected`
+#: verdict (a false alarm); the rest ride with `approved`.
+PRICE_CHECK_SIDES = frozenset({"notice", "portal", "both", "neither"})
+
 #: Cap on rows in one price-check load. 261 findings live now, all of them
 #: exact reads of a stored flag rather than a fuzzy proposal set, so 400 shows
 #: the whole backlog with room to grow while still bounding the query.
@@ -1792,7 +1796,9 @@ def _price_checks(decisions: list[dict]) -> list[dict]:
                lot_count AS lot_count,
                p.resolved_lot_key AS lot_key,
                d.filename AS filename, d.public_url AS public_url,
-               p.source_url AS listing_url
+               // `url`, not `source_url`: source_url is empty on every
+               // listing. _lot_match_candidates already reads p.url.
+               p.url AS listing_url
         ORDER BY (CASE WHEN p.price_agreement_severity = 'critical'
                        THEN 0 ELSE 1 END),
                  p.price_agreement_ratio DESC
@@ -2128,6 +2134,15 @@ def record_resolution_decision(kind: str, payload: dict, verdict: str,
         if not int(hit.get("n") or 0):
             raise ValueError(
                 f"no listing with auction_id {payload.get('auction_id')!r}")
+        # WHICH price is wrong is the whole point of the verdict — "one of
+        # these two numbers is wrong" is not an answer anyone can act on. The
+        # payload is free-form, so the vocabulary is checked here rather than
+        # trusted from the caller.
+        wrong = payload.get("wrong")
+        if wrong not in PRICE_CHECK_SIDES:
+            raise ValueError(
+                f"price-check needs wrong ∈ {sorted(PRICE_CHECK_SIDES)}, "
+                f"got {wrong!r}")
 
     if kind == "lot-match" and verdict == APPROVED:
         # A picked lot_key must actually be on THIS listing's document — the
