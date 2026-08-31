@@ -60,7 +60,11 @@ MATCH (a)-[:HAS_DOCUMENT]->(:Document)-[:HAS_LOT]->(anylot:Lot)
 WITH a, l, score, count(DISTINCT anylot) AS lot_count
 RETURN a.auction_id AS auction_id, 'lot' AS source, score,
        left(l.full_description, $snippet_chars) AS snippet, lot_count,
-       a.resolved_lot_key AS resolved_lot_key
+       // Phase 2: the lot comes from the edge, not the string beside it. A
+       // key is "<filename>#<lot_index>" and lot_index is the model's own
+       // numbering, so a re-extraction renumbers the lots and a stale key
+       // still RESOLVES — to a different property. The edge names the node.
+       [(a)-[:IS_LOT]->(_lot:Lot) | _lot.lot_key][0] AS resolved_lot_key
 ORDER BY score DESC LIMIT $limit
 """
 
@@ -71,7 +75,8 @@ MATCH (a)-[:HAS_DOCUMENT]->(:Document)-[:HAS_LOT]->(anylot:Lot)
 WITH a, score, count(DISTINCT anylot) AS lot_count
 RETURN a.auction_id AS auction_id, 'listing' AS source, score,
        left(a.description, $snippet_chars) AS snippet, lot_count,
-       a.resolved_lot_key AS resolved_lot_key
+       // the edge, as above
+       [(a)-[:IS_LOT]->(_lot:Lot) | _lot.lot_key][0] AS resolved_lot_key
 ORDER BY score DESC LIMIT $limit
 """
 

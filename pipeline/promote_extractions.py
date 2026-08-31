@@ -3,7 +3,7 @@
     python -m pipeline.promote_extractions [--limit N] [--filename F]
                                            [--dry-run] [--skip-parcels]
                                            [--workers N] [--places-only]
-                                           [--parcels-only]
+                                           [--parcels-only] [--rebuild-lots]
 
 Phase B promotes documents concurrently (--workers, default 8) — each document
 is a few small writes dominated by the round trip to Aura, so a serial run over
@@ -20,6 +20,12 @@ notice-level nodes. Each lot's village/taluk/district is resolved onto the
 official gazetteer (:RevenueVillage / :Taluk / :District) through
 pipeline.place_resolution — the notice's own spelling is never stored as the
 answer, and a lot that cannot be placed keeps `place_status` and no edge.
+
+Phase B2 then materialises (:AuctionProperty)-[:IS_LOT]->(:Lot) from each
+listing's `resolved_lot_key`. It runs here, not in apply_extractions, because
+that step derives the key from `extraction_json` before the :Lot it names
+exists. The edge is additive for now — the string is still written and still
+read — so the two can be compared before any reader moves over.
 
 Phase C then resolves :Parcel across every lot, which is a SECOND PASS on
 purpose — you cannot tell which lots share a physical parcel until every
@@ -700,7 +706,55 @@ def fetch_documents(limit: int | None, filename: str | None) -> list[dict]:
                           max_rows=20_000, timeout=120.0)
 
 
-def promote_document(doc: dict, dry_run: bool) -> tuple[int, Counter]:
+# ── phase 3: disposable lots ────────────────────────────────────────────────
+#
+# MERGE (l:Lot {lot_key: ...}) reuses whatever already answers to that key, so
+# a re-extraction inherits the previous run's boundaries, extents and
+# identifiers, and a lot the new extraction no longer produces lives on
+# forever. 67 documents currently hold lots their own extraction disagrees
+# with. Rebuilding is the only thing that clears them.
+#
+# OPT-IN (--rebuild-lots). It deletes ~23,000 owned child nodes across the
+# corpus and, unlike everything else here, is NOT recoverable by re-running:
+# the extraction that produced them is gone. Run scripts/snapshot_lots.py
+# first.
+#
+# Only the four OWNED children are deleted. Identifier, Borrower and Parcel
+# are shared — one Identifier is cited by 175 lots — so deleting them would
+# damage notices this run never touched. DETACH DELETE on the lot drops those
+# relationships and leaves the nodes standing, which is exactly right.
+
+_REBUILD_DOC_LOTS = """
+MATCH (d:Document {filename: $filename})-[:HAS_LOT]->(l:Lot)
+OPTIONAL MATCH (l)-[:HAS_EXTENT]->(m:Measurement)
+OPTIONAL MATCH (l)-[:HAS_BOUNDARY]->(b:Boundary)
+OPTIONAL MATCH (l)-[:HAS_SCHEDULE]->(s:Schedule)
+OPTIONAL MATCH (l)-[:OFFERED_IN]->(a:Auction)
+DETACH DELETE m, b, s, a, l
+RETURN count(DISTINCT l) AS lots
+"""
+
+# Phase 4 removed the key-invalidation step that used to live here. It
+# existed because link_lots would rebuild an edge from a stale string after a
+# renumber; with apply_extractions writing the edge directly there is no
+# string left to go stale. DETACH DELETE on the lot takes its edges with it,
+# so a rebuilt document simply reads as unresolved until the next
+# apply_extractions re-derives it — visible, and never wrong.
+
+
+def rebuild_document_lots(filename: str) -> int:
+    """Delete a document's lots and the children they own outright.
+
+    Their :IS_LOT edges go with them, so the document's listings read as
+    unresolved until the next apply_extractions re-derives them from the same
+    extraction that built the new lots.
+    """
+    out = write(_REBUILD_DOC_LOTS, {"filename": filename})
+    return int((list(out[0].values())[0] if out else 0) or 0)
+
+
+def promote_document(doc: dict, dry_run: bool,
+                     rebuild: bool = False) -> tuple[int, Counter]:
     filename = doc["filename"]
     entities = entities_with_corrections(doc["extraction_json"],
                                          doc.get("corrections_json"))
@@ -713,6 +767,9 @@ def promote_document(doc: dict, dry_run: bool) -> tuple[int, Counter]:
               f"{sum(1 for p in places if p['village'])}/{len(places)} placed "
               f"({Counter(p['status'] for p in places).most_common()})")
         return len(lots), Counter(p["status"] for p in places)
+
+    if rebuild:
+        rebuild_document_lots(filename)
 
     officer = notice.get("authorised_officer") or notice.get("liquidator")
     emd = notice.get("emd_account") or {}
@@ -929,6 +986,12 @@ def unit_signature(units: dict[str, set[str]] | None, lot_key: str) -> str:
     return "|".join(sorted(units.get(lot_key, ()))) if units else ""
 
 
+# Phase 4 retired phase B2. link_lots existed only to derive
+# (:AuctionProperty)-[:IS_LOT]->(:Lot) FROM the resolved_lot_key string;
+# apply_extractions now writes that edge directly, so there is no string
+# left to derive from and nothing here to keep in step.
+
+
 def parcel_groups(edges: list[dict], all_lots: list[str],
                   units: dict[str, set[str]] | None = None) -> list[dict]:
     """Connected components of "shares an identifier within one village".
@@ -1041,7 +1104,8 @@ def resolve_parcels(dry_run: bool) -> None:
 
 def run(limit: int | None, filename: str | None,
         dry_run: bool, skip_parcels: bool, workers: int = DEFAULT_WORKERS,
-        places_only: bool = False, parcels_only: bool = False) -> int:
+        places_only: bool = False, parcels_only: bool = False,
+        rebuild_lots: bool = False) -> int:
     # Phase C is a whole-corpus rebuild, so it stands alone: re-running it
     # after a grouping change costs seconds and needs no phase-B work.
     if parcels_only:
@@ -1050,9 +1114,17 @@ def run(limit: int | None, filename: str | None,
 
     docs = fetch_documents(limit, filename)
     workers = max(1, workers if not dry_run else 1)
-    label = "places" if places_only else "promoting"
+    label = ("places" if places_only
+             else "rebuilding" if rebuild_lots else "promoting")
     print(f"phase B — {label} {len(docs)} document(s) "
           f"across {workers} worker(s)", flush=True)
+    if rebuild_lots and not dry_run:
+        print("  REBUILD: each document's existing lots and their owned "
+              "Measurement/Boundary/Schedule/Auction nodes are DELETED before "
+              "the new ones are written. Their :IS_LOT edges go with them, "
+              "so run pipeline.apply_extractions afterwards to re-link the "
+              "listings. Not recoverable by re-running — snapshot first with "
+              "scripts/snapshot_lots.py.", flush=True)
 
     state = {"ok": 0, "fail": 0, "lots": 0, "done": 0, "status": Counter()}
     lock = threading.Lock()
@@ -1060,7 +1132,7 @@ def run(limit: int | None, filename: str | None,
     def one(doc: dict) -> None:
         try:
             n, statuses = (place_document(doc, dry_run) if places_only
-                           else promote_document(doc, dry_run))
+                           else promote_document(doc, dry_run, rebuild_lots))
             with lock:
                 state["ok"] += 1
                 state["lots"] += n
@@ -1115,6 +1187,13 @@ def main() -> int:
                     help="run phase C alone against the lots already in the "
                          "graph — it rebuilds the derived :Parcel layer, so "
                          "it is safe to re-run on its own")
+    ap.add_argument("--rebuild-lots", action="store_true",
+                    help="DESTRUCTIVE: delete each document's existing lots "
+                         "and their owned children before rewriting them, and "
+                         "clear its automatic lot keys so the next "
+                         "apply_extractions re-derives them. Snapshot with "
+                         "scripts/snapshot_lots.py first — this is not "
+                         "recoverable by re-running.")
     ap.add_argument("--places-only", action="store_true",
                     help="skip the phase-B node writes and only (re)link "
                          "already-promoted lots to the gazetteer, then run "
@@ -1122,7 +1201,8 @@ def main() -> int:
                          "loaded and only their geography changed")
     args = ap.parse_args()
     return run(args.limit, args.filename, args.dry_run, args.skip_parcels,
-               args.workers, args.places_only, args.parcels_only)
+               args.workers, args.places_only, args.parcels_only,
+               args.rebuild_lots)
 
 
 if __name__ == "__main__":

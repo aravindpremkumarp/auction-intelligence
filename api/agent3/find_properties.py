@@ -358,7 +358,11 @@ RETURN a.auction_id AS auction_id,
        [(a)-[:HAS_PROPERTY_TYPE]->(pt:PropertyType) | pt.name] AS property_types,
        a.reserve_price_num AS reserve_price, a.emd_num AS emd,
        a.auction_start_dt AS auction_start, a.application_deadline_dt AS deadline,
-       a.url AS url, a.resolved_lot_key AS resolved_lot_key,
+       // Phase 2: the lot comes from the edge, not the string beside it. A
+       // key is "<filename>#<lot_index>" and lot_index is the model's own
+       // numbering, so a re-extraction renumbers the lots and a stale key
+       // still RESOLVES — to a different property. The edge names the node.
+       a.url AS url, [(a)-[:IS_LOT]->(_lot:Lot) | _lot.lot_key][0] AS resolved_lot_key,
        lot_count, sqft_min, sqft_max, max_attempt
 """
 

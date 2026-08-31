@@ -662,12 +662,18 @@ def human_decided_lot_matches() -> set[str]:
 
 
 def write_lot_matches(rows: list[dict]) -> int:
-    """Persist `resolved_lot_key` from THIS pipeline's own listing<->lot
-    match — `match_lots_to_listings()` already computes it (reserve price,
+    """Link a listing to its lot with (:AuctionProperty)-[:IS_LOT]->(:Lot).
+
+    `match_lots_to_listings()` already computes the pairing (reserve price,
     then EMD, then borrower-name overlap, then survey/door identifiers, then
-    unique-remainder pairing) to route field/description writes; recording
-    it is what makes `api/agent3/common.py::scope_of()` and the agent3 tools
-    actually see it as lot-scoped, not just this pipeline's own writes.
+    unique-remainder) to route field/description writes; recording it is what
+    makes `api/agent3/common.py::scope_of()` and the agent3 tools see the
+    listing as lot-scoped, not just this pipeline's own writes.
+
+    Phase 4: this used to SET a `resolved_lot_key` string of the form
+    "<filename>#<lot_index>". lot_index is the extraction model's own
+    numbering, so a re-extraction renumbered the lots and every stored key
+    silently began naming a different property. The edge names the node.
 
     Overwrites unconditionally against any prior AUTOMATED verdict —
     `pipeline/lot_resolution.py`'s reserve+borrower-only pass over the `Lot`
@@ -690,11 +696,21 @@ def write_lot_matches(rows: list[dict]) -> int:
             row["payload"] = json.dumps(
                 {"auction_id": row["aid"], "lot_key": row["lot_key"],
                  "method": row["reason"]}, ensure_ascii=False)
+        # Phase 4: the edge IS the resolution. MATCH on the :Lot rather than
+        # writing its key onto the listing — a key is only a way to find a
+        # node, and lot_index is the extraction model's own numbering, so a
+        # re-extraction made every stored key a guess.
+        #
+        # MATCH, not MERGE, on the lot: a listing whose lot does not exist
+        # yet must come back as unwritten rather than conjuring an empty
+        # :Lot. Rows that miss are counted by the caller, not swallowed.
         res = run_query("""
             UNWIND $rows AS row
             MATCH (a:AuctionProperty {auction_id: row.aid})
-            SET a.resolved_lot_key = row.lot_key,
-                a.lot_resolved_at  = datetime($at)
+            MATCH (l:Lot {lot_key: row.lot_key})
+            MERGE (a)-[r:IS_LOT]->(l)
+              ON CREATE SET r.linked_at = datetime($at)
+            SET r.method = row.reason
             RETURN a.auction_id AS aid
         """, {"rows": batch, "at": now_iso})
         run_query("""
@@ -712,11 +728,20 @@ def write_lot_matches(rows: list[dict]) -> int:
                 r.decided_by = 'system:apply_extractions'
         """, {"rows": batch})
         written += len(res) if res else 0
+    missing = len(rows) - written
+    if missing:
+        # Not a silent loss: after Phase 4 the edge IS the resolution, so a
+        # row whose :Lot does not exist yet is a listing left UNRESOLVED, not
+        # merely a key that fails to dereference later. promote_extractions
+        # must have run for the document before this can link it.
+        print(f"  NOTE: {missing} match(es) had no :Lot to link to — "
+              f"run pipeline.promote_extractions for those documents, then "
+              f"this step again", flush=True)
     return written
 
 
 def clear_stale_lot_matches(rows: list[dict]) -> int:
-    """Remove a `resolved_lot_key` this run did NOT re-derive.
+    """Drop an :IS_LOT edge this run did NOT re-derive.
 
     `write_lot_matches` only ever SET. A listing that stops resolving — its
     lot vanished from the extraction, or two listings now claim it and
@@ -739,11 +764,15 @@ def clear_stale_lot_matches(rows: list[dict]) -> int:
         return 0
     cleared = 0
     for batch in chunked(rows, WRITE_CHUNK):
+        # Only an edge to a lot on THIS document. 12 listings link to two
+        # notices, and a pass over one must not drop the edge the other
+        # legitimately made — the filename guard the key version carried,
+        # expressed against the lot instead of against a string prefix.
         res = run_query("""
             UNWIND $rows AS row
-            MATCH (a:AuctionProperty {auction_id: row.aid})
-            WHERE a.resolved_lot_key STARTS WITH (row.filename + '#')
-            REMOVE a.resolved_lot_key, a.lot_resolved_at
+            MATCH (a:AuctionProperty {auction_id: row.aid})-[r:IS_LOT]->(l:Lot)
+            WHERE l.lot_key STARTS WITH (row.filename + '#')
+            DELETE r
             RETURN a.auction_id AS aid
         """, {"rows": batch})
         aids = [r["aid"] for r in (res or [])]
@@ -878,21 +907,29 @@ def run(limit: int | None = None, dry_run: bool = False) -> int:
                     stats[f"description_dropped_{verdict}"] += 1
                     revert_rows.append({"aid": listing["aid"],
                                         "reason": verdict})
-            # Only a genuinely multi-lot notice needs resolved_lot_key —
-            # scope_of() already reads a single-lot notice as lot-scoped
-            # without it, same as scripts/resolve_lots.py's own scope.
-            if len(lots) > 1:
-                if id(listing) not in sole:
-                    stats["lot_key_dropped_claimed_by_several"] += 1
-                elif listing["aid"] in human_decided:
-                    human_skipped += 1
-                else:
-                    resolved_this_doc.add(listing["aid"])
-                    lot_key_rows.append({
-                        "aid": listing["aid"],
-                        "lot_key": f"{w['filename']}#{lot['lot_index']}",
-                        "reason": reason,
-                    })
+            # Single-lot notices are linked too. They used to be skipped —
+            # scope_of() reads them as lot-scoped without an edge, so the link
+            # added nothing. After Phase 4 the edge is the ONLY statement that
+            # a listing is a given lot, and leaving 1,009 properties without
+            # one means the graph cannot answer "which lot is this?" for a
+            # third of the corpus even where the answer is unambiguous.
+            #
+            # No special case is needed: `sole_claimants` already decides.
+            # 990 single-lot notices carry exactly one listing, so nothing
+            # rivals them; the two that carry 2 and 17 are genuinely contested
+            # (one lot cannot be all of them) and are dropped, same as any
+            # multi-lot fight.
+            if id(listing) not in sole:
+                stats["lot_key_dropped_claimed_by_several"] += 1
+            elif listing["aid"] in human_decided:
+                human_skipped += 1
+            else:
+                resolved_this_doc.add(listing["aid"])
+                lot_key_rows.append({
+                    "aid": listing["aid"],
+                    "lot_key": f"{w['filename']}#{lot['lot_index']}",
+                    "reason": reason,
+                })
         for listing, reason in unmatched:
             stats[f"unmatched_{reason}"] += 1
             # No lot means no description this run. Anything an earlier run

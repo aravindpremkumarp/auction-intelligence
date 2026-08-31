@@ -92,13 +92,28 @@ def test_the_second_legacy_resolver_is_gone():
     assert not p.exists(), "a third resolver would reintroduce rival writers"
 
 
-def test_apply_extractions_is_the_only_remaining_writer():
-    """Grep the tree: exactly one place may SET resolved_lot_key from a match
-    it computed itself. resolve_lots writes only what was already decided."""
+def _tree_files():
     from pathlib import Path
     root = Path(__file__).resolve().parents[2]
-    writers = set()
-    for path in list((root / "scripts").glob("*.py")) + list((root / "pipeline").glob("*.py")):
-        if "resolved_lot_key = row.lot_key" in path.read_text(encoding="utf-8"):
-            writers.add(path.name)
-    assert writers == {"apply_extractions.py", "resolve_lots.py"}, writers
+    return (list((root / "scripts").glob("*.py"))
+            + list((root / "pipeline").glob("*.py"))
+            + list((root / "api").rglob("*.py")))
+
+
+def test_nothing_writes_the_retired_string_any_more():
+    """Phase 4 removed resolved_lot_key. A writer left behind would recreate
+    the property on a subset of listings and put the graph back into having
+    two sources of truth that only mostly agree."""
+    writers = {p.name for p in _tree_files()
+               if "resolved_lot_key = " in p.read_text(encoding="utf-8")
+               or "SET a.resolved_lot_key" in p.read_text(encoding="utf-8")}
+    assert writers == set(), writers
+
+
+def test_exactly_two_places_create_the_lot_edge():
+    """One automatic (the matcher) and one for stored decisions. A third
+    would reintroduce the rival-writer problem the string already had."""
+    makers = {p.name for p in _tree_files()
+              if "MERGE (a)-[r:IS_LOT]->(l)" in p.read_text(encoding="utf-8")
+              or "MERGE (p)-[r:IS_LOT]->(l)" in p.read_text(encoding="utf-8")}
+    assert makers == {"apply_extractions.py", "resolve_lots.py"}, makers

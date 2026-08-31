@@ -393,3 +393,60 @@ def test_attempt_numbering_avoids_date_on_a_string_column():
     statement and leaves every attempt_no unwritten.
     """
     assert "date(a.auction_start_dt)" not in P._ATTEMPT_NO
+
+
+# ── phase B2: the listing→lot relationship ───────────────────────────────────
+
+def _link_src() -> str:
+    import inspect
+    return inspect.getsource(P.link_lots)
+
+
+# ── phase 3: disposable lots ─────────────────────────────────────────────────
+
+def _rebuild_src() -> str:
+    import inspect
+    return inspect.getsource(P.rebuild_document_lots)
+
+
+def test_only_the_owned_children_are_deleted():
+    """Identifier, Borrower and Parcel are SHARED — one Identifier is cited by
+    175 lots. Deleting one would damage notices the run never touched."""
+    q = P._REBUILD_DOC_LOTS
+    for owned in ("Measurement", "Boundary", "Schedule", "Auction"):
+        assert owned in q, owned
+    for shared in ("Identifier", "Borrower", "Parcel"):
+        assert shared not in q, f"{shared} is shared and must never be deleted"
+
+
+def test_shared_nodes_are_detached_not_orphaned():
+    """DETACH DELETE on the lot drops its relationships to shared nodes and
+    leaves those nodes standing, which is the whole distinction."""
+    assert "DETACH DELETE" in P._REBUILD_DOC_LOTS
+
+
+def test_the_rebuild_is_scoped_to_one_document():
+    """A corpus-wide delete would take out lots this run is not rewriting."""
+    assert "MATCH (d:Document {filename: $filename})-[:HAS_LOT]->(l:Lot)" in \
+        P._REBUILD_DOC_LOTS
+
+
+def test_rebuilding_is_opt_in():
+    """It deletes ~23,000 owned child nodes and is not recoverable by
+    re-running — the extraction that produced them is gone."""
+    import inspect
+    assert "rebuild: bool = False" in inspect.getsource(P.promote_document)
+    assert "rebuild_lots: bool = False" in inspect.getsource(P.run)
+
+
+def test_the_rebuild_happens_before_the_new_lots_are_written():
+    """Writing first and deleting after would delete what was just written."""
+    import inspect
+    src = inspect.getsource(P.promote_document)
+    assert src.index("rebuild_document_lots(filename)") < src.index("_WRITE_NOTICE")
+
+
+def test_a_dry_run_never_rebuilds():
+    import inspect
+    src = inspect.getsource(P.promote_document)
+    assert src.index("if dry_run") < src.index("rebuild_document_lots(filename)")
