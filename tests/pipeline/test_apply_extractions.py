@@ -516,7 +516,8 @@ def _run_capturing(monkeypatch, tmp_path, work):
     monkeypatch.setattr(AX, "fetch_work", lambda limit=None: work)
     monkeypatch.setattr(AX, "human_decided_lot_matches", lambda: set())
     for name in ("write_fields", "write_descriptions", "write_lot_matches",
-                 "clear_stale_lot_matches", "revert_withheld_descriptions"):
+                 "clear_stale_lot_matches", "write_price_findings",
+                 "revert_withheld_descriptions"):
         monkeypatch.setattr(
             AX, name,
             # tuple-index, not `and`: an empty rows list is falsy and would
@@ -717,7 +718,7 @@ def _run_capturing_reverts(monkeypatch, tmp_path, work):
     monkeypatch.setattr(AX, "fetch_work", lambda limit=None: work)
     monkeypatch.setattr(AX, "human_decided_lot_matches", lambda: set())
     for name in ("write_fields", "write_descriptions", "write_lot_matches",
-                 "clear_stale_lot_matches"):
+                 "clear_stale_lot_matches", "write_price_findings"):
         monkeypatch.setattr(AX, name, lambda rows: len(rows))
     monkeypatch.setattr(
         AX, "revert_withheld_descriptions",
@@ -871,3 +872,53 @@ def test_the_clear_runs_after_the_write():
     src = _run_src()
     assert src.index("write_lot_matches(lot_key_rows)") < \
            src.index("clear_stale_lot_matches(stale_key_rows)")
+
+
+# ── price agreement wiring ───────────────────────────────────────────────────
+
+def _price_src() -> str:
+    import inspect
+    return inspect.getsource(AX.write_price_findings)
+
+
+def test_run_checks_every_matched_pair_for_price_agreement():
+    assert "check_document(matches)" in _run_src()
+
+
+def test_run_writes_the_price_findings_it_collects():
+    """A finding only collected is a finding nobody sees."""
+    src = _run_src()
+    assert "price_rows.append" in src
+    assert "write_price_findings(price_rows)" in src
+
+
+def test_every_writer_run_calls_is_stubbed_by_the_test_helpers():
+    """The guard against the hang this suite already caught once.
+
+    A writer added to run() but not to the helpers' stub lists reaches the
+    live database mid-test and blocks. Reading the names out of run() itself
+    means a future writer fails here rather than hanging.
+    """
+    import re
+    called = set(re.findall(r"\b(write_\w+|clear_\w+|revert_\w+)\(", _run_src()))
+    stubbed = set(re.findall(r'"(write_\w+|clear_\w+|revert_\w+)"',
+                             _read_own_source()))
+    assert called and called <= stubbed, f"not stubbed: {sorted(called - stubbed)}"
+
+
+def _read_own_source() -> str:
+    from pathlib import Path
+    return Path(__file__).read_text(encoding="utf-8")
+
+
+def test_price_findings_are_rebuilt_not_merged():
+    """A verdict must not outlive the extraction that justified it.
+
+    Clearing before writing is what makes a corrected price drop its flag,
+    rather than the listing keeping a stale accusation forever — the same
+    defect write_lot_matches had.
+    """
+    src = _price_src()
+    assert "REMOVE a.price_agreement" in src
+    clear_at = src.index("REMOVE a.price_agreement")
+    assert clear_at < src.index("SET a.price_agreement =")

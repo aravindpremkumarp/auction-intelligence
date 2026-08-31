@@ -854,6 +854,33 @@ class ResolutionLotMatch(BaseModel):
     db_properties: list[LotMatchDbProperty] = []
 
 
+class PriceCheck(BaseModel):
+    """A listing whose extracted reserve price disagrees with the portal's.
+
+    The two prices are scraped independently, so they are two witnesses to
+    one fact — see `pipeline/price_agreement.py`. `severity` is 'critical'
+    when they differ by a clean power of ten (a dropped zero, or lakh read as
+    crore), which needs no judgement, and 'med' otherwise, which does.
+    """
+    auction_id: str
+    title: str | None = None
+    verdict: str                     # magnitude_slip | disagree
+    severity: str                    # critical | med
+    ratio: float | None = None
+    portal_price: float | None = None
+    #: Absent when neither side published a number — the finding then rests
+    #: on the matcher having fallen back off price, which is itself the
+    #: evidence the two disagreed.
+    notice_price: float | None = None
+    lot_count: int = 0
+    lot_key: str | None = None
+    filename: str | None = None
+    #: The notice scan itself. The reviewer's real job is to open it and read
+    #: what the price actually says, so the row carries the link.
+    public_url: str | None = None
+    listing_url: str | None = None
+
+
 class ResolutionReviewOut(BaseModel):
     """The queues a human works through. Every row is a fact to settle, not a
     document to walk — one verdict covers every notice the fact touches."""
@@ -862,13 +889,14 @@ class ResolutionReviewOut(BaseModel):
     district_conflicts: list[ResolutionConflict] = []
     unmatched_villages: list[ResolutionVillage] = []
     lot_matches: list[ResolutionLotMatch] = []
+    price_checks: list[PriceCheck] = []
     decided: int = 0
     open: int = 0
 
 
 class ResolutionDecisionIn(BaseModel):
     kind: Literal["bank-merge", "branch-merge", "district-conflict",
-                  "village-alias", "village-skip", "lot-match"]
+                  "village-alias", "village-skip", "lot-match", "price-check"]
     verdict: Literal["approved", "rejected"]
     # What the decision is about; fields depend on kind (see
     # pipeline/resolution_review.py). The stored key is always derived from
