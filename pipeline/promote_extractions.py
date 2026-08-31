@@ -3,7 +3,7 @@
     python -m pipeline.promote_extractions [--limit N] [--filename F]
                                            [--dry-run] [--skip-parcels]
                                            [--workers N] [--places-only]
-                                           [--parcels-only]
+                                           [--parcels-only] [--links-only]
 
 Phase B promotes documents concurrently (--workers, default 8) — each document
 is a few small writes dominated by the round trip to Aura, so a serial run over
@@ -20,6 +20,12 @@ notice-level nodes. Each lot's village/taluk/district is resolved onto the
 official gazetteer (:RevenueVillage / :Taluk / :District) through
 pipeline.place_resolution — the notice's own spelling is never stored as the
 answer, and a lot that cannot be placed keeps `place_status` and no edge.
+
+Phase B2 then materialises (:AuctionProperty)-[:IS_LOT]->(:Lot) from each
+listing's `resolved_lot_key`. It runs here, not in apply_extractions, because
+that step derives the key from `extraction_json` before the :Lot it names
+exists. The edge is additive for now — the string is still written and still
+read — so the two can be compared before any reader moves over.
 
 Phase C then resolves :Parcel across every lot, which is a SECOND PASS on
 purpose — you cannot tell which lots share a physical parcel until every
@@ -929,6 +935,85 @@ def unit_signature(units: dict[str, set[str]] | None, lot_key: str) -> str:
     return "|".join(sorted(units.get(lot_key, ()))) if units else ""
 
 
+# ── phase B2: the listing→lot relationship ──────────────────────────────────
+#
+# Phase 1 of retiring AuctionProperty.resolved_lot_key. The string is
+# "<filename>#<lot_index>", and lot_index is the extraction model's own
+# numbering: re-extract a notice, the lots renumber, and a key saying `#3`
+# still RESOLVES — to a different property. Nothing raises. A real edge
+# cannot do that, because it names the node rather than a way to find one.
+#
+# ADDITIVE for now. The key is still written by apply_extractions and still
+# read by everything; this only materialises the edge beside it so the two can
+# be compared before any reader switches over (Phase 2).
+#
+# It runs here rather than in apply_extractions because of ordering:
+# apply_extractions derives the key from extraction_json, and the :Lot it
+# names does not exist until phase B above has run. Linking after the nodes
+# exist is the same shape as _LINK_LISTINGS for :Parcel.
+
+_LINK_LOTS = """
+MATCH (a:AuctionProperty) WHERE a.resolved_lot_key IS NOT NULL
+MATCH (l:Lot {lot_key: a.resolved_lot_key})
+MERGE (a)-[r:IS_LOT]->(l)
+  ON CREATE SET r.linked_at = datetime(), r.source = 'resolved_lot_key'
+RETURN count(r) AS linked
+"""
+
+# An edge whose key has changed or gone is a claim nothing supports, exactly
+# what the string version got wrong. Dropped here rather than left to rot, so
+# the edge never says more than the key it mirrors.
+_UNLINK_LOTS = """
+MATCH (a:AuctionProperty)-[r:IS_LOT]->(l:Lot)
+WHERE a.resolved_lot_key IS NULL OR a.resolved_lot_key <> l.lot_key
+DELETE r
+RETURN count(r) AS unlinked
+"""
+
+# Keys that point at no :Lot at all. Phase 1's job is to make this visible:
+# under the string these fail silently at read time, one query at a time.
+_DANGLING_KEYS = """
+MATCH (a:AuctionProperty) WHERE a.resolved_lot_key IS NOT NULL
+  AND NOT EXISTS { MATCH (:Lot {lot_key: a.resolved_lot_key}) }
+RETURN count(a) AS dangling
+"""
+
+
+def link_lots(dry_run: bool) -> dict:
+    """Materialise (:AuctionProperty)-[:IS_LOT]->(:Lot) from resolved_lot_key.
+
+    Returns the counts so a caller can compare the edge against the string.
+    Idempotent: MERGE on re-run, and stale edges are dropped first so a
+    listing never holds two.
+    """
+    print("phase B2 — lot links", flush=True)
+    keyed = run_read_query(
+        "MATCH (a:AuctionProperty) WHERE a.resolved_lot_key IS NOT NULL "
+        "RETURN count(a) AS n", timeout=60.0)
+    keyed_n = int((keyed[0]["n"] if keyed else 0) or 0)
+    dangling = run_read_query(_DANGLING_KEYS, timeout=120.0)
+    dangling_n = int((dangling[0]["dangling"] if dangling else 0) or 0)
+
+    if dry_run:
+        print(f"  [dry-run] {keyed_n} keyed listing(s), "
+              f"{dangling_n} key(s) point at no lot", flush=True)
+        return {"keyed": keyed_n, "dangling": dangling_n,
+                "linked": 0, "unlinked": 0}
+
+    out = write(_UNLINK_LOTS, {})
+    unlinked = int((list(out[0].values())[0] if out else 0) or 0)
+    out = write(_LINK_LOTS, {})
+    linked = int((list(out[0].values())[0] if out else 0) or 0)
+    print(f"  {keyed_n} keyed listing(s) -> {linked} edge(s); "
+          f"dropped {unlinked} stale edge(s); "
+          f"{dangling_n} key(s) point at no lot", flush=True)
+    if dangling_n:
+        print("  NOTE: a dangling key means promote has not caught up with a "
+              "re-extraction — re-run phase B for those documents.", flush=True)
+    return {"keyed": keyed_n, "dangling": dangling_n,
+            "linked": linked, "unlinked": unlinked}
+
+
 def parcel_groups(edges: list[dict], all_lots: list[str],
                   units: dict[str, set[str]] | None = None) -> list[dict]:
     """Connected components of "shares an identifier within one village".
@@ -1041,7 +1126,15 @@ def resolve_parcels(dry_run: bool) -> None:
 
 def run(limit: int | None, filename: str | None,
         dry_run: bool, skip_parcels: bool, workers: int = DEFAULT_WORKERS,
-        places_only: bool = False, parcels_only: bool = False) -> int:
+        places_only: bool = False, parcels_only: bool = False,
+        links_only: bool = False) -> int:
+    # Phase B2 reads resolved_lot_key and the lots already in the graph, so it
+    # stands alone too — useful straight after an apply_extractions run that
+    # moved keys without changing any lot.
+    if links_only:
+        link_lots(dry_run)
+        return 0
+
     # Phase C is a whole-corpus rebuild, so it stands alone: re-running it
     # after a grouping change costs seconds and needs no phase-B work.
     if parcels_only:
@@ -1094,6 +1187,11 @@ def run(limit: int | None, filename: str | None,
               + ", ".join(f"{k}={v}" for k, v in state["status"].most_common()),
               flush=True)
 
+    # Always, and before parcels: the lots this run just wrote are what make
+    # the edges resolvable, and --skip-parcels is about the parcel layer, not
+    # about leaving the listing→lot link stale.
+    link_lots(dry_run)
+
     if not skip_parcels:
         resolve_parcels(dry_run)
     return 1 if state["fail"] else 0
@@ -1115,6 +1213,10 @@ def main() -> int:
                     help="run phase C alone against the lots already in the "
                          "graph — it rebuilds the derived :Parcel layer, so "
                          "it is safe to re-run on its own")
+    ap.add_argument("--links-only", action="store_true",
+                    help="run phase B2 alone — rebuild the "
+                         "(:AuctionProperty)-[:IS_LOT]->(:Lot) edges from the "
+                         "resolved_lot_key values already in the graph")
     ap.add_argument("--places-only", action="store_true",
                     help="skip the phase-B node writes and only (re)link "
                          "already-promoted lots to the gazetteer, then run "
@@ -1122,7 +1224,8 @@ def main() -> int:
                          "loaded and only their geography changed")
     args = ap.parse_args()
     return run(args.limit, args.filename, args.dry_run, args.skip_parcels,
-               args.workers, args.places_only, args.parcels_only)
+               args.workers, args.places_only, args.parcels_only,
+               args.links_only)
 
 
 if __name__ == "__main__":

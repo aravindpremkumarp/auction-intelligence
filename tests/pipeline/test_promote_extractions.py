@@ -393,3 +393,87 @@ def test_attempt_numbering_avoids_date_on_a_string_column():
     statement and leaves every attempt_no unwritten.
     """
     assert "date(a.auction_start_dt)" not in P._ATTEMPT_NO
+
+
+# ── phase B2: the listing→lot relationship ───────────────────────────────────
+
+def _link_src() -> str:
+    import inspect
+    return inspect.getsource(P.link_lots)
+
+
+def test_the_edge_is_built_from_the_key_it_replaces():
+    """Phase 1 is additive: the string still decides, the edge only mirrors it.
+
+    Deriving the edge from anything else would make the two disagree before a
+    single reader had moved over, which is the opposite of the point.
+    """
+    assert "MATCH (l:Lot {lot_key: a.resolved_lot_key})" in P._LINK_LOTS
+    assert "MERGE (a)-[r:IS_LOT]->(l)" in P._LINK_LOTS
+
+
+def test_relinking_does_not_duplicate():
+    """MERGE, not CREATE — the step is run on every promote."""
+    assert "CREATE (a)-[" not in P._LINK_LOTS
+    assert "MERGE (a)-[r:IS_LOT]->(l)" in P._LINK_LOTS
+
+
+def test_an_edge_whose_key_moved_is_dropped():
+    """A claim nothing supports is exactly what the string version got wrong.
+
+    A listing that stops resolving, or resolves elsewhere, must not keep an
+    edge to the lot it used to name.
+    """
+    q = P._UNLINK_LOTS
+    assert "a.resolved_lot_key IS NULL OR a.resolved_lot_key <> l.lot_key" in q
+    assert "DELETE r" in q
+
+
+def test_stale_edges_are_dropped_before_new_ones_are_written():
+    """Order matters: linking first would leave a listing holding two edges
+    for the length of the run."""
+    src = _link_src()
+    assert src.index("_UNLINK_LOTS") < src.index("_LINK_LOTS")
+
+
+def test_a_key_pointing_at_no_lot_is_counted_not_hidden():
+    """Under the string these fail silently, one read at a time. Phase 1's
+    job is to make the number visible."""
+    assert "NOT EXISTS { MATCH (:Lot {lot_key: a.resolved_lot_key}) }" in \
+        P._DANGLING_KEYS
+
+
+def test_a_dry_run_writes_nothing():
+    src = _link_src()
+    head = src[:src.index("if dry_run")]
+    assert "write(" not in head, "a dry run must not reach a writer"
+
+
+def test_linking_runs_even_when_parcels_are_skipped():
+    """--skip-parcels is about the parcel layer, not about leaving the
+    listing→lot link stale."""
+    import inspect
+    src = inspect.getsource(P.run)
+    assert src.index("link_lots(dry_run)") < src.index("if not skip_parcels")
+
+
+def test_linking_runs_after_the_lots_are_written():
+    """apply_extractions derives the key before the :Lot exists, so the edge
+    can only be made once phase B has created the nodes.
+
+    rindex, not index: run() calls link_lots twice — once for the
+    --links-only early return, once in the pipeline. The pipeline call is the
+    later one, and it is the one that has to follow phase B.
+    """
+    import inspect
+    src = inspect.getsource(P.run)
+    assert src.index("phase B done") < src.rindex("link_lots(dry_run)")
+
+
+def test_links_only_returns_before_promoting_anything():
+    """The edges are derived from keys and lots already in the graph, so
+    rebuilding them must not require re-promoting the corpus."""
+    import inspect
+    src = inspect.getsource(P.run)
+    assert src.index("if links_only") < src.index("docs = fetch_documents")
+    assert src.index("link_lots(dry_run)") < src.index("docs = fetch_documents")
