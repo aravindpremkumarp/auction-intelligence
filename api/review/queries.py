@@ -1816,6 +1816,75 @@ def _price_checks(decisions: list[dict]) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+#: Which figure a reviewer found at fault. 'neither' rides with `rejected`
+#: (the two describe the same area after all); the rest ride with `approved`.
+#: Named for WHERE the number is shown, not for its source: both figures trace
+#: to the sale notice — the portal never published an area — so 'portal' would
+#: be a lie. `listing` is the free text in the listing block, `lot` is the
+#: headline measurement in the property block.
+AREA_CHECK_SIDES = frozenset({"listing", "lot", "both", "neither"})
+
+#: Cap on rows in one area-check load. 366 findings live now; 500 shows the
+#: whole backlog with room to grow while still bounding the query.
+_AREA_CHECK_LIMIT = 500
+
+
+def _area_checks(decisions: list[dict]) -> list[dict]:
+    """Listings whose stated area disagrees with their lot's measurement.
+
+    The two figures agent3 serves side by side: `total_area` in the listing
+    block and the lot's headline `Measurement.sqft_norm` in the property
+    block. `pipeline.apply_extractions` writes the verdict onto the listing
+    each run (see `pipeline/area_agreement.py`), so this is a plain read of a
+    settled fact, and a corrected figure drops off the queue by itself.
+
+    Only confirmed listing↔lot pairs are ever flagged, so unlike the
+    price queue this one always has a lot to name — the row carries its
+    `lot_key` and the notice scan, because the reviewer's job is to open the
+    notice and read what the schedule actually measures.
+
+    Both raw figures travel with the row, not just the parsed numbers: a
+    disagreement is often the PARSE ("0.10 1/4 acre (4625 Sq ft)" read three
+    ways), and a reviewer who sees only "4625 vs 8611" cannot tell that from
+    a genuine conflict.
+    """
+    from pipeline.resolution_review import decided_area_checks
+
+    settled = decided_area_checks(decisions)
+
+    rows = run_read_query(
+        """
+        MATCH (p:AuctionProperty) WHERE p.area_agreement IS NOT NULL
+          AND NOT p.auction_id IN $settled
+        OPTIONAL MATCH (p)-[:HAS_DOCUMENT]->(d:Document)
+        WITH p, d ORDER BY (CASE WHEN d.public_url IS NULL THEN 1 ELSE 0 END),
+                           d.file_path
+        WITH p, collect(d)[0] AS d
+        OPTIONAL MATCH (p)-[:IS_LOT]->(l:Lot)
+        OPTIONAL MATCH (l)-[e:HAS_EXTENT]->(m:Measurement) WHERE e.is_headline
+        RETURN p.auction_id AS auction_id, p.title AS title,
+               p.area_agreement AS verdict,
+               p.area_agreement_severity AS severity,
+               p.area_agreement_ratio AS ratio,
+               p.total_area AS listing_area,
+               p.area_agreement_listing_sqft AS listing_sqft,
+               p.area_agreement_notice_sqft AS lot_sqft,
+               // The lot's own words, so a parse difference is visible as
+               // one rather than read as a conflict about the property.
+               collect(m.raw)[0] AS lot_area,
+               l.lot_key AS lot_key,
+               d.filename AS filename, d.public_url AS public_url,
+               p.url AS listing_url
+        ORDER BY (CASE WHEN p.area_agreement_severity = 'critical'
+                       THEN 0 ELSE 1 END),
+                 p.area_agreement_ratio DESC
+        LIMIT $limit
+        """,
+        {"settled": sorted(settled), "limit": _AREA_CHECK_LIMIT},
+        max_rows=_AREA_CHECK_LIMIT + 1, timeout=60.0)
+    return [dict(r) for r in rows]
+
+
 def resolution_review() -> dict:
     """The three queues a human works through, with evidence on every row.
 
@@ -1940,6 +2009,7 @@ def resolution_review() -> dict:
 
     lot_matches = _lot_match_candidates(decisions)
     price_checks = _price_checks(decisions)
+    area_checks = _area_checks(decisions)
 
     return {
         "bank_pairs": bank_pairs,
@@ -1948,10 +2018,12 @@ def resolution_review() -> dict:
         "unmatched_villages": unmatched_villages,
         "lot_matches": lot_matches,
         "price_checks": price_checks,
+        "area_checks": area_checks,
         "decided": len(decisions),
         "open": (len(bank_pairs) + len(branch_pairs)
                  + len(district_conflicts) + len(unmatched_villages)
-                 + len(lot_matches) + len(price_checks)),
+                 + len(lot_matches) + len(price_checks)
+                 + len(area_checks)),
     }
 
 
@@ -2166,7 +2238,7 @@ def record_resolution_decision(kind: str, payload: dict, verdict: str,
                 f"{payload.get('target')!r} is not a revenue village of "
                 f"{payload.get('taluk')!r} — the alias would point nowhere")
 
-    if kind == "price-check":
+    if kind in ("price-check", "area-check"):
         # The queue only ever offers listings that carry a flag, but the
         # endpoint accepts arbitrary payloads — a verdict aimed at an
         # auction_id that does not exist would sit in the graph forever,
@@ -2178,15 +2250,16 @@ def record_resolution_decision(kind: str, payload: dict, verdict: str,
         if not int(hit.get("n") or 0):
             raise ValueError(
                 f"no listing with auction_id {payload.get('auction_id')!r}")
-        # WHICH price is wrong is the whole point of the verdict — "one of
+        # WHICH figure is wrong is the whole point of the verdict — "one of
         # these two numbers is wrong" is not an answer anyone can act on. The
         # payload is free-form, so the vocabulary is checked here rather than
         # trusted from the caller.
+        sides = (PRICE_CHECK_SIDES if kind == "price-check"
+                 else AREA_CHECK_SIDES)
         wrong = payload.get("wrong")
-        if wrong not in PRICE_CHECK_SIDES:
+        if wrong not in sides:
             raise ValueError(
-                f"price-check needs wrong ∈ {sorted(PRICE_CHECK_SIDES)}, "
-                f"got {wrong!r}")
+                f"{kind} needs wrong ∈ {sorted(sides)}, got {wrong!r}")
 
     if kind == "lot-match" and verdict == APPROVED:
         # A picked lot_key must actually be on THIS listing's document — the
@@ -2272,6 +2345,11 @@ def _resolution_review_panels() -> list[dict]:
             ("district conflict patterns", len(queues["district_conflicts"])),
             ("unmatched village strings", len(queues["unmatched_villages"])),
             ("lot matches to review", len(queues["lot_matches"])),
+            # Both of these already count toward `open`, so leaving them off
+            # the list made every bar above read against a denominator with
+            # rows it never showed.
+            ("prices that disagree", len(queues["price_checks"])),
+            ("sizes that contradict", len(queues["area_checks"])),
         ], max(queues["open"], 1)),
                "each row on the review queue settles every notice it touches"),
         _panel("Verdicts banked", _rows(

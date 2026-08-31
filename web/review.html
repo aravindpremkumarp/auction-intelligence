@@ -1440,6 +1440,59 @@
     </div>`;
   }
 
+  // Sizes read as numbers, not currency: thousands separators only, and the
+  // sq.ft suffix carried once per figure so the two are comparable at a glance.
+  function fmtSqft(n) {
+    return n == null ? null
+      : Math.round(n).toLocaleString('en-IN') + ' sq.ft';
+  }
+
+  function areaCheckRow(r) {
+    // A power-of-ten gap is a misread, not a judgement call — same treatment
+    // the price queue gives it.
+    const critical = r.severity === 'critical';
+    const badge = critical
+      ? `<span style="color:#c0392b; font-weight:600">${
+           r.ratio ? Math.round(r.ratio) + '× off' : 'slip'}</span>`
+      : `<span style="color:var(--muted)">${
+           r.ratio ? r.ratio.toFixed(2) + '×' : ''}</span>`;
+    // The raw string beside the parsed number: most of these disagreements
+    // are a PARSE ("0.10 1/4 acre (4625 Sq ft)"), and a reviewer shown only
+    // the two numbers cannot tell that from a real conflict about the land.
+    const side = (raw, sqft) => {
+      const n = fmtSqft(sqft);
+      if (raw && n) return `${escapeHtml(raw)} <b>(${n})</b>`;
+      if (n) return `<b>${n}</b>`;
+      if (raw) return escapeHtml(raw);
+      return '<i style="color:var(--muted)">none</i>';
+    };
+    const a = (href, label) => href
+      ? ` · <a href="${escapeHtml(href)}" target="_blank" rel="noopener">${label}</a>`
+      : '';
+    const links = a(r.public_url, 'open notice') + a(r.listing_url, 'open listing');
+    const pay = extra => Object.assign({ auction_id: r.auction_id }, extra);
+    return `<div class="pc-row">
+      <div class="pc-line"><span class="pc-text">${badge}
+         <b>${escapeHtml(r.auction_id)}</b>
+         <small style="color:var(--muted)">
+           listing ${side(r.listing_area, r.listing_sqft)}
+           vs lot ${side(r.lot_area, r.lot_sqft)}${
+           r.lot_key ? ' · ' + escapeHtml(r.lot_key) : ''}${links}
+           · <button type="button" class="pc-note-toggle">note</button></small></span>
+        <span class="pc-btns">${
+          rrBtn('Listing is wrong', { kind: 'area-check',
+              payload: pay({ wrong: 'listing' }), verdict: 'approved' }) +
+          rrBtn('Lot is wrong', { kind: 'area-check',
+              payload: pay({ wrong: 'lot' }), verdict: 'approved' }) +
+          rrBtn('Both wrong', { kind: 'area-check',
+              payload: pay({ wrong: 'both' }), verdict: 'approved' }) +
+          rrBtn('Same area', { kind: 'area-check',
+              payload: pay({ wrong: 'neither' }), verdict: 'rejected' })
+        }</span></div>
+      <textarea class="lot-note pc-note" rows="1" placeholder="optional note — what the schedule actually measures, why this one is odd"></textarea>
+    </div>`;
+  }
+
   function rrPanel(title, bodyHtml) {
     // <details>, not a JS-toggled div: the browser keeps the open/closed
     // state on the element itself, so removing a decided row cannot reset it
@@ -1721,6 +1774,17 @@
           ten, which is a dropped zero rather than a judgement call` : ''};
         open the notice, read what it actually says, then mark it</p>
         ${d.price_checks.map(priceCheckRow).join('')}`));
+    }
+
+    if (d.area_checks && d.area_checks.length) {
+      const crit = d.area_checks.filter(r => r.severity === 'critical').length;
+      blocks.push(rrPanel(`Sizes that contradict themselves`, `
+        <p class="meta" style="color:var(--muted)">the size on the listing and
+        the lot's own measurement are the two figures a buyer sees on one
+        page${crit ? ` — <b>${crit}</b> are off by a clean power of ten,
+        a dropped zero rather than a judgement call` : ''}; many are a
+        difference in how one string was read, so both are shown as written</p>
+        ${d.area_checks.map(areaCheckRow).join('')}`));
     }
 
     if (blocks.length === 1) {

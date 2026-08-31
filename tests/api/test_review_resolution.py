@@ -121,6 +121,10 @@ def test_queues_filter_decided_rows_at_read_time(monkeypatch):
             return []
         if "HAS_LOT" in cypher:
             return []
+        # The area queue joins through IS_LOT/HAS_EXTENT, so it does not fall
+        # into the HAS_LOT branch the price queue happens to match.
+        if "area_agreement" in cypher:
+            return []
         raise AssertionError(f"unexpected read: {cypher[:60]}")
 
     def fake_count(cypher, params=None):

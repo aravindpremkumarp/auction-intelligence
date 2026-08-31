@@ -101,6 +101,16 @@ def price_check_key(auction_id: str) -> str:
     return f"price-check:{auction_id}"
 
 
+def area_check_key(auction_id: str) -> str:
+    """Key for "I have looked at this listing's area disagreement".
+
+    Scoped to the listing for the same reason `price_check_key` is: a
+    reviewer settles the LISTING, and a re-extraction that nudges the lot's
+    measurement must not reopen a question they already answered.
+    """
+    return f"area-check:{auction_id}"
+
+
 def decision_key(kind: str, payload: dict) -> str:
     """The key for a decision, derived from its kind and payload — the API
     never accepts a caller-supplied key, so a decision can only ever land on
@@ -119,6 +129,8 @@ def decision_key(kind: str, payload: dict) -> str:
         return lot_match_key(payload["auction_id"], payload["lot_key"])
     if kind == "price-check":
         return price_check_key(payload["auction_id"])
+    if kind == "area-check":
+        return area_check_key(payload["auction_id"])
     raise ValueError(f"unknown decision kind: {kind!r}")
 
 
@@ -294,6 +306,22 @@ def decided_price_checks(decisions: list[dict]) -> set[str]:
     """
     out: set[str] = set()
     for d in _decided(decisions, "price-check").values():
+        aid = (d.get("payload") or {}).get("auction_id")
+        if aid and d.get("verdict") in (APPROVED, REJECTED):
+            out.add(aid)
+    return out
+
+
+def decided_area_checks(decisions: list[dict]) -> set[str]:
+    """`auction_id`s whose area disagreement a human has already settled.
+
+    Same contract as `decided_price_checks`: both verdicts settle the row,
+    because the queue asks a reviewer to LOOK. `approved` means one of the
+    two figures is wrong, `rejected` means the two describe the same area
+    after all (a unit the parser read differently, most often).
+    """
+    out: set[str] = set()
+    for d in _decided(decisions, "area-check").values():
         aid = (d.get("payload") or {}).get("auction_id")
         if aid and d.get("verdict") in (APPROVED, REJECTED):
             out.add(aid)
