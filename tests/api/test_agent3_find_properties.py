@@ -198,9 +198,25 @@ def test_asset_category_is_case_insensitive(monkeypatch):
 
 
 def test_property_type_phrasing_is_expanded(monkeypatch):
+    """'warehouse' still expands to the portal's Godown and Shed, but those
+    names are then resolved to buckets — the filter runs on the
+    notice-derived `property_type_effective`, not the portal edge, because
+    832 listings live are filed under a portal type their notice contradicts.
+    """
     calls = _stub(monkeypatch, rows=[_row()])
     FP.find_properties(property_type="warehouse")
-    assert calls[0][1]["property_types"] == ["Godown", "Shed"]
+    assert calls[0][1]["property_buckets"] == ["commercial", "industrial"]
+    assert "a.property_type_effective IN $property_buckets" in calls[0][0]
+    assert "HAS_PROPERTY_TYPE" not in calls[0][0]
+
+
+def test_a_land_search_also_matches_plots(monkeypatch):
+    """The two sources routinely pick different words for one patch of bare
+    ground. Someone asking for land did not ask to exclude what a notice
+    happened to call a plot."""
+    calls = _stub(monkeypatch, rows=[_row()])
+    FP.find_properties(property_type="plot")
+    assert calls[0][1]["property_buckets"] == ["land", "plot"]
 
 
 def test_upcoming_only_is_the_default(monkeypatch):

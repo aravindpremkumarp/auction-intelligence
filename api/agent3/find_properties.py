@@ -37,6 +37,12 @@ from api.agent3.common import (
 # `monkeypatch.setattr(FP, "resolve_identifier", ...)`.
 from api.agent3.identifiers import resolve_identifier
 from api.neo4j_client import run_read_query
+# The taxonomy is imported, never re-implemented: a second copy of "which
+# bucket is this" in Cypher is exactly how the conflict flag and the lot
+# matcher each grew a rival that disagreed with the writer.
+from pipeline.property_taxonomy import (
+    UNKNOWN, resolve_bucket, search_buckets,
+)
 
 #: The model's default row sample. Rows are 92% of what a search sends the
 #: model (3,006 of 3,281 tokens at 20 rows), so this is the single largest
@@ -67,7 +73,10 @@ _GROUP_BY: dict[str, tuple[str | None, str]] = {
     "district": ("(a)-[:LOCATED_IN_DISTRICT]->(g:District)", "g.name"),
     "taluk": ("(a)-[:LOCATED_IN_TALUK]->(g:Taluk)", "g.name"),
     "bank": ("(a)-[:CONDUCTED_BY]->(g:Bank)", "g.name"),
-    "property_type": ("(a)-[:HAS_PROPERTY_TYPE]->(g:PropertyType)", "g.name"),
+    # Grouping follows the filter onto the notice-derived bucket — a
+    # breakdown that counts by the portal dropdown disagrees with the
+    # rows the same call returns.
+    "property_type": (None, "a.property_type_effective"),
     "asset_category": ("(a)-[:HAS_ASSET_CATEGORY]->(g:AssetCategory)", "g.name"),
     "auction_type": ("(a)-[:IS_AUCTION_TYPE]->(g:AuctionType)", "g.name"),
     "platform": ("(a)-[:HAS_DOCUMENT]->(:Document)-[:HOSTED_ON]->(g:Platform)", "g.name"),
@@ -189,10 +198,21 @@ def _build(  # noqa: PLR0912, PLR0913, PLR0915 - one filter, one branch
             join="(a)-[:HAS_ASSET_CATEGORY]->(_ac:AssetCategory)",
             where="_ac.name = $asset_category", asset_category=ac)
     if property_type:
+        # The caller's vocabulary stays the portal's 23 dropdown names — that
+        # is this tool's documented contract — but the FILTER runs on the
+        # notice-derived bucket, because the portal value is what is wrong.
+        # 832 listings live disagree, 139 of them flats and houses filed under
+        # Land or Plot: matching the portal name is what puts a flat in a land
+        # search. `property_type_effective` is the notice's bucket, falling
+        # back to the portal's only where no notice type exists, so the 99
+        # listings no extraction reached stay findable.
         pts = enums.expand_property_types(property_type)
+        buckets = sorted({b for name in (pts or [])
+                          for b in search_buckets(resolve_bucket(name))}
+                         - {UNKNOWN})
         add("property_type", f"property type in {pts}",
-            join="(a)-[:HAS_PROPERTY_TYPE]->(_pt:PropertyType)",
-            where="_pt.name IN $property_types", property_types=pts)
+            where="a.property_type_effective IN $property_buckets",
+            property_buckets=buckets)
     if auction_type:
         at = require_enum(auction_type, enums.AUCTION_TYPES, "auction_type")
         add("auction_type", f"auction type = {at}",

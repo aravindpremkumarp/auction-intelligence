@@ -18,6 +18,12 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from api.auth.rate_limit import PUBLIC_READ_LIMIT, STATS_LIMIT, limiter
 from api.neo4j_client import run_query
 from api.tools.cypher_tools import get_auction_detail
+# Imported, never re-implemented: a second copy of "which bucket is this" is
+# how the conflict flag and the lot matcher each grew a rival that disagreed
+# with the writer.
+from pipeline.property_taxonomy import (
+    UNKNOWN, resolve_bucket, search_buckets,
+)
 
 router = APIRouter()
 
@@ -72,7 +78,6 @@ def _properties_filter_cypher(filters: dict[str, Any]) -> tuple[str, str, dict[s
         ("village",       "LOCATED_IN_AREA",    "Area",          "f_village",       "s_village"),
         ("bank",          "CONDUCTED_BY",       "Bank",          "f_bank",          "s_bank"),
         ("type",          "HAS_ASSET_CATEGORY", "AssetCategory", "f_type",          "s_type"),
-        ("property_type", "HAS_PROPERTY_TYPE",  "PropertyType",  "f_property_type", "s_property_type"),
     )
     for key, rel, label, param_key, alias in _categorical:
         raw = filters.get(key)
@@ -89,6 +94,33 @@ def _properties_filter_cypher(filters: dict[str, Any]) -> tuple[str, str, dict[s
             matches.append(f"(a)-[:{rel}]->({alias}:{label})")
             where.append(f"{alias}.name IN ${param_key}_list")
             params[f"{param_key}_list"] = vals
+    # Property type is filtered on the NOTICE-derived bucket, not the portal's
+    # :PropertyType edge. The dropdown value is what is wrong — 832 listings
+    # live disagree with their notice, 139 of them flats and houses filed
+    # under Land or Plot — so matching the edge is what puts a flat in a land
+    # search. The caller's vocabulary is unchanged (the same dropdown names
+    # the facet returns); only what they resolve to moves.
+    # `property_type_effective` falls back to the portal bucket where no
+    # notice type exists, so the 99 listings no extraction reached stay
+    # findable.
+    pt_raw = filters.get("property_type")
+    if pt_raw not in (None, "", []):
+        pt_vals = pt_raw if isinstance(pt_raw, list) else [pt_raw]
+        # `resolve_bucket` accepts all three vocabularies — bucket names (what
+        # the facet hands out), portal names (what bookmarks made before this
+        # change carry), and hand-typed prose. Refusing the older forms would
+        # break every saved search for a rename nobody asked for.
+        buckets = sorted({b for v in pt_vals if v
+                          for b in search_buckets(resolve_bucket(v))}
+                         - {UNKNOWN})
+        if buckets:
+            where.append("a.property_type_effective IN $f_property_type_buckets")
+            params["f_property_type_buckets"] = buckets
+        else:
+            # A name the taxonomy does not know resolves to nothing rather
+            # than to everything: silently dropping the filter would report a
+            # wider result set as if it had been filtered.
+            where.append("false")
     if filters.get("min_price") is not None:
         where.append("a.reserve_price_num >= $f_min_price")
         params["f_min_price"] = float(filters["min_price"])
@@ -175,6 +207,29 @@ def _facet_for(
     facet_filters = _facet_filters_for(filters, dim_key)
     f_match, f_where, f_params = _properties_filter_cypher(facet_filters)
     return _properties_facet(f_match, f_where, f_params, label, rel, alias)
+
+
+def _property_type_facet(filters: dict[str, Any]) -> list[dict]:
+    """Count property types on the same value the filter matches.
+
+    Every other facet counts a node's name, but this dimension no longer
+    filters on a node — it filters on `property_type_effective`. Counting the
+    old `:PropertyType` edge here would hand the dropdown a number the filter
+    beside it cannot reproduce: pick "Land", see 900, get 700 rows. The
+    dropdown returns bucket names, and `_properties_filter_cypher` accepts
+    them alongside the portal names old bookmarks still carry.
+    """
+    facet_filters = _facet_filters_for(filters, "property_type")
+    f_match, f_where, f_params = _properties_filter_cypher(facet_filters)
+    return run_query(f"""
+        MATCH {f_match}
+        {f_where}
+        WITH a.property_type_effective AS value, count(DISTINCT a) AS count
+        WHERE value IS NOT NULL AND value <> $unknown_bucket
+        RETURN value, count
+        ORDER BY count DESC, value ASC
+        LIMIT 200
+    """, {**f_params, "unknown_bucket": UNKNOWN})
 
 
 @router.get("/properties")
@@ -266,7 +321,7 @@ def list_properties(
 
     facets = {
         "type":          _facet_for(filters, "type",          "AssetCategory", "HAS_ASSET_CATEGORY", "ac"),
-        "property_type": _facet_for(filters, "property_type", "PropertyType",  "HAS_PROPERTY_TYPE",  "pt"),
+        "property_type": _property_type_facet(filters),
         "bank":          _facet_for(filters, "bank",          "Bank",          "CONDUCTED_BY",       "bk"),
         "state":         _facet_for(filters, "state",         "State",         "LOCATED_IN_STATE",   "st"),
         "district":      _facet_for(filters, "district",      "City",          "LOCATED_IN_CITY",    "ct"),

@@ -18,7 +18,11 @@ from pipeline.property_taxonomy import (
     asset_category,
     classify_portal_type,
     classify_property_type,
+    conflict_severity,
+    effective_bucket,
     is_conflict,
+    resolve_bucket,
+    search_buckets,
 )
 
 
@@ -233,3 +237,80 @@ def test_conflict_needs_two_real_buckets():
     # an unknown on either side is a gap, not a disagreement
     assert is_conflict(UNKNOWN, LAND) is False
     assert is_conflict(HOUSE, UNKNOWN) is False
+
+
+def test_land_and_plot_are_the_same_thing():
+    """Both mean bare ground; the split between them is how the ground is
+    described, not what is sold. The two sources routinely pick different
+    words for one property, and counting that put 226 rows in front of a
+    reviewer with nothing to decide."""
+    assert is_conflict(PLOT, LAND) is False
+    assert is_conflict(LAND, PLOT) is False
+
+
+def test_a_building_sold_as_bare_ground_is_critical():
+    """The disagreement that misleads a search: someone filtering for land
+    is shown a house. 666 live listings, 139 of them flats under Land/Plot."""
+    assert conflict_severity(HOUSE, LAND) == "critical"
+    assert conflict_severity(FLAT, PLOT) == "critical"
+    # and the reverse — the notice says bare ground, the portal a building
+    assert conflict_severity(LAND, HOUSE) == "critical"
+
+
+def test_two_kinds_of_building_disagreeing_is_ordinary():
+    """Both sides agree something is built and differ on what. Worth fixing,
+    but it does not put a house in a land search."""
+    assert conflict_severity(COMMERCIAL, HOUSE) == "med"
+    assert conflict_severity(INDUSTRIAL, COMMERCIAL) == "med"
+
+
+def test_agreement_has_no_severity():
+    assert conflict_severity(HOUSE, HOUSE) is None
+    assert conflict_severity(PLOT, LAND) is None
+    assert conflict_severity(UNKNOWN, LAND) is None
+
+
+# ── what a search reads ──────────────────────────────────────────────────────
+
+
+def test_the_notice_wins_over_the_portal():
+    """The notice is the legal document; the portal's Land/Plot default agrees
+    with it only 34-54% of the time. 832 listings live are filed under a
+    portal type their notice contradicts."""
+    assert effective_bucket(FLAT, LAND) == FLAT
+    assert effective_bucket(HOUSE, PLOT) == HOUSE
+
+
+def test_the_portal_fills_a_gap_but_never_overrides():
+    """99 listings no extraction reached would become unfindable by type if
+    the portal value were simply discarded."""
+    assert effective_bucket(None, LAND) == LAND
+    assert effective_bucket(UNKNOWN, FLAT) == FLAT
+    # nothing on either side is still nothing — not a guess
+    assert effective_bucket(None, None) == UNKNOWN
+
+
+def test_a_land_search_also_matches_plots():
+    """The query side of the same equivalence `is_conflict` uses: someone
+    filtering for land means bare ground, and whether a notice called it a
+    plot is not a distinction they asked for."""
+    assert search_buckets(LAND) == [LAND, PLOT]
+    assert search_buckets(PLOT) == [LAND, PLOT]
+    assert search_buckets(FLAT) == [FLAT]
+
+
+def test_resolve_bucket_accepts_all_three_vocabularies():
+    """Search callers speak bucket names (the facet), portal names (old
+    bookmarks), and prose (hand-typed). All three must reach the same bucket
+    or a saved search breaks for a rename nobody asked for."""
+    assert resolve_bucket(HOUSE) == HOUSE                      # bucket name
+    assert resolve_bucket("Land And Building") == HOUSE        # portal name
+    assert resolve_bucket("Apartment") == FLAT                 # prose
+    assert resolve_bucket("vacant house site") == PLOT         # prose
+
+
+def test_resolve_bucket_refuses_to_guess():
+    """UNKNOWN is what makes a filter match nothing rather than everything."""
+    assert resolve_bucket("Spaceship") == UNKNOWN
+    assert resolve_bucket("") == UNKNOWN
+    assert resolve_bucket(None) == UNKNOWN

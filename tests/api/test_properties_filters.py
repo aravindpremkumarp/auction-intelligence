@@ -12,27 +12,67 @@ from __future__ import annotations
 from api.properties.router import _facet_filters_for, _properties_filter_cypher
 
 
-def test_property_type_filter_adds_match_and_param() -> None:
-    """A `property_type` filter must add a HAS_PROPERTY_TYPE MATCH edge and
-    bind the value as $f_property_type."""
-    match, where, params = _properties_filter_cypher({"property_type": "Apartment"})
+def test_property_type_filters_on_the_notice_bucket_not_the_portal_edge() -> None:
+    """The portal dropdown is the value that is WRONG — 832 listings live
+    disagree with their notice, 139 of them flats and houses filed under Land
+    or Plot. Matching `HAS_PROPERTY_TYPE` is what puts a flat in a land
+    search, so the filter runs on the notice-derived bucket instead."""
+    match, where, params = _properties_filter_cypher({"property_type": "Flat"})
 
-    assert "(a)-[:HAS_PROPERTY_TYPE]->(:PropertyType {name: $f_property_type})" in match
-    assert params["f_property_type"] == "Apartment"
+    assert "HAS_PROPERTY_TYPE" not in match
+    assert "a.property_type_effective IN $f_property_type_buckets" in where
+    assert params["f_property_type_buckets"] == ["flat"]
+
+
+def test_a_land_search_also_matches_plots() -> None:
+    """Someone filtering for land means bare ground; whether the notice called
+    it a plot is not a distinction they asked for."""
+    _, _, params = _properties_filter_cypher({"property_type": "Land"})
+    assert params["f_property_type_buckets"] == ["land", "plot"]
+
+
+def test_bucket_names_from_the_facet_are_accepted() -> None:
+    """The facet now hands out bucket names, and whatever it returns must be
+    valid to send back."""
+    _, _, params = _properties_filter_cypher({"property_type": "house"})
+    assert params["f_property_type_buckets"] == ["house"]
+
+
+def test_portal_names_from_old_bookmarks_still_work() -> None:
+    """Links made before this change carry the portal vocabulary. Refusing
+    them would break every saved search for a rename nobody asked for."""
+    _, _, params = _properties_filter_cypher({"property_type": "Land And Building"})
+    assert params["f_property_type_buckets"] == ["house"]
+
+
+def test_a_hand_typed_name_falls_back_to_the_notice_classifier() -> None:
+    """"Apartment" is not one of the portal's 23 dropdown values, but it is
+    plainly a flat. The keyword rules that read the notices resolve it rather
+    than the filter returning nothing."""
+    _, _, params = _properties_filter_cypher({"property_type": "Apartment"})
+    assert params["f_property_type_buckets"] == ["flat"]
+
+
+def test_an_unknown_type_matches_nothing_rather_than_everything() -> None:
+    """Silently dropping the filter would report a wider result set as if it
+    had been filtered."""
+    _, where, params = _properties_filter_cypher({"property_type": "Spaceship"})
+    assert "false" in where
+    assert "f_property_type_buckets" not in params
 
 
 def test_property_type_and_asset_category_compose_with_AND() -> None:
     """Both filters must coexist as separate MATCH edges (Cypher MATCH list
     is implicitly AND), each bound to its own param. They must NOT collide."""
     match, _, params = _properties_filter_cypher(
-        {"type": "Residential", "property_type": "Apartment"},
+        {"type": "Residential", "property_type": "Flat"},
     )
 
-    # Both edges present — independent dimensions, no overwrite.
+    # Independent dimensions, no overwrite — asset category still rides an
+    # edge, property type now rides the notice bucket.
     assert "HAS_ASSET_CATEGORY" in match
-    assert "HAS_PROPERTY_TYPE" in match
     assert params["f_type"] == "Residential"
-    assert params["f_property_type"] == "Apartment"
+    assert params["f_property_type_buckets"] == ["flat"]
 
 
 def test_property_type_absent_when_filter_unset() -> None:
@@ -57,8 +97,9 @@ def test_q_searches_property_type_names() -> None:
 
 def test_property_type_compose_with_geographic_filters() -> None:
     """All-filter regression: property_type alongside state/district/village
-    produces a fully-composed MATCH list with correct param bindings."""
-    match, _, params = _properties_filter_cypher(
+    keeps the geographic edges in the MATCH list while riding a WHERE clause
+    itself, with correct param bindings and no collision."""
+    match, where, params = _properties_filter_cypher(
         {
             "state": "Tamil Nadu",
             "district": "Chennai",
@@ -67,33 +108,42 @@ def test_property_type_compose_with_geographic_filters() -> None:
         },
     )
 
-    for edge in (
-        "LOCATED_IN_STATE",
-        "LOCATED_IN_CITY",
-        "LOCATED_IN_AREA",
-        "HAS_PROPERTY_TYPE",
-    ):
+    for edge in ("LOCATED_IN_STATE", "LOCATED_IN_CITY", "LOCATED_IN_AREA"):
         assert edge in match
+    assert "HAS_PROPERTY_TYPE" not in match
+    assert "a.property_type_effective IN $f_property_type_buckets" in where
     assert params == {
         "f_state": "Tamil Nadu",
         "f_district": "Chennai",
         "f_village": "Adyar",
-        "f_property_type": "Apartment",
+        "f_property_type_buckets": ["flat"],
     }
 
 
-def test_multi_value_filter_emits_in_clause() -> None:
-    """When a categorical filter is given a list with >1 values, the cypher
-    switches to an aliased node + `IN` WHERE clause so the dimension is OR'd
-    within while still AND-ing across other dimensions."""
-    match, where, params = _properties_filter_cypher(
+def test_multi_value_property_type_unions_its_buckets() -> None:
+    """A multi-select on this dimension resolves every chosen name to a bucket
+    and OR's them in one IN-list — the same OR-within/AND-across semantics the
+    node-backed dimensions get, minus the node."""
+    _, where, params = _properties_filter_cypher(
         {"property_type": ["Apartment", "Villa"]},
     )
 
-    assert "HAS_PROPERTY_TYPE" in match
-    assert "(s_property_type:PropertyType)" in match
-    assert "s_property_type.name IN $f_property_type_list" in where
-    assert params == {"f_property_type_list": ["Apartment", "Villa"]}
+    assert "a.property_type_effective IN $f_property_type_buckets" in where
+    assert params == {"f_property_type_buckets": ["flat", "house"]}
+
+
+def test_multi_value_filter_emits_in_clause() -> None:
+    """When a node-backed categorical filter is given a list with >1 values,
+    the cypher switches to an aliased node + `IN` WHERE clause so the dimension
+    is OR'd within while still AND-ing across other dimensions."""
+    match, where, params = _properties_filter_cypher(
+        {"type": ["Residential", "Commercial"]},
+    )
+
+    assert "HAS_ASSET_CATEGORY" in match
+    assert "(s_type:AssetCategory)" in match
+    assert "s_type.name IN $f_type_list" in where
+    assert params == {"f_type_list": ["Residential", "Commercial"]}
 
 
 def test_single_element_list_keeps_inline_pattern() -> None:

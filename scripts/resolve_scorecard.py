@@ -177,6 +177,17 @@ def collect() -> dict:
         RETURN 'price_agreement' IN keys AS price, 'area_agreement' IN keys AS area
     """)
 
+    # Property type needs no "has it run" guard: unlike the two agreement
+    # checks, agreement is written as an explicit `false` rather than as an
+    # absent flag, so `compared` is the honest denominator on its own.
+    ptype = one("""
+        MATCH (a:AuctionProperty) WHERE a.property_type_conflict IS NOT NULL
+        RETURN count(*) AS compared,
+               sum(CASE WHEN a.property_type_conflict THEN 1 ELSE 0 END) AS conflicts,
+               sum(CASE WHEN a.property_type_conflict_severity = 'critical'
+                        THEN 1 ELSE 0 END) AS critical
+    """)
+
     # The denominator each check could reach, so a real 0 says how far it
     # looked rather than just "none".
     comparable = one("""
@@ -211,6 +222,13 @@ def collect() -> dict:
             int(area.get("flagged") or 0), int(comparable.get("area_pairs") or 0),
             bool(ever.get("area")), "size"),
         "area_disagreements_critical": metric(int(area.get("critical") or 0)),
+        "type_conflicts": metric(
+            int(ptype.get("conflicts") or 0), int(ptype.get("compared") or 0),
+            note="of the listings carrying both a portal and a notice type"),
+        "type_conflicts_critical": metric(
+            int(ptype.get("critical") or 0),
+            note="portal sells bare ground, the notice describes a building "
+                 "(or the reverse) — the disagreement that misleads a search"),
     }
 
     # ── FIELDS ───────────────────────────────────────────────────────────────
