@@ -47,6 +47,8 @@ def _card(monkeypatch, *, area_key_exists):
             return {"flagged": 0, "critical": 0}
         if "a.price_agreement IS NOT NULL" in cypher:
             return {"total": 2964, "flagged": 131, "critical": 35}
+        if "a.property_type_conflict IS NOT NULL" in cypher:
+            return {"compared": 2859, "conflicts": 996, "critical": 832}
         return {}
 
     monkeypatch.setattr(SC, "one", fake_one)
@@ -126,3 +128,14 @@ def test_a_damaged_baseline_does_not_lose_this_run(monkeypatch, tmp_path, capsys
     assert SC.main(["--json", str(out), "--compare", str(bad)]) == 0
     assert "ignoring --compare" in capsys.readouterr().out
     assert json.loads(out.read_text(encoding="utf-8"))["sections"]["linkage"]["m"]["value"] == 1
+
+
+def test_property_type_needs_no_has_run_guard(monkeypatch):
+    """Unlike the two agreement checks, type agreement is written as an
+    explicit `false` rather than as an absent flag, so `compared` is an
+    honest denominator on its own — there is no zero to misread."""
+    card = _card(monkeypatch, area_key_exists=True)
+    t = card["sections"]["agreement"]["type_conflicts"]
+    assert (t["value"], t["total"]) == (996, 2859)
+    assert "not_yet_run" not in t
+    assert card["sections"]["agreement"]["type_conflicts_critical"]["value"] == 832

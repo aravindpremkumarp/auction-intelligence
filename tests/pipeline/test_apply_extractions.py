@@ -520,10 +520,11 @@ def _run_capturing(monkeypatch, tmp_path, work):
     monkeypatch.setattr(AX, "fetch_work", lambda limit=None: work)
     monkeypatch.setattr(AX, "human_decided_lot_matches", lambda: set())
     monkeypatch.setattr(AX, "fetch_headline_sqft", lambda: {})
+    monkeypatch.setattr(AX, "fetch_portal_types", lambda: {})
     for name in ("write_fields", "clear_unsafe_fields", "write_descriptions",
                  "write_lot_matches", "clear_stale_lot_matches",
                  "write_price_findings", "write_area_findings",
-                 "revert_withheld_descriptions"):
+                 "write_type_conflicts", "revert_withheld_descriptions"):
         monkeypatch.setattr(
             AX, name,
             # tuple-index, not `and`: an empty rows list is falsy and would
@@ -533,7 +534,7 @@ def _run_capturing(monkeypatch, tmp_path, work):
     return {k: {r["aid"] for r in seen.get(k, [])}
             for k in ("write_fields", "clear_unsafe_fields",
                       "write_descriptions", "write_lot_matches",
-                      "write_area_findings")}
+                      "write_area_findings", "write_type_conflicts")}
 
 
 def test_rival_listings_on_a_multi_lot_notice_get_no_description(monkeypatch, tmp_path):
@@ -735,9 +736,11 @@ def _run_capturing_reverts(monkeypatch, tmp_path, work):
     monkeypatch.setattr(AX, "fetch_work", lambda limit=None: work)
     monkeypatch.setattr(AX, "human_decided_lot_matches", lambda: set())
     monkeypatch.setattr(AX, "fetch_headline_sqft", lambda: {})
+    monkeypatch.setattr(AX, "fetch_portal_types", lambda: {})
     for name in ("write_fields", "clear_unsafe_fields", "write_descriptions",
                  "write_lot_matches", "clear_stale_lot_matches",
-                 "write_price_findings", "write_area_findings"):
+                 "write_price_findings", "write_area_findings",
+                 "write_type_conflicts"):
         monkeypatch.setattr(AX, name, lambda rows: len(rows))
     monkeypatch.setattr(
         AX, "revert_withheld_descriptions",
@@ -1217,3 +1220,70 @@ def test_agreeing_area_writes_no_finding(monkeypatch, tmp_path):
     }]
     got = _run_capturing(monkeypatch, tmp_path, work)
     assert got["write_area_findings"] == set()
+
+
+# ── property-type conflict, rebuilt each pass ────────────────────────────────
+
+def _type_ents(lot_index, reserve, ptype):
+    return (_lot_ents(lot_index, f"schedule {lot_index}", reserve)
+            + [ent("property", ptype, {"property_type": ptype,
+                                       "lot_index": lot_index})])
+
+
+def _typed_run(monkeypatch, tmp_path, portal_types, ptype="residential house"):
+    work = [{
+        "filename": "n.pdf",
+        "extraction_json": json.dumps(_type_ents("1", 900000, ptype)),
+        "corrections_json": None,
+        "listings": [{"aid": "one", "price": 900000, "emd": None,
+                      "borrowers": [], "area_raw": None}],
+    }]
+    seen = {}
+    monkeypatch.setattr(AX, "UNMATCHED_CSV", tmp_path / "u.csv")
+    monkeypatch.setattr(AX, "fetch_work", lambda limit=None: work)
+    monkeypatch.setattr(AX, "human_decided_lot_matches", lambda: set())
+    monkeypatch.setattr(AX, "fetch_headline_sqft", lambda: {})
+    monkeypatch.setattr(AX, "fetch_portal_types", lambda: portal_types)
+    for name in ("write_fields", "clear_unsafe_fields", "write_descriptions",
+                 "write_lot_matches", "clear_stale_lot_matches",
+                 "write_price_findings", "write_area_findings",
+                 "revert_withheld_descriptions"):
+        monkeypatch.setattr(AX, name, lambda rows: len(rows))
+    monkeypatch.setattr(
+        AX, "write_type_conflicts",
+        lambda rows: (seen.update({r["aid"]: r for r in rows}), len(rows))[1])
+    AX.run()
+    return seen
+
+
+def test_a_building_sold_as_a_plot_is_flagged_critical(monkeypatch, tmp_path):
+    """The disagreement that misleads a search: 795 live listings, the worst
+    of them flats and houses filed under Land or Plot."""
+    seen = _typed_run(monkeypatch, tmp_path, {"one": "Plot"})
+    assert seen["one"]["conflict"] is True
+    assert seen["one"]["severity"] == "critical"
+    assert seen["one"]["notice"] == "house"
+
+
+def test_plot_against_land_is_not_a_conflict(monkeypatch, tmp_path):
+    """Both mean bare ground. Counting the wording difference put 215 rows in
+    front of a reviewer with nothing to decide."""
+    seen = _typed_run(monkeypatch, tmp_path, {"one": "Plot"},
+                      ptype="vacant land")
+    assert seen["one"]["conflict"] is False
+    assert seen["one"]["severity"] is None
+
+
+def test_agreement_is_written_too_not_only_conflicts(monkeypatch, tmp_path):
+    """`false` is a real verdict — "compared, and they match". Writing only
+    the conflicts is exactly what let 27 stale `false`s survive on listings
+    that genuinely disagree."""
+    seen = _typed_run(monkeypatch, tmp_path, {"one": "House"})
+    assert seen["one"]["conflict"] is False
+    assert seen["one"]["portal"] == "House"
+
+
+def test_a_listing_with_no_portal_type_gets_no_verdict(monkeypatch, tmp_path):
+    """Nothing to compare against is a gap, not agreement — writing `false`
+    here would claim a comparison that never happened."""
+    assert _typed_run(monkeypatch, tmp_path, {}) == {}

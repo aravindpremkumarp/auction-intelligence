@@ -65,7 +65,10 @@ from api.neo4j_client import run_query, run_read_query
 from pipeline.obs import get_logger
 from pipeline.area_agreement import check_match as check_area_match
 from pipeline.price_agreement import check_document
-from pipeline.property_taxonomy import asset_category, classify_property_type
+from pipeline.property_taxonomy import (
+    asset_category, classify_portal_type, classify_property_type,
+    conflict_severity,
+)
 from pipeline.resolution_review import lot_match_key
 from pipeline.text_overlap import description_overlap
 
@@ -681,6 +684,28 @@ def fetch_work(limit: int | None = None,
         max_rows=20_000, timeout=120.0)
 
 
+def fetch_portal_types() -> dict[str, str]:
+    """{auction_id: the portal's :PropertyType name}.
+
+    Read from the edge, not from `AuctionProperty.portal_property_type`: that
+    property is a copy `scripts/backfill_property_type.py` writes, and reading
+    a copy to judge a copy is how the conflict flag drifted in the first
+    place. A handful of listings carry two edges; the alphabetically first
+    name is taken so repeated runs agree with each other — the same rule the
+    backfill uses.
+    """
+    rows = run_read_query(
+        "MATCH (a:AuctionProperty)-[:HAS_PROPERTY_TYPE]->(t:PropertyType) "
+        "RETURN a.auction_id AS aid, t.name AS name",
+        max_rows=50_000, timeout=120.0)
+    out: dict[str, str] = {}
+    for r in rows:
+        aid, name = r.get("aid"), r.get("name")
+        if aid and (aid not in out or (name or "") < out[aid]):
+            out[aid] = name
+    return out
+
+
 def fetch_headline_sqft() -> dict[str, float]:
     """Each lot's headline extent in sq.ft, by lot_key — the figure agent3's
     property block serves. The area comparer reads it because that, not the
@@ -1013,6 +1038,38 @@ def clear_stale_lot_matches(rows: list[dict]) -> int:
 
 # ── main ─────────────────────────────────────────────────────────────────────
 
+def write_type_conflicts(rows: list[dict]) -> int:
+    """Rebuild the portal/notice property-type verdict on every listing.
+
+    This flag existed before — `scripts/backfill_property_type.py` wrote it —
+    but nothing kept it in step: `run()` rewrites `property_type_norm` every
+    pass and never touched the flag beside it, so the verdict aged against the
+    value it judges. Live, that left 242 listings flagged over a plot/land
+    wording difference and 27 flagged clean while genuinely conflicting.
+
+    Written for AGREEMENT too, not only for conflicts: `false` is a real
+    verdict ("these two were compared and match"), and writing only the
+    conflicts is what let stale `false`s survive. The severity is cleared on
+    an agreeing row so a downgraded verdict cannot leave its old severity
+    behind.
+    """
+    if not rows:
+        return 0
+    written = 0
+    for batch in chunked(rows, WRITE_CHUNK):
+        out = run_query("""
+            UNWIND $rows AS row
+            MATCH (a:AuctionProperty {auction_id: row.aid})
+            SET a.property_type_conflict = row.conflict,
+                a.property_type_conflict_severity = row.severity,
+                a.portal_property_type = row.portal,
+                a.property_type_conflict_at = datetime()
+            RETURN count(a) AS n
+        """, {"rows": batch})
+        written += (out[0].get("n") or 0) if out else 0
+    return written
+
+
 def write_area_findings(rows: list[dict]) -> int:
     """Record every area disagreement on its listing, and clear the rest.
 
@@ -1085,10 +1142,12 @@ def run(limit: int | None = None, dry_run: bool = False) -> int:
 
     human_decided = human_decided_lot_matches()
     headline_sqft = fetch_headline_sqft()
+    portal_types = fetch_portal_types()
 
     field_rows: list[dict] = []
     unsafe_field_rows: list[dict] = []
     area_rows: list[dict] = []
+    type_rows: list[dict] = []
     desc_rows: list[dict] = []
     revert_rows: list[dict] = []
     lot_key_rows: list[dict] = []
@@ -1133,6 +1192,26 @@ def run(limit: int | None = None, dry_run: bool = False) -> int:
                 field_rows.append({"aid": listing["aid"],
                                    "filename": w["filename"],
                                    "props": safe_fields})
+            # The portal/notice type disagreement, rebuilt from the type this
+            # run is ACTUALLY writing. `apply_extractions` has always written
+            # property_type_norm and never the flag beside it, so the flag
+            # kept whatever the backfill last computed and drifted: 27 live
+            # listings say "no conflict" while genuinely conflicting, 6 of
+            # them flats filed under Plot. Reading `safe_fields` rather than
+            # the lot means an unresolved listing is judged on the consensus
+            # type it receives, not on a lot it may not be.
+            portal_name = portal_types.get(listing["aid"])
+            notice_bucket = (safe_fields or {}).get("property_type_norm")
+            if portal_name and notice_bucket:
+                sev = conflict_severity(notice_bucket,
+                                        classify_portal_type(portal_name))
+                type_rows.append({"aid": listing["aid"],
+                                  "conflict": sev is not None,
+                                  "severity": sev,
+                                  "portal": portal_name,
+                                  "notice": notice_bucket})
+                if sev:
+                    stats[f"type_conflict_{sev}"] += 1
             if id(listing) not in sole and contested:
                 stats["fields_gated_claimed_by_several"] += 1
                 unsafe_field_rows.append({"aid": listing["aid"],
@@ -1248,6 +1327,7 @@ def run(limit: int | None = None, dry_run: bool = False) -> int:
           f"skipped (human-decided): {human_skipped}  "
           f"price disagreements: {len(price_rows)}  "
           f"area disagreements: {len(area_rows)}  "
+          f"type verdicts: {len(type_rows)}  "
           f"unmatched: {len(unmatched_out)}")
 
     if unmatched_out and not dry_run:
@@ -1267,6 +1347,7 @@ def run(limit: int | None = None, dry_run: bool = False) -> int:
 
     npf = write_price_findings(price_rows)
     naf = write_area_findings(area_rows)
+    ntf = write_type_conflicts(type_rows)
     nf = write_fields(field_rows)
     # After the field write: a rival listing gets its consensus fields SET and
     # its contested keys REMOVEd in the same run — disjoint key sets by
@@ -1286,7 +1367,8 @@ def run(limit: int | None = None, dry_run: bool = False) -> int:
           f"(legacy human descriptions overwritten, backed up once), "
           f"lot key to {nl} listings, cleared {nc} stale lot key(s), "
           f"reverted {nr} listings to portal text, "
-          f"flagged {npf} price and {naf} area disagreement(s)")
+          f"flagged {npf} price and {naf} area disagreement(s), "
+          f"{ntf} property-type verdict(s)")
     if nr < len(revert_rows):
         print(f"  NOTE: {len(revert_rows) - nr} withheld listings kept their old "
               f"description — no portal text to fall back on, or already "

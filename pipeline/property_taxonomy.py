@@ -205,8 +205,51 @@ def classify_portal_type(name: str | None) -> str:
                                UNKNOWN)
 
 
+#: Buckets that name the same thing for conflict purposes. `land` and `plot`
+#: both mean "bare ground, no structure" — the split between them is how the
+#: ground is described (a demarcated house site vs an undivided parcel), not
+#: what is being sold, and the two sources routinely pick different words for
+#: one property. Counting that as a disagreement put 226 rows in front of a
+#: reviewer with nothing to decide, and buried the 666 that matter.
+_SAME_THING = ({LAND, PLOT},)
+
+
+def buckets_agree(a: str, b: str) -> bool:
+    """True when two buckets name the same kind of property."""
+    if a == b:
+        return True
+    return any(a in group and b in group for group in _SAME_THING)
+
+
+#: A bucket the portal can only reach by describing bare ground. When the
+#: notice says there is a BUILDING on it, the portal is not merely using a
+#: different word — it is selling a house to someone searching for land.
+_BARE_GROUND = frozenset({LAND, PLOT, AGRICULTURAL})
+#: Buckets that describe a structure.
+_BUILT = frozenset({HOUSE, FLAT, COMMERCIAL, INDUSTRIAL, MIXED})
+
+
 def is_conflict(extracted: str, portal: str) -> bool:
-    """True when both sides claim a real bucket and they disagree."""
+    """True when both sides claim a real bucket and they mean different things.
+
+    Synonymous buckets do NOT conflict — see `_SAME_THING`.
+    """
     if extracted in (UNKNOWN, "") or portal in (UNKNOWN, ""):
         return False
-    return extracted != portal
+    return not buckets_agree(extracted, portal)
+
+
+def conflict_severity(extracted: str, portal: str) -> str | None:
+    """How much a disagreement costs a buyer. None when there is none.
+
+    'critical' — the portal says bare ground and the notice describes a
+    building (or the reverse). This is the one that misleads a search: 666
+    live listings today, 139 of them flats filed under Land or Plot.
+    'med'      — both agree something is built, or both that nothing is, but
+    they differ on what kind. Worth fixing, not misleading.
+    """
+    if not is_conflict(extracted, portal):
+        return None
+    crossed = ((extracted in _BUILT and portal in _BARE_GROUND)
+               or (extracted in _BARE_GROUND and portal in _BUILT))
+    return "critical" if crossed else "med"

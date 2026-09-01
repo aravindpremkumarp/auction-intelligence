@@ -18,6 +18,7 @@ from pipeline.property_taxonomy import (
     asset_category,
     classify_portal_type,
     classify_property_type,
+    conflict_severity,
     is_conflict,
 )
 
@@ -233,3 +234,34 @@ def test_conflict_needs_two_real_buckets():
     # an unknown on either side is a gap, not a disagreement
     assert is_conflict(UNKNOWN, LAND) is False
     assert is_conflict(HOUSE, UNKNOWN) is False
+
+
+def test_land_and_plot_are_the_same_thing():
+    """Both mean bare ground; the split between them is how the ground is
+    described, not what is sold. The two sources routinely pick different
+    words for one property, and counting that put 226 rows in front of a
+    reviewer with nothing to decide."""
+    assert is_conflict(PLOT, LAND) is False
+    assert is_conflict(LAND, PLOT) is False
+
+
+def test_a_building_sold_as_bare_ground_is_critical():
+    """The disagreement that misleads a search: someone filtering for land
+    is shown a house. 666 live listings, 139 of them flats under Land/Plot."""
+    assert conflict_severity(HOUSE, LAND) == "critical"
+    assert conflict_severity(FLAT, PLOT) == "critical"
+    # and the reverse — the notice says bare ground, the portal a building
+    assert conflict_severity(LAND, HOUSE) == "critical"
+
+
+def test_two_kinds_of_building_disagreeing_is_ordinary():
+    """Both sides agree something is built and differ on what. Worth fixing,
+    but it does not put a house in a land search."""
+    assert conflict_severity(COMMERCIAL, HOUSE) == "med"
+    assert conflict_severity(INDUSTRIAL, COMMERCIAL) == "med"
+
+
+def test_agreement_has_no_severity():
+    assert conflict_severity(HOUSE, HOUSE) is None
+    assert conflict_severity(PLOT, LAND) is None
+    assert conflict_severity(UNKNOWN, LAND) is None

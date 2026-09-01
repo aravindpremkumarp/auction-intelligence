@@ -44,6 +44,7 @@ from pipeline.property_taxonomy import (
     asset_category,
     classify_portal_type,
     classify_property_type,
+    conflict_severity,
     is_conflict,
 )
 
@@ -143,6 +144,13 @@ def build_rows(work: list[dict],
                 "portal": portal_name,
                 "conflict": is_conflict(bucket,
                                         classify_portal_type(portal_name)),
+                # Written alongside the flag so this script and
+                # apply_extractions (which now maintains both every run)
+                # cannot leave each other's severity behind — a verdict
+                # ageing against the value it judges is the bug that put 27
+                # genuinely-conflicting listings on the clean side.
+                "severity": conflict_severity(
+                    bucket, classify_portal_type(portal_name)),
             })
             stats[f"bucket_{bucket}"] += 1
             if not raw:
@@ -173,6 +181,7 @@ def portal_only_rows(covered: set[str],
         "category": asset_category(UNKNOWN, None),
         "portal": portal.get(aid),
         "conflict": False,
+        "severity": None,
     } for aid in fetch_all_listing_ids() if aid not in covered]
 
 
@@ -187,7 +196,8 @@ def write_rows(rows: list[dict]) -> int:
                 a.property_type_source = row.source,
                 a.asset_category_norm = row.category,
                 a.portal_property_type = row.portal,
-                a.property_type_conflict = row.conflict
+                a.property_type_conflict = row.conflict,
+                a.property_type_conflict_severity = row.severity
             RETURN a.auction_id AS aid
         """, {"rows": batch})
         written += len(res) if res else 0
