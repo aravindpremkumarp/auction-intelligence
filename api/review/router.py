@@ -881,6 +881,34 @@ class PriceCheck(BaseModel):
     listing_url: str | None = None
 
 
+class AreaCheck(BaseModel):
+    """A listing whose stated area disagrees with its lot's measurement.
+
+    The two figures agent3 serves side by side — `total_area` in the listing
+    block, the lot's headline measurement in the property block — so a
+    disagreement is a contradiction a user can see on one page. Both trace to
+    the sale notice (the portal never published an area), which is why the
+    sides a reviewer picks are named for WHERE each figure shows rather than
+    for a source: see `AREA_CHECK_SIDES`. `severity` is 'critical' for a
+    clean power-of-ten gap, 'med' otherwise.
+    """
+    auction_id: str
+    title: str | None = None
+    verdict: str                     # magnitude_slip | disagree
+    severity: str                    # critical | med
+    ratio: float | None = None
+    #: The raw strings, not just the parsed numbers: a disagreement is often
+    #: the PARSE, and "4625 vs 8611" alone hides that from the reviewer.
+    listing_area: str | None = None
+    lot_area: str | None = None
+    listing_sqft: float | None = None
+    lot_sqft: float | None = None
+    lot_key: str | None = None
+    filename: str | None = None
+    public_url: str | None = None
+    listing_url: str | None = None
+
+
 class ResolutionReviewOut(BaseModel):
     """The queues a human works through. Every row is a fact to settle, not a
     document to walk — one verdict covers every notice the fact touches."""
@@ -890,13 +918,15 @@ class ResolutionReviewOut(BaseModel):
     unmatched_villages: list[ResolutionVillage] = []
     lot_matches: list[ResolutionLotMatch] = []
     price_checks: list[PriceCheck] = []
+    area_checks: list[AreaCheck] = []
     decided: int = 0
     open: int = 0
 
 
 class ResolutionDecisionIn(BaseModel):
     kind: Literal["bank-merge", "branch-merge", "district-conflict",
-                  "village-alias", "village-skip", "lot-match", "price-check"]
+                  "village-alias", "village-skip", "lot-match", "price-check",
+                  "area-check"]
     verdict: Literal["approved", "rejected"]
     # What the decision is about; fields depend on kind (see
     # pipeline/resolution_review.py). The stored key is always derived from
