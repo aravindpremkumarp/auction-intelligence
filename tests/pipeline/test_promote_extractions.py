@@ -450,3 +450,45 @@ def test_a_dry_run_never_rebuilds():
     import inspect
     src = inspect.getsource(P.promote_document)
     assert src.index("if dry_run") < src.index("rebuild_document_lots(filename)")
+
+
+# ── headline extent: the number agent3 serves ────────────────────────────────
+
+def _extent(raw, src="total_area"):
+    _, lots = build([ent("extent", raw, **{src: raw})])
+    return {m["kind"]: m for m in lots[0]["measurements"]}
+
+
+def test_a_stated_sqft_outranks_converting_the_land_unit():
+    """`parse_area` pairs the FIRST number it sees with whatever unit appears
+    anywhere in the string, so it reads "3597 sq.ft (8 1/4 cents)" as 8.25
+    SQUARE FEET and "0.25.5 Hectares (... 5318.4375 sq.ft)" as 26,909.
+
+    Live, that stored 64 wrong headline extents — 20 of them under 50 sq.ft,
+    areas no property has — and this is the figure agent3 serves in its
+    property block.
+    """
+    m = _extent("3597 sq.ft (8 1/4 cents)")["total"]
+    assert m["sqft_norm"] == 3597.0
+    assert m["norm_method"] == "stated"
+
+    m = _extent("0.25.5 Hectares (12.209 cents or 5318.4375 sq.ft)")["total"]
+    assert m["sqft_norm"] == 5318.4375
+
+    m = _extent("0.02 Cent (881 sq.ft)")["total"]
+    assert m["sqft_norm"] == 881.0
+
+
+def test_a_land_unit_alone_is_still_converted():
+    """No sq.ft stated, so the conversion is the only reading there is."""
+    m = _extent("11 Cent")["total"]
+    assert m["norm_method"] == "converted"
+    assert 4700 < m["sqft_norm"] < 4900
+
+
+def test_an_and_joined_sqft_does_not_become_the_extent():
+    """"1 Ground and 728 Sq.Ft." is 3,128 sq.ft. Storing 728 would under-report
+    the property four-fold, so the composite falls through to the conversion
+    rather than taking the addend."""
+    m = _extent("1 Ground and 728 Sq.Ft.")["total"]
+    assert m["sqft_norm"] != 728.0

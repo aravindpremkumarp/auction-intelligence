@@ -137,3 +137,34 @@ def test_mixed_fraction_before_the_unit():
     '2' alone and manufactures a 3763x disagreement out of an exact match."""
     assert AA.stated_sqft("7527 1/2 sq.ft") == (7527.5, "stated")
     assert AA.stated_sqft("650 ½ sq.ft") == (650.5, "stated")
+
+
+# ── the sq.ft as an addend, not the total ────────────────────────────────────
+
+def test_an_and_joined_sqft_is_an_addend_not_the_extent():
+    """A Tamil-notice idiom: "5 cents and 7 sq.ft" is 2,185 sq.ft — a whole
+    number of land units plus the remainder. Reading the 7 as the extent is
+    the one way the explicit-sq.ft rule fails catastrophically low, and four
+    live headline extents (7, 392, 728, 1540) were doing exactly that against
+    real properties of 2,185, 828, 3,128 and 6,340 sq.ft.
+
+    The composite is refused, not summed: the notice states the parts in two
+    units and adding them would be this module doing arithmetic the notice
+    did not.
+    """
+    assert AA.stated_sqft("5 cents and 7 sq.ft") == (None, "composite")
+    assert AA.stated_sqft("1 Ground and 728 Sq.Ft.") == (None, "composite")
+    assert AA.stated_sqft("1 Cent and 392 Sqft") == (None, "composite")
+    assert AA.stated_sqft("2 grounds and 1540 sq.ft") == (None, "composite")
+
+
+def test_a_bracketed_sqft_still_restates_the_whole_extent():
+    """The guard above must not swallow the ordinary case: a sq.ft in
+    brackets after a land unit is the writer's own conversion of the SAME
+    extent, and it is the figure to trust."""
+    assert AA.stated_sqft("9-1/2 cents (4148 sq.ft)") == (4148.0, "stated")
+    assert AA.stated_sqft("0.02 Cent (881 sq.ft)") == (881.0, "stated")
+    assert AA.stated_sqft("3597 sq.ft (8 1/4 cents)") == (3597.0, "stated")
+    assert AA.stated_sqft(
+        "0.25.5 Hectares (12.209 cents or 5318.4375 sq.ft)"
+    ) == (5318.4375, "stated")
