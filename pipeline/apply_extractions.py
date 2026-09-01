@@ -66,8 +66,8 @@ from pipeline.obs import get_logger
 from pipeline.area_agreement import check_match as check_area_match
 from pipeline.price_agreement import check_document
 from pipeline.property_taxonomy import (
-    asset_category, classify_portal_type, classify_property_type,
-    conflict_severity, effective_bucket,
+    asset_category, classify_portal_type, classify_lot_type,
+    classify_property_type, conflict_severity, effective_bucket,
 )
 from pipeline.resolution_review import lot_match_key
 from pipeline.text_overlap import description_overlap
@@ -301,9 +301,22 @@ def group_lots(entities: list[dict]) -> dict[str, dict]:
             f["door_numbers_old"] = ", ".join(dict.fromkeys(rec["doors_old"]))
         if rec["doors_new"]:
             f["door_numbers_new"] = ", ".join(dict.fromkeys(rec["doors_new"]))
+        description = "\n\n".join(rec["description_parts"]) or None
+        # The type is re-derived here, not where the `property` entity was
+        # read, because entity order is not guaranteed: the schedule spans
+        # may arrive after it, and the correction needs the whole assembled
+        # description. `classify_lot_type` only ever upgrades bare ground (or
+        # UNKNOWN) to a unit the schedule names outright, so a lot whose
+        # schedule names nothing keeps exactly the bucket it had.
+        if f.get("property_type_raw"):
+            corrected = classify_lot_type(f["property_type_raw"], description)
+            if corrected != f.get("property_type_norm"):
+                f["property_type_norm"] = corrected
+                f["asset_category_norm"] = asset_category(
+                    corrected, f["property_type_raw"])
         out[li] = {
             "lot_index": li,
-            "description": "\n\n".join(rec["description_parts"]) or None,
+            "description": description,
             "fields": f,
             "reserve": rec["reserve"],
             "emd": rec["emd"],
