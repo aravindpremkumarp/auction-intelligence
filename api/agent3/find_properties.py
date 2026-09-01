@@ -206,11 +206,27 @@ def _build(  # noqa: PLR0912, PLR0913, PLR0915 - one filter, one branch
         # search. `property_type_effective` is the notice's bucket, falling
         # back to the portal's only where no notice type exists, so the 99
         # listings no extraction reached stay findable.
-        pts = enums.expand_property_types(property_type)
-        buckets = sorted({b for name in (pts or [])
-                          for b in search_buckets(resolve_bucket(name))}
-                         - {UNKNOWN})
-        add("property_type", f"property type in {pts}",
+        #
+        # The caller's own phrase is resolved FIRST, and the portal-name
+        # synonym table is only a fallback for phrases the taxonomy cannot
+        # place ("bungalow", "warehouse", "office"). Those synonyms widen a
+        # phrase into several portal names, which was safe when each name
+        # matched one narrow edge and is not safe against buckets: "flat"
+        # expands to ("Flat", "Residential Unit"), and Residential Unit is
+        # bucketed `house`, so routing every phrase through the table turned
+        # a flat search into flat + all 1,392 houses. Resolving the phrase
+        # itself keeps one widening instead of two.
+        raw_bucket = resolve_bucket(
+            property_type if isinstance(property_type, str) else "")
+        if raw_bucket != UNKNOWN:
+            names = [property_type]
+            buckets = search_buckets(raw_bucket)
+        else:
+            names = enums.expand_property_types(property_type) or []
+            buckets = sorted({b for name in names
+                              for b in search_buckets(resolve_bucket(name))}
+                             - {UNKNOWN})
+        add("property_type", f"property type in {names}",
             where="a.property_type_effective IN $property_buckets",
             property_buckets=buckets)
     if auction_type:

@@ -198,16 +198,41 @@ def test_asset_category_is_case_insensitive(monkeypatch):
 
 
 def test_property_type_phrasing_is_expanded(monkeypatch):
-    """'warehouse' still expands to the portal's Godown and Shed, but those
-    names are then resolved to buckets — the filter runs on the
-    notice-derived `property_type_effective`, not the portal edge, because
-    832 listings live are filed under a portal type their notice contradicts.
-    """
+    """'warehouse' names no bucket, so it still falls back to the portal's
+    Godown and Shed — and those names are then resolved to buckets, because
+    the filter runs on the notice-derived `property_type_effective`, not the
+    portal edge."""
     calls = _stub(monkeypatch, rows=[_row()])
     FP.find_properties(property_type="warehouse")
     assert calls[0][1]["property_buckets"] == ["commercial", "industrial"]
     assert "a.property_type_effective IN $property_buckets" in calls[0][0]
     assert "HAS_PROPERTY_TYPE" not in calls[0][0]
+
+
+def test_a_flat_search_does_not_sweep_in_every_house(monkeypatch):
+    """The synonym table widens a phrase into several PORTAL NAMES, which was
+    safe when each name matched one narrow edge. Against buckets it is not:
+    'flat' expands to ('Flat', 'Residential Unit'), and Residential Unit is
+    bucketed `house`, so routing the phrase through the table returned 1,949
+    listings — 557 flats plus all 1,392 houses. The caller's own phrase names
+    a bucket, so it is resolved directly and the table is never consulted."""
+    calls = _stub(monkeypatch, rows=[_row()])
+    FP.find_properties(property_type="flat")
+    assert calls[0][1]["property_buckets"] == ["flat"]
+
+    calls = _stub(monkeypatch, rows=[_row()])
+    FP.find_properties(property_type="apartment")
+    assert calls[0][1]["property_buckets"] == ["flat"]
+
+
+def test_a_phrase_the_taxonomy_cannot_place_still_uses_the_synonyms(
+        monkeypatch):
+    """'bungalow' is in neither vocabulary the taxonomy knows, so the portal
+    synonym table remains its only route — dropping the fallback would turn a
+    working phrase into zero rows."""
+    calls = _stub(monkeypatch, rows=[_row()])
+    FP.find_properties(property_type="bungalow")
+    assert calls[0][1]["property_buckets"] == ["house"]
 
 
 def test_a_land_search_also_matches_plots(monkeypatch):
