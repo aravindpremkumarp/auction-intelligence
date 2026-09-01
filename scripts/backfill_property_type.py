@@ -9,7 +9,12 @@ Writes six fields per listing:
                             'langextract', or 'none' (nothing extracted)
     asset_category_norm     derived from the bucket, not from the portal
     portal_property_type    the auction portal's :PropertyType name
-    property_type_conflict  true when both sides name a bucket and disagree
+    property_type_conflict  true when both sides name a bucket and disagree,
+                            false when both name one and agree, null when
+                            either side named nothing (never compared)
+    property_type_effective the bucket a SEARCH resolves this listing to: the
+                            notice's, or the portal's where no notice type
+                            exists
 
 The portal value is recorded but never used to fill a gap. Its "Land"/"Plot"
 entries are the listing form's default and match the notice text only 34-54%
@@ -45,6 +50,7 @@ from pipeline.property_taxonomy import (
     classify_portal_type,
     classify_property_type,
     conflict_severity,
+    effective_bucket,
     is_conflict,
 )
 
@@ -142,14 +148,20 @@ def build_rows(work: list[dict],
                 "source": source if raw else "none",
                 "category": asset_category(bucket, raw),
                 "portal": portal_name,
-                "conflict": is_conflict(bucket,
-                                        classify_portal_type(portal_name)),
+                # null when either side named nothing: `false` is the positive
+                # claim "compared, and they agree", and the scorecard reads
+                # IS NOT NULL as its "was this ever compared" denominator.
+                "conflict": (is_conflict(bucket,
+                                         classify_portal_type(portal_name))
+                             if portal_name and bucket != UNKNOWN else None),
                 # Written alongside the flag so this script and
                 # apply_extractions (which now maintains both every run)
                 # cannot leave each other's severity behind — a verdict
                 # ageing against the value it judges is the bug that put 27
                 # genuinely-conflicting listings on the clean side.
                 "severity": conflict_severity(
+                    bucket, classify_portal_type(portal_name)),
+                "effective": effective_bucket(
                     bucket, classify_portal_type(portal_name)),
             })
             stats[f"bucket_{bucket}"] += 1
@@ -180,8 +192,12 @@ def portal_only_rows(covered: set[str],
         "source": "none",
         "category": asset_category(UNKNOWN, None),
         "portal": portal.get(aid),
-        "conflict": False,
+        # Never compared — no notice reached these at all.
+        "conflict": None,
         "severity": None,
+        # No notice reached these, so search falls back to the portal — the
+        # 99 listings that would otherwise become unfindable by type.
+        "effective": effective_bucket(None, classify_portal_type(portal.get(aid))),
     } for aid in fetch_all_listing_ids() if aid not in covered]
 
 
@@ -197,7 +213,8 @@ def write_rows(rows: list[dict]) -> int:
                 a.asset_category_norm = row.category,
                 a.portal_property_type = row.portal,
                 a.property_type_conflict = row.conflict,
-                a.property_type_conflict_severity = row.severity
+                a.property_type_conflict_severity = row.severity,
+                a.property_type_effective = row.effective
             RETURN a.auction_id AS aid
         """, {"rows": batch})
         written += len(res) if res else 0
@@ -210,6 +227,7 @@ def report(rows: list[dict], stats: Counter) -> None:
     cats = Counter(r["category"] for r in rows)
     sources = Counter(r["source"] for r in rows)
     conflicts = sum(1 for r in rows if r["conflict"])
+    compared = sum(1 for r in rows if r["conflict"] is not None)
 
     print(f"\nlistings classified: {len(rows):,}")
     print("\n  property_type_norm")
@@ -221,7 +239,14 @@ def report(rows: list[dict], stats: Counter) -> None:
     print("\n  property_type_source")
     for s, n in sources.most_common():
         print(f"    {s:<14} {n:>6,}")
-    print(f"\n  conflicts with portal: {conflicts:,}")
+    # Out of the compared, not out of everything: a listing where only one
+    # side named a type was never compared, and counting it as agreement is
+    # what makes a gap look like a clean result.
+    print(f"\n  conflicts with portal: {conflicts:,} of {compared:,} compared")
+    effective = Counter(r["effective"] for r in rows)
+    print("\n  property_type_effective (what a type search reads)")
+    for b, n in effective.most_common():
+        print(f"    {b:<14} {n:>6,}")
 
     # Why a listing ends up UNKNOWN matters: an unmatched listing means the
     # notice WAS extracted but reserve price could not pair its lot to this

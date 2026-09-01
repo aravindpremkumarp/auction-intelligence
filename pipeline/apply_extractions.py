@@ -67,7 +67,7 @@ from pipeline.area_agreement import check_match as check_area_match
 from pipeline.price_agreement import check_document
 from pipeline.property_taxonomy import (
     asset_category, classify_portal_type, classify_property_type,
-    conflict_severity,
+    conflict_severity, effective_bucket,
 )
 from pipeline.resolution_review import lot_match_key
 from pipeline.text_overlap import description_overlap
@@ -1062,6 +1062,7 @@ def write_type_conflicts(rows: list[dict]) -> int:
             MATCH (a:AuctionProperty {auction_id: row.aid})
             SET a.property_type_conflict = row.conflict,
                 a.property_type_conflict_severity = row.severity,
+                a.property_type_effective = row.effective,
                 a.portal_property_type = row.portal,
                 a.property_type_conflict_at = datetime()
             RETURN count(a) AS n
@@ -1202,14 +1203,35 @@ def run(limit: int | None = None, dry_run: bool = False) -> int:
             # type it receives, not on a lot it may not be.
             portal_name = portal_types.get(listing["aid"])
             notice_bucket = (safe_fields or {}).get("property_type_norm")
-            if portal_name and notice_bucket:
-                sev = conflict_severity(notice_bucket,
-                                        classify_portal_type(portal_name))
+            # One side is enough. A conflict needs both, but
+            # `property_type_effective` — what search reads — must be rewritten
+            # whenever EITHER side is known, or a listing with a notice type
+            # and no portal type would keep whatever the last backfill left
+            # while this run rewrites the notice value underneath it. That is
+            # the same drift, one field over.
+            if portal_name or notice_bucket:
+                portal_bucket = classify_portal_type(portal_name)
+                compared = bool(portal_name and notice_bucket)
+                sev = (conflict_severity(notice_bucket, portal_bucket)
+                       if compared else None)
                 type_rows.append({"aid": listing["aid"],
-                                  "conflict": sev is not None,
+                                  # null, not false, when only one side named
+                                  # a type: `false` is the positive claim
+                                  # "compared, and they agree", and letting a
+                                  # gap wear it is exactly what let 27 stale
+                                  # `false`s sit on genuinely conflicting
+                                  # listings.
+                                  "conflict": sev is not None if compared
+                                  else None,
                                   "severity": sev,
                                   "portal": portal_name,
-                                  "notice": notice_bucket})
+                                  "notice": notice_bucket,
+                                  # What search resolves this listing to: the
+                                  # notice, or the portal where no notice type
+                                  # exists. Computed here, where the taxonomy
+                                  # lives, so Cypher never re-implements it.
+                                  "effective": effective_bucket(
+                                      notice_bucket, portal_bucket)})
                 if sev:
                     stats[f"type_conflict_{sev}"] += 1
             if id(listing) not in sole and contested:

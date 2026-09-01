@@ -72,9 +72,14 @@ def test_portal_value_never_fills_the_gap():
     work = [_doc("n5.pdf", [_terms(100)], [{"aid": "A1", "price": 100}])]
     rows, _ = build_rows(work, {"A1": "Flat"})
     assert rows[0]["portal"] == "Flat"
+    # provenance stays honest: the notice named nothing, so neither does this
     assert rows[0]["norm"] == "unknown"
-    # a gap is not a disagreement
-    assert rows[0]["conflict"] is False
+    # a gap is not a disagreement — and it is not agreement either, so the
+    # verdict is null, which is what the scorecard counts as "never compared"
+    assert rows[0]["conflict"] is None
+    assert rows[0]["severity"] is None
+    # ...but a type SEARCH still has to find this listing, so it falls back
+    assert rows[0]["effective"] == "flat"
 
 
 def test_conflict_flags_portal_default_against_the_notice():

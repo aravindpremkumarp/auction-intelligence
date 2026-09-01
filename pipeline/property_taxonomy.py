@@ -239,6 +239,64 @@ def is_conflict(extracted: str, portal: str) -> bool:
     return not buckets_agree(extracted, portal)
 
 
+def effective_bucket(extracted: str | None, portal: str | None) -> str:
+    """The bucket a SEARCH should treat this listing as.
+
+    The notice wins — it is the legal document, and the portal's Land/Plot
+    default agrees with it only 34-54% of the time. But a listing no
+    extraction reached would become unfindable by type if the portal value
+    were simply discarded (99 listings live), so the portal is the fallback
+    and never the override.
+
+    Deliberately NOT the same as `property_type_norm`, which stays purely
+    notice-derived so provenance is never muddied: a value that fell back is
+    a search convenience, not a claim about what the notice said.
+    """
+    if extracted and extracted != UNKNOWN:
+        return extracted
+    return portal or UNKNOWN
+
+
+def resolve_bucket(value: str | None) -> str:
+    """Resolve one caller-supplied property-type name to a bucket.
+
+    Search callers speak three vocabularies and all three must work, so they
+    are tried in order of how much each name is trusted:
+
+      1. an exact bucket name — what the facet and the agent enum hand out;
+      2. the portal's closed dropdown table — what links and bookmarks made
+         before the search moved off the portal edge still carry;
+      3. the notice classifier's keyword rules — anything hand-typed, which
+         is what turns "Apartment" or "house site" into a real bucket instead
+         of into no results.
+
+    UNKNOWN when none of them recognises it. Callers must turn that into
+    "matches nothing", never into "matches everything": silently dropping the
+    filter reports a wider result set as if it had been filtered.
+    """
+    if not value:
+        return UNKNOWN
+    if value in BUCKETS:
+        return value
+    portal = classify_portal_type(value)
+    if portal != UNKNOWN:
+        return portal
+    return classify_property_type(value)
+
+
+def search_buckets(bucket: str) -> list[str]:
+    """Every bucket a request for `bucket` should also match.
+
+    Someone filtering for land means bare ground, and whether a notice called
+    it a plot or a parcel is not a distinction they asked for — the same
+    equivalence `is_conflict` uses, applied to the query side.
+    """
+    for group in _SAME_THING:
+        if bucket in group:
+            return sorted(group)
+    return [bucket]
+
+
 def conflict_severity(extracted: str, portal: str) -> str | None:
     """How much a disagreement costs a buyer. None when there is none.
 

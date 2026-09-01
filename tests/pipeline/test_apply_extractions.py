@@ -1285,5 +1285,29 @@ def test_agreement_is_written_too_not_only_conflicts(monkeypatch, tmp_path):
 
 def test_a_listing_with_no_portal_type_gets_no_verdict(monkeypatch, tmp_path):
     """Nothing to compare against is a gap, not agreement — writing `false`
-    here would claim a comparison that never happened."""
-    assert _typed_run(monkeypatch, tmp_path, {}) == {}
+    here would claim a comparison that never happened. The row is still
+    written, because what search reads must stay fresh either way."""
+    seen = _typed_run(monkeypatch, tmp_path, {})
+    assert seen["one"]["conflict"] is None
+    assert seen["one"]["severity"] is None
+
+
+def test_search_value_is_refreshed_even_with_nothing_to_compare(
+        monkeypatch, tmp_path):
+    """`property_type_effective` is what a type search reads. It must be
+    rewritten whenever either side names a type, or a listing with a notice
+    type and no portal type keeps whatever the last backfill left while this
+    run rewrites the notice value underneath it."""
+    seen = _typed_run(monkeypatch, tmp_path, {}, ptype="individual house")
+    assert seen["one"]["effective"] == "house"
+    assert seen["one"]["portal"] is None
+
+
+def test_the_portal_fills_the_search_value_when_no_notice_names_a_type(
+        monkeypatch, tmp_path):
+    """The 99 listings no extraction reached would become unfindable by type
+    if the portal value were discarded. It is the fallback, never the
+    override."""
+    seen = _typed_run(monkeypatch, tmp_path, {"one": "Flat"}, ptype="")
+    assert seen["one"]["effective"] == "flat"
+    assert seen["one"]["conflict"] is None
