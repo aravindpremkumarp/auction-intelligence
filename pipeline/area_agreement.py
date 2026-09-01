@@ -46,6 +46,19 @@ _SQFT_RE = re.compile(
 )
 
 
+#: "<n> <land unit> and <n> sq.ft" — the sq.ft is the remainder after a whole
+#: number of land units, not a restatement of the extent. 20 headline extents
+#: live carry this shape; four of them would otherwise be read as 7, 392, 728
+#: and 1,540 sq.ft when the property is 2,185, 828, 3,128 and 6,340.
+_LAND_UNIT = (r"(?:cents?|acres?|hectares?|hect\b|ares?|grounds?|guntha|"
+              r"kuzhi|sq\.?\s*m)")
+_ADDITIVE = re.compile(
+    _NUM + r"\s*" + _LAND_UNIT + r"[^.,;()]{0,12}\b(?:and|&|\+|plus)\b"
+    r"[^.,;()]{0,12}" + _NUM + r"\s*sq",
+    re.IGNORECASE,
+)
+
+
 def _norm(s: str) -> str:
     s = re.sub(r"\s*\.\s*", ".", str(s))
     return re.sub(r"\s{2,}", " ", s)
@@ -68,11 +81,21 @@ def stated_sqft(raw) -> tuple[float | None, str]:
                           plot 1800 Sq. ft.)" describes more than one thing,
                           and picking either would be the guess this whole
                           phase exists to stop
+            'composite'   the sq.ft is an ADDEND, not the total — see _ADDITIVE
             'unparsed'    no number+unit this code understands
     """
     if raw in (None, ""):
         return None, "unparsed"
     text = _norm(raw)
+    # "5 cents and 7 sq.ft" is 2,185 sq.ft, not 7. A bracketed sq.ft restates
+    # the whole extent, but one joined by "and" is the remainder after a whole
+    # number of land units — a Tamil-notice idiom. Taking it as the total is
+    # the one way the explicit-sq.ft rule below reads catastrophically low, so
+    # the composite is refused rather than summed: the parts are stated in two
+    # units, and adding them here would be this module doing arithmetic the
+    # notice did not.
+    if _ADDITIVE.search(text):
+        return None, "composite"
     stated = []
     for m in _SQFT_RE.finditer(text):
         v = parse_quantity(m.group(1))

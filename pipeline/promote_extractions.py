@@ -60,6 +60,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from api.neo4j_client import run_query, run_read_query
 from pipeline.apply_extractions import entities_with_corrections, parse_money
+from pipeline.area_agreement import stated_sqft
 from pipeline.measures import (
     parse_area, parse_length, pick_headline, read_adjacency,
 )
@@ -385,8 +386,31 @@ def build_lots(entities: list[dict], filename: str) -> tuple[dict, list[dict]]:
                 raw = _s(attrs.get(src))
                 if raw is None:
                     continue
-                # extent_sqft is already a bare sq.ft number by contract
-                if src == "extent_sqft":
+                # A notice states one extent several ways — "0.25.5 Hectares
+                # (12.209 cents or 5318.4375 sq.ft)" — and the writer's own
+                # bracketed sq.ft is their bottom line. `parse_area` pairs the
+                # FIRST number it sees with whatever unit it finds anywhere in
+                # the string, so it reads that as 0.25 hectares (26,909 sq.ft)
+                # and "3597 sq.ft (8 1/4 cents)" as 8.25 SQUARE FEET.
+                #
+                # Live, that put 190 wrong headline extents in front of users:
+                # 69 flatly contradicting an explicit sq.ft in their own text
+                # (0.53, 8.25, 12.25 sq.ft — areas no property has), and 121
+                # converting a land unit past a stated sq.ft. This is the
+                # figure agent3 serves in its property block.
+                #
+                # `stated_sqft` already owns the "explicit sq.ft outranks a
+                # conversion" rule and is what the area comparer trusts, so it
+                # is imported rather than re-derived here — a second copy of
+                # this rule is how the two sides came to disagree in the first
+                # place. It deliberately refuses a string stating SEVERAL
+                # different sq.ft figures, which still falls through below.
+                stated, how = stated_sqft(raw)
+                if how == "stated":
+                    val, unit, sqft = stated, "sq_ft", stated
+                    norm_method = "stated"
+                elif src == "extent_sqft":
+                    # extent_sqft is a bare sq.ft number by contract
                     val = _num(raw)
                     unit, sqft = ("sq_ft", val) if val is not None else (None, None)
                     norm_method = "stated"
