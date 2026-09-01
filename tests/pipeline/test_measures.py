@@ -220,3 +220,45 @@ def test_uds_inference_still_refuses_uds_parent():
 def test_explicit_land_type_beats_uds_inference():
     kinds = {"uds": 100.0, "total": 4356.0}
     assert M.pick_headline(kinds, "agricultural") == "total"
+
+
+# ── mixed fractions: separator and slash variants ────────────────────────────
+
+def test_a_mixed_fraction_may_be_hyphen_or_dot_separated():
+    """This corpus writes 1931¼ as "1931-1/4" and 346½ as "346.1/2" as often
+    as with a space. Without the separator the whole number is dropped and the
+    bare fraction matches instead, so "1931-1/4 sq.ft" read as 0.25 SQUARE
+    FEET — seven live headline extents were under 1 sq.ft that way."""
+    assert M.parse_quantity("1931-1/4") == 1931.25
+    assert M.parse_quantity("346.1/2") == 346.5
+    assert M.parse_quantity("1418.3/4") == 1418.75
+    assert M.parse_quantity("2399-1/2") == 2399.5
+    # the space form keeps working
+    assert M.parse_quantity("7527 1/2") == 7527.5
+    assert M.parse_quantity("2 1/2") == 2.5
+
+
+def test_the_unicode_fraction_slash_reads_as_a_slash():
+    """U+2044 FRACTION SLASH renders identically to the solidus and the OCR
+    emits both. "1080 1⁄2 sq.ft" read as 2 sq.ft until it was normalised."""
+    assert M.parse_quantity("1080 1⁄2") == 1080.5
+    assert M.parse_quantity("964 1⁄4") == 964.25
+
+
+def test_every_reading_is_anchored_at_the_first_number():
+    """The docstring's "takes the FIRST number" has to hold for the fraction
+    branches too. They used to search independently, so a mixed fraction
+    further along could beat an earlier plain number and be handed to a unit
+    it does not belong to: "0.11.50 Hectare (28 1/2 cents)" read as 28.5
+    HECTARES — 3,067,714 sq.ft for a quarter-acre plot."""
+    assert M.parse_quantity("0.11.50 Hectare (28 1/2 cents)") == 0.11
+    assert M.parse_quantity("Acre 6.00 cents out of Acre 7.86 Cents") == 6.0
+
+
+def test_the_existing_forms_are_untouched():
+    assert M.parse_quantity("6.00") == 6.0
+    assert M.parse_quantity("2,180") == 2180.0
+    assert M.parse_quantity("2 ½") == 2.5
+    assert M.parse_quantity("½ acre") == 0.5
+    assert M.parse_quantity("0.03") == 0.03
+    assert M.parse_quantity("no digits here") is None

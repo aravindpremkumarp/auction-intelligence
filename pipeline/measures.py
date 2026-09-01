@@ -103,35 +103,48 @@ def parse_quantity(raw: str) -> float | None:
     """
     if not raw:
         return None
-    s = str(raw)
+    # U+2044 FRACTION SLASH renders identically to the solidus and the OCR
+    # emits both — "1080 1⁄2 sq.ft" read as 2 sq.ft until this line existed.
+    s = str(raw).replace("⁄", "/").replace("∕", "/")
 
-    # leading integer/decimal followed by an ASCII or unicode fraction
-    m = re.search(r"(\d[\d,]*(?:\.\d+)?)\s*(\d+)\s*/\s*(\d+)", s)
+    # Every reading below is ANCHORED at the first number in the string. The
+    # branches used to search independently, so a mixed fraction further along
+    # could win over an earlier plain number and be handed to a unit it does
+    # not belong to: "0.11.50 Hectare (28 1/2 cents)" read as 28.5 HECTARES,
+    # 3,067,714 sq.ft for a quarter-acre plot. Anchoring is what makes the
+    # docstring's "takes the FIRST number" true of the fractions too.
+    first = re.search(r"\d[\d,]*(?:\.\d+)?", s)
+    if first is None:
+        for ch, val in _FRACTIONS.items():
+            if ch in s:
+                return val
+        return None
+    at = first.start()
+
+    # leading integer/decimal followed by an ASCII fraction. The separator is
+    # optional and may be a hyphen or a full stop: this corpus writes 1931¼ as
+    # "1931-1/4" and 346½ as "346.1/2" as often as with a space. Without them
+    # the whole number is dropped and the bare fraction matches lower down, so
+    # "1931-1/4 sq.ft" read as 0.25 SQUARE FEET.
+    m = re.compile(r"(\d[\d,]*(?:\.\d+)?)\s*[-.]?\s*(\d+)\s*/\s*(\d+)").match(s, at)
     if m:
         whole, num, den = _to_float(m.group(1)), _to_float(m.group(2)), _to_float(m.group(3))
         if whole is not None and num is not None and den:
             return whole + num / den
 
-    m = re.search(r"(\d[\d,]*(?:\.\d+)?)\s*([" + "".join(_FRACTIONS) + r"])", s)
+    m = re.compile(r"(\d[\d,]*(?:\.\d+)?)\s*([" + "".join(_FRACTIONS) + r"])").match(s, at)
     if m:
         whole = _to_float(m.group(1))
         if whole is not None:
             return whole + _FRACTIONS[m.group(2)]
 
-    m = re.search(r"(\d+)\s*/\s*(\d+)", s)
+    m = re.compile(r"(\d+)\s*/\s*(\d+)").match(s, at)
     if m:
         num, den = _to_float(m.group(1)), _to_float(m.group(2))
         if num is not None and den:
             return num / den
 
-    m = re.search(r"\d[\d,]*(?:\.\d+)?", s)
-    if m:
-        return _to_float(m.group(0))
-
-    for ch, val in _FRACTIONS.items():
-        if ch in s:
-            return val
-    return None
+    return _to_float(first.group(0))
 
 
 def _normalize_for_units(s: str) -> str:

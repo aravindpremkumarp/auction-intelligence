@@ -38,7 +38,13 @@ _SQFT_ALIASES = sorted(
 # means 7527.5, and a plain \d+ grab reads the "2" alone (a live listing,
 # 748228, turned into a 3763x false disagreement that way). The captured
 # phrase is evaluated by measures.parse_quantity, which owns fraction grammar.
-_NUM = r"(?:\d[\d,]*(?:\.\d+)?(?:\s+\d+\s*/\s*\d+|\s*[½¼¾⅓⅔⅛⅜⅝⅞])?|\d+\s*/\s*\d+)"
+#: The separator before a mixed fraction may be a space, a hyphen or a full
+#: stop — "7527 1/2", "1931-1/4" and "346.1/2" all appear. It must be matched
+#: here as well as in `parse_quantity`: this pattern decides how much text the
+#: sq.ft phrase captures, so a whole number left outside it is a whole number
+#: `parse_quantity` never sees.
+_NUM = (r"(?:\d[\d,]*(?:\.\d+)?(?:\s*[-.]?\s*\d+\s*/\s*\d+|\s*[½¼¾⅓⅔⅛⅜⅝⅞])?"
+        r"|\d+\s*/\s*\d+)")
 _SQFT_RE = re.compile(
     r"(" + _NUM + r")\s*(?:" + "|".join(re.escape(a) for a in _SQFT_ALIASES)
     + r")(?![a-z])",
@@ -60,7 +66,12 @@ _ADDITIVE = re.compile(
 
 
 def _norm(s: str) -> str:
-    s = re.sub(r"\s*\.\s*", ".", str(s))
+    # Same fraction-slash normalisation `parse_quantity` does, applied before
+    # _SQFT_RE runs: this pattern decides how much text the sq.ft phrase
+    # captures, so an unrecognised slash costs the whole number, not just the
+    # fraction.
+    s = str(s).replace("⁄", "/").replace("∕", "/")
+    s = re.sub(r"\s*\.\s*", ".", s)
     return re.sub(r"\s{2,}", " ", s)
 
 
