@@ -16,6 +16,8 @@ from pipeline.property_taxonomy import (
     PLOT,
     UNKNOWN,
     asset_category,
+    classify_from_schedule,
+    classify_lot_type,
     classify_portal_type,
     classify_property_type,
     conflict_severity,
@@ -314,3 +316,81 @@ def test_resolve_bucket_refuses_to_guess():
     assert resolve_bucket("Spaceship") == UNKNOWN
     assert resolve_bucket("") == UNKNOWN
     assert resolve_bucket(None) == UNKNOWN
+
+
+# ── the schedule text ────────────────────────────────────────────────────────
+
+
+def test_a_flat_filed_as_bare_ground_is_corrected_by_its_schedule():
+    """The extractor writes a six-word paraphrase; the schedule is the notice.
+    Seven live lots read "Flat No. S1, 1149 sq.ft" under a stated type of
+    "vacant house site" or "land", unfindable by anyone searching for a flat.
+    """
+    assert classify_lot_type(
+        "vacant house site",
+        "All that piece and parcel of Two bedroom Residential Flat No. S1 "
+        "admeasuring 1149 Sq. ft. of Super Built up area along with Undivided "
+        "Share of Land to an extent of 461 Sq.ft.") == FLAT
+    assert classify_lot_type(
+        "land and building",
+        "together with 948 Sq. ft., Built up area in Second Floor bearing "
+        "Flat No. A, including TNEB & CMWSSB Connections.") == FLAT
+
+
+def test_a_schedule_naming_no_unit_changes_nothing():
+    """99.8% of lots. The correction must be inert unless a unit is named."""
+    assert classify_lot_type("vacant land", "All that piece and parcel of "
+                             "land measuring 2400 sq ft in Sy No.159.") == LAND
+    assert classify_lot_type("plot", None) == PLOT
+    assert classify_lot_type("flat", "") == FLAT
+
+
+def test_the_schedule_never_overrides_a_specific_built_form():
+    """A stated built form is a deliberate claim, and overriding it destroys
+    information. Both cases are live lots: one genuinely mixed-use, one a
+    service apartment inside a commercial hotel complex."""
+    assert classify_lot_type(
+        "mixed-use",
+        "Flat No. A @ Ground Floor, Block A. Residential Flat & Commercial "
+        "Shop.") == MIXED
+    assert classify_lot_type(
+        "commercial",
+        "Commercial Property being service Apartments No. 903 & 93/34, 9th "
+        "Floor, situated at commercial complex & Hotel.") == COMMERCIAL
+
+
+def test_a_boundary_clause_names_the_neighbours_not_this_property():
+    """"South By : Villa No. 7" is the property NEXT DOOR. Read as the
+    subject, a flat in a villa layout becomes a villa — one live lot did."""
+    assert classify_from_schedule(
+        "Bounded on the North By : 18' Wide Passage, South By : Villa No. 7, "
+        "East By : Villa No. 17.") is None
+    # ...and the unit's own identifier still reads, boundaries notwithstanding
+    assert classify_from_schedule(
+        "Flat No. F1 in the First Floor, 775 Sq.ft. Bounded on the North By : "
+        "18' Wide Passage, South By : Flat No. 7.") == FLAT
+
+
+def test_a_villa_identifier_is_deliberately_not_read():
+    """"Villa No." is not a usable marker: this corpus OCRs "Village No." as
+    "Villa No." often enough that the single lot it would reclassify is a
+    survey-number list in Agamcherry Village. It earns no correct change
+    anywhere, so it is not in the table — a marker that buys nothing and
+    costs a false positive does not go in.
+
+    The `len(hits) == 1` guard in `classify_from_schedule` is what keeps a
+    second marker safe to add later: two forms would mean two properties, and
+    picking either would be a guess.
+    """
+    assert classify_from_schedule("Villa No. 7, measuring 2543 sq.ft.") is None
+    assert classify_lot_type("plot", "Agamcherry Village, Villa No.417/1, "
+                             "Now Sub Divided as S. No. 418/2A") == PLOT
+
+
+def test_the_prose_rules_are_never_run_over_a_schedule():
+    """A schedule says land, building, plot and site about ONE property in
+    consecutive clauses. Only the unit identifier is read, so a schedule full
+    of those words but naming no unit yields nothing."""
+    assert classify_from_schedule(
+        "All that piece and parcel of vacant land, plot and house site "
+        "together with the building and structures thereon.") is None

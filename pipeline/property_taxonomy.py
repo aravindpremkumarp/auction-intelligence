@@ -44,6 +44,13 @@ UNKNOWN = "unknown"
 BUCKETS = (LAND, PLOT, HOUSE, FLAT, AGRICULTURAL, COMMERCIAL, INDUSTRIAL,
            MIXED, MOVABLE, UNKNOWN)
 
+#: A bucket the portal can only reach by describing bare ground. When the
+#: notice says there is a BUILDING on it, the portal is not merely using a
+#: different word — it is selling a house to someone searching for land.
+_BARE_GROUND = frozenset({LAND, PLOT, AGRICULTURAL})
+#: Buckets that describe a structure.
+_BUILT = frozenset({HOUSE, FLAT, COMMERCIAL, INDUSTRIAL, MIXED})
+
 # ── asset categories ─────────────────────────────────────────────────────────
 
 RESIDENTIAL_CAT = "residential"
@@ -150,6 +157,89 @@ def classify_property_type(raw: str | None) -> str:
     return UNKNOWN
 
 
+# ── the schedule text ────────────────────────────────────────────────────────
+
+# A lot's `full_description` is the notice's legal schedule, and the rules
+# above must NEVER be run over it. That text says "land", "building", "plot"
+# and "site" about the SAME property in consecutive clauses — an apartment's
+# schedule describes the undivided share of land it sits on, the block built
+# on it, and the unit itself. Keyword rules written for a six-word summary
+# read that as four different property types.
+#
+# What the schedule does carry, unambiguously, is the unit's own
+# identifier. "Flat No. S1" and "Villa No. 36B" are structured labels, not
+# prose, and they name the form outright. Those are the only thing read here.
+#: Only the flat marker is read. "Villa No." looks like its counterpart and
+#: is not usable: the corpus spells "Village No." as "Villa No." often enough
+#: that the one lot it would reclassify is a survey-number list in Agamcherry
+#: Village, not a villa — and it earns no correct change anywhere. A marker
+#: that buys nothing and costs a false positive does not go in.
+_UNIT_MARKERS = (
+    (FLAT, re.compile(r"\b(?:flats?|apartments?)\s*(?:bearing\s*)?"
+                      r"(?:nos?\.?|numbers?|#)")),
+)
+
+# A boundary clause names the NEIGHBOURS: "Bounded on the North By: 18' Wide
+# Passage, South By: Villa No. 7, East By: Villa No. 17". Read as the subject,
+# a flat in a villa layout becomes a villa — one live lot did exactly that.
+#
+# Each clause is excised up to the next delimiter rather than truncating the
+# text from the first boundary on: schedules routinely put the land parcel and
+# ITS boundaries first and the unit itself in a later schedule, so truncating
+# throws away the very sentence worth reading.
+_BOUNDARY_CLAUSE = re.compile(
+    r"\b(?:north|south|east|west)(?:ern)?\s*(?:side\s*)?(?:by)?\s*:?[^,;.]{0,80}")
+
+
+def classify_from_schedule(text: str | None) -> str | None:
+    """The form a schedule names via a unit identifier, or None.
+
+    None when the text names no unit AND when it names two different ones:
+    a schedule naming two forms describes more than one property, and picking
+    either would be a guess — the same discipline the rival-lot gate applies
+    to matching.
+    """
+    if not text:
+        return None
+    body = _BOUNDARY_CLAUSE.sub(" ", _clean(text))
+    hits = {bucket for bucket, pattern in _UNIT_MARKERS
+            if pattern.search(body)}
+    return hits.pop() if len(hits) == 1 else None
+
+
+#: Buckets a schedule is allowed to correct. Bare ground and UNKNOWN are the
+#: states that lose a buyer outright — a flat filed as "vacant house site" is
+#: invisible to every flat search. HOUSE is included because "land and
+#: building" is what the extractor writes when it summarises a flat's
+#: schedule (undivided share of land, plus the unit) without naming the unit.
+#:
+#: Everything else is left alone. FLAT, COMMERCIAL, INDUSTRIAL and MIXED are
+#: specific claims someone made deliberately, and overriding them destroys
+#: information rather than recovering it: one live lot reading "Residential
+#: Flat & Commercial Shop" is genuinely mixed, and one reading "service
+#: Apartments ... at commercial complex & Hotel" is genuinely commercial.
+_SCHEDULE_MAY_CORRECT = _BARE_GROUND | {HOUSE, UNKNOWN}
+
+
+def classify_lot_type(raw: str | None, description: str | None = None) -> str:
+    """The bucket for one lot: its stated type, corrected by the schedule.
+
+    The extractor's `property_type` is a six-word paraphrase; the schedule is
+    the notice itself. When the paraphrase says bare ground (or nothing) and
+    the schedule names a unit outright, the schedule wins — nine live lots
+    whose schedule reads "Flat No. S1, 1149 sq.ft" are filed as "vacant house
+    site" or "land", unfindable by anyone searching for a flat.
+
+    Correction only ever runs in that direction, and only when a schedule
+    names a unit, so this is a no-op for 99.7% of lots.
+    """
+    stated = classify_property_type(raw)
+    if stated not in _SCHEDULE_MAY_CORRECT:
+        return stated
+    from_schedule = classify_from_schedule(description)
+    return from_schedule or stated
+
+
 def asset_category(bucket: str, raw: str | None = None) -> str:
     """Category for a bucket. When the bucket is UNKNOWN, a category word left
     in the raw text ("residential property") still settles the category."""
@@ -219,14 +309,6 @@ def buckets_agree(a: str, b: str) -> bool:
     if a == b:
         return True
     return any(a in group and b in group for group in _SAME_THING)
-
-
-#: A bucket the portal can only reach by describing bare ground. When the
-#: notice says there is a BUILDING on it, the portal is not merely using a
-#: different word — it is selling a house to someone searching for land.
-_BARE_GROUND = frozenset({LAND, PLOT, AGRICULTURAL})
-#: Buckets that describe a structure.
-_BUILT = frozenset({HOUSE, FLAT, COMMERCIAL, INDUSTRIAL, MIXED})
 
 
 def is_conflict(extracted: str, portal: str) -> bool:

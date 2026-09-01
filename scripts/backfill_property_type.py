@@ -139,7 +139,13 @@ def build_rows(work: list[dict],
 
         for listing, lot, reason in matches:
             raw = lot["fields"].get("property_type_raw")
-            bucket = classify_property_type(raw) if raw else UNKNOWN
+            # Read the bucket `group_lots` computed rather than re-deriving
+            # it. Re-classifying here would miss the schedule correction it
+            # applies (a lot whose schedule names "Flat No. S1" but whose
+            # stated type is "vacant house site"), so the two writers would
+            # disagree about the same lot — the exact drift that left 27
+            # listings carrying a verdict aged against its own value.
+            bucket = lot["fields"].get("property_type_norm") or UNKNOWN
             portal_name = portal.get(listing["aid"])
             rows.append({
                 "aid": listing["aid"],
