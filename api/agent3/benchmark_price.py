@@ -63,6 +63,7 @@ OPTIONAL MATCH (a)-[:LOCATED_IN_CITY]->(c:City)
 OPTIONAL MATCH (a)-[:LOCATED_IN_DISTRICT]->(d:District)
 RETURN a.auction_id AS auction_id, a.reserve_price_num AS reserve_price,
        lot_count, sqft, ar.name AS area, c.name AS city, d.name AS district,
+       a.property_type_norm AS property_type_norm,
        [(a)-[:HAS_PROPERTY_TYPE]->(pt:PropertyType) | pt.name] AS property_types
 """
 
@@ -94,8 +95,8 @@ _RINGS = [
     ("same district",
      "MATCH (a)-[:LOCATED_IN_DISTRICT]->(g:District) WHERE g.name = $district", "district"),
     ("same property type, statewide",
-     "MATCH (a)-[:HAS_PROPERTY_TYPE]->(g:PropertyType) WHERE g.name IN $property_types",
-     "property_types"),
+     "AND a.property_type_norm = $property_type_norm",
+     "property_type_norm"),
 ]
 
 _NOT_MARKET_VALUE = (
@@ -165,7 +166,7 @@ def benchmark_price(auction_id: str | int) -> dict:
         "psf_floor": PSF_FLOOR, "psf_ceil": PSF_CEIL, "subject_psf": psf,
         "area": s.get("area"), "city": s.get("city"),
         "district": s.get("district"),
-        "property_types": s.get("property_types") or [],
+        "property_type_norm": s.get("property_type_norm"),
     })
 
     comparisons, thin = [], []
@@ -194,7 +195,7 @@ def benchmark_price(auction_id: str | int) -> dict:
             "reserve_per_sqft": round(psf, 0),
             "area": s.get("area"), "city": s.get("city"),
             "district": s.get("district"),
-            "property_types": s.get("property_types") or [],
+            "property_type": s.get("property_type_norm"),
         },
         "comparisons": comparisons,
         "basis": _NOT_MARKET_VALUE,

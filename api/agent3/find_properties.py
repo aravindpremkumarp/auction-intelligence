@@ -390,8 +390,11 @@ RETURN a.auction_id AS auction_id,
        a.title AS title,
        city.name AS city, ar.name AS area, dist.name AS district,
        bank.name AS bank,
-       ac.name AS asset_category, at.name AS auction_type,
-       [(a)-[:HAS_PROPERTY_TYPE]->(pt:PropertyType) | pt.name] AS property_types,
+       coalesce(a.asset_category_norm, ac.name) AS asset_category,
+       at.name AS auction_type,
+       a.property_type_norm AS property_type,
+       [(a)-[:HAS_PROPERTY_TYPE]->(pt:PropertyType) | pt.name]
+           AS portal_property_types,
        a.reserve_price_num AS reserve_price, a.emd_num AS emd,
        a.auction_start_dt AS auction_start, a.application_deadline_dt AS deadline,
        // Phase 2: the lot comes from the edge, not the string beside it. A

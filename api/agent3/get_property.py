@@ -61,8 +61,11 @@ RETURN a.auction_id AS auction_id, a.title AS title, a.url AS url,
        a.registration_sub_district AS sro,
        bank.name AS bank, br.name AS branch, city.name AS city, ar.name AS area,
        dist.name AS district, tal.name AS taluk, rv.name AS revenue_village,
-       ac.name AS asset_category, at.name AS auction_type,
-       [(a)-[:HAS_PROPERTY_TYPE]->(pt:PropertyType) | pt.name] AS property_types,
+       coalesce(a.asset_category_norm, ac.name) AS asset_category,
+       at.name AS auction_type,
+       a.property_type_norm AS property_type,
+       [(a)-[:HAS_PROPERTY_TYPE]->(pt:PropertyType) | pt.name]
+           AS portal_property_types,
        [(a)-[:HAS_BORROWER]->(b:Borrower) | b.name] AS borrowers,
        [(a)-[:SAME_PROPERTY_AS]->(o:AuctionProperty) | o.auction_id] AS same_property_as,
        // Phase 2: the lot comes from the edge, not the string beside it. A
