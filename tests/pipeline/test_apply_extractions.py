@@ -315,6 +315,124 @@ def test_match_strongest_identifier_overlap_wins_over_shared_land():
     assert matches[0][2] == "identifier"
 
 
+# ── portal_aid: the lot's own claim, verified ────────────────────────────────
+
+def test_portal_aid_breaks_a_tie_the_keys_cannot():
+    """The case the whole feature exists for: two flats, one reserve price,
+    one borrower, nothing in the notice to separate them. Today that is
+    'ambiguous'. Reading the notice against the portal's rows, the extraction
+    can say which is which — and neither price contradicts it."""
+    l1, l2 = _lot(4500000), _lot(4500000)
+    l2["portal_aid"] = "a2"
+    lots = {"1": l1, "2": l2}
+    listings = [{"aid": "a2", "price": 4500000}]
+    matches, unmatched = AX.match_lots_to_listings(lots, listings)
+    assert unmatched == []
+    assert matches[0][1] is l2
+    assert matches[0][2] == "portal_aid"
+
+
+def test_portal_aid_agreeing_with_the_price_keeps_the_price_reason():
+    """A claim that merely confirms what reserve price already decided adds
+    nothing to the audit trail and must not overwrite it."""
+    l1, l2 = _lot(500000), _lot(900000)
+    l2["portal_aid"] = "a1"
+    matches, _ = AX.match_lots_to_listings({"1": l1, "2": l2},
+                                           [{"aid": "a1", "price": 900000}])
+    assert matches[0][1] is l2
+    assert matches[0][2] == "exact"
+
+
+def test_portal_aid_contradicted_by_reserve_price_goes_to_a_human():
+    """Both sides carry a price, independently read, and they disagree about
+    which property this is. Writing either would be a coin toss."""
+    l1, l2 = _lot(500000), _lot(900000)
+    l2["portal_aid"] = "a1"
+    matches, unmatched = AX.match_lots_to_listings({"1": l1, "2": l2},
+                                                   [{"aid": "a1",
+                                                     "price": 500000}])
+    assert matches == []
+    assert unmatched[0][1] == "portal_aid_conflict"
+
+
+def test_portal_aid_is_checked_even_when_no_lot_matched_the_price():
+    """The hole a candidate-set test alone would leave: when the listing's
+    price matches NO lot, every lot is still a candidate, so the claim would
+    sail through unexamined — yet the claimed lot's own price is right there,
+    and it disagrees."""
+    l1, l2 = _lot(500000), _lot(900000)
+    l2["portal_aid"] = "a1"
+    matches, unmatched = AX.match_lots_to_listings({"1": l1, "2": l2},
+                                                   [{"aid": "a1",
+                                                     "price": 750000}])
+    assert matches == []
+    assert unmatched[0][1] == "portal_aid_conflict"
+
+
+def test_portal_aid_excluded_by_the_emd_key_is_a_conflict_not_a_tiebreak():
+    """A claim the evidence has already ruled out is a wrong claim. Here
+    neither lot carries a reserve price, so only EMD speaks — and it puts the
+    listing on the lot the claim does not name."""
+    l1, l2 = _lot(None, emd=50000), _lot(None, emd=90000)
+    l2["portal_aid"] = "a1"
+    matches, unmatched = AX.match_lots_to_listings({"1": l1, "2": l2},
+                                                   [{"aid": "a1", "price": None,
+                                                     "emd": 50000}])
+    assert matches == []
+    assert unmatched[0][1] == "portal_aid_conflict"
+
+
+def test_portal_aid_rescues_a_listing_the_portal_never_priced():
+    """No price, no EMD, no borrower: nothing to match on and nothing to
+    contradict. Today this listing is unlinked for good."""
+    l1, l2 = _lot(500000), _lot(900000)
+    l2["portal_aid"] = "a1"
+    matches, unmatched = AX.match_lots_to_listings({"1": l1, "2": l2},
+                                                   [{"aid": "a1",
+                                                     "price": None}])
+    assert unmatched == []
+    assert matches[0][1] is l2
+    assert matches[0][2] == "portal_aid"
+
+
+def test_duplicate_portal_aid_claims_are_dropped_wholesale():
+    """One listing is one lot, so the same id on two lots tells us nothing
+    about either — and keeping the first would make the answer depend on
+    entity order. Falls back to today's behaviour: ambiguous."""
+    l1, l2 = _lot(4500000), _lot(4500000)
+    l1["portal_aid"] = l2["portal_aid"] = "a1"
+    matches, unmatched = AX.match_lots_to_listings({"1": l1, "2": l2},
+                                                   [{"aid": "a1",
+                                                     "price": 4500000}])
+    assert matches == []
+    assert unmatched[0][1] == "ambiguous"
+
+
+def test_portal_aid_naming_a_listing_not_on_this_notice_is_ignored():
+    l1, l2 = _lot(500000), _lot(900000)
+    l2["portal_aid"] = "someone-elses-listing"
+    matches, unmatched = AX.match_lots_to_listings({"1": l1, "2": l2},
+                                                   [{"aid": "a1",
+                                                     "price": 900000}])
+    assert unmatched == []
+    assert matches[0][2] == "exact"
+
+
+def test_group_lots_reads_the_portal_aid_claim_off_the_entities():
+    """It rides on the lot record beside `reserve`, never into `fields` —
+    nothing writes it to the graph."""
+    ents = [ent("property", "P", {"property_type": "flat", "lot_index": "1",
+                                  "portal_aid": " 796269 "})]
+    lot = AX.group_lots(ents)["1"]
+    assert lot["portal_aid"] == "796269"
+    assert "portal_aid" not in lot["fields"]
+
+
+def test_group_lots_without_a_claim_leaves_it_none():
+    lot = AX.group_lots([ent("property", "P", {"property_type": "flat"})])["1"]
+    assert lot["portal_aid"] is None
+
+
 def test_sole_claimants_drops_a_lot_two_listings_both_claim():
     """From the 12-lot PNB notice, which carries 19 listings: the surplus
     listings pile onto whichever lots they most resemble, and 802424 and

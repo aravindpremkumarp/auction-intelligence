@@ -256,10 +256,30 @@ PROMPT_DESCRIPTION = _LANGEXTRACT_GUIDE + load_canonical_scheme()
 # notice itself; the tail is summarised instead of listed.
 MAX_ROSTER_ROWS = 40
 
+#: The portal's own blurb is the field that separates sibling flats sharing a
+#: price, a village and a borrower — but it is also the only unbounded one on
+#: the row, and 40 of them at full length would swamp the notice. Enough to
+#: recognise a lot by, not enough to retell it.
+MAX_ROSTER_DESC_CHARS = 140
+
+
+def _clip(value, limit: int) -> str:
+    """One roster field as a single short line — newlines flattened (a row is
+    one line by construction) and long text cut on a word boundary."""
+    text = " ".join(str(value).split())
+    if len(text) <= limit:
+        return text
+    return text[:limit].rsplit(" ", 1)[0] + "…"
+
 
 def _roster_row(row: dict) -> str | None:
     """One portal listing as a single compact line, or None when it carries
-    nothing worth showing."""
+    nothing worth showing.
+
+    The `listing <aid>:` prefix is the label the model quotes back as
+    `portal_aid`; a row without an auction_id renders unlabelled and simply
+    cannot be claimed.
+    """
     reserve, emd = row.get("reserve"), row.get("emd")
     where = " ".join(str(v).strip() for v in (row.get("village"),
                                               row.get("district")) if v)
@@ -273,7 +293,14 @@ def _roster_row(row: dict) -> str | None:
     for key in ("area", "ptype"):
         if row.get(key):
             parts.append(str(row[key]).strip())
-    return " | ".join(parts) if parts else None
+    if row.get("borrower"):
+        parts.append(f"borrower {_clip(row['borrower'], 60)}")
+    if row.get("desc"):
+        parts.append(_clip(row["desc"], MAX_ROSTER_DESC_CHARS))
+    if not parts:
+        return None
+    line = " | ".join(parts)
+    return f"listing {row['aid']}: {line}" if row.get("aid") else line
 
 
 def portal_roster_block(roster: list[dict] | None) -> str:
@@ -287,12 +314,29 @@ def portal_roster_block(roster: list[dict] | None) -> str:
     the model matches lots it can see against lots known to exist instead of
     guessing where one lot ends and the next begins.
 
+    The one thing the model MAY take from here is the identity of the listing
+    itself: `property.portal_aid` names which row a lot is, quoted from the
+    `listing <aid>:` label. That is the whole point of showing the roster with
+    ids — `match_lots_to_listings` currently infers the same link after the
+    fact from reserve-price equality, which cannot decide between lots that
+    tie on money, and the model reading both sides at once can. The claim is
+    never trusted on its own: the matcher checks it against the price/EMD/
+    borrower evidence it already computes and sends a contradiction to the
+    human queue rather than writing either answer.
+
+    `portal_aid` is declared HERE rather than in `_LANGEXTRACT_GUIDE` because
+    it only exists when a roster does — a notice with no portal rows must not
+    be told about an attribute it has no way to fill, and the guide's attrs are
+    the ones every extraction can use.
+
     Two things this block must never become:
 
     * **A source of values.** Every emitted value has to be a verbatim span of
       the notice — LangExtract grounds each extraction to a character interval,
       so a value copied from here has no honest span and corrupts the grounding
-      the whole schema rests on.
+      the whole schema rests on. `portal_aid` is the sole exception and is safe
+      precisely because it is not a value: it is an id of the row, carries no
+      claim about the property, and attrs are not span-checked.
     * **A lot ordering.** The portal's row order is not the notice's lot order,
       so it cannot be used to assign ``lot_index``.
 
@@ -315,7 +359,8 @@ def portal_roster_block(roster: list[dict] | None) -> str:
         "  - judge where one lot ends and the next begins,\n"
         "  - check you have not merged two lots or split one in half,\n"
         "  - sanity-check a figure you read from the notice, since OCR mangles "
-        "digits.\n\n"
+        "digits,\n"
+        "  - say WHICH listing each lot is, via property.portal_aid (below).\n\n"
         "NEVER copy a value from this list into your output. Every value you "
         "emit must be text you actually found in the notice and can quote "
         "verbatim from it. Where the notice and this list disagree, extract "
@@ -323,6 +368,26 @@ def portal_roster_block(roster: list[dict] | None) -> str:
         "The rows are in no particular order: do NOT treat their order as the "
         "notice's lot order and do NOT use it to assign lot_index.\n\n"
         f"{body}\n"
+        "\n=== portal_aid: naming the listing ===\n"
+        "On EACH lot's `property` entity add the attribute `portal_aid` = the "
+        "id from the `listing <id>:` label of the row that lot is — a lot you "
+        "read as the row labelled `listing 796269:` gets "
+        "portal_aid=\"796269\". This is the ONE thing you may take from this "
+        "list, because it identifies a row rather than describing the "
+        "property.\n"
+        "Rules:\n"
+        "  - Decide it from what the NOTICE says about that lot — its reserve "
+        "price, EMD, borrower, village, extent, property type — read against "
+        "the rows above. Agreement on the money plus one more field is a "
+        "match.\n"
+        "  - One listing belongs to at most ONE lot. Never put the same "
+        "portal_aid on two lots.\n"
+        "  - OMIT it when you are not sure, and omit it for every lot that has "
+        "no matching row. A missing portal_aid costs nothing — the pipeline "
+        "falls back to matching on price. A wrong one names the wrong "
+        "property.\n"
+        "  - It is checked against the portal's own figures afterwards, so a "
+        "guess does not slip through; it is discarded and a human is asked.\n"
     )
 
 
