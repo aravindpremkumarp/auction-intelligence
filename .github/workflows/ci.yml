@@ -75,7 +75,10 @@ jobs:
           tests/pipeline/test_ink_coverage.py
           tests/pipeline/test_apply_extractions.py
           tests/pipeline/test_area_agreement.py
-          tests/pipeline/test_property_taxonomy.py -q
+          tests/pipeline/test_property_taxonomy.py
+          tests/pipeline/test_measures.py
+          tests/pipeline/test_promote_extractions.py
+          tests/pipeline/test_run_pipeline.py -q
 
   # Live Razorpay test-mode E2E + real-Neo4j concurrency (design D4/D5).
   # REQUIRED: this job goes red when the RAZORPAY_* secrets are absent — the gate

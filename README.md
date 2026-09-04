@@ -258,8 +258,9 @@ python -u scrapers/phase2_scrape_details.py # 1b. Scrape each URL's detail page 
 python -m scripts.prepare_tn_data           # 2. Clean + filter the Tamil Nadu subset
 python -m scripts.load_tn_to_neo4j          # 3. Load the base graph
 python -m scripts.upload_downloads_to_r2    # 4. Push sale notices to R2
-python -m pipeline.run_pipeline             # 5. OCR → classify → verify →
-                                            #    load → apply extractions
+python -m pipeline.run_pipeline             # 5. OCR → classify → verify → load →
+                                            #    promote extractions into :Lot/:Parcel →
+                                            #    apply extractions to listings
                                             #    (also links re-auctioned properties internally)
 python -m scripts.init_graph_schema         # 6. Constraints + fulltext indexes
 uvicorn api.main:app --reload               # 7. Serve agent + web UI
@@ -290,13 +291,15 @@ everything downstream depends on.
 | 4 | **Gate 2** — check OCR quality, re-OCR or annotate blocks if poor | human | review UI, *markdown* stage |
 | 5 | Extract entities from the markdown with LangExtract | machine | `pipeline/load_extractions.py` |
 | 6 | **Gate 3** — review the extraction; a lot-count mismatch is flagged | human | review UI, *extraction* stage |
-| 7 | Resolve entities into the `:Lot` / `:Parcel` spine — *written, not yet run* | machine | `pipeline/promote_extractions.py` |
+| 7 | Resolve entities into the `:Lot` / `:Parcel` spine | machine | `pipeline/promote_extractions.py` |
 | 8 | Apply grounded fields + descriptions to `:AuctionProperty` | machine | `pipeline/apply_extractions.py` |
 
-Step 7 has not been run against the live graph yet — `:Lot` and `:Parcel` are
-still 0 nodes there, so today the workflow effectively ends at step 8, which
-writes onto `:AuctionProperty` directly. See the status note at the top of
-[`docs/SCHEMA.md`](docs/SCHEMA.md).
+Steps 7 and 8 both run inside `python -m pipeline.run_pipeline` (stages 4.4
+and 4.5), in that order: step 8's area comparer reads each lot's headline
+extent off the graph, so step 7 must have written it first. Step 5 is not in
+the orchestrator — it is the LangExtract call, run from the review UI or by
+hand, and the orchestrator promotes whatever `Document.extraction_json` it
+finds. Live corpus: 3,300 `:Lot` and 3,178 `:Parcel` nodes.
 
 **The lot count is the thread tying gates 1 and 6 together.** At gate 1 the
 reviewer confirms how many lots the notice actually sells; it is stored as

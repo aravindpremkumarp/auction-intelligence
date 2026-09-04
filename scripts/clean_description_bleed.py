@@ -9,8 +9,7 @@ property description>"). This cleans those rows in place using the shared
 
 Only ``description_source='notice'`` rows are touched, and only when the helper
 actually finds a borrower/contact block in front of a property-description
-anchor — clean rows are left untouched. After cleaning, re-run
-``scripts.score_descriptions`` for the changed rows (their judge input changed).
+anchor — clean rows are left untouched.
 
     NEO4J_HTTP_API=1 python -m scripts.clean_description_bleed --dry-run
     NEO4J_HTTP_API=1 python -m scripts.clean_description_bleed
@@ -87,8 +86,6 @@ def main() -> int:
         return 0
     written = persist(affected)
     print(f"cleaned {written} rows (original backed up to a.description_precleanup)")
-    print("next: re-score the changed rows via scripts.score_descriptions, "
-          "then scripts.persist_description_scores")
     return 0
 
 
