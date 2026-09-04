@@ -97,6 +97,29 @@ def main():
         from pipeline.load_enriched import load_verified_enriched
         load_verified_enriched()
 
+        # Stage 4.4: resolve the grounded extractions into the graph — one :Lot
+        # per property with its description, extents, identifiers and place,
+        # then the derived :Parcel layer. This is the step that puts the
+        # extracted entities INTO the graph; until it was here, the weekly run
+        # went straight from extraction to Stage 4.5 and the :Lot spine was
+        # only ever refreshed by hand.
+        #
+        # It must run BEFORE 4.5: apply_extractions' area comparer reads each
+        # lot's headline extent off the graph, so running the two the other
+        # way round judges the listings against stale sizes.
+        #
+        # Idempotent (MERGEs on stable keys), never writes :AuctionProperty.
+        # With --limit only part of the corpus is promoted, and the parcel
+        # phase needs the whole corpus to group correctly, so it is skipped on
+        # a limited run rather than left with a partial, misleading grouping.
+        print("\n" + "="*60)
+        print("STAGE 4.4: Promote grounded extractions into :Lot / :Parcel")
+        print("="*60)
+        from pipeline.promote_extractions import run as run_promote_extractions
+        run_promote_extractions(limit=effective_limit, filename=None,
+                                dry_run=False,
+                                skip_parcels=effective_limit is not None)
+
         # Stage 4.5: grounded extractions (Document.extraction_json, written by
         # pipeline/load_extractions.py) override the blob-derived enrichment +
         # description for every Document that has one. Runs after Stage 4 on
