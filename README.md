@@ -105,9 +105,9 @@ api/          FastAPI composition root (main.py) + routers:
               auth/ watchlist/ conversations/ review/ — auth-gated.
               agent.py (PydanticAI agent), neo4j_client.py, telemetry.py,
               observability.py, tools/ (Cypher + web search).
-pipeline/     Enrichment pipeline: OCR/MinerU, vision-LLM extraction, notice
-              classification, verify/enrich, normalize, LangExtract entity
-              promotion, R2 storage helpers.
+pipeline/     Enrichment pipeline: OCR (Datalab/MinerU), notice
+              classification, grounded LangExtract extraction, :Lot/:Parcel
+              promotion, apply-to-listing, R2 storage helpers.
 scrapers/     Selenium scrapers for eauctionsindia.com (local only).
 scripts/      Data-prep, migration, backfill, and one-off maintenance scripts.
 scoring/      Ten-dimensional investment scoring (auction_scorer.py) — offline
@@ -235,8 +235,8 @@ The graph is modelled around `AuctionProperty`, with `Bank`/`Branch`,
 
 The pipeline (`pipeline/`, run locally) turns raw scraped listings into enriched
 graph data. Orchestrate it with `python -m pipeline.run_pipeline` (flags:
-`--pilot`, `--limit N`, `--skip-ocr`, `--skip-descriptions` (skips the
-notice-classification stage), `--verify-only`, `--legacy`).
+`--pilot`, `--limit N`, `--skip-classify` (skips the notice-classification
+stage)).
 
 **One command to run it all (weekly batch job):** `C:\Python314\python.exe
 scripts\run_weekly_pipeline.py` chains steps 1-7 below end-to-end, with
@@ -258,7 +258,7 @@ python -u scrapers/phase2_scrape_details.py # 1b. Scrape each URL's detail page 
 python -m scripts.prepare_tn_data           # 2. Clean + filter the Tamil Nadu subset
 python -m scripts.load_tn_to_neo4j          # 3. Load the base graph
 python -m scripts.upload_downloads_to_r2    # 4. Push sale notices to R2
-python -m pipeline.run_pipeline             # 5. OCR → classify → verify → load →
+python -m pipeline.run_pipeline             # 5. classify →
                                             #    promote extractions into :Lot/:Parcel →
                                             #    apply extractions to listings
                                             #    (also links re-auctioned properties internally)
@@ -266,12 +266,16 @@ python -m scripts.init_graph_schema         # 6. Constraints + fulltext indexes
 uvicorn api.main:app --reload               # 7. Serve agent + web UI
 ```
 
-Notable stages: **OCR/extraction** uses MinerU + a vision LLM
-(`ocr_extract.py`, `mineru.py`); **notice classification** splits single- vs
-multi-property notices by cluster count, corrected by human review
-(`classify_notice.py`); **descriptions** come from LangExtract's
-`full_description` spans (`apply_extractions.py`); **verify/enrich** reconciles
-scraped fields against the PDF (PDF wins, original kept as `<field>_scraped`).
+Notable stages: **OCR** turns each notice into layout-aware markdown
+(`scripts/ocr_with_mineru.py`, Datalab or MinerU); **notice classification**
+splits single- vs multi-property notices by cluster count, corrected by human
+review (`classify_notice.py`); **extraction** is the grounded LangExtract pass
+(`load_extractions.py`, every value carries its character span in the
+markdown); **descriptions** and fields come from that extraction
+(`apply_extractions.py`). The earlier flat vision-LLM blob path
+(`ocr_extract` → `verify_and_enrich` → `load_enriched`) is retired; the
+`<field>_scraped` / `verification_status` / `extras_json` properties it wrote
+remain on older nodes as history only.
 There is no embedding stage: retrieval is structured filters over the
 LangExtract entity graph plus two Lucene fulltext indexes
 (`lot_description_ft`, `property_text_idx`) consumed by `semantic_search` —

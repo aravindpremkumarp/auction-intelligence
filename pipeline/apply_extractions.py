@@ -35,9 +35,10 @@ Per Document:
      while it is; the portal's own text is the honest fallback, and a listing
      withheld here is REVERTED to it (see revert_withheld_descriptions) —
      a gate alone only stops the next write and leaves everything an earlier
-     run published still live. Enrichment fields use the same property names as
-     pipeline/load_enriched.flatten_enrichment so the API and UI keep working
-     unchanged; only non-null values are written (SET +=).
+     run published still live. Enrichment fields keep the property names the
+     retired legacy enrichment path wrote (boundary_*, village, taluk, …) so
+     the API and UI keep working unchanged; only non-null values are written
+     (SET +=).
   5. Also write AuctionProperty.resolved_lot_key from the SAME lot match
      step 3 already computed — the match was previously used only to route
      field/description writes and then discarded. This is a strictly better

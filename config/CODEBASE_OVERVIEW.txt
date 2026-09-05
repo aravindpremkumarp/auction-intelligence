@@ -101,39 +101,23 @@ data.
 
 - `config.py` — Central config: OpenRouter keys/model, Neo4j creds, scoring
   weights, decision thresholds, path constants, tracking TSV location.
-- `run_pipeline.py` — Orchestrator. Runs the stages sequentially. Flags:
-  `--limit N` (OCR subset), `--skip-ocr`, `--skip-descriptions` (skips the
-  notice-classification stage), `--verify-only`, `--legacy` (the Stage 2/3/4
-  lexical path instead of the verify path).
-- `ocr_extract.py` — Stage 1: OCRs PDFs and calls a vision LLM
-  (OpenRouter / Gemini 2.0 Flash) with `prompts/extract_auction.txt` to
-  extract structured auction fields. Caches per-file results under
-  `cache/ocr_results/` and writes `output/extracted.jsonl`.
+- `run_pipeline.py` — Orchestrator. Runs the graph-side stages sequentially:
+  classify (1.3) → promote (4.4) → apply (4.5) → link re-auctions (5) →
+  schema cache (6). Flags: `--limit N`, `--pilot`, `--skip-classify` (skips
+  the notice-classification stage). The flat vision-LLM blob path
+  (`ocr_extract` → `verify_and_enrich` → `load_enriched`, plus the `--legacy`
+  lexical chain) was retired 2026-09; LangExtract is the only extractor.
 - `classify_notice.py` — Stage 1.3: Tags each `:Document` `single` or `multi`
   from its cluster count (how many `:AuctionProperty` rows link to it) and
   stores `property_count`. Human review in `web/review.html` corrects it and
   records `expected_lot_count`; a reviewer override is never overwritten.
-- `verify_and_enrich.py` — Stage 1.5: Verifies scraped fields against PDF
-  extractions per auction. PDF wins on conflicts (original preserved as
-  `<field>_scraped`, name added to `field_conflicts`); `enrichment.*` is
-  merged, open-ended `extras` is shallow-merged. Outputs
-  `output/verified_enriched.jsonl` + `output/extras_key_frequency.json`.
-- `lexical_graph.py` — Stage 2, LEGACY (only on `--legacy`): Builds a lexical
-  graph over extracted text (chunks + entity mentions). Writes
-  `output/lexical.jsonl`.
-- `normalize.py` — Stage 3, LEGACY (only on `--legacy`): Normalizes entity names
-  (banks, locations, property types) against `lookups/bank_names.json`,
-  `locations.json`, `property_types.json`. Writes `output/normalized.jsonl` +
-  `output/normalization_report.txt`.
-- `load_enriched.py` — Stage 4: Merges enriched properties, survey details,
-  possession info, and geographic hierarchy into Neo4j.
 - `langextract_examples.py` / `load_extractions.py` — Grounded per-lot
   extraction. `load_extractions.py` runs LangExtract over each `:Document`'s
   markdown and stores `extraction_json` + a `validators.py` quality score;
   the prompt is primed with the reviewer's `expected_lot_count` when one
   exists (`extract_routing.py` picks the model by notice type).
-- `apply_extractions.py` — Stage 4.5: Applies grounded extractions over the
-  blob-derived enrichment. LangExtract's `full_description` is the SOLE
+- `apply_extractions.py` — Stage 4.5: Applies grounded extractions to each
+  listing's matched lot. LangExtract's `full_description` is the SOLE
   automated source of `AuctionProperty.description`; a reviewer's edit
   (`description_source='reviewer'`) always wins.
 - `embeddings.py` — Shared text-embedding helper (batched OpenAI embeddings,
@@ -143,7 +127,8 @@ data.
   as `p.embedding`, and creates the `property_desc_idx` vector index. Safe
   to re-run; skips existing unless `--force`.
 - `cache/` — Per-document cache for OCR/LLM calls (expensive to recompute).
-- `prompts/extract_auction.txt` — Prompt template for LLM extraction.
+- `prompts/extract_enrichment.txt` — The LangExtract field scheme;
+  `prompts/classify_document.txt` — dossier doc-type classifier prompt.
 
 ## 4. Scoring (`scoring/`)
 

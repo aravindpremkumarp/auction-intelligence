@@ -4,8 +4,8 @@ Shaped after :mod:`pipeline.price_agreement` — same verdicts, same severity
 grammar, same rebuilt-each-pass storage — but the two witnesses are NOT the
 same pair. The portal never published an area: the scraper captures no such
 field, and every `AuctionProperty.total_area` in the graph was written by the
-LEGACY enrichment path (`verify_and_enrich.flatten_enrichment`), the earlier
-vision-LLM read of the sale notice. The grounded LangExtract path reads the
+LEGACY enrichment path (the since-retired `verify_and_enrich` stage), the
+earlier vision-LLM read of the sale notice. The grounded LangExtract path reads the
 same notice again and puts its extent on the matched lot. So this module
 compares two OCR generations of one document — and, more importantly, the two
 values agent3 serves side by side today: `total_area` in the listing block and

@@ -13,18 +13,11 @@ load_dotenv()
 
 # ── Paths ────────────────────────────────────────────────────────────────────
 ROOT_DIR      = Path(__file__).resolve().parent.parent
-INPUT_JSONL   = ROOT_DIR / "data" / "tn_auction_data.jsonl"
 DOWNLOADS_DIR = ROOT_DIR / "downloads"
 
 PIPELINE_DIR  = ROOT_DIR / "pipeline"
-CACHE_DIR     = PIPELINE_DIR / "cache" / "ocr_results"
-OUTPUT_DIR    = PIPELINE_DIR / "output"
 LOOKUPS_DIR   = PIPELINE_DIR / "lookups"
 PROMPTS_DIR   = PIPELINE_DIR / "prompts"
-
-# Ensure output/cache dirs exist
-CACHE_DIR.mkdir(parents=True, exist_ok=True)
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # ── OpenRouter ───────────────────────────────────────────────────────────────
 # Two billing keys, one gateway. OPENROUTER_API_KEY funds the batch pipeline
@@ -189,9 +182,7 @@ NEO4J_MAX_QUERY_RETRIES = int(os.getenv("NEO4J_MAX_QUERY_RETRIES", "2"))
 NEO4J_RETRY_BASE_DELAY_S = float(os.getenv("NEO4J_RETRY_BASE_DELAY_S", "0.2"))
 
 # ── Tuning ───────────────────────────────────────────────────────────────────
-BATCH_SIZE       = 10    # concurrent LLM calls
-MAX_RETRIES      = 3
-RATE_LIMIT_DELAY = 0.5   # seconds between batches
+MAX_RETRIES      = 3     # per-request retries against OpenRouter
 NEO4J_BATCH_SIZE = 100   # records per Neo4j transaction
 PILOT_SIZE       = int(os.getenv("PILOT_SIZE", "50"))
 

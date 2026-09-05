@@ -11,7 +11,7 @@ stage scripts is untouched — loggers carry the *operational* record (skipped
 records, failed writes, merge conflicts, usage summaries) that print lines
 were losing.
 
-Usage metering: the OpenRouter batch stages (e.g. ocr_extract) feed each
+Usage metering: the OpenRouter batch stages (e.g. classify_document) feed each
 response's `usage` block into a module-level
 `USAGE` meter. Stages log a summary line when they finish, and an optional
 token budget (PIPELINE_LLM_TOKEN_BUDGET) aborts a runaway batch run before it

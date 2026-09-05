@@ -1,16 +1,30 @@
 """
 pipeline/run_pipeline.py
 ------------------------
-Orchestrator: runs all pipeline stages sequentially.
+Orchestrator: runs the graph-side pipeline stages sequentially.
+
+Inputs it expects to already exist on the graph:
+  * :AuctionProperty + :Document nodes (scripts/load_tn_to_neo4j,
+    scripts/upload_downloads_to_r2)
+  * Document.markdown (scripts/ocr_with_mineru / scripts/ocr_missing_markdowns)
+  * Document.extraction_json (pipeline/load_extractions — the LangExtract
+    grounded extraction, run from the review UI or by hand)
+
+Stages, in order:
+  1.3  classify_notice      cluster-count single/multi tag (human review corrects)
+  4.4  promote_extractions  grounded extractions -> :Lot / :Parcel spine
+  4.5  apply_extractions    grounded per-lot values -> :AuctionProperty
+  5    link_reauctions      :SAME_PROPERTY_AS across re-listings
+  6    schema cache         refresh the :SchemaCache node for /chat
+
+The legacy "Path A" (flat vision-LLM blob -> verify_and_enrich -> load_enriched)
+was retired; the grounded LangExtract path is the only extractor.
 
 Usage:
   python -m pipeline.run_pipeline                  # Full run
   python -m pipeline.run_pipeline --pilot          # First PILOT_SIZE records only
   python -m pipeline.run_pipeline --limit 50       # First 50 records (overrides --pilot)
-  python -m pipeline.run_pipeline --skip-ocr       # Skip Stage 1 (use existing cache)
-  python -m pipeline.run_pipeline --skip-descriptions  # Skip the notice-classification stage
-  python -m pipeline.run_pipeline --verify-only    # Only run Stage 1.5 + Stage 4 (verified path)
-  python -m pipeline.run_pipeline --legacy         # Run old Stage 2/3/4 path instead of verify path
+  python -m pipeline.run_pipeline --skip-classify  # Skip the notice-classification stage
 """
 
 import argparse
@@ -25,37 +39,18 @@ def main():
                         help="Limit number of records (overrides --pilot)")
     parser.add_argument("--pilot", action="store_true",
                         help=f"Process first PILOT_SIZE ({PILOT_SIZE}) records only")
-    parser.add_argument("--skip-ocr", action="store_true",
-                        help="Skip OCR extraction (reuse existing cache)")
-    parser.add_argument("--skip-descriptions", action="store_true",
+    parser.add_argument("--skip-classify", action="store_true",
                         help="Skip the notice-classification stage (1.3)")
-    parser.add_argument("--verify-only", action="store_true",
-                        help="Only run verify + load-verified (no OCR, no legacy stages)")
-    parser.add_argument("--legacy", action="store_true",
-                        help="Run old lexical-graph → normalize → load path (instead of verify path)")
     args = parser.parse_args()
 
     effective_limit = args.limit if args.limit is not None else (PILOT_SIZE if args.pilot else None)
 
     t_start = time.time()
 
-    # Stage 1: OCR + Entity Extraction (vision LLM per file, cached)
-    if not args.skip_ocr and not args.verify_only:
-        print("\n" + "="*60)
-        print("STAGE 1: OCR + Entity Extraction")
-        print("="*60)
-        import asyncio
-        from pipeline.ocr_extract import run_extraction
-        asyncio.run(run_extraction(limit=effective_limit))
-    else:
-        print("\n[SKIPPED] Stage 1: OCR Extraction")
-
-    # Stage 1.3: classify notices (cluster count; human review corrects)
-    # These run against the Neo4j :Document nodes (which the verify+load stages
-    # populate), so they make sense as a post-load step in re-runs, AND as a
-    # pre-verify step on first run. We place them here so they can be skipped
-    # independently and so the verify-only path also picks them up.
-    if not args.skip_descriptions:
+    # Stage 1.3: classify notices (cluster count; human review corrects).
+    # Runs against the :Document nodes and seeds the review UI's
+    # classification queue; a reviewer override is never overwritten.
+    if not args.skip_classify:
         print("\n" + "="*60)
         print("STAGE 1.3: Classify notices (single / multi)")
         print("="*60)
@@ -64,71 +59,35 @@ def main():
     else:
         print("\n[SKIPPED] Stage 1.3: Classify notices")
 
-    if args.legacy:
-        # Legacy path: build lexical graph, normalize, load flat enrichment.
-        print("\n" + "="*60)
-        print("STAGE 2: Lexical Graph Construction (legacy)")
-        print("="*60)
-        from pipeline.lexical_graph import build_lexical_graph
-        build_lexical_graph()
+    # Stage 4.4: resolve the grounded extractions into the graph — one :Lot
+    # per property with its description, extents, identifiers and place,
+    # then the derived :Parcel layer. This is the step that puts the
+    # extracted entities INTO the graph.
+    #
+    # It must run BEFORE 4.5: apply_extractions' area comparer reads each
+    # lot's headline extent off the graph, so running the two the other
+    # way round judges the listings against stale sizes.
+    #
+    # Idempotent (MERGEs on stable keys), never writes :AuctionProperty.
+    # With --limit only part of the corpus is promoted, and the parcel
+    # phase needs the whole corpus to group correctly, so it is skipped on
+    # a limited run rather than left with a partial, misleading grouping.
+    print("\n" + "="*60)
+    print("STAGE 4.4: Promote grounded extractions into :Lot / :Parcel")
+    print("="*60)
+    from pipeline.promote_extractions import run as run_promote_extractions
+    run_promote_extractions(limit=effective_limit, filename=None,
+                            dry_run=False,
+                            skip_parcels=effective_limit is not None)
 
-        print("\n" + "="*60)
-        print("STAGE 3: Entity Normalization (legacy)")
-        print("="*60)
-        from pipeline.normalize import normalize_entities
-        normalize_entities()
-
-        print("\n" + "="*60)
-        print("STAGE 4: Load Enriched Data to Neo4j (legacy)")
-        print("="*60)
-        from pipeline.load_enriched import load_to_neo4j
-        load_to_neo4j()
-    else:
-        # Verify path: compare scraped vs PDF, merge extras, load + Document nodes.
-        print("\n" + "="*60)
-        print("STAGE 1.5: Verify + Enrich (PDF is source of truth)")
-        print("="*60)
-        from pipeline.verify_and_enrich import run as run_verify
-        run_verify(limit=effective_limit, pilot=False)  # limit already resolved
-
-        print("\n" + "="*60)
-        print("STAGE 4: Load Verified + Enriched to Neo4j")
-        print("="*60)
-        from pipeline.load_enriched import load_verified_enriched
-        load_verified_enriched()
-
-        # Stage 4.4: resolve the grounded extractions into the graph — one :Lot
-        # per property with its description, extents, identifiers and place,
-        # then the derived :Parcel layer. This is the step that puts the
-        # extracted entities INTO the graph; until it was here, the weekly run
-        # went straight from extraction to Stage 4.5 and the :Lot spine was
-        # only ever refreshed by hand.
-        #
-        # It must run BEFORE 4.5: apply_extractions' area comparer reads each
-        # lot's headline extent off the graph, so running the two the other
-        # way round judges the listings against stale sizes.
-        #
-        # Idempotent (MERGEs on stable keys), never writes :AuctionProperty.
-        # With --limit only part of the corpus is promoted, and the parcel
-        # phase needs the whole corpus to group correctly, so it is skipped on
-        # a limited run rather than left with a partial, misleading grouping.
-        print("\n" + "="*60)
-        print("STAGE 4.4: Promote grounded extractions into :Lot / :Parcel")
-        print("="*60)
-        from pipeline.promote_extractions import run as run_promote_extractions
-        run_promote_extractions(limit=effective_limit, filename=None,
-                                dry_run=False,
-                                skip_parcels=effective_limit is not None)
-
-        # Stage 4.5: grounded extractions (Document.extraction_json, written by
-        # pipeline/load_extractions.py) override the blob-derived enrichment +
-        # description for every Document that has one. Runs after Stage 4 on
-        # purpose so the grounded per-lot values win.
-        print("\n" + "="*60)
-        print("STAGE 4.5: Apply grounded extractions to AuctionProperty")
-        print("="*60)
-        from pipeline.apply_extractions import run as run_apply_extractions
-        run_apply_extractions(limit=effective_limit)
+    # Stage 4.5: grounded extractions (Document.extraction_json, written by
+    # pipeline/load_extractions.py) are applied to every AuctionProperty
+    # whose lot they match — fields, description, agreement verdicts.
+    print("\n" + "="*60)
+    print("STAGE 4.5: Apply grounded extractions to AuctionProperty")
+    print("="*60)
+    from pipeline.apply_extractions import run as run_apply_extractions
+    run_apply_extractions(limit=effective_limit)
 
     print("\n" + "="*60)
     print("STAGE 5: Link Re-auctioned Properties (:SAME_PROPERTY_AS)")

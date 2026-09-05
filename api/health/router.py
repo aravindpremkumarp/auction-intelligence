@@ -55,11 +55,15 @@ def health_deep() -> dict:
     except Exception as e:
         checks["errors"].append(f"fulltext_indexes: {e!r}")
     try:
-        # `verified_at` is stamped by pipeline/load_enriched.py on every
-        # enrichment upsert, so its max is the freshest the dataset has been.
+        # `grounded_applied_at` is stamped by pipeline/apply_extractions.py on
+        # every grounded write, so its max is the freshest the dataset has
+        # been. `verified_at` is the retired legacy enrichment path's stamp,
+        # kept as a fallback for rows the grounded path has not reached yet.
         rows = run_query(
-            "MATCH (a:AuctionProperty) WHERE a.verified_at IS NOT NULL "
-            "RETURN toString(max(a.verified_at)) AS last_enriched"
+            "MATCH (a:AuctionProperty) "
+            "WITH coalesce(a.grounded_applied_at, a.verified_at) AS t "
+            "WHERE t IS NOT NULL "
+            "RETURN toString(max(t)) AS last_enriched"
         )
         checks["last_enriched"] = rows[0]["last_enriched"] if rows else None
     except Exception as e:
