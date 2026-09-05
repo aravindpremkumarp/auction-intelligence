@@ -205,6 +205,86 @@ def test_small_table_does_not_collapse_flag():
     assert h["score"] == 100
 
 
+# ── degenerate numeric sequence ─────────────────────────────────────────────
+# The failure this detector exists for: MinerU/Datalab loses the page and
+# counts instead of reading it. Nothing else in this module sees it — every
+# item differs from the last, so the repetition checks (which test equality)
+# pass, the text stays well-formed English, and the doc used to score 100.
+
+SEQ_MD = (
+    "Schedule-F: All that piece and parcel of the immovable property being "
+    "land and building measuring an extent of 1830 Sq.ft or thereabouts, "
+    "comprised in Punja S.No.131/1A part, Block No.25, Patta No.1454, "
+    "Sengulam Village, Thirumangalam Taluk, Madurai District, "
+    "West by: " + ", ".join(str(n) for n in range(26, 101)) + "."
+)
+
+
+def test_counting_loop_flags_degenerate_sequence():
+    h = score_ocr_health(SEQ_MD)
+    assert "degenerate-sequence" in h["flags"]
+    d = h["details"]["degenerate_sequence"]
+    assert d["items"] == 75 and d["step_run"] == 75
+    assert d["sample"].startswith("26, 27, 28")
+    assert h["score"] == 100 - 35
+
+
+def test_counting_loop_is_invisible_to_the_repetition_checks():
+    # Guards the reason this flag had to exist: no other detector fires.
+    h = score_ocr_health(SEQ_MD)
+    assert h["flags"] == ["degenerate-sequence"]
+
+
+def test_short_number_list_does_not_flag():
+    # Boundaries really are written like this. A handful of plot numbers is
+    # prose, not a loop.
+    md = "Bounded on the West by Plot Nos. 26, 27, 28, 29 and 30 of the layout."
+    assert score_ocr_health(md)["flags"] == []
+
+
+def test_indian_grouped_amounts_do_not_flag():
+    md = ("Upset Price: Schedule D: Rs.2,34,00,000/- and Schedule F: "
+          "Rs.58,00,000/-. Total dues Rs.18,76,61,564.00 with EMD "
+          "Rs.23,40,000/- and Rs.5,80,000/- respectively.")
+    assert score_ocr_health(md)["flags"] == []
+
+
+def test_survey_number_list_does_not_flag():
+    # Long, but the items are survey numbers, not a +1 count — and well under
+    # the unordered-run bar.
+    md = ("Comprised in S.Nos. 131/1A, 131/1B, 132/2, 133/4, 140/7, 141/9, "
+          "142/3 and 145/6 of Sengulam Village.")
+    assert score_ocr_health(md)["flags"] == []
+
+
+def test_serial_numbers_across_table_cells_do_not_flag():
+    # A grid numbering its lots 1…40 is layout, not a loop: runs never span
+    # cells, so each <td> is judged alone.
+    rows = "".join(f"<tr><td>{i}</td><td>Lot {i} borrower and survey number"
+                   f"</td></tr>" for i in range(1, 41))
+    assert "degenerate-sequence" not in score_ocr_health(f"<table>{rows}</table>")["flags"]
+
+
+def test_serial_numbers_across_markdown_pipes_do_not_flag():
+    md = "| " + " | ".join(str(i) for i in range(1, 41)) + " |"
+    assert "degenerate-sequence" not in score_ocr_health(md)["flags"]
+
+
+def test_long_unordered_number_dump_flags():
+    # Not ascending, so the counting rule misses it — but 40 bare numbers in
+    # one sentence is not a boundary description either.
+    md = "West by: " + ", ".join(str((i * 37) % 900) for i in range(40)) + "."
+    h = score_ocr_health(md)
+    assert "degenerate-sequence" in h["flags"]
+    assert h["details"]["degenerate_sequence"]["items"] == 40
+
+
+def test_degenerate_sequence_stacks_with_other_flags():
+    h = score_ocr_health(SEQ_MD + " <|content_end|>")
+    assert set(h["flags"]) == {"degenerate-sequence", "token-leak"}
+    assert h["score"] == 100 - 35 - 40
+
+
 # ── per-block health (score_block_health) ───────────────────────────────────
 
 def test_block_health_flags_inline_repetition():
@@ -218,6 +298,13 @@ def test_block_health_clean_text_scores_100():
     h = score_block_health("Place: Chennai\nDate: 07.07.2026")
     assert h["flags"] == []
     assert h["score"] == 100
+
+
+def test_block_health_flags_a_counting_loop():
+    # Per-block scoring points the reviewer at the exact block to re-extract.
+    h = score_block_health(SEQ_MD)
+    assert h["flags"] == ["degenerate-sequence"]
+    assert h["score"] == 100 - 35
 
 
 def test_block_health_token_leak_and_foreign_script():

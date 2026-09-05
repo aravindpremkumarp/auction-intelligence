@@ -29,6 +29,13 @@ MinerU's vlm model actually exhibits on full-page ruled notices:
     phrases into low-confidence regions ("中国银行股份有" — Bank of China —
     hallucinated into an HDB notice). Tamil, Devanagari and Latin are of
     course fine and never flag.
+  - **degenerate-sequence** — a counting loop: the generator loses the page and
+    emits a run of bare numbers instead of the text that is actually there
+    ("West by: 26, 27, 28, … 100." in place of a boundary description). Every
+    token is *new*, so the repetition checks above — which compare lines and
+    phrases for equality — never fire, the output stays well-formed English,
+    and the doc scores 100 while a whole schedule's worth of real text is
+    gone.
   - **table-collapse** — the whole notice read as ONE giant HTML ``<table>``.
     On a fully-bordered notice the vlm model swallows the prose above/below
     the grid into table cells; the output is well-formed (closes cleanly, no
@@ -125,6 +132,30 @@ FOREIGN_SCRIPT_RE = re.compile(
     "]"
 )
 
+# ── degenerate numeric sequence ──────────────────────────────────────────────
+# The repetition checks above test for *equality* — identical lines, an
+# identical phrase repeated adjacently. A counting loop defeats both: every
+# item differs from the last, so "26, 27, 28, … 100" (75 items, observed in
+# place of a Schedule-F boundary description) reads as ordinary prose and
+# scores 100. This detector looks at the *shape* of a numeric run instead.
+#
+# Segments are split on line breaks, HTML tags and markdown pipes so a run
+# can never span table cells: a grid whose cells hold 1, 2, 3, … is normal
+# layout, not a loop, and each cell is judged on its own.
+SEQ_SEGMENT_SPLIT_RE = re.compile(r"<[^>]+>|[|\n\r]+")
+# A comma/semicolon-separated run of bare integers. Grouped amounts match too
+# ("2,34,00,000" → 4 items) and are far below both thresholds.
+SEQ_NUM_RUN_RE = re.compile(r"\d{1,4}(?:\s*[,;]\s*\d{1,4})+")
+# Strictly +1 ascending items this long → a counting loop. Set well above any
+# list a notice would plausibly write out by hand (consecutive flat or plot
+# numbers are normally given as a range, "Flat Nos. 101 to 112"); the observed
+# failures run to 70+ items, so precision costs us nothing.
+SEQ_MIN_STEP_RUN = 12
+# ...and a long list that is *not* ascending is still not prose. Higher bar,
+# since an unordered run carries less signal on its own.
+SEQ_MIN_ITEMS = 30
+
+
 # ── single-table collapse ────────────────────────────────────────────────────
 # A fully-ruled notice comes back as a lone, well-formed <table> holding
 # essentially all of the document's text. We flag it when there is exactly one
@@ -141,6 +172,9 @@ COLLAPSE_MIN_TABLE_CHARS = 500
 
 PENALTY = {"repetition": 0, "token-leak": 40, "truncated": 30,
            "foreign-script": 40, "table-collapse": 35,
+           # Priced with table-collapse: both keep a well-formed document
+           # while the notice's real words stop being in it.
+           "degenerate-sequence": 35,
            # Lost content is the worst outcome for downstream extraction: the
            # properties in an unread column simply do not exist for us. Priced
            # above table-collapse, which at least keeps the text.
@@ -150,7 +184,7 @@ PENALTY = {"repetition": 0, "token-leak": 40, "truncated": 30,
 # its flag filter against this, so a renamed or added flag reaches the UI by
 # changing this module alone — no second list to drift out of sync.
 HEALTH_FLAGS: tuple[str, ...] = (
-    "missing-region", "table-collapse", "truncated",
+    "missing-region", "table-collapse", "degenerate-sequence", "truncated",
     "repetition", "token-leak", "foreign-script",
 )
 
@@ -185,6 +219,39 @@ def _visible_len(s: str) -> int:
     cell's worth of ``<td>`` wrapping doesn't count toward content length.
     """
     return len(re.sub(r"\s+", "", _TAG_STRIP_RE.sub(" ", s)))
+
+
+def _max_step_run(items: list[int]) -> int:
+    """Longest run of items each exactly one more than the one before."""
+    best = run = 1
+    for prev, cur in zip(items, items[1:]):
+        run = run + 1 if cur == prev + 1 else 1
+        best = max(best, run)
+    return best
+
+
+def _degenerate_sequence(text: str) -> dict | None:
+    """Detect a numeric counting loop. Returns detail dict or ``None``.
+
+    Scans each segment (see :data:`SEQ_SEGMENT_SPLIT_RE`) for comma-separated
+    runs of bare integers and reports the worst one: a run climbing by one for
+    :data:`SEQ_MIN_STEP_RUN` items, or any run of :data:`SEQ_MIN_ITEMS` items.
+    Returns the offending run's length, its longest ascending stretch and a
+    short sample, so the reviewer can see what the model wrote instead.
+    """
+    worst: dict | None = None
+    for segment in SEQ_SEGMENT_SPLIT_RE.split(text):
+        for m in SEQ_NUM_RUN_RE.finditer(segment):
+            items = [int(n) for n in re.findall(r"\d+", m.group(0))]
+            step_run = _max_step_run(items)
+            if step_run < SEQ_MIN_STEP_RUN and len(items) < SEQ_MIN_ITEMS:
+                continue
+            hit = {"items": len(items), "step_run": step_run,
+                   "sample": re.sub(r"\s+", " ", m.group(0)).strip()[:60]}
+            if worst is None or (hit["step_run"], hit["items"]) > (
+                    worst["step_run"], worst["items"]):
+                worst = hit
+    return worst
 
 
 def _table_collapse(text: str) -> dict | None:
@@ -277,6 +344,12 @@ def score_ocr_health(markdown: str | None, *, region: dict | None = None) -> dic
         details["foreign_script_sample"] = "".join(foreign[:10])
         penalty += PENALTY["foreign-script"]
 
+    sequence = _degenerate_sequence(text)
+    if sequence:
+        flags.append("degenerate-sequence")
+        details["degenerate_sequence"] = sequence
+        penalty += PENALTY["degenerate-sequence"]
+
     collapse = _table_collapse(text)
     if collapse:
         flags.append("table-collapse")
@@ -295,16 +368,18 @@ def score_ocr_health(markdown: str | None, *, region: dict | None = None) -> dic
 # Flags that are meaningful for a single block: the intrinsic per-fragment
 # artifacts. `table-collapse` and `truncated` are whole-document / structure
 # concerns (one block being a table is normal), so they are not evaluated here.
-BLOCK_HEALTH_FLAGS = ("repetition", "token-leak", "foreign-script")
+BLOCK_HEALTH_FLAGS = ("degenerate-sequence", "repetition", "token-leak",
+                      "foreign-script")
 
 
 def score_block_health(text: str | None) -> dict:
     """Score one block's text for the per-fragment OCR artifacts.
 
-    Same detectors as :func:`score_ocr_health` for repetition, token-leak and
-    foreign-script, but scoped to a single block so the annotator can tag the
-    exact block a loop/leak/hallucination comes from. Document-structure flags
-    (table-collapse, truncated) are intentionally not evaluated per block.
+    Same detectors as :func:`score_ocr_health` for repetition, token-leak,
+    foreign-script and degenerate-sequence, but scoped to a single block so the
+    annotator can tag the exact block a loop/leak/hallucination comes from.
+    Document-structure flags (table-collapse, truncated) are intentionally not
+    evaluated per block.
 
     Returns ``{"score": int|None, "flags": [str], "details": {…}}``; ``score``
     is None when the block has no text.
@@ -342,6 +417,12 @@ def score_block_health(text: str | None) -> dict:
         details["foreign_script_count"] = len(foreign)
         details["foreign_script_sample"] = "".join(foreign[:10])
         penalty += PENALTY["foreign-script"]
+
+    sequence = _degenerate_sequence(t)
+    if sequence:
+        flags.append("degenerate-sequence")
+        details["degenerate_sequence"] = sequence
+        penalty += PENALTY["degenerate-sequence"]
 
     return {"score": max(0, 100 - penalty), "flags": flags, "details": details}
 
