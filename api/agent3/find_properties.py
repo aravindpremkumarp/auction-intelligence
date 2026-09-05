@@ -37,6 +37,7 @@ from api.agent3.common import (
 # `monkeypatch.setattr(FP, "resolve_identifier", ...)`.
 from api.agent3.identifiers import resolve_identifier
 from api.neo4j_client import run_read_query
+from api.places import suppress_portal_city
 # The taxonomy is imported, never re-implemented: a second copy of "which
 # bucket is this" in Cypher is exactly how the conflict flag and the lot
 # matcher each grew a rival that disagreed with the writer.
@@ -434,7 +435,10 @@ def _shape_row(r: dict) -> dict:
     if (r.get("max_attempt") or 0) >= 2:
         row["auction_attempt"] = r["max_attempt"]
         row["attempt_scope"] = scope
-    return row
+    # A row carrying both the portal city and the notice district places the
+    # same listing twice, and the portal is only ever the witness. Dropped
+    # here rather than in the Cypher so the rule stays in one place.
+    return suppress_portal_city(row)
 
 
 #: Fields the panel needs but the model has no use for. Stripped from the

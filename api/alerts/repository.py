@@ -17,6 +17,7 @@ so the service never has to reason about nulls.
 from __future__ import annotations
 
 from api.neo4j_client import run_query_async, run_read_query_async
+from api.places import district_effective
 
 # Bound the anonymous id set so a client can't ask us to scan an unbounded
 # list. A real watchlist is a handful of properties; 200 is generous.
@@ -58,10 +59,10 @@ async def upsert_subscriber(email: str, city: str | None, property_type: str | N
         },
     )
 
-_RETURN = """
+_RETURN = f"""
     RETURN a.auction_id AS auction_id, a.title AS title,
            toString(a.application_deadline_dt) AS deadline,
-           c.name AS city
+           {district_effective('a', 'c')} AS city
 """
 
 

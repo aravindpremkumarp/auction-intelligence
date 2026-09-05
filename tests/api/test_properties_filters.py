@@ -96,9 +96,9 @@ def test_q_searches_property_type_names() -> None:
 
 
 def test_property_type_compose_with_geographic_filters() -> None:
-    """All-filter regression: property_type alongside state/district/village
-    keeps the geographic edges in the MATCH list while riding a WHERE clause
-    itself, with correct param bindings and no collision."""
+    """All-filter regression: property_type and district alongside
+    state/village keep the node-backed edges in the MATCH list while riding
+    WHERE clauses themselves, with correct param bindings and no collision."""
     match, where, params = _properties_filter_cypher(
         {
             "state": "Tamil Nadu",
@@ -108,13 +108,17 @@ def test_property_type_compose_with_geographic_filters() -> None:
         },
     )
 
-    for edge in ("LOCATED_IN_STATE", "LOCATED_IN_CITY", "LOCATED_IN_AREA"):
+    for edge in ("LOCATED_IN_STATE", "LOCATED_IN_AREA"):
         assert edge in match
     assert "HAS_PROPERTY_TYPE" not in match
+    # District left the MATCH list for the same reason property type did: it
+    # no longer resolves to a node.
+    assert "LOCATED_IN_CITY" not in match
     assert "a.property_type_effective IN $f_property_type_buckets" in where
+    assert "a.revenue_district" in where
     assert params == {
         "f_state": "Tamil Nadu",
-        "f_district": "Chennai",
+        "f_district_list": ["Chennai"],
         "f_village": "Adyar",
         "f_property_type_buckets": ["flat"],
     }
@@ -233,3 +237,45 @@ def test_facet_filters_for_village_drops_only_self() -> None:
         "state":    ["Tamil Nadu"],
         "district": ["Chennai"],
     }
+
+
+# ── district: the notice's revenue district, not the portal's :City ──────────
+
+def test_district_filters_on_the_notice_district_not_the_portal_city() -> None:
+    """The portal City is the witness the notice contradicts. Matching the
+    `LOCATED_IN_CITY` edge is what returns a listing under a district its own
+    sale notice does not place it in."""
+    match, where, params = _properties_filter_cypher({"district": "Chengalpattu"})
+
+    assert "LOCATED_IN_CITY" not in match
+    assert "a.revenue_district" in where
+    assert params["f_district_list"] == ["Chengalpattu"]
+
+
+def test_district_falls_back_to_the_portal_city() -> None:
+    """A listing place resolution never reached has no revenue district, and
+    must stay findable under the only name anything holds for it — otherwise
+    the better source being silent removes the listing from the dropdown."""
+    _, where, _ = _properties_filter_cypher({"district": "Chennai"})
+
+    assert "coalesce(a.revenue_district" in where
+    assert "LOCATED_IN_CITY" in where  # the fallback, read inside the WHERE
+
+
+def test_multi_value_district_unions_in_one_in_list() -> None:
+    """Same OR-within/AND-across semantics as the node-backed dimensions."""
+    _, where, params = _properties_filter_cypher(
+        {"district": ["Chennai", "Salem"]},
+    )
+
+    assert "IN $f_district_list" in where
+    assert params["f_district_list"] == ["Chennai", "Salem"]
+
+
+def test_free_text_search_reaches_the_notice_district() -> None:
+    """Typing a district the portal spells differently — or does not carry —
+    must still find the listings whose notice names it."""
+    _, where, params = _properties_filter_cypher({"q": "chengalpattu"})
+
+    assert "toLower(coalesce(a.revenue_district, '')) CONTAINS $f_q" in where
+    assert params["f_q"] == "chengalpattu"

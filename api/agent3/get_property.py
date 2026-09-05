@@ -31,6 +31,7 @@ from api.agent3.common import (
     json_safe, scope_note, scope_of, tool,
 )
 from api.neo4j_client import run_read_query
+from api.places import suppress_portal_city
 
 #: Lot prose is the longest thing in this payload. Full notice text belongs in
 #: the document viewer, not in a transcript that is re-sent every turn.
@@ -308,7 +309,12 @@ def get_property(auction_ids: str | int | list[str | int],
 
     out_props = []
     for raw in listings:
-        listing = json_safe(raw)
+        # The portal city goes only where the notice resolved no district.
+        # Returning both put the same listing in two places at once, and a
+        # model reading the payload had no way to tell which one the notice
+        # supports — it is the portal that is the witness (see api/places.py).
+        # `listing` below drops None values, so this removes the key outright.
+        listing = suppress_portal_city(json_safe(raw))
         aid = listing["auction_id"]
         doc = by_doc.get(aid, {})
         lots = by_lots.get(aid, [])

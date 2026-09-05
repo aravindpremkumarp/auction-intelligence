@@ -79,3 +79,31 @@ def test_no_area_means_no_area_clause(monkeypatch) -> None:
     cypher, params = calls[0]
     assert "LOCATED_IN_AREA" not in cypher  # no area filter requested
     assert "area" not in params
+
+
+# ── the detail record reads the notice's district, not the portal's city ─────
+
+def test_the_detail_record_shows_the_notice_district_in_the_city_slot():
+    """Every reader of this record — the detail page's location line, the
+    dossier — treats `relationships.city` as the district. Where the notice
+    resolved one, that node's name is the contradicted portal value."""
+    from api.tools.cypher_tools import _notice_first_place
+
+    rels = _notice_first_place(
+        {"city": {"name": "Chennai", "id": 7}},
+        {"revenue_district": "Chengalpattu"},
+    )
+
+    assert rels["city"]["name"] == "Chengalpattu"
+    assert rels["city"]["source"] == "notice"
+    assert rels["city"]["id"] == 7  # the portal node's own props survive
+
+
+def test_the_detail_record_keeps_the_portal_city_when_unresolved():
+    """Fallback, never override: a listing place resolution never reached
+    must not lose the only location anything holds for it."""
+    from api.tools.cypher_tools import _notice_first_place
+
+    rels = _notice_first_place({"city": {"name": "Chennai"}}, {})
+
+    assert rels["city"] == {"name": "Chennai"}

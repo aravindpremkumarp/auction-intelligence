@@ -12,6 +12,7 @@ import re
 import time
 from datetime import datetime, timedelta, timezone
 from api.neo4j_client import run_query, run_read_query, run_read_query_async
+from api.places import district_effective
 
 # Two Lucene fulltext indexes back `semantic_search`. Both are lexical: the
 # Gemini vector indexes this tool used to fan out across were retired once
@@ -490,7 +491,7 @@ def search_auctions(
                    toString(a.auction_start_dt) AS auction_start,
                    toString(a.application_deadline_dt) AS application_deadline,
                    a.service_provider AS service_provider,
-                   city.name AS city, area.name AS area,
+                   {district_effective('a', 'city')} AS city, area.name AS area,
                    bank.name AS bank, bank.short_name AS bank_short,
                    ac.name AS asset_category,
                    property_types,
@@ -662,7 +663,7 @@ def get_auctions_by_ids(auction_ids: list[str]) -> dict:
     ids = ids[:_BY_IDS_MAX]
     if not ids:
         return {"total_count": 0, "returned": 0, "results": []}
-    cypher = """
+    cypher = f"""
         MATCH (a:AuctionProperty)
         WHERE a.auction_id IN $ids
         OPTIONAL MATCH (a)-[:LOCATED_IN_CITY]->(city:City)
@@ -684,7 +685,7 @@ def get_auctions_by_ids(auction_ids: list[str]) -> dict:
                toString(a.auction_start_dt) AS auction_start,
                toString(a.application_deadline_dt) AS application_deadline,
                a.service_provider AS service_provider,
-               city.name AS city, area.name AS area,
+               {district_effective('a', 'city')} AS city, area.name AS area,
                bank.name AS bank, bank.short_name AS bank_short,
                ac.name AS asset_category,
                property_types,
@@ -929,7 +930,7 @@ def _semantic_search_cypher(optional_matches: str, where_clause: str) -> str:
         RETURN p.auction_id AS auction_id, p.title AS title, p.url AS url,
                p.reserve_price_num AS reserve_price, p.emd_num AS emd,
                toString(p.auction_start_dt) AS auction_start,
-               city.name AS city, area.name AS area,
+               {district_effective('p', 'city')} AS city, area.name AS area,
                bank.name AS bank, bank.short_name AS bank_short,
                ac.name AS asset_category,
                property_types,
@@ -1078,10 +1079,33 @@ def _detail_record(row: dict) -> dict:
     return {
         "auction_id":    auction_id,
         "fields":        fields,
-        "relationships": _json_safe(row["relationships"]),
+        "relationships": _notice_first_place(_json_safe(row["relationships"]),
+                                             fields),
         "documents":     documents,
         "price_history": price_history,
     }
+
+
+def _notice_first_place(relationships: dict, fields: dict) -> dict:
+    """Put the notice's district where the detail page reads its district.
+
+    The `city` relationship is the portal :City node, and every reader of
+    this record — the detail page's location line, the agent's dossier —
+    treats it as the district. Where place resolution matched the notice to
+    the revenue gazetteer that node is the contradicted witness, so its name
+    is replaced by the district the notice actually names. `source` says
+    which of the two a caller is looking at; the portal node's own
+    properties are otherwise left alone, and a listing resolution never
+    reached keeps the City unchanged.
+    """
+    resolved = fields.get("revenue_district")
+    if not resolved:
+        return relationships
+    city = dict(relationships.get("city") or {})
+    city["name"] = resolved
+    city["source"] = "notice"
+    relationships["city"] = city
+    return relationships
 
 
 def get_auction_details(auction_ids: list[str]) -> dict:
@@ -1232,15 +1256,23 @@ CYPHER_PATTERN_RULES = [
     "For scoped breakdowns, prefer search_auctions(group_by=...) — filters "
     "compose with the grouping — before writing a run_cypher; the tool "
     "already composes the correct Cypher shape.",
+    "District: read a.revenue_district — the district the sale notice names, "
+    "matched to the revenue gazetteer. The :City node on LOCATED_IN_CITY is "
+    "the auction portal's own value and it disagrees with the notice, so use "
+    "it only as a fallback: "
+    f"{district_effective('a', 'c')}. Never report the City name on its own "
+    "beside a notice-derived fact.",
 ]
 
 _CYPHER_PATTERN_EXAMPLES = [
     {
-        "purpose": "Count auctions per city",
+        "purpose": "Count auctions per district",
         "cypher": (
-            "MATCH (a:AuctionProperty)-[:LOCATED_IN_CITY]->(c:City)\n"
-            "RETURN c.name AS city, count(a) AS n\n"
-            "ORDER BY n DESC LIMIT 20"
+            "MATCH (a:AuctionProperty)\n"
+            "OPTIONAL MATCH (a)-[:LOCATED_IN_CITY]->(c:City)\n"
+            f"WITH {district_effective('a', 'c')} AS district, count(a) AS n\n"
+            "WHERE district IS NOT NULL\n"
+            "RETURN district, n ORDER BY n DESC LIMIT 20"
         ),
     },
     {
