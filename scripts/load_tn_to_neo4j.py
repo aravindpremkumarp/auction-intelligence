@@ -77,10 +77,38 @@ SET
   a.title                    = r.title,
   a.description              = r.description,
   a.website_description      = r.description,
-  a.reserve_price_raw        = r.reserve_price_raw,
-  a.reserve_price_num        = r.reserve_price_num,
-  a.emd_raw                  = r.emd_raw,
-  a.emd_num                  = r.emd_num,
+  // Money is the one field a human corrects against the notice, and an
+  // unconditional SET here undoes that on the next load — silently, because
+  // the loader has no idea a correction happened. `price_corrected_at` marks a
+  // listing whose figure was read off the sale notice after the portal's
+  // scrape got it wrong: 766811 lost a leading digit from BOTH price and EMD
+  // ("Rs.11,19,600/-" scraped as ₹1,19,600), 795611 by a factor of ten against
+  // a notice that spells the amount out in words. The portal's own value is
+  // never lost — the correction stashes it in `portal_reserve_price_*` /
+  // `portal_emd_*` — so this skip costs nothing and re-running the loader
+  // stops being destructive.
+  //
+  // Only these four are guarded. Everything else on the node is the portal's
+  // to state, and a correction workflow for those does not exist yet.
+  a.reserve_price_raw        = CASE WHEN a.price_corrected_at IS NULL
+                                    THEN r.reserve_price_raw
+                                    ELSE a.reserve_price_raw END,
+  a.reserve_price_num        = CASE WHEN a.price_corrected_at IS NULL
+                                    THEN r.reserve_price_num
+                                    ELSE a.reserve_price_num END,
+  a.emd_raw                  = CASE WHEN a.price_corrected_at IS NULL
+                                    THEN r.emd_raw ELSE a.emd_raw END,
+  a.emd_num                  = CASE WHEN a.price_corrected_at IS NULL
+                                    THEN r.emd_num ELSE a.emd_num END,
+  // The portal's latest figure is still recorded, so a scrape that FIXES its
+  // own error is visible rather than swallowed: when these two agree again,
+  // the correction has served its purpose and can be retired.
+  a.portal_reserve_price_num = CASE WHEN a.price_corrected_at IS NULL
+                                    THEN a.portal_reserve_price_num
+                                    ELSE r.reserve_price_num END,
+  a.portal_emd_num           = CASE WHEN a.price_corrected_at IS NULL
+                                    THEN a.portal_emd_num
+                                    ELSE r.emd_num END,
   a.auction_start_dt         = CASE WHEN r.auction_start_dt        IS NULL THEN NULL ELSE datetime(r.auction_start_dt)        END,
   a.auction_end_dt           = CASE WHEN r.auction_end_dt          IS NULL THEN NULL ELSE datetime(r.auction_end_dt)          END,
   a.application_deadline_dt  = CASE WHEN r.application_deadline_dt IS NULL THEN NULL ELSE datetime(r.application_deadline_dt) END,
