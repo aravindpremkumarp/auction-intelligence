@@ -188,6 +188,33 @@ def test_dense_text_rows_are_not_rules():
     assert out[2:] == pytest.approx([A[2] / W, A[3] / H], abs=0.012)
 
 
+def test_frame_inside_anchor_with_tight_gutter_above():
+    """The real JM17727039268646 layout: the notice is the framed bottom of
+    the page, the OCR block box includes the frame line itself, and the
+    gutter to the two notices above is only ~0.6% of the page height — with
+    their bottom frames sitting in it as faint partial lines. The walk must
+    still stop at the notice's own top frame, not run up into the neighbours."""
+    rng = random.Random(21)
+    im = Image.new("L", (W, H), 255)
+    d = ImageDraw.Draw(im)
+    top_l = (60, 80, 760, 880)
+    top_r = (820, 80, 1540, 900)
+    target = (60, 914, 1540, 2300)                    # gutter 880/900 → 914
+    for box in (top_l, top_r):
+        _framed_notice(d, box, rng)
+    _framed_notice(d, target, rng)
+    # Internal full-width table border inside the target, near its top.
+    d.rectangle([target[0] + 14, target[1] + 300, target[2] - 14, target[3] - 14],
+                outline=15, width=2)
+    anchor = _norm((target[0], target[1], target[2], target[3]))   # includes frame
+    out = snap_to_frame(_png(im), anchor)
+    assert out is not None
+    assert out[1] == pytest.approx(target[1] / H, abs=0.006)
+    assert out[1] > top_r[3] / H                       # never into the neighbours
+    assert out[3] == pytest.approx(target[3] / H, abs=0.012)
+    assert out[0] == pytest.approx(target[0] / W, abs=0.012)
+
+
 def test_snap_stops_at_gutter_when_unframed():
     rng = random.Random(11)
     im = Image.new("L", (W, H), 255)

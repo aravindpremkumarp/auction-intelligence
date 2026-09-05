@@ -87,6 +87,14 @@ MAX_RULE_THICK = 0.004
 # A column/row is "white" (gutter / padding) when its mean darkness is below
 # this. Leaves room for scan speckle and the frame lines crossing it.
 GUTTER_FRAC = 0.03
+# A thin, faint run (≤ MAX_RULE_THICK, mean darkness ≤ this) inside a blank
+# stretch is a neighbour's partial frame line or a fold crease, not content:
+# it is merged into the blank run so a gutter still reads as a gutter.
+NOISE_FRAC = 0.15
+# Walks start this far *inside* the anchor. OCR block boxes routinely include
+# the frame line itself, so a walk starting at the box edge would step over
+# its own frame without seeing it.
+START_INSET = 0.01
 # A blank run must be at least this wide to be a gutter between notices;
 # narrower runs are padding or spacing inside the notice and are crossed.
 # Newspaper column gutters run ~1% of the page width; box padding ~0.5%.
@@ -365,7 +373,7 @@ def _tokens(dark: list[float], solid: list[float], start: int, step: int, *,
             return RULE
         return BLANK if dark[i] <= GUTTER_FRAC else INK
 
-    out: list[tuple[str, int, int]] = []
+    raw: list[tuple[str, int, int]] = []
     i = start
     travelled = 0
     while 0 <= i < n and travelled <= max_reach:
@@ -375,15 +383,56 @@ def _tokens(dark: list[float], solid: list[float], start: int, step: int, *,
             j += step
         if k == RULE and abs(j - i) + 1 > max_thick:
             k = BAR
-        out.append((k, i, j))
+        elif (k == INK and abs(j - i) + 1 <= max_thick
+              and max(dark[min(i, j):max(i, j) + 1]) <= NOISE_FRAC):
+            k = BLANK                      # faint speck / partial line: not content
+        raw.append((k, i, j))
         travelled += abs(j - i) + 1
         i = j + step
+    # Merge the runs the noise rule turned blank into their neighbours.
+    out: list[tuple[str, int, int]] = []
+    for k, a, b in raw:
+        if out and out[-1][0] == k:
+            out[-1] = (k, out[-1][1], b)
+        else:
+            out.append((k, a, b))
     out.append((EDGE if not (0 <= i < n) else REACH, i, i))
     return out
 
 
+def _solid_across(mask, axis: str, band: tuple[int, int],
+                  span: tuple[int, int]) -> float:
+    """Best solid-run coverage of any single column (axis='x': ``band`` is a
+    column range, ``span`` a row range) or row (axis='y': the reverse) inside
+    ``band`` across ``span``. Used to ask "does a frame side run along here?"
+    — a thin line inside a band of a few pixels, so per-line rather than a
+    band mean which would dilute it."""
+    from PIL import Image
+    lo, hi = sorted(span)
+    b0, b1 = sorted(band)
+    extent = hi - lo + 1
+    if extent < 4 or b1 < b0:
+        return 0.0
+    k = max(SOLID_RUN_MIN_PX, int(extent * SOLID_RUN))
+    cells = max(1, extent // k)
+    if axis == "x":
+        strip = mask.crop((b0, lo, b1 + 1, hi + 1))
+        bw = b1 - b0 + 1
+        solid = (strip.resize((bw, cells), Image.BOX)
+                 .point(lambda p: 255 if p >= 240 else 0)
+                 .resize((bw, 1), Image.BOX))
+    else:
+        strip = mask.crop((lo, b0, hi + 1, b1 + 1))
+        bw = b1 - b0 + 1
+        solid = (strip.resize((cells, bw), Image.BOX)
+                 .point(lambda p: 255 if p >= 240 else 0)
+                 .resize((1, bw), Image.BOX))
+    return max(solid.tobytes()) / 255.0
+
+
 def _extend(profile: tuple[list[float], list[float]], start: int, step: int, *,
-            min_gutter: int, max_reach: int, pad: int, max_thick: int) -> int:
+            min_gutter: int, max_reach: int, pad: int, max_thick: int,
+            closes_frame=None) -> int:
     """Walk from ``start`` in direction ``step`` (±1) and return the index
     (inclusive) where the notice ends on that side.
 
@@ -392,10 +441,13 @@ def _extend(profile: tuple[list[float], list[float]], start: int, step: int, *,
     ambiguous — the notice's frame, a table border inside it, or the
     neighbour's frame all look the same:
 
-    * A RULE is the notice's frame when beyond it is the page edge, another
-      rule, or a blank run ≥ ``min_gutter``. Return its far side + ``pad``.
-      A rule with ink close behind it is internal: keep walking. Rules
-      separated by less than a rule's thickness merge (double rules).
+    * A RULE is the notice's frame when ``closes_frame(px)`` says the
+      perpendicular frame sides run from it back to the walk's start (a
+      closed rectangle — no table border inside the notice sits on the
+      notice's own frame columns), or when beyond it is the page edge,
+      another rule, or a blank run ≥ ``min_gutter``. Return its far side +
+      ``pad``. A rule with ink close behind it is internal: keep walking.
+      Rules separated by less than a rule's thickness merge (double rules).
     * A BLANK run ≥ ``min_gutter`` followed by ink is the gutter between
       unframed notices: return its middle. Followed by a rule that is a
       frame by the test above, include that rule (it is ours, with generous
@@ -426,6 +478,8 @@ def _extend(profile: tuple[list[float], list[float]], start: int, step: int, *,
     def rule_is_frame(k: int) -> tuple[bool, int, int]:
         """(is_frame, last_token_idx, far_px) for the rule at token k."""
         m, far = rule_end(k)
+        if closes_frame is not None and closes_frame(far):
+            return True, m, far
         beyond = toks[m + 1] if m + 1 < len(toks) else (EDGE, far, far)
         if beyond[0] in (EDGE, REACH):
             return True, m, far
@@ -492,6 +546,29 @@ def snap_to_frame(image_bytes: bytes, bbox: list[float]) -> list[float] | None:
     tx = max(2, int(MAX_RULE_THICK * w))
     ty = max(2, int(MAX_RULE_THICK * h))
 
+    # Walks start a little inside the anchor (OCR boxes include the frame
+    # line), capped so a thin anchor still has an inside to start from.
+    ix = min(max(1, int(START_INSET * w)), max(1, (ax1 - ax0) // 3))
+    iy = min(max(1, int(START_INSET * h)), max(1, (ay1 - ay0) // 3))
+    sx0, sx1 = ax0 + ix, ax1 - ix
+    sy0, sy1 = ay0 + iy, ay1 - iy
+
+    def closes_x(y0: int, y1: int, x_start: int):
+        """For an x-walk: does a horizontal frame edge run from column px
+        back to the walk start, at the current top or bottom rows?"""
+        def check(px: int) -> bool:
+            span = (px, x_start)
+            return max(_solid_across(mask, "y", (y0, y0 + py + ty), span),
+                       _solid_across(mask, "y", (y1 - py - ty, y1), span)) >= RULE_FRAC
+        return check
+
+    def closes_y(x0: int, x1: int, y_start: int):
+        def check(py_: int) -> bool:
+            span = (py_, y_start)
+            return max(_solid_across(mask, "x", (x0, x0 + px + tx), span),
+                       _solid_across(mask, "x", (x1 - px - tx, x1), span)) >= RULE_FRAC
+        return check
+
     # Fixed-point iteration. Every pass walks from the ANCHOR's edges — never
     # from the previous pass's result, which already sits in the gutter
     # beyond the frame and would walk on into the neighbour — but measures
@@ -502,16 +579,16 @@ def snap_to_frame(image_bytes: bytes, bbox: list[float]) -> list[float] | None:
     x0, y0, x1, y1 = ax0, ay0, ax1, ay1
     for _ in range(4):
         prof = _profile(mask, "x", y0, y1 + 1)
-        nx0 = _extend(prof, max(0, ax0 - 1), -1, min_gutter=gx,
-                      max_reach=rx, pad=px, max_thick=tx)
-        nx1 = _extend(prof, min(w - 1, ax1), +1, min_gutter=gx,
-                      max_reach=rx, pad=px, max_thick=tx)
+        nx0 = _extend(prof, sx0, -1, min_gutter=gx, max_reach=rx, pad=px,
+                      max_thick=tx, closes_frame=closes_x(y0, y1, sx0))
+        nx1 = _extend(prof, sx1, +1, min_gutter=gx, max_reach=rx, pad=px,
+                      max_thick=tx, closes_frame=closes_x(y0, y1, sx1))
         nx0, nx1 = min(nx0, ax0), max(nx1, ax1)
         prof = _profile(mask, "y", nx0, nx1 + 1)
-        ny0 = _extend(prof, max(0, ay0 - 1), -1, min_gutter=gy,
-                      max_reach=ry, pad=py, max_thick=ty)
-        ny1 = _extend(prof, min(h - 1, ay1), +1, min_gutter=gy,
-                      max_reach=ry, pad=py, max_thick=ty)
+        ny0 = _extend(prof, sy0, -1, min_gutter=gy, max_reach=ry, pad=py,
+                      max_thick=ty, closes_frame=closes_y(nx0, nx1, sy0))
+        ny1 = _extend(prof, sy1, +1, min_gutter=gy, max_reach=ry, pad=py,
+                      max_thick=ty, closes_frame=closes_y(nx0, nx1, sy1))
         ny0, ny1 = min(ny0, ay0), max(ny1, ay1)
         if (nx0, ny0, nx1, ny1) == (x0, y0, x1, y1):
             break

@@ -58,7 +58,9 @@ from scripts.auto_region_reingest import fetch_source, to_page_png
 from scripts.score_ink_coverage import nq
 
 # A located box larger than this is the whole page: nothing to crop away.
-MAX_AUTO_AREA = 0.60
+# JM17727039268646 — the notice is the bottom 70% of the page under two
+# other banks' notices — locates at 0.65 and is exactly the case to crop.
+MAX_AUTO_AREA = 0.85
 # Tag written alongside the crop so the annotator / audits can tell an
 # auto-drawn box from a reviewer's.
 CROP_SOURCE = "auto-locate"
