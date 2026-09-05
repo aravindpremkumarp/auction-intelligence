@@ -239,3 +239,148 @@ def test_block_health_empty_is_unscored():
     assert score_block_health("")["score"] is None
     assert score_block_health(None)["score"] is None
     assert score_block_health("   ")["flags"] == []
+
+
+# ── score_freshly_loaded: the live path folds the ink verdict in ─────────────
+# The regression: every live caller (loader, re-ingest, re-extract, block
+# edits) scored text only, so a notice with half its ink unread was written
+# back as health 100 / no flags while the annotator's Ink tab — measuring the
+# same blocks live — said missing-region. Neo4j and R2 are stubbed; the page
+# is drawn with Pillow so the test states exactly where the ink is.
+
+import io
+import json
+
+import pytest
+
+import pipeline.ocr_health as OH
+from pipeline.ink_coverage import MISSING_REGION_MIN_RATIO
+
+W = H = 400
+WORD_W, WORD_H, GAP_X, GAP_Y = 16, 7, 6, 5
+CLEAN_MD = "Notice is hereby given that the property will be sold on as is basis."
+
+
+def _page(ink_boxes):
+    from PIL import Image, ImageDraw
+    img = Image.new("RGB", (W, H), "white")
+    d = ImageDraw.Draw(img)
+    for x0, y0, x1, y1 in ink_boxes:
+        y = y0 * H
+        while y + WORD_H <= y1 * H:
+            x = x0 * W
+            while x + WORD_W <= x1 * W:
+                d.rectangle([x, y, x + WORD_W, y + WORD_H], fill="black")
+                x += WORD_W + GAP_X
+            y += WORD_H + GAP_Y
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def _two_column_page():
+    return _page([(0.05, 0.1, 0.45, 0.9), (0.55, 0.1, 0.95, 0.9)])
+
+
+def _block(x0, y0, x1, y1, text="x"):
+    return {"page": 1, "bbox": [x0, y0, x1, y1], "label": "Text", "text": text}
+
+
+@pytest.fixture
+def live(monkeypatch):
+    """Stub Neo4j + R2. Returns (doc, written, fetched) — mutate ``doc`` to
+    shape the Document row, read ``written`` for what reached Neo4j."""
+    doc = {"file_path": "n/notice.png", "filename": "notice.png",
+           "markdown": CLEAN_MD, "public_url": "https://r2/notice.png",
+           "blocks_json": json.dumps({"blocks": [_block(0.02, 0.05, 0.48, 0.95)]}),
+           "blocks_source": None}
+    written: list[dict] = []
+    fetched: list[str] = []
+    source = {"bytes": _two_column_page()}
+
+    def _read(cypher, params=None, **kw):
+        assert "d.blocks AS blocks_json" in cypher     # the live path asks for the source
+        return [doc] if doc["file_path"] in (params or {}).get("file_paths", []) else []
+
+    def _write(cypher, params=None):
+        assert "ink_uncovered_ratio" in cypher
+        written.extend(params["rows"])
+        return []
+
+    def _fetch(url):
+        fetched.append(url)
+        return source["bytes"]
+
+    monkeypatch.setattr(OH, "run_read_query", _read)
+    monkeypatch.setattr(OH, "run_query", _write)
+    monkeypatch.setattr(OH, "_fetch_source", _fetch)
+    return doc, written, fetched, source
+
+
+def test_live_path_flags_a_dropped_column(live):
+    doc, written, fetched, _ = live
+    assert OH.score_freshly_loaded([doc["file_path"]]) == 1
+    row = written[0]
+    assert fetched == [doc["public_url"]]
+    assert "missing-region" in row["flags"]
+    assert row["score"] == 100 - OH.PENALTY["missing-region"]
+    assert row["ink_scored"] is True
+    assert row["ratio"] == pytest.approx(0.5, abs=0.05)
+
+
+def test_live_path_clears_the_flag_once_the_column_is_read(live):
+    """A reviewer adding the missing box re-scores through the same call, so
+    the flag has to go away as well as come."""
+    doc, written, _, _ = live
+    doc["blocks_json"] = json.dumps([_block(0.02, 0.05, 0.98, 0.95)])   # bare list too
+    OH.score_freshly_loaded([doc["file_path"]])
+    row = written[0]
+    assert row["flags"] == []
+    assert row["score"] == 100
+    assert row["ink_scored"] is True
+    assert row["ratio"] < MISSING_REGION_MIN_RATIO
+
+
+def test_unfetchable_source_still_writes_the_text_score(live):
+    doc, written, _, source = live
+    source["bytes"] = None
+    OH.score_freshly_loaded([doc["file_path"]])
+    row = written[0]
+    assert row["score"] == 100 and row["flags"] == []
+    assert "ink_scored" not in row and "ratio" not in row     # ink fields untouched
+
+
+def test_unreadable_source_is_not_a_missing_region(live):
+    doc, written, _, source = live
+    source["bytes"] = b"not an image"
+    OH.score_freshly_loaded([doc["file_path"]])
+    row = written[0]
+    assert row["flags"] == [] and "ink_scored" not in row
+
+
+def test_backfilled_blocks_are_not_measured_against_another_engines_text(live):
+    doc, written, fetched, _ = live
+    doc["blocks_source"] = "datalab-backfill"
+    OH.score_freshly_loaded([doc["file_path"]])
+    assert fetched == []
+    assert written[0]["flags"] == [] and "ink_scored" not in written[0]
+
+
+def test_no_blocks_or_no_url_means_no_fetch(live):
+    doc, written, fetched, _ = live
+    doc["blocks_json"] = None
+    OH.score_freshly_loaded([doc["file_path"]])
+    doc["blocks_json"] = json.dumps([_block(0, 0, 1, 1)])
+    doc["public_url"] = None
+    OH.score_freshly_loaded([doc["file_path"]])
+    assert fetched == []
+    assert all(r["flags"] == [] and "ink_scored" not in r for r in written)
+
+
+def test_text_flags_and_the_ink_flag_stack(live):
+    doc, written, _, _ = live
+    doc["markdown"] = CLEAN_MD + " <|content_end|>"
+    OH.score_freshly_loaded([doc["file_path"]])
+    row = written[0]
+    assert set(row["flags"]) == {"token-leak", "missing-region"}
+    assert row["score"] == 100 - OH.PENALTY["token-leak"] - OH.PENALTY["missing-region"]
