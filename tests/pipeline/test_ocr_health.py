@@ -205,6 +205,134 @@ def test_small_table_does_not_collapse_flag():
     assert h["score"] == 100
 
 
+# ── degenerate numeric sequence ─────────────────────────────────────────────
+# The failure this detector exists for: MinerU/Datalab loses the page and
+# counts instead of reading it. Nothing else in this module sees it — every
+# item differs from the last, so the repetition checks (which test equality)
+# pass, the text stays well-formed English, and the doc used to score 100.
+
+SEQ_MD = (
+    "Schedule-F: All that piece and parcel of the immovable property being "
+    "land and building measuring an extent of 1830 Sq.ft or thereabouts, "
+    "comprised in Punja S.No.131/1A part, Block No.25, Patta No.1454, "
+    "Sengulam Village, Thirumangalam Taluk, Madurai District, "
+    "West by: " + ", ".join(str(n) for n in range(26, 101)) + "."
+)
+
+
+def test_counting_loop_flags_degenerate_sequence():
+    h = score_ocr_health(SEQ_MD)
+    assert "degenerate-sequence" in h["flags"]
+    d = h["details"]["degenerate_sequence"]
+    assert d["items"] == 75 and d["step_run"] == 75
+    assert d["sample"].startswith("26, 27, 28")
+    assert h["score"] == 100 - 35
+
+
+def test_counting_loop_is_invisible_to_the_repetition_checks():
+    # Guards the reason this flag had to exist: no other detector fires.
+    h = score_ocr_health(SEQ_MD)
+    assert h["flags"] == ["degenerate-sequence"]
+
+
+def test_the_corpus_counting_loop_flags():
+    # chola-2-17815331845450.jpg: 504 consecutive door numbers for ONE A.C.C.
+    # shell building, the description never finishing before the cell ends.
+    # The only true loop in a 1622-document sweep.
+    md = ("For the said R.C.C. Terrace & A.C.C. Shell Building including "
+          "Plinth Area, Terrace, Roof, front and Back Yard, Vacant land "
+          "including door frame, windows Electric Connection Wing, Fittings "
+          "deposit and entire rights etc. Door No. "
+          + ", ".join(str(n) for n in range(497, 1001)) + ".")
+    h = score_ocr_health(md)
+    assert "degenerate-sequence" in h["flags"]
+    assert h["details"]["degenerate_sequence"]["step_run"] == 504
+
+
+def test_short_number_list_does_not_flag():
+    # Boundaries really are written like this. A handful of plot numbers is
+    # prose, not a loop.
+    md = "Bounded on the West by Plot Nos. 26, 27, 28, 29 and 30 of the layout."
+    assert score_ocr_health(md)["flags"] == []
+
+
+def test_dtcp_layout_plot_list_does_not_flag():
+    # db4decc7…jpg, verbatim from the corpus: an approved layout genuinely
+    # enumerates its plots, 27 of them consecutively, and prose resumes after.
+    # This is the case that made the first threshold (12) untenable — three of
+    # its four corpus hits were lists like this one.
+    md = ("Schedule 'A' Property: - Item No.1 (\"J\" Block): All that piece "
+          "and parcel of Vacant House Site bearing Plot Nos."
+          + ", ".join(str(n) for n in range(1026, 1053))
+          + " and 1053, as approved by DTCP No.30 of 2006 dated 22.02.2006 "
+          "situated at No.105, Thiruporur Village, Kancheepuram District.")
+    assert score_ocr_health(md)["flags"] == []
+
+
+def test_dtcp_layout_block_f_does_not_flag():
+    # ARCIL-11776411211386.jpg: 22 plots making up 85609.94 sq.ft — about
+    # 3900 sq.ft each, which is exactly what a layout plot measures.
+    md = ("Item No : II - Block F - All that piece and parcel of Land "
+          "measuring 85609.94 sq.ft., in Plot Nos."
+          + ", ".join(str(n) for n in range(514, 535))
+          + " & 535 as approved by DTCP No.30 of 2006 dated 22.02.2006, "
+          "forming part of larger extent of land comprised in Survey "
+          "Nos.198/1, 198/2A, 198/2C & 228/1.")
+    assert score_ocr_health(md)["flags"] == []
+
+
+def test_indian_grouped_amounts_do_not_flag():
+    md = ("Upset Price: Schedule D: Rs.2,34,00,000/- and Schedule F: "
+          "Rs.58,00,000/-. Total dues Rs.18,76,61,564.00 with EMD "
+          "Rs.23,40,000/- and Rs.5,80,000/- respectively.")
+    assert score_ocr_health(md)["flags"] == []
+
+
+def test_survey_number_list_does_not_flag():
+    # Long, but the items are survey numbers, not a +1 count — and well under
+    # the unordered-run bar.
+    md = ("Comprised in S.Nos. 131/1A, 131/1B, 132/2, 133/4, 140/7, 141/9, "
+          "142/3 and 145/6 of Sengulam Village.")
+    assert score_ocr_health(md)["flags"] == []
+
+
+def test_serial_numbers_across_table_cells_do_not_flag():
+    # A grid numbering its lots 1…40 is layout, not a loop: runs never span
+    # cells, so each <td> is judged alone.
+    rows = "".join(f"<tr><td>{i}</td><td>Lot {i} borrower and survey number"
+                   f"</td></tr>" for i in range(1, 41))
+    assert "degenerate-sequence" not in score_ocr_health(f"<table>{rows}</table>")["flags"]
+
+
+def test_serial_numbers_across_markdown_pipes_do_not_flag():
+    md = "| " + " | ".join(str(i) for i in range(1, 41)) + " |"
+    assert "degenerate-sequence" not in score_ocr_health(md)["flags"]
+
+
+def test_long_unordered_number_dump_flags():
+    # Not ascending, so the counting rule misses it — but 40 bare numbers in
+    # one sentence is not a boundary description either. The longest unordered
+    # run in the corpus is 16 items, so this bar has room under it.
+    md = "West by: " + ", ".join(str((i * 37) % 900) for i in range(40)) + "."
+    h = score_ocr_health(md)
+    assert "degenerate-sequence" in h["flags"]
+    assert h["details"]["degenerate_sequence"]["items"] == 40
+
+
+def test_survey_number_run_at_the_corpus_maximum_does_not_flag():
+    # IDFC17706416165598.jpg's shape: 16 unordered numbers, the longest such
+    # run in the corpus. It must stay under the bar with margin.
+    md = ("Comprised in Survey Nos. 120, 121, 126, 152, 162, 171, 204, 209, "
+          "214, 215, 220, 231, 244, 259, 261, 270 of the village.")
+    assert score_ocr_health(md)["flags"] == []
+
+
+def test_degenerate_sequence_stacks_with_other_flags():
+    h = score_ocr_health(SEQ_MD + " <|content_end|>")
+    assert set(h["flags"]) == {"degenerate-sequence", "token-leak"}
+    assert h["score"] == 100 - 35 - 40
+
+
 # ── per-block health (score_block_health) ───────────────────────────────────
 
 def test_block_health_flags_inline_repetition():
@@ -218,6 +346,13 @@ def test_block_health_clean_text_scores_100():
     h = score_block_health("Place: Chennai\nDate: 07.07.2026")
     assert h["flags"] == []
     assert h["score"] == 100
+
+
+def test_block_health_flags_a_counting_loop():
+    # Per-block scoring points the reviewer at the exact block to re-extract.
+    h = score_block_health(SEQ_MD)
+    assert h["flags"] == ["degenerate-sequence"]
+    assert h["score"] == 100 - 35
 
 
 def test_block_health_token_leak_and_foreign_script():
@@ -239,6 +374,106 @@ def test_block_health_empty_is_unscored():
     assert score_block_health("")["score"] is None
     assert score_block_health(None)["score"] is None
     assert score_block_health("   ")["flags"] == []
+
+
+# ── impossible dates ────────────────────────────────────────────────────────
+# The failure the other checks structurally cannot see: a misread that leaves
+# well-formed output. "30.06.2026" read as "30.00.2026" closes cleanly, has no
+# loop, no leak, no foreign script — health 100 on every check above. A corpus
+# scan found 24 such dates across 10 notices, all sitting at 100.
+
+def test_month_zero_flags():
+    """The reported case: 30.06.2026 read as 30.00.2026."""
+    h = score_ocr_health("Date and Time of Auction Sale 30.00.2026 Time: 1.00 pm")
+    assert "impossible-date" in h["flags"]
+    assert h["details"]["impossible_dates"] == ["30.00.2026"]
+    assert h["score"] == 75
+
+
+def test_month_over_twelve_flags_when_no_ordering_works():
+    for md in ("auction on 30.24.2026", "e-auction 16.67.2025", "dated 07.35.4003"):
+        assert "impossible-date" in score_ocr_health(md)["flags"], md
+
+
+def test_day_over_thirty_one_flags():
+    assert "impossible-date" in score_ocr_health("sale on 94.2.2025")["flags"]
+    assert "impossible-date" in score_ocr_health("sale on 64.11.2024")["flags"]
+
+
+def test_separators_all_recognised():
+    for md in ("on 30.00.2026", "on 30-00-2026", "on 30/00/2026"):
+        assert "impossible-date" in score_ocr_health(md)["flags"], md
+
+
+def test_repeated_bad_date_counts_but_penalises_once():
+    """One misread repeated across a notice is one defect, not many — same
+    invariant the extraction validator holds (one flag per defect kind)."""
+    # Distinct surrounding text per line: the real notice carried the same
+    # misread date down a lot table, and repeating one line verbatim would
+    # trip the repetition detector instead and muddy what this asserts.
+    md = "\n".join(f"Lot {i}: auction 07.35.4003 reserve Rs.{i}0,00,000/-"
+                   for i in range(1, 14))
+    h = score_ocr_health(md)
+    assert h["flags"] == ["impossible-date"]
+    assert h["details"]["impossible_date_count"] == 13
+    assert h["score"] == 75
+
+
+def test_real_dates_do_not_flag():
+    md = ("Last Date of EMD 30.06.2026. Auction 12.06.2026. "
+          "Sale deed dated 29.02.2024 and 31.12.2025.")
+    h = score_ocr_health(md)
+    assert h["flags"] == []
+    assert h["score"] == 100
+
+
+def test_old_deed_years_do_not_flag():
+    """A first pass judged the year too and flagged 54 notices, essentially
+    all of them real: notices cite registration dates going back decades."""
+    md = ("Registered on 07.07.1962, mortgage deed 15.03.1989, "
+          "sale deed 27.12.1991, partition 06.06.1994.")
+    assert score_ocr_health(md)["flags"] == []
+
+
+def test_us_ordered_date_is_recorded_not_flagged():
+    """06.20.2024 fails as dd.mm but reads as June 20 — indistinguishable from
+    a US-ordered source date, so it is counted, never penalised."""
+    h = score_ocr_health("notice dated 06.20.2024")
+    assert h["flags"] == []
+    assert h["score"] == 100
+    assert h["details"]["date_ambiguous_order"] == 1
+
+
+def test_impossible_date_stacks_with_a_structural_flag():
+    h = score_ocr_health("<table><tr><td>auction 30.00.2026</td></tr>")
+    assert set(h["flags"]) == {"truncated", "impossible-date"}
+    assert h["score"] == 45          # 100 - 30 truncated - 25 date
+
+
+def test_score_stays_above_the_reocr_cutoff():
+    """scripts/reocr_low_health_datalab.py selects health < 70. A misread digit
+    is a one-field human fix, not grounds for re-OCRing the whole notice."""
+    assert score_ocr_health("auction 30.00.2026")["score"] > 70
+
+
+def test_block_health_flags_an_impossible_date():
+    """Per-block too, so the annotator can name the block carrying it."""
+    h = score_block_health("Date and Time of Auction Sale 30.00.2026")
+    assert "impossible-date" in h["flags"]
+    assert h["details"]["impossible_dates"] == ["30.00.2026"]
+
+
+def test_block_health_clean_date_does_not_flag():
+    assert score_block_health("Date of Auction Sale 30.06.2026")["flags"] == []
+
+
+def test_flag_is_in_the_canonical_vocabulary():
+    """The review API validates its flag filter against HEALTH_FLAGS, so a flag
+    missing from it is unreachable from the UI."""
+    from pipeline.ocr_health import BLOCK_HEALTH_FLAGS, HEALTH_FLAGS, PENALTY
+    assert "impossible-date" in HEALTH_FLAGS
+    assert "impossible-date" in BLOCK_HEALTH_FLAGS
+    assert "impossible-date" in PENALTY
 
 
 # ── score_freshly_loaded: the live path folds the ink verdict in ─────────────
@@ -375,6 +610,90 @@ def test_no_blocks_or_no_url_means_no_fetch(live):
     OH.score_freshly_loaded([doc["file_path"]])
     assert fetched == []
     assert all(r["flags"] == [] and "ink_scored" not in r for r in written)
+
+
+# ── a re-score that can't see the ink must not erase the ink verdict ────────
+# The regression: `python -m pipeline.ocr_health --force` is a text-only pass,
+# so it wrote score=100/flags=[] over every document an image-fetching pass had
+# flagged `missing-region`. A dry run over the corpus found exactly two such
+# documents, both at 55, and both would have been reset to 100. The same hole
+# was open on the live path whenever the source wouldn't fetch.
+
+def test_text_only_rescore_keeps_a_standing_missing_region_flag():
+    h = score_ocr_health(CLEAN_MD, prior_flags=["missing-region"])
+    assert h["flags"] == ["missing-region"]
+    assert h["score"] == 100 - OH.PENALTY["missing-region"]
+    assert h["details"]["missing_region"] == {"carried_forward": True}
+
+
+def test_carried_flag_stacks_with_freshly_found_text_flags():
+    h = score_ocr_health(CLEAN_MD + " <|content_end|>",
+                         prior_flags=["missing-region"])
+    assert set(h["flags"]) == {"token-leak", "missing-region"}
+    assert h["score"] == 100 - OH.PENALTY["token-leak"] - OH.PENALTY["missing-region"]
+
+
+def test_only_missing_region_is_carried_forward():
+    # Every other flag is derivable from the text, so a stale one must go.
+    h = score_ocr_health(CLEAN_MD, prior_flags=["table-collapse", "repetition"])
+    assert h["flags"] == []
+    assert h["score"] == 100
+
+
+def test_a_measured_clean_page_still_clears_the_flag():
+    # `region` present and scorable = the ink WAS judged, so the fresh reading
+    # wins and the stored flag goes. Carrying forward must not make the flag
+    # permanent.
+    region = {"uncovered_ratio": 0.01, "flag": False, "details": {}}
+    h = score_ocr_health(CLEAN_MD, region=region, prior_flags=["missing-region"])
+    assert h["flags"] == []
+    assert h["score"] == 100
+
+
+def test_an_unscorable_measurement_is_not_a_clean_bill():
+    # Measured but unjudgeable (no image, too little ink, unrenderable PDF)
+    # reads as "don't know", not "fully read".
+    region = {"uncovered_ratio": None, "flag": False, "details": {}}
+    h = score_ocr_health(CLEAN_MD, region=region, prior_flags=["missing-region"])
+    assert h["flags"] == ["missing-region"]
+
+
+def test_live_path_keeps_the_flag_when_the_source_cannot_be_fetched(live):
+    doc, written, _, source = live
+    doc["prior_flags"] = ["missing-region"]
+    source["bytes"] = None                       # R2 down / object gone
+    OH.score_freshly_loaded([doc["file_path"]])
+    row = written[0]
+    assert row["flags"] == ["missing-region"]
+    assert row["score"] == 100 - OH.PENALTY["missing-region"]
+    assert "ink_scored" not in row               # ink fields still untouched
+
+
+def test_live_path_still_clears_the_flag_once_measured(live):
+    """The reviewer covering the column must still clear a carried flag."""
+    doc, written, _, _ = live
+    doc["prior_flags"] = ["missing-region"]
+    doc["blocks_json"] = json.dumps([_block(0.02, 0.05, 0.98, 0.95)])
+    OH.score_freshly_loaded([doc["file_path"]])
+    assert written[0]["flags"] == []
+    assert written[0]["score"] == 100
+
+
+def test_fetch_docs_asks_for_the_stored_flags():
+    # If the query stops returning them the carry-forward silently stops
+    # working, which is the original bug wearing a different hat.
+    seen = {}
+    import pipeline.ocr_health as mod
+    real = mod.run_read_query
+    mod.run_read_query = lambda cypher, params=None, **kw: (
+        seen.update(cypher=cypher) or [])
+    try:
+        mod._fetch_docs(file_paths=None, force=True)
+        assert "d.ocr_health_flags AS prior_flags" in seen["cypher"]
+        mod._fetch_docs(file_paths=["x"], force=True, with_source=True)
+        assert "d.ocr_health_flags AS prior_flags" in seen["cypher"]
+    finally:
+        mod.run_read_query = real
 
 
 def test_text_flags_and_the_ink_flag_stack(live):

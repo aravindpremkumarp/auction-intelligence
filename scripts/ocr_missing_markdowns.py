@@ -23,6 +23,14 @@ with the engine chosen by ``--engine``:
     here, defaulting to ``accurate``. Fast mode on an unclassified batch
     notice collapses its lot table, which is expensive to detect later.
 
+One page is OCR'd once. A portal names each upload with its millisecond, so
+one notice published against six lots arrives as six file names holding
+identical bytes (``pipeline/notice_twins``). Every downloaded file is
+SHA-256'd into ``Document.content_sha256``; a hash some other Document
+already holds markdown for is copied instead of OCR'd, and within one run
+only the first copy of a repeated page is sent to the provider. Nothing is
+overwritten — a copy lands only on a Document whose markdown is still empty.
+
 Idempotent: a re-run skips Documents that now have markdown, and the
 MinerU helpers skip files whose cache file already exists.
 
@@ -54,6 +62,7 @@ from api.neo4j_client import run_query, run_read_query
 from pipeline import datalab_api
 from pipeline.config import DOWNLOADS_DIR
 from pipeline.datalab import parse_datalab_blocks
+from pipeline.ink_fingerprint import content_hash
 from pipeline.load_markdowns_to_neo4j import (
     DEFAULT_MARKDOWN_MODEL,
     DEFAULT_MARKDOWN_SOURCE,
@@ -61,6 +70,7 @@ from pipeline.load_markdowns_to_neo4j import (
     write_markdowns,
 )
 from pipeline.mineru import MINERU_SUPPORTED_EXTS, assemble_markdown
+from pipeline.notice_twins import plan_reuse, source_key
 from pipeline.ocr_health import score_ocr_health
 from scripts.ocr_with_mineru import MINERU_KEY, stage1_mineru
 
@@ -79,9 +89,10 @@ def fetch_missing() -> list[dict]:
           AND d.public_url IS NOT NULL AND d.public_url <> ''
           AND d.filename IS NOT NULL AND d.filename <> ''
           AND d.file_path IS NOT NULL AND d.file_path <> ''
-        RETURN d.filename   AS filename,
-               d.file_path  AS file_path,
-               d.public_url AS public_url
+        RETURN d.filename       AS filename,
+               d.file_path      AS file_path,
+               d.public_url     AS public_url,
+               d.content_sha256 AS content_sha256
         """,
         max_rows=10_000,
     )
@@ -114,6 +125,130 @@ def download_file(url: str, dest: Path, timeout: int = 60) -> bool:
             else:
                 print(f"    [GAVE UP] {url}: {e}")
     return False
+
+
+# ── Same-page reuse ──────────────────────────────────────────────────────────
+# The file is already on disk by the time these run: hashing it is free next to
+# the OCR call the hash may save. See pipeline/notice_twins for why the file
+# bytes are the right key for this pass (and the markdown for extraction's).
+
+def hash_downloaded(docs: list[dict]) -> int:
+    """Stamp ``content_sha256`` on each downloaded doc, in place.
+
+    Returns how many were hashed. A file that cannot be read is left without a
+    hash, which ``plan_reuse`` treats as its own group — it is OCR'd as before.
+    """
+    n = 0
+    for d in docs:
+        if d.get("content_sha256"):
+            continue  # already fingerprinted by an earlier run
+        try:
+            sha = content_hash((DOWNLOAD_TARGET_DIR / d["filename"]).read_bytes())
+        except OSError as e:
+            print(f"    [hash failed] {d['filename']}: {e}")
+            continue
+        if sha:
+            d["content_sha256"] = sha
+            n += 1
+    return n
+
+
+def write_content_hashes(docs: list[dict]) -> int:
+    """Persist the hashes we just took, so the next run groups without reading.
+
+    Also feeds ``scripts/find_duplicate_notices.py --cached``, which reads the
+    same field.
+    """
+    rows = [{"file_path": d["file_path"], "sha": d["content_sha256"]}
+            for d in docs if d.get("content_sha256") and d.get("file_path")]
+    if not rows:
+        return 0
+    for i in range(0, len(rows), 200):
+        run_query(
+            """
+            UNWIND $rows AS row
+            MATCH (d:Document {file_path: row.file_path})
+            SET d.content_sha256   = row.sha,
+                d.fingerprinted_at = coalesce(d.fingerprinted_at, datetime())
+            """,
+            {"rows": rows[i:i + 200]},
+        )
+    return len(rows)
+
+
+def fetch_donors(shas: list[str]) -> dict[str, str]:
+    """``{sha: filename}`` for pages some Document already holds markdown for.
+
+    One donor per hash, chosen by filename so a re-run picks the same one.
+    """
+    if not shas:
+        return {}
+    rows = run_read_query(
+        """
+        UNWIND $shas AS sha
+        MATCH (d:Document {content_sha256: sha})
+        WHERE d.markdown IS NOT NULL AND d.markdown <> ''
+        WITH sha, d ORDER BY d.filename
+        RETURN sha AS sha, collect(d.filename)[0] AS donor
+        """,
+        {"shas": sorted(set(shas))},
+        max_rows=10_000,
+    )
+    return {r["sha"]: r["donor"] for r in rows if r.get("donor")}
+
+
+def copy_markdown(copies: list[dict]) -> int:
+    """Copy a donor's OCR onto same-byte copies that still have none.
+
+    Everything the OCR write path sets travels together — the markdown, the raw
+    artifacts behind it, the block list the annotator edits, and the health
+    score — because a Document holding markdown whose blocks belong to a
+    different pass is worse than one holding nothing. ``markdown_source`` is
+    carried across unchanged (the text really did come from that engine) and
+    ``markdown_reused_from`` records the donor, so a reader can tell a copy from
+    a paid run.
+
+    The ``WHERE`` re-asserts what the caller already promised: a copy never
+    lands on a Document that has markdown of its own.
+    """
+    rows = [c for c in copies if c.get("donor") and c.get("file_path")]
+    if not rows:
+        return 0
+    written = 0
+    for i in range(0, len(rows), 200):
+        res = run_query(
+            """
+            UNWIND $rows AS row
+            MATCH (src:Document {filename: row.donor})
+            WHERE src.markdown IS NOT NULL AND src.markdown <> ''
+            // A filename can still address more than one node until
+            // scripts/dedupe_documents.py --global has run; take one, by a
+            // stable key, so a re-run copies the same text it copied before.
+            WITH row, src ORDER BY src.file_path
+            WITH row, collect(src)[0] AS src
+            MATCH (dst:Document {file_path: row.file_path})
+            WHERE dst.markdown IS NULL OR dst.markdown = ''
+            SET dst.markdown             = src.markdown,
+                dst.markdown_raw         = src.markdown_raw,
+                dst.markdown_raw_at      = src.markdown_raw_at,
+                dst.blocks_raw           = src.blocks_raw,
+                dst.blocks               = src.blocks,
+                dst.blocks_revision      = coalesce(dst.blocks_revision, 0) + 1,
+                dst.markdown_source      = src.markdown_source,
+                dst.markdown_model       = src.markdown_model,
+                dst.markdown_loaded_at   = datetime(),
+                dst.markdown_reused_from = src.filename,
+                dst.ocr_health_score     = src.ocr_health_score,
+                dst.ocr_health_flags     = src.ocr_health_flags,
+                dst.ocr_health_at        = src.ocr_health_at,
+                dst.parse_quality_score  = src.parse_quality_score,
+                dst.parse_quality_at     = src.parse_quality_at
+            RETURN count(dst) AS n
+            """,
+            {"rows": rows[i:i + 200]},
+        )
+        written += (res[0].get("n") or 0) if res else 0
+    return written
 
 
 def build_write_rows(mds: dict[str, str]) -> list[dict]:
@@ -243,8 +378,20 @@ def main() -> int:
         return 0
 
     if args.dry_run:
-        for m in missing:
-            print(f"  {m['filename']}  <- {m['public_url']}")
+        # Reuse is planned off stored hashes here: a dry run downloads nothing,
+        # so a page whose copies have never been fingerprinted still shows as
+        # separate work. The real run hashes as it downloads and finds the rest.
+        known = fetch_donors([m["content_sha256"] for m in missing
+                              if m.get("content_sha256")])
+        to_ocr, copies = plan_reuse(missing, known, key=source_key)
+        leaders = {d["filename"] for d in to_ocr}
+        for m in to_ocr:
+            print(f"  OCR   {m['filename']}  <- {m['public_url']}")
+        for c in copies:
+            via = "this run" if c["donor"] in leaders else "the graph"
+            print(f"  copy  {c['filename']}  <- {c['donor']} ({via})")
+        print(f"\nwould OCR {len(to_ocr)}, copy {len(copies)} "
+              f"(on hashes stored so far)")
         return 0
 
     if args.engine == "mineru" and not MINERU_KEY:
@@ -278,8 +425,35 @@ def main() -> int:
         print("\nNo files available to OCR — nothing to do.")
         return 1
 
+    # ── Stage 0.5: same-page reuse ──────────────────────────────────────────
+    # One notice published against N lots is N file names holding one page.
+    # Hash what we just downloaded, and OCR each distinct page once.
+    print("\n[Stage 0.5] Fingerprinting downloads for same-page reuse")
+    hashed = hash_downloaded(downloaded)
+    stamped = write_content_hashes(downloaded)
+    donors = fetch_donors([d["content_sha256"] for d in downloaded
+                           if d.get("content_sha256")])
+    to_ocr, copies = plan_reuse(downloaded, donors, key=source_key)
+    print(f"  newly hashed={hashed}/{len(downloaded)} stamped={stamped} "
+          f"donors_in_graph={len(donors)}")
+    print(f"  to OCR: {len(to_ocr)}   to copy: {len(copies)} "
+          f"(saves {len(downloaded) - len(to_ocr)} paid job(s))")
+
+    # A copy whose donor already holds markdown can be written now; one whose
+    # donor is a leader in this run has to wait until that leader's OCR lands.
+    leaders = {d["filename"] for d in to_ocr}
+    reuse_now = [c for c in copies if c["donor"] not in leaders]
+    reuse_after = [c for c in copies if c["donor"] in leaders]
+    if reuse_now:
+        n = copy_markdown(reuse_now)
+        print(f"  reused OCR already in the graph for {n} Document(s)")
+
+    if not to_ocr:
+        print("\nEvery downloaded page was already OCR'd — no provider calls made.")
+        return 0
+
     work = [{"filename": m["filename"], "file_path": m["file_path"]}
-            for m in downloaded]
+            for m in to_ocr]
 
     if args.engine == "datalab":
         # ── Stage 1: Datalab OCR (one job per file, N in flight) ────────────
@@ -338,7 +512,13 @@ def main() -> int:
                 write_markdowns(batch, DEFAULT_MARKDOWN_SOURCE, DEFAULT_MARKDOWN_MODEL)
                 print(f"  wrote {min(i + 200, len(rows))} / {len(rows)}", flush=True)
 
-    # ── Stage 3: final tally ────────────────────────────────────────────────
+    # ── Stage 3: hand this run's OCR to the copies of the same page ─────────
+    if reuse_after:
+        n = copy_markdown(reuse_after)
+        print(f"\n[Stage 3] Copied OCR onto {n} / {len(reuse_after)} same-page "
+              f"Document(s)")
+
+    # ── Stage 4: final tally ────────────────────────────────────────────────
     final = run_read_query(
         """
         MATCH (d:Document)

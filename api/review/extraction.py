@@ -30,6 +30,7 @@ from pydantic import BaseModel, Field
 from api.auth.dependencies import get_current_admin
 from api.auth.schemas import UserOut
 from api.neo4j_client import run_query, run_read_query
+from api.review.grounding import ANCHOR_STORED, reanchor
 from api.review.queries import _date_exists_clause, _notice_type_clause
 
 router = APIRouter(prefix="/review/extraction", tags=["review-extraction"])
@@ -43,6 +44,14 @@ class ExtractionField(BaseModel):
     start: int | None = None
     end: int | None = None
     grounded: bool = True
+    # How the span above was arrived at (api/review/grounding.py): 'stored' —
+    # the extraction's own offsets still land on this text; 'relocated' — the
+    # markdown moved and the text was found verbatim elsewhere; 'fuzzy' — a
+    # similarity match, so the OCR itself changed the characters; 'lost' — not
+    # found, span dropped rather than left pointing at the wrong passage;
+    # 'none' — never grounded. Anything but 'stored' is worth showing the
+    # reviewer, since it means the anchor is ours and not the extraction's.
+    anchor: str = "stored"
     lot_index: str | None = None
     attrs: dict = {}
     corrected_value: str | None = None
@@ -418,7 +427,22 @@ def count_extracted_lots(ents: list[dict]) -> int | None:
     return len(idxs) if idxs else 1
 
 
-def _build_fields(extraction_json: str, corrections_json: str) -> list[ExtractionField]:
+def _build_fields(extraction_json: str, corrections_json: str,
+                  markdown: str | None = None,
+                  markdown_changed: bool = False) -> list[ExtractionField]:
+    """Shape stored entities into review fields, re-anchored against ``markdown``.
+
+    ``markdown`` is the document's CURRENT text. The stored offsets were taken
+    against whatever it was when langextract ran, so they are re-verified here
+    and re-found when they no longer land (api/review/grounding.py). Passing
+    None keeps the stored spans untouched — see ``reanchor``.
+
+    ``markdown_changed`` is this document's ``stale`` verdict — the markdown was
+    rewritten after the extraction ran. It is the difference between "this span
+    is approximate" (keep it) and "this span describes a string that no longer
+    exists" (drop it), so the two must be read from the same source; see the
+    grounding module docstring.
+    """
     try:
         ents = json.loads(extraction_json or "[]")
     except json.JSONDecodeError:
@@ -427,6 +451,9 @@ def _build_fields(extraction_json: str, corrections_json: str) -> list[Extractio
         corr = json.loads(corrections_json or "{}")
     except json.JSONDecodeError:
         corr = {}
+    if not isinstance(ents, list):
+        ents = []
+    ents, _ = reanchor(ents, markdown, markdown_changed=markdown_changed)
     out: list[ExtractionField] = []
     for i, e in enumerate(ents):
         fid = e.get("id") or str(i)
@@ -435,7 +462,12 @@ def _build_fields(extraction_json: str, corrections_json: str) -> list[Extractio
         out.append(ExtractionField(
             id=fid, cls=e.get("cls", ""), text=e.get("text", ""),
             start=e.get("start"), end=e.get("end"),
+            # Grounded means "we can point at it in the text on screen now",
+            # not "the extractor once returned an offset" — a lost anchor has
+            # to read as ungrounded or the UI keeps promising evidence it can
+            # no longer show.
             grounded=e.get("start") is not None,
+            anchor=e.get("anchor", ANCHOR_STORED),
             lot_index=attrs.get("lot_index"),
             attrs={k: v for k, v in attrs.items() if k != "lot_index"},
             corrected_value=c.get("value"), corrected_by=c.get("by"),
@@ -588,6 +620,11 @@ def extraction_queue(
         extracted = count_extracted_lots(ents)
         out.append(ExtractionQueueRow(
             filename=r["filename"], status=r["status"], n_fields=len(ents),
+            # As-extracted, deliberately NOT re-anchored: this is a list query,
+            # and re-anchoring means holding every row's markdown in memory to
+            # answer one integer. The count the reviewer acts on is the
+            # detail view's, which is re-anchored; the queue's signal that the
+            # two can disagree is `stale` on the same row.
             n_ungrounded=sum(1 for e in ents if e.get("start") is None),
             score=int(s) if s is not None else None,
             extraction_at=r.get("extraction_at"),
@@ -619,17 +656,19 @@ def extraction_detail(
     if row is None:
         raise HTTPException(status_code=404, detail="extraction not found")
     running, error = _rerun_state(filename)
+    stale = extraction_stale(row.get("markdown_reextracted_at"),
+                             row.get("markdown_loaded_at"),
+                             row.get("extraction_at"))
     return ExtractionReviewOut(
         filename=row["filename"], markdown=row.get("markdown"),
         status=row.get("status", "pending"), score=row.get("score"),
         verified_by=row.get("verified_by"), verified_at=row.get("verified_at"),
         public_url=row.get("public_url"), doc_type=row.get("doc_type"),
         content_type=row.get("content_type"),
-        stale=extraction_stale(row.get("markdown_reextracted_at"),
-                               row.get("markdown_loaded_at"),
-                               row.get("extraction_at")),
+        stale=stale,
         rerun_running=running, rerun_error=error,
-        fields=_build_fields(row["extraction_json"], row["corrections_json"]),
+        fields=_build_fields(row["extraction_json"], row["corrections_json"],
+                             row.get("markdown"), stale),
     )
 
 

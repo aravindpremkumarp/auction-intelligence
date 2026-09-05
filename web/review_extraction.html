@@ -80,7 +80,24 @@
  .fld .c{font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px}
  .fld textarea{width:100%;box-sizing:border-box;border:1px solid #cbd5e1;border-radius:6px;padding:5px 7px;font-size:13px;font-family:inherit;line-height:1.4;white-space:pre-wrap;overflow-wrap:anywhere;resize:vertical;min-height:30px;overflow:hidden;display:block}
  .fld .save{margin-top:5px;font-size:12px;padding:3px 9px}
+ .fld .snip{display:inline-block;border-radius:3px;padding:0 3px;margin-bottom:4px}
+ /* rendered field value (item 4): extracted values that carry markup — the OCR
+    <table> blocks inside full_description above all — show as a real table
+    instead of raw HTML source. ✎ edit swaps this for the textarea. */
+ .fld .modebtn{float:right;font-size:10px;padding:1px 7px;border-radius:6px;line-height:1.5;color:#334155}
+ .fld .prev{border:1px solid #cbd5e1;border-radius:6px;padding:6px 8px;font-size:13px;line-height:1.45;background:#fff;max-height:360px;overflow:auto;overflow-wrap:anywhere}
+ .fld .prev table{width:100%;border-collapse:collapse;margin:6px 0;font-size:12px}
+ .fld .prev th,.fld .prev td{border:1px solid #cbd5e1;padding:4px 6px;text-align:left;vertical-align:top}
+ .fld .prev th{background:#f1f5f9;font-weight:600}
+ .fld .prev p{margin:4px 0}.fld .prev p:first-child{margin-top:0}.fld .prev p:last-child{margin-bottom:0}
+ .fld .prev ul,.fld .prev ol{margin:4px 0 4px 18px;padding:0}
+ .fld .prev img{max-width:100%;height:auto}
  .ung{background:#fee2e2;color:#991b1b;border-radius:8px;padding:0 6px;font-size:10px;font-weight:700}
+ /* The span under this field was re-found by us, not returned by the
+    extraction (api/review/grounding.py). Amber, not red: the value is sound,
+    only its location is a reconstruction — and a fuzzy one is the reviewer's
+    to sanity-check. */
+ .anch{background:#fef3c7;color:#92400e;border-radius:8px;padding:0 6px;font-size:10px;font-weight:700}
  .corr{color:#16a34a;font-size:11px;margin-top:3px}
  mark{border-radius:3px;padding:0 1px}
  #msg{font-size:12px;color:#64748b}
@@ -327,7 +344,7 @@ async function loadDoc(fn,el){
   [...document.querySelectorAll(".nav")].forEach(n=>n.classList.remove("active"));if(el)el.classList.add("active");
   const r=await api("/review/extraction/"+encodeURIComponent(fn));
   if(!r.ok){setMsg("load failed "+r.status);return;}
-  CUR=await r.json();curFid=null;render();
+  CUR=await r.json();curFid=null;EDITING.clear();render();
   document.getElementById("src").scrollTop=0;document.getElementById("fields").scrollTop=0;
 }
 function render(){
@@ -367,22 +384,40 @@ function render(){
   srcEl.classList.toggle("rendered",rendered);
   srcEl.innerHTML=srcHtml(md,use,rendered);
   if(rendered)renderMathIn(srcEl); // KaTeX on the live DOM, after sanitize+innerHTML
-  // editable fields — <textarea> (not <input>) so long values wrap and autosize
+  // editable fields — a value carrying markup (the OCR <table> inside
+  // full_description) renders as a table; ✎ edit swaps in the <textarea>
+  // (not <input>) so long values wrap and autosize.
   let f="";
   d.fields.forEach(fl=>{
     const ung=fl.grounded?"":" <span class=ung>UNGROUNDED</span>";
+    // 'stored' = the extraction's own offsets still land on this text, which
+    // is the normal case and needs no badge. Anything else means the markdown
+    // moved since the extraction ran and we re-found the span — say so, rather
+    // than let a reconstructed anchor pass as the extractor's own.
+    const ANCH={relocated:["RE-ANCHORED","the markdown moved since this was extracted; this text was found again verbatim"],
+                fuzzy:["FUZZY ANCHOR","matched on similarity, not an exact match — the OCR changed these characters, so check the highlight"],
+                lost:["ANCHOR LOST","this text is no longer in the markdown, so the span was dropped rather than left pointing at the wrong passage"]};
+    const a=ANCH[fl.anchor];
+    const anch=a?` <span class=anch title="${a[1]}">${a[0]}</span>`:"";
     const attrs=Object.entries(fl.attrs).map(([k,v])=>`<b>${esc(k)}</b>: ${esc(String(v))}`).join(" · ");
-    const val=esc(fl.corrected_value!=null?fl.corrected_value:fl.text);
-    f+=`<div class="fld" id="fld_${fl.id}" data-fid="${fl.id}"><div class="c">${fl.cls}${fl.lot_index?(" · lot "+fl.lot_index):""}${ung}</div>
-      <div style="background:${COLORS[fl.cls]||'#f1f5f9'};display:inline-block;border-radius:3px;padding:0 3px;margin-bottom:4px">${esc(fl.text.slice(0,90))}</div>
+    const raw=fl.corrected_value!=null?fl.corrected_value:fl.text;
+    // String(): fids ride through the onclick attribute as strings, so the set is
+    // keyed on strings too (an id can come back from the API as a number).
+    const rich=isRich(raw),editing=!rich||EDITING.has(String(fl.id));
+    f+=`<div class="fld" id="fld_${fl.id}" data-fid="${fl.id}"><div class="c">${fl.cls}${fl.lot_index?(" · lot "+fl.lot_index):""}${ung}${anch}${
+        rich?`<button class="modebtn" onclick="toggleFieldMode('${fl.id}')" title="${editing?"show the value as a rendered table":"edit the raw value"}">${editing?"⊞ table":"✎ edit"}</button>`:""}</div>
+      <div class="snip" style="background:${COLORS[fl.cls]||'#f1f5f9'}">${esc(snippet(fl.text))}</div>
       ${attrs?`<div style="color:#334155;font-size:12px;margin-bottom:4px">${attrs}</div>`:""}
-      <textarea id="in_${fl.id}" rows="1">${val}</textarea>
-      <button class="save" onclick="saveField('${fl.id}')">Save correction</button>
+      ${editing
+        ?`<textarea id="in_${fl.id}" rows="1">${esc(raw)}</textarea>
+      <button class="save" onclick="saveField('${fl.id}')">Save correction</button>`
+        :`<div class="prev" id="pv_${fl.id}">${richHtml(raw)}</div>`}
       ${fl.corrected_value!=null?`<div class=corr>✓ corrected by ${esc(fl.corrected_by||"")}</div>`:""}
     </div>`;
   });
   fldEl.innerHTML=f;
   fldEl.querySelectorAll("textarea").forEach(autosize);
+  renderMathIn(fldEl); // KaTeX in the rendered field values, same as the source pane
   srcEl.scrollTop=st[0];fldEl.scrollTop=st[1];
   // re-apply the active pair (no scrolling) so corrections don't lose your place
   if(curFid!=null&&document.getElementById("fld_"+curFid))setCur(curFid,{});
@@ -425,6 +460,41 @@ function srcHtml(md,use,rendered){
   for(const x of use){out+=esc(md.slice(pos,x.s));
     out+=`<mark data-fid="${x.id}" style="background:${COLORS[x.c]||'#e2e8f0'}" title="${x.c}">${esc(md.slice(x.s,x.e))}</mark>`;pos=x.e;}
   return out+esc(md.slice(pos));
+}
+// ── rendered field values (item 4) ───────────────────────────────────────────
+// Extracted values often carry the OCR's own markup — a whole <table> inside a
+// full_description, <br>/<b> inside a schedule. Showing that as raw source makes
+// the card unreadable, so a value with markup renders (marked + DOMPurify, the
+// same pair the source pane uses) and the ✎ edit button swaps back to the raw
+// textarea for corrections. Plain values are untouched: textarea as before.
+// EDITING = fids the reviewer put into edit mode; cleared when the doc changes.
+const EDITING=new Set();
+const RICH_TAG=/<(table|thead|tbody|tr|t[dh]|ul|ol|li|br|b|i|em|strong|p|h[1-6]|sup|sub)\b/i;
+// markdown pipe table: two "|…|" lines in a row (a header plus its separator/body)
+const RICH_MD=/^[^\n]*\|[^\n]*\|[^\n]*\n[^\n]*\|/m;
+function isRich(v){v=String(v||"");return RICH_TAG.test(v)||RICH_MD.test(v);}
+// Render one value. Falls back to escaped text (newlines kept) when marked or
+// DOMPurify didn't load — same defensive stance as srcHtml().
+function richHtml(v){
+  v=String(v||"");
+  if(!window.marked||!window.DOMPurify)return esc(v).split("\n").join("<br>");
+  try{return window.DOMPurify.sanitize(window.marked.parse(v,{gfm:true,breaks:true}));}
+  catch(_){return esc(v).split("\n").join("<br>");}
+}
+// The colour chip above the editor is a glance-level label, so strip markup and
+// collapse whitespace — "<table><tr><th>S.No." tells a reviewer nothing.
+function snippet(t){
+  t=String(t||"");
+  if(isRich(t))t=t.replace(/<[^>]*>/g," ");
+  t=t.replace(/\s+/g," ").trim();
+  return t.length>90?t.slice(0,90)+"…":t;
+}
+function toggleFieldMode(fid){
+  fid=String(fid);
+  if(EDITING.has(fid))EDITING.delete(fid);else EDITING.add(fid);
+  render();
+  const ta=document.getElementById("in_"+fid);
+  if(ta){autosize(ta);ta.focus();}
 }
 // KaTeX pass over the live rendered markdown (review.html idiom). Runs after
 // sanitize+innerHTML on the DOM element; walks text nodes only so it recurses
@@ -643,7 +713,8 @@ async function saveField(id){
   const v=document.getElementById("in_"+id).value;
   const r=await api(`/review/extraction/${encodeURIComponent(CUR.filename)}/field`,
     {method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({field_id:id,value:v})});
-  if(r.ok){CUR=await r.json();render();setMsg("saved");}else setMsg("save failed "+r.status);
+  // back to the rendered view on success, so the saved value is shown as a table
+  if(r.ok){CUR=await r.json();EDITING.delete(String(id));render();setMsg("saved");}else setMsg("save failed "+r.status);
 }
 async function doVerify(){
   const r=await api(`/review/extraction/${encodeURIComponent(CUR.filename)}/verify`,

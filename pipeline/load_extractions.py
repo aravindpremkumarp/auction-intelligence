@@ -14,6 +14,19 @@ routing config is env/code state that is not recoverable after the fact.
 Idempotent-ish: by default skips Documents that already have extraction_json
 (use --force to re-extract). Review state (corrections / verified) is preserved.
 
+One page is extracted once. A notice published against six lots is stored as six
+Documents holding the same markdown (see pipeline/notice_twins), so Documents
+are grouped by their markdown before any model call: one call per distinct text,
+its result written to every copy, and a group whose text another Document has
+already extracted is copied rather than re-run. Grouping on the markdown — not
+on the file bytes — is what makes the copy safe: extraction offsets are
+positions in that exact string.
+
+Sharing also improves the extraction it saves. The portal roster handed to the
+model is built per Document, and each copy links one auction, so every copy used
+to tell the model to find one lot on a page advertising six. A group sends the
+union of its members' rosters.
+
 Documents are extracted concurrently (--workers, default 8) — each one is a
 single multi-minute model call, so a serial run over the full corpus is days of
 wall time.
@@ -32,6 +45,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from api.neo4j_client import run_query, run_read_query
 from pipeline.extract_routing import select_extract_model
+from pipeline.notice_twins import group_twins, merge_rosters, text_key
 from pipeline.validators import normalize_identifier_kind, validate
 
 # Documents run concurrently (see run()). Sized for a provider rate limit, not
@@ -110,6 +124,67 @@ _CLASS_ALIASES = {
     "borower": "borrower",
 }
 
+def _find_donor(md: str) -> dict | None:
+    """A Document already holding an extraction of exactly this markdown.
+
+    Equality on the whole string, not a hash: the offsets in the extraction we
+    would copy are positions in it, so "close enough" has no meaning here. The
+    scan is over a corpus of a few thousand notices and buys a multi-minute
+    model call, so it pays for itself many times over.
+
+    Ordered by filename so repeated runs settle on the same donor.
+
+    The length test in front of the equality is what keeps this cheap: it throws
+    out all but the handful of notices that could possibly match before any
+    string is compared, so the scan costs milliseconds per group rather than a
+    full-corpus comparison.
+    """
+    rows = run_read_query(
+        "MATCH (d:Document) "
+        "WHERE d.extraction_json IS NOT NULL "
+        "  AND size(d.markdown) = $len AND d.markdown = $md "
+        "RETURN d.filename AS filename, d.extraction_json AS j, "
+        "       d.extraction_score AS score, d.extraction_model AS model "
+        "ORDER BY d.filename LIMIT 1",
+        {"md": md, "len": len(md)}, max_rows=1, timeout=120.0)
+    return rows[0] if rows else None
+
+
+def _copy_extraction(donor: dict, targets: list[str], batch: int) -> int:
+    """Give the copies of one page the extraction that page already has.
+
+    ``extraction_model`` keeps the donor's value — the model that produced these
+    fields is a fact about them, not about this run — while
+    ``extraction_reused_from`` records where they came from, so a reader can tell
+    a copy from a paid call. The batch number is this run's, because the batch is
+    what the review queue filters on.
+
+    The ``WHERE`` refuses to land on a Document that already has an extraction:
+    ``extraction_corrections_json`` is keyed by field id, and replacing the
+    fields under a reviewer's corrections would re-point every one of them.
+    """
+    if not targets:
+        return 0
+    rows = run_query(
+        """
+        UNWIND $fns AS fn
+        MATCH (d:Document {filename: fn})
+        WHERE d.extraction_json IS NULL
+        SET d.extraction_json  = $j,
+            d.extraction_score = $score,
+            d.extraction_at    = datetime(),
+            d.extraction_batch = $batch,
+            d.extraction_model = $model,
+            d.extraction_reused_from = $donor,
+            d.extraction_review_status =
+                coalesce(d.extraction_review_status, 'pending')
+        RETURN count(d) AS n
+        """,
+        {"fns": targets, "j": donor["j"], "score": donor.get("score"),
+         "batch": batch, "model": donor.get("model"),
+         "donor": donor["filename"]})
+    return (rows[0].get("n") or 0) if rows else 0
+
 
 def _entities(res) -> list[dict]:
     out = []
@@ -175,14 +250,22 @@ def _effective_model(model_id: str | None, route: bool) -> str:
 
 
 def _extract_one(d: dict, batch: int, route: bool, LX) -> tuple[bool, str | None, str]:
-    """Extract + persist one Document. Returns (ok, model_id, log_line).
+    """Extract one page + persist it to every Document holding that page.
 
-    Runs on a worker thread: every document is independent (its own model call
-    and its own single-row write), and `api.neo4j_client` hands out a fresh
-    session per `run_query`, so nothing is shared but the driver — which the
-    Neo4j driver documents as thread-safe.
+    Returns (ok, model_id, log_line).
+
+    ``d`` is a group leader from ``run()``: its ``roster`` is the union of the
+    group's rosters and its ``twins`` lists every filename the result belongs to
+    (itself first). The write is one statement over that list — the copies hold
+    the same markdown, so the offsets in the result are valid in each of them.
+
+    Runs on a worker thread: every group is independent (its own model call and
+    its own write), and `api.neo4j_client` hands out a fresh session per
+    `run_query`, so nothing is shared but the driver — which the Neo4j driver
+    documents as thread-safe.
     """
     fn = d["filename"]
+    targets = d.get("twins") or [fn]
     if route:
         model_id, reasoning_off = select_extract_model(d.get("notice_type"))
     else:
@@ -200,20 +283,51 @@ def _extract_one(d: dict, batch: int, route: bool, LX) -> tuple[bool, str | None
     score = validate(res.extractions, source_text=d["md"])["score"]
     run_query(
         """
-        MATCH (d:Document {filename:$fn})
+        UNWIND $fns AS fn
+        MATCH (d:Document {filename: fn})
         SET d.extraction_json = $j,
             d.extraction_score = $score,
             d.extraction_at    = datetime(),
             d.extraction_batch = $batch,
             d.extraction_model = $model,
+            d.extraction_reused_from = CASE WHEN fn = $fn THEN NULL ELSE $fn END,
             d.extraction_review_status =
                 coalesce(d.extraction_review_status, 'pending')
         RETURN d.filename
         """,
-        {"fn": fn, "j": json.dumps(ents, ensure_ascii=False),
+        {"fn": fn, "fns": targets, "j": json.dumps(ents, ensure_ascii=False),
          "score": score, "batch": batch, "model": effective_model})
+    shared = "" if len(targets) == 1 else f", shared with {len(targets) - 1} copy/ies"
     return True, model_id, (f"{fn}: {len(ents)} fields, score={score}, "
-                            f"model={effective_model}")
+                            f"model={effective_model}{shared}")
+
+
+def _plan_groups(docs: list[dict], *, force: bool,
+                 batch: int) -> tuple[list[dict], int]:
+    """Collapse the batch to one leader per distinct page.
+
+    Returns ``(leaders, reused)``. Each leader carries ``twins`` (every filename
+    its result is written to, itself first) and a ``roster`` merged across the
+    group. A group whose markdown another Document has already extracted is
+    served from that donor and drops out of ``leaders`` entirely — no model call.
+
+    ``--force`` skips the donor lookup by design: it means "run the model again",
+    and a copy of a previous run is the opposite of that. Grouping still applies,
+    so a forced re-run of a six-copy notice costs one call, not six.
+    """
+    leaders: list[dict] = []
+    reused = 0
+    for group in group_twins(docs, key=text_key):
+        leader = dict(group[0])
+        leader["twins"] = [d["filename"] for d in group]
+        leader["roster"] = merge_rosters(group)
+        if not force:
+            donor = _find_donor(leader["md"])
+            if donor and donor["filename"] not in leader["twins"]:
+                reused += _copy_extraction(donor, leader["twins"], batch)
+                continue
+        leaders.append(leader)
+    return leaders, reused
 
 
 def run(limit: int | None, force: bool, filename: str | None,
@@ -225,13 +339,20 @@ def run(limit: int | None, force: bool, filename: str | None,
         print("done — wrote 0, failed 0")
         return 0
     batch = _next_batch()
+    docs, reused = _plan_groups(docs, force=force, batch=batch)
+    if reused:
+        print(f"reused an existing extraction for {reused} document(s)")
+    if not docs:
+        print(f"done — wrote 0, failed 0, reused {reused} (batch B{batch})")
+        return 0
+    print(f"distinct pages to extract: {len(docs)}")
     workers = max(1, min(workers, len(docs)))
     print(f"batch B{batch} — {workers} worker(s)")
     # Per-notice-type model routing applies on the OpenRouter path only; the
     # gemini-direct path keeps its single env-configured model.
     route = os.environ.get("LANGEXTRACT_PROVIDER", "openrouter").lower() == "openrouter"
     model_counts: Counter = Counter()
-    ok = fail = done = 0
+    ok = fail = done = covered = 0
     # Documents are extracted concurrently because each one is a single
     # multi-minute model call and LangExtract's own max_workers only splits a
     # document across windows — and char_buffer_for sizes the window to the whole
@@ -251,6 +372,7 @@ def run(limit: int | None, force: bool, filename: str | None,
                 done += 1
                 if good:
                     ok += 1
+                    covered += len(d.get("twins") or [d["filename"]])
                 else:
                     fail += 1
                 model_counts[model_id or "default"] += 1
@@ -258,7 +380,8 @@ def run(limit: int | None, force: bool, filename: str | None,
     if route:
         routing = "  ".join(f"{m}={n}" for m, n in sorted(model_counts.items()))
         print(f"model routing: {routing}")
-    print(f"done — wrote {ok}, failed {fail} (batch B{batch})")
+    print(f"done — extracted {ok} page(s), failed {fail}, "
+          f"covering {covered} document(s), reused {reused} (batch B{batch})")
     return 0
 
 

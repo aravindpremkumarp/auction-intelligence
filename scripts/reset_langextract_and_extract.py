@@ -35,6 +35,14 @@ A re-extraction always returns the notice to `extraction_review_status =
 'pending'` and drops `extraction_verified_by/at`: the entities a reviewer
 verified are gone, so their verdict cannot stand over the new ones.
 
+One page is extracted once. A notice published against several lots is stored as
+several :Documents holding the same markdown, so they are grouped before any
+model call (pipeline/notice_twins): one call per distinct text, the union of the
+group's portal rosters passed to it, and the result written to every copy. In
+the default resume mode a page another Document has already extracted is copied
+rather than re-run; --no-resume and --stale turn that off, because re-running
+the model is exactly what they are for.
+
 Each document is written the moment its extraction returns, so a run that is
 interrupted leaves every completed notice persisted. Re-running with --resume
 (the default) skips any :Document that already has extraction_json, so an
@@ -62,7 +70,12 @@ from datetime import datetime, timezone
 
 from api.neo4j_client import run_query, run_read_query
 from pipeline.extract_routing import select_extract_model
-from pipeline.load_extractions import ROSTER_CYPHER, _entities, _next_batch
+from pipeline.load_extractions import (
+    ROSTER_CYPHER,
+    _entities,
+    _next_batch,
+    _plan_groups,
+)
 from pipeline.validators import validate
 
 # Every LangExtract-owned field on :Document. Clearing these returns a notice to
@@ -231,11 +244,17 @@ def select_refresh_docs(min_ocr: int, min_score: int, single_lot: bool,
 
 
 def _extract_one(d: dict, batch: int, route: bool):
-    """Extract + write one document. Returns (filename, n_entities, model_id) on
+    """Extract + write one page. Returns (filename, n_entities, model_id) on
     success or raises. Safe to call from a worker thread: LX.extract builds its
-    own provider client per call and each write is an independent HTTP request."""
+    own provider client per call and each write is an independent HTTP request.
+
+    ``d`` may be a group leader from ``_plan_groups`` — one notice stored under
+    several file names — in which case ``twins`` lists every Document the result
+    is written to. They hold the same markdown, so the offsets in the entities
+    are valid in each."""
     from pipeline import langextract_examples as LX  # heavy import, defer
     fn = d["filename"]
+    targets = d.get("twins") or [fn]
     if route:
         model_id, reasoning_off = select_extract_model(d.get("notice_type"))
     else:
@@ -257,7 +276,8 @@ def _extract_one(d: dict, batch: int, route: bool):
     score = validate(res.extractions, source_text=d["md"])["score"]
     run_query(
         """
-        MATCH (d:Document {filename:$fn})
+        UNWIND $fns AS name
+        MATCH (d:Document {filename: name})
         SET d.extraction_json = $j,
             d.extraction_score = $score,
             d.extraction_at    = datetime(),
@@ -270,6 +290,8 @@ def _extract_one(d: dict, batch: int, route: bool):
             // notice as done when it is not. Back to 'pending' — the queue is
             // longer, and it is true.
             d.extraction_review_status = 'pending',
+            d.extraction_reused_from =
+                CASE WHEN name = $fn THEN NULL ELSE $fn END,
             // Fresh entities now reflect the current markdown, so the staleness
             // marker fix_missing_regions left behind is cleared here — the flag
             // must not outlive the condition it describes.
@@ -277,25 +299,41 @@ def _extract_one(d: dict, batch: int, route: bool):
         REMOVE d.extraction_verified_by, d.extraction_verified_at
         RETURN d.filename
         """,
-        {"fn": fn, "j": json.dumps(ents, ensure_ascii=False),
+        {"fn": fn, "fns": targets, "j": json.dumps(ents, ensure_ascii=False),
          "score": score, "batch": batch})
     return fn, len(ents), model_id or "default"
 
 
-def extract_docs(docs: list[dict], concurrency: int = 1) -> int:
-    """Extract each doc and write it as soon as it returns. Mirrors the write in
+def extract_docs(docs: list[dict], concurrency: int = 1,
+                 reuse: bool = True) -> int:
+    """Extract each page and write it as soon as it returns. Mirrors the write in
     pipeline.load_extractions.run so the review surface reads it unchanged.
 
     `concurrency` documents are processed in parallel (one worker thread each);
     every completed notice is persisted immediately, so an interrupted run keeps
-    all finished work and --resume continues from there."""
+    all finished work and --resume continues from there.
+
+    Documents holding the same markdown are one page under several file names
+    (pipeline/notice_twins): they are extracted once, with the union of their
+    portal rosters, and the result written to each. With `reuse` a page some
+    other Document has already extracted is copied instead of re-run — turned
+    off for --no-resume and --stale, where re-running the model is the point.
+    """
     if not docs:
         print("nothing to extract")
         return 0
     batch = _next_batch()
+    docs, reused = _plan_groups(docs, force=not reuse, batch=batch)
+    if reused:
+        print(f"reused an existing extraction for {reused} document(s)")
+    if not docs:
+        print(f"nothing left to extract (batch B{batch})")
+        return 0
     route = os.environ.get("LANGEXTRACT_PROVIDER", "openrouter").lower() == "openrouter"
     total = len(docs)
-    print(f"batch B{batch} — extracting {total} document(s), concurrency={concurrency}")
+    covered = sum(len(d.get("twins") or [d["filename"]]) for d in docs)
+    print(f"batch B{batch} — extracting {total} page(s) covering {covered} "
+          f"document(s), concurrency={concurrency}")
     model_counts: Counter = Counter()
     lock = threading.Lock()
     ok = fail = 0
@@ -411,7 +449,11 @@ def main() -> int:
               f"resume={not args.no_resume})")
     if args.count_only:
         return 0
-    return extract_docs(docs, concurrency=max(1, args.concurrency))
+    # --stale and --no-resume both mean "run the model again", so neither may be
+    # served a copy of an earlier extraction — but both still extract each page
+    # once rather than once per file name.
+    return extract_docs(docs, concurrency=max(1, args.concurrency),
+                        reuse=not (args.stale or args.no_resume))
 
 
 if __name__ == "__main__":

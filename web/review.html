@@ -536,6 +536,14 @@
   .ink-note { font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #777; margin-top: 6px; }
   .ann-pane > #ann-md-body { max-height: none; padding: 0 2px; }
   .ann-banner { background: var(--accent); border: 1.5px solid var(--ink); padding: 8px 10px; margin-bottom: 10px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; }
+  /* Warning variant: the blocks and the stored markdown disagree. Distinct
+     from the accent banners, which are all "here is a thing you set up". */
+  .ann-banner.warn { background: #fdeceb; border-color: var(--danger); }
+  .ann-banner.warn b { color: var(--danger); }
+  /* Same warning, restated inside the Markdown pane — the tab a reviewer is
+     actually looking at when the stale text confuses them. */
+  .ann-md-stale { background: #fdeceb; border: 1.5px solid var(--danger); padding: 7px 9px; margin-bottom: 9px; font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; line-height: 1.45; white-space: normal; }
+  .ann-md-stale b { color: var(--danger); }
   .ann-row { border: 1.5px solid var(--ink); background: var(--paper); padding: 8px; margin-bottom: 8px; }
   .ann-row.selected { background: #fff8d4; box-shadow: inset 0 0 0 2px var(--danger); }
   .ann-row .ann-row-top { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; flex-wrap: wrap; }
@@ -785,6 +793,8 @@
                   title="ink on the page that no parsed block covers — content we never read">missing region</button>
           <button class="pill" data-flag="table-collapse"
                   title="the whole notice read as one giant table">table collapse</button>
+          <button class="pill" data-flag="degenerate-sequence"
+                  title="a counting loop — a run of bare numbers (26, 27, 28 … 100) written in place of the real text">counting loop</button>
           <button class="pill" data-flag="truncated"
                   title="generation stopped mid-structure">truncated</button>
           <button class="pill" data-flag="repetition"
@@ -793,6 +803,8 @@
                   title="raw model control tokens leaked into the text">token leak</button>
           <button class="pill" data-flag="foreign-script"
                   title="hallucinated CJK/Cyrillic/etc. in a Tamil Nadu notice">foreign script</button>
+          <button class="pill" data-flag="impossible-date"
+                  title="a date that cannot be one under any reading — month 00 or over 12, day 00 or over 31 (30.06.2026 misread as 30.00.2026). The only check here that reads a value rather than a shape.">impossible date</button>
         </span>
         <button id="flag-clear" class="ghost" title="show all notices again">clear</button>
       </span>
@@ -985,7 +997,7 @@
       </span>
       <label class="meta" id="ann-engine-wrap" title="OCR engine for BOTH Re-ingest and re-extracting a drawn block. Datalab is the default (faster, cleaner on raster notices, and it decomposes a fully-ruled notice into separate blocks); MinerU segments dense multi-lot notices into finer blocks but reads a fully-ruled notice as one giant table.">engine <select class="page-select" id="ann-engine"><option value="datalab">Datalab</option><option value="mineru">MinerU</option></select></label>
       <button id="ann-reingest-btn" class="ghost" title="re-run layout extraction with the engine picked on the left (applies saved rotation + crop / regions; regions win over a single crop)">Re-ingest</button>
-      <button id="ann-fix-flagged" class="ghost" title="re-run extraction on every block flagged with an OCR artifact (repetition / token-leak / foreign-script) in this notice" style="display:none;background:#fde7e7;border-color:#dc2626;color:#991b1b"></button>
+      <button id="ann-fix-flagged" class="ghost" title="re-run extraction on every block flagged with an OCR artifact (repetition / token-leak / foreign-script / counting loop) in this notice" style="display:none;background:#fde7e7;border-color:#dc2626;color:#991b1b"></button>
       <button id="ann-reload" class="ghost">Reload</button>
       <a class="link" id="ann-open-src" target="_blank" rel="noopener" style="display:none">open source ↗</a>
     </div>
@@ -1001,7 +1013,7 @@
         <div class="ann-tabs" id="ann-tabs">
           <button class="ann-tab on" data-ann-tab="blocks">Blocks</button>
           <button class="ann-tab" data-ann-tab="markdown"
-                  title="markdown regenerated from the blocks">Markdown</button>
+                  title="the notice's STORED markdown — the exact string extraction reads and highlight offsets point into. Editing blocks rewrites it from the block list, and so does a re-ingest; a Datalab block backfill does not, and then this text is older than the blocks (you get a warning when that is the case).">Markdown</button>
           <button class="ann-tab" data-ann-tab="ink"
                   title="ink coverage: green = ink a block covers, red = ink no block covers. The red is what the missing-region flag is scored on.">Ink</button>
           <span class="md-toggle" id="ann-md-toggle" hidden>
@@ -2350,7 +2362,8 @@
 
   // The markdown stage's single score: the intrinsic OCR-health verdict
   // (pipeline/ocr_health.py), 0–100, colored by band, with any failure-mode
-  // flags (repetition / truncated / foreign-script / table-collapse) inline.
+  // flags (repetition / truncated / foreign-script / table-collapse /
+  // degenerate-sequence) inline.
   // This judges the image→markdown step itself — unlike the old coverage
   // score, it stays low when a notice collapses into one table.
   function healthPill(row) {
@@ -2769,6 +2782,7 @@
         <input type="text" class="cnotes" placeholder="notes (optional)">
         <button class="primary" data-act="confirm">Confirm as ${escapeHtml(n.notice_type || 'single')}</button>
         <button class="" data-act="flip">Flip to ${escapeHtml(altType)}</button>
+        ${n.verified ? '<button class="ghost" data-act="unverify" title="clear the sign-off and send this notice back to the pending queue">Undo verify</button>' : ''}
       </div>
       ${verifiedFooter}
     `;
@@ -2783,18 +2797,34 @@
     right.querySelector('button[data-act="flip"]').addEventListener('click', () =>
       submitClassification(card, filenameForApi, altType, right.querySelector('.cnotes').value || null,
                            readLotCount(right, altType)));
+    const undoBtn = right.querySelector('button[data-act="unverify"]');
+    if (undoBtn) undoBtn.addEventListener('click', async () => {
+      const buttons = $$('button', card);
+      buttons.forEach(b => b.disabled = true);
+      const ok = await unverifyClassification(filenameForApi);
+      if (ok) loadQueue(); else buttons.forEach(b => b.disabled = false);
+    });
 
     return card;
   }
 
-  // What to seed the lots box with. A stored count always wins. Otherwise the
-  // clustered property_count is a reasonable guess, but only where it is a
-  // legal multi count: seeding a multi notice with 1 (the common case for a
-  // notice whose clustering collapsed to one property) put an unsubmittable
-  // value in the box by default. Blank is honest — the reviewer types the count.
+  // What to seed the lots box with. A stored count wins where it is legal for
+  // the type. Otherwise the clustered property_count is a reasonable guess,
+  // but only where it is a legal multi count: seeding a multi notice with 1
+  // (the common case for a notice whose clustering collapsed to one property)
+  // put an unsubmittable value in the box by default. Blank is honest — the
+  // reviewer types the count.
+  //
+  // A stored 1 on a multi is the same trap arriving from the database: a
+  // bulk-confirm stamps 1 on a single, and a later flip to multi leaves the
+  // count behind. Seeded back into the box it made every Confirm bounce off
+  // the ">= 2" rule, which read as "the lot count cannot be changed".
   function lotsPrefillFor(n) {
+    if (n.notice_type === 'multi') {
+      if (n.expected_lot_count >= 2) return n.expected_lot_count;
+      return n.property_count >= 2 ? n.property_count : '';
+    }
     if (n.expected_lot_count != null) return n.expected_lot_count;
-    if (n.notice_type === 'multi') return n.property_count >= 2 ? n.property_count : '';
     return n.property_count ?? 1;
   }
 
@@ -2849,6 +2879,24 @@
     } finally {
       buttons.forEach(b => b.disabled = false);
     }
+  }
+
+  // Undo a classification sign-off: the notice goes back to the pending
+  // queue. The stored type, lot count and notes survive the round trip, so
+  // the pending card reopens on the last decision — which is the point: a
+  // verified notice whose lot count is wrong is corrected by undoing, fixing
+  // the count and confirming again.
+  // Returns true on a clean save; callers decide how to refresh.
+  async function unverifyClassification(filename) {
+    if (!filename) { setMsg('<span class="err">notice has no filename — cannot undo</span>', 3000); return false; }
+    const r = await authFetch(API + '/review/notice/' + encodeURIComponent(filename) + '/unverify',
+                              { method: 'POST' });
+    if (r.status === 401 || r.status === 403) { setMsg('<span class="err">not authorised</span>', 3000); return false; }
+    if (r.status === 404) { setMsg('<span class="err">notice not found</span>', 3000); return false; }
+    if (!r.ok) { setMsg(`<span class="err">undo failed (${r.status})</span>`, 3000); return false; }
+    setMsg('<span class="ok">back to pending.</span>', 1500);
+    loadStats();
+    return true;
   }
 
   // ─── Classification gallery ─────────────────────────────────────────────
@@ -3010,6 +3058,7 @@
         <input type="text" class="cnotes" placeholder="notes (optional)">
         <button class="primary" data-act="confirm">Confirm as ${escapeHtml(n.notice_type || 'single')} <span class="kbd">V</span></button>
         <button data-act="flip">Flip to ${escapeHtml(altType)} <span class="kbd">F</span></button>
+        ${n.verified ? '<button class="ghost" data-act="unverify" title="clear the sign-off and send this notice back to the pending queue">Undo verify <span class="kbd">U</span></button>' : ''}
       </div>
       ${auditFooter}
     `;
@@ -3046,6 +3095,44 @@
       submitClassificationFromGallery(filenameForApi, altType,
                                        header.querySelector('.cnotes').value || null,
                                        readLotCount(header, altType)));
+    const undoBtn = header.querySelector('button[data-act="unverify"]');
+    if (undoBtn) undoBtn.addEventListener('click', () => unverifyFromGallery(filenameForApi));
+  }
+
+  async function unverifyFromGallery(filename) {
+    const right = $('gallery-right');
+    const buttons = right ? $$('button', right) : [];
+    buttons.forEach(b => b.disabled = true);
+    const ok = await unverifyClassification(filename);
+    if (!ok) { buttons.forEach(b => b.disabled = false); return; }
+
+    const idx = gallery.selectedIndex;
+    // In the verified / edited tabs the notice has just left the visible
+    // queue — drop it and advance, the mirror of what a confirm does while
+    // the pending tab is open.
+    if (queueState.status === 'verified' || queueState.status === 'edited') {
+      gallery.notices.splice(idx, 1);
+      if (gallery.notices.length === 0) {
+        queueState.page = 1;
+        await loadQueue();
+        return;
+      }
+      renderGallery();
+      selectGalleryItem(Math.min(idx, gallery.notices.length - 1));
+      return;
+    }
+    // pending / all: the row stays put, now unsigned. `overridden` is NOT
+    // cleared — the server keeps it (it guards the type against the
+    // auto-classifier), so clearing it locally would show a state the
+    // database does not have.
+    const n = gallery.notices[idx];
+    if (n) {
+      n.verified = false;
+      n.verified_at = null;
+      n.verified_by = null;
+    }
+    renderGallery();
+    selectGalleryItem(idx);
   }
 
   async function submitClassificationFromGallery(filename, noticeType, notes, lotCount) {
@@ -3063,6 +3150,11 @@
       if (r.status === 401 || r.status === 403) { setMsg('<span class="err">not authorised</span>', 3000); return; }
       if (r.status === 404) { setMsg('<span class="err">notice not found</span>', 3000); return; }
       if (!r.ok) { setMsg(`<span class="err">classify failed (${r.status})</span>`, 3000); return; }
+      // The server's row is the only place the *stored* lot count exists.
+      // Re-rendering the pane from the pre-save row redrew the old count in
+      // both the badge and the box, so a corrected count looked like it had
+      // been thrown away even though it saved.
+      const saved = await r.json().catch(() => null);
       setMsg(`<span class="ok">saved.</span>`, 1200);
 
       // Refresh stats in the header (counts may have shifted)
@@ -3086,6 +3178,11 @@
         updated.notice_type = noticeType;
         updated.verified = true;
         updated.overridden = true;
+        if (saved) {
+          updated.expected_lot_count = saved.expected_lot_count;
+          updated.verified_at = saved.verified_at;
+          updated.verified_by = saved.verified_by;
+        }
         renderGallery();
         selectGalleryItem(removedIdx);
       }
@@ -4049,6 +4146,13 @@
         triggerGalleryAction(n.notice_type || 'single');
         return;
       }
+      if (e.key === 'u' || e.key === 'U') {
+        e.preventDefault();
+        const n = gallery.notices[idx];
+        if (!n || !n.verified) return;   // nothing signed off to undo
+        unverifyFromGallery(n.filename || '');
+        return;
+      }
       if (e.key === '/') {
         e.preventDefault();
         $('q').focus();
@@ -4381,11 +4485,60 @@
     });
   }
 
+  // Total characters the CURRENT block layer holds, as a rough stand-in for
+  // "how long would the markdown be if it were rebuilt from these blocks".
+  // Not exact (assemble_markdown adds separators and table syntax server-side)
+  // and never presented as exact — it only has to answer "is the stored text
+  // missing most of this page?", where the gap is a multiple, not a rounding.
+  function annBlockTextChars() {
+    return (ann.blocks || []).reduce(
+      (n, b) => n + ((b.text || '').trim().length), 0);
+  }
+
+  // d.blocks_source == 'datalab-backfill': the block layer was replaced by a
+  // fresh Datalab parse that deliberately did not rewrite d.markdown (see
+  // scripts/backfill_blocks_datalab.py — langextract reads d.markdown and the
+  // highlight spans are character offsets into it, so rewriting it would
+  // invalidate every stored extraction on those notices).
+  //
+  // The result on screen is a complete block layer next to markdown from a
+  // different, older engine, with nothing saying so — and health can't warn
+  // you either, because ocr_health.py skips missing-region on exactly this
+  // cohort. Hence this banner: it is the only thing that names the split.
+  function renderAnnStaleMarkdownBanner() {
+    const wrap = $('ann-banner-wrap');
+    const div = document.createElement('div');
+    div.className = 'ann-banner warn';
+    const stored = ann.doc && ann.doc.markdown_length;
+    const fromBlocks = annBlockTextChars();
+    // Only quote the comparison when it is real and lopsided enough to be the
+    // point; a near-match would read as precision this estimate doesn't have.
+    const gap = (stored != null && stored > 0 && fromBlocks > stored * 1.5)
+      ? ` The blocks hold roughly ${fromBlocks.toLocaleString()} characters of
+          text; the stored markdown is ${stored.toLocaleString()} — so the text
+          below is missing most of this page.`
+      : '';
+    div.innerHTML = `
+      <b>the blocks are newer than the text.</b> This notice's block layer came
+      from a Datalab backfill that rewrote the blocks but left
+      <code>d.markdown</code> alone, so the Blocks tab and the Markdown tab are
+      showing two different reads of the same page.${gap}
+      Extraction reads the markdown, not the blocks.
+      <button id="ann-reingest-stale" style="margin-left:8px">Re-ingest to rewrite both</button>
+    `;
+    wrap.appendChild(div);
+    $('ann-reingest-stale').addEventListener(
+      'click', (e) => annReingest(e.currentTarget));
+  }
+
   function renderAnnBanners() {
     const doc = ann.doc || {};
     $('ann-banner-wrap').innerHTML = '';
     if (doc.backfill_required) {
       renderAnnBackfillBanner();
+    }
+    if (doc.markdown_stale) {
+      renderAnnStaleMarkdownBanner();
     }
     if (ann.crop_regions.length) {
       renderAnnRegionsBanner();
@@ -4600,7 +4753,8 @@
   }
 
   // Blocks the server flagged with an OCR artifact (repetition / token-leak /
-  // foreign-script) in their own text — the ones the ⚠ tag is on.
+  // foreign-script / degenerate-sequence) in their own text — the ones the
+  // ⚠ tag is on.
   function flaggedBlockIds() {
     return ann.blocks
       .filter(b => b.health && Array.isArray(b.health.flags) && b.health.flags.length)
@@ -5101,8 +5255,8 @@
     sourcePill.textContent = b.source || 'mineru';
     top.appendChild(sourcePill);
 
-    // Per-block OCR-health tag: a repetition loop / token-leak / foreign-script
-    // in THIS block's text (server-computed on read). Points the reviewer at the
+    // Per-block OCR-health tag: a repetition loop / token-leak /
+    // foreign-script / counting loop in THIS block's text (server-computed on read). Points the reviewer at the
     // exact block to re-run extraction on, instead of a document-level verdict.
     if (b.health && Array.isArray(b.health.flags) && b.health.flags.length) {
       const hp = document.createElement('span');
@@ -5258,6 +5412,27 @@
     if (which === 'ink') loadAnnInk();
   }
 
+  // The stale-markdown warning, repeated at the top of the pane the text
+  // itself is in. The toolbar banner scrolls out of the way and reads as
+  // document-level chrome; a reviewer comparing this text against the boxes on
+  // the left needs it inline, next to the text it is about.
+  function annStaleMarkdownNote() {
+    if (!(ann.doc && ann.doc.markdown_stale)) return null;
+    const div = document.createElement('div');
+    div.className = 'ann-md-stale';
+    // No <code> here: this note lives inside #ann-md-body, which carries the
+    // markdown-body styling, and that gives <code> horizontal padding —
+    // enough to read as a stray space before the following comma.
+    div.innerHTML = `
+      <b>this text is older than the blocks.</b> It is the stored d.markdown,
+      left untouched by the Datalab backfill that wrote the block layer — so
+      it is a different engine's read, not these blocks rendered. Re-ingest
+      (or any block edit) rewrites it from the blocks; both also reset the
+      markdown verdict and shift every highlight offset, so the notice needs
+      re-extracting afterwards.`;
+    return div;
+  }
+
   function paintAnnMarkdown() {
     const el = $('ann-md-body');
     if (!el) return;
@@ -5274,6 +5449,10 @@
       el.classList.remove('rendered');
       el.textContent = text || '(empty)';
     }
+    // Prepended after the body is written, so it survives both render paths
+    // (innerHTML and textContent each replace everything above).
+    const note = annStaleMarkdownNote();
+    if (note) el.insertBefore(note, el.firstChild);
   }
 
   // ── Ink coverage tab ─────────────────────────────────────────────────────
@@ -6391,7 +6570,12 @@
     const reext = doc.markdown_reextracted_at
       ? `<span class="pill warn" title="re-extracted ${escapeHtml(doc.markdown_reextracted_at)}">re-extracted</span>`
       : '';
-    el.innerHTML = `${type} ${healthPill(row)} ${parseQualityPill(row)} ${mdStatusPill(row)} ${reext} ${props} ${chars}`;
+    // Sits right next to the char count it explains: on a backfilled notice
+    // that number describes older, thinner text than the blocks on screen.
+    const stale = doc.markdown_stale
+      ? `<span class="pill warn" title="blocks_source=${escapeHtml(doc.blocks_source || 'backfill')} — the block layer was rewritten without rewriting the markdown, so the Markdown tab is a different engine's read. Re-ingest to make them agree.">stale text</span>`
+      : '';
+    el.innerHTML = `${type} ${healthPill(row)} ${parseQualityPill(row)} ${mdStatusPill(row)} ${reext} ${stale} ${props} ${chars}`;
   }
 
   // After any mutation, refresh ann.doc.markdown via a fresh GET so the
@@ -6410,6 +6594,10 @@
         // Editing blocks rewrites the markdown, so size / health / verified
         // state all move — repaint the strip rather than leaving stale numbers.
         annRenderBadges(doc);
+        // That rewrite also ENDS a stale-markdown split (the server clears
+        // blocks_source on the same write), so the banner has to be able to
+        // go away here — not just on a full reload.
+        renderAnnBanners();
         paintAnnMarkdown();
       } catch {}
     }, 400);

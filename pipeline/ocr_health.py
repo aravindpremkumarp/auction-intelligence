@@ -29,6 +29,13 @@ MinerU's vlm model actually exhibits on full-page ruled notices:
     phrases into low-confidence regions ("中国银行股份有" — Bank of China —
     hallucinated into an HDB notice). Tamil, Devanagari and Latin are of
     course fine and never flag.
+  - **degenerate-sequence** — a counting loop: the generator loses the page and
+    emits a run of bare numbers instead of the text that is actually there
+    ("West by: 26, 27, 28, … 100." in place of a boundary description). Every
+    token is *new*, so the repetition checks above — which compare lines and
+    phrases for equality — never fire, the output stays well-formed English,
+    and the doc scores 100 while a whole schedule's worth of real text is
+    gone.
   - **table-collapse** — the whole notice read as ONE giant HTML ``<table>``.
     On a fully-bordered notice the vlm model swallows the prose above/below
     the grid into table cells; the output is well-formed (closes cleanly, no
@@ -38,6 +45,15 @@ MinerU's vlm model actually exhibits on full-page ruled notices:
     (``scripts/auto_region_reingest.py`` selects health-flagged docs), which
     crops prose / grid / footer bands and OCRs them separately into distinct
     Text/Table/Footer blocks.
+
+  - **impossible-date** — a date in the text that cannot be a date under any
+    reading: month 00 or > 12, day 00 or > 31. Every other check here judges
+    STRUCTURE, so a character misread that leaves the output well-formed —
+    ``30.06.2026`` read as ``30.00.2026`` — passes all of them and scores 100.
+    A corpus scan found 24 such dates across 10 notices, every one of them
+    sitting at health 100. This is the one check that reads a value rather
+    than a shape, and it is deliberately the narrowest possible version of
+    that: only what is arithmetically impossible, never what is merely odd.
 
   - **missing-region** — ink on the page that no parsed block covers. This is
     the one failure mode the text alone cannot reveal: the checks above all
@@ -64,7 +80,9 @@ Usage
     python -m pipeline.ocr_health --limit 100
 
 The CLI is the bulk, text-only pass (it never fetches images — for a corpus
-ink sweep see scripts/score_ink_coverage.py). `score_freshly_loaded(file_paths)`
+ink sweep see scripts/score_ink_coverage.py). Because it cannot see the ink, it
+carries each document's stored ``missing-region`` flag forward instead of
+overwriting it; see ``prior_flags`` on :func:`score_ocr_health`. `score_freshly_loaded(file_paths)`
 mirrors pipeline/score_markdown.py and is called after the loader, a re-ingest,
 a per-block re-extract or a block edit writes new markdown/blocks; being
 per-document, it DOES fetch the source and fold ``missing-region`` in.
@@ -125,6 +143,38 @@ FOREIGN_SCRIPT_RE = re.compile(
     "]"
 )
 
+# ── degenerate numeric sequence ──────────────────────────────────────────────
+# The repetition checks above test for *equality* — identical lines, an
+# identical phrase repeated adjacently. A counting loop defeats both: every
+# item differs from the last, so "26, 27, 28, … 100" (75 items, observed in
+# place of a Schedule-F boundary description) reads as ordinary prose and
+# scores 100. This detector looks at the *shape* of a numeric run instead.
+#
+# Segments are split on line breaks, HTML tags and markdown pipes so a run
+# can never span table cells: a grid whose cells hold 1, 2, 3, … is normal
+# layout, not a loop, and each cell is judged on its own.
+SEQ_SEGMENT_SPLIT_RE = re.compile(r"<[^>]+>|[|\n\r]+")
+# A comma/semicolon-separated run of bare integers. Grouped amounts match too
+# ("2,34,00,000" → 4 items) and are far below both thresholds.
+SEQ_NUM_RUN_RE = re.compile(r"\d{1,4}(?:\s*[,;]\s*\d{1,4})+")
+# Strictly +1 ascending items this long → a counting loop.
+#
+# Set from a sweep of the 1622-document corpus, which was emphatic that a long
+# ascending run is NOT by itself a fault: a DTCP-approved layout really does
+# enumerate its plots ("Plot Nos.1026, 1027, … and 1053, as approved by DTCP
+# No.30 of 2006"), and the longest such legitimate list runs to 27 items. The
+# one true loop in the corpus runs to 504 ("Door No. 497, 498, … " for a single
+# A.C.C. shell building, the description never finishing before the cell ends),
+# and the notice this detector was written for ran to 75. 60 sits in that gap
+# with room on both sides; it costs the short loops, which is the right trade
+# when the alternative is flagging real notices.
+SEQ_MIN_STEP_RUN = 60
+# ...and a long list that is *not* ascending is still not prose. The longest
+# unordered run in the corpus is 16 items (a list of survey numbers), and the
+# longest run of any shape that reads as real content is the 27-plot list above.
+SEQ_MIN_ITEMS = 40
+
+
 # ── single-table collapse ────────────────────────────────────────────────────
 # A fully-ruled notice comes back as a lone, well-formed <table> holding
 # essentially all of the document's text. We flag it when there is exactly one
@@ -139,8 +189,58 @@ COLLAPSE_MAX_OUTSIDE_RATIO = 0.15
 # ...but never flag a doc with a small table (legitimate short grids, tests).
 COLLAPSE_MIN_TABLE_CHARS = 500
 
+# ── impossible dates ─────────────────────────────────────────────────────────
+# dd.mm.yyyy, dd-mm-yyyy, dd/mm/yyyy — the separators these notices actually
+# use. The year is captured but NEVER judged: notices legitimately cite deed
+# and registration dates from the 1960s onward, and a first pass that flagged
+# years outside 2000-2035 turned up 54 notices, essentially all of them real
+# (07.07.1962 is a genuine registration date, not a misread).
+DATE_RE = re.compile(r"\b(\d{1,2})[.\-/](\d{1,2})[.\-/](\d{4})\b")
+
+# These notices are uniformly dd.mm.yyyy, but a misread that produces
+# ``06.20.2024`` is indistinguishable from a US-ordered date, so a value is
+# only flagged when it fails under BOTH readings — the same precision-first
+# posture as the table-collapse thresholds above. In the corpus that keeps
+# 07.35.4003, 16.67.2025 and 30.24.2026 (impossible either way) and drops
+# 06.20.2024, 01.19.2026 and 10.18.2025, which are counted in the details as
+# ``ambiguous_order`` instead so they stay visible without costing score.
+def _date_verdict(a: int, b: int) -> str | None:
+    """``None`` if some ordering reads as a real date, else why it cannot."""
+    def ok(day: int, month: int) -> bool:
+        return 1 <= month <= 12 and 1 <= day <= 31
+    if ok(a, b) or ok(b, a):
+        return None
+    if a == 0 or b == 0:
+        return "zero day/month"
+    return "no valid day/month ordering"
+
+
+def _impossible_dates(text: str) -> tuple[list[str], int]:
+    """``(impossible date strings, count that only dd.mm ordering rejects)``."""
+    bad: list[str] = []
+    ambiguous = 0
+    for a_s, b_s, y in DATE_RE.findall(text):
+        a, b = int(a_s), int(b_s)
+        if _date_verdict(a, b):
+            bad.append(f"{a_s}.{b_s}.{y}")
+        elif not (1 <= b <= 12 and 1 <= a <= 31):
+            # Reads only the other way round (e.g. 06.20.2024 as June 20).
+            ambiguous += 1
+    return bad, ambiguous
+
+
 PENALTY = {"repetition": 0, "token-leak": 40, "truncated": 30,
            "foreign-script": 40, "table-collapse": 35,
+           # Priced with table-collapse: both keep a well-formed document
+           # while the notice's real words stop being in it.
+           "degenerate-sequence": 35,
+           # Priced below the structural failures on purpose. Those mean the
+           # page was not read; this means one value was misread, which a
+           # reviewer fixes in the annotator in seconds. Kept low enough that
+           # the score stays above the 70 cutoff scripts/reocr_low_health_
+           # datalab.py selects on: a wrong digit does not warrant re-OCRing
+           # the whole notice, it warrants a human looking at that date.
+           "impossible-date": 25,
            # Lost content is the worst outcome for downstream extraction: the
            # properties in an unread column simply do not exist for us. Priced
            # above table-collapse, which at least keeps the text.
@@ -150,8 +250,8 @@ PENALTY = {"repetition": 0, "token-leak": 40, "truncated": 30,
 # its flag filter against this, so a renamed or added flag reaches the UI by
 # changing this module alone — no second list to drift out of sync.
 HEALTH_FLAGS: tuple[str, ...] = (
-    "missing-region", "table-collapse", "truncated",
-    "repetition", "token-leak", "foreign-script",
+    "missing-region", "table-collapse", "degenerate-sequence", "truncated",
+    "repetition", "token-leak", "foreign-script", "impossible-date",
 )
 
 
@@ -187,6 +287,39 @@ def _visible_len(s: str) -> int:
     return len(re.sub(r"\s+", "", _TAG_STRIP_RE.sub(" ", s)))
 
 
+def _max_step_run(items: list[int]) -> int:
+    """Longest run of items each exactly one more than the one before."""
+    best = run = 1
+    for prev, cur in zip(items, items[1:]):
+        run = run + 1 if cur == prev + 1 else 1
+        best = max(best, run)
+    return best
+
+
+def _degenerate_sequence(text: str) -> dict | None:
+    """Detect a numeric counting loop. Returns detail dict or ``None``.
+
+    Scans each segment (see :data:`SEQ_SEGMENT_SPLIT_RE`) for comma-separated
+    runs of bare integers and reports the worst one: a run climbing by one for
+    :data:`SEQ_MIN_STEP_RUN` items, or any run of :data:`SEQ_MIN_ITEMS` items.
+    Returns the offending run's length, its longest ascending stretch and a
+    short sample, so the reviewer can see what the model wrote instead.
+    """
+    worst: dict | None = None
+    for segment in SEQ_SEGMENT_SPLIT_RE.split(text):
+        for m in SEQ_NUM_RUN_RE.finditer(segment):
+            items = [int(n) for n in re.findall(r"\d+", m.group(0))]
+            step_run = _max_step_run(items)
+            if step_run < SEQ_MIN_STEP_RUN and len(items) < SEQ_MIN_ITEMS:
+                continue
+            hit = {"items": len(items), "step_run": step_run,
+                   "sample": re.sub(r"\s+", " ", m.group(0)).strip()[:60]}
+            if worst is None or (hit["step_run"], hit["items"]) > (
+                    worst["step_run"], worst["items"]):
+                worst = hit
+    return worst
+
+
 def _table_collapse(text: str) -> dict | None:
     """Detect a single-table collapse. Returns detail dict or ``None``.
 
@@ -217,7 +350,21 @@ def _table_collapse(text: str) -> dict | None:
     }
 
 
-def score_ocr_health(markdown: str | None, *, region: dict | None = None) -> dict:
+def _ink_was_judged(region: dict | None) -> bool:
+    """True when ``region`` carries an actual ink verdict.
+
+    ``None`` means the ink was never looked at (the bulk text pass, a source
+    that wouldn't fetch, blocks from another engine). A dict whose
+    ``uncovered_ratio`` is None means it was looked at and could not be judged
+    (no image, no block for the page, too little ink, unrenderable PDF —
+    see :func:`pipeline.ink_coverage.score_ink_coverage`). Neither is evidence
+    that the page is now fully read, so neither may clear ``missing-region``.
+    """
+    return region is not None and region.get("uncovered_ratio") is not None
+
+
+def score_ocr_health(markdown: str | None, *, region: dict | None = None,
+                     prior_flags: Iterable[str] | None = None) -> dict:
     """Score one document's OCR markdown.
 
     Returns ``{"score": int|None, "flags": [str], "details": {…}}``.
@@ -228,6 +375,17 @@ def score_ocr_health(markdown: str | None, *, region: dict | None = None) -> dic
     source image, which this module (pure text, called in bulk over Neo4j rows)
     deliberately never fetches. Omitted or unscorable → no ``missing-region``
     flag, and every existing caller keeps its exact behaviour.
+
+    ``prior_flags`` is the flag list already stored on the document. It exists
+    for one reason: ``missing-region`` is the only flag this function cannot
+    derive from the text, so when the ink was NOT judged (see
+    :func:`_ink_was_judged`) a score written without it would silently erase a
+    verdict some earlier, image-fetching pass had established — which is
+    exactly what ``python -m pipeline.ocr_health --force`` did to every
+    ``missing-region`` document in the corpus. Passing the stored flags carries
+    that one verdict, and its penalty, forward untouched. When the ink *was*
+    judged the fresh reading wins in both directions, so a reviewer who covers
+    the missing column still clears the flag.
     """
     if not markdown or not markdown.strip():
         return {"score": None, "flags": [], "details": {}}
@@ -277,6 +435,22 @@ def score_ocr_health(markdown: str | None, *, region: dict | None = None) -> dic
         details["foreign_script_sample"] = "".join(foreign[:10])
         penalty += PENALTY["foreign-script"]
 
+    sequence = _degenerate_sequence(text)
+    if sequence:
+        flags.append("degenerate-sequence")
+        details["degenerate_sequence"] = sequence
+        penalty += PENALTY["degenerate-sequence"]
+
+    bad_dates, ambiguous = _impossible_dates(text)
+    if ambiguous:
+        # Recorded but never penalised — see _impossible_dates.
+        details["date_ambiguous_order"] = ambiguous
+    if bad_dates:
+        flags.append("impossible-date")
+        details["impossible_dates"] = bad_dates[:10]
+        details["impossible_date_count"] = len(bad_dates)
+        penalty += PENALTY["impossible-date"]
+
     collapse = _table_collapse(text)
     if collapse:
         flags.append("table-collapse")
@@ -288,6 +462,12 @@ def score_ocr_health(markdown: str | None, *, region: dict | None = None) -> dic
         details["missing_region"] = region.get("details") or {
             "uncovered_ratio": region.get("uncovered_ratio")}
         penalty += PENALTY["missing-region"]
+    elif not _ink_was_judged(region) and "missing-region" in (prior_flags or ()):
+        # Not measured this time — keep the standing verdict rather than
+        # overwriting it with silence.
+        flags.append("missing-region")
+        details["missing_region"] = {"carried_forward": True}
+        penalty += PENALTY["missing-region"]
 
     return {"score": max(0, 100 - penalty), "flags": flags, "details": details}
 
@@ -295,16 +475,22 @@ def score_ocr_health(markdown: str | None, *, region: dict | None = None) -> dic
 # Flags that are meaningful for a single block: the intrinsic per-fragment
 # artifacts. `table-collapse` and `truncated` are whole-document / structure
 # concerns (one block being a table is normal), so they are not evaluated here.
-BLOCK_HEALTH_FLAGS = ("repetition", "token-leak", "foreign-script")
+# `impossible-date` belongs on this list — a misread date sits in exactly one
+# block, and naming that block is what lets the annotator send it back for
+# re-extraction instead of the reviewer hunting for it. So does
+# `degenerate-sequence`: a counting loop is one block's text going wrong.
+BLOCK_HEALTH_FLAGS = ("degenerate-sequence", "repetition", "token-leak",
+                      "foreign-script", "impossible-date")
 
 
 def score_block_health(text: str | None) -> dict:
     """Score one block's text for the per-fragment OCR artifacts.
 
-    Same detectors as :func:`score_ocr_health` for repetition, token-leak and
-    foreign-script, but scoped to a single block so the annotator can tag the
-    exact block a loop/leak/hallucination comes from. Document-structure flags
-    (table-collapse, truncated) are intentionally not evaluated per block.
+    Same detectors as :func:`score_ocr_health` for repetition, token-leak,
+    foreign-script and degenerate-sequence, but scoped to a single block so the
+    annotator can tag the exact block a loop/leak/hallucination comes from.
+    Document-structure flags (table-collapse, truncated) are intentionally not
+    evaluated per block.
 
     Returns ``{"score": int|None, "flags": [str], "details": {…}}``; ``score``
     is None when the block has no text.
@@ -343,6 +529,21 @@ def score_block_health(text: str | None) -> dict:
         details["foreign_script_sample"] = "".join(foreign[:10])
         penalty += PENALTY["foreign-script"]
 
+    sequence = _degenerate_sequence(t)
+    if sequence:
+        flags.append("degenerate-sequence")
+        details["degenerate_sequence"] = sequence
+        penalty += PENALTY["degenerate-sequence"]
+
+    bad_dates, ambiguous = _impossible_dates(t)
+    if ambiguous:
+        details["date_ambiguous_order"] = ambiguous
+    if bad_dates:
+        flags.append("impossible-date")
+        details["impossible_dates"] = bad_dates[:10]
+        details["impossible_date_count"] = len(bad_dates)
+        penalty += PENALTY["impossible-date"]
+
     return {"score": max(0, 100 - penalty), "flags": flags, "details": details}
 
 
@@ -363,10 +564,13 @@ def _fetch_docs(file_paths: list[str] | None, force: bool,
     extra = (", d.blocks AS blocks_json, d.public_url AS public_url, "
              "d.blocks_source AS blocks_source, d.filename AS filename"
              if with_source else "")
+    # ocr_health_flags comes back on every path: it is what carries a standing
+    # `missing-region` verdict across a re-score that didn't measure the ink.
     cypher = f"""
         MATCH (d:Document)
         WHERE {' AND '.join(where)}
-        RETURN d.file_path AS file_path, d.markdown AS markdown{extra}
+        RETURN d.file_path AS file_path, d.markdown AS markdown,
+               d.ocr_health_flags AS prior_flags{extra}
     """
     return run_read_query(cypher, params, max_rows=20_000, timeout=60.0)
 
@@ -492,7 +696,8 @@ def score_freshly_loaded(file_paths: Iterable[str]) -> int:
     payload = []
     for d in docs:
         region = region_for(d)
-        h = score_ocr_health(d.get("markdown"), region=region)
+        h = score_ocr_health(d.get("markdown"), region=region,
+                             prior_flags=d.get("prior_flags"))
         row = {"file_path": d["file_path"],
                "score": h["score"], "flags": h["flags"]}
         if region is not None and region.get("uncovered_ratio") is not None:
@@ -527,7 +732,9 @@ def main() -> int:
     flagged = 0
     t0 = time.time()
     for d in docs:
-        h = score_ocr_health(d.get("markdown"))
+        # Text only — the bulk pass never fetches images, so the stored flags
+        # are what keep an already-established missing-region verdict alive.
+        h = score_ocr_health(d.get("markdown"), prior_flags=d.get("prior_flags"))
         if h["flags"]:
             flagged += 1
         batch.append({"file_path": d["file_path"],

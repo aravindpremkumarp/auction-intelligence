@@ -352,6 +352,11 @@ class BlocksDoc(BaseModel):
     notice_type: str | None = None
     markdown: str | None = None
     markdown_model: str | None = None
+    # Document-level block provenance, and the verdict derived from it: the
+    # blocks were replaced without rewriting the markdown, so the two tabs are
+    # showing different engines' output. See blocks.MARKDOWN_STALE_BLOCK_SOURCES.
+    blocks_source: str | None = None
+    markdown_stale: bool = False
     # Queue-parity badge data. The annotator shows the same strip as the
     # markdown queue (type · OCR health · quality · lot count · size), so a
     # reviewer who has drilled into one notice keeps that context on screen.
@@ -697,6 +702,20 @@ def review_classify(
         )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
+    if row is None:
+        raise HTTPException(status_code=404, detail="notice not found")
+    return ClassifyResult(**row)
+
+
+@router.post("/notice/{filename}/unverify", response_model=ClassifyResult)
+def review_classify_unverify(
+    filename: str,
+    _admin: UserOut = Depends(get_current_admin),
+) -> ClassifyResult:
+    """Undo a classification sign-off: the notice returns to the pending
+    queue with its type, lot count and notes intact, ready to be re-confirmed
+    with a corrected lot count."""
+    row = q.unverify_classification(filename)
     if row is None:
         raise HTTPException(status_code=404, detail="notice not found")
     return ClassifyResult(**row)
@@ -1252,6 +1271,8 @@ def _ok_doc(doc: dict) -> BlocksDoc:
         notice_type=doc.get("notice_type"),
         markdown=doc.get("markdown"),
         markdown_model=doc.get("markdown_model"),
+        blocks_source=doc.get("blocks_source"),
+        markdown_stale=bool(doc.get("markdown_stale")),
         property_count=_opt_int(doc.get("property_count")),
         markdown_length=_opt_int(doc.get("markdown_length")),
         ocr_health_score=_opt_int(doc.get("ocr_health_score")),
