@@ -352,6 +352,11 @@ class BlocksDoc(BaseModel):
     notice_type: str | None = None
     markdown: str | None = None
     markdown_model: str | None = None
+    # Document-level block provenance, and the verdict derived from it: the
+    # blocks were replaced without rewriting the markdown, so the two tabs are
+    # showing different engines' output. See blocks.MARKDOWN_STALE_BLOCK_SOURCES.
+    blocks_source: str | None = None
+    markdown_stale: bool = False
     # Queue-parity badge data. The annotator shows the same strip as the
     # markdown queue (type · OCR health · quality · lot count · size), so a
     # reviewer who has drilled into one notice keeps that context on screen.
@@ -1252,6 +1257,8 @@ def _ok_doc(doc: dict) -> BlocksDoc:
         notice_type=doc.get("notice_type"),
         markdown=doc.get("markdown"),
         markdown_model=doc.get("markdown_model"),
+        blocks_source=doc.get("blocks_source"),
+        markdown_stale=bool(doc.get("markdown_stale")),
         property_count=_opt_int(doc.get("property_count")),
         markdown_length=_opt_int(doc.get("markdown_length")),
         ocr_health_score=_opt_int(doc.get("ocr_health_score")),

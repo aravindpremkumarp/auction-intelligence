@@ -52,6 +52,43 @@ KNOWN_BLOCK_SOURCES = ("mineru", "datalab", "datalab-patchfix", "human")
 #: to MinerU can only ever hand such a notice back as a single Table block.
 REINGEST_ENGINES = ("datalab", "mineru")
 
+#: Document-level ``d.blocks_source`` values that mean "the block layer was
+#: replaced without rewriting ``d.markdown``" — so the Blocks tab and the
+#: Markdown tab are showing two different engines' reads of the same page.
+#:
+#: ``scripts/backfill_blocks_datalab.py`` is the writer, and the split is
+#: deliberate: langextract reads ``d.markdown`` and nothing else, and the
+#: review UI's highlight spans are character offsets into that exact string,
+#: so rewriting the text would invalidate every stored extraction and
+#: highlight on those notices. The script therefore leaves adoption to a
+#: human, per notice.
+#:
+#: What it did NOT do is tell that human. The gap is invisible on screen:
+#: ``pipeline/ocr_health.py`` skips ``missing-region`` on exactly this cohort
+#: (``INK_SKIP_BLOCK_SOURCES``), so a notice whose stored markdown dropped
+#: most of the page still shows health 100 next to a complete block layer.
+#: :func:`markdown_is_stale` drives the annotator's warning; a Re-ingest
+#: (which rewrites both) clears the source and with it the warning.
+MARKDOWN_STALE_BLOCK_SOURCES = ("datalab-backfill",)
+
+
+def markdown_is_stale(blocks_source: str | None,
+                      markdown_model: str | None = None) -> bool:
+    """True when this notice's blocks are newer than its stored markdown.
+
+    ``markdown_model`` guards against a stamp that outlived its condition. The
+    backfill only ever ran on notices whose markdown was MinerU's, so a
+    Datalab-produced text under a 'datalab-backfill' stamp means the notice was
+    re-ingested at some point — which rewrites both halves — and the stamp is
+    simply stale. Re-ingests from now on clear it (see
+    ``_persist_reingest_result``), but ones that ran before that shipped left
+    the marker behind: 2 notices in the corpus at the time of writing, and
+    without this guard each would carry a permanent, false warning.
+    """
+    if (blocks_source or "").strip() not in MARKDOWN_STALE_BLOCK_SOURCES:
+        return False
+    return not (markdown_model or "").strip().lower().startswith("datalab")
+
 
 def _clean_engine(engine: str | None) -> str:
     """Normalize a requested OCR engine, falling back to the pipeline default.
@@ -397,6 +434,7 @@ def _load_doc(filename: str) -> tuple[dict, int, dict]:
                d.notice_type                  AS notice_type,
                d.markdown                     AS markdown,
                d.markdown_model               AS markdown_model,
+               d.blocks_source                AS blocks_source,
                d.crop_bbox                    AS crop_bbox,
                d.crop_page                    AS crop_page,
                d.crop_regions                 AS crop_regions_json,
@@ -447,6 +485,13 @@ def _load_doc(filename: str) -> tuple[dict, int, dict]:
         "notice_type":    r.get("notice_type"),
         "markdown":       r.get("markdown"),
         "markdown_model": r.get("markdown_model"),
+        # Document-level block provenance. Only ever 'datalab-backfill' today
+        # (scripts/backfill_blocks_datalab.py), and that value is load-bearing
+        # for the UI: that script writes d.blocks from a fresh Datalab parse
+        # and deliberately never writes d.markdown, so on those notices the
+        # Blocks tab and the Markdown tab are showing two different engines'
+        # output. See MARKDOWN_STALE_BLOCK_SOURCES.
+        "blocks_source":  r.get("blocks_source"),
         # Queue-parity metadata: the annotator renders the same badge strip the
         # markdown queue does, so a reviewer who opened a notice can still see
         # its type / OCR health / lot count without going back.
@@ -479,12 +524,18 @@ def _save_doc(filename: str, doc: dict, expected_rev: int) -> int:
             f"rebuilt from the block list, so this would also erase the text")
     blocks_json = json.dumps(doc, ensure_ascii=False)
     new_md = assemble_markdown(doc.get("blocks") or [])
+    # ``d.blocks_source`` is cleared because this write ends the condition it
+    # records: the markdown above IS these blocks, so they no longer come from
+    # different reads of the page. Leaving it would pin the annotator's "stale
+    # text" warning on permanently, and keep ocr_health's missing-region and
+    # the ink scripts excluding a document that no longer needs excluding.
     rows = run_query(
         """
         MATCH (d:Document {filename: $filename})
         WHERE coalesce(d.blocks_revision, 0) = $expected_rev
         SET d.blocks               = $blocks_json,
             d.markdown             = $markdown,
+            d.blocks_source        = NULL,
             d.blocks_revision      = $expected_rev + 1,
             d.markdown_loaded_at   = datetime(),
             d.markdown_verified_at = NULL,
@@ -523,6 +574,12 @@ def get_blocks(filename: str) -> dict:
     doc, rev, meta = _load_doc(filename)
     return {
         **meta,
+        # Derived here rather than in the UI so the rule lives in one place
+        # (same reason ocr_health.py owns HEALTH_FLAGS): adding a writer that
+        # replaces blocks without markdown reaches the annotator's warning by
+        # extending MARKDOWN_STALE_BLOCK_SOURCES alone.
+        "markdown_stale":    markdown_is_stale(meta.get("blocks_source"),
+                                               meta.get("markdown_model")),
         "schema_version":    int(doc.get("schema_version") or 1),
         "source_dims":       doc.get("source_dims") or [],
         "blocks":            doc.get("blocks") or [],
@@ -1071,6 +1128,12 @@ def _persist_reingest_result(filename: str, *, markdown: str, blocks_json: str,
     queue and any later audit can tell a Datalab re-ingest from a MinerU one.
     ``parse_quality`` is Datalab's own 0-5 verdict; None (always, on the MinerU
     path — it has no equivalent signal) leaves any prior score untouched.
+
+    ``d.blocks_source`` is cleared: this run wrote the markdown and the blocks
+    together, so a prior 'datalab-backfill' stamp (blocks rewritten, markdown
+    left alone) no longer describes the document. That stamp drives the
+    annotator's "stale text" warning and the missing-region / ink-script
+    exclusions, all of which must stop applying once the two agree again.
     """
     run_query(
         """
@@ -1084,6 +1147,7 @@ def _persist_reingest_result(filename: str, *, markdown: str, blocks_json: str,
             d.mineru_zip_url      = coalesce($mineru_zip_url, d.mineru_zip_url),
             d.mineru_zip_at       = CASE WHEN $mineru_zip_url IS NULL
                                         THEN d.mineru_zip_at ELSE datetime() END,
+            d.blocks_source       = NULL,
             d.blocks_revision     = coalesce(d.blocks_revision, 0) + 1,
             d.markdown_loaded_at  = datetime(),
             d.markdown_source     = $markdown_source,

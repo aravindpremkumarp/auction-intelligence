@@ -46,6 +46,15 @@ MinerU's vlm model actually exhibits on full-page ruled notices:
     crops prose / grid / footer bands and OCRs them separately into distinct
     Text/Table/Footer blocks.
 
+  - **impossible-date** — a date in the text that cannot be a date under any
+    reading: month 00 or > 12, day 00 or > 31. Every other check here judges
+    STRUCTURE, so a character misread that leaves the output well-formed —
+    ``30.06.2026`` read as ``30.00.2026`` — passes all of them and scores 100.
+    A corpus scan found 24 such dates across 10 notices, every one of them
+    sitting at health 100. This is the one check that reads a value rather
+    than a shape, and it is deliberately the narrowest possible version of
+    that: only what is arithmetically impossible, never what is merely odd.
+
   - **missing-region** — ink on the page that no parsed block covers. This is
     the one failure mode the text alone cannot reveal: the checks above all
     judge what we *did* read, so a notice whose entire right-hand column never
@@ -180,11 +189,58 @@ COLLAPSE_MAX_OUTSIDE_RATIO = 0.15
 # ...but never flag a doc with a small table (legitimate short grids, tests).
 COLLAPSE_MIN_TABLE_CHARS = 500
 
+# ── impossible dates ─────────────────────────────────────────────────────────
+# dd.mm.yyyy, dd-mm-yyyy, dd/mm/yyyy — the separators these notices actually
+# use. The year is captured but NEVER judged: notices legitimately cite deed
+# and registration dates from the 1960s onward, and a first pass that flagged
+# years outside 2000-2035 turned up 54 notices, essentially all of them real
+# (07.07.1962 is a genuine registration date, not a misread).
+DATE_RE = re.compile(r"\b(\d{1,2})[.\-/](\d{1,2})[.\-/](\d{4})\b")
+
+# These notices are uniformly dd.mm.yyyy, but a misread that produces
+# ``06.20.2024`` is indistinguishable from a US-ordered date, so a value is
+# only flagged when it fails under BOTH readings — the same precision-first
+# posture as the table-collapse thresholds above. In the corpus that keeps
+# 07.35.4003, 16.67.2025 and 30.24.2026 (impossible either way) and drops
+# 06.20.2024, 01.19.2026 and 10.18.2025, which are counted in the details as
+# ``ambiguous_order`` instead so they stay visible without costing score.
+def _date_verdict(a: int, b: int) -> str | None:
+    """``None`` if some ordering reads as a real date, else why it cannot."""
+    def ok(day: int, month: int) -> bool:
+        return 1 <= month <= 12 and 1 <= day <= 31
+    if ok(a, b) or ok(b, a):
+        return None
+    if a == 0 or b == 0:
+        return "zero day/month"
+    return "no valid day/month ordering"
+
+
+def _impossible_dates(text: str) -> tuple[list[str], int]:
+    """``(impossible date strings, count that only dd.mm ordering rejects)``."""
+    bad: list[str] = []
+    ambiguous = 0
+    for a_s, b_s, y in DATE_RE.findall(text):
+        a, b = int(a_s), int(b_s)
+        if _date_verdict(a, b):
+            bad.append(f"{a_s}.{b_s}.{y}")
+        elif not (1 <= b <= 12 and 1 <= a <= 31):
+            # Reads only the other way round (e.g. 06.20.2024 as June 20).
+            ambiguous += 1
+    return bad, ambiguous
+
+
 PENALTY = {"repetition": 0, "token-leak": 40, "truncated": 30,
            "foreign-script": 40, "table-collapse": 35,
            # Priced with table-collapse: both keep a well-formed document
            # while the notice's real words stop being in it.
            "degenerate-sequence": 35,
+           # Priced below the structural failures on purpose. Those mean the
+           # page was not read; this means one value was misread, which a
+           # reviewer fixes in the annotator in seconds. Kept low enough that
+           # the score stays above the 70 cutoff scripts/reocr_low_health_
+           # datalab.py selects on: a wrong digit does not warrant re-OCRing
+           # the whole notice, it warrants a human looking at that date.
+           "impossible-date": 25,
            # Lost content is the worst outcome for downstream extraction: the
            # properties in an unread column simply do not exist for us. Priced
            # above table-collapse, which at least keeps the text.
@@ -195,7 +251,7 @@ PENALTY = {"repetition": 0, "token-leak": 40, "truncated": 30,
 # changing this module alone — no second list to drift out of sync.
 HEALTH_FLAGS: tuple[str, ...] = (
     "missing-region", "table-collapse", "degenerate-sequence", "truncated",
-    "repetition", "token-leak", "foreign-script",
+    "repetition", "token-leak", "foreign-script", "impossible-date",
 )
 
 
@@ -385,6 +441,16 @@ def score_ocr_health(markdown: str | None, *, region: dict | None = None,
         details["degenerate_sequence"] = sequence
         penalty += PENALTY["degenerate-sequence"]
 
+    bad_dates, ambiguous = _impossible_dates(text)
+    if ambiguous:
+        # Recorded but never penalised — see _impossible_dates.
+        details["date_ambiguous_order"] = ambiguous
+    if bad_dates:
+        flags.append("impossible-date")
+        details["impossible_dates"] = bad_dates[:10]
+        details["impossible_date_count"] = len(bad_dates)
+        penalty += PENALTY["impossible-date"]
+
     collapse = _table_collapse(text)
     if collapse:
         flags.append("table-collapse")
@@ -409,8 +475,12 @@ def score_ocr_health(markdown: str | None, *, region: dict | None = None,
 # Flags that are meaningful for a single block: the intrinsic per-fragment
 # artifacts. `table-collapse` and `truncated` are whole-document / structure
 # concerns (one block being a table is normal), so they are not evaluated here.
+# `impossible-date` belongs on this list — a misread date sits in exactly one
+# block, and naming that block is what lets the annotator send it back for
+# re-extraction instead of the reviewer hunting for it. So does
+# `degenerate-sequence`: a counting loop is one block's text going wrong.
 BLOCK_HEALTH_FLAGS = ("degenerate-sequence", "repetition", "token-leak",
-                      "foreign-script")
+                      "foreign-script", "impossible-date")
 
 
 def score_block_health(text: str | None) -> dict:
@@ -464,6 +534,15 @@ def score_block_health(text: str | None) -> dict:
         flags.append("degenerate-sequence")
         details["degenerate_sequence"] = sequence
         penalty += PENALTY["degenerate-sequence"]
+
+    bad_dates, ambiguous = _impossible_dates(t)
+    if ambiguous:
+        details["date_ambiguous_order"] = ambiguous
+    if bad_dates:
+        flags.append("impossible-date")
+        details["impossible_dates"] = bad_dates[:10]
+        details["impossible_date_count"] = len(bad_dates)
+        penalty += PENALTY["impossible-date"]
 
     return {"score": max(0, 100 - penalty), "flags": flags, "details": details}
 

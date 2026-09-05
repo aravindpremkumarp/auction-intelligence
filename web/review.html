@@ -536,6 +536,14 @@
   .ink-note { font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #777; margin-top: 6px; }
   .ann-pane > #ann-md-body { max-height: none; padding: 0 2px; }
   .ann-banner { background: var(--accent); border: 1.5px solid var(--ink); padding: 8px 10px; margin-bottom: 10px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; }
+  /* Warning variant: the blocks and the stored markdown disagree. Distinct
+     from the accent banners, which are all "here is a thing you set up". */
+  .ann-banner.warn { background: #fdeceb; border-color: var(--danger); }
+  .ann-banner.warn b { color: var(--danger); }
+  /* Same warning, restated inside the Markdown pane — the tab a reviewer is
+     actually looking at when the stale text confuses them. */
+  .ann-md-stale { background: #fdeceb; border: 1.5px solid var(--danger); padding: 7px 9px; margin-bottom: 9px; font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; line-height: 1.45; white-space: normal; }
+  .ann-md-stale b { color: var(--danger); }
   .ann-row { border: 1.5px solid var(--ink); background: var(--paper); padding: 8px; margin-bottom: 8px; }
   .ann-row.selected { background: #fff8d4; box-shadow: inset 0 0 0 2px var(--danger); }
   .ann-row .ann-row-top { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; flex-wrap: wrap; }
@@ -795,6 +803,8 @@
                   title="raw model control tokens leaked into the text">token leak</button>
           <button class="pill" data-flag="foreign-script"
                   title="hallucinated CJK/Cyrillic/etc. in a Tamil Nadu notice">foreign script</button>
+          <button class="pill" data-flag="impossible-date"
+                  title="a date that cannot be one under any reading — month 00 or over 12, day 00 or over 31 (30.06.2026 misread as 30.00.2026). The only check here that reads a value rather than a shape.">impossible date</button>
         </span>
         <button id="flag-clear" class="ghost" title="show all notices again">clear</button>
       </span>
@@ -1003,7 +1013,7 @@
         <div class="ann-tabs" id="ann-tabs">
           <button class="ann-tab on" data-ann-tab="blocks">Blocks</button>
           <button class="ann-tab" data-ann-tab="markdown"
-                  title="markdown regenerated from the blocks">Markdown</button>
+                  title="the notice's STORED markdown — the exact string extraction reads and highlight offsets point into. Editing blocks rewrites it from the block list, and so does a re-ingest; a Datalab block backfill does not, and then this text is older than the blocks (you get a warning when that is the case).">Markdown</button>
           <button class="ann-tab" data-ann-tab="ink"
                   title="ink coverage: green = ink a block covers, red = ink no block covers. The red is what the missing-region flag is scored on.">Ink</button>
           <span class="md-toggle" id="ann-md-toggle" hidden>
@@ -4384,11 +4394,60 @@
     });
   }
 
+  // Total characters the CURRENT block layer holds, as a rough stand-in for
+  // "how long would the markdown be if it were rebuilt from these blocks".
+  // Not exact (assemble_markdown adds separators and table syntax server-side)
+  // and never presented as exact — it only has to answer "is the stored text
+  // missing most of this page?", where the gap is a multiple, not a rounding.
+  function annBlockTextChars() {
+    return (ann.blocks || []).reduce(
+      (n, b) => n + ((b.text || '').trim().length), 0);
+  }
+
+  // d.blocks_source == 'datalab-backfill': the block layer was replaced by a
+  // fresh Datalab parse that deliberately did not rewrite d.markdown (see
+  // scripts/backfill_blocks_datalab.py — langextract reads d.markdown and the
+  // highlight spans are character offsets into it, so rewriting it would
+  // invalidate every stored extraction on those notices).
+  //
+  // The result on screen is a complete block layer next to markdown from a
+  // different, older engine, with nothing saying so — and health can't warn
+  // you either, because ocr_health.py skips missing-region on exactly this
+  // cohort. Hence this banner: it is the only thing that names the split.
+  function renderAnnStaleMarkdownBanner() {
+    const wrap = $('ann-banner-wrap');
+    const div = document.createElement('div');
+    div.className = 'ann-banner warn';
+    const stored = ann.doc && ann.doc.markdown_length;
+    const fromBlocks = annBlockTextChars();
+    // Only quote the comparison when it is real and lopsided enough to be the
+    // point; a near-match would read as precision this estimate doesn't have.
+    const gap = (stored != null && stored > 0 && fromBlocks > stored * 1.5)
+      ? ` The blocks hold roughly ${fromBlocks.toLocaleString()} characters of
+          text; the stored markdown is ${stored.toLocaleString()} — so the text
+          below is missing most of this page.`
+      : '';
+    div.innerHTML = `
+      <b>the blocks are newer than the text.</b> This notice's block layer came
+      from a Datalab backfill that rewrote the blocks but left
+      <code>d.markdown</code> alone, so the Blocks tab and the Markdown tab are
+      showing two different reads of the same page.${gap}
+      Extraction reads the markdown, not the blocks.
+      <button id="ann-reingest-stale" style="margin-left:8px">Re-ingest to rewrite both</button>
+    `;
+    wrap.appendChild(div);
+    $('ann-reingest-stale').addEventListener(
+      'click', (e) => annReingest(e.currentTarget));
+  }
+
   function renderAnnBanners() {
     const doc = ann.doc || {};
     $('ann-banner-wrap').innerHTML = '';
     if (doc.backfill_required) {
       renderAnnBackfillBanner();
+    }
+    if (doc.markdown_stale) {
+      renderAnnStaleMarkdownBanner();
     }
     if (ann.crop_regions.length) {
       renderAnnRegionsBanner();
@@ -5262,6 +5321,27 @@
     if (which === 'ink') loadAnnInk();
   }
 
+  // The stale-markdown warning, repeated at the top of the pane the text
+  // itself is in. The toolbar banner scrolls out of the way and reads as
+  // document-level chrome; a reviewer comparing this text against the boxes on
+  // the left needs it inline, next to the text it is about.
+  function annStaleMarkdownNote() {
+    if (!(ann.doc && ann.doc.markdown_stale)) return null;
+    const div = document.createElement('div');
+    div.className = 'ann-md-stale';
+    // No <code> here: this note lives inside #ann-md-body, which carries the
+    // markdown-body styling, and that gives <code> horizontal padding —
+    // enough to read as a stray space before the following comma.
+    div.innerHTML = `
+      <b>this text is older than the blocks.</b> It is the stored d.markdown,
+      left untouched by the Datalab backfill that wrote the block layer — so
+      it is a different engine's read, not these blocks rendered. Re-ingest
+      (or any block edit) rewrites it from the blocks; both also reset the
+      markdown verdict and shift every highlight offset, so the notice needs
+      re-extracting afterwards.`;
+    return div;
+  }
+
   function paintAnnMarkdown() {
     const el = $('ann-md-body');
     if (!el) return;
@@ -5278,6 +5358,10 @@
       el.classList.remove('rendered');
       el.textContent = text || '(empty)';
     }
+    // Prepended after the body is written, so it survives both render paths
+    // (innerHTML and textContent each replace everything above).
+    const note = annStaleMarkdownNote();
+    if (note) el.insertBefore(note, el.firstChild);
   }
 
   // ── Ink coverage tab ─────────────────────────────────────────────────────
@@ -6395,7 +6479,12 @@
     const reext = doc.markdown_reextracted_at
       ? `<span class="pill warn" title="re-extracted ${escapeHtml(doc.markdown_reextracted_at)}">re-extracted</span>`
       : '';
-    el.innerHTML = `${type} ${healthPill(row)} ${parseQualityPill(row)} ${mdStatusPill(row)} ${reext} ${props} ${chars}`;
+    // Sits right next to the char count it explains: on a backfilled notice
+    // that number describes older, thinner text than the blocks on screen.
+    const stale = doc.markdown_stale
+      ? `<span class="pill warn" title="blocks_source=${escapeHtml(doc.blocks_source || 'backfill')} — the block layer was rewritten without rewriting the markdown, so the Markdown tab is a different engine's read. Re-ingest to make them agree.">stale text</span>`
+      : '';
+    el.innerHTML = `${type} ${healthPill(row)} ${parseQualityPill(row)} ${mdStatusPill(row)} ${reext} ${stale} ${props} ${chars}`;
   }
 
   // After any mutation, refresh ann.doc.markdown via a fresh GET so the
@@ -6414,6 +6503,10 @@
         // Editing blocks rewrites the markdown, so size / health / verified
         // state all move — repaint the strip rather than leaving stale numbers.
         annRenderBadges(doc);
+        // That rewrite also ENDS a stale-markdown split (the server clears
+        // blocks_source on the same write), so the banner has to be able to
+        // go away here — not just on a full reload.
+        renderAnnBanners();
         paintAnnMarkdown();
       } catch {}
     }, 400);
