@@ -93,6 +93,11 @@
  .fld .prev ul,.fld .prev ol{margin:4px 0 4px 18px;padding:0}
  .fld .prev img{max-width:100%;height:auto}
  .ung{background:#fee2e2;color:#991b1b;border-radius:8px;padding:0 6px;font-size:10px;font-weight:700}
+ /* The span under this field was re-found by us, not returned by the
+    extraction (api/review/grounding.py). Amber, not red: the value is sound,
+    only its location is a reconstruction — and a fuzzy one is the reviewer's
+    to sanity-check. */
+ .anch{background:#fef3c7;color:#92400e;border-radius:8px;padding:0 6px;font-size:10px;font-weight:700}
  .corr{color:#16a34a;font-size:11px;margin-top:3px}
  mark{border-radius:3px;padding:0 1px}
  #msg{font-size:12px;color:#64748b}
@@ -385,12 +390,21 @@ function render(){
   let f="";
   d.fields.forEach(fl=>{
     const ung=fl.grounded?"":" <span class=ung>UNGROUNDED</span>";
+    // 'stored' = the extraction's own offsets still land on this text, which
+    // is the normal case and needs no badge. Anything else means the markdown
+    // moved since the extraction ran and we re-found the span — say so, rather
+    // than let a reconstructed anchor pass as the extractor's own.
+    const ANCH={relocated:["RE-ANCHORED","the markdown moved since this was extracted; this text was found again verbatim"],
+                fuzzy:["FUZZY ANCHOR","matched on similarity, not an exact match — the OCR changed these characters, so check the highlight"],
+                lost:["ANCHOR LOST","this text is no longer in the markdown, so the span was dropped rather than left pointing at the wrong passage"]};
+    const a=ANCH[fl.anchor];
+    const anch=a?` <span class=anch title="${a[1]}">${a[0]}</span>`:"";
     const attrs=Object.entries(fl.attrs).map(([k,v])=>`<b>${esc(k)}</b>: ${esc(String(v))}`).join(" · ");
     const raw=fl.corrected_value!=null?fl.corrected_value:fl.text;
     // String(): fids ride through the onclick attribute as strings, so the set is
     // keyed on strings too (an id can come back from the API as a number).
     const rich=isRich(raw),editing=!rich||EDITING.has(String(fl.id));
-    f+=`<div class="fld" id="fld_${fl.id}" data-fid="${fl.id}"><div class="c">${fl.cls}${fl.lot_index?(" · lot "+fl.lot_index):""}${ung}${
+    f+=`<div class="fld" id="fld_${fl.id}" data-fid="${fl.id}"><div class="c">${fl.cls}${fl.lot_index?(" · lot "+fl.lot_index):""}${ung}${anch}${
         rich?`<button class="modebtn" onclick="toggleFieldMode('${fl.id}')" title="${editing?"show the value as a rendered table":"edit the raw value"}">${editing?"⊞ table":"✎ edit"}</button>`:""}</div>
       <div class="snip" style="background:${COLORS[fl.cls]||'#f1f5f9'}">${esc(snippet(fl.text))}</div>
       ${attrs?`<div style="color:#334155;font-size:12px;margin-bottom:4px">${attrs}</div>`:""}
