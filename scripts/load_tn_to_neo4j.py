@@ -60,6 +60,12 @@ CONSTRAINTS = [
     "CREATE CONSTRAINT asset_cat IF NOT EXISTS FOR (n:AssetCategory) REQUIRE n.name IS UNIQUE",
     "CREATE CONSTRAINT prop_type IF NOT EXISTS FOR (n:PropertyType) REQUIRE n.name IS UNIQUE",
     "CREATE CONSTRAINT auction_type IF NOT EXISTS FOR (n:AuctionType) REQUIRE n.name IS UNIQUE",
+    # One notice published against N lots is stored as N Documents holding the
+    # same bytes; pipeline/notice_twins groups on this hash so the paid passes
+    # (OCR, extraction) run once per page. Looked up by file, so it needs to be
+    # a point lookup, not a scan.
+    "CREATE INDEX document_content_sha IF NOT EXISTS "
+    "FOR (n:Document) ON (n.content_sha256)",
     # Lucene fulltext index backing semantic_search's lexical "keyword" lens
     # (api/tools/cypher_tools.py: PROPERTY_FULLTEXT_INDEX).
     "CREATE FULLTEXT INDEX property_text_idx IF NOT EXISTS "
