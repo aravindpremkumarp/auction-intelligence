@@ -241,6 +241,106 @@ def test_block_health_empty_is_unscored():
     assert score_block_health("   ")["flags"] == []
 
 
+# ── impossible dates ────────────────────────────────────────────────────────
+# The failure the other checks structurally cannot see: a misread that leaves
+# well-formed output. "30.06.2026" read as "30.00.2026" closes cleanly, has no
+# loop, no leak, no foreign script — health 100 on every check above. A corpus
+# scan found 24 such dates across 10 notices, all sitting at 100.
+
+def test_month_zero_flags():
+    """The reported case: 30.06.2026 read as 30.00.2026."""
+    h = score_ocr_health("Date and Time of Auction Sale 30.00.2026 Time: 1.00 pm")
+    assert "impossible-date" in h["flags"]
+    assert h["details"]["impossible_dates"] == ["30.00.2026"]
+    assert h["score"] == 75
+
+
+def test_month_over_twelve_flags_when_no_ordering_works():
+    for md in ("auction on 30.24.2026", "e-auction 16.67.2025", "dated 07.35.4003"):
+        assert "impossible-date" in score_ocr_health(md)["flags"], md
+
+
+def test_day_over_thirty_one_flags():
+    assert "impossible-date" in score_ocr_health("sale on 94.2.2025")["flags"]
+    assert "impossible-date" in score_ocr_health("sale on 64.11.2024")["flags"]
+
+
+def test_separators_all_recognised():
+    for md in ("on 30.00.2026", "on 30-00-2026", "on 30/00/2026"):
+        assert "impossible-date" in score_ocr_health(md)["flags"], md
+
+
+def test_repeated_bad_date_counts_but_penalises_once():
+    """One misread repeated across a notice is one defect, not many — same
+    invariant the extraction validator holds (one flag per defect kind)."""
+    # Distinct surrounding text per line: the real notice carried the same
+    # misread date down a lot table, and repeating one line verbatim would
+    # trip the repetition detector instead and muddy what this asserts.
+    md = "\n".join(f"Lot {i}: auction 07.35.4003 reserve Rs.{i}0,00,000/-"
+                   for i in range(1, 14))
+    h = score_ocr_health(md)
+    assert h["flags"] == ["impossible-date"]
+    assert h["details"]["impossible_date_count"] == 13
+    assert h["score"] == 75
+
+
+def test_real_dates_do_not_flag():
+    md = ("Last Date of EMD 30.06.2026. Auction 12.06.2026. "
+          "Sale deed dated 29.02.2024 and 31.12.2025.")
+    h = score_ocr_health(md)
+    assert h["flags"] == []
+    assert h["score"] == 100
+
+
+def test_old_deed_years_do_not_flag():
+    """A first pass judged the year too and flagged 54 notices, essentially
+    all of them real: notices cite registration dates going back decades."""
+    md = ("Registered on 07.07.1962, mortgage deed 15.03.1989, "
+          "sale deed 27.12.1991, partition 06.06.1994.")
+    assert score_ocr_health(md)["flags"] == []
+
+
+def test_us_ordered_date_is_recorded_not_flagged():
+    """06.20.2024 fails as dd.mm but reads as June 20 — indistinguishable from
+    a US-ordered source date, so it is counted, never penalised."""
+    h = score_ocr_health("notice dated 06.20.2024")
+    assert h["flags"] == []
+    assert h["score"] == 100
+    assert h["details"]["date_ambiguous_order"] == 1
+
+
+def test_impossible_date_stacks_with_a_structural_flag():
+    h = score_ocr_health("<table><tr><td>auction 30.00.2026</td></tr>")
+    assert set(h["flags"]) == {"truncated", "impossible-date"}
+    assert h["score"] == 45          # 100 - 30 truncated - 25 date
+
+
+def test_score_stays_above_the_reocr_cutoff():
+    """scripts/reocr_low_health_datalab.py selects health < 70. A misread digit
+    is a one-field human fix, not grounds for re-OCRing the whole notice."""
+    assert score_ocr_health("auction 30.00.2026")["score"] > 70
+
+
+def test_block_health_flags_an_impossible_date():
+    """Per-block too, so the annotator can name the block carrying it."""
+    h = score_block_health("Date and Time of Auction Sale 30.00.2026")
+    assert "impossible-date" in h["flags"]
+    assert h["details"]["impossible_dates"] == ["30.00.2026"]
+
+
+def test_block_health_clean_date_does_not_flag():
+    assert score_block_health("Date of Auction Sale 30.06.2026")["flags"] == []
+
+
+def test_flag_is_in_the_canonical_vocabulary():
+    """The review API validates its flag filter against HEALTH_FLAGS, so a flag
+    missing from it is unreachable from the UI."""
+    from pipeline.ocr_health import BLOCK_HEALTH_FLAGS, HEALTH_FLAGS, PENALTY
+    assert "impossible-date" in HEALTH_FLAGS
+    assert "impossible-date" in BLOCK_HEALTH_FLAGS
+    assert "impossible-date" in PENALTY
+
+
 # ── score_freshly_loaded: the live path folds the ink verdict in ─────────────
 # The regression: every live caller (loader, re-ingest, re-extract, block
 # edits) scored text only, so a notice with half its ink unread was written
