@@ -24,6 +24,17 @@ Two operations, gated independently so either can run alone:
              extraction_batch / extraction_review_status='pending'), all under one
              shared batch number.
 
+  --refresh  Re-extract notices whose stored extraction no longer reflects its
+             own inputs — the markdown was rewritten after the extraction ran,
+             or it scored below --min-score. Add --single-lot to restrict to
+             notices carrying exactly one :Lot. Unlike --stale this is computed
+             from the timestamps rather than read off `extraction_stale_at`, so
+             it also catches rewrites nothing stamped a flag for.
+
+A re-extraction always returns the notice to `extraction_review_status =
+'pending'` and drops `extraction_verified_by/at`: the entities a reviewer
+verified are gone, so their verdict cannot stand over the new ones.
+
 Each document is written the moment its extraction returns, so a run that is
 interrupted leaves every completed notice persisted. Re-running with --resume
 (the default) skips any :Document that already has extraction_json, so an
@@ -140,6 +151,55 @@ def select_stale_docs(min_ocr: int, limit: int | None) -> list[dict]:
                           max_rows=20_000, timeout=120.0)
 
 
+def select_refresh_docs(min_ocr: int, min_score: int, single_lot: bool,
+                        limit: int | None) -> list[dict]:
+    """Documents whose stored extraction no longer reflects its own inputs.
+
+    Two independent ways an extraction goes out of date without anything
+    clearing it:
+
+    * **the markdown was rewritten after it ran** — the notice text the model
+      read is not the text on the node today, so the entities under-report (or
+      mis-quote) the current source. `datalab: keep page headers and footers`
+      (#425) rewrote 222 single-lot notices this way.
+    * **the extraction scored below `min_score`** — the run itself failed to
+      read the notice, regardless of what the markdown says.
+
+    This is `select_stale_docs`'s condition computed from the timestamps rather
+    than read off a flag: `extraction_stale_at` only exists where
+    `scripts/fix_missing_regions.py` stamped it, and a markdown rewrite from any
+    other source leaves no marker at all.
+
+    ``single_lot`` restricts to notices carrying exactly one :Lot — the set
+    where a listing takes its lot from the `single` rule in
+    `apply_extractions.match_lots_to_listings`, so a re-extraction changes the
+    fields and never the lot link.
+    """
+    lot_filter = (
+        "MATCH (d)-[:HAS_LOT]->(l:Lot) WITH d, count(l) AS lots WHERE lots = 1 "
+        if single_lot else "")
+    q = (
+        "MATCH (d:Document) "
+        "WHERE d.extraction_json IS NOT NULL "
+        "  AND d.markdown IS NOT NULL AND d.markdown <> '' "
+        "  AND d.ocr_health_score > $min_ocr "
+        + lot_filter +
+        "WITH d, toString(d.extraction_at) AS ex, "
+        "     toString(coalesce(d.markdown_raw_at, d.markdown_loaded_at)) AS md "
+        "WHERE md > ex OR d.extraction_score < $min_score "
+        + ROSTER_CYPHER +
+        "RETURN d.filename AS filename, d.markdown AS md, "
+        "       d.notice_type AS notice_type, "
+        "       d.expected_lot_count AS expected_lot_count, "
+        "       roster AS roster "
+        "ORDER BY d.filename"
+        + (f" LIMIT {int(limit)}" if limit else "")
+    )
+    return run_read_query(q, {"min_ocr": int(min_ocr),
+                              "min_score": int(min_score)},
+                          max_rows=20_000, timeout=120.0)
+
+
 def _extract_one(d: dict, batch: int, route: bool):
     """Extract + write one document. Returns (filename, n_entities, model_id) on
     success or raises. Safe to call from a worker thread: LX.extract builds its
@@ -162,12 +222,19 @@ def _extract_one(d: dict, batch: int, route: bool):
             d.extraction_score = $score,
             d.extraction_at    = datetime(),
             d.extraction_batch = $batch,
-            d.extraction_review_status =
-                coalesce(d.extraction_review_status, 'pending'),
+            // A verification is a statement about entities a person actually
+            // read. These entities are new, so the old verdict cannot cover
+            // them: carrying `verified` forward (what
+            // `coalesce(status,'pending')` used to do here) leaves a human's
+            // name on rows nobody has seen, and the review queue reports a
+            // notice as done when it is not. Back to 'pending' — the queue is
+            // longer, and it is true.
+            d.extraction_review_status = 'pending',
             // Fresh entities now reflect the current markdown, so the staleness
             // marker fix_missing_regions left behind is cleared here — the flag
             // must not outlive the condition it describes.
             d.extraction_stale_at = NULL
+        REMOVE d.extraction_verified_by, d.extraction_verified_at
         RETURN d.filename
         """,
         {"fn": fn, "j": json.dumps(ents, ensure_ascii=False),
@@ -243,6 +310,19 @@ def main() -> int:
                          "after their last extraction (extraction_stale_at set "
                          "by scripts.fix_missing_regions); ignores --since and "
                          "--resume, since these already have extraction_json")
+    ap.add_argument("--refresh", action="store_true",
+                    help="re-extract Documents whose stored extraction no "
+                         "longer reflects its inputs: markdown rewritten after "
+                         "the last extraction, or extraction_score below "
+                         "--min-score. Computed from timestamps, so it catches "
+                         "rewrites --stale's flag never marked; ignores "
+                         "--since and --resume")
+    ap.add_argument("--min-score", type=int, default=60,
+                    help="with --refresh, extraction_score below this counts "
+                         "as needing a re-extraction (default 60)")
+    ap.add_argument("--single-lot", action="store_true",
+                    help="with --refresh, only notices carrying exactly one "
+                         ":Lot")
     ap.add_argument("--count-only", action="store_true",
                     help="print how many documents match and exit")
     args = ap.parse_args()
@@ -254,7 +334,14 @@ def main() -> int:
         if args.clear_only:
             return 0
 
-    if args.stale:
+    if args.refresh:
+        docs = select_refresh_docs(args.min_ocr, args.min_score,
+                                   args.single_lot, limit=args.limit)
+        scope = "single-lot " if args.single_lot else ""
+        print(f"matched {len(docs)} {scope}document(s) to refresh "
+              f"(ocr>{args.min_ocr}; markdown rewritten since last extract, "
+              f"or score < {args.min_score})")
+    elif args.stale:
         docs = select_stale_docs(args.min_ocr, limit=args.limit)
         print(f"matched {len(docs)} document(s) with stale extractions "
               f"(ocr>{args.min_ocr}; markdown rewritten since last extract)")
