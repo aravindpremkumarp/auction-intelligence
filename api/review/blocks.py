@@ -72,9 +72,22 @@ REINGEST_ENGINES = ("datalab", "mineru")
 MARKDOWN_STALE_BLOCK_SOURCES = ("datalab-backfill",)
 
 
-def markdown_is_stale(blocks_source: str | None) -> bool:
-    """True when this notice's blocks are newer than its stored markdown."""
-    return (blocks_source or "").strip() in MARKDOWN_STALE_BLOCK_SOURCES
+def markdown_is_stale(blocks_source: str | None,
+                      markdown_model: str | None = None) -> bool:
+    """True when this notice's blocks are newer than its stored markdown.
+
+    ``markdown_model`` guards against a stamp that outlived its condition. The
+    backfill only ever ran on notices whose markdown was MinerU's, so a
+    Datalab-produced text under a 'datalab-backfill' stamp means the notice was
+    re-ingested at some point — which rewrites both halves — and the stamp is
+    simply stale. Re-ingests from now on clear it (see
+    ``_persist_reingest_result``), but ones that ran before that shipped left
+    the marker behind: 2 notices in the corpus at the time of writing, and
+    without this guard each would carry a permanent, false warning.
+    """
+    if (blocks_source or "").strip() not in MARKDOWN_STALE_BLOCK_SOURCES:
+        return False
+    return not (markdown_model or "").strip().lower().startswith("datalab")
 
 
 def _clean_engine(engine: str | None) -> str:
@@ -565,7 +578,8 @@ def get_blocks(filename: str) -> dict:
         # (same reason ocr_health.py owns HEALTH_FLAGS): adding a writer that
         # replaces blocks without markdown reaches the annotator's warning by
         # extending MARKDOWN_STALE_BLOCK_SOURCES alone.
-        "markdown_stale":    markdown_is_stale(meta.get("blocks_source")),
+        "markdown_stale":    markdown_is_stale(meta.get("blocks_source"),
+                                               meta.get("markdown_model")),
         "schema_version":    int(doc.get("schema_version") or 1),
         "source_dims":       doc.get("source_dims") or [],
         "blocks":            doc.get("blocks") or [],

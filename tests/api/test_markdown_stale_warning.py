@@ -28,6 +28,17 @@ from api.review.router import BlocksDoc
 
 def test_backfill_source_is_stale():
     assert B.markdown_is_stale("datalab-backfill") is True
+    assert B.markdown_is_stale("datalab-backfill", "mineru-vlm") is True
+
+
+def test_a_datalab_text_under_a_backfill_stamp_is_not_stale():
+    """The stamp can outlive its condition. The backfill only ran on notices
+    whose markdown was MinerU's, so Datalab-produced text under that stamp
+    means a re-ingest rewrote both halves before re-ingests learned to clear
+    it — 2 notices in the corpus. Without this the warning is permanent and
+    wrong on every one of them."""
+    assert B.markdown_is_stale("datalab-backfill", "datalab-fast") is False
+    assert B.markdown_is_stale("datalab-backfill", "datalab-accurate") is False
 
 
 def test_whitespace_around_the_source_still_counts():
@@ -51,9 +62,9 @@ def test_stale_sources_are_a_subset_of_what_code_writes():
 
 # ── the payload the annotator reads ─────────────────────────────────────────
 
-def _stub_load(monkeypatch, blocks_source):
+def _stub_load(monkeypatch, blocks_source, markdown_model="mineru-vlm"):
     meta = {"filename": "n1.jpg", "markdown": "# short", "markdown_length": 620,
-            "blocks_source": blocks_source}
+            "blocks_source": blocks_source, "markdown_model": markdown_model}
     monkeypatch.setattr(
         B, "_load_doc",
         lambda f: ({"schema_version": 1, "blocks": [{"id": "b1"}]}, 1, meta))
@@ -70,6 +81,14 @@ def test_payload_does_not_flag_a_normal_notice(monkeypatch):
     _stub_load(monkeypatch, None)
     doc = B.get_blocks("n1.jpg")
     assert doc["markdown_stale"] is False
+
+
+def test_payload_does_not_flag_a_reingested_notice(monkeypatch):
+    """get_blocks must pass the model through, or the guard never runs."""
+    _stub_load(monkeypatch, "datalab-backfill", markdown_model="datalab-fast")
+    doc = B.get_blocks("n1.jpg")
+    assert doc["markdown_stale"] is False
+    assert doc["blocks_source"] == "datalab-backfill"
 
 
 def test_load_doc_actually_selects_the_property():
