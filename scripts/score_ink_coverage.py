@@ -7,8 +7,9 @@ Flag notices whose parser dropped a region, by measuring unread ink.
 that lost a whole column still scores 100 with no flags — the case that started
 this: SBI17861055659662.png, 29 blocks, health 100, 38% of its ink covered by no
 block at all. This script downloads each notice's source image, runs
-``pipeline.ink_coverage.score_ink_coverage`` against the stored blocks, and
-merges the ``missing-region`` verdict into the document's OCR health.
+``pipeline.ink_coverage.score_document_ink`` against the stored blocks (a
+PDF is rendered and judged on its worst page), and merges the
+``missing-region`` verdict into the document's OCR health.
 
 Writes (only when a document is actually scored):
     d.ink_uncovered_ratio   float 0–1
@@ -44,7 +45,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
 
-from pipeline.ink_coverage import MISSING_REGION_MIN_RATIO, score_ink_coverage
+from pipeline.ink_coverage import MISSING_REGION_MIN_RATIO, score_document_ink
 from pipeline.ocr_health import score_ocr_health
 
 
@@ -132,14 +133,15 @@ def write_shadow(results: list[dict]) -> int:
 
 def select_targets(*, since_iso: str | None, limit: int | None,
                    only_unscored: bool) -> list[dict]:
-    """Documents that have both blocks and a fetchable image.
+    """Documents that have both blocks and a fetchable source.
 
-    PDFs are excluded: ink coverage needs a raster page, and a PDF would have to
-    be rendered per page first (see pipeline/ink_coverage.py's scope note).
+    Rasters and PDFs alike: the measure renders a PDF page itself, and
+    ``score_document_ink`` walks every page the blocks mention, so a multi-page
+    notice is judged on its worst page.
     """
     where = ["d.blocks IS NOT NULL", "d.blocks <> ''",
              "d.public_url IS NOT NULL", "d.public_url <> ''",
-             "toLower(d.public_url) =~ '.*\\\\.(png|jpg|jpeg|webp)$'",
+             "toLower(d.public_url) =~ '.*\\\\.(png|jpg|jpeg|webp|pdf)$'",
              # Documents backfilled by scripts/backfill_blocks_datalab.py carry
              # Datalab blocks over MinerU markdown. Coverage there measures the
              # Datalab parse, not the text we actually store, so folding it into
@@ -184,7 +186,7 @@ def score_one(t: dict) -> dict:
         blocks = blocks.get("blocks") if isinstance(blocks, dict) else blocks
         r = requests.get(t["public_url"], timeout=120)
         r.raise_for_status()
-        region = score_ink_coverage(r.content, blocks)
+        region = score_document_ink(r.content, blocks)
         if region["uncovered_ratio"] is None:
             out["note"] = str(region["details"].get("skipped") or "unscorable")
             return out
@@ -250,7 +252,7 @@ def main() -> int:
         since_iso = f"{args.since}T00:00:00Z" if args.since else None
         targets = select_targets(since_iso=since_iso, limit=limit,
                                  only_unscored=args.only_unscored)
-        print(f"Selected {len(targets)} Document(s) with blocks + a raster source "
+        print(f"Selected {len(targets)} Document(s) with blocks + a fetchable source "
               f"(threshold {MISSING_REGION_MIN_RATIO:.0%} unread ink)")
     if not targets:
         return 0
