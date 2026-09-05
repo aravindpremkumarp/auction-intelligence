@@ -28,7 +28,7 @@ _OTHER = [_lot(2, 2696000, {"1h"}), _lot(4, 2696000, {"2h"})]
 
 
 def _lots():
-    return {l["lot_index"]: l for l in [*_OTHER, _2C, _2D]}
+    return {lo["lot_index"]: lo for lo in [*_OTHER, _2C, _2D]}
 
 
 def _listing(aid, price, unit):
@@ -72,7 +72,7 @@ def test_a_price_that_already_agrees_is_untouched():
 def test_a_shared_token_cannot_identify_anything():
     """Sibling flats quote the same land. Only what the lots do NOT say in
     common can separate them."""
-    lots = {l["lot_index"]: l for l in [
+    lots = {lo["lot_index"]: lo for lo in [
         _lot(1, 2696000, {"45/2", "2c"}, claim="A"),
         _lot(2, 2698000, {"45/2", "2d"}, claim="B"),
     ]}
