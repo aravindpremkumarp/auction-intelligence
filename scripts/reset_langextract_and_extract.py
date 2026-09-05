@@ -214,6 +214,16 @@ def _extract_one(d: dict, batch: int, route: bool):
                      expected_lot_count=d.get("expected_lot_count"),
                      roster=d.get("roster"))
     ents = _entities(res)
+    # An empty result is a failed read, not a notice with nothing in it — the
+    # model returned something LangExtract could not parse ("Content must
+    # contain an 'extractions' key"), and every chunk was skipped. Writing it
+    # would replace a notice's entities with nothing, and on a re-extraction
+    # that means DESTROYING the ones already there. Raise instead: the caller
+    # counts a failure, the document keeps what it had, and the next run picks
+    # it up again.
+    if not ents:
+        raise ValueError("extraction returned no entities — keeping the "
+                         "existing one")
     score = validate(res.extractions, source_text=d["md"])["score"]
     run_query(
         """

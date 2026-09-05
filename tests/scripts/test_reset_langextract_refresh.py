@@ -86,10 +86,12 @@ def test_refresh_carries_the_portal_roster(monkeypatch):
 
 # ── the write ────────────────────────────────────────────────────────────────
 
-def _write_cypher(monkeypatch) -> str:
+def _write_cypher(monkeypatch, entities=None) -> str:
     cap = _Capture(rows=[{"d.filename": "x.jpg"}])
     monkeypatch.setattr(R, "run_query", cap)
-    monkeypatch.setattr(R, "_entities", lambda res: [{"id": "e1"}])
+    monkeypatch.setattr(R, "_entities",
+                        lambda res: [{"id": "e1"}] if entities is None
+                        else entities)
     monkeypatch.setattr(R, "validate", lambda *a, **k: {"score": 80})
 
     class _Res:
@@ -118,3 +120,12 @@ def test_reextraction_drops_the_verifier(monkeypatch):
 
 def test_reextraction_clears_the_staleness_marker(monkeypatch):
     assert "d.extraction_stale_at = NULL" in _write_cypher(monkeypatch)
+
+
+def test_an_empty_result_is_never_written(monkeypatch):
+    """A model reply LangExtract could not parse yields zero entities. Writing
+    that over a notice's existing entities destroys them; the run must fail the
+    document and leave it alone."""
+    import pytest
+    with pytest.raises(ValueError):
+        _write_cypher(monkeypatch, entities=[])
