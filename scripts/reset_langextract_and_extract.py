@@ -153,7 +153,8 @@ def select_stale_docs(min_ocr: int, limit: int | None) -> list[dict]:
 
 def select_refresh_docs(min_ocr: int, min_score: int, single_lot: bool,
                         limit: int | None, multi_lot: bool = False,
-                        extracted_before: str | None = None) -> list[dict]:
+                        extracted_before: str | None = None,
+                        unlinked: bool = False) -> list[dict]:
     """Documents whose stored extraction no longer reflects its own inputs.
 
     Two independent ways an extraction goes out of date without anything
@@ -183,6 +184,13 @@ def select_refresh_docs(min_ocr: int, min_score: int, single_lot: bool,
     though its markdown and score are untouched — `portal_aid` is exactly this
     (a lot extracted before it existed makes no claim, and the matcher has
     nothing to verify). Pass the change's timestamp; it ORs with the other two.
+
+    ``unlinked`` narrows to notices that still have a listing with no
+    `IS_LOT` edge — the ones a re-extraction can actually REPAIR, as opposed
+    to merely re-check. 42 of 619 multi-lot notices are in that state against
+    577 already fully linked, so this is the difference between a half-hour
+    run and a six-hour one. It is an AND, not another staleness signal: a
+    notice with nothing left to fix is not made urgent by being old.
     """
     if single_lot and multi_lot:
         raise ValueError("--single-lot and --multi-lot are mutually exclusive")
@@ -194,6 +202,11 @@ def select_refresh_docs(min_ocr: int, min_score: int, single_lot: bool,
     stale_when = "md > ex OR d.extraction_score < $min_score"
     if extracted_before:
         stale_when += " OR ex < $extracted_before"
+    if unlinked:
+        stale_when = (
+            f"({stale_when}) AND EXISTS {{ "
+            "MATCH (_a:AuctionProperty)-[:HAS_DOCUMENT]->(d) "
+            "WHERE NOT (_a)-[:IS_LOT]->(:Lot) }")
     q = (
         "MATCH (d:Document) "
         "WHERE d.extraction_json IS NOT NULL "
@@ -357,6 +370,10 @@ def main() -> int:
                     help="with --refresh, also treat an extraction older than "
                          "this ISO timestamp as stale (a prompt change the "
                          "markdown and score cannot see)")
+    ap.add_argument("--unlinked", action="store_true",
+                    help="with --refresh, only notices that still have a "
+                         "listing with no IS_LOT edge — the ones a "
+                         "re-extraction can repair rather than just re-check")
     ap.add_argument("--count-only", action="store_true",
                     help="print how many documents match and exit")
     args = ap.parse_args()
@@ -372,12 +389,14 @@ def main() -> int:
         docs = select_refresh_docs(args.min_ocr, args.min_score,
                                    args.single_lot, limit=args.limit,
                                    multi_lot=args.multi_lot,
-                                   extracted_before=args.extracted_before)
+                                   extracted_before=args.extracted_before,
+                                   unlinked=args.unlinked)
         scope = ("single-lot " if args.single_lot
                  else "multi-lot " if args.multi_lot else "")
         older = (f", or extracted before {args.extracted_before}"
                  if args.extracted_before else "")
-        print(f"matched {len(docs)} {scope}document(s) to refresh "
+        only = " with an unlinked listing" if args.unlinked else ""
+        print(f"matched {len(docs)} {scope}document(s){only} to refresh "
               f"(ocr>{args.min_ocr}; markdown rewritten since last extract, "
               f"or score < {args.min_score}{older})")
     elif args.stale:

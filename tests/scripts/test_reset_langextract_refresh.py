@@ -96,6 +96,24 @@ def test_extracted_before_adds_a_third_staleness_signal(monkeypatch):
     assert cap.params["extracted_before"] == "2026-09-05T12:00"
 
 
+def test_unlinked_narrows_to_notices_a_rerun_can_repair(monkeypatch):
+    cap = _Capture()
+    monkeypatch.setattr(R, "run_read_query", cap)
+    R.select_refresh_docs(90, 60, single_lot=False, limit=None, unlinked=True)
+    assert "NOT (_a)-[:IS_LOT]->(:Lot)" in cap.cypher
+
+
+def test_unlinked_is_an_and_not_another_staleness_signal(monkeypatch):
+    """A notice with nothing left to fix is not made urgent by being old, so
+    the unlinked test brackets the OR-ed signals rather than joining them."""
+    cap = _Capture()
+    monkeypatch.setattr(R, "run_read_query", cap)
+    R.select_refresh_docs(90, 60, single_lot=False, limit=None, unlinked=True,
+                          extracted_before="2026-09-05T12:00")
+    assert ("(md > ex OR d.extraction_score < $min_score "
+            "OR ex < $extracted_before) AND EXISTS") in cap.cypher
+
+
 def test_extracted_before_is_absent_when_not_asked_for(monkeypatch):
     cap = _Capture()
     monkeypatch.setattr(R, "run_read_query", cap)
