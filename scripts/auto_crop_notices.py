@@ -30,10 +30,16 @@ it works from Bolt-firewalled environments — same pattern as
 scripts/auto_region_reingest.py.
 
 Usage:
-    python -m scripts.auto_crop_notices --files JM17727039268646.jpg --preview out/
-    python -m scripts.auto_crop_notices --files JM17727039268646.jpg          # persist crop
-    python -m scripts.auto_crop_notices --auto --limit 20 --dry-run          # scan candidates
-    python -m scripts.auto_crop_notices --auto --limit 20 --reingest         # crop + re-OCR
+    python -m scripts.auto_crop_notices --files JM17727039268646.pdf --preview out/
+    python -m scripts.auto_crop_notices --files JM17727039268646.pdf --reingest   # crop + re-OCR
+    python -m scripts.auto_crop_notices --auto --dry-run --concurrency 12       # scan the corpus
+
+Trust model, from a dry-run over the 1,490 un-cropped notices: the locator is
+right on genuine full-page uploads (JM17727039268646) but it also proposes a
+box on many single-notice images, cutting the header off when the printed
+bank name is not the bank the graph links (so that header block never joins
+the anchor). Treat --auto as a scan: look at --preview output, then persist
+per file with --files. --auto refuses to write without --write-auto.
 
 --reingest re-OCRs the cropped notice after saving the crop. With
 REVIEW_API_TOKEN (an admin's access token; REVIEW_API_BASE defaults to the
@@ -356,7 +362,17 @@ def main() -> int:
     ap.add_argument("--concurrency", type=int, default=1,
                     help="documents processed in parallel (source fetch + "
                          "locate are independent per doc)")
+    ap.add_argument("--write-auto", action="store_true",
+                    help="allow --auto to persist crops. Off by default: a "
+                         "dry-run over the corpus found most --auto "
+                         "candidates were single notices whose located box "
+                         "cut the header off, so --auto is a scan tool — "
+                         "preview, then persist per file with --files")
     args = ap.parse_args()
+    if (args.auto and not args.dry_run and args.preview is None
+            and not args.write_auto):
+        raise SystemExit("--auto persists nothing without --write-auto; use "
+                         "--dry-run / --preview to scan, then --files to crop")
 
     docs = select_docs(files=args.files, auto=args.auto,
                        limit=args.limit, force=args.force)
