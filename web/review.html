@@ -5313,7 +5313,8 @@
     const d = ann.ink.data;
     const pct = (v) => (v == null ? '—' : (v * 100).toFixed(1) + '%');
     const det = d.details || {};
-    const stale = ann.ink.rev !== ann.rev || ann.ink.page !== ann.page;
+    const wrongPage = ann.ink.page !== ann.page;
+    const stale = ann.ink.rev !== ann.rev || wrongPage;
     const where = (w) => (w && w.where) ? `${w.where} (${pct(w.ratio)})` : '—';
 
     body.innerHTML = `
@@ -5341,8 +5342,9 @@
         <span><i class="sw red"></i>ink nothing covers</span>
         <span><i class="sw blue"></i>largest unread patch</span>
       </div>`}
-      <div class="ink-note">measured on the stored blocks (rev ${d.blocks_revision})${
-        stale ? ' — blocks have changed since; press recompute' : ''}</div>`;
+      <div class="ink-note">measured on page ${d.page || ann.ink.page} of the stored blocks (rev ${d.blocks_revision})${
+        wrongPage ? ` — you are on page ${ann.page}; press recompute`
+        : stale ? ' — blocks have changed since; press recompute' : ''}</div>`;
     const btn = $('ann-ink-refresh');
     if (btn) btn.addEventListener('click', () => loadAnnInk(true));
     if (!det.skipped) drawInkCanvas(d);
@@ -6742,6 +6744,10 @@
     ann.selectedRegion = null;
     if (ann.sourceKind === 'pdf') await renderAnnPdfPage();
     paintAnnAll();
+    // The coverage map is per page. With the Ink tab open, a page change has
+    // to re-measure — otherwise the pane keeps showing page 1's map under
+    // page 3's stage, which read as "ink coverage only works on page 1".
+    if (!$('ann-pane-ink').classList.contains('hidden')) loadAnnInk();
   });
   document.querySelectorAll('button[data-ann-md-mode]').forEach(btn => {
     btn.addEventListener('click', () => {
