@@ -89,7 +89,9 @@ def test_describe_schema_shape(monkeypatch):
     assert "iso string" in rules_text
     # Spot-check a key example shape so a regression doesn't quietly drop it.
     purposes = {ex["purpose"].lower() for ex in patterns["examples"]}
-    assert any("count auctions per city" in p for p in purposes)
+    # "per city" became "per district": the example now groups on the
+    # notice-resolved district, with the portal City only as the fallback.
+    assert any("count auctions per district" in p for p in purposes)
     assert any("re-auction velocity" in p for p in purposes)
 
 

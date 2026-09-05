@@ -280,3 +280,32 @@ def test_the_declared_signature_admits_ints():
 
     ann = str(inspect.signature(GP.get_property).parameters["auction_ids"].annotation)
     assert "int" in ann
+
+
+# ── the portal city never sits beside the notice's district ──────────────────
+
+def test_the_portal_city_is_dropped_when_the_notice_resolved_a_district(monkeypatch):
+    """Returning both put the same listing in two places at once. The notice
+    is the legal document and the portal only a witness, so where resolution
+    reached the listing the witness is not quoted alongside it."""
+    _stub(monkeypatch,
+          listings=[_listing(city="Chennai", district="Chengalpattu")],
+          docs=[_doc()], lots=[_lot()])
+
+    listing = GP.get_property("A1")["properties"][0]["listing"]
+
+    assert listing["district"] == "Chengalpattu"
+    assert "city" not in listing
+
+
+def test_the_portal_city_survives_where_no_notice_district_exists(monkeypatch):
+    """The portal is the fallback, never the override: a listing place
+    resolution never reached must not lose the only location it has."""
+    _stub(monkeypatch,
+          listings=[_listing(city="Chennai", district=None)],
+          docs=[_doc()], lots=[_lot()])
+
+    listing = GP.get_property("A1")["properties"][0]["listing"]
+
+    assert listing["city"] == "Chennai"
+    assert "district" not in listing

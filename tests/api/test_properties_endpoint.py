@@ -85,7 +85,10 @@ def test_properties_limit_clamped_and_offset_floored(captured: dict) -> None:
 def test_properties_filters_become_params(captured: dict) -> None:
     _client().get("/properties?district=Chennai&min_price=1000000&q=adyar")
     count_params = next(p for c, p in captured["queries"] if "count(DISTINCT a)" in c)
-    assert count_params["f_district"] == "Chennai"
+    # District rides a WHERE clause on the notice-first value, not a :City
+    # edge in the MATCH — so its binding is the multi-select list form even
+    # for one value.
+    assert count_params["f_district_list"] == ["Chennai"]
     assert count_params["f_min_price"] == 1000000.0
     assert count_params["f_q"] == "adyar"
 

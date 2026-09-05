@@ -384,3 +384,21 @@ def test_date_aggregates_are_exact_over_every_match_not_the_sample(monkeypatch):
     agg_cypher = next(c for c, _ in calls if "count(a) AS total_count" in c)
     assert "max(a.auction_start_dt)" in agg_cypher
     assert "LIMIT" not in agg_cypher.upper().split("RETURN")[-1]
+
+
+# ── the portal city never sits beside the notice's district ──────────────────
+
+def test_a_result_row_drops_the_portal_city_for_the_notice_district(monkeypatch):
+    """One row naming two districts is the same listing in two places. The
+    portal is the witness the notice contradicts, so it goes."""
+    row = FP._shape_row(_row(city="Chennai", district="Chengalpattu"))
+
+    assert row["district"] == "Chengalpattu"
+    assert row["city"] is None
+
+
+def test_a_result_row_keeps_the_portal_city_when_the_notice_is_silent(monkeypatch):
+    """Fallback, never override — an unresolved listing keeps its only name."""
+    row = FP._shape_row(_row(city="Chennai", district=None))
+
+    assert row["city"] == "Chennai"

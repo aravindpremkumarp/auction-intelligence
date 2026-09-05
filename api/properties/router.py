@@ -17,6 +17,9 @@ from fastapi import APIRouter, HTTPException, Query, Request
 
 from api.auth.rate_limit import PUBLIC_READ_LIMIT, STATS_LIMIT, limiter
 from api.neo4j_client import run_query
+# Same rule as the property-type import below, for the same reason: the
+# notice-first place precedence is defined once and read here, never restated.
+from api.places import district_effective
 from api.tools.cypher_tools import get_auction_detail
 # Imported, never re-implemented: a second copy of "which bucket is this" is
 # how the conflict flag and the lot matcher each grew a rival that disagreed
@@ -74,7 +77,6 @@ def _properties_filter_cypher(filters: dict[str, Any]) -> tuple[str, str, dict[s
     # still AND-ing across dimensions.
     _categorical = (
         ("state",         "LOCATED_IN_STATE",   "State",         "f_state",         "s_state"),
-        ("district",      "LOCATED_IN_CITY",    "City",          "f_district",      "s_district"),
         ("village",       "LOCATED_IN_AREA",    "Area",          "f_village",       "s_village"),
         ("bank",          "CONDUCTED_BY",       "Bank",          "f_bank",          "s_bank"),
         ("type",          "HAS_ASSET_CATEGORY", "AssetCategory", "f_type",          "s_type"),
@@ -94,6 +96,21 @@ def _properties_filter_cypher(filters: dict[str, Any]) -> tuple[str, str, dict[s
             matches.append(f"(a)-[:{rel}]->({alias}:{label})")
             where.append(f"{alias}.name IN ${param_key}_list")
             params[f"{param_key}_list"] = vals
+    # District is filtered on the notice-resolved revenue district, not the
+    # portal's :City edge, for the same reason property type moved: the portal
+    # value is a witness the notice contradicts, and a browse row that renders
+    # the notice's district while the filter beside it matched the portal's
+    # city is two answers to one question. `district_effective` falls back to
+    # the City name where place resolution never reached the listing, so
+    # nothing drops out of the dropdown — and because the fallback keeps the
+    # portal spelling, links and bookmarks made before this change still
+    # resolve.
+    d_raw = filters.get("district")
+    if d_raw not in (None, "", []):
+        d_vals = [v for v in (d_raw if isinstance(d_raw, list) else [d_raw]) if v]
+        if d_vals:
+            where.append(f"{district_effective('a')} IN $f_district_list")
+            params["f_district_list"] = d_vals
     # Property type is filtered on the NOTICE-derived bucket, not the portal's
     # :PropertyType edge. The dropdown value is what is wrong — 832 listings
     # live disagree with their notice, 139 of them flats and houses filed
@@ -139,6 +156,11 @@ def _properties_filter_cypher(filters: dict[str, Any]) -> tuple[str, str, dict[s
         # placeholder promises.
         where.append(
             "(toLower(coalesce(a.title, '')) CONTAINS $f_q "
+            # The notice's district is searchable in its own right, not only
+            # through the portal City beside it: typing a district the portal
+            # spells differently (or does not carry at all) must still find
+            # the listings whose notice names it.
+            " OR toLower(coalesce(a.revenue_district, '')) CONTAINS $f_q "
             " OR EXISTS { MATCH (a)-[:LOCATED_IN_CITY]->(c:City) WHERE toLower(c.name) CONTAINS $f_q } "
             " OR EXISTS { MATCH (a)-[:LOCATED_IN_AREA]->(ar:Area) WHERE toLower(ar.name) CONTAINS $f_q } "
             " OR EXISTS { MATCH (a)-[:CONDUCTED_BY]->(b:Bank) WHERE toLower(b.name) CONTAINS $f_q } "
@@ -232,6 +254,27 @@ def _property_type_facet(filters: dict[str, Any]) -> list[dict]:
     """, {**f_params, "unknown_bucket": UNKNOWN})
 
 
+def _district_facet(filters: dict[str, Any]) -> list[dict]:
+    """Count districts on the same value the district filter matches.
+
+    `_facet_for` counts a node's name, which for this dimension is the portal
+    :City — the value the filter no longer reads. Counting it would hand the
+    dropdown a number the filter beside it cannot reproduce, the same trap
+    `_property_type_facet` exists to avoid.
+    """
+    facet_filters = _facet_filters_for(filters, "district")
+    f_match, f_where, f_params = _properties_filter_cypher(facet_filters)
+    return run_query(f"""
+        MATCH {f_match}
+        {f_where}
+        WITH {district_effective('a', var='_fc')} AS value, count(DISTINCT a) AS count
+        WHERE value IS NOT NULL
+        RETURN value, count
+        ORDER BY count DESC, value ASC
+        LIMIT 200
+    """, f_params)
+
+
 @router.get("/properties")
 @limiter.limit(PUBLIC_READ_LIMIT)
 def list_properties(
@@ -303,7 +346,8 @@ def list_properties(
         RETURN a.auction_id AS auction_id, a.title AS title, a.url AS url,
                a.reserve_price_num AS reserve_price, a.emd_num AS emd,
                toString(a.auction_start_dt) AS auction_start,
-               stt.name AS state, cty.name AS city, ara.name AS area,
+               stt.name AS state, {district_effective('a', 'cty')} AS city,
+               ara.name AS area,
                bnk.name AS bank, bnk.short_name AS bank_short,
                asc.name AS asset_category,
                property_types,
@@ -324,7 +368,7 @@ def list_properties(
         "property_type": _property_type_facet(filters),
         "bank":          _facet_for(filters, "bank",          "Bank",          "CONDUCTED_BY",       "bk"),
         "state":         _facet_for(filters, "state",         "State",         "LOCATED_IN_STATE",   "st"),
-        "district":      _facet_for(filters, "district",      "City",          "LOCATED_IN_CITY",    "ct"),
+        "district":      _district_facet(filters),
         "village":       _facet_for(filters, "village",       "Area",          "LOCATED_IN_AREA",    "ar"),
     }
 
