@@ -235,10 +235,49 @@ def test_counting_loop_is_invisible_to_the_repetition_checks():
     assert h["flags"] == ["degenerate-sequence"]
 
 
+def test_the_corpus_counting_loop_flags():
+    # chola-2-17815331845450.jpg: 504 consecutive door numbers for ONE A.C.C.
+    # shell building, the description never finishing before the cell ends.
+    # The only true loop in a 1622-document sweep.
+    md = ("For the said R.C.C. Terrace & A.C.C. Shell Building including "
+          "Plinth Area, Terrace, Roof, front and Back Yard, Vacant land "
+          "including door frame, windows Electric Connection Wing, Fittings "
+          "deposit and entire rights etc. Door No. "
+          + ", ".join(str(n) for n in range(497, 1001)) + ".")
+    h = score_ocr_health(md)
+    assert "degenerate-sequence" in h["flags"]
+    assert h["details"]["degenerate_sequence"]["step_run"] == 504
+
+
 def test_short_number_list_does_not_flag():
     # Boundaries really are written like this. A handful of plot numbers is
     # prose, not a loop.
     md = "Bounded on the West by Plot Nos. 26, 27, 28, 29 and 30 of the layout."
+    assert score_ocr_health(md)["flags"] == []
+
+
+def test_dtcp_layout_plot_list_does_not_flag():
+    # db4decc7…jpg, verbatim from the corpus: an approved layout genuinely
+    # enumerates its plots, 27 of them consecutively, and prose resumes after.
+    # This is the case that made the first threshold (12) untenable — three of
+    # its four corpus hits were lists like this one.
+    md = ("Schedule 'A' Property: - Item No.1 (\"J\" Block): All that piece "
+          "and parcel of Vacant House Site bearing Plot Nos."
+          + ", ".join(str(n) for n in range(1026, 1053))
+          + " and 1053, as approved by DTCP No.30 of 2006 dated 22.02.2006 "
+          "situated at No.105, Thiruporur Village, Kancheepuram District.")
+    assert score_ocr_health(md)["flags"] == []
+
+
+def test_dtcp_layout_block_f_does_not_flag():
+    # ARCIL-11776411211386.jpg: 22 plots making up 85609.94 sq.ft — about
+    # 3900 sq.ft each, which is exactly what a layout plot measures.
+    md = ("Item No : II - Block F - All that piece and parcel of Land "
+          "measuring 85609.94 sq.ft., in Plot Nos."
+          + ", ".join(str(n) for n in range(514, 535))
+          + " & 535 as approved by DTCP No.30 of 2006 dated 22.02.2006, "
+          "forming part of larger extent of land comprised in Survey "
+          "Nos.198/1, 198/2A, 198/2C & 228/1.")
     assert score_ocr_health(md)["flags"] == []
 
 
@@ -272,11 +311,20 @@ def test_serial_numbers_across_markdown_pipes_do_not_flag():
 
 def test_long_unordered_number_dump_flags():
     # Not ascending, so the counting rule misses it — but 40 bare numbers in
-    # one sentence is not a boundary description either.
+    # one sentence is not a boundary description either. The longest unordered
+    # run in the corpus is 16 items, so this bar has room under it.
     md = "West by: " + ", ".join(str((i * 37) % 900) for i in range(40)) + "."
     h = score_ocr_health(md)
     assert "degenerate-sequence" in h["flags"]
     assert h["details"]["degenerate_sequence"]["items"] == 40
+
+
+def test_survey_number_run_at_the_corpus_maximum_does_not_flag():
+    # IDFC17706416165598.jpg's shape: 16 unordered numbers, the longest such
+    # run in the corpus. It must stay under the bar with margin.
+    md = ("Comprised in Survey Nos. 120, 121, 126, 152, 162, 171, 204, 209, "
+          "214, 215, 220, 231, 244, 259, 261, 270 of the village.")
+    assert score_ocr_health(md)["flags"] == []
 
 
 def test_degenerate_sequence_stacks_with_other_flags():

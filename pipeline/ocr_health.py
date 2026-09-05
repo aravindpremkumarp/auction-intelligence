@@ -146,14 +146,22 @@ SEQ_SEGMENT_SPLIT_RE = re.compile(r"<[^>]+>|[|\n\r]+")
 # A comma/semicolon-separated run of bare integers. Grouped amounts match too
 # ("2,34,00,000" → 4 items) and are far below both thresholds.
 SEQ_NUM_RUN_RE = re.compile(r"\d{1,4}(?:\s*[,;]\s*\d{1,4})+")
-# Strictly +1 ascending items this long → a counting loop. Set well above any
-# list a notice would plausibly write out by hand (consecutive flat or plot
-# numbers are normally given as a range, "Flat Nos. 101 to 112"); the observed
-# failures run to 70+ items, so precision costs us nothing.
-SEQ_MIN_STEP_RUN = 12
-# ...and a long list that is *not* ascending is still not prose. Higher bar,
-# since an unordered run carries less signal on its own.
-SEQ_MIN_ITEMS = 30
+# Strictly +1 ascending items this long → a counting loop.
+#
+# Set from a sweep of the 1622-document corpus, which was emphatic that a long
+# ascending run is NOT by itself a fault: a DTCP-approved layout really does
+# enumerate its plots ("Plot Nos.1026, 1027, … and 1053, as approved by DTCP
+# No.30 of 2006"), and the longest such legitimate list runs to 27 items. The
+# one true loop in the corpus runs to 504 ("Door No. 497, 498, … " for a single
+# A.C.C. shell building, the description never finishing before the cell ends),
+# and the notice this detector was written for ran to 75. 60 sits in that gap
+# with room on both sides; it costs the short loops, which is the right trade
+# when the alternative is flagging real notices.
+SEQ_MIN_STEP_RUN = 60
+# ...and a long list that is *not* ascending is still not prose. The longest
+# unordered run in the corpus is 16 items (a list of survey numbers), and the
+# longest run of any shape that reads as real content is the 27-plot list above.
+SEQ_MIN_ITEMS = 40
 
 
 # ── single-table collapse ────────────────────────────────────────────────────
