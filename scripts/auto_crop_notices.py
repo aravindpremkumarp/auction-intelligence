@@ -112,13 +112,27 @@ def select_docs(*, files: list[str] | None, auto: bool,
             area:                area.name
         }}) AS props
         RETURN d.filename, d.file_path, d.blocks, props,
-               d.ocr_health_score, d.notice_type
+               d.ocr_health_score, d.notice_type, d.public_url
         ORDER BY d.ocr_health_score ASC
         {'LIMIT $lim' if limit else ''}
     """, {**params, **({"lim": limit} if limit else {})})
     return [{"filename": r[0], "file_path": r[1], "blocks_json": r[2],
-             "properties": r[3] or [], "health": r[4], "notice_type": r[5]}
+             "properties": r[3] or [], "health": r[4], "notice_type": r[5],
+             "public_url": r[6]}
             for r in rows]
+
+
+def _fetch(doc: dict) -> tuple[bytes, str]:
+    """Source bytes + content type: straight from R2 when the Document has
+    a public_url (no API hop), else through the API's source proxy."""
+    url = doc.get("public_url")
+    if url:
+        # R2's public host answers 403 to a request with no User-Agent.
+        req = urllib.request.Request(
+            url, headers={"User-Agent": "auction-intelligence/auto-crop"})
+        with urllib.request.urlopen(req, timeout=90) as r:
+            return r.read(), (r.headers.get("content-type") or "")
+    return fetch_source(doc["filename"])
 
 
 # ── one document ────────────────────────────────────────────────────────────
@@ -132,7 +146,7 @@ def process_doc(doc: dict, *, dry_run: bool, preview_dir: Path | None,
         out["status"] = "no-blocks"
         return out
 
-    data, ct = fetch_source(fn)
+    data, ct = _fetch(doc)
     png = to_page_png(data, ct, fn)
     if png is None:
         out["status"] = "skip-multipage-pdf"
