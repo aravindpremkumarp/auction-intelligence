@@ -17,6 +17,7 @@ from pipeline.ink_coverage import (
     _is_pdf,
     _render_pdf_page,
     coverage_map,
+    score_document_ink,
     score_ink_coverage,
 )
 from pipeline.ocr_health import PENALTY, score_ocr_health
@@ -374,6 +375,39 @@ def test_the_page_argument_selects_which_pdf_page_is_rendered():
         doc, [_block(0.03, 0.58, 0.97, 0.97, page=1)], page=1)
     assert on_p1["flag"] is True
     assert on_p1["details"]["worst_band"]["where"] == "top"
+
+
+def test_a_document_carries_its_worst_page():
+    """A multi-page PDF is flagged if ANY page dropped a region, and the
+    verdict names which page — page 1 reading clean must not hide page 2."""
+    doc = _pdf([_page([(0.05, 0.05, 0.95, 0.95)]),    # p1: ink everywhere
+                _page([(0.05, 0.05, 0.95, 0.95)])])   # p2: ink everywhere
+    blocks = [_block(0.03, 0.03, 0.97, 0.97, page=1),   # p1 fully read
+              _block(0.03, 0.03, 0.97, 0.50, page=2)]   # p2: lower half unread
+
+    r = score_document_ink(doc, blocks)
+
+    assert r["flag"] is True
+    assert r["details"]["page"] == 2
+    assert r["details"]["worst_band"]["where"] == "bottom"
+    # ...and a clean page 2 leaves the document clean.
+    clean = score_document_ink(doc, [_block(0.03, 0.03, 0.97, 0.97, page=1),
+                                     _block(0.03, 0.03, 0.97, 0.97, page=2)])
+    assert clean["flag"] is False
+
+
+def test_a_raster_document_is_only_ever_its_first_page():
+    """Blocks claiming page 2 of a PNG are stale metadata, not a second page."""
+    page = _page([(0.05, 0.1, 0.45, 0.9), (0.55, 0.1, 0.95, 0.9)])
+    r = score_document_ink(page, [_block(0.02, 0.05, 0.48, 0.95, page=1),
+                                  _block(0.0, 0.0, 1.0, 1.0, page=2)])
+    assert r["details"]["page"] == 1
+    assert r["flag"] is True                      # right column still unread
+
+
+def test_a_document_with_nothing_to_measure_says_why():
+    assert score_document_ink(None, [_block(0, 0, 1, 1)])["details"]["skipped"] == "no-image"
+    assert score_document_ink(b"x", [])["details"]["skipped"] == "no-blocks"
 
 
 def test_a_page_the_pdf_does_not_have_says_so():

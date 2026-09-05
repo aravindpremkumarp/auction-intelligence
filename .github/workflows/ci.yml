@@ -73,6 +73,7 @@ jobs:
         run: >
           pytest tests/api tests/scripts tests/test_vercel_config.py
           tests/pipeline/test_ink_coverage.py
+          tests/pipeline/test_ocr_health.py
           tests/pipeline/test_apply_extractions.py
           tests/pipeline/test_area_agreement.py
           tests/pipeline/test_property_taxonomy.py

@@ -563,6 +563,52 @@ def score_ink_coverage(image_bytes: bytes | None, blocks: list[dict] | None,
     return _measure(image_bytes, blocks, page)[0]
 
 
+def _pages_with_blocks(blocks: list[dict]) -> list[int]:
+    """Distinct 1-indexed pages any block sits on, ascending."""
+    pages: set[int] = set()
+    for b in blocks:
+        if not isinstance(b, dict):
+            continue
+        try:
+            pages.add(int(b.get("page") or 1))
+        except (TypeError, ValueError):
+            continue
+    return sorted(pages)
+
+
+def score_document_ink(image_bytes: bytes | None,
+                       blocks: list[dict] | None) -> dict:
+    """The document's ``missing-region`` verdict: its worst page.
+
+    A notice is one page of ink, or a PDF of several; the flag is per page, and
+    the document carries the flag if ANY page dropped a region. So every page
+    the blocks mention is measured (a raster has only page 1) and the page with
+    the largest unread patch is the document's verdict, with ``details.page``
+    saying which. This is the shape :func:`pipeline.ocr_health.score_ocr_health`
+    takes as ``region``.
+
+    Unscorable pages are skipped in favour of a scorable one; if no page is
+    scorable, the result is the first page's (so ``details.skipped`` still
+    names a reason).
+    """
+    if not image_bytes or not blocks:
+        return score_ink_coverage(image_bytes, blocks)
+    pages = _pages_with_blocks(blocks) or [1]
+    if not _is_pdf(image_bytes):
+        pages = [1]
+    worst: dict | None = None
+    first: dict | None = None
+    for page in pages:
+        r = score_ink_coverage(image_bytes, blocks, page=page)
+        r.setdefault("details", {})["page"] = page
+        first = first or r
+        if r.get("uncovered_ratio") is None:
+            continue
+        if worst is None or r.get("patch_ratio", 0) > worst.get("patch_ratio", 0):
+            worst = r
+    return worst or first  # type: ignore[return-value]
+
+
 def coverage_map(image_bytes: bytes | None, blocks: list[dict] | None,
                  *, page: int = 1) -> dict:
     """:func:`score_ink_coverage`, plus the tile grids behind the verdict.

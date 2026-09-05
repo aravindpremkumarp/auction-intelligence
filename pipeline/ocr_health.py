@@ -51,9 +51,11 @@ Score = 100 minus per-flag penalties, clamped to 0–100. A document with no
 flags scores 100. Fields written (additive — ``markdown_quality_score`` is
 untouched):
 
-    d.ocr_health_score  int 0–100 (NULL when there is no markdown)
-    d.ocr_health_flags  list of strings, possibly empty
-    d.ocr_health_at     datetime of scoring
+    d.ocr_health_score     int 0–100 (NULL when there is no markdown)
+    d.ocr_health_flags     list of strings, possibly empty
+    d.ocr_health_at        datetime of scoring
+    d.ink_uncovered_ratio  float 0–1, only when the page's ink was measured
+    d.ink_coverage_at      datetime of that measurement
 
 Usage
 ~~~~~
@@ -61,18 +63,25 @@ Usage
     python -m pipeline.ocr_health --force    # re-score everything
     python -m pipeline.ocr_health --limit 100
 
-`score_freshly_loaded(file_paths)` mirrors pipeline/score_markdown.py and is
-called after re-ingest / per-block re-extract writes new markdown.
+The CLI is the bulk, text-only pass (it never fetches images — for a corpus
+ink sweep see scripts/score_ink_coverage.py). `score_freshly_loaded(file_paths)`
+mirrors pipeline/score_markdown.py and is called after the loader, a re-ingest,
+a per-block re-extract or a block edit writes new markdown/blocks; being
+per-document, it DOES fetch the source and fold ``missing-region`` in.
 """
 from __future__ import annotations
 
 import argparse
+import json
+import logging
 import re
 import sys
 import time
 from typing import Iterable
 
 from api.neo4j_client import run_query, run_read_query
+
+log = logging.getLogger(__name__)
 
 
 # Only scan the first N chars — health artifacts show up throughout the
@@ -339,7 +348,11 @@ def score_block_health(text: str | None) -> dict:
 
 # ── Neo4j plumbing ──────────────────────────────────────────────────────────
 
-def _fetch_docs(file_paths: list[str] | None, force: bool) -> list[dict]:
+def _fetch_docs(file_paths: list[str] | None, force: bool,
+                *, with_source: bool = False) -> list[dict]:
+    """Documents to score. ``with_source`` also pulls what the ink measure
+    needs (blocks, source URL, block provenance) — heavy columns, so the bulk
+    text-only pass leaves them out."""
     where = ["d.markdown IS NOT NULL", "d.markdown <> ''"]
     params: dict = {}
     if file_paths is not None:
@@ -347,16 +360,26 @@ def _fetch_docs(file_paths: list[str] | None, force: bool) -> list[dict]:
         params["file_paths"] = file_paths
     if not force:
         where.append("d.ocr_health_score IS NULL")
+    extra = (", d.blocks AS blocks_json, d.public_url AS public_url, "
+             "d.blocks_source AS blocks_source, d.filename AS filename"
+             if with_source else "")
     cypher = f"""
         MATCH (d:Document)
         WHERE {' AND '.join(where)}
-        RETURN d.file_path AS file_path, d.markdown AS markdown
+        RETURN d.file_path AS file_path, d.markdown AS markdown{extra}
     """
     return run_read_query(cypher, params, max_rows=20_000, timeout=60.0)
 
 
 def _write_health(rows: list[dict]) -> None:
-    """Persist {file_path, score, flags} triples."""
+    """Persist {file_path, score, flags} rows.
+
+    A row carrying ``ink_scored: True`` also persists its ``ratio`` as
+    ``ink_uncovered_ratio`` — the page total behind the ``missing-region``
+    flag, which the review queue shows in the health pill's tooltip. Rows
+    without it (text-only scoring, or a page that couldn't be measured) leave
+    the ink fields exactly as they were.
+    """
     if not rows:
         return
     run_query(
@@ -366,26 +389,116 @@ def _write_health(rows: list[dict]) -> None:
         SET d.ocr_health_score = row.score,
             d.ocr_health_flags = row.flags,
             d.ocr_health_at    = datetime()
+        FOREACH (_ IN CASE WHEN coalesce(row.ink_scored, false) THEN [1] ELSE [] END |
+            SET d.ink_uncovered_ratio = row.ratio,
+                d.ink_coverage_at     = datetime())
         """,
         {"rows": rows},
     )
 
 
+# ── ink coverage on the live path ────────────────────────────────────────────
+# ``score_ocr_health`` takes the ink verdict as an argument because it judges
+# text and never fetches an image. That left the live path — the loader, a
+# re-ingest, a per-block re-extract, a reviewer's block edit — scoring text
+# only: every one of them called ``score_freshly_loaded``, which never passed
+# ``region``, so ``missing-region`` was written by the offline scripts alone
+# (scripts/score_ink_coverage.py, scripts/fix_missing_regions.py). Any notice
+# touched after those ran went back to health 100 with no flag, while the
+# annotator's Ink tab — measuring live — showed a 50% unread patch on the same
+# page. ``score_freshly_loaded`` is per-document and already the moment the
+# blocks changed, so it is where the measure belongs.
+
+# The source is fetched from R2; a broken or absent one must not stop the
+# text score from being written. Same cap the annotator's Ink tab applies.
+INK_SOURCE_MAX_BYTES = 32 * 1024 * 1024
+INK_SOURCE_TIMEOUT_S = 60
+# Documents backfilled by scripts/backfill_blocks_datalab.py carry Datalab
+# blocks over MinerU markdown. Coverage there measures the Datalab parse, not
+# the text we store, so folding it into ocr_health would attribute one
+# engine's miss to the other's output — the same exclusion the corpus scorer
+# applies; their reading lives in shadow_ink_uncovered_ratio instead.
+INK_SKIP_BLOCK_SOURCES = ("datalab-backfill",)
+
+
+def _blocks_from_json(raw: str | None) -> list[dict]:
+    """The block list out of the stored ``d.blocks`` blob (dict or bare list)."""
+    if not raw:
+        return []
+    try:
+        obj = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return []
+    if isinstance(obj, dict):
+        obj = obj.get("blocks")
+    return [b for b in obj if isinstance(b, dict)] if isinstance(obj, list) else []
+
+
+def _fetch_source(url: str) -> bytes | None:
+    """The notice's source bytes, or ``None`` when they can't be had."""
+    import requests
+    try:
+        resp = requests.get(url, timeout=INK_SOURCE_TIMEOUT_S)
+        resp.raise_for_status()
+    except requests.RequestException as e:
+        log.warning("ink source fetch failed for %s: %s", url, type(e).__name__)
+        return None
+    if len(resp.content) > INK_SOURCE_MAX_BYTES:
+        log.warning("ink source too large for %s (%d bytes)", url, len(resp.content))
+        return None
+    return resp.content
+
+
+def region_for(doc: dict) -> dict | None:
+    """The ``region`` argument for one fetched document, or ``None``.
+
+    ``None`` means "don't judge the ink": no blocks, no source URL, blocks
+    from another engine than the markdown, or a source that couldn't be
+    fetched. The text score is still written in every one of those cases —
+    only the ``missing-region`` verdict is withheld. A measured-but-unscorable
+    page (too little ink, unreadable file) comes back as a dict with
+    ``uncovered_ratio`` None, which ``score_ocr_health`` treats the same way.
+    """
+    if (doc.get("blocks_source") or "") in INK_SKIP_BLOCK_SOURCES:
+        return None
+    blocks = _blocks_from_json(doc.get("blocks_json"))
+    url = doc.get("public_url")
+    if not blocks or not url:
+        return None
+    img = _fetch_source(url)
+    if img is None:
+        return None
+    from pipeline.ink_coverage import score_document_ink
+    try:
+        return score_document_ink(img, blocks)
+    except Exception:                                # never block the text score
+        log.exception("ink coverage failed for %s", doc.get("filename") or url)
+        return None
+
+
 def score_freshly_loaded(file_paths: Iterable[str]) -> int:
     """Compute and persist OCR-health for the given file_paths. Returns count.
 
-    Always re-scores — the caller just wrote new markdown, so any prior
-    health verdict is stale.
+    Always re-scores — the caller just wrote new markdown or blocks, so any
+    prior health verdict is stale. This is the per-document path (loader,
+    re-ingest, re-extract, block edits), so it also measures the page's ink
+    against the stored blocks and folds the ``missing-region`` verdict in;
+    see :func:`region_for` for when that is skipped.
     """
     fps = [p for p in file_paths if p]
     if not fps:
         return 0
-    docs = _fetch_docs(file_paths=fps, force=True)
+    docs = _fetch_docs(file_paths=fps, force=True, with_source=True)
     payload = []
     for d in docs:
-        h = score_ocr_health(d.get("markdown"))
-        payload.append({"file_path": d["file_path"],
-                        "score": h["score"], "flags": h["flags"]})
+        region = region_for(d)
+        h = score_ocr_health(d.get("markdown"), region=region)
+        row = {"file_path": d["file_path"],
+               "score": h["score"], "flags": h["flags"]}
+        if region is not None and region.get("uncovered_ratio") is not None:
+            row["ink_scored"] = True
+            row["ratio"] = region["uncovered_ratio"]
+        payload.append(row)
     _write_health(payload)
     return len(payload)
 
