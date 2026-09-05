@@ -35,9 +35,13 @@ Usage:
     python -m scripts.auto_crop_notices --auto --limit 20 --dry-run          # scan candidates
     python -m scripts.auto_crop_notices --auto --limit 20 --reingest         # crop + re-OCR
 
---reingest POSTs /review/notice/{filename}/reingest on the API after saving
-the crop; it needs REVIEW_API_TOKEN (an admin's access token) and optionally
-REVIEW_API_BASE (default: the production API).
+--reingest re-OCRs the cropped notice after saving the crop. With
+REVIEW_API_TOKEN (an admin's access token; REVIEW_API_BASE defaults to the
+production API) it POSTs /review/notice/{filename}/reingest and the API does
+the work. Without it, the same steps run here over HTTPS: crop the page,
+Datalab (DATALAB_API_KEY) on the crop, remap the blocks to full-page
+coordinates, persist with the same fields ``api.review.blocks`` writes, and
+re-score coverage + OCR health — the Bolt-free mirror of ``reingest_notice``.
 
 Auth: NEO4J_URI/USERNAME/PASSWORD(/DATABASE) in the environment.
 """
@@ -68,7 +72,9 @@ CROP_SOURCE = "auto-locate"
 REVIEW_API_BASE = os.environ.get(
     "REVIEW_API_BASE", "https://auction-api-w68b.onrender.com")
 
-IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".jfif")
+# Single-page PDFs render to one page image; multi-page ones are skipped
+# at process time (see to_page_png).
+IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".jfif", ".pdf")
 
 
 # ── selection ───────────────────────────────────────────────────────────────
@@ -106,12 +112,13 @@ def select_docs(*, files: list[str] | None, auto: bool,
             area:                area.name
         }}) AS props
         RETURN d.filename, d.file_path, d.blocks, props,
-               d.ocr_health_score
+               d.ocr_health_score, d.notice_type
         ORDER BY d.ocr_health_score ASC
         {'LIMIT $lim' if limit else ''}
     """, {**params, **({"lim": limit} if limit else {})})
     return [{"filename": r[0], "file_path": r[1], "blocks_json": r[2],
-             "properties": r[3] or [], "health": r[4]} for r in rows]
+             "properties": r[3] or [], "health": r[4], "notice_type": r[5]}
+            for r in rows]
 
 
 # ── one document ────────────────────────────────────────────────────────────
@@ -169,12 +176,117 @@ def process_doc(doc: dict, *, dry_run: bool, preview_dir: Path | None,
 
     if reingest:
         try:
-            _post_reingest(fn)
-            out["status"] = "cropped+reingest"
+            if os.environ.get("REVIEW_API_TOKEN"):
+                _post_reingest(fn)
+                out["status"] = "cropped+reingest-queued"
+            else:
+                rep = _reingest_over_https(doc, png, res)
+                out.update(rep)
+                out["status"] = "cropped+reingested"
         except Exception as e:  # noqa: BLE001 — report, don't abort the batch
             out["status"] = "cropped;reingest-failed"
             out["detail"] = f"{type(e).__name__}: {str(e)[:100]}"
     return out
+
+
+# Mirrors api.review.blocks._persist_reingest_result, plus the health fields
+# pipeline.ocr_health.score_freshly_loaded would stamp afterwards.
+PERSIST_REINGEST = """
+MATCH (d:Document {filename: $filename})
+SET d.markdown            = $markdown,
+    d.blocks              = $blocks_json,
+    d.markdown_raw        = $markdown,
+    d.blocks_raw          = coalesce($blocks_raw, d.blocks_raw),
+    d.markdown_raw_at     = datetime(),
+    d.blocks_revision     = coalesce(d.blocks_revision, 0) + 1,
+    d.markdown_loaded_at  = datetime(),
+    d.markdown_source     = 'datalab',
+    d.markdown_model      = $model,
+    d.parse_quality_score = coalesce($parse_quality, d.parse_quality_score),
+    d.parse_quality_at    = CASE WHEN $parse_quality IS NULL
+                                THEN d.parse_quality_at ELSE datetime() END,
+    d.markdown_verified_at = NULL,
+    d.markdown_verified_by = NULL,
+    d.markdown_quality     = NULL,
+    d.ocr_health_score     = $health_score,
+    d.ocr_health_flags     = $health_flags,
+    d.ocr_health_at        = datetime()
+"""
+
+
+def _reingest_over_https(doc: dict, page_png: bytes, res: dict) -> dict:
+    """Bolt-free re-ingest of the cropped notice through Datalab.
+
+    Same steps as ``api.review.blocks.reingest_notice`` on its single-crop
+    Datalab path: crop → ``datalab_api.run_and_cache`` → ``load_blocks_for``
+    → remap block bboxes from crop coords into full-page coords (clamped to
+    the crop) and retag the page → persist → re-score. A run that yields no
+    blocks raises, so the existing block layer is never replaced by nothing.
+    """
+    import secrets
+    import tempfile
+    from pathlib import Path
+
+    from pipeline import datalab_api
+    from pipeline.config import datalab_mode_for
+    from pipeline.load_markdowns_to_neo4j import load_blocks_for, read_parse_quality
+    from pipeline.ocr_health import score_ocr_health
+    from pipeline.reextract import _image_crop_to_png
+    from scripts.auto_region_reingest import _rescore_coverage
+
+    fn, fp = doc["filename"], doc["file_path"]
+    bbox, page = res["bbox"], res["page"]
+    mode = datalab_mode_for(doc.get("notice_type"))
+    crop = _image_crop_to_png(page_png, bbox)
+    fd, name = tempfile.mkstemp(suffix=".png", prefix="autocrop_reingest_")
+    tmp = Path(name)
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(crop)
+        md_path, blocks_path = datalab_api.run_and_cache(fp, tmp, mode=mode)
+    finally:
+        try:
+            tmp.unlink()
+        except FileNotFoundError:
+            pass
+    blocks = load_blocks_for(fp, img_map={})
+    if not blocks:
+        raise RuntimeError("datalab produced no parseable blocks; kept existing layer")
+
+    cx0, cy0, cx1, cy1 = bbox
+    cw, ch = cx1 - cx0, cy1 - cy0
+    for blk in blocks:
+        bx0, by0, bx1, by1 = blk["bbox"]
+        blk["bbox"] = [
+            min(max(cx0 + bx0 * cw, cx0), cx1),
+            min(max(cy0 + by0 * ch, cy0), cy1),
+            min(max(cx0 + bx1 * cw, cx0), cx1),
+            min(max(cy0 + by1 * ch, cy0), cy1),
+        ]
+        blk["page"] = page
+        if not blk.get("id"):
+            blk["id"] = f"blk_{secrets.token_hex(6)}"
+
+    markdown = md_path.read_text(encoding="utf-8")
+    try:
+        blocks_raw = blocks_path.read_text(encoding="utf-8") if blocks_path else None
+    except (OSError, UnicodeDecodeError):
+        blocks_raw = None
+    health = score_ocr_health(markdown)
+    nq(PERSIST_REINGEST, {
+        "filename": fn,
+        "markdown": markdown,
+        "blocks_json": json.dumps({"schema_version": 1, "blocks": blocks},
+                                  ensure_ascii=False),
+        "blocks_raw": blocks_raw,
+        "model": f"datalab-{mode}",
+        "parse_quality": read_parse_quality(fp),
+        "health_score": health["score"],
+        "health_flags": health["flags"],
+    })
+    _rescore_coverage(fp, markdown)
+    return {"blocks": len(blocks), "health": health["score"],
+            "flags": health["flags"], "md_chars": len(markdown)}
 
 
 def _draw_preview(png: bytes, res: dict) -> bytes:
@@ -216,7 +328,8 @@ def main() -> int:
     ap.add_argument("--files", nargs="*", default=None,
                     help="restrict to specific filenames")
     ap.add_argument("--auto", action="store_true",
-                    help="every image notice with blocks and no crop yet")
+                    help="every image / single-page PDF notice with blocks "
+                         "and no crop yet")
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--force", action="store_true",
                     help="also documents that already have a crop / regions")
@@ -225,7 +338,10 @@ def main() -> int:
     ap.add_argument("--preview", type=Path, default=None, metavar="DIR",
                     help="write DIR/<stem>_crop.png with the box drawn; no writes")
     ap.add_argument("--reingest", action="store_true",
-                    help="after saving the crop, POST the API re-ingest")
+                    help="after saving the crop, re-OCR the cropped notice")
+    ap.add_argument("--concurrency", type=int, default=1,
+                    help="documents processed in parallel (source fetch + "
+                         "locate are independent per doc)")
     args = ap.parse_args()
 
     docs = select_docs(files=args.files, auto=args.auto,
@@ -233,26 +349,39 @@ def main() -> int:
     print(f"locating on {len(docs)} docs "
           f"(dry_run={args.dry_run or args.preview is not None})")
     tally: Counter = Counter()
-    for i, doc in enumerate(docs, 1):
+
+    def _one(doc: dict) -> dict:
         try:
-            rep = process_doc(doc, dry_run=args.dry_run,
-                              preview_dir=args.preview, reingest=args.reingest)
+            return process_doc(doc, dry_run=args.dry_run,
+                               preview_dir=args.preview, reingest=args.reingest)
         except Exception as e:  # noqa: BLE001 — one bad doc must not stop the batch
-            rep = {"filename": doc["filename"],
-                   "status": f"err-{type(e).__name__}", "detail": str(e)[:120]}
-        tally[rep["status"]] += 1
-        extra = ""
-        if rep.get("bbox"):
-            extra = (f"  bbox={rep['bbox']} area={rep['area']} "
-                     f"score={rep['score']} via={','.join(rep['matched'])}")
-        if rep.get("detail"):
-            extra += f"  {rep['detail']}"
-        if rep.get("preview"):
-            extra += f"  -> {rep['preview']}"
-        print(f"  [{i}/{len(docs)}] {rep['status']:<18} "
-              f"{rep['filename'][:48]}{extra}", flush=True)
+            return {"filename": doc["filename"],
+                    "status": f"err-{type(e).__name__}", "detail": str(e)[:120]}
+
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=max(1, args.concurrency)) as pool:
+        reports = pool.map(_one, docs)
+        for i, rep in enumerate(reports, 1):
+            tally[rep["status"]] += 1
+            _print_row(i, len(docs), rep)
     print("\nTALLY:", dict(tally))
     return 0
+
+
+def _print_row(i: int, n: int, rep: dict) -> None:
+    extra = ""
+    if rep.get("bbox"):
+        extra = (f"  bbox={rep['bbox']} area={rep['area']} "
+                 f"score={rep['score']} via={','.join(rep['matched'])}")
+    if rep.get("blocks"):
+        extra += (f"  blocks={rep['blocks']} health={rep.get('health')} "
+                  f"flags={rep.get('flags')} md={rep.get('md_chars')}ch")
+    if rep.get("detail"):
+        extra += f"  {rep['detail']}"
+    if rep.get("preview"):
+        extra += f"  -> {rep['preview']}"
+    print(f"  [{i}/{n}] {rep['status']:<18} "
+          f"{rep['filename'][:48]}{extra}", flush=True)
 
 
 if __name__ == "__main__":
