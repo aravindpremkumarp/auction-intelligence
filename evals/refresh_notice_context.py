@@ -35,7 +35,9 @@ WITH aid, d, [row IN collect(DISTINCT {
        aid: a.auction_id,
        reserve: a.reserve_price_num, emd: a.emd_num,
        village: a.village, district: a.district,
-       area: a.total_area, ptype: a.property_type_norm})
+       area: a.total_area, ptype: a.property_type_norm,
+       borrower: head([(a)-[:HAS_BORROWER]->(bo) | bo.name]),
+       desc: a.website_description})
      WHERE row.reserve IS NOT NULL OR row.emd IS NOT NULL
         OR row.village IS NOT NULL] AS roster
 RETURN aid, d.filename, d.expected_lot_count, roster

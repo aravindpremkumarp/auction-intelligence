@@ -52,15 +52,23 @@ DEFAULT_WORKERS = int(os.environ.get("LOAD_EXTRACTIONS_WORKERS", "8"))
 # rows with nothing usable are dropped here so the renderer sees a clean list.
 ROSTER_CYPHER = (
     "OPTIONAL MATCH (a:AuctionProperty)-[:HAS_DOCUMENT]->(d) "
-    # aid is carried purely to keep rows unique. Without it, DISTINCT collapses
-    # two listings whose visible fields happen to match — real on notices that
-    # sell several identical flats — and the roster would then under-report its
-    # own length to the model. It is never rendered into the prompt.
+    # aid keeps rows unique — without it DISTINCT collapses two listings whose
+    # visible fields happen to match, real on notices that sell several
+    # identical flats, and the roster would under-report its own length. It is
+    # also rendered now: the model names the listing a lot belongs to by
+    # quoting this id back as `portal_aid`, which is what turns the roster from
+    # a segmentation hint into an assignment the matcher can verify.
+    #
+    # borrower and desc are the two fields that separate lots money cannot:
+    # sibling flats in one building share a reserve price, an EMD and a village
+    # but not their borrower or the portal's own one-line description.
     "WITH d, [row IN collect(DISTINCT {"
     "     aid: a.auction_id, "
     "     reserve: a.reserve_price_num, emd: a.emd_num, "
     "     village: a.village, district: a.district, "
-    "     area: a.total_area, ptype: a.property_type_norm}) "
+    "     area: a.total_area, ptype: a.property_type_norm, "
+    "     borrower: head([(a)-[:HAS_BORROWER]->(bo) | bo.name]), "
+    "     desc: a.website_description}) "
     "  WHERE row.reserve IS NOT NULL OR row.emd IS NOT NULL "
     "     OR row.village IS NOT NULL] AS roster "
 )

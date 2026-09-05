@@ -59,7 +59,7 @@ import json
 import pathlib
 import re
 import sys
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import datetime, timezone
 
 from api.neo4j_client import run_query, run_read_query
@@ -208,6 +208,7 @@ def group_lots(entities: list[dict]) -> dict[str, dict]:
             "fields": {},
             "reserve": None,
             "emd": None,
+            "portal_aid": None,
             "borrower_tokens": set(),
             "id_tokens": set(),
             "doors_old": [],
@@ -221,6 +222,18 @@ def group_lots(entities: list[dict]) -> dict[str, dict]:
         text = (e.get("text") or "").strip()
         rec = lot(li)
         f = rec["fields"]
+
+        # The listing this lot says it is (langextract_examples.
+        # portal_roster_block). Read off ANY entity rather than only
+        # `property`: the model stamps it where the guide says to, but an
+        # attribute this cheap to accept and this heavily verified downstream
+        # is not worth losing to a misplacement. First non-null wins, as
+        # everywhere else here. It stays OUT of `fields` — nothing writes it
+        # to the graph; `match_lots_to_listings` is its only reader.
+        if rec["portal_aid"] is None:
+            claim = attrs.get("portal_aid")
+            if claim is not None and str(claim).strip():
+                rec["portal_aid"] = str(claim).strip()
 
         if cls == "full_description":
             if text:
@@ -321,6 +334,7 @@ def group_lots(entities: list[dict]) -> dict[str, dict]:
             "fields": f,
             "reserve": rec["reserve"],
             "emd": rec["emd"],
+            "portal_aid": rec["portal_aid"],
             "borrower_tokens": rec["borrower_tokens"],
             "id_tokens": rec["id_tokens"],
         }
@@ -341,6 +355,23 @@ def _key_match(lot_list: list[dict], key: str, value) -> tuple[list[int], bool]:
             if lo.get(key) is not None and abs(lo[key] - value) <= tol], False
 
 
+def _claim_contradicted(lot: dict, listing: dict) -> bool:
+    """Whether the portal's own money says this lot is NOT this listing.
+
+    The single check that stops a confident wrong claim: both sides carry a
+    reserve price, independently — the portal parsed it from a structured
+    field, the extraction read it off the notice — and they disagree by more
+    than the ±1% every other price comparison here allows. Only a positive
+    disagreement counts. A lot whose price the extraction missed, or a listing
+    the portal never priced, contradicts nothing; it is simply unverified, and
+    the caller's other keys decide what that is worth.
+    """
+    lot_reserve, price = lot.get("reserve"), listing.get("price")
+    if lot_reserve is None or price is None:
+        return False
+    return abs(lot_reserve - price) > abs(price) * PRICE_TOLERANCE_PCT / 100.0
+
+
 def match_lots_to_listings(lots: dict[str, dict],
                            listings: list[dict]) -> tuple[list[tuple[dict, dict, str]],
                                                           list[tuple[dict, str]]]:
@@ -349,8 +380,8 @@ def match_lots_to_listings(lots: dict[str, dict],
     listings: [{aid, price, emd?, borrowers?, id_text?}]. Returns (matches,
     unmatched) where matches is [(listing, lot, reason)] and unmatched is
     [(listing, reason)]. reason ∈ 'single' | 'exact' | 'tolerance' | 'emd' |
-    'emd_tolerance' | 'borrower' | 'identifier' | 'remainder' | 'ambiguous' |
-    'none'.
+    'emd_tolerance' | 'borrower' | 'identifier' | 'portal_aid' | 'remainder' |
+    'ambiguous' | 'portal_aid_conflict' | 'none'.
 
     Keys narrow in order of trustworthiness: reserve price exact/±1%, then
     EMD exact/±1% (rescues listings the portal shows without a price, and 10x
@@ -361,6 +392,30 @@ def match_lots_to_listings(lots: dict[str, dict],
     to exactly one lot; a tie that survives all keys stays 'ambiguous' rather
     than being guessed, and a listing none of whose keys hit anything falls
     through to the unique-remainder rule.
+
+    **The lot's own claim (`portal_aid`) is checked, never obeyed.** The
+    extraction prompt shows the model this notice's portal rows by id and asks
+    each lot to name the row it is (langextract_examples.portal_roster_block),
+    which is the one signal generated while reading both sides at once —
+    exactly the case the keys above cannot decide, sibling flats that tie on
+    money. But it is a model's assertion about external data it cannot quote,
+    so it is admitted only where the keys have nothing to say against it:
+
+      * keys reduced to one lot AND it is the claimed one -> unchanged, the
+        key's own reason stands (the claim merely agreed);
+      * keys reduced to one lot AND it is a DIFFERENT one -> 'portal_aid_
+        conflict', unmatched. Two independent signals disagree about which
+        property this is; writing either would be a coin toss with a
+        description and a village on the end of it, so a human decides;
+      * keys left several candidates (or found nothing) and the claim is among
+        them -> 'portal_aid', the claim breaks the tie;
+      * keys left several candidates and the claim is not among them -> also
+        'portal_aid_conflict': a claim excluded by the evidence is a wrong
+        claim, not a tiebreak.
+
+    A claim two lots make, or one naming a listing not on this notice, is
+    dropped before any of that — the model is confused, and today's behaviour
+    is the safe fallback.
     """
     lot_list = list(lots.values())
     if not lot_list:
@@ -374,14 +429,36 @@ def match_lots_to_listings(lots: dict[str, dict],
     taken: set[int] = set()
     pending: list[dict] = []
 
+    # {aid: lot index} for every claim exactly one lot makes. A duplicated
+    # claim is dropped outright rather than resolved: one listing is one lot,
+    # so a model that stamped the same id twice has told us nothing about
+    # either — and silently keeping the first would make the answer depend on
+    # entity order.
+    claim_counts: Counter = Counter(
+        lo["portal_aid"] for lo in lot_list if lo.get("portal_aid"))
+    claimed_by: dict[str, int] = {
+        lo["portal_aid"]: i for i, lo in enumerate(lot_list)
+        if lo.get("portal_aid") and claim_counts[lo["portal_aid"]] == 1}
+
     for listing in listings:
+        claim_idx = claimed_by.get(str(listing.get("aid")))
         price = listing.get("price")
         emd = listing.get("emd")
         borrowers = set()
         for name in listing.get("borrowers") or []:
             borrowers |= _name_tokens(name)
         if price is None and emd is None and not borrowers:
-            unmatched.append((listing, "no_listing_price"))
+            # Nothing to match on — unless a lot named this listing. The claim
+            # is unverifiable here (there is no portal figure to check it
+            # against), but it is also uncontradicted, and the alternative is
+            # the listing staying unlinked for good — this branch exists
+            # because the portal does publish listings with no price, no EMD
+            # and no borrower at all.
+            if claim_idx is not None:
+                matches.append((listing, lot_list[claim_idx], "portal_aid"))
+                taken.add(claim_idx)
+            else:
+                unmatched.append((listing, "no_listing_price"))
             continue
 
         # Each key either narrows the candidate set or is ignored; reason
@@ -440,6 +517,21 @@ def match_lots_to_listings(lots: dict[str, dict],
                 if len(hits) == 1 and len(hits) < len(cands):
                     cands = hits
                     reason = "identifier"
+
+        if claim_idx is not None:
+            # Verify the lot's own claim against the keys just computed. The
+            # order matters: the direct price check first, because when NO lot
+            # matched the listing's price every lot is still a candidate and
+            # the claim would otherwise sail through unexamined.
+            if (_claim_contradicted(lot_list[claim_idx], listing)
+                    or claim_idx not in cands):
+                unmatched.append((listing, "portal_aid_conflict"))
+                continue
+            if reason is None or len(cands) > 1:
+                cands = [claim_idx]
+                reason = "portal_aid"
+            # else the keys already chose this same lot: their reason stands,
+            # having been reached without the claim's help.
 
         if reason is None:
             # no key hit anything — leave for the unique-remainder rule
@@ -595,9 +687,15 @@ _EXPLAIN_TEXT = {
     "emd_tolerance": "EMD matches this lot within 1% (reserve price did not decide)",
     "borrower": "borrower name matches this lot (money alone tied)",
     "identifier": "a survey/door number in the listing names only this lot",
+    "portal_aid": "the extraction read this lot as this listing, and nothing "
+                  "in the portal's own figures contradicts it",
     "remainder": "the last unplaced listing and the last free lot",
     "ambiguous": "several lots tie on every signal — reserve price, EMD, "
                  "borrower name and identifiers all fail to separate them",
+    "portal_aid_conflict": "the extraction read this listing as one lot but "
+                           "the portal's own reserve price points elsewhere — "
+                           "two independent signals disagree about which "
+                           "property this is",
     "none": "no signal on this listing hit any lot on the notice",
     "no_listing_price": "the listing has no reserve price, EMD or borrower "
                         "name to match on",
@@ -631,9 +729,29 @@ def explain_lot_match(lots: dict[str, dict],
                filename for a lot_key ("<filename>#<lot_index>")
       rivals   the other listings claiming that same lot (empty unless 'rival')
       reason   one line of prose for the review UI
+
+    A `portal_aid_conflict` row carries two more keys, `claimed_lot_index` and
+    `keys_lot_index` (with `keys_tier`): the lot the extraction named and the
+    lot the price/EMD/borrower keys reached instead. The reviewer's job on
+    that row is to pick between exactly those two, and prose alone cannot say
+    which candidates they are. Both come from the real matcher — the second is
+    the same `match_lots_to_listings` re-run over the same lots with the
+    claims stripped, never a re-derivation from this module's own reading of
+    the tiers, for the reason the docstring above gives.
     """
     matches, unmatched = match_lots_to_listings(lots, listings)
     sole = {id(m[0]) for m in sole_claimants(matches)}
+
+    conflicted = {l["aid"] for l, r in unmatched if r == "portal_aid_conflict"}
+    keys_only: dict[str, tuple] = {}
+    claimed_by: dict[str, str] = {}
+    if conflicted:
+        claimed_by = {str(lo["portal_aid"]): lo["lot_index"]
+                      for lo in lots.values() if lo.get("portal_aid")}
+        stripped = {k: {**lo, "portal_aid": None} for k, lo in lots.items()}
+        keys_matches, _ = match_lots_to_listings(stripped, listings)
+        keys_only = {m[0]["aid"]: (m[1]["lot_index"], m[2]) for m in keys_matches
+                     if m[0]["aid"] in conflicted}
 
     # Who else landed on each lot, by auction_id — this is the fact the queue
     # could not show before, and the one a reviewer needs most: the rival is
@@ -659,13 +777,25 @@ def explain_lot_match(lots: dict[str, dict],
                        f"property, so this needs a human, not a guess"),
         }
     for listing, reason in unmatched:
-        out[listing["aid"]] = {
+        row = {
             "outcome": "unmatched",
             "tier": None,
             "lot_index": None,
             "rivals": [],
             "reason": _EXPLAIN_TEXT.get(reason, reason),
         }
+        if reason == "portal_aid_conflict":
+            keys_lot, keys_tier = keys_only.get(listing["aid"], (None, None))
+            row["claimed_lot_index"] = claimed_by.get(str(listing["aid"]))
+            row["keys_lot_index"] = keys_lot
+            row["keys_tier"] = keys_tier
+            if keys_lot is not None:
+                row["reason"] += (
+                    f" — the notice reads lot {row['claimed_lot_index']} as "
+                    f"this listing, the portal's figures reach lot {keys_lot} "
+                    f"({_EXPLAIN_TEXT.get(keys_tier, keys_tier)}). Open the "
+                    f"notice and pick between those two.")
+        out[listing["aid"]] = row
     return out
 
 

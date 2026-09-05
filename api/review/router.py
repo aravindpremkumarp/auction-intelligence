@@ -850,6 +850,20 @@ class ResolutionLotMatch(BaseModel):
     #: compared against. Sibling flats differ only in a door or assessment
     #: number, and that detail lives here, not in the structured fields.
     listing_description: str | None = None
+    #: Which failure this is — 'unmatched' (no lot reached) or 'rival'
+    #: (matched, but another listing claims the same lot). Undeclared fields
+    #: are dropped on serialization, so these four reached the UI as
+    #: `undefined` however faithfully the query built them: `web/review.html`
+    #: has read `rivals` and `matched_lot_key` since they were added, and its
+    #: rival block never rendered.
+    blocker: str | None = None
+    rivals: list[str] = []
+    matched_lot_key: str | None = None
+    #: The two lots a `portal_aid_conflict` is between: the one the extraction
+    #: named while reading the notice, and the one the portal's own figures
+    #: reach. Null on every other row.
+    claimed_lot_key: str | None = None
+    keys_lot_key: str | None = None
     candidates: list[LotMatchCandidate] = []
     db_properties: list[LotMatchDbProperty] = []
 
