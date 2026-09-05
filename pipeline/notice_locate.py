@@ -59,15 +59,16 @@ DESCRIPTION_MIN_BLOCK_CHARS = 40
 MIN_CLUSTER_SCORE = 3.0
 
 # ── Geometry (all fractions of the page) ───────────────────────────────────
-# Blocks this far apart (or closer) belong to the same notice.
+# A block whose only evidence is a place name (city / area — printed in
+# every notice of the district) joins the cluster only when this close to
+# it. Every other scoring block joins at any distance: a price, borrower or
+# description is near-unique on the page, and the bank name / auction date
+# mark the notice's own header and footer, which sit far from the lot row
+# in a multi-lot notice. (A same-bank neighbour on the page joins too; the
+# crop then spans both notices — conservative, never cuts the target.)
 CLUSTER_GAP = 0.02
-# A block carrying strong evidence (a hint kind weighing at least this) may
-# join the cluster across a wider gap: a price, borrower or description is
-# near-unique on the page, so it can't be the neighbour's — while a bank
-# name or auction date is shared by every notice that bank placed that day
-# and must be adjacent to count.
+# Hint kinds weighing at least this are "strong" (reported for audit).
 STRONG_HINT_WEIGHT = 2.0
-STRONG_CLUSTER_GAP = 0.12
 # A block this large is the OCR collapsing most of the page into one table
 # — nothing to localize with.
 MAX_ANCHOR_AREA = 0.45
@@ -87,6 +88,10 @@ MAX_RULE_THICK = 0.004
 # A column/row is "white" (gutter / padding) when its mean darkness is below
 # this. Leaves room for scan speckle and the frame lines crossing it.
 GUTTER_FRAC = 0.03
+# Just past a candidate frame rule, the perpendicular side line "continues"
+# (so the rule is a table row, not the frame) when its mean darkness over
+# one gutter length is at least this.
+CONTINUES_FRAC = 0.5
 # A thin, faint run (≤ MAX_RULE_THICK, mean darkness ≤ this) inside a blank
 # stretch is a neighbour's partial frame line or a fold crease, not content:
 # it is merged into the blank run so a gutter still reads as a gutter.
@@ -100,14 +105,18 @@ START_INSET = 0.01
 # Newspaper column gutters run ~1% of the page width; box padding ~0.5%.
 MIN_GUTTER_X = 0.008
 MIN_GUTTER_Y = 0.008
+# ...and at least this many times the widest blank gap inside the anchor,
+# capped at MAX_GUTTER so an empty stretch inside the notice (a signature
+# space, empty table cells) can't push the threshold past real gutters.
+GUTTER_OVER_INTERNAL = 1.25
+MAX_GUTTER = 0.02
 # Never expand further than this from the cluster on either side — a page
 # with no frame and no gutter would otherwise swallow everything.
 MAX_REACH = 0.35
 # Padding added around the final box (inside gutters, outside rules).
 PAD = 0.004
-# Sanity bounds on the final crop area.
+# A located box smaller than this is degenerate — rejected.
 MIN_CROP_AREA = 0.01
-MAX_CROP_AREA = 0.90
 
 
 # ── Hints ───────────────────────────────────────────────────────────────────
@@ -274,9 +283,10 @@ def anchor_blocks(blocks: list[dict], hints: list[dict], *,
         bbox = _bbox_of(blk)
         if bbox is None:
             continue
-        s, kinds, strong = score_text(blk.get("text"), hints, with_strength=True)
+        s, kinds = score_text(blk.get("text"), hints)
         if s > 0:
-            scored.append((s, kinds, bbox, str(blk.get("id") or ""), strong))
+            anywhere = any(k != "place" for k in kinds)
+            scored.append((s, kinds, bbox, str(blk.get("id") or ""), anywhere))
     if not scored:
         return None
     scored.sort(key=lambda t: (-t[0], _area(t[2])))
@@ -291,12 +301,11 @@ def anchor_blocks(blocks: list[dict], hints: list[dict], *,
     while grew:
         grew = False
         for i in list(remaining):
-            bbox, strong = scored[i][2], scored[i][4]
+            bbox, anywhere = scored[i][2], scored[i][4]
             if _area(bbox) > MAX_ANCHOR_AREA:
                 remaining.remove(i)
                 continue
-            gap = STRONG_CLUSTER_GAP if strong else CLUSTER_GAP
-            if _near(cluster, bbox, gap):
+            if anywhere or _near(cluster, bbox, CLUSTER_GAP):
                 cluster = _union(cluster, bbox)
                 members.append(i)
                 remaining.remove(i)
@@ -430,6 +439,33 @@ def _solid_across(mask, axis: str, band: tuple[int, int],
     return max(solid.tobytes()) / 255.0
 
 
+def _widest_blank(dark: list[float], lo: int, hi: int) -> int:
+    """Longest run of blank (≤ GUTTER_FRAC) entries in ``dark[lo:hi+1]``."""
+    best = run = 0
+    for v in dark[max(0, lo):hi + 1]:
+        run = run + 1 if v <= GUTTER_FRAC else 0
+        best = max(best, run)
+    return best
+
+
+def _dark_along(mask, axis: str, band: tuple[int, int],
+                span: tuple[int, int]) -> float:
+    """Mean darkness of the darkest single column (axis='x') or row
+    (axis='y') inside ``band`` across ``span``. For the short look just past
+    a rule: a line that carries straight on scores ~1, a gutter then a
+    neighbour's line scores by how much of the span the gutter leaves."""
+    from PIL import Image
+    lo, hi = sorted(span)
+    b0, b1 = sorted(band)
+    if hi < lo or b1 < b0:
+        return 0.0
+    if axis == "x":
+        strip = mask.crop((b0, lo, b1 + 1, hi + 1)).resize((b1 - b0 + 1, 1), Image.BOX)
+    else:
+        strip = mask.crop((lo, b0, hi + 1, b1 + 1)).resize((1, b1 - b0 + 1), Image.BOX)
+    return max(strip.tobytes()) / 255.0
+
+
 def _extend(profile: tuple[list[float], list[float]], start: int, step: int, *,
             min_gutter: int, max_reach: int, pad: int, max_thick: int,
             closes_frame=None) -> int:
@@ -537,8 +573,19 @@ def snap_to_frame(image_bytes: bytes, bbox: list[float]) -> list[float] | None:
     ay0 = int(bbox[1] * h)
     ax1 = max(ax0 + 1, int(bbox[2] * w))
     ay1 = max(ay0 + 1, int(bbox[3] * h))
-    gx = max(2, int(MIN_GUTTER_X * w))
-    gy = max(2, int(MIN_GUTTER_Y * h))
+    # A gutter between notices must be wider than any blank gap the notice
+    # has inside itself, so the page-fraction floor is raised to the widest
+    # blank run found inside the anchor on that axis (× GUTTER_OVER_INTERNAL).
+    # This is what keeps a 900-px-tall single-notice photo, where 0.8% is
+    # seven pixels, from reading its own paragraph spacing as gutters.
+    gx = max(2, int(MIN_GUTTER_X * w),
+             min(int(MAX_GUTTER * w),
+                 int(GUTTER_OVER_INTERNAL * _widest_blank(
+                     _profile(mask, "x", ay0, ay1 + 1)[0], ax0, ax1))))
+    gy = max(2, int(MIN_GUTTER_Y * h),
+             min(int(MAX_GUTTER * h),
+                 int(GUTTER_OVER_INTERNAL * _widest_blank(
+                     _profile(mask, "y", ax0, ax1 + 1)[0], ay0, ay1))))
     px = max(1, int(PAD * w))
     py = max(1, int(PAD * h))
     rx = int(MAX_REACH * w)
@@ -553,20 +600,39 @@ def snap_to_frame(image_bytes: bytes, bbox: list[float]) -> list[float] | None:
     sx0, sx1 = ax0 + ix, ax1 - ix
     sy0, sy1 = ay0 + iy, ay1 - iy
 
-    def closes_x(y0: int, y1: int, x_start: int):
-        """For an x-walk: does a horizontal frame edge run from column px
-        back to the walk start, at the current top or bottom rows?"""
-        def check(px: int) -> bool:
-            span = (px, x_start)
-            return max(_solid_across(mask, "y", (y0, y0 + py + ty), span),
-                       _solid_across(mask, "y", (y1 - py - ty, y1), span)) >= RULE_FRAC
+    # A rule closes the frame when the perpendicular sides run from it back
+    # to the walk start AND stop at it — a corner. A table row inside a
+    # notice is also a rectangle (row rules between the table's column
+    # lines), but there the column lines carry straight on past the row
+    # rule; at the notice's real frame they end. The look past the rule is
+    # one gutter long and measures mean darkness, so a line that continues
+    # scores ~1 while a neighbour's aligned frame past even a thin gutter
+    # scores well under CONTINUES_FRAC.
+    def closes_x(y0: int, y1: int, x_start: int, step: int):
+        bands = ((y0, y0 + py + ty), (y1 - py - ty, y1))
+
+        def check(px_: int) -> bool:
+            sides = max(_solid_across(mask, "y", b, (px_, x_start)) for b in bands)
+            if sides < RULE_FRAC:
+                return False
+            a, b_ = px_ + step * (tx + 1), px_ + step * (tx + gx)
+            span = (max(0, min(a, b_)), min(w - 1, max(a, b_)))
+            # A corner needs only ONE side to end there: a stray mark past
+            # the other corner (a footer glyph, a neighbour's line) must not
+            # turn the frame into "internal".
+            return min(_dark_along(mask, "y", b, span) for b in bands) < CONTINUES_FRAC
         return check
 
-    def closes_y(x0: int, x1: int, y_start: int):
+    def closes_y(x0: int, x1: int, y_start: int, step: int):
+        bands = ((x0, x0 + px + tx), (x1 - px - tx, x1))
+
         def check(py_: int) -> bool:
-            span = (py_, y_start)
-            return max(_solid_across(mask, "x", (x0, x0 + px + tx), span),
-                       _solid_across(mask, "x", (x1 - px - tx, x1), span)) >= RULE_FRAC
+            sides = max(_solid_across(mask, "x", b, (py_, y_start)) for b in bands)
+            if sides < RULE_FRAC:
+                return False
+            a, b_ = py_ + step * (ty + 1), py_ + step * (ty + gy)
+            span = (max(0, min(a, b_)), min(h - 1, max(a, b_)))
+            return min(_dark_along(mask, "x", b, span) for b in bands) < CONTINUES_FRAC
         return check
 
     # Fixed-point iteration. Every pass walks from the ANCHOR's edges — never
@@ -580,15 +646,15 @@ def snap_to_frame(image_bytes: bytes, bbox: list[float]) -> list[float] | None:
     for _ in range(4):
         prof = _profile(mask, "x", y0, y1 + 1)
         nx0 = _extend(prof, sx0, -1, min_gutter=gx, max_reach=rx, pad=px,
-                      max_thick=tx, closes_frame=closes_x(y0, y1, sx0))
+                      max_thick=tx, closes_frame=closes_x(y0, y1, sx0, -1))
         nx1 = _extend(prof, sx1, +1, min_gutter=gx, max_reach=rx, pad=px,
-                      max_thick=tx, closes_frame=closes_x(y0, y1, sx1))
+                      max_thick=tx, closes_frame=closes_x(y0, y1, sx1, +1))
         nx0, nx1 = min(nx0, ax0), max(nx1, ax1)
         prof = _profile(mask, "y", nx0, nx1 + 1)
         ny0 = _extend(prof, sy0, -1, min_gutter=gy, max_reach=ry, pad=py,
-                      max_thick=ty, closes_frame=closes_y(nx0, nx1, sy0))
+                      max_thick=ty, closes_frame=closes_y(nx0, nx1, sy0, -1))
         ny1 = _extend(prof, sy1, +1, min_gutter=gy, max_reach=ry, pad=py,
-                      max_thick=ty, closes_frame=closes_y(nx0, nx1, sy1))
+                      max_thick=ty, closes_frame=closes_y(nx0, nx1, sy1, +1))
         ny0, ny1 = min(ny0, ay0), max(ny1, ay1)
         if (nx0, ny0, nx1, ny1) == (x0, y0, x1, y1):
             break
@@ -623,8 +689,10 @@ def locate_notice(image_bytes: bytes | None, blocks: list[dict],
                 min(1.0, a[2] + PAD), min(1.0, a[3] + PAD)]
     else:
         bbox = snapped
-    area = _area(bbox)
-    if area < MIN_CROP_AREA or area > MAX_CROP_AREA:
+    # Only a degenerate box is rejected here. A box that is most of the
+    # page is a valid answer ("the notice IS the page") — callers decide
+    # whether that is worth a crop (see scripts.auto_crop_notices.MAX_AUTO_AREA).
+    if _area(bbox) < MIN_CROP_AREA:
         return None
     return {"bbox": [round(v, 4) for v in bbox], "page": page,
             "score": anchor["score"], "matched": anchor["matched"],

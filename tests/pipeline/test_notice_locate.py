@@ -91,8 +91,9 @@ def _page_with_three() -> bytes:
 
 def _blocks_for_three() -> list[dict]:
     # Blocks sit inside each frame; the target's evidence is split over
-    # three blocks in notice A, while B mentions the same bank and C has a
-    # different price.
+    # three blocks in notice A, while B shares the city and C has a
+    # different price and date. (A same-bank neighbour would join the
+    # cluster by design — see notice_locate.CLUSTER_GAP.)
     return [
         _blk("a1", (80, 100, 740, 160), "CANARA BANK  Sale Notice for sale of immovable properties"),
         _blk("a2", (80, 180, 740, 520),
@@ -100,7 +101,7 @@ def _blocks_for_three() -> list[dict]:
              "Door No 5, Nehru Street, Ranipet, comprised in Survey No 112/2. "
              "Borrower: Mr Dineshkumar M"),
         _blk("a3", (80, 540, 740, 880), "Reserve Price Rs. 32,50,000/-  EMD Rs 3,25,000  Date 25.03.2026"),
-        _blk("b1", (840, 100, 1520, 160), "CANARA BANK  Sale notice - Vellore branch"),
+        _blk("b1", (840, 100, 1520, 160), "UNION BANK OF INDIA  Sale notice - Vellore branch"),
         _blk("b2", (840, 180, 1520, 880), "Reserve Price Rs. 18,00,000/- borrower Mr Raghavan S"),
         _blk("c1", (80, 1000, 1520, 2280), "Union Bank of India e-auction 1,20,00,000 date 30.03.2026"),
     ]
@@ -125,7 +126,7 @@ def test_anchor_cluster_stays_inside_target_notice():
     hints = build_hints(PROPS)
     anchor = anchor_blocks(_blocks_for_three(), hints)
     assert anchor is not None
-    assert set(anchor["blocks"]) == {"a1", "a2", "a3"}   # b1 shares the bank but is far
+    assert set(anchor["blocks"]) == {"a1", "a2", "a3"}   # b2 shares only the city
     assert anchor["bbox"][2] <= A[2] / W + 1e-6
 
 
