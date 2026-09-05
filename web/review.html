@@ -801,6 +801,8 @@
                   title="raw model control tokens leaked into the text">token leak</button>
           <button class="pill" data-flag="foreign-script"
                   title="hallucinated CJK/Cyrillic/etc. in a Tamil Nadu notice">foreign script</button>
+          <button class="pill" data-flag="impossible-date"
+                  title="a date that cannot be one under any reading — month 00 or over 12, day 00 or over 31 (30.06.2026 misread as 30.00.2026). The only check here that reads a value rather than a shape.">impossible date</button>
         </span>
         <button id="flag-clear" class="ghost" title="show all notices again">clear</button>
       </span>
