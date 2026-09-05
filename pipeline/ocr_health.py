@@ -71,7 +71,9 @@ Usage
     python -m pipeline.ocr_health --limit 100
 
 The CLI is the bulk, text-only pass (it never fetches images — for a corpus
-ink sweep see scripts/score_ink_coverage.py). `score_freshly_loaded(file_paths)`
+ink sweep see scripts/score_ink_coverage.py). Because it cannot see the ink, it
+carries each document's stored ``missing-region`` flag forward instead of
+overwriting it; see ``prior_flags`` on :func:`score_ocr_health`. `score_freshly_loaded(file_paths)`
 mirrors pipeline/score_markdown.py and is called after the loader, a re-ingest,
 a per-block re-extract or a block edit writes new markdown/blocks; being
 per-document, it DOES fetch the source and fold ``missing-region`` in.
@@ -292,7 +294,21 @@ def _table_collapse(text: str) -> dict | None:
     }
 
 
-def score_ocr_health(markdown: str | None, *, region: dict | None = None) -> dict:
+def _ink_was_judged(region: dict | None) -> bool:
+    """True when ``region`` carries an actual ink verdict.
+
+    ``None`` means the ink was never looked at (the bulk text pass, a source
+    that wouldn't fetch, blocks from another engine). A dict whose
+    ``uncovered_ratio`` is None means it was looked at and could not be judged
+    (no image, no block for the page, too little ink, unrenderable PDF —
+    see :func:`pipeline.ink_coverage.score_ink_coverage`). Neither is evidence
+    that the page is now fully read, so neither may clear ``missing-region``.
+    """
+    return region is not None and region.get("uncovered_ratio") is not None
+
+
+def score_ocr_health(markdown: str | None, *, region: dict | None = None,
+                     prior_flags: Iterable[str] | None = None) -> dict:
     """Score one document's OCR markdown.
 
     Returns ``{"score": int|None, "flags": [str], "details": {…}}``.
@@ -303,6 +319,17 @@ def score_ocr_health(markdown: str | None, *, region: dict | None = None) -> dic
     source image, which this module (pure text, called in bulk over Neo4j rows)
     deliberately never fetches. Omitted or unscorable → no ``missing-region``
     flag, and every existing caller keeps its exact behaviour.
+
+    ``prior_flags`` is the flag list already stored on the document. It exists
+    for one reason: ``missing-region`` is the only flag this function cannot
+    derive from the text, so when the ink was NOT judged (see
+    :func:`_ink_was_judged`) a score written without it would silently erase a
+    verdict some earlier, image-fetching pass had established — which is
+    exactly what ``python -m pipeline.ocr_health --force`` did to every
+    ``missing-region`` document in the corpus. Passing the stored flags carries
+    that one verdict, and its penalty, forward untouched. When the ink *was*
+    judged the fresh reading wins in both directions, so a reviewer who covers
+    the missing column still clears the flag.
     """
     if not markdown or not markdown.strip():
         return {"score": None, "flags": [], "details": {}}
@@ -368,6 +395,12 @@ def score_ocr_health(markdown: str | None, *, region: dict | None = None) -> dic
         flags.append("missing-region")
         details["missing_region"] = region.get("details") or {
             "uncovered_ratio": region.get("uncovered_ratio")}
+        penalty += PENALTY["missing-region"]
+    elif not _ink_was_judged(region) and "missing-region" in (prior_flags or ()):
+        # Not measured this time — keep the standing verdict rather than
+        # overwriting it with silence.
+        flags.append("missing-region")
+        details["missing_region"] = {"carried_forward": True}
         penalty += PENALTY["missing-region"]
 
     return {"score": max(0, 100 - penalty), "flags": flags, "details": details}
@@ -452,10 +485,13 @@ def _fetch_docs(file_paths: list[str] | None, force: bool,
     extra = (", d.blocks AS blocks_json, d.public_url AS public_url, "
              "d.blocks_source AS blocks_source, d.filename AS filename"
              if with_source else "")
+    # ocr_health_flags comes back on every path: it is what carries a standing
+    # `missing-region` verdict across a re-score that didn't measure the ink.
     cypher = f"""
         MATCH (d:Document)
         WHERE {' AND '.join(where)}
-        RETURN d.file_path AS file_path, d.markdown AS markdown{extra}
+        RETURN d.file_path AS file_path, d.markdown AS markdown,
+               d.ocr_health_flags AS prior_flags{extra}
     """
     return run_read_query(cypher, params, max_rows=20_000, timeout=60.0)
 
@@ -581,7 +617,8 @@ def score_freshly_loaded(file_paths: Iterable[str]) -> int:
     payload = []
     for d in docs:
         region = region_for(d)
-        h = score_ocr_health(d.get("markdown"), region=region)
+        h = score_ocr_health(d.get("markdown"), region=region,
+                             prior_flags=d.get("prior_flags"))
         row = {"file_path": d["file_path"],
                "score": h["score"], "flags": h["flags"]}
         if region is not None and region.get("uncovered_ratio") is not None:
@@ -616,7 +653,9 @@ def main() -> int:
     flagged = 0
     t0 = time.time()
     for d in docs:
-        h = score_ocr_health(d.get("markdown"))
+        # Text only — the bulk pass never fetches images, so the stored flags
+        # are what keep an already-established missing-region verdict alive.
+        h = score_ocr_health(d.get("markdown"), prior_flags=d.get("prior_flags"))
         if h["flags"]:
             flagged += 1
         batch.append({"file_path": d["file_path"],

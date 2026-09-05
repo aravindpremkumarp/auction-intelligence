@@ -512,6 +512,90 @@ def test_no_blocks_or_no_url_means_no_fetch(live):
     assert all(r["flags"] == [] and "ink_scored" not in r for r in written)
 
 
+# ── a re-score that can't see the ink must not erase the ink verdict ────────
+# The regression: `python -m pipeline.ocr_health --force` is a text-only pass,
+# so it wrote score=100/flags=[] over every document an image-fetching pass had
+# flagged `missing-region`. A dry run over the corpus found exactly two such
+# documents, both at 55, and both would have been reset to 100. The same hole
+# was open on the live path whenever the source wouldn't fetch.
+
+def test_text_only_rescore_keeps_a_standing_missing_region_flag():
+    h = score_ocr_health(CLEAN_MD, prior_flags=["missing-region"])
+    assert h["flags"] == ["missing-region"]
+    assert h["score"] == 100 - OH.PENALTY["missing-region"]
+    assert h["details"]["missing_region"] == {"carried_forward": True}
+
+
+def test_carried_flag_stacks_with_freshly_found_text_flags():
+    h = score_ocr_health(CLEAN_MD + " <|content_end|>",
+                         prior_flags=["missing-region"])
+    assert set(h["flags"]) == {"token-leak", "missing-region"}
+    assert h["score"] == 100 - OH.PENALTY["token-leak"] - OH.PENALTY["missing-region"]
+
+
+def test_only_missing_region_is_carried_forward():
+    # Every other flag is derivable from the text, so a stale one must go.
+    h = score_ocr_health(CLEAN_MD, prior_flags=["table-collapse", "repetition"])
+    assert h["flags"] == []
+    assert h["score"] == 100
+
+
+def test_a_measured_clean_page_still_clears_the_flag():
+    # `region` present and scorable = the ink WAS judged, so the fresh reading
+    # wins and the stored flag goes. Carrying forward must not make the flag
+    # permanent.
+    region = {"uncovered_ratio": 0.01, "flag": False, "details": {}}
+    h = score_ocr_health(CLEAN_MD, region=region, prior_flags=["missing-region"])
+    assert h["flags"] == []
+    assert h["score"] == 100
+
+
+def test_an_unscorable_measurement_is_not_a_clean_bill():
+    # Measured but unjudgeable (no image, too little ink, unrenderable PDF)
+    # reads as "don't know", not "fully read".
+    region = {"uncovered_ratio": None, "flag": False, "details": {}}
+    h = score_ocr_health(CLEAN_MD, region=region, prior_flags=["missing-region"])
+    assert h["flags"] == ["missing-region"]
+
+
+def test_live_path_keeps_the_flag_when_the_source_cannot_be_fetched(live):
+    doc, written, _, source = live
+    doc["prior_flags"] = ["missing-region"]
+    source["bytes"] = None                       # R2 down / object gone
+    OH.score_freshly_loaded([doc["file_path"]])
+    row = written[0]
+    assert row["flags"] == ["missing-region"]
+    assert row["score"] == 100 - OH.PENALTY["missing-region"]
+    assert "ink_scored" not in row               # ink fields still untouched
+
+
+def test_live_path_still_clears_the_flag_once_measured(live):
+    """The reviewer covering the column must still clear a carried flag."""
+    doc, written, _, _ = live
+    doc["prior_flags"] = ["missing-region"]
+    doc["blocks_json"] = json.dumps([_block(0.02, 0.05, 0.98, 0.95)])
+    OH.score_freshly_loaded([doc["file_path"]])
+    assert written[0]["flags"] == []
+    assert written[0]["score"] == 100
+
+
+def test_fetch_docs_asks_for_the_stored_flags():
+    # If the query stops returning them the carry-forward silently stops
+    # working, which is the original bug wearing a different hat.
+    seen = {}
+    import pipeline.ocr_health as mod
+    real = mod.run_read_query
+    mod.run_read_query = lambda cypher, params=None, **kw: (
+        seen.update(cypher=cypher) or [])
+    try:
+        mod._fetch_docs(file_paths=None, force=True)
+        assert "d.ocr_health_flags AS prior_flags" in seen["cypher"]
+        mod._fetch_docs(file_paths=["x"], force=True, with_source=True)
+        assert "d.ocr_health_flags AS prior_flags" in seen["cypher"]
+    finally:
+        mod.run_read_query = real
+
+
 def test_text_flags_and_the_ink_flag_stack(live):
     doc, written, _, _ = live
     doc["markdown"] = CLEAN_MD + " <|content_end|>"

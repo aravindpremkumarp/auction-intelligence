@@ -59,10 +59,14 @@ def query(statement: str, parameters: dict | None = None) -> list[list]:
     raise RuntimeError("unreachable")
 
 
+# ocr_health_flags rides along so a standing `missing-region` verdict survives
+# this pass: like pipeline.ocr_health's CLI, this one never fetches an image and
+# so cannot re-derive that flag. See `prior_flags` on score_ocr_health.
 FETCH = """
 MATCH (d:Document)
 WHERE d.markdown IS NOT NULL AND d.markdown <> ''
-RETURN d.file_path AS file_path, d.markdown AS markdown
+RETURN d.file_path AS file_path, d.markdown AS markdown,
+       d.ocr_health_flags AS prior_flags
 ORDER BY d.file_path
 SKIP $skip LIMIT $limit
 """
@@ -93,8 +97,8 @@ def main() -> int:
         rows = query(FETCH, {"skip": skip, "limit": READ_BATCH})
         if not rows:
             break
-        for file_path, markdown in rows:
-            h = score_ocr_health(markdown or "")
+        for file_path, markdown, prior_flags in rows:
+            h = score_ocr_health(markdown or "", prior_flags=prior_flags)
             results.append({"file_path": file_path,
                             "score": h["score"], "flags": h["flags"]})
             for f in h["flags"]:
