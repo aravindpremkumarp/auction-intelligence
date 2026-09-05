@@ -624,6 +624,41 @@ def verify_classification(
     return rows[0] if rows else None
 
 
+def unverify_classification(filename: str) -> dict | None:
+    """Send a verified/edited classification back to the pending queue.
+
+    Only the sign-off is cleared. notice_type, expected_lot_count and the
+    review notes stay put, so the reviewer opens a pending card that still
+    shows the last decision and can correct it — most often the lot count,
+    which is the one field a bulk-confirm can leave wrong (a 'single' stamped
+    1 that later flipped to 'multi').
+
+    ``notice_type_overridden`` is cleared as well: 'edited' is a *verified*
+    state in ``_classification_where``, so leaving the flag set would park the
+    row in the edited tab instead of pending.
+
+    No ``extraction_stale_at`` stamp — nothing about the document changed,
+    only who has signed off on it. The re-confirm that follows stamps it if
+    the reviewer actually changes the type or the count.
+
+    Returns the row, or None if no Document had that filename.
+    """
+    rows = run_query("""
+        MATCH (d:Document {filename: $filename})
+        REMOVE d.notice_type_verified_at,
+               d.notice_type_verified_by,
+               d.notice_type_overridden
+        RETURN d.filename                          AS filename,
+               d.notice_type                       AS notice_type,
+               d.expected_lot_count                AS expected_lot_count,
+               toString(d.notice_type_verified_at) AS verified_at,
+               d.notice_type_verified_by           AS verified_by,
+               d.notice_type_review_notes          AS review_notes,
+               0                                   AS invalidated_count
+    """, {"filename": filename})
+    return rows[0] if rows else None
+
+
 def auto_confirm_classifications(
     by_email: str,
     notes: str | None = None,

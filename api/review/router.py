@@ -702,6 +702,20 @@ def review_classify(
     return ClassifyResult(**row)
 
 
+@router.post("/notice/{filename}/unverify", response_model=ClassifyResult)
+def review_classify_unverify(
+    filename: str,
+    _admin: UserOut = Depends(get_current_admin),
+) -> ClassifyResult:
+    """Undo a classification sign-off: the notice returns to the pending
+    queue with its type, lot count and notes intact, ready to be re-confirmed
+    with a corrected lot count."""
+    row = q.unverify_classification(filename)
+    if row is None:
+        raise HTTPException(status_code=404, detail="notice not found")
+    return ClassifyResult(**row)
+
+
 # ── Pipeline overview ───────────────────────────────────────────────────────
 
 

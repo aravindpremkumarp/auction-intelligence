@@ -45,6 +45,7 @@ def test_routes_registered() -> None:
     assert "/review/classifications" in paths
     assert "/review/classifications/stats" in paths
     assert "/review/notice/{filename}/classify" in paths
+    assert "/review/notice/{filename}/unverify" in paths
 
 
 def test_classifications_requires_auth(client) -> None:
@@ -244,6 +245,68 @@ def test_classify_returns_result(client, monkeypatch) -> None:
     body = r.json()
     assert body["notice_type"] == "multi"
     assert body["invalidated_count"] == 2
+
+
+# ── Undo a classification sign-off ──────────────────────────────────────────
+
+
+def test_classify_unverify_requires_auth(client) -> None:
+    r = client.post("/review/notice/abc.pdf/unverify")
+    assert r.status_code in (401, 403)
+
+
+def test_classify_unverify_404_when_filename_missing(client) -> None:
+    _ensure_admin_user()
+    r = client.post("/review/notice/no-such.pdf/unverify",
+                    headers=_admin_header())
+    assert r.status_code == 404
+
+
+def test_classify_unverify_clears_the_signoff_only(client, monkeypatch) -> None:
+    """The stamps go; notice_type, lot count and notes stay — that is what
+    makes the pending card re-openable on the last decision."""
+    _ensure_admin_user()
+    captured: dict = {"cypher": ""}
+
+    def fake_query(cypher, params=None):
+        c = (cypher or "").strip()
+        if c.startswith("MATCH (d:Document {filename: $filename})") and "REMOVE" in c:
+            captured["cypher"] = c
+            captured.update(params or {})
+            return [{"filename": "abc.pdf", "notice_type": "multi",
+                     "expected_lot_count": 6,
+                     "verified_at": None, "verified_by": None,
+                     "review_notes": "counted by hand",
+                     "invalidated_count": 0}]
+        return []
+
+    import api.neo4j_client as nm
+    monkeypatch.setattr(nm, "run_query", fake_query)
+    import api.review.queries as q
+    monkeypatch.setattr(q, "run_query", fake_query)
+
+    r = client.post("/review/notice/abc.pdf/unverify", headers=_admin_header())
+    assert r.status_code == 200
+    body = r.json()
+    assert body["verified_at"] is None
+    assert body["verified_by"] is None
+    # Survivors: the reviewer's earlier decision is still on the card.
+    assert body["notice_type"] == "multi"
+    assert body["expected_lot_count"] == 6
+    assert body["review_notes"] == "counted by hand"
+    assert captured["filename"] == "abc.pdf"
+
+    cypher = captured["cypher"]
+    # The override flag must go too: "edited" is a verified state, so leaving
+    # it set would park the row in the edited tab instead of pending.
+    assert "d.notice_type_overridden" in cypher
+    assert "d.notice_type_verified_at" in cypher
+    assert "d.notice_type_verified_by" in cypher
+    # Nothing about the document changed, so no re-extract is queued.
+    assert "extraction_stale_at" not in cypher
+    # The decision itself is untouched.
+    assert "REMOVE d.notice_type," not in cypher
+    assert "d.expected_lot_count =" not in cypher
 
 
 # ── Pure-function tests for pipeline modules ────────────────────────────────
