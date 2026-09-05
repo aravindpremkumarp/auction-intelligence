@@ -13,6 +13,22 @@ Every claim below was verified by direct code read; citations are
 `ca7c45a` (2026-08-09). **Read the addendum below first** — #366 landed on
 2026-08-13 and moved four of these findings.
 
+> **Update, 2026-09-05 — Path A retired.** R4's "one grounded extraction
+> pass, canonical" is done by deletion: `pipeline/ocr_extract.py` (Stage 1,
+> the flat vision-LLM blob), `verify_and_enrich.py` (Stage 1.5),
+> `load_enriched.py` (Stage 4), the `--legacy` lexical chain
+> (`lexical_graph.py`, `normalize.py`) and `prompts/extract_auction.txt` are
+> gone, along with the `--skip-ocr` / `--verify-only` / `--legacy` flags.
+> `run_pipeline` is now classify → promote → apply → link re-auctions →
+> schema cache. LangExtract (`load_extractions.py`) is the only extractor.
+> The `verification_status` / `field_conflicts` / `*_scraped` / `extras_json`
+> / `enriched_description` properties the old path wrote stay on existing
+> nodes as history; nothing writes them any more. Freshness (`/stats`,
+> `/health` `last_enriched`) reads `grounded_applied_at` with `verified_at`
+> as the fallback. P3 and P7 in §5 are closed by the same change; the
+> "Path A" rows in §1 and the Stage 1 / 1.5 / 4 hops in §2 describe code that
+> no longer exists.
+
 ---
 
 ## 0. Addendum — what changed in #366 (2026-08-13)

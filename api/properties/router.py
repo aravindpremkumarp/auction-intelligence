@@ -351,7 +351,7 @@ def stats(request: Request) -> dict:
         MATCH (a:AuctionProperty)
         RETURN count(a) AS total,
                sum(CASE WHEN a.auction_start_dt >= datetime() THEN 1 ELSE 0 END) AS upcoming,
-               toString(max(a.verified_at)) AS last_enriched
+               toString(max(coalesce(a.grounded_applied_at, a.verified_at))) AS last_enriched
         """
     )
     row = rows[0] if rows else {}

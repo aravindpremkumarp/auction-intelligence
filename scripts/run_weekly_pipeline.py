@@ -63,8 +63,9 @@ REQUIRED_ENV_VARS = {
         "OPENROUTER_API_KEY",
         # NEO4J_URI and NEO4J_DATABASE are NOT required here — both are
         # auto-derived by pipeline/config.py from NEO4J_USERNAME when unset.
-        # MINERU_API_KEY is NOT required — pipeline.ocr_extract only reads
-        # already-cached MinerU markdown, it never calls the MinerU API.
+        # MINERU_API_KEY is NOT required — pipeline.run_pipeline never calls
+        # an OCR API; it reads the markdown / extraction_json already on the
+        # graph's :Document nodes.
         ("NEO4J_USERNAME", "CLIENT_ID"),
         ("NEO4J_PASSWORD", "CLIENT_SECRET"),
     ],

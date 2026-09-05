@@ -15,7 +15,8 @@ APOC is not installed; idempotency is guarded with the native
 ``IS :: STRING`` predicate (Neo4j 5.13+).
 
 Run AFTER deploying the matching write-time casts in
-scripts/load_tn_to_neo4j.py and pipeline/load_enriched.py:
+scripts/load_tn_to_neo4j.py (and, at the time, pipeline/load_enriched.py —
+since retired):
 
     python scripts/migrate_dates_to_datetime.py
 
