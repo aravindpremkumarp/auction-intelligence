@@ -88,8 +88,20 @@ OPENROUTER_CHAT_PROVIDER_MAX_PRICE = os.getenv(
 # notices are long and must hold the per-lot structure together -> a stronger
 # model. Both are OpenRouter slugs (the default LANGEXTRACT_PROVIDER); routing is
 # skipped on the gemini-direct path.
+#
+# `tencent/hy3-preview` held this slot until it was measured against the 238
+# single-lot notices the `--refresh` sweep selected: 27 of 236 came back
+# unparseable ("Content must contain an 'extractions' key" — every chunk
+# skipped, so zero entities), and single-lot documents scoring under 60 rose
+# from 20 to 37. It is not that those notices are hard; the two DeepSeek models
+# read the same set with no parse failure at all (flash-0731 on 8, pro-0813 on
+# 53), and pro-0813 took the corpus average to 87.9 with 6 documents left below
+# 60. flash-0731 is the cheaper of the two by 17x ($0.065/$0.18 per M tokens
+# against $1.12/$3.36) and cheaper than hy3-preview as well, with 5x its
+# context; it holds this slot until its clean record is contradicted on a
+# larger sample than the 8 documents it has so far.
 OPENROUTER_MODEL_EXTRACT_SINGLE = os.getenv(
-    "OPENROUTER_MODEL_EXTRACT_SINGLE", "tencent/hy3-preview",
+    "OPENROUTER_MODEL_EXTRACT_SINGLE", "deepseek/deepseek-v4-flash-0731",
 )
 OPENROUTER_MODEL_EXTRACT_MULTI = os.getenv(
     "OPENROUTER_MODEL_EXTRACT_MULTI", "deepseek/deepseek-v4-pro",

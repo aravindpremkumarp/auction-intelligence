@@ -107,6 +107,23 @@ def _fetch(limit: int | None, force: bool, filename: str | None) -> list[dict]:
         max_rows=20_000, timeout=120.0)
 
 
+#: Misspellings of a schema class, mapped to the class the model meant.
+#:
+#: A class the dispatch does not know is not an error anywhere — `cls` is read
+#: through if/elif chains in `apply_extractions` and `promote_extractions` with
+#: no fallback, so an unrecognised one matches nothing and is silently skipped.
+#: One notice spelled `borrower` with a missing r on 15 entities and lost every
+#: one of them: read correctly, grounded to real spans, and dropped on the
+#: floor for a typo.
+#:
+#: Only unambiguous misspellings belong here. A class that is genuinely outside
+#: the schema (`extraction_text`, on 3 documents) is NOT guessed at — its
+#: content is real but its intended class is not recoverable from the label, so
+#: it stays as the model emitted it for a human to look at.
+_CLASS_ALIASES = {
+    "borower": "borrower",
+}
+
 def _find_donor(md: str) -> dict | None:
     """A Document already holding an extraction of exactly this markdown.
 
@@ -174,17 +191,23 @@ def _entities(res) -> list[dict]:
     for i, e in enumerate(res.extractions):
         ci = getattr(e, "char_interval", None)
         attrs = dict(e.attributes or {})
+        cls = e.extraction_class
+        # Same shape as the identifier-kind normalisation below: correct the
+        # value, keep the original beside it so review sees what was said.
+        if cls in _CLASS_ALIASES:
+            attrs["cls_raw"] = cls
+            cls = _CLASS_ALIASES[cls]
         # Safety net: models sometimes copy the document's label as the
         # identifier kind ("T.S.No") instead of the enum — normalize, keeping
         # the original in kind_raw so nothing is lost for review.
-        if e.extraction_class == "identifier" and attrs.get("kind"):
+        if cls == "identifier" and attrs.get("kind"):
             kind, changed = normalize_identifier_kind(attrs["kind"])
             if changed:
                 attrs["kind_raw"] = attrs["kind"]
                 attrs["kind"] = kind
         out.append({
             "id": str(i),
-            "cls": e.extraction_class,
+            "cls": cls,
             "text": e.extraction_text,
             "start": getattr(ci, "start_pos", None) if ci else None,
             "end": getattr(ci, "end_pos", None) if ci else None,
@@ -212,10 +235,17 @@ def _effective_model(model_id: str | None, route: bool) -> str:
     ``langextract_examples.extract`` falls back to LANGEXTRACT_MODEL_ID — with a
     different default per provider. Mirror that resolution here so
     ``extraction_model`` records the model that ran, never None.
+
+    The OpenRouter default tracks OPENROUTER_MODEL_EXTRACT_SINGLE rather than
+    naming a model here: this function's whole job is to record what actually
+    ran, and a second copy of the default is a second thing to forget to change.
+    The gemini-direct branch keeps its own default because that path does not go
+    through OpenRouter and its slugs are not interchangeable.
     """
+    from pipeline.config import OPENROUTER_MODEL_EXTRACT_SINGLE
     if model_id:
         return model_id
-    default = "google/gemini-2.5-flash" if route else "gemini-2.5-flash"
+    default = OPENROUTER_MODEL_EXTRACT_SINGLE if route else "gemini-2.5-flash"
     return os.environ.get("LANGEXTRACT_MODEL_ID", default)
 
 

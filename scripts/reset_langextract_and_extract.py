@@ -24,6 +24,17 @@ Two operations, gated independently so either can run alone:
              extraction_batch / extraction_review_status='pending'), all under one
              shared batch number.
 
+  --refresh  Re-extract notices whose stored extraction no longer reflects its
+             own inputs — the markdown was rewritten after the extraction ran,
+             or it scored below --min-score. Add --single-lot to restrict to
+             notices carrying exactly one :Lot. Unlike --stale this is computed
+             from the timestamps rather than read off `extraction_stale_at`, so
+             it also catches rewrites nothing stamped a flag for.
+
+A re-extraction always returns the notice to `extraction_review_status =
+'pending'` and drops `extraction_verified_by/at`: the entities a reviewer
+verified are gone, so their verdict cannot stand over the new ones.
+
 One page is extracted once. A notice published against several lots is stored as
 several :Documents holding the same markdown, so they are grouped before any
 model call (pipeline/notice_twins): one call per distinct text, the union of the
@@ -153,6 +164,85 @@ def select_stale_docs(min_ocr: int, limit: int | None) -> list[dict]:
                           max_rows=20_000, timeout=120.0)
 
 
+def select_refresh_docs(min_ocr: int, min_score: int, single_lot: bool,
+                        limit: int | None, multi_lot: bool = False,
+                        extracted_before: str | None = None,
+                        unlinked: bool = False) -> list[dict]:
+    """Documents whose stored extraction no longer reflects its own inputs.
+
+    Two independent ways an extraction goes out of date without anything
+    clearing it:
+
+    * **the markdown was rewritten after it ran** — the notice text the model
+      read is not the text on the node today, so the entities under-report (or
+      mis-quote) the current source. `datalab: keep page headers and footers`
+      (#425) rewrote 222 single-lot notices this way.
+    * **the extraction scored below `min_score`** — the run itself failed to
+      read the notice, regardless of what the markdown says.
+
+    This is `select_stale_docs`'s condition computed from the timestamps rather
+    than read off a flag: `extraction_stale_at` only exists where
+    `scripts/fix_missing_regions.py` stamped it, and a markdown rewrite from any
+    other source leaves no marker at all.
+
+    ``single_lot`` restricts to notices carrying exactly one :Lot — the set
+    where a listing takes its lot from the `single` rule in
+    `apply_extractions.match_lots_to_listings`, so a re-extraction changes the
+    fields and never the lot link. ``multi_lot`` is its complement (2+ lots),
+    the only set where the lot match is decided by keys at all.
+
+    ``extracted_before`` adds a third staleness signal, for the case the other
+    two cannot see: the PROMPT changed, not the notice. An extraction older
+    than the change was produced by a different question, so it is stale even
+    though its markdown and score are untouched — `portal_aid` is exactly this
+    (a lot extracted before it existed makes no claim, and the matcher has
+    nothing to verify). Pass the change's timestamp; it ORs with the other two.
+
+    ``unlinked`` narrows to notices that still have a listing with no
+    `IS_LOT` edge — the ones a re-extraction can actually REPAIR, as opposed
+    to merely re-check. 42 of 619 multi-lot notices are in that state against
+    577 already fully linked, so this is the difference between a half-hour
+    run and a six-hour one. It is an AND, not another staleness signal: a
+    notice with nothing left to fix is not made urgent by being old.
+    """
+    if single_lot and multi_lot:
+        raise ValueError("--single-lot and --multi-lot are mutually exclusive")
+    lot_filter = ""
+    if single_lot or multi_lot:
+        op = "=" if single_lot else ">"
+        lot_filter = ("MATCH (d)-[:HAS_LOT]->(l:Lot) "
+                      f"WITH d, count(l) AS lots WHERE lots {op} 1 ")
+    stale_when = "md > ex OR d.extraction_score < $min_score"
+    if extracted_before:
+        stale_when += " OR ex < $extracted_before"
+    if unlinked:
+        stale_when = (
+            f"({stale_when}) AND EXISTS {{ "
+            "MATCH (_a:AuctionProperty)-[:HAS_DOCUMENT]->(d) "
+            "WHERE NOT (_a)-[:IS_LOT]->(:Lot) }")
+    q = (
+        "MATCH (d:Document) "
+        "WHERE d.extraction_json IS NOT NULL "
+        "  AND d.markdown IS NOT NULL AND d.markdown <> '' "
+        "  AND d.ocr_health_score > $min_ocr "
+        + lot_filter +
+        "WITH d, toString(d.extraction_at) AS ex, "
+        "     toString(coalesce(d.markdown_raw_at, d.markdown_loaded_at)) AS md "
+        f"WHERE {stale_when} "
+        + ROSTER_CYPHER +
+        "RETURN d.filename AS filename, d.markdown AS md, "
+        "       d.notice_type AS notice_type, "
+        "       d.expected_lot_count AS expected_lot_count, "
+        "       roster AS roster "
+        "ORDER BY d.filename"
+        + (f" LIMIT {int(limit)}" if limit else "")
+    )
+    params = {"min_ocr": int(min_ocr), "min_score": int(min_score)}
+    if extracted_before:
+        params["extracted_before"] = extracted_before
+    return run_read_query(q, params, max_rows=20_000, timeout=120.0)
+
+
 def _extract_one(d: dict, batch: int, route: bool):
     """Extract + write one page. Returns (filename, n_entities, model_id) on
     success or raises. Safe to call from a worker thread: LX.extract builds its
@@ -173,6 +263,16 @@ def _extract_one(d: dict, batch: int, route: bool):
                      expected_lot_count=d.get("expected_lot_count"),
                      roster=d.get("roster"))
     ents = _entities(res)
+    # An empty result is a failed read, not a notice with nothing in it — the
+    # model returned something LangExtract could not parse ("Content must
+    # contain an 'extractions' key"), and every chunk was skipped. Writing it
+    # would replace a notice's entities with nothing, and on a re-extraction
+    # that means DESTROYING the ones already there. Raise instead: the caller
+    # counts a failure, the document keeps what it had, and the next run picks
+    # it up again.
+    if not ents:
+        raise ValueError("extraction returned no entities — keeping the "
+                         "existing one")
     score = validate(res.extractions, source_text=d["md"])["score"]
     run_query(
         """
@@ -182,14 +282,21 @@ def _extract_one(d: dict, batch: int, route: bool):
             d.extraction_score = $score,
             d.extraction_at    = datetime(),
             d.extraction_batch = $batch,
+            // A verification is a statement about entities a person actually
+            // read. These entities are new, so the old verdict cannot cover
+            // them: carrying `verified` forward (what
+            // `coalesce(status,'pending')` used to do here) leaves a human's
+            // name on rows nobody has seen, and the review queue reports a
+            // notice as done when it is not. Back to 'pending' — the queue is
+            // longer, and it is true.
+            d.extraction_review_status = 'pending',
             d.extraction_reused_from =
                 CASE WHEN name = $fn THEN NULL ELSE $fn END,
-            d.extraction_review_status =
-                coalesce(d.extraction_review_status, 'pending'),
             // Fresh entities now reflect the current markdown, so the staleness
             // marker fix_missing_regions left behind is cleared here — the flag
             // must not outlive the condition it describes.
             d.extraction_stale_at = NULL
+        REMOVE d.extraction_verified_by, d.extraction_verified_at
         RETURN d.filename
         """,
         {"fn": fn, "fns": targets, "j": json.dumps(ents, ensure_ascii=False),
@@ -281,6 +388,30 @@ def main() -> int:
                          "after their last extraction (extraction_stale_at set "
                          "by scripts.fix_missing_regions); ignores --since and "
                          "--resume, since these already have extraction_json")
+    ap.add_argument("--refresh", action="store_true",
+                    help="re-extract Documents whose stored extraction no "
+                         "longer reflects its inputs: markdown rewritten after "
+                         "the last extraction, or extraction_score below "
+                         "--min-score. Computed from timestamps, so it catches "
+                         "rewrites --stale's flag never marked; ignores "
+                         "--since and --resume")
+    ap.add_argument("--min-score", type=int, default=60,
+                    help="with --refresh, extraction_score below this counts "
+                         "as needing a re-extraction (default 60)")
+    ap.add_argument("--single-lot", action="store_true",
+                    help="with --refresh, only notices carrying exactly one "
+                         ":Lot")
+    ap.add_argument("--multi-lot", action="store_true",
+                    help="with --refresh, only notices carrying 2+ :Lots — "
+                         "the set whose lot match is decided by keys")
+    ap.add_argument("--extracted-before",
+                    help="with --refresh, also treat an extraction older than "
+                         "this ISO timestamp as stale (a prompt change the "
+                         "markdown and score cannot see)")
+    ap.add_argument("--unlinked", action="store_true",
+                    help="with --refresh, only notices that still have a "
+                         "listing with no IS_LOT edge — the ones a "
+                         "re-extraction can repair rather than just re-check")
     ap.add_argument("--count-only", action="store_true",
                     help="print how many documents match and exit")
     args = ap.parse_args()
@@ -292,7 +423,21 @@ def main() -> int:
         if args.clear_only:
             return 0
 
-    if args.stale:
+    if args.refresh:
+        docs = select_refresh_docs(args.min_ocr, args.min_score,
+                                   args.single_lot, limit=args.limit,
+                                   multi_lot=args.multi_lot,
+                                   extracted_before=args.extracted_before,
+                                   unlinked=args.unlinked)
+        scope = ("single-lot " if args.single_lot
+                 else "multi-lot " if args.multi_lot else "")
+        older = (f", or extracted before {args.extracted_before}"
+                 if args.extracted_before else "")
+        only = " with an unlinked listing" if args.unlinked else ""
+        print(f"matched {len(docs)} {scope}document(s){only} to refresh "
+              f"(ocr>{args.min_ocr}; markdown rewritten since last extract, "
+              f"or score < {args.min_score}{older})")
+    elif args.stale:
         docs = select_stale_docs(args.min_ocr, limit=args.limit)
         print(f"matched {len(docs)} document(s) with stale extractions "
               f"(ocr>{args.min_ocr}; markdown rewritten since last extract)")

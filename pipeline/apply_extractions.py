@@ -489,6 +489,42 @@ def match_lots_to_listings(lots: dict[str, dict],
                 if len(cands) == 1:
                     reason = "borrower"
 
+        # A unit identifier the portal and the notice BOTH quote, held by
+        # exactly one lot on the whole notice, outranks the price tier.
+        #
+        # Price is the most trustworthy key right up until the lots are sibling
+        # flats, where it is the weakest: on 20260420-61-07 ten flats carry two
+        # reserve prices between them, alternating with the unit letter, so an
+        # exact price match narrows to five and never to one. Worse, it can
+        # narrow to the WRONG five — the reserves for 2C and 2D are swapped
+        # between the portal and the notice, so the price tier eliminated flat
+        # 2D's own lot before the identifier tier could look at it, and the
+        # listing was logged as a conflict against a lot it demonstrably is not.
+        #
+        # "Flat No. 2D" in the portal's text against "Flat No. 2D" in the
+        # notice's schedule is not a tie-break, it is an identity. It is
+        # admitted only when the token belongs to ONE lot on the notice: two
+        # lots carrying it means the notice does not separate them, and the
+        # price tier's opinion is worth more than a guess.
+        # It corroborates the lot's own claim; it never competes with it.
+        # Measured both ways on the live corpus: letting a unique identifier
+        # override the price tier on its own fires 23 more times and writes 22
+        # FEWER lot keys, because it also picks lots the claim disagrees with
+        # (conflicts 12 -> 22) and lands two listings on one lot, which the
+        # rivalry gate then drops (46 dropped against 27). Two independent
+        # signals disagreeing is the case this function refuses to guess at,
+        # and an identifier is not exempt from that.
+        whole_notice_ids = _id_tokens(listing.get("id_text") or "")
+        if (whole_notice_ids and len(lot_list) > 1 and claim_idx is not None
+                and claim_idx not in cands):
+            every = [lo.get("id_tokens") or set() for lo in lot_list]
+            common = set.intersection(*every) if every else set()
+            owners = [i for i, s in enumerate(every)
+                      if whole_notice_ids & (s - common)]
+            if owners == [claim_idx]:
+                cands = owners
+                reason = "identifier"
+
         if len(cands) > 1:
             listing_ids = _id_tokens(listing.get("id_text") or "")
             if listing_ids:
@@ -523,8 +559,20 @@ def match_lots_to_listings(lots: dict[str, dict],
             # order matters: the direct price check first, because when NO lot
             # matched the listing's price every lot is still a candidate and
             # the claim would otherwise sail through unexamined.
-            if (_claim_contradicted(lot_list[claim_idx], listing)
-                    or claim_idx not in cands):
+            #
+            # Unless the unit identifier already named this same lot. That
+            # check exists to stop a confident claim overriding the portal's
+            # price; when a flat number both sides quote agrees with the claim,
+            # the disagreement is evidence about the PRICE, not the claim, and
+            # vetoing on it sends a correctly matched listing to the queue.
+            # 749855 is exactly that: portal text "Flat No. 2D", notice lot 8
+            # "Flat No. 2D", claim lot 8 — and a reserve the portal has swapped
+            # with flat 2C's.
+            identified_by_unit = (reason == "identifier"
+                                  and cands == [claim_idx])
+            if (not identified_by_unit
+                    and _claim_contradicted(lot_list[claim_idx], listing)) \
+                    or claim_idx not in cands:
                 unmatched.append((listing, "portal_aid_conflict"))
                 continue
             if reason is None or len(cands) > 1:
