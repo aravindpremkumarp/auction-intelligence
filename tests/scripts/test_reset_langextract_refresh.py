@@ -67,6 +67,43 @@ def test_without_single_lot_no_lot_filter_is_applied(monkeypatch):
     assert "HAS_LOT" not in cap.cypher
 
 
+def test_multi_lot_restricts_to_documents_with_two_or_more_lots(monkeypatch):
+    cap = _Capture()
+    monkeypatch.setattr(R, "run_read_query", cap)
+    R.select_refresh_docs(90, 60, single_lot=False, limit=None, multi_lot=True)
+    assert "MATCH (d)-[:HAS_LOT]->(l:Lot)" in cap.cypher
+    assert "WHERE lots > 1" in cap.cypher
+
+
+def test_single_and_multi_lot_together_is_refused(monkeypatch):
+    """The two are complements; asking for both selects nothing, and silently
+    returning an empty set would read as 'everything is up to date'."""
+    import pytest
+    monkeypatch.setattr(R, "run_read_query", _Capture())
+    with pytest.raises(ValueError):
+        R.select_refresh_docs(90, 60, single_lot=True, limit=None,
+                              multi_lot=True)
+
+
+def test_extracted_before_adds_a_third_staleness_signal(monkeypatch):
+    """A prompt change leaves the markdown and the score untouched, so neither
+    of the other two signals can see it."""
+    cap = _Capture()
+    monkeypatch.setattr(R, "run_read_query", cap)
+    R.select_refresh_docs(90, 60, single_lot=False, limit=None,
+                          extracted_before="2026-09-05T12:00")
+    assert "OR ex < $extracted_before" in cap.cypher
+    assert cap.params["extracted_before"] == "2026-09-05T12:00"
+
+
+def test_extracted_before_is_absent_when_not_asked_for(monkeypatch):
+    cap = _Capture()
+    monkeypatch.setattr(R, "run_read_query", cap)
+    R.select_refresh_docs(90, 60, single_lot=False, limit=None)
+    assert "extracted_before" not in cap.cypher
+    assert "extracted_before" not in cap.params
+
+
 def test_limit_is_inlined_as_an_integer(monkeypatch):
     cap = _Capture()
     monkeypatch.setattr(R, "run_read_query", cap)

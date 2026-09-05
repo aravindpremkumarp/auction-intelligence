@@ -152,7 +152,8 @@ def select_stale_docs(min_ocr: int, limit: int | None) -> list[dict]:
 
 
 def select_refresh_docs(min_ocr: int, min_score: int, single_lot: bool,
-                        limit: int | None) -> list[dict]:
+                        limit: int | None, multi_lot: bool = False,
+                        extracted_before: str | None = None) -> list[dict]:
     """Documents whose stored extraction no longer reflects its own inputs.
 
     Two independent ways an extraction goes out of date without anything
@@ -173,11 +174,26 @@ def select_refresh_docs(min_ocr: int, min_score: int, single_lot: bool,
     ``single_lot`` restricts to notices carrying exactly one :Lot — the set
     where a listing takes its lot from the `single` rule in
     `apply_extractions.match_lots_to_listings`, so a re-extraction changes the
-    fields and never the lot link.
+    fields and never the lot link. ``multi_lot`` is its complement (2+ lots),
+    the only set where the lot match is decided by keys at all.
+
+    ``extracted_before`` adds a third staleness signal, for the case the other
+    two cannot see: the PROMPT changed, not the notice. An extraction older
+    than the change was produced by a different question, so it is stale even
+    though its markdown and score are untouched — `portal_aid` is exactly this
+    (a lot extracted before it existed makes no claim, and the matcher has
+    nothing to verify). Pass the change's timestamp; it ORs with the other two.
     """
-    lot_filter = (
-        "MATCH (d)-[:HAS_LOT]->(l:Lot) WITH d, count(l) AS lots WHERE lots = 1 "
-        if single_lot else "")
+    if single_lot and multi_lot:
+        raise ValueError("--single-lot and --multi-lot are mutually exclusive")
+    lot_filter = ""
+    if single_lot or multi_lot:
+        op = "=" if single_lot else ">"
+        lot_filter = ("MATCH (d)-[:HAS_LOT]->(l:Lot) "
+                      f"WITH d, count(l) AS lots WHERE lots {op} 1 ")
+    stale_when = "md > ex OR d.extraction_score < $min_score"
+    if extracted_before:
+        stale_when += " OR ex < $extracted_before"
     q = (
         "MATCH (d:Document) "
         "WHERE d.extraction_json IS NOT NULL "
@@ -186,7 +202,7 @@ def select_refresh_docs(min_ocr: int, min_score: int, single_lot: bool,
         + lot_filter +
         "WITH d, toString(d.extraction_at) AS ex, "
         "     toString(coalesce(d.markdown_raw_at, d.markdown_loaded_at)) AS md "
-        "WHERE md > ex OR d.extraction_score < $min_score "
+        f"WHERE {stale_when} "
         + ROSTER_CYPHER +
         "RETURN d.filename AS filename, d.markdown AS md, "
         "       d.notice_type AS notice_type, "
@@ -195,9 +211,10 @@ def select_refresh_docs(min_ocr: int, min_score: int, single_lot: bool,
         "ORDER BY d.filename"
         + (f" LIMIT {int(limit)}" if limit else "")
     )
-    return run_read_query(q, {"min_ocr": int(min_ocr),
-                              "min_score": int(min_score)},
-                          max_rows=20_000, timeout=120.0)
+    params = {"min_ocr": int(min_ocr), "min_score": int(min_score)}
+    if extracted_before:
+        params["extracted_before"] = extracted_before
+    return run_read_query(q, params, max_rows=20_000, timeout=120.0)
 
 
 def _extract_one(d: dict, batch: int, route: bool):
@@ -333,6 +350,13 @@ def main() -> int:
     ap.add_argument("--single-lot", action="store_true",
                     help="with --refresh, only notices carrying exactly one "
                          ":Lot")
+    ap.add_argument("--multi-lot", action="store_true",
+                    help="with --refresh, only notices carrying 2+ :Lots — "
+                         "the set whose lot match is decided by keys")
+    ap.add_argument("--extracted-before",
+                    help="with --refresh, also treat an extraction older than "
+                         "this ISO timestamp as stale (a prompt change the "
+                         "markdown and score cannot see)")
     ap.add_argument("--count-only", action="store_true",
                     help="print how many documents match and exit")
     args = ap.parse_args()
@@ -346,11 +370,16 @@ def main() -> int:
 
     if args.refresh:
         docs = select_refresh_docs(args.min_ocr, args.min_score,
-                                   args.single_lot, limit=args.limit)
-        scope = "single-lot " if args.single_lot else ""
+                                   args.single_lot, limit=args.limit,
+                                   multi_lot=args.multi_lot,
+                                   extracted_before=args.extracted_before)
+        scope = ("single-lot " if args.single_lot
+                 else "multi-lot " if args.multi_lot else "")
+        older = (f", or extracted before {args.extracted_before}"
+                 if args.extracted_before else "")
         print(f"matched {len(docs)} {scope}document(s) to refresh "
               f"(ocr>{args.min_ocr}; markdown rewritten since last extract, "
-              f"or score < {args.min_score})")
+              f"or score < {args.min_score}{older})")
     elif args.stale:
         docs = select_stale_docs(args.min_ocr, limit=args.limit)
         print(f"matched {len(docs)} document(s) with stale extractions "
