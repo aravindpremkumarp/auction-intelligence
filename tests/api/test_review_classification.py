@@ -45,6 +45,7 @@ def test_routes_registered() -> None:
     assert "/review/classifications" in paths
     assert "/review/classifications/stats" in paths
     assert "/review/notice/{filename}/classify" in paths
+    assert "/review/notice/{filename}/unverify" in paths
 
 
 def test_classifications_requires_auth(client) -> None:
@@ -244,6 +245,125 @@ def test_classify_returns_result(client, monkeypatch) -> None:
     body = r.json()
     assert body["notice_type"] == "multi"
     assert body["invalidated_count"] == 2
+
+
+# ── Undo a classification sign-off ──────────────────────────────────────────
+
+
+def test_classify_unverify_requires_auth(client) -> None:
+    r = client.post("/review/notice/abc.pdf/unverify")
+    assert r.status_code in (401, 403)
+
+
+def test_classify_unverify_404_when_filename_missing(client) -> None:
+    _ensure_admin_user()
+    r = client.post("/review/notice/no-such.pdf/unverify",
+                    headers=_admin_header())
+    assert r.status_code == 404
+
+
+def test_classify_unverify_clears_the_signoff_only(client, monkeypatch) -> None:
+    """The stamps go; notice_type, lot count and notes stay — that is what
+    makes the pending card re-openable on the last decision."""
+    _ensure_admin_user()
+    captured: dict = {"cypher": ""}
+
+    def fake_query(cypher, params=None):
+        c = (cypher or "").strip()
+        if c.startswith("MATCH (d:Document {filename: $filename})") and "REMOVE" in c:
+            captured["cypher"] = c
+            captured.update(params or {})
+            return [{"filename": "abc.pdf", "notice_type": "multi",
+                     "expected_lot_count": 6,
+                     "verified_at": None, "verified_by": None,
+                     "review_notes": "counted by hand",
+                     "invalidated_count": 0}]
+        return []
+
+    import api.neo4j_client as nm
+    monkeypatch.setattr(nm, "run_query", fake_query)
+    import api.review.queries as q
+    monkeypatch.setattr(q, "run_query", fake_query)
+
+    r = client.post("/review/notice/abc.pdf/unverify", headers=_admin_header())
+    assert r.status_code == 200
+    body = r.json()
+    assert body["verified_at"] is None
+    assert body["verified_by"] is None
+    # Survivors: the reviewer's earlier decision is still on the card.
+    assert body["notice_type"] == "multi"
+    assert body["expected_lot_count"] == 6
+    assert body["review_notes"] == "counted by hand"
+    assert captured["filename"] == "abc.pdf"
+
+    cypher = captured["cypher"]
+    removed = cypher.split("REMOVE", 1)[1].split("RETURN", 1)[0]
+    assert "d.notice_type_verified_at" in removed
+    assert "d.notice_type_verified_by" in removed
+    # Nothing about the document changed, so no re-extract is queued.
+    assert "extraction_stale_at" not in cypher
+    # The decision itself is untouched.
+    assert "d.notice_type," not in removed
+    assert "d.expected_lot_count" not in removed
+
+
+def test_classify_unverify_keeps_the_override_guard(client, monkeypatch) -> None:
+    """notice_type_overridden must SURVIVE the undo.
+
+    It is not a sign-off flag: pipeline/classify_notice.stamp_cluster_counts
+    rewrites notice_type from the cluster size for every Document where it is
+    false. The notices a reviewer undoes are precisely the ones whose
+    clustering disagrees with the human, so clearing the flag would let the
+    next pipeline run flip the type back before the re-confirm. The row still
+    reaches 'pending' without it, since the queue keys 'edited' off
+    verified_at being present.
+    """
+    _ensure_admin_user()
+    captured: dict = {"cypher": ""}
+
+    def fake_query(cypher, params=None):
+        c = (cypher or "").strip()
+        if c.startswith("MATCH (d:Document {filename: $filename})") and "REMOVE" in c:
+            captured["cypher"] = c
+            return [{"filename": "abc.pdf", "notice_type": "multi",
+                     "expected_lot_count": 6,
+                     "verified_at": None, "verified_by": None,
+                     "review_notes": None, "invalidated_count": 0}]
+        return []
+
+    import api.neo4j_client as nm
+    monkeypatch.setattr(nm, "run_query", fake_query)
+    import api.review.queries as q
+    monkeypatch.setattr(q, "run_query", fake_query)
+
+    r = client.post("/review/notice/abc.pdf/unverify", headers=_admin_header())
+    assert r.status_code == 200
+    removed = captured["cypher"].split("REMOVE", 1)[1].split("RETURN", 1)[0]
+    assert "notice_type_overridden" not in removed
+
+    # Pin the guard this protects: the pipeline's rewrite is gated on the flag.
+    from pathlib import Path
+    src = Path("pipeline/classify_notice.py").read_text()
+    assert "coalesce(d.notice_type_overridden, false) = false" in src
+
+
+def test_unverified_row_lands_in_pending_not_edited() -> None:
+    """The queue filter, not the override flag, decides the tab.
+
+    With verified_at gone the row matches 'pending' and matches neither
+    'verified' nor 'edited' — which is why the undo can afford to keep
+    notice_type_overridden set.
+    """
+    from api.review.queries import _classification_where
+
+    pending, _ = _classification_where(status="pending")
+    verified, _ = _classification_where(status="verified")
+    edited, _ = _classification_where(status="edited")
+
+    assert "d.notice_type_verified_at IS NULL" in pending
+    # Both non-pending tabs require the timestamp the undo removes.
+    assert "d.notice_type_verified_at IS NOT NULL" in verified
+    assert "d.notice_type_verified_at IS NOT NULL" in edited
 
 
 # ── Pure-function tests for pipeline modules ────────────────────────────────

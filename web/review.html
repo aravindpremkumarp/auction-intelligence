@@ -2782,6 +2782,7 @@
         <input type="text" class="cnotes" placeholder="notes (optional)">
         <button class="primary" data-act="confirm">Confirm as ${escapeHtml(n.notice_type || 'single')}</button>
         <button class="" data-act="flip">Flip to ${escapeHtml(altType)}</button>
+        ${n.verified ? '<button class="ghost" data-act="unverify" title="clear the sign-off and send this notice back to the pending queue">Undo verify</button>' : ''}
       </div>
       ${verifiedFooter}
     `;
@@ -2796,18 +2797,34 @@
     right.querySelector('button[data-act="flip"]').addEventListener('click', () =>
       submitClassification(card, filenameForApi, altType, right.querySelector('.cnotes').value || null,
                            readLotCount(right, altType)));
+    const undoBtn = right.querySelector('button[data-act="unverify"]');
+    if (undoBtn) undoBtn.addEventListener('click', async () => {
+      const buttons = $$('button', card);
+      buttons.forEach(b => b.disabled = true);
+      const ok = await unverifyClassification(filenameForApi);
+      if (ok) loadQueue(); else buttons.forEach(b => b.disabled = false);
+    });
 
     return card;
   }
 
-  // What to seed the lots box with. A stored count always wins. Otherwise the
-  // clustered property_count is a reasonable guess, but only where it is a
-  // legal multi count: seeding a multi notice with 1 (the common case for a
-  // notice whose clustering collapsed to one property) put an unsubmittable
-  // value in the box by default. Blank is honest — the reviewer types the count.
+  // What to seed the lots box with. A stored count wins where it is legal for
+  // the type. Otherwise the clustered property_count is a reasonable guess,
+  // but only where it is a legal multi count: seeding a multi notice with 1
+  // (the common case for a notice whose clustering collapsed to one property)
+  // put an unsubmittable value in the box by default. Blank is honest — the
+  // reviewer types the count.
+  //
+  // A stored 1 on a multi is the same trap arriving from the database: a
+  // bulk-confirm stamps 1 on a single, and a later flip to multi leaves the
+  // count behind. Seeded back into the box it made every Confirm bounce off
+  // the ">= 2" rule, which read as "the lot count cannot be changed".
   function lotsPrefillFor(n) {
+    if (n.notice_type === 'multi') {
+      if (n.expected_lot_count >= 2) return n.expected_lot_count;
+      return n.property_count >= 2 ? n.property_count : '';
+    }
     if (n.expected_lot_count != null) return n.expected_lot_count;
-    if (n.notice_type === 'multi') return n.property_count >= 2 ? n.property_count : '';
     return n.property_count ?? 1;
   }
 
@@ -2862,6 +2879,24 @@
     } finally {
       buttons.forEach(b => b.disabled = false);
     }
+  }
+
+  // Undo a classification sign-off: the notice goes back to the pending
+  // queue. The stored type, lot count and notes survive the round trip, so
+  // the pending card reopens on the last decision — which is the point: a
+  // verified notice whose lot count is wrong is corrected by undoing, fixing
+  // the count and confirming again.
+  // Returns true on a clean save; callers decide how to refresh.
+  async function unverifyClassification(filename) {
+    if (!filename) { setMsg('<span class="err">notice has no filename — cannot undo</span>', 3000); return false; }
+    const r = await authFetch(API + '/review/notice/' + encodeURIComponent(filename) + '/unverify',
+                              { method: 'POST' });
+    if (r.status === 401 || r.status === 403) { setMsg('<span class="err">not authorised</span>', 3000); return false; }
+    if (r.status === 404) { setMsg('<span class="err">notice not found</span>', 3000); return false; }
+    if (!r.ok) { setMsg(`<span class="err">undo failed (${r.status})</span>`, 3000); return false; }
+    setMsg('<span class="ok">back to pending.</span>', 1500);
+    loadStats();
+    return true;
   }
 
   // ─── Classification gallery ─────────────────────────────────────────────
@@ -3023,6 +3058,7 @@
         <input type="text" class="cnotes" placeholder="notes (optional)">
         <button class="primary" data-act="confirm">Confirm as ${escapeHtml(n.notice_type || 'single')} <span class="kbd">V</span></button>
         <button data-act="flip">Flip to ${escapeHtml(altType)} <span class="kbd">F</span></button>
+        ${n.verified ? '<button class="ghost" data-act="unverify" title="clear the sign-off and send this notice back to the pending queue">Undo verify <span class="kbd">U</span></button>' : ''}
       </div>
       ${auditFooter}
     `;
@@ -3059,6 +3095,44 @@
       submitClassificationFromGallery(filenameForApi, altType,
                                        header.querySelector('.cnotes').value || null,
                                        readLotCount(header, altType)));
+    const undoBtn = header.querySelector('button[data-act="unverify"]');
+    if (undoBtn) undoBtn.addEventListener('click', () => unverifyFromGallery(filenameForApi));
+  }
+
+  async function unverifyFromGallery(filename) {
+    const right = $('gallery-right');
+    const buttons = right ? $$('button', right) : [];
+    buttons.forEach(b => b.disabled = true);
+    const ok = await unverifyClassification(filename);
+    if (!ok) { buttons.forEach(b => b.disabled = false); return; }
+
+    const idx = gallery.selectedIndex;
+    // In the verified / edited tabs the notice has just left the visible
+    // queue — drop it and advance, the mirror of what a confirm does while
+    // the pending tab is open.
+    if (queueState.status === 'verified' || queueState.status === 'edited') {
+      gallery.notices.splice(idx, 1);
+      if (gallery.notices.length === 0) {
+        queueState.page = 1;
+        await loadQueue();
+        return;
+      }
+      renderGallery();
+      selectGalleryItem(Math.min(idx, gallery.notices.length - 1));
+      return;
+    }
+    // pending / all: the row stays put, now unsigned. `overridden` is NOT
+    // cleared — the server keeps it (it guards the type against the
+    // auto-classifier), so clearing it locally would show a state the
+    // database does not have.
+    const n = gallery.notices[idx];
+    if (n) {
+      n.verified = false;
+      n.verified_at = null;
+      n.verified_by = null;
+    }
+    renderGallery();
+    selectGalleryItem(idx);
   }
 
   async function submitClassificationFromGallery(filename, noticeType, notes, lotCount) {
@@ -3076,6 +3150,11 @@
       if (r.status === 401 || r.status === 403) { setMsg('<span class="err">not authorised</span>', 3000); return; }
       if (r.status === 404) { setMsg('<span class="err">notice not found</span>', 3000); return; }
       if (!r.ok) { setMsg(`<span class="err">classify failed (${r.status})</span>`, 3000); return; }
+      // The server's row is the only place the *stored* lot count exists.
+      // Re-rendering the pane from the pre-save row redrew the old count in
+      // both the badge and the box, so a corrected count looked like it had
+      // been thrown away even though it saved.
+      const saved = await r.json().catch(() => null);
       setMsg(`<span class="ok">saved.</span>`, 1200);
 
       // Refresh stats in the header (counts may have shifted)
@@ -3099,6 +3178,11 @@
         updated.notice_type = noticeType;
         updated.verified = true;
         updated.overridden = true;
+        if (saved) {
+          updated.expected_lot_count = saved.expected_lot_count;
+          updated.verified_at = saved.verified_at;
+          updated.verified_by = saved.verified_by;
+        }
         renderGallery();
         selectGalleryItem(removedIdx);
       }
@@ -4060,6 +4144,13 @@
         const n = gallery.notices[idx];
         if (!n) return;
         triggerGalleryAction(n.notice_type || 'single');
+        return;
+      }
+      if (e.key === 'u' || e.key === 'U') {
+        e.preventDefault();
+        const n = gallery.notices[idx];
+        if (!n || !n.verified) return;   // nothing signed off to undo
+        unverifyFromGallery(n.filename || '');
         return;
       }
       if (e.key === '/') {
