@@ -1232,13 +1232,24 @@ def _openrouter_model(model_id: str | None = None, reasoning_off: bool = False):
     ``model_id`` overrides the default (env LANGEXTRACT_MODEL_ID) so callers can
     route per notice type; the cache is keyed by (model_id, reasoning_off) so
     several models coexist in one process. ``reasoning_off`` forces provider-side
-    reasoning off for that model (see ``_reasoning_off_model_cls``)."""
+    reasoning off for that model (see ``_reasoning_off_model_cls``).
+
+    An unrouted call falls back to OPENROUTER_MODEL_EXTRACT_SINGLE — the model
+    the routing config actually names for a notice of unknown shape. It used to
+    fall back to `google/gemini-2.5-flash`, which is in the config for the chat
+    agent and the dossier classifier and was never chosen for extraction: a
+    caller that omitted `model_id` silently overrode a measured decision with a
+    model nobody had measured. It showed up as bursts of 8 chunk calls returning
+    10 tokens each — the "Content must contain an 'extractions' key" failure,
+    from a model asked a question its config never intended for it.
+    """
     from langextract.providers.openai import OpenAILanguageModel
+    from pipeline.config import OPENROUTER_MODEL_EXTRACT_SINGLE
     key = os.environ.get("OPENROUTER_API_KEY")
     if not key:
         raise RuntimeError("OPENROUTER_API_KEY not set")
     model_id = model_id or os.environ.get("LANGEXTRACT_MODEL_ID",
-                                          "google/gemini-2.5-flash")
+                                          OPENROUTER_MODEL_EXTRACT_SINGLE)
     cache_key = (model_id, reasoning_off)
     if cache_key not in _MODEL_CACHE:
         base_url = os.environ.get("OPENROUTER_BASE_URL",

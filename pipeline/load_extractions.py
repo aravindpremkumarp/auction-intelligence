@@ -160,10 +160,17 @@ def _effective_model(model_id: str | None, route: bool) -> str:
     ``langextract_examples.extract`` falls back to LANGEXTRACT_MODEL_ID — with a
     different default per provider. Mirror that resolution here so
     ``extraction_model`` records the model that ran, never None.
+
+    The OpenRouter default tracks OPENROUTER_MODEL_EXTRACT_SINGLE rather than
+    naming a model here: this function's whole job is to record what actually
+    ran, and a second copy of the default is a second thing to forget to change.
+    The gemini-direct branch keeps its own default because that path does not go
+    through OpenRouter and its slugs are not interchangeable.
     """
+    from pipeline.config import OPENROUTER_MODEL_EXTRACT_SINGLE
     if model_id:
         return model_id
-    default = "google/gemini-2.5-flash" if route else "gemini-2.5-flash"
+    default = OPENROUTER_MODEL_EXTRACT_SINGLE if route else "gemini-2.5-flash"
     return os.environ.get("LANGEXTRACT_MODEL_ID", default)
 
 
