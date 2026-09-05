@@ -3108,11 +3108,13 @@
       selectGalleryItem(Math.min(idx, gallery.notices.length - 1));
       return;
     }
-    // pending / all: the row stays put, now unsigned.
+    // pending / all: the row stays put, now unsigned. `overridden` is NOT
+    // cleared — the server keeps it (it guards the type against the
+    // auto-classifier), so clearing it locally would show a state the
+    // database does not have.
     const n = gallery.notices[idx];
     if (n) {
       n.verified = false;
-      n.overridden = false;
       n.verified_at = null;
       n.verified_by = null;
     }

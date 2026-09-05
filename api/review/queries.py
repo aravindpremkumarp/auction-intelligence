@@ -633,9 +633,17 @@ def unverify_classification(filename: str) -> dict | None:
     which is the one field a bulk-confirm can leave wrong (a 'single' stamped
     1 that later flipped to 'multi').
 
-    ``notice_type_overridden`` is cleared as well: 'edited' is a *verified*
-    state in ``_classification_where``, so leaving the flag set would park the
-    row in the edited tab instead of pending.
+    ``notice_type_overridden`` deliberately SURVIVES. It is not a sign-off
+    flag — it is the guard ``pipeline/classify_notice.stamp_cluster_counts``
+    reads (``WHERE coalesce(d.notice_type_overridden, false) = false``) before
+    it rewrites notice_type from the cluster size on every pipeline run.
+    Clearing it would hand this document back to the machine: the exact notice
+    a reviewer undoes is usually one whose clustering disagrees with the human
+    (a 'multi' whose scrape collapsed to one property), so the next pipeline
+    run would silently flip the type back to 'single' before the reviewer
+    re-confirmed. Keeping the flag costs nothing here — the queue's 'edited'
+    tab is ``verified_at IS NOT NULL AND overridden``, so with the timestamp
+    gone the row lands in 'pending' either way.
 
     No ``extraction_stale_at`` stamp — nothing about the document changed,
     only who has signed off on it. The re-confirm that follows stamps it if
@@ -646,8 +654,7 @@ def unverify_classification(filename: str) -> dict | None:
     rows = run_query("""
         MATCH (d:Document {filename: $filename})
         REMOVE d.notice_type_verified_at,
-               d.notice_type_verified_by,
-               d.notice_type_overridden
+               d.notice_type_verified_by
         RETURN d.filename                          AS filename,
                d.notice_type                       AS notice_type,
                d.expected_lot_count                AS expected_lot_count,
