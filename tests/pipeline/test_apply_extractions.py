@@ -433,6 +433,52 @@ def test_group_lots_without_a_claim_leaves_it_none():
     assert lot["portal_aid"] is None
 
 
+def test_explain_names_both_lots_a_conflict_is_between():
+    """Shaped after auction 802424: two flats of one borrower at one price,
+    where the notice reads the listing as lot 1 and the identifier tier
+    reaches lot 2. The reviewer picks between exactly those two, so the
+    verdict has to name them — prose alone cannot."""
+    shared = "Wing-12 Block-B Golden County S.No.155/11"
+    l1 = _lot(4500000, borrowers="S Samyuktha")
+    l1["lot_index"], l1["portal_aid"] = "1", "802424"
+    l1["id_tokens"] = AX._id_tokens(shared + " Assessment No.115/025/00206")
+    l2 = _lot(4500000, borrowers="S Samyuktha")
+    l2["lot_index"] = "2"
+    l2["id_tokens"] = AX._id_tokens(shared + " Assessment No.115/025/00203")
+    listings = [{"aid": "802424", "price": 4500000,
+                 "borrowers": ["Ms. S.Samyuktha"],
+                 "id_text": shared + " Assessment No. 115/025/00203"}]
+    v = AX.explain_lot_match({"1": l1, "2": l2}, listings)["802424"]
+    assert v["outcome"] == "unmatched"
+    assert v["claimed_lot_index"] == "1"
+    assert v["keys_lot_index"] == "2"
+    assert v["keys_tier"] == "identifier"
+    assert "lot 1" in v["reason"] and "lot 2" in v["reason"]
+
+
+def test_explain_leaves_conflict_keys_off_every_other_verdict():
+    """The two keys exist only where there is a conflict to describe."""
+    l1, l2 = _lot(500000), _lot(900000)
+    l1["lot_index"], l2["lot_index"] = "1", "2"
+    v = AX.explain_lot_match({"1": l1, "2": l2},
+                             [{"aid": "a1", "price": 500000}])["a1"]
+    assert v["outcome"] == "linked"
+    assert "claimed_lot_index" not in v and "keys_lot_index" not in v
+
+
+def test_explain_conflict_survives_the_keys_reaching_nothing():
+    """The claim can conflict on price alone, with no rival lot to name. The
+    row still has to render — with the claimed lot and a null other side."""
+    l1, l2 = _lot(500000), _lot(900000)
+    l2["lot_index"], l2["portal_aid"] = "2", "a1"
+    l1["lot_index"] = "1"
+    v = AX.explain_lot_match({"1": l1, "2": l2},
+                             [{"aid": "a1", "price": 750000}])["a1"]
+    assert v["claimed_lot_index"] == "2"
+    assert v["keys_lot_index"] is None
+    assert v["reason"]
+
+
 def test_sole_claimants_drops_a_lot_two_listings_both_claim():
     """From the 12-lot PNB notice, which carries 19 listings: the surplus
     listings pile onto whichever lots they most resemble, and 802424 and

@@ -1551,10 +1551,18 @@
     const noticeImg = m.public_url
       ? `<div class="lot-notice-img"><img data-src="${escapeHtml(m.public_url)}" alt="sale notice"></div>`
       : `<p class="meta" style="color:var(--muted)">no notice image on file</p>`;
+    // A portal_aid conflict narrows the pick to two named lots: what the
+    // notice says this listing is, and where the portal's money points. Tag
+    // both so the reviewer reads the row as the two-horse race it is instead
+    // of scanning N candidates for the two the prose named.
     const candidateRows = m.candidates.map(c => `<div class="lot-candidate">
         <span style="flex:1">${escapeHtml(c.lot_key)}${
           c.lot_key === m.matched_lot_key
-            ? ' <span class="pill warn">contested</span>' : ''}
+            ? ' <span class="pill warn">contested</span>' : ''}${
+          c.lot_key === m.claimed_lot_key
+            ? ' <span class="pill warn">the notice reads this one</span>' : ''}${
+          c.lot_key === m.keys_lot_key
+            ? ' <span class="pill warn">the portal\'s price points here</span>' : ''}
           <small style="color:var(--muted)">${
             currency(c.reserve) || 'no reserve'}${
             c.sqft != null ? ' · ' + c.sqft + ' sqft' : ''}${

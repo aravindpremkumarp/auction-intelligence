@@ -2194,6 +2194,17 @@ def _lot_match_candidates(decisions: list[dict]) -> list[dict]:
             "matched_lot_key": (
                 f"{r['filename']}#{verdict['lot_index']}"
                 if verdict.get("lot_index") is not None else None),
+            # A portal_aid conflict is a two-horse race, not a pick-from-N:
+            # the extraction named one lot while the portal's figures reach
+            # another, and the reviewer decides between exactly those. Naming
+            # both lets the UI point at them among the candidates; every other
+            # row leaves these null and is unaffected.
+            "claimed_lot_key": (
+                f"{r['filename']}#{verdict['claimed_lot_index']}"
+                if verdict.get("claimed_lot_index") is not None else None),
+            "keys_lot_key": (
+                f"{r['filename']}#{verdict['keys_lot_index']}"
+                if verdict.get("keys_lot_index") is not None else None),
             "candidates": [{
                 "lot_key": c["lot_key"], "reserve": c["reserve"],
                 "sqft": round(c["sqft"], 1) if c["sqft"] is not None else None,

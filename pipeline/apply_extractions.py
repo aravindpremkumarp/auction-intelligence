@@ -728,9 +728,29 @@ def explain_lot_match(lots: dict[str, dict],
                filename for a lot_key ("<filename>#<lot_index>")
       rivals   the other listings claiming that same lot (empty unless 'rival')
       reason   one line of prose for the review UI
+
+    A `portal_aid_conflict` row carries two more keys, `claimed_lot_index` and
+    `keys_lot_index` (with `keys_tier`): the lot the extraction named and the
+    lot the price/EMD/borrower keys reached instead. The reviewer's job on
+    that row is to pick between exactly those two, and prose alone cannot say
+    which candidates they are. Both come from the real matcher — the second is
+    the same `match_lots_to_listings` re-run over the same lots with the
+    claims stripped, never a re-derivation from this module's own reading of
+    the tiers, for the reason the docstring above gives.
     """
     matches, unmatched = match_lots_to_listings(lots, listings)
     sole = {id(m[0]) for m in sole_claimants(matches)}
+
+    conflicted = {l["aid"] for l, r in unmatched if r == "portal_aid_conflict"}
+    keys_only: dict[str, tuple] = {}
+    claimed_by: dict[str, str] = {}
+    if conflicted:
+        claimed_by = {str(lo["portal_aid"]): lo["lot_index"]
+                      for lo in lots.values() if lo.get("portal_aid")}
+        stripped = {k: {**lo, "portal_aid": None} for k, lo in lots.items()}
+        keys_matches, _ = match_lots_to_listings(stripped, listings)
+        keys_only = {m[0]["aid"]: (m[1]["lot_index"], m[2]) for m in keys_matches
+                     if m[0]["aid"] in conflicted}
 
     # Who else landed on each lot, by auction_id — this is the fact the queue
     # could not show before, and the one a reviewer needs most: the rival is
@@ -756,13 +776,25 @@ def explain_lot_match(lots: dict[str, dict],
                        f"property, so this needs a human, not a guess"),
         }
     for listing, reason in unmatched:
-        out[listing["aid"]] = {
+        row = {
             "outcome": "unmatched",
             "tier": None,
             "lot_index": None,
             "rivals": [],
             "reason": _EXPLAIN_TEXT.get(reason, reason),
         }
+        if reason == "portal_aid_conflict":
+            keys_lot, keys_tier = keys_only.get(listing["aid"], (None, None))
+            row["claimed_lot_index"] = claimed_by.get(str(listing["aid"]))
+            row["keys_lot_index"] = keys_lot
+            row["keys_tier"] = keys_tier
+            if keys_lot is not None:
+                row["reason"] += (
+                    f" — the notice reads lot {row['claimed_lot_index']} as "
+                    f"this listing, the portal's figures reach lot {keys_lot} "
+                    f"({_EXPLAIN_TEXT.get(keys_tier, keys_tier)}). Open the "
+                    f"notice and pick between those two.")
+        out[listing["aid"]] = row
     return out
 
 

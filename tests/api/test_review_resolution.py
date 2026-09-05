@@ -257,6 +257,65 @@ def test_lot_match_row_has_no_matched_lot_key_when_nothing_matched(monkeypatch):
     assert row["rivals"] == []
 
 
+def test_lot_match_row_names_both_sides_of_a_portal_aid_conflict(monkeypatch):
+    """A conflict is a two-horse race: the lot the notice reads as this
+    listing against the lot the portal's money reaches. The row must name
+    both, or the reviewer is left scanning N candidates for the two the
+    prose mentioned."""
+    listing_rows = [
+        {"auction_id": "802424", "title": "t", "listing_url": None,
+         "file_path": "n.jpg", "filename": "n.jpg", "public_url": None,
+         "reserve": 4500000, "lot_count": 19, "borrower": None,
+         "listing_description": None},
+    ]
+
+    def fake_read(cypher, params=None, **kw):
+        if "count(l) AS lot_count" in cypher:
+            return listing_rows
+        return []
+
+    import pipeline.apply_extractions as AX
+    monkeypatch.setattr(AX, "explain_documents", lambda fns: {
+        ("802424", "n.jpg"): {
+            "outcome": "unmatched", "tier": None, "lot_index": None,
+            "rivals": [], "reason": "two independent signals disagree",
+            "claimed_lot_index": "14", "keys_lot_index": "15",
+            "keys_tier": "identifier"},
+    })
+    monkeypatch.setattr(q, "run_read_query", fake_read)
+    row = q._lot_match_candidates([])[0]
+    assert row["claimed_lot_key"] == "n.jpg#14"
+    assert row["keys_lot_key"] == "n.jpg#15"
+    # It is still an unmatched row: nothing was written for this listing.
+    assert row["blocker"] == "unmatched"
+    assert row["matched_lot_key"] is None
+
+
+def test_lot_match_row_leaves_conflict_keys_null_on_every_other_row(monkeypatch):
+    """Only a portal_aid conflict carries them. An ordinary ambiguous row
+    must not grow two keys pointing at lots nobody named."""
+    listing_rows = [
+        {"auction_id": "800001", "title": "t", "listing_url": None,
+         "file_path": "n.jpg", "filename": "n.jpg", "public_url": None,
+         "reserve": 5, "lot_count": 4, "borrower": None,
+         "listing_description": None},
+    ]
+
+    def fake_read(cypher, params=None, **kw):
+        return listing_rows if "count(l) AS lot_count" in cypher else []
+
+    import pipeline.apply_extractions as AX
+    monkeypatch.setattr(AX, "explain_documents", lambda fns: {
+        ("800001", "n.jpg"): {"outcome": "unmatched", "tier": None,
+                              "lot_index": None, "rivals": [],
+                              "reason": "several lots tie"},
+    })
+    monkeypatch.setattr(q, "run_read_query", fake_read)
+    row = q._lot_match_candidates([])[0]
+    assert row["claimed_lot_key"] is None
+    assert row["keys_lot_key"] is None
+
+
 def test_lot_match_candidates_shows_a_listing_once_per_notice(monkeypatch):
     """A listing can link to more than one scan of the SAME notice — 9 do on
     the live graph. One row per (listing, document) put those on the queue
@@ -388,3 +447,30 @@ def test_undo_recomputes_the_same_key(monkeypatch):
         "district-conflict", {"raw": "Vellore", "taluk": "Walajah"})
     assert out["deleted"] is True
     assert seen["key"] == out["key"]
+
+
+def test_lot_match_response_model_keeps_every_field_the_queue_builds():
+    """Undeclared fields are dropped on serialization, so a row the query
+    builds faithfully can still reach the UI as `undefined`. That is how
+    `rivals` and `matched_lot_key` were lost — `web/review.html` has read
+    both since they were added, and its rival block never rendered. Hold the
+    model against the queue's own row shape so the next field added to one
+    cannot silently go missing from the other.
+    """
+    from api.review.router import ResolutionLotMatch
+
+    row = {
+        "auction_id": "802424", "title": "t", "listing_url": "u",
+        "public_url": "p", "reserve": 4500000.0, "borrower": "b",
+        "lot_count": 19, "reason": "two signals disagree",
+        "listing_description": "d", "blocker": "unmatched",
+        "rivals": ["802425"], "matched_lot_key": None,
+        "claimed_lot_key": "n.jpg#14", "keys_lot_key": "n.jpg#15",
+        "candidates": [], "db_properties": [],
+    }
+    dumped = ResolutionLotMatch(**row).model_dump()
+    missing = sorted(set(row) - set(dumped))
+    assert not missing, f"dropped on the way to the UI: {missing}"
+    assert dumped["rivals"] == ["802425"]
+    assert dumped["claimed_lot_key"] == "n.jpg#14"
+    assert dumped["keys_lot_key"] == "n.jpg#15"
