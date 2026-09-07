@@ -118,6 +118,35 @@ def _document_length(entities: list[dict]) -> int:
     return max(ends) if ends else 0
 
 
+def _block_start(entities: list[dict], property_start: int,
+                 previous: tuple[int, int]) -> int:
+    """Where the lot block owning the property at ``property_start`` begins.
+
+    A window opens on a lot, but a lot opens on its borrower and account
+    details, not on its property description — so the window's true edge lies
+    earlier than its first property. This walks back over the gap left by the
+    window before and returns the head of the new block: the first entity
+    already carrying the restarted numbering.
+
+    Only the gap between the two properties is searched, and only past the
+    last entity still carrying the PREVIOUS lot's index — that lot's own
+    trailing children (its boundaries, its outstanding amount) sit in the same
+    gap and must not be dragged across. Where the previous lot is itself
+    numbered 1 the two are indistinguishable by index, so nothing moves and
+    the property's own offset stands. That fallback is the conservative
+    reading and applies whenever the gap yields no clear head.
+    """
+    previous_property, previous_index = previous
+    in_gap = [(start, index) for start, index in
+              ((_start_of(e), _index_of(e)) for e in entities)
+              if start is not None and previous_property < start < property_start]
+    tail = max((start for start, index in in_gap if index == previous_index),
+               default=previous_property)
+    heads = [start for start, index in in_gap
+             if index == 1 and start > tail]
+    return min(heads, default=property_start)
+
+
 def window_offsets(entities: list[dict]) -> list[Window]:
     """Split a notice into the LangExtract windows its numbering reveals.
 
@@ -166,16 +195,30 @@ def window_offsets(entities: list[dict]) -> list[Window]:
     if not edges:
         return []
 
-    # windows[k] = [offset it starts at, {local property indices inside it}]
-    windows: list[tuple[int, set[int]]] = [(anchors[0][0], set())]
-    for start, index in anchors:
-        if start in edges and start != windows[-1][0]:
-            windows.append((start, {index}))
+    # Group the properties into windows, recording for each the offset of the
+    # last property BEFORE it — the far side of the gap its own first lot
+    # block may reach back into.
+    starts: list[int] = [anchors[0][0]]
+    local: list[set[int]] = [set()]
+    previous: list[tuple[int, int]] = [(anchors[0][0], 0)]
+    for position, (start, index) in enumerate(anchors):
+        if start in edges and start != starts[-1]:
+            previous.append(anchors[position - 1])
+            starts.append(start)
+            local.append({index})
         else:
-            windows[-1][1].add(index)
+            local[-1].add(index)
 
-    if len(windows) < 2:
+    if len(starts) < 2:
         return []
+
+    # A lot's block does not begin at its property: these notices head each
+    # one with its borrower and account details, so the property description
+    # sits some way inside it. Taking the property's offset as the window edge
+    # would strand that header in the window before, attaching one lot's
+    # borrower to another's. Pull each edge back over it.
+    starts = [start if k == 0 else _block_start(entities, start, previous[k])
+              for k, start in enumerate(starts)]
 
     # The first window keeps its numbering (shift 0) so keys that already
     # resolve stay valid; each later window starts above every index used so
@@ -183,7 +226,7 @@ def window_offsets(entities: list[dict]) -> list[Window]:
     offsets: list[Window] = []
     shift = 0
     highest = 0
-    for start, local_indices in windows:
+    for start, local_indices in zip(starts, local):
         offsets.append(Window(start, shift, frozenset(local_indices)))
         highest = max(highest, max(local_indices, default=0) + shift)
         shift = highest

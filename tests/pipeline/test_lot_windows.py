@@ -103,6 +103,33 @@ def test_only_the_reset_nearest_an_edge_opens_a_window():
     assert len(set(indices(out)[:4])) == 3
 
 
+def test_a_lots_header_moves_with_it_across_the_edge():
+    # These notices head each lot with its borrower and account details, so
+    # the property description sits some way into the block. The header must
+    # cross the edge with its own property, not stay with the lot before —
+    # otherwise one lot's borrower ends up on another's.
+    ents = [
+        ent("property", 1000, 1), ent("property", 28000, 2),
+        ent("boundary", 28100, 2), ent("outstanding", 28200, 2),
+        ent("borrower", 29600, 1, text="Second window's borrower"),
+        ent("property", BUFFER + 300, 1),
+        tail(45000),
+    ]
+    assert indices(renumber_window_lots(ents))[:6] == \
+        ["1", "2", "2", "2", "3", "3"]
+
+
+def test_a_trailing_child_of_the_previous_lot_does_not_cross():
+    # Same gap, but the entity in it still carries the previous lot's index:
+    # it is that lot's own tail and must stay put.
+    ents = [
+        ent("property", 1000, 1), ent("property", 28000, 2),
+        ent("boundary", 29600, 2), ent("property", BUFFER + 300, 1),
+        tail(45000),
+    ]
+    assert indices(renumber_window_lots(ents))[:4] == ["1", "2", "2", "3"]
+
+
 def test_child_entities_move_with_their_window():
     ents = [ent("property", 1000, 1), ent("identifier", 1200, 1),
             ent("property", BUFFER + 100, 1), ent("identifier", BUFFER + 300, 1),
