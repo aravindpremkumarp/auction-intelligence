@@ -32,3 +32,7 @@ ANON_CHAT_LIMIT = "10/hour"
 # browsing session (the UI debounces), tight enough to stop scrape loops.
 PUBLIC_READ_LIMIT = "60/minute"
 STATS_LIMIT = "20/minute"
+# Anonymous email capture (POST /alerts/subscribe). A real visitor submits once,
+# maybe twice after a typo; anything past that from one IP is a list-stuffing
+# bot. Deliberately much tighter than PUBLIC_READ_LIMIT — this endpoint writes.
+SUBSCRIBE_LIMIT = "5/hour"

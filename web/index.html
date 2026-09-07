@@ -333,6 +333,12 @@
           </div>
           <form class="ac-form" id="alert-capture-form">
             <input type="email" id="alert-capture-email" name="email" placeholder="you@email.com" autocomplete="email" required aria-label="your email">
+            <!-- Honeypot: off-screen, unlabelled, untabbable and hidden from
+                 assistive tech, so no human ever fills it. Bots fill every
+                 input they find; api/alerts/router.py drops anything that
+                 arrives with it set. Do not switch this to display:none —
+                 the better bots skip fields CSS has hidden outright. -->
+            <input type="text" id="alert-capture-website" name="website" class="ac-hp" tabindex="-1" autocomplete="off" aria-hidden="true">
             <button type="submit" id="alert-capture-btn">notify me</button>
           </form>
         </div>

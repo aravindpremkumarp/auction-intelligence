@@ -381,7 +381,7 @@ const PULL = GH + '/pull/';
 
 const MARKETING_DATA = {
 meta: {
-  updated: '2026-08-19',
+  updated: '2026-09-07',
   situation: 'pre-traction: ~7 registered users. the whole marketing engine was built in one sprint (jul 9–16, 2026) and is <b>human-gated end-to-end</b> — agents draft and stage, the founder reviews, merges and publishes. nothing auto-posts. north star (proposed): <b>weekly activated users</b> — ≥1 grounded search plus a value action. <b>first real organic read (2026-08-19):</b> search console shows 684 pages indexed and 98 clicks / 3.4K impressions over 3 months at average position 18.5 — the guides earn the impressions, the property pages do not, and page 2 is where the clicks are being lost.',
 },
 
@@ -547,7 +547,8 @@ nodes: [
   /* ---- capture & convert ---- */
   { id:'email-capture', lane:'capture', label:'email capture — auction alerts', type:'feature', status:'live',
     progress:{ pct:0, label:'0 of 100 Q1 captures' },
-    summary:'Landing signup bar → POST /alerts/subscribe → :AlertSubscriber in Neo4j (idempotent, unsubscribe token, no PII in logs). Fires GA4 alert_subscribe. The compounding retention asset — list-building half only.',
+    summary:'Landing signup bar → POST /alerts/subscribe → :AlertSubscriber in Neo4j (idempotent, unsubscribe token, no PII in logs). Fires GA4 alert_subscribe. The compounding retention asset — list-building half only. Since 2026-09-07 the endpoint carries two anti-spam guards: 5/hour per IP and a `website` honeypot the server drops silently.',
+    next:['The honeypot input reaches the generated trees (guides, compare, bank-auctions) only on their next build — the per-IP cap already covers them, so this is not urgent.','The list is the input to email-send; a list stuffed with bot addresses would poison deliverability before the first digest goes out.'],
     links:[{t:'alerts-capture.js', h: BLOB+'web/alerts-capture.js'},{t:'api/alerts/', h: TREE+'api/alerts'}], prs:[296] },
   { id:'email-send', lane:'capture', label:'alert sending + sequences', type:'feature', status:'planned', compact:true,
     summary:'The other half: alert digests, welcome sequence, win-back — plus deliverability groundwork (SPF/DKIM/DMARC). Plan-only today.',
@@ -687,6 +688,14 @@ risks: [
 ],
 
 changelog: [
+  { d:'2026-09-07', items:[
+    { t:'Every unknown URL on the site was a soft 404. vercel.json rewrote /(.*) to /, so a typo, a dead inbound link or a crawler probe all served the homepage with a 200 — web/404.html has been unreachable since it was written, and Google was being told that an unbounded set of bogus URLs were real pages. Worth naming next to the "Discovered — currently not indexed" line above: a site that answers 200 to everything gives a crawler no way to tell a real page from a wrong guess.' },
+    { t:'Fixed by enumerating the SPA routes (/chat, /chat/:id, /property/:id, /watchlist, /dossiers, /lab, both slash forms) instead of catching all. Destination stays "/" — that part was load-bearing and is the fix ISSUE-001 took six attempts to land. Rewrites run after the filesystem lookup, so the 1,177 prerendered property pages and the guides/compare/landing trees still serve their own HTML; only unprerendered ids fall through to the app shell. Anything not listed now gets a real 404.' },
+    { t:'The tripwire test that required the catch-all was rewritten rather than deleted: it now asserts every SPA route is present AND that no catch-all is reintroduced. The new failure mode is a client route added to web/app.js and not to vercel.json — it works on in-app navigation and 404s only on refresh or a shared link, which is exactly how ISSUE-001 hid for a month.' },
+    { t:'Email capture had no spam protection on any of its ~1,220 surfaces — an anonymous, unauthenticated write endpoint with nothing between a script and the subscriber list. Added a 5/hour per-IP cap and a `website` honeypot (off-screen, untabbable, aria-hidden) that the server drops silently with an identical 200, so a bot cannot detect the check. Absent means human, so the static pages built before the field existed keep working until their next build.' },
+    { t:'Also added the Strict-Transport-Security header, which was the one missing piece of an otherwise complete header block (CSP, nosniff, frame-options, referrer-policy were all already there).' },
+    { t:'NOT verified in this change: local servers do not honor vercel.json, so the routing needs a curl pass against a Vercel preview — deep links to /property/:id and /chat/:id, and a real 404 on a bogus path — before it reaches main.' },
+  ]},
   { d:'2026-08-19', items:[
     { t:'The Offer window on every live property page was inverted, and had been since Move 3 shipped. availabilityEnds and priceValidUntil were built from application_deadline_dt — the date registration closes — while availabilityStarts used the auction date. Registration closes BEFORE bidding opens, so the emitted JSON-LD described an offer that ended the day before it started, carrying a price-valid date already in the past on auctions that had not yet happened.' },
     { t:'The record already had the right field and nothing was reading it: auction_end_dt, when bidding closes. The reserve is the floor for the whole auction, so it stands until then. Also added a guard for records whose end precedes their own start — 7 auctions had auction_end_dt parsed three months before auction_start_dt upstream, and rendering that verbatim would have restated the contradiction as structured data; those fall back to the start date rather than inventing a plausible end. The application deadline is still published, as an additionalProperty on live pages, where it states a fact instead of bounding the offer.' },

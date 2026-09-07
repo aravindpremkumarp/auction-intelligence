@@ -193,6 +193,11 @@ border-radius:var(--radius-sm,8px);background:var(--card);color:var(--ink);font:
 border-radius:var(--radius-sm,8px);font:inherit;font-size:14px;font-weight:600;cursor:pointer;white-space:nowrap}
 .capture button:disabled{opacity:.6;cursor:default}
 .capture-msg{margin:12px 0 0;font-size:13px}
+/* Honeypot input (capture_block). Off-screen rather than display:none so a
+   naive bot still sees a fillable field; the flex:0 keeps .capture input's
+   flex:1 1 220px from reserving a column for it. */
+.ac-hp{position:absolute;left:-9999px;width:1px;height:1px;flex:0 0 0;
+  opacity:0;pointer-events:none;padding:0;border:0}
 .note{color:var(--muted);font-size:12.5px;margin-top:28px;border-top:1px solid var(--border);padding-top:16px}
 """
 
@@ -214,9 +219,11 @@ CAPTURE_SCRIPT = """<script>
     var email=(document.getElementById('ac-email').value||'').trim();
     if(!email||email.indexOf('@')<1||email.indexOf('.')<0){ show('enter a valid email'); return; }
     if(btn){ btn.disabled=true; btn.textContent='adding\\u2026'; }
+    var hp=document.getElementById('ac-website');
     fetch(API+'/alerts/subscribe',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({email:email,city:f.dataset.city||null,
-        property_type:f.dataset.ptype||null,source:f.dataset.source})})
+        property_type:f.dataset.ptype||null,source:f.dataset.source,
+        website:(hp&&hp.value)||''})})
     .then(function(r){ if(!r.ok) throw 0; done=true; f.style.display='none';
       show("you're on the list \\u2014 we'll email you when new "+(f.dataset.label||'auctions')+" list."); })
     .catch(function(){ if(btn){ btn.disabled=false; btn.textContent='notify me'; }
@@ -282,6 +289,11 @@ def capture_block(heading: str, city: str | None, property_type: str | None,
         f'<form id="ac-form" {attrs}>'
         '<input id="ac-email" type="email" placeholder="you@email.com" '
         'autocomplete="email" required aria-label="your email">'
+        # Honeypot: off-screen (see .ac-hp in PAGE_CSS), untabbable and hidden
+        # from assistive tech, so no human fills it. Bots fill every input;
+        # api/alerts/router.py drops any request that arrives with it set.
+        '<input id="ac-website" name="website" type="text" class="ac-hp" '
+        'tabindex="-1" autocomplete="off" aria-hidden="true">'
         '<button id="ac-btn" type="submit">notify me</button>'
         "</form>"
         '<p id="ac-msg" class="capture-msg" role="status" aria-live="polite" hidden></p>'

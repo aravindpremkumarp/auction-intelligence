@@ -263,6 +263,13 @@ body {
   margin: 0; font-size: 13px; color: var(--ink-soft); max-width: 46ch;
 }
 .alert-capture .ac-form { display: flex; gap: 8px; flex: 0 1 auto; }
+/* Honeypot input (see the comment on it in index.html). Moved off-screen
+   rather than display:none so naive bots still see a fillable field, and
+   sized to nothing so it can never affect the form's layout. */
+.ac-hp {
+  position: absolute; left: -9999px; width: 1px; height: 1px;
+  opacity: 0; pointer-events: none;
+}
 .alert-capture input[type="email"] {
   flex: 1 1 200px; min-width: 0; padding: 10px 13px;
   border: 1px solid var(--border-strong); border-radius: var(--radius-sm);

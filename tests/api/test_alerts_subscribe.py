@@ -74,3 +74,40 @@ def test_subscribe_caps_long_field(captured: list[dict]) -> None:
         "email": "x@example.com", "city": "A" * 500})
     assert r.status_code == 200
     assert len(captured[0]["city"]) == 120
+
+
+def test_subscribe_drops_filled_honeypot(captured: list[dict]) -> None:
+    """A filled `website` field means a bot: nothing is stored.
+
+    The response must be byte-identical to the success case — if a rejected
+    bot can tell it was rejected, it starts probing for the check.
+    """
+    r = _client().post("/alerts/subscribe", json={
+        "email": "bot@example.com", "website": "http://spam.example"})
+    assert r.status_code == 200
+    assert r.json() == {"status": "subscribed"}
+    assert captured == []
+
+
+def test_subscribe_ignores_empty_honeypot(captured: list[dict]) -> None:
+    """Browsers submit the honeypot as "" — that is a human, not a bot.
+
+    Whitespace counts as empty too, for autofill that drops a stray space in.
+    """
+    for value in ("", "   "):
+        captured.clear()
+        r = _client().post("/alerts/subscribe", json={
+            "email": "human@example.com", "website": value})
+        assert r.status_code == 200
+        assert len(captured) == 1, f"honeypot {value!r} wrongly treated as a bot"
+
+
+def test_subscribe_without_honeypot_still_works(captured: list[dict]) -> None:
+    """Pages built before the honeypot existed omit the field entirely.
+
+    Those static pages ship on their own build cadence, so absent must never
+    mean bot — otherwise the change silently kills capture on every stale page.
+    """
+    r = _client().post("/alerts/subscribe", json={"email": "old@example.com"})
+    assert r.status_code == 200
+    assert len(captured) == 1
