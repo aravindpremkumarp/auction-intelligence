@@ -147,11 +147,18 @@ PAGE_CSS = """
 /* Match the main app: explicit theme via data-theme (set from localStorage by
    the head script), with prefers-color-scheme only as a no-JS fallback so a
    saved 'light' choice is never overridden by an OS dark preference. */
+/* --on-accent flips to near-black in dark: the dark accent (#5b8bff) is a
+   LIGHT blue, so white on it is only 3.19:1 — below WCAG AA's 4.5:1 for the
+   CTA and the capture button. Near-black on the same blue is 6.15:1 and keeps
+   the brand colour unchanged. Same rule the app already uses (web/styles.css
+   "--on-accent: #0a0b0d"); these pages had simply never picked it up. */
 [data-theme="dark"]{--ink:#f5f7fa;--ink-soft:#c2c7d0;
 --muted:#8b909b;--paper:#0a0b0d;--card:#16181d;--border:#2a2d34;--accent:#5b8bff;
+--on-accent:#0a0b0d;
 --accent-hover:#7ba3ff;--shadow-lg:0 10px 34px rgba(0,0,0,.5);--accent-soft:#10203a}
 @media(prefers-color-scheme:dark){:root:not([data-theme]){--ink:#f5f7fa;--ink-soft:#c2c7d0;
 --muted:#8b909b;--paper:#0a0b0d;--card:#16181d;--border:#2a2d34;--accent:#5b8bff;
+--on-accent:#0a0b0d;
 --accent-hover:#7ba3ff;--shadow-lg:0 10px 34px rgba(0,0,0,.5);--accent-soft:#10203a}}
 *{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);
 font-family:'Inter',system-ui,-apple-system,Segoe UI,Roboto,sans-serif;line-height:1.55}
@@ -180,7 +187,7 @@ h2{font-size:18px;margin:30px 0 12px}
 .chips{display:flex;flex-wrap:wrap;gap:8px}
 .chip{background:var(--accent-soft);border:1px solid var(--border);border-radius:999px;
 padding:6px 13px;font-size:13px}
-.cta{display:inline-block;background:var(--accent);color:#fff;border-radius:10px;
+.cta{display:inline-block;background:var(--accent);color:var(--on-accent);border-radius:10px;
 padding:11px 20px;font-weight:600;margin:8px 0 4px}.cta:hover{text-decoration:none;opacity:.92}
 .capture{margin:34px 0 8px;padding:22px 24px;background:var(--accent-soft);
 border:1px solid var(--border);border-radius:var(--radius)}
@@ -189,7 +196,7 @@ border:1px solid var(--border);border-radius:var(--radius)}
 .capture input{flex:1 1 220px;min-width:0;padding:10px 13px;border:1px solid var(--border);
 border-radius:var(--radius-sm,8px);background:var(--card);color:var(--ink);font:inherit;font-size:14px}
 .capture input:focus{outline:none;border-color:var(--accent)}
-.capture button{padding:10px 18px;background:var(--accent);color:#fff;border:1px solid transparent;
+.capture button{padding:10px 18px;background:var(--accent);color:var(--on-accent);border:1px solid transparent;
 border-radius:var(--radius-sm,8px);font:inherit;font-size:14px;font-weight:600;cursor:pointer;white-space:nowrap}
 .capture button:disabled{opacity:.6;cursor:default}
 .capture-msg{margin:12px 0 0;font-size:13px}

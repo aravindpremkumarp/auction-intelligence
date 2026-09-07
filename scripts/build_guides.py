@@ -1089,11 +1089,15 @@ registration cost is the piece to add on top.</p>
                    "name after you win, so budget roughly another tenth of the value on top of your bid.")},
         ],
         "related": ["guideline value", "sale certificate", "reserve price", "TNREGINET"],
+        # The ClearTax stamp-duty page that used to sit here started returning
+        # 410 Gone (checked 2026-09-07; the other two ClearTax citations in
+        # this file are still 200). Dropped rather than swapped: no live
+        # replacement was found, and citing a dead URL is worse than citing
+        # one good source. TNREGINET is the official portal for exactly this,
+        # so the honesty rule is still satisfied.
         "sources": [
             {"t": "TNREGINET — Registration Department, Government of Tamil Nadu (official portal)",
              "h": "https://tnreginet.gov.in/"},
-            {"t": "Stamp duty and registration charges in Tamil Nadu (2026) — ClearTax",
-             "h": "https://cleartax.in/s/stamp-duty-and-registration-charges-in-tamil-nadu"},
         ],
     },
     {
