@@ -79,7 +79,7 @@
 <meta name="theme-color" content="#0b1120" media="(prefers-color-scheme: dark)">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700;12..96,800&family=Inter:wght@400;450;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700;12..96,800&family=Inter:wght@400;450;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700;12..96,800&family=Inter:wght@400;450;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700;12..96,800&family=Inter:wght@400;450;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"></noscript>
 <script>
   // Pick API origin per hostname. On *.auctionscope.in we use the branded
   // api.auctionscope.in CNAME; everywhere else (the legacy Vercel URL, preview
@@ -98,7 +98,6 @@
   window.SUPABASE_URL = window.SUPABASE_URL || 'https://yrcrxpwoqddfcengkryw.supabase.co';
   window.SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY || 'sb_publishable_IT4CBVWS1a37sduWApOdFw_1UCR0kyJ';
 </script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script>
   (function () {
     var saved = localStorage.getItem('theme');
@@ -612,6 +611,14 @@
   </symbol>
 </svg>
 
+<!-- Supabase UMD. Lives here, immediately before its only consumer
+     (auth.js reads window.supabase at top level), rather than in <head>.
+     In <head> it was a render-blocking third-party fetch: ~54KB from
+     jsdelivr on the critical path, so a slow or blocked CDN delayed first
+     paint of content that does not need it. Execution order is unchanged
+     — it still runs before auth.js — so this is a move, not a defer.
+     KEEP IT ABOVE auth.js. -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="/auth.js"></script>
 <script src="/billing.js"></script>
 <script src="/app.js"></script>
