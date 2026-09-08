@@ -189,9 +189,45 @@ def _id_norm(v: str) -> str:
     return re.sub(r"[\-.]", "/", str(v).strip().lower())
 
 
+#: Marks a token that came from a measurement, so it can only ever match
+#: another measurement. Not a valid identifier shape, so it cannot collide.
+_MEASURE_PREFIX = "sz:"
+
+#: A number carrying an area or length unit is a measurement, not an
+#: identifier — and once _id_norm turns its decimal point into a slash it is
+#: shaped exactly like a survey number. "107.76 sq.mtr" reduces to 107/76 and
+#: "2.79 acres" to 2/79, so a plot's own dimensions could pass for a parcel
+#: reference. Matched as a whole phrase so the number is found with its unit.
+_MEASURE_PHRASE = re.compile(
+    r"\d+(?:[.,]\d+)?\s*(?:"
+    r"sq\.?\s*(?:mtr?s?|m|met(?:er|re)s?|ft|feet|foot)"
+    r"|square\s*(?:feet|foot|met(?:er|re)s?|mtr?s?)"
+    r"|acres?|cents?|hectares?|guntha?s?|ares?"
+    r")\b", re.I)
+
+
 def _id_tokens(text: str) -> set[str]:
+    """Identifier-shaped tokens in ``text``, measurements kept but namespaced.
+
+    A measurement is NOT dropped. Both sides of every comparison run through
+    here — the lot's schedule and the listing's own text — so an extent both
+    quote is a real signal, and it carries the `whole_notice_ids` rescue that
+    saves a claim from a wrong portal price. Deleting them was measured on the
+    corpus and cost 6 portal_aid matches for 5 new conflicts and 5 fewer lot
+    keys.
+
+    What they must not do is pass for a survey number. `_id_norm` turns a
+    decimal point into a slash, so "107.76 sq.mtr" and survey 107/76 reduce to
+    the same string and a plot's own dimensions could separate it from a
+    sibling — or collide with a real parcel elsewhere on the notice. Prefixing
+    keeps measurement matched against measurement and nothing else.
+    """
+    text = str(text or "")
     out = set()
-    for m in _ID_SHAPE.finditer(str(text or "").lower()):
+    for m in _MEASURE_PHRASE.finditer(text):
+        for inner in _ID_SHAPE.finditer(m.group(0).lower()):
+            out.add(_MEASURE_PREFIX + _id_norm(inner.group(0)))
+    for m in _ID_SHAPE.finditer(_MEASURE_PHRASE.sub(" ", text).lower()):
         tok = _id_norm(m.group(0))
         if re.fullmatch(r"(19|20)\d{2}|\d{6,}", tok):
             continue

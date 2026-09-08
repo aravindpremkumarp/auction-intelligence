@@ -132,6 +132,42 @@ def test_group_lots_carries_its_own_index():
     assert lots["2"]["lot_index"] == "2"
 
 
+# ── _id_tokens: measurements must not pass for parcel references ─────────────
+
+def test_id_tokens_keeps_real_identifiers():
+    assert AX._id_tokens("S.F No 256/1F") == {"256/1f"}
+    assert AX._id_tokens("Re-survey no.187/7") == {"187/7"}
+    assert AX._id_tokens("Plot No.81A") == {"81a"}
+
+
+def test_id_tokens_namespaces_a_measurement():
+    # _id_norm turns the decimal point into a slash, so without the prefix
+    # "107.76 sq.mtr" would be the token 107/76.
+    assert AX._id_tokens("107.76 sq.mtr") == {"sz:107/76"}
+    assert AX._id_tokens("2.79 acres") == {"sz:2/79"}
+
+
+def test_a_measurement_never_collides_with_a_survey_number():
+    """The whole point: same digits, different kind of thing."""
+    survey = AX._id_tokens("comprised in survey no 107/76")
+    extent = AX._id_tokens("an extent of 107.76 sq.mtr")
+    assert survey and extent
+    assert not (survey & extent)
+
+
+def test_a_measurement_still_matches_the_same_measurement():
+    # Kept, not dropped — an extent both sides quote carries the rescue that
+    # saves a claim from a wrong portal price.
+    notice = AX._id_tokens("having an extent of 107.76 sq.mtr")
+    portal = AX._id_tokens("extent 107.76 sq. mtr as per document")
+    assert notice & portal == {"sz:107/76"}
+
+
+def test_id_tokens_reads_both_sides_of_a_mixed_string():
+    assert AX._id_tokens("Re-survey no.187/7 measuring 2.79 acres") == {
+        "187/7", "sz:2/79"}
+
+
 # ── match_lots_to_listings ───────────────────────────────────────────────────
 
 def _lot(reserve, desc="d", emd=None, borrowers=None):
