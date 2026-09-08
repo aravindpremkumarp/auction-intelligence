@@ -1584,3 +1584,45 @@ def test_the_portal_fills_the_search_value_when_no_notice_names_a_type(
     seen = _typed_run(monkeypatch, tmp_path, {"one": "Flat"}, ptype="")
     assert seen["one"]["effective"] == "flat"
     assert seen["one"]["conflict"] is None
+
+
+# ── lot_descriptions: what the review queue shows a human ────────────────────
+
+def test_lot_descriptions_keys_by_lot_key(monkeypatch):
+    """Sibling flats tie on price, area and borrower; the notice's own words
+    are the only thing that separates them, and the queue joins them on
+    lot_key."""
+    monkeypatch.setattr(AX, "fetch_work", lambda **kw: [{
+        "filename": "n.jpg",
+        "extraction_json": json.dumps([
+            {"id": "0", "cls": "full_description", "text": "Flat No. 1G, Block 1",
+             "start": 0, "end": 20, "attrs": {"lot_index": "1"}},
+            {"id": "1", "cls": "full_description", "text": "Flat No. 1G, Block 2",
+             "start": 40, "end": 60, "attrs": {"lot_index": "2"}},
+        ]),
+        "corrections_json": None,
+    }])
+    out = AX.lot_descriptions(["n.jpg"])
+    assert out == {"n.jpg#1": "Flat No. 1G, Block 1",
+                   "n.jpg#2": "Flat No. 1G, Block 2"}
+
+
+def test_lot_descriptions_skips_lots_with_no_text(monkeypatch):
+    monkeypatch.setattr(AX, "fetch_work", lambda **kw: [{
+        "filename": "n.jpg",
+        "extraction_json": json.dumps([
+            {"id": "0", "cls": "full_description", "text": "   ",
+             "start": 0, "end": 3, "attrs": {"lot_index": "1"}},
+            {"id": "1", "cls": "full_description", "text": "Real text",
+             "start": 9, "end": 18, "attrs": {"lot_index": "2"}},
+        ]),
+        "corrections_json": None,
+    }])
+    assert AX.lot_descriptions(["n.jpg"]) == {"n.jpg#2": "Real text"}
+
+
+def test_lot_descriptions_empty_input_does_no_work(monkeypatch):
+    def boom(**kw):
+        raise AssertionError("should not query for an empty page")
+    monkeypatch.setattr(AX, "fetch_work", boom)
+    assert AX.lot_descriptions([]) == {}

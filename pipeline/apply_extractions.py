@@ -966,6 +966,40 @@ def explain_lot_match(lots: dict[str, dict],
     return out
 
 
+def lot_descriptions(filenames: list[str]) -> dict[str, str]:
+    """{lot_key: the notice's own words for that lot}, for a page of notices.
+
+    Read from the EXTRACTION, not from the graph. `Lot.description` and
+    `Lot.address` are both empty on the live corpus — promote_extractions does
+    not write them — so a review queue that reads the node has nothing to show
+    but a price, an area and a borrower, which on a block of sibling flats are
+    identical across every candidate. The text that separates them ("Flat No.
+    1G, Block 1, First Floor" against "Flat No. 1G, Block 2") is sitting in
+    `group_lots`' own output and never reaches a reviewer.
+
+    Keyed by lot_key so a caller holding graph lots can join without
+    reconstructing the filename#index convention itself.
+
+    This costs its own `fetch_work` pass rather than riding along with
+    `explain_documents`. That is deliberate: the two answer different
+    questions, `explain_documents` is monkeypatched by the review tests, and
+    the only caller is a human-facing page fetching one screen of rows.
+    """
+    if not filenames:
+        return {}
+    out: dict[str, str] = {}
+    for w in fetch_work(filenames=sorted(set(filenames))):
+        ents = entities_with_corrections(w["extraction_json"],
+                                         w.get("corrections_json"))
+        if not ents:
+            continue
+        for li, lot in group_lots(ents).items():
+            text = (lot.get("description") or "").strip()
+            if text:
+                out[f"{w['filename']}#{li}"] = text
+    return out
+
+
 # ── Neo4j I/O ────────────────────────────────────────────────────────────────
 
 def fetch_work(limit: int | None = None,
