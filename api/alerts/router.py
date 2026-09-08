@@ -19,12 +19,13 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, EmailStr, Field
 
 from api.alerts import repository as repo
 from api.alerts.service import build_alerts
 from api.auth import get_optional_user
+from api.auth.rate_limit import SUBSCRIBE_LIMIT, limiter
 from api.auth.schemas import UserOut
 
 router = APIRouter()
@@ -87,6 +88,11 @@ class SubscribeIn(BaseModel):
     city: str | None = None
     property_type: str | None = None
     source: str | None = None
+    # Honeypot. The forms carry a matching off-screen input that a human never
+    # sees and never fills; form-filling bots populate every field they find.
+    # Optional on purpose — pages built before the field existed (and any
+    # hand-rolled client) simply omit it, and omitted means human.
+    website: str | None = None
 
 
 def _clean(v: str | None) -> str | None:
@@ -97,11 +103,20 @@ def _clean(v: str | None) -> str | None:
 
 
 @router.post("/alerts/subscribe")
-async def subscribe_to_alerts(body: SubscribeIn) -> dict:
+@limiter.limit(SUBSCRIBE_LIMIT)
+async def subscribe_to_alerts(request: Request, body: SubscribeIn) -> dict:
     """Capture an email for auction alerts. Public + anonymous by design — this
     is the lead-capture hook (plan §5/§6). It only records the subscriber; no
     email is sent (the sending engine is a separate, later piece). Idempotent:
-    re-subscribing updates the filter and re-activates the address."""
+    re-subscribing updates the filter and re-activates the address.
+
+    Being anonymous and write-shaped, it is the obvious spam target, so it has
+    two guards: SUBSCRIBE_LIMIT per IP, and the `website` honeypot below."""
+    if body.website and body.website.strip():
+        # A filled honeypot means a bot. Answer exactly as we would a human —
+        # same body, same 200 — so the bot can't tell it was dropped and start
+        # probing for the check. Nothing is written.
+        return {"status": "subscribed"}
     created_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     await repo.upsert_subscriber(
         email=str(body.email).strip().lower(),

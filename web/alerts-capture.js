@@ -13,6 +13,9 @@
 
   var API = (typeof window !== 'undefined' && window.API_BASE) || '';
   var email = document.getElementById('alert-capture-email');
+  // Honeypot — see the comment on the input in index.html. Only a bot fills it;
+  // the server drops those silently, so we just pass it straight through.
+  var hp = document.getElementById('alert-capture-website');
   var btn = document.getElementById('alert-capture-btn');
   var msg = document.getElementById('alert-capture-msg');
   var done = false;
@@ -38,7 +41,11 @@
     fetch(API + '/alerts/subscribe', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: value, source: 'home' }),
+      body: JSON.stringify({
+        email: value,
+        source: 'home',
+        website: (hp && hp.value) || '',
+      }),
     }).then(function (res) {
       if (!res.ok) throw new Error('subscribe failed');
       done = true;

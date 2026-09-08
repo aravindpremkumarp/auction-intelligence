@@ -616,6 +616,12 @@ function propertyShareURL(id) {
   u.pathname = '/property/' + encodeURIComponent(id);
   return u.toString();
 }
+// The client-side route table. KEEP IT IN SYNC WITH vercel.json "rewrites":
+// only the paths enumerated there are rewritten to the app shell, so a route
+// added here but not there works on in-app navigation and 404s on a hard
+// refresh or a shared link. (The catch-all rewrite that used to cover this
+// also swallowed every typo'd URL into the homepage, which is why web/404.html
+// never rendered — see applyURLState() below for the read side of the table.)
 function pathForScreen(screen) {
   if (screen === 'detail' && currentDetailId) {
     return '/property/' + encodeURIComponent(currentDetailId);

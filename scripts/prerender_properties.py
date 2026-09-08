@@ -297,8 +297,15 @@ def build_ssr_block(fields: dict, rel: dict, ended: bool) -> str:
                 else "browse all live Tamil Nadu bank auctions on Auctionscope")
 
     return (
-        '<div id="ssr-property" style="max-width:720px;margin:0 auto;'
-        'padding:32px 20px;font-family:var(--font-body,Inter,sans-serif);'
+        # Layout (position/inset/padding/background) deliberately lives in
+        # web/styles.css under #ssr-property, NOT here: this block sits ahead
+        # of .app in the body, so laying it out in normal flow displaced .app
+        # and every removal on boot cost a CLS of 0.442. The stylesheet takes
+        # it out of flow. Keep only paint-level styles inline — re-adding
+        # max-width/margin/padding here would put the shift back for any page
+        # rendered before the stylesheet applies.
+        '<div id="ssr-property" style="'
+        'font-family:var(--font-body,Inter,sans-serif);'
         'color:var(--ink,#0a0b0d);line-height:1.55;">'
         f"<h1 style=\"font-size:22px;margin:0 0 10px;\">{title}</h1>"
         f'<p style="color:var(--ink-soft,#33373e);font-size:14px;margin:0 0 16px;">{facts_line}</p>'

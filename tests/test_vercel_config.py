@@ -12,24 +12,71 @@ the app; commit 08285413 replaced it with a small dead-end page and every
 shared property link went user-visibly dead. If you change vercel.json
 routing, verify deep links by curl against a real Vercel preview deployment —
 local servers do not honor vercel.json.
+
+2026-09-07: the catch-all "/(.*)" was replaced by the enumerated list of SPA
+routes below. The destination stays "/" (the invariant this file was written
+to protect); what changed is that a path which is NOT a client-side route no
+longer resolves to the app. A catch-all sent every typo, dead link and probe
+to the homepage with a 200, which made web/404.html unreachable and told
+crawlers that infinitely many bogus URLs were real pages. The cost of
+narrowing it is that a NEW client-side route must be added in two places —
+web/app.js (pathForScreen/applyURLState) and vercel.json — or it 404s on
+refresh, which is the exact failure mode of ISSUE-001. test_spa_routes_are_
+rewritten below is the tripwire for that.
 """
 import json
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
+# Every client-side route in web/app.js, in both slash forms. Vercel does not
+# normalise a trailing slash for rewrite matching, so "/watchlist/" needs its
+# own entry — without it a pasted URL with a trailing slash 404s.
+SPA_ROUTES = [
+    "/chat", "/chat/", "/chat/:id", "/chat/:id/",
+    "/property/:id", "/property/:id/",
+    "/watchlist", "/watchlist/",
+    "/dossiers", "/dossiers/",
+    "/lab", "/lab/",
+]
+
 
 def _load_config():
     return json.loads((REPO_ROOT / "vercel.json").read_text(encoding="utf-8"))
 
 
-def test_catch_all_rewrite_present():
+def test_spa_routes_are_rewritten():
+    """Every client-side route must resolve to the app shell on a hard refresh.
+
+    This replaces the old catch-all assertion. Deleting a line here is how
+    ISSUE-001 comes back: the route keeps working on in-app navigation (the
+    SPA never hits the network for it) and only breaks on refresh or a shared
+    link, so it survives casual testing.
+    """
     cfg = _load_config()
     sources = [r["source"] for r in cfg.get("rewrites", [])]
-    assert "/(.*)" in sources, (
-        "vercel.json must keep the catch-all SPA rewrite; without it every "
-        "deep link (/property/:id, /chat, /watchlist) 404s on refresh/share."
+    missing = [route for route in SPA_ROUTES if route not in sources]
+    assert not missing, (
+        f"vercel.json is missing SPA rewrites for {missing}; those deep links "
+        "404 on refresh/share. Add them (destination '/') alongside the route "
+        "in web/app.js."
     )
+
+
+def test_no_catch_all_rewrite():
+    """A catch-all would resurrect the soft-404: unknown paths must 404.
+
+    With no rewrite matching, Vercel serves web/404.html with a real 404
+    status. A "/(.*)" rewrite instead serves the homepage with a 200, so bad
+    links look like real pages to users and to crawlers.
+    """
+    cfg = _load_config()
+    for rewrite in cfg.get("rewrites", []):
+        assert rewrite["source"] not in {"/(.*)", "/:path*", "/(.*)/"}, (
+            f"catch-all rewrite {rewrite['source']!r} makes every unknown URL "
+            "a soft 404 and web/404.html unreachable. List the SPA routes "
+            "explicitly instead (see SPA_ROUTES)."
+        )
 
 
 def test_rewrite_destination_is_not_index_html():

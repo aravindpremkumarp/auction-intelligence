@@ -96,3 +96,28 @@ def test_user_chat_daily_limit(monkeypatch: pytest.MonkeyPatch) -> None:
         for _ in range(5)
     ]
     assert codes[:3] == [200, 200, 200] and 429 in codes[3:], f"unexpected {codes}"
+
+
+def test_subscribe_per_ip_limit(monkeypatch: pytest.MonkeyPatch,
+                                rate_limited_client: TestClient) -> None:
+    """POST /alerts/subscribe caps signups per IP.
+
+    Anonymous and write-shaped, it is the site's most obvious list-stuffing
+    target; the honeypot only catches bots that fill every field, so the cap
+    is what bounds a determined one. Guards the wiring as much as the number:
+    slowapi silently no-ops on a route whose handler has no `request: Request`
+    parameter, so a decorator alone proves nothing.
+    """
+    from api.alerts import repository as repo
+
+    async def _noop(**_kw):
+        return None
+    monkeypatch.setattr(repo, "upsert_subscriber", _noop)
+
+    codes = [
+        rate_limited_client.post(
+            "/alerts/subscribe", json={"email": f"x{i}@example.com"}
+        ).status_code
+        for i in range(7)
+    ]
+    assert codes[:5] == [200] * 5 and 429 in codes[5:], f"unexpected {codes}"

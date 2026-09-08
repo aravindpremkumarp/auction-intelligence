@@ -112,6 +112,35 @@ body {
   overflow: hidden;
 }
 
+/* Prerendered property pages (scripts/prerender_properties.py) inject
+   #ssr-property as the FIRST child of <body>, ahead of .app, and app.js
+   removes it on boot. In normal flow that pushed .app down ~565px and then
+   snapped it back to 0 — one layout shift measured at CLS 0.442 on every
+   /property/<id> page, well past Google's 0.25 "poor" threshold, on the
+   site's largest and most-crawled surface.
+
+   Taking it out of flow fixes the shift at the source: .app is laid out at
+   its final position from the very first frame, and removing an overlay that
+   was never in flow costs nothing. The block still paints real content
+   immediately (fast first paint, and it stays readable if app.js never
+   arrives) and stays in the initial HTML for crawlers.
+
+   !important because the injected element carries these as inline styles —
+   pages already deployed cannot be regenerated without live inventory, so
+   this has to win over their markup as well as the current generator's. */
+#ssr-property {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  overflow-y: auto;
+  background: var(--paper);
+  max-width: none !important;
+  margin: 0 !important;
+  /* Rebuilds the 720px reading column the inline max-width used to give,
+     without re-entering the flow; max() keeps the 20px gutter on mobile. */
+  padding: 32px max(20px, calc(50% - 360px)) !important;
+}
+
 :focus { outline: 0; }
 :focus-visible {
   outline: 2px solid var(--accent);
@@ -263,6 +292,13 @@ body {
   margin: 0; font-size: 13px; color: var(--ink-soft); max-width: 46ch;
 }
 .alert-capture .ac-form { display: flex; gap: 8px; flex: 0 1 auto; }
+/* Honeypot input (see the comment on it in index.html). Moved off-screen
+   rather than display:none so naive bots still see a fillable field, and
+   sized to nothing so it can never affect the form's layout. */
+.ac-hp {
+  position: absolute; left: -9999px; width: 1px; height: 1px;
+  opacity: 0; pointer-events: none;
+}
 .alert-capture input[type="email"] {
   flex: 1 1 200px; min-width: 0; padding: 10px 13px;
   border: 1px solid var(--border-strong); border-radius: var(--radius-sm);

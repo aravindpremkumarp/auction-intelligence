@@ -1089,11 +1089,15 @@ registration cost is the piece to add on top.</p>
                    "name after you win, so budget roughly another tenth of the value on top of your bid.")},
         ],
         "related": ["guideline value", "sale certificate", "reserve price", "TNREGINET"],
+        # The ClearTax stamp-duty page that used to sit here started returning
+        # 410 Gone (checked 2026-09-07; the other two ClearTax citations in
+        # this file are still 200). Dropped rather than swapped: no live
+        # replacement was found, and citing a dead URL is worse than citing
+        # one good source. TNREGINET is the official portal for exactly this,
+        # so the honesty rule is still satisfied.
         "sources": [
             {"t": "TNREGINET — Registration Department, Government of Tamil Nadu (official portal)",
              "h": "https://tnreginet.gov.in/"},
-            {"t": "Stamp duty and registration charges in Tamil Nadu (2026) — ClearTax",
-             "h": "https://cleartax.in/s/stamp-duty-and-registration-charges-in-tamil-nadu"},
         ],
     },
     {
@@ -2676,7 +2680,7 @@ def _head(title: str, desc: str, url: str, jsonld: list[dict]) -> str:
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"></noscript>
 <style>{PAGE_CSS}{GUIDE_CSS}</style>
 {blocks}
 </head>
