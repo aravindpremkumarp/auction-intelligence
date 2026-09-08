@@ -177,6 +177,13 @@ def _names_overlap(a: set[str], b: set[str]) -> bool:
 # appear in almost every listing — they carry no lot identity and are dropped.
 _ID_SHAPE = re.compile(r"\b\d+(?:[/\-.]\d*[a-z]*\d*)+\b|\b\d+[a-z]\b")
 
+#: How far the best description-overlap score must beat the runner-up before
+#: `match_lots_to_listings` will break a tie on it. Measured against the live
+#: corpus, not chosen — see the tier's own comment. Raising it to 0.08 makes
+#: the tier fire zero times; lowering it to 0 lets the leader win on shared
+#: boilerplate.
+DESCRIPTION_TIE_MARGIN = 0.02
+
 
 def _id_norm(v: str) -> str:
     return re.sub(r"[\-.]", "/", str(v).strip().lower())
@@ -387,13 +394,15 @@ def match_lots_to_listings(lots: dict[str, dict],
     listings: [{aid, price, emd?, borrowers?, id_text?}]. Returns (matches,
     unmatched) where matches is [(listing, lot, reason)] and unmatched is
     [(listing, reason)]. reason ∈ 'single' | 'exact' | 'tolerance' | 'emd' |
-    'emd_tolerance' | 'borrower' | 'identifier' | 'portal_aid' | 'remainder' |
-    'ambiguous' | 'portal_aid_conflict' | 'none'.
+    'emd_tolerance' | 'borrower' | 'identifier' | 'description' | 'portal_aid' |
+    'remainder' | 'ambiguous' | 'portal_aid_conflict' | 'none'.
 
     Keys narrow in order of trustworthiness: reserve price exact/±1%, then
     EMD exact/±1% (rescues listings the portal shows without a price, and 10x
     price typos), then borrower-name overlap, then survey/door identifiers
-    found in the listing's own text (id_text: title + portal description).
+    found in the listing's own text (id_text: title + portal description),
+    then — only for a tie none of those touched — description overlap, where
+    the leader must beat the runner-up by DESCRIPTION_TIE_MARGIN.
     Borrower and identifiers are what separate lots that tie on money — EMD
     cannot, being 10% of the reserve almost everywhere. Every key must reduce
     to exactly one lot; a tie that survives all keys stays 'ambiguous' rather
@@ -588,6 +597,71 @@ def match_lots_to_listings(lots: dict[str, dict],
             # else the keys already chose this same lot: their reason stands,
             # having been reached without the claim's help.
 
+        if len(cands) > 1:
+            # Last resort before giving up: score the listing's own text
+            # against each candidate's description and take the leader, but
+            # only when it leads by a clear margin.
+            #
+            # It runs HERE, after the claim block, and the position is load-
+            # bearing. Placed before it, this tier competes with the lot's own
+            # portal_aid claim instead of catching what the claim cannot: it
+            # narrows to one lot, the claim then disagrees, and a listing that
+            # used to resolve as 'portal_aid' becomes a conflict. Measured on
+            # the corpus that cost 5 portal_aid matches to gain 4 of these and
+            # wrote one FEWER lot key overall — a straight regression. By this
+            # point a claim has already collapsed the candidates to itself, so
+            # reaching here at all means nothing else had an opinion.
+            #
+            # The tiers above all need a value to line up exactly — a price, a
+            # token, a name. Sibling plots defeat every one of them: same
+            # price, same survey number, same borrower, and per-unit numbers
+            # ("Plot No.79") that `_id_tokens` cannot even emit, having no
+            # separator or letter to give them shape. What DOES differ is the
+            # prose — each plot recites its own boundaries, "North of plot no
+            # 80 West of Plot No.72" against "North of plot no 81 West of Plot
+            # No.71" — so the whole paragraph separates what no single field
+            # can.
+            #
+            # The margin was measured HERE, in this position, on the live
+            # corpus — which matters, because measuring the tier in isolation
+            # badly overstates it. Scored against every price-tied candidate
+            # regardless of position, 0.08 looked like the right cut (43 right,
+            # 1 wrong). Run from this position it fires ZERO times: by the time
+            # a listing reaches the last resort, the earlier tiers and the
+            # claim have taken everything with a margin that wide.
+            #
+            # What each cut actually does to the whole corpus from here:
+            #
+            #     margin    fires   still ambiguous   lot keys written
+            #     > 0.08        0                 9              2933
+            #     > 0.05        1                 8              2934
+            #     > 0.02        6                 4              2937   <- here
+            #     > 0            10                 4              2939
+            #
+            # `match_portal_aid` holds at 53 at every one of those, so nothing
+            # here is taken from a tier that was already succeeding — every
+            # firing converts a listing that would otherwise get no lot at all.
+            # That is what makes a low cut defensible: the comparison is a
+            # wrong link against NO link, not against a good one.
+            #
+            # 0.02 rather than 0: on 111b15b3, the four-plot notice this tier
+            # was built for, 0.02 places three listings on their own plots
+            # (verified by hand against the notice) and declines the fourth,
+            # whose portal price is wrong so its real lot is not even a
+            # candidate. Dropping to 0 would have it guess that one.
+            #
+            # Re-measure if the corpus grows: six firings is a thin base.
+            listing_text = str(listing.get("id_text") or "")
+            if listing_text.strip():
+                scored = sorted(
+                    ((description_overlap(lot_list[i].get("description") or "",
+                                          listing_text), i) for i in cands),
+                    key=lambda pair: pair[0], reverse=True)
+                if (len(scored) > 1
+                        and scored[0][0] - scored[1][0] > DESCRIPTION_TIE_MARGIN):
+                    cands = [scored[0][1]]
+                    reason = "description"
+
         if reason is None:
             # no key hit anything — leave for the unique-remainder rule
             pending.append(listing)
@@ -742,6 +816,8 @@ _EXPLAIN_TEXT = {
     "emd_tolerance": "EMD matches this lot within 1% (reserve price did not decide)",
     "borrower": "borrower name matches this lot (money alone tied)",
     "identifier": "a survey/door number in the listing names only this lot",
+    "description": "the listing's own text reads much more like this lot's "
+                   "description than any other it ties with on price",
     "portal_aid": "the extraction read this lot as this listing, and nothing "
                   "in the portal's own figures contradicts it",
     "remainder": "the last unplaced listing and the last free lot",

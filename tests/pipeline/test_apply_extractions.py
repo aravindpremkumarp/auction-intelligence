@@ -166,6 +166,79 @@ def test_match_same_price_lots_are_ambiguous_not_guessed():
     assert unmatched[0][1] == "ambiguous"
 
 
+# ── the description tier ─────────────────────────────────────────────────────
+#
+# Sibling plots tie on price, EMD, borrower and every identifier token, and
+# their per-unit numbers ("Plot No.79") have no separator or letter, so
+# _id_tokens cannot emit them. Only the prose separates them — each plot
+# recites its own boundaries — and only by a clear margin.
+
+# Shared boilerplate every plot on such a notice repeats verbatim.
+_BOILER = ("Equitable Mortgage of land and building situated at Cuddalore "
+           "District Bhuvanagiri Taluk Ariyakoshti Village the punja land "
+           "measuring 2.79 acres comprised in Re-survey no 187/7 converted "
+           "into plots and in the layout named RAJANAGAR the following four "
+           "vacant plots ")
+
+
+def test_match_description_breaks_a_price_tie():
+    lots = {"1": _lot(464000, desc=_BOILER + (
+                "The Plot No 79 measuring East To West 58 feet South to North "
+                "20 feet Boundaries South of plot no 76 77 78 North of plot "
+                "no 80 West of Plot No 72")),
+            "2": _lot(464000, desc=_BOILER + (
+                "A wholly different property, a coconut grove several "
+                "districts away with none of the same neighbours or roads "
+                "and no shared frontage whatsoever"))}
+    listings = [{"aid": "a1", "price": 464000, "id_text": _BOILER + (
+        "The Plot No 79 measuring East To West 58 feet South to North 20 feet "
+        "Boundaries South of plot no 76 77 78 North of plot no 80 West of "
+        "Plot No 72")}]
+    matches, unmatched = AX.match_lots_to_listings(lots, listings)
+    assert unmatched == []
+    assert matches[0][2] == "description"
+    assert matches[0][1] is lots["1"]
+
+
+def test_match_description_will_not_decide_a_near_tie():
+    # The case the margin exists for: the two lots differ only in the plot
+    # numbers they cite, and the portal's own text — which is a re-typing of
+    # the notice, not a copy of it — happens not to carry those numbers. Both
+    # lots then score alike and the leader would be winning on noise.
+    lots = {"1": _lot(464000, desc=_BOILER + "North of plot no 80 West of 72"),
+            "2": _lot(464000, desc=_BOILER + "North of plot no 81 West of 71")}
+    listings = [{"aid": "a1", "price": 464000,
+                 "id_text": _BOILER + "North of the adjoining plot West of it"}]
+    matches, unmatched = AX.match_lots_to_listings(lots, listings)
+    assert matches == []
+    assert unmatched[0][1] == "ambiguous"
+
+
+def test_match_description_does_not_override_a_decided_price():
+    # The tier only ever sees a tie. A price that already picked one lot must
+    # keep its own reason, whatever the prose says.
+    lots = {"1": _lot(500000, desc="the listing's text, word for word"),
+            "2": _lot(999000, desc="nothing like it at all, entirely other")}
+    listings = [{"aid": "a1", "price": 999000,
+                 "id_text": "the listing's text, word for word"}]
+    matches, unmatched = AX.match_lots_to_listings(lots, listings)
+    assert matches[0][2] == "exact"
+    assert matches[0][1] is lots["2"]
+
+
+def test_match_description_needs_listing_text():
+    lots = {"1": _lot(464000, desc=_BOILER + "one"),
+            "2": _lot(464000, desc="something else entirely, no overlap here")}
+    listings = [{"aid": "a1", "price": 464000, "id_text": ""}]
+    matches, unmatched = AX.match_lots_to_listings(lots, listings)
+    assert matches == []
+    assert unmatched[0][1] == "ambiguous"
+
+
+def test_description_tier_has_reviewer_prose():
+    assert "description" in AX._EXPLAIN_TEXT
+
+
 def test_match_unique_remainder_pairs_last_lot_and_listing():
     lots = {"1": _lot(500000), "2": _lot(None)}
     listings = [{"aid": "a1", "price": 500000},
