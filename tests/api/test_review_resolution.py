@@ -169,10 +169,11 @@ def test_lot_match_candidates_carries_the_resolver_s_own_evidence(monkeypatch):
     lot_rows = [
         {"file_path": "notice.jpg", "lot_key": "notice.jpg#1",
          "reserve": 4160000, "sqft": 1200.456, "address": "Plot 1",
-         "borrowers": ["Mr. X"]},
+         "borrowers": ["Mr. X"],
+         "description": "Plot No. 1, Assessment No. 115/025/00207"},
         {"file_path": "notice.jpg", "lot_key": "notice.jpg#2",
          "reserve": 8355000, "sqft": None, "address": "Plot 2",
-         "borrowers": ["Mr. Y"]},
+         "borrowers": ["Mr. Y"], "description": None},
     ]
     sib_rows = [
         {"file_path": "notice.jpg", "auction_id": "796269",
@@ -217,6 +218,13 @@ def test_lot_match_candidates_carries_the_resolver_s_own_evidence(monkeypatch):
     # sqft is rounded for display; a missing one stays None, not 0.
     assert row["candidates"][0]["sqft"] == 1200.5
     assert row["candidates"][1]["sqft"] is None
+    # The notice's own words for the lot. On sibling flats the price, area
+    # and borrower are identical down the whole list, so this is the only
+    # line a reviewer can decide on — it must survive to the row, and a lot
+    # without one stays None rather than becoming an empty string.
+    assert row["candidates"][0]["description"] == \
+        "Plot No. 1, Assessment No. 115/025/00207"
+    assert row["candidates"][1]["description"] is None
     assert row["reason"]
     # The two failures the old queue collapsed into one word. 'rival' means
     # the notice was clear and another listing claimed the same lot — a

@@ -2260,6 +2260,13 @@ def _lot_match_candidates(decisions: list[dict]) -> list[dict]:
                 "lot_key": c["lot_key"], "reserve": c["reserve"],
                 "sqft": round(c["sqft"], 1) if c["sqft"] is not None else None,
                 "address": c["address"], "borrowers": c["borrowers"],
+                # This projection is the last thing between the lot text and
+                # the reviewer, and it is where the text was being lost: the
+                # queue fetched a description for all 42 candidates and then
+                # rebuilt each candidate without it, so the response carried
+                # price, area and borrower only — exactly what the page
+                # showed. Anything read for a candidate has to be named here.
+                "description": c["description"],
             } for c in candidates],
             "db_properties": sibs_by_fp.get(r["file_path"], []),
         })
