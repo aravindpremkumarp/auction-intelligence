@@ -2118,7 +2118,7 @@ def _lot_match_candidates(decisions: list[dict]) -> list[dict]:
     notice the portal only scraped once should read as "1 property in our
     DB", not be confused with the notice's own lot count.
     """
-    from pipeline.apply_extractions import explain_documents, lot_descriptions
+    from pipeline.apply_extractions import explain_documents
     from pipeline.resolution_review import decided_lot_matches
 
     skipped = decided_lot_matches(decisions)
@@ -2173,22 +2173,22 @@ def _lot_match_candidates(decisions: list[dict]) -> list[dict]:
         RETURN d.file_path AS file_path, l.lot_key AS lot_key,
                au.reserve_price_num AS reserve, m.sqft_norm AS sqft,
                l.address AS address,
+               // `full_description`, not `description` — the latter has never
+               // existed on a :Lot. build_lots writes the notice's own words
+               // for the lot under this name, and asking for the wrong one
+               // left the queue showing price, area and borrower only. On
+               // sibling flats those three are identical down the whole list
+               // ("₹21,85,000 · 1062 sqft · Jaatvedas Construction" ten times
+               // over) and this is the line that separates them.
+               l.full_description AS description,
                [(l)-[:HAS_PARTY|TITLE_HELD_BY]->(b:Borrower) | b.name] AS borrowers
         """, {"paths": file_paths}, max_rows=5000, timeout=60.0)
-    # The notice's own words for each lot. Price, area and borrower are all a
-    # candidate carries from the graph, and on a block of sibling flats those
-    # are identical down the list — ten rows reading "₹21,85,000 · 1062 sqft ·
-    # Jaatvedas Construction" is not something a person can decide between.
-    # The line that separates them is in the extraction ("Flat No. 1G, Block 1,
-    # First Floor" against "Flat No. 1G, Block 2"), because Lot.description is
-    # empty on every node — see lot_descriptions.
-    descriptions = lot_descriptions([r["filename"] for r in rows])
     lots_by_fp: dict[str, list[dict]] = {}
     for r in lot_rows:
         lots_by_fp.setdefault(r["file_path"], []).append({
             "lot_key": r["lot_key"], "reserve": r["reserve"], "sqft": r["sqft"],
             "address": r["address"], "borrowers": [b for b in (r["borrowers"] or []) if b],
-            "description": descriptions.get(r["lot_key"]),
+            "description": r["description"],
         })
 
     # Every AuctionProperty that shares this notice's Document — not just
