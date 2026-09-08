@@ -125,6 +125,11 @@
               resize: vertical; }
   .lot-candidate { display: flex; gap: 8px; align-items: baseline;
                     border: 1px solid var(--muted); padding: 6px 8px; }
+  /* The one line that separates sibling flats. Given its own row and full
+     contrast because it is what the reviewer is actually reading — the price
+     and borrower above it are identical on every candidate. */
+  .lot-candidate-desc { margin-top: 3px; font-size: 12.5px; line-height: 1.45;
+                        white-space: normal; word-break: break-word; }
   .lot-lbl { font-size: 11px; text-transform: uppercase; letter-spacing: .06em;
              color: var(--muted); font-weight: 600; margin: 10px 0 4px; }
   .lot-desc { border: 1px solid var(--muted); background: #fff; padding: 7px 9px;
@@ -1580,7 +1585,14 @@
             c.sqft != null ? ' · ' + c.sqft + ' sqft' : ''}${
             c.address ? ' · ' + escapeHtml(c.address) : ''}${
             c.borrowers.length ? ' · ' + escapeHtml(c.borrowers.join(', ')) : ''
-          }</small></span>
+          }</small>${
+          // What the notice actually calls this lot. On sibling flats the
+          // money and the borrower are identical down the whole list and this
+          // is the only line that differs — so it gets its own row rather
+          // than being appended to the grey run-on above.
+          c.description
+            ? `<div class="lot-candidate-desc">${escapeHtml(c.description)}</div>`
+            : ''}</span>
         ${rrBtn('This one', { kind: 'lot-match',
             payload: { auction_id: m.auction_id, lot_key: c.lot_key },
             verdict: 'approved' })}

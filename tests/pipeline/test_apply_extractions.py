@@ -132,6 +132,42 @@ def test_group_lots_carries_its_own_index():
     assert lots["2"]["lot_index"] == "2"
 
 
+# ── _id_tokens: measurements must not pass for parcel references ─────────────
+
+def test_id_tokens_keeps_real_identifiers():
+    assert AX._id_tokens("S.F No 256/1F") == {"256/1f"}
+    assert AX._id_tokens("Re-survey no.187/7") == {"187/7"}
+    assert AX._id_tokens("Plot No.81A") == {"81a"}
+
+
+def test_id_tokens_namespaces_a_measurement():
+    # _id_norm turns the decimal point into a slash, so without the prefix
+    # "107.76 sq.mtr" would be the token 107/76.
+    assert AX._id_tokens("107.76 sq.mtr") == {"sz:107/76"}
+    assert AX._id_tokens("2.79 acres") == {"sz:2/79"}
+
+
+def test_a_measurement_never_collides_with_a_survey_number():
+    """The whole point: same digits, different kind of thing."""
+    survey = AX._id_tokens("comprised in survey no 107/76")
+    extent = AX._id_tokens("an extent of 107.76 sq.mtr")
+    assert survey and extent
+    assert not (survey & extent)
+
+
+def test_a_measurement_still_matches_the_same_measurement():
+    # Kept, not dropped — an extent both sides quote carries the rescue that
+    # saves a claim from a wrong portal price.
+    notice = AX._id_tokens("having an extent of 107.76 sq.mtr")
+    portal = AX._id_tokens("extent 107.76 sq. mtr as per document")
+    assert notice & portal == {"sz:107/76"}
+
+
+def test_id_tokens_reads_both_sides_of_a_mixed_string():
+    assert AX._id_tokens("Re-survey no.187/7 measuring 2.79 acres") == {
+        "187/7", "sz:2/79"}
+
+
 # ── match_lots_to_listings ───────────────────────────────────────────────────
 
 def _lot(reserve, desc="d", emd=None, borrowers=None):
@@ -1548,3 +1584,45 @@ def test_the_portal_fills_the_search_value_when_no_notice_names_a_type(
     seen = _typed_run(monkeypatch, tmp_path, {"one": "Flat"}, ptype="")
     assert seen["one"]["effective"] == "flat"
     assert seen["one"]["conflict"] is None
+
+
+# ── lot_descriptions: what the review queue shows a human ────────────────────
+
+def test_lot_descriptions_keys_by_lot_key(monkeypatch):
+    """Sibling flats tie on price, area and borrower; the notice's own words
+    are the only thing that separates them, and the queue joins them on
+    lot_key."""
+    monkeypatch.setattr(AX, "fetch_work", lambda **kw: [{
+        "filename": "n.jpg",
+        "extraction_json": json.dumps([
+            {"id": "0", "cls": "full_description", "text": "Flat No. 1G, Block 1",
+             "start": 0, "end": 20, "attrs": {"lot_index": "1"}},
+            {"id": "1", "cls": "full_description", "text": "Flat No. 1G, Block 2",
+             "start": 40, "end": 60, "attrs": {"lot_index": "2"}},
+        ]),
+        "corrections_json": None,
+    }])
+    out = AX.lot_descriptions(["n.jpg"])
+    assert out == {"n.jpg#1": "Flat No. 1G, Block 1",
+                   "n.jpg#2": "Flat No. 1G, Block 2"}
+
+
+def test_lot_descriptions_skips_lots_with_no_text(monkeypatch):
+    monkeypatch.setattr(AX, "fetch_work", lambda **kw: [{
+        "filename": "n.jpg",
+        "extraction_json": json.dumps([
+            {"id": "0", "cls": "full_description", "text": "   ",
+             "start": 0, "end": 3, "attrs": {"lot_index": "1"}},
+            {"id": "1", "cls": "full_description", "text": "Real text",
+             "start": 9, "end": 18, "attrs": {"lot_index": "2"}},
+        ]),
+        "corrections_json": None,
+    }])
+    assert AX.lot_descriptions(["n.jpg"]) == {"n.jpg#2": "Real text"}
+
+
+def test_lot_descriptions_empty_input_does_no_work(monkeypatch):
+    def boom(**kw):
+        raise AssertionError("should not query for an empty page")
+    monkeypatch.setattr(AX, "fetch_work", boom)
+    assert AX.lot_descriptions([]) == {}

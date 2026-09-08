@@ -189,9 +189,45 @@ def _id_norm(v: str) -> str:
     return re.sub(r"[\-.]", "/", str(v).strip().lower())
 
 
+#: Marks a token that came from a measurement, so it can only ever match
+#: another measurement. Not a valid identifier shape, so it cannot collide.
+_MEASURE_PREFIX = "sz:"
+
+#: A number carrying an area or length unit is a measurement, not an
+#: identifier — and once _id_norm turns its decimal point into a slash it is
+#: shaped exactly like a survey number. "107.76 sq.mtr" reduces to 107/76 and
+#: "2.79 acres" to 2/79, so a plot's own dimensions could pass for a parcel
+#: reference. Matched as a whole phrase so the number is found with its unit.
+_MEASURE_PHRASE = re.compile(
+    r"\d+(?:[.,]\d+)?\s*(?:"
+    r"sq\.?\s*(?:mtr?s?|m|met(?:er|re)s?|ft|feet|foot)"
+    r"|square\s*(?:feet|foot|met(?:er|re)s?|mtr?s?)"
+    r"|acres?|cents?|hectares?|guntha?s?|ares?"
+    r")\b", re.I)
+
+
 def _id_tokens(text: str) -> set[str]:
+    """Identifier-shaped tokens in ``text``, measurements kept but namespaced.
+
+    A measurement is NOT dropped. Both sides of every comparison run through
+    here — the lot's schedule and the listing's own text — so an extent both
+    quote is a real signal, and it carries the `whole_notice_ids` rescue that
+    saves a claim from a wrong portal price. Deleting them was measured on the
+    corpus and cost 6 portal_aid matches for 5 new conflicts and 5 fewer lot
+    keys.
+
+    What they must not do is pass for a survey number. `_id_norm` turns a
+    decimal point into a slash, so "107.76 sq.mtr" and survey 107/76 reduce to
+    the same string and a plot's own dimensions could separate it from a
+    sibling — or collide with a real parcel elsewhere on the notice. Prefixing
+    keeps measurement matched against measurement and nothing else.
+    """
+    text = str(text or "")
     out = set()
-    for m in _ID_SHAPE.finditer(str(text or "").lower()):
+    for m in _MEASURE_PHRASE.finditer(text):
+        for inner in _ID_SHAPE.finditer(m.group(0).lower()):
+            out.add(_MEASURE_PREFIX + _id_norm(inner.group(0)))
+    for m in _ID_SHAPE.finditer(_MEASURE_PHRASE.sub(" ", text).lower()):
         tok = _id_norm(m.group(0))
         if re.fullmatch(r"(19|20)\d{2}|\d{6,}", tok):
             continue
@@ -927,6 +963,40 @@ def explain_lot_match(lots: dict[str, dict],
                     f"({_EXPLAIN_TEXT.get(keys_tier, keys_tier)}). Open the "
                     f"notice and pick between those two.")
         out[listing["aid"]] = row
+    return out
+
+
+def lot_descriptions(filenames: list[str]) -> dict[str, str]:
+    """{lot_key: the notice's own words for that lot}, for a page of notices.
+
+    Read from the EXTRACTION, not from the graph. `Lot.description` and
+    `Lot.address` are both empty on the live corpus — promote_extractions does
+    not write them — so a review queue that reads the node has nothing to show
+    but a price, an area and a borrower, which on a block of sibling flats are
+    identical across every candidate. The text that separates them ("Flat No.
+    1G, Block 1, First Floor" against "Flat No. 1G, Block 2") is sitting in
+    `group_lots`' own output and never reaches a reviewer.
+
+    Keyed by lot_key so a caller holding graph lots can join without
+    reconstructing the filename#index convention itself.
+
+    This costs its own `fetch_work` pass rather than riding along with
+    `explain_documents`. That is deliberate: the two answer different
+    questions, `explain_documents` is monkeypatched by the review tests, and
+    the only caller is a human-facing page fetching one screen of rows.
+    """
+    if not filenames:
+        return {}
+    out: dict[str, str] = {}
+    for w in fetch_work(filenames=sorted(set(filenames))):
+        ents = entities_with_corrections(w["extraction_json"],
+                                         w.get("corrections_json"))
+        if not ents:
+            continue
+        for li, lot in group_lots(ents).items():
+            text = (lot.get("description") or "").strip()
+            if text:
+                out[f"{w['filename']}#{li}"] = text
     return out
 
 

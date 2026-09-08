@@ -841,6 +841,9 @@ class LotMatchCandidate(BaseModel):
     sqft: float | None = None
     address: str | None = None
     borrowers: list[str] = []
+    #: The notice's own words for this lot, from the extraction. Often the
+    #: ONLY thing that separates sibling flats, which tie on every other field.
+    description: str | None = None
 
 
 class LotMatchDbProperty(BaseModel):
