@@ -64,6 +64,7 @@ from pipeline.area_agreement import stated_sqft
 from pipeline.measures import (
     parse_area, parse_length, pick_headline, read_adjacency,
 )
+from pipeline.lot_windows import renumber_window_lots
 from pipeline.obs import get_logger
 from pipeline.place_resolution import Gazetteer, resolve_place
 from pipeline.resolve_places import norm_place
@@ -260,7 +261,13 @@ def build_lots(entities: list[dict], filename: str) -> tuple[dict, list[dict]]:
     Mirrors apply_extractions.group_lots' lot_index convention, but keeps the
     structure the flat model threw away: every identifier (not just doors),
     every extent with its unit, and each boundary's road width and access kind.
+
+    The lot_key built here is what MERGE keys the :Lot node on, so a notice
+    whose lot_index restarted at a LangExtract window boundary would fuse two
+    real properties into one node. renumber_window_lots continues the numbering
+    across the reset first; single-window notices pass through unchanged.
     """
+    entities = renumber_window_lots(entities)
     notice: dict = {"facts": [], "contacts": [], "loan_accounts": []}
     lots: dict[str, dict] = {}
 

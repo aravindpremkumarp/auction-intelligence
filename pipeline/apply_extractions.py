@@ -64,6 +64,7 @@ from datetime import datetime, timezone
 
 from api.neo4j_client import run_query, run_read_query
 from pipeline.obs import get_logger
+from pipeline.lot_windows import renumber_window_lots
 from pipeline.area_agreement import check_match as check_area_match
 from pipeline.price_agreement import check_document
 from pipeline.property_taxonomy import (
@@ -199,7 +200,13 @@ def group_lots(entities: list[dict]) -> dict[str, dict]:
     Returns {lot_index: {description, fields{...flat props...}, reserve}}.
     First-non-null wins within a lot (mirrors the merge policy elsewhere in
     the pipeline); descriptions concatenate in entity order.
+
+    A notice too long for one LangExtract window arrives with its lot_index
+    restarted mid-document, which would group two unrelated properties as one
+    lot; renumber_window_lots continues the numbering across that reset and
+    leaves single-window notices untouched.
     """
+    entities = renumber_window_lots(entities)
     lots: dict[str, dict] = {}
 
     def lot(li: str) -> dict:
