@@ -1241,6 +1241,9 @@ def write_lot_matches(rows: list[dict]) -> int:
     A lot-key change deletes the superseded `ResolutionDecision` (its key
     embeds the lot_key, so a new pick is a new node) rather than leaving a
     now-wrong verdict sitting in the audit trail next to the current one.
+    The edge is retired on the same rule and for the same reason — a listing
+    is one lot per notice, so a new pick replaces the old rather than joining
+    it. See the delete below `MERGE`.
     """
     if not rows:
         return 0
@@ -1269,6 +1272,31 @@ def write_lot_matches(rows: list[dict]) -> int:
             SET r.method = row.reason
             RETURN a.auction_id AS aid
         """, {"rows": batch, "at": now_iso})
+        # A listing IS one lot per notice, so writing this edge retires any
+        # edge it holds to a DIFFERENT lot on the same notice.
+        #
+        # MERGE alone only ever added. `clear_stale_lot_matches` deletes the
+        # old edge when a listing resolves to NOTHING this pass, but a listing
+        # that resolves to a different lot is in `resolved_this_doc`, so no
+        # clear row is queued and the superseded edge survives beside the new
+        # one. A re-extraction renumbers the lots, which is exactly when the
+        # match moves: 14 listings live today hold two edges each, one from a
+        # 2026-08-31 run and one from 2026-09-05, and in all 14 only the newer
+        # lot's reserve price matches the listing's. Those stale edges also
+        # supply 14 of the 36 claims on the 18 lots two listings both claim —
+        # `sole_claimants` cannot see them, because it weighs only the matches
+        # this pass computed, never the edges already in the graph.
+        #
+        # Scoped by filename, like `clear_stale_lot_matches`: 12 listings link
+        # to two notices, and the edge the other notice legitimately made is
+        # not this pass's to retire.
+        run_query("""
+            UNWIND $rows AS row
+            MATCH (a:AuctionProperty {auction_id: row.aid})-[r:IS_LOT]->(l:Lot)
+            WHERE l.lot_key STARTS WITH (row.filename + '#')
+              AND l.lot_key <> row.lot_key
+            DELETE r
+        """, {"rows": batch})
         run_query("""
             UNWIND $rows AS row
             MATCH (old:ResolutionDecision {kind: 'lot-match'})
@@ -1299,10 +1327,15 @@ def write_lot_matches(rows: list[dict]) -> int:
 def clear_stale_lot_matches(rows: list[dict]) -> int:
     """Drop an :IS_LOT edge this run did NOT re-derive.
 
-    `write_lot_matches` only ever SET. A listing that stops resolving — its
-    lot vanished from the extraction, or two listings now claim it and
-    `sole_claimants` declined — kept its old key forever, and the key still
-    RESOLVED, so nothing anywhere noticed.
+    This covers the listings that resolve to NOTHING this pass — their lot
+    vanished from the extraction, or two listings now claim it and
+    `sole_claimants` declined. Such a listing kept its old key forever, and
+    the key still RESOLVED, so nothing anywhere noticed.
+
+    A listing that resolves to a DIFFERENT lot never reaches here: it is in
+    `resolved_this_doc`, so the caller queues no row for it. That case is
+    retired by `write_lot_matches` at the point of writing the new edge — the
+    two together are what make the edge exclusive per (listing, notice).
 
     That is not hypothetical. 750335 held `CB17767669373793.jpg#2` after it
     stopped matching lot 2; a later run gave lot 2 to 750336, and the notice
@@ -1621,6 +1654,12 @@ def run(limit: int | None = None, dry_run: bool = False) -> int:
                 lot_key_rows.append({
                     "aid": listing["aid"],
                     "lot_key": f"{w['filename']}#{lot['lot_index']}",
+                    # Carried so the write can drop this listing's edge to any
+                    # OTHER lot on this same notice — see write_lot_matches.
+                    # Derivable from lot_key, but a filename may contain '#',
+                    # and splitting on the wrong one would scope the delete to
+                    # a document that does not exist and silently do nothing.
+                    "filename": w["filename"],
                     "reason": reason,
                 })
         for listing, reason in unmatched:

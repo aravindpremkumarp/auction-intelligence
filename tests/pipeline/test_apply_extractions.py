@@ -724,9 +724,12 @@ def test_write_lot_matches_links_the_lot_and_records_the_decision(monkeypatch):
 
     monkeypatch.setattr(AX, "run_query", _cap)
     n = AX.write_lot_matches(
-        [{"aid": "a1", "lot_key": "notice.jpg#3", "reason": "exact"}])
+        [{"aid": "a1", "lot_key": "notice.jpg#3", "filename": "notice.jpg",
+          "reason": "exact"}])
     assert n == 1
-    assert len(calls) == 3   # link the lot, delete stale decision, merge new
+    # link the lot, retire its other edge on this notice, delete the stale
+    # decision, merge the new one
+    assert len(calls) == 4
 
     link_cypher, link_params = calls[0]
     # Phase 4: the edge IS the resolution — the string it replaced is gone.
@@ -739,16 +742,66 @@ def test_write_lot_matches_links_the_lot_and_records_the_decision(monkeypatch):
     assert row["lot_key"] == "notice.jpg#3"
     assert row["decision_key"] == "lot-match:a1|notice.jpg#3"
 
-    delete_cypher, delete_params = calls[1]
+    delete_cypher, delete_params = calls[2]
     assert "DETACH DELETE" in delete_cypher
     assert delete_params["rows"][0]["aid"] == "a1"
 
-    merge_cypher, merge_params = calls[2]
+    merge_cypher, merge_params = calls[3]
     assert "MERGE (r:ResolutionDecision" in merge_cypher
     assert "system:apply_extractions" in merge_cypher
     payload = json.loads(merge_params["rows"][0]["payload"])
     assert payload == {"auction_id": "a1", "lot_key": "notice.jpg#3",
                        "method": "exact"}
+
+
+def test_write_lot_matches_retires_the_listings_other_lot_on_this_notice(monkeypatch):
+    """A re-extraction renumbers the lots, so the match moves — and MERGE
+    alone only ever added. 14 listings live carry two edges each, one per run,
+    and only the newer lot's reserve price matches the listing's.
+
+    `clear_stale_lot_matches` cannot cover it: a listing that resolves to a
+    different lot is in `resolved_this_doc`, so no clear row is ever queued.
+    """
+    calls = []
+    monkeypatch.setattr(AX, "run_query",
+                        lambda c, p=None: calls.append((c, p)) or [{"aid": "a1"}])
+    AX.write_lot_matches(
+        [{"aid": "a1", "lot_key": "notice.jpg#22", "filename": "notice.jpg",
+          "reason": "exact"}])
+
+    retire_cypher, retire_params = calls[1]
+    assert "DELETE r" in retire_cypher
+    assert "[r:IS_LOT]->" in retire_cypher
+    # the edge just written must survive its own cleanup
+    assert "l.lot_key <> row.lot_key" in retire_cypher
+    assert retire_params["rows"][0]["lot_key"] == "notice.jpg#22"
+
+
+def test_write_lot_matches_retirement_is_scoped_to_this_notice(monkeypatch):
+    """12 listings link to two notices. A pass over one must not drop the
+    edge the other legitimately made — the same filename guard
+    `clear_stale_lot_matches` uses."""
+    calls = []
+    monkeypatch.setattr(AX, "run_query",
+                        lambda c, p=None: calls.append((c, p)) or [{"aid": "a1"}])
+    AX.write_lot_matches(
+        [{"aid": "a1", "lot_key": "notice.jpg#3", "filename": "notice.jpg",
+          "reason": "exact"}])
+
+    retire_cypher, retire_params = calls[1]
+    assert "l.lot_key STARTS WITH (row.filename + '#')" in retire_cypher
+    assert retire_params["rows"][0]["filename"] == "notice.jpg"
+
+
+def test_lot_key_rows_carry_the_filename_the_retirement_needs():
+    """The delete is scoped by `filename`, so the row must carry it — a
+    lot_key split on '#' would pick the wrong one for a filename containing
+    '#' and scope the delete to a document that does not exist."""
+    import inspect
+
+    src = inspect.getsource(AX.run)
+    appended = src.split("lot_key_rows.append(")[1].split(")")[0]
+    assert '"filename"' in appended
 
 
 def test_write_lot_matches_empty_is_a_noop(monkeypatch):
