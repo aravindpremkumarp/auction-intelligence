@@ -5,12 +5,15 @@ The search tool. One call answers any find / count / break-down question.
 
 Two things make it different from `search_auctions`:
 
-**It can see the sale notice.** Filters reach through
-`(a)-[:HAS_DOCUMENT]->(:Document)-[:HAS_LOT]->(:Lot)` into extent, possession,
-road width, access kind, encumbrance, secured outstanding, re-auction attempt
-and survey/patta/door identifiers. "Residential plots in Coimbatore over 2,000
-sqft where the bank has physical possession" is one call here and impossible
-today.
+**It can see the sale notice.** Filters reach through `_LOT_PATH` into extent,
+possession, road width, access kind, encumbrance, secured outstanding,
+re-auction attempt and survey/patta/door identifiers. "Residential plots in
+Coimbatore over 2,000 sqft where the bank has physical possession" is one call
+here and impossible today.
+
+That path is the lot the listing IS, not every lot its notice covers — a
+distinction worth 1,974 listings, which is how many sit on a multi-lot notice.
+See `api/agent3/common.py::owns_lot`.
 
 **It answers the follow-up in the same round trip.** `refine` (live, non-empty
 narrowings with counts) and `relax` (on zero rows, which single filter to drop
@@ -27,8 +30,8 @@ from datetime import datetime
 
 from api.agent3 import enums
 from api.agent3.common import (
-    SQFT_CEIL, SQFT_FLOOR, ToolInputError, ToolSink, aware, clamp_limit,
-    json_safe, now_utc, require_enum, scope_of, tool,
+    LOT_OF_LISTING, SQFT_CEIL, SQFT_FLOOR, ToolInputError, ToolSink, aware,
+    clamp_limit, json_safe, now_utc, require_enum, scope_of, tool,
 )
 # Identifier resolution is shared with the standalone `find_by_identifier`
 # tool — both the Lucene escaping and the dual-path (Lot / Parcel) query live
@@ -56,8 +59,10 @@ DEFAULT_MODEL_ROWS = 10
 #: Rows the panel may hold. The model never sees these — see ToolSink.
 PANEL_ROW_CAP = 500
 
-#: The lot subgraph every lot-layer filter hangs off.
-_LOT_PATH = "(a)-[:HAS_DOCUMENT]->(:Document)-[:HAS_LOT]->(l:Lot)"
+#: The lot subgraph every lot-layer filter hangs off: the lot this listing
+#: IS, falling back to every lot on the notice only when no `IS_LOT` edge
+#: says which one it is. See `api/agent3/common.py::owns_lot`.
+_LOT_PATH = LOT_OF_LISTING
 
 _PRICE_BAND_CASE = """CASE
       WHEN a.reserve_price_num IS NULL THEN 'unknown'
@@ -361,6 +366,10 @@ def _build(  # noqa: PLR0912, PLR0913, PLR0915 - one filter, one branch
     return q
 
 
+#: `lot_count` alone stays deliberately notice-wide: it is what `scope_of`
+#: reads to decide whether a value may be stated as a property fact, so it
+#: must keep counting the whole notice. Every OTHER projection below is a
+#: value about the property and takes `_LOT_PATH`.
 _ROW_PROJECTION = """
 WITH DISTINCT a
 CALL {
@@ -370,14 +379,14 @@ CALL {
 }
 CALL {
   WITH a
-  MATCH (a)-[:HAS_DOCUMENT]->(:Document)-[:HAS_LOT]->(l:Lot)
+  MATCH """ + _LOT_PATH + """
         -[e:HAS_EXTENT]->(m:Measurement)
   WHERE e.is_headline AND m.sqft_norm >= $sqft_floor AND m.sqft_norm <= $sqft_ceil
   RETURN min(m.sqft_norm) AS sqft_min, max(m.sqft_norm) AS sqft_max
 }
 CALL {
   WITH a
-  MATCH (a)-[:HAS_DOCUMENT]->(:Document)-[:HAS_LOT]->(:Lot)
+  MATCH """ + _LOT_PATH + """
         -[:OFFERED_IN]->(au:Auction)
   RETURN max(au.attempt_no) AS max_attempt
 }

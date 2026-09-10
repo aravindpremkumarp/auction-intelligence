@@ -28,7 +28,7 @@ districts. The walk will normally land on city.
 """
 from __future__ import annotations
 
-from api.agent3.common import ToolInputError, tool
+from api.agent3.common import LOT_OF_LISTING, ToolInputError, tool
 from api.neo4j_client import run_read_query
 
 #: A property is not smaller than this. The 1-sqft floor used elsewhere lets
@@ -53,7 +53,7 @@ MATCH (a:AuctionProperty {auction_id: $id})
 OPTIONAL MATCH (a)-[:HAS_DOCUMENT]->(:Document)-[:HAS_LOT]->(l:Lot)
 WITH a, count(DISTINCT l) AS lot_count
 CALL (a) {
-  MATCH (a)-[:HAS_DOCUMENT]->(:Document)-[:HAS_LOT]->(l2:Lot)
+  MATCH """ + LOT_OF_LISTING + """
         -[e:HAS_EXTENT]->(m:Measurement)
   WHERE e.is_headline AND m.sqft_norm >= $sqft_floor AND m.sqft_norm <= $sqft_ceil
   RETURN max(m.sqft_norm) AS sqft
@@ -63,6 +63,11 @@ OPTIONAL MATCH (a)-[:LOCATED_IN_CITY]->(c:City)
 OPTIONAL MATCH (a)-[:LOCATED_IN_DISTRICT]->(d:District)
 RETURN a.auction_id AS auction_id, a.reserve_price_num AS reserve_price,
        lot_count, sqft, ar.name AS area, c.name AS city, d.name AS district,
+       // Whether the notice names WHICH lot this listing is. With it, `sqft`
+       // above is that lot's extent and the division is defensible on a
+       // multi-lot notice too; without it, `sqft` spans the whole notice and
+       // _why_not_priceable refuses.
+       EXISTS { (a)-[:IS_LOT]->(:Lot) } AS lot_resolved,
        [(a)-[:HAS_PROPERTY_TYPE]->(pt:PropertyType) | pt.name] AS property_types
 """
 
@@ -120,13 +125,17 @@ def benchmark_price(auction_id: str | int) -> dict:
     is worth or what one fetched. Carry that caveat into your answer; it is
     in `basis` on every response.
 
-    **Only works on single-lot notices.** Reserve price belongs to the
-    listing and extent belongs to the lot, so when a notice covers several
-    lots there is no defensible way to divide one by the other. About 70% of
-    listings are refused for this reason, with `reason` explaining which.
-    That is a limit of the data, not a failure — report it plainly and, if
-    the user wants a size comparison instead, use `find_properties` with
-    `area_sqft_min`/`max`.
+    **Needs a notice that names one lot for this listing.** Reserve price
+    belongs to the listing and extent belongs to the lot, so dividing one by
+    the other is only defensible when it is THIS listing's lot: a single-lot
+    notice, or a multi-lot notice whose `IS_LOT` edge says which lot is which.
+    Anything else is refused, with `reason` explaining why. That is a limit of
+    the data, not a failure — report it plainly and, if the user wants a size
+    comparison instead, use `find_properties` with `area_sqft_min`/`max`.
+
+    Comparables stay single-lot notices only: the subject is one listing whose
+    extent is now certain, while a ring is a population, and widening that
+    population is a separate call from fixing this one.
     """
     aid = str(auction_id).strip()
     if not aid:
@@ -221,12 +230,13 @@ def _why_not_priceable(s: dict) -> str | None:
     if lot_count == 0:
         return ("No sale-notice lot could be read for this listing, so there "
                 "is no extent to divide the price by.")
-    if lot_count > 1:
+    if lot_count > 1 and not s.get("lot_resolved"):
         return (f"The sale notice covers {lot_count} lots and does not say "
                 f"which one this listing is. The reserve price belongs to "
                 f"the listing and the extent to a lot, so a price per sqft "
-                f"here would be a made-up number. Only single-lot notices "
-                f"can be priced this way.")
+                f"here would be a made-up number. Only a notice with one lot, "
+                f"or one whose lot has been matched to this listing, can be "
+                f"priced this way.")
     if s.get("sqft") is None:
         return (f"The notice gives no extent between {PRICING_SQFT_FLOOR:,.0f} "
                 f"and {PRICING_SQFT_CEIL:,.0f} sqft that this tool could use "

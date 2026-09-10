@@ -14,11 +14,15 @@ Backed by the `identifier_raw_ft` fulltext index over 10,253 identifiers on
 A survey number is full of characters Lucene treats as query syntax
 (`123/4B`, `S.No 45-2`), so the value is phrase-quoted rather than escaped
 term by term — that sidesteps every operator at once.
+
+The lot path returns the listing that IS the matched lot, not every listing
+sharing its notice: a survey number printed in lot #4 is not evidence about
+lots #1-#3. See `api/agent3/common.py::owns_lot`.
 """
 from __future__ import annotations
 
 from api.agent3 import enums
-from api.agent3.common import require_enum
+from api.agent3.common import LISTING_OF_LOT, require_enum
 from api.neo4j_client import run_read_query
 
 
@@ -42,8 +46,8 @@ CALL db.index.fulltext.queryNodes('identifier_raw_ft', $q) YIELD node AS i
 WHERE $kind IS NULL OR i.kind = $kind
 CALL {
   WITH i
-  MATCH (i)<-[:MENTIONS_IDENTIFIER]-(:Lot)<-[:HAS_LOT]-(:Document)
-        <-[:HAS_DOCUMENT]-(a:AuctionProperty)
+  MATCH (i)<-[:MENTIONS_IDENTIFIER]-(l:Lot)
+  MATCH """ + LISTING_OF_LOT + """
   RETURN a.auction_id AS auction_id
   UNION
   WITH i
@@ -61,8 +65,8 @@ CALL db.index.fulltext.queryNodes('identifier_raw_ft', $q) YIELD node AS i, scor
 WHERE $kind IS NULL OR i.kind = $kind
 CALL {
   WITH i, score
-  MATCH (i)<-[:MENTIONS_IDENTIFIER]-(l:Lot)<-[:HAS_LOT]-(:Document)
-        <-[:HAS_DOCUMENT]-(a:AuctionProperty)
+  MATCH (i)<-[:MENTIONS_IDENTIFIER]-(l:Lot)
+  MATCH """ + LISTING_OF_LOT + """
   WITH a, i, score, l
   MATCH (a)-[:HAS_DOCUMENT]->(:Document)-[:HAS_LOT]->(anylot:Lot)
   WITH a, i, score, l, count(DISTINCT anylot) AS lot_count

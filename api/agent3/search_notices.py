@@ -22,7 +22,9 @@ from __future__ import annotations
 
 import re
 
-from api.agent3.common import ToolInputError, clamp_limit, scope_note, scope_of, tool
+from api.agent3.common import (
+    LISTING_OF_LOT, ToolInputError, clamp_limit, scope_note, scope_of, tool,
+)
 from api.neo4j_client import run_read_query
 
 _MIN_QUERY_CHARS = 3
@@ -52,9 +54,13 @@ def _build_lucene_query(text: str) -> str | None:
     return " AND ".join(parts) if parts else None
 
 
+#: The hit is a LOT; the answer has to name a listing. Walking back through
+#: the notice alone returned every listing on it, so a term found in lot #4
+#: was reported against lots #1-#3 as well — with lot #4's words as the
+#: snippet. `LISTING_OF_LOT` returns the listing that IS the matched lot.
 _LOT_CYPHER = """
 CALL db.index.fulltext.queryNodes('lot_description_ft', $q) YIELD node AS l, score
-MATCH (l)<-[:HAS_LOT]-(:Document)<-[:HAS_DOCUMENT]-(a:AuctionProperty)
+MATCH """ + LISTING_OF_LOT + """
 WITH a, l, score
 MATCH (a)-[:HAS_DOCUMENT]->(:Document)-[:HAS_LOT]->(anylot:Lot)
 WITH a, l, score, count(DISTINCT anylot) AS lot_count

@@ -121,3 +121,14 @@ def test_unknown_id_is_reported(monkeypatch):
     _stub(monkeypatch, subject=None)
     out = RH.reauction_history("NOPE")
     assert out["found"] is False
+
+
+def test_attempts_come_from_the_listings_own_lot():
+    """Each lot on a notice carries its own `:Auction` chain, so collecting
+    them notice-wide reported a neighbour's re-auction history as this
+    property's. `lot_count` above it must stay notice-wide — scope_of reads
+    it."""
+    from api.agent3.common import owns_lot
+    counter, attempts = RH._ATTEMPTS.split("CALL (a) {", 1)
+    assert owns_lot() not in counter
+    assert owns_lot() in attempts

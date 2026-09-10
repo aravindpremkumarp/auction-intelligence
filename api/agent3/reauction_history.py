@@ -25,15 +25,21 @@ weaker claim about the world than the notice's own attempt number.
 """
 from __future__ import annotations
 
-from api.agent3.common import ToolInputError, json_safe, scope_of, tool
+from api.agent3.common import (
+    LOT_OF_LISTING, ToolInputError, json_safe, scope_of, tool,
+)
 from api.neo4j_client import run_read_query
 
+#: `lot_count` counts the notice, because `scope_of` reads it. The attempts
+#: come from the listing's OWN lot: each lot on a notice carries its own
+#: `:Auction` chain, so collecting them notice-wide reported a neighbour's
+#: re-auction history as this property's.
 _ATTEMPTS = """
 MATCH (a:AuctionProperty {auction_id: $id})
 OPTIONAL MATCH (a)-[:HAS_DOCUMENT]->(:Document)-[:HAS_LOT]->(l:Lot)
 WITH a, count(DISTINCT l) AS lot_count
 CALL (a) {
-  MATCH (a)-[:HAS_DOCUMENT]->(:Document)-[:HAS_LOT]->(:Lot)
+  MATCH """ + LOT_OF_LISTING + """
         -[:OFFERED_IN]->(au:Auction)
   RETURN collect(DISTINCT {
     attempt_no: au.attempt_no, reserve_price: au.reserve_price_num,

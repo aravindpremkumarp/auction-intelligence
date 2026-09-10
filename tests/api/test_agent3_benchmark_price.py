@@ -9,10 +9,11 @@ from __future__ import annotations
 from api.agent3 import benchmark_price as BP
 
 
-def _subject(lot_count=1, sqft=714.0, price=4641000.0, **kw):
+def _subject(lot_count=1, sqft=714.0, price=4641000.0, lot_resolved=False, **kw):
     base = {"auction_id": "748779", "reserve_price": price,
             "lot_count": lot_count, "sqft": sqft, "area": "Some Area",
             "city": "Coimbatore", "district": "Coimbatore",
+            "lot_resolved": lot_resolved,
             "property_types": ["Land And Building"]}
     base.update(kw)
     return base
@@ -37,15 +38,27 @@ def _ring(n=20, median=3000, p25=2000, p75=4000, below=15):
 
 # ── the refusals ─────────────────────────────────────────────────────────
 
-def test_multi_lot_notice_is_refused_with_the_reason(monkeypatch):
+def test_unresolved_multi_lot_notice_is_refused_with_the_reason(monkeypatch):
     """Reserve price is on the listing, extent on the lot. With several lots
-    nothing says which lot the price refers to — dividing would invent a
-    number. This is ~70% of listings."""
-    _stub(monkeypatch, subject=_subject(lot_count=4))
+    and no `IS_LOT` edge, nothing says which lot the price refers to —
+    dividing would invent a number."""
+    _stub(monkeypatch, subject=_subject(lot_count=4, lot_resolved=False))
     out = BP.benchmark_price("744314")
     assert out["priced"] is False
     assert "4 lots" in out["reason"]
     assert "made-up number" in out["reason"]
+
+
+def test_resolved_multi_lot_notice_is_priced(monkeypatch):
+    """The refusal above exists because the extent spanned the whole notice.
+    An `IS_LOT` edge names one lot and `_SUBJECT` reads only that lot's
+    extent, so the division is as defensible as on a single-lot notice."""
+    _stub(monkeypatch, subject=_subject(lot_count=4, lot_resolved=True),
+          rings=[_ring()])
+    out = BP.benchmark_price("744314")
+    assert out["priced"] is True, out.get("reason")
+    assert out["subject"]["reserve_per_sqft"] == round(4641000.0 / 714.0, 0)
+    assert out["subject"]["extent_sqft"] == 714.0
 
 
 def test_missing_reserve_price_is_refused(monkeypatch):
