@@ -11,6 +11,7 @@ import json
 import re
 import time
 from datetime import datetime, timedelta, timezone
+from api.agent3.common import owns_lot
 from api.neo4j_client import run_query, run_read_query, run_read_query_async
 from api.places import district_effective
 
@@ -903,6 +904,10 @@ def _semantic_search_cypher(optional_matches: str, where_clause: str) -> str:
             CALL db.index.fulltext.queryNodes('{LOT_FULLTEXT_INDEX}', $ft_query, {{limit: $k}})
             YIELD node AS l, score
             MATCH (l)<-[:HAS_LOT]-(:Document)<-[:HAS_DOCUMENT]-(p:AuctionProperty)
+            // The hit is a lot; the row is a listing. Without this the whole
+            // notice was returned for a term found in one of its lots — see
+            // api/agent3/common.py::owns_lot.
+            WHERE {owns_lot("p", "l")}
             RETURN p, score, 'schedule' AS source
             UNION
             CALL db.index.fulltext.queryNodes('{PROPERTY_FULLTEXT_INDEX}', $ft_query, {{limit: $k}})

@@ -119,3 +119,14 @@ def test_limit_is_applied_after_merge(monkeypatch):
     _stub(monkeypatch, lot_rows=rows)
     out = SN.search_notices("borewell", limit=3)
     assert len(out["results"]) == 3
+
+
+def test_a_lot_hit_names_the_listing_that_is_that_lot(monkeypatch):
+    """The Lucene hit is a LOT; the row is a LISTING. Walking back through
+    the notice alone returned every listing on it, so a term found in lot #4
+    was reported against lots #1-#3 too — with lot #4's words as the
+    snippet."""
+    from api.agent3.common import owns_lot
+    assert owns_lot() in SN._LOT_CYPHER
+    # the listing-text lens has no lot to disambiguate and must stay untouched
+    assert owns_lot() not in SN._LISTING_CYPHER

@@ -261,6 +261,49 @@ def now_utc() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def owns_lot(listing: str = "a", lot: str = "l") -> str:
+    """Cypher predicate: `lot` is the lot `listing` IS, not a sibling's.
+
+    A notice sells several lots, and the only path from a listing to a lot
+    used to run through the notice — `(a)-[:HAS_DOCUMENT]->(:Document)
+    -[:HAS_LOT]->(l)` reaches EVERY lot the notice covers. A filter hung off
+    that path passes when ANY lot on the notice matches, which is not the
+    same question. Listing 789667 is lot #2 of its notice at a ₹2 crore
+    reserve; it satisfied "above ₹100 crore" because lot #1 beside it is
+    ₹600 crore. 1,974 listings sit on multi-lot notices, so this is the
+    normal case, not the edge case.
+
+    `IS_LOT` names the single lot a listing is, and 2,961 of 2,964 listings
+    carry it (audited by `scripts/audit_lot_links.py`). So when the edge
+    exists, only the lot it names counts. When it does not, every lot on the
+    notice still counts — that is the honest fallback, and `scope_of` already
+    labels those values `notice` rather than stating them as property facts.
+
+    Written as a predicate rather than a path so it can sit inline in a node
+    pattern (Neo4j 5 `(l:Lot WHERE ...)`) and leave the surrounding traversal
+    composable: `MATCH {LOT_OF_LISTING}-[:POSSESSION_IS]->(p)` still reads as
+    one pattern.
+
+    NOT for counting the notice's lots. `lot_count` feeds `scope_of` and must
+    stay a count of the whole notice — narrowing it there would report every
+    notice as single-lot and label every value `lot`.
+    """
+    return (f"(({listing})-[:IS_LOT]->({lot}) "
+            f"OR NOT ({listing})-[:IS_LOT]->(:Lot))")
+
+
+#: Listing `a` -> the lot `l` it is. The lot subgraph every per-property
+#: filter and projection hangs off; see `owns_lot`.
+LOT_OF_LISTING = (f"(a)-[:HAS_DOCUMENT]->(:Document)-[:HAS_LOT]->"
+                  f"(l:Lot WHERE {owns_lot()})")
+
+#: The same edge walked backwards: lot `l` -> the listing `a` that is that
+#: lot. Used where a lot is found first (full-text hit, identifier match) and
+#: the answer has to name a listing.
+LISTING_OF_LOT = (f"(l)<-[:HAS_LOT]-(:Document)<-[:HAS_DOCUMENT]-"
+                  f"(a:AuctionProperty WHERE {owns_lot()})")
+
+
 def scope_of(lot_count: int | None, resolved: bool = False) -> str:
     """`lot` when the notice describes exactly one lot, else `notice` —
     unless `resolved` says a resolver already identified which lot on a
@@ -271,10 +314,16 @@ def scope_of(lot_count: int | None, resolved: bool = False) -> str:
     the property was listed in, which covers several lots — stating it as a
     property fact is wrong, and the answer gate treats it as a failure.
 
-    `resolved` comes from `AuctionProperty.resolved_lot_key` — see
-    `pipeline/lot_resolution.py`. Most multi-lot notices resolve on an exact
-    reserve-price join nobody used to query; a listing this decisive is a
-    fact about THIS property, same as a single-lot notice, not a guess.
+    `resolved` comes from the `IS_LOT` edge — see `pipeline/lot_resolution.py`.
+    Most multi-lot notices resolve on an exact reserve-price join nobody used
+    to query; a listing this decisive is a fact about THIS property, same as a
+    single-lot notice, not a guess.
+
+    `resolved=True` only earns the `lot` label because the readers now query
+    the resolved lot alone (`owns_lot` above). Before that they still filtered
+    and projected over every lot on the notice, so this said `lot` over values
+    a sibling had contributed. Keep the two together: widening a reader back to
+    the notice makes this label a lie.
     """
     if resolved or lot_count == 1:
         return "lot"

@@ -107,3 +107,16 @@ def test_the_detail_record_keeps_the_portal_city_when_unresolved():
     rels = _notice_first_place({"city": {"name": "Chennai"}}, {})
 
     assert rels["city"] == {"name": "Chennai"}
+
+
+def test_semantic_search_lot_lens_names_the_listing_that_is_the_lot():
+    """The schedule lens hits a LOT and returns a LISTING. Without the
+    predicate a term in one lot returned every listing on its notice; the
+    description lens hits the listing directly and needs nothing."""
+    from api.agent3.common import owns_lot
+    from api.tools.cypher_tools import _semantic_search_cypher
+
+    cypher = _semantic_search_cypher("", "")
+    schedule_lens, description_lens = cypher.split("UNION", 1)
+    assert owns_lot("p", "l") in schedule_lens
+    assert "IS_LOT" not in description_lens

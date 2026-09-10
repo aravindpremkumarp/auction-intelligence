@@ -60,11 +60,39 @@ def test_lot_filters_are_exists_not_joins(monkeypatch):
 
     cypher = calls[0][0]
     assert "EXISTS {" in cypher
-    assert "MATCH (a)-[:HAS_DOCUMENT]->(:Document)-[:HAS_LOT]->(l:Lot)-[:POSSESSION_IS]" in cypher
+    assert f"MATCH {FP._LOT_PATH}-[:POSSESSION_IS]" in cypher
     # the lot path must appear only inside EXISTS, never as a top-level MATCH
     for line in cypher.splitlines():
         if line.strip().startswith("MATCH ") and "HAS_LOT" in line:
             pytest.fail(f"lot path joined at top level: {line}")
+
+
+def test_lot_filters_read_the_listings_own_lot(monkeypatch):
+    """A notice sells several lots. Filtering across all of them passed a
+    listing because a SIBLING lot matched — 1,974 listings sit on a multi-lot
+    notice, so this is the normal case. `IS_LOT` names the right one."""
+    calls = _stub(monkeypatch, rows=[_row()])
+    FP.find_properties(possession="physical", area_sqft_min=1000)
+
+    cypher = calls[0][0]
+    assert "(a)-[:IS_LOT]->(l)" in cypher, "filters ignore the resolved lot"
+    # ...but a listing with no IS_LOT edge must still be searchable on its
+    # notice's lots, which is what `scope_of` then labels `notice`.
+    assert "NOT (a)-[:IS_LOT]->(:Lot)" in cypher, "unresolved listings dropped"
+
+
+def test_lot_count_stays_notice_wide(monkeypatch):
+    """`lot_count` is what scope_of reads to decide whether a value may be
+    stated as a property fact. Narrowing it to the resolved lot would report
+    every notice as single-lot and label every value `lot`."""
+    calls = _stub(monkeypatch, rows=[_row()])
+    FP.find_properties(city="Chennai")
+
+    rows_cypher = next(c for c, _ in calls if "lot_count" in c)
+    counter = rows_cypher.split("RETURN count(DISTINCT l) AS lot_count")[0]
+    assert counter.rstrip().endswith(
+        "MATCH (a)-[:HAS_DOCUMENT]->(:Document)-[:HAS_LOT]->(l:Lot)"), (
+        "lot_count must count the whole notice, not just the resolved lot")
 
 
 def test_sqft_filter_clamps_to_the_plausible_band(monkeypatch):

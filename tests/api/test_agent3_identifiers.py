@@ -70,3 +70,21 @@ def test_resolve_identifier_detail_shape(monkeypatch):
     out = I.resolve_identifier_detail("331/1")
     assert out[0]["auction_id"] == "A1"
     assert out[0]["lot_count"] == 2
+
+
+def test_the_lot_branch_names_the_listing_that_is_the_matched_lot():
+    """A survey number printed in lot #4 is not evidence about lots #1-#3.
+    Before this, the lot branch returned every listing on the notice: for
+    plot "19" that was 105 listings where 33 actually mention it."""
+    from api.agent3.common import owns_lot
+    assert owns_lot() in I._RESOLVE_CYPHER
+    assert owns_lot() in I._DETAIL_CYPHER
+
+
+def test_the_parcel_branch_is_left_alone():
+    """`(:Parcel)<-[:IS_PARCEL]-(:AuctionProperty)` is already listing-level —
+    it groups the same land across notices, which is the point of walking it,
+    and it never fans out across a notice's siblings."""
+    for cypher in (I._RESOLVE_CYPHER, I._DETAIL_CYPHER):
+        parcel_branch = cypher.split("HAS_IDENTIFIER")[1]
+        assert "IS_LOT" not in parcel_branch.split("RETURN")[0]
