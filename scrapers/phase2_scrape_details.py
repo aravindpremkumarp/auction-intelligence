@@ -89,7 +89,23 @@ def download_file(url: str, cookies: dict = None) -> str | None:
     Download a sale notice / PDF to DOWNLOAD_DIR.
     Returns the local filename on success, None on failure.
     Files already on disk are skipped (idempotent).
+
+    The download lands on a per-attempt ``.part`` file and is renamed into
+    place ONLY once the whole body has arrived. Writing straight to the final
+    name truncated two notices in the corpus: ``iter_content`` ends normally
+    when the connection drops mid-transfer, so a partial body was
+    indistinguishable from a complete one, the bytes were already on disk when
+    the error surfaced, and the ``os.path.exists`` skip above then treated
+    that stump as downloaded forever. Both survived all the way into R2 as
+    headless JPEGs (368,640 and 1,220,608 bytes — 45 and 149 whole chunks,
+    no remainder) and no OCR engine would open them.
+
+    Completeness is checked against ``Content-Length``. A chunked response
+    does not carry one, and there is no way to tell a short read from a
+    complete one without it — those are accepted if non-empty, which is the
+    old behaviour and the reason the rename is still the last step.
     """
+    part = None
     try:
         clean_url = url.split("?")[0]
         local_filename = clean_url.split("/")[-1]
@@ -104,16 +120,46 @@ def download_file(url: str, cookies: dict = None) -> str | None:
         if os.path.exists(path):
             return local_filename  # Already on disk — link without re-downloading
 
+        # Unique per attempt: N_WORKERS threads may race on the same URL, and
+        # a shared .part name would let them interleave into one broken file.
+        part = os.path.join(
+            DOWNLOAD_DIR,
+            f"{local_filename}.{os.getpid()}.{threading.get_ident()}.part",
+        )
+
         session = get_dl_session()
         r = session.get(url, stream=True, timeout=20, cookies=cookies)
         if r.status_code == 200:
-            with open(path, "wb") as f:
+            expected = r.headers.get("Content-Length")
+            expected = int(expected) if expected and expected.isdigit() else None
+
+            written = 0
+            with open(part, "wb") as f:
                 for chunk in r.iter_content(chunk_size=8192):
                     f.write(chunk)
+                    written += len(chunk)
+
+            if written == 0:
+                return None
+            if expected is not None and written != expected:
+                return None
+
+            # Same directory, so this is atomic: the final name never exists
+            # until it names every byte the server said it would send.
+            os.replace(part, path)
+            part = None
             return local_filename
 
     except Exception:
         pass
+    finally:
+        # A partial download must never outlive the attempt that made it —
+        # otherwise the exists() check above adopts it on the next run.
+        if part and os.path.exists(part):
+            try:
+                os.remove(part)
+            except OSError:
+                pass
     return None
 
 
