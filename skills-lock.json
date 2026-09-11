@@ -283,6 +283,12 @@
       "skillPath": "skills/hyperframes-registry/SKILL.md",
       "computedHash": "62984a677583cb55beebbb5784e1caeabf7ac3e5a09e66bb5dd7205d5ab411bf"
     },
+    "i-have-adhd": {
+      "source": "ayghri/i-have-adhd",
+      "sourceType": "github",
+      "skillPath": "skills/i-have-adhd/SKILL.md",
+      "computedHash": "3170b16ace00aecb0dd7feb54c0b5aa642e7502acda06ecd24fd89a11c7127e9"
+    },
     "image": {
       "source": "coreyhaines31/marketingskills",
       "sourceType": "github",

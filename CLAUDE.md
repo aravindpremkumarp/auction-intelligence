@@ -42,6 +42,11 @@ output; they do not apply to code, which must always be complete and correct.
 - Long or multi-step work → outcome first, then only what affects the next
   decision. Everything else stays out.
 
+The `/i-have-adhd` skill layers on top of these rules when invoked: same
+shortness, plus numbered steps, "step 3 of 5" state restated every turn, real
+time estimates, and one concrete next action at the end. It never overrides
+the safety rules — destructive actions still get confirmed first.
+
 ## Marketing dashboard (living)
 
 `marketing/dashboard.html` is the single source of truth for marketing-system
@@ -105,6 +110,8 @@ Key routing rules:
 - Review what gstack has learned → invoke /learn
 - Tune question sensitivity → invoke /plan-tune
 - Code quality dashboard → invoke /health
+- "ADHD mode", harder-to-focus day, want output shaped for action → invoke
+  /i-have-adhd (manual only; stays on until "stop adhd mode")
 
 ## gstack
 
