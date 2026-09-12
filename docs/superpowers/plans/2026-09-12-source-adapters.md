@@ -87,27 +87,27 @@
 
 **Files:** Create `sources/baanknet.py`, `tests/sources/test_baanknet.py`, `sources/lookups/asset_categories.json`.
 
-- [ ] Query the live `:AssetCategory` and `:PropertyType` names first; fill the lookup for BAANKNET's `propertyType` / `propertySubType` and bankeauctions' `row[12]` / `row[13]`.
-- [ ] `harvest(state="Tamil Nadu")`: `stateId` via `GET /common/states?countryId=101` by name (never hard-code 31 without the lookup), `POST property-filter` pages of 50, then `GET auction/detail/{auctionId}` per row; `limit` honoured; polite delay.
-- [ ] `normalize()`: the field map in the spec table; `documents` from `auctionDocuments[]` (`.pdf` only, `doc_role_for(description)`, filename `bn-{basename}`); `media` from `propertyMedia[]` (`filetype` 1/2, `ismainimage`) falling back to the row's `photos[]`.
-- [ ] Tests from the recorded shapes: a row `_source`, an `auction/detail` payload with two documents and three media items; assert ids, dates, roles, main image, and that vehicle/gold rows are dropped.
+- [x] Query the live `:AssetCategory` and `:PropertyType` names first; fill the lookup for BAANKNET's `propertyType` / `propertySubType` and bankeauctions' `row[12]` / `row[13]`.
+- [x] `harvest(state="Tamil Nadu")`: `stateId` via `GET /common/states?countryId=101` by name (never hard-code 31 without the lookup), `POST property-filter` pages of 50, then `GET auction/detail/{auctionId}` per row; `limit` honoured; polite delay.
+- [x] `normalize()`: the field map in the spec table; `documents` from `auctionDocuments[]` (`.pdf` only, `doc_role_for(description)`, filename `bn-{basename}`); `media` from `propertyMedia[]` (`filetype` 1/2, `ismainimage`) falling back to the row's `photos[]`.
+- [x] Tests from the recorded shapes: a row `_source`, an `auction/detail` payload with two documents and three media items; assert ids, dates, roles, main image, and that vehicle/gold rows are dropped.
 
 ## Task 5: bankeauctions adapter
 
 **Files:** Create `sources/bankeauctions.py`, `tests/sources/test_bankeauctions.py`.
 
-- [ ] `harvest()`: `POST /home/liveAuctionDatatable/?state=24` with paging in the body, dedupe on `row[1]`, stop when a page adds nothing new; detail page via the slug; keep the raw row and the detail HTML.
-- [ ] `normalize()`: positional row → fields; detail page → reserve, EMD, increment, extension, inspection window, press-release and offer dates, borrower; `documents` = NIT zip (`doc_role=bundle`, `needs_referer=True`) + the three `/public/uploads/bank/` PDFs as `tender`; `row[12] != "Immovable"` → `None`.
-- [ ] `fetch_document()`: zip with `Referer` = detail URL, extract members, name each `be-{rowId}-{slug(name)}.pdf`, assign `doc_role_for(member name)`.
-- [ ] Tests: slug builder on the three recon rows; row parsing; detail-page text parsing on a recorded snippet; member routing on the seven Omkara names and the four Hinduja names; the captcha `<img>` is never a photo.
+- [x] `harvest()`: `POST /home/liveAuctionDatatable/?state=24` with paging in the body, dedupe on `row[1]`, stop when a page adds nothing new; detail page via the slug; keep the raw row and the detail HTML.
+- [x] `normalize()`: positional row → fields; detail page → reserve, EMD, increment, extension, inspection window, press-release and offer dates, borrower; `documents` = NIT zip (`doc_role=bundle`, `needs_referer=True`) + the three `/public/uploads/bank/` PDFs as `tender`; `row[12] != "Immovable"` → `None`.
+- [x] `fetch_document()`: zip with `Referer` = detail URL, extract members, name each `be-{rowId}-{slug(name)}.pdf`, assign `doc_role_for(member name)`.
+- [x] Tests: slug builder on the three recon rows; row parsing; detail-page text parsing on a recorded snippet; member routing on the seven Omkara names and the four Hinduja names; the captcha `<img>` is never a photo.
 
 ## Task 6: `scripts/harvest_sources.py`
 
 **Files:** Create.
 
-- [ ] `--source all|baanknet|bankeauctions|eauctionsindia --state "Tamil Nadu" --limit N --no-download --no-media`.
-- [ ] Writes `data/raw/<source>/<YYYY-MM-DD>.jsonl` (verbatim, append) and `data/listings/<source>.jsonl` (rewritten per run); downloads documents to `downloads/<source>/`; photos of *live* listings to `downloads/<source>/media/`.
-- [ ] Prints per source: rows, live rows, documents fetched, photos fetched, failures. Exit non-zero if a source yields zero rows.
+- [x] `--source all|baanknet|bankeauctions|eauctionsindia --state "Tamil Nadu" --limit N --no-download --no-media`.
+- [x] Writes `data/raw/<source>/<YYYY-MM-DD>.jsonl` (verbatim, append) and `data/listings/<source>.jsonl` (rewritten per run); downloads documents to `downloads/<source>/`; photos of *live* listings to `downloads/<source>/media/`.
+- [x] Prints per source: rows, live rows, documents fetched, photos fetched, failures. Exit non-zero if a source yields zero rows.
 - [ ] Run `--limit 20` against both live portals; keep the summary in the PR body.
 
 ## Task 7: matcher + gap report

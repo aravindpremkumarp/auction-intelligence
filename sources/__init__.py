@@ -22,6 +22,8 @@ __all__ = ["ADAPTERS", "DocRef", "Listing", "MediaRef", "SOURCE_RANK", "SourceAd
 #: package does not import every adapter (and their optional dependencies).
 ADAPTERS: dict[str, str] = {
     "eauctionsindia": "sources.eauctionsindia:EauctionsIndiaAdapter",
+    "baanknet": "sources.baanknet:BaanknetAdapter",
+    "bankeauctions": "sources.bankeauctions:BankeauctionsAdapter",
 }
 
 
