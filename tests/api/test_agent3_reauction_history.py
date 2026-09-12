@@ -132,3 +132,24 @@ def test_attempts_come_from_the_listings_own_lot():
     counter, attempts = RH._ATTEMPTS.split("CALL (a) {", 1)
     assert owns_lot() not in counter
     assert owns_lot() in attempts
+
+
+def test_the_spine_chain_is_reported_when_the_event_carries_it(monkeypatch):
+    subject = _subject()
+    subject.update({"chain_attempt_no": 2, "chain_size": 3, "chain_previous_reserve": 4558000.0,
+                    "chain_previous_event_id": "ev-755956"})
+    _stub(monkeypatch, subject=subject, linked=[_link()])
+    out = RH.reauction_history("802076")
+    assert out["chain"] == {"attempt_no": 2, "chain_size": 3, "previous_reserve": 4558000.0,
+                            "previous_event_id": "ev-755956"}
+    assert out["earlier_listings"][0]["auction_id"] == "755956"       # the listing-level shape is unchanged
+
+
+def test_no_chain_key_before_the_spine_is_built(monkeypatch):
+    _stub(monkeypatch, subject=_subject(), linked=[])
+    assert "chain" not in RH.reauction_history("802076")
+
+
+def test_links_are_read_at_listing_and_event_level():
+    assert "(a)-[r:SAME_PROPERTY_AS]-(o:AuctionProperty)" in RH._LINKED
+    assert "(a)-[:LISTS]->(:AuctionEvent)-[r:SAME_PROPERTY_AS]-(:AuctionEvent)<-[:LISTS]-(o:AuctionProperty)" in RH._LINKED

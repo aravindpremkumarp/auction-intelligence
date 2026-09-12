@@ -309,3 +309,27 @@ def test_the_portal_city_survives_where_no_notice_district_exists(monkeypatch):
 
     assert listing["city"] == "Chennai"
     assert "district" not in listing
+
+
+# ── the other portals' copies, photos, cuttings ─────────────────────────
+
+def test_other_listings_photos_and_publications_ride_the_listing(monkeypatch):
+    listing = _listing(auction_id="bn-359826")
+    listing.update({
+        "source": "baanknet",
+        "other_listings": [{"auction_id": "841207", "source": "eauctionsindia", "url": "https://e/841207",
+                            "reserve_price": 4650000.0, "method": "borrower", "confidence": "PROBABLE"}],
+        "photos": [{"url": "https://cdn/2.jpg", "is_main": False}, {"url": "https://cdn/1.jpg", "is_main": True},
+                   {"url": None, "is_main": False}],
+        "publications": [{"filename": "bn-pub.pdf", "url": "https://r2/bn-pub.pdf"}],
+    })
+    _stub(monkeypatch, listings=[listing], docs=[], lots=[])
+    prop = GP.get_property("bn-359826")["properties"][0]
+    assert prop["listing"]["source"] == "baanknet"
+    assert prop["listing"]["other_listings"][0]["auction_id"] == "841207"
+    assert [p["url"] for p in prop["listing"]["photos"]] == ["https://cdn/1.jpg", "https://cdn/2.jpg"]   # main first, blanks gone
+    assert prop["listing"]["publications"] == [{"filename": "bn-pub.pdf", "url": "https://r2/bn-pub.pdf"}]
+
+
+def test_the_sale_notice_is_preferred_over_a_tender_or_cutting():
+    assert "ORDER BY aid, CASE WHEN d.doc_role IN ['sale_notice', 'proclamation'] THEN 0" in GP._DOCUMENT_CYPHER

@@ -160,13 +160,14 @@ New BAANKNET listings average 6.9 of 9 core fields before any notice is read. Th
 
 ## Task 11: agent3 stage 2 — read through the canonical listing
 
-**Files:** Modify `api/agent3/find_properties.py`, `api/agent3/get_property.py`, `api/agent3/reauction_history.py`, `api/properties/router.py`, `api/tools/cypher_tools.py`, `web/app.js`.
+**Files:** Create `api/canonical.py`; Modify `api/agent3/find_properties.py`, `api/agent3/get_property.py`, `api/agent3/reauction_history.py`, `api/properties/router.py`, `api/tools/cypher_tools.py`, `web/app.js`, `web/styles.css`; tests in `tests/api/`.
 
-- [ ] `find_properties`: base filter keeps only the lowest-`source_rank` branch per `SAME_LISTING_AS` cluster; `_ROW_PROJECTION` adds `source`, `also_on`, `has_photos`; `total_count` / refine / relax share the filter.
-- [ ] `get_property`: `other_listings` (source, url, reserve), `photos` (main first), `publications` (newspaper docs) from the branches.
-- [ ] `reauction_history`: read the event chain; keep `SAME_PROPERTY_AS` output shape.
-- [ ] `GET /properties` and `GET /auction/{id}`: same filter and fields; `web/app.js` detail panel renders a photo strip and "Also listed on" links.
-- [ ] `evals/smoke_agent3.py` passes; a manual `find_properties(bank="State Bank of India")` returns one row per cluster.
+- [x] `api/canonical.py` (stdlib only, shared by the agent tools and the browse router): `canonical_listing()` — the standing predicate "no CONFIRMED / PROBABLE `SAME_LISTING_AS` neighbour outranks me (lower `source_rank`, tie on `auction_id`)"; `also_on()`, `other_listings()`, `photos()`, `source()`, `has_photos()` Cypher fragments; `main_first()`.
+- [x] `find_properties`: `_Query.base()` always carries the predicate (not a fragment, so `relax` cannot drop it) — count, rows, refine and relax agree; `_ROW_PROJECTION` / `_shape_row` add `source`, `also_on` (deduped, only when non-empty), `has_photos`.
+- [x] `get_property`: the listing carries `source`, `source_url`, the portal's possession / extent / district / pincode / inspection window, `other_listings` (id, portal, link, price, method, confidence), `photos` (main first, blanks dropped), `publications` (newspaper cuttings); `_DOCUMENT_CYPHER` orders the sale notice ahead of a tender form or cutting so the notice detail describes the notice.
+- [x] `reauction_history`: `earlier_listings` keeps its shape, now read at listing level UNION event level (`LISTS` → `SAME_PROPERTY_AS` → `LISTS`); a `chain {attempt_no, chain_size, previous_reserve, previous_event_id}` block appears once `build_spine` has stamped the event.
+- [x] `GET /properties`: the same predicate in `_properties_filter_cypher` (so results, count and every facet agree); rows add `source`, `also_on`, `has_photos`, `photo_url`. `GET /auction/{id}` (`cypher_tools._DETAIL_CYPHER` / `_detail_record`): `source`, `other_listings`, `photos`. `web/app.js` detail panel: main photo fills the hero frame with a strip of up to five more (type sketch stays the fallback, broken images fall back too); an "Also listed on" panel links each other portal's copy with its price.
+- [x] Tests: the predicate on every query find_properties runs (count, rows, refine, relax) and on every browse query; rows/listing shapes; photos main-first; the notice-first document order; the chain block present / absent; `test_empty_list_filter_is_ignored` updated for the standing clause. `evals/run_agent3.py` (tool suite, no model) run read-only against the live graph — see the PR; `evals/smoke_agent3.py` needs a model key this sandbox does not have.
 
 ## Task 12: agent3 stage 3 — read the spine
 

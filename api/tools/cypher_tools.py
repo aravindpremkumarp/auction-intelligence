@@ -14,6 +14,7 @@ from datetime import datetime, timedelta, timezone
 from api.agent3.common import owns_lot
 from api.neo4j_client import run_query, run_read_query, run_read_query_async
 from api.places import district_effective
+from api import canonical as _canonical
 
 # Two Lucene fulltext indexes back `semantic_search`. Both are lexical: the
 # Gemini vector indexes this tool used to fan out across were retired once
@@ -988,6 +989,9 @@ _DETAIL_CYPHER = """
                confidence:        link.confidence
              } END) AS siblings
         RETURN properties(a) AS fields,
+               """ + _canonical.source("a") + """ AS source,
+               """ + _canonical.other_listings("a") + """ AS other_listings,
+               """ + _canonical.photos("a") + """ AS photos,
                {
                  city:           CASE WHEN city     IS NULL THEN NULL ELSE properties(city)     END,
                  area:           CASE WHEN area     IS NULL THEN NULL ELSE properties(area)     END,
@@ -1088,6 +1092,11 @@ def _detail_record(row: dict) -> dict:
                                              fields),
         "documents":     documents,
         "price_history": price_history,
+        # which portal this copy is from, the same auction on other portals,
+        # and the portal's photos (main first) — api/canonical.py
+        "source":        row.get("source") or fields.get("source") or "eauctionsindia",
+        "other_listings": _json_safe([o for o in (row.get("other_listings") or []) if o and o.get("auction_id")]),
+        "photos":        _canonical.main_first(row.get("photos")),
     }
 
 

@@ -26,6 +26,7 @@ lets the agent state a six-lot notice's extent as the property's own.
 """
 from __future__ import annotations
 
+from api.canonical import main_first, other_listings, photos, source
 from api.agent3.common import (
     MAX_DETAIL_IDS, SQFT_CEIL, SQFT_FLOOR, ToolInputError, band_note,
     json_safe, scope_note, scope_of, tool,
@@ -66,6 +67,16 @@ RETURN a.auction_id AS auction_id, a.title AS title, a.url AS url,
        [(a)-[:HAS_PROPERTY_TYPE]->(pt:PropertyType) | pt.name] AS property_types,
        [(a)-[:HAS_BORROWER]->(b:Borrower) | b.name] AS borrowers,
        [(a)-[:SAME_PROPERTY_AS]->(o:AuctionProperty) | o.auction_id] AS same_property_as,
+       // which portal this copy came from, the copies on other portals, the
+       // portal's own photos and possession, and any newspaper cuttings
+       """ + source("a") + """ AS source, a.source_url AS source_url,
+       a.possession_type AS portal_possession_type, a.extent_raw AS portal_extent,
+       a.portal_district AS portal_district, a.pincode AS pincode,
+       toString(a.inspection_start_dt) AS inspection_start, toString(a.inspection_end_dt) AS inspection_end,
+       """ + other_listings("a") + """ AS other_listings,
+       """ + photos("a") + """ AS photos,
+       [(a)-[:HAS_DOCUMENT]->(_pub:Document) WHERE _pub.doc_role = 'publication' |
+          {filename: _pub.filename, url: _pub.public_url}] AS publications,
        // Phase 2: the lot comes from the edge, not the string beside it. A
        // key is "<filename>#<lot_index>" and lot_index is the model's own
        // numbering, so a re-extraction renumbers the lots and a stale key
@@ -92,6 +103,10 @@ RETURN aid AS auction_id, d.public_url AS notice_url, d.filename AS filename,
        [(d)-[s:SIGNED_BY]->(o:Officer) | {name: o.name, role: s.role}] AS officers,
        [(d)-[:CASE_REF]->(cr:CaseReference) | cr.ref] AS case_references,
        [(d)-[:UNDER_TRUST]->(t:Trust) | t.name] AS trusts
+// A listing from the new portals carries several documents; the sale notice
+// is the one the detail should describe, not the tender form or a cutting.
+ORDER BY aid, CASE WHEN d.doc_role IN ['sale_notice', 'proclamation'] THEN 0
+                   WHEN d.doc_role IS NULL THEN 1 ELSE 2 END
 """
 
 _LOTS_CYPHER = """
@@ -315,6 +330,7 @@ def get_property(auction_ids: str | int | list[str | int],
         # supports — it is the portal that is the witness (see api/places.py).
         # `listing` below drops None values, so this removes the key outright.
         listing = suppress_portal_city(json_safe(raw))
+        listing["photos"] = main_first(listing.get("photos"))
         aid = listing["auction_id"]
         doc = by_doc.get(aid, {})
         lots = by_lots.get(aid, [])
