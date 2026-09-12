@@ -25,12 +25,14 @@ Usage:
 
 import argparse
 import datetime
+import io
 import json
 import re
 import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+import zipfile
 
 sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
 
@@ -264,11 +266,15 @@ def probe_bankeauctions(state_id, timeout):
         html = resp.read().decode("utf-8", "replace")
     print(f"   detail: {detail_url} ({len(html):,} bytes)")
 
-    # Per-auction notices live under /public/uploads/bank/; the site-wide
-    # policy PDFs sit at the root and must not be counted as notices.
+    # Two kinds of document link. The loose PDFs under /public/uploads/bank/
+    # are the generic tender paperwork (tender, annexure 2, annexure 3 — the
+    # same three on every listing). The per-auction bundle is the "View NIT
+    # Documents" ZIP under /public/uploads/event_auction/: sale notice,
+    # newspaper publications, sometimes a property-details PDF with photos.
+    # The site-wide policy PDFs sit at the root and are neither.
     hrefs = re.findall(r'href="([^"]*?/public/uploads/bank/[^"]+\.pdf)"', html)
     out["notice_links"] = len(hrefs)
-    print(f"   notices: {len(hrefs)} PDF link(s) on the detail page")
+    print(f"   tender pdfs: {len(hrefs)} link(s) under /public/uploads/bank/")
     if hrefs:
         href = hrefs[0]
         if href.startswith("/"):
@@ -276,7 +282,59 @@ def probe_bankeauctions(state_id, timeout):
         out["pdf"] = check_pdf(href, timeout)
         print(f"   pdf: {out['pdf']['ok']}  {out['pdf'].get('bytes', 0):,} bytes")
 
-    out["ok"] = out["pagination_ok"] and bool(hrefs) and out.get("pdf", {}).get("ok", False)
+    zips = re.findall(r'href="([^"]*?/public/uploads/event_auction/[^"]+\.zip)"', html)
+    out["bundle_links"] = len(zips)
+    if zips:
+        out["bundle"] = check_bundle(zips[0], detail_url, timeout)
+        b = out["bundle"]
+        print(f"   NIT bundle: {b['ok']}  {b.get('bytes', 0):,} bytes  "
+              f"{b.get('files', 0)} files  non-page images in {b.get('files_with_non_page_images', 0)}"
+              f"{'  ' + b['error'] if b.get('error') else ''}")
+        for name in b.get("names", [])[:8]:
+            print(f"      · {name}")
+    else:
+        print("   NIT bundle: no zip link on this detail page")
+
+    out["ok"] = (out["pagination_ok"] and bool(hrefs)
+                 and out.get("pdf", {}).get("ok", False)
+                 and out.get("bundle", {}).get("ok", False))
+    return out
+
+
+def check_bundle(href, referer, timeout=90):
+    """Fetch the "View NIT Documents" zip and say what is inside it.
+
+    The zip refuses a bare GET ("Invalid: Unauthorize Access") but serves to a
+    request carrying the detail page as Referer. A PDF inside is flagged when
+    it embeds an image that is not page-shaped: scans are one ~A4 image per
+    page (aspect ≈ 0.7); anything squarer is a photograph — of the property,
+    or of a postal receipt stapled to the notice. Telling those two apart is
+    the adapter's job, not this probe's.
+    """
+    if href.startswith("/"):
+        href = "https://bankeauctions.com" + href
+    req = urllib.request.Request(href, headers={"User-Agent": UA, "Referer": referer})
+    try:
+        with _open(req, timeout) as resp:
+            data = resp.read()
+    except Exception as e:  # noqa: BLE001 — a refused bundle is a finding
+        return {"url": href, "ok": False, "error": f"{type(e).__name__}: {e}"}
+    if not data.startswith(b"PK"):
+        return {"url": href, "ok": False, "bytes": len(data),
+                "error": data[:60].decode("latin-1").strip()}
+    out = {"url": href, "ok": True, "bytes": len(data), "names": [], "files_with_non_page_images": 0}
+    with zipfile.ZipFile(io.BytesIO(data)) as z:
+        for info in z.infolist():
+            out["names"].append(info.filename)
+            if not info.filename.lower().endswith(".pdf"):
+                continue
+            pdf = z.read(info)
+            dims = re.findall(rb"/Width\s*(\d+)[^>]{0,300}?/Height\s*(\d+)", pdf, re.S)
+            photos = [(int(w), int(h)) for w, h in dims
+                      if min(int(w), int(h)) >= 300 and int(w) / int(h) > 0.85]
+            if photos:
+                out["files_with_non_page_images"] += 1
+    out["files"] = len(out["names"])
     return out
 
 

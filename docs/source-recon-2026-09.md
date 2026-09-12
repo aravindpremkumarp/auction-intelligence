@@ -118,15 +118,36 @@ material our lot-schedule Lucene index is built on.
 `https://bankeauctions.com/{category}-{subcategory}-{city}-{col10}`, e.g.
 `immovable-land-tirupathur-235813`. Server-rendered HTML carrying reserve price,
 EMD, bid increment, auto-extension rules, inspection window, press-release date,
-offer-submission dates, auction window, borrower name, and "View NIT Documents"
-links to PDFs under `/public/uploads/bank/`.
+offer-submission dates, auction window, borrower name, and two kinds of
+document link:
 
-Verified one of those PDFs: 5 pages, real `%PDF`, and its text layer opens
-"TENDER DOCUMENT FOR E AUCTION … in exercise of its power under Section 13(2)
-of the Securitisation … Act, 2002" — a genuine SARFAESI notice, and a *text*
-PDF rather than a scan, which is cheaper for the extraction stack than what we
-usually get. Do not count the root-level `Terms___Condition.pdf` or the user
-agreement as notices; only `/public/uploads/bank/` links are per-auction.
+- **"View NIT Documents" → a ZIP** under `/public/uploads/event_auction/*.zip`.
+  This is the per-auction bundle, and it is the one that matters. It answers
+  `Invalid: Unauthorize Access` to a bare GET; send a `Referer` of the detail
+  page (and let the session cookie ride) and it downloads — 6–9 MB.
+- Loose PDFs under `/public/uploads/bank/` labelled *Tender Documents*,
+  *Annexure 2 / Details of Bidders*, *Annexure 3 / Declaration by Bidders* —
+  the generic tender paperwork, the same three on every listing.
+
+Two bundles opened (2026-09-12):
+
+| Bundle | Contents |
+|---|---|
+| Omkara ARC, Chennai (`237860`), 7 files | tender document (8 pp), terms and conditions, affidavit 29A, **two newspaper publications** (`Omkara-Dinakaran-Chennai-23-08-2026.pdf`, `Omkara-FE-Chennai-23-08-2026.pdf` — Tamil daily and Financial Express, one page each), **`Property Details - TEEZLE TELEMATICS.pdf` with three property photos** (1360×613, 903×701, 906×680), sale proclamation |
+| Hinduja Housing, Tirupathur (`235813`), 4 files | one *Auction Notice with receipts* per borrower — four properties in one event — each a 5–6 page scan |
+
+So the bundle carries, per auction, what we otherwise source three ways: the
+sale notice, the **newspaper publication** (the statutory branch, without an
+e-paper subscription), and sometimes **property photos**. File names are
+descriptive enough to route on (`Property Details`, `Sale Proclamation`,
+`Tender Document`, `Terms and Conditions`, `Affidavit`,
+`<lender>-<paper>-<city>-<date>`); an adapter should keep the name as the
+document label.
+
+Telling a photo from a page scan inside a PDF: scans are page-shaped
+(≈1650×2350, aspect ≈0.7) and one per page; photos are smaller, landscape or
+near-square. Do not count the root-level `Terms___Condition.pdf` or the user
+agreement as notices.
 
 `robots.txt` is absent on bankeauctions (404) and permissive on BAANKNET
 (`User-agent: * / Disallow:` — nothing disallowed).
