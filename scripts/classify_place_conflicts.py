@@ -59,11 +59,12 @@ def load_pairs() -> list[dict]:
     rows = nq("""
         MATCH (p:AuctionProperty)
         OPTIONAL MATCH (p)-[:LOCATED_IN_CITY]->(c:City)
-        RETURN p.auction_id, c.name, p.revenue_district, p.place_portal_conflict
+        RETURN p.auction_id, c.name, p.revenue_district, p.place_portal_conflict,
+               p.place_district_source
     """)
     return [{"auction_id": aid, "city": city, "district": district,
-             "flagged": bool(flag)}
-            for aid, city, district, flag in rows if aid]
+             "flagged": bool(flag), "district_source": src}
+            for aid, city, district, flag, src in rows if aid]
 
 
 def classify_all(rows: list[dict], gaz: Gazetteer) -> list[dict]:
@@ -87,7 +88,8 @@ def classify_all(rows: list[dict], gaz: Gazetteer) -> list[dict]:
         portal = (gaz.district(city) or city) if city else None
         out.append({**row, "portal_district": portal,
                     "kind": classify(portal, row["district"],
-                                     districts=districts)})
+                                     districts=districts,
+                                     district_source=row["district_source"])})
     return out
 
 

@@ -11,8 +11,8 @@ import pytest
 from pipeline.place_lineage import (
     AGREE, BENIGN, DISTRICT_LINEAGE, METRO, NO_NOTICE_DISTRICT,
     NO_PORTAL_DISTRICT, NOT_A_DISTRICT, NOT_COMPARABLE, NOTICE_NAMES_PARENT,
-    PORTAL_NAMES_PARENT, SAID, UNEXPLAINED, ancestors, classify, needs_review,
-    split_year,
+    PORTAL_NAMES_PARENT, SAID, TALUK_OUTRANKS, UNEXPLAINED, ancestors, classify,
+    needs_review, split_year,
 )
 
 #: The 38 districts as :District nodes spell them. The lineage table is dead
@@ -164,10 +164,65 @@ def test_without_a_district_set_an_unmapped_name_reads_as_disagreement():
     assert classify("Periyakulam", "Theni") == UNEXPLAINED
 
 
+@pytest.mark.parametrize("portal,notice", [
+    # Was `unexplained`: the taluk (Manmangalam) is in Karur, the portal says
+    # Madurai. 34 live listings of this shape.
+    ("Madurai", "Karur"),
+    ("Chennai", "Thiruvarur"),
+    # The portal writes "Karaikudi"; the gazetteer maps it to Sivagangai, and
+    # the notice's taluk (Ponnamaravathi) is in Pudukkottai.
+    ("Sivagangai", "Pudukkottai"),
+    # Was `notice-names-parent`: Pollachi IS in Coimbatore, so the parent name
+    # is the right answer and the portal's child name is the wrong one. 24 live
+    # listings of this shape.
+    ("Tiruppur", "Coimbatore"),
+    ("Namakkal", "Salem"),
+    ("Tiruvannamalai", "Vellore"),
+])
+def test_a_matched_taluk_settles_the_district(portal, notice):
+    """A taluk name is unique across all 316, so it names its own district.
+    Verified on the live corpus: of the 69 conflicts left after lineage and the
+    metro ring, 58 came from a matched taluk and all 58 taluks sit in the
+    stored district — zero contradictions."""
+    kind = classify(portal, notice, districts=DISTRICTS, district_source="taluk")
+    assert kind == TALUK_OUTRANKS
+    assert not needs_review(kind)
+
+
+@pytest.mark.parametrize("portal,notice,expected", [
+    ("Madurai", "Karur", UNEXPLAINED),
+    ("Tiruppur", "Coimbatore", NOTICE_NAMES_PARENT),
+])
+def test_a_district_string_alone_settles_nothing(portal, notice, expected):
+    """`district` means the notice's own district string with no taluk to check
+    it against — exactly the case a portal disagreement is worth reading."""
+    kind = classify(portal, notice, districts=DISTRICTS,
+                    district_source="district")
+    assert kind == expected
+    assert needs_review(kind)
+
+
+def test_the_taluk_rule_never_overrides_a_more_specific_label():
+    """It says which side to believe; lineage and the metro ring say *why* the
+    two names differ, which is the better answer where it applies."""
+    assert classify("Kancheepuram", "Chengalpattu", districts=DISTRICTS,
+                    district_source="taluk") == PORTAL_NAMES_PARENT
+    assert classify("Chennai", "Tiruvallur", districts=DISTRICTS,
+                    district_source="taluk") == METRO
+
+
+def test_an_unknown_source_is_not_authoritative():
+    """`taluk-field-names-a-district` reads a district out of the taluk slot —
+    no taluk was matched, so nothing checked the answer."""
+    for src in (None, "district", "taluk-field-names-a-district", ""):
+        assert classify("Madurai", "Karur", districts=DISTRICTS,
+                        district_source=src) == UNEXPLAINED
+
+
 def test_every_kind_has_a_plain_english_label():
     for kind in (AGREE, PORTAL_NAMES_PARENT, NOTICE_NAMES_PARENT, METRO,
-                 UNEXPLAINED, NOT_A_DISTRICT, NO_NOTICE_DISTRICT,
-                 NO_PORTAL_DISTRICT):
+                 TALUK_OUTRANKS, UNEXPLAINED, NOT_A_DISTRICT,
+                 NO_NOTICE_DISTRICT, NO_PORTAL_DISTRICT):
         assert SAID[kind]
     assert BENIGN <= set(SAID)
     assert NOT_COMPARABLE <= set(SAID)

@@ -95,15 +95,29 @@ AGREE = "agree"
 PORTAL_NAMES_PARENT = "portal-names-parent"
 NOTICE_NAMES_PARENT = "notice-names-parent"
 METRO = "metro-ring"
+TALUK_OUTRANKS = "taluk-outranks-portal"
 UNEXPLAINED = "unexplained"
 NOT_A_DISTRICT = "portal-not-a-district"
 NO_NOTICE_DISTRICT = "no-notice-district"
 NO_PORTAL_DISTRICT = "no-portal-district"
 
+#: `place_district_source` values that make the notice side authoritative.
+#: A taluk name is globally unique across all 316 — it names its own district —
+#: so a district derived from a matched taluk is the strongest answer this
+#: pipeline produces, and a portal City disagreeing with it says something
+#: about the portal, not about the district. Measured on the 69 conflicts left
+#: after lineage and the metro ring: 58 came from a matched taluk, and in all
+#: 58 that taluk sits in the stored district, with zero contradictions.
+#:
+#: `district` is NOT here. That value means the district came from the notice's
+#: own district *string* with no taluk to check it against, which is exactly the
+#: case a portal disagreement is worth reading.
+AUTHORITATIVE_SOURCES = frozenset({"taluk"})
+
 #: Kinds that need no review. `notice-names-parent` is deliberately NOT here:
 #: the notice is the trusted source, so it naming the *older* district is a
 #: resolution that stopped one level short, not a stale portal.
-BENIGN = frozenset({AGREE, PORTAL_NAMES_PARENT, METRO})
+BENIGN = frozenset({AGREE, PORTAL_NAMES_PARENT, METRO, TALUK_OUTRANKS})
 
 #: Kinds where there was never a disagreement to have, because one side said
 #: nothing. These are coverage numbers — `api/review/queries.py::_place_panels`
@@ -119,6 +133,7 @@ SAID = {
     PORTAL_NAMES_PARENT: "portal names the district this one was split from",
     NOTICE_NAMES_PARENT: "notice names the district this one was split from",
     METRO: "both inside the Chennai metro, naming different levels",
+    TALUK_OUTRANKS: "district came from a matched taluk, which outranks the portal",
     UNEXPLAINED: "neither explains the other — read the notice",
     NOT_A_DISTRICT: "portal city the gazetteer cannot map to a district",
     NO_NOTICE_DISTRICT: "the notice resolved no district — nothing to compare",
@@ -171,7 +186,8 @@ def split_year(child: str, parent: str) -> int | None:
 
 
 def classify(portal_district: str | None, notice_district: str | None,
-             *, districts: frozenset[str] | set[str] | None = None) -> str:
+             *, districts: frozenset[str] | set[str] | None = None,
+             district_source: str | None = None) -> str:
     """Name the relationship between the two districts.
 
     ``portal_district`` is the portal :City already mapped through
@@ -181,14 +197,22 @@ def classify(portal_district: str | None, notice_district: str | None,
     counted as a genuine disagreement — an unmapped city name is a gazetteer
     gap, not a bad notice.
 
+    ``district_source`` is ``p.place_district_source``. Pass it and a
+    disagreement with a district that came from a matched taluk reads as
+    :data:`TALUK_OUTRANKS` rather than as something to investigate — see
+    :data:`AUTHORITATIVE_SOURCES`. Omit it and every disagreement is reported,
+    which is the safe direction.
+
     A missing side is named rather than lumped in with a disagreement: a
     listing whose notice resolved no district never had a conflict to have, and
     the live corpus has 264 of them. Reporting those as conflicts would
     manufacture a backlog out of a coverage number.
 
-    Order matters: lineage is checked before the metro ring, because
-    ``Kancheepuram`` vs ``Chengalpattu`` is both, and the lineage answer is the
-    more specific one.
+    Order matters. Lineage is checked before the metro ring, because
+    ``Kancheepuram`` vs ``Chengalpattu`` is both and the lineage answer is the
+    more specific one. The taluk rule changes only the two outcomes that would
+    otherwise reach a human — it never overrides a label that already says
+    *why* the two names differ.
     """
     portal = (portal_district or "").strip()
     notice = (notice_district or "").strip()
@@ -204,13 +228,18 @@ def classify(portal_district: str | None, notice_district: str | None,
         return UNEXPLAINED
     if districts is not None and portal not in districts:
         return NOT_A_DISTRICT
+    authoritative = district_source in AUTHORITATIVE_SOURCES
     if portal in ancestors(notice):
         return PORTAL_NAMES_PARENT
     if notice in ancestors(portal):
-        return NOTICE_NAMES_PARENT
+        # "The notice stopped one level short" only holds when nothing checked
+        # it. A matched taluk positively names this district — Pollachi IS in
+        # Coimbatore — so the parent name is the right answer and the portal's
+        # child name is the wrong one, not the other way round.
+        return TALUK_OUTRANKS if authoritative else NOTICE_NAMES_PARENT
     if portal in METRO_RING and notice in METRO_RING:
         return METRO
-    return UNEXPLAINED
+    return TALUK_OUTRANKS if authoritative else UNEXPLAINED
 
 
 def needs_review(kind: str) -> bool:
