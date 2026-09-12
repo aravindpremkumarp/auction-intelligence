@@ -275,7 +275,8 @@ def run(*, dry_run: bool = False) -> dict:
         # that way on purpose so the panel's existing number does not move
         # under it, and the kind carries the correction.
         portal_kind = classify(portal or p["city"], res["district"],
-                               districts=district_names)
+                               districts=district_names,
+                               district_source=res["district_source"])
 
         if res["village"]:
             stats["village resolved"] += 1
