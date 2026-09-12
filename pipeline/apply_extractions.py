@@ -1058,22 +1058,74 @@ def explain_documents(filenames: list[str]) -> dict[tuple[str, str], dict]:
     return out
 
 
+#: Field-provenance scopes. `LOT` means the value names ONE lot — this
+#: listing's own, and only as trustworthy as the `IS_LOT` edge that says so
+#: (read its `confidence`). `CONSENSUS` means every lot on the notice carried
+#: the same value, so it holds whichever lot the listing turns out to be and
+#: survives a lot match the rivalry gate refused to make.
+SCOPE_LOT = "lot"
+SCOPE_CONSENSUS = "consensus"
+
+
+def field_provenance(rows: list[dict]) -> dict[str, dict[str, list[str]]]:
+    """Split each listing's written field names by where the value came from.
+
+    `run()` already decides this per listing — `lot["fields"]` for a sole
+    claimant, `consensus` for everyone else — and then throws it away, leaving
+    `village` on the node indistinguishable from `village` on a listing whose
+    lot was never confirmed. This keeps it.
+
+    Rows are applied in order because `write_fields` applies them in order:
+    12 listings link to two scans of the same notice, each extracted
+    separately, so both produce a row and the later `SET +=` wins the VALUE.
+    Provenance follows the value, not the other way round.
+
+    Returns ``{aid: {"lot": [...], "consensus": [...]}}``, each list sorted and
+    the two disjoint — a field is written under exactly one scope.
+    """
+    scope_by_key: dict[str, dict[str, str]] = defaultdict(dict)
+    for row in rows:
+        scope = row.get("scope") or SCOPE_CONSENSUS
+        for key in (row.get("props") or {}):
+            scope_by_key[row["aid"]][key] = scope
+    out: dict[str, dict[str, list[str]]] = {}
+    for aid, keys in scope_by_key.items():
+        out[aid] = {
+            SCOPE_LOT: sorted(k for k, s in keys.items() if s == SCOPE_LOT),
+            SCOPE_CONSENSUS: sorted(k for k, s in keys.items()
+                                    if s != SCOPE_LOT),
+        }
+    return out
+
+
 def write_fields(rows: list[dict]) -> int:
-    """SET += per-listing grounded fields (non-null only, built per row)."""
+    """SET += per-listing grounded fields (non-null only, built per row).
+
+    Also records WHICH of those fields came from this listing's own lot and
+    which are notice-wide consensus — see `field_provenance`. Without it the
+    node states `village` as flat fact whether it was read off a confirmed lot
+    or off every lot agreeing, and a reader cannot tell the two apart.
+    """
     if not rows:
         return 0
     written = 0
     now_iso = datetime.now(timezone.utc).isoformat()
+    prov = field_provenance(rows)
     for batch in chunked(rows, WRITE_CHUNK):
+        payload = [dict(r, prov_lot=prov[r["aid"]][SCOPE_LOT],
+                        prov_consensus=prov[r["aid"]][SCOPE_CONSENSUS])
+                   for r in batch]
         res = run_query("""
             UNWIND $rows AS row
             MATCH (a:AuctionProperty {auction_id: row.aid})
             SET a += row.props,
                 a.enrichment_source = 'grounded_extraction',
                 a.grounded_source_file = row.filename,
-                a.grounded_applied_at = datetime($at)
+                a.grounded_applied_at = datetime($at),
+                a.notice_fields_lot = row.prov_lot,
+                a.notice_fields_consensus = row.prov_consensus
             RETURN a.auction_id AS aid
-        """, {"rows": batch, "at": now_iso})
+        """, {"rows": payload, "at": now_iso})
         written += len(res) if res else 0
     return written
 
@@ -1107,12 +1159,24 @@ def clear_unsafe_fields(rows: list[dict]) -> int:
         remove_clause = ", ".join(f"a.`{k}`" for k in keys)
         exists_clause = " OR ".join(f"a.`{k}` IS NOT NULL" for k in keys)
         for batch in chunked(group, WRITE_CHUNK):
+            # The provenance lists are stripped in the same statement. A name
+            # left in `notice_fields_lot` for a property that was just REMOVEd
+            # claims a field the node no longer has — the same class of stale
+            # claim as the `resolved_lot_key` this pipeline retired, one level
+            # down. Rebuilt by filter rather than by subtraction so a key that
+            # was never in the list is a no-op.
             res = run_query(f"""
                 UNWIND $rows AS row
                 MATCH (a:AuctionProperty {{auction_id: row.aid}})
                 WHERE a.grounded_source_file = row.filename
                   AND ({exists_clause})
                 REMOVE {remove_clause}
+                SET a.notice_fields_lot =
+                      [k IN coalesce(a.notice_fields_lot, [])
+                       WHERE NOT k IN row.keys],
+                    a.notice_fields_consensus =
+                      [k IN coalesce(a.notice_fields_consensus, [])
+                       WHERE NOT k IN row.keys]
                 RETURN a.auction_id AS aid
             """, {"rows": batch})
             cleared += len(res) if res else 0
@@ -1534,11 +1598,16 @@ def run(limit: int | None = None, dry_run: bool = False) -> int:
         consensus, contested = consensus_and_contested(lots)
         for listing, lot, reason in matches:
             stats[f"match_{reason}"] += 1
-            safe_fields = lot["fields"] if id(listing) in sole else consensus
+            is_sole = id(listing) in sole
+            safe_fields = lot["fields"] if is_sole else consensus
             if safe_fields:
+                # The scope travels with the row so the node can say which of
+                # the two it got, instead of stating both as flat fact.
                 field_rows.append({"aid": listing["aid"],
                                    "filename": w["filename"],
-                                   "props": safe_fields})
+                                   "props": safe_fields,
+                                   "scope": (SCOPE_LOT if is_sole
+                                             else SCOPE_CONSENSUS)})
             # The portal/notice type disagreement, rebuilt from the type this
             # run is ACTUALLY writing. `apply_extractions` has always written
             # property_type_norm and never the flag beside it, so the flag

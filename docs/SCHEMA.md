@@ -277,6 +277,53 @@ An automated verdict is also mirrored as a `(:ResolutionDecision {kind:
 human's pick; a system decision whose match stops holding is deleted with the
 edge, a human's never is.
 
+### Which enrichment fields came from where
+
+`apply_extractions` copies the lot's fields onto the listing — `village`,
+`taluk`, `district`, `extent_sqft`, `boundary_*`, door numbers, the
+normalised type. Once copied they read as flat fact, but they reach a listing
+by one of two routes, and the difference matters:
+
+| property | meaning |
+|---|---|
+| `notice_fields_lot` | read off the ONE lot this listing was confirmed to be |
+| `notice_fields_consensus` | every lot on the notice carried this same value |
+
+The two are disjoint, and their union is what this pipeline wrote from the
+notice. Live on 2026-09-12: 2,951 listings stamped — 38,149 field names
+lot-scoped across 2,939 listings, 46 consensus-only across 12.
+
+A consensus value survives a lot match the rivalry gate **refused** to make:
+it is a fact about the notice, true whichever lot the listing turns out to be.
+A lot-scoped value names one property, so it is only worth as much as the
+`IS_LOT` edge that says which — read `confidence` there. Those 12
+consensus-only listings are exactly the ones where a lot-specific `village` or
+`extent_sqft` would have been a guess, and `clear_unsafe_fields` strips such a
+field from both the node and these lists together, so the provenance never
+names a property the node no longer holds.
+
+That makes "why does this listing say Kannankurichi?" one query:
+
+```cypher
+MATCH (a:AuctionProperty)-[r:IS_LOT]->(l:Lot)<-[:HAS_LOT]-(d:Document)
+WHERE a.auction_id = $aid
+RETURN a.village                                   AS value,
+       'village' IN a.notice_fields_lot            AS lot_scoped,
+       r.method, r.confidence,                     // how sure we are it is this lot
+       l.lot_key, d.filename                       // and which lot, on which notice
+```
+
+The lot and the document are **not** duplicated onto the field. The `IS_LOT`
+edge already names them, and a second copy is a second thing to keep in sync —
+the mistake `AuctionProperty.resolved_lot_key` made before it was retired.
+
+`scripts/backfill_field_provenance.py` stamps listings enriched before the
+split existed. It re-runs the same pure functions rather than deciding
+anything of its own, and keeps a name only where the node actually holds that
+property (`a[k] IS NOT NULL`), so it cannot claim a field some later script
+cleared. On the run above it dropped 0 of 38,195 computed names — the
+recomputation and the graph agree exactly.
+
 **Both geo links are kept on purpose.** After a notice supersedes a scraped
 value, the scraped side stays linked: where the two resolve to different
 villages, that is a scraper-bug or wrong-property-match detector — the same
