@@ -93,3 +93,59 @@ def test_backfill_stamps_only_nodes_without_a_source(session):
         a=f"{_PREFIX}old", b=f"{_PREFIX}new")}
     assert rows[f"{_PREFIX}old"] == ("eauctionsindia", 3, f"{_PREFIX}old", "https://x/old")
     assert rows[f"{_PREFIX}new"] == ("baanknet", 1, None, None)
+
+
+def test_the_spine_is_built_from_bridged_listings(session):
+    """The whole Task 9 path against a real Neo4j: two portals' copies of one
+    auction are loaded, link_listings bridges them, build_spine merges them
+    into one :AuctionEvent with LISTS / DEPICTS, and the event chain stamps
+    it as attempt 1 of a chain of 1. All three scripts read the same NEO4J_*
+    this lane runs on."""
+    from scripts import build_spine as bs
+    from scripts import link_listings as ll
+    from scripts import link_reauctions as lr
+
+    ld.create_constraints(session)
+    day = "2026-09-24T11:00:00"
+    rows = [ld.sanitise(r) for r in (
+        _row(f"{_PREFIX}841207", None, bank_name="E2E Spine Bank", reserve_price_num=4626500.0, auction_start_dt=day,
+             borrower_name="Mr. N. Mariappan", title="House at Tirunelveli, S.No 381/5A, total extent 1215 sq.ft",
+             city="Tirunelveli"),
+        _row(f"{_PREFIX}bn-359826", "baanknet", source_id="359826", source_rank=1, bank_name="E2E Spine Bank",
+             reserve_price_num=4626500.0, auction_start_dt=day, borrower_name="N MARIAPPAN",
+             title="D no 81A, S.No.381 BY 5A, naranammalpuram village, total extent 1215 sqft",
+             possession_type="symbolic", auction_status="live", district="Tirunelveli",
+             downloads_list=[], downloads_found=[],
+             media=[{"url": f"https://cdn/{_PREFIX}spine.jpg", "kind": "image", "is_main": True}]),
+        _row(f"{_PREFIX}be-1", "bankeauctions", source_id="1", source_rank=2, bank_name="E2E Spine Bank",
+             reserve_price_num=9900000.0, auction_start_dt=day, borrower_name="Someone Else"),
+    )]
+    assert ld.run_batch(session, rows) == 3
+    try:
+        assert ll.run() == 0
+        assert bs.run() == 0
+        assert lr.run_events() == 0
+
+        got = session.run(
+            "MATCH (a:AuctionProperty)-[:LISTS]->(e:AuctionEvent) WHERE a.auction_id STARTS WITH $p "
+            "OPTIONAL MATCH (m:Media)-[:DEPICTS]->(e) "
+            "RETURN e.event_id AS eid, e.listing_ids AS ids, e.core_complete AS core, e.has_photos AS photos, "
+            "e.confidence AS conf, e.possession_type AS possession, e.attempt_no AS attempt, e.chain_size AS chain, "
+            "count(DISTINCT m) AS media", p=_PREFIX)
+        by_event = {r["eid"]: r for r in got}
+        merged = next(r for r in by_event.values() if len(r["ids"]) == 2)
+        assert sorted(merged["ids"]) == sorted([f"{_PREFIX}841207", f"{_PREFIX}bn-359826"])
+        assert merged["conf"] == "PROBABLE" and merged["photos"] is True and merged["media"] == 1
+        assert merged["possession"] == "symbolic" and merged["core"] >= 6
+        assert (merged["attempt"], merged["chain"]) == (1, 1)
+        single = next(r for r in by_event.values() if r["ids"] == [f"{_PREFIX}be-1"])
+        assert single["conf"] == "SINGLE" and single["photos"] is False
+
+        bridge = session.run(
+            "MATCH (a:AuctionProperty {auction_id: $a})-[r:SAME_LISTING_AS]->(b:AuctionProperty {auction_id: $b}) "
+            "RETURN r.method AS method, r.confidence AS confidence",
+            a=f"{_PREFIX}bn-359826", b=f"{_PREFIX}841207").single()
+        assert bridge and bridge["method"] in ("identifier", "borrower") and bridge["confidence"] == "PROBABLE"
+    finally:
+        session.run("MATCH (e:AuctionEvent) WHERE any(i IN e.listing_ids WHERE i STARTS WITH $p) DETACH DELETE e", p=_PREFIX)
+        session.run("MATCH (b:Bank {name: 'E2E Spine Bank'}) DETACH DELETE b")

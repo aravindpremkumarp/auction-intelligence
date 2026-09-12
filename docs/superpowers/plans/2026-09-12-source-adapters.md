@@ -181,27 +181,29 @@ New BAANKNET listings average 6.9 of 9 core fields before any notice is read. Th
 
 **Files:** Modify `pipeline/promote_extractions.py`, `api/agent3/identifiers.py`, later a delete script.
 
+Not started in this PR, by design — each step is its own PR after the spine has been built in production once (the chain-derived `attempt_no` from Task 9 is what step 2 reads).
+
 - [ ] Step 1: `skip_parcels` default `True`; nothing new is written.
-- [ ] Step 2: `find_by_identifier` keeps only the Lot path; `attempt_no` reads the chain (done in Task 9).
+- [ ] Step 2: `find_by_identifier` keeps only the Lot path; `attempt_no` reads the chain (the chain itself landed in Task 9).
 - [ ] Step 3, one release later: `MATCH (p:Parcel) DETACH DELETE p` behind a script with `--dry-run`, after confirming no query in `api/` references `:Parcel`.
 
 ## Task 14: docs, orchestrator, CI
 
 **Files:** Modify `README.md`, `.github/workflows/data-freshness.yml`, `scripts/run_weekly_pipeline.py`, `.github/workflows/ci.yml`.
 
-- [ ] Pipeline order everywhere: `harvest_sources → gap_report → load_tn_to_neo4j → upload_downloads_to_r2 → run_pipeline → embed_descriptions`.
-- [ ] `ci.yml` `test` job: add `tests/sources` and `tests/api/test_agent3_ids.py` with the one-line justification the file asks for.
-- [ ] README: three sources, the spine, the nine-field core and its baseline.
+- [x] Pipeline order everywhere: README step list (`prepare_tn_data → harvest_sources → gap_report → load_tn_to_neo4j → upload_downloads_to_r2 → run_pipeline (… → link_reauctions → link_listings → build_spine → event chain) → init_graph_schema`), the weekly orchestrator (stages 3b `harvest_sources --source baanknet --source bankeauctions` and 3c `gap_report`, with the Neo4j env preflight for the report), the data-freshness issue body.
+- [x] `ci.yml` `test` job: `tests/sources` was added with its justification in Task 6; `tests/api/test_agent3_ids.py` is inside `tests/api`, which the job already runs wholesale, so nothing to add. `tests/e2e/test_load_sources.py` runs in the existing `e2e` job.
+- [x] README: "Three sources and the spine" — the three portals, one `:AuctionProperty` per portal listing, the bridge, the spine, the nine-field core and its baseline, and where the design lives.
 
 ## Task 15: Full verification
 
-**Files:** none (verification only).
+**Files:** `tests/e2e/test_load_sources.py` (the real-Neo4j half).
 
-- [ ] `ruff check .` clean; `pytest tests/sources tests/api -q` green; `pytest tests/pipeline/test_match_confidence.py -q` green.
-- [ ] `python scripts/probe_source_apis.py` → both `ADAPTER VIABLE`.
-- [ ] `harvest_sources --source all --limit 20` → three listing files, documents and photos on disk; `gap_report` prints per-portal new / matched / core-fields / photos.
-- [ ] Local Neo4j: load, `link_listings`, `build_spine --dry-run` then real; `MATCH (e:AuctionEvent) RETURN e.core_complete, count(*)` shows a histogram; any SBI / Union Bank row present on two portals has a `SAME_LISTING_AS` edge and one event.
-- [ ] agent3: one row per cluster, `has_photos` populated, prefixed ids survive the answer gate; `GET /auction/bn-…` returns `photos` and `other_listings`; the web detail panel shows them.
+- [x] `ruff check .` clean; `pytest tests/sources tests/scripts tests/pipeline/test_match_confidence.py tests/pipeline/test_run_pipeline.py` green locally and in CI; `tests/api` green in CI (locally, the touched files pass; the rest needs modules this sandbox lacks).
+- [x] `python scripts/probe_source_apis.py` → both `ADAPTER VIABLE` (re-run at the end of the work, see the PR).
+- [x] `harvest_sources --limit 20` for both portals → two listing files, 79 documents, 94 photos on disk; `gap_report` printed per-portal new / matched / core-fields / photos (Task 7).
+- [x] Neo4j load, `link_listings`, `build_spine`, event chain: no Docker here and Bolt is blocked, so this runs in CI's `e2e` job (`neo4j:5.26`) — `test_the_spine_is_built_from_bridged_listings` loads an eauctionsindia copy and a BAANKNET copy of one auction plus an unrelated listing, runs the three scripts for real, and checks one PROBABLE event with both listings, `DEPICTS` to the photo, `core_complete ≥ 6`, the bridge edge, and `attempt_no` / `chain_size` stamps. Against the live Aura the same scripts ran `--dry-run` only (6,327 listings → 6,327 events; nothing written). A production build with real cross-portal clusters is the follow-up after this PR merges.
+- [x] agent3: one row per cluster (the standing predicate), `has_photos` on every row, prefixed ids survive the answer gate, `GET /auction/{id}` returns `photos` and `other_listings`, the web detail panel renders them — all unit-tested; a browser check needs a deployed graph that holds a `bn-` listing, which does not exist yet.
 
 ## Self-Review (completed by plan author)
 

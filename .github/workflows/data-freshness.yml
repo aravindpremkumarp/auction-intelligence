@@ -50,8 +50,9 @@ jobs:
             const body = [
               detail,
               "",
-              "Refresh steps (workstation): scrape → prepare_tn_data → load_tn_to_neo4j →",
-              "upload_downloads_to_r2 → run_pipeline → embed_descriptions → link_reauctions",
+              "Refresh steps (workstation): scrape → prepare_tn_data → harvest_sources → gap_report →",
+              "load_tn_to_neo4j → upload_downloads_to_r2 → run_pipeline (incl. link_reauctions,",
+              "link_listings, build_spine) → embed_descriptions",
               "(see README, 'Data & enrichment pipeline').",
             ].join("\n");
             const { data: issues } = await github.rest.issues.listForRepo({
