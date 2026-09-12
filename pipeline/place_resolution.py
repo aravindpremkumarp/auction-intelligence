@@ -78,6 +78,15 @@ DISTRICT_ALIASES = {
     "conjeevaram": "Kancheepuram",
     "chengalpet": "Chengalpattu",
     "chingleput": "Chengalpattu",
+    # The same name again, spelled as the notices spell it. Similarity cannot
+    # reach "Chengalpattu" from these, and no other Tamil Nadu district is a
+    # candidate for any of them — which is the bar for adding one here.
+    # Deliberately NOT added: "Chengalpattu MGR", the composite district that
+    # split into Kancheepuram and Tiruvallur in 1997. It is not this district.
+    "chenglepet": "Chengalpattu",
+    "chengalpeta": "Chengalpattu",
+    "chengalput": "Chengalpattu",
+    "chengpaltu": "Chengalpattu",
     "madras": "Chennai",
     "tirunelveli kattabomman": "Tirunelveli",
     "virudunagar": "Virudhunagar",
@@ -96,6 +105,24 @@ DISTRICT_ALIASES = {
     "pattukottai": "Thanjavur",
     "tindivanam": "Villupuram",
     "udumalaipet": "Tiruppur",
+}
+
+# Taluk spellings the fuzzy floor cannot reach. Stated for the same reason as
+# the district ones — aliases before similarity — but the bar is higher here,
+# because a taluk names its own district: a wrong alias does not merely
+# misspell a place, it files the property in the wrong district entirely.
+#
+# So an entry earns its place only when the notice's own village confirms it.
+# "Kodavasal" scores 88.9 against "Kudavasal" and so misses FUZZY_MIN by 1.1 —
+# and the village beside it, Manavalanallur, is a real village in Kudavasal
+# taluk. That is the evidence, not the similarity score.
+#
+# 264 listings name a taluk scoring 80-90 against a real one. Most are the same
+# kind of variant, but "Tiruppur"/"Thiruppattur" and "Tharamangalam"/
+# "Karimangalam" score in that band too and are different places, so the rest
+# belong in the human-decision queue rather than here.
+TALUK_ALIASES = {
+    "kodavasal": "Kudavasal",
 }
 
 # Chennai is fully urban and keeps no revenue villages, so 12 of its taluks
@@ -256,6 +283,15 @@ class Gazetteer:
         """``(taluk, district)`` for a raw string — the district comes free."""
         if not (value or "").strip():
             return None
+        # Aliases before similarity, as with districts. An alias naming a taluk
+        # this gazetteer does not hold falls through to the normal path rather
+        # than returning None, so a stale entry degrades to today's behaviour
+        # instead of blanking a taluk that would otherwise have matched.
+        alias = TALUK_ALIASES.get(re.sub(r"\s+", " ", value.lower().strip()))
+        if alias:
+            hit = self._t.get(normalize_place(alias))
+            if hit:
+                return hit
         key = normalize_place(value)
         if key in self._t and key not in self._t_dupes:
             return self._t[key]
