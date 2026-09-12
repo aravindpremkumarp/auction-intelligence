@@ -153,10 +153,10 @@ New BAANKNET listings average 6.9 of 9 core fields before any notice is read. Th
 
 ## Task 10: agent3 stage 1 — ids
 
-**Files:** Modify `api/agent3/common.py`, `api/agent3/artifacts.py`, `api/chat/v2/middleware/answer_gate.py`; Create `tests/api/test_agent3_ids.py`.
+**Files:** Create `api/ids.py`, `tests/api/test_agent3_ids.py`; Modify `api/agent3/common.py`, `api/agent3/artifacts.py`, `api/chat/v2/middleware/answer_gate.py`, `api/chat/panel.py`.
 
-- [ ] One `ID_LIKE` in `common.py` matching bare six digits *or* `(?:bn|be)-\d{4,8}`; `guarded_ids` applies the band and currency guards to bare ids only; `artifacts.py` and `answer_gate.py` import it instead of carrying copies.
-- [ ] Tests: `bn-358394` and `841207` both extracted; `₹6,50,000` and `bn-1234` inside a price context still rejected; existing gate tests unchanged.
+- [x] One `ID_LIKE` — in a new stdlib-only `api/ids.py` rather than `common.py`, because `answer_gate.py` and `panel.py` sit on the v2 request path and must not import the agent stack; `common.py` re-exports it so `gates.ID_LIKE` / `gates.guarded_ids` still resolve. Matches bare six digits *or* `(?:bn|be)-\d{4,8}` (case-insensitive, normalised to lowercase, bounded so `abn-1234` / `bn-1234-5` are not ids); `guarded_ids` applies the band and currency guards to bare ids only; `all_ids` is the loose variant `artifacts.cited_ids` and the v2 gate use; `is_portal_id` is the whole-string test. `panel.py` accepts the prefix in its own regex and lowercases tokens.
+- [x] Tests: `bn-358394` and `841207` both extracted in order; `₹650000` / `750000 rupees` / `123456` still rejected while `bn-1234` beside a price is kept; glued prefixes rejected; the agent3 gate grounds a prefixed id from tool output and catches an invented one; the v2 gate and the panel read prefixed ids; the re-exports are the same objects. Existing gate and middleware tests unchanged and green.
 
 ## Task 11: agent3 stage 2 — read through the canonical listing
 
