@@ -1,14 +1,26 @@
 # Auction graph schema
 
-The Neo4j model that unifies two sources: **scraped listings** (2,822
-`:AuctionProperty`) and **LangExtract notice extractions** (1,530 of 1,532
-`:Document` extracted; counts verified 2026-08-14).
+The Neo4j model that unifies two sources: **scraped listings**
+(2,964 `:AuctionProperty`) and **LangExtract notice extractions**
+(1,625 of 1,625 `:Document` extracted).
 
-> **Status: designed, not yet built.** `:Lot` and `:Parcel` are 0 nodes in the
-> live graph — the promotion below has never been run against it. Everything
-> from here to *Provenance* describes the target model and the migration that
-> creates it, not what a query would find today. `:AuctionProperty`,
-> `:Document` and the existing geography edges are live and unchanged.
+> **Status: live.** The promotion runs as stages 4.4 / 4.5 of
+> `pipeline/run_pipeline.py`. Counts below were read off the live graph on
+> 2026-09-12:
+>
+> | | nodes | | edges |
+> |---|---|---|---|
+> | `:Lot` | 3,393 | `:Document`-`HAS_LOT`→`:Lot` | 3,393 |
+> | `:Parcel` | 3,265 | `:AuctionProperty`-`IS_LOT`→`:Lot` | 2,975 |
+> | `:Identifier` | 11,113 | `IS_PARCEL` (both ends) | 16,144 |
+> | `:ResolutionDecision` | 3,077 | `:SAME_PROPERTY_AS` | 80 |
+>
+> 3 listings hold no `IS_LOT` edge; 94 parcels group more than one lot.
+> 1,423 lots resolved to a `:RevenueVillage`.
+>
+> Where a number further down is dated or sampled, it is labelled as such —
+> those are drafting-time measurements kept for the reasoning they support,
+> not current totals.
 
 One rule decides every modelling call: *anything you search or join by becomes
 a node; everything else is a property.*
@@ -21,15 +33,26 @@ a node; everything else is a property.*
 
 - **`:Lot`** — the unit LangExtract actually extracts. A notice can sell many
   lots; the old flat model had nowhere to put them. Key: `filename#lot_index`.
-- **`:Parcel`** — the land itself. Replaces `:SAME_PROPERTY_AS`, which as a
-  pairwise guess permitted the contradiction A=B, B=C, A≠C. A shared parcel
-  cannot. It also makes price history a query: every `:Auction` on one parcel,
-  in date order.
+- **`:Parcel`** — the land itself. Meant to supersede `:SAME_PROPERTY_AS`,
+  which as a pairwise guess permitted the contradiction A=B, B=C, A≠C. A
+  shared parcel cannot. It also makes price history a query: every `:Auction`
+  on one parcel, in date order. The old edge is still written (stage 5,
+  `scripts/link_reauctions.py`, 80 edges live) and has not been retired — read
+  parcels, not `SAME_PROPERTY_AS`, for new work.
 - **`:AuctionProperty`** — untouched, still authoritative for the website.
   Notice values live on `:Lot` / `:Auction`, so a notice/website disagreement
   stays visible instead of one silently overwriting the other.
 
 ## Running it
+
+Normally this runs as part of the orchestrator, which also classifies notices,
+applies the extractions to `:AuctionProperty` and links re-auctions:
+
+```bash
+python -m pipeline.run_pipeline               # stages 1.3, 4.4, 4.5, 5, 6
+```
+
+The three steps this document describes, run on their own:
 
 ```bash
 python -m scripts.init_graph_schema          # constraints + indexes (additive)
@@ -187,15 +210,72 @@ frontage remain unreconstructable for most lots.
 
 ## Provenance
 
-Promotion is gated on `extraction_json IS NOT NULL`, **not** on review status —
-all 1,530 extracted documents are still `extraction_review_status = 'pending'`
-(verified 2026-08-14), so gating on `'verified'` would promote nothing. Verification is instead
-recorded per node (`verified_at` / `verified_by`) so a trusted-subset query
-stays possible.
+Promotion is gated on `extraction_json IS NOT NULL`, **not** on review status.
+The gate was written when every extracted document was still
+`extraction_review_status = 'pending'` and gating on `'verified'` would have
+promoted nothing; review has since caught up — 1,323 verified against 302
+pending on 2026-09-12 — so a verified-only gate is now a real option rather
+than an empty one. It remains ungated by choice: a pending document is
+promoted, and verification is recorded per node (`verified_at` /
+`verified_by`) so a trusted-subset query stays possible.
 
 Geography edges carry `source` (`langextract` | `scraped`) and `resolved_at`,
 which makes re-resolution a query rather than a re-migration as extraction
 coverage grows.
+
+### `IS_LOT` carries how the listing was matched
+
+The edge **is** the resolution — `AuctionProperty.resolved_lot_key` was
+retired (0 live) because a key is only a way to find a node, and `lot_index`
+is the extraction model's own numbering, so every stored key was a guess that
+a re-extraction silently invalidated.
+
+`IS_LOT.method` records which signal decided the match, and `linked_at` when.
+`pipeline/apply_extractions._EXPLAIN_TEXT` holds the reader-facing sentence
+for each. Live distribution, 2026-09-12:
+
+| method | edges | |
+|---|---|---|
+| `exact` | 1,772 | reserve price matches the lot exactly |
+| `single` | 991 | the notice sells one lot |
+| `borrower` | 64 | borrower name separated lots that tied on money |
+| `portal_aid` | 53 | the extraction's own claim, admitted only unopposed |
+| `identifier` | 42 | a survey/door number in the listing names one lot |
+| `decision` | 21 | a human picked it in the review UI |
+| `emd` | 18 | EMD matched (the portal showed no reserve price) |
+| `tolerance` | 11 | reserve price within 1% |
+| `description` | 3 | listing text reads much more like this lot |
+
+`remainder` — the last unplaced listing paired with the last free lot — is in
+the vocabulary but has produced **no live edge**, because `sole_claimants`
+withholds a match a second listing also claims.
+
+The tiers are not equally strong, so `IS_LOT.confidence` grades them —
+`pipeline/match_confidence.py` is the only table, read by both writers and by
+`scripts/backfill_is_lot_confidence.py`:
+
+| confidence | methods | edges |
+|---|---|---|
+| `CONFIRMED` | `exact`, `single`, `decision` | 2,784 |
+| `PROBABLE` | `identifier`, `emd`, `emd_tolerance`, `tolerance` | 71 |
+| `INFERRED` | `borrower`, `portal_aid`, `description`, `remainder` | 120 |
+| `UNKNOWN` | anything unrecognised | 0 |
+
+The two fields are deliberately separate. `confidence` does not encode the
+*reason* for confidence — that is what `method` is for, and collapsing them
+would lose the difference between a deterministic price match and a person who
+opened the notice and picked. Both read `CONFIRMED`; only `method` says which.
+
+An unrecognised method grades `UNKNOWN`, never `CONFIRMED`: a future tier must
+not become high-confidence because someone forgot the table. The write path
+degrades quietly (it runs inside a batch and must not abort one); the loud half
+is `tests/pipeline/test_match_confidence.py`, which fails CI when a reason
+exists in the vocabulary with no grade.
+
+An automated verdict is also mirrored as a `(:ResolutionDecision {kind:
+'lot-match'})` (2,940 system, 23 human) so the review UI can re-apply a
+human's pick; a system decision whose match stops holding is deleted with the
+edge, a human's never is.
 
 **Both geo links are kept on purpose.** After a notice supersedes a scraped
 value, the scraped side stays linked: where the two resolve to different

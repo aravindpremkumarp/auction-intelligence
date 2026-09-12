@@ -66,6 +66,7 @@ from api.neo4j_client import run_query, run_read_query
 from pipeline.obs import get_logger
 from pipeline.lot_windows import renumber_window_lots
 from pipeline.area_agreement import check_match as check_area_match
+from pipeline.match_confidence import confidence_for
 from pipeline.price_agreement import check_document
 from pipeline.property_taxonomy import (
     asset_category, classify_portal_type, classify_lot_type,
@@ -1252,6 +1253,7 @@ def write_lot_matches(rows: list[dict]) -> int:
     for batch in chunked(rows, WRITE_CHUNK):
         for row in batch:
             row["decision_key"] = lot_match_key(row["aid"], row["lot_key"])
+            row["confidence"] = confidence_for(row["reason"])
             row["payload"] = json.dumps(
                 {"auction_id": row["aid"], "lot_key": row["lot_key"],
                  "method": row["reason"]}, ensure_ascii=False)
@@ -1269,7 +1271,7 @@ def write_lot_matches(rows: list[dict]) -> int:
             MATCH (l:Lot {lot_key: row.lot_key})
             MERGE (a)-[r:IS_LOT]->(l)
               ON CREATE SET r.linked_at = datetime($at)
-            SET r.method = row.reason
+            SET r.method = row.reason, r.confidence = row.confidence
             RETURN a.auction_id AS aid
         """, {"rows": batch, "at": now_iso})
         # A listing IS one lot per notice, so writing this edge retires any
