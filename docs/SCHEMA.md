@@ -37,8 +37,14 @@ a node; everything else is a property.*
   which as a pairwise guess permitted the contradiction A=B, B=C, A≠C. A
   shared parcel cannot. It also makes price history a query: every `:Auction`
   on one parcel, in date order. The old edge is still written (stage 5,
-  `scripts/link_reauctions.py`, 80 edges live) and has not been retired — read
-  parcels, not `SAME_PROPERTY_AS`, for new work.
+  `scripts/link_reauctions.py`, 80 edges live).
+  > **Retiring (decided 2026-09-12).** A wrong survey-number join glues two
+  > properties together and `attempt_no` sat on top of it. Re-auction
+  > history moves to a chain of `:AuctionEvent`s (see *Sources and the
+  > spine*). Order: stop writing (`promote_extractions` `skip_parcels`
+  > default), stop reading (`find_by_identifier` keeps its Lot path;
+  > `attempt_no` reads the chain), delete last, one release later. Do not
+  > build new work on `:Parcel`.
 - **`:AuctionProperty`** — untouched, still authoritative for the website.
   Notice values live on `:Lot` / `:Auction`, so a notice/website disagreement
   stays visible instead of one silently overwriting the other.
@@ -353,7 +359,88 @@ but it still catches the hard failure, where the model cannot find them.
 
 ---
 
+## Sources and the spine
+
+Design: `docs/superpowers/specs/2026-09-12-source-adapters-design.md`.
+Status: agreed 2026-09-12; landing in stages (plan:
+`docs/superpowers/plans/2026-09-12-source-adapters.md`). Everything in this
+section that is not yet in the graph is marked *planned*.
+
+Listings now come from three portals through one adapter contract
+(`sources/`). Each portal's record stays as its own branch; a derived hub
+carries the merged view the agent reads.
+
+```
+(:AuctionEvent {event_id, bank, reserve_price_num, auction_start_dt, district,
+                property_type, possession_type, extent_sqft, extent_kind,
+                boundaries_json, measurement_json, has_photos,
+                core_complete: 0..9, provenance: {field: branch},
+                confidence, attempt_no, built_at})                      planned
+   ◄─[:LISTS]────── (:AuctionProperty {auction_id, source, source_id, source_url, source_rank})
+   ◄─[:ANNOUNCES]── (:Document {filename, source, doc_role, content_sha256})─[:HAS_LOT]─►(:Lot)
+   ◄─[:ANNOUNCES]── (:Document {doc_role: "publication"})                newspaper cutting
+   ◄─[:DEPICTS]──── (:Media {url, kind: image|video, is_main, source, content_sha256, r2_key})   planned
+
+(:AuctionEvent)-[:SAME_PROPERTY_AS {method, confidence}]-(:AuctionEvent)   re-auction chain, planned
+(:AuctionProperty)-[:SAME_LISTING_AS {method, confidence, linked_at}]-(:AuctionProperty)   bridge, planned
+```
+
+**`:AuctionProperty` gains** `source` ∈ {`eauctionsindia`, `baanknet`,
+`bankeauctions`}, `source_id` (the portal's own id), `source_url`,
+`source_rank` (baanknet 1, bankeauctions 2, eauctionsindia 3 — lower wins a
+merge), `fetched_at`, `last_seen_at`, and the portal-supplied
+`portal_district`, `pincode`, `borrower_address`, `possession_type`,
+`extent_raw`, `bid_increment_num`, `inspection_start_dt`,
+`inspection_end_dt`, `auction_status`, `photo_urls`. Existing nodes are
+backfilled `source="eauctionsindia"`, `source_rank=3`.
+
+**Ids.** eauctionsindia ids stay the bare six-digit URL tail. New portals are
+prefixed — `bn-<auctionId>` (BAANKNET), `be-<rowId>` (bankeauctions) — because
+their native ids are six digits too and would collide with each other and
+with the 600 000–999 999 band `api/agent3/common.py` treats as a portal id.
+
+**`:Document` gains** `source` and `doc_role` ∈ {`sale_notice`, `tender`,
+`terms`, `affidavit`, `publication`, `property_details`, `proclamation`,
+`bundle`, `unknown`} — set by the adapter from the portal's label or the
+bundle file name, never by a model. It stays MERGEd on bare `filename`, so
+adapters emit names unique across listings: `bn-379330.pdf`,
+`be-237860-property-details.pdf`.
+
+**The nine-field property core** — what makes a property worth looking at,
+and what `core_complete` counts. Baseline on the live graph, 2026-09-12
+(2,964 listings; "upcoming" = the 91 with an auction ahead):
+
+| # | field | all | upcoming | source today |
+|---|---|---|---|---|
+| 1 | property type | 100% | 100% | portal + notice |
+| 2 | location (district) | 100% | 100% | portal + notice (village/taluk 95%) |
+| 3 | extent (UDS / built-up / total) | 94% | 100% | notice only |
+| 4 | measurement (boundary lengths) | 40% | 59% | notice only |
+| 5 | possession type | 61% | 76% | notice only; 1,377 lots "not stated" |
+| 6 | boundaries (all four sides) | 80% | 82% | notice only |
+| 7 | reserve price | 100% | 100% | every portal |
+| 8 | auction date | 100% | 100% | every portal |
+| 9 | has photos | 0% | 0% | — (BAANKNET: 100% of records) |
+
+26% of listings have fields 1–8; average 6.7 of 8.
+
+**Merge ranking, by field type.** Property facts (1–6, 9; parties,
+encumbrance): notice extraction > BAANKNET > bankeauctions > eauctionsindia.
+Auction lifecycle (dates, status, extension, EMD window): BAANKNET >
+bankeauctions > notice > eauctionsindia. Price and EMD: portal and notice
+agree → CONFIRMED; disagree → keep the notice, flag for review.
+
+**Re-auctions.** `scripts/link_reauctions.py` already refuses same-calendar-day
+pairs, so two portals' copies of one auction never become `SAME_PROPERTY_AS`;
+that edge moves to link *events*, and `attempt_no` becomes the position in
+the chain. This replaces `Parcel`'s attempt numbering.
+
+---
+
 ## Parcel resolution is a second pass
+
+> **Retiring** — see *Sources and the spine* above. Kept for what the live
+> graph still holds; do not extend.
 
 You cannot tell which lots share a parcel until every identifier in the corpus
 exists, so phase C runs after all lots are promoted:

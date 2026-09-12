@@ -61,27 +61,27 @@
 
 **Files:** Modify `docs/SCHEMA.md`.
 
-- [ ] Add a "Sources and the spine" section: `source*` props on `:AuctionProperty`, id prefixes, `:AuctionEvent` (fields, `provenance`, `core_complete`), `:Media`, `Document.doc_role`, `LISTS` / `ANNOUNCES` / `DEPICTS`, `SAME_LISTING_AS` (bridge), `SAME_PROPERTY_AS` now between events.
-- [ ] Mark `:Parcel` as *retiring* with the three-step order; leave the existing section in place until step 3.
-- [ ] Record the nine-field core with today's baseline numbers (from the spec) so the KPI has a starting point in the doc.
+- [x] Add a "Sources and the spine" section: `source*` props on `:AuctionProperty`, id prefixes, `:AuctionEvent` (fields, `provenance`, `core_complete`), `:Media`, `Document.doc_role`, `LISTS` / `ANNOUNCES` / `DEPICTS`, `SAME_LISTING_AS` (bridge), `SAME_PROPERTY_AS` now between events.
+- [x] Mark `:Parcel` as *retiring* with the three-step order; leave the existing section in place until step 3.
+- [x] Record the nine-field core with today's baseline numbers (from the spec) so the KPI has a starting point in the doc.
 
 ## Task 2: `sources/base.py`, `normalize.py`, `http.py`, `download.py`
 
 **Files:** Create the four modules; Create `tests/sources/test_normalize.py`, `tests/sources/test_download.py`.
 
-- [ ] Move `clean_price` / `parse_date` out of `scripts/prepare_tn_data.py:30-75` into `sources/normalize.py`; import them back into `prepare_tn_data.py` so nothing else changes yet.
-- [ ] `parse_date` accepts `DD-MM-YYYY HHMM AM/PM` (existing), ISO 8601 with `Z`, `15 Sep 2026 11:00` and `12 Sep 2026`; returns naive ISO `YYYY-MM-DDTHH:MM:SS` in IST for all four so `load_tn_to_neo4j`'s `datetime()` cast is unchanged.
-- [ ] `make_auction_id(prefix, native)`; `doc_role_for(label)` keyword map (`sale notice|proclamation → sale_notice`, `tender`, `terms`, `affidavit`, `property details → property_details`, `publication|dinakaran|hindu|express|<paper>-<city>-<date> → publication`, else `unknown`).
-- [ ] `sources/download.py`: `download(url, dest, *, referer=None)` with `.part` + `Content-Length` verification mirroring `phase2_scrape_details.py:87-163`; `extract_zip_members(zip_path, dest_dir, rename)`.
-- [ ] Tests: every date format; price with `₹`, mojibake `â‚¹`, commas; `doc_role_for` on the seven bundle names from the recon; a `FakeResponse` truncation test like `tests/scrapers/test_download_file.py`.
+- [x] Move `clean_price` / `parse_date` out of `scripts/prepare_tn_data.py:30-75` into `sources/normalize.py`; import them back into `prepare_tn_data.py` so nothing else changes yet.
+- [x] `parse_date` accepts `DD-MM-YYYY HHMM AM/PM` (existing), ISO 8601 with `Z`, `15 Sep 2026 11:00` and `12 Sep 2026`; returns naive ISO `YYYY-MM-DDTHH:MM:SS` in IST for all four so `load_tn_to_neo4j`'s `datetime()` cast is unchanged.
+- [x] `make_auction_id(prefix, native)`; `doc_role_for(label)` keyword map (`sale notice|proclamation → sale_notice`, `tender`, `terms`, `affidavit`, `property details → property_details`, `publication|dinakaran|hindu|express|<paper>-<city>-<date> → publication`, else `unknown`).
+- [x] `sources/download.py`: `download(url, dest, *, referer=None)` with `.part` + `Content-Length` verification mirroring `phase2_scrape_details.py:87-163`; `extract_zip_members(zip_path, dest_dir, rename)`.
+- [x] Tests: every date format; price with `₹`, mojibake `â‚¹`, commas; `doc_role_for` on the seven bundle names from the recon; a `FakeResponse` truncation test like `tests/scrapers/test_download_file.py`.
 
 ## Task 3: eauctionsindia adapter + shim
 
 **Files:** Create `sources/eauctionsindia.py`, `tests/sources/test_eauctionsindia.py`; Modify `scripts/prepare_tn_data.py`.
 
-- [ ] `harvest()` yields records from `data/live_eauction_data.jsonl`; `normalize()` reproduces `prepare_tn_data.py:120-206` exactly (both key spellings, TN filter, `unwanted_cats`), plus `source`, `source_id`, bare `auction_id`, `documents` with `doc_role=unknown`, empty `media`.
-- [ ] `prepare_tn_data.py` becomes: adapter → `to_row()` → `data/tn_auction_data.jsonl` + `data/listings/eauctionsindia.jsonl`; download validation unchanged.
-- [ ] Regression: run old and new on the same input; `diff` must be empty except added keys. Keep the old script under `scripts/legacy/prepare_tn_data_v1.py` for that comparison, delete in a later release.
+- [x] `harvest()` yields records from `data/live_eauction_data.jsonl`; `normalize()` reproduces `prepare_tn_data.py:120-206` exactly (both key spellings, TN filter, `unwanted_cats`), plus `source`, `source_id`, bare `auction_id`, `documents` with `doc_role=unknown`, empty `media`.
+- [x] `prepare_tn_data.py` becomes: adapter → `to_row()` → `data/tn_auction_data.jsonl` + `data/listings/eauctionsindia.jsonl`; download validation unchanged.
+- [x] Regression: run old and new on the same input; `diff` must be empty except added keys. Keep the old script under `scripts/legacy/prepare_tn_data_v1.py` for that comparison, delete in a later release.
 
 ## Task 4: BAANKNET adapter
 
