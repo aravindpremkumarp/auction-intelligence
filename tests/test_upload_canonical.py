@@ -30,7 +30,7 @@ def test_reuses_canonical_when_object_exists(monkeypatch):
     seen: dict = {}
     monkeypatch.setattr(up, "upsert_document", lambda **kw: seen.update(kw))
 
-    def _boom(fn):
+    def _boom(fn, source=None):
         raise AssertionError("must not touch local files on the reuse path")
     monkeypatch.setattr(up, "locate_local_file", _boom)
 
@@ -52,7 +52,7 @@ def test_falls_through_and_reuploads_when_canonical_object_missing(monkeypatch, 
 
     local = tmp_path / "x.jpg"
     local.write_bytes(b"img")
-    monkeypatch.setattr(up, "locate_local_file", lambda fn: local)
+    monkeypatch.setattr(up, "locate_local_file", lambda fn, source=None: local)
 
     uploaded: dict = {}
     def _upload(path, key, content_type):

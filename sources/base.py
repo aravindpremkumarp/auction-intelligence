@@ -24,6 +24,17 @@ SOURCE_RANK: dict[str, int] = {
     "eauctionsindia": 3,
 }
 
+#: Each portal's id prefix. eauctionsindia ids stay bare so URLs, watchlists
+#: and trackers keep working; the others are prefixed so their six-digit
+#: native ids cannot collide with those or with each other. Adapters carry
+#: the same value as ``id_prefix``; the loader and R2 upload read it from
+#: here so they never need to import an adapter.
+ID_PREFIX: dict[str, str] = {
+    "eauctionsindia": "",
+    "baanknet": "bn-",
+    "bankeauctions": "be-",
+}
+
 #: What a document *is*, decided by the adapter from the portal's own label or
 #: the bundle file name — never by a model. ``sale_notice`` is the one the
 #: OCR/extraction path is fed by; ``publication`` is the newspaper branch.

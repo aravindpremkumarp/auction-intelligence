@@ -379,7 +379,10 @@ carries the merged view the agent reads.
    ◄─[:LISTS]────── (:AuctionProperty {auction_id, source, source_id, source_url, source_rank})
    ◄─[:ANNOUNCES]── (:Document {filename, source, doc_role, content_sha256})─[:HAS_LOT]─►(:Lot)
    ◄─[:ANNOUNCES]── (:Document {doc_role: "publication"})                newspaper cutting
-   ◄─[:DEPICTS]──── (:Media {url, kind: image|video, is_main, source, content_sha256, r2_key})   planned
+   ◄─[:DEPICTS]──── (:Media {url, kind: image|video, is_main, label, source,        planned
+                             content_sha256, r2_key, public_url})
+(:AuctionProperty)-[:HAS_MEDIA]->(:Media)   loader writes url/kind/is_main/label/source;
+                                            upload_downloads_to_r2 fills sha/r2_key/public_url for live listings' photos
 
 (:AuctionEvent)-[:SAME_PROPERTY_AS {method, confidence}]-(:AuctionEvent)   re-auction chain, planned
 (:AuctionProperty)-[:SAME_LISTING_AS {method, confidence, linked_at}]-(:AuctionProperty)   bridge, planned
