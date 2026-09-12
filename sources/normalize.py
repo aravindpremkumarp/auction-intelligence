@@ -117,9 +117,14 @@ _NEWSPAPERS = (
     "financial express", "business standard", "business line", "businessline",
     "economic times", "deccan chronicle", "deccan herald", "mint",
 )
-# '<lender>-<paper>-<city>-<dd>-<mm>-<yyyy>' — how bankeauctions names a
-# newspaper cutting inside the NIT bundle.
+# Newspaper cuttings inside bankeauctions' NIT bundle come named three ways
+# (all seen in the 2026-09-12 harvest): '<lender>-<paper>-<city>-<dd>-<mm>-<yyyy>',
+# '<PAPER ABBR>-<CITY>-<lender>…' (BS = Business Standard, DK = Dinakaran,
+# FE = Financial Express), and an upload id + '<The-Paper-Name>-<city>-<date>-page-N'.
 _PUBLICATION_NAME = re.compile(r"^[^-]+-[^-]+-[^-]+-\d{2}-\d{2}-\d{4}(\.pdf)?$", re.IGNORECASE)
+_PAPER_ABBR = re.compile(r"^(?:\d+_)*(bs|fe|dk|dm|dt|toi|tnie|nie|et|dh|dc|ht|ie)-", re.IGNORECASE)
+# '<borrower name> Sale.pdf' — a sale notice filed under the borrower.
+_BORROWER_SALE = re.compile(r"\bsale$", re.IGNORECASE)
 
 
 def doc_role_for(label: str | None) -> str:
@@ -128,7 +133,8 @@ def doc_role_for(label: str | None) -> str:
         return "unknown"
     text = label.strip()
     low = re.sub(r"\.pdf$", "", text.lower()).strip()
-    low_sp = low.replace("_", " ")
+    low_sp = re.sub(r"[_\-]+", " ", low)
+    low_sp = re.sub(r"^(?:\d+ )+", "", low_sp)  # upload-id prefixes: '34534260 20260817120710 …'
 
     if "property detail" in low_sp:
         return "property_details"
@@ -136,13 +142,13 @@ def doc_role_for(label: str | None) -> str:
         return "affidavit"
     if "terms" in low_sp and "condition" in low_sp:
         return "terms"
-    if "publication" in low_sp or "paper" in low_sp or _PUBLICATION_NAME.match(text):
+    if "publication" in low_sp or "paper" in low_sp or _PUBLICATION_NAME.match(text) or _PAPER_ABBR.match(low):
         return "publication"
     if any(p in low_sp for p in _NEWSPAPERS):
         return "publication"
     if "proclamation" in low_sp:
         return "proclamation"
-    if "notice" in low_sp:
+    if "notice" in low_sp or _BORROWER_SALE.search(low_sp):
         return "sale_notice"
     if "tender" in low_sp or low_sp.startswith("nit"):
         return "tender"

@@ -108,7 +108,7 @@
 - [x] `--source all|baanknet|bankeauctions|eauctionsindia --state "Tamil Nadu" --limit N --no-download --no-media`.
 - [x] Writes `data/raw/<source>/<YYYY-MM-DD>.jsonl` (verbatim, append) and `data/listings/<source>.jsonl` (rewritten per run); downloads documents to `downloads/<source>/`; photos of *live* listings to `downloads/<source>/media/`.
 - [x] Prints per source: rows, live rows, documents fetched, photos fetched, failures. Exit non-zero if a source yields zero rows.
-- [ ] Run `--limit 20` against both live portals; keep the summary in the PR body.
+- [x] Run `--limit 20` against both live portals; keep the summary in the PR body.
 
 ## Task 7: matcher + gap report
 

@@ -98,6 +98,13 @@ def test_make_auction_id():
     # the Hinduja bundle
     ("Md Mustafa Auction Notice with receipts.pdf", "sale_notice"),
     ("Vinothkumar P Auction Notice with receipts.pdf", "sale_notice"),
+    # names from the 2026-09-12 --limit 20 harvest (Grihum, Dharmapuri bundles)
+    ("BS-CHENNAI-PRUDENT-GRIHUM.pdf", "publication"),                       # Business Standard
+    ("DK-COIMBATORE-GRIHUM-NIDO.pdf", "publication"),                        # Dinakaran
+    ("20260817120710_The-New-Indian-Express-Dharmapuri-15-08-2026-page-6.pdf", "publication"),
+    ("20260817122711_The-New-Indian-Express-Dharmapuri-15-08-2026-page-11 (1).pdf", "publication"),
+    ("34534260_20260817120710_Thambi Theneer Sale.pdf", "sale_notice"),
+    ("28220154_20260817122711_Vijay Tyres Sale.pdf", "sale_notice"),
     # bankeauctions detail-page labels
     ("Tender Documents", "tender"),
     ("Annexure 2/Details of Bidders", "unknown"),
