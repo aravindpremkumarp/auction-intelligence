@@ -139,15 +139,17 @@ New BAANKNET listings average 6.9 of 9 core fields before any notice is read. Th
 
 ## Task 9: spine
 
-**Files:** Create `sources/merge.py`, `scripts/build_spine.py`, `scripts/link_listings.py`, `tests/sources/test_merge.py`; Modify `pipeline/run_pipeline.py`, `scripts/link_reauctions.py`, `api/places.py`.
+**Files:** Create `sources/merge.py`, `scripts/build_spine.py`, `scripts/link_listings.py`, `tests/sources/test_merge.py`, `tests/sources/test_build_spine.py`, `tests/scripts/test_link_listings_and_events.py`; Modify `pipeline/run_pipeline.py`, `scripts/link_reauctions.py`, `api/places.py`, `sources/match.py` (`extract_extent`).
 
-- [ ] `merge_event(cluster)`: per-field ranking from Decision 5; `provenance`; price/EMD `agreement`; `has_photos`; `core_complete` 0–9; deterministic `event_id`.
-- [ ] `build_spine.py`: fetch branches + `SAME_LISTING_AS` clusters, drop all `:AuctionEvent`, recreate nodes and `LISTS` / `ANNOUNCES` / `DEPICTS`; idempotent; `--dry-run` prints counts and the `core_complete` histogram.
-- [ ] `link_listings.py`: mirrors `link_reauctions.py:564-602`, writes `SAME_LISTING_AS {method, confidence, linked_at}` bidirectional.
-- [ ] `link_reauctions.py`: candidates become events; same-day rule kept; `attempt_no` and `previous_reserve` stamped along the chain.
-- [ ] `run_pipeline.py`: stage 5a `link_listings`, stage 5b `build_spine`, after `link_reauctions`.
-- [ ] `api/places.py::district_effective` → `coalesce(a.revenue_district, a.portal_district, city.name)`.
-- [ ] Tests: ranking picks notice over portal for extent and portal over notice for auction status; `has_photos` true with one image media; `core_complete` counts nine; same input → same `event_id`.
+- [x] `merge_event(cluster)`: branches = each portal listing (`listing_branch`) + the notice (`notice_branch` from the `:Lot`, or from the values `apply_extractions` already wrote onto the listing when no lot is loaded); per-field ranking from Decision 5 (`PROPERTY_ORDER` notice > baanknet > bankeauctions > eauctionsindia; `LIFECYCLE_ORDER` baanknet > bankeauctions > notice > eauctionsindia); `provenance` = winning branch key per field; `reserve_price_agreement` / `emd_agreement` from `price_agreement.compare_prices` (agree → the portal figure; disagree → the notice's, flagged); `has_photos` = one image anywhere; `core_complete` 0–9 + `core_missing`; `event_id` = `ev-<id>` for a singleton, `ev-<sha1[:16]>` of the sorted ids otherwise; `event_node_props` JSON-encodes the maps.
+- [x] `build_spine.py`: one fetch of every listing with its lot (boundaries, headline extent, possession, auction terms), media, documents and `SAME_LISTING_AS` neighbours; union-find over CONFIRMED / PROBABLE edges only (INFERRED never merges); `DROP` every `:AuctionEvent`, `CREATE` + `LISTS` / `ANNOUNCES` / `DEPICTS`; `--dry-run` prints counts, cluster sizes, confidence and the `core_complete` histogram; uses `api.neo4j_client.run_query` so `NEO4J_HTTP_API=1` works where Bolt is blocked.
+- [x] `link_listings.py`: reuses the gap report's fetch and `graph_candidate`, runs the matcher across the whole graph, drops and re-MERGEs `SAME_LISTING_AS {method, confidence, evidence, linked_at}` both ways; `--dry-run`.
+- [x] `link_reauctions.py`: the listing-level pass is untouched (agent3 still reads it until Task 12); a new `run_events()` / `--events` runs the same matcher and same-day rule over `:AuctionEvent` rows, writes `SAME_PROPERTY_AS` between events, and `chain_attempts()` stamps `attempt_no` (1 = earliest known sale), `previous_reserve`, `previous_event_id`, `chain_size` on every event.
+- [x] `run_pipeline.py`: stages 5a `link_listings`, 5b `build_spine`, 5c `link_reauction_events`, after stage 5.
+- [x] `api/places.py::district_effective` → `coalesce(a.revenue_district, a.portal_district, <city>)`; `tests/api/test_places.py` updated.
+- [x] Tests: notice over portal for possession / extent / boundaries and portal over notice for status / end date; prices graded (agree, magnitude_slip, unknown) never averaged; `has_photos` true with one image, false with a video; `core_complete` 9 / 8 / 7; notice-applied values count without a lot; same input in any order → identical event; clustering ignores INFERRED and unfetched neighbours; the chain stamps; the same-day rule on events.
+
+**Dry runs on the live graph (read-only, `NEO4J_HTTP_API=1`, 2026-09-12):** `link_listings` — 6,327 listings, 0 cross-source pairs (only eauctionsindia is loaded, as expected); `build_spine` — 6,327 events, all SINGLE, `core_complete` avg 5.2/9 (2/9: 246, 3/9: 1,389, 4/9: 1,497, 5/9: 388, 6/9: 611, 7/9: 1,180, 8/9: 1,016, 9/9: 0), photos 0 — the baseline the loaded portals will move; `link_reauctions --events` — 0 events yet. Nothing written.
 
 ## Task 10: agent3 stage 1 — ids
 

@@ -72,6 +72,14 @@ def test_extract_identifiers(text, expected):
     assert extract_identifiers(text) == expected
 
 
+def test_extract_extent_states_the_first_area_phrase():
+    from sources.match import extract_extent
+    assert extract_extent(BN_TEXT) == "1215 sqft"
+    assert extract_extent(BE_TEXT) == "684 sq.ft"
+    assert extract_extent("2.17 Cents (balance 1.802 Cents)") == "2.17 Cents"
+    assert extract_extent("no size here") is None and extract_extent(None) is None
+
+
 def test_normalize_identifier_value():
     assert normalize_identifier_value("381 BY 5A") == "381/5a"
     assert normalize_identifier_value(" 300 / 3 ") == "300/3"

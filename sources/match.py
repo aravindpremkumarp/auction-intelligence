@@ -225,6 +225,26 @@ def extract_identifiers(text: str | None) -> set[tuple[str, str]]:
     return out
 
 
+# ── extent from free text ────────────────────────────────────────────────────
+#
+# "total extent 1215 sqft", "684 sq.ft or 63.54 sq.mts", "2.17 Cents",
+# "1 acre 20 cents": the first area phrase a portal description states.
+
+_EXTENT = re.compile(
+    r"\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*(?:ft|feet|m|mt|mts|mtr|mtrs|metres?|meters?|yards?|yds?)\b"
+    r"|sqft|sqm|sq\.?\s*ft|cents?\b|acres?\b|ares?\b|grounds?\b|hectares?\b|ha\b)",
+    re.IGNORECASE)
+
+
+def extract_extent(text: str | None) -> str | None:
+    """The first area phrase in ``text`` (``'1215 sqft'``), or ``None``. A
+    statement, not a measurement: units are not converted here."""
+    if not text:
+        return None
+    m = _EXTENT.search(text)
+    return m.group(0).strip() if m else None
+
+
 # ── borrower ─────────────────────────────────────────────────────────────────
 
 _HONORIFIC = re.compile(r"\b(mr|mrs|ms|smt|shri|sri|thiru|tmt|m/s|messrs|dr)\b\.?", re.IGNORECASE)

@@ -43,7 +43,9 @@ def district_effective(prop: str = "a", city: str | None = None,
     """
     portal = (f"{city}.name" if city
               else f"[({prop})-[:LOCATED_IN_CITY]->({var}:City) | {var}.name][0]")
-    return f"coalesce({prop}.revenue_district, {portal})"
+    # notice district, then the district a portal stated as a field
+    # (BAANKNET, bankeauctions), then the eauctionsindia :City node
+    return f"coalesce({prop}.revenue_district, {prop}.portal_district, {portal})"
 
 
 def suppress_portal_city(row: dict, city_key: str = "city",

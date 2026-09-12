@@ -371,11 +371,14 @@ Listings now come from three portals through one adapter contract
 carries the merged view the agent reads.
 
 ```
-(:AuctionEvent {event_id, bank, reserve_price_num, auction_start_dt, district,
-                property_type, possession_type, extent_sqft, extent_kind,
-                boundaries_json, measurement_json, has_photos,
-                core_complete: 0..9, provenance: {field: branch},
-                confidence, attempt_no, built_at})                      planned
+(:AuctionEvent {event_id, bank, borrower, reserve_price_num, emd_num, auction_start_dt,
+                auction_end_dt, auction_status, district, city, pincode,
+                property_type, possession_type, extent_sqft, extent_kind, extent_raw,
+                boundaries_json, measurements_json, has_photos, photo_count, video_count,
+                core_complete: 0..9, core_missing, provenance_json: {field: branch},
+                reserve_price_agreement, emd_agreement, confidence: CONFIRMED|PROBABLE|SINGLE,
+                listing_ids, sources, attempt_no, previous_reserve, previous_event_id,
+                chain_size, built_at})        scripts/build_spine.py, rebuilt every run
    ◄─[:LISTS]────── (:AuctionProperty {auction_id, source, source_id, source_url, source_rank})
    ◄─[:ANNOUNCES]── (:Document {filename, source, doc_role, content_sha256})─[:HAS_LOT]─►(:Lot)
    ◄─[:ANNOUNCES]── (:Document {doc_role: "publication"})                newspaper cutting
@@ -384,8 +387,8 @@ carries the merged view the agent reads.
 (:AuctionProperty)-[:HAS_MEDIA]->(:Media)   loader writes url/kind/is_main/label/source;
                                             upload_downloads_to_r2 fills sha/r2_key/public_url for live listings' photos
 
-(:AuctionEvent)-[:SAME_PROPERTY_AS {method, confidence}]-(:AuctionEvent)   re-auction chain, planned
-(:AuctionProperty)-[:SAME_LISTING_AS {method, confidence, linked_at}]-(:AuctionProperty)   bridge, planned
+(:AuctionEvent)-[:SAME_PROPERTY_AS {match_reason, confidence, linked_at}]-(:AuctionEvent)   re-auction chain (scripts/link_reauctions.py --events)
+(:AuctionProperty)-[:SAME_LISTING_AS {method, confidence, evidence, linked_at}]-(:AuctionProperty)   bridge (scripts/link_listings.py)
 ```
 
 **`:AuctionProperty` gains** `source` ∈ {`eauctionsindia`, `baanknet`,

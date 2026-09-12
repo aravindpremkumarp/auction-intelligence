@@ -37,7 +37,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from sources.match import (  # noqa: E402
     SIDES, Candidate, Pair, candidate_from_graph, candidate_from_row, extract_boundaries,
-    extract_identifiers, find_same_listing_pairs,
+    extract_extent, extract_identifiers, find_same_listing_pairs,
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -50,11 +50,6 @@ CORE_FIELDS = ("property_type", "location", "extent", "measurement", "possession
 
 GRADES = ("CONFIRMED", "PROBABLE", "INFERRED")
 
-# "total extent 1215 sqft", "684 sq.ft or 63.54 sq.mts", "2.17 Cents", "1 acre 20 cents"
-_EXTENT = re.compile(
-    r"\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*(?:ft|feet|m|mt|mts|mtr|mtrs|metres?|meters?|yards?|yds?)\b"
-    r"|sqft|sqm|sq\.?\s*ft|cents?\b|acres?\b|ares?\b|grounds?\b|hectares?\b|ha\b)",
-    re.IGNORECASE)
 # A boundary length: "37 feet", "19 ft", "12.5 mtrs". Road widths ("20 feet
 # road") match too, so two hits are asked for before calling it a measurement.
 _LENGTH = re.compile(r"\d+(?:\.\d+)?\s*(?:feet|ft|foot|mtrs?|metres?|meters?|m)\b\.?", re.IGNORECASE)
@@ -69,7 +64,8 @@ OPTIONAL MATCH (a)-[:HAS_BORROWER]->(br:Borrower)
 OPTIONAL MATCH (a)-[:LOCATED_IN_DISTRICT]->(d:District)
 OPTIONAL MATCH (a)-[:LOCATED_IN_CITY]->(c:City)
 OPTIONAL MATCH (a)-[:HAS_PROPERTY_TYPE]->(pt:PropertyType)
-WITH a, bk, d, c, collect(DISTINCT br.name)[0] AS borrower, collect(DISTINCT pt.name) AS ptypes
+WITH a, collect(DISTINCT bk.name)[0] AS bank, collect(DISTINCT d.name)[0] AS district_node,
+     collect(DISTINCT c.name)[0] AS city, collect(DISTINCT br.name)[0] AS borrower, collect(DISTINCT pt.name) AS ptypes
 CALL { WITH a OPTIONAL MATCH (a)-[:HAS_DOCUMENT]->(doc:Document)
        RETURN [s IN collect(DISTINCT doc.content_sha256) WHERE s IS NOT NULL] AS doc_shas, count(doc) AS n_docs }
 CALL { WITH a OPTIONAL MATCH (a)-[:IS_LOT]->(l:Lot)
@@ -81,12 +77,12 @@ CALL { WITH a OPTIONAL MATCH (a)-[:IS_LOT]->(l:Lot)
               [x IN collect(DISTINCT [b.side, b.adjacency_raw, b.measurement_ft]) WHERE x[0] IS NOT NULL] AS lot_bounds,
               count(DISTINCT m) AS n_extents,
               [x IN collect(DISTINCT coalesce(p.name, l.possession_stated)) WHERE x IS NOT NULL][0] AS possession }
-RETURN a.auction_id AS auction_id, coalesce(a.source, 'eauctionsindia') AS source, bk.name AS bank,
+RETURN a.auction_id AS auction_id, coalesce(a.source, 'eauctionsindia') AS source, bank,
        a.reserve_price_num AS reserve_price_num, toString(a.auction_start_dt) AS auction_start_dt,
        borrower, doc_shas, n_docs, identifiers, lot_bounds, n_extents, possession,
        coalesce(a.property_type_effective, a.property_type_norm, ptypes[0]) AS property_type,
-       coalesce(a.revenue_district, a.district, d.name) AS district,
-       c.name AS city,
+       coalesce(a.revenue_district, a.district, district_node) AS district,
+       city,
        coalesce(a.enriched_description, a.description) AS description,
        a.total_area AS total_area,
        {north: a.boundary_north, south: a.boundary_south, east: a.boundary_east, west: a.boundary_west} AS boundaries,
@@ -142,7 +138,7 @@ def core_from_graph(rec: dict) -> dict[str, bool]:
     return {
         "property_type": bool(rec.get("property_type")),
         "location": bool(rec.get("district") or rec.get("city")),
-        "extent": bool(rec.get("n_extents")) or bool(rec.get("total_area")) or bool(_EXTENT.search(text)),
+        "extent": bool(rec.get("n_extents")) or bool(rec.get("total_area")) or bool(extract_extent(text)),
         "measurement": measured,
         "possession": possession not in _NOT_STATED,
         "boundaries": all(bounds.get(s) for s in SIDES),
@@ -175,7 +171,7 @@ def core_from_row(row: dict) -> dict[str, bool]:
     return {
         "property_type": bool(row.get("property_types") or row.get("property_type_raw")),
         "location": bool(row.get("district") or row.get("city")),
-        "extent": bool(row.get("extent_raw")) or bool(_EXTENT.search(text)),
+        "extent": bool(row.get("extent_raw")) or bool(extract_extent(text)),
         "measurement": len(_LENGTH.findall(text)) >= 2,
         "possession": (row.get("possession_type") or "").strip().lower() not in _NOT_STATED,
         "boundaries": len(extract_boundaries(text)) == 4,

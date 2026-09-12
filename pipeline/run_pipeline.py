@@ -15,6 +15,9 @@ Stages, in order:
   4.4  promote_extractions  grounded extractions -> :Lot / :Parcel spine
   4.5  apply_extractions    grounded per-lot values -> :AuctionProperty
   5    link_reauctions      :SAME_PROPERTY_AS across re-listings
+  5a   link_listings        :SAME_LISTING_AS across portals (sources.match)
+  5b   build_spine          one :AuctionEvent per match cluster (sources.merge)
+  5c   link_reauction_events  :SAME_PROPERTY_AS between events; attempt_no / previous_reserve
   6    schema cache         refresh the :SchemaCache node for /chat
 
 The legacy "Path A" (flat vision-LLM blob -> verify_and_enrich -> load_enriched)
@@ -94,6 +97,29 @@ def main():
     print("="*60)
     from scripts.link_reauctions import run as link_reauctions
     link_reauctions()
+
+    # Stage 5a–5c: the spine. First the cross-portal bridge (which listings
+    # are one auction), then one merged :AuctionEvent per cluster, rebuilt
+    # from the branches every run, then the re-auction chain between events
+    # with attempt_no / previous_reserve stamped along it. Each is a pure
+    # function of what is already in the graph, so re-running is safe.
+    print("\n" + "="*60)
+    print("STAGE 5a: Link portal copies of one auction (:SAME_LISTING_AS)")
+    print("="*60)
+    from scripts.link_listings import run as link_listings
+    link_listings()
+
+    print("\n" + "="*60)
+    print("STAGE 5b: Build the spine (:AuctionEvent)")
+    print("="*60)
+    from scripts.build_spine import run as build_spine
+    build_spine()
+
+    print("\n" + "="*60)
+    print("STAGE 5c: Link re-auctioned events (:SAME_PROPERTY_AS on events)")
+    print("="*60)
+    from scripts.link_reauctions import run_events as link_reauction_events
+    link_reauction_events()
 
     # Stage 6: Refresh the durable schema cache (:SchemaCache node) so /chat's
     # describe_schema reads it in one query instead of re-running ~25 live
