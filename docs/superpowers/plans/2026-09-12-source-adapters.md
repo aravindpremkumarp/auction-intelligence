@@ -112,12 +112,21 @@
 
 ## Task 7: matcher + gap report
 
-**Files:** Create `sources/match.py`, `scripts/gap_report.py`, `tests/sources/test_match.py`; Modify `pipeline/match_confidence.py`.
+**Files:** Create `sources/match.py`, `scripts/gap_report.py`, `tests/sources/test_match.py`, `tests/sources/test_gap_report.py`; Modify `pipeline/match_confidence.py`, `tests/pipeline/test_match_confidence.py`.
 
-- [ ] `find_same_listing_pairs(rows, existing)` per the spec: bucket (bank key via `pipeline/entity_resolution.org_key`, rupee-rounded reserve with `price_agreement` tolerance, calendar day), then `notice_bytes` / `boundaries` / `identifier` / `borrower` / `bucket_only`. Same-source pairs never emitted.
-- [ ] Add the three new methods to `MATCH_CONFIDENCE`; `tests/pipeline/test_match_confidence.py` must stay green.
-- [ ] `gap_report.py`: reads `data/listings/*.jsonl`, fetches existing listings from Neo4j (`auction_id`, bank, reserve, date, borrower, `content_sha256` of their documents, the nine core fields), runs the matcher, prints per portal: new, matched (by confidence), and for matched ones how many of the nine core fields the portal would fill that are empty today; photos gained. `--json` dump.
-- [ ] Tests: the `bn-351743` / `bn-351740` same-source trap; a constructed BAANKNET + eauctionsindia pair matching on borrower; a notice-bytes CONFIRMED pair.
+- [x] `find_same_listing_pairs(incoming, existing)` per the spec: bucket (bank key via `pipeline/entity_resolution.org_key`, auction calendar day; reserve checked pairwise with `price_agreement.compare_prices` so the 1% tolerance applies), then `notice_bytes` / `boundaries` / `identifier` / `borrower` / `bucket_only`. Same-source pairs never emitted. Two refinements found on the live graph: a listing with no published reserve price (hundreds of recent eauctionsindia rows) still lands in its bucket and can match on evidence, never on the bucket alone; and neighbour numbers inside a boundary clause ("north by Plot No 28") are not the property's identifiers.
+- [x] Grades: a separate `SAME_LISTING_CONFIDENCE` table + `listing_confidence_for()` in `pipeline/match_confidence.py`, not rows in `MATCH_CONFIDENCE` — the names overlap (`borrower` is PROBABLE on the bridge, INFERRED on `IS_LOT`) and the existing guard test asserts `MATCH_CONFIDENCE` holds only `IS_LOT` reasons. `tests/pipeline/test_match_confidence.py` stays green and gains two tests tying the table to `sources.match.METHODS`.
+- [x] `gap_report.py`: reads `data/listings/*.jsonl`, fetches every listing from Neo4j read-only (`execute_read`; `--existing-json` / `--save-existing` for offline runs), runs the matcher, prints per portal: rows, already loaded, new, matched by confidence (+ ambiguous INFERRED), the nine core fields the portal fills on matched listings, photos gained, and the core-completeness histogram of new listings. `--json` dump. A graph listing the pipeline has not read yet is credited with what its description text states, so "fills" means the portal states something the graph states nowhere.
+- [x] Tests: the `bn-351743` / `bn-351740` same-source trap; BAANKNET + eauctionsindia on borrower; notice-bytes CONFIRMED; boundaries CONFIRMED; identifier PROBABLE; unpriced graph listing; disagreeing prices; 1% tolerance; two new portals matching each other while the graph never matches itself.
+
+**Result on the 2026-09-12 `--limit 20` harvest** (16 + 16 rows against 6,327 graph listings; every pair spot-checked in the graph):
+
+| portal | new | matched | CONFIRMED / PROBABLE / INFERRED | fills on matched | photos |
+|---|---|---|---|---|---|
+| BAANKNET | 9 | 7 | 1 / 6 / 0 | possession +6, reserve price +5, extent +1 | 16 of 16 (9 new, 7 matched) |
+| bankeauctions | 3 | 13 | 5 / 8 / 0 | reserve price +7 | 0 |
+
+New BAANKNET listings average 6.9 of 9 core fields before any notice is read. The reserve-price fills are real: the matched eauctionsindia rows carry no price at all ("not published"), which is also why the bucket had to admit unpriced listings.
 
 ## Task 8: loader, R2, schema
 

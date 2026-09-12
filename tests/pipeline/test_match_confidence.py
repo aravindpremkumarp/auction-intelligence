@@ -99,6 +99,34 @@ def test_every_grade_is_one_of_the_three():
     assert set(MATCH_CONFIDENCE.values()) == {CONFIRMED, PROBABLE, INFERRED}
 
 
+# ── SAME_LISTING_AS: the cross-portal bridge has its own table ───────────────
+
+def test_same_listing_methods_match_the_matcher_and_are_graded():
+    """`sources.match.METHODS` is the vocabulary that can reach a
+    SAME_LISTING_AS edge; each must be graded, and nothing else may be."""
+    from pipeline.match_confidence import SAME_LISTING_CONFIDENCE, listing_confidence_for
+    from sources.match import METHODS
+
+    assert set(SAME_LISTING_CONFIDENCE) == set(METHODS)
+    assert set(SAME_LISTING_CONFIDENCE.values()) == {CONFIRMED, PROBABLE, INFERRED}
+    assert listing_confidence_for("notice_bytes") == CONFIRMED
+    assert listing_confidence_for("bucket_only") == INFERRED
+    for bad in ("exact", "", None, 7, "NOTICE_BYTES"):
+        assert listing_confidence_for(bad) == UNKNOWN
+
+
+def test_same_listing_table_does_not_leak_into_is_lot_grades():
+    """`borrower` is PROBABLE on the bridge and INFERRED on IS_LOT; the two
+    tables must not be one."""
+    from pipeline.match_confidence import SAME_LISTING_CONFIDENCE, listing_confidence_for
+
+    assert listing_confidence_for("borrower") == PROBABLE
+    assert confidence_for("borrower") == INFERRED
+    assert confidence_for("notice_bytes") == UNKNOWN
+    assert "notice_bytes" not in MATCH_CONFIDENCE
+    assert set(SAME_LISTING_CONFIDENCE) - set(MATCH_CONFIDENCE) == {"notice_bytes", "boundaries", "bucket_only"}
+
+
 # ── the write path stamps it ─────────────────────────────────────────────────
 
 def test_write_lot_matches_grades_every_row(monkeypatch):
