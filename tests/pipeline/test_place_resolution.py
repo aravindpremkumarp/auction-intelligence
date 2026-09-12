@@ -17,10 +17,13 @@ def gaz() -> Gazetteer:
     return Gazetteer(
         districts=["Kancheepuram", "Chengalpattu", "Chennai", "Tiruvallur",
                    "Thiruchirappalli", "Thanjavur", "Thoothukudi", "Salem",
-                   "Dharmapuri", "Vellore", "Sivagangai", "Coimbatore"],
+                   "Dharmapuri", "Vellore", "Sivagangai", "Coimbatore",
+                   "Thiruvarur", "Cuddalore", "Tiruppur"],
         taluks=[
             ("Sriperumbudur", "Kancheepuram"),
             ("Kundrathur", "Kancheepuram"),
+            ("Kudavasal", "Thiruvarur"),
+            ("Vridhachalam", "Cuddalore"),
             ("Pallavaram", "Chengalpattu"),      # moved here in 2019
             ("Tambaram", "Chengalpattu"),
             ("Thuraiyur", "Thiruchirappalli"),
@@ -38,6 +41,8 @@ def gaz() -> Gazetteer:
             ("Kengarai 2", "Katpadi", "Vellore"),
             ("Nallur", "Tambaram", "Chengalpattu"),
             ("Nallur", "Thuraiyur", "Thiruchirappalli"),
+            ("Manavalanallur", "Kudavasal", "Thiruvarur"),
+            ("Manavalanallur", "Vridhachalam", "Cuddalore"),
         ],
     )
 
@@ -49,6 +54,49 @@ def test_spelling_axes_that_separate_the_two_sources(gaz):
                  ("Pudukkottai", "Pudukottai"),
                  ("Tiruppur", "Tirupur")]:
         assert normalize_place(a) == normalize_place(b), f"{a!r} vs {b!r}"
+
+
+def test_a_chengalpattu_spelling_the_fuzzy_floor_cannot_reach(gaz):
+    """Four live notices write the district this way. Similarity gets nowhere
+    near "Chengalpattu" from them, and no other district is a candidate."""
+    for raw in ["Chenglepet", "Chengalpeta", "Chengalput", "Chengpaltu"]:
+        assert gaz.district(raw) == "Chengalpattu", raw
+
+
+def test_the_composite_district_is_not_aliased(gaz):
+    """"Chengalpattu MGR" is the pre-1997 district that became Kancheepuram
+    and Tiruvallur. It is not today's Chengalpattu, so it must not resolve to
+    it — a wrong district is worse than a missing one."""
+    assert gaz.district("Chengalpattu MGR") != "Chengalpattu"
+
+
+def test_a_taluk_alias_beats_the_fuzzy_floor(gaz):
+    """"Kodavasal" scores 88.9 against "Kudavasal" and misses FUZZY_MIN by 1.1.
+    Without the alias the district falls back to the notice's own district
+    string, which on the live listing said Thiruvallur — a different district
+    from Thiruvarur, where the taluk actually sits."""
+    assert gaz.taluk("Kodavasal") == ("Kudavasal", "Thiruvarur")
+    r = resolve_place(gaz, district="Thiruvallur", taluk="Kodavasal",
+                      village="Manavalanallur")
+    assert r["district"] == "Thiruvarur"
+    assert r["district_source"] == "taluk"
+    # The taluk also places the village, which is ambiguous on its own: there
+    # is a second Manavalanallur in Vridhachalam, Cuddalore.
+    assert r["village"] == "Manavalanallur"
+    assert r["village_status"] == "resolved"
+    # ...and the notice disagreeing with its own taluk is still surfaced.
+    assert r["conflict"] is True
+
+
+def test_an_alias_naming_an_unknown_taluk_falls_through(gaz):
+    """A stale entry must degrade to today's behaviour, not blank a taluk that
+    would otherwise have matched."""
+    from pipeline.place_resolution import TALUK_ALIASES
+    TALUK_ALIASES["tambaramm"] = "Not A Taluk"
+    try:
+        assert gaz.taluk("Tambaramm") == ("Tambaram", "Chengalpattu")
+    finally:
+        del TALUK_ALIASES["tambaramm"]
 
 
 def test_tamil_transliteration_alternates_are_one_name():
