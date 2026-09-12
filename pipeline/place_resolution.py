@@ -82,6 +82,20 @@ DISTRICT_ALIASES = {
     "tirunelveli kattabomman": "Tirunelveli",
     "virudunagar": "Virudhunagar",
     "toothukudi": "Thoothukudi",
+    # Towns the portal writes in its :City slot. They are not districts and
+    # never were, so nothing above resolves them and `Gazetteer.district`
+    # returned None — which `resolve_places` reads as "no portal opinion" and
+    # silently skips, hiding 43 listings from the conflict flag entirely.
+    # Every one of these is the town's own district, verified against the
+    # taluk each name belongs to in the gazetteer.
+    "periyakulam": "Theni",
+    "chidambaram": "Cuddalore",
+    "palayamkottai": "Tirunelveli",
+    "palani": "Dindigul",
+    "kumbakonam": "Thanjavur",
+    "pattukottai": "Thanjavur",
+    "tindivanam": "Villupuram",
+    "udumalaipet": "Tiruppur",
 }
 
 # Chennai is fully urban and keeps no revenue villages, so 12 of its taluks

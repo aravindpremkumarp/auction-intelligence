@@ -24,6 +24,10 @@ Writes, all additive — no existing property or relationship is touched::
                                              reorganisation)
     p.place_portal_conflict                  portal City disagrees with the
                                              resolved district — the tripwire
+    p.place_portal_conflict_kind             which kind of disagreement, per
+                                             pipeline/place_lineage.py: most
+                                             are the 2019 district splits or
+                                             the Chennai metro, not errors
     p.place_resolved_at
 
     (p)-[:LOCATED_IN_DISTRICT]->(:District)
@@ -43,6 +47,7 @@ import json
 import sys
 from collections import Counter, defaultdict
 
+from pipeline.place_lineage import classify, needs_review
 from pipeline.place_resolution import Gazetteer, normalize_place, resolve_place
 from pipeline.resolution_review import (
     district_conflict_key, settled_conflicts, skipped_villages,
@@ -134,6 +139,7 @@ def write_back(rows: list[dict]) -> None:
                 p.place_village_source   = row.village_source,
                 p.place_notice_conflict  = row.notice_conflict,
                 p.place_portal_conflict  = row.portal_conflict,
+                p.place_portal_conflict_kind = row.portal_conflict_kind,
                 p.place_resolved_at      = datetime()
         """, {"rows": rows[i:i + BATCH]})
         # Edges are attached with MATCH, never MERGE, on the gazetteer side.
@@ -219,6 +225,10 @@ def run(*, dry_run: bool = False) -> dict:
     stats: Counter = Counter()
     rows: list[dict] = []
     conflicts: list[dict] = []
+    # Hoisted out of the loop: `classify` takes the gazetteer's own names so a
+    # portal city it cannot map reads as a missing alias rather than as a
+    # disagreement, and rebuilding the set 2,964 times would be waste.
+    district_names = frozenset(gaz.districts)
     for p in props:
         district, taluk, village = p["district"], p["taluk"], p["village"]
         if not (village or taluk or district):
@@ -247,10 +257,25 @@ def run(*, dry_run: bool = False) -> dict:
 
         # The portal is only ever a witness: its disagreement is recorded, and
         # never allowed to change the answer.
-        portal_conflict = False
-        if p["city"] and res["district"]:
-            portal = gaz.district(p["city"])
-            portal_conflict = bool(portal and portal != res["district"])
+        #
+        # The boolean keeps its original meaning — any inequality — because the
+        # review panel has always counted it that way. What it could never say
+        # is *which kind* of inequality, and 459 of the 527 it fires on are the
+        # 2019 reorganisation or the Chennai metro rather than a disagreement
+        # anyone can act on. `place_portal_conflict_kind` names them; see
+        # `pipeline/place_lineage.py`.
+        #
+        portal = gaz.district(p["city"]) if p["city"] else None
+        portal_conflict = bool(portal and res["district"]
+                               and portal != res["district"])
+        # The kind is shown the raw city when the gazetteer maps nothing, so an
+        # unmappable name reads as `portal-not-a-district` — a missing alias to
+        # add — rather than vanishing. `bool(None and ...)` is False, which is
+        # how 43 listings stayed off the boolean entirely; the boolean is left
+        # that way on purpose so the panel's existing number does not move
+        # under it, and the kind carries the correction.
+        portal_kind = classify(portal or p["city"], res["district"],
+                               districts=district_names)
 
         if res["village"]:
             stats["village resolved"] += 1
@@ -276,6 +301,8 @@ def run(*, dry_run: bool = False) -> dict:
                 stats["conflicts settled by review"] += 1
         if portal_conflict:
             stats["portal city vs resolved district"] += 1
+        if needs_review(portal_kind):
+            stats[f"portal conflict needing review ({portal_kind})"] += 1
 
         rows.append({
             "auction_id": p["auction_id"],
@@ -286,6 +313,7 @@ def run(*, dry_run: bool = False) -> dict:
             "village_source": res["village_source"],
             "notice_conflict": res["conflict"],
             "portal_conflict": portal_conflict,
+            "portal_conflict_kind": portal_kind,
             # The two states a human still owes an answer on. Everything else
             # — resolved, absent, urban, out of state — is settled ground.
             "attention": open_conflict or res["village_status"] == "unmatched",
