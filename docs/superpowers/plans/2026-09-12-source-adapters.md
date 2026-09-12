@@ -171,11 +171,11 @@ New BAANKNET listings average 6.9 of 9 core fields before any notice is read. Th
 
 ## Task 12: agent3 stage 3 — read the spine
 
-**Files:** Modify `api/agent3/find_properties.py`, `api/agent3/get_property.py`, `api/agent3/common.py` (`LOT_OF_LISTING`).
+**Files:** Modify `api/agent3/find_properties.py`, `api/agent3/get_property.py`, `api/agent3/instructions.md`, `tests/api/test_agent3_instructions.py` (budget 3700 → 4000, commented).
 
-- [ ] Tools `MATCH (e:AuctionEvent)`; rows carry `core_complete`, `provenance`, `listed_on`; `get_property` walks branches from the event.
-- [ ] The system prompt tells the model a row is "merged from N sources" and to quote `core_complete` when asked how well a property is known.
-- [ ] `evals/` golden conversations updated where row shapes changed.
+- [x] Tools read the spine **through the canonical listing, not instead of it**: `find_properties` and `get_property` stay anchored on `MATCH (a:AuctionProperty)` (Task 11's one-copy predicate) and `OPTIONAL MATCH (a)-[:LISTS]->(ev:AuctionEvent)`. Rows carry `core_complete`, `core_missing`, `merged_from` (the event's `sources`) and `merge_confidence` once the spine exists; `get_property` adds a `merged` block (the event's fields with `provenance`, `boundaries`, `measurements` decoded from JSON, `merged_from`). Before `build_spine` has run in production the keys are simply absent, so the deploy order (code first, pipeline stage 5b later) cannot break the agent. A hard `MATCH (e:AuctionEvent)` switch is a follow-up after the first production build, when the listing-level `SAME_PROPERTY_AS` pass can also retire. `common.py::LOT_OF_LISTING` is untouched for the same reason.
+- [x] `instructions.md`: one auction can be listed on several portals; a row is one copy and `also_on` names the others; where a row carries `core_complete` it is merged from `merged_from`, and that number is how well the property is known — quote it when asked.
+- [x] `evals/` golden conversations: row shapes only gained keys; no case pins the new ones, so nothing to update. `evals/run_agent3.py` (tool suite) gives identical results on this branch and on `main`.
 
 ## Task 13: Parcel retirement (staged, own PRs)
 

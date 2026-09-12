@@ -454,3 +454,16 @@ def test_rows_say_which_portal_and_where_else(monkeypatch):
     rows = FP.find_properties(city="Chennai")["rows"]
     assert (rows[0]["source"], rows[0]["also_on"], rows[0]["has_photos"]) == ("baanknet", ["eauctionsindia"], True)
     assert rows[1]["source"] == "eauctionsindia" and rows[1]["has_photos"] is False and "also_on" not in rows[1]
+
+
+# ── the spine, once built ───────────────────────────────────────────────
+
+def test_rows_carry_the_merged_view_only_once_the_spine_exists(monkeypatch):
+    _stub(monkeypatch, rows=[_row(auction_id="bn-359826", core_complete=7, core_missing=["measurement", "boundaries"],
+                                   listed_on=["baanknet", "eauctionsindia", "notice"], merge_confidence="PROBABLE"),
+                             _row(auction_id="841207")])
+    rows = FP.find_properties(city="Chennai")["rows"]
+    assert (rows[0]["core_complete"], rows[0]["core_missing"]) == (7, ["measurement", "boundaries"])
+    assert rows[0]["merged_from"] == ["baanknet", "eauctionsindia", "notice"] and rows[0]["merge_confidence"] == "PROBABLE"
+    assert "core_complete" not in rows[1] and "merged_from" not in rows[1]
+    assert "OPTIONAL MATCH (a)-[:LISTS]->(ev:AuctionEvent)" in FP._ROW_PROJECTION

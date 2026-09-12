@@ -67,7 +67,9 @@ _SKILL_REF_RE = re.compile(r"load the\s+`?([a-z][a-z0-9_-]*)`?\s+skill")
 #: km, a 30–45 minute drive" from the model's own prior after correctly
 #: saying it had no mapping data. The tool alone does not close that; the
 #: instruction not to fall back to memory is what does.
-BUDGET_CHARS = 3700
+#: Raised 3700 → 4000 on 2026-09-12 for the three-portal lines (one copy per
+#: auction, `also_on`, `core_complete`) — plan Task 12.
+BUDGET_CHARS = 4000
 
 
 def _tool_functions() -> set[str]:

@@ -333,3 +333,26 @@ def test_other_listings_photos_and_publications_ride_the_listing(monkeypatch):
 
 def test_the_sale_notice_is_preferred_over_a_tender_or_cutting():
     assert "ORDER BY aid, CASE WHEN d.doc_role IN ['sale_notice', 'proclamation'] THEN 0" in GP._DOCUMENT_CYPHER
+
+
+def test_the_merged_block_decodes_the_spine_record(monkeypatch):
+    listing = _listing(auction_id="bn-359826")
+    listing["merged"] = {"event_id": "ev-x", "core_complete": 8, "core_missing": ["has_photos"],
+                         "sources": ["baanknet", "eauctionsindia", "notice"], "confidence": "PROBABLE",
+                         "provenance_json": '{"possession_type": "notice:f.png#1", "auction_status": "baanknet:bn-359826"}',
+                         "boundaries_json": '{"north": "Road"}', "measurements_json": None,
+                         "possession_type": "physical", "extent_sqft": 1215.0, "reserve_price_agreement": "agree",
+                         "photo_count": 0, "has_photos": False}
+    _stub(monkeypatch, listings=[listing], docs=[], lots=[])
+    prop = GP.get_property("bn-359826")["properties"][0]
+    m = prop["merged"]
+    assert (m["core_complete"], m["core_missing"], m["merged_from"]) == (8, ["has_photos"], ["baanknet", "eauctionsindia", "notice"])
+    assert m["provenance"]["possession_type"] == "notice:f.png#1" and m["boundaries"] == {"north": "Road"}
+    assert "sources" not in m and "measurements" not in m and "merged" not in prop["listing"]
+
+
+def test_no_merged_block_before_the_spine_is_built(monkeypatch):
+    _stub(monkeypatch, listings=[_listing(auction_id="841207")], docs=[], lots=[])
+    prop = GP.get_property("841207")["properties"][0]
+    assert "merged" not in prop and "merged" not in prop["listing"]
+    assert GP._merged_block(None) is None and GP._merged_block({}) is None
