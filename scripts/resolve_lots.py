@@ -45,6 +45,7 @@ import sys
 import time
 import urllib.request
 
+from pipeline.match_confidence import confidence_for
 from pipeline.resolution_review import lot_match_key
 from scripts.resolution_decisions import load_decisions
 
@@ -149,8 +150,10 @@ def apply_decided(approved: dict[str, str]) -> int:
             OPTIONAL MATCH (p)-[old:IS_LOT]->(:Lot)
             DELETE old
             MERGE (p)-[r:IS_LOT]->(l)
-            SET r.linked_at = datetime(), r.method = 'decision'
-        """, {"rows": stale[i:i + 500]})
+            SET r.linked_at = datetime(), r.method = 'decision',
+                r.confidence = $confidence
+        """, {"rows": stale[i:i + 500],
+              "confidence": confidence_for("decision")})
     return len(stale)
 
 

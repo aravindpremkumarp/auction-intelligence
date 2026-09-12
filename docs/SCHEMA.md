@@ -250,9 +250,27 @@ for each. Live distribution, 2026-09-12:
 the vocabulary but has produced **no live edge**, because `sole_claimants`
 withholds a match a second listing also claims.
 
-The tiers are not equally strong and nothing on the edge says so: a consumer
-reading `IS_LOT` as a boolean treats `description` like `exact`. Grading them
-is open work.
+The tiers are not equally strong, so `IS_LOT.confidence` grades them —
+`pipeline/match_confidence.py` is the only table, read by both writers and by
+`scripts/backfill_is_lot_confidence.py`:
+
+| confidence | methods | edges |
+|---|---|---|
+| `CONFIRMED` | `exact`, `single`, `decision` | 2,784 |
+| `PROBABLE` | `identifier`, `emd`, `emd_tolerance`, `tolerance` | 71 |
+| `INFERRED` | `borrower`, `portal_aid`, `description`, `remainder` | 120 |
+| `UNKNOWN` | anything unrecognised | 0 |
+
+The two fields are deliberately separate. `confidence` does not encode the
+*reason* for confidence — that is what `method` is for, and collapsing them
+would lose the difference between a deterministic price match and a person who
+opened the notice and picked. Both read `CONFIRMED`; only `method` says which.
+
+An unrecognised method grades `UNKNOWN`, never `CONFIRMED`: a future tier must
+not become high-confidence because someone forgot the table. The write path
+degrades quietly (it runs inside a batch and must not abort one); the loud half
+is `tests/pipeline/test_match_confidence.py`, which fails CI when a reason
+exists in the vocabulary with no grade.
 
 An automated verdict is also mirrored as a `(:ResolutionDecision {kind:
 'lot-match'})` (2,940 system, 23 human) so the review UI can re-apply a
