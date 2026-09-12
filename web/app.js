@@ -2492,7 +2492,20 @@ function renderDetail(detail) {
   document.getElementById('detail-sub').textContent = subBits.join(' · ') || '—';
 
   const typeIcon = inferType({ asset_category: assetCategory, property_types: types, title });
-  document.getElementById('detail-photo').innerHTML = thumbSvg(typeIcon);
+  // Portal photos (BAANKNET, sometimes bankeauctions) when the graph holds
+  // them — main image first; the type sketch stays the fallback.
+  const photos = Array.isArray(detail.photos) ? detail.photos.filter(p => p && p.url) : [];
+  const photoEl = document.getElementById('detail-photo');
+  if (photos.length) {
+    photoEl.innerHTML = `
+      <img class="hero-photo-img" src="${escapeHtml(photos[0].url)}" alt="${escapeHtml(title)}" loading="lazy" referrerpolicy="no-referrer">
+      ${photos.length > 1 ? `<div class="hero-photo-strip">${photos.slice(1, 6).map(p =>
+        `<img src="${escapeHtml(p.url)}" alt="" loading="lazy" referrerpolicy="no-referrer">`).join('')}</div>` : ''}
+      ${photos.length > 1 ? `<span class="hero-photo-count">${photos.length} photos</span>` : ''}`;
+    photoEl.querySelectorAll('img').forEach(img => img.addEventListener('error', () => { img.remove(); if (!photoEl.querySelector('img')) photoEl.innerHTML = thumbSvg(typeIcon); }));
+  } else {
+    photoEl.innerHTML = thumbSvg(typeIcon);
+  }
 
   const auctionStart = f.auction_start_dt;
   const auctionEnd = f.auction_end_dt;
@@ -2573,10 +2586,25 @@ function renderDetail(detail) {
   // Pricing spans full width when there's no timeline to sit beside it.
   const topHtml = timelineHtml ? `<div class="pb-row">${pricingHtml}${timelineHtml}</div>` : pricingHtml;
 
+  // The same auction on other portals (api/canonical.py): one link per copy.
+  const PORTAL_NAMES = { baanknet: 'BAANKNET', bankeauctions: 'bankeauctions.com', eauctionsindia: 'eauctionsindia' };
+  const others = Array.isArray(detail.other_listings) ? detail.other_listings.filter(o => o && o.auction_id) : [];
+  const alsoHtml = others.length ? `
+    <section class="pb-panel">
+      <div class="pb-eyebrow">${licon('tag')}Also listed on</div>
+      <div class="pb-kv">${others.map(o => {
+        const name = PORTAL_NAMES[o.source] || o.source || 'another portal';
+        const price = o.reserve_price != null ? ` · ${escapeHtml(formatINR(Number(o.reserve_price)))}` : '';
+        const link = o.url ? `<a href="${escapeHtml(o.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(name)}</a>` : escapeHtml(name);
+        return `<div class="pb-item">${licon('landmark')}<div><div class="lbl">${escapeHtml(o.auction_id)}${price}</div><div class="val">${link}</div></div></div>`;
+      }).join('')}</div>
+    </section>` : '';
+
   document.getElementById('detail-facts').innerHTML = `
     <div class="pb">
       ${topHtml}
       ${metaHtml ? `<section class="pb-panel"><div class="pb-eyebrow">${licon('tag')}Property &amp; parties</div><div class="pb-kv">${metaHtml}</div></section>` : ''}
+      ${alsoHtml}
     </div>`;
 
   renderPriceHistory(detail.price_history);

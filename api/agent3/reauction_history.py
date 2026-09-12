@@ -47,8 +47,13 @@ CALL (a) {
     sarfaesi_stage: au.sarfaesi_stage, outcome: au.outcome
   }) AS attempts
 }
+// The spine's chain, where build_spine has run: this event's position among
+// the re-auctions of one property and the reserve before it.
+OPTIONAL MATCH (a)-[:LISTS]->(ev:AuctionEvent)
 RETURN a.auction_id AS auction_id, a.reserve_price_num AS reserve_price,
        a.auction_start_dt AS auction_start, lot_count, attempts,
+       ev.attempt_no AS chain_attempt_no, ev.previous_reserve AS chain_previous_reserve,
+       ev.previous_event_id AS chain_previous_event_id, ev.chain_size AS chain_size,
        // Phase 2: the lot comes from the edge, not the string beside it. A
        // key is "<filename>#<lot_index>" and lot_index is the model's own
        // numbering, so a re-extraction renumbers the lots and a stale key
@@ -61,7 +66,19 @@ RETURN a.auction_id AS auction_id, a.reserve_price_num AS reserve_price,
 #: the reverse. Following only the stored direction would hide half the
 #: chains.
 _LINKED = """
-MATCH (a:AuctionProperty {auction_id: $id})-[r:SAME_PROPERTY_AS]-(o:AuctionProperty)
+MATCH (a:AuctionProperty {auction_id: $id})
+// Listing-level links, and — once the spine exists — links between the
+// events the listings belong to, read back to their listings.
+CALL {
+  WITH a
+  MATCH (a)-[r:SAME_PROPERTY_AS]-(o:AuctionProperty)
+  RETURN o, r
+  UNION
+  WITH a
+  MATCH (a)-[:LISTS]->(:AuctionEvent)-[r:SAME_PROPERTY_AS]-(:AuctionEvent)<-[:LISTS]-(o:AuctionProperty)
+  WHERE o <> a
+  RETURN o, r
+}
 // A pair can carry the relationship in BOTH directions, and the undirected
 // match then yields the same listing twice. Collapse per listing, keeping the
 // strongest confidence rather than whichever row arrived first.
@@ -136,6 +153,13 @@ def reauction_history(auction_id: str | int) -> dict:
         "highest_attempt_no": max_attempt,
         "earlier_listings": linked,
     }
+    if row.get("chain_size"):
+        out["chain"] = {
+            "attempt_no": row.get("chain_attempt_no"),
+            "chain_size": row.get("chain_size"),
+            "previous_reserve": row.get("chain_previous_reserve"),
+            "previous_event_id": row.get("chain_previous_event_id"),
+        }
 
     if max_attempt and max_attempt >= 2:
         out["scope"] = scope_of(lot_count, resolved)

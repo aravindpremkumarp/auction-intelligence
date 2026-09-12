@@ -1,7 +1,14 @@
 """
 load_tn_to_neo4j.py
 --------------------
-Loads tn_auction_data.jsonl into Neo4j Aura (cc513ea9).
+Loads normalized listings into Neo4j Aura (cc513ea9).
+
+Input: every ``data/listings/<source>.jsonl`` the harvest wrote (one file per
+portal — eauctionsindia, baanknet, bankeauctions), or the legacy
+``data/tn_auction_data.jsonl`` when no listings directory exists yet. Rows
+from any source share one shape (``sources.base.Listing.to_row``); a legacy
+row without a ``source`` is eauctionsindia.
+
 Follows the auction_graph_model.json schema:
 
   (AuctionProperty)-[:CONDUCTED_BY]->(Bank)
@@ -16,22 +23,39 @@ Follows the auction_graph_model.json schema:
   (AuctionProperty)-[:HAS_PROPERTY_TYPE]->(PropertyType)
   (AuctionProperty)-[:HAS_BORROWER]->(Borrower)
   (AuctionProperty)-[:IS_AUCTION_TYPE]->(AuctionType)
+  (AuctionProperty)-[:HAS_MEDIA]->(Media)          portal photos / videos
 
-Run:  python -m scripts.load_tn_to_neo4j
+plus, on the listing, the source properties from docs/SCHEMA.md "Sources and
+the spine": ``source``, ``source_id``, ``source_url``, ``source_rank``,
+``fetched_at``, ``last_seen_at``, and the portal-supplied ``portal_district``,
+``pincode``, ``borrower_address``, ``possession_type``, ``extent_raw``,
+``bid_increment_num``, ``inspection_*``, ``auction_status``, ``photo_urls``.
+
+Run:  python -m scripts.load_tn_to_neo4j                      # data/listings/*.jsonl
+      python -m scripts.load_tn_to_neo4j --input data/listings/baanknet.jsonl --dry-run
+      python -m scripts.load_tn_to_neo4j --backfill-source     # once: stamp old nodes eauctionsindia
 """
 
+import argparse
+import glob
 import json
 import os
+import sys
 import time
+from pathlib import Path
+
 from neo4j import GraphDatabase
 
 from pipeline.config import (
     NEO4J_URI, NEO4J_USERNAME, NEO4J_PASSWORD, NEO4J_DATABASE, LOOKUPS_DIR,
 )
+from sources.base import SOURCE_RANK
 
 PROJECT_ROOT   = os.path.join(os.path.dirname(__file__), '..')
 INPUT_FILE     = os.path.join(PROJECT_ROOT, "data", "tn_auction_data.jsonl")
+LISTINGS_GLOB  = os.path.join(PROJECT_ROOT, "data", "listings", "*.jsonl")
 BATCH_SIZE     = 100  # records per transaction
+DEFAULT_SOURCE = "eauctionsindia"
 
 # Card-display abbreviation for long legal entity names (e.g. "SMFG INDIA
 # CREDIT COMPANY LIMITED" -> "SMFG India Credit"), curated by hand per bank
@@ -60,6 +84,8 @@ CONSTRAINTS = [
     "CREATE CONSTRAINT asset_cat IF NOT EXISTS FOR (n:AssetCategory) REQUIRE n.name IS UNIQUE",
     "CREATE CONSTRAINT prop_type IF NOT EXISTS FOR (n:PropertyType) REQUIRE n.name IS UNIQUE",
     "CREATE CONSTRAINT auction_type IF NOT EXISTS FOR (n:AuctionType) REQUIRE n.name IS UNIQUE",
+    # One node per photo/video URL; the batch below MERGEs on it.
+    "CREATE CONSTRAINT media_url_unique IF NOT EXISTS FOR (n:Media) REQUIRE n.url IS UNIQUE",
     # One notice published against N lots is stored as N Documents holding the
     # same bytes; pipeline/notice_twins groups on this hash so the paid passes
     # (OCR, extraction) run once per page. Looked up by file, so it needs to be
@@ -121,7 +147,28 @@ SET
   a.downloads_list           = r.downloads_list,
   a.downloads_complete       = r.downloads_complete,
   a.contact_details          = r.contact_details,
-  a.service_provider         = r.service_provider
+  a.service_provider         = r.service_provider,
+  // ── source (docs/SCHEMA.md "Sources and the spine") ─────────────────────
+  a.source                   = r.source,
+  a.source_id                = r.source_id,
+  a.source_url               = r.source_url,
+  a.source_rank              = r.source_rank,
+  a.fetched_at               = CASE WHEN r.fetched_at IS NULL THEN a.fetched_at ELSE datetime(r.fetched_at) END,
+  a.last_seen_at             = datetime(),
+  a.portal_district          = r.portal_district,
+  a.pincode                  = r.pincode,
+  a.borrower_address         = r.borrower_address,
+  a.possession_type          = r.possession_type,
+  a.extent_raw               = r.extent_raw,
+  a.bid_increment_num        = r.bid_increment_num,
+  a.inspection_start_dt      = CASE WHEN r.inspection_start_dt IS NULL THEN NULL ELSE datetime(r.inspection_start_dt) END,
+  a.inspection_end_dt        = CASE WHEN r.inspection_end_dt   IS NULL THEN NULL ELSE datetime(r.inspection_end_dt)   END,
+  a.auction_status           = r.auction_status,
+  // parallel to downloads_list: the adapter's role for each file, and where
+  // it came from — what upload_downloads_to_r2 stamps on each :Document
+  a.document_roles           = r.document_roles,
+  a.document_urls            = r.document_urls,
+  a.photo_urls               = r.photo_urls
 
 // Every block below is guarded by its own FOREACH rather than a shared
 // `WITH a, r WHERE ...`. That chained form filtered the ROW, not just the
@@ -187,6 +234,29 @@ FOREACH (_ IN CASE WHEN coalesce(r.borrower_name, '') <> '' THEN [1] ELSE [] END
   MERGE (bw:Borrower {name: r.borrower_name})
   MERGE (a)-[:HAS_BORROWER]->(bw)
 )
+
+// ── Media ─────────────────────────────────────────────────────────────────
+// One node per URL. Videos stay links; upload_downloads_to_r2 mirrors the
+// photos of live listings and fills content_sha256 / r2_key / public_url.
+FOREACH (m IN [x IN coalesce(r.media, []) WHERE coalesce(x.url, '') <> ''] |
+  MERGE (md:Media {url: m.url})
+  SET md.kind    = m.kind,
+      md.is_main = m.is_main,
+      md.label   = m.label,
+      md.source  = r.source
+  MERGE (a)-[:HAS_MEDIA]->(md)
+)
+"""
+
+# One-off, idempotent: every listing loaded before the adapters existed came
+# from eauctionsindia. The batch above never re-SETs a complete listing, so
+# these nodes need stamping once.
+BACKFILL_SOURCE_QUERY = """
+MATCH (a:AuctionProperty) WHERE a.source IS NULL
+SET a.source = $source, a.source_rank = $rank,
+    a.source_id = coalesce(a.source_id, a.auction_id),
+    a.source_url = coalesce(a.source_url, a.url)
+RETURN count(a) AS n
 """
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -215,10 +285,19 @@ def load_records(path: str) -> list[dict]:
 
 
 def sanitise(r: dict) -> dict:
-    """Ensure all fields Neo4j needs are present and None-safe."""
+    """Ensure all fields Neo4j needs are present and None-safe.
+
+    A row without ``source`` is a legacy ``tn_auction_data.jsonl`` row:
+    eauctionsindia, rank 3, its own id and url as source id and url.
+    """
     def _str(v):  return str(v).strip() if v else None
     def _float(v): return float(v) if v is not None else None
 
+    source = _str(r.get("source")) or DEFAULT_SOURCE
+    documents = [d for d in (r.get("documents") or []) if isinstance(d, dict)]
+    media = [{"url": _str(m.get("url")), "kind": _str(m.get("kind")) or "image",
+              "is_main": bool(m.get("is_main")), "label": _str(m.get("label"))}
+             for m in (r.get("media") or []) if isinstance(m, dict) and _str(m.get("url"))]
     return {
         "auction_id"               : _str(r.get("auction_id")),
         "url"                      : _str(r.get("url")),
@@ -247,7 +326,58 @@ def sanitise(r: dict) -> dict:
         ],
         "auction_type"             : _str(r.get("auction_type")),
         "borrower_name"            : _str(r.get("borrower_name")),
+        # ── source ──
+        "source"                   : source,
+        "source_id"                : _str(r.get("source_id")) or _str(r.get("auction_id")),
+        "source_url"               : _str(r.get("source_url")) or _str(r.get("url")),
+        "source_rank"              : int(r.get("source_rank") or SOURCE_RANK.get(source, 9)),
+        "fetched_at"               : _str(r.get("fetched_at")),
+        "portal_district"          : _str(r.get("district")),
+        "pincode"                  : _str(r.get("pincode")),
+        "borrower_address"         : _str(r.get("borrower_address")),
+        "possession_type"          : _str(r.get("possession_type")),
+        "extent_raw"               : _str(r.get("extent_raw")),
+        "bid_increment_num"        : _float(r.get("bid_increment_num")),
+        "inspection_start_dt"      : _str(r.get("inspection_start_dt")),
+        "inspection_end_dt"        : _str(r.get("inspection_end_dt")),
+        "auction_status"           : _str(r.get("auction_status")),
+        "document_roles"           : [_str(d.get("doc_role")) or "unknown" for d in documents],
+        "document_urls"            : [_str(d.get("url")) or "" for d in documents],
+        "media"                    : media,
+        "photo_urls"               : [m["url"] for m in media if m["kind"] == "image"],
     }
+
+
+def is_loadable(r: dict) -> bool:
+    """A listing is worth a node when it brought at least one document or one
+    photo. (Before the adapters the rule was "≥1 download found".)"""
+    return bool(r.get("downloads_found")) or any(
+        isinstance(m, dict) and m.get("url") for m in (r.get("media") or []))
+
+
+def resolve_inputs(inputs: list[str] | None) -> list[Path]:
+    """The files to load: the ``--input`` globs, else every
+    ``data/listings/*.jsonl``, else the legacy ``tn_auction_data.jsonl``."""
+    patterns = inputs or [LISTINGS_GLOB]
+    paths: list[Path] = []
+    for pattern in patterns:
+        paths.extend(Path(p) for p in sorted(glob.glob(pattern)))
+    if not paths and not inputs:
+        paths = [Path(INPUT_FILE)]
+    return [p for p in paths if p.is_file()]
+
+
+def load_inputs(paths: list[Path]) -> list[dict]:
+    """Rows from every file, later files winning on a repeated auction_id
+    (the same eauctionsindia listing can sit in both the legacy file and
+    ``data/listings/eauctionsindia.jsonl``)."""
+    by_id: dict[str, dict] = {}
+    for path in paths:
+        for r in load_records(str(path)):
+            aid = str(r.get("auction_id") or "").strip()
+            if aid:
+                by_id[aid] = r
+    return list(by_id.values())
 
 
 def run_batch(session, batch: list[dict]) -> int:
@@ -262,28 +392,55 @@ def get_existing_ids(session) -> set[str]:
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
-def main():
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--input", action="append", default=None,
+                    help="listing file or glob (repeatable); default data/listings/*.jsonl, else data/tn_auction_data.jsonl")
+    ap.add_argument("--dry-run", action="store_true",
+                    help="parse and filter, print the first batch's rows; no connection to Neo4j")
+    ap.add_argument("--backfill-source", action="store_true",
+                    help="stamp source='eauctionsindia' on listings loaded before the adapters existed (idempotent)")
+    args = ap.parse_args(argv)
+
+    paths = resolve_inputs(args.input)
+    if not paths:
+        print(f"no input files ({args.input or [LISTINGS_GLOB, INPUT_FILE]})", file=sys.stderr)
+        return 1
+    print("Loading records from " + ", ".join(str(p) for p in paths) + " ...")
+    records = load_inputs(paths)
+    all_rows = [sanitise(r) for r in records if is_loadable(r)]
+    by_source: dict[str, int] = {}
+    for r in all_rows:
+        by_source[r["source"]] = by_source.get(r["source"], 0) + 1
+    print(f"  {len(records):,} records in file(s); {len(all_rows):,} with a document or photo "
+          f"({', '.join(f'{k} {v}' for k, v in sorted(by_source.items()))})")
+
+    if args.dry_run:
+        print(f"\n[dry-run] first batch ({min(BATCH_SIZE, len(all_rows))} rows); nothing sent")
+        for r in all_rows[:3]:
+            print(json.dumps(r, ensure_ascii=False, indent=2))
+        return 0
+
     print(f"Connecting to {NEO4J_URI} ...")
     driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USERNAME, NEO4J_PASSWORD))
 
     with driver.session(database=NEO4J_DATABASE) as session:
         create_constraints(session)
+        if args.backfill_source:
+            n = session.run(BACKFILL_SOURCE_QUERY, source=DEFAULT_SOURCE,
+                            rank=SOURCE_RANK[DEFAULT_SOURCE]).single()["n"]
+            print(f"  backfilled source={DEFAULT_SOURCE} on {n:,} listings")
         existing_ids = get_existing_ids(session)
 
-    print(f"\nLoading records from {INPUT_FILE} ...")
-    records = load_records(INPUT_FILE)
-    all_rows = [sanitise(r) for r in records if r.get('downloads_found')]
-    
     # Filter for brand new ones only
     rows = [r for r in all_rows if r.get('auction_id') not in existing_ids]
     total = len(rows)
-    print(f"  {len(all_rows):,} valid records found in file.")
     print(f"  {total:,} NEW records to ingest (batch size: {BATCH_SIZE})")
-    
+
     if total == 0:
         print("\nNo new records to ingest. Done.")
         driver.close()
-        return
+        return 0
 
     ingested = 0
     errors   = 0
@@ -311,9 +468,10 @@ def main():
     print(f"  Errors   : {errors}")
     print(f"  Time     : {elapsed:.1f}s")
     print(f"{'='*50}")
-    print(f"\nVerify in Neo4j Browser:")
-    print("  MATCH (n) RETURN labels(n), count(n) ORDER BY count(n) DESC")
+    print("\nVerify in Neo4j Browser:")
+    print("  MATCH (a:AuctionProperty) RETURN a.source, count(*)")
+    return 1 if errors else 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

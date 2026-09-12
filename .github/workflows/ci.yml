@@ -63,6 +63,12 @@ jobs:
       # its cases exists purely to hold the two callers together, and a guard
       # nothing runs is not a guard. Needs neo4j + python-dotenv + RapidFuzz,
       # all already in requirements.lock.
+      #
+      # tests/sources covers the portal adapters (sources/): pure-function
+      # tests from recorded portal shapes, plus a regression that runs the
+      # retired prepare_tn_data beside the adapter-backed one on the same
+      # input and holds every legacy key equal — the weekly run reads that
+      # file, so a drift there loads the graph wrong. Needs only requests.
       - name: Run API tests
         env:
           SUPABASE_URL: https://fake.supabase.co
@@ -79,7 +85,8 @@ jobs:
           tests/pipeline/test_property_taxonomy.py
           tests/pipeline/test_measures.py
           tests/pipeline/test_promote_extractions.py
-          tests/pipeline/test_run_pipeline.py -q
+          tests/pipeline/test_run_pipeline.py
+          tests/sources -q
 
   # Live Razorpay test-mode E2E + real-Neo4j concurrency (design D4/D5).
   # REQUIRED: this job goes red when the RAZORPAY_* secrets are absent — the gate

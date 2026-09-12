@@ -430,3 +430,40 @@ def test_a_result_row_keeps_the_portal_city_when_the_notice_is_silent(monkeypatc
     row = FP._shape_row(_row(city="Chennai", district=None))
 
     assert row["city"] == "Chennai"
+
+
+# ── one row per auction across portals ──────────────────────────────────
+
+def test_every_query_keeps_one_copy_per_bridged_cluster(monkeypatch):
+    """The canonical predicate is standing, not a fragment: count, rows,
+    refine and relax must all carry it, or the numbers disagree."""
+    calls = _stub(monkeypatch, total=50, rows=[_row()], extra=[[], []])
+    FP.find_properties(city="Chennai", bank="SBI")
+    for cypher, _ in calls:
+        assert "NOT EXISTS { MATCH (a)-[_sl:SAME_LISTING_AS]-(_sp:AuctionProperty)" in cypher
+        assert "coalesce(_sp.source_rank, 3) < coalesce(a.source_rank, 3)" in cypher
+    calls = _stub(monkeypatch, total=0, extra=[[{"dropped": "city", "listings": 3}]])
+    FP.find_properties(city="Nowhere", bank="SBI")
+    assert all("SAME_LISTING_AS" in c for c, _ in calls)
+
+
+def test_rows_say_which_portal_and_where_else(monkeypatch):
+    _stub(monkeypatch, rows=[_row(auction_id="bn-359826", source="baanknet",
+                                   also_on=["eauctionsindia", "eauctionsindia"], has_photos=True),
+                             _row(auction_id="841207")])
+    rows = FP.find_properties(city="Chennai")["rows"]
+    assert (rows[0]["source"], rows[0]["also_on"], rows[0]["has_photos"]) == ("baanknet", ["eauctionsindia"], True)
+    assert rows[1]["source"] == "eauctionsindia" and rows[1]["has_photos"] is False and "also_on" not in rows[1]
+
+
+# ── the spine, once built ───────────────────────────────────────────────
+
+def test_rows_carry_the_merged_view_only_once_the_spine_exists(monkeypatch):
+    _stub(monkeypatch, rows=[_row(auction_id="bn-359826", core_complete=7, core_missing=["measurement", "boundaries"],
+                                   listed_on=["baanknet", "eauctionsindia", "notice"], merge_confidence="PROBABLE"),
+                             _row(auction_id="841207")])
+    rows = FP.find_properties(city="Chennai")["rows"]
+    assert (rows[0]["core_complete"], rows[0]["core_missing"]) == (7, ["measurement", "boundaries"])
+    assert rows[0]["merged_from"] == ["baanknet", "eauctionsindia", "notice"] and rows[0]["merge_confidence"] == "PROBABLE"
+    assert "core_complete" not in rows[1] and "merged_from" not in rows[1]
+    assert "OPTIONAL MATCH (a)-[:LISTS]->(ev:AuctionEvent)" in FP._ROW_PROJECTION

@@ -23,11 +23,12 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from api.ids import all_ids
+
 logger = logging.getLogger(__name__)
 
-# 6-digit auction ids, the real format. Bounded so a year or a price fragment
-# doesn't read as an id.
-_ID_RE = re.compile(r"\b\d{6}\b")
+# Auction ids: bare six digits (eauctionsindia) or bn- / be- prefixed
+# (BAANKNET, bankeauctions). One pattern shared with agent3 — api/ids.py.
 
 # Rupee amounts the answer asserts: "Rs 35,00,000", "₹3.5 crore", "4000000".
 _MONEY_RE = re.compile(
@@ -80,8 +81,8 @@ def check_answer(answer: str, tool_results: Any, *,
     if recommendation is not None:
         text += " " + _flatten(recommendation)
 
-    known_ids = set(_ID_RE.findall(haystack)) | {str(i) for i in (extra_ids or [])}
-    for candidate in set(_ID_RE.findall(text)):
+    known_ids = set(all_ids(haystack)) | {str(i).lower() for i in (extra_ids or [])}
+    for candidate in all_ids(text):
         if candidate not in known_ids:
             verdict.unsupported_ids.append(candidate)
 

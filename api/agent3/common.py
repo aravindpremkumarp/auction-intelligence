@@ -30,7 +30,6 @@ from __future__ import annotations
 
 import functools
 import logging
-import re
 import time
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -492,26 +491,14 @@ class ToolSink:
 # re-exports them, so `gates.ID_LIKE` and `gates.tool_output_text` still
 # resolve for every existing caller.
 
-#: A portal `auction_id` is exactly six digits — verified across all 2,964
-#: listings (658842–842929, `size(auction_id)` 6 for every one). The band
-#: below is deliberately wider than the observed range, because ids are a
-#: portal sequence that grows as new listings are scraped; the check does not
-#: want to start flagging real ids the day the range moves.
-#:
-#: The lookarounds reject a six-digit run that is part of a longer number:
-#: a bare digit either side, or a comma/period that is itself between digits
-#: (`1,234,567`, `1234.567890`). They must NOT reject a trailing sentence
-#: period — the first draft used `(?![\d,.])` and silently matched nothing at
-#: the end of a sentence, which is where an id in prose almost always sits.
-ID_LIKE = re.compile(r"(?<!\d)(?<!\d,)(?<!\d\.)(\d{6})(?!\d)(?!,\d)(?!\.\d)")
-ID_BAND = (600_000, 999_999)
-
-#: Currency context around a number, checked so a six-digit *price* is not
-#: mistaken for an id. `₹6,50,000` normalises to 650000, which is inside the
-#: id band; without this every correctly-quoted reserve reads as a citation.
-_CURRENCY_BEFORE = re.compile(r"(₹|rs\.?|inr)\s*$", re.I)
-_CURRENCY_AFTER = re.compile(
-    r"^\s*(lakh|lakhs|lac|crore|crores|cr\b|l\b|rupees)", re.I)
+#: Portal ids in prose. One pattern for every reader — the answer gate, the
+#: manifest, the artifact fallback, the chat panel — lives in ``api/ids.py``
+#: (stdlib only, so the request path never imports the agent stack). Bare
+#: six-digit eauctionsindia ids are band- and currency-guarded there;
+#: ``bn-`` / ``be-`` ids (BAANKNET, bankeauctions) carry their prefix as the
+#: guard. Re-exported here because ``gates.ID_LIKE`` and ``gates.guarded_ids``
+#: are what existing callers and tests reach for.
+from api.ids import ID_BAND, ID_LIKE, guarded_ids, is_portal_id, iter_id_tokens  # noqa: E402,F401
 
 
 def message_text(message: Any) -> str:
@@ -535,29 +522,3 @@ def tool_output_text(messages: list) -> str:
     """
     return "\n".join(message_text(m) for m in messages
                      if getattr(m, "type", "") == "tool")
-
-
-def guarded_ids(text: str) -> list[str]:
-    """Six-digit portal ids in prose, in order, deduplicated.
-
-    The band and currency guards are the whole value: without them every
-    correctly-quoted six-digit price reads as a citation.
-
-    Shared on purpose. The answer gate uses it to catch hallucinated ids and
-    the manifest uses it to decide which properties the agent discussed; a
-    second, looser regex for the second job is how the two drift apart.
-    `artifacts.cited_ids` IS that looser variant — no band, no currency check
-    — and is deliberately not what to reach for here.
-    """
-    out: list[str] = []
-    for m in ID_LIKE.finditer(text or ""):
-        token = m.group(1)
-        if not (ID_BAND[0] <= int(token) <= ID_BAND[1]):
-            continue
-        if _CURRENCY_BEFORE.search(text[max(0, m.start() - 6):m.start()]):
-            continue
-        if _CURRENCY_AFTER.match(text[m.end():m.end() + 12]):
-            continue
-        if token not in out:
-            out.append(token)
-    return out
