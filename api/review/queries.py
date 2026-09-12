@@ -9,6 +9,8 @@ from typing import Literal
 
 from api.neo4j_client import run_query, run_read_query
 from api.review.markdown_match import match_span, property_offset_in_notice
+from pipeline.place_lineage import NOT_COMPARABLE as PLACE_LINEAGE_NOT_COMPARABLE
+from pipeline.place_lineage import SAID as PLACE_LINEAGE_SAID
 
 
 ReviewStatus = Literal["pending", "verified", "edited", "all"]
@@ -1717,6 +1719,24 @@ def _place_panels() -> list[dict]:
         "taluk-has-no-villages": "taluk keeps no revenue villages (urban)",
         "names-a-taluk": "village field repeats the taluk name",
     }
+    # The portal disagreement is one number hiding three populations, and only
+    # the third is work: the 2019 district splits and the Chennai metro are the
+    # two sources naming different things, not disagreeing about one. Ordered
+    # so the row a reviewer can act on sits last, where the eye stops.
+    kinds = run_read_query(
+        """
+        MATCH (p:AuctionProperty) WHERE p.place_portal_conflict_kind IS NOT NULL
+          AND p.place_portal_conflict_kind <> 'agree'
+        RETURN p.place_portal_conflict_kind AS t, count(*) AS n ORDER BY n DESC
+        """, max_rows=12, timeout=30.0)
+    portal_rows = [(PLACE_LINEAGE_SAID.get(r["t"], r["t"]), r["n"])
+                   for r in kinds
+                   if r["t"] not in PLACE_LINEAGE_NOT_COMPARABLE]
+    # Before the kind has ever been written there is nothing to break down, and
+    # a panel that silently loses its only row reads as "no conflicts".
+    if not portal_rows:
+        portal_rows = [("portal city vs the resolved district",
+                        counts.get("portal"))]
     return [
         _panel("Places matched to the revenue record", _rows([
             ("district", counts.get("d")),
@@ -1729,12 +1749,13 @@ def _place_panels() -> list[dict]:
             [(said.get(r["t"], r["t"]), r["n"]) for r in stops], total),
                "nothing is guessed — a wrong place is worse than a missing "
                "one, because a missing one is visible"),
-        _panel("Disagreements", _rows([
-            ("notice district vs its own taluk", counts.get("notice")),
-            ("portal city vs the resolved district", counts.get("portal")),
-        ], total),
+        _panel("Disagreements", _rows(
+            [("notice district vs its own taluk", counts.get("notice"))]
+            + portal_rows, total),
                "the portal never supplies an answer; it is kept only to "
-               "disagree, which is how an extraction error shows up"),
+               "disagree, which is how an extraction error shows up — but a "
+               "district that was split in 2019 is a stale portal, not an "
+               "error, so the kinds are counted apart"),
     ]
 
 
