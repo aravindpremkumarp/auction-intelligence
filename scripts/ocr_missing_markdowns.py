@@ -18,10 +18,13 @@ with the engine chosen by ``--engine``:
     gate (a Document with no markdown has no score to improve on, so any
     non-empty result is a win).
 
-    Datalab normally picks its mode from ``notice_type``, but a Document
-    with no markdown has not been classified yet — so the mode is a flag
-    here, defaulting to ``accurate``. Fast mode on an unclassified batch
-    notice collapses its lot table, which is expensive to detect later.
+    The mode follows ``notice_type`` by default (``--mode auto``: single ->
+    fast, multi -> accurate, via ``pipeline.config.datalab_mode_for``);
+    classification runs on cluster size, so it is already set before OCR.
+    A page whose same-byte copies disagree on type is OCR'd accurate — fast
+    mode on a batch notice collapses its lot table, which is expensive to
+    detect later. An unclassified Document falls back to accurate for the
+    same reason. ``--mode fast|accurate`` forces one tier for the whole run.
 
 One page is OCR'd once. A portal names each upload with its millisecond, so
 one notice published against six lots arrives as six file names holding
@@ -60,7 +63,7 @@ from dotenv import load_dotenv
 
 from api.neo4j_client import run_query, run_read_query
 from pipeline import datalab_api
-from pipeline.config import DOWNLOADS_DIR
+from pipeline.config import DOWNLOADS_DIR, datalab_mode_for
 from pipeline.datalab import parse_datalab_blocks
 from pipeline.ink_fingerprint import content_hash
 from pipeline.load_markdowns_to_neo4j import (
@@ -92,7 +95,8 @@ def fetch_missing() -> list[dict]:
         RETURN d.filename       AS filename,
                d.file_path      AS file_path,
                d.public_url     AS public_url,
-               d.content_sha256 AS content_sha256
+               d.content_sha256 AS content_sha256,
+               d.notice_type    AS notice_type
         """,
         max_rows=10_000,
     )
@@ -275,14 +279,42 @@ def build_write_rows(mds: dict[str, str]) -> list[dict]:
     return rows
 
 
+def assign_modes(to_ocr: list[dict], docs: list[dict],
+                 forced: str | None = None) -> None:
+    """Stamp a Datalab ``mode`` on each doc about to be OCR'd, in place.
+
+    ``docs`` is every downloaded doc, followers included: a leader stands in
+    for its whole same-byte group, so the page goes accurate if any copy is
+    'multi'. An unclassified doc goes accurate too — the cheap tier is only
+    safe once we know the notice holds one property. ``forced`` overrides.
+    """
+    multi_shas = {d["content_sha256"] for d in docs
+                  if d.get("content_sha256") and d.get("notice_type") == "multi"}
+    for m in to_ocr:
+        if forced:
+            m["mode"] = forced
+        elif m.get("notice_type") not in ("single", "multi") \
+                or m.get("content_sha256") in multi_shas:
+            m["mode"] = datalab_mode_for("multi")
+        else:
+            m["mode"] = datalab_mode_for(m["notice_type"])
+
+
+def _mode_tally(docs: list[dict]) -> str:
+    counts: dict[str, int] = {}
+    for d in docs:
+        counts[d["mode"]] = counts.get(d["mode"], 0) + 1
+    return "(" + ", ".join(f"{k}={v}" for k, v in sorted(counts.items())) + ")"
+
+
 def _bid() -> str:
     return f"blk_{secrets.token_hex(6)}"
 
 
-def datalab_one(m: dict, *, mode: str) -> dict:
+def datalab_one(m: dict) -> dict:
     """OCR one already-downloaded notice with Datalab. Never raises.
 
-    ``m`` carries ``filename``/``file_path``; the source file is the copy
+    ``m`` carries ``filename``/``file_path``/``mode``; the source file is the copy
     Stage 0 placed in ``DOWNLOAD_TARGET_DIR`` (kept on disk, unlike
     reocr_low_health_datalab's tempfile, so a re-run can reuse it).
     """
@@ -290,7 +322,7 @@ def datalab_one(m: dict, *, mode: str) -> dict:
            "ok": False, "note": ""}
     try:
         src = DOWNLOAD_TARGET_DIR / m["filename"]
-        result = datalab_api.run_file(src, output_format="json", mode=mode)
+        result = datalab_api.run_file(src, output_format="json", mode=m["mode"])
         _md, doc, _img = datalab_api.extract_payload(result)
         blocks = parse_datalab_blocks(doc)
         for b in blocks:
@@ -308,16 +340,17 @@ def datalab_one(m: dict, *, mode: str) -> dict:
     return out
 
 
-def write_datalab(results: list[dict], mode: str) -> int:
+def write_datalab(results: list[dict]) -> int:
     """Persist Datalab OCR results. Same field shape as
-    scripts.reocr_low_health_datalab.write_back."""
+    scripts.reocr_low_health_datalab.write_back; each row records its own
+    tier in ``markdown_model``."""
     rows = [{
         "file_path":   r["file_path"],
         "markdown":    r["markdown"],
         "blocks_raw":  json.dumps(r["blocks"], ensure_ascii=False),
         "blocks_json": json.dumps(
             {"schema_version": 1, "blocks": r["blocks"]}, ensure_ascii=False),
-        "model":       f"datalab-{mode}",
+        "model":       f"datalab-{r['mode']}",
         "score":       r["score"],
         "flags":       r["flags"],
         "parse_quality": r.get("parse_quality"),
@@ -360,14 +393,14 @@ def main() -> int:
                     help="cap to first N missing Documents")
     ap.add_argument("--engine", choices=["mineru", "datalab"], default="mineru",
                     help="OCR provider (default: mineru)")
-    ap.add_argument("--mode", choices=["fast", "accurate"], default="accurate",
+    ap.add_argument("--mode", choices=["auto", "fast", "accurate"], default="auto",
                     help="Datalab mode; ignored for --engine mineru "
-                         "(default: accurate — these Documents have no "
-                         "notice_type yet, so mode cannot be derived)")
+                         "(default: auto — single -> fast, multi -> accurate)")
     ap.add_argument("--concurrency", type=int, default=4,
                     help="parallel Datalab jobs (default: 4)")
     args = ap.parse_args()
 
+    forced_mode = None if args.mode == "auto" else args.mode
     missing = fetch_missing()
     if args.limit:
         missing = missing[:args.limit]
@@ -384,14 +417,16 @@ def main() -> int:
         known = fetch_donors([m["content_sha256"] for m in missing
                               if m.get("content_sha256")])
         to_ocr, copies = plan_reuse(missing, known, key=source_key)
+        assign_modes(to_ocr, missing, forced=forced_mode)
         leaders = {d["filename"] for d in to_ocr}
         for m in to_ocr:
-            print(f"  OCR   {m['filename']}  <- {m['public_url']}")
+            print(f"  OCR   {m.get('notice_type') or '?':<6} {m['mode']:<8} "
+                  f"{m['filename']}")
         for c in copies:
             via = "this run" if c["donor"] in leaders else "the graph"
             print(f"  copy  {c['filename']}  <- {c['donor']} ({via})")
-        print(f"\nwould OCR {len(to_ocr)}, copy {len(copies)} "
-              f"(on hashes stored so far)")
+        print(f"\nwould OCR {len(to_ocr)} {_mode_tally(to_ocr)}, "
+              f"copy {len(copies)} (on hashes stored so far)")
         return 0
 
     if args.engine == "mineru" and not MINERU_KEY:
@@ -452,18 +487,19 @@ def main() -> int:
         print("\nEvery downloaded page was already OCR'd — no provider calls made.")
         return 0
 
-    work = [{"filename": m["filename"], "file_path": m["file_path"]}
+    assign_modes(to_ocr, downloaded, forced=forced_mode)
+    work = [{"filename": m["filename"], "file_path": m["file_path"],
+             "mode": m["mode"]}
             for m in to_ocr]
 
     if args.engine == "datalab":
         # ── Stage 1: Datalab OCR (one job per file, N in flight) ────────────
-        print(f"\n[Stage 1] Datalab OCR ({args.mode}) on {len(work)} files, "
+        print(f"\n[Stage 1] Datalab OCR {_mode_tally(work)} on {len(work)} files, "
               f"concurrency={args.concurrency}")
         results: list[dict] = []
         failures = 0
         with ThreadPoolExecutor(max_workers=args.concurrency) as pool:
-            futures = {pool.submit(datalab_one, m, mode=args.mode): m
-                       for m in work}
+            futures = {pool.submit(datalab_one, m): m for m in work}
             for i, fut in enumerate(as_completed(futures), 1):
                 r = fut.result()
                 results.append(r)
@@ -483,7 +519,7 @@ def main() -> int:
             return 1
 
         print(f"\n[Stage 2] Writing {len(ok_results)} markdowns to Neo4j")
-        wrote = write_datalab(ok_results, args.mode)
+        wrote = write_datalab(ok_results)
         print(f"  wrote {wrote} / {len(ok_results)}", flush=True)
 
         scored = [r["score"] for r in ok_results if r["score"] is not None]
