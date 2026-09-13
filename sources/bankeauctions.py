@@ -150,9 +150,16 @@ class BankeauctionsAdapter:
         return self._state_id
 
     def _page(self, start: int) -> dict:
+        # Without an explicit sort the server's row order shifts between
+        # requests: pages repeat rows and a fixed set is never served (160 of
+        # 195 on 2026-09-14). Sorting on the auction id makes paging stable —
+        # and the server ignores the sort unless that column is marked
+        # bSortable.
         r = self.session.post(
             DATATABLE, params={"state": self.state_id()},
-            data={"iDisplayStart": start, "iDisplayLength": PAGE_SIZE, "sEcho": 1},
+            data={"iDisplayStart": start, "iDisplayLength": PAGE_SIZE, "sEcho": 1,
+                  "iSortingCols": 1, "iSortCol_0": COL_ID, "sSortDir_0": "asc",
+                  f"bSortable_{COL_ID}": "true"},
         )
         r.raise_for_status()
         return r.json()

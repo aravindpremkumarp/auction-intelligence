@@ -233,6 +233,11 @@ def test_harvest_reads_the_state_id_off_the_homepage_and_dedupes_the_overlap():
     assert got[0]["detail_html"] == DETAIL_HTML
     first_post = next(c for c in calls if c[0] == "POST")
     assert first_post[2] == {"state": 24} and first_post[3]["iDisplayLength"] == 10
+    # unsorted paging drops rows on the live site — every page asks for a stable order
+    # (the server ignores the sort unless the column is also marked bSortable)
+    assert all(c[3]["iSortingCols"] == 1 and c[3]["iSortCol_0"] == 1 and c[3]["sSortDir_0"] == "asc"
+               and c[3]["bSortable_1"] == "true"
+               for c in calls if c[0] == "POST")
 
 
 def test_harvest_limit_and_no_detail():
