@@ -83,6 +83,18 @@ def object_key(auction_id: str, filename: str) -> str:
     return f"{_KEY_PREFIX}/{_safe_segment(auction_id)}/{_safe_segment(filename)}"
 
 
+_MEDIA_KEY_PREFIX = "media"
+
+
+def media_object_key(auction_id: str, content_sha256: str, ext: str) -> str:
+    """R2 key for a listing photo mirrored from a portal CDN:
+    ``media/{auction_id}/{sha256}.{ext}``. Keyed by content, so the same photo
+    re-listed under a new URL lands on the same object.
+    """
+    ext = ext.lstrip(".").lower() or "bin"
+    return f"{_MEDIA_KEY_PREFIX}/{_safe_segment(auction_id)}/{_safe_segment(content_sha256)}.{ext}"
+
+
 def guess_content_type(filename: str) -> str:
     """Best-effort MIME type for serving from R2 and for the UI viewer branch."""
     ext = Path(filename).suffix.lower()

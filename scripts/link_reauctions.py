@@ -731,6 +731,98 @@ def write_pairs(session, pairs: list[tuple[str, str, str, str]]) -> int:
     return written
 
 
+# ── events: the same matcher over the spine ──────────────────────────────────
+#
+# Stage 5c. The listing-level pass above stays until agent3 reads the spine
+# (plan Task 12); this pass links :AuctionEvent nodes with the same rules —
+# same-day pairs are batch sales, never re-auctions — and stamps each event's
+# place in its chain: attempt_no (1 = first sale we know of), previous_reserve,
+# previous_event_id, chain_size.
+
+FETCH_EVENTS = """
+MATCH (e:AuctionEvent)
+RETURN e.event_id AS auction_id, e.borrower AS borrower, e.bank AS bank, e.city AS city, e.area AS area,
+       e.extent_raw AS total_area, e.description AS description,
+       toString(e.auction_start_dt) AS auction_start_dt, e.reserve_price_num AS reserve
+"""
+
+DROP_EVENT_LINKS = "MATCH (:AuctionEvent)-[r:SAME_PROPERTY_AS]->(:AuctionEvent) DELETE r"
+
+MERGE_EVENT_PAIR = """
+UNWIND $rows AS r
+MATCH (a:AuctionEvent {event_id: r.a_id})
+MATCH (b:AuctionEvent {event_id: r.b_id})
+MERGE (a)-[ab:SAME_PROPERTY_AS]->(b)
+  SET ab.match_reason = r.reason, ab.confidence = r.confidence, ab.linked_at = datetime()
+MERGE (b)-[ba:SAME_PROPERTY_AS]->(a)
+  SET ba.match_reason = r.reason, ba.confidence = r.confidence, ba.linked_at = datetime()
+RETURN count(*) AS n
+"""
+
+STAMP_CHAIN = """
+UNWIND $rows AS r
+MATCH (e:AuctionEvent {event_id: r.id})
+SET e.attempt_no = r.attempt_no, e.previous_reserve = r.previous_reserve,
+    e.previous_event_id = r.previous_event_id, e.chain_size = r.chain_size
+RETURN count(e) AS n
+"""
+
+
+def chain_attempts(events: list[dict], clusters: list[list[str]]) -> list[dict]:
+    """One stamp per event: its position in its re-auction chain by auction
+    date (1 = earliest known sale), the reserve of the event before it, and
+    the chain length. An event in no cluster is attempt 1 of a chain of 1.
+    Events without a date sort last, in id order, so the stamps are stable."""
+    by_id = {e["auction_id"]: e for e in events}
+    in_cluster: set[str] = set()
+    rows: list[dict] = []
+    for group in clusters:
+        members = sorted((by_id[i] for i in group if i in by_id),
+                         key=lambda e: (e.get("auction_start_dt") is None, e.get("auction_start_dt") or "", e["auction_id"]))
+        prev = None
+        for n, e in enumerate(members, start=1):
+            rows.append({"id": e["auction_id"], "attempt_no": n, "chain_size": len(members),
+                         "previous_reserve": prev.get("reserve") if prev else None,
+                         "previous_event_id": prev["auction_id"] if prev else None})
+            in_cluster.add(e["auction_id"])
+            prev = e
+    for e in events:
+        if e["auction_id"] not in in_cluster:
+            rows.append({"id": e["auction_id"], "attempt_no": 1, "chain_size": 1,
+                         "previous_reserve": None, "previous_event_id": None})
+    rows.sort(key=lambda r: r["id"])
+    return rows
+
+
+def run_events(dry_run: bool = False, sim_threshold: float = DEFAULT_SIM_THRESHOLD) -> int:
+    """Link re-auctioned :AuctionEvent nodes and stamp the chain."""
+    from api.neo4j_client import run_query
+
+    t_start = time.time()
+    events = run_query(FETCH_EVENTS)
+    print(f"  {len(events)} events loaded.")
+    pairs = find_reauction_pairs(events, sim_threshold=sim_threshold)
+    clusters, expanded = expand_clusters(events, pairs)
+    stamps = chain_attempts(events, clusters)
+    chained = sum(1 for r in stamps if r["chain_size"] > 1)
+    print(f"  {len(pairs)} direct pairs, {len(clusters)} chains, {len(expanded)} pairs after expansion; "
+          f"{chained} events in a chain of 2+")
+    sizes = Counter(len(g) for g in clusters)
+    for size in sorted(sizes):
+        print(f"    chains of {size}: {sizes[size]}")
+    if dry_run:
+        print("[dry-run] no writes")
+        return 0
+    run_query(DROP_EVENT_LINKS)
+    rows = [{"a_id": a, "b_id": b, "reason": reason, "confidence": conf} for a, b, reason, conf in expanded]
+    for i in range(0, len(rows), NEO4J_BATCH_SIZE):
+        run_query(MERGE_EVENT_PAIR, {"rows": rows[i:i + NEO4J_BATCH_SIZE]})
+    for i in range(0, len(stamps), NEO4J_BATCH_SIZE):
+        run_query(STAMP_CHAIN, {"rows": stamps[i:i + NEO4J_BATCH_SIZE]})
+    print(f"  {len(rows)} event pairs written, {len(stamps)} events stamped, {time.time() - t_start:.1f}s")
+    return 0
+
+
 # ── CLI ──────────────────────────────────────────────────────────────────────
 
 def run(
@@ -812,7 +904,12 @@ def main() -> None:
                         help=f"Description Jaccard similarity cutoff for the "
                              f"borrower_location_desc rule (default: "
                              f"{DEFAULT_SIM_THRESHOLD}).")
+    parser.add_argument("--events", action="store_true",
+                        help="Link :AuctionEvent nodes (the spine) instead of listings, "
+                             "and stamp attempt_no / previous_reserve along each chain.")
     args = parser.parse_args()
+    if args.events:
+        raise SystemExit(run_events(dry_run=args.dry_run, sim_threshold=args.sim_threshold))
     run(
         dry_run=args.dry_run,
         rebuild=args.rebuild,

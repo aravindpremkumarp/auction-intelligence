@@ -13,14 +13,14 @@ def test_the_notice_district_comes_first_in_the_expression() -> None:
     """`coalesce` order IS the precedence — reversed, the portal would win
     every listing that has both, which is the bug this exists to close."""
     expr = district_effective("a", "city")
-    assert expr == "coalesce(a.revenue_district, city.name)"
+    assert expr == "coalesce(a.revenue_district, a.portal_district, city.name)"
 
 
 def test_the_portal_side_can_be_read_without_an_extra_clause() -> None:
     """A bare WHERE has nowhere to hang an OPTIONAL MATCH, so the portal
     fallback has to be readable as an expression on its own."""
     expr = district_effective("a")
-    assert expr.startswith("coalesce(a.revenue_district, [(a)-[:LOCATED_IN_CITY]->")
+    assert expr.startswith("coalesce(a.revenue_district, a.portal_district, [(a)-[:LOCATED_IN_CITY]->")
     assert expr.endswith("][0])")
 
 

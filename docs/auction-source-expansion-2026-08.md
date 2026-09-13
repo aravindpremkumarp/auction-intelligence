@@ -4,6 +4,12 @@ Evaluation of where else to source auction listings, why the current single
 source is a standing risk, and the order to add sources in. Companion tool:
 `scripts/probe_sources.py`.
 
+> **Superseded in part.** The two recommended sources have since been verified
+> hands-on — see `docs/source-recon-2026-09.md` for their actual API contracts
+> and Tamil Nadu coverage. The ordering below still holds; §5's "BAANKNET
+> unreachable" no longer does. It is reachable, and it is a JSON API rather
+> than the ASP.NET portal this doc feared.
+
 ---
 
 ## 1. The problem with one source

@@ -1,0 +1,213 @@
+# Source Adapters and the Auction Spine — Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Ingest BAANKNET and bankeauctions.com beside eauctionsindia through one adapter interface, match the same auction across portals, and give the agent one merged record per auction — the nine-field property core with provenance, photos included.
+
+**Architecture:** A new `sources/` package owns every portal quirk behind `harvest()` / `normalize()` / `fetch_document()`. Normalized rows feed the existing loader as `:AuctionProperty` branches; a pure matcher pairs them across portals; `build_spine.py` recreates `:AuctionEvent` hubs from the branches every run. agent3 moves onto the spine in three stages, ids first. No `:Parcel`.
+
+**Tech Stack:** Python 3.11, `requests` + BeautifulSoup (already deps), Neo4j 5 (existing driver in `pipeline/config.py`), Cloudflare R2 via `pipeline/storage.py`, pytest. Spec: `docs/superpowers/specs/2026-09-12-source-adapters-design.md`. Branch: `claude/confident-bell-v64xx5`.
+
+---
+
+## Background the engineer needs
+
+- Today's flow is `scrapers/phase1_harvest_urls.py → phase2_scrape_details.py → scripts/prepare_tn_data.py → scripts/load_tn_to_neo4j.py → scripts/upload_downloads_to_r2.py → pipeline/run_pipeline.py → pipeline/embed_descriptions` (`scripts/run_weekly_pipeline.py:6-13`). Only the first two steps change portal; everything after `prepare_tn_data` reads the normalized JSONL shape at `prepare_tn_data.py:161-206` — that shape is the contract every adapter must produce a superset of.
+- The graph key is `AuctionProperty.auction_id` (unique, `load_tn_to_neo4j.py:55`). agent3's answer gate treats a bare six-digit token in the 600 000–999 999 band as an id (`api/agent3/common.py:495-563`); `api/agent3/artifacts.py:40` and `api/chat/v2/middleware/answer_gate.py:30` carry copies of the regex.
+- `:Document` is MERGEd on bare `filename` (`scripts/upload_downloads_to_r2.py:60-75`); the docstring at `:122` claiming `(auction_id, filename)` is stale. Adapters must emit filenames unique across listings.
+- `pipeline/classify_document.py` classifies *user-uploaded dossier* files and is called only from `pipeline/dossier_ingest.py`; it does not sort scraped PDFs. Document roles come from the adapter (portal label / bundle file name), never from a model.
+- `scripts/link_reauctions.py` rejects same-calendar-day pairs (`:458-461`) — that is what keeps cross-portal copies of one auction out of `SAME_PROPERTY_AS`.
+- CI runs an enumerated test list (`.github/workflows/ci.yml:70-80`); `tests/pipeline/` is opt-in per file and `tests/scrapers/` is not run at all. New tests must be added to the list explicitly.
+- Portal contracts, traps and verified shapes: `docs/source-recon-2026-09.md`. Re-run `python scripts/probe_source_apis.py` before starting; both must report `ADAPTER VIABLE`.
+
+## File Structure
+
+| File | Responsibility | Action |
+|---|---|---|
+| `sources/__init__.py` | `ADAPTERS` registry, `get_adapter(name)` | Create |
+| `sources/base.py` | `DocRef`, `MediaRef`, `Listing`, `SourceAdapter` Protocol, `Listing.to_row()` | Create |
+| `sources/normalize.py` | `clean_price`, `parse_date` (three formats), `make_auction_id`, `asset_category_for`, `doc_role_for(label)` | Create |
+| `sources/lookups/asset_categories.json` | per-source raw → `:AssetCategory` name | Create |
+| `sources/http.py` | one `requests.Session`, UA, retry/backoff, `SOURCE_REQUEST_DELAY_S` | Create |
+| `sources/download.py` | `.part` + `Content-Length` download; zip member extraction; Referer support | Create |
+| `sources/eauctionsindia.py` | adapter over `data/live_eauction_data.jsonl`; bare ids | Create |
+| `sources/baanknet.py` | property-filter + auction-detail adapter; `bn-` ids; documents + media | Create |
+| `sources/bankeauctions.py` | DataTables + detail slug + NIT zip adapter; `be-` ids | Create |
+| `sources/match.py` | `find_same_listing_pairs(rows, existing)` | Create |
+| `sources/merge.py` | `merge_event(cluster) -> dict` with provenance, `has_photos`, `core_complete` | Create |
+| `scripts/harvest_sources.py` | CLI: raw + normalized JSONL, downloads, summary | Create |
+| `scripts/gap_report.py` | dry match against the live graph; per-portal new / matched / core fields / photos | Create |
+| `scripts/link_listings.py` | writes `SAME_LISTING_AS` between `:AuctionProperty` (stage-2 bridge) | Create |
+| `scripts/build_spine.py` | recreates `:AuctionEvent` + `LISTS` / `ANNOUNCES` / `DEPICTS` | Create |
+| `scripts/prepare_tn_data.py` | shim over the eauctionsindia adapter; still writes `tn_auction_data.jsonl` | Modify |
+| `scripts/load_tn_to_neo4j.py` | `--input`, `--dry-run`, source props, media refs, insert filter | Modify |
+| `scripts/upload_downloads_to_r2.py` | per-source dirs, `doc_role`, live-listing photo mirror, fix docstring `:122` | Modify |
+| `scripts/init_graph_schema.py` | indexes on `AuctionProperty(source)`, `(source, source_id)`, `AuctionEvent(event_id)` unique, `Media(content_sha256)` | Modify |
+| `pipeline/match_confidence.py` | grades for `notice_bytes`, `boundaries`, `bucket_only` | Modify |
+| `pipeline/run_pipeline.py` | stage 5b `build_spine` | Modify |
+| `api/agent3/common.py`, `artifacts.py`, `api/chat/v2/middleware/answer_gate.py` | prefixed ids | Modify |
+| `api/agent3/find_properties.py`, `get_property.py`, `reauction_history.py` | canonical filter, `also_on`, `has_photos`, `photos`, `publications`; chain-based attempts | Modify |
+| `api/properties/router.py`, `api/tools/cypher_tools.py` | browse/detail parity | Modify |
+| `api/places.py` | `portal_district` fallback | Modify |
+| `web/app.js` | photos strip + "also listed on" in the detail panel | Modify |
+| `docs/SCHEMA.md`, `README.md`, `.github/workflows/data-freshness.yml`, `scripts/run_weekly_pipeline.py` | schema delta, pipeline order | Modify |
+| `tests/sources/test_*.py` | pure-function tests | Create |
+| `tests/api/test_agent3_ids.py` | prefixed ids through `guarded_ids` and the answer gate | Create |
+| `.github/workflows/ci.yml` | add `tests/sources` and the new api test to the `test` job | Modify |
+
+---
+
+## Task 1: Schema doc first
+
+**Files:** Modify `docs/SCHEMA.md`.
+
+- [x] Add a "Sources and the spine" section: `source*` props on `:AuctionProperty`, id prefixes, `:AuctionEvent` (fields, `provenance`, `core_complete`), `:Media`, `Document.doc_role`, `LISTS` / `ANNOUNCES` / `DEPICTS`, `SAME_LISTING_AS` (bridge), `SAME_PROPERTY_AS` now between events.
+- [x] Mark `:Parcel` as *retiring* with the three-step order; leave the existing section in place until step 3.
+- [x] Record the nine-field core with today's baseline numbers (from the spec) so the KPI has a starting point in the doc.
+
+## Task 2: `sources/base.py`, `normalize.py`, `http.py`, `download.py`
+
+**Files:** Create the four modules; Create `tests/sources/test_normalize.py`, `tests/sources/test_download.py`.
+
+- [x] Move `clean_price` / `parse_date` out of `scripts/prepare_tn_data.py:30-75` into `sources/normalize.py`; import them back into `prepare_tn_data.py` so nothing else changes yet.
+- [x] `parse_date` accepts `DD-MM-YYYY HHMM AM/PM` (existing), ISO 8601 with `Z`, `15 Sep 2026 11:00` and `12 Sep 2026`; returns naive ISO `YYYY-MM-DDTHH:MM:SS` in IST for all four so `load_tn_to_neo4j`'s `datetime()` cast is unchanged.
+- [x] `make_auction_id(prefix, native)`; `doc_role_for(label)` keyword map (`sale notice|proclamation → sale_notice`, `tender`, `terms`, `affidavit`, `property details → property_details`, `publication|dinakaran|hindu|express|<paper>-<city>-<date> → publication`, else `unknown`).
+- [x] `sources/download.py`: `download(url, dest, *, referer=None)` with `.part` + `Content-Length` verification mirroring `phase2_scrape_details.py:87-163`; `extract_zip_members(zip_path, dest_dir, rename)`.
+- [x] Tests: every date format; price with `₹`, mojibake `â‚¹`, commas; `doc_role_for` on the seven bundle names from the recon; a `FakeResponse` truncation test like `tests/scrapers/test_download_file.py`.
+
+## Task 3: eauctionsindia adapter + shim
+
+**Files:** Create `sources/eauctionsindia.py`, `tests/sources/test_eauctionsindia.py`; Modify `scripts/prepare_tn_data.py`.
+
+- [x] `harvest()` yields records from `data/live_eauction_data.jsonl`; `normalize()` reproduces `prepare_tn_data.py:120-206` exactly (both key spellings, TN filter, `unwanted_cats`), plus `source`, `source_id`, bare `auction_id`, `documents` with `doc_role=unknown`, empty `media`.
+- [x] `prepare_tn_data.py` becomes: adapter → `to_row()` → `data/tn_auction_data.jsonl` + `data/listings/eauctionsindia.jsonl`; download validation unchanged.
+- [x] Regression: run old and new on the same input; `diff` must be empty except added keys. Keep the old script under `scripts/legacy/prepare_tn_data_v1.py` for that comparison, delete in a later release.
+
+## Task 4: BAANKNET adapter
+
+**Files:** Create `sources/baanknet.py`, `tests/sources/test_baanknet.py`, `sources/lookups/asset_categories.json`.
+
+- [x] Query the live `:AssetCategory` and `:PropertyType` names first; fill the lookup for BAANKNET's `propertyType` / `propertySubType` and bankeauctions' `row[12]` / `row[13]`.
+- [x] `harvest(state="Tamil Nadu")`: `stateId` via `GET /common/states?countryId=101` by name (never hard-code 31 without the lookup), `POST property-filter` pages of 50, then `GET auction/detail/{auctionId}` per row; `limit` honoured; polite delay.
+- [x] `normalize()`: the field map in the spec table; `documents` from `auctionDocuments[]` (`.pdf` only, `doc_role_for(description)`, filename `bn-{basename}`); `media` from `propertyMedia[]` (`filetype` 1/2, `ismainimage`) falling back to the row's `photos[]`.
+- [x] Tests from the recorded shapes: a row `_source`, an `auction/detail` payload with two documents and three media items; assert ids, dates, roles, main image, and that vehicle/gold rows are dropped.
+
+## Task 5: bankeauctions adapter
+
+**Files:** Create `sources/bankeauctions.py`, `tests/sources/test_bankeauctions.py`.
+
+- [x] `harvest()`: `POST /home/liveAuctionDatatable/?state=24` with paging in the body, dedupe on `row[1]`, stop when a page adds nothing new; detail page via the slug; keep the raw row and the detail HTML.
+- [x] `normalize()`: positional row → fields; detail page → reserve, EMD, increment, extension, inspection window, press-release and offer dates, borrower; `documents` = NIT zip (`doc_role=bundle`, `needs_referer=True`) + the three `/public/uploads/bank/` PDFs as `tender`; `row[12] != "Immovable"` → `None`.
+- [x] `fetch_document()`: zip with `Referer` = detail URL, extract members, name each `be-{rowId}-{slug(name)}.pdf`, assign `doc_role_for(member name)`.
+- [x] Tests: slug builder on the three recon rows; row parsing; detail-page text parsing on a recorded snippet; member routing on the seven Omkara names and the four Hinduja names; the captcha `<img>` is never a photo.
+
+## Task 6: `scripts/harvest_sources.py`
+
+**Files:** Create.
+
+- [x] `--source all|baanknet|bankeauctions|eauctionsindia --state "Tamil Nadu" --limit N --no-download --no-media`.
+- [x] Writes `data/raw/<source>/<YYYY-MM-DD>.jsonl` (verbatim, append) and `data/listings/<source>.jsonl` (rewritten per run); downloads documents to `downloads/<source>/`; photos of *live* listings to `downloads/<source>/media/`.
+- [x] Prints per source: rows, live rows, documents fetched, photos fetched, failures. Exit non-zero if a source yields zero rows.
+- [x] Run `--limit 20` against both live portals; keep the summary in the PR body.
+
+## Task 7: matcher + gap report
+
+**Files:** Create `sources/match.py`, `scripts/gap_report.py`, `tests/sources/test_match.py`, `tests/sources/test_gap_report.py`; Modify `pipeline/match_confidence.py`, `tests/pipeline/test_match_confidence.py`.
+
+- [x] `find_same_listing_pairs(incoming, existing)` per the spec: bucket (bank key via `pipeline/entity_resolution.org_key`, auction calendar day; reserve checked pairwise with `price_agreement.compare_prices` so the 1% tolerance applies), then `notice_bytes` / `boundaries` / `identifier` / `borrower` / `bucket_only`. Same-source pairs never emitted. Two refinements found on the live graph: a listing with no published reserve price (hundreds of recent eauctionsindia rows) still lands in its bucket and can match on evidence, never on the bucket alone; and neighbour numbers inside a boundary clause ("north by Plot No 28") are not the property's identifiers.
+- [x] Grades: a separate `SAME_LISTING_CONFIDENCE` table + `listing_confidence_for()` in `pipeline/match_confidence.py`, not rows in `MATCH_CONFIDENCE` — the names overlap (`borrower` is PROBABLE on the bridge, INFERRED on `IS_LOT`) and the existing guard test asserts `MATCH_CONFIDENCE` holds only `IS_LOT` reasons. `tests/pipeline/test_match_confidence.py` stays green and gains two tests tying the table to `sources.match.METHODS`.
+- [x] `gap_report.py`: reads `data/listings/*.jsonl`, fetches every listing from Neo4j read-only (`execute_read`; `--existing-json` / `--save-existing` for offline runs), runs the matcher, prints per portal: rows, already loaded, new, matched by confidence (+ ambiguous INFERRED), the nine core fields the portal fills on matched listings, photos gained, and the core-completeness histogram of new listings. `--json` dump. A graph listing the pipeline has not read yet is credited with what its description text states, so "fills" means the portal states something the graph states nowhere.
+- [x] Tests: the `bn-351743` / `bn-351740` same-source trap; BAANKNET + eauctionsindia on borrower; notice-bytes CONFIRMED; boundaries CONFIRMED; identifier PROBABLE; unpriced graph listing; disagreeing prices; 1% tolerance; two new portals matching each other while the graph never matches itself.
+
+**Result on the 2026-09-12 `--limit 20` harvest** (16 + 16 rows against 6,327 graph listings; every pair spot-checked in the graph):
+
+| portal | new | matched | CONFIRMED / PROBABLE / INFERRED | fills on matched | photos |
+|---|---|---|---|---|---|
+| BAANKNET | 9 | 7 | 1 / 6 / 0 | possession +6, reserve price +5, extent +1 | 16 of 16 (9 new, 7 matched) |
+| bankeauctions | 3 | 13 | 5 / 8 / 0 | reserve price +7 | 0 |
+
+New BAANKNET listings average 6.9 of 9 core fields before any notice is read. The reserve-price fills are real: the matched eauctionsindia rows carry no price at all ("not published"), which is also why the bucket had to admit unpriced listings.
+
+## Task 8: loader, R2, schema
+
+**Files:** Modify `scripts/load_tn_to_neo4j.py`, `scripts/upload_downloads_to_r2.py`, `scripts/init_graph_schema.py`, `pipeline/storage.py`, `sources/base.py`; Create `tests/scripts/test_load_tn_sources.py`, `tests/scripts/test_upload_sources.py`, `tests/e2e/test_load_sources.py`.
+
+- [x] Loader: `--input` (repeatable glob; default `data/listings/*.jsonl`, fallback `data/tn_auction_data.jsonl`; later files win on a repeated id); `--dry-run` parses, filters and prints the first rows without opening a driver; SETs `source`, `source_id`, `source_url`, `source_rank`, `fetched_at`, `last_seen_at`, `portal_district`, `pincode`, `borrower_address`, `possession_type`, `extent_raw`, `bid_increment_num`, `inspection_*`, `auction_status`, `document_roles` / `document_urls` (parallel to `downloads_list`), `photo_urls`; `MERGE (md:Media {url})` with `kind`, `is_main`, `label`, `source` and `(a)-[:HAS_MEDIA]->(md)`; insert filter is now "≥1 document found or ≥1 media"; `--backfill-source` runs the idempotent `BACKFILL_SOURCE_QUERY` (`WHERE a.source IS NULL`). A legacy row sanitises to `eauctionsindia`, rank 3. `sources.base.ID_PREFIX` is the one map of id prefixes so the loader and R2 upload never import an adapter.
+- [x] R2 upload: `locate_local_file(filename, source)` tries `downloads/<source>/` first; `:Document` gets `source` and `doc_role` from the listing's `document_roles` (position-matched to `downloads_list`; `coalesce` on match so a set value is never overwritten); `process_photo` mirrors each un-mirrored `:Media {kind:'image'}` of a live listing to `media/{auction_id}/{sha256}.{ext}` (`storage.media_object_key`) and sets `content_sha256`, `r2_key`, `public_url`, `content_type`, `uploaded_at`; `--no-photos`; the stale "keyed by (auction_id, filename)" docstring now says what the MERGE does.
+- [x] Schema: `media_url_unique`, `event_id_unique`, `auction_source_idx`, `auction_source_id_idx`, `media_sha_idx` in `init_graph_schema.py` (and `media_url_unique` in the loader's own constraint list, since its batch MERGEs on it).
+- [x] Load check: Bolt is blocked from this sandbox and there is no Docker, so the local-Neo4j load runs in CI instead — `tests/e2e/test_load_sources.py` loads one inline row per source through the loader's own `run_batch` into the `e2e` job's `neo4j:5.26` container and checks three sources side by side, prefixed ids under the unique constraint, the `:Media` nodes, idempotent reload, and that the backfill touches only source-less nodes. Every new Cypher (`BATCH_QUERY`, backfill, media fetch/update, document upsert) was also `EXPLAIN`ed against the live Aura over the HTTPS Query API, and `--dry-run` was run on the 2026-09-12 harvest files (32 rows: baanknet 16, bankeauctions 16, all loadable). Nothing was written to the live graph.
+
+## Task 9: spine
+
+**Files:** Create `sources/merge.py`, `scripts/build_spine.py`, `scripts/link_listings.py`, `tests/sources/test_merge.py`, `tests/sources/test_build_spine.py`, `tests/scripts/test_link_listings_and_events.py`; Modify `pipeline/run_pipeline.py`, `scripts/link_reauctions.py`, `api/places.py`, `sources/match.py` (`extract_extent`).
+
+- [x] `merge_event(cluster)`: branches = each portal listing (`listing_branch`) + the notice (`notice_branch` from the `:Lot`, or from the values `apply_extractions` already wrote onto the listing when no lot is loaded); per-field ranking from Decision 5 (`PROPERTY_ORDER` notice > baanknet > bankeauctions > eauctionsindia; `LIFECYCLE_ORDER` baanknet > bankeauctions > notice > eauctionsindia); `provenance` = winning branch key per field; `reserve_price_agreement` / `emd_agreement` from `price_agreement.compare_prices` (agree → the portal figure; disagree → the notice's, flagged); `has_photos` = one image anywhere; `core_complete` 0–9 + `core_missing`; `event_id` = `ev-<id>` for a singleton, `ev-<sha1[:16]>` of the sorted ids otherwise; `event_node_props` JSON-encodes the maps.
+- [x] `build_spine.py`: one fetch of every listing with its lot (boundaries, headline extent, possession, auction terms), media, documents and `SAME_LISTING_AS` neighbours; union-find over CONFIRMED / PROBABLE edges only (INFERRED never merges); `DROP` every `:AuctionEvent`, `CREATE` + `LISTS` / `ANNOUNCES` / `DEPICTS`; `--dry-run` prints counts, cluster sizes, confidence and the `core_complete` histogram; uses `api.neo4j_client.run_query` so `NEO4J_HTTP_API=1` works where Bolt is blocked.
+- [x] `link_listings.py`: reuses the gap report's fetch and `graph_candidate`, runs the matcher across the whole graph, drops and re-MERGEs `SAME_LISTING_AS {method, confidence, evidence, linked_at}` both ways; `--dry-run`.
+- [x] `link_reauctions.py`: the listing-level pass is untouched (agent3 still reads it until Task 12); a new `run_events()` / `--events` runs the same matcher and same-day rule over `:AuctionEvent` rows, writes `SAME_PROPERTY_AS` between events, and `chain_attempts()` stamps `attempt_no` (1 = earliest known sale), `previous_reserve`, `previous_event_id`, `chain_size` on every event.
+- [x] `run_pipeline.py`: stages 5a `link_listings`, 5b `build_spine`, 5c `link_reauction_events`, after stage 5.
+- [x] `api/places.py::district_effective` → `coalesce(a.revenue_district, a.portal_district, <city>)`; `tests/api/test_places.py` updated.
+- [x] Tests: notice over portal for possession / extent / boundaries and portal over notice for status / end date; prices graded (agree, magnitude_slip, unknown) never averaged; `has_photos` true with one image, false with a video; `core_complete` 9 / 8 / 7; notice-applied values count without a lot; same input in any order → identical event; clustering ignores INFERRED and unfetched neighbours; the chain stamps; the same-day rule on events.
+
+**Dry runs on the live graph (read-only, `NEO4J_HTTP_API=1`, 2026-09-12):** `link_listings` — 6,327 listings, 0 cross-source pairs (only eauctionsindia is loaded, as expected); `build_spine` — 6,327 events, all SINGLE, `core_complete` avg 5.2/9 (2/9: 246, 3/9: 1,389, 4/9: 1,497, 5/9: 388, 6/9: 611, 7/9: 1,180, 8/9: 1,016, 9/9: 0), photos 0 — the baseline the loaded portals will move; `link_reauctions --events` — 0 events yet. Nothing written.
+
+## Task 10: agent3 stage 1 — ids
+
+**Files:** Create `api/ids.py`, `tests/api/test_agent3_ids.py`; Modify `api/agent3/common.py`, `api/agent3/artifacts.py`, `api/chat/v2/middleware/answer_gate.py`, `api/chat/panel.py`.
+
+- [x] One `ID_LIKE` — in a new stdlib-only `api/ids.py` rather than `common.py`, because `answer_gate.py` and `panel.py` sit on the v2 request path and must not import the agent stack; `common.py` re-exports it so `gates.ID_LIKE` / `gates.guarded_ids` still resolve. Matches bare six digits *or* `(?:bn|be)-\d{4,8}` (case-insensitive, normalised to lowercase, bounded so `abn-1234` / `bn-1234-5` are not ids); `guarded_ids` applies the band and currency guards to bare ids only; `all_ids` is the loose variant `artifacts.cited_ids` and the v2 gate use; `is_portal_id` is the whole-string test. `panel.py` accepts the prefix in its own regex and lowercases tokens.
+- [x] Tests: `bn-358394` and `841207` both extracted in order; `₹650000` / `750000 rupees` / `123456` still rejected while `bn-1234` beside a price is kept; glued prefixes rejected; the agent3 gate grounds a prefixed id from tool output and catches an invented one; the v2 gate and the panel read prefixed ids; the re-exports are the same objects. Existing gate and middleware tests unchanged and green.
+
+## Task 11: agent3 stage 2 — read through the canonical listing
+
+**Files:** Create `api/canonical.py`; Modify `api/agent3/find_properties.py`, `api/agent3/get_property.py`, `api/agent3/reauction_history.py`, `api/properties/router.py`, `api/tools/cypher_tools.py`, `web/app.js`, `web/styles.css`; tests in `tests/api/`.
+
+- [x] `api/canonical.py` (stdlib only, shared by the agent tools and the browse router): `canonical_listing()` — the standing predicate "no CONFIRMED / PROBABLE `SAME_LISTING_AS` neighbour outranks me (lower `source_rank`, tie on `auction_id`)"; `also_on()`, `other_listings()`, `photos()`, `source()`, `has_photos()` Cypher fragments; `main_first()`.
+- [x] `find_properties`: `_Query.base()` always carries the predicate (not a fragment, so `relax` cannot drop it) — count, rows, refine and relax agree; `_ROW_PROJECTION` / `_shape_row` add `source`, `also_on` (deduped, only when non-empty), `has_photos`.
+- [x] `get_property`: the listing carries `source`, `source_url`, the portal's possession / extent / district / pincode / inspection window, `other_listings` (id, portal, link, price, method, confidence), `photos` (main first, blanks dropped), `publications` (newspaper cuttings); `_DOCUMENT_CYPHER` orders the sale notice ahead of a tender form or cutting so the notice detail describes the notice.
+- [x] `reauction_history`: `earlier_listings` keeps its shape, now read at listing level UNION event level (`LISTS` → `SAME_PROPERTY_AS` → `LISTS`); a `chain {attempt_no, chain_size, previous_reserve, previous_event_id}` block appears once `build_spine` has stamped the event.
+- [x] `GET /properties`: the same predicate in `_properties_filter_cypher` (so results, count and every facet agree); rows add `source`, `also_on`, `has_photos`, `photo_url`. `GET /auction/{id}` (`cypher_tools._DETAIL_CYPHER` / `_detail_record`): `source`, `other_listings`, `photos`. `web/app.js` detail panel: main photo fills the hero frame with a strip of up to five more (type sketch stays the fallback, broken images fall back too); an "Also listed on" panel links each other portal's copy with its price.
+- [x] Tests: the predicate on every query find_properties runs (count, rows, refine, relax) and on every browse query; rows/listing shapes; photos main-first; the notice-first document order; the chain block present / absent; `test_empty_list_filter_is_ignored` updated for the standing clause. `evals/run_agent3.py` (tool suite, no model) run read-only against the live graph — see the PR; `evals/smoke_agent3.py` needs a model key this sandbox does not have.
+
+## Task 12: agent3 stage 3 — read the spine
+
+**Files:** Modify `api/agent3/find_properties.py`, `api/agent3/get_property.py`, `api/agent3/instructions.md`, `tests/api/test_agent3_instructions.py` (budget 3700 → 4000, commented).
+
+- [x] Tools read the spine **through the canonical listing, not instead of it**: `find_properties` and `get_property` stay anchored on `MATCH (a:AuctionProperty)` (Task 11's one-copy predicate) and `OPTIONAL MATCH (a)-[:LISTS]->(ev:AuctionEvent)`. Rows carry `core_complete`, `core_missing`, `merged_from` (the event's `sources`) and `merge_confidence` once the spine exists; `get_property` adds a `merged` block (the event's fields with `provenance`, `boundaries`, `measurements` decoded from JSON, `merged_from`). Before `build_spine` has run in production the keys are simply absent, so the deploy order (code first, pipeline stage 5b later) cannot break the agent. A hard `MATCH (e:AuctionEvent)` switch is a follow-up after the first production build, when the listing-level `SAME_PROPERTY_AS` pass can also retire. `common.py::LOT_OF_LISTING` is untouched for the same reason.
+- [x] `instructions.md`: one auction can be listed on several portals; a row is one copy and `also_on` names the others; where a row carries `core_complete` it is merged from `merged_from`, and that number is how well the property is known — quote it when asked.
+- [x] `evals/` golden conversations: row shapes only gained keys; no case pins the new ones, so nothing to update. `evals/run_agent3.py` (tool suite) gives identical results on this branch and on `main`.
+
+## Task 13: Parcel retirement (staged, own PRs)
+
+**Files:** Modify `pipeline/promote_extractions.py`, `api/agent3/identifiers.py`, later a delete script.
+
+Not started in this PR, by design — each step is its own PR after the spine has been built in production once (the chain-derived `attempt_no` from Task 9 is what step 2 reads).
+
+- [ ] Step 1: `skip_parcels` default `True`; nothing new is written.
+- [ ] Step 2: `find_by_identifier` keeps only the Lot path; `attempt_no` reads the chain (the chain itself landed in Task 9).
+- [ ] Step 3, one release later: `MATCH (p:Parcel) DETACH DELETE p` behind a script with `--dry-run`, after confirming no query in `api/` references `:Parcel`.
+
+## Task 14: docs, orchestrator, CI
+
+**Files:** Modify `README.md`, `.github/workflows/data-freshness.yml`, `scripts/run_weekly_pipeline.py`, `.github/workflows/ci.yml`.
+
+- [x] Pipeline order everywhere: README step list (`prepare_tn_data → harvest_sources → gap_report → load_tn_to_neo4j → upload_downloads_to_r2 → run_pipeline (… → link_reauctions → link_listings → build_spine → event chain) → init_graph_schema`), the weekly orchestrator (stages 3b `harvest_sources --source baanknet --source bankeauctions` and 3c `gap_report`, with the Neo4j env preflight for the report), the data-freshness issue body.
+- [x] `ci.yml` `test` job: `tests/sources` was added with its justification in Task 6; `tests/api/test_agent3_ids.py` is inside `tests/api`, which the job already runs wholesale, so nothing to add. `tests/e2e/test_load_sources.py` runs in the existing `e2e` job.
+- [x] README: "Three sources and the spine" — the three portals, one `:AuctionProperty` per portal listing, the bridge, the spine, the nine-field core and its baseline, and where the design lives.
+
+## Task 15: Full verification
+
+**Files:** `tests/e2e/test_load_sources.py` (the real-Neo4j half).
+
+- [x] `ruff check .` clean; `pytest tests/sources tests/scripts tests/pipeline/test_match_confidence.py tests/pipeline/test_run_pipeline.py` green locally and in CI; `tests/api` green in CI (locally, the touched files pass; the rest needs modules this sandbox lacks).
+- [x] `python scripts/probe_source_apis.py` → both `ADAPTER VIABLE` (re-run at the end of the work, see the PR).
+- [x] `harvest_sources --limit 20` for both portals → two listing files, 79 documents, 94 photos on disk; `gap_report` printed per-portal new / matched / core-fields / photos (Task 7).
+- [x] Neo4j load, `link_listings`, `build_spine`, event chain: no Docker here and Bolt is blocked, so this runs in CI's `e2e` job (`neo4j:5.26`) — `test_the_spine_is_built_from_bridged_listings` loads an eauctionsindia copy and a BAANKNET copy of one auction plus an unrelated listing, runs the three scripts for real, and checks one PROBABLE event with both listings, `DEPICTS` to the photo, `core_complete ≥ 6`, the bridge edge, and `attempt_no` / `chain_size` stamps. Against the live Aura the same scripts ran `--dry-run` only (6,327 listings → 6,327 events; nothing written). A production build with real cross-portal clusters is the follow-up after this PR merges.
+- [x] agent3: one row per cluster (the standing predicate), `has_photos` on every row, prefixed ids survive the answer gate, `GET /auction/{id}` returns `photos` and `other_listings`, the web detail panel renders them — all unit-tested; a browser check needs a deployed graph that holds a `bn-` listing, which does not exist yet.
+
+## Self-Review (completed by plan author)
+
+- Every task names its files and its test; no task depends on a later one except Task 12 on 11 and Task 13 on 9.
+- The eauctionsindia path is byte-compatible through Task 3, so the weekly run keeps working while the rest lands.
+- Nothing writes to the graph before Task 8, and the gap report (Task 7) runs against the live graph read-only first.
+- The one rule the spec calls "never" — a wrong match hiding a listing — is upheld: branches are never merged away, the spine is rebuilt from them, and INFERRED matches are shown, not merged.

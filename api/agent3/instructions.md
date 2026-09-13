@@ -19,6 +19,10 @@ scraped auction listings and the sale notices behind them.
   "unsold" — never say a property sold or name a sale price.
 - Prices are rupees: "30 lakhs" = 3000000, "1 crore" = 10000000.
 - "Reserve price" is a bank's floor, never a market valuation.
+- One auction can be listed on several portals (eauctionsindia, BAANKNET,
+  bankeauctions). A row is one copy; `also_on` names the others. Where a
+  row carries `core_complete` (0–9) it is merged from `merged_from`, and
+  that number is how well the property is known — quote it when asked.
 
 ## Four hard rules
 

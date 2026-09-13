@@ -6,16 +6,19 @@ Single-command weekly orchestrator for the auction data pipeline.
 Runs, in order:
   1. scrapers/phase1_harvest_urls.py   (plain script — bare "import utils")
   2. scrapers/phase2_scrape_details.py (plain script — bare "import utils")
-  3. python -m scripts.prepare_tn_data
-  4. python -m scripts.load_tn_to_neo4j
-  5. python -m scripts.upload_downloads_to_r2
+  3. python -m scripts.prepare_tn_data          (eauctionsindia → data/listings/)
+  3b. python -m scripts.harvest_sources          (BAANKNET + bankeauctions → data/listings/, downloads/<source>/)
+  3c. python -m scripts.gap_report               (read-only: what the portals add; goes to the log)
+  4. python -m scripts.load_tn_to_neo4j          (every data/listings/*.jsonl)
+  5. python -m scripts.upload_downloads_to_r2    (notices + live listings' photos)
   6. python -m pipeline.run_pipeline
   7. python -m pipeline.embed_descriptions
 
-NOTE: pipeline.run_pipeline already calls scripts.link_reauctions internally
-as its final "STAGE 5" (see pipeline/run_pipeline.py), so this orchestrator
-does NOT invoke scripts.link_reauctions separately — doing so would just
-redo the same (cheap but pointless) full-corpus re-link twice.
+NOTE: pipeline.run_pipeline already calls scripts.link_reauctions,
+scripts.link_listings, scripts.build_spine and the event chain internally
+as its stages 5–5c (see pipeline/run_pipeline.py), so this orchestrator does
+NOT invoke them separately — doing so would just redo the same (cheap but
+pointless) full-corpus passes twice.
 
 Stages 1-2 are the Selenium scrapers. They run with a VISIBLE Chrome window
 (headless=False, their existing default) because Cloudflare's challenge page
@@ -52,6 +55,10 @@ ENV_FILE = os.path.join(REPO_ROOT, ".env")
 # GEMINI_API_KEY fallback aliases, so this preflight can't false-negative on a
 # .env that uses the alias form instead of the primary name.)
 REQUIRED_ENV_VARS = {
+    "gap_report": [
+        ("NEO4J_USERNAME", "CLIENT_ID"),
+        ("NEO4J_PASSWORD", "CLIENT_SECRET"),
+    ],
     "upload_downloads_to_r2": [
         "R2_ACCOUNT_ID",
         "R2_ACCESS_KEY_ID",
@@ -165,6 +172,11 @@ def main():
         ))
 
     stages.append(("prepare_tn_data", [PYTHON, "-m", "scripts.prepare_tn_data"], REPO_ROOT, None))
+    # The two new portals need no browser: JSON / DataTables over plain HTTPS.
+    stages.append(("harvest_sources", [PYTHON, "-m", "scripts.harvest_sources",
+                                       "--source", "baanknet", "--source", "bankeauctions"], REPO_ROOT, None))
+    # Read-only; its per-portal numbers land in the log before anything loads.
+    stages.append(("gap_report", [PYTHON, "-m", "scripts.gap_report"], REPO_ROOT, "gap_report"))
     stages.append(("load_tn_to_neo4j", [PYTHON, "-m", "scripts.load_tn_to_neo4j"], REPO_ROOT, None))
     stages.append(("upload_downloads_to_r2", [PYTHON, "-m", "scripts.upload_downloads_to_r2"], REPO_ROOT, "upload_downloads_to_r2"))
     stages.append(("pipeline.run_pipeline", [PYTHON, "-m", "pipeline.run_pipeline"], REPO_ROOT, "pipeline.run_pipeline"))

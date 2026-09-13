@@ -9,6 +9,7 @@ params dict is built — Neo4j execution is downstream and out of scope.
 """
 from __future__ import annotations
 
+from api.canonical import canonical_listing
 from api.properties.router import _facet_filters_for, _properties_filter_cypher
 
 
@@ -183,8 +184,17 @@ def test_empty_list_filter_is_ignored() -> None:
 
     assert "LOCATED_IN_STATE" not in match
     assert "CONDUCTED_BY" not in match
-    assert where == ""
+    # the only clause left is the standing one-copy-per-auction predicate
+    assert where == "WHERE " + canonical_listing("a")
     assert params == {}
+
+
+def test_every_browse_query_keeps_one_copy_per_bridged_auction() -> None:
+    """A listing bridged (CONFIRMED / PROBABLE) to a better-ranked portal's
+    copy is neither a row nor a facet count; it is that row's `also_on`."""
+    _, where, _ = _properties_filter_cypher({"min_price": 1000000})
+    assert where.startswith("WHERE " + canonical_listing("a") + " AND a.reserve_price_num >= $f_min_price")
+    assert "_sl.confidence IN ['CONFIRMED', 'PROBABLE']" in where
 
 
 def test_facet_filters_for_drops_own_dimension() -> None:

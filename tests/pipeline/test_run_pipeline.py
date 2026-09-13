@@ -34,7 +34,10 @@ def _run(monkeypatch, argv):
     fake("pipeline.classify_notice", run=rec("classify"))
     fake("pipeline.promote_extractions", run=rec("promote"))
     fake("pipeline.apply_extractions", run=rec("apply"))
-    fake("scripts.link_reauctions", run=rec("link_reauctions"))
+    fake("scripts.link_reauctions", run=rec("link_reauctions"),
+         run_events=rec("link_reauction_events"))
+    fake("scripts.link_listings", run=rec("link_listings"))
+    fake("scripts.build_spine", run=rec("build_spine"))
     fake("api.tools.cypher_tools", describe_schema=rec("schema_cache"))
     import pipeline.run_pipeline as RP
 
@@ -51,7 +54,16 @@ def test_entities_are_promoted_into_the_graph_before_they_are_applied(monkeypatc
     """apply_extractions' area comparer reads each lot's headline extent off
     the graph, so promote must have written it first."""
     order = _order(_run(monkeypatch, []))
-    assert order == ["classify", "promote", "apply", "link_reauctions", "schema_cache"]
+    assert order == ["classify", "promote", "apply", "link_reauctions",
+                     "link_listings", "build_spine", "link_reauction_events", "schema_cache"]
+
+
+def test_the_spine_is_built_after_the_bridge_and_before_the_event_chain(monkeypatch):
+    """link_listings writes the SAME_LISTING_AS edges build_spine clusters
+    on; the event chain needs the events to exist. Any other order links
+    nothing, silently."""
+    order = _order(_run(monkeypatch, []))
+    assert order.index("link_reauctions") < order.index("link_listings") < order.index("build_spine") < order.index("link_reauction_events")
 
 
 def test_a_limited_run_skips_the_whole_corpus_parcel_phase(monkeypatch):

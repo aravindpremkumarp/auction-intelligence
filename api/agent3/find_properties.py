@@ -29,6 +29,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from api.agent3 import enums
+from api.canonical import also_on, canonical_listing, has_photos, source
 from api.agent3.common import (
     LOT_OF_LISTING, SQFT_CEIL, SQFT_FLOOR, ToolInputError, ToolSink, aware,
     clamp_limit, json_safe, now_utc, require_enum, scope_of, tool,
@@ -132,8 +133,10 @@ class _Query:
     def base(self) -> str:
         parts = ["MATCH (a:AuctionProperty)"]
         parts.extend(f"MATCH {j}" for j in self.joins)
-        if self.where:
-            parts.append("WHERE " + "\n  AND ".join(self.where))
+        # One copy per auction: a listing bridged to a better-ranked portal's
+        # copy is not a row, a count or a facet — it is that row's `also_on`.
+        # Standing, not a fragment, so `relax` can never drop it.
+        parts.append("WHERE " + "\n  AND ".join([canonical_listing("a"), *self.where]))
         return "\n".join(parts)
 
     def base_without(self, label: str) -> tuple[str, dict]:
@@ -396,6 +399,9 @@ OPTIONAL MATCH (a)-[:LOCATED_IN_AREA]->(ar:Area)
 OPTIONAL MATCH (a)-[:LOCATED_IN_DISTRICT]->(dist:District)
 OPTIONAL MATCH (a)-[:HAS_ASSET_CATEGORY]->(ac:AssetCategory)
 OPTIONAL MATCH (a)-[:IS_AUCTION_TYPE]->(at:AuctionType)
+// The spine (scripts/build_spine.py): the merged record every branch of
+// this auction feeds. Absent until the pipeline's stage 5b has run.
+OPTIONAL MATCH (a)-[:LISTS]->(ev:AuctionEvent)
 RETURN a.auction_id AS auction_id,
        a.title AS title,
        city.name AS city, ar.name AS area, dist.name AS district,
@@ -409,7 +415,11 @@ RETURN a.auction_id AS auction_id,
        // numbering, so a re-extraction renumbers the lots and a stale key
        // still RESOLVES — to a different property. The edge names the node.
        a.url AS url, [(a)-[:IS_LOT]->(_lot:Lot) | _lot.lot_key][0] AS resolved_lot_key,
-       lot_count, sqft_min, sqft_max, max_attempt
+       lot_count, sqft_min, sqft_max, max_attempt,
+       """ + source("a") + """ AS source, """ + also_on("a") + """ AS also_on,
+       """ + has_photos("a") + """ AS has_photos,
+       ev.core_complete AS core_complete, ev.core_missing AS core_missing,
+       ev.sources AS listed_on, ev.confidence AS merge_confidence
 """
 
 
@@ -433,7 +443,19 @@ def _shape_row(r: dict) -> dict:
         "application_deadline": json_safe(r.get("deadline")),
         "url": r.get("url"),
         "notice_lot_count": lot_count,
+        "source": r.get("source") or "eauctionsindia",
+        "has_photos": bool(r.get("has_photos")),
     }
+    if r.get("also_on"):
+        row["also_on"] = sorted(set(r["also_on"]))
+    # Spine fields, only once the spine exists: how well this property is
+    # known (0–9 of the core fields) and which branches the merge read.
+    if r.get("core_complete") is not None:
+        row["core_complete"] = int(r["core_complete"])
+        row["core_missing"] = list(r.get("core_missing") or [])
+        row["merged_from"] = [x for x in (r.get("listed_on") or []) if x]
+        if r.get("merge_confidence"):
+            row["merge_confidence"] = r["merge_confidence"]
     if lo is not None:
         if scope == "lot":
             row["area_sqft"] = round(float(lo), 1)

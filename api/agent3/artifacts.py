@@ -29,15 +29,11 @@ nothing in the sink. There the cited ids ARE the panel, so they are fetched.
 from __future__ import annotations
 
 import logging
-import re
 from typing import Any
 
-logger = logging.getLogger("api.agent3.artifacts")
+from api.ids import all_ids
 
-#: A six-digit portal id in prose. Same shape the answer gate matches — see
-#: `api/agent3/gates.py::ID_LIKE` for why six digits with these lookarounds is
-#: safe against prices and longer numbers.
-_ID_IN_ANSWER = re.compile(r"(?<!\d)(?<!\d,)(?<!\d\.)(\d{6})(?!\d)(?!,\d)(?!\.\d)")
+logger = logging.getLogger("api.agent3.artifacts")
 
 #: Cap on ids fetched for the fallback. A turn citing more listings than this
 #: is a search, and a search fills the sink.
@@ -45,13 +41,11 @@ MAX_FALLBACK_IDS = 25
 
 
 def cited_ids(answer: str) -> list[str]:
-    """Six-digit ids the answer names, in order, deduplicated."""
-    out: list[str] = []
-    for m in _ID_IN_ANSWER.finditer(answer or ""):
-        token = m.group(1)
-        if token not in out:
-            out.append(token)
-    return out
+    """Portal ids the answer names — bare six-digit or ``bn-`` / ``be-`` —
+    in order, deduplicated. Deliberately the loose variant (no band, no
+    currency check): the fallback fetches what the answer names and lets the
+    graph say no. ``api.ids.guarded_ids`` is the strict one the gate uses."""
+    return all_ids(answer or "")
 
 
 async def build_artifacts(result, *, panel_before: list[str] | None = None

@@ -71,6 +71,32 @@ UNMATCHED_REASONS: frozenset[str] = frozenset({
 })
 
 
+#: Grade per `SAME_LISTING_AS.method` — the cross-portal bridge written by
+#: `sources.match` (spec: docs/superpowers/specs/2026-09-12-source-adapters-design.md).
+#: A separate table, not more rows in MATCH_CONFIDENCE: the names overlap
+#: (`identifier`, `borrower`) but the edges differ, and so do the grades —
+#: a borrower match inside a bank + reserve + day bucket is PROBABLE, while
+#: the same name against a whole multi-lot notice is only INFERRED.
+SAME_LISTING_CONFIDENCE: dict[str, str] = {
+    # Byte-identical sale notice, or three of four boundary neighbours agree.
+    "notice_bytes": CONFIRMED,
+    "boundaries": CONFIRMED,
+    # The same survey / door / plot / flat number, or the same party.
+    "identifier": PROBABLE,
+    "borrower": PROBABLE,
+    # Bank + reserve price + auction day and nothing more. A same-day batch
+    # sale (several lots, one borrower, one price) lands here.
+    "bucket_only": INFERRED,
+}
+
+
+def listing_confidence_for(method: str | None) -> str:
+    """Grade one `SAME_LISTING_AS.method`. Anything unrecognised is ``UNKNOWN``."""
+    if not isinstance(method, str):
+        return UNKNOWN
+    return SAME_LISTING_CONFIDENCE.get(method, UNKNOWN)
+
+
 def confidence_for(method: str | None) -> str:
     """Grade one `IS_LOT.method`. Anything unrecognised is ``UNKNOWN``.
 

@@ -44,6 +44,9 @@ New labels, grouped by what they model:
                :RegSubDistrict
   taxonomy     :PropertyCategory  parent of the existing :PropertyType
                :PossessionType    symbolic | constructive | physical
+  sources      :Media          a listing photo or video from a portal (url)
+               :AuctionEvent   the merged record per auction (event_id) —
+                               planned, docs/SCHEMA.md "Sources and the spine"
 
 :PlaceAlias is also applied as a SECOND label to existing :City and :Area
 nodes by pipeline/resolve_places.py — those keep their own labels and edges,
@@ -108,6 +111,13 @@ CONSTRAINTS = [
     "FOR (c:PropertyCategory) REQUIRE c.name IS UNIQUE",
     "CREATE CONSTRAINT possession_type_unique IF NOT EXISTS "
     "FOR (x:PossessionType) REQUIRE x.name IS UNIQUE",
+
+    # sources — one node per photo URL (the loader MERGEs on it); one spine
+    # record per auction event
+    "CREATE CONSTRAINT media_url_unique IF NOT EXISTS "
+    "FOR (m:Media) REQUIRE m.url IS UNIQUE",
+    "CREATE CONSTRAINT event_id_unique IF NOT EXISTS "
+    "FOR (e:AuctionEvent) REQUIRE e.event_id IS UNIQUE",
 ]
 
 # ── query paths ──────────────────────────────────────────────────────────────
@@ -153,6 +163,15 @@ INDEXES = [
     "FOR (l:Lot) ON (l.verified_at)",
     "CREATE INDEX parcel_last_seen_idx IF NOT EXISTS "
     "FOR (p:Parcel) ON (p.last_seen)",
+
+    # sources: "what did BAANKNET give us", "is this portal id loaded", and
+    # the photo fingerprint the R2 mirror dedupes on
+    "CREATE INDEX auction_source_idx IF NOT EXISTS "
+    "FOR (a:AuctionProperty) ON (a.source)",
+    "CREATE INDEX auction_source_id_idx IF NOT EXISTS "
+    "FOR (a:AuctionProperty) ON (a.source, a.source_id)",
+    "CREATE INDEX media_sha_idx IF NOT EXISTS "
+    "FOR (m:Media) ON (m.content_sha256)",
 ]
 
 # Lat/long is present on only ~5% of lots today, but a point index costs

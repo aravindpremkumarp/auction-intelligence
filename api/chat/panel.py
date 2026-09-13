@@ -37,7 +37,9 @@ _SEARCH_TOOLS = {
 }
 _DETAIL_TOOLS = {"get_auction_detail"}
 
-_ID_RE = re.compile(r"\b\d{4,10}\b")
+# Bare digit runs (eauctionsindia) or bn- / be- prefixed ids (BAANKNET,
+# bankeauctions); only tokens the conversation already surfaced count.
+_ID_RE = re.compile(r"\b(?:bn-|be-)?\d{4,10}\b", re.I)
 
 # Bound the synthetic fetch: mirrors _BY_IDS_MAX on get_auctions_by_ids.
 MAX_PANEL_SYNC_IDS = 25
@@ -89,7 +91,7 @@ def cited_ids(answer: str, known: set[str]) -> list[str]:
     seen: set[str] = set()
     out: list[str] = []
     for m in _ID_RE.finditer(answer):
-        tok = m.group(0)
+        tok = m.group(0).lower()
         if tok in known and tok not in seen:
             seen.add(tok)
             out.append(tok)

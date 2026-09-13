@@ -19,6 +19,7 @@ from api.auth.rate_limit import PUBLIC_READ_LIMIT, STATS_LIMIT, limiter
 from api.neo4j_client import run_query
 # Same rule as the property-type import below, for the same reason: the
 # notice-first place precedence is defined once and read here, never restated.
+from api.canonical import also_on, canonical_listing, has_photos, source
 from api.places import district_effective
 from api.tools.cypher_tools import get_auction_detail
 # Imported, never re-implemented: a second copy of "which bucket is this" is
@@ -68,7 +69,9 @@ def _properties_filter_cypher(filters: dict[str, Any]) -> tuple[str, str, dict[s
     queries so the filter semantics stay consistent across them.
     """
     matches = ["(a:AuctionProperty)"]
-    where: list[str] = []
+    # One row per auction: a copy bridged to a better-ranked portal's listing
+    # is folded into that row's `also_on` (api/canonical.py).
+    where: list[str] = [canonical_listing("a")]
     params: dict[str, Any] = {}
 
     # Categorical filters that support multi-select. With a single value the
@@ -352,7 +355,11 @@ def list_properties(
                asc.name AS asset_category,
                property_types,
                previous_reserve_price,
-               reauction_count
+               reauction_count,
+               {source('a')} AS source, {also_on('a')} AS also_on,
+               {has_photos('a')} AS has_photos,
+               [(a)-[:HAS_MEDIA]->(_pm:Media) WHERE _pm.kind = 'image' AND _pm.is_main |
+                  coalesce(_pm.public_url, _pm.url)][0] AS photo_url
         ORDER BY {_PROPERTIES_SORT_CLAUSES[sort]}, a.auction_id ASC
         SKIP $offset
         LIMIT $limit

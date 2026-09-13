@@ -253,18 +253,40 @@ The manual step list below is what `run_weekly_pipeline.py` does internally —
 useful as a reference, or for running any single stage by hand:
 
 ```bash
-python scrapers/phase1_harvest_urls.py      # 1. Harvest listing URLs (Cloudflare may need a human)
+python scrapers/phase1_harvest_urls.py      # 1. Harvest eauctionsindia listing URLs (Cloudflare may need a human)
 python -u scrapers/phase2_scrape_details.py # 1b. Scrape each URL's detail page + downloads
-python -m scripts.prepare_tn_data           # 2. Clean + filter the Tamil Nadu subset
-python -m scripts.load_tn_to_neo4j          # 3. Load the base graph
-python -m scripts.upload_downloads_to_r2    # 4. Push sale notices to R2
+python -m scripts.prepare_tn_data           # 2. eauctionsindia → data/listings/eauctionsindia.jsonl (+ legacy tn_auction_data.jsonl)
+python -m scripts.harvest_sources           # 2b. BAANKNET + bankeauctions → data/listings/<source>.jsonl, downloads/<source>/
+python -m scripts.gap_report                # 2c. Read-only: what the portals add — new / matched / core fields / photos
+python -m scripts.load_tn_to_neo4j          # 3. Load every data/listings/*.jsonl (one :AuctionProperty per portal listing, :Media)
+python -m scripts.upload_downloads_to_r2    # 4. Push sale notices (+ live listings' photos) to R2
 python -m pipeline.run_pipeline             # 5. classify →
                                             #    promote extractions into :Lot/:Parcel →
-                                            #    apply extractions to listings
-                                            #    (also links re-auctioned properties internally)
+                                            #    apply extractions to listings →
+                                            #    link re-auctions → link portal copies (SAME_LISTING_AS) →
+                                            #    build the spine (:AuctionEvent) → chain re-auctioned events
 python -m scripts.init_graph_schema         # 6. Constraints + fulltext indexes
 uvicorn api.main:app --reload               # 7. Serve agent + web UI
 ```
+
+### Three sources and the spine
+
+Listings come from three portals through one adapter contract (`sources/`):
+eauctionsindia (the original scrape), BAANKNET (the PSB Alliance portal,
+JSON API, photos on every record) and bankeauctions.com (DataTables + a NIT
+bundle of scanned notices per auction). Each portal listing is its own
+`:AuctionProperty` (ids `bn-…` / `be-…` for the new portals); the matcher
+(`sources/match.py`) bridges copies of one auction with `SAME_LISTING_AS`,
+and `scripts/build_spine.py` merges every cluster — portal rows, the sale
+notice's lot, photos — into one `:AuctionEvent` with per-field provenance.
+The agent reads one row per auction and quotes `core_complete`: how many of
+the **nine-field property core** (property type, location, extent,
+measurement, possession type, boundaries, reserve price, auction date,
+photos) are known. Baseline on the live graph, 2026-09-12: measurement 40%,
+possession 61%, photos 0%; 26% of listings had the first eight. Design and
+status: `docs/superpowers/specs/2026-09-12-source-adapters-design.md`,
+`docs/superpowers/plans/2026-09-12-source-adapters.md`, `docs/SCHEMA.md`
+("Sources and the spine").
 
 Notable stages: **OCR** turns each notice into layout-aware markdown
 (`scripts/ocr_with_mineru.py`, Datalab or MinerU); **notice classification**
