@@ -132,7 +132,8 @@ def main():
                 continue
 
             # ── 2. Clean prices ───────────────────────────────────────────
-            rp_raw, rp_num = clean_price(r.get('Reserve Price', ''))
+            rp_val = r.get('Reserve Price') or r.get('ReservePrice', '')
+            rp_raw, rp_num = clean_price(rp_val)
             emd_raw, emd_num = clean_price(r.get('EMD', ''))
 
             # ── 3. Normalize dates ────────────────────────────────────────

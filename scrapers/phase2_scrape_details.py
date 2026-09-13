@@ -33,14 +33,14 @@ sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
 PROJECT_ROOT  = os.path.join(os.path.dirname(__file__), "..")
 OUTPUT_JSONL  = os.path.join(PROJECT_ROOT, "data", "live_eauction_data.jsonl")
 OUTPUT_CSV    = os.path.join(PROJECT_ROOT, "data", "live_eauction_data.csv")
-PENDING_FILE  = os.path.join(PROJECT_ROOT, "data", "pending_urls.txt")
+PENDING_FILE  = os.path.join(PROJECT_ROOT, "data", "pending_tn_urls.txt")
 DOWNLOAD_DIR  = os.path.join(PROJECT_ROOT, "downloads", "live_properties")
 ERRORS_LOG    = os.path.join(PROJECT_ROOT, "data", "scrape_errors.log")
 STOP_LOCK     = os.path.join(os.path.dirname(__file__), "scraper_stop.lock")
 PAUSE_LOCK    = os.path.join(os.path.dirname(__file__), "scraper_pause.lock")
 BASE_URL      = "https://www.eauctionsindia.com"
 
-N_WORKERS     = 10   # Number of parallel Selenium drivers
+N_WORKERS     = 3    # Number of parallel Selenium drivers
 BATCH_SIZE    = 50   # Rebuild CSV every N records scraped
 MAX_RETRIES   = 2    # Retry detail scrape on failure before giving up
 # ─────────────────────────────────────────────────────────────────────────────
@@ -348,7 +348,10 @@ def worker_thread(worker_id: int, url_queue: queue.Queue, processed_urls: set):
     if not driver:
         print(f"[Worker {worker_id}] Fatal: Could not initialize driver on startup. Thread exiting.", flush=True)
         return
-    print(f"[Worker {worker_id}] Started — warming up driver...", flush=True)
+    print(f"[Worker {worker_id}] Started — warming up driver (staggering start)...", flush=True)
+
+    # Stagger startups heavily so Cloudflare doesn't freeze the CAPTCHA
+    time.sleep((worker_id - 1) * 10)
 
     # Warm-up: load site once so Cloudflare cookie is established
     try:

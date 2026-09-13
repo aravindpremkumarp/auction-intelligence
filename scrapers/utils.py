@@ -65,7 +65,7 @@ def setup_driver(download_dir=None, headless=False):
     # Thread-safe driver creation — UC patches the chromedriver binary,
     # so parallel workers must not race each other during patching.
     with _uc_lock:
-        driver = uc.Chrome(options=options, use_subprocess=True, version_main=149)
+        driver = uc.Chrome(options=options, use_subprocess=True, version_main=153)
     return driver
 
 def notify_cloudflare_block():

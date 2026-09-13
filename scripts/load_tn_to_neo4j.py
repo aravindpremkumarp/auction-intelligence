@@ -68,7 +68,9 @@ CONSTRAINTS = [
 
 # ── Batch Cypher: create all nodes + relationships for a batch of records ─────
 BATCH_QUERY = """
+CYPHER runtime=slotted
 UNWIND $rows AS r
+
 
 // ── AuctionProperty ───────────────────────────────────────────────────────
 MERGE (a:AuctionProperty {auction_id: r.auction_id})

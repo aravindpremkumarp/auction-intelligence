@@ -1,0 +1,208 @@
+AUCTION INTELLIGENCE CODEBASE OVERVIEW
+=======================================
+Last updated: 2026-08-14
+(Phase 1 completed: 1,997 new property URLs harvested, pending Phase 2 detail extraction)
+(Pulled latest from main: social API, reels uploading script, and social HTML added)
+(Pulled latest from main: extensive SEO content, evaluation scripts, and marketing templates added)
+
+PROJECT STRUCTURE
+-----------------
+E:\01_vibe_coding\08_auction\
+├── data/
+│   ├── live_eauction_data.jsonl       MASTER dataset (~82,790 records, all states)
+│   ├── live_eauction_data.csv         CSV version of master dataset (82,790 rows)
+│   ├── pending_urls.txt               URL queue for Phase 2 scraper (cleared after run)
+│   ├── tn_auction_data.jsonl          Tamil Nadu-only cleaned records (7,223 records)
+│   ├── tn_auction_data.xlsx           Excel export of TN records (7,223 rows)
+│   ├── tn_download_report.txt         Download coverage summary for TN records
+│   └── dl_done_*.txt / dl_results_*.jsonl  Download tracking files
+│
+├── downloads/
+│   ├── (root files)                   ~2,405 misc downloaded files
+│   ├── live_properties/               ALL property downloads (growing)
+│   └── tn_properties/                 TN-specific downloads (~2,560 files, synced subset)
+│
+├── scrapers/
+│   ├── phase1_harvest_urls.py         TWO-PHASE SCRAPER - Phase 1: fast listing crawl
+│   │                                  Paginates live-properties, collects new URLs only
+│   │                                  Writes to data/pending_urls.txt
+│   │                                  Smart early-stop: 5 consecutive stale pages = done
+│   ├── phase2_scrape_details.py       TWO-PHASE SCRAPER - Phase 2: parallel detail scrape
+│   │                                  Reads pending_urls.txt, uses N_WORKERS=3 Selenium
+│   │                                  drivers in parallel threads. Downloads sale notices
+│   │                                  & PDFs, links filenames to each property record.
+│   │                                  Fields: Downloads (string) + downloads_list (array)
+│   ├── fast_eauctions_scraper.py      Legacy single-pass scraper (deprecated, kept as ref)
+│   ├── utils.py                       setup_driver() with cached ChromeDriver path
+│   │                                  (thread-safe lock so parallel workers don't race)
+│   └── scraper_controls:
+│       scraper_stop.lock  → create to stop gracefully
+│       scraper_pause.lock → create to pause, delete to resume
+│
+├── scripts/
+│   ├── prepare_tn_data.py             Filters live_eauction_data.jsonl -> tn_auction_data.jsonl
+│   ├── convert_to_excel.py            Converts live_eauction_data.jsonl -> .xlsx
+│   ├── load_tn_to_neo4j.py            Loads TN data into Neo4j graph database
+│   ├── link_reauctions.py             Links re-auctioned properties in Neo4j
+│   ├── dedupe_documents.py            Deduplicates download documents
+│   ├── upload_downloads_to_r2.py      Uploads downloads to Cloudflare R2
+│   └── ... (other utility scripts)
+│
+├── pipeline/                          Orchestration pipeline code
+├── api/                               REST API code
+├── web/                               Frontend web application
+├── tracking/                          Download progress tracking
+└── config/                            Configuration files
+
+DATA FLOW
+---------
+1. phase1_harvest_urls.py  -> data/pending_urls.txt  (new property URLs only)
+2. phase2_scrape_details.py -> live_eauction_data.jsonl (parallel detail scrape + downloads)
+3. prepare_tn_data.py      -> tn_auction_data.jsonl (TN filtered + cleaned)
+4. Excel export            -> tn_auction_data.xlsx
+5. tn_properties sync      -> copies TN-specific files from live_properties/
+6. load_tn_to_neo4j.py     -> loads into Neo4j
+
+TWO-PHASE SCRAPER USAGE
+------------------------
+  # Phase 1: collect new URLs (~30-45 min for full site)
+  python -u scrapers/phase1_harvest_urls.py
+
+  # Phase 2: scrape details in parallel (3 workers)
+  python -u scrapers/phase2_scrape_details.py
+
+KEY DATA FACTS (as of 2026-08-02)
+-----------------------------------
+- Total records in master     : 84,597
+- New records added (Aug 02)  : +1,807
+- Tamil Nadu records          : 2,739
+- TN download files           : ~2,610 files in tn_properties/
+- Downloads per record        : 1-2 docs typically (sale notice / property image)
+- downloads_list field        : JSON array of local filenames (new field added 2026-05-10)
+- _worker field               : tracks which parallel worker scraped each record
+
+SCRIPTS/PREPARE_TN_DATA.PY CONFIG
+-----------------------------------
+- INPUT:  data/live_eauction_data.jsonl
+- OUTPUT: data/tn_auction_data.jsonl
+- REPORT: data/tn_download_report.txt
+- DL_DIR: downloads/live_properties   (validates file existence here)
+- FILTER: Province/State contains "Tamil Nadu" (case-insensitive)
+
+RECENT CHANGES (2026-09-12)
+-----------------------------
+- Created TN-specific Phase 1 URL harvester (`phase1_harvest_tn_urls.py`) to scrape exclusively from the Tamil Nadu category.
+- Ran TN Phase 1 scraper: collected 3,774 new pending Tamil Nadu URLs.
+- Modified Phase 2 (`phase2_scrape_details.py`) to process `pending_tn_urls.txt`.
+- Ran Phase 2 scraper: successfully extracted all 3,774 Tamil Nadu properties (0 errors) and downloaded associated sale notices. Master dataset rows updated.
+
+RECENT CHANGES (2026-08-14)
+-----------------------------
+- Fixed ChromeDriver version issue in setup_driver (utils.py) updating to v153.
+- Ran Phase 1 URL harvester successfully. Discovered 1,997 new URLs which are now queued in pending_urls.txt.
+
+RECENT CHANGES (2026-08-02)
+-----------------------------
+- Created and successfully executed Phase 3 pipeline (`phase3_prepare_and_load.py`): filtered 2,739 Tamil Nadu records, generated live_eauction_data.xlsx, and loaded 177 new TN properties into the Neo4j graph.
+- Ran Phase 1 and Phase 2 scrapers: discovered and extracted details for 1,807 new properties in 38.6 mins (0 errors). Master dataset now at 84,597 rows.
+- Pulled latest from main, adding new social API (router, schemas, service), reels upload script (upload_reels_to_r2.py), tests for social and scripts, and web/social.html
+
+RECENT CHANGES (2026-07-26)
+-----------------------------
+- Ran prepare_tn_data.py and load_tn_to_neo4j.py: 2,561 Tamil Nadu records filtered, and 632 new records successfully ingested into Neo4j.
+- Ran Phase 1 and Phase 2 scrapers: discovered and extracted details for 2,187 new properties in 38.2 mins (206 errors). Master dataset now at 82,790 rows.
+- Pulled latest from main, adding extensive SEO, compare, and guide pages (web/guides/, web/compare/, web/bank-auctions/)
+- Added new scripts and evaluation tools (build_guides.py, ocr_ab.py, datalab.py, eval_prf.py)
+- Added new marketing templates and pipeline test files
+
+RECENT CHANGES (2026-05-10)
+-----------------------------
+- Rebuilt two-phase scraper architecture:
+    * phase1_harvest_urls.py: fast listing-page crawler with stale-streak early exit
+    * phase2_scrape_details.py: 3 parallel Selenium workers, thread-safe writes
+    * utils.py: cached ChromeDriver path with threading.Lock (fixes parallel crash)
+- Fixed Windows cp1252 encoding: sys.stdout.reconfigure(encoding="utf-8")
+- Added downloads_list (JSON array) alongside Downloads (semicolon string)
+- Added _worker field to every record for debugging
+- Added per-thread requests.Session for thread-safe file downloads
+- Scraped 2,808 new records: 60,610 -> 63,418 total
+- Zero errors across full Phase 2 run (64 min, 0.73 rec/s)
+
+RECENT CHANGES (2026-05-04)
+-----------------------------
+- Fixed BATCH_QUERY in load_tn_to_neo4j.py: FOREACH for property_types
+- Re-ran load_tn_to_neo4j.py -> all 5,346 records ingested into Neo4j (0 errors)
+- Ran upload_downloads_to_r2.py: uploaded 1,645 new TN notices to R2
+- Cleaned up spurious 'www.vdo.ai' ad-tracker entries (671 records fixed)
+
+
+PROJECT STRUCTURE
+-----------------
+E:\01_vibe_coding\08_auction\
+├── data/
+│   ├── live_eauction_data.jsonl       MASTER dataset (~60,440 records, all states)
+│   ├── live_eauction_data.csv         CSV version of master dataset
+│   ├── tn_auction_data.jsonl          Tamil Nadu-only cleaned records (5,346 records)
+│   ├── tn_auction_data.xlsx           Excel export of TN records (5,346 rows)
+│   ├── tn_download_report.txt         Download coverage summary for TN records
+│   └── dl_done_*.txt / dl_results_*.jsonl  Download tracking files
+│
+├── pipeline/                          Orchestration pipeline code
+├── api/                               REST API code
+├── web/                               Frontend web application
+├── tracking/                          Download progress tracking
+└── config/                            Configuration files
+
+DATA FLOW
+---------
+1. Scraping -> live_eauction_data.jsonl (master, all states)
+2. prepare_tn_data.py -> tn_auction_data.jsonl (TN filtered + cleaned)
+3. Excel export -> tn_auction_data.xlsx
+4. tn_properties sync -> copies TN-specific files from live_properties/
+5. load_tn_to_neo4j.py -> loads into Neo4j
+
+KEY DATA FACTS (as of 2026-05-03)
+-----------------------------------
+- Total records in master: ~60,440
+- Tamil Nadu records: 5,346
+- TN download files in tn_properties: 2,560 files
+- Download files found (in live_properties): 1,664 for TN records
+- Download files missing: 4,475 (records with no docs on portal or not yet downloaded)
+- Records with missing downloads: 4,315
+
+SCRIPTS/PREPARE_TN_DATA.PY CONFIG
+-----------------------------------
+- INPUT:  data/live_eauction_data.jsonl
+- OUTPUT: data/tn_auction_data.jsonl
+- REPORT: data/tn_download_report.txt
+- DL_DIR: downloads/live_properties   (validates file existence here)
+- FILTER: Province/State contains "Tamil Nadu" (case-insensitive)
+
+TN_PROPERTIES SYNC LOGIC
+--------------------------
+- Source: downloads/live_properties/
+- Dest:   downloads/tn_properties/
+- Logic:  Copy files referenced in tn_auction_data.jsonl downloads_list that are
+          present in live_properties but not yet in tn_properties
+- Run by: ad-hoc Python script (not yet formalized into a script file)
+
+RECENT CHANGES (2026-05-04)
+-----------------------------
+- Updated tn_auction_data.jsonl (user-provided update)
+- Fixed BATCH_QUERY in load_tn_to_neo4j.py: FOREACH for property_types, CALL {}
+  subqueries for optional sections to keep `r` in scope
+- Re-ran load_tn_to_neo4j.py -> all 5,346 records ingested into Neo4j (0 errors)
+- Ran upload_downloads_to_r2.py: uploaded 1,645 new TN notices to R2,
+  upserted 6,139 :Document nodes in Neo4j (linked via HAS_DOCUMENT)
+- Cleaned up spurious 'www.vdo.ai' ad-tracker entries:
+    * 671 records fixed in tn_auction_data.jsonl
+    * 671 :Document nodes deleted from Neo4j
+    * 671 objects deleted from R2
+
+RECENT CHANGES (2026-05-03)
+-----------------------------
+- Updated live_eauction_data.jsonl with new data
+- Re-ran prepare_tn_data.py -> tn_auction_data.jsonl regenerated (5,346 TN records)
+- Regenerated tn_auction_data.xlsx (5,346 rows)
+- Synced tn_properties: copied 432 new files (2,128 -> 2,560 total)
+- Fixed Unicode arrow character bug in prepare_tn_data.py (Windows cp1252 encoding)
