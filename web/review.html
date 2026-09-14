@@ -2775,9 +2775,14 @@
     const lotCountBadge = n.expected_lot_count != null
       ? `<span class="pill on" title="reviewer-confirmed lot count">lots: ${n.expected_lot_count}</span>`
       : '';
+    const stitchBadge = n.stitched_into
+      ? `<span class="pill warn" title="This file is a later page of ${escapeHtml(n.stitched_into)}; its lots are extracted there. Count this page's lots here — the stitch sums the pages.">page of ${escapeHtml(n.stitched_into)}</span>`
+      : (n.stitched_pages && n.stitched_pages.length > 1
+        ? `<span class="pill on" title="${escapeHtml(n.stitched_pages.join(' + '))}">stitched: ${n.stitched_pages.length} pages</span>`
+        : '');
     left.innerHTML = `
       <div class="cfile">${escapeHtml(filename)}</div>
-      <div class="crow">${currentBadge} ${overriddenBadge} ${propCountBadge} ${lotCountBadge} ${statusBadge}</div>
+      <div class="crow">${currentBadge} ${overriddenBadge} ${propCountBadge} ${lotCountBadge} ${stitchBadge} ${statusBadge}</div>
       ${(n.sample_titles && n.sample_titles.length) ? `<div class="ctitles">${escapeHtml(n.sample_titles.filter(Boolean).join(' · '))}${(n.auction_id_count > n.sample_titles.length) ? ' · +' + (n.auction_id_count - n.sample_titles.length) + ' more' : ''}</div>` : ''}
       ${openLink ? `<div style="margin-top:8px;">${openLink}</div>` : ''}
     `;
