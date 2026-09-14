@@ -100,17 +100,16 @@ def test_parse_detail_reads_every_label_once():
     assert d["emd_ifsc"] == "HDFC0004989"
 
 
-def test_documents_bundle_first_then_loose_tender_pdfs_never_the_site_policies():
+def test_documents_are_only_the_nit_bundle():
+    # The loose /public/uploads/bank/ PDFs (tender form, annexures 2 and 3) are
+    # the same generic paperwork on every listing, and the site policies are
+    # site-wide — neither is fetched.
     docs = documents_from_detail(DETAIL_HTML, DETAIL_URL, "239024")
     assert [(d.filename, d.doc_role, d.needs_referer) for d in docs] == [
         ("be-239024-nit.zip", "bundle", True),
-        ("be-239024-tender-documents.pdf", "tender", False),
-        ("be-239024-annexure-2-details-of-bidders.pdf", "tender", False),
-        ("be-239024-annexure-3-declaration-by-bidders.pdf", "affidavit", False),
     ]
     assert docs[0].referer == DETAIL_URL
     assert docs[0].url == "https://bankeauctions.com/public/uploads/event_auction/93bb7ecd39ff1a76e7db007b839261c8.zip"
-    assert not any("User_Agreement" in d.url or "Terms___Condition" in d.url for d in docs)
 
 
 def test_normalize_maps_row_and_detail():
@@ -234,6 +233,11 @@ def test_harvest_reads_the_state_id_off_the_homepage_and_dedupes_the_overlap():
     assert got[0]["detail_html"] == DETAIL_HTML
     first_post = next(c for c in calls if c[0] == "POST")
     assert first_post[2] == {"state": 24} and first_post[3]["iDisplayLength"] == 10
+    # unsorted paging drops rows on the live site — every page asks for a stable order
+    # (the server ignores the sort unless the column is also marked bSortable)
+    assert all(c[3]["iSortingCols"] == 1 and c[3]["iSortCol_0"] == 1 and c[3]["sSortDir_0"] == "asc"
+               and c[3]["bSortable_1"] == "true"
+               for c in calls if c[0] == "POST")
 
 
 def test_harvest_limit_and_no_detail():

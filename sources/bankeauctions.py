@@ -48,12 +48,6 @@ _PAIR = re.compile(r'detl-left"[^>]*>(.*?)</div>\s*<div[^>]*detl-right"[^>]*>(.*
 _TAG = re.compile(r"<[^>]+>")
 _STATE_OPTION = re.compile(r'<option\s+value="(\d+)"\s*>\s*([^<]+?)\s*</option>', re.I)
 _ZIP = re.compile(r'href="([^"]*?/public/uploads/event_auction/[^"]+\.zip)"', re.I)
-# "<label> :</div><div …><a href=…/public/uploads/bank/….pdf">" — the label
-# sits in the detl-left cell, the link one or two tags later in detl-right.
-_LOOSE_PDF = re.compile(
-    r'(?:>|\n)\s*([^<>\n]{3,80}?)\s*:\s*(?:<[^>]*>\s*){1,4}<a[^>]*href="([^"]*?/public/uploads/bank/[^"]+\.pdf)"',
-    re.I | re.S,
-)
 
 #: What the detail page calls things → Listing fields.
 LABELS = {
@@ -109,27 +103,18 @@ def parse_detail(html: str) -> dict:
 
 
 def documents_from_detail(html: str, detail_url: str, row_id: str) -> list[DocRef]:
-    """The NIT zip (the per-auction bundle) and the loose tender PDFs.
+    """The NIT zip (the per-auction bundle) — the only document fetched.
 
-    The site-wide ``Terms___Condition.pdf`` and user agreement sit at the
-    root and are neither — only ``/public/uploads/`` links are per-auction.
+    The loose ``/public/uploads/bank/`` PDFs (Tender Documents, Annexure 2 and
+    3) are the same generic tender paperwork on every listing, and the
+    site-wide ``Terms___Condition.pdf`` and user agreement are not per-auction,
+    so neither is taken.
     """
-    docs: list[DocRef] = []
     for href in _ZIP.findall(html):
         url = href if href.startswith("http") else SITE + href
-        docs.append(DocRef(url=url, filename=f"be-{row_id}-nit.zip", label="View NIT Documents",
-                           doc_role="bundle", needs_referer=True, referer=detail_url))
-        break
-    seen: set[str] = set()
-    for label, href in _LOOSE_PDF.findall(html):
-        url = href if href.startswith("http") else SITE + href
-        if url in seen:
-            continue
-        seen.add(url)
-        label = _text(label)
-        docs.append(DocRef(url=url, filename=f"be-{row_id}-{file_slug(label)}.pdf", label=label,
-                           doc_role=doc_role_for(label) if doc_role_for(label) != "unknown" else "tender"))
-    return docs
+        return [DocRef(url=url, filename=f"be-{row_id}-nit.zip", label="View NIT Documents",
+                       doc_role="bundle", needs_referer=True, referer=detail_url)]
+    return []
 
 
 class BankeauctionsAdapter:
@@ -165,9 +150,16 @@ class BankeauctionsAdapter:
         return self._state_id
 
     def _page(self, start: int) -> dict:
+        # Without an explicit sort the server's row order shifts between
+        # requests: pages repeat rows and a fixed set is never served (160 of
+        # 195 on 2026-09-14). Sorting on the auction id makes paging stable —
+        # and the server ignores the sort unless that column is marked
+        # bSortable.
         r = self.session.post(
             DATATABLE, params={"state": self.state_id()},
-            data={"iDisplayStart": start, "iDisplayLength": PAGE_SIZE, "sEcho": 1},
+            data={"iDisplayStart": start, "iDisplayLength": PAGE_SIZE, "sEcho": 1,
+                  "iSortingCols": 1, "iSortCol_0": COL_ID, "sSortDir_0": "asc",
+                  f"bSortable_{COL_ID}": "true"},
         )
         r.raise_for_status()
         return r.json()

@@ -1,32 +1,39 @@
 """Cross-portal matching: is this incoming listing an auction we already hold?
 
-Pure functions over dicts — no network, no graph. The caller (today
-``scripts/gap_report.py``, later ``scripts/link_listings.py``) fetches what
-the graph knows and hands it in beside the harvested rows.
+Pure functions over dicts — no network, no graph. The caller (``scripts/gap_report.py``
+and ``scripts/link_listings.py``) fetches what the graph knows and hands it in
+beside the harvested rows.
 
-Two listings are only ever compared across *different* sources. A portal
-never lists one auction twice under two ids, but it does list a same-day
-batch sale as several listings that share bank, borrower, day and often
-reserve price (BAANKNET ``bn-351743`` / ``bn-351740``), which is exactly what
-the bucket alone cannot tell apart. Within a bucket the evidence is graded,
-strongest first:
+Two listings are only ever compared across *different* sources, inside a
+bucket: canonical bank (``pipeline.entity_resolution.org_key``) and auction
+calendar day, with reserve prices agreeing within
+``pipeline.price_agreement.TOLERANCE_PCT`` (or one side unpriced).
+
+A bucket routinely holds a same-day batch sale — one borrower, several
+properties, often one price (BAANKNET ``bn-351743`` / ``bn-351740``). So the
+rules are the notice-lot matcher's (``pipeline.apply_extractions.match_lots_to_listings``):
+
+* each listing gets at most ONE partner per other portal; evidence narrows the
+  candidates, strongest first, and must reach exactly one;
+* a tie that survives every tier stays unresolved (``Ambiguity``), never guessed;
+* an identifier held by more than one listing on either side is shared ground
+  (the land under a batch), not evidence; a short unit number (``G1``) counts
+  only when the borrower agrees or a second identifier does;
+* a pair stands only when both listings choose each other — otherwise both
+  are left unresolved;
+* identical postings of one unit on one portal are one candidate.
 
     notice_bytes   the same sale-notice file on both sides       CONFIRMED
     boundaries     three of four neighbours agree                CONFIRMED
-    identifier     the same survey / door / plot / flat number   PROBABLE
+    identifier     the same unique survey / door / plot / flat / villa number   PROBABLE
     borrower       the same party (token_set_ratio >= 90)        PROBABLE
-    bucket_only    bank + reserve + day and nothing more         INFERRED
-
-The bucket is canonical bank (``pipeline.entity_resolution.org_key``),
-auction calendar day, and reserve price within
-``pipeline.price_agreement.TOLERANCE_PCT`` — not a rounded-price key, so a
-figure quoted as 45,60,000 on one portal and 45,60,000.00 on another, or
-rounded to the thousand in a newspaper, still lands in the same bucket.
+    bucket_only    the one price-agreeing listing in the bucket  INFERRED
 """
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from collections import Counter, defaultdict
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from typing import Iterable
 
@@ -169,16 +176,19 @@ def _contains(x: str, y: str) -> bool:
 
 _FAMILY = {"survey_old": "survey", "survey_new": "survey", "survey": "survey",
            "door_old": "door", "door_new": "door", "door": "door",
-           "plot": "plot", "flat": "flat"}
+           "plot": "plot", "flat": "flat", "villa": "villa"}
 
 _IDENT = re.compile(
     r"\b(?P<kind>"
     r"(?:old\s+|new\s+|t\.?\s*s\.?\s*|r\.?\s*s\.?\s*|re-?survey\s*|survey\s+|s\.?\s*)no\.?s?"
     r"|(?:old\s+|new\s+)?(?:door|d\.?)\s*no\.?s?"
     r"|plot\s+no\.?s?"
-    r"|flat\s+no\.?s?"
+    r"|flat(?:\s+no\.?s?)?"
+    r"|villa(?:\s+no\.?s?)?"
     r")\s*[:.\-]?\s*"
-    r"(?P<value>(?:\d+[A-Za-z]?|[A-Za-z]\d+)(?:\s*(?:/|by|-)\s*\d*[A-Za-z]?\d*)*)",
+    r"(?P<value>(?:\d+[A-Za-z]?|[A-Za-z]{1,2}\d+)(?:\s*(?:/|by|-)\s*\d*[A-Za-z]?\d*)*)"
+    r"(?![a-z])"
+    r"(?![\d.]*\s*(?:sq|sft|cents?\b|acres?\b))",
     re.IGNORECASE,
 )
 
@@ -210,7 +220,9 @@ def extract_identifiers(text: str | None) -> set[tuple[str, str]]:
         if any(lo <= m.start() < hi for lo, hi in neighbour_spans):
             continue
         kind = m.group("kind").lower()
-        if "plot" in kind:
+        if "villa" in kind:
+            fam = "villa"
+        elif "plot" in kind:
             fam = "plot"
         elif "flat" in kind:
             fam = "flat"
@@ -317,6 +329,14 @@ def candidate_from_graph(rec: dict) -> Candidate:
 # ── the matcher ──────────────────────────────────────────────────────────────
 
 METHODS = ("notice_bytes", "boundaries", "identifier", "borrower", "bucket_only")
+_ORDER = {m: i for i, m in enumerate(METHODS)}
+
+#: Identifier families that name one unit rather than the land a batch shares.
+UNIT_FAMILIES = frozenset({"villa", "flat", "plot", "door"})
+
+#: Unit families whose disagreement vetoes a pair. Not door: a door number is
+#: usually the building's address, shared by every flat in it.
+VETO_FAMILIES = frozenset({"villa", "flat", "plot"})
 
 
 @dataclass(frozen=True)
@@ -330,22 +350,24 @@ class Pair:
     evidence: str = ""
 
 
-def evidence_for(a: Candidate, b: Candidate) -> tuple[str, str] | None:
-    """The strongest method that holds for two candidates already known to
-    share a bucket, with a one-line human reason; ``None`` when nothing beyond
-    the bucket holds (the caller then reports ``bucket_only``)."""
-    shared = a.doc_shas & b.doc_shas
-    if shared:
-        return "notice_bytes", f"same notice file sha256 {sorted(shared)[0][:12]}…"
-    if boundary_matches(a.boundaries, b.boundaries):
-        return "boundaries", "three or more boundary neighbours agree"
-    ids = a.identifiers & b.identifiers
-    if ids:
-        fam, val = sorted(ids)[0]
-        return "identifier", f"same {fam} number {val}"
-    if borrower_matches(a.borrower, b.borrower):
-        return "borrower", f"borrower '{a.borrower.strip()}' ~ '{b.borrower.strip()}'"
-    return None
+@dataclass(frozen=True)
+class Ambiguity:
+    """A listing the evidence could not pin to one partner on another portal.
+
+    ``tied``: several candidates survived every tier. ``contested``: it chose
+    a partner another listing chose too. Either way nothing is written, and
+    the gap report counts it as undecided rather than new."""
+    auction_id: str
+    source: str
+    other_source: str
+    candidates: tuple[str, ...]
+    reason: str
+
+
+@dataclass
+class MatchResult:
+    pairs: list[Pair]
+    ambiguous: list[Ambiguity]
 
 
 def price_verdict(a: Candidate, b: Candidate) -> str:
@@ -356,48 +378,276 @@ def price_verdict(a: Candidate, b: Candidate) -> str:
     return verdict
 
 
-def find_same_listing_pairs(incoming: Iterable[Candidate], existing: Iterable[Candidate]) -> list[Pair]:
-    """Every cross-source pair that shares a bucket, graded. ``incoming`` is
-    compared against ``existing`` and against itself (two new portals can
-    both carry an auction the graph has never seen); ``existing`` is never
-    compared with itself — that is ``link_reauctions``' job.
+def _is_short(value: str) -> bool:
+    """``g1``, ``22``, ``s1``: common enough across a city to need corroboration."""
+    return len(value.replace("/", "")) <= 2
 
-    Same-source pairs are never emitted, whatever the evidence. A pair where
-    one side has no reserve price needs evidence beyond the bucket (the 2026
-    graph holds hundreds of listings whose portal price was "not published");
-    a pair whose prices disagree is never emitted.
-    """
-    inc = [c for c in incoming if c.auction_id]
-    ext = [c for c in existing if c.auction_id]
-    buckets: dict[tuple[str, str], list[tuple[bool, Candidate]]] = {}
-    for is_new, pool in ((True, inc), (False, ext)):
-        for c in pool:
-            key = c.bucket_key
-            if key is not None:
-                buckets.setdefault(key, []).append((is_new, c))
 
-    seen: set[tuple[str, str]] = set()
+def _unit_key(value: str) -> str:
+    """A unit number for comparison across notations: ``f/1`` and ``f1`` → ``1``,
+    ``b/510`` → ``510``, ``86/b`` → ``86b``; ``ff12`` stays."""
+    key = re.sub(r"[^a-z0-9]", "", value.lower())
+    if re.match(r"^[a-z]\d", key):
+        key = key[1:]
+    return key
+
+
+def _units_disagree(a: Candidate, b: Candidate) -> bool:
+    """True when both quote a villa / flat / plot number and none of them agree:
+    two different units, whatever else matches."""
+    for fam in VETO_FAMILIES:
+        keys_a = {_unit_key(v) for f, v in a.identifiers if f == fam}
+        keys_b = {_unit_key(v) for f, v in b.identifiers if f == fam}
+        if keys_a and keys_b and not keys_a & keys_b:
+            return True
+    return False
+
+
+def _unique_identifiers(side: list[Candidate]) -> set[tuple[str, str]]:
+    """Identifiers held by exactly one listing on this side of a bucket."""
+    counts = Counter(i for c in side for i in c.identifiers)
+    return {i for i, n in counts.items() if n == 1}
+
+
+def _twin_groups(side: list[Candidate]) -> list[list[Candidate]]:
+    """Listings on one portal that are postings of the same unit — equal unit
+    numbers (villa / flat / plot / door), reserve price and borrower — as one
+    group, in first-seen order. A listing that quotes no unit number is its
+    own group: without one there is nothing to say two postings are one unit."""
+    out: list[list[Candidate]] = []
+    by_key: dict[tuple, list[Candidate]] = {}
+    for c in side:
+        units = frozenset(i for i in c.identifiers if i[0] in UNIT_FAMILIES)
+        if not units:
+            out.append([c])
+            continue
+        key = (units, _round_reserve(c.reserve_price_num), borrower_key(c.borrower))
+        if key not in by_key:
+            by_key[key] = []
+            out.append(by_key[key])
+        by_key[key].append(c)
+    return out
+
+
+def _representative(group: list[Candidate]) -> Candidate:
+    """The group as one candidate: the first member, carrying every member's
+    identifiers and notice fingerprints."""
+    first = group[0]
+    if len(group) == 1:
+        return first
+    return replace(first,
+                   identifiers=set().union(*(c.identifiers for c in group)),
+                   doc_shas=set().union(*(c.doc_shas for c in group)))
+
+
+def _notice_tier(a: Candidate, cands: list[Candidate], usable: set) -> dict[int, str]:
+    out = {}
+    for pos, b in enumerate(cands):
+        shared = a.doc_shas & b.doc_shas
+        if shared:
+            out[pos] = f"same notice file sha256 {sorted(shared)[0][:12]}…"
+    return out
+
+
+def _boundary_tier(a: Candidate, cands: list[Candidate], usable: set) -> dict[int, str]:
+    return {pos: "three or more boundary neighbours agree"
+            for pos, b in enumerate(cands) if boundary_matches(a.boundaries, b.boundaries)}
+
+
+def _identifier_tier(a: Candidate, cands: list[Candidate], usable: set) -> dict[int, str]:
+    out = {}
+    for pos, b in enumerate(cands):
+        ids = a.identifiers & b.identifiers & usable
+        corroborated = len(ids) >= 2 or borrower_matches(a.borrower, b.borrower)
+        ids = {i for i in ids if corroborated or not _is_short(i[1])}
+        if ids:
+            fam, val = sorted(ids)[0]
+            out[pos] = f"same {fam} number {val}"
+    return out
+
+
+def _borrower_tier(a: Candidate, cands: list[Candidate], usable: set) -> dict[int, str]:
+    return {pos: f"borrower '{a.borrower.strip()}' ~ '{b.borrower.strip()}'"
+            for pos, b in enumerate(cands) if borrower_matches(a.borrower, b.borrower)}
+
+
+_TIERS = (("notice_bytes", _notice_tier), ("boundaries", _boundary_tier),
+          ("identifier", _identifier_tier), ("borrower", _borrower_tier))
+
+
+def _choose(a: Candidate, side_b: list[Candidate], usable: set) -> tuple | None:
+    """Narrow ``side_b`` to ``a``'s partner.
+
+    Returns ``("match", index, method, evidence)``, ``("tied", indexes)`` or
+    ``None``. Candidates whose price disagrees, or whose villa / flat / plot
+    numbers all differ from ``a``'s (:func:`_units_disagree`), are dropped
+    before any tier. A tier that hits every remaining candidate says nothing
+    about which one ``a`` is and is skipped; one that hits some of them narrows."""
+    idx = [i for i, b in enumerate(side_b) if price_verdict(a, b) in ("agree", "unknown")]
+    idx = [i for i in idx if not _units_disagree(a, side_b[i])]
+    if not idx:
+        return None
+    method, evidence, shared = None, {}, False
+    for name, tier in _TIERS:
+        hits = tier(a, [side_b[i] for i in idx], usable)
+        if not hits:
+            continue
+        if len(hits) == len(idx) and len(idx) > 1:
+            shared = True
+            continue
+        evidence = {idx[pos]: why for pos, why in hits.items()}
+        idx = sorted(evidence)
+        method = name
+        if len(idx) == 1:
+            break
+    if method is None:
+        if shared:
+            return ("tied", idx)
+        agreeing = [i for i in idx if price_verdict(a, side_b[i]) == "agree"]
+        if len(agreeing) == 1:
+            return ("match", agreeing[0], "bucket_only", "same bank, reserve price and auction day only")
+        return ("tied", agreeing) if len(agreeing) > 1 else None
+    if len(idx) == 1:
+        return ("match", idx[0], method, evidence[idx[0]])
+    return ("tied", idx)
+
+
+def _assign(side_a: list[Candidate], side_b: list[Candidate], new_ids: set[str]) -> tuple[list[Pair], list[Ambiguity]]:
+    """One portal against another inside one bucket, in rounds. Each round,
+    every listing not yet paired chooses among the other side's unpaired
+    listings, and a pair stands only when both choose each other; paired
+    listings are taken and the round repeats while it adds a pair. One listing
+    is one property, so a listing whose chosen partner was taken is not that
+    partner: it chooses again from what is left, and if nothing is left it is
+    simply unmatched. What the last round could not decide — a tie, or a
+    choice the other listing did not return — is reported as an Ambiguity.
+
+    Which identifiers are usable evidence is decided once, over the full
+    sides: a survey number shared with a taken sibling stays shared."""
+    groups_a, groups_b = _twin_groups(side_a), _twin_groups(side_b)
+    reps_a = [_representative(g) for g in groups_a]
+    reps_b = [_representative(g) for g in groups_b]
+    usable = _unique_identifiers(reps_a) & _unique_identifiers(reps_b)
+
+    def choices(free_x: list[int], reps_x: list[Candidate], free_y: list[int], reps_y: list[Candidate]) -> dict[int, tuple | None]:
+        """Each free group's choice among the other side's free groups, with
+        indexes mapped back to the full group lists."""
+        pool = [reps_y[i] for i in free_y]
+        out: dict[int, tuple | None] = {}
+        for ix in free_x:
+            got = _choose(reps_x[ix], pool, usable)
+            if got is None:
+                out[ix] = None
+            elif got[0] == "tied":
+                out[ix] = ("tied", [free_y[i] for i in got[1]])
+            else:
+                out[ix] = ("match", free_y[got[1]], got[2], got[3])
+        return out
+
     pairs: list[Pair] = []
-    for members in buckets.values():
-        for i, (new_i, a) in enumerate(members):
-            for new_j, b in members[i + 1:]:
-                if not (new_i or new_j):
+    ambiguous: list[Ambiguity] = []
+    taken_a: set[int] = set()
+    taken_b: set[int] = set()
+
+    while True:
+        free_a = [i for i in range(len(groups_a)) if i not in taken_a]
+        free_b = [i for i in range(len(groups_b)) if i not in taken_b]
+        choice_a = choices(free_a, reps_a, free_b, reps_b)
+        choice_b = choices(free_b, reps_b, free_a, reps_a)
+        added = False
+        for ia in free_a:
+            got = choice_a[ia]
+            if got is None or got[0] != "match":
+                continue
+            _, ib, method_a, evidence_a = got
+            got_b = choice_b[ib]
+            if not (got_b is not None and got_b[0] == "match" and got_b[1] == ia):
+                continue
+            method_b, evidence_b = got_b[2], got_b[3]
+            if _ORDER[method_b] < _ORDER[method_a]:
+                method, evidence = method_b, evidence_b
+            else:
+                method, evidence = method_a, evidence_a
+            for x in groups_a[ia]:
+                for y in groups_b[ib]:
+                    if x.auction_id in new_ids or y.auction_id in new_ids:
+                        pairs.append(Pair(x.auction_id, y.auction_id, x.source, y.source,
+                                          method, listing_confidence_for(method), evidence))
+            taken_a.add(ia)
+            taken_b.add(ib)
+            added = True
+        if not added:
+            break
+
+    def tied(group_x: list[Candidate], tied_groups: list[list[Candidate]]) -> list[Ambiguity]:
+        others = tuple(sorted(y.auction_id for g in tied_groups for y in g))
+        return [Ambiguity(x.auction_id, x.source, tied_groups[0][0].source, others, "tied")
+                for x in group_x if x.auction_id in new_ids]
+
+    def contested(group_x: list[Candidate], partner_group: list[Candidate]) -> list[Ambiguity]:
+        others = tuple(sorted(y.auction_id for y in partner_group))
+        return [Ambiguity(x.auction_id, x.source, partner_group[0].source, others, "contested")
+                for x in group_x if x.auction_id in new_ids]
+
+    # The last round added no pair, so its choices cover exactly the untaken groups.
+    for ia, got in choice_a.items():
+        if got is None:
+            continue
+        if got[0] == "tied":
+            ambiguous += tied(groups_a[ia], [groups_b[i] for i in got[1]])
+        else:
+            ambiguous += contested(groups_a[ia], groups_b[got[1]])
+
+    for ib, got in choice_b.items():
+        if got is None:
+            continue
+        if got[0] == "tied":
+            ambiguous += tied(groups_b[ib], [groups_a[i] for i in got[1]])
+        else:
+            ambiguous += contested(groups_b[ib], groups_a[got[1]])
+
+    return pairs, ambiguous
+
+
+def match_listings(incoming: Iterable[Candidate], existing: Iterable[Candidate]) -> MatchResult:
+    """Every cross-source pair the evidence can pin one-to-one, and every
+    listing it could not. ``incoming`` is compared against ``existing`` and
+    against itself (two new portals can both carry an auction the graph has
+    never seen); ``existing`` is never compared with itself — that is
+    ``link_reauctions``' job. A listing present on both sides (a loaded
+    harvest row) is taken once, from ``incoming``."""
+    seen: set[str] = set()
+    members_by_bucket: dict[tuple[str, str], list[Candidate]] = defaultdict(list)
+    new_ids: set[str] = set()
+    for is_new, pool in ((True, incoming), (False, existing)):
+        for c in pool:
+            if not c.auction_id or c.auction_id in seen:
+                continue
+            seen.add(c.auction_id)
+            if is_new:
+                new_ids.add(c.auction_id)
+            if c.bucket_key is not None:
+                members_by_bucket[c.bucket_key].append(c)
+
+    pairs: list[Pair] = []
+    ambiguous: list[Ambiguity] = []
+    for key in sorted(members_by_bucket):
+        members = members_by_bucket[key]
+        sources = sorted({c.source for c in members})
+        for i, source_a in enumerate(sources):
+            for source_b in sources[i + 1:]:
+                side_a = [c for c in members if c.source == source_a]
+                side_b = [c for c in members if c.source == source_b]
+                if not any(c.auction_id in new_ids for c in side_a + side_b):
                     continue
-                if a.source == b.source:
-                    continue
-                verdict = price_verdict(a, b)
-                if verdict not in ("agree", "unknown"):
-                    continue
-                key = tuple(sorted((a.auction_id, b.auction_id)))
-                if key in seen:
-                    continue
-                seen.add(key)
-                found = evidence_for(a, b)
-                if found is None and verdict != "agree":
-                    continue
-                method, why = found if found else ("bucket_only", "same bank, reserve price and auction day only")
-                pairs.append(Pair(a.auction_id, b.auction_id, a.source, b.source,
-                                  method, listing_confidence_for(method), why))
-    order = {m: i for i, m in enumerate(METHODS)}
-    pairs.sort(key=lambda p: (order[p.method], p.a_id, p.b_id))
-    return pairs
+                got_pairs, got_ambiguous = _assign(side_a, side_b, new_ids)
+                pairs += got_pairs
+                ambiguous += got_ambiguous
+    pairs.sort(key=lambda p: (_ORDER[p.method], p.a_id, p.b_id))
+    ambiguous.sort(key=lambda x: (x.auction_id, x.other_source))
+    return MatchResult(pairs, ambiguous)
+
+
+def find_same_listing_pairs(incoming: Iterable[Candidate], existing: Iterable[Candidate]) -> list[Pair]:
+    """The pairs of :func:`match_listings`, strongest first."""
+    return match_listings(incoming, existing).pairs

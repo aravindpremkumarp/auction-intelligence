@@ -6,7 +6,7 @@ per-source arithmetic. Records are shaped as the Cypher in
 from __future__ import annotations
 
 from scripts import gap_report as gr
-from sources.match import Pair, candidate_from_row, find_same_listing_pairs
+from sources.match import Ambiguity, Pair, candidate_from_row, find_same_listing_pairs
 
 GRAPH_779491 = {
     "auction_id": "779491", "source": "eauctionsindia", "bank": "Krazybee Services Limited",
@@ -120,6 +120,25 @@ def test_ambiguous_inferred_is_counted_once_per_listing():
     graph = [{"auction_id": "1", "bank": "Indian Overseas Bank"}, {"auction_id": "2", "bank": "Indian Overseas Bank"}]
     s = gr.build_report(rows, graph, pairs)["sources"]["baanknet"]
     assert (s["matched"], s["ambiguous_inferred"]) == (1, 1)
+
+
+def test_graph_candidate_reads_unit_numbers_from_text_even_with_lot_identifiers():
+    rec = {"auction_id": "855475", "bank": "Indian Bank", "reserve_price_num": 13500000.0,
+           "auction_start_dt": "2026-09-28T11:00:00Z", "borrower": "M/s Futuristic Global Resources Private Limited",
+           "description": "Property No.1: All that piece and parcel of Villa No.18 having super built up area of 2705 Sq.ft",
+           "identifiers": [["survey_old", "123/4"]], "lot_bounds": [], "boundaries": {}}
+    assert gr.graph_candidate(rec).identifiers == {("survey", "123/4"), ("villa", "18")}
+
+
+def test_undecided_listings_are_neither_new_nor_matched():
+    rows = {"baanknet": [BN_359826, {**BN_359826, "auction_id": "bn-2"}]}
+    ambiguous = [Ambiguity("bn-359826", "baanknet", "eauctionsindia", ("1", "2"), "tied")]
+    rep = gr.build_report(rows, [], [], ambiguous)
+    s = rep["sources"]["baanknet"]
+    assert (s["rows"], s["new"], s["undecided"], s["matched"]) == (2, 1, 1, 0)
+    assert rep["ambiguous"] == [{"auction_id": "bn-359826", "source": "baanknet", "other_source": "eauctionsindia",
+                                 "candidates": ("1", "2"), "reason": "tied"}]
+    assert "undecided 1" in gr.format_report(rep)
 
 
 def test_download_shas_hashes_found_files_only(tmp_path):

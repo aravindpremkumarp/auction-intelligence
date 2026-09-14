@@ -7,7 +7,9 @@ per portal:
 
   rows            harvested listings
   already loaded  same auction_id is in the graph (a re-run of a loaded source)
-  new             no listing in the graph shares bank + reserve + auction day
+  new             the matcher found no partner for it in the graph or another portal
+  undecided       the matcher found candidates but could not choose (a tie, or a
+                  choice the other listing did not return) — neither new nor matched
   matched         by confidence — CONFIRMED / PROBABLE / INFERRED — and how
                   many of those INFERRED matches are ambiguous (several
                   candidates, none decisive: a batch sale, most likely)
@@ -32,12 +34,13 @@ import re
 import sys
 from collections import Counter, defaultdict
 from pathlib import Path
+from typing import Iterable
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from sources.match import (  # noqa: E402
-    SIDES, Candidate, Pair, candidate_from_graph, candidate_from_row, extract_boundaries,
-    extract_extent, extract_identifiers, find_same_listing_pairs,
+    SIDES, Ambiguity, Candidate, Pair, candidate_from_graph, candidate_from_row, extract_boundaries,
+    extract_extent, extract_identifiers, match_listings,
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -149,13 +152,14 @@ def core_from_graph(rec: dict) -> dict[str, bool]:
 
 
 def graph_candidate(rec: dict) -> Candidate:
-    """The matcher's view of a graph listing: lot-level boundaries and
-    identifiers where the pipeline has produced them, else whatever the
-    listing's description states."""
+    """The matcher's view of a graph listing: lot-level boundaries where the
+    pipeline has produced them, else whatever the listing's description
+    states; identifiers from both the lot and the description, because lot
+    extraction reads survey and door numbers but a batch sale is told apart
+    by the villa or flat number only the description quotes."""
     text = rec.get("description") or ""
     cand = candidate_from_graph({**rec, "boundaries": graph_boundaries(rec) or extract_boundaries(text)})
-    if not cand.identifiers:
-        cand.identifiers = extract_identifiers(text)
+    cand.identifiers |= extract_identifiers(text)
     return cand
 
 
@@ -208,10 +212,15 @@ def download_shas(row: dict, downloads_dir: Path) -> list[str]:
 # ── the report ───────────────────────────────────────────────────────────────
 
 
-def build_report(rows_by_source: dict[str, list[dict]], existing: list[dict], pairs: list[Pair]) -> dict:
+def build_report(rows_by_source: dict[str, list[dict]], existing: list[dict], pairs: list[Pair],
+                 ambiguous: Iterable[Ambiguity] = ()) -> dict:
     """Pure: the per-source numbers from harvested rows, the graph's records
     and the matcher's pairs. ``pairs`` must be sorted strongest first, as
-    ``find_same_listing_pairs`` returns them."""
+    ``match_listings`` returns them. A listing with no pair but an
+    ``Ambiguity`` is ``undecided``: the evidence found candidates it could not
+    choose between, so it is neither new nor matched."""
+    ambiguous = list(ambiguous)
+    undecided_ids = {a.auction_id for a in ambiguous}
     graph_by_id = {r["auction_id"]: r for r in existing}
     graph_core = {aid: core_from_graph(r) for aid, r in graph_by_id.items()}
     incoming_ids = {row["auction_id"] for rows in rows_by_source.values() for row in rows}
@@ -225,14 +234,15 @@ def build_report(rows_by_source: dict[str, list[dict]], existing: list[dict], pa
                 best.setdefault(me, p)
                 partners[me].add(other)
 
-    report: dict = {"sources": {}, "pairs": [p.__dict__ for p in pairs]}
+    report: dict = {"sources": {}, "pairs": [p.__dict__ for p in pairs],
+                    "ambiguous": [a.__dict__ for a in ambiguous]}
     for source, rows in rows_by_source.items():
         by_grade = Counter()
-        ambiguous = 0
+        ambiguous_inferred = 0
         fills = Counter()
         photos_new = photos_matched = 0
         new_complete = Counter()
-        already = new = matched = 0
+        already = new = matched = undecided = 0
         matched_ids: list[dict] = []
         for row in rows:
             aid = row["auction_id"]
@@ -242,6 +252,9 @@ def build_report(rows_by_source: dict[str, list[dict]], existing: list[dict], pa
             mine = core_from_row(row)
             p = best.get(aid)
             if p is None:
+                if aid in undecided_ids:
+                    undecided += 1
+                    continue
                 new += 1
                 new_complete[sum(mine.values())] += 1
                 photos_new += mine["has_photos"]
@@ -249,7 +262,7 @@ def build_report(rows_by_source: dict[str, list[dict]], existing: list[dict], pa
             matched += 1
             by_grade[p.confidence] += 1
             if p.confidence == "INFERRED" and len(partners[aid]) > 1:
-                ambiguous += 1
+                ambiguous_inferred += 1
             other = p.b_id if p.a_id == aid else p.a_id
             theirs = graph_core.get(other)
             if theirs is None:                      # matched another new portal's row
@@ -265,9 +278,10 @@ def build_report(rows_by_source: dict[str, list[dict]], existing: list[dict], pa
             "rows": len(rows),
             "already_loaded": already,
             "new": new,
+            "undecided": undecided,
             "matched": matched,
             "matched_by_confidence": {g: by_grade.get(g, 0) for g in GRADES},
-            "ambiguous_inferred": ambiguous,
+            "ambiguous_inferred": ambiguous_inferred,
             "fills": {f: fills.get(f, 0) for f in CORE_FIELDS},
             "photos_gained": {"new": photos_new, "matched": photos_matched},
             "new_core_complete": {str(k): v for k, v in sorted(new_complete.items())},
@@ -282,7 +296,8 @@ def format_report(report: dict) -> str:
     for source, s in report["sources"].items():
         g = s["matched_by_confidence"]
         lines.append(f"{source}")
-        lines.append(f"  rows {s['rows']}  already loaded {s['already_loaded']}  new {s['new']}  matched {s['matched']}"
+        lines.append(f"  rows {s['rows']}  already loaded {s['already_loaded']}  new {s['new']}  undecided {s['undecided']}"
+                     f"  matched {s['matched']}"
                      f"  (CONFIRMED {g['CONFIRMED']}, PROBABLE {g['PROBABLE']}, INFERRED {g['INFERRED']}"
                      f"{', ambiguous ' + str(s['ambiguous_inferred']) if s['ambiguous_inferred'] else ''})")
         if s["new"]:
@@ -326,8 +341,8 @@ def main(argv: list[str] | None = None) -> int:
     downloads_dir = Path(args.downloads_dir)
     incoming = [candidate_from_row(row, doc_shas=download_shas(row, downloads_dir))
                 for rows in rows_by_source.values() for row in rows]
-    pairs = find_same_listing_pairs(incoming, [graph_candidate(r) for r in existing])
-    report = build_report(rows_by_source, existing, pairs)
+    result = match_listings(incoming, [graph_candidate(r) for r in existing])
+    report = build_report(rows_by_source, existing, result.pairs, result.ambiguous)
     print(format_report(report))
     if args.json:
         with open(args.json, "w", encoding="utf-8") as fh:
