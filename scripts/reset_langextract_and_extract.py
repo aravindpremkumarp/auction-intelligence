@@ -173,7 +173,8 @@ def select_stale_docs(min_ocr: int, limit: int | None) -> list[dict]:
 def select_refresh_docs(min_ocr: int, min_score: int, single_lot: bool,
                         limit: int | None, multi_lot: bool = False,
                         extracted_before: str | None = None,
-                        unlinked: bool = False) -> list[dict]:
+                        unlinked: bool = False,
+                        min_chars: int | None = None) -> list[dict]:
     """Documents whose stored extraction no longer reflects its own inputs.
 
     Two independent ways an extraction goes out of date without anything
@@ -210,6 +211,11 @@ def select_refresh_docs(min_ocr: int, min_score: int, single_lot: bool,
     577 already fully linked, so this is the difference between a half-hour
     run and a six-hour one. It is an AND, not another staleness signal: a
     notice with nothing left to fix is not made urgent by being old.
+
+    ``min_chars`` keeps only notices whose read text (the stitched text on a
+    leader) is at least that long. With ``extracted_before`` it scopes a
+    window-ceiling change to the notices the old window actually cut, instead
+    of re-extracting the whole corpus.
     """
     if single_lot and multi_lot:
         raise ValueError("--single-lot and --multi-lot are mutually exclusive")
@@ -232,6 +238,8 @@ def select_refresh_docs(min_ocr: int, min_score: int, single_lot: bool,
         "  AND d.markdown IS NOT NULL AND d.markdown <> '' "
         "  AND d.stitched_into IS NULL "
         "  AND d.ocr_health_score > $min_ocr "
+        + ("  AND size(coalesce(d.stitched_markdown, d.markdown)) >= $min_chars "
+           if min_chars is not None else "")
         + lot_filter +
         "WITH d, toString(d.extraction_at) AS ex, "
         "     toString(coalesce(d.markdown_raw_at, d.markdown_loaded_at)) AS md, "
@@ -250,6 +258,8 @@ def select_refresh_docs(min_ocr: int, min_score: int, single_lot: bool,
     params = {"min_ocr": int(min_ocr), "min_score": int(min_score)}
     if extracted_before:
         params["extracted_before"] = extracted_before
+    if min_chars is not None:
+        params["min_chars"] = int(min_chars)
     return run_read_query(q, params, max_rows=20_000, timeout=120.0)
 
 
@@ -422,6 +432,11 @@ def main() -> int:
                     help="with --refresh, only notices that still have a "
                          "listing with no IS_LOT edge — the ones a "
                          "re-extraction can repair rather than just re-check")
+    ap.add_argument("--min-chars", type=int, default=None,
+                    help="with --refresh, only notices whose text (stitched "
+                         "text on a leader) is at least this many characters "
+                         "— e.g. 30000 to redo just the notices the old "
+                         "window cut")
     ap.add_argument("--count-only", action="store_true",
                     help="print how many documents match and exit")
     args = ap.parse_args()
@@ -438,7 +453,8 @@ def main() -> int:
                                    args.single_lot, limit=args.limit,
                                    multi_lot=args.multi_lot,
                                    extracted_before=args.extracted_before,
-                                   unlinked=args.unlinked)
+                                   unlinked=args.unlinked,
+                                   min_chars=args.min_chars)
         scope = ("single-lot " if args.single_lot
                  else "multi-lot " if args.multi_lot else "")
         older = (f", or extracted before {args.extracted_before}"

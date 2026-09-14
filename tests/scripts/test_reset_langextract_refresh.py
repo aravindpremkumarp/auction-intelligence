@@ -216,3 +216,34 @@ def test_refresh_treats_a_newer_stitch_as_stale(monkeypatch):
     R.select_refresh_docs(90, 60, single_lot=False, limit=None)
     assert "toString(d.stitched_at) AS st" in cap.cypher
     assert "OR st > ex" in cap.cypher
+
+
+def test_min_chars_restricts_refresh_to_long_notices(monkeypatch):
+    cap = _Capture()
+    monkeypatch.setattr(R, "run_read_query", cap)
+    R.select_refresh_docs(90, 60, single_lot=False, limit=None,
+                          extracted_before="2026-09-05T12:00", min_chars=30000)
+    assert "AND size(coalesce(d.stitched_markdown, d.markdown)) >= $min_chars" in cap.cypher
+    assert cap.params["min_chars"] == 30000
+
+
+def test_min_chars_is_absent_when_not_asked_for(monkeypatch):
+    cap = _Capture()
+    monkeypatch.setattr(R, "run_read_query", cap)
+    R.select_refresh_docs(90, 60, single_lot=False, limit=None)
+    assert "min_chars" not in cap.cypher
+    assert "min_chars" not in cap.params
+
+
+def test_min_chars_flag_reaches_the_selector(monkeypatch):
+    seen = {}
+
+    def fake(*a, **k):
+        seen.update(k)
+        return []
+
+    monkeypatch.setattr(R, "select_refresh_docs", fake)
+    monkeypatch.setattr("sys.argv", ["reset", "--refresh", "--count-only",
+                                     "--min-chars", "30000"])
+    R.main()
+    assert seen["min_chars"] == 30000
