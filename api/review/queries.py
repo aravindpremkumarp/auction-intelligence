@@ -397,7 +397,9 @@ def list_classification_queue(
                d.notice_type_verified_by        AS verified_by,
                d.notice_type_review_notes       AS review_notes,
                [t IN titles WHERE t IS NOT NULL][0..3] AS sample_titles,
-               size(auction_ids)                AS auction_id_count
+               size(auction_ids)                AS auction_id_count,
+               d.stitched_into                  AS stitched_into,
+               coalesce(d.stitched_pages, [])   AS stitched_pages
         ORDER BY verified ASC,
                  d.filename ASC
         SKIP $skip LIMIT $size
