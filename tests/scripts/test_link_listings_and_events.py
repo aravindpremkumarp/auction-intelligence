@@ -93,6 +93,25 @@ def test_a_clean_result_has_no_safety_problems():
     assert ll.safety_problems(ll.match(records), records) == []
 
 
+def test_identical_twin_postings_in_one_cluster_are_not_a_problem():
+    records = [_rec("841207", "eauctionsindia"), _rec("bn-1", "baanknet"), _rec("bn-2", "baanknet")]
+    result = MatchResult(pairs=[Pair("bn-1", "841207", "baanknet", "eauctionsindia", "four_fields", "CONFIRMED"),
+                                Pair("bn-2", "841207", "baanknet", "eauctionsindia", "four_fields", "CONFIRMED")],
+                         ambiguous=[])
+    assert ll.safety_problems(result, records) == []
+
+
+def test_safety_stop_flags_a_review_pair_inside_a_confirmed_chain():
+    records = [_rec("ea-1", "eauctionsindia"), _rec("bn-1", "baanknet"), _rec("be-1", "bankeauctions")]
+    result = MatchResult(
+        pairs=[Pair("bn-1", "ea-1", "baanknet", "eauctionsindia", "four_fields", "CONFIRMED"),
+               Pair("be-1", "ea-1", "bankeauctions", "eauctionsindia", "four_fields", "CONFIRMED"),
+               Pair("bn-1", "be-1", "baanknet", "bankeauctions", "review", "PENDING", "units_disagree")],
+        ambiguous=[Ambiguity("bn-1", "baanknet", "bankeauctions", ("be-1",), "units_disagree")])
+    [problem] = ll.safety_problems(result, records)
+    assert "bn-1" in problem and "be-1" in problem and "review pair" in problem
+
+
 def test_spot_check_is_deterministic_and_skips_decided_subjects():
     pairs = [Pair(f"bn-{i}", str(900000 + i), "baanknet", "eauctionsindia", "four_fields", "CONFIRMED") for i in range(30)]
     pairs.append(Pair("bn-99", "999", "baanknet", "eauctionsindia", "decision", "CONFIRMED"))

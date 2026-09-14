@@ -526,6 +526,27 @@ def test_portal_match_decision_refuses_bad_payloads(monkeypatch):
                                      "approved", by_email="x")
 
 
+def test_portal_match_refuses_ticking_same_portal_listings_with_different_prices(monkeypatch):
+    def fake_count(cypher, params=None):
+        if "IN $linked" in cypher:
+            return {"n": 2}
+        if "IN $ids" in cypher:
+            return {"n": len(set(params["ids"]))}
+        return {"auction_id": "bn-1", "bank": "Indian Bank", "reserve_price_num": 100000.0,
+                "auction_start_dt": "2026-09-25T10:00:00", "borrower": "A R R TEX"}
+
+    monkeypatch.setattr(q, "_count_query", fake_count)
+    monkeypatch.setattr(q, "run_query", lambda *a, **k: [])
+    with pytest.raises(ValueError, match="different reserve prices"):
+        q.record_resolution_decision(
+            "portal-match", {"subject_id": "bn-1", "other_source": "eauctionsindia",
+                             "linked_ids": ["1", "2"], "rejected_ids": []}, "approved", by_email="x")
+    with pytest.raises(ValueError, match="must be lists"):
+        q.record_resolution_decision(
+            "portal-match", {"subject_id": "bn-1", "other_source": "eauctionsindia",
+                             "linked_ids": "12", "rejected_ids": []}, "approved", by_email="x")
+
+
 def _stored_row(subject_id, snapshot, reason="price_only"):
     listing = {"auction_id": subject_id, "source": "baanknet", "bank": "Indian Bank", "borrower": "A R R TEX",
                "reserve": 2944000.0, "emd": 294400.0, "auction_day": "2026-09-25", "city": "Salem", "district": None,

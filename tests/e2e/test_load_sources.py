@@ -135,7 +135,7 @@ def test_the_spine_is_built_from_bridged_listings(session):
         by_event = {r["eid"]: r for r in got}
         merged = next(r for r in by_event.values() if len(r["ids"]) == 2)
         assert sorted(merged["ids"]) == sorted([f"{_PREFIX}841207", f"{_PREFIX}bn-359826"])
-        assert merged["conf"] == "PROBABLE" and merged["photos"] is True and merged["media"] == 1
+        assert merged["conf"] == "CONFIRMED" and merged["photos"] is True and merged["media"] == 1
         assert merged["possession"] == "symbolic" and merged["core"] >= 6
         assert (merged["attempt"], merged["chain"]) == (1, 1)
         single = next(r for r in by_event.values() if r["ids"] == [f"{_PREFIX}be-1"])
@@ -145,7 +145,7 @@ def test_the_spine_is_built_from_bridged_listings(session):
             "MATCH (a:AuctionProperty {auction_id: $a})-[r:SAME_LISTING_AS]->(b:AuctionProperty {auction_id: $b}) "
             "RETURN r.method AS method, r.confidence AS confidence",
             a=f"{_PREFIX}bn-359826", b=f"{_PREFIX}841207").single()
-        assert bridge and bridge["method"] in ("identifier", "borrower") and bridge["confidence"] == "PROBABLE"
+        assert bridge and bridge["method"] == "four_fields" and bridge["confidence"] == "CONFIRMED"
     finally:
         session.run("MATCH (e:AuctionEvent) WHERE any(i IN e.listing_ids WHERE i STARTS WITH $p) DETACH DELETE e", p=_PREFIX)
         session.run("MATCH (b:Bank {name: 'E2E Spine Bank'}) DETACH DELETE b")

@@ -108,6 +108,22 @@ def safety_problems(result: MatchResult, records: list[dict]) -> list[str]:
             if any(_units_disagree(cands[x], cands[y]) for x in ids for y in ids if x < y and x in cands and y in cands):
                 problems.append(f"confirmed links would merge {source} listings {', '.join(sorted(ids))} with different unit numbers")
 
+    parent: dict[str, str] = {}
+
+    def find(x: str) -> str:
+        parent.setdefault(x, x)
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    for p in result.pairs:
+        if p.confidence == "CONFIRMED":
+            parent[find(p.a_id)] = find(p.b_id)
+    for p in result.pairs:
+        if p.confidence == "PENDING" and p.a_id in parent and p.b_id in parent and find(p.a_id) == find(p.b_id):
+            problems.append(f"review pair {p.a_id} ~ {p.b_id} joins two listings the confirmed links already merge")
+
     confirmed_against = {(p.a_id, p.b_source) for p in result.pairs if p.confidence == "CONFIRMED"}
     for a in result.ambiguous:
         if (a.auction_id, a.other_source) in confirmed_against:

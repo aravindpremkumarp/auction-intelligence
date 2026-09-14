@@ -2357,6 +2357,8 @@ def record_resolution_decision(kind: str, payload: dict, verdict: str,
         raise ValueError(f"payload for {kind!r} is missing field {e}")
 
     if kind == "portal-match":
+        if not isinstance(payload.get("linked_ids") or [], list) or not isinstance(payload.get("rejected_ids") or [], list):
+            raise ValueError("linked_ids and rejected_ids must be lists")
         linked = list(payload.get("linked_ids") or [])
         rejected = list(payload.get("rejected_ids") or [])
         if not linked and not rejected:
@@ -2367,10 +2369,21 @@ def record_resolution_decision(kind: str, payload: dict, verdict: str,
         if not subject.get("auction_id"):
             raise ValueError(f"no listing with auction_id {payload.get('subject_id')!r}")
         ids = sorted(set(linked) | set(rejected))
-        found = _count_query("MATCH (p:AuctionProperty) WHERE p.auction_id IN $ids RETURN count(p) AS n",
+        found = _count_query("MATCH (p:AuctionProperty) WHERE p.auction_id IN $ids RETURN count(DISTINCT p.auction_id) AS n",
                              {"ids": ids})
         if int(found.get("n") or 0) != len(ids):
             raise ValueError("every linked or rejected listing must exist")
+        if verdict == APPROVED:
+            spread = _count_query(
+                """
+                MATCH (p:AuctionProperty) WHERE p.auction_id IN $linked
+                WITH coalesce(p.source, 'eauctionsindia') AS source,
+                     collect(DISTINCT round(coalesce(p.reserve_price_num, 0))) AS prices
+                RETURN max(size(prices)) AS n
+                """, {"linked": sorted(set(linked))})
+            if int(spread.get("n") or 0) > 1:
+                raise ValueError("the ticked listings from one portal have different reserve prices — "
+                                 "they are different properties")
         # The snapshot is what the decision is valid for; it is read from the
         # graph, never taken from the caller.
         from sources.match import Candidate, snapshot_of
