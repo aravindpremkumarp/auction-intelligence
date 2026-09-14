@@ -187,6 +187,14 @@ def test_a_unit_number_that_picks_one_listing_settles_a_batch():
     assert "same flat number 3" in p.evidence
 
 
+def test_a_unit_number_only_one_listing_holds_settles_a_shared_door_batch():
+    """A block of flats: every listing quotes the building's door number 12; only one also says flat F3."""
+    ours = [_ea("1", identifiers=[("flat", "f3"), ("door", "12")]), _ea("2", identifiers=[("door", "12")])]
+    [p] = find_same_listing_pairs([_bn("bn-1", text="Flat No. F3, Door No. 12")], ours)
+    assert (p.b_id, p.method) == ("1", "unit_number")
+    assert "same flat number 3" in p.evidence
+
+
 def test_all_four_agree_but_plot_numbers_differ_waits_for_a_person():
     result = match_listings([_bn("bn-352470", text="Plot No. 45, S.No. 73/7")],
                             [_ea("866338", identifiers=[("plot", "44"), ("plot", "47")])])

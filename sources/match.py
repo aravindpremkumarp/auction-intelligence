@@ -398,16 +398,6 @@ def _units_disagree(a: Candidate, b: Candidate) -> bool:
     return any(ka[f] and kb[f] and not ka[f] & kb[f] for f in VETO_FAMILIES)
 
 
-def _shared_unit(a: Candidate, b: Candidate) -> tuple[str, str] | None:
-    """The first unit number (family, key) both quote, or None."""
-    ka, kb = _unit_keys(a, UNIT_FAMILIES), _unit_keys(b, UNIT_FAMILIES)
-    for fam in sorted(UNIT_FAMILIES):
-        common = ka[fam] & kb[fam]
-        if common:
-            return fam, sorted(common)[0]
-    return None
-
-
 def _twin_groups(side: list[Candidate]) -> list[list[Candidate]]:
     """Listings on one source that are postings of the same unit — equal unit
     numbers (villa / flat / plot / door), reserve price and borrower — as one
@@ -454,13 +444,16 @@ def _judge(subject: Candidate, reps: list[Candidate]) -> tuple | None:
             return ("review", "units_disagree", full)
         return ("link", full[0], "four_fields", "same bank, auction day, reserve price and borrower")
     if len(full) > 1:
-        hits = []
-        for i in full:
-            unit = _shared_unit(subject, reps[i])
-            if unit and not _units_disagree(subject, reps[i]):
-                hits.append((i, unit))
-        if len(hits) == 1:
-            i, (fam, value) = hits[0]
+        eligible = [i for i in full if not _units_disagree(subject, reps[i])]
+        subject_units = _unit_keys(subject, UNIT_FAMILIES)
+        picks: dict[int, tuple[str, str]] = {}
+        for fam in sorted(UNIT_FAMILIES):
+            for key in sorted(subject_units[fam]):
+                holders = [i for i in eligible if key in _unit_keys(reps[i], UNIT_FAMILIES)[fam]]
+                if len(holders) == 1:
+                    picks.setdefault(holders[0], (fam, key))
+        if len(picks) == 1:
+            i, (fam, value) = next(iter(picks.items()))
             return ("link", i, "unit_number",
                     f"same bank, auction day, reserve price and borrower; same {fam} number {value}")
         return ("review", "batch", full)
