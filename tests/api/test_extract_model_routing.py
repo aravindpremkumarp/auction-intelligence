@@ -91,3 +91,12 @@ def test_char_buffer_reads_env(monkeypatch):
     assert er.char_buffer_for("x" * 100) == 5000       # below floor -> floor
     assert er.char_buffer_for("x" * 12000) == 12000    # between -> whole notice
     assert er.char_buffer_for("x" * 25000) == 20000    # above ceiling -> ceiling
+
+
+def test_char_buffer_default_ceiling_holds_a_stitched_pair(monkeypatch):
+    """The largest two-page notice joins to 39k chars; at the old 30k ceiling
+    LangExtract would cut the stitch straight back into two windows."""
+    monkeypatch.delenv("LANGEXTRACT_MAX_CHAR_BUFFER", raising=False)
+    monkeypatch.delenv("LANGEXTRACT_MAX_CHAR_BUFFER_CEILING", raising=False)
+    assert er.char_buffer_for("x" * 39000) == 39000
+    assert er.char_buffer_for("x" * 90000) == 64000

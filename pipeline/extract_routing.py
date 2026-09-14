@@ -35,13 +35,16 @@ def char_buffer_for(markdown: str, base: int | None = None,
     window, so they are unchanged.
 
       base (LANGEXTRACT_MAX_CHAR_BUFFER, default 4000): floor for small notices.
-      ceil (LANGEXTRACT_MAX_CHAR_BUFFER_CEILING, default 30000): cap so a
+      ceil (LANGEXTRACT_MAX_CHAR_BUFFER_CEILING, default 64000): cap so a
            pathologically long bundle still splits instead of one giant call.
+           64000 holds the largest stitched two-page notice (39k chars,
+           pipeline/notice_pages) and the big single-page bundles that were
+           being cut into two windows at 30000.
     """
     if base is None:
         base = int(os.environ.get("LANGEXTRACT_MAX_CHAR_BUFFER", "4000"))
     if ceil is None:
-        ceil = int(os.environ.get("LANGEXTRACT_MAX_CHAR_BUFFER_CEILING", "30000"))
+        ceil = int(os.environ.get("LANGEXTRACT_MAX_CHAR_BUFFER_CEILING", "64000"))
     return max(base, min(len(markdown or ""), ceil))
 
 
