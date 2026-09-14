@@ -273,21 +273,29 @@ across *different* sources. Bucket key, then evidence:
   reserve price rounded to the rupee (`pipeline/lot_resolution._round_reserve`,
   1% tolerance via `pipeline/price_agreement.compare_prices`) + auction
   **calendar day**.
-- **Within a bucket**, strongest first:
+- **Within a bucket, one partner per listing per other portal** — the rules
+  of `pipeline/apply_extractions.match_lots_to_listings`, measured on the
+  2026-09-14 harvest where emitting every in-bucket pair merged 45 batch
+  sales into single spine events. Evidence narrows the candidates, strongest
+  first, and must reach exactly one:
 
   | method | evidence | confidence |
   |---|---|---|
-  | `notice_bytes` | both sides' `:Document.content_sha256` equal (`pipeline/notice_twins.source_key`) | CONFIRMED |
+  | `notice_bytes` | both sides' `:Document.content_sha256` equal | CONFIRMED |
   | `boundaries` | ≥3 of 4 boundary neighbours equal after normalisation | CONFIRMED |
-  | `identifier` | same survey / door number on both sides | PROBABLE |
+  | `identifier` | a survey / door / plot / flat / villa number held by exactly one listing on each side; a short value (`G1`) only with the borrower agreeing | PROBABLE |
   | `borrower` | `token_set_ratio ≥ 90` (as `lot_resolution.py:47`) | PROBABLE |
-  | `bucket_only` | nothing beyond the bucket | INFERRED |
+  | `bucket_only` | the only price-agreeing candidate, nothing more | INFERRED |
 
-- **Trap the bucket alone would fall into:** BAANKNET `bn-351743` and
-  `bn-351740` — same borrower, bank, day and reserve, two different
-  properties (a same-day batch sale). Same source ⇒ never matched; across
-  sources an INFERRED match is shown as "possibly the same", not merged into
-  one spine.
+- **Unresolved, never guessed:** a pair stands only when both listings
+  choose each other. A tie that survives every tier, or a choice the other
+  listing does not return, produces no pair and an `Ambiguity` (`tied` /
+  `contested`); the gap report counts it `undecided`.
+- **Batch sales:** BAANKNET `bn-351743` / `bn-351740` — same borrower, bank,
+  day and reserve, two properties. Same source ⇒ never matched; across
+  sources the unit number decides or the listings stay unresolved. Postings
+  of one unit repeated on one portal (same unit numbers, price, borrower)
+  are one candidate. INFERRED is shown as "possibly the same", never merged.
 
 The new methods are added to `pipeline/match_confidence.py` so
 `tests/pipeline/test_match_confidence.py` stays green.
