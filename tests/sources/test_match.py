@@ -67,6 +67,12 @@ def test_boundary_matches_needs_three_sides_and_tolerates_containment():
         ("survey", "418/2"), ("plot", "27")}),                     # neighbours' numbers are not ours
     ("S.No 3 in the village", set()),                              # a bare digit is not evidence
     ("", set()), (None, set()),
+    # Futuristic Global Resources (bn-353994 / 855475): villas separate a batch sale
+    ("Residential Villa at Phoenix The Village Residential Villa No.18,Fabiola Block", {("villa", "18")}),
+    # Gunasekaran (bn-350805 / 853781): "Flat FF1" has no "No." and a two-letter unit
+    ("All the piece and parcel of Residential Flat FF1 measuring 1100 Sq.ft. in First Floor", {("flat", "ff1")}),
+    # an area after "flat" is not a flat number
+    ("2 BHK flat 1100 sq.ft in the first floor", set()),
 ])
 def test_extract_identifiers(text, expected):
     assert extract_identifiers(text) == expected

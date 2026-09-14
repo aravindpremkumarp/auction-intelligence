@@ -169,16 +169,18 @@ def _contains(x: str, y: str) -> bool:
 
 _FAMILY = {"survey_old": "survey", "survey_new": "survey", "survey": "survey",
            "door_old": "door", "door_new": "door", "door": "door",
-           "plot": "plot", "flat": "flat"}
+           "plot": "plot", "flat": "flat", "villa": "villa"}
 
 _IDENT = re.compile(
     r"\b(?P<kind>"
     r"(?:old\s+|new\s+|t\.?\s*s\.?\s*|r\.?\s*s\.?\s*|re-?survey\s*|survey\s+|s\.?\s*)no\.?s?"
     r"|(?:old\s+|new\s+)?(?:door|d\.?)\s*no\.?s?"
     r"|plot\s+no\.?s?"
-    r"|flat\s+no\.?s?"
+    r"|flat(?:\s+no\.?s?)?"
+    r"|villa(?:\s+no\.?s?)?"
     r")\s*[:.\-]?\s*"
-    r"(?P<value>(?:\d+[A-Za-z]?|[A-Za-z]\d+)(?:\s*(?:/|by|-)\s*\d*[A-Za-z]?\d*)*)",
+    r"(?P<value>(?:\d+[A-Za-z]?|[A-Za-z]{1,2}\d+)(?:\s*(?:/|by|-)\s*\d*[A-Za-z]?\d*)*)"
+    r"(?![\d.]*\s*(?:sq|sft|cents?\b|acres?\b))",
     re.IGNORECASE,
 )
 
@@ -210,7 +212,9 @@ def extract_identifiers(text: str | None) -> set[tuple[str, str]]:
         if any(lo <= m.start() < hi for lo, hi in neighbour_spans):
             continue
         kind = m.group("kind").lower()
-        if "plot" in kind:
+        if "villa" in kind:
+            fam = "villa"
+        elif "plot" in kind:
             fam = "plot"
         elif "flat" in kind:
             fam = "flat"

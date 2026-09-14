@@ -149,13 +149,14 @@ def core_from_graph(rec: dict) -> dict[str, bool]:
 
 
 def graph_candidate(rec: dict) -> Candidate:
-    """The matcher's view of a graph listing: lot-level boundaries and
-    identifiers where the pipeline has produced them, else whatever the
-    listing's description states."""
+    """The matcher's view of a graph listing: lot-level boundaries where the
+    pipeline has produced them, else whatever the listing's description
+    states; identifiers from both the lot and the description, because lot
+    extraction reads survey and door numbers but a batch sale is told apart
+    by the villa or flat number only the description quotes."""
     text = rec.get("description") or ""
     cand = candidate_from_graph({**rec, "boundaries": graph_boundaries(rec) or extract_boundaries(text)})
-    if not cand.identifiers:
-        cand.identifiers = extract_identifiers(text)
+    cand.identifiers |= extract_identifiers(text)
     return cand
 
 

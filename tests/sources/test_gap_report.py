@@ -122,6 +122,14 @@ def test_ambiguous_inferred_is_counted_once_per_listing():
     assert (s["matched"], s["ambiguous_inferred"]) == (1, 1)
 
 
+def test_graph_candidate_reads_unit_numbers_from_text_even_with_lot_identifiers():
+    rec = {"auction_id": "855475", "bank": "Indian Bank", "reserve_price_num": 13500000.0,
+           "auction_start_dt": "2026-09-28T11:00:00Z", "borrower": "M/s Futuristic Global Resources Private Limited",
+           "description": "Property No.1: All that piece and parcel of Villa No.18 having super built up area of 2705 Sq.ft",
+           "identifiers": [["survey_old", "123/4"]], "lot_bounds": [], "boundaries": {}}
+    assert gr.graph_candidate(rec).identifiers == {("survey", "123/4"), ("villa", "18")}
+
+
 def test_download_shas_hashes_found_files_only(tmp_path):
     d = tmp_path / "baanknet"
     d.mkdir()
