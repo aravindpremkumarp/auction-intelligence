@@ -111,6 +111,7 @@ def select_docs(since: str, min_ocr: int, resume: bool,
     auction starting on/after `since`. `since` is an ISO date (YYYY-MM-DD)."""
     where = [
         "d.markdown IS NOT NULL AND d.markdown <> ''",
+        "d.stitched_into IS NULL",
         "d.ocr_health_score > $min_ocr",
         "a.auction_start_dt >= datetime($since)",
     ]
@@ -121,9 +122,11 @@ def select_docs(since: str, min_ocr: int, resume: bool,
         f"WHERE {' AND '.join(where)} "
         "WITH DISTINCT d "
         + ROSTER_CYPHER +
-        "RETURN d.filename AS filename, d.markdown AS md, "
+        "RETURN d.filename AS filename, "
+        "       coalesce(d.stitched_markdown, d.markdown) AS md, "
         "       d.notice_type AS notice_type, "
-        "       d.expected_lot_count AS expected_lot_count, "
+        "       coalesce(d.stitched_expected_lot_count, d.expected_lot_count) "
+        "AS expected_lot_count, "
         "       roster AS roster "
         "ORDER BY d.filename"
         + (f" LIMIT {int(limit)}" if limit else "")
@@ -151,11 +154,14 @@ def select_stale_docs(min_ocr: int, limit: int | None) -> list[dict]:
         "MATCH (d:Document) "
         "WHERE d.extraction_stale_at IS NOT NULL "
         "  AND d.markdown IS NOT NULL AND d.markdown <> '' "
+        "  AND d.stitched_into IS NULL "
         "  AND d.ocr_health_score > $min_ocr "
         + ROSTER_CYPHER +
-        "RETURN d.filename AS filename, d.markdown AS md, "
+        "RETURN d.filename AS filename, "
+        "       coalesce(d.stitched_markdown, d.markdown) AS md, "
         "       d.notice_type AS notice_type, "
-        "       d.expected_lot_count AS expected_lot_count, "
+        "       coalesce(d.stitched_expected_lot_count, d.expected_lot_count) "
+        "AS expected_lot_count, "
         "       roster AS roster "
         "ORDER BY d.filename"
         + (f" LIMIT {int(limit)}" if limit else "")
@@ -212,7 +218,7 @@ def select_refresh_docs(min_ocr: int, min_score: int, single_lot: bool,
         op = "=" if single_lot else ">"
         lot_filter = ("MATCH (d)-[:HAS_LOT]->(l:Lot) "
                       f"WITH d, count(l) AS lots WHERE lots {op} 1 ")
-    stale_when = "md > ex OR d.extraction_score < $min_score"
+    stale_when = "md > ex OR st > ex OR d.extraction_score < $min_score"
     if extracted_before:
         stale_when += " OR ex < $extracted_before"
     if unlinked:
@@ -224,15 +230,19 @@ def select_refresh_docs(min_ocr: int, min_score: int, single_lot: bool,
         "MATCH (d:Document) "
         "WHERE d.extraction_json IS NOT NULL "
         "  AND d.markdown IS NOT NULL AND d.markdown <> '' "
+        "  AND d.stitched_into IS NULL "
         "  AND d.ocr_health_score > $min_ocr "
         + lot_filter +
         "WITH d, toString(d.extraction_at) AS ex, "
-        "     toString(coalesce(d.markdown_raw_at, d.markdown_loaded_at)) AS md "
+        "     toString(coalesce(d.markdown_raw_at, d.markdown_loaded_at)) AS md, "
+        "     toString(d.stitched_at) AS st "
         f"WHERE {stale_when} "
         + ROSTER_CYPHER +
-        "RETURN d.filename AS filename, d.markdown AS md, "
+        "RETURN d.filename AS filename, "
+        "       coalesce(d.stitched_markdown, d.markdown) AS md, "
         "       d.notice_type AS notice_type, "
-        "       d.expected_lot_count AS expected_lot_count, "
+        "       coalesce(d.stitched_expected_lot_count, d.expected_lot_count) "
+        "AS expected_lot_count, "
         "       roster AS roster "
         "ORDER BY d.filename"
         + (f" LIMIT {int(limit)}" if limit else "")

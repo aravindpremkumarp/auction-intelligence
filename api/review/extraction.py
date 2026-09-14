@@ -500,10 +500,16 @@ def _rerun_worker(filename: str) -> None:
     try:
         rows = run_read_query(
             "MATCH (d:Document {filename: $fn}) "
-            "RETURN d.filename AS filename, d.markdown AS md, "
+            "RETURN d.filename AS filename, "
+            "       coalesce(d.stitched_markdown, d.markdown) AS md, "
             "       d.notice_type AS notice_type, "
-            "       d.expected_lot_count AS expected_lot_count",
+            "       coalesce(d.stitched_expected_lot_count, d.expected_lot_count) "
+            "AS expected_lot_count, "
+            "       d.stitched_into AS stitched_into",
             {"fn": filename})
+        if rows and rows[0].get("stitched_into"):
+            raise RuntimeError(f"this page is stitched into {rows[0]['stitched_into']}; "
+                               "re-run that document instead")
         if not rows or not (rows[0].get("md") or "").strip():
             raise RuntimeError("document has no markdown to extract from")
         from pipeline.load_extractions import _next_batch

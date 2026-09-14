@@ -112,3 +112,25 @@ def test_planning_does_not_mutate_the_fetched_rows(monkeypatch):
     M._plan_groups(docs, force=False, batch=1)
     assert docs[0]["roster"] == [{"aid": "A", "village": "X"}]
     assert "twins" not in docs[0]
+
+
+# ── stitched pages (pipeline/notice_pages) ──────────────────────────────────
+
+class _Capture:
+    def __init__(self, rows=None):
+        self.rows = rows or []
+        self.cypher = None
+
+    def __call__(self, cypher, params=None, **kw):
+        self.cypher = cypher
+        return self.rows
+
+
+def test_fetch_reads_the_stitched_text_and_skips_followers(monkeypatch):
+    cap = _Capture()
+    monkeypatch.setattr(M, "run_read_query", cap)
+    M._fetch(None, False, None)
+    assert "d.stitched_into IS NULL" in cap.cypher
+    assert "coalesce(d.stitched_markdown, d.markdown) AS md" in cap.cypher
+    assert ("coalesce(d.stitched_expected_lot_count, d.expected_lot_count) "
+            "AS expected_lot_count") in cap.cypher
