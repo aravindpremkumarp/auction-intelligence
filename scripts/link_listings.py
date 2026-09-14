@@ -184,8 +184,9 @@ def _load_decisions(run_query) -> dict[str, dict]:
     return portal_decisions(decisions)
 
 
-def run(dry_run: bool = False, queue_only: bool = False) -> int:
-    from api.neo4j_client import run_query
+def run(dry_run: bool = False, queue_only: bool = False, run_query=None) -> int:
+    if run_query is None:
+        from api.neo4j_client import run_query
 
     t0 = time.monotonic()
     records = run_query(FETCH_EXISTING)

@@ -143,9 +143,7 @@ def test_run_writes_nothing_when_the_safety_stop_fires(monkeypatch):
             return []
         return records
 
-    import api.neo4j_client
-    monkeypatch.setattr(api.neo4j_client, "run_query", fake_run_query)
     monkeypatch.setattr(ll, "safety_problems", lambda result, recs: ["two different prices merged"])
     with pytest.raises(ll.LinkSafetyError, match="two different prices"):
-        ll.run()
+        ll.run(run_query=fake_run_query)
     assert not any("DELETE" in c or "MERGE" in c for c in calls)
