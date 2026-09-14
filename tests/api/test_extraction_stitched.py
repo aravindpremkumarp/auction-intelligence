@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import inspect
 
+import pytest
+from fastapi import HTTPException
+
 from api.review import extraction as E
 
 
@@ -86,3 +89,43 @@ def test_leader_detail_carries_pages_offsets_and_stale(monkeypatch):
     assert out.stitched_pages == ["AXIS-1.jpg", "AXIS-2.jpg"]
     assert out.stitched_page_offsets == [0, 4]
     assert out.stale is True
+
+
+# ── write endpoints refuse a follower ────────────────────────────────────────
+
+def test_edit_field_refuses_a_follower(monkeypatch):
+    monkeypatch.setattr(E, "get_stitch_pointer", lambda fn: "AXIS-1.jpg")
+
+    def _recorder(*a, **kw):
+        pytest.fail("save_field_correction must not be called on a follower")
+
+    monkeypatch.setattr(E, "save_field_correction", _recorder)
+    body = E.FieldEditBody(field_id="0", value="x")
+    with pytest.raises(HTTPException) as e:
+        E.extraction_edit_field("AXIS-2.jpg", body, admin=object())
+    assert e.value.status_code == 409
+
+
+def test_verify_refuses_a_follower(monkeypatch):
+    monkeypatch.setattr(E, "get_stitch_pointer", lambda fn: "AXIS-1.jpg")
+
+    def _recorder(*a, **kw):
+        pytest.fail("verify_extraction must not be called on a follower")
+
+    monkeypatch.setattr(E, "verify_extraction", _recorder)
+    body = E.ExtractionVerifyBody()
+    with pytest.raises(HTTPException) as e:
+        E.extraction_verify("AXIS-2.jpg", body, admin=object())
+    assert e.value.status_code == 409
+
+
+def test_unverify_refuses_a_follower(monkeypatch):
+    monkeypatch.setattr(E, "get_stitch_pointer", lambda fn: "AXIS-1.jpg")
+
+    def _recorder(*a, **kw):
+        pytest.fail("unverify_extraction must not be called on a follower")
+
+    monkeypatch.setattr(E, "unverify_extraction", _recorder)
+    with pytest.raises(HTTPException) as e:
+        E.extraction_unverify("AXIS-2.jpg", admin=object())
+    assert e.value.status_code == 409

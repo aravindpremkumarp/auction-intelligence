@@ -725,6 +725,9 @@ def extraction_edit_field(
     body: FieldEditBody,
     admin: UserOut = Depends(get_current_admin),
 ) -> ExtractionReviewOut:
+    if get_stitch_pointer(filename):
+        raise HTTPException(status_code=409,
+                            detail="this page is stitched into another document; review that one")
     if not save_field_correction(filename, body.field_id, body.value,
                                  admin.email, body.notes):
         raise HTTPException(status_code=404, detail="extraction not found")
@@ -762,6 +765,9 @@ def extraction_verify(
     body: ExtractionVerifyBody,
     admin: UserOut = Depends(get_current_admin),
 ) -> ExtractionReviewOut:
+    if get_stitch_pointer(filename):
+        raise HTTPException(status_code=409,
+                            detail="this page is stitched into another document; review that one")
     if not verify_extraction(filename, admin.email, body.notes):
         raise HTTPException(status_code=404, detail="extraction not found")
     return extraction_detail(filename, admin)
@@ -772,6 +778,9 @@ def extraction_unverify(
     filename: str,
     admin: UserOut = Depends(get_current_admin),
 ) -> ExtractionReviewOut:
+    if get_stitch_pointer(filename):
+        raise HTTPException(status_code=409,
+                            detail="this page is stitched into another document; review that one")
     if not unverify_extraction(filename):
         raise HTTPException(status_code=404, detail="extraction not found")
     return extraction_detail(filename, admin)
