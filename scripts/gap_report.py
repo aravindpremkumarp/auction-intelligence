@@ -70,7 +70,8 @@ OPTIONAL MATCH (a)-[:HAS_PROPERTY_TYPE]->(pt:PropertyType)
 WITH a, collect(DISTINCT bk.name)[0] AS bank, collect(DISTINCT d.name)[0] AS district_node,
      collect(DISTINCT c.name)[0] AS city, collect(DISTINCT br.name)[0] AS borrower, collect(DISTINCT pt.name) AS ptypes
 CALL { WITH a OPTIONAL MATCH (a)-[:HAS_DOCUMENT]->(doc:Document)
-       RETURN [s IN collect(DISTINCT doc.content_sha256) WHERE s IS NOT NULL] AS doc_shas, count(doc) AS n_docs }
+       RETURN [s IN collect(DISTINCT doc.content_sha256) WHERE s IS NOT NULL] AS doc_shas, count(doc) AS n_docs,
+              [u IN collect(DISTINCT doc.public_url) WHERE u IS NOT NULL][0] AS public_url }
 CALL { WITH a OPTIONAL MATCH (a)-[:IS_LOT]->(l:Lot)
        OPTIONAL MATCH (l)-[:MENTIONS_IDENTIFIER]->(i:Identifier)
        OPTIONAL MATCH (l)-[:HAS_BOUNDARY]->(b:Boundary)
@@ -92,6 +93,7 @@ RETURN a.auction_id AS auction_id, coalesce(a.source, 'eauctionsindia') AS sourc
        [a.boundary_measurement_north, a.boundary_measurement_south,
         a.boundary_measurement_east, a.boundary_measurement_west] AS boundary_measurements,
        a.photo_urls AS photo_urls
+       , a.title AS title, coalesce(a.source_url, a.url) AS url, a.emd_num AS emd_num, public_url
 """
 
 

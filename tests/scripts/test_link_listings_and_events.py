@@ -61,3 +61,79 @@ def test_event_pass_keeps_the_same_day_rule():
     later = {**events[1], "auction_id": "ev-c", "auction_start_dt": "2026-11-20T11:00:00Z"}
     pairs = lr.find_reauction_pairs([events[0], later])
     assert [(a, b) for a, b, _, _ in pairs] == [("ev-a", "ev-c")]
+
+
+from datetime import date  # noqa: E402
+
+import pytest  # noqa: E402
+
+from sources.match import Ambiguity, MatchResult  # noqa: E402
+
+
+def test_safety_stop_flags_a_cluster_that_merges_two_different_prices():
+    records = [_rec("841207", "eauctionsindia"), _rec("841208", "eauctionsindia", reserve=5000000.0),
+               _rec("bn-1", "baanknet")]
+    result = MatchResult(pairs=[Pair("bn-1", "841207", "baanknet", "eauctionsindia", "four_fields", "CONFIRMED"),
+                                Pair("bn-1", "841208", "baanknet", "eauctionsindia", "decision", "CONFIRMED")],
+                         ambiguous=[])
+    [problem] = ll.safety_problems(result, records)
+    assert "841207" in problem and "841208" in problem and "price" in problem
+
+
+def test_safety_stop_flags_a_listing_both_confirmed_and_in_review_against_one_source():
+    records = [_rec("841207", "eauctionsindia"), _rec("bn-1", "baanknet")]
+    result = MatchResult(pairs=[Pair("bn-1", "841207", "baanknet", "eauctionsindia", "four_fields", "CONFIRMED")],
+                         ambiguous=[Ambiguity("bn-1", "baanknet", "eauctionsindia", ("841207",), "batch")])
+    [problem] = ll.safety_problems(result, records)
+    assert "bn-1" in problem and "review" in problem
+
+
+def test_a_clean_result_has_no_safety_problems():
+    records = [_rec("841207", "eauctionsindia"), _rec("bn-1", "baanknet")]
+    assert ll.safety_problems(ll.match(records), records) == []
+
+
+def test_spot_check_is_deterministic_and_skips_decided_subjects():
+    pairs = [Pair(f"bn-{i}", str(900000 + i), "baanknet", "eauctionsindia", "four_fields", "CONFIRMED") for i in range(30)]
+    pairs.append(Pair("bn-99", "999", "baanknet", "eauctionsindia", "decision", "CONFIRMED"))
+    result = MatchResult(pairs=pairs, ambiguous=[])
+    first = ll.spot_check_sample(result, {"bn-3"}, date(2026, 9, 15))
+    assert first == ll.spot_check_sample(result, {"bn-3"}, date(2026, 9, 15))
+    assert len(first) == 10 and "bn-3" not in first and "bn-99" not in first
+    assert first != ll.spot_check_sample(result, {"bn-3"}, date(2026, 9, 16))
+
+
+def test_review_rows_carry_both_sides_and_the_snapshot():
+    records = [_rec("853518", "eauctionsindia", borrower="M/s ARR Tex"), _rec("bn-359756", "baanknet", borrower="A R R TEX")]
+    result = ll.match(records)
+    [row] = ll.review_rows(result, records, [])
+    assert (row["subject"]["auction_id"], row["other_source"], row["reason"], row["spot_check"]) == \
+        ("bn-359756", "eauctionsindia", "price_only", False)
+    assert [c["auction_id"] for c in row["candidates"]] == ["853518"]
+    assert row["snapshot"]["borrower"] == "a r r tex"
+
+
+def test_review_rows_include_spot_checked_confirmations():
+    records = [_rec("841207", "eauctionsindia"), _rec("bn-1", "baanknet")]
+    result = ll.match(records)
+    [row] = ll.review_rows(result, records, ["bn-1"])
+    assert (row["subject"]["auction_id"], row["reason"], row["spot_check"]) == ("bn-1", "spot_check", True)
+    assert [c["auction_id"] for c in row["candidates"]] == ["841207"]
+
+
+def test_run_writes_nothing_when_the_safety_stop_fires(monkeypatch):
+    calls = []
+    records = [_rec("841207", "eauctionsindia"), _rec("bn-1", "baanknet")]
+
+    def fake_run_query(cypher, params=None):
+        calls.append(cypher)
+        if "ResolutionDecision" in cypher:
+            return []
+        return records
+
+    import api.neo4j_client
+    monkeypatch.setattr(api.neo4j_client, "run_query", fake_run_query)
+    monkeypatch.setattr(ll, "safety_problems", lambda result, recs: ["two different prices merged"])
+    with pytest.raises(ll.LinkSafetyError, match="two different prices"):
+        ll.run()
+    assert not any("DELETE" in c or "MERGE" in c for c in calls)
