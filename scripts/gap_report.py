@@ -7,15 +7,15 @@ per portal:
 
   rows            harvested listings
   already loaded  same auction_id is in the graph (a re-run of a loaded source)
-  new             the matcher found no partner for it in the graph or another portal
-  undecided       the matcher found candidates but could not choose (a tie, or a
-                  choice the other listing did not return) — neither new nor matched
-  matched         by confidence — CONFIRMED / PROBABLE / INFERRED — and how
-                  many of those INFERRED matches are ambiguous (several
-                  candidates, none decisive: a batch sale, most likely)
+  new             no listing of another source agrees on reserve price or borrower
+  review          a partial agreement waiting for a person, by reason — batch,
+                  units_disagree, price_only, borrower_only, split, contested
+  confirmed       bank, auction day, reserve price and borrower agree on one listing
+                  (four_fields), a unit number settled a batch (unit_number), or a
+                  person confirmed it (decision)
   fills           for matched listings, which of the nine core fields the
                   portal has that the graph's listing lacks
-  photos gained   listings with photos, split new / matched
+  photos gained   listings with photos, split new / confirmed
 
 Nothing here writes. It is the decision input for Task 8 (loader) and Task 9
 (spine): if a portal adds nothing but duplicates, it is not worth loading.
@@ -50,8 +50,6 @@ DOWNLOADS_DIR = PROJECT_ROOT / "downloads"
 #: The nine-field property core (docs/SCHEMA.md, "Sources and the spine").
 CORE_FIELDS = ("property_type", "location", "extent", "measurement", "possession",
                "boundaries", "reserve_price", "auction_date", "has_photos")
-
-GRADES = ("CONFIRMED", "PROBABLE", "INFERRED")
 
 # A boundary length: "37 feet", "19 ft", "12.5 mtrs". Road widths ("20 feet
 # road") match too, so two hits are asked for before calling it a measurement.
@@ -211,82 +209,80 @@ def download_shas(row: dict, downloads_dir: Path) -> list[str]:
 
 # ── the report ───────────────────────────────────────────────────────────────
 
+CONFIRMED_METHODS = ("four_fields", "unit_number", "decision")
+
 
 def build_report(rows_by_source: dict[str, list[dict]], existing: list[dict], pairs: list[Pair],
                  ambiguous: Iterable[Ambiguity] = ()) -> dict:
     """Pure: the per-source numbers from harvested rows, the graph's records
-    and the matcher's pairs. ``pairs`` must be sorted strongest first, as
-    ``match_listings`` returns them. A listing with no pair but an
-    ``Ambiguity`` is ``undecided``: the evidence found candidates it could not
-    choose between, so it is neither new nor matched."""
+    and the matcher's result. A row is ``confirmed`` when a CONFIRMED pair
+    names it, ``review`` when it waits for a person, ``new`` otherwise."""
     ambiguous = list(ambiguous)
-    undecided_ids = {a.auction_id for a in ambiguous}
+    review_reason = {a.auction_id: a.reason for a in ambiguous}
     graph_by_id = {r["auction_id"]: r for r in existing}
     graph_core = {aid: core_from_graph(r) for aid, r in graph_by_id.items()}
     incoming_ids = {row["auction_id"] for rows in rows_by_source.values() for row in rows}
 
-    # best pair per incoming id; INFERRED with several partners is ambiguous
-    best: dict[str, Pair] = {}
-    partners: dict[str, set[str]] = defaultdict(set)
+    confirmed_pair: dict[str, Pair] = {}
     for p in pairs:
-        for me, other in ((p.a_id, p.b_id), (p.b_id, p.a_id)):
+        if p.confidence != "CONFIRMED":
+            continue
+        for me in (p.a_id, p.b_id):
             if me in incoming_ids:
-                best.setdefault(me, p)
-                partners[me].add(other)
+                confirmed_pair.setdefault(me, p)
 
     report: dict = {"sources": {}, "pairs": [p.__dict__ for p in pairs],
                     "ambiguous": [a.__dict__ for a in ambiguous]}
     for source, rows in rows_by_source.items():
-        by_grade = Counter()
-        ambiguous_inferred = 0
+        by_method = Counter()
+        by_reason = Counter()
         fills = Counter()
-        photos_new = photos_matched = 0
+        photos_new = photos_confirmed = 0
         new_complete = Counter()
-        already = new = matched = undecided = 0
-        matched_ids: list[dict] = []
+        already = new = review = confirmed = 0
+        confirmed_ids: list[dict] = []
         for row in rows:
             aid = row["auction_id"]
             if aid in graph_by_id:
                 already += 1
                 continue
             mine = core_from_row(row)
-            p = best.get(aid)
+            p = confirmed_pair.get(aid)
             if p is None:
-                if aid in undecided_ids:
-                    undecided += 1
+                if aid in review_reason:
+                    review += 1
+                    by_reason[review_reason[aid]] += 1
                     continue
                 new += 1
                 new_complete[sum(mine.values())] += 1
                 photos_new += mine["has_photos"]
                 continue
-            matched += 1
-            by_grade[p.confidence] += 1
-            if p.confidence == "INFERRED" and len(partners[aid]) > 1:
-                ambiguous_inferred += 1
+            confirmed += 1
+            by_method[p.method] += 1
             other = p.b_id if p.a_id == aid else p.a_id
             theirs = graph_core.get(other)
-            if theirs is None:                      # matched another new portal's row
+            if theirs is None:                      # confirmed against another new portal's row
                 theirs = core_from_row(next(r for rs in rows_by_source.values() for r in rs if r["auction_id"] == other))
             gained = [f for f in CORE_FIELDS if mine[f] and not theirs[f]]
             for f in gained:
                 fills[f] += 1
-            photos_matched += "has_photos" in gained
-            matched_ids.append({"auction_id": aid, "matches": other, "method": p.method,
-                                "confidence": p.confidence, "fills": gained, "evidence": p.evidence})
+            photos_confirmed += "has_photos" in gained
+            confirmed_ids.append({"auction_id": aid, "matches": other, "method": p.method,
+                                  "fills": gained, "evidence": p.evidence})
         n_new = sum(new_complete.values())
         report["sources"][source] = {
             "rows": len(rows),
             "already_loaded": already,
             "new": new,
-            "undecided": undecided,
-            "matched": matched,
-            "matched_by_confidence": {g: by_grade.get(g, 0) for g in GRADES},
-            "ambiguous_inferred": ambiguous_inferred,
+            "review": review,
+            "review_by_reason": dict(sorted(by_reason.items())),
+            "confirmed": confirmed,
+            "confirmed_by_method": {m: by_method.get(m, 0) for m in CONFIRMED_METHODS},
             "fills": {f: fills.get(f, 0) for f in CORE_FIELDS},
-            "photos_gained": {"new": photos_new, "matched": photos_matched},
+            "photos_gained": {"new": photos_new, "confirmed": photos_confirmed},
             "new_core_complete": {str(k): v for k, v in sorted(new_complete.items())},
             "new_core_avg": round(sum(k * v for k, v in new_complete.items()) / n_new, 1) if n_new else None,
-            "matched_listings": matched_ids,
+            "confirmed_listings": confirmed_ids,
         }
     return report
 
@@ -294,22 +290,23 @@ def build_report(rows_by_source: dict[str, list[dict]], existing: list[dict], pa
 def format_report(report: dict) -> str:
     lines = []
     for source, s in report["sources"].items():
-        g = s["matched_by_confidence"]
+        m = s["confirmed_by_method"]
+        reasons = ", ".join(f"{r} {n}" for r, n in s["review_by_reason"].items())
         lines.append(f"{source}")
-        lines.append(f"  rows {s['rows']}  already loaded {s['already_loaded']}  new {s['new']}  undecided {s['undecided']}"
-                     f"  matched {s['matched']}"
-                     f"  (CONFIRMED {g['CONFIRMED']}, PROBABLE {g['PROBABLE']}, INFERRED {g['INFERRED']}"
-                     f"{', ambiguous ' + str(s['ambiguous_inferred']) if s['ambiguous_inferred'] else ''})")
+        lines.append(f"  rows {s['rows']}  already loaded {s['already_loaded']}  new {s['new']}"
+                     f"  review {s['review']}{' (' + reasons + ')' if reasons else ''}"
+                     f"  confirmed {s['confirmed']} (four_fields {m['four_fields']}, unit_number {m['unit_number']},"
+                     f" decision {m['decision']})")
         if s["new"]:
             hist = ", ".join(f"{k}/9: {v}" for k, v in s["new_core_complete"].items())
             lines.append(f"  new listings core fields  avg {s['new_core_avg']}  [{hist}]")
         filled = {f: n for f, n in s["fills"].items() if n}
         if filled:
-            lines.append("  fills on matched  " + ", ".join(f"{f} +{n}" for f, n in filled.items()))
-        lines.append(f"  photos gained  new {s['photos_gained']['new']}  matched {s['photos_gained']['matched']}")
-        for m in s["matched_listings"]:
-            fills = f"  fills {', '.join(m['fills'])}" if m["fills"] else ""
-            lines.append(f"    {m['auction_id']} ~ {m['matches']}  {m['confidence']:<9} {m['method']:<12} {m['evidence']}{fills}")
+            lines.append("  fills on confirmed  " + ", ".join(f"{f} +{n}" for f, n in filled.items()))
+        lines.append(f"  photos gained  new {s['photos_gained']['new']}  confirmed {s['photos_gained']['confirmed']}")
+        for c in s["confirmed_listings"]:
+            fills = f"  fills {', '.join(c['fills'])}" if c["fills"] else ""
+            lines.append(f"    {c['auction_id']} ~ {c['matches']}  {c['method']:<12} {c['evidence']}{fills}")
     return "\n".join(lines)
 
 

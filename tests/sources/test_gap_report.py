@@ -6,7 +6,7 @@ per-source arithmetic. Records are shaped as the Cypher in
 from __future__ import annotations
 
 from scripts import gap_report as gr
-from sources.match import Ambiguity, Pair, candidate_from_row, find_same_listing_pairs
+from sources.match import Ambiguity, candidate_from_row, match_listings
 
 GRAPH_779491 = {
     "auction_id": "779491", "source": "eauctionsindia", "bank": "Krazybee Services Limited",
@@ -79,47 +79,48 @@ def test_core_from_row_on_both_portals():
                                                "boundaries", "reserve_price", "auction_date"]
 
 
-def test_build_report_counts_new_matched_fills_and_photos():
-    graph = [
-        GRAPH_779491,
-        # the eauctionsindia copy of bn-359826: same bank, day, price; no photos, no possession, no extent
-        {"auction_id": "841207", "source": "eauctionsindia", "bank": "Indian Overseas Bank", "reserve_price_num": 4626500.0,
-         "auction_start_dt": "2026-09-24T11:00:00Z", "borrower": "Mr. N. Mariappan", "doc_shas": [], "identifiers": [],
-         "lot_bounds": [], "n_extents": 0, "possession": None, "property_type": "house", "district": "Tirunelveli",
-         "total_area": None, "boundaries": {}, "boundary_measurements": [], "photo_urls": None},
-    ]
+def _graph_841207():
+    return {"auction_id": "841207", "source": "eauctionsindia", "bank": "Indian Overseas Bank", "reserve_price_num": 4626500.0,
+            "auction_start_dt": "2026-09-24T11:00:00Z", "borrower": "Mr. N. Mariappan", "doc_shas": [], "identifiers": [],
+            "lot_bounds": [], "n_extents": 0, "possession": None, "property_type": "house", "district": "Tirunelveli",
+            "total_area": None, "boundaries": {}, "boundary_measurements": [], "photo_urls": None}
+
+
+def test_build_report_counts_confirmed_review_new_fills_and_photos():
+    graph = [GRAPH_779491, _graph_841207()]
     rows = {"baanknet": [BN_359826, {**BN_359826, "auction_id": "bn-1", "bank_name": "Nobody Bank", "has_photos": True}],
             "bankeauctions": [BE_236961, {**BE_236961, "auction_id": "779491"}]}   # a re-run of a loaded id
-    incoming = [candidate_from_row(r) for rs in rows.values() for r in rs]
-    pairs = find_same_listing_pairs(incoming, [gr.graph_candidate(g) for g in graph])
-    assert [(p.a_id, p.b_id, p.method) for p in pairs] == [("bn-359826", "841207", "four_fields")]
+    result = match_listings([candidate_from_row(r) for rs in rows.values() for r in rs],
+                            [gr.graph_candidate(g) for g in graph])
+    assert [(p.a_id, p.b_id, p.method) for p in result.pairs] == [("bn-359826", "841207", "four_fields")]
 
-    rep = gr.build_report(rows, graph, pairs)
+    rep = gr.build_report(rows, graph, result.pairs, result.ambiguous)
     bn = rep["sources"]["baanknet"]
-    assert (bn["rows"], bn["already_loaded"], bn["new"], bn["matched"]) == (2, 0, 1, 1)
-    assert bn["matched_by_confidence"] == {"CONFIRMED": 1, "PROBABLE": 0, "INFERRED": 0}
+    assert (bn["rows"], bn["already_loaded"], bn["new"], bn["review"], bn["confirmed"]) == (2, 0, 1, 0, 1)
+    assert bn["confirmed_by_method"] == {"four_fields": 1, "unit_number": 0, "decision": 0}
     assert {f for f, n in bn["fills"].items() if n} == {"extent", "possession", "has_photos"}
-    assert bn["photos_gained"] == {"new": 1, "matched": 1}
-    assert bn["new_core_complete"] == {"7": 1} and bn["new_core_avg"] == 7.0
-    [m] = bn["matched_listings"]
-    assert (m["matches"], m["confidence"], m["fills"]) == ("841207", "CONFIRMED", ["extent", "possession", "has_photos"])
+    assert bn["photos_gained"] == {"new": 1, "confirmed": 1}
+    [m] = bn["confirmed_listings"]
+    assert (m["matches"], m["method"], m["fills"]) == ("841207", "four_fields", ["extent", "possession", "has_photos"])
 
     be = rep["sources"]["bankeauctions"]
-    assert (be["rows"], be["already_loaded"], be["new"], be["matched"]) == (2, 1, 1, 0)
-    assert be["photos_gained"] == {"new": 0, "matched": 0}
+    assert (be["rows"], be["already_loaded"], be["new"], be["review"], be["confirmed"]) == (2, 1, 1, 0, 0)
 
     text = gr.format_report(rep)
-    assert "baanknet" in text and "bn-359826 ~ 841207  CONFIRMED four_fields" in text
-    assert "fills on matched  extent +1, possession +1, has_photos +1" in text
+    assert "bn-359826 ~ 841207  four_fields" in text
+    assert "confirmed 1 (four_fields 1, unit_number 0, decision 0)" in text
 
 
-def test_ambiguous_inferred_is_counted_once_per_listing():
-    rows = {"baanknet": [{**BN_359826, "borrower_name": ""}]}
-    pairs = [Pair("bn-359826", "1", "baanknet", "eauctionsindia", "bucket_only", "INFERRED"),
-             Pair("bn-359826", "2", "baanknet", "eauctionsindia", "bucket_only", "INFERRED")]
-    graph = [{"auction_id": "1", "bank": "Indian Overseas Bank"}, {"auction_id": "2", "bank": "Indian Overseas Bank"}]
-    s = gr.build_report(rows, graph, pairs)["sources"]["baanknet"]
-    assert (s["matched"], s["ambiguous_inferred"]) == (1, 1)
+def test_review_listings_are_neither_new_nor_confirmed():
+    rows = {"baanknet": [BN_359826, {**BN_359826, "auction_id": "bn-2"}]}
+    ambiguous = [Ambiguity("bn-359826", "baanknet", "eauctionsindia", ("1", "2"), "batch")]
+    rep = gr.build_report(rows, [], [], ambiguous)
+    s = rep["sources"]["baanknet"]
+    assert (s["rows"], s["new"], s["review"], s["confirmed"]) == (2, 1, 1, 0)
+    assert s["review_by_reason"] == {"batch": 1}
+    assert rep["ambiguous"] == [{"auction_id": "bn-359826", "source": "baanknet", "other_source": "eauctionsindia",
+                                 "candidates": ("1", "2"), "reason": "batch"}]
+    assert "review 1 (batch 1)" in gr.format_report(rep)
 
 
 def test_graph_candidate_reads_unit_numbers_from_text_even_with_lot_identifiers():
@@ -128,17 +129,6 @@ def test_graph_candidate_reads_unit_numbers_from_text_even_with_lot_identifiers(
            "description": "Property No.1: All that piece and parcel of Villa No.18 having super built up area of 2705 Sq.ft",
            "identifiers": [["survey_old", "123/4"]], "lot_bounds": [], "boundaries": {}}
     assert gr.graph_candidate(rec).identifiers == {("survey", "123/4"), ("villa", "18")}
-
-
-def test_undecided_listings_are_neither_new_nor_matched():
-    rows = {"baanknet": [BN_359826, {**BN_359826, "auction_id": "bn-2"}]}
-    ambiguous = [Ambiguity("bn-359826", "baanknet", "eauctionsindia", ("1", "2"), "tied")]
-    rep = gr.build_report(rows, [], [], ambiguous)
-    s = rep["sources"]["baanknet"]
-    assert (s["rows"], s["new"], s["undecided"], s["matched"]) == (2, 1, 1, 0)
-    assert rep["ambiguous"] == [{"auction_id": "bn-359826", "source": "baanknet", "other_source": "eauctionsindia",
-                                 "candidates": ("1", "2"), "reason": "tied"}]
-    assert "undecided 1" in gr.format_report(rep)
 
 
 def test_download_shas_hashes_found_files_only(tmp_path):
