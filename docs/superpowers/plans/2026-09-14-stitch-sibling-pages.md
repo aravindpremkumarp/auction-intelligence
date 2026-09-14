@@ -1666,7 +1666,7 @@ python -m scripts.stitch_sibling_pages --dry-run
 ```
 Expected: 14 `[write]` groups. Show the user the list plus the ambiguous entries and ask which ambiguous ones to force with `--only` and which groups to `--skip`.
 
-- [ ] **Step 2: Apply (writes 14 leaders + 14 followers)**
+- [ ] **Step 2: Apply (writes 14 leaders + 14 followers, clears the followers' old lots)**
 
 ```bash
 python -m scripts.stitch_sibling_pages --apply
@@ -1676,9 +1676,12 @@ Verify:
 MATCH (d:Document) WHERE d.stitched_into IS NOT NULL RETURN count(d)   // 14
 MATCH (d:Document) WHERE d.stitched_markdown IS NOT NULL
 RETURN d.filename, size(d.stitched_markdown), d.stitched_expected_lot_count, d.extraction_stale_at IS NOT NULL
+MATCH (d:Document) WHERE d.stitched_into IS NOT NULL MATCH (d)-[:HAS_LOT]->(l) RETURN count(l)   // 0 unless --keep-follower-lots was used
 ```
 
 - [ ] **Step 3: Re-extract stale rows (the 14 leaders + the 8 classification-stale rows)**
+
+Note: after recounting lots on any stitched page, re-run `python -m scripts.stitch_sibling_pages --apply` before `--stale`, so the leader's `stitched_expected_lot_count` takes the new sum and the leader is stamped stale.
 
 ```bash
 python -m scripts.reset_langextract_and_extract --stale --count-only
@@ -1690,9 +1693,9 @@ python -m scripts.reset_langextract_and_extract --stale --concurrency 8
 Take the ceiling change's commit time (`git log -1 --format=%cI -- pipeline/extract_routing.py`) as `<T>`:
 
 ```bash
-python -m scripts.reset_langextract_and_extract --refresh --extracted-before <T> --count-only
+python -m scripts.reset_langextract_and_extract --refresh --extracted-before <T> --min-chars 30000 --count-only
 ```
-Expected around 20 (notices over 30k chars). Then run without `--count-only`.
+Expected around 20 (notices over 30k chars; `--min-chars 30000` keeps the run from re-extracting the whole corpus). Then run the same command without `--count-only`.
 
 - [ ] **Step 5: Apply and promote, then check the lot badge**
 

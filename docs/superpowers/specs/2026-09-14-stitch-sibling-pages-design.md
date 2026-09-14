@@ -70,7 +70,8 @@ Follower only:
 
 Nothing else on the follower changes. Its `markdown`, blocks, classification
 fields and any old `extraction_json` stay as they are, so unstitching is a
-property removal, not a restore.
+property removal, not a restore. The one exception is its promoted lots,
+which `--apply` clears (see below).
 
 Reads pick the stitched text with `coalesce(d.stitched_markdown, d.markdown)`
 and the group count with
@@ -99,8 +100,14 @@ reads a follower.
   When the text changes on a leader that already holds an extraction, the
   script stamps `extraction_stale_at` (same contract as
   `verify_classification`), so `reset_langextract_and_extract.py --stale`
-  re-runs it. Any prior extraction on a follower is left in place but is no
-  longer reachable from the queue.
+  re-runs it. A change in the summed lot count counts as a change, the same
+  as a change in the text. Any prior extraction on a follower is left in
+  place and is no longer reachable from the queue, but the follower's lots
+  (its `HAS_LOT` lots, their owned children and any `IS_LOT` edges to them)
+  are cleared on `--apply` through promote's per-document lot rebuild, unless
+  `--keep-follower-lots` is passed. Only followers of groups written in that
+  run are cleared; the dry run prints `[lots to clear] <follower>: N` for
+  each of them.
 - `--only <leader>` / `--skip <filename>` narrow or exclude by name, which is
   how an ambiguous group is forced or a wrong one is kept out.
 - `--unstitch <leader>`: removes the stitch properties from the leader and
@@ -175,15 +182,21 @@ the leader already links every listing in the group.
 
 1. `stitch_sibling_pages.py --dry-run`, review the 14 groups and the ambiguous
    list.
-2. `--apply` (writes 14 leaders and 14 followers, stamps stale on leaders).
+2. `--apply` (writes 14 leaders and 14 followers, stamps stale on leaders,
+   clears the followers' old lots).
 3. `reset_langextract_and_extract.py --stale` (also picks up the 8 rows already
    flagged stale by classification changes).
-4. `reset_langextract_and_extract.py --extracted-before <ceiling change time>`
-   restricted to notices over 30k characters, so the 20 two-window
-   extractions are redone in one window.
+4. `reset_langextract_and_extract.py --refresh --extracted-before <ceiling change time>
+   --min-chars 30000`, restricted by `--min-chars` to notices over 30k
+   characters, so the 20 two-window extractions are redone in one window.
 5. Apply and promote as usual; re-verify the leaders in the extraction queue.
 
 Each DB-writing step waits for explicit approval, per the project rule.
+
+Recount note: after recounting lots on any stitched page, re-run
+`stitch_sibling_pages.py --apply` before `--stale`, so the leader's
+`stitched_expected_lot_count` takes the new sum and the leader is stamped
+stale.
 
 ## Testing
 
