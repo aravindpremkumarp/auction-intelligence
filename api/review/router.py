@@ -117,6 +117,11 @@ class ClassificationRow(BaseModel):
     review_notes: str | None = None
     sample_titles: list[str] = []
     auction_id_count: int = 0
+    # Stitched notices (pipeline/notice_pages): a follower names its leader; a
+    # leader lists its pages. Reviewers keep counting lots per page — the
+    # stitch script sums them — but should not classify page 2 as a notice.
+    stitched_into: str | None = None
+    stitched_pages: list[str] = []
 
 
 class ClassificationQueueOut(BaseModel):

@@ -30,7 +30,7 @@ def test_refresh_selects_on_both_staleness_signals(monkeypatch):
     monkeypatch.setattr(R, "run_read_query", cap)
     R.select_refresh_docs(90, 60, single_lot=False, limit=None)
     # markdown rewritten after the extraction, OR a failed extraction
-    assert "md > ex OR d.extraction_score < $min_score" in cap.cypher
+    assert "md > ex OR st > ex OR d.extraction_score < $min_score" in cap.cypher
     assert cap.params == {"min_ocr": 90, "min_score": 60}
 
 
@@ -110,7 +110,7 @@ def test_unlinked_is_an_and_not_another_staleness_signal(monkeypatch):
     monkeypatch.setattr(R, "run_read_query", cap)
     R.select_refresh_docs(90, 60, single_lot=False, limit=None, unlinked=True,
                           extracted_before="2026-09-05T12:00")
-    assert ("(md > ex OR d.extraction_score < $min_score "
+    assert ("(md > ex OR st > ex OR d.extraction_score < $min_score "
             "OR ex < $extracted_before) AND EXISTS") in cap.cypher
 
 
@@ -184,3 +184,69 @@ def test_an_empty_result_is_never_written(monkeypatch):
     import pytest
     with pytest.raises(ValueError):
         _write_cypher(monkeypatch, entities=[])
+
+
+# ── stitched pages: every selector reads the joined text, never a follower ──
+
+def _selector_cyphers(monkeypatch):
+    cap = _Capture()
+    monkeypatch.setattr(R, "run_read_query", cap)
+    out = []
+    R.select_docs("2026-01-01", 90, resume=True, limit=None)
+    out.append(cap.cypher)
+    R.select_stale_docs(90, limit=None)
+    out.append(cap.cypher)
+    R.select_refresh_docs(90, 60, single_lot=False, limit=None)
+    out.append(cap.cypher)
+    return out
+
+
+def test_every_selector_skips_followers(monkeypatch):
+    for c in _selector_cyphers(monkeypatch):
+        assert "d.stitched_into IS NULL" in c
+
+
+def test_every_selector_reads_the_stitched_text_and_count(monkeypatch):
+    for c in _selector_cyphers(monkeypatch):
+        assert "coalesce(d.stitched_markdown, d.markdown) AS md" in c
+        assert ("coalesce(d.stitched_expected_lot_count, d.expected_lot_count) "
+                "AS expected_lot_count") in c
+
+
+def test_refresh_treats_a_newer_stitch_as_stale(monkeypatch):
+    cap = _Capture()
+    monkeypatch.setattr(R, "run_read_query", cap)
+    R.select_refresh_docs(90, 60, single_lot=False, limit=None)
+    assert "toString(d.stitched_at) AS st" in cap.cypher
+    assert "OR st > ex" in cap.cypher
+
+
+def test_min_chars_restricts_refresh_to_long_notices(monkeypatch):
+    cap = _Capture()
+    monkeypatch.setattr(R, "run_read_query", cap)
+    R.select_refresh_docs(90, 60, single_lot=False, limit=None,
+                          extracted_before="2026-09-05T12:00", min_chars=30000)
+    assert "AND size(coalesce(d.stitched_markdown, d.markdown)) >= $min_chars" in cap.cypher
+    assert cap.params["min_chars"] == 30000
+
+
+def test_min_chars_is_absent_when_not_asked_for(monkeypatch):
+    cap = _Capture()
+    monkeypatch.setattr(R, "run_read_query", cap)
+    R.select_refresh_docs(90, 60, single_lot=False, limit=None)
+    assert "min_chars" not in cap.cypher
+    assert "min_chars" not in cap.params
+
+
+def test_min_chars_flag_reaches_the_selector(monkeypatch):
+    seen = {}
+
+    def fake(*a, **k):
+        seen.update(k)
+        return []
+
+    monkeypatch.setattr(R, "select_refresh_docs", fake)
+    monkeypatch.setattr("sys.argv", ["reset", "--refresh", "--count-only",
+                                     "--min-chars", "30000"])
+    R.main()
+    assert seen["min_chars"] == 30000

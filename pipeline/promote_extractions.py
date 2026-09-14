@@ -524,6 +524,7 @@ def build_lots(entities: list[dict], filename: str) -> tuple[dict, list[dict]]:
 _FETCH = """
 MATCH (d:Document)
 WHERE d.extraction_json IS NOT NULL
+  AND d.stitched_into IS NULL
   {filename_clause}
 RETURN d.filename AS filename,
        d.extraction_json AS extraction_json,

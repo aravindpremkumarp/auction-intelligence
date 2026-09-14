@@ -83,6 +83,13 @@ class ExtractionReviewOut(BaseModel):
     # failure so the reviewer sees why nothing changed.
     rerun_running: bool = False
     rerun_error: str | None = None
+    # Stitched notices (pipeline/notice_pages). A follower — page 2 of a
+    # two-file notice — carries only stitched_into and no fields: its text and
+    # lots are reviewed on the leader. A leader lists its pages and where each
+    # starts in `markdown`, so the source pane can draw a divider.
+    stitched_into: str | None = None
+    stitched_pages: list[str] = []
+    stitched_page_offsets: list[int] = []
     fields: list[ExtractionField] = []
 
 
@@ -111,6 +118,9 @@ class ExtractionQueueRow(BaseModel):
     expected_lot_count: int | None = None
     extracted_lot_count: int | None = None
     lot_count_mismatch: bool = False
+    # How many source files this row's text was stitched from (1 = a plain
+    # single-file notice).
+    stitched_pages: int = 1
 
 
 class ExtractionQueueOut(BaseModel):
@@ -133,19 +143,24 @@ def _now() -> str:
 
 
 def extraction_stale(md_reextracted_at: str | None, md_loaded_at: str | None,
-                     extraction_at: str | None) -> bool:
-    """True when the markdown changed after LangExtract last ran on it.
+                     extraction_at: str | None,
+                     extraction_stale_at: str | None = None) -> bool:
+    """True when the stored extraction no longer matches its inputs.
 
-    Re-ingest stamps one of two markers depending on the path — a full MinerU
+    Two signals. The markdown changed after LangExtract last ran on it —
+    re-ingest stamps one of two markers depending on the path (a full MinerU
     re-ingest sets ``markdown_loaded_at``, a single-block re-OCR sets
-    ``markdown_reextracted_at`` — so the extraction is stale when EITHER is newer
-    than ``extraction_at``. All three are Neo4j datetimes rendered as ISO-8601
-    UTC strings, which compare correctly lexicographically. Unknown extraction
-    time (legacy rows) -> not stale (nothing to compare against)."""
+    ``markdown_reextracted_at``). Or something upstream said so explicitly:
+    ``extraction_stale_at`` is stamped when the classification (lot count or
+    notice type) changes, when a missing region is recovered, or when pages
+    are stitched — the prompt or the text the extraction came from is gone.
+    Stale when ANY of the three is newer than ``extraction_at``. All are Neo4j
+    datetimes rendered as ISO-8601 UTC strings, which compare correctly
+    lexicographically. Unknown extraction time (legacy rows) -> not stale."""
     if not extraction_at:
         return False
     return any(t and t > extraction_at
-               for t in (md_reextracted_at, md_loaded_at))
+               for t in (md_reextracted_at, md_loaded_at, extraction_stale_at))
 
 
 # ── query helpers (kept here so queries.py is untouched) ──────────────────────
@@ -155,7 +170,7 @@ def get_extraction(filename: str) -> dict | None:
         MATCH (d:Document {filename: $fn})
         WHERE d.extraction_json IS NOT NULL
         RETURN d.filename                                   AS filename,
-               d.markdown                                   AS markdown,
+               coalesce(d.stitched_markdown, d.markdown)    AS markdown,
                d.extraction_json                            AS extraction_json,
                coalesce(d.extraction_corrections_json, '{}') AS corrections_json,
                coalesce(d.extraction_review_status, 'pending') AS status,
@@ -167,12 +182,24 @@ def get_extraction(filename: str) -> dict | None:
                d.content_type                               AS content_type,
                toString(d.extraction_at)                    AS extraction_at,
                toString(d.markdown_reextracted_at)          AS markdown_reextracted_at,
-               toString(d.markdown_loaded_at)               AS markdown_loaded_at
+               toString(d.markdown_loaded_at)               AS markdown_loaded_at,
+               toString(d.extraction_stale_at)              AS extraction_stale_at,
+               d.stitched_into                              AS stitched_into,
+               coalesce(d.stitched_pages, [])                AS stitched_pages,
+               coalesce(d.stitched_page_offsets, [])          AS stitched_page_offsets
         LIMIT 1
         """,
         {"fn": filename},
     )
     return rows[0] if rows else None
+
+
+def get_stitch_pointer(filename: str) -> str | None:
+    """The leader a follower page was stitched into, or None."""
+    rows = run_read_query(
+        "MATCH (d:Document {filename: $fn}) RETURN d.stitched_into AS leader",
+        {"fn": filename})
+    return (rows[0].get("leader") if rows else None) or None
 
 
 def _extraction_filter_clause(
@@ -192,7 +219,9 @@ def _extraction_filter_clause(
     notice_type / date helpers are imported from ``queries`` rather than
     re-written so every stage filters a notice identically.
     """
-    clause = "AND coalesce(d.extraction_review_status,'pending') = $status" if status else ""
+    # A follower (page 2 of a stitched notice) is reviewed on its leader.
+    clause = "AND d.stitched_into IS NULL"
+    clause += " AND coalesce(d.extraction_review_status,'pending') = $status" if status else ""
     # Rows without a score (pre-scoring extractions) are excluded once either
     # bound narrows the default 0-100 range — nothing to compare against.
     if score_min is not None:
@@ -248,7 +277,9 @@ def list_extraction_queue(status: str | None, limit: int, sort: str = "recent",
                toString(d.markdown_reextracted_at) AS markdown_reextracted_at,
                toString(d.markdown_loaded_at) AS markdown_loaded_at,
                d.extraction_batch AS extraction_batch,
-               d.expected_lot_count AS expected_lot_count,
+               toString(d.extraction_stale_at) AS extraction_stale_at,
+               coalesce(d.stitched_expected_lot_count, d.expected_lot_count) AS expected_lot_count,
+               coalesce(d.stitched_pages, [d.filename]) AS stitched_pages,
                d.extraction_json AS extraction_json
         ORDER BY {order}
         LIMIT $limit
@@ -500,10 +531,16 @@ def _rerun_worker(filename: str) -> None:
     try:
         rows = run_read_query(
             "MATCH (d:Document {filename: $fn}) "
-            "RETURN d.filename AS filename, d.markdown AS md, "
+            "RETURN d.filename AS filename, "
+            "       coalesce(d.stitched_markdown, d.markdown) AS md, "
             "       d.notice_type AS notice_type, "
-            "       d.expected_lot_count AS expected_lot_count",
+            "       coalesce(d.stitched_expected_lot_count, d.expected_lot_count) "
+            "AS expected_lot_count, "
+            "       d.stitched_into AS stitched_into",
             {"fn": filename})
+        if rows and rows[0].get("stitched_into"):
+            raise RuntimeError(f"this page is stitched into {rows[0]['stitched_into']}; "
+                               "re-run that document instead")
         if not rows or not (rows[0].get("md") or "").strip():
             raise RuntimeError("document has no markdown to extract from")
         from pipeline.load_extractions import _next_batch
@@ -631,12 +668,14 @@ def extraction_queue(
             extraction_batch=int(b) if b is not None else None,
             stale=extraction_stale(r.get("markdown_reextracted_at"),
                                    r.get("markdown_loaded_at"),
-                                   r.get("extraction_at")),
+                                   r.get("extraction_at"),
+                                   r.get("extraction_stale_at")),
             expected_lot_count=expected,
             extracted_lot_count=extracted,
             lot_count_mismatch=(expected is not None
                                 and extracted is not None
-                                and expected != extracted)))
+                                and expected != extracted),
+            stitched_pages=len(r.get("stitched_pages") or [r["filename"]])))
     # A genuine count, not len(out): the row list is capped by $limit, and the
     # "Confirm all N in range" button acts on the whole matching set — so a
     # capped total would understate what the button is about to verify.
@@ -653,12 +692,18 @@ def extraction_detail(
     _admin: UserOut = Depends(get_current_admin),
 ) -> ExtractionReviewOut:
     row = get_extraction(filename)
+    # Page 2 of a stitched notice: whatever it holds is reviewed on the leader.
+    leader = (row or {}).get("stitched_into") or (get_stitch_pointer(filename) if row is None else None)
+    if leader:
+        return ExtractionReviewOut(filename=filename, stitched_into=leader,
+                                   status="pending", fields=[])
     if row is None:
         raise HTTPException(status_code=404, detail="extraction not found")
     running, error = _rerun_state(filename)
     stale = extraction_stale(row.get("markdown_reextracted_at"),
                              row.get("markdown_loaded_at"),
-                             row.get("extraction_at"))
+                             row.get("extraction_at"),
+                             row.get("extraction_stale_at"))
     return ExtractionReviewOut(
         filename=row["filename"], markdown=row.get("markdown"),
         status=row.get("status", "pending"), score=row.get("score"),
@@ -667,6 +712,8 @@ def extraction_detail(
         content_type=row.get("content_type"),
         stale=stale,
         rerun_running=running, rerun_error=error,
+        stitched_pages=list(row.get("stitched_pages") or []),
+        stitched_page_offsets=[int(o) for o in (row.get("stitched_page_offsets") or [])],
         fields=_build_fields(row["extraction_json"], row["corrections_json"],
                              row.get("markdown"), stale),
     )
@@ -678,6 +725,9 @@ def extraction_edit_field(
     body: FieldEditBody,
     admin: UserOut = Depends(get_current_admin),
 ) -> ExtractionReviewOut:
+    if get_stitch_pointer(filename):
+        raise HTTPException(status_code=409,
+                            detail="this page is stitched into another document; review that one")
     if not save_field_correction(filename, body.field_id, body.value,
                                  admin.email, body.notes):
         raise HTTPException(status_code=404, detail="extraction not found")
@@ -696,6 +746,9 @@ def extraction_rerun(
     time; a second click while running is a 409."""
     if get_extraction(filename) is None:
         raise HTTPException(status_code=404, detail="extraction not found")
+    if get_stitch_pointer(filename):
+        raise HTTPException(status_code=409,
+                            detail="this page is stitched into another document; re-run that one")
     with _RERUNS_LOCK:
         st = _RERUNS.get(filename)
         if st and st["status"] == "running":
@@ -712,6 +765,9 @@ def extraction_verify(
     body: ExtractionVerifyBody,
     admin: UserOut = Depends(get_current_admin),
 ) -> ExtractionReviewOut:
+    if get_stitch_pointer(filename):
+        raise HTTPException(status_code=409,
+                            detail="this page is stitched into another document; review that one")
     if not verify_extraction(filename, admin.email, body.notes):
         raise HTTPException(status_code=404, detail="extraction not found")
     return extraction_detail(filename, admin)
@@ -722,6 +778,9 @@ def extraction_unverify(
     filename: str,
     admin: UserOut = Depends(get_current_admin),
 ) -> ExtractionReviewOut:
+    if get_stitch_pointer(filename):
+        raise HTTPException(status_code=409,
+                            detail="this page is stitched into another document; review that one")
     if not unverify_extraction(filename):
         raise HTTPException(status_code=404, detail="extraction not found")
     return extraction_detail(filename, admin)
