@@ -38,6 +38,11 @@ from collections import defaultdict
 #: in the joined string and ``stitched_page_offsets`` is derived from it.
 SEPARATOR = "\n\n"
 
+#: Reason prefix for a byte twin left out of its group because it sits on a
+#: listing set other than the leader's. Such an entry is a report, never a
+#: group ``--only`` may force: its two files hold the same text.
+TWIN_OUTSIDE_GROUP = "twin outside group"
+
 
 def page_groups(rows: list[dict]) -> tuple[list[dict], list[dict]]:
     """Group listing/document rows into ordered page groups.
@@ -50,7 +55,12 @@ def page_groups(rows: list[dict]) -> tuple[list[dict], list[dict]]:
     Returns ``(groups, ambiguous)``:
 
     * group     — ``{"pages": [filenames, page 1 first], "twins": [filenames]}``
-                  ``twins`` are files whose bytes equal one of the pages.
+                  ``twins`` are files whose text equals one of the pages and
+                  that sit on exactly the leader's listings. A twin on any
+                  other listing set is left out (making it a follower would
+                  strand that listing's lots) and reported in ``ambiguous``
+                  as ``{"filenames": [twin, leader], "reason": "twin outside
+                  group: ..."}``.
     * ambiguous — ``{"filenames": [...], "reason": str}`` for a candidate that
                   failed a check. Nothing is guessed: the reviewer forces or
                   drops it by name.
@@ -71,12 +81,13 @@ def page_groups(rows: list[dict]) -> tuple[list[dict], list[dict]]:
     ambiguous: list[dict] = []
     flagged: set[frozenset] = set()
 
-    def flag(names: list[str], reason: str) -> None:
+    def flag(names: list[str], reason: str, keep_order: bool = False) -> None:
         key = frozenset(names)
         if key in flagged:
             return
         flagged.add(key)
-        ambiguous.append({"filenames": sorted(names), "reason": reason})
+        ambiguous.append({"filenames": list(names) if keep_order else sorted(names),
+                          "reason": reason})
 
     for listing, docs in by_listing.items():
         distinct = {d["content_key"] for d in docs}
@@ -122,7 +133,15 @@ def page_groups(rows: list[dict]) -> tuple[list[dict], list[dict]]:
             flag(list(key), f"listing sets differ: {leader} is on {len(base)}, "
                             f"{bad} is on {len(doc_listings[bad])}")
             continue
-        groups.append({"pages": list(key), "twins": sorted(twins_for[key])})
+        twins: list[str] = []
+        for twin in sorted(twins_for[key]):
+            if doc_listings[twin] == base:
+                twins.append(twin)
+            else:
+                flag([twin, leader],
+                     f"{TWIN_OUTSIDE_GROUP}: {twin} is on {len(doc_listings[twin])} "
+                     f"listings, {leader} is on {len(base)}", keep_order=True)
+        groups.append({"pages": list(key), "twins": twins})
     groups.sort(key=lambda g: g["pages"][0])
     ambiguous.sort(key=lambda a: a["filenames"][0])
     return groups, ambiguous

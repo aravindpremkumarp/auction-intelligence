@@ -53,10 +53,11 @@ def test_build_joins_pages_and_points_twins_at_the_leader():
     assert b["changed"] is True
 
 
-def test_build_reports_unchanged_when_the_leader_already_holds_this_text():
+def test_build_reports_unchanged_when_the_leader_already_holds_this_text_and_count():
     docs = dict(DOCS)
-    docs["p1.jpg"] = _doc("p1.jpg", "PAGE ONE", 14,
-                          stitched_markdown="PAGE ONE" + S.SEPARATOR + "PAGE TWO")
+    docs["p1.jpg"] = dict(_doc("p1.jpg", "PAGE ONE", 14,
+                               stitched_markdown="PAGE ONE" + S.SEPARATOR + "PAGE TWO"),
+                          stitched_expected_lot_count=24)
     assert S.build(GROUP, docs)["changed"] is False
 
 
@@ -130,8 +131,8 @@ def test_unstitch_removes_every_stitch_property_and_stamps_stale(monkeypatch):
     for prop in ("stitched_markdown", "stitched_pages", "stitched_page_offsets",
                  "stitched_at", "stitched_expected_lot_count"):
         assert f"l.{prop}" in c
-    assert "REMOVE f.stitched_into" in c
-    assert "f.extraction_stale_at = CASE" in c
+    assert "REMOVE x.stitched_into" in c
+    assert "x.extraction_stale_at = CASE" in c
     assert "l.extraction_stale_at = CASE" in c
     assert cap.params == {"leader": "p1.jpg"}
 
@@ -143,3 +144,202 @@ def test_dry_run_writes_nothing(monkeypatch, capsys):
     monkeypatch.setattr(S, "run_query", writes)
     assert S.main(["--dry-run"]) == 0
     assert writes.calls == []
+
+
+# ── detection reads (a) candidates once and (b) every edge of them ──────────
+
+import pipeline.promote_extractions as P  # noqa: E402
+
+
+def _cand(fn, md, elc=None, sha=None, stitched_markdown=None, stitched_elc=None,
+          has_extraction=False):
+    return {"filename": fn, "markdown": md, "content_sha256": sha,
+            "expected_lot_count": elc, "stitched_markdown": stitched_markdown,
+            "stitched_expected_lot_count": stitched_elc,
+            "has_extraction": has_extraction}
+
+
+def _edge(listing, fn, position):
+    return {"listing": listing, "filename": fn, "position": position}
+
+
+class _Reads:
+    """Answers each read the script sends by which constant it is."""
+
+    def __init__(self, cands, edges, lots=None):
+        self.cands, self.edges, self.lots = cands, edges, lots or {}
+        self.calls = []
+
+    def __call__(self, cypher, params=None, **kw):
+        self.calls.append((cypher, params))
+        if cypher == S.CANDIDATES_CYPHER:
+            return [dict(c) for c in self.cands]
+        if cypher == S.EDGES_CYPHER:
+            return [dict(e) for e in self.edges if e["filename"] in params["filenames"]]
+        if cypher == S.FOLLOWER_LOTS_CYPHER:
+            return [{"filename": fn, "lots": self.lots.get(fn, 0)}
+                    for fn in params["filenames"]]
+        raise AssertionError(f"unexpected read: {cypher[:60]}")
+
+
+def test_candidate_query_returns_each_document_once_with_both_counts():
+    c = S.CANDIDATES_CYPHER
+    assert "size(docs) >= 2" in c
+    assert "WITH DISTINCT d" in c
+    assert "d.markdown AS markdown" in c
+    assert "d.stitched_expected_lot_count AS stitched_expected_lot_count" in c
+
+
+def test_edge_query_keeps_single_document_listings_and_carries_no_markdown():
+    e = S.EDGES_CYPHER
+    assert "UNWIND $filenames AS fn" in e
+    assert "size(docs)" not in e
+    assert "markdown" not in e
+    assert "AS position" in e and "AS listing" in e
+
+
+def test_fetch_rows_builds_detector_rows_from_edges_and_keys_from_candidates(monkeypatch):
+    reads = _Reads([_cand("p1.jpg", "ONE"), _cand("p2.jpg", "TWO")],
+                   [_edge("L1", "p1.jpg", 0), _edge("L1", "p2.jpg", 1),
+                    _edge("L3", "p2.jpg", 0)])
+    monkeypatch.setattr(S, "run_read_query", reads)
+    rows, docs = S.fetch_rows()
+    assert reads.calls[1][1] == {"filenames": ["p1.jpg", "p2.jpg"]}
+    assert sorted(docs) == ["p1.jpg", "p2.jpg"]
+    assert all(set(r) == {"listing", "filename", "content_key", "position"} for r in rows)
+    assert len(rows) == 3
+
+
+def test_a_listing_holding_only_page_two_blocks_the_stitch(monkeypatch, capsys):
+    reads = _Reads([_cand("AXIS-1.jpg", "ONE"), _cand("AXIS-2.jpg", "TWO")],
+                   [_edge("L1", "AXIS-1.jpg", 0), _edge("L1", "AXIS-2.jpg", 1),
+                    _edge("L3", "AXIS-2.jpg", 0)])
+    writes = _Capture()
+    monkeypatch.setattr(S, "run_read_query", reads)
+    monkeypatch.setattr(S, "run_query", writes)
+    assert S.main(["--apply"]) == 0
+    out = capsys.readouterr().out
+    assert "[ambiguous] AXIS-1.jpg | AXIS-2.jpg: listing sets differ" in out
+    assert writes.calls == []
+
+
+def test_content_key_is_the_markdown_hash_whatever_the_byte_hash_says():
+    assert (S._content_key({"markdown": "SAME", "content_sha256": "abc"})
+            == S._content_key({"markdown": "SAME"}))
+
+
+def test_same_markdown_with_and_without_a_sha_are_twins_not_pages(monkeypatch):
+    reads = _Reads([_cand("a.jpg", "SAME", sha="abc"), _cand("a-copy.jpg", "SAME")],
+                   [_edge("L1", "a.jpg", 0), _edge("L1", "a-copy.jpg", 1)])
+    monkeypatch.setattr(S, "run_read_query", reads)
+    rows, _ = S.fetch_rows()
+    groups, ambiguous = S.plan(rows, only=None, skip=set())
+    assert groups == [] and ambiguous == []
+
+
+def test_only_never_forces_a_twin_exclusion_into_a_group():
+    rows = [{"listing": "L1", "filename": "p1.jpg", "content_key": "s1", "position": 0},
+            {"listing": "L1", "filename": "p1-copy.jpg", "content_key": "s1", "position": 1},
+            {"listing": "L1", "filename": "p2.jpg", "content_key": "s2", "position": 2},
+            {"listing": "L9", "filename": "p1-copy.jpg", "content_key": "s1", "position": 0}]
+    groups, ambiguous = S.plan(rows, only={"p1.jpg"}, skip=set())
+    assert groups == [{"pages": ["p1.jpg", "p2.jpg"], "twins": []}]
+    assert [a["filenames"] for a in ambiguous] == [["p1-copy.jpg", "p1.jpg"]]
+
+
+def test_twin_exclusion_prints_like_any_ambiguous_entry(capsys):
+    S._print_plan([], [{"filenames": ["p1-copy.jpg", "p1.jpg"],
+                        "reason": "twin outside group: p1-copy.jpg is on 2 listings, p1.jpg is on 1"}])
+    assert ("[ambiguous] p1-copy.jpg | p1.jpg: twin outside group: "
+            "p1-copy.jpg is on 2 listings, p1.jpg is on 1") in capsys.readouterr().out
+
+
+# ── changed: text OR lot count ──────────────────────────────────────────────
+
+def test_build_reports_changed_when_only_the_lot_count_differs():
+    docs = dict(DOCS)
+    docs["p1.jpg"] = dict(_doc("p1.jpg", "PAGE ONE", 14,
+                               stitched_markdown="PAGE ONE" + S.SEPARATOR + "PAGE TWO"),
+                          stitched_expected_lot_count=20)
+    assert S.build(GROUP, docs)["changed"] is True
+
+
+# ── minors on the write Cypher ──────────────────────────────────────────────
+
+def test_apply_clears_a_leaders_own_follower_pointer():
+    assert "REMOVE l.stitched_into" in S.APPLY_CYPHER
+
+
+def test_apply_clears_a_followers_stale_stamp():
+    assert "REMOVE f.extraction_stale_at" in S.APPLY_CYPHER
+
+
+def test_unstitch_guards_follower_writes_against_null():
+    assert "FOREACH (x IN CASE WHEN f IS NULL THEN [] ELSE [f] END |" in S.UNSTITCH_CYPHER
+
+
+# ── follower lots are cleared on apply ──────────────────────────────────────
+
+def test_clearing_follower_lots_reuses_promotes_per_document_rebuild(monkeypatch):
+    cap = _Capture(rows=[{"lots": 3}])
+    monkeypatch.setattr(P, "run_query", cap)
+    assert S.clear_follower_lots(["p2.jpg", "p1-copy.jpg"]) == {"p2.jpg": 3, "p1-copy.jpg": 3}
+    assert cap.calls == [(P._REBUILD_DOC_LOTS, {"filename": "p2.jpg"}),
+                         (P._REBUILD_DOC_LOTS, {"filename": "p1-copy.jpg"})]
+
+
+def _pair_world(lots):
+    """p1/p2 (+ twin p1-copy) to be written; q1/q2 already stitched, unchanged."""
+    cands = [_cand("p1.jpg", "PAGE ONE", 14), _cand("p2.jpg", "PAGE TWO", 10),
+             _cand("p1-copy.jpg", "PAGE ONE", 14),
+             _cand("q1.jpg", "Q ONE", 1, stitched_markdown="Q ONE" + S.SEPARATOR + "Q TWO",
+                   stitched_elc=2),
+             _cand("q2.jpg", "Q TWO", 1)]
+    edges = []
+    for a in ("L1", "L2"):
+        edges += [_edge(a, "p1.jpg", 0), _edge(a, "p1-copy.jpg", 1), _edge(a, "p2.jpg", 2)]
+    edges += [_edge("L5", "q1.jpg", 0), _edge("L5", "q2.jpg", 1)]
+    return _Reads(cands, edges, lots)
+
+
+def test_dry_run_prints_follower_lot_counts_and_deletes_nothing(monkeypatch, capsys):
+    reads = _pair_world({"p2.jpg": 6, "p1-copy.jpg": 0})
+    writes, promote_writes = _Capture(), _Capture()
+    monkeypatch.setattr(S, "run_read_query", reads)
+    monkeypatch.setattr(S, "run_query", writes)
+    monkeypatch.setattr(P, "run_query", promote_writes)
+    assert S.main(["--dry-run"]) == 0
+    out = capsys.readouterr().out
+    assert "[lots to clear] p2.jpg: 6" in out
+    assert "[lots to clear] p1-copy.jpg: 0" in out
+    assert "q2.jpg:" not in out  # an unchanged group is not written, so not cleared
+    lot_reads = [p for c, p in reads.calls if c == S.FOLLOWER_LOTS_CYPHER]
+    assert lot_reads == [{"filenames": ["p2.jpg", "p1-copy.jpg"]}]
+    assert "HAS_LOT" in S.FOLLOWER_LOTS_CYPHER
+    assert writes.calls == [] and promote_writes.calls == []
+
+
+def test_apply_writes_the_stitch_and_clears_lots_for_followers_only(monkeypatch, capsys):
+    reads = _pair_world({"p2.jpg": 6})
+    writes = _Capture(rows=[{"followers": 2}])
+    promote_writes = _Capture(rows=[{"lots": 6}])
+    monkeypatch.setattr(S, "run_read_query", reads)
+    monkeypatch.setattr(S, "run_query", writes)
+    monkeypatch.setattr(P, "run_query", promote_writes)
+    assert S.main(["--apply"]) == 0
+    assert [(c == S.APPLY_CYPHER, p["leader"]) for c, p in writes.calls] == [(True, "p1.jpg")]
+    assert promote_writes.calls == [(P._REBUILD_DOC_LOTS, {"filename": "p2.jpg"}),
+                                    (P._REBUILD_DOC_LOTS, {"filename": "p1-copy.jpg"})]
+
+
+def test_keep_follower_lots_skips_the_deletion(monkeypatch, capsys):
+    reads = _pair_world({"p2.jpg": 6})
+    writes = _Capture(rows=[{"followers": 2}])
+    promote_writes = _Capture(rows=[{"lots": 6}])
+    monkeypatch.setattr(S, "run_read_query", reads)
+    monkeypatch.setattr(S, "run_query", writes)
+    monkeypatch.setattr(P, "run_query", promote_writes)
+    assert S.main(["--apply", "--keep-follower-lots"]) == 0
+    assert len(writes.calls) == 1
+    assert promote_writes.calls == []
+    assert all(c != S.FOLLOWER_LOTS_CYPHER for c, _ in reads.calls)
