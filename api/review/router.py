@@ -962,7 +962,7 @@ class ResolutionReviewOut(BaseModel):
 class ResolutionDecisionIn(BaseModel):
     kind: Literal["bank-merge", "branch-merge", "district-conflict",
                   "village-alias", "village-skip", "lot-match", "price-check",
-                  "area-check"]
+                  "area-check", "portal-match"]
     verdict: Literal["approved", "rejected"]
     # What the decision is about; fields depend on kind (see
     # pipeline/resolution_review.py). The stored key is always derived from

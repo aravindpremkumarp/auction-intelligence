@@ -2294,6 +2294,17 @@ def _lot_match_candidates(decisions: list[dict]) -> list[dict]:
     return out
 
 
+_PORTAL_SUBJECT = """
+MATCH (a:AuctionProperty {auction_id: $auction_id})
+OPTIONAL MATCH (a)-[:CONDUCTED_BY]->(bk:Bank)
+OPTIONAL MATCH (a)-[:HAS_BORROWER]->(br:Borrower)
+RETURN a.auction_id AS auction_id, collect(DISTINCT bk.name)[0] AS bank,
+       a.reserve_price_num AS reserve_price_num,
+       toString(a.auction_start_dt) AS auction_start_dt,
+       collect(DISTINCT br.name)[0] AS borrower
+"""
+
+
 def record_resolution_decision(kind: str, payload: dict, verdict: str,
                                by_email: str) -> dict:
     """Store one human verdict as a (:ResolutionDecision) node.
@@ -2314,6 +2325,29 @@ def record_resolution_decision(kind: str, payload: dict, verdict: str,
         key = decision_key(kind, payload)
     except KeyError as e:
         raise ValueError(f"payload for {kind!r} is missing field {e}")
+
+    if kind == "portal-match":
+        linked = list(payload.get("linked_ids") or [])
+        rejected = list(payload.get("rejected_ids") or [])
+        if not linked and not rejected:
+            raise ValueError("portal-match needs at least one linked or rejected listing")
+        if verdict == APPROVED and not linked:
+            raise ValueError("an approved portal-match must link at least one listing")
+        subject = _count_query(_PORTAL_SUBJECT, {"auction_id": payload.get("subject_id")})
+        if not subject.get("auction_id"):
+            raise ValueError(f"no listing with auction_id {payload.get('subject_id')!r}")
+        ids = sorted(set(linked) | set(rejected))
+        found = _count_query("MATCH (p:AuctionProperty) WHERE p.auction_id IN $ids RETURN count(p) AS n",
+                             {"ids": ids})
+        if int(found.get("n") or 0) != len(ids):
+            raise ValueError("every linked or rejected listing must exist")
+        # The snapshot is what the decision is valid for; it is read from the
+        # graph, never taken from the caller.
+        from sources.match import Candidate, snapshot_of
+        payload = {**payload, "snapshot": snapshot_of(Candidate(
+            auction_id=subject["auction_id"], source="", bank=subject.get("bank") or "",
+            reserve_price_num=subject.get("reserve_price_num"),
+            auction_start_dt=subject.get("auction_start_dt"), borrower=subject.get("borrower") or ""))}
 
     if kind == "village-alias" and verdict == APPROVED:
         hit = _count_query(

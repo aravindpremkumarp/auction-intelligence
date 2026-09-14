@@ -375,6 +375,21 @@ def price_equal(a: Candidate, b: Candidate) -> bool:
     return abs(float(a.reserve_price_num) - float(b.reserve_price_num)) < 1
 
 
+def snapshot_of(c: Candidate) -> dict:
+    """The four facts a portal-match decision was made on. A decision whose
+    snapshot no longer equals the subject's is ignored: the facts changed."""
+    return {"bank": c.bank_key, "reserve_price": _round_reserve(c.reserve_price_num),
+            "borrower": borrower_key(c.borrower), "auction_day": c.day}
+
+
+def _active_decision(group: list[Candidate], decisions: dict[str, dict]) -> dict | None:
+    for x in group:
+        d = decisions.get(x.auction_id)
+        if d and d.get("snapshot") == snapshot_of(x):
+            return d
+    return None
+
+
 def _unit_key(value: str) -> str:
     """A unit number for comparison across notations: ``f/1`` and ``f1`` → ``1``,
     ``b/510`` → ``510``, ``86/b`` → ``86b``; ``ff12`` stays."""
@@ -471,19 +486,44 @@ def _pairs(group_s: list[Candidate], targets: list[list[Candidate]], method: str
             if x.auction_id in new_ids or y.auction_id in new_ids]
 
 
-def _assign(side_s: list[Candidate], side_o: list[Candidate], new_ids: set[str]) -> tuple[list[Pair], list[Ambiguity]]:
+def _assign(side_s: list[Candidate], side_o: list[Candidate], new_ids: set[str],
+           decisions: dict[str, dict]) -> tuple[list[Pair], list[Ambiguity]]:
     """Every subject group of one source against one other source, in one bucket.
-    Two subjects that would link the same candidate group are both contested."""
+
+    A current decision is applied first: its rejected listings leave the
+    subject's candidates for good, and an approval links the ticked listings
+    (method ``decision``). The rule then judges the rest. Two subjects that
+    would link the same candidate group — or a rule link to a group a person
+    already linked — are contested."""
     groups_s, groups_o = _twin_groups(side_s), _twin_groups(side_o)
     reps_o = [_representative(g) for g in groups_o]
-    verdicts: dict[int, tuple | None] = {si: _judge(_representative(g), reps_o) for si, g in enumerate(groups_s)}
+    verdicts: dict[int, tuple | None] = {}
+    decided_targets: set[int] = set()
+
+    for si, g in enumerate(groups_s):
+        decision = _active_decision(g, decisions)
+        rejected = decision["rejected_ids"] if decision else set()
+        pool = [oi for oi, og in enumerate(groups_o) if not any(y.auction_id in rejected for y in og)]
+        if decision and decision["verdict"] == "approved":
+            linked = [oi for oi in pool if any(y.auction_id in decision["linked_ids"] for y in groups_o[oi])]
+            if linked:
+                verdicts[si] = ("decision", linked)
+                decided_targets.update(linked)
+                continue
+        judged = _judge(_representative(g), [reps_o[oi] for oi in pool])
+        if judged is None:
+            verdicts[si] = None
+        elif judged[0] == "link":
+            verdicts[si] = ("link", pool[judged[1]], judged[2], judged[3])
+        else:
+            verdicts[si] = ("review", judged[1], [pool[i] for i in judged[2]])
 
     linkers: dict[int, list[int]] = defaultdict(list)
     for si, v in verdicts.items():
         if v is not None and v[0] == "link":
             linkers[v[1]].append(si)
     for oi, sis in linkers.items():
-        if len(sis) > 1:
+        if len(sis) > 1 or oi in decided_targets:
             for si in sis:
                 verdicts[si] = ("review", "contested", [oi])
 
@@ -491,6 +531,10 @@ def _assign(side_s: list[Candidate], side_o: list[Candidate], new_ids: set[str])
     ambiguous: list[Ambiguity] = []
     for si, v in sorted(verdicts.items()):
         if v is None:
+            continue
+        if v[0] == "decision":
+            pairs += _pairs(groups_s[si], [groups_o[oi] for oi in v[1]], "decision",
+                            "a person confirmed these are the same property", new_ids)
             continue
         if v[0] == "link":
             _, oi, method, evidence = v
@@ -509,9 +553,12 @@ def _rank(source: str) -> tuple[int, str]:
     return (SOURCE_RANK.get(source, _UNKNOWN_RANK), source)
 
 
-def match_listings(incoming: Iterable[Candidate], existing: Iterable[Candidate]) -> MatchResult:
-    """Every link the rule confirms, every pair waiting for a person, and one
-    ``Ambiguity`` per waiting subject. ``incoming`` is compared against
+def match_listings(incoming: Iterable[Candidate], existing: Iterable[Candidate], *,
+                   decisions: dict[str, dict] | None = None) -> MatchResult:
+    """Every link the rule or a person confirms, every pair waiting for a
+    person, and one ``Ambiguity`` per waiting subject. ``decisions`` maps a
+    subject id to its current verdict (``pipeline.resolution_review.portal_decisions``).
+    ``incoming`` is compared against
     ``existing`` and against itself; ``existing`` is never compared with itself
     — that is ``link_reauctions``' job. A listing present on both sides (a
     loaded harvest row) is taken once, from ``incoming``."""
@@ -539,7 +586,7 @@ def match_listings(incoming: Iterable[Candidate], existing: Iterable[Candidate])
                 side_o = [c for c in members if c.source == source_o]
                 if not any(c.auction_id in new_ids for c in side_s + side_o):
                     continue
-                got_pairs, got_ambiguous = _assign(side_s, side_o, new_ids)
+                got_pairs, got_ambiguous = _assign(side_s, side_o, new_ids, decisions or {})
                 pairs += got_pairs
                 ambiguous += got_ambiguous
     pairs.sort(key=lambda p: (_ORDER[p.method], p.a_id, p.b_id))

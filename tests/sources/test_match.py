@@ -261,3 +261,57 @@ def test_display_fields_ride_along_but_never_decide():
 def test_unit_key_normalises_notation():
     from sources.match import _unit_key
     assert [_unit_key(v) for v in ("f/1", "f1", "b/510", "86/b", "86b", "ff12", "S-2")] == ["1", "1", "510", "86b", "86b", "ff12", "2"]
+
+
+from sources.match import snapshot_of  # noqa: E402
+
+
+def _decided(subject, verdict, linked=(), rejected=(), **snapshot_changes):
+    return {subject.auction_id: {"verdict": verdict, "linked_ids": set(linked), "rejected_ids": set(rejected),
+                                 "snapshot": {**snapshot_of(subject), **snapshot_changes}}}
+
+
+def test_a_person_confirming_links_with_method_decision():
+    subject = _bn("bn-359756", bank="Indian Bank", reserve=2944000.0, day="2026-09-25", borrower="A R R TEX")
+    ours = [_ea("853518", bank="Indian Bank", reserve=2944000.0, day="2026-09-25", borrower="M/s ARR Tex")]
+    result = match_listings([subject], ours, decisions=_decided(subject, "approved", linked=["853518"]))
+    assert [(p.a_id, p.b_id, p.method, p.confidence) for p in result.pairs] == [("bn-359756", "853518", "decision", CONFIRMED)]
+    assert result.ambiguous == []
+
+
+def test_ticking_two_duplicate_postings_links_both():
+    subject = _bn("bn-359636", bank="Bank of Baroda", reserve=2030000.0, day="2026-09-15", borrower="Ekadanta Enterprises")
+    ours = [_ea(aid, bank="Bank of Baroda", reserve=2030000.0, day="2026-09-15", borrower="M/s. Ekadanta Enterprises")
+            for aid in ("842118", "842546", "844968")]
+    decisions = _decided(subject, "approved", linked=["842546", "844968"], rejected=["842118"])
+    result = match_listings([subject], ours, decisions=decisions)
+    assert sorted((p.b_id, p.method) for p in result.pairs) == [("842546", "decision"), ("844968", "decision")]
+    assert result.ambiguous == []
+
+
+def test_not_the_same_removes_the_pair_for_good():
+    subject = _bn("bn-359756", bank="Indian Bank", reserve=2944000.0, day="2026-09-25", borrower="A R R TEX")
+    ours = [_ea("853518", bank="Indian Bank", reserve=2944000.0, day="2026-09-25", borrower="M/s ARR Tex")]
+    result = match_listings([subject], ours, decisions=_decided(subject, "rejected", rejected=["853518"]))
+    assert result.pairs == [] and result.ambiguous == []
+
+
+def test_a_decision_on_facts_that_changed_is_ignored():
+    subject = _bn("bn-359756", bank="Indian Bank", reserve=2944000.0, day="2026-09-25", borrower="A R R TEX")
+    ours = [_ea("853518", bank="Indian Bank", reserve=2944000.0, day="2026-09-25", borrower="M/s ARR Tex")]
+    stale = _decided(subject, "approved", linked=["853518"], reserve_price=2900000)
+    result = match_listings([subject], ours, decisions=stale)
+    assert [(a.auction_id, a.reason) for a in result.ambiguous] == [("bn-359756", "price_only")]
+
+
+def test_a_rule_link_to_a_listing_a_person_already_linked_is_contested():
+    decided = _bn("bn-1", borrower="Mr. Haridas P")
+    other = _bn("bn-2")
+    result = match_listings([decided, other], [_ea("841207")], decisions=_decided(decided, "approved", linked=["841207"]))
+    assert [(p.a_id, p.method) for p in result.pairs if p.method == "decision"] == [("bn-1", "decision")]
+    assert [(a.auction_id, a.reason) for a in result.ambiguous] == [("bn-2", "contested")]
+
+
+def test_snapshot_of_reads_the_four_facts():
+    assert snapshot_of(_bn("bn-1")) == {"bank": "bank indian overseas", "reserve_price": 4626500,
+                                        "borrower": "n mariappan", "auction_day": "2026-09-24"}
