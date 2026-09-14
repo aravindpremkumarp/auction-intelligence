@@ -1,0 +1,156 @@
+"""
+pipeline/notice_pages.py
+------------------------
+Two files, one notice — group the pages so extraction reads them together.
+
+Why this exists
+~~~~~~~~~~~~~~~
+Some banks publish a sale notice as two images, page 1 and page 2, and the
+portal attaches both to every listing the notice covers. Each file is its own
+:Document, so page 2 is OCR'd, classified and extracted as a notice of its own —
+with no preamble, no bank and no idea it is the tail of a longer list. liq-2…
+was counted at 10 lots by a reviewer and extracted as 1.
+
+The portal already knows the order: ``AuctionProperty.downloads_list`` lists
+the files as they appear on the listing page, page 1 first. That order, plus
+"the same files on the same listings", is the whole detection rule.
+
+Two functions, both pure:
+
+``page_groups(rows)``   — which files are pages of one notice, in what order.
+``stitch_pages(pages)`` — the joined text and where each page starts in it.
+
+What this is not
+~~~~~~~~~~~~~~~~
+Not a twin detector. ``pipeline/notice_twins.py`` groups files holding the
+SAME bytes; this groups files holding DIFFERENT bytes that belong together. A
+twin of a page is carried along in ``twins`` so the caller can point it at the
+leader, but it is never a page of its own.
+
+DB-free on purpose: the caller (``scripts/stitch_sibling_pages.py``) owns the
+Cypher; the decisions live here where a unit test can reach them.
+"""
+from __future__ import annotations
+
+from collections import defaultdict
+
+#: Pages are joined with this. Fixed, because extraction offsets are positions
+#: in the joined string and ``stitched_page_offsets`` is derived from it.
+SEPARATOR = "\n\n"
+
+
+def page_groups(rows: list[dict]) -> tuple[list[dict], list[dict]]:
+    """Group listing/document rows into ordered page groups.
+
+    ``rows`` — one per (listing, document) edge:
+        ``{"listing", "filename", "content_key", "position"}``
+        where ``position`` is the file's index in that listing's
+        ``downloads_list`` (None when absent).
+
+    Returns ``(groups, ambiguous)``:
+
+    * group     — ``{"pages": [filenames, page 1 first], "twins": [filenames]}``
+                  ``twins`` are files whose bytes equal one of the pages.
+    * ambiguous — ``{"filenames": [...], "reason": str}`` for a candidate that
+                  failed a check. Nothing is guessed: the reviewer forces or
+                  drops it by name.
+
+    A candidate is every listing carrying two or more distinct contents. It
+    becomes a group only when every page sits on exactly the same listings and
+    every listing lists the pages in the same order.
+    """
+    by_listing: dict[str, list[dict]] = defaultdict(list)
+    doc_listings: dict[str, set[str]] = defaultdict(set)
+    for r in rows:
+        by_listing[r["listing"]].append(r)
+        doc_listings[r["filename"]].add(r["listing"])
+
+    # candidate key (ordered page tuple) -> set of listings proposing it
+    candidates: dict[tuple[str, ...], set[str]] = defaultdict(set)
+    twins_for: dict[tuple[str, ...], set[str]] = defaultdict(set)
+    ambiguous: list[dict] = []
+    flagged: set[frozenset] = set()
+
+    def flag(names: list[str], reason: str) -> None:
+        key = frozenset(names)
+        if key in flagged:
+            return
+        flagged.add(key)
+        ambiguous.append({"filenames": sorted(names), "reason": reason})
+
+    for listing, docs in by_listing.items():
+        distinct = {d["content_key"] for d in docs}
+        if len(distinct) < 2:
+            continue
+        ordered = sorted(docs, key=lambda d: (d["position"] is None,
+                                              d["position"] if d["position"] is not None else 0,
+                                              d["filename"]))
+        missing = [d["filename"] for d in ordered if d["position"] is None]
+        if missing:
+            flag([d["filename"] for d in ordered],
+                 f"{missing[0]} is not in the listing's downloads_list")
+            continue
+        pages: list[str] = []
+        twins: list[str] = []
+        seen: dict[str, str] = {}
+        for d in ordered:
+            first = seen.get(d["content_key"])
+            if first is None:
+                seen[d["content_key"]] = d["filename"]
+                pages.append(d["filename"])
+            else:
+                twins.append(d["filename"])
+        key = tuple(pages)
+        candidates[key].add(listing)
+        twins_for[key].update(twins)
+
+    # the same member set under two orders -> the listings disagree
+    by_members: dict[frozenset, list[tuple[str, ...]]] = defaultdict(list)
+    for key in candidates:
+        by_members[frozenset(key)].append(key)
+
+    groups: list[dict] = []
+    for members, keys in by_members.items():
+        if len(keys) > 1:
+            flag(list(members), "order differs across listings")
+            continue
+        key = keys[0]
+        leader = key[0]
+        base = doc_listings[leader]
+        bad = next((fn for fn in key[1:] if doc_listings[fn] != base), None)
+        if bad is not None:
+            flag(list(key), f"listing sets differ: {leader} is on {len(base)}, "
+                            f"{bad} is on {len(doc_listings[bad])}")
+            continue
+        groups.append({"pages": list(key), "twins": sorted(twins_for[key])})
+    groups.sort(key=lambda g: g["pages"][0])
+    ambiguous.sort(key=lambda a: a["filenames"][0])
+    return groups, ambiguous
+
+
+def stitch_pages(pages: list[dict]) -> dict:
+    """Join page texts in order. Returns ``{"markdown", "offsets", "expected_lot_count"}``.
+
+    Page text is used exactly as stored — no strip, no normalisation — because
+    a follower's own blocks and highlights still index its own markdown, and a
+    reviewer comparing the two must see the same characters.
+
+    ``expected_lot_count`` is the sum of the pages' counts, or None when any
+    page has none: a partial sum would tell the model to find fewer lots than
+    the notice holds, which is the very bug this module exists to fix.
+    """
+    parts: list[str] = []
+    offsets: list[int] = []
+    pos = 0
+    for i, p in enumerate(pages):
+        if i:
+            parts.append(SEPARATOR)
+            pos += len(SEPARATOR)
+        offsets.append(pos)
+        md = p.get("markdown") or ""
+        parts.append(md)
+        pos += len(md)
+    counts = [p.get("expected_lot_count") for p in pages]
+    total = sum(int(c) for c in counts) if counts and all(c is not None for c in counts) else None
+    return {"markdown": "".join(parts), "offsets": offsets,
+            "expected_lot_count": total}
