@@ -12,7 +12,7 @@ import pytest
 from pipeline.match_confidence import CONFIRMED, INFERRED, PROBABLE
 from sources.match import (
     Candidate, boundary_matches, candidate_from_graph, candidate_from_row, day_of,
-    extract_boundaries, extract_identifiers, find_same_listing_pairs, normalize_identifier_value,
+    extract_boundaries, extract_identifiers, find_same_listing_pairs, match_listings, normalize_identifier_value,
 )
 
 # be-236961, Hinduja Housing Finance, Tirupattur — the description carries all four sides
@@ -226,16 +226,99 @@ def test_two_new_portals_match_each_other_but_the_graph_never_matches_itself():
         candidate_from_graph(_graph("910001", bank="Canara Bank", reserve=4890000.0, day="2026-10-16", borrower="Suresh R")),
         candidate_from_graph(_graph("910002", bank="Canara Bank", reserve=4890000.0, day="2026-10-16", borrower="Suresh R")),
     ]
-    pairs = find_same_listing_pairs(inc, ext)
-    ids = {tuple(sorted((p.a_id, p.b_id))) for p in pairs}
-    assert ("910001", "910002") not in ids
-    assert ("be-7", "bn-7") in ids
-    assert all(p.method == "borrower" for p in pairs) and len(pairs) == 5
+    result = match_listings(inc, ext)
+    assert [(p.a_id, p.b_id, p.method) for p in result.pairs] == [("bn-7", "be-7", "borrower")]
+    # two graph listings the evidence cannot tell apart: neither portal listing is guessed onto one
+    assert {(a.auction_id, a.other_source, a.candidates, a.reason) for a in result.ambiguous} == {
+        ("bn-7", "eauctionsindia", ("910001", "910002"), "tied"),
+        ("be-7", "eauctionsindia", ("910001", "910002"), "tied"),
+    }
 
 
-def test_pairs_are_sorted_strongest_first_and_unique():
+def test_evidence_narrows_the_bucket_to_one_partner():
     inc = [candidate_from_row(_row("bn-1", "baanknet", bank="Indian Bank", reserve=100000.0, day="2026-09-25", borrower="A B"))]
     ext = [candidate_from_graph(_graph("1", bank="Indian Bank", reserve=100000.0, day="2026-09-25")),
            candidate_from_graph(_graph("2", bank="Indian Bank", reserve=100000.0, day="2026-09-25", borrower="A B"))]
-    pairs = find_same_listing_pairs(inc, ext)
-    assert [(p.b_id, p.method) for p in pairs] == [("2", "borrower"), ("1", "bucket_only")]
+    result = match_listings(inc, ext)
+    assert [(p.b_id, p.method) for p in result.pairs] == [("2", "borrower")]
+    assert result.ambiguous == []
+
+
+GUNASEKARAN_FF1 = "All the piece and parcel of Residential Flat FF1 measuring 1100 Sq.ft. in First Floor, S.No 31/2"
+GUNASEKARAN_FF2 = "All the piece and parcel of Residential Flat FF2 measuring 1100 Sq.ft. in First Floor, S.No 31/2"
+SELVARANI_PLOT = "All that piece and parcel of land Plot-A, measuring 1657 sq.ft., S.No 31/2"
+
+
+def test_a_survey_number_the_whole_batch_shares_is_not_evidence():
+    """853780/853781/855959 and bn-350805/bn-350808 (Indian Bank, 2026-09-16):
+    one survey number under a borrower's two flats and a neighbour's plot. The
+    flat number and the borrower decide; the shared survey number linked
+    Selvarani's plot to Gunasekaran's flats before."""
+    inc = [
+        candidate_from_row(_row("bn-350805", "baanknet", bank="Indian Bank", reserve=2700000.0, day="2026-09-16",
+                                borrower="GUNASEKARAN", text=GUNASEKARAN_FF1)),
+        candidate_from_row(_row("bn-350808", "baanknet", bank="Indian Bank", reserve=2680000.0, day="2026-09-16",
+                                borrower="SELVARANI", text=SELVARANI_PLOT)),
+    ]
+    ext = [
+        candidate_from_graph({**_graph("853781", bank="Indian Bank", reserve=2700000.0, day="2026-09-16", borrower="Mr. R. Gunasekaran"),
+                              "identifiers": [["flat", "ff1"], ["survey_old", "31/2"]]}),
+        candidate_from_graph({**_graph("855959", bank="Indian Bank", reserve=2700000.0, day="2026-09-16", borrower="Mr. R. Gunasekaran"),
+                              "identifiers": [["flat", "ff2"], ["survey_old", "31/2"]]}),
+        candidate_from_graph({**_graph("853780", bank="Indian Bank", reserve=2680000.0, day="2026-09-16", borrower="Mrs. S. Selvarani"),
+                              "identifiers": [["survey_old", "31/2"]]}),
+    ]
+    result = match_listings(inc, ext)
+    assert [(p.a_id, p.b_id, p.method, p.evidence) for p in result.pairs] == [
+        ("bn-350805", "853781", "identifier", "same flat number ff1"),
+        ("bn-350808", "853780", "borrower", "borrower 'SELVARANI' ~ 'Mrs. S. Selvarani'"),
+    ]
+
+
+def test_a_short_unit_number_needs_the_borrower_to_agree():
+    """bn-356042 / 863627: "Flat No.G1" on both, different borrowers — G1 is on
+    half the blocks in Chennai. Without corroboration it is not identity; the
+    bucket alone still says 'possibly the same' (INFERRED, never merged)."""
+    inc = [candidate_from_row(_row("bn-356042", "baanknet", bank="Canara Bank", reserve=3850000.0, day="2026-09-22",
+                                   borrower="ANANDHAN SRINIVASAN", text="Residential Flat Flat No.G1, Ground Floor Annamalai Nagar"))]
+    ext = [candidate_from_graph({**_graph("863627", bank="Canara Bank", reserve=3860000.0, day="2026-09-22", borrower="Mrs. V.Monisha"),
+                                 "identifiers": [["flat", "g1"]]})]
+    [p] = find_same_listing_pairs(inc, ext)
+    assert (p.method, p.confidence) == ("bucket_only", INFERRED)
+
+    agreeing = [candidate_from_graph({**_graph("840387", bank="Canara Bank", reserve=3850000.0, day="2026-09-22",
+                                                borrower="Mr. Anandhan Srinivasan"), "identifiers": [["flat", "g1"]]})]
+    [p] = find_same_listing_pairs(inc, agreeing)
+    assert (p.method, p.evidence) == ("identifier", "same flat number g1")
+
+
+def test_two_listings_choosing_one_partner_are_both_left_unresolved():
+    """A batch sale of two properties on BAANKNET against one eauctionsindia
+    listing: one of them is it, the other is not, and nothing says which."""
+    inc = [
+        candidate_from_row(_row("bn-1", "baanknet", bank="Indian Overseas Bank", reserve=4626500.0, day="2026-09-24", borrower="N Mariappan")),
+        candidate_from_row(_row("bn-2", "baanknet", bank="Indian Overseas Bank", reserve=4626500.0, day="2026-09-24", borrower="N Mariappan")),
+    ]
+    ext = [candidate_from_graph(_graph("841207", bank="Indian Overseas Bank", reserve=4626500.0, day="2026-09-24", borrower="Mr. N. Mariappan"))]
+    result = match_listings(inc, ext)
+    assert result.pairs == []
+    assert [(a.auction_id, a.candidates, a.reason) for a in result.ambiguous] == [
+        ("bn-1", ("841207",), "contested"), ("bn-2", ("841207",), "contested")]
+
+
+def test_a_batch_the_evidence_cannot_separate_is_tied_not_linked_all_to_all():
+    inc = [candidate_from_row(_row("bn-353991", "baanknet", bank="Indian Bank", reserve=13500000.0, day="2026-09-28",
+                                   borrower="FUTURISTIC GLOBAL RESOURCES PRIVATE LIMITED"))]
+    ext = [candidate_from_graph(_graph(aid, bank="Indian Bank", reserve=13500000.0, day="2026-09-28",
+                                       borrower="M/s Futuristic Global Resources Private Limited")) for aid in ("855475", "855476")]
+    result = match_listings(inc, ext)
+    assert result.pairs == []
+    assert [(a.auction_id, a.candidates, a.reason) for a in result.ambiguous] == [("bn-353991", ("855475", "855476"), "tied")]
+
+
+def test_a_listing_both_sides_already_hold_is_one_candidate():
+    """After the load, a harvested row is also in the graph under the same id."""
+    row = candidate_from_row(_row("bn-9", "baanknet", bank="Indian Bank", reserve=100000.0, day="2026-09-25", borrower="A B"))
+    graph_copy = candidate_from_graph(_graph("bn-9", bank="Indian Bank", reserve=100000.0, day="2026-09-25", borrower="A B", source="baanknet"))
+    ea = candidate_from_graph(_graph("7", bank="Indian Bank", reserve=100000.0, day="2026-09-25", borrower="A B"))
+    assert [(p.a_id, p.b_id) for p in find_same_listing_pairs([row], [graph_copy, ea])] == [("bn-9", "7")]
