@@ -86,6 +86,15 @@ def test_only_forces_an_ambiguous_group_by_its_leader():
     assert ambiguous == []
 
 
+def test_only_rejects_follower_name_and_keeps_group_ambiguous():
+    # Regression: naming a follower instead of the leader should not silently drop the group.
+    rows = _rows() + [{"listing": "L3", "filename": "p1.jpg", "content_key": "s1", "position": 0}]
+    groups, ambiguous = S.plan(rows, only={"p2.jpg"}, skip=set())
+    assert groups == []  # no groups (p2.jpg is not a leader)
+    # The p1.jpg/p2.jpg entry should remain in ambiguous, not vanish
+    assert any("p1.jpg" in a["filenames"] and "p2.jpg" in a["filenames"] for a in ambiguous)
+
+
 # ── writes ──────────────────────────────────────────────────────────────────
 
 def test_apply_writes_leader_fields_and_follower_pointer(monkeypatch):

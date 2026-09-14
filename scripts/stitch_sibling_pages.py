@@ -114,21 +114,22 @@ def plan(rows: list[dict], only: set[str] | None,
     groups, ambiguous = page_groups(rows)
     if only:
         forced: list[dict] = []
-        rest: list[dict] = []
+        remaining_ambiguous: list[dict] = []
         for amb in ambiguous:
-            if amb["filenames"][0] in only or any(f in only for f in amb["filenames"]):
-                # take the members in their position order on the first listing
-                # that carries them all
-                pos = {}
-                for r in rows:
-                    if r["filename"] in amb["filenames"] and r["position"] is not None:
-                        pos.setdefault(r["filename"], r["position"])
-                ordered = sorted(amb["filenames"], key=lambda f: (pos.get(f, 1 << 30), f))
+            # take the members in their position order on the first listing
+            # that carries them all
+            pos = {}
+            for r in rows:
+                if r["filename"] in amb["filenames"] and r["position"] is not None:
+                    pos.setdefault(r["filename"], r["position"])
+            ordered = sorted(amb["filenames"], key=lambda f: (pos.get(f, 1 << 30), f))
+            # Force the group only if the actual leader (ordered[0]) is in --only
+            if ordered[0] in only:
                 forced.append({"pages": ordered, "twins": []})
             else:
-                rest.append(amb)
+                remaining_ambiguous.append(amb)
         groups = [g for g in groups + forced if g["pages"][0] in only]
-        ambiguous = rest
+        ambiguous = remaining_ambiguous
     if skip:
         groups = [g for g in groups
                   if not (set(g["pages"]) | set(g["twins"])) & skip]
