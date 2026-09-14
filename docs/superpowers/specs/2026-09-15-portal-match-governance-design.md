@@ -68,6 +68,13 @@ built rule may confirm slightly more and send slightly fewer to review):
 "New" still includes re-auctions of properties the graph already holds on a different
 day; linking those is `scripts/link_reauctions.py`'s job, unchanged.
 
+Built rule, 2026-09-14 snapshot:
+
+```
+baanknet       rows 658  already loaded 0  new 192  review 111 (batch 23, borrower_only 6, contested 4, price_only 73, units_disagree 5)  confirmed 355 (four_fields 348, unit_number 7, decision 0)
+bankeauctions  rows 190  already loaded 0  new 75  review 6 (borrower_only 2, price_only 4)  confirmed 109 (four_fields 109, unit_number 0, decision 0)
+```
+
 The notice-file, boundary, survey-number and description clues from #472 no longer
 decide anything; they are shown to the reviewer as supporting detail.
 
@@ -75,8 +82,8 @@ decide anything; they are shown to the reviewer as supporting detail.
 
 ### `sources/match.py` — the rule (pure)
 
-- Replace the evidence tiers with the rule above. Keep: `Candidate` (add
-  `emd_num`, `title`, `description`, `city` for display), `day_of`,
+- Replace the evidence tiers with the rule above. Keep: `Candidate` (display fields in
+  one `info` dict the rule never reads), `day_of`,
   `extract_identifiers`, `_unit_key`, `_twin_groups`, `borrower_matches`,
   `Ambiguity` (field `reason` takes the review reasons above), `MatchResult`.
 - `match_listings(incoming, existing, *, decisions=()) -> MatchResult` returns
@@ -92,9 +99,10 @@ decide anything; they are shown to the reviewer as supporting detail.
 
 ### Decisions — `pipeline/resolution_review.py`, `api/review/queries.py`
 
-- New kind `portal-match` in `KINDS`; `portal_match_key(subject_id) ->
-  "portal-match:{subject_id}"` (one decision per subject).
-- Payload: `{"subject_id", "linked_ids": [...], "rejected_ids": [...],
+- New kind `portal-match` in `KINDS`; `portal_match_key(subject_id, other_source) ->
+  "portal-match:{subject_id}:{other_source}"` (one decision per subject per other
+  source — one review row).
+- Payload: `{"subject_id", "other_source", "linked_ids": [...], "rejected_ids": [...],
   "snapshot": {"bank", "reserve_price", "borrower", "auction_day"}, "note",
   "spot_check": bool}`.
 - Verdicts:
@@ -112,11 +120,12 @@ decide anything; they are shown to the reviewer as supporting detail.
 
 ### Review queue — `api/review/queries.py`, `api/review/router.py`, `web/review.html`
 
-- `_portal_match_candidates(decisions)` builds rows by running `match_listings` over
-  the graph (the same code that writes links — one answer, never two), returning
-  every subject in review plus the day's spot-check rows. Served in the existing
-  `GET /review/resolution` response as a new panel; decisions go through the existing
-  `POST /review/resolution/decide` and `/undo`.
+- `scripts/link_listings.py` — the code that writes the links — stores the review rows
+  (every subject in review plus the day's spot-check rows) on
+  `(:PipelineState {key:'link_listings'}).review_json`; `--queue-only` stores them without
+  writing edges. `_portal_matches(decisions)` serves those rows in the existing
+  `GET /review/resolution` response, hiding any whose subject has a decision on the same
+  snapshot. Decisions go through the existing `POST /review/resolution/decide` and `/undo`.
 - Layout A (chosen in the mockup):
   - tabs by reason with counts (All · price_only · batch · borrower_only ·
     units_disagree · contested · spot-check);
@@ -137,13 +146,14 @@ and exits non-zero with the reason:
 1. no candidate listing is linked (CONFIRMED) by two subjects of the same source;
 2. `scripts/audit_listing_links.same_source_clusters` over the CONFIRMED pairs finds no
    cluster whose same-source members differ in villa/flat/plot numbers or reserve price;
-3. per source, confirmed + review + new equals the number of subjects.
+3. no listing is both CONFIRMED-linked and in review against the same other source.
 
 ### Spot-check
 
-Each linking run selects 10 CONFIRMED `four_fields`/`unit_number` pairs whose subject
-has no `portal-match` decision yet (deterministic: sorted by subject id, sampled with
-the run date as seed) and lists them in the queue under the spot-check tab. Links are
+Each linking run selects 10 CONFIRMED `four_fields`/`unit_number` (subject, other
+source) pairs with no `portal-match` decision for that pair yet (deterministic:
+sorted by pair, sampled with the run date as seed); each becomes its own spot-check
+row and lists them in the queue under the spot-check tab. Links are
 rewritten every run, so "not yet spot-checked" is read from the decisions, not from
 edge history. They stay linked; a **Not the same**
 verdict stores a rejected decision, so the next run removes the link and never
@@ -171,7 +181,7 @@ Pure tests, no database (`tests/sources/test_match.py`, `tests/pipeline/test_res
 - Ekadanta Enterprises (`bn-359636` vs `842118`/`842546`/`844968`) → review `batch`.
 - A batch where one candidate's flat number matches the subject → `unit_number` CONFIRMED.
 - Four fields agree but plot 45 vs plots 44/47 → review `units_disagree`.
-- "Shylaja K" vs "Mrs Sailaja.K", same price → `four_fields` CONFIRMED.
+- "N MARIAPPAN" vs "Mr. N. Mariappan", same bank, day and price → `four_fields` CONFIRMED.
 - Two subjects agreeing with one candidate → both review `contested`.
 - Decisions: approve with two ticks links both; reject removes the pair and the subject
   becomes new; undo reopens; a changed reserve price in the snapshot reopens.
