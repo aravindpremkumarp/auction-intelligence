@@ -134,3 +134,10 @@ def test_fetch_reads_the_stitched_text_and_skips_followers(monkeypatch):
     assert "coalesce(d.stitched_markdown, d.markdown) AS md" in cap.cypher
     assert ("coalesce(d.stitched_expected_lot_count, d.expected_lot_count) "
             "AS expected_lot_count") in cap.cypher
+
+
+def test_find_donor_never_copies_a_stale_followers_extraction(monkeypatch):
+    cap = _Capture()
+    monkeypatch.setattr(M, "run_read_query", cap)
+    M._find_donor("abc")
+    assert "d.stitched_into IS NULL" in cap.cypher
