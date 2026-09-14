@@ -37,12 +37,13 @@ def chunked(seq, n):
 
 
 def load_unscored(force: bool) -> list[dict]:
-    where = "d.extraction_json IS NOT NULL"
+    where = "d.extraction_json IS NOT NULL AND d.stitched_into IS NULL"
     if not force:
         where += " AND d.extraction_score IS NULL"
     return run_read_query(
         f"MATCH (d:Document) WHERE {where} "
-        "RETURN d.filename AS filename, d.markdown AS md, "
+        "RETURN d.filename AS filename, "
+        "       coalesce(d.stitched_markdown, d.markdown) AS md, "
         "       d.extraction_json AS ej ORDER BY d.filename",
         max_rows=20_000, timeout=120.0)
 

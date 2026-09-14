@@ -148,7 +148,8 @@ def _find_donor(md: str) -> dict | None:
         "MATCH (d:Document) "
         "WHERE d.extraction_json IS NOT NULL "
         "  AND d.stitched_into IS NULL "
-        "  AND size(d.markdown) = $len AND d.markdown = $md "
+        "  AND size(coalesce(d.stitched_markdown, d.markdown)) = $len "
+        "  AND coalesce(d.stitched_markdown, d.markdown) = $md "
         "RETURN d.filename AS filename, d.extraction_json AS j, "
         "       d.extraction_score AS score, d.extraction_model AS model "
         "ORDER BY d.filename LIMIT 1",

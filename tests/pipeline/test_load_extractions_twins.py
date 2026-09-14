@@ -141,3 +141,16 @@ def test_find_donor_never_copies_a_stale_followers_extraction(monkeypatch):
     monkeypatch.setattr(M, "run_read_query", cap)
     M._find_donor("abc")
     assert "d.stitched_into IS NULL" in cap.cypher
+
+
+def test_find_donor_matches_on_the_stitched_text(monkeypatch):
+    """A stitched leader's `markdown` is still plain page 1, but its extraction
+    indexes the joined text. Matching on `markdown` would hand that extraction
+    to a plain page-1 twin whose offsets it does not fit."""
+    cap = _Capture()
+    monkeypatch.setattr(M, "run_read_query", cap)
+    M._find_donor("abc")
+    assert "size(coalesce(d.stitched_markdown, d.markdown)) = $len" in cap.cypher
+    assert "coalesce(d.stitched_markdown, d.markdown) = $md" in cap.cypher
+    assert "d.markdown = $md" not in cap.cypher
+    assert "size(d.markdown)" not in cap.cypher
