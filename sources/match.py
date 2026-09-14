@@ -180,6 +180,7 @@ _IDENT = re.compile(
     r"|villa(?:\s+no\.?s?)?"
     r")\s*[:.\-]?\s*"
     r"(?P<value>(?:\d+[A-Za-z]?|[A-Za-z]{1,2}\d+)(?:\s*(?:/|by|-)\s*\d*[A-Za-z]?\d*)*)"
+    r"(?![a-z])"
     r"(?![\d.]*\s*(?:sq|sft|cents?\b|acres?\b))",
     re.IGNORECASE,
 )

@@ -73,6 +73,9 @@ def test_boundary_matches_needs_three_sides_and_tolerates_containment():
     ("All the piece and parcel of Residential Flat FF1 measuring 1100 Sq.ft. in First Floor", {("flat", "ff1")}),
     # an area after "flat" is not a flat number
     ("2 BHK flat 1100 sq.ft in the first floor", set()),
+    # ordinal floor/phase numbers are not unit identifiers
+    ("Residential flat 5th floor of the building, door no 45", {("door", "45")}),
+    ("Villa 3rd phase of the layout", set()),
 ])
 def test_extract_identifiers(text, expected):
     assert extract_identifiers(text) == expected
