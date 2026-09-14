@@ -134,6 +134,8 @@ def test_queues_filter_decided_rows_at_read_time(monkeypatch):
             return {"pj": json.dumps(branch_props)}
         if "place_resolution" in cypher:
             return {"cj": json.dumps(conflicts)}
+        if "link_listings" in cypher:
+            return {"rj": json.dumps([])}
         raise AssertionError(f"unexpected count: {cypher[:60]}")
 
     monkeypatch.setattr(q, "run_read_query", fake_read)
@@ -522,3 +524,39 @@ def test_portal_match_decision_refuses_bad_payloads(monkeypatch):
         q.record_resolution_decision("portal-match", {"subject_id": "bn-1", "other_source": "eauctionsindia",
                                                        "linked_ids": ["2"], "rejected_ids": []},
                                      "approved", by_email="x")
+
+
+def _stored_row(subject_id, snapshot, reason="price_only"):
+    listing = {"auction_id": subject_id, "source": "baanknet", "bank": "Indian Bank", "borrower": "A R R TEX",
+               "reserve": 2944000.0, "emd": 294400.0, "auction_day": "2026-09-25", "city": "Salem", "district": None,
+               "title": "Land and Residential Building", "description": "SF no.97/6A1", "url": "https://baanknet.com/x",
+               "public_url": None}
+    return {"subject": listing, "other_source": "eauctionsindia", "reason": reason,
+            "candidates": [{**listing, "auction_id": "853518", "source": "eauctionsindia", "borrower": "M/s ARR Tex"}],
+            "spot_check": False, "snapshot": snapshot}
+
+
+def test_portal_matches_hide_rows_with_a_current_decision(monkeypatch):
+    from pipeline.resolution_review import decision_key
+
+    snap = {"bank": "bank indian", "reserve_price": 2944000, "borrower": "a r r tex", "auction_day": "2026-09-25"}
+    stored = [_stored_row("bn-1", snap), _stored_row("bn-2", snap), _stored_row("bn-3", snap)]
+    monkeypatch.setattr(q, "_count_query", lambda cypher, params=None: {"rj": json.dumps(stored)})
+
+    def decision(subject, snapshot):
+        payload = {"subject_id": subject, "other_source": "eauctionsindia", "linked_ids": ["853518"],
+                   "rejected_ids": [], "snapshot": snapshot}
+        return {"key": decision_key("portal-match", payload), "kind": "portal-match", "verdict": "approved", "payload": payload}
+
+    decisions = [decision("bn-1", snap), decision("bn-2", {**snap, "reserve_price": 1})]   # bn-2's facts changed
+    rows = q._portal_matches(decisions)
+    assert [r["subject"]["auction_id"] for r in rows] == ["bn-2", "bn-3"]
+
+
+def test_portal_match_rows_fit_the_response_model():
+    from api.review.router import PortalMatchRow
+
+    snap = {"bank": "bank indian", "reserve_price": 2944000, "borrower": "a r r tex", "auction_day": "2026-09-25"}
+    row = PortalMatchRow(**_stored_row("bn-1", snap))
+    assert row.subject.auction_id == "bn-1" and row.candidates[0].borrower == "M/s ARR Tex"
+    assert row.snapshot == snap and row.reason == "price_only"

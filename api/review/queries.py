@@ -2073,6 +2073,7 @@ def resolution_review() -> dict:
     lot_matches = _lot_match_candidates(decisions)
     price_checks = _price_checks(decisions)
     area_checks = _area_checks(decisions)
+    portal_matches = _portal_matches(decisions)
 
     return {
         "bank_pairs": bank_pairs,
@@ -2082,11 +2083,12 @@ def resolution_review() -> dict:
         "lot_matches": lot_matches,
         "price_checks": price_checks,
         "area_checks": area_checks,
+        "portal_matches": portal_matches,
         "decided": len(decisions),
         "open": (len(bank_pairs) + len(branch_pairs)
                  + len(district_conflicts) + len(unmatched_villages)
                  + len(lot_matches) + len(price_checks)
-                 + len(area_checks)),
+                 + len(area_checks) + len(portal_matches)),
     }
 
 
@@ -2096,6 +2098,34 @@ def resolution_review() -> dict:
 #: still bounding the query if the backlog ever grows past what one page
 #: should show at once.
 _LOT_MATCH_LIMIT = 200
+
+
+#: Cap on portal-match rows in one queue load (135 measured on the first harvest).
+_PORTAL_MATCH_LIMIT = 400
+
+
+def _portal_matches(decisions: list[dict]) -> list[dict]:
+    """Portal listings waiting for a person, as `scripts/link_listings.py` —
+    the code that writes the links — stored them on its last run. A row whose
+    subject already has a decision on the same facts is settled and hidden;
+    a decision on facts that since changed does not hide it."""
+    import json as _json
+
+    from pipeline.resolution_review import portal_decisions
+
+    state = _count_query("MATCH (s:PipelineState {key:'link_listings'}) RETURN s.review_json AS rj")
+    try:
+        rows = _json.loads(state.get("rj") or "[]")
+    except (TypeError, ValueError):
+        rows = []
+    decided = portal_decisions(decisions)
+    out = []
+    for r in rows:
+        d = decided.get(((r.get("subject") or {}).get("auction_id"), r.get("other_source")))
+        if d and d["snapshot"] == r.get("snapshot"):
+            continue
+        out.append(r)
+    return out[:_PORTAL_MATCH_LIMIT]
 
 
 def _lot_match_candidates(decisions: list[dict]) -> list[dict]:
@@ -2474,6 +2504,7 @@ def _resolution_review_panels() -> list[dict]:
             # rows it never showed.
             ("prices that disagree", len(queues["price_checks"])),
             ("sizes that contradict", len(queues["area_checks"])),
+            ("portal matches to review", len(queues["portal_matches"])),
         ], max(queues["open"], 1)),
                "each row on the review queue settles every notice it touches"),
         _panel("Verdicts banked", _rows(
