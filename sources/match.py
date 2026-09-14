@@ -497,16 +497,14 @@ def _assign(side_a: list[Candidate], side_b: list[Candidate], new_ids: set[str])
     order = {m: i for i, m in enumerate(METHODS)}
 
     def tied(group_x: list[Candidate], tied_groups: list[list[Candidate]]) -> list[Ambiguity]:
-        if group_x[0].auction_id not in new_ids:
-            return []
         others = tuple(sorted(y.auction_id for g in tied_groups for y in g))
-        return [Ambiguity(group_x[0].auction_id, group_x[0].source, tied_groups[0][0].source, others, "tied")]
+        return [Ambiguity(x.auction_id, x.source, tied_groups[0][0].source, others, "tied")
+                for x in group_x if x.auction_id in new_ids]
 
     def contested(group_x: list[Candidate], partner_group: list[Candidate]) -> list[Ambiguity]:
-        if group_x[0].auction_id not in new_ids:
-            return []
         others = tuple(sorted(y.auction_id for y in partner_group))
-        return [Ambiguity(group_x[0].auction_id, group_x[0].source, partner_group[0].source, others, "contested")]
+        return [Ambiguity(x.auction_id, x.source, partner_group[0].source, others, "contested")
+                for x in group_x if x.auction_id in new_ids]
 
     pairs: list[Pair] = []
     ambiguous: list[Ambiguity] = []

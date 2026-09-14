@@ -381,3 +381,23 @@ def test_duplicate_postings_of_one_villa_pair_with_its_portal_listing():
         ("bn-353994", "855475", "identifier"), ("bn-353994", "855589", "identifier"),
     ]
     assert result.ambiguous == []
+
+
+def test_every_posting_of_an_unresolved_unit_is_reported():
+    """eauctionsindia posted villa 18 twice; two BAANKNET listings with no unit
+    number both claim it. Nothing can be decided, and every listing — both
+    postings included — is reported."""
+    ea = [candidate_from_row(_row(aid, "eauctionsindia", bank="Indian Bank", reserve=13500000.0, day="2026-09-28",
+                                  borrower="Futuristic Global Resources Private Limited", text="Villa No.18, Fabiola Block"))
+          for aid in ("855475", "855589")]
+    bn = [candidate_from_row(_row(aid, "baanknet", bank="Indian Bank", reserve=13500000.0, day="2026-09-28",
+                                  borrower="FUTURISTIC GLOBAL RESOURCES PRIVATE LIMITED"))
+          for aid in ("bn-1", "bn-2")]
+    result = match_listings(bn + ea, [])
+    assert result.pairs == []
+    assert [(a.auction_id, a.candidates, a.reason) for a in result.ambiguous] == [
+        ("855475", ("bn-1", "bn-2"), "tied"),
+        ("855589", ("bn-1", "bn-2"), "tied"),
+        ("bn-1", ("855475", "855589"), "contested"),
+        ("bn-2", ("855475", "855589"), "contested"),
+    ]
