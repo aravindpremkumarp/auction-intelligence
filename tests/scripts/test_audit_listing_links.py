@@ -2,9 +2,12 @@
 from scripts.audit_listing_links import same_source_clusters
 
 
+def _src(aid):
+    return "baanknet" if aid.startswith("bn-") else "eauctionsindia"
+
+
 def _p(a, b, conf="PROBABLE"):
-    src = lambda x: "baanknet" if x.startswith("bn-") else "eauctionsindia"
-    return {"a_id": a, "b_id": b, "a_source": src(a), "b_source": src(b), "method": "borrower", "confidence": conf}
+    return {"a_id": a, "b_id": b, "a_source": _src(a), "b_source": _src(b), "method": "borrower", "confidence": conf}
 
 
 def test_only_strong_clusters_with_two_listings_of_one_portal_are_reported():
