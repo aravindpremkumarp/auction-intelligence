@@ -121,7 +121,16 @@ leader (and its byte twins), never on a follower.
 rises from 30000 to 64000 characters. The largest stitched pair is 39k; at
 30k the stitch would be cut back into two windows by LangExtract itself.
 `pipeline/lot_windows.py` stays as the repair for anything still over the
-ceiling. Existing tests that assume 30000 pass the ceiling explicitly.
+ceiling. Its tests build fixtures around a hard-coded `BUFFER = 30000`; they
+change to derive that constant from `char_buffer_for` so the repair logic is
+tested against whatever the ceiling is.
+
+Side effect to handle in the backfill: `renumber_window_lots` only repairs a
+stored extraction when the notice is longer than the window it would get
+*now*. Raising the ceiling means the 20 notices between 30k and 64k that were
+extracted in two windows are no longer eligible for repair, so they must be
+re-extracted (single window) in the same backfill, using the reset script's
+`--extracted-before` selector with the timestamp of the ceiling change.
 
 **Apply and promote (`pipeline/apply_extractions.py`,
 `pipeline/promote_extractions.py`):** skip Documents with `stitched_into`.
@@ -167,7 +176,10 @@ the leader already links every listing in the group.
 2. `--apply` (writes 14 leaders and 14 followers, stamps stale on leaders).
 3. `reset_langextract_and_extract.py --stale` (also picks up the 8 rows already
    flagged stale by classification changes).
-4. Apply and promote as usual; re-verify the leaders in the extraction queue.
+4. `reset_langextract_and_extract.py --extracted-before <ceiling change time>`
+   restricted to notices over 30k characters, so the 20 two-window
+   extractions are redone in one window.
+5. Apply and promote as usual; re-verify the leaders in the extraction queue.
 
 Each DB-writing step waits for explicit approval, per the project rule.
 
@@ -184,7 +196,8 @@ Each DB-writing step waits for explicit approval, per the project rule.
   true on a newer `extraction_stale_at`; queue query returns it.
 - `tests/api`: queue excludes followers; follower detail returns the pointer;
   leader detail returns offsets.
-- `tests/pipeline/test_extract_routing.py`: new default ceiling.
+- `tests/api/test_extract_model_routing.py` (extend): new default ceiling.
+- `tests/pipeline/test_lot_windows.py` (adjust): `BUFFER` derived from `char_buffer_for`.
 
 ## Out of scope
 
