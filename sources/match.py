@@ -385,8 +385,23 @@ def _unique_identifiers(side: list[Candidate]) -> set[tuple[str, str]]:
 
 
 def _twin_groups(side: list[Candidate]) -> list[list[Candidate]]:
-    """One group per listing."""
-    return [[c] for c in side]
+    """Listings on one portal that are postings of the same unit — equal unit
+    numbers (villa / flat / plot / door), reserve price and borrower — as one
+    group, in first-seen order. A listing that quotes no unit number is its
+    own group: without one there is nothing to say two postings are one unit."""
+    out: list[list[Candidate]] = []
+    by_key: dict[tuple, list[Candidate]] = {}
+    for c in side:
+        units = frozenset(i for i in c.identifiers if i[0] in UNIT_FAMILIES)
+        if not units:
+            out.append([c])
+            continue
+        key = (units, _round_reserve(c.reserve_price_num), borrower_key(c.borrower))
+        if key not in by_key:
+            by_key[key] = []
+            out.append(by_key[key])
+        by_key[key].append(c)
+    return out
 
 
 def _representative(group: list[Candidate]) -> Candidate:

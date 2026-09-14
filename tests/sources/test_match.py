@@ -362,3 +362,22 @@ def test_a_tie_among_unpriced_listings_is_still_reported():
     result = match_listings(inc, ext)
     assert result.pairs == []
     assert [(a.auction_id, a.candidates, a.reason) for a in result.ambiguous] == [("bn-1", ("863619", "863621"), "tied")]
+
+
+def test_duplicate_postings_of_one_villa_pair_with_its_portal_listing():
+    """Futuristic Global Resources, Indian Bank, 2026-09-28: BAANKNET lists
+    villas 18 and 19 once each; eauctionsindia posted the notice twice."""
+    def villa(aid, source, n, text_prefix="Residential Villa No."):
+        return _row(aid, source, bank="Indian Bank", reserve=13500000.0, day="2026-09-28",
+                    borrower="FUTURISTIC GLOBAL RESOURCES PRIVATE LIMITED", text=f"{text_prefix}{n}, Fabiola Block")
+    inc = [candidate_from_row(villa("bn-353994", "baanknet", 18)), candidate_from_row(villa("bn-353991", "baanknet", 19))]
+    ext = [candidate_from_graph({**_graph(aid, bank="Indian Bank", reserve=13500000.0, day="2026-09-28",
+                                          borrower="M/s Futuristic Global Resources Private Limited"),
+                                 "identifiers": [["villa", str(n)]]})
+           for aid, n in (("855475", 18), ("855589", 18), ("855476", 19), ("855590", 19))]
+    result = match_listings(inc, ext)
+    assert sorted((p.a_id, p.b_id, p.method) for p in result.pairs) == [
+        ("bn-353991", "855476", "identifier"), ("bn-353991", "855590", "identifier"),
+        ("bn-353994", "855475", "identifier"), ("bn-353994", "855589", "identifier"),
+    ]
+    assert result.ambiguous == []
