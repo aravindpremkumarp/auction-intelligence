@@ -203,7 +203,7 @@ const API_BASE=window.API_BASE||"";
 const api=(p,o={})=>(window.Auth&&window.Auth.fetchWithAuth
   ? window.Auth.fetchWithAuth(API_BASE+p,o)
   : fetch(API_BASE+p,o));
-const esc=s=>(s||"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+const esc=s=>(s||"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 function setMsg(t){document.getElementById("msg").textContent=t;setTimeout(()=>document.getElementById("msg").textContent="",2500);}
 
 // Replace the document pane with a full-width explanatory notice. Used for the
@@ -355,7 +355,8 @@ function render(){
   if(d.stitched_into){
     document.getElementById("title").textContent=d.filename;
     document.getElementById("status").innerHTML=`<span class="badge" style="background:#6366f1;color:#fff">page of a stitched notice</span>`;
-    srcEl.innerHTML=`<div style="padding:16px;color:#334155">This file is a later page of <b>${esc(d.stitched_into)}</b>. Its text and lots are reviewed there.<br><br><a href="#" onclick="loadDoc(${JSON.stringify(d.stitched_into)});return false;">Open ${esc(d.stitched_into)} →</a></div>`;
+    srcEl.innerHTML=`<div style="padding:16px;color:#334155">This file is a later page of <b>${esc(d.stitched_into)}</b>. Its text and lots are reviewed there.<br><br><a href="#" id="stitchLeaderLink">Open ${esc(d.stitched_into)} →</a></div>`;
+    document.getElementById("stitchLeaderLink").onclick=(ev)=>{ev.preventDefault();loadDoc(d.stitched_into);};
     fldEl.innerHTML="";
     const rb=document.getElementById("rerunBtn");if(rb)rb.disabled=true;
     return;
@@ -391,9 +392,14 @@ function render(){
   const sp=d.fields.filter(f=>f.start!=null&&!CONTAINER_CLASSES.has(f.cls)).map(f=>({s:f.start,e:f.end,c:f.cls,id:f.id})).sort((a,b)=>a.s-b.s);
   const md=d.markdown||"";const use=[];let upos=0;PAINTED=[];
   for(const x of sp){if(x.s<upos)continue;use.push(x);PAINTED.push(x.id);upos=x.e;}
-  // page dividers for a stitched notice: zero-width pseudo-spans at each page start
-  const brks=(d.stitched_page_offsets||[]).slice(1).map((o,i)=>({s:o,e:o,c:"__page__",id:null,n:i+2,fn:(d.stitched_pages||[])[i+1]||""}));
-  const useAll=use.concat(brks).sort((a,b)=>a.s-b.s);
+  // page dividers for a stitched notice: zero-width pseudo-spans at each page start.
+  // Drop any offset that falls strictly inside a highlighted span — splitting a
+  // mark would corrupt/duplicate that field's text in srcHtml. At an offset tied
+  // with a span boundary, the divider sorts first so it never lands mid-mark.
+  const brks=(d.stitched_page_offsets||[]).slice(1)
+    .map((o,i)=>({s:o,e:o,c:"__page__",id:null,n:i+2,fn:(d.stitched_pages||[])[i+1]||""}))
+    .filter(o=>!use.some(x=>x.s<o.s&&o.s<x.e));
+  const useAll=use.concat(brks).sort((a,b)=>a.s-b.s || (a.c==="__page__"?-1:0)-(b.c==="__page__"?-1:0));
   const rendered=mdMode()==="rendered"&&!!window.marked&&!!window.DOMPurify;
   srcEl.classList.toggle("rendered",rendered);
   srcEl.innerHTML=srcHtml(md,useAll,rendered);
