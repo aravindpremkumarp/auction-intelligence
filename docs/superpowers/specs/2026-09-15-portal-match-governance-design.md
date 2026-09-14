@@ -147,9 +147,10 @@ decide anything; they are shown to the reviewer as supporting detail.
 Before `DROP_EXISTING`, `link_listings.run` checks and, on any failure, writes nothing
 and exits non-zero with the reason:
 
-1. no candidate listing is linked (CONFIRMED) by two subjects of the same source;
-2. `scripts/audit_listing_links.same_source_clusters` over the CONFIRMED pairs finds no
-   cluster whose same-source members differ in villa/flat/plot numbers or reserve price;
+1. same-source members of one CONFIRMED cluster (`scripts/audit_listing_links.same_source_clusters`)
+   must agree on reserve price and villa/flat/plot numbers — identical twin postings pass;
+2. no PENDING review pair joins two listings that CONFIRMED links already put in one cluster
+   (a chain such as bn→ea and be→ea confirmed while bn↔be waits for review);
 3. no listing is both CONFIRMED-linked and in review against the same other source.
 
 ### Spot-check

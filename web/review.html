@@ -2001,7 +2001,7 @@
     }));
     host.querySelectorAll('.pm-tab').forEach(t => t.addEventListener('click', () => {
       const reason = t.dataset.reason;
-      host.querySelectorAll('.pm-row').forEach(r => {
+      host.querySelectorAll('.pm-row, .pm-decided').forEach(r => {
         r.hidden = reason !== 'all' && r.dataset.reason !== reason;
       });
     }));

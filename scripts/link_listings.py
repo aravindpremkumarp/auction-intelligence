@@ -78,13 +78,13 @@ def pair_rows(pairs: list[Pair]) -> list[dict]:
             for p in pairs if p.a_source != p.b_source]
 
 
-def match(records: list[dict], decisions: dict[str, dict] | None = None) -> MatchResult:
+def match(records: list[dict], decisions: dict[tuple[str, str], dict] | None = None) -> MatchResult:
     """Every cross-source verdict among the graph's listings. The whole graph
     is the ``incoming`` side so listings are compared with each other."""
     return match_listings([graph_candidate(r) for r in records], [], decisions=decisions)
 
 
-def find_pairs(records: list[dict], decisions: dict[str, dict] | None = None) -> list[Pair]:
+def find_pairs(records: list[dict], decisions: dict[tuple[str, str], dict] | None = None) -> list[Pair]:
     return match(records, decisions).pairs
 
 
@@ -188,7 +188,7 @@ def summarize(pairs: list[Pair]) -> str:
     return "\n".join(lines)
 
 
-def _load_decisions(run_query) -> dict[str, dict]:
+def _load_decisions(run_query) -> dict[tuple[str, str], dict]:
     rows = run_query(LOAD_DECISIONS)
     decisions = []
     for r in rows:

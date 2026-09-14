@@ -1,9 +1,10 @@
 """The cross-portal matcher, on values seen in the 2026-09-12 harvest.
 
-What it must get right: the same-source trap (a BAANKNET batch sale is two
-listings, never one), the strongest evidence wins, the bucket admits a 1%
-price difference but not a different day, and the graph is never matched
-against itself.
+The four-field rule: listings of different sources are compared only within
+one bank and auction day; exact reserve price and borrower on exactly one
+listing confirm; a unit number only one listing holds settles a batch; every
+partial agreement waits for review; same-source listings and graph-vs-graph
+are never compared.
 """
 from __future__ import annotations
 

@@ -15,7 +15,7 @@ per portal:
   confirmed       bank, auction day, reserve price and borrower agree on one listing
                   (four_fields), a unit number settled a batch (unit_number), or a
                   person confirmed it (decision)
-  fills           for matched listings, which of the nine core fields the
+  fills           for confirmed listings, which of the nine core fields the
                   portal has that the graph's listing lacks
   photos gained   listings with photos, split new / confirmed
 
