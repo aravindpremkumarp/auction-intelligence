@@ -192,9 +192,12 @@ def _selector_cyphers(monkeypatch):
     cap = _Capture()
     monkeypatch.setattr(R, "run_read_query", cap)
     out = []
-    R.select_docs("2026-01-01", 90, resume=True, limit=None); out.append(cap.cypher)
-    R.select_stale_docs(90, limit=None); out.append(cap.cypher)
-    R.select_refresh_docs(90, 60, single_lot=False, limit=None); out.append(cap.cypher)
+    R.select_docs("2026-01-01", 90, resume=True, limit=None)
+    out.append(cap.cypher)
+    R.select_stale_docs(90, limit=None)
+    out.append(cap.cypher)
+    R.select_refresh_docs(90, 60, single_lot=False, limit=None)
+    out.append(cap.cypher)
     return out
 
 
