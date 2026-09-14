@@ -92,24 +92,24 @@ def test_build_report_counts_new_matched_fills_and_photos():
             "bankeauctions": [BE_236961, {**BE_236961, "auction_id": "779491"}]}   # a re-run of a loaded id
     incoming = [candidate_from_row(r) for rs in rows.values() for r in rs]
     pairs = find_same_listing_pairs(incoming, [gr.graph_candidate(g) for g in graph])
-    assert [(p.a_id, p.b_id, p.method) for p in pairs] == [("bn-359826", "841207", "borrower")]
+    assert [(p.a_id, p.b_id, p.method) for p in pairs] == [("bn-359826", "841207", "four_fields")]
 
     rep = gr.build_report(rows, graph, pairs)
     bn = rep["sources"]["baanknet"]
     assert (bn["rows"], bn["already_loaded"], bn["new"], bn["matched"]) == (2, 0, 1, 1)
-    assert bn["matched_by_confidence"] == {"CONFIRMED": 0, "PROBABLE": 1, "INFERRED": 0}
+    assert bn["matched_by_confidence"] == {"CONFIRMED": 1, "PROBABLE": 0, "INFERRED": 0}
     assert {f for f, n in bn["fills"].items() if n} == {"extent", "possession", "has_photos"}
     assert bn["photos_gained"] == {"new": 1, "matched": 1}
     assert bn["new_core_complete"] == {"7": 1} and bn["new_core_avg"] == 7.0
     [m] = bn["matched_listings"]
-    assert (m["matches"], m["confidence"], m["fills"]) == ("841207", "PROBABLE", ["extent", "possession", "has_photos"])
+    assert (m["matches"], m["confidence"], m["fills"]) == ("841207", "CONFIRMED", ["extent", "possession", "has_photos"])
 
     be = rep["sources"]["bankeauctions"]
     assert (be["rows"], be["already_loaded"], be["new"], be["matched"]) == (2, 1, 1, 0)
     assert be["photos_gained"] == {"new": 0, "matched": 0}
 
     text = gr.format_report(rep)
-    assert "baanknet" in text and "bn-359826 ~ 841207  PROBABLE  borrower" in text
+    assert "baanknet" in text and "bn-359826 ~ 841207  CONFIRMED four_fields" in text
     assert "fills on matched  extent +1, possession +1, has_photos +1" in text
 
 

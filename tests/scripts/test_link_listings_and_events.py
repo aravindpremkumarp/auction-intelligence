@@ -18,15 +18,16 @@ def _rec(aid, source, bank="Indian Overseas Bank", reserve=4626500.0, day="2026-
 def test_find_pairs_compares_the_whole_graph_across_sources():
     pairs = ll.find_pairs([_rec("841207", "eauctionsindia"), _rec("bn-1", "baanknet"),
                            _rec("be-1", "bankeauctions", bank="Indian Bank")])
-    assert [(p.a_id, p.b_id, p.method, p.confidence) for p in pairs] == [("bn-1", "841207", "borrower", "PROBABLE")]
-    rows = ll.pair_rows(pairs + [Pair("x", "y", "baanknet", "baanknet", "borrower", "PROBABLE")])
+    assert [(p.a_id, p.b_id, p.method, p.confidence) for p in pairs] == [("bn-1", "841207", "four_fields", "CONFIRMED")]
+    rows = ll.pair_rows(pairs + [Pair("x", "y", "baanknet", "baanknet", "four_fields", "CONFIRMED")])
     assert len(rows) == 1 and {"a_id", "b_id", "method", "confidence", "evidence"} == set(rows[0])
-    assert "PROBABLE  borrower     1" in ll.summarize(pairs)
+    assert "CONFIRMED four_fields  1" in ll.summarize(pairs)
 
 
-def test_find_pairs_writes_nothing_for_a_batch_sale_against_one_listing():
+def test_find_pairs_never_confirms_a_batch_sale_against_one_listing():
     """bn-1 and bn-2 are one borrower's two properties; 841207 is one of them."""
-    assert ll.find_pairs([_rec("841207", "eauctionsindia"), _rec("bn-1", "baanknet"), _rec("bn-2", "baanknet")]) == []
+    pairs = ll.find_pairs([_rec("841207", "eauctionsindia"), _rec("bn-1", "baanknet"), _rec("bn-2", "baanknet")])
+    assert pairs and all(p.confidence == "PENDING" for p in pairs)
 
 
 def test_chain_attempts_orders_by_date_and_stamps_previous_reserve():
