@@ -9,7 +9,9 @@ per portal:
   already loaded  same auction_id is in the graph (a re-run of a loaded source)
   new             no listing of another source agrees on reserve price or borrower
   review          a partial agreement waiting for a person, by reason — batch,
-                  units_disagree, price_only, borrower_only, split, contested
+                  units_disagree, price_only, borrower_only, split, contested; a listing
+                  waiting against two other sources counts once in review and under each of
+                  its reasons
   confirmed       bank, auction day, reserve price and borrower agree on one listing
                   (four_fields), a unit number settled a batch (unit_number), or a
                   person confirmed it (decision)
@@ -218,7 +220,9 @@ def build_report(rows_by_source: dict[str, list[dict]], existing: list[dict], pa
     and the matcher's result. A row is ``confirmed`` when a CONFIRMED pair
     names it, ``review`` when it waits for a person, ``new`` otherwise."""
     ambiguous = list(ambiguous)
-    review_reason = {a.auction_id: a.reason for a in ambiguous}
+    review_reasons: dict[str, set[str]] = defaultdict(set)
+    for a in ambiguous:
+        review_reasons[a.auction_id].add(a.reason)
     graph_by_id = {r["auction_id"]: r for r in existing}
     graph_core = {aid: core_from_graph(r) for aid, r in graph_by_id.items()}
     incoming_ids = {row["auction_id"] for rows in rows_by_source.values() for row in rows}
@@ -249,9 +253,10 @@ def build_report(rows_by_source: dict[str, list[dict]], existing: list[dict], pa
             mine = core_from_row(row)
             p = confirmed_pair.get(aid)
             if p is None:
-                if aid in review_reason:
+                if aid in review_reasons:
                     review += 1
-                    by_reason[review_reason[aid]] += 1
+                    for reason in sorted(review_reasons[aid]):
+                        by_reason[reason] += 1
                     continue
                 new += 1
                 new_complete[sum(mine.values())] += 1

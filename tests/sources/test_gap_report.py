@@ -123,6 +123,15 @@ def test_review_listings_are_neither_new_nor_confirmed():
     assert "review 1 (batch 1)" in gr.format_report(rep)
 
 
+def test_a_row_waiting_against_two_sources_counts_once_under_each_reason():
+    rows = {"baanknet": [BN_359826]}
+    ambiguous = [Ambiguity("bn-359826", "baanknet", "bankeauctions", ("be-1",), "price_only"),
+                 Ambiguity("bn-359826", "baanknet", "eauctionsindia", ("1",), "borrower_only")]
+    s = gr.build_report(rows, [], [], ambiguous)["sources"]["baanknet"]
+    assert (s["rows"], s["new"], s["review"], s["confirmed"]) == (1, 0, 1, 0)
+    assert s["review_by_reason"] == {"borrower_only": 1, "price_only": 1}
+
+
 def test_graph_candidate_reads_unit_numbers_from_text_even_with_lot_identifiers():
     rec = {"auction_id": "855475", "bank": "Indian Bank", "reserve_price_num": 13500000.0,
            "auction_start_dt": "2026-09-28T11:00:00Z", "borrower": "M/s Futuristic Global Resources Private Limited",
