@@ -3,7 +3,7 @@
 Why this exists
 ---------------
 ``extract_routing.char_buffer_for`` sizes the LangExtract window to the whole
-notice, but caps it (``LANGEXTRACT_MAX_CHAR_BUFFER_CEILING``, default 30000) so
+notice, but caps it (``LANGEXTRACT_MAX_CHAR_BUFFER_CEILING``, default 64000) so
 a pathologically long bundle still splits. A notice longer than that ceiling is
 therefore extracted in two or more windows, and LangExtract extracts each one
 INDEPENDENTLY — the second window cannot see the lots the first one found, so
