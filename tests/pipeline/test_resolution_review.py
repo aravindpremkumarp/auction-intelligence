@@ -193,19 +193,22 @@ def test_decided_lot_matches_counts_approvals_and_none_of_these():
 
 def test_portal_match_key_is_one_per_subject():
     from pipeline.resolution_review import portal_match_key
-    assert portal_match_key("bn-359756") == "portal-match:bn-359756"
-    assert decision_key("portal-match", {"subject_id": "bn-359756", "linked_ids": ["853518"]}) == "portal-match:bn-359756"
+    assert portal_match_key("bn-359756", "eauctionsindia") == "portal-match:bn-359756:eauctionsindia"
+    assert decision_key("portal-match", {"subject_id": "bn-359756", "linked_ids": ["853518"],
+                                         "other_source": "eauctionsindia"}) == "portal-match:bn-359756:eauctionsindia"
 
 
 def test_portal_decisions_reads_verdicts_into_sets():
     from pipeline.resolution_review import portal_decisions
     snap = {"bank": "bank indian", "reserve_price": 2944000, "borrower": "a r r tex", "auction_day": "2026-09-25"}
     decisions = [
-        _decision("portal-match", {"subject_id": "bn-1", "linked_ids": ["853518"], "rejected_ids": [], "snapshot": snap}, "approved"),
-        _decision("portal-match", {"subject_id": "bn-2", "linked_ids": [], "rejected_ids": ["9"], "snapshot": snap}, "rejected"),
+        _decision("portal-match", {"subject_id": "bn-1", "other_source": "eauctionsindia", "linked_ids": ["853518"],
+                                   "rejected_ids": [], "snapshot": snap}, "approved"),
+        _decision("portal-match", {"subject_id": "bn-2", "other_source": "eauctionsindia", "linked_ids": [],
+                                   "rejected_ids": ["9"], "snapshot": snap}, "rejected"),
         _decision("lot-match", {"auction_id": "bn-3", "lot_key": "x"}, "approved"),
     ]
     assert portal_decisions(decisions) == {
-        "bn-1": {"verdict": "approved", "linked_ids": {"853518"}, "rejected_ids": set(), "snapshot": snap},
-        "bn-2": {"verdict": "rejected", "linked_ids": set(), "rejected_ids": {"9"}, "snapshot": snap},
+        ("bn-1", "eauctionsindia"): {"verdict": "approved", "linked_ids": {"853518"}, "rejected_ids": set(), "snapshot": snap},
+        ("bn-2", "eauctionsindia"): {"verdict": "rejected", "linked_ids": set(), "rejected_ids": {"9"}, "snapshot": snap},
     }

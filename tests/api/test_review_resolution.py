@@ -497,10 +497,10 @@ def test_portal_match_decision_stores_a_server_side_snapshot(monkeypatch):
     monkeypatch.setattr(q, "run_query", lambda cypher, params=None: written.update(params or {}) or [])
     out = q.record_resolution_decision(
         "portal-match",
-        {"subject_id": "bn-359756", "linked_ids": ["853518"], "rejected_ids": [],
+        {"subject_id": "bn-359756", "other_source": "eauctionsindia", "linked_ids": ["853518"], "rejected_ids": [],
          "snapshot": {"bank": "forged"}, "note": "same owner"},
         "approved", by_email="admin@example.com")
-    assert out["key"] == "portal-match:bn-359756"
+    assert out["key"] == "portal-match:bn-359756:eauctionsindia"
     stored = json.loads(written["payload"])
     assert stored["snapshot"] == {"bank": "bank indian", "reserve_price": 2944000,
                                   "borrower": "a r r tex", "auction_day": "2026-09-25"}
@@ -511,11 +511,14 @@ def test_portal_match_decision_refuses_bad_payloads(monkeypatch):
     monkeypatch.setattr(q, "run_query", lambda *a, **k: [])
     monkeypatch.setattr(q, "_count_query", lambda cypher, params=None: {"n": 0} if "IN $ids" in cypher else {})
     with pytest.raises(ValueError, match="at least one"):
-        q.record_resolution_decision("portal-match", {"subject_id": "bn-1", "linked_ids": [], "rejected_ids": []},
+        q.record_resolution_decision("portal-match", {"subject_id": "bn-1", "other_source": "eauctionsindia",
+                                                       "linked_ids": [], "rejected_ids": []},
                                      "rejected", by_email="x")
     with pytest.raises(ValueError, match="must link"):
-        q.record_resolution_decision("portal-match", {"subject_id": "bn-1", "linked_ids": [], "rejected_ids": ["2"]},
+        q.record_resolution_decision("portal-match", {"subject_id": "bn-1", "other_source": "eauctionsindia",
+                                                       "linked_ids": [], "rejected_ids": ["2"]},
                                      "approved", by_email="x")
     with pytest.raises(ValueError, match="no listing"):
-        q.record_resolution_decision("portal-match", {"subject_id": "bn-1", "linked_ids": ["2"], "rejected_ids": []},
+        q.record_resolution_decision("portal-match", {"subject_id": "bn-1", "other_source": "eauctionsindia",
+                                                       "linked_ids": ["2"], "rejected_ids": []},
                                      "approved", by_email="x")

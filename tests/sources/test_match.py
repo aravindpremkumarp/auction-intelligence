@@ -267,8 +267,9 @@ from sources.match import snapshot_of  # noqa: E402
 
 
 def _decided(subject, verdict, linked=(), rejected=(), **snapshot_changes):
-    return {subject.auction_id: {"verdict": verdict, "linked_ids": set(linked), "rejected_ids": set(rejected),
-                                 "snapshot": {**snapshot_of(subject), **snapshot_changes}}}
+    return {(subject.auction_id, "eauctionsindia"): {"verdict": verdict, "linked_ids": set(linked),
+                                                      "rejected_ids": set(rejected),
+                                                      "snapshot": {**snapshot_of(subject), **snapshot_changes}}}
 
 
 def test_a_person_confirming_links_with_method_decision():
@@ -315,3 +316,15 @@ def test_a_rule_link_to_a_listing_a_person_already_linked_is_contested():
 def test_snapshot_of_reads_the_four_facts():
     assert snapshot_of(_bn("bn-1")) == {"bank": "bank indian overseas", "reserve_price": 4626500,
                                         "borrower": "n mariappan", "auction_day": "2026-09-24"}
+
+
+def test_decisions_are_per_other_source():
+    """bn-1 was settled against eauctionsindia only; its bankeauctions case stays open under its own key."""
+    subject = _bn("bn-1", borrower="A R R TEX")
+    be = _bn("be-1", source="bankeauctions", borrower="Mr. Haridas P")
+    decisions = {("bn-1", "eauctionsindia"): {"verdict": "approved", "linked_ids": {"1"}, "rejected_ids": set(),
+                                               "snapshot": snapshot_of(subject)}}
+    result = match_listings([subject, be], [_ea("1", borrower="M/s ARR Tex")], decisions=decisions)
+    assert ("bn-1", "1", "decision") in [(p.a_id, p.b_id, p.method) for p in result.pairs]
+    assert [(a.auction_id, a.other_source, a.reason) for a in result.ambiguous] == [
+        ("be-1", "eauctionsindia", "price_only"), ("bn-1", "bankeauctions", "price_only")]

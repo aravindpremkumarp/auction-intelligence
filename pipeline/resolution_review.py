@@ -111,11 +111,12 @@ def area_check_key(auction_id: str) -> str:
     return f"area-check:{auction_id}"
 
 
-def portal_match_key(subject_id: str) -> str:
+def portal_match_key(subject_id: str, other_source: str) -> str:
     """Key for "a person decided which of our listings this portal listing is".
 
-    One decision per subject: re-deciding replaces it, undo reopens it."""
-    return f"portal-match:{subject_id}"
+    One decision per subject per other source — the review queue shows one
+    case per pair, and re-deciding that case replaces only its own decision."""
+    return f"portal-match:{subject_id}:{other_source}"
 
 
 def decision_key(kind: str, payload: dict) -> str:
@@ -139,7 +140,7 @@ def decision_key(kind: str, payload: dict) -> str:
     if kind == "area-check":
         return area_check_key(payload["auction_id"])
     if kind == "portal-match":
-        return portal_match_key(payload["subject_id"])
+        return portal_match_key(payload["subject_id"], payload["other_source"])
     raise ValueError(f"unknown decision kind: {kind!r}")
 
 
@@ -337,18 +338,21 @@ def decided_area_checks(decisions: list[dict]) -> set[str]:
     return out
 
 
-def portal_decisions(decisions: list[dict]) -> dict[str, dict]:
-    """Every portal-match verdict, keyed by subject id, in the shape
-    ``sources.match.match_listings(decisions=...)`` reads:
-    ``{"verdict", "linked_ids": set, "rejected_ids": set, "snapshot": dict}``."""
-    out: dict[str, dict] = {}
+def portal_decisions(decisions: list[dict]) -> dict[tuple[str, str], dict]:
+    """Every portal-match verdict, keyed by ``(subject id, other source)``, in
+    the shape ``sources.match.match_listings(decisions=...)`` reads:
+    ``{"verdict", "linked_ids": set, "rejected_ids": set, "snapshot": dict}``.
+    One subject can have a separate open (or settled) case per other source,
+    so the key must carry both."""
+    out: dict[tuple[str, str], dict] = {}
     for d in _decided(decisions, "portal-match").values():
         payload = d.get("payload") or {}
         sid = payload.get("subject_id")
-        if not sid or d.get("verdict") not in (APPROVED, REJECTED):
+        other_source = payload.get("other_source")
+        if not sid or not other_source or d.get("verdict") not in (APPROVED, REJECTED):
             continue
-        out[sid] = {"verdict": d["verdict"],
-                    "linked_ids": set(payload.get("linked_ids") or ()),
-                    "rejected_ids": set(payload.get("rejected_ids") or ()),
-                    "snapshot": payload.get("snapshot") or {}}
+        out[(sid, other_source)] = {"verdict": d["verdict"],
+                                    "linked_ids": set(payload.get("linked_ids") or ()),
+                                    "rejected_ids": set(payload.get("rejected_ids") or ()),
+                                    "snapshot": payload.get("snapshot") or {}}
     return out

@@ -382,9 +382,10 @@ def snapshot_of(c: Candidate) -> dict:
             "borrower": borrower_key(c.borrower), "auction_day": c.day}
 
 
-def _active_decision(group: list[Candidate], decisions: dict[str, dict]) -> dict | None:
+def _active_decision(group: list[Candidate], decisions: dict[tuple[str, str], dict],
+                     other_source: str) -> dict | None:
     for x in group:
-        d = decisions.get(x.auction_id)
+        d = decisions.get((x.auction_id, other_source))
         if d and d.get("snapshot") == snapshot_of(x):
             return d
     return None
@@ -487,7 +488,7 @@ def _pairs(group_s: list[Candidate], targets: list[list[Candidate]], method: str
 
 
 def _assign(side_s: list[Candidate], side_o: list[Candidate], new_ids: set[str],
-           decisions: dict[str, dict]) -> tuple[list[Pair], list[Ambiguity]]:
+           decisions: dict[tuple[str, str], dict]) -> tuple[list[Pair], list[Ambiguity]]:
     """Every subject group of one source against one other source, in one bucket.
 
     A current decision is applied first: its rejected listings leave the
@@ -497,11 +498,12 @@ def _assign(side_s: list[Candidate], side_o: list[Candidate], new_ids: set[str],
     already linked — are contested."""
     groups_s, groups_o = _twin_groups(side_s), _twin_groups(side_o)
     reps_o = [_representative(g) for g in groups_o]
+    other_source = side_o[0].source
     verdicts: dict[int, tuple | None] = {}
     decided_targets: set[int] = set()
 
     for si, g in enumerate(groups_s):
-        decision = _active_decision(g, decisions)
+        decision = _active_decision(g, decisions, other_source)
         rejected = decision["rejected_ids"] if decision else set()
         pool = [oi for oi, og in enumerate(groups_o) if not any(y.auction_id in rejected for y in og)]
         if decision and decision["verdict"] == "approved":
@@ -554,10 +556,11 @@ def _rank(source: str) -> tuple[int, str]:
 
 
 def match_listings(incoming: Iterable[Candidate], existing: Iterable[Candidate], *,
-                   decisions: dict[str, dict] | None = None) -> MatchResult:
+                   decisions: dict[tuple[str, str], dict] | None = None) -> MatchResult:
     """Every link the rule or a person confirms, every pair waiting for a
-    person, and one ``Ambiguity`` per waiting subject. ``decisions`` maps a
-    subject id to its current verdict (``pipeline.resolution_review.portal_decisions``).
+    person, and one ``Ambiguity`` per waiting subject. ``decisions`` maps
+    (subject id, other source) to its current verdict
+    (``pipeline.resolution_review.portal_decisions``).
     ``incoming`` is compared against
     ``existing`` and against itself; ``existing`` is never compared with itself
     — that is ``link_reauctions``' job. A listing present on both sides (a
