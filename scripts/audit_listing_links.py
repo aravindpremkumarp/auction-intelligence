@@ -6,7 +6,9 @@ A portal never lists one auction twice, so a cluster holding two listings of
 the same portal is either duplicate postings of one unit or distinct
 properties merged into one event. This prints every such cluster from a
 gap report's JSON with each member's price, borrower and unit numbers, for a
-person to tell which.
+person to tell which. Clusters are taken over every strong pair across all
+portals, so a chain such as bn↔ea1, bn↔be, be↔ea2 that joins two
+eauctionsindia listings through other portals is caught too.
 
     python -m scripts.gap_report --existing-json graph.json --json gap.json
     python -m scripts.audit_listing_links gap.json --existing-json graph.json

@@ -7,7 +7,9 @@ per portal:
 
   rows            harvested listings
   already loaded  same auction_id is in the graph (a re-run of a loaded source)
-  new             no listing in the graph shares bank + reserve + auction day
+  new             the matcher found no partner for it in the graph or another portal
+  undecided       the matcher found candidates but could not choose (a tie, or a
+                  choice the other listing did not return) — neither new nor matched
   matched         by confidence — CONFIRMED / PROBABLE / INFERRED — and how
                   many of those INFERRED matches are ambiguous (several
                   candidates, none decisive: a batch sale, most likely)

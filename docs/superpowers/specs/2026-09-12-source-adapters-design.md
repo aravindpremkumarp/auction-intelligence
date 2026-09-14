@@ -283,7 +283,7 @@ across *different* sources. Bucket key, then evidence:
   |---|---|---|
   | `notice_bytes` | both sides' `:Document.content_sha256` equal | CONFIRMED |
   | `boundaries` | ≥3 of 4 boundary neighbours equal after normalisation | CONFIRMED |
-  | `identifier` | a survey / door / plot / flat / villa number held by exactly one listing on each side; a short value (`G1`) only with the borrower agreeing | PROBABLE |
+  | `identifier` | a survey / door / plot / flat / villa number held by exactly one listing on each side; a short value (`G1`) only with the borrower or a second identifier agreeing | PROBABLE |
   | `borrower` | `token_set_ratio ≥ 90` (as `lot_resolution.py:47`) | PROBABLE |
   | `bucket_only` | the only price-agreeing candidate, nothing more | INFERRED |
 
@@ -291,6 +291,13 @@ across *different* sources. Bucket key, then evidence:
   choose each other. A tie that survives every tier, or a choice the other
   listing does not return, produces no pair and an `Ambiguity` (`tied` /
   `contested`); the gap report counts it `undecided`.
+- **Taken partners:** assignment repeats over the listings still unpaired; a
+  listing whose only candidates were taken by stronger mutual pairs is
+  unmatched (new), not undecided.
+- **Different units are different properties:** when both listings quote a
+  villa, flat or plot number and none agree (after normalising notation:
+  `F/1` = `F1` = `1`, `B/510` = `510`), they are never paired, whatever else
+  matches.
 - **Batch sales:** BAANKNET `bn-351743` / `bn-351740` — same borrower, bank,
   day and reserve, two properties. Same source ⇒ never matched; across
   sources the unit number decides or the listings stay unresolved. Postings
