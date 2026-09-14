@@ -329,9 +329,14 @@ def candidate_from_graph(rec: dict) -> Candidate:
 # ── the matcher ──────────────────────────────────────────────────────────────
 
 METHODS = ("notice_bytes", "boundaries", "identifier", "borrower", "bucket_only")
+_ORDER = {m: i for i, m in enumerate(METHODS)}
 
 #: Identifier families that name one unit rather than the land a batch shares.
 UNIT_FAMILIES = frozenset({"villa", "flat", "plot", "door"})
+
+#: Unit families whose disagreement vetoes a pair. Not door: a door number is
+#: usually the building's address, shared by every flat in it.
+VETO_FAMILIES = frozenset({"villa", "flat", "plot"})
 
 
 @dataclass(frozen=True)
@@ -376,6 +381,26 @@ def price_verdict(a: Candidate, b: Candidate) -> str:
 def _is_short(value: str) -> bool:
     """``g1``, ``22``, ``s1``: common enough across a city to need corroboration."""
     return len(value.replace("/", "")) <= 2
+
+
+def _unit_key(value: str) -> str:
+    """A unit number for comparison across notations: ``f/1`` and ``f1`` → ``1``,
+    ``b/510`` → ``510``, ``86/b`` → ``86b``; ``ff12`` stays."""
+    key = re.sub(r"[^a-z0-9]", "", value.lower())
+    if re.match(r"^[a-z]\d", key):
+        key = key[1:]
+    return key
+
+
+def _units_disagree(a: Candidate, b: Candidate) -> bool:
+    """True when both quote a villa / flat / plot number and none of them agree:
+    two different units, whatever else matches."""
+    for fam in VETO_FAMILIES:
+        keys_a = {_unit_key(v) for f, v in a.identifiers if f == fam}
+        keys_b = {_unit_key(v) for f, v in b.identifiers if f == fam}
+        if keys_a and keys_b and not keys_a & keys_b:
+            return True
+    return False
 
 
 def _unique_identifiers(side: list[Candidate]) -> set[tuple[str, str]]:
@@ -454,9 +479,12 @@ def _choose(a: Candidate, side_b: list[Candidate], usable: set) -> tuple | None:
     """Narrow ``side_b`` to ``a``'s partner.
 
     Returns ``("match", index, method, evidence)``, ``("tied", indexes)`` or
-    ``None``. A tier that hits every remaining candidate says nothing about
-    which one ``a`` is and is skipped; one that hits some of them narrows."""
+    ``None``. Candidates whose price disagrees, or whose villa / flat / plot
+    numbers all differ from ``a``'s (:func:`_units_disagree`), are dropped
+    before any tier. A tier that hits every remaining candidate says nothing
+    about which one ``a`` is and is skipped; one that hits some of them narrows."""
     idx = [i for i, b in enumerate(side_b) if price_verdict(a, b) in ("agree", "unknown")]
+    idx = [i for i in idx if not _units_disagree(a, side_b[i])]
     if not idx:
         return None
     method, evidence, shared = None, {}, False
@@ -485,16 +513,71 @@ def _choose(a: Candidate, side_b: list[Candidate], usable: set) -> tuple | None:
 
 
 def _assign(side_a: list[Candidate], side_b: list[Candidate], new_ids: set[str]) -> tuple[list[Pair], list[Ambiguity]]:
-    """One portal against another inside one bucket. A pair stands only when
-    both listings choose each other; otherwise both are left unresolved."""
+    """One portal against another inside one bucket, in rounds. Each round,
+    every listing not yet paired chooses among the other side's unpaired
+    listings, and a pair stands only when both choose each other; paired
+    listings are taken and the round repeats while it adds a pair. One listing
+    is one property, so a listing whose chosen partner was taken is not that
+    partner: it chooses again from what is left, and if nothing is left it is
+    simply unmatched. What the last round could not decide — a tie, or a
+    choice the other listing did not return — is reported as an Ambiguity.
+
+    Which identifiers are usable evidence is decided once, over the full
+    sides: a survey number shared with a taken sibling stays shared."""
     groups_a, groups_b = _twin_groups(side_a), _twin_groups(side_b)
     reps_a = [_representative(g) for g in groups_a]
     reps_b = [_representative(g) for g in groups_b]
     usable = _unique_identifiers(reps_a) & _unique_identifiers(reps_b)
 
-    choice_a = [_choose(a, reps_b, usable) for a in reps_a]
-    choice_b = [_choose(b, reps_a, usable) for b in reps_b]
-    order = {m: i for i, m in enumerate(METHODS)}
+    def choices(free_x: list[int], reps_x: list[Candidate], free_y: list[int], reps_y: list[Candidate]) -> dict[int, tuple | None]:
+        """Each free group's choice among the other side's free groups, with
+        indexes mapped back to the full group lists."""
+        pool = [reps_y[i] for i in free_y]
+        out: dict[int, tuple | None] = {}
+        for ix in free_x:
+            got = _choose(reps_x[ix], pool, usable)
+            if got is None:
+                out[ix] = None
+            elif got[0] == "tied":
+                out[ix] = ("tied", [free_y[i] for i in got[1]])
+            else:
+                out[ix] = ("match", free_y[got[1]], got[2], got[3])
+        return out
+
+    pairs: list[Pair] = []
+    ambiguous: list[Ambiguity] = []
+    taken_a: set[int] = set()
+    taken_b: set[int] = set()
+
+    while True:
+        free_a = [i for i in range(len(groups_a)) if i not in taken_a]
+        free_b = [i for i in range(len(groups_b)) if i not in taken_b]
+        choice_a = choices(free_a, reps_a, free_b, reps_b)
+        choice_b = choices(free_b, reps_b, free_a, reps_a)
+        added = False
+        for ia in free_a:
+            got = choice_a[ia]
+            if got is None or got[0] != "match":
+                continue
+            _, ib, method_a, evidence_a = got
+            got_b = choice_b[ib]
+            if not (got_b is not None and got_b[0] == "match" and got_b[1] == ia):
+                continue
+            method_b, evidence_b = got_b[2], got_b[3]
+            if _ORDER[method_b] < _ORDER[method_a]:
+                method, evidence = method_b, evidence_b
+            else:
+                method, evidence = method_a, evidence_a
+            for x in groups_a[ia]:
+                for y in groups_b[ib]:
+                    if x.auction_id in new_ids or y.auction_id in new_ids:
+                        pairs.append(Pair(x.auction_id, y.auction_id, x.source, y.source,
+                                          method, listing_confidence_for(method), evidence))
+            taken_a.add(ia)
+            taken_b.add(ib)
+            added = True
+        if not added:
+            break
 
     def tied(group_x: list[Candidate], tied_groups: list[list[Candidate]]) -> list[Ambiguity]:
         others = tuple(sorted(y.auction_id for g in tied_groups for y in g))
@@ -506,41 +589,22 @@ def _assign(side_a: list[Candidate], side_b: list[Candidate], new_ids: set[str])
         return [Ambiguity(x.auction_id, x.source, partner_group[0].source, others, "contested")
                 for x in group_x if x.auction_id in new_ids]
 
-    pairs: list[Pair] = []
-    ambiguous: list[Ambiguity] = []
-
-    for ia, got in enumerate(choice_a):
+    # The last round added no pair, so its choices cover exactly the untaken groups.
+    for ia, got in choice_a.items():
         if got is None:
             continue
         if got[0] == "tied":
             ambiguous += tied(groups_a[ia], [groups_b[i] for i in got[1]])
-            continue
-        _, ib, method_a, evidence_a = got
-        got_b = choice_b[ib]
-        if got_b is not None and got_b[0] == "match" and got_b[1] == ia:
-            method_b, evidence_b = got_b[2], got_b[3]
-            if order[method_b] < order[method_a]:
-                method, evidence = method_b, evidence_b
-            else:
-                method, evidence = method_a, evidence_a
-            for x in groups_a[ia]:
-                for y in groups_b[ib]:
-                    if x.auction_id in new_ids or y.auction_id in new_ids:
-                        pairs.append(Pair(x.auction_id, y.auction_id, x.source, y.source,
-                                          method, listing_confidence_for(method), evidence))
         else:
-            ambiguous += contested(groups_a[ia], groups_b[ib])
+            ambiguous += contested(groups_a[ia], groups_b[got[1]])
 
-    for ib, got in enumerate(choice_b):
+    for ib, got in choice_b.items():
         if got is None:
             continue
         if got[0] == "tied":
             ambiguous += tied(groups_b[ib], [groups_a[i] for i in got[1]])
-            continue
-        _, ia, method_b, evidence_b = got
-        got_a = choice_a[ia]
-        if not (got_a is not None and got_a[0] == "match" and got_a[1] == ib):
-            ambiguous += contested(groups_b[ib], groups_a[ia])
+        else:
+            ambiguous += contested(groups_b[ib], groups_a[got[1]])
 
     return pairs, ambiguous
 
@@ -579,8 +643,7 @@ def match_listings(incoming: Iterable[Candidate], existing: Iterable[Candidate])
                 got_pairs, got_ambiguous = _assign(side_a, side_b, new_ids)
                 pairs += got_pairs
                 ambiguous += got_ambiguous
-    order = {m: i for i, m in enumerate(METHODS)}
-    pairs.sort(key=lambda p: (order[p.method], p.a_id, p.b_id))
+    pairs.sort(key=lambda p: (_ORDER[p.method], p.a_id, p.b_id))
     ambiguous.sort(key=lambda x: (x.auction_id, x.other_source))
     return MatchResult(pairs, ambiguous)
 

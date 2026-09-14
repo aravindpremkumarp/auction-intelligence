@@ -338,8 +338,8 @@ def test_the_answer_does_not_depend_on_which_portal_sorts_first():
                             candidate_from_row(row("zz-1", "zzportal", unit))], [])
     assert [(p.a_id, p.b_id, p.method) for p in left.pairs] == [("bn-1", "zz-1", "identifier")]
     assert [(p.a_id, p.b_id, p.method) for p in right.pairs] == [("bn-1", "zz-1", "identifier")]
-    assert [(a.auction_id, a.reason) for a in left.ambiguous] == [("zz-2", "contested")]
-    assert [(a.auction_id, a.reason) for a in right.ambiguous] == [("bn-2", "contested")]
+    assert left.ambiguous == []
+    assert right.ambiguous == []
 
 
 def test_a_neighbour_without_evidence_cannot_cancel_a_confirmed_match():
@@ -351,7 +351,7 @@ def test_a_neighbour_without_evidence_cannot_cancel_a_confirmed_match():
                                        borrower="Sri Vaaru Traders", shas=["f" * 64]))]
     result = match_listings(inc, ext)
     assert [(p.a_id, p.b_id, p.method, p.confidence) for p in result.pairs] == [("bn-1", "841207", "notice_bytes", CONFIRMED)]
-    assert [(a.auction_id, a.reason) for a in result.ambiguous] == [("bn-2", "contested")]
+    assert result.ambiguous == []
 
 
 def test_a_tie_among_unpriced_listings_is_still_reported():
@@ -401,3 +401,48 @@ def test_every_posting_of_an_unresolved_unit_is_reported():
         ("bn-1", ("855475", "855589"), "contested"),
         ("bn-2", ("855475", "855589"), "contested"),
     ]
+
+
+def test_a_listing_whose_only_candidate_was_taken_is_new_not_undecided():
+    """bn-352883 is flat F3, and both eauctionsindia postings say so; bn-352876 —
+    same borrower and price, no flat number — chose the same postings. Once F3
+    is taken nothing is left for bn-352876, so it is unmatched, not undecided."""
+    def row(aid, source, text=""):
+        return _row(aid, source, bank="Indian Bank", reserve=3100000.0, day="2026-09-29",
+                    borrower="M/s Kathir Cell City", text=text)
+    ea = [candidate_from_row(row(aid, "eauctionsindia", "Residential Flat No. F3, Second Floor")) for aid in ("856500", "856504")]
+    bn = [candidate_from_row(row("bn-352883", "baanknet", "Residential Flat No. F3, Second Floor")),
+          candidate_from_row(row("bn-352876", "baanknet"))]
+    result = match_listings(bn + ea, [])
+    assert sorted((p.a_id, p.b_id, p.method) for p in result.pairs) == [
+        ("bn-352883", "856500", "identifier"), ("bn-352883", "856504", "identifier")]
+    assert result.ambiguous == []
+
+
+def test_different_plot_numbers_are_different_properties_even_with_a_shared_survey_number():
+    """bn-352470 (plot 45) against 866338 (plots 44 and 47): one layout's survey
+    number, three different plots."""
+    inc = [candidate_from_row(_row("bn-352470", "baanknet", bank="Canara Bank", reserve=1500000.0, day="2026-09-24",
+                                   text="Plot No. 45, S.No. 73/7, Katpadi village"))]
+    ext = [candidate_from_graph({**_graph("866338", bank="Canara Bank", reserve=1500000.0, day="2026-09-24"),
+                                 "identifiers": [["plot", "44"], ["plot", "47"], ["survey_old", "73/7"]]})]
+    result = match_listings(inc, ext)
+    assert result.pairs == [] and result.ambiguous == []
+
+
+def test_unit_numbers_written_differently_still_agree():
+    """f1 / f/1 and 510 / b/510 are one unit in two notations — no veto."""
+    inc = [candidate_from_row(_row("bn-1", "baanknet", bank="Canara Bank", reserve=2200000.0, day="2026-09-24",
+                                   borrower="R Kumar", text="Flat No. F1, S.No. 12/3")),
+           candidate_from_row(_row("bn-2", "baanknet", bank="Canara Bank", reserve=5100000.0, day="2026-09-24",
+                                   borrower="S Devi", text="Plot No. 510, S.No. 44/1"))]
+    ext = [candidate_from_graph({**_graph("900001", bank="Canara Bank", reserve=2200000.0, day="2026-09-24", borrower="Mr. R. Kumar"),
+                                 "identifiers": [["flat", "f/1"], ["survey_old", "12/3"]]}),
+           candidate_from_graph({**_graph("900002", bank="Canara Bank", reserve=5100000.0, day="2026-09-24", borrower="Mrs. S. Devi"),
+                                 "identifiers": [["plot", "b/510"], ["survey_old", "44/1"]]})]
+    assert sorted((p.a_id, p.b_id) for p in find_same_listing_pairs(inc, ext)) == [("bn-1", "900001"), ("bn-2", "900002")]
+
+
+def test_unit_key_normalises_notation():
+    from sources.match import _unit_key
+    assert [_unit_key(v) for v in ("f/1", "f1", "b/510", "86/b", "86b", "ff12", "S-2")] == ["1", "1", "510", "86b", "86b", "ff12", "2"]
