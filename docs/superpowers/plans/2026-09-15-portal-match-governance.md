@@ -1966,6 +1966,7 @@ In `docs/superpowers/specs/2026-09-15-portal-match-governance-design.md`:
 4. In **Components → `sources/match.py`**, replace `Keep: \`Candidate\` (add \`emd_num\`, \`title\`, \`description\`, \`city\` for display)` with `Keep: \`Candidate\` (display fields in one \`info\` dict the rule never reads)`.
 5. Append under **Measured** the two `rows` lines from Step 1 as "Built rule, 2026-09-14 snapshot".
 6. In **Decisions**, replace `` `portal_match_key(subject_id) -> "portal-match:{subject_id}"` (one decision per subject) `` with `` `portal_match_key(subject_id, other_source) -> "portal-match:{subject_id}:{other_source}"` (one decision per subject per other source — one review row) ``, and add `"other_source"` to the payload list.
+7. In **Spot-check**, replace "pairs whose subject has no `portal-match` decision yet (deterministic: sorted by subject id, sampled with the run date as seed)" with "(subject, other source) pairs with no `portal-match` decision for that pair yet (deterministic: sorted by pair, sampled with the run date as seed); each becomes its own spot-check row". (Ruling during Task 4 review.)
 
 - [ ] **Step 3: Run the full governance test set once more**
 
