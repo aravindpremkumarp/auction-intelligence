@@ -115,8 +115,12 @@ decide anything; they are shown to the reviewer as supporting detail.
   - **Undo** — existing `undo_resolution_decision` — reopens the case.
 - **Staleness**: a decision whose `snapshot` no longer equals the subject's current
   bank / reserve price / borrower / auction day is ignored and the case reopens.
-- `record_resolution_decision` validates a `portal-match` payload: every
-  `linked_ids`/`rejected_ids` entry must be a current candidate of the subject.
+- `record_resolution_decision` validates a `portal-match` payload: at least one linked or
+  rejected listing; an approval links at least one; the subject and every linked/rejected
+  listing must exist. The `snapshot` is read from the graph server-side and replaces any
+  sent by the caller. Candidacy is not checked at decide time: the matcher applies a
+  decision's ids only inside the subject's own bank + day bucket, so an id from elsewhere
+  is never used.
 
 ### Review queue — `api/review/queries.py`, `api/review/router.py`, `web/review.html`
 
@@ -168,8 +172,9 @@ proposes it again.
 ## Error handling
 
 - A listing with no bank or no auction day is never compared (no bucket) → new.
-- A stored decision naming a listing that no longer exists is ignored and reported in
-  the queue footer count ("N stale decisions").
+- A stored decision whose snapshot no longer matches the subject, or whose linked
+  listings are no longer among its candidates, is ignored; its case reappears in the
+  review queue. There is no separate stale-decision count.
 - The review queue endpoint returns the panel empty (not an error) when the graph
   holds no portal listings yet.
 
