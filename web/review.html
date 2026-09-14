@@ -1399,7 +1399,12 @@
     // here, which rebuilt every queue: the page jumped back to the top and
     // every open section closed, on every single verdict.
     const row = btn && btn.closest('.pm-row, .pc-row, .lot-row, .ov-row');
+    const sec = row && row.closest('.rr-sec');
     if (kind === 'portal-match' && row) {
+      // Keep the row (replaced with a "decided — Undo" message) instead of
+      // removing it, but swap its class so it no longer counts as an open row.
+      row.classList.remove('pm-row');
+      row.classList.add('pm-decided');
       row.innerHTML = `<span class="meta">decided (${escapeHtml(verdict)}) — saved with your name; takes effect on
         the next linking run</span> <button class="ghost pm-undo">Undo</button>`;
       row.querySelector('.pm-undo').addEventListener('click', async () => {
@@ -1411,14 +1416,13 @@
         if (!u.ok) { alert('undo failed: ' + u.status); return; }
         loadResolutionQueues();
       });
-      return;
-    }
-    const sec = row && row.closest('.rr-sec');
-    if (row) {
+    } else if (row) {
       row.remove();
+    }
+    if (row) {
       const count = sec && sec.querySelector('.rr-count');
       if (count) {
-        const left = sec.querySelectorAll('.ov-row, .lot-row, .pc-row').length;
+        const left = sec.querySelectorAll('.ov-row, .lot-row, .pc-row, .pm-row').length;
         count.textContent = left;
         if (!left) sec.querySelector('.rr-sum').append(' \u2014 all settled');
       }
@@ -1531,7 +1535,7 @@
     //
     // Closed by default. With six queues and hundreds of rows, an all-open
     // page means scrolling past everything to reach the one being worked.
-    const n = (bodyHtml.match(/class="(ov-row|lot-row|pc-row)"/g) || []).length;
+    const n = (bodyHtml.match(/class="(ov-row|lot-row|pc-row|pm-row)"/g) || []).length;
     return `<details class="ov-panel rr-sec">
       <summary class="ov-head rr-sum">${title}<span class="rr-count">${
         n}</span></summary>${bodyHtml}</details>`;
@@ -1743,7 +1747,7 @@
       <div class="lot-lbl">tick every listing of ours that is this property (duplicate postings included)</div>`;
     const cands = m.candidates.map(c => `<label style="display:flex;gap:8px;align-items:flex-start;border:1px solid var(--border,#eee);border-radius:6px;padding:6px;margin-top:6px">
         <input type="checkbox" class="pm-tick" value="${escapeHtml(c.auction_id)}">
-        <span style="flex:1;font-size:12px"><b>${escapeHtml(c.auction_id)}</b> · ${escapeHtml(c.borrower || '—')} ·
+        <span style="flex:1;font-size:12px"><b>${escapeHtml(c.auction_id)}</b> (${escapeHtml(c.source)}) · ${escapeHtml(c.borrower || '—')} ·
           ${currency(c.reserve) || 'no reserve'} ${pmMark(pmPriceOk(s, c))} · ${pmLinks(c)}<br>
           <span style="color:var(--muted)">${escapeHtml(c.description || '')}</span></span>
       </label>`).join('');
@@ -1760,7 +1764,7 @@
   function portalMatchTabs(rows) {
     const counts = {};
     rows.forEach(r => { counts[r.reason] = (counts[r.reason] || 0) + 1; });
-    const tab = (reason, label, n) => `<button class="ghost pm-tab" data-reason="${reason}">${label} · ${n}</button>`;
+    const tab = (reason, label, n) => `<button class="ghost pm-tab" data-reason="${escapeHtml(reason)}">${label} · ${n}</button>`;
     return `<div style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 12px">${
       tab('all', 'All', rows.length)}${
       Object.keys(counts).sort().map(r => tab(r, escapeHtml(PM_REASON_LABEL[r] || r), counts[r])).join('')}</div>
