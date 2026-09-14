@@ -97,10 +97,12 @@ def test_spot_check_is_deterministic_and_skips_decided_subjects():
     pairs = [Pair(f"bn-{i}", str(900000 + i), "baanknet", "eauctionsindia", "four_fields", "CONFIRMED") for i in range(30)]
     pairs.append(Pair("bn-99", "999", "baanknet", "eauctionsindia", "decision", "CONFIRMED"))
     result = MatchResult(pairs=pairs, ambiguous=[])
-    first = ll.spot_check_sample(result, {"bn-3"}, date(2026, 9, 15))
-    assert first == ll.spot_check_sample(result, {"bn-3"}, date(2026, 9, 15))
-    assert len(first) == 10 and "bn-3" not in first and "bn-99" not in first
-    assert first != ll.spot_check_sample(result, {"bn-3"}, date(2026, 9, 16))
+    decided = {("bn-3", "eauctionsindia")}
+    first = ll.spot_check_sample(result, decided, date(2026, 9, 15))
+    assert first == ll.spot_check_sample(result, decided, date(2026, 9, 15))
+    assert len(first) == 10 and ("bn-3", "eauctionsindia") not in first
+    assert all(subject != "bn-99" for subject, _ in first)
+    assert first != ll.spot_check_sample(result, decided, date(2026, 9, 16))
 
 
 def test_review_rows_carry_both_sides_and_the_snapshot():
@@ -116,9 +118,19 @@ def test_review_rows_carry_both_sides_and_the_snapshot():
 def test_review_rows_include_spot_checked_confirmations():
     records = [_rec("841207", "eauctionsindia"), _rec("bn-1", "baanknet")]
     result = ll.match(records)
-    [row] = ll.review_rows(result, records, ["bn-1"])
+    [row] = ll.review_rows(result, records, [("bn-1", "eauctionsindia")])
     assert (row["subject"]["auction_id"], row["reason"], row["spot_check"]) == ("bn-1", "spot_check", True)
     assert [c["auction_id"] for c in row["candidates"]] == ["841207"]
+
+
+def test_spot_checks_are_per_other_source():
+    records = [_rec("841207", "eauctionsindia"), _rec("be-1", "bankeauctions", borrower="Mr. N Mariappan"), _rec("bn-1", "baanknet")]
+    result = ll.match(records)
+    keys = ll.spot_check_sample(result, set(), date(2026, 9, 15))
+    assert ("bn-1", "bankeauctions") in keys and ("bn-1", "eauctionsindia") in keys
+    rows = ll.review_rows(result, records, [("bn-1", "bankeauctions"), ("bn-1", "eauctionsindia")])
+    assert [(r["other_source"], [c["auction_id"] for c in r["candidates"]]) for r in rows] == [
+        ("bankeauctions", ["be-1"]), ("eauctionsindia", ["841207"])]
 
 
 def test_run_writes_nothing_when_the_safety_stop_fires(monkeypatch):

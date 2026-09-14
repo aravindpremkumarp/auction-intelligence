@@ -115,12 +115,16 @@ def safety_problems(result: MatchResult, records: list[dict]) -> list[str]:
     return problems
 
 
-def spot_check_sample(result: MatchResult, decided_ids: set[str], run_date: date, size: int = SPOT_CHECK_SIZE) -> list[str]:
-    """Subjects of automatic confirmations nobody has looked at, sampled the
-    same way for the same day."""
-    subjects = sorted({p.a_id for p in result.pairs
-                       if p.confidence == "CONFIRMED" and p.method in _SPOT_CHECK_METHODS and p.a_id not in decided_ids})
-    return sorted(random.Random(run_date.isoformat()).sample(subjects, min(size, len(subjects))))
+def spot_check_sample(result: MatchResult, decided_keys: set[tuple[str, str]], run_date: date,
+                      size: int = SPOT_CHECK_SIZE) -> list[tuple[str, str]]:
+    """(subject, other source) pairs of automatic confirmations nobody has
+    looked at, sampled the same way for the same day. Per other source, like
+    decisions: a subject confirmed against two portals is two separate cases,
+    and settling one must not silence the other."""
+    eligible = sorted({(p.a_id, p.b_source) for p in result.pairs
+                       if p.confidence == "CONFIRMED" and p.method in _SPOT_CHECK_METHODS
+                       and (p.a_id, p.b_source) not in decided_keys})
+    return sorted(random.Random(run_date.isoformat()).sample(eligible, min(size, len(eligible))))
 
 
 def listing_row(rec: dict) -> dict:
@@ -133,9 +137,9 @@ def listing_row(rec: dict) -> dict:
             "url": rec.get("url"), "public_url": rec.get("public_url")}
 
 
-def review_rows(result: MatchResult, records: list[dict], spot_ids: list[str]) -> list[dict]:
+def review_rows(result: MatchResult, records: list[dict], spot_keys: list[tuple[str, str]]) -> list[dict]:
     """The review queue: one row per subject waiting for a person, then one per
-    spot-checked confirmation."""
+    spot-checked (subject, other source) confirmation."""
     by_id = {r["auction_id"]: r for r in records}
     rows: list[dict] = []
     for a in result.ambiguous:
@@ -145,16 +149,17 @@ def review_rows(result: MatchResult, records: list[dict], spot_ids: list[str]) -
         rows.append({"subject": listing_row(subject), "other_source": a.other_source, "reason": a.reason,
                      "candidates": [listing_row(by_id[c]) for c in a.candidates if c in by_id],
                      "spot_check": False, "snapshot": snapshot_of(graph_candidate(subject))})
-    linked: dict[str, list[Pair]] = defaultdict(list)
+    linked: dict[tuple[str, str], list[Pair]] = defaultdict(list)
     for p in result.pairs:
-        if p.a_id in spot_ids and p.confidence == "CONFIRMED":
-            linked[p.a_id].append(p)
-    for aid in spot_ids:
+        if (p.a_id, p.b_source) in spot_keys and p.confidence == "CONFIRMED":
+            linked[(p.a_id, p.b_source)].append(p)
+    for aid, other in spot_keys:
         subject = by_id.get(aid)
-        if subject is None or not linked[aid]:
+        pairs = linked[(aid, other)]
+        if subject is None or not pairs:
             continue
-        rows.append({"subject": listing_row(subject), "other_source": linked[aid][0].b_source, "reason": "spot_check",
-                     "candidates": [listing_row(by_id[p.b_id]) for p in linked[aid] if p.b_id in by_id],
+        rows.append({"subject": listing_row(subject), "other_source": other, "reason": "spot_check",
+                     "candidates": [listing_row(by_id[p.b_id]) for p in pairs if p.b_id in by_id],
                      "spot_check": True, "snapshot": snapshot_of(graph_candidate(subject))})
     return rows
 
@@ -197,12 +202,12 @@ def run(dry_run: bool = False, queue_only: bool = False) -> int:
             print(f"  SAFETY STOP: {problem}")
         raise LinkSafetyError("; ".join(problems))
 
-    spot = spot_check_sample(result, {subject_id for subject_id, _other in decisions}, date.today())
+    spot = spot_check_sample(result, set(decisions), date.today())
     rows = review_rows(result, records, spot)
     if dry_run:
         print(f"[dry-run] {len(rows)} review rows, spot-check {spot}; no writes")
         return 0
-    run_query(SAVE_QUEUE, {"rows": json.dumps(rows, ensure_ascii=False), "spot": json.dumps(spot)})
+    run_query(SAVE_QUEUE, {"rows": json.dumps(rows, ensure_ascii=False), "spot": json.dumps([list(k) for k in spot])})
     print(f"  review queue stored: {len(rows)} rows")
     if queue_only:
         return 0
