@@ -25,7 +25,7 @@ Rulings this plan makes against the spec (each is also applied to the spec in Ta
 - The subject of a comparison is the listing from the better-ranked source per `sources.base.SOURCE_RANK` (baanknet 1, bankeauctions 2, eauctionsindia 3; an unlisted source ranks 99, ties broken by name).
 - Grades: `four_fields`, `unit_number`, `decision` → CONFIRMED; `review` → PENDING. `build_spine` (`MERGE_GRADES`) and `api/canonical` (`BRIDGE_GRADES`) stay untouched and merge only CONFIRMED/PROBABLE.
 - Review reasons (exact strings): `batch`, `units_disagree`, `price_only`, `borrower_only`, `split`, `contested`.
-- A `portal-match` decision key is `portal-match:{subject_id}`; its payload is `{subject_id, linked_ids, rejected_ids, snapshot, note?}` where the server, not the client, sets `snapshot`.
+- A `portal-match` decision key is `portal-match:{subject_id}:{other_source}` (one decision per subject per other source — one queue row); its payload is `{subject_id, other_source, linked_ids, rejected_ids, snapshot, note?}` where the server, not the client, sets `snapshot`. `portal_decisions` and `match_listings(decisions=)` key verdicts by `(subject_id, other_source)`. (Ruling during Task 2 review.)
 - A decision is ignored when its `snapshot` differs from the subject's current `snapshot_of` (bank key, rounded reserve, borrower key, auction day).
 - Spot-check: 10 CONFIRMED `four_fields`/`unit_number` subjects without a decision, sampled with `random.Random(run_date.isoformat())`.
 - `find_same_listing_pairs(incoming, existing) -> list[Pair]` and the `Pair` fields keep their shape.
@@ -1492,7 +1492,7 @@ def run(dry_run: bool = False, queue_only: bool = False) -> int:
             print(f"  SAFETY STOP: {problem}")
         raise LinkSafetyError("; ".join(problems))
 
-    spot = spot_check_sample(result, set(decisions), date.today())
+    spot = spot_check_sample(result, {subject_id for subject_id, _other in decisions}, date.today())
     rows = review_rows(result, records, spot)
     if dry_run:
         print(f"[dry-run] {len(rows)} review rows, spot-check {spot}; no writes")
@@ -1576,7 +1576,8 @@ def test_portal_matches_hide_rows_with_a_current_decision(monkeypatch):
     monkeypatch.setattr(q, "_count_query", lambda cypher, params=None: {"rj": json.dumps(stored)})
 
     def decision(subject, snapshot):
-        payload = {"subject_id": subject, "linked_ids": ["853518"], "rejected_ids": [], "snapshot": snapshot}
+        payload = {"subject_id": subject, "other_source": "eauctionsindia", "linked_ids": ["853518"],
+                   "rejected_ids": [], "snapshot": snapshot}
         return {"key": decision_key("portal-match", payload), "kind": "portal-match", "verdict": "approved", "payload": payload}
 
     decisions = [decision("bn-1", snap), decision("bn-2", {**snap, "reserve_price": 1})]   # bn-2's facts changed
@@ -1624,7 +1625,7 @@ def _portal_matches(decisions: list[dict]) -> list[dict]:
     decided = portal_decisions(decisions)
     out = []
     for r in rows:
-        d = decided.get((r.get("subject") or {}).get("auction_id"))
+        d = decided.get(((r.get("subject") or {}).get("auction_id"), r.get("other_source")))
         if d and d["snapshot"] == r.get("snapshot"):
             continue
         out.append(r)
@@ -1748,7 +1749,7 @@ In `web/review.html`, insert immediately before the line `  // Verdicts land ins
 
   function portalMatchRow(m) {
     const s = m.subject;
-    const base = { subject_id: s.auction_id, snapshot: m.snapshot };
+    const base = { subject_id: s.auction_id, other_source: m.other_source, snapshot: m.snapshot };
     const head = `<div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline">
         <b>${escapeHtml(s.title || s.auction_id)}${s.city ? ' · ' + escapeHtml(s.city) : ''}</b>
         <span style="font-size:12px;color:#8a5a00;background:#fff4dc;border-radius:4px;padding:2px 6px">${
@@ -1964,6 +1965,7 @@ In `docs/superpowers/specs/2026-09-15-portal-match-governance-design.md`:
 3. In **Testing**, replace the line `- "Shylaja K" vs "Mrs Sailaja.K", same price → \`four_fields\` CONFIRMED.` with `- "N MARIAPPAN" vs "Mr. N. Mariappan", same bank, day and price → \`four_fields\` CONFIRMED.`
 4. In **Components → `sources/match.py`**, replace `Keep: \`Candidate\` (add \`emd_num\`, \`title\`, \`description\`, \`city\` for display)` with `Keep: \`Candidate\` (display fields in one \`info\` dict the rule never reads)`.
 5. Append under **Measured** the two `rows` lines from Step 1 as "Built rule, 2026-09-14 snapshot".
+6. In **Decisions**, replace `` `portal_match_key(subject_id) -> "portal-match:{subject_id}"` (one decision per subject) `` with `` `portal_match_key(subject_id, other_source) -> "portal-match:{subject_id}:{other_source}"` (one decision per subject per other source — one review row) ``, and add `"other_source"` to the payload list.
 
 - [ ] **Step 3: Run the full governance test set once more**
 
