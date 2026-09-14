@@ -159,8 +159,10 @@ the leader already links every listing in the group.
 
 ## Failure handling
 
-- Missing markdown on any page: the group is ambiguous ("page has no
-  markdown") and skipped, never half-stitched.
+- Missing markdown on any page: that page is not a candidate at all (the
+  detector only reads pages with markdown), so the listing shows one page and
+  no group forms. Nothing is half-stitched; the pair appears on the next dry
+  run once the page is OCR'd.
 - Lot counts missing on one page: stitched text is still written;
   `stitched_expected_lot_count` stays null, and the prompt gets the leader's
   own count via the coalesce, as today.
