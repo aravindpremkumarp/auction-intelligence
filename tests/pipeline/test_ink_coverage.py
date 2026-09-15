@@ -171,7 +171,7 @@ def test_unscorable_inputs_never_flag():
 
 
 def test_health_gains_missing_region_flag_and_penalty():
-    md = "Clean notice text that trips no other flag."
+    md = "Sale notice of immovable property under the SARFAESI Act, 2002."
     base = score_ocr_health(md)
     assert base["score"] == 100 and base["flags"] == []
 
@@ -185,7 +185,7 @@ def test_health_gains_missing_region_flag_and_penalty():
 
 
 def test_health_unchanged_when_region_is_absent_or_clean():
-    md = "Clean notice text that trips no other flag."
+    md = "Sale notice of immovable property under the SARFAESI Act, 2002."
     assert score_ocr_health(md, region=None)["flags"] == []
     assert score_ocr_health(md, region={"flag": False,
                                         "uncovered_ratio": 0.01})["flags"] == []

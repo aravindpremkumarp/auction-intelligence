@@ -1241,7 +1241,8 @@ def _reingest_multi_region(*, filename: str, fp: str, src_filename: str,
 
             from pipeline import datalab_api
             from pipeline.config import (
-                DATALAB_PIPELINE_CONCURRENCY, datalab_mode_for,
+                DATALAB_PIPELINE_CONCURRENCY, DATALAB_REINGEST_TIMEOUT_S,
+                datalab_mode_for,
             )
             from pipeline.datalab import parse_datalab_blocks
 
@@ -1251,7 +1252,8 @@ def _reingest_multi_region(*, filename: str, fp: str, src_filename: str,
                 results = list(pool.map(
                     lambda it: datalab_api.run_file(
                         it["disk_path"], output_format="json",
-                        mode=datalab_mode),
+                        mode=datalab_mode,
+                        timeout_s=DATALAB_REINGEST_TIMEOUT_S),
                     items,
                 ))
             for i, (region, result) in enumerate(zip(regions, results)):
@@ -1635,10 +1637,13 @@ def reingest_notice(filename: str, by_email: str,
             # (markdown + pre-normalized canonical blocks), so everything below
             # — load_blocks_for, the bbox remap, the persist — is unchanged.
             from pipeline import datalab_api
-            from pipeline.config import datalab_mode_for
+            from pipeline.config import (
+                DATALAB_REINGEST_TIMEOUT_S, datalab_mode_for,
+            )
             datalab_mode = datalab_mode_for(notice_type)
             md_path, blocks_path = datalab_api.run_and_cache(
                 fp, disk, mode=datalab_mode,
+                timeout_s=DATALAB_REINGEST_TIMEOUT_S,
             )
             if md_path is None:
                 raise RuntimeError(

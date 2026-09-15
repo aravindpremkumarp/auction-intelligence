@@ -84,8 +84,10 @@ def test_ends_mid_tag_flags_truncated():
 
 
 def test_healthy_html_table_not_truncated():
-    md = ("<table><tr><td>a</td><td>b</td></tr>"
-          "<tr><td>c</td><td>d</td></tr></table>")
+    # Real cell text, not single letters: a few characters in total is the
+    # near-empty failure, and this test is about truncation alone.
+    md = ("<table><tr><td>Borrower</td><td>M/s Sri Balaji Traders</td></tr>"
+          "<tr><td>Reserve Price</td><td>Rs.24,48,217/-</td></tr></table>")
     h = score_ocr_health(md)
     assert h["flags"] == []
     assert h["score"] == 100
@@ -105,6 +107,26 @@ def test_empty_and_none_are_unscored():
     assert score_ocr_health("") == {"score": None, "flags": [], "details": {}}
     assert score_ocr_health(None) == {"score": None, "flags": [], "details": {}}
     assert score_ocr_health("   \n ")["score"] is None
+
+
+def test_near_empty_text_flags():
+    # TATA-C117865183167317.jpg: a newspaper notice whose stored text shrank
+    # to its page number ("26") and still scored 100 with no flag.
+    h = score_ocr_health("26")
+    assert h["flags"] == ["near-empty"]
+    assert h["details"]["visible_chars"] == 2
+    assert h["score"] < 70, "must fall under the re-OCR cutoff"
+
+
+def test_near_empty_counts_visible_text_not_markup():
+    h = score_ocr_health("<table><tr><td>26</td><td></td></tr></table>")
+    assert "near-empty" in h["flags"]
+
+
+def test_short_real_notice_is_not_near_empty():
+    md = ("TATA CAPITAL HOUSING FINANCE LIMITED\n\n"
+          "NOTICE FOR SALE OF IMMOVABLE PROPERTY")
+    assert "near-empty" not in score_ocr_health(md)["flags"]
 
 
 def test_cjk_hallucination_flags_foreign_script():
@@ -199,7 +221,8 @@ def test_small_table_does_not_collapse_flag():
     # A short legitimate grid (below the min-table-size gate) never flags,
     # even with no prose around it.
     md = ("<table><tr><td>LAN</td><td>Reserve Price</td></tr>"
-          "<tr><td>LXMOTRICHY5424</td><td>Rs.2448217</td></tr></table>")
+          "<tr><td>LXMOTRICHY5424</td><td>Rs.2448217</td></tr>"
+          "<tr><td>Borrower</td><td>M/s Sri Balaji Traders</td></tr></table>")
     h = score_ocr_health(md)
     assert "table-collapse" not in h["flags"]
     assert h["score"] == 100
@@ -438,14 +461,15 @@ def test_old_deed_years_do_not_flag():
 def test_us_ordered_date_is_recorded_not_flagged():
     """06.20.2024 fails as dd.mm but reads as June 20 — indistinguishable from
     a US-ordered source date, so it is counted, never penalised."""
-    h = score_ocr_health("notice dated 06.20.2024")
+    h = score_ocr_health("sale notice dated 06.20.2024 for the immovable property")
     assert h["flags"] == []
     assert h["score"] == 100
     assert h["details"]["date_ambiguous_order"] == 1
 
 
 def test_impossible_date_stacks_with_a_structural_flag():
-    h = score_ocr_health("<table><tr><td>auction 30.00.2026</td></tr>")
+    h = score_ocr_health(
+        "<table><tr><td>Date of e-auction 30.00.2026 at the branch office</td></tr>")
     assert set(h["flags"]) == {"truncated", "impossible-date"}
     assert h["score"] == 45          # 100 - 30 truncated - 25 date
 
@@ -453,7 +477,8 @@ def test_impossible_date_stacks_with_a_structural_flag():
 def test_score_stays_above_the_reocr_cutoff():
     """scripts/reocr_low_health_datalab.py selects health < 70. A misread digit
     is a one-field human fix, not grounds for re-OCRing the whole notice."""
-    assert score_ocr_health("auction 30.00.2026")["score"] > 70
+    md = "Date and Time of Auction Sale 30.00.2026 at the branch office premises"
+    assert score_ocr_health(md)["score"] > 70
 
 
 def test_block_health_flags_an_impossible_date():
@@ -474,6 +499,10 @@ def test_flag_is_in_the_canonical_vocabulary():
     assert "impossible-date" in HEALTH_FLAGS
     assert "impossible-date" in BLOCK_HEALTH_FLAGS
     assert "impossible-date" in PENALTY
+    assert "near-empty" in HEALTH_FLAGS
+    assert "near-empty" in PENALTY
+    # A block is allowed to be short; only a whole document is judged.
+    assert "near-empty" not in BLOCK_HEALTH_FLAGS
 
 
 # ── score_freshly_loaded: the live path folds the ink verdict in ─────────────
