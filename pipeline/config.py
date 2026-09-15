@@ -137,6 +137,11 @@ DATALAB_MODE_SINGLE = os.getenv("DATALAB_MODE_SINGLE", "fast").strip().lower()
 DATALAB_MODE_MULTI  = os.getenv("DATALAB_MODE_MULTI", "accurate").strip().lower()
 # Concurrent Datalab calls in the bulk stage (per-file, unlike MinerU's batches).
 DATALAB_PIPELINE_CONCURRENCY = int(os.getenv("DATALAB_PIPELINE_CONCURRENCY", "4"))
+# How long a reviewer's re-ingest waits on one Datalab job before giving up.
+# The client's 300s default threw away finished work: the accurate tier took
+# 359s and 933s on one newspaper notice (2026-09-15). A timeout discards the
+# result, so err long — the annotator polls for longer than this (review.html).
+DATALAB_REINGEST_TIMEOUT_S = int(os.getenv("DATALAB_REINGEST_TIMEOUT_S", "1200"))
 
 
 def datalab_mode_for(notice_type: str | None) -> str:
