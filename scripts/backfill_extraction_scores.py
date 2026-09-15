@@ -49,14 +49,19 @@ def load_unscored(force: bool) -> list[dict]:
     coalesce(version, 0) treats a missing version as "before versioning" — a
     score written when validators.py had no SCORE_VERSION, which is exactly the
     stale case, not a fresh one.
+
+    A follower page of a stitched notice (stitched_into) is excluded for the same
+    reason it is never extracted on its own: its text rides in the leader's
+    stitched_markdown, so there is nothing here to score.
     """
-    where = "d.extraction_json IS NOT NULL"
+    where = "d.extraction_json IS NOT NULL AND d.stitched_into IS NULL"
     if not force:
         where += (" AND (d.extraction_score IS NULL"
                   "      OR coalesce(d.extraction_score_version, 0) < $version)")
     return run_read_query(
         f"MATCH (d:Document) WHERE {where} "
-        "RETURN d.filename AS filename, d.markdown AS md, "
+        "RETURN d.filename AS filename, "
+        "       coalesce(d.stitched_markdown, d.markdown) AS md, "
         "       d.extraction_json AS ej ORDER BY d.filename",
         {"version": SCORE_VERSION}, max_rows=20_000, timeout=120.0)
 

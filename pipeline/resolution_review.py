@@ -48,7 +48,7 @@ APPROVED = "approved"
 REJECTED = "rejected"
 
 KINDS = ("bank-merge", "branch-merge", "district-conflict",
-         "village-alias", "village-skip", "lot-match")
+         "village-alias", "village-skip", "lot-match", "portal-match")
 
 
 def bank_pair_key(a: str, b: str) -> str:
@@ -111,6 +111,14 @@ def area_check_key(auction_id: str) -> str:
     return f"area-check:{auction_id}"
 
 
+def portal_match_key(subject_id: str, other_source: str) -> str:
+    """Key for "a person decided which of our listings this portal listing is".
+
+    One decision per subject per other source — the review queue shows one
+    case per pair, and re-deciding that case replaces only its own decision."""
+    return f"portal-match:{subject_id}:{other_source}"
+
+
 def decision_key(kind: str, payload: dict) -> str:
     """The key for a decision, derived from its kind and payload — the API
     never accepts a caller-supplied key, so a decision can only ever land on
@@ -131,6 +139,8 @@ def decision_key(kind: str, payload: dict) -> str:
         return price_check_key(payload["auction_id"])
     if kind == "area-check":
         return area_check_key(payload["auction_id"])
+    if kind == "portal-match":
+        return portal_match_key(payload["subject_id"], payload["other_source"])
     raise ValueError(f"unknown decision kind: {kind!r}")
 
 
@@ -325,4 +335,24 @@ def decided_area_checks(decisions: list[dict]) -> set[str]:
         aid = (d.get("payload") or {}).get("auction_id")
         if aid and d.get("verdict") in (APPROVED, REJECTED):
             out.add(aid)
+    return out
+
+
+def portal_decisions(decisions: list[dict]) -> dict[tuple[str, str], dict]:
+    """Every portal-match verdict, keyed by ``(subject id, other source)``, in
+    the shape ``sources.match.match_listings(decisions=...)`` reads:
+    ``{"verdict", "linked_ids": set, "rejected_ids": set, "snapshot": dict}``.
+    One subject can have a separate open (or settled) case per other source,
+    so the key must carry both."""
+    out: dict[tuple[str, str], dict] = {}
+    for d in _decided(decisions, "portal-match").values():
+        payload = d.get("payload") or {}
+        sid = payload.get("subject_id")
+        other_source = payload.get("other_source")
+        if not sid or not other_source or d.get("verdict") not in (APPROVED, REJECTED):
+            continue
+        out[(sid, other_source)] = {"verdict": d["verdict"],
+                                    "linked_ids": set(payload.get("linked_ids") or ()),
+                                    "rejected_ids": set(payload.get("rejected_ids") or ()),
+                                    "snapshot": payload.get("snapshot") or {}}
     return out

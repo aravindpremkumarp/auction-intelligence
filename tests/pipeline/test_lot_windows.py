@@ -7,16 +7,26 @@ that index into the lot_key it MERGEs :Lot on.
 
 Offsets here are realistic, because the detection is: a document is only
 treated as multi-window when it is longer than the window char_buffer_for would
-have given it (30000 for anything long), and a reset only counts near a
+have given it (BUFFER, pinned by a fixture below), and a reset only counts near a
 multiple of that. `tail()` sets the document length the entities imply.
 """
 from __future__ import annotations
+
+import pytest
 
 import pipeline.apply_extractions as AX
 import pipeline.promote_extractions as P
 from pipeline.lot_windows import renumber_window_lots, window_offsets
 
 BUFFER = 30000          # char_buffer_for's ceiling, i.e. the window size
+
+
+@pytest.fixture(autouse=True)
+def _pin_window_ceiling(monkeypatch):
+    """These fixtures place entities around multiples of a 30000-char window.
+    The production default is now larger (64000); the repair logic under test
+    is the same at any ceiling, so pin the one the offsets were written for."""
+    monkeypatch.setenv("LANGEXTRACT_MAX_CHAR_BUFFER_CEILING", str(BUFFER))
 
 
 def ent(cls, start, lot_index=None, text="x", **attrs):

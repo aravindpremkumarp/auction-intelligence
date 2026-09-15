@@ -415,3 +415,14 @@ def test_classifications_rejects_legacy_status(client) -> None:
     for s in ("disagreement", "auto-confirm"):
         r = client.get(f"/review/classifications?status={s}", headers=_admin_header())
         assert r.status_code == 422, f"status={s} should be rejected"
+
+
+def test_classification_rows_say_which_page_of_which_notice_they_are():
+    import inspect
+    from api.review import queries as Q
+    from api.review.router import ClassificationRow
+    src = inspect.getsource(Q.list_classification_queue)
+    assert "AS stitched_into" in src
+    assert "AS stitched_pages" in src
+    row = ClassificationRow(filename="x")
+    assert row.stitched_into is None and row.stitched_pages == []

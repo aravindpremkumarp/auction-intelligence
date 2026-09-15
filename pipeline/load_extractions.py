@@ -89,7 +89,10 @@ ROSTER_CYPHER = (
 
 
 def _fetch(limit: int | None, force: bool, filename: str | None) -> list[dict]:
-    where = "d.markdown IS NOT NULL AND d.markdown <> ''"
+    # A follower (page 2 of a stitched notice, pipeline/notice_pages) is never
+    # extracted on its own: its text rides in the leader's stitched_markdown.
+    where = ("d.markdown IS NOT NULL AND d.markdown <> '' "
+             "AND d.stitched_into IS NULL")
     if not force:
         where += " AND d.extraction_json IS NULL"
     if filename:
@@ -97,9 +100,11 @@ def _fetch(limit: int | None, force: bool, filename: str | None) -> list[dict]:
     return run_read_query(
         f"MATCH (d:Document) WHERE {where} "
         + ROSTER_CYPHER +
-        "RETURN d.filename AS filename, d.markdown AS md, "
+        "RETURN d.filename AS filename, "
+        "       coalesce(d.stitched_markdown, d.markdown) AS md, "
         "       d.notice_type AS notice_type, "
-        "       d.expected_lot_count AS expected_lot_count, "
+        "       coalesce(d.stitched_expected_lot_count, d.expected_lot_count) "
+        "AS expected_lot_count, "
         "       roster AS roster "
         "ORDER BY d.filename"
         + (f" LIMIT {int(limit)}" if limit else ""),
@@ -142,7 +147,9 @@ def _find_donor(md: str) -> dict | None:
     rows = run_read_query(
         "MATCH (d:Document) "
         "WHERE d.extraction_json IS NOT NULL "
-        "  AND size(d.markdown) = $len AND d.markdown = $md "
+        "  AND d.stitched_into IS NULL "
+        "  AND size(coalesce(d.stitched_markdown, d.markdown)) = $len "
+        "  AND coalesce(d.stitched_markdown, d.markdown) = $md "
         "RETURN d.filename AS filename, d.extraction_json AS j, "
         "       d.extraction_score AS score, "
         "       d.extraction_score_version AS score_version, "

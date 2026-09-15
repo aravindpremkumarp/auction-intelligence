@@ -980,6 +980,8 @@ def fetch_work(limit: int | None = None,
     return run_read_query(
         "MATCH (a:AuctionProperty)-[:HAS_DOCUMENT]->(d:Document) "
         "WHERE d.extraction_json IS NOT NULL "
+        # page 2 of a stitched notice: its lots are on the leader
+        "  AND d.stitched_into IS NULL "
         + ("AND d.filename IN $filenames " if filenames is not None else "")
         + "RETURN d.filename AS filename, "
         "       d.extraction_json AS extraction_json, "

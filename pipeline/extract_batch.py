@@ -60,10 +60,11 @@ def load_from_neo4j(limit: int | None) -> list[tuple[str, str]]:
     from api.neo4j_client import run_read_query  # needs creds (NEO4J_HTTP_API=1 here)
     rows = run_read_query(
         "MATCH (d:Document) WHERE d.markdown IS NOT NULL AND d.markdown <> '' "
+        "  AND d.stitched_into IS NULL "
         "OPTIONAL MATCH (a:AuctionProperty)-[:HAS_DOCUMENT]->(d) "
         "WITH d, collect(a.auction_id) AS aids "
         "RETURN coalesce(aids[0], d.storage_key, d.file_path) AS aid, "
-        "       d.markdown AS md ORDER BY aid"
+        "       coalesce(d.stitched_markdown, d.markdown) AS md ORDER BY aid"
         + (f" LIMIT {int(limit)}" if limit else ""),
         max_rows=20_000, timeout=120.0)
     seen: set = set()
@@ -93,10 +94,12 @@ def load_from_graph(limit: int | None) -> list[tuple]:
     from api.neo4j_client import run_read_query
     rows = run_read_query(
         "MATCH (d:Document) WHERE d.extraction_json IS NOT NULL "
+        "  AND d.stitched_into IS NULL "
         "OPTIONAL MATCH (a:AuctionProperty)-[:HAS_DOCUMENT]->(d) "
         "WITH d, collect(a.auction_id) AS aids "
         "RETURN coalesce(aids[0], d.storage_key, d.filename) AS aid, "
-        "       d.markdown AS md, d.extraction_json AS ej ORDER BY aid"
+        "       coalesce(d.stitched_markdown, d.markdown) AS md, "
+        "       d.extraction_json AS ej ORDER BY aid"
         + (f" LIMIT {int(limit)}" if limit else ""),
         max_rows=20_000, timeout=120.0)
     out: list[tuple] = []

@@ -397,7 +397,9 @@ def list_classification_queue(
                d.notice_type_verified_by        AS verified_by,
                d.notice_type_review_notes       AS review_notes,
                [t IN titles WHERE t IS NOT NULL][0..3] AS sample_titles,
-               size(auction_ids)                AS auction_id_count
+               size(auction_ids)                AS auction_id_count,
+               d.stitched_into                  AS stitched_into,
+               coalesce(d.stitched_pages, [])   AS stitched_pages
         ORDER BY verified ASC,
                  d.filename ASC
         SKIP $skip LIMIT $size
@@ -2073,6 +2075,7 @@ def resolution_review() -> dict:
     lot_matches = _lot_match_candidates(decisions)
     price_checks = _price_checks(decisions)
     area_checks = _area_checks(decisions)
+    portal_matches = _portal_matches(decisions)
 
     return {
         "bank_pairs": bank_pairs,
@@ -2082,11 +2085,12 @@ def resolution_review() -> dict:
         "lot_matches": lot_matches,
         "price_checks": price_checks,
         "area_checks": area_checks,
+        "portal_matches": portal_matches,
         "decided": len(decisions),
         "open": (len(bank_pairs) + len(branch_pairs)
                  + len(district_conflicts) + len(unmatched_villages)
                  + len(lot_matches) + len(price_checks)
-                 + len(area_checks)),
+                 + len(area_checks) + len(portal_matches)),
     }
 
 
@@ -2096,6 +2100,34 @@ def resolution_review() -> dict:
 #: still bounding the query if the backlog ever grows past what one page
 #: should show at once.
 _LOT_MATCH_LIMIT = 200
+
+
+#: Cap on portal-match rows in one queue load (135 measured on the first harvest).
+_PORTAL_MATCH_LIMIT = 400
+
+
+def _portal_matches(decisions: list[dict]) -> list[dict]:
+    """Portal listings waiting for a person, as `scripts/link_listings.py` —
+    the code that writes the links — stored them on its last run. A row whose
+    subject already has a decision on the same facts is settled and hidden;
+    a decision on facts that since changed does not hide it."""
+    import json as _json
+
+    from pipeline.resolution_review import portal_decisions
+
+    state = _count_query("MATCH (s:PipelineState {key:'link_listings'}) RETURN s.review_json AS rj")
+    try:
+        rows = _json.loads(state.get("rj") or "[]")
+    except (TypeError, ValueError):
+        rows = []
+    decided = portal_decisions(decisions)
+    out = []
+    for r in rows:
+        d = decided.get(((r.get("subject") or {}).get("auction_id"), r.get("other_source")))
+        if d and d["snapshot"] == r.get("snapshot"):
+            continue
+        out.append(r)
+    return out[:_PORTAL_MATCH_LIMIT]
 
 
 def _lot_match_candidates(decisions: list[dict]) -> list[dict]:
@@ -2294,6 +2326,17 @@ def _lot_match_candidates(decisions: list[dict]) -> list[dict]:
     return out
 
 
+_PORTAL_SUBJECT = """
+MATCH (a:AuctionProperty {auction_id: $auction_id})
+OPTIONAL MATCH (a)-[:CONDUCTED_BY]->(bk:Bank)
+OPTIONAL MATCH (a)-[:HAS_BORROWER]->(br:Borrower)
+RETURN a.auction_id AS auction_id, collect(DISTINCT bk.name)[0] AS bank,
+       a.reserve_price_num AS reserve_price_num,
+       toString(a.auction_start_dt) AS auction_start_dt,
+       collect(DISTINCT br.name)[0] AS borrower
+"""
+
+
 def record_resolution_decision(kind: str, payload: dict, verdict: str,
                                by_email: str) -> dict:
     """Store one human verdict as a (:ResolutionDecision) node.
@@ -2314,6 +2357,42 @@ def record_resolution_decision(kind: str, payload: dict, verdict: str,
         key = decision_key(kind, payload)
     except KeyError as e:
         raise ValueError(f"payload for {kind!r} is missing field {e}")
+
+    if kind == "portal-match":
+        if not isinstance(payload.get("linked_ids") or [], list) or not isinstance(payload.get("rejected_ids") or [], list):
+            raise ValueError("linked_ids and rejected_ids must be lists")
+        linked = list(payload.get("linked_ids") or [])
+        rejected = list(payload.get("rejected_ids") or [])
+        if not linked and not rejected:
+            raise ValueError("portal-match needs at least one linked or rejected listing")
+        if verdict == APPROVED and not linked:
+            raise ValueError("an approved portal-match must link at least one listing")
+        subject = _count_query(_PORTAL_SUBJECT, {"auction_id": payload.get("subject_id")})
+        if not subject.get("auction_id"):
+            raise ValueError(f"no listing with auction_id {payload.get('subject_id')!r}")
+        ids = sorted(set(linked) | set(rejected))
+        found = _count_query("MATCH (p:AuctionProperty) WHERE p.auction_id IN $ids RETURN count(DISTINCT p.auction_id) AS n",
+                             {"ids": ids})
+        if int(found.get("n") or 0) != len(ids):
+            raise ValueError("every linked or rejected listing must exist")
+        if verdict == APPROVED:
+            spread = _count_query(
+                """
+                MATCH (p:AuctionProperty) WHERE p.auction_id IN $linked
+                WITH coalesce(p.source, 'eauctionsindia') AS source,
+                     collect(DISTINCT round(coalesce(p.reserve_price_num, 0))) AS prices
+                RETURN max(size(prices)) AS n
+                """, {"linked": sorted(set(linked))})
+            if int(spread.get("n") or 0) > 1:
+                raise ValueError("the ticked listings from one portal have different reserve prices — "
+                                 "they are different properties")
+        # The snapshot is what the decision is valid for; it is read from the
+        # graph, never taken from the caller.
+        from sources.match import Candidate, snapshot_of
+        payload = {**payload, "snapshot": snapshot_of(Candidate(
+            auction_id=subject["auction_id"], source="", bank=subject.get("bank") or "",
+            reserve_price_num=subject.get("reserve_price_num"),
+            auction_start_dt=subject.get("auction_start_dt"), borrower=subject.get("borrower") or ""))}
 
     if kind == "village-alias" and verdict == APPROVED:
         hit = _count_query(
@@ -2440,6 +2519,7 @@ def _resolution_review_panels() -> list[dict]:
             # rows it never showed.
             ("prices that disagree", len(queues["price_checks"])),
             ("sizes that contradict", len(queues["area_checks"])),
+            ("portal matches to review", len(queues["portal_matches"])),
         ], max(queues["open"], 1)),
                "each row on the review queue settles every notice it touches"),
         _panel("Verdicts banked", _rows(

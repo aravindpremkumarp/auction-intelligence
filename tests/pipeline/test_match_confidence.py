@@ -11,7 +11,7 @@ import pytest
 
 import pipeline.apply_extractions as AX
 from pipeline.match_confidence import (
-    CONFIRMED, INFERRED, MATCH_CONFIDENCE, PROBABLE, UNKNOWN,
+    CONFIRMED, INFERRED, MATCH_CONFIDENCE, PENDING, PROBABLE, UNKNOWN,
     UNMATCHED_REASONS, confidence_for,
 )
 
@@ -108,23 +108,19 @@ def test_same_listing_methods_match_the_matcher_and_are_graded():
     from sources.match import METHODS
 
     assert set(SAME_LISTING_CONFIDENCE) == set(METHODS)
-    assert set(SAME_LISTING_CONFIDENCE.values()) == {CONFIRMED, PROBABLE, INFERRED}
-    assert listing_confidence_for("notice_bytes") == CONFIRMED
-    assert listing_confidence_for("bucket_only") == INFERRED
-    for bad in ("exact", "", None, 7, "NOTICE_BYTES"):
+    assert set(SAME_LISTING_CONFIDENCE.values()) == {CONFIRMED, PENDING}
+    assert listing_confidence_for("four_fields") == CONFIRMED
+    assert listing_confidence_for("review") == PENDING
+    for bad in ("exact", "borrower", "", None, 7, "FOUR_FIELDS"):
         assert listing_confidence_for(bad) == UNKNOWN
 
 
 def test_same_listing_table_does_not_leak_into_is_lot_grades():
-    """`borrower` is PROBABLE on the bridge and INFERRED on IS_LOT; the two
-    tables must not be one."""
     from pipeline.match_confidence import SAME_LISTING_CONFIDENCE, listing_confidence_for
 
-    assert listing_confidence_for("borrower") == PROBABLE
-    assert confidence_for("borrower") == INFERRED
-    assert confidence_for("notice_bytes") == UNKNOWN
-    assert "notice_bytes" not in MATCH_CONFIDENCE
-    assert set(SAME_LISTING_CONFIDENCE) - set(MATCH_CONFIDENCE) == {"notice_bytes", "boundaries", "bucket_only"}
+    assert listing_confidence_for("decision") == confidence_for("decision") == CONFIRMED
+    assert confidence_for("four_fields") == UNKNOWN
+    assert set(SAME_LISTING_CONFIDENCE) - set(MATCH_CONFIDENCE) == {"four_fields", "unit_number", "review"}
 
 
 # ── the write path stamps it ─────────────────────────────────────────────────

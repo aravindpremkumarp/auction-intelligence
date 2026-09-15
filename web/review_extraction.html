@@ -133,6 +133,7 @@
  .bbx.link{pointer-events:auto;cursor:pointer}
  .bbx.cur{border-color:#2563eb;background:rgba(37,99,235,.18);box-shadow:0 0 0 2px rgba(37,99,235,.35)}
  .bbl{position:absolute;top:-13px;left:0;font-size:9px;line-height:1.3;color:#1e40af;background:#fff;padding:0 3px;border-radius:2px;white-space:nowrap;pointer-events:none}
+ .pgbrk{display:block;margin:14px 0;padding:4px 8px;border-top:2px dashed #6366f1;color:#6366f1;font-size:12px;font-family:'IBM Plex Mono',monospace}
 </style>
 <div id="wrap">
   <div id="side">
@@ -202,7 +203,7 @@ const API_BASE=window.API_BASE||"";
 const api=(p,o={})=>(window.Auth&&window.Auth.fetchWithAuth
   ? window.Auth.fetchWithAuth(API_BASE+p,o)
   : fetch(API_BASE+p,o));
-const esc=s=>(s||"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+const esc=s=>(s||"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 function setMsg(t){document.getElementById("msg").textContent=t;setTimeout(()=>document.getElementById("msg").textContent="",2500);}
 
 // Replace the document pane with a full-width explanatory notice. Used for the
@@ -331,12 +332,13 @@ async function loadQueue(){
     const tag=row.extraction_batch!=null?`<span class="btag${isLatest?" latest":""}" title="extraction batch ${row.extraction_batch}">B${row.extraction_batch}</span>`:"";
     const when=relTime(row.extraction_at);
     const staleTag=row.stale?` · <span class="badge" style="background:#f59e0b;color:#0f172a" title="Markdown re-ingested after this extraction — re-run required">⚠ re-run</span>`:"";
+    const pagesTag=row.stitched_pages>1?` · <span class="badge" style="background:#6366f1;color:#fff" title="Text stitched from ${row.stitched_pages} source files (page 1 + page 2)">${row.stitched_pages} pages</span>`:"";
     const lotTag=row.lot_count_mismatch
       ?` · <span class="badge" style="background:#ef4444;color:#fff" title="Reviewer counted ${row.expected_lot_count} lot(s) at classification; this extraction has ${row.extracted_lot_count}">⚠ lots ${row.extracted_lot_count}/${row.expected_lot_count}</span>`
       :(row.expected_lot_count!=null&&row.extracted_lot_count!=null
         ?` · <span class="badge" style="background:#16a34a;color:#fff" title="Extracted lot count matches the reviewer's count">✓ ${row.extracted_lot_count} lot${row.extracted_lot_count===1?"":"s"}</span>`
         :"");
-    e.innerHTML=`<div>${tag}${esc(row.filename)}</div><div class=meta>${row.n_fields} fields · ${row.n_ungrounded} ungrounded · <span class="badge b-${row.status}">${row.status}</span>${scoreBadge(row.score)}${staleTag}${lotTag}</div>`+
+    e.innerHTML=`<div>${tag}${esc(row.filename)}</div><div class=meta>${row.n_fields} fields · ${row.n_ungrounded} ungrounded · <span class="badge b-${row.status}">${row.status}</span>${scoreBadge(row.score)}${staleTag}${pagesTag}${lotTag}</div>`+
       (when?`<div class=when>extracted ${when}</div>`:"");
     e.onclick=()=>loadDoc(row.filename,e);nav.appendChild(e);});
 }
@@ -349,10 +351,21 @@ async function loadDoc(fn,el){
 }
 function render(){
   const d=CUR;
+  const srcEl=document.getElementById("src"),fldEl=document.getElementById("fields");
+  if(d.stitched_into){
+    document.getElementById("title").textContent=d.filename;
+    document.getElementById("status").innerHTML=`<span class="badge" style="background:#6366f1;color:#fff">page of a stitched notice</span>`;
+    srcEl.innerHTML=`<div style="padding:16px;color:#334155">This file is a later page of <b>${esc(d.stitched_into)}</b>. Its text and lots are reviewed there.<br><br><a href="#" id="stitchLeaderLink">Open ${esc(d.stitched_into)} →</a></div>`;
+    document.getElementById("stitchLeaderLink").onclick=(ev)=>{ev.preventDefault();loadDoc(d.stitched_into);};
+    fldEl.innerHTML="";
+    const rb=document.getElementById("rerunBtn");if(rb)rb.disabled=true;
+    return;
+  }
   document.getElementById("title").textContent=d.filename;
   document.getElementById("status").innerHTML=`<span class="badge b-${d.status}">${d.status}</span>`+scoreBadge(d.score)+
     (d.verified_by?` <span style="color:#64748b;font-size:12px">by ${esc(d.verified_by)}</span>`:"")+
     (d.stale?` <span class="badge" style="background:#f59e0b;color:#0f172a" title="The markdown was re-ingested after this extraction ran, so these fields and their highlights no longer match the source. Press ▶ Re-run LangExtract.">⚠ markdown updated — re-run required</span>`:"")+
+    (d.stitched_pages&&d.stitched_pages.length>1?` <span class="badge" style="background:#6366f1;color:#fff" title="${esc(d.stitched_pages.join(' + '))}">stitched: ${d.stitched_pages.length} pages</span>`:"")+
     (d.rerun_running?` <span class="badge" style="background:#3b82f6;color:#fff">⏳ LangExtract running…</span>`:"")+
     (d.rerun_error?` <span class="badge" style="background:#dc2626;color:#fff" title="${esc(d.rerun_error)}">✗ re-run failed — hover for reason</span>`:"");
   const rb=document.getElementById("rerunBtn");
@@ -373,16 +386,23 @@ function render(){
   const cls=[...new Set(d.fields.map(f=>f.cls))];
   document.getElementById("legend").innerHTML=cls.map(c=>`<span class=badge style="background:${COLORS[c]||'#e2e8f0'};color:#0f172a">${c}</span>`).join(" ");
   // keep pane scroll across save/verify re-renders (loadDoc zeroes it for new docs)
-  const srcEl=document.getElementById("src"),fldEl=document.getElementById("fields");
   const st=[srcEl.scrollTop,fldEl.scrollTop];
   // highlighted source (container classes excluded so they don't swallow inner
   // spans); reduce to the non-overlapping set in document order — also the nav list.
   const sp=d.fields.filter(f=>f.start!=null&&!CONTAINER_CLASSES.has(f.cls)).map(f=>({s:f.start,e:f.end,c:f.cls,id:f.id})).sort((a,b)=>a.s-b.s);
   const md=d.markdown||"";const use=[];let upos=0;PAINTED=[];
   for(const x of sp){if(x.s<upos)continue;use.push(x);PAINTED.push(x.id);upos=x.e;}
+  // page dividers for a stitched notice: zero-width pseudo-spans at each page start.
+  // Drop any offset that falls strictly inside a highlighted span — splitting a
+  // mark would corrupt/duplicate that field's text in srcHtml. At an offset tied
+  // with a span boundary, the divider sorts first so it never lands mid-mark.
+  const brks=(d.stitched_page_offsets||[]).slice(1)
+    .map((o,i)=>({s:o,e:o,c:"__page__",id:null,n:i+2,fn:(d.stitched_pages||[])[i+1]||""}))
+    .filter(o=>!use.some(x=>x.s<o.s&&o.s<x.e));
+  const useAll=use.concat(brks).sort((a,b)=>a.s-b.s || (a.c==="__page__"?-1:0)-(b.c==="__page__"?-1:0));
   const rendered=mdMode()==="rendered"&&!!window.marked&&!!window.DOMPurify;
   srcEl.classList.toggle("rendered",rendered);
-  srcEl.innerHTML=srcHtml(md,use,rendered);
+  srcEl.innerHTML=srcHtml(md,useAll,rendered);
   if(rendered)renderMathIn(srcEl); // KaTeX on the live DOM, after sanitize+innerHTML
   // editable fields — a value carrying markup (the OCR <table> inside
   // full_description) renders as a table; ✎ edit swaps in the <textarea>
@@ -448,18 +468,24 @@ function srcHtml(md,use,rendered){
     let s=md;
     for(let i=use.length-1;i>=0;i--){const x=use[i];
       const a=Math.max(0,Math.min(x.s,s.length)),b=Math.max(a,Math.min(x.e,s.length));
+      if(x.c==="__page__"){s=s.slice(0,a)+OPEN(i)+s.slice(a);continue;}
       const region=s.slice(a,b).split("\n").join(M1+"\n"+OPEN(i));
       s=s.slice(0,a)+OPEN(i)+region+M1+s.slice(b);}
     let html=window.DOMPurify.sanitize(window.marked.parse(s,{gfm:true,breaks:false}));
     const reOpen=new RegExp(M0+"(\\d+)"+M2,"g");
     return html.replace(reOpen,(m,n)=>{const x=use[+n];
+        if(x.c==="__page__")return pageBreak(x);
         return `<mark data-fid="${x.id}" style="background:${COLORS[x.c]||'#e2e8f0'}" title="${x.c}">`;})
       .split(M1).join("</mark>");
   }
   let out="",pos=0;
   for(const x of use){out+=esc(md.slice(pos,x.s));
+    if(x.c==="__page__"){out+=pageBreak(x);pos=x.s;continue;}
     out+=`<mark data-fid="${x.id}" style="background:${COLORS[x.c]||'#e2e8f0'}" title="${x.c}">${esc(md.slice(x.s,x.e))}</mark>`;pos=x.e;}
   return out+esc(md.slice(pos));
+}
+function pageBreak(x){
+  return `<span class="pgbrk" title="${esc(x.fn)}">\u2014 page ${x.n}: ${esc(x.fn)} \u2014</span>`;
 }
 // ── rendered field values (item 4) ───────────────────────────────────────────
 // Extracted values often carry the OCR's own markup — a whole <table> inside a
