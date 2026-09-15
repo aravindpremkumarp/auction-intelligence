@@ -950,6 +950,36 @@ class AreaCheck(BaseModel):
     listing_url: str | None = None
 
 
+class PortalListing(BaseModel):
+    """One side of a portal match, as a reviewer reads it."""
+    auction_id: str
+    source: str
+    bank: str | None = None
+    borrower: str | None = None
+    reserve: float | None = None
+    emd: float | None = None
+    auction_day: str | None = None
+    city: str | None = None
+    district: str | None = None
+    title: str | None = None
+    description: str | None = None
+    url: str | None = None
+    public_url: str | None = None
+
+
+class PortalMatchRow(BaseModel):
+    """A portal listing waiting for a person: which of ours (if any) is it?
+    `reason` is batch | units_disagree | price_only | borrower_only | split |
+    contested | spot_check. `snapshot` rides back to the decide call so the
+    reviewer's verdict is tied to the facts they saw."""
+    subject: PortalListing
+    other_source: str
+    reason: str
+    candidates: list[PortalListing] = []
+    spot_check: bool = False
+    snapshot: dict = {}
+
+
 class ResolutionReviewOut(BaseModel):
     """The queues a human works through. Every row is a fact to settle, not a
     document to walk — one verdict covers every notice the fact touches."""
@@ -960,6 +990,7 @@ class ResolutionReviewOut(BaseModel):
     lot_matches: list[ResolutionLotMatch] = []
     price_checks: list[PriceCheck] = []
     area_checks: list[AreaCheck] = []
+    portal_matches: list[PortalMatchRow] = []
     decided: int = 0
     open: int = 0
 
@@ -967,7 +998,7 @@ class ResolutionReviewOut(BaseModel):
 class ResolutionDecisionIn(BaseModel):
     kind: Literal["bank-merge", "branch-merge", "district-conflict",
                   "village-alias", "village-skip", "lot-match", "price-check",
-                  "area-check"]
+                  "area-check", "portal-match"]
     verdict: Literal["approved", "rejected"]
     # What the decision is about; fields depend on kind (see
     # pipeline/resolution_review.py). The stored key is always derived from

@@ -134,6 +134,8 @@ def test_queues_filter_decided_rows_at_read_time(monkeypatch):
             return {"pj": json.dumps(branch_props)}
         if "place_resolution" in cypher:
             return {"cj": json.dumps(conflicts)}
+        if "link_listings" in cypher:
+            return {"rj": json.dumps([])}
         raise AssertionError(f"unexpected count: {cypher[:60]}")
 
     monkeypatch.setattr(q, "run_read_query", fake_read)
@@ -482,3 +484,100 @@ def test_lot_match_response_model_keeps_every_field_the_queue_builds():
     assert dumped["rivals"] == ["802425"]
     assert dumped["claimed_lot_key"] == "n.jpg#14"
     assert dumped["keys_lot_key"] == "n.jpg#15"
+
+
+def test_portal_match_decision_stores_a_server_side_snapshot(monkeypatch):
+    written = {}
+
+    def fake_count(cypher, params=None):
+        if "IN $ids" in cypher:
+            return {"n": len(set(params["ids"]))}
+        return {"auction_id": "bn-359756", "bank": "Indian Bank", "reserve_price_num": 2944000.0,
+                "auction_start_dt": "2026-09-25T10:00:00", "borrower": "A R R TEX"}
+
+    monkeypatch.setattr(q, "_count_query", fake_count)
+    monkeypatch.setattr(q, "run_query", lambda cypher, params=None: written.update(params or {}) or [])
+    out = q.record_resolution_decision(
+        "portal-match",
+        {"subject_id": "bn-359756", "other_source": "eauctionsindia", "linked_ids": ["853518"], "rejected_ids": [],
+         "snapshot": {"bank": "forged"}, "note": "same owner"},
+        "approved", by_email="admin@example.com")
+    assert out["key"] == "portal-match:bn-359756:eauctionsindia"
+    stored = json.loads(written["payload"])
+    assert stored["snapshot"] == {"bank": "bank indian", "reserve_price": 2944000,
+                                  "borrower": "a r r tex", "auction_day": "2026-09-25"}
+    assert stored["note"] == "same owner"
+
+
+def test_portal_match_decision_refuses_bad_payloads(monkeypatch):
+    monkeypatch.setattr(q, "run_query", lambda *a, **k: [])
+    monkeypatch.setattr(q, "_count_query", lambda cypher, params=None: {"n": 0} if "IN $ids" in cypher else {})
+    with pytest.raises(ValueError, match="at least one"):
+        q.record_resolution_decision("portal-match", {"subject_id": "bn-1", "other_source": "eauctionsindia",
+                                                       "linked_ids": [], "rejected_ids": []},
+                                     "rejected", by_email="x")
+    with pytest.raises(ValueError, match="must link"):
+        q.record_resolution_decision("portal-match", {"subject_id": "bn-1", "other_source": "eauctionsindia",
+                                                       "linked_ids": [], "rejected_ids": ["2"]},
+                                     "approved", by_email="x")
+    with pytest.raises(ValueError, match="no listing"):
+        q.record_resolution_decision("portal-match", {"subject_id": "bn-1", "other_source": "eauctionsindia",
+                                                       "linked_ids": ["2"], "rejected_ids": []},
+                                     "approved", by_email="x")
+
+
+def test_portal_match_refuses_ticking_same_portal_listings_with_different_prices(monkeypatch):
+    def fake_count(cypher, params=None):
+        if "IN $linked" in cypher:
+            return {"n": 2}
+        if "IN $ids" in cypher:
+            return {"n": len(set(params["ids"]))}
+        return {"auction_id": "bn-1", "bank": "Indian Bank", "reserve_price_num": 100000.0,
+                "auction_start_dt": "2026-09-25T10:00:00", "borrower": "A R R TEX"}
+
+    monkeypatch.setattr(q, "_count_query", fake_count)
+    monkeypatch.setattr(q, "run_query", lambda *a, **k: [])
+    with pytest.raises(ValueError, match="different reserve prices"):
+        q.record_resolution_decision(
+            "portal-match", {"subject_id": "bn-1", "other_source": "eauctionsindia",
+                             "linked_ids": ["1", "2"], "rejected_ids": []}, "approved", by_email="x")
+    with pytest.raises(ValueError, match="must be lists"):
+        q.record_resolution_decision(
+            "portal-match", {"subject_id": "bn-1", "other_source": "eauctionsindia",
+                             "linked_ids": "12", "rejected_ids": []}, "approved", by_email="x")
+
+
+def _stored_row(subject_id, snapshot, reason="price_only"):
+    listing = {"auction_id": subject_id, "source": "baanknet", "bank": "Indian Bank", "borrower": "A R R TEX",
+               "reserve": 2944000.0, "emd": 294400.0, "auction_day": "2026-09-25", "city": "Salem", "district": None,
+               "title": "Land and Residential Building", "description": "SF no.97/6A1", "url": "https://baanknet.com/x",
+               "public_url": None}
+    return {"subject": listing, "other_source": "eauctionsindia", "reason": reason,
+            "candidates": [{**listing, "auction_id": "853518", "source": "eauctionsindia", "borrower": "M/s ARR Tex"}],
+            "spot_check": False, "snapshot": snapshot}
+
+
+def test_portal_matches_hide_rows_with_a_current_decision(monkeypatch):
+    from pipeline.resolution_review import decision_key
+
+    snap = {"bank": "bank indian", "reserve_price": 2944000, "borrower": "a r r tex", "auction_day": "2026-09-25"}
+    stored = [_stored_row("bn-1", snap), _stored_row("bn-2", snap), _stored_row("bn-3", snap)]
+    monkeypatch.setattr(q, "_count_query", lambda cypher, params=None: {"rj": json.dumps(stored)})
+
+    def decision(subject, snapshot):
+        payload = {"subject_id": subject, "other_source": "eauctionsindia", "linked_ids": ["853518"],
+                   "rejected_ids": [], "snapshot": snapshot}
+        return {"key": decision_key("portal-match", payload), "kind": "portal-match", "verdict": "approved", "payload": payload}
+
+    decisions = [decision("bn-1", snap), decision("bn-2", {**snap, "reserve_price": 1})]   # bn-2's facts changed
+    rows = q._portal_matches(decisions)
+    assert [r["subject"]["auction_id"] for r in rows] == ["bn-2", "bn-3"]
+
+
+def test_portal_match_rows_fit_the_response_model():
+    from api.review.router import PortalMatchRow
+
+    snap = {"bank": "bank indian", "reserve_price": 2944000, "borrower": "a r r tex", "auction_day": "2026-09-25"}
+    row = PortalMatchRow(**_stored_row("bn-1", snap))
+    assert row.subject.auction_id == "bn-1" and row.candidates[0].borrower == "M/s ARR Tex"
+    assert row.snapshot == snap and row.reason == "price_only"

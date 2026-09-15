@@ -1398,13 +1398,31 @@
     // Remove the settled row in place. loadResolutionQueues() used to run
     // here, which rebuilt every queue: the page jumped back to the top and
     // every open section closed, on every single verdict.
-    const row = btn && btn.closest('.pc-row, .lot-row, .ov-row');
+    const row = btn && btn.closest('.pm-row, .pc-row, .lot-row, .ov-row');
     const sec = row && row.closest('.rr-sec');
-    if (row) {
+    if (kind === 'portal-match' && row) {
+      // Keep the row (replaced with a "decided — Undo" message) instead of
+      // removing it, but swap its class so it no longer counts as an open row.
+      row.classList.remove('pm-row');
+      row.classList.add('pm-decided');
+      row.innerHTML = `<span class="meta">decided (${escapeHtml(verdict)}) — saved with your name; takes effect on
+        the next linking run</span> <button class="ghost pm-undo">Undo</button>`;
+      row.querySelector('.pm-undo').addEventListener('click', async () => {
+        const u = await authFetch(API + '/review/resolution/undo', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ kind, payload, verdict }),
+        });
+        if (!u.ok) { alert('undo failed: ' + u.status); return; }
+        loadResolutionQueues();
+      });
+    } else if (row) {
       row.remove();
+    }
+    if (row) {
       const count = sec && sec.querySelector('.rr-count');
       if (count) {
-        const left = sec.querySelectorAll('.ov-row, .lot-row, .pc-row').length;
+        const left = sec.querySelectorAll('.ov-row, .lot-row, .pc-row, .pm-row').length;
         count.textContent = left;
         if (!left) sec.querySelector('.rr-sum').append(' \u2014 all settled');
       }
@@ -1517,7 +1535,7 @@
     //
     // Closed by default. With six queues and hundreds of rows, an all-open
     // page means scrolling past everything to reach the one being worked.
-    const n = (bodyHtml.match(/class="(ov-row|lot-row|pc-row)"/g) || []).length;
+    const n = (bodyHtml.match(/class="(ov-row|lot-row|pc-row|pm-row)"/g) || []).length;
     return `<details class="ov-panel rr-sec">
       <summary class="ov-head rr-sum">${title}<span class="rr-count">${
         n}</span></summary>${bodyHtml}</details>`;
@@ -1646,6 +1664,112 @@
             verdict: 'rejected' })}</div>
       </div>
     </div>`;
+  }
+
+  // ─── Portal matches (layout A): a portal listing beside the listing(s) of
+  // ours it partly agrees with. Bank and auction day always agree — the rule
+  // never compares anything else — so the ✓/✗ column is price and borrower.
+  const PM_REASON_LABEL = {
+    price_only: 'Price agrees, borrower differs',
+    borrower_only: 'Borrower agrees, price differs',
+    batch: 'Batch sale — several of ours agree on all four',
+    units_disagree: 'All four agree, but unit numbers differ',
+    split: 'Price agrees with one listing, borrower with another',
+    contested: 'Another portal listing claims the same one',
+    spot_check: 'Spot-check of an automatic confirmation',
+  };
+
+  function pmPriceOk(a, b) {
+    return a.reserve != null && b.reserve != null && Math.abs(a.reserve - b.reserve) < 1;
+  }
+
+  function pmMark(ok) {
+    return ok
+      ? '<span style="color:#137333;font-weight:700">✓</span>'
+      : '<span style="color:#b3261e;font-weight:700">✗</span>';
+  }
+
+  function pmCell(label, left, right, mark) {
+    return `<tr><th style="text-align:left;color:var(--muted);font-weight:600;padding:4px 6px;width:16%">${label}</th>
+      <td style="padding:4px 6px">${left}</td><td style="padding:4px 6px">${right}</td>
+      <td style="padding:4px 6px;width:6%">${mark}</td></tr>`;
+  }
+
+  function pmLinks(l) {
+    return [
+      l.public_url ? `<a href="${escapeHtml(l.public_url)}" target="_blank" rel="noopener">📄 notice</a>` : '',
+      l.url ? `<a href="${escapeHtml(l.url)}" target="_blank" rel="noopener">portal ↗</a>` : '',
+    ].filter(Boolean).join(' · ') || '<span style="color:var(--muted)">no files</span>';
+  }
+
+  function portalMatchRow(m) {
+    const s = m.subject;
+    const base = { subject_id: s.auction_id, other_source: m.other_source, snapshot: m.snapshot };
+    const head = `<div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline">
+        <b>${escapeHtml(s.title || s.auction_id)}${s.city ? ' · ' + escapeHtml(s.city) : ''}</b>
+        <span style="font-size:12px;color:#8a5a00;background:#fff4dc;border-radius:4px;padding:2px 6px">${
+          escapeHtml(PM_REASON_LABEL[m.reason] || m.reason)}</span>
+      </div>`;
+    const note = `<input class="pm-note" placeholder="optional note…" style="flex:1;min-width:140px">`;
+    const skip = `<button class="ghost pm-skip">Skip</button>`;
+
+    if (m.candidates.length === 1) {
+      const c = m.candidates[0];
+      const borrowerOk = !['price_only', 'split'].includes(m.reason);
+      const table = `<table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:6px">
+        <tr><th></th><th style="text-align:left">${escapeHtml(s.source)} · ${escapeHtml(s.auction_id)}</th>
+          <th style="text-align:left">ours · ${escapeHtml(c.auction_id)} (${escapeHtml(c.source)})</th><th></th></tr>
+        ${pmCell('Bank', escapeHtml(s.bank || '—'), escapeHtml(c.bank || '—'), pmMark(true))}
+        ${pmCell('Auction date', escapeHtml(s.auction_day || '—'), escapeHtml(c.auction_day || '—'), pmMark(true))}
+        ${pmCell('Reserve price', currency(s.reserve) || '—', currency(c.reserve) || '—', pmMark(pmPriceOk(s, c)))}
+        ${pmCell('Borrower', escapeHtml(s.borrower || '—'), escapeHtml(c.borrower || '—'), pmMark(borrowerOk))}
+        ${pmCell('EMD', currency(s.emd) || '—', currency(c.emd) || '—', '')}
+        ${pmCell('Place', escapeHtml([s.city, s.district].filter(Boolean).join(', ') || '—'),
+                 escapeHtml([c.city, c.district].filter(Boolean).join(', ') || '—'), '')}
+        ${pmCell('Description', escapeHtml(s.description || '—'), escapeHtml(c.description || '—'), '')}
+        ${pmCell('Files', pmLinks(s), pmLinks(c), '')}
+      </table>`;
+      const buttons = rrBtn('✓ Same property', { kind: 'portal-match',
+          payload: { ...base, linked_ids: [c.auction_id], rejected_ids: [] }, verdict: 'approved' }) +
+        rrBtn('✗ Not the same', { kind: 'portal-match',
+          payload: { ...base, linked_ids: [], rejected_ids: [c.auction_id] }, verdict: 'rejected' });
+      return `<div class="pm-row" data-reason="${escapeHtml(m.reason)}" style="border:1px solid var(--border,#ddd);border-radius:8px;padding:10px;margin-bottom:10px">
+        ${head}${table}
+        <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;align-items:center">${buttons}${skip}${note}</div>
+      </div>`;
+    }
+
+    const ids = m.candidates.map(c => c.auction_id);
+    const subjectLine = `<p class="meta" style="margin:6px 0">${escapeHtml(s.source)} · ${escapeHtml(s.auction_id)} ·
+      ${escapeHtml(s.bank || '')} · ${escapeHtml(s.borrower || '—')} · ${currency(s.reserve) || 'no reserve'} ·
+      ${escapeHtml(s.auction_day || '')} · ${pmLinks(s)}<br>
+      <span style="color:var(--muted)">${escapeHtml(s.description || '')}</span></p>
+      <div class="lot-lbl">tick every listing of ours that is this property (duplicate postings included)</div>`;
+    const cands = m.candidates.map(c => `<label style="display:flex;gap:8px;align-items:flex-start;border:1px solid var(--border,#eee);border-radius:6px;padding:6px;margin-top:6px">
+        <input type="checkbox" class="pm-tick" value="${escapeHtml(c.auction_id)}">
+        <span style="flex:1;font-size:12px"><b>${escapeHtml(c.auction_id)}</b> (${escapeHtml(c.source)}) · ${escapeHtml(c.borrower || '—')} ·
+          ${currency(c.reserve) || 'no reserve'} ${pmMark(pmPriceOk(s, c))} · ${pmLinks(c)}<br>
+          <span style="color:var(--muted)">${escapeHtml(c.description || '')}</span></span>
+      </label>`).join('');
+    const buttons = rrBtn('✓ Same property', { kind: 'portal-match',
+        payload: { ...base, linked_ids: [], rejected_ids: [], ticks: ids }, verdict: 'approved' }) +
+      rrBtn('None of these', { kind: 'portal-match',
+        payload: { ...base, linked_ids: [], rejected_ids: ids }, verdict: 'rejected' });
+    return `<div class="pm-row" data-reason="${escapeHtml(m.reason)}" style="border:1px solid var(--border,#ddd);border-radius:8px;padding:10px;margin-bottom:10px">
+      ${head}${subjectLine}${cands}
+      <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;align-items:center">${buttons}${skip}${note}</div>
+    </div>`;
+  }
+
+  function portalMatchTabs(rows) {
+    const counts = {};
+    rows.forEach(r => { counts[r.reason] = (counts[r.reason] || 0) + 1; });
+    const tab = (reason, label, n) => `<button class="ghost pm-tab" data-reason="${escapeHtml(reason)}">${label} · ${n}</button>`;
+    return `<div style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 12px">${
+      tab('all', 'All', rows.length)}${
+      Object.keys(counts).sort().map(r => tab(r, escapeHtml(PM_REASON_LABEL[r] || r), counts[r])).join('')}</div>
+      <p class="meta" style="color:var(--muted)">decisions are saved with who and when, can be undone, and
+      take effect on the next linking run</p>`;
   }
 
   // Verdicts land instantly in the queue but are applied to the graph by the
@@ -1797,6 +1921,11 @@
         ${d.lot_matches.map(lotMatchRow).join('')}`));
     }
 
+    if (d.portal_matches && d.portal_matches.length) {
+      blocks.push(rrPanel(`Portal matches — same property?`,
+        portalMatchTabs(d.portal_matches) + d.portal_matches.map(portalMatchRow).join('')));
+    }
+
     if (d.price_checks && d.price_checks.length) {
       const crit = d.price_checks.filter(r => r.severity === 'critical').length;
       blocks.push(rrPanel(`Prices that disagree with the notice`, `
@@ -1839,7 +1968,18 @@
       }));
     host.querySelectorAll('.rr-btn').forEach(b => b.addEventListener('click', () => {
       const args = JSON.parse(b.dataset.rr);
-      if (args.kind === 'lot-match' || args.kind === 'price-check') {
+      if (args.kind === 'portal-match') {
+        const row = b.closest('.pm-row');
+        const note = row?.querySelector('.pm-note')?.value.trim();
+        if (note) args.payload.note = note;
+        if (args.payload.ticks) {
+          const ticked = [...row.querySelectorAll('.pm-tick:checked')].map(t => t.value);
+          if (!ticked.length) { alert('tick at least one listing, or use "None of these"'); return; }
+          args.payload.linked_ids = ticked;
+          args.payload.rejected_ids = args.payload.ticks.filter(id => !ticked.includes(id));
+          delete args.payload.ticks;
+        }
+      } else if (args.kind === 'lot-match' || args.kind === 'price-check') {
         // The note is typed in after the button's data-rr is baked, so it's
         // read live off the row rather than being part of the static payload.
         const note = b.closest('.lot-row, .pc-row')
@@ -1858,6 +1998,15 @@
         const img = body.querySelector('img[data-src]');
         if (img) { img.src = img.dataset.src; img.removeAttribute('data-src'); }
       }
+    }));
+    host.querySelectorAll('.pm-tab').forEach(t => t.addEventListener('click', () => {
+      const reason = t.dataset.reason;
+      host.querySelectorAll('.pm-row, .pm-decided').forEach(r => {
+        r.hidden = reason !== 'all' && r.dataset.reason !== reason;
+      });
+    }));
+    host.querySelectorAll('.pm-skip').forEach(s => s.addEventListener('click', () => {
+      s.closest('.pm-row').hidden = true;
     }));
     wireApplyButton();
     if (applyState.status === 'running' && !rrPollTimer) rrPollApply();

@@ -33,6 +33,10 @@ PROBABLE = "PROBABLE"
 INFERRED = "INFERRED"
 UNKNOWN = "UNKNOWN"
 
+#: A cross-portal pair waiting for a person. Never merged: build_spine and
+#: api/canonical merge only CONFIRMED / PROBABLE.
+PENDING = "PENDING"
+
 #: Grade per `IS_LOT.method`. Every reason that can reach an edge appears here.
 MATCH_CONFIDENCE: dict[str, str] = {
     # Nothing to get wrong: one lot on the notice, or the money agrees to the
@@ -72,21 +76,16 @@ UNMATCHED_REASONS: frozenset[str] = frozenset({
 
 
 #: Grade per `SAME_LISTING_AS.method` — the cross-portal bridge written by
-#: `sources.match` (spec: docs/superpowers/specs/2026-09-12-source-adapters-design.md).
-#: A separate table, not more rows in MATCH_CONFIDENCE: the names overlap
-#: (`identifier`, `borrower`) but the edges differ, and so do the grades —
-#: a borrower match inside a bank + reserve + day bucket is PROBABLE, while
-#: the same name against a whole multi-lot notice is only INFERRED.
+#: `sources.match` (spec: docs/superpowers/specs/2026-09-15-portal-match-governance-design.md).
+#: Bank, auction day, reserve price and borrower agreeing on exactly one
+#: listing is CONFIRMED; so is a unit number that picks one listing out of a
+#: batch sale, and a person's verdict. Every partial agreement waits for a
+#: person as PENDING.
 SAME_LISTING_CONFIDENCE: dict[str, str] = {
-    # Byte-identical sale notice, or three of four boundary neighbours agree.
-    "notice_bytes": CONFIRMED,
-    "boundaries": CONFIRMED,
-    # The same survey / door / plot / flat number, or the same party.
-    "identifier": PROBABLE,
-    "borrower": PROBABLE,
-    # Bank + reserve price + auction day and nothing more. A same-day batch
-    # sale (several lots, one borrower, one price) lands here.
-    "bucket_only": INFERRED,
+    "four_fields": CONFIRMED,
+    "unit_number": CONFIRMED,
+    "decision": CONFIRMED,
+    "review": PENDING,
 }
 
 
