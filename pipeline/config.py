@@ -100,11 +100,24 @@ OPENROUTER_CHAT_PROVIDER_MAX_PRICE = os.getenv(
 # against $1.12/$3.36) and cheaper than hy3-preview as well, with 5x its
 # context; it holds this slot until its clean record is contradicted on a
 # larger sample than the 8 documents it has so far.
+#
+# Both slots now name what OpenRouter's "Latest" aliases resolve to today —
+# `~deepseek/deepseek-flash-latest` -> v4.1-flash, `~deepseek/deepseek-pro-latest`
+# -> v4-pro-0813 — written out dated rather than as the alias. An alias moves
+# under us on the provider's schedule, and `Document.extraction_model` stamps
+# the slug we asked for: a score change would then be unattributable, which is
+# the one thing that stamp exists to prevent.
+#
+# The multi slot in particular was NOT the model it was measured on. The
+# un-dated `deepseek/deepseek-v4-pro` is V4 Pro 0423, while the 87.9 average
+# above was pro-0813: the corpus's multi-lot extractions average 67 on 0423,
+# which is the older model at 2.8x the price ($1.60/$3.20 per M tokens against
+# $0.58/$1.74). Naming the date is what keeps the two apart.
 OPENROUTER_MODEL_EXTRACT_SINGLE = os.getenv(
-    "OPENROUTER_MODEL_EXTRACT_SINGLE", "deepseek/deepseek-v4-flash-0731",
+    "OPENROUTER_MODEL_EXTRACT_SINGLE", "deepseek/deepseek-v4.1-flash",
 )
 OPENROUTER_MODEL_EXTRACT_MULTI = os.getenv(
-    "OPENROUTER_MODEL_EXTRACT_MULTI", "deepseek/deepseek-v4-pro",
+    "OPENROUTER_MODEL_EXTRACT_MULTI", "deepseek/deepseek-v4-pro-0813",
 )
 # Reasoning stays ON for extraction by default (empty list = suppress nothing):
 # multi-lot disentangling benefits from the model thinking through which fields
