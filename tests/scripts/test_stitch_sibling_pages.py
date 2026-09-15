@@ -166,8 +166,9 @@ def _edge(listing, fn, position):
 class _Reads:
     """Answers each read the script sends by which constant it is."""
 
-    def __init__(self, cands, edges, lots=None):
+    def __init__(self, cands, edges, lots=None, rejections=None):
         self.cands, self.edges, self.lots = cands, edges, lots or {}
+        self.rejections = rejections or []
         self.calls = []
 
     def __call__(self, cypher, params=None, **kw):
@@ -179,6 +180,8 @@ class _Reads:
         if cypher == S.FOLLOWER_LOTS_CYPHER:
             return [{"filename": fn, "lots": self.lots.get(fn, 0)}
                     for fn in params["filenames"]]
+        if cypher == S.REJECTIONS_CYPHER:
+            return [dict(r) for r in self.rejections]
         raise AssertionError(f"unexpected read: {cypher[:60]}")
 
 
@@ -343,3 +346,77 @@ def test_keep_follower_lots_skips_the_deletion(monkeypatch, capsys):
     assert len(writes.calls) == 1
     assert promote_writes.calls == []
     assert all(c != S.FOLLOWER_LOTS_CYPHER for c, _ in reads.calls)
+
+
+# ── stored rejections and the page cues ─────────────────────────────────────
+
+CONT_FIRST = "SALE NOTICE\n1. Borrower\n...Continued to the next page..."
+CONT_SECOND = "... Previous page Continuation...\n5. Borrower"
+
+
+def test_a_rejected_pairing_is_dropped_from_the_plan():
+    groups, _ = S.plan(_rows(), only=None, skip=set(),
+                       rejected={frozenset(["q1.jpg", "q2.jpg"])})
+    assert [g["pages"] for g in groups] == [["p1.jpg", "p2.jpg"]]
+
+
+def test_a_rejected_pairing_stops_being_reported_as_ambiguous():
+    rows = _rows() + [{"listing": "L3", "filename": "p1.jpg",
+                       "content_key": "s1", "position": 0}]
+    groups, ambiguous = S.plan(rows, only=None, skip=set(),
+                               rejected={frozenset(["p1.jpg", "p2.jpg"])})
+    assert [g["pages"] for g in groups] == [["q1.jpg", "q2.jpg"]]
+    assert ambiguous == []
+
+
+def test_the_pages_own_cues_correct_a_reversed_portal_order():
+    texts = {"p1.jpg": CONT_SECOND, "p2.jpg": CONT_FIRST,
+             "q1.jpg": "", "q2.jpg": ""}
+    groups, _ = S.plan(_rows(), only=None, skip=set(), texts=texts)
+    by_leader = {g["pages"][0]: g for g in groups}
+    assert by_leader["p2.jpg"]["pages"] == ["p2.jpg", "p1.jpg"]
+    assert by_leader["p2.jpg"]["order_corrected"] is True
+    assert by_leader["q1.jpg"]["order_corrected"] is False
+
+
+def test_cues_no_order_satisfies_move_the_group_to_ambiguous():
+    both = CONT_FIRST + CONT_SECOND
+    texts = {"p1.jpg": both, "p2.jpg": both, "q1.jpg": "", "q2.jpg": ""}
+    groups, ambiguous = S.plan(_rows(), only=None, skip=set(), texts=texts)
+    assert [g["pages"] for g in groups] == [["q1.jpg", "q2.jpg"]]
+    assert ambiguous[0]["filenames"] == ["p1.jpg", "p2.jpg"]
+
+
+def test_a_forced_group_is_cue_checked_like_any_other():
+    rows = _rows() + [{"listing": "L3", "filename": "p1.jpg",
+                       "content_key": "s1", "position": 0}]
+    texts = {"p1.jpg": CONT_SECOND, "p2.jpg": CONT_FIRST}
+    groups, _ = S.plan(rows, only={"p1.jpg"}, skip=set(), texts=texts)
+    assert [g["pages"] for g in groups] == [["p2.jpg", "p1.jpg"]]
+
+
+def test_the_build_carries_the_corrected_order_into_the_write():
+    group = {"pages": ["p2.jpg", "p1.jpg"], "twins": [], "order_corrected": True}
+    built = S.build(group, DOCS | {"p2.jpg": _doc("p2.jpg", "PAGE TWO", 10)})
+    assert built["leader"] == "p2.jpg" and built["followers"] == ["p1.jpg"]
+    assert built["order_corrected"] is True
+
+
+def test_apply_clears_the_stitch_fields_of_a_demoted_leader():
+    # correcting the order makes yesterday's leader a follower; its joined
+    # text must not survive on it
+    assert "REMOVE f.stitched_markdown" in S.APPLY_CYPHER
+    assert "f.stitched_expected_lot_count" in S.APPLY_CYPHER
+
+
+def test_reject_writes_the_other_members_on_every_document():
+    assert "d.stitch_rejected_with = [x IN $members WHERE x <> fn]" in S.REJECT_CYPHER
+    assert "d.stitch_rejected_at" in S.REJECT_CYPHER
+    assert "REMOVE d.stitch_rejected_with, d.stitch_rejected_at" in S.UNREJECT_CYPHER
+
+
+def test_fetch_rejections_reads_each_record_as_one_member_set(monkeypatch):
+    monkeypatch.setattr(S, "run_read_query",
+                        lambda *a, **k: [{"filename": "a.jpg", "others": ["b.pdf"]},
+                                         {"filename": "b.pdf", "others": ["a.jpg"]}])
+    assert S.fetch_rejections() == {frozenset(["a.jpg", "b.pdf"])}
