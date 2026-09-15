@@ -76,13 +76,14 @@ from pipeline.load_extractions import (
     _next_batch,
     _plan_groups,
 )
-from pipeline.validators import validate
+from pipeline.validators import SCORE_VERSION, validate
 
 # Every LangExtract-owned field on :Document. Clearing these returns a notice to
 # the "never extracted" state the /review/extraction surface treats as empty.
 LANGEXTRACT_FIELDS = (
     "extraction_json",
     "extraction_score",
+    "extraction_score_version",
     "extraction_at",
     "extraction_batch",
     "extraction_review_status",
@@ -185,7 +186,12 @@ def select_refresh_docs(min_ocr: int, min_score: int, single_lot: bool,
       mis-quote) the current source. `datalab: keep page headers and footers`
       (#425) rewrote 222 single-lot notices this way.
     * **the extraction scored below `min_score`** — the run itself failed to
-      read the notice, regardless of what the markdown says.
+      read the notice, regardless of what the markdown says. This compares
+      stored scores against one threshold, so it assumes they are all on the
+      current validators.py scale: run
+      `python -m scripts.backfill_extraction_scores` after a SCORE_VERSION bump,
+      or this signal selects a different set of notices depending on when each
+      was last extracted.
 
     This is `select_stale_docs`'s condition computed from the timestamps rather
     than read off a flag: `extraction_stale_at` only exists where
@@ -300,6 +306,7 @@ def _extract_one(d: dict, batch: int, route: bool):
         MATCH (d:Document {filename: name})
         SET d.extraction_json = $j,
             d.extraction_score = $score,
+            d.extraction_score_version = $score_version,
             d.extraction_at    = datetime(),
             d.extraction_batch = $batch,
             // A verification is a statement about entities a person actually
@@ -320,7 +327,7 @@ def _extract_one(d: dict, batch: int, route: bool):
         RETURN d.filename
         """,
         {"fn": fn, "fns": targets, "j": json.dumps(ents, ensure_ascii=False),
-         "score": score, "batch": batch})
+         "score": score, "score_version": SCORE_VERSION, "batch": batch})
     return fn, len(ents), model_id or "default"
 
 
