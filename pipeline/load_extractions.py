@@ -46,7 +46,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from api.neo4j_client import run_query, run_read_query
 from pipeline.extract_routing import select_extract_model
 from pipeline.notice_twins import group_twins, merge_rosters, text_key
-from pipeline.validators import normalize_identifier_kind, validate
+from pipeline.validators import SCORE_VERSION, normalize_identifier_kind, validate
 
 # Documents run concurrently (see run()). Sized for a provider rate limit, not
 # CPU — each worker spends its time waiting on one model call.
@@ -144,7 +144,9 @@ def _find_donor(md: str) -> dict | None:
         "WHERE d.extraction_json IS NOT NULL "
         "  AND size(d.markdown) = $len AND d.markdown = $md "
         "RETURN d.filename AS filename, d.extraction_json AS j, "
-        "       d.extraction_score AS score, d.extraction_model AS model "
+        "       d.extraction_score AS score, "
+        "       d.extraction_score_version AS score_version, "
+        "       d.extraction_model AS model "
         "ORDER BY d.filename LIMIT 1",
         {"md": md, "len": len(md)}, max_rows=1, timeout=120.0)
     return rows[0] if rows else None
@@ -156,8 +158,13 @@ def _copy_extraction(donor: dict, targets: list[str], batch: int) -> int:
     ``extraction_model`` keeps the donor's value — the model that produced these
     fields is a fact about them, not about this run — while
     ``extraction_reused_from`` records where they came from, so a reader can tell
-    a copy from a paid call. The batch number is this run's, because the batch is
-    what the review queue filters on.
+    a copy from a paid call. ``extraction_score_version`` keeps the donor's value
+    for the same reason: the copied score was computed by whatever validators.py
+    scored the donor, so stamping this run's version would claim a re-levelling
+    that never happened. A copy from a pre-versioning donor carries no version,
+    exactly like the donor, and the backfill picks both up together.
+    The batch number is this run's, because the batch is what the review queue
+    filters on.
 
     The ``WHERE`` refuses to land on a Document that already has an extraction:
     ``extraction_corrections_json`` is keyed by field id, and replacing the
@@ -172,6 +179,7 @@ def _copy_extraction(donor: dict, targets: list[str], batch: int) -> int:
         WHERE d.extraction_json IS NULL
         SET d.extraction_json  = $j,
             d.extraction_score = $score,
+            d.extraction_score_version = $score_version,
             d.extraction_at    = datetime(),
             d.extraction_batch = $batch,
             d.extraction_model = $model,
@@ -181,6 +189,7 @@ def _copy_extraction(donor: dict, targets: list[str], batch: int) -> int:
         RETURN count(d) AS n
         """,
         {"fns": targets, "j": donor["j"], "score": donor.get("score"),
+         "score_version": donor.get("score_version"),
          "batch": batch, "model": donor.get("model"),
          "donor": donor["filename"]})
     return (rows[0].get("n") or 0) if rows else 0
@@ -280,6 +289,8 @@ def _extract_one(d: dict, batch: int, route: bool, LX) -> tuple[bool, str | None
     ents = _entities(res)
     # Label-free quality score (0-100, see pipeline/validators.py) — lets the
     # review queue surface low-quality extractions first via score_min/max.
+    # The scale the score was computed on goes with it: penalties change, and a
+    # bare number cannot say which validators.py produced it.
     score = validate(res.extractions, source_text=d["md"])["score"]
     run_query(
         """
@@ -287,6 +298,7 @@ def _extract_one(d: dict, batch: int, route: bool, LX) -> tuple[bool, str | None
         MATCH (d:Document {filename: fn})
         SET d.extraction_json = $j,
             d.extraction_score = $score,
+            d.extraction_score_version = $score_version,
             d.extraction_at    = datetime(),
             d.extraction_batch = $batch,
             d.extraction_model = $model,
@@ -296,7 +308,8 @@ def _extract_one(d: dict, batch: int, route: bool, LX) -> tuple[bool, str | None
         RETURN d.filename
         """,
         {"fn": fn, "fns": targets, "j": json.dumps(ents, ensure_ascii=False),
-         "score": score, "batch": batch, "model": effective_model})
+         "score": score, "score_version": SCORE_VERSION,
+         "batch": batch, "model": effective_model})
     shared = "" if len(targets) == 1 else f", shared with {len(targets) - 1} copy/ies"
     return True, model_id, (f"{fn}: {len(ents)} fields, score={score}, "
                             f"model={effective_model}{shared}")
