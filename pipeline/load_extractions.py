@@ -129,21 +129,58 @@ _CLASS_ALIASES = {
     "borower": "borrower",
 }
 
+#: Every length an extracted page currently has, read once per run. A group
+#: whose markdown is not one of these lengths cannot have a donor, so it never
+#: reaches the database at all — see _find_donor.
+_DONOR_LENGTHS: set[int] | None = None
+_DONOR_LENGTHS_LOCK = threading.Lock()
+
+DONOR_LENGTHS_CYPHER = (
+    "MATCH (d:Document) "
+    "WHERE d.extraction_json IS NOT NULL AND d.stitched_into IS NULL "
+    "RETURN DISTINCT size(coalesce(d.stitched_markdown, d.markdown)) AS len"
+)
+
+
+def _donor_lengths(refresh: bool = False) -> set[int]:
+    """The set of markdown lengths that already hold an extraction.
+
+    One cheap query (lengths only, no markdown) standing in for one query per
+    group. It is read before any extraction runs and the groups it filters hold
+    distinct texts, so a donor written during the same planning pass can never
+    be one another group is looking for.
+    """
+    global _DONOR_LENGTHS
+    with _DONOR_LENGTHS_LOCK:
+        if _DONOR_LENGTHS is None or refresh:
+            rows = run_read_query(DONOR_LENGTHS_CYPHER, None,
+                                  max_rows=100_000, timeout=120.0)
+            _DONOR_LENGTHS = {int(r["len"]) for r in rows if r["len"] is not None}
+        return _DONOR_LENGTHS
+
+
 def _find_donor(md: str) -> dict | None:
     """A Document already holding an extraction of exactly this markdown.
 
     Equality on the whole string, not a hash: the offsets in the extraction we
-    would copy are positions in it, so "close enough" has no meaning here. The
-    scan is over a corpus of a few thousand notices and buys a multi-minute
-    model call, so it pays for itself many times over.
+    would copy are positions in it, so "close enough" has no meaning here. A
+    donor buys a multi-minute model call, so the lookup pays for itself many
+    times over.
 
     Ordered by filename so repeated runs settle on the same donor.
 
-    The length test in front of the equality is what keeps this cheap: it throws
-    out all but the handful of notices that could possibly match before any
-    string is compared, so the scan costs milliseconds per group rather than a
-    full-corpus comparison.
+    Two length tests keep it cheap, and the first one is what makes a
+    full-corpus run bearable. Asking the database per group cost ~1.5s of
+    scanning EACH, so a 1,490-group run spent ~40 minutes before its first
+    model call. Almost every one of those scans could only ever return nothing:
+    the group's text is a length no extracted page has. `_donor_lengths` reads
+    those lengths once, and a group that misses the set never sends a query.
+    A group that hits it runs the same equality scan as before — the length
+    filter inside the query still throws out everything but the handful of
+    notices that could match before any string is compared.
     """
+    if len(md) not in _donor_lengths():
+        return None
     rows = run_read_query(
         "MATCH (d:Document) "
         "WHERE d.extraction_json IS NOT NULL "
