@@ -322,6 +322,17 @@ def _extract_one(d: dict, batch: int, route: bool, LX) -> tuple[bool, str | None
     except Exception as e:  # keep going; one bad doc shouldn't stop the load
         return False, model_id, f"[fail] {fn}: {e}"
     ents = _entities(res)
+    if not ents:
+        # An empty result is a failed call wearing a success's clothes. The
+        # provider answers some notices with no content at all (deepseek
+        # v4-pro-0813 did it to 15 of 68 multi-lot pages in one run, and the
+        # same page extracted cleanly on another model), and LangExtract
+        # reports that as zero extractions rather than raising. Writing it
+        # marks the page done forever: the next run skips it, because skipping
+        # is keyed on extraction_json existing, and nothing ever looks again.
+        # Leave the page untouched and let the run report it — a document that
+        # was never extracted is recoverable, one recorded as empty is not.
+        return False, model_id, f"[fail] {fn}: model returned no entities"
     # Label-free quality score (0-100, see pipeline/validators.py) — lets the
     # review queue surface low-quality extractions first via score_min/max.
     score = validate(res.extractions, source_text=d["md"])["score"]

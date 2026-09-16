@@ -116,8 +116,15 @@ OPENROUTER_CHAT_PROVIDER_MAX_PRICE = os.getenv(
 OPENROUTER_MODEL_EXTRACT_SINGLE = os.getenv(
     "OPENROUTER_MODEL_EXTRACT_SINGLE", "deepseek/deepseek-v4.1-flash",
 )
+# Both slots are Flash. Pro held the multi slot for one run and answered 15 of
+# its 68 multi-lot pages with no content at all — sometimes as an API error,
+# more often as a silent zero-entity result that was written to the graph and
+# marked done. Reasoning off did not change it, and the same pages extracted
+# cleanly on Flash (one went from 0 entities to 101). A model that drops a
+# fifth of the hardest documents is not the stronger model for them, whatever
+# it scores on the ones it does answer.
 OPENROUTER_MODEL_EXTRACT_MULTI = os.getenv(
-    "OPENROUTER_MODEL_EXTRACT_MULTI", "deepseek/deepseek-v4-pro-0813",
+    "OPENROUTER_MODEL_EXTRACT_MULTI", "deepseek/deepseek-v4.1-flash",
 )
 # Reasoning stays ON for extraction by default (empty list = suppress nothing):
 # multi-lot disentangling benefits from the model thinking through which fields

@@ -213,3 +213,40 @@ def test_a_matching_length_still_compares_the_whole_text(monkeypatch):
 def test_the_length_query_carries_no_markdown(monkeypatch):
     assert "markdown AS" not in M.DONOR_LENGTHS_CYPHER
     assert "DISTINCT size(" in M.DONOR_LENGTHS_CYPHER
+
+
+# ── an empty result is a failure, not a done document ───────────────────────
+
+class _Res:
+    def __init__(self, extractions): self.extractions = extractions
+
+
+def _extract_returning(monkeypatch, extractions, writes):
+    class _LX:
+        @staticmethod
+        def extract(md, **kw): return _Res(extractions)
+    monkeypatch.setattr(M, "run_query", lambda *a, **k: writes.append(a) or [])
+    monkeypatch.setattr(M, "validate", lambda *a, **k: {"score": 0})
+    monkeypatch.setattr(M, "_entities", lambda res: list(res.extractions))
+    return _LX
+
+
+def test_a_model_that_returns_nothing_leaves_the_page_untouched(monkeypatch):
+    """The page must stay pending: skipping is keyed on extraction_json, so a
+    stored empty result is a page nothing ever looks at again."""
+    writes = []
+    LX = _extract_returning(monkeypatch, [], writes)
+    ok, _model, line = M._extract_one({"filename": "a.jpg", "md": "TEXT"},
+                                      batch=1, route=False, LX=LX)
+    assert ok is False
+    assert writes == []
+    assert "no entities" in line and line.startswith("[fail]")
+
+
+def test_a_page_with_entities_is_still_written(monkeypatch):
+    writes = []
+    LX = _extract_returning(monkeypatch, ["one"], writes)
+    ok, _model, line = M._extract_one({"filename": "a.jpg", "md": "TEXT"},
+                                      batch=1, route=False, LX=LX)
+    assert ok is True and len(writes) == 1
+    assert "1 fields" in line
