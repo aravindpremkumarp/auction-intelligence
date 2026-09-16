@@ -794,6 +794,8 @@
         <span class="fsep">·</span>
         <span class="flabel">Failures:</span>
         <span class="group-toggle" id="flag-tabs">
+          <button class="pill" data-flag="near-empty"
+                  title="almost no text stored — the notice itself is gone (e.g. only a page number left)">near empty</button>
           <button class="pill" data-flag="missing-region"
                   title="ink on the page that no parsed block covers — content we never read">missing region</button>
           <button class="pill" data-flag="table-collapse"
@@ -4764,11 +4766,13 @@
       return;
     }
 
-    // Poll until the document's revision moves past startedRev, or 5
-    // minutes elapses. The OCR job for a single notice usually
-    // completes in 15-90 seconds.
+    // Poll until the document's revision moves past startedRev, or 21
+    // minutes elapses. The OCR job for a single notice usually completes in
+    // 15-90 seconds, but Datalab's accurate tier has taken over 15 minutes;
+    // the server waits DATALAB_REINGEST_TIMEOUT_S (20 min, pipeline/config.py)
+    // and this must outlast it, or a run that succeeds reads as a failure.
     const POLL_INTERVAL_MS = 3000;
-    const MAX_WAIT_MS      = 5 * 60 * 1000;
+    const MAX_WAIT_MS      = 21 * 60 * 1000;
     const t0 = Date.now();
     while (Date.now() - t0 < MAX_WAIT_MS) {
       await new Promise(res => setTimeout(res, POLL_INTERVAL_MS));
@@ -4793,7 +4797,7 @@
       } catch {}
     }
     clearInterval(tickElapsed);
-    annToast('reingest is taking longer than 5 min; check Render logs', 'err');
+    annToast('reingest is taking longer than 21 min; check Render logs', 'err');
     btn.disabled = false; btn.textContent = originalLabel;
   }
 

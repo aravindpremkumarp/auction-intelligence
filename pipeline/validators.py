@@ -35,6 +35,21 @@ from pathlib import Path
 # collect their lots and flag ONCE, listing them in the message (see
 # missing_property_type / possession_type_invalid / missing_uds).
 _PENALTY = {"critical": 30, "high": 20, "med": 10, "low": 4}
+
+# Bump on ANY change that moves a score for unchanged entities: a penalty
+# weight, a check's severity, a new check, a loosened or tightened rule.
+#
+# Every write path stamps this beside the score (Document.extraction_score_version,
+# see pipeline/load_extractions.py and scripts/reset_langextract_and_extract.py),
+# because a stored score alone is not self-describing. Without the stamp a
+# weights change silently rewrites the meaning of every historical score: a
+# corpus is then a mix of scales that look identical, "mean score went up" can
+# be a validators.py edit rather than a better extraction, and a score filter in
+# the review queue selects different documents depending on when each was
+# extracted. With it, a mixed corpus can be told apart and re-levelled —
+# `python -m scripts.backfill_extraction_scores` rescores everything behind the
+# current version, with no LLM call.
+SCORE_VERSION = 1
 # Valid committed possession values (Option A: penalise only present-but-invalid;
 # a blank possession is often correct — the "Constructive/Symbolic/Physical"
 # disjunction has no single answer — so absence is NOT penalised).
@@ -358,6 +373,7 @@ def validate(extractions, source_text: str = "") -> dict:
     score = max(0, 100 - sum(_PENALTY[i["severity"]] for i in issues))
     return {
         "score": score,
+        "score_version": SCORE_VERSION,
         "issues": issues,
         "fields": sorted(present_fields),
         "stats": {

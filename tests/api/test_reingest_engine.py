@@ -132,6 +132,7 @@ def reingest_harness(monkeypatch, tmp_path):
     def _run_and_cache(file_path, disk_path, *, mode="fast", **kw):
         calls["engine"] = "datalab"
         calls["mode"] = mode
+        calls["timeout_s"] = kw.get("timeout_s")
         calls["disk_path"] = Path(disk_path)
         blocks_path.write_text(json.dumps({"blocks": DATALAB_BLOCKS}),
                                encoding="utf-8")
@@ -225,6 +226,20 @@ def test_datalab_tier_follows_notice_type(reingest_harness, monkeypatch):
     assert calls["mode"] == "accurate"
 
 
+# Datalab's accurate tier took 359s and 933s on one newspaper notice
+# (TATA-C117865183167317.jpg, 2026-09-15). The client's 300s default gave up on
+# both, so the finished OCR was thrown away and the annotator showed no change.
+OBSERVED_SLOW_DATALAB_RUN_S = 933
+
+
+def test_datalab_reingest_waits_past_a_slow_run(reingest_harness):
+    from pipeline.config import DATALAB_REINGEST_TIMEOUT_S
+    calls, _ = reingest_harness
+    B.reingest_notice("n.jpg", "a@b.com", engine="datalab")
+    assert calls["timeout_s"] == DATALAB_REINGEST_TIMEOUT_S
+    assert DATALAB_REINGEST_TIMEOUT_S > OBSERVED_SLOW_DATALAB_RUN_S
+
+
 # ── multi-region crops, per engine ──────────────────────────────────────────
 
 def _datalab_payload(text: str) -> dict:
@@ -252,9 +267,11 @@ def test_multi_region_reingest_runs_datalab_per_crop(monkeypatch, tmp_path):
     monkeypatch.setattr(RX, "_image_crop_to_png", lambda b, bbox: b"crop")
 
     seen: list = []
+    timeouts: list = []
 
     def _run_file(disk_path, *, output_format="json", mode="fast", **kw):
         seen.append(mode)
+        timeouts.append(kw.get("timeout_s"))
         return _datalab_payload(f"region{len(seen)}")
 
     monkeypatch.setattr(DLA, "run_file", _run_file)
@@ -283,6 +300,9 @@ def test_multi_region_reingest_runs_datalab_per_crop(monkeypatch, tmp_path):
     )
 
     assert seen == ["accurate", "accurate"], "one Datalab call per region"
+    from pipeline.config import DATALAB_REINGEST_TIMEOUT_S
+    assert timeouts == [DATALAB_REINGEST_TIMEOUT_S] * 2, \
+        "each region waits as long as a whole-page re-ingest"
     blocks = json.loads(persisted["blocks_json"])["blocks"]
     # Two regions x two blocks each, merged into full-image coords.
     assert len(blocks) == 4

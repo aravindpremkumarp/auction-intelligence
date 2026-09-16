@@ -9,9 +9,12 @@ from __future__ import annotations
 import scripts.reocr_low_health_datalab as M
 
 
+# Long enough to be a notice: a few words alone now score as near-empty.
+CLEAN_TEXT = "clean sale notice text for the immovable property at Chennai"
+
 DOC = {"block_type": "Document", "children": [
     {"block_type": "Page", "bbox": [0, 0, 1000, 1400], "children": [
-        {"block_type": "Text", "html": "<p>clean notice text</p>", "bbox": [10, 10, 90, 40]},
+        {"block_type": "Text", "html": f"<p>{CLEAN_TEXT}</p>", "bbox": [10, 10, 90, 40]},
     ]},
 ]}
 EMPTY_DOC = {"block_type": "Document", "children": []}
@@ -32,7 +35,7 @@ def test_pick_pilot_mixes_single_and_multi():
 def test_writes_when_health_improves(monkeypatch, tmp_path):
     monkeypatch.setattr(M, "fetch_source", lambda url: tmp_path / "x.jpg")
     monkeypatch.setattr(M.datalab_api, "run_file",
-                        lambda *a, **k: {"json": DOC, "markdown": "clean notice text"})
+                        lambda *a, **k: {"json": DOC, "markdown": CLEAN_TEXT})
     r = M.reocr_one(_t(old=60))
     assert r.get("ok_to_write") is True
     assert r["new_score"] == 100

@@ -12,6 +12,11 @@ document with no ``website_description`` can't be scored at all.
 This module scores the OCR output *by itself*, detecting the failure modes
 MinerU's vlm model actually exhibits on full-page ruled notices:
 
+  - **near-empty** — almost no reader-visible text at all (fewer than
+    ``NEAR_EMPTY_MAX_CHARS``). Every other check judges text that is there, so
+    a document reduced to its newspaper page number ("26") has nothing for
+    them to object to and scored 100. Nothing can be extracted from it.
+
   - **repetition**  — degenerate generation loops (the same line emitted
     dozens of times back-to-back, or a phrase repeated adjacently inside
     one long line). Legitimate notices repeat boilerplate too ("For details
@@ -229,7 +234,14 @@ def _impossible_dates(text: str) -> tuple[list[str], int]:
     return bad, ambiguous
 
 
+# Fewer reader-visible characters than this and the document holds no notice at
+# all. TATA-C117865183167317.jpg sat at health 100 with only its newspaper page
+# number ("26") left. A one-line heading alone clears it.
+NEAR_EMPTY_MAX_CHARS = 40
+
 PENALTY = {"repetition": 0, "token-leak": 40, "truncated": 30,
+           # Nothing to extract from: worse than any partial read below.
+           "near-empty": 60,
            "foreign-script": 40, "table-collapse": 35,
            # Priced with table-collapse: both keep a well-formed document
            # while the notice's real words stop being in it.
@@ -250,7 +262,7 @@ PENALTY = {"repetition": 0, "token-leak": 40, "truncated": 30,
 # its flag filter against this, so a renamed or added flag reaches the UI by
 # changing this module alone — no second list to drift out of sync.
 HEALTH_FLAGS: tuple[str, ...] = (
-    "missing-region", "table-collapse", "degenerate-sequence", "truncated",
+    "near-empty", "missing-region", "table-collapse", "degenerate-sequence", "truncated",
     "repetition", "token-leak", "foreign-script", "impossible-date",
 )
 
@@ -394,6 +406,12 @@ def score_ocr_health(markdown: str | None, *, region: dict | None = None,
     flags: list[str] = []
     details: dict = {}
     penalty = 0
+
+    visible = _visible_len(text)
+    if visible < NEAR_EMPTY_MAX_CHARS:
+        flags.append("near-empty")
+        details["visible_chars"] = visible
+        penalty += PENALTY["near-empty"]
 
     run = _max_consecutive_run(text)
     inline = None

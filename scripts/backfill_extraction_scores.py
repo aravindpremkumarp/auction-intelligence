@@ -1,18 +1,25 @@
 """
 backfill_extraction_scores.py
 ------------------------------
-One-off backfill: scores every :Document that already has extraction_json but
-no extraction_score — i.e. notices extracted by pipeline/load_extractions.py
-(or scripts/reset_langextract_and_extract.py) before that write path started
-computing pipeline/validators.validate()'s 0-100 quality score.
+Re-levels stored scores: scores every :Document that has extraction_json but no
+extraction_score, and rescores every Document whose extraction_score_version is
+behind pipeline.validators.SCORE_VERSION — notices extracted before that write
+path stamped a score at all, and notices scored by an older validators.py whose
+penalties have since changed.
 
 Pure re-validation of already-persisted entities — NO LLM call, no
 re-extraction — so this is free to run and safe to re-run. Uses
 validators.validate_stored, the same shim extract_batch.py's --from-graph
 report uses, so the score matches exactly what that report would show.
 
-Idempotent by default: only scores Documents where extraction_score IS NULL.
---force rescores everything (e.g. after a validators.py penalty change).
+Run it after ANY validators.py change that bumps SCORE_VERSION: until it has,
+the corpus holds two scales that look identical, and any comparison across them
+(mean score, a score_min filter in the review queue) is meaningless.
+
+Idempotent: a second run finds nothing, because the first stamped the current
+version on everything it scored. --force rescores every extracted Document
+regardless of version — for a validators.py edit that moves scores without a
+version bump, which should not happen.
 
 Run:
     python -m scripts.backfill_extraction_scores --dry-run   # counts + sample only
@@ -26,7 +33,7 @@ import argparse
 import json
 
 from api.neo4j_client import run_query, run_read_query
-from pipeline.validators import validate_stored
+from pipeline.validators import SCORE_VERSION, validate_stored
 
 WRITE_CHUNK = 200
 
@@ -37,15 +44,26 @@ def chunked(seq, n):
 
 
 def load_unscored(force: bool) -> list[dict]:
+    """Documents needing a score: never scored, or scored on an older scale.
+
+    coalesce(version, 0) treats a missing version as "before versioning" — a
+    score written when validators.py had no SCORE_VERSION, which is exactly the
+    stale case, not a fresh one.
+
+    A follower page of a stitched notice (stitched_into) is excluded for the same
+    reason it is never extracted on its own: its text rides in the leader's
+    stitched_markdown, so there is nothing here to score.
+    """
     where = "d.extraction_json IS NOT NULL AND d.stitched_into IS NULL"
     if not force:
-        where += " AND d.extraction_score IS NULL"
+        where += (" AND (d.extraction_score IS NULL"
+                  "      OR coalesce(d.extraction_score_version, 0) < $version)")
     return run_read_query(
         f"MATCH (d:Document) WHERE {where} "
         "RETURN d.filename AS filename, "
         "       coalesce(d.stitched_markdown, d.markdown) AS md, "
         "       d.extraction_json AS ej ORDER BY d.filename",
-        max_rows=20_000, timeout=120.0)
+        {"version": SCORE_VERSION}, max_rows=20_000, timeout=120.0)
 
 
 def main() -> int:
@@ -54,12 +72,14 @@ def main() -> int:
     parser.add_argument("--dry-run", action="store_true",
                         help="report counts but don't write to Neo4j")
     parser.add_argument("--force", action="store_true",
-                        help="rescore Documents that already have extraction_score")
+                        help="rescore every extracted Document, including ones "
+                             "already at the current score version")
     args = parser.parse_args()
 
     docs = load_unscored(args.force)
-    print(f"documents to score: {len(docs):,}"
-          f"{' (forced rescore)' if args.force else ' (missing extraction_score)'}")
+    scope = ("forced rescore" if args.force
+             else f"unscored or below score version {SCORE_VERSION}")
+    print(f"documents to score: {len(docs):,} ({scope})")
     if not docs:
         print("nothing to do.")
         return 0
@@ -94,9 +114,10 @@ def main() -> int:
             """
             UNWIND $rows AS row
             MATCH (d:Document {filename: row.filename})
-            SET d.extraction_score = row.score
+            SET d.extraction_score = row.score,
+                d.extraction_score_version = $version
             """,
-            {"rows": batch},
+            {"rows": batch, "version": SCORE_VERSION},
         )
         written += len(batch)
         print(f"  wrote {written:,}/{len(rows):,}", end="\r")
