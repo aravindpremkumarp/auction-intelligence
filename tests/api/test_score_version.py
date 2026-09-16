@@ -31,8 +31,16 @@ def test_extract_write_stamps_the_current_version():
         captured["params"] = params or {}
         return [{"d.filename": "n.pdf"}]
 
+    class _Ent:
+        # One entity, because _extract_one writes nothing for an empty result:
+        # a model that returns no entities is a failed call, not a done page.
+        extraction_class = "bank_name"
+        extraction_text = "Indian Bank"
+        attributes: dict = {}
+        char_interval = None
+
     class _Res:
-        extractions = []
+        extractions = [_Ent()]
 
     class _LX:
         @staticmethod
