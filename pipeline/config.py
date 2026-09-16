@@ -126,14 +126,27 @@ OPENROUTER_MODEL_EXTRACT_SINGLE = os.getenv(
 OPENROUTER_MODEL_EXTRACT_MULTI = os.getenv(
     "OPENROUTER_MODEL_EXTRACT_MULTI", "deepseek/deepseek-v4.1-flash",
 )
-# Reasoning stays ON for extraction by default (empty list = suppress nothing):
-# multi-lot disentangling benefits from the model thinking through which fields
-# belong to which lot, and the cost is accepted. This is an OPT-IN cost lever —
-# set it to comma-separated slug substrings (e.g. "deepseek") to force a
-# hybrid-reasoning model's reasoning OFF ({"reasoning": {"enabled": false}}) on
-# the copy-the-spans task if cost ever needs trimming.
+# Reasoning is OFF for extraction. It was on, as a quality choice, until the
+# empty responses were traced to it: reasoning tokens are spent from the SAME
+# output budget as the answer, so a model that thinks too long returns no
+# content at all. That is the whole of "OpenAI response contained no message
+# content" — 3.5% of one 453-page run, ~22% of a pro-0813 run, always on the
+# documents with most to think about.
+#
+# A one-token probe shows the mechanism on its own: ask v4.1-flash to "say ok"
+# with max_tokens=10 and it spends all ten reasoning and returns nothing
+# (finish_reason=length); at 100 it reasons for 48 and answers.
+#
+# The fix was then measured on the hardest evidence available — the 19 pages
+# that had just failed WITH reasoning. All 19 came back, none empty, scoring
+# 91 (single) and 78 (multi) against the same run's 93 and 82. So the feared
+# quality cost is not visible even on the documents the model found hardest,
+# while the failure rate went to zero and the bill drops, reasoning tokens
+# being billed as output.
+#
+# Comma-separated slug substrings; empty re-enables reasoning everywhere.
 LANGEXTRACT_REASONING_OFF_MODELS = os.getenv(
-    "LANGEXTRACT_REASONING_OFF_MODELS", "",
+    "LANGEXTRACT_REASONING_OFF_MODELS", "deepseek",
 )
 # Doc-type classifier for the dossier locker — places an uploaded user document
 # into the 9-category / ~50-type taxonomy (api/dossier/taxonomy.py);
