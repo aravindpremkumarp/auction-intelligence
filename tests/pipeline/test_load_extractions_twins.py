@@ -250,3 +250,59 @@ def test_a_page_with_entities_is_still_written(monkeypatch):
                                       batch=1, route=False, LX=LX)
     assert ok is True and len(writes) == 1
     assert "1 fields" in line
+
+
+# ── the routed pass count reaches the model call ────────────────────────────
+
+def test_a_single_lot_page_is_read_once_and_a_multi_lot_page_twice(monkeypatch):
+    seen = {}
+
+    class _Ent:
+        extraction_class = "bank_name"
+        extraction_text = "Indian Bank"
+        attributes: dict = {}
+        char_interval = None
+
+    class _Res:
+        extractions = [_Ent()]
+
+    class _LX:
+        @staticmethod
+        def extract(md, **kw):
+            # keyed on the text, not the model: both notice types route to the
+            # same model today, so a model-keyed dict would collide
+            seen[md] = kw.get("passes")
+            return _Res()
+
+    monkeypatch.setattr(M, "run_query", lambda *a, **k: [])
+    monkeypatch.setattr(M, "validate", lambda *a, **k: {"score": 90})
+    for ntype in ("single", "multi"):
+        ok, _model, _line = M._extract_one({"filename": f"{ntype}.jpg",
+                                            "md": f"TEXT {ntype}",
+                                            "notice_type": ntype},
+                                           batch=1, route=True, LX=_LX)
+        assert ok
+    assert seen["TEXT single"] == 1
+    assert seen["TEXT multi"] == 2
+
+
+def test_an_unrouted_call_leaves_the_pass_count_to_the_env(monkeypatch):
+    """The gemini-direct path does not route, so it must not be handed a count
+    routing chose — LX.extract falls back to LANGEXTRACT_PASSES there."""
+    seen = {}
+
+    class _Res:
+        extractions = ["one"]
+
+    class _LX:
+        @staticmethod
+        def extract(md, **kw):
+            seen["passes"] = kw.get("passes")
+            return _Res()
+
+    monkeypatch.setattr(M, "run_query", lambda *a, **k: [])
+    monkeypatch.setattr(M, "validate", lambda *a, **k: {"score": 90})
+    monkeypatch.setattr(M, "_entities", lambda res: list(res.extractions))
+    M._extract_one({"filename": "a.jpg", "md": "T", "notice_type": "multi"},
+                   batch=1, route=False, LX=_LX)
+    assert seen["passes"] is None

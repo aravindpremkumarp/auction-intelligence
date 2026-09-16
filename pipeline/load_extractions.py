@@ -51,7 +51,7 @@ from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from api.neo4j_client import run_query, run_read_query
-from pipeline.extract_routing import select_extract_model
+from pipeline.extract_routing import passes_for, select_extract_model
 from pipeline.notice_twins import group_twins, merge_rosters, text_key
 from pipeline.validators import SCORE_VERSION, normalize_identifier_kind, validate
 
@@ -95,7 +95,8 @@ ROSTER_CYPHER = (
 )
 
 
-def _fetch(limit: int | None, force: bool, filename: str | None) -> list[dict]:
+def _fetch(limit: int | None, force: bool, filename: str | None,
+           since: str | None = None) -> list[dict]:
     # A follower (page 2 of a stitched notice, pipeline/notice_pages) is never
     # extracted on its own: its text rides in the leader's stitched_markdown.
     where = ("d.markdown IS NOT NULL AND d.markdown <> '' "
@@ -104,6 +105,18 @@ def _fetch(limit: int | None, force: bool, filename: str | None) -> list[dict]:
         where += " AND d.extraction_json IS NULL"
     if filename:
         where += " AND d.filename = $fn"
+    if since:
+        # Notices for auctions that have not happened yet, first. A past
+        # auction's notice is still worth extracting — re-auction chains and
+        # history read it — but it is not what the site is asked for today, so
+        # when the budget or the window is finite this is the half that pays.
+        where += (" AND EXISTS { MATCH (a:AuctionProperty)-[:HAS_DOCUMENT]->(d) "
+                  "WHERE a.auction_start_dt >= datetime($since) }")
+    params: dict = {}
+    if filename:
+        params["fn"] = filename
+    if since:
+        params["since"] = f"{since}T00:00:00Z" if len(since) == 10 else since
     return run_read_query(
         f"MATCH (d:Document) WHERE {where} "
         + ROSTER_CYPHER +
@@ -115,7 +128,7 @@ def _fetch(limit: int | None, force: bool, filename: str | None) -> list[dict]:
         "       roster AS roster "
         "ORDER BY d.filename"
         + (f" LIMIT {int(limit)}" if limit else ""),
-        {"fn": filename} if filename else None,
+        params or None,
         max_rows=20_000, timeout=120.0)
 
 
@@ -330,11 +343,14 @@ def _extract_one(d: dict, batch: int, route: bool, LX) -> tuple[bool, str | None
         model_id, reasoning_off = select_extract_model(d.get("notice_type"))
     else:
         model_id, reasoning_off = None, False
+    # How many reads this notice gets is routed like the model is — a second
+    # pass earns its price on a long lot table and nothing on a short one.
+    passes = passes_for(d.get("notice_type")) if route else None
     effective_model = _effective_model(model_id, route)
     try:
         res = LX.extract(d["md"], model_id=model_id, reasoning_off=reasoning_off,
                          expected_lot_count=d.get("expected_lot_count"),
-                         roster=d.get("roster"))
+                         roster=d.get("roster"), passes=passes)
     except Exception as e:  # keep going; one bad doc shouldn't stop the load
         return False, model_id, f"[fail] {fn}: {e}"
     ents = _entities(res)
@@ -406,9 +422,10 @@ def _plan_groups(docs: list[dict], *, force: bool,
 
 
 def run(limit: int | None, force: bool, filename: str | None,
-        workers: int = DEFAULT_WORKERS, max_seconds: int | None = None) -> int:
+        workers: int = DEFAULT_WORKERS, max_seconds: int | None = None,
+        since: str | None = None) -> int:
     from pipeline import langextract_examples as LX
-    docs = _fetch(limit, force, filename)
+    docs = _fetch(limit, force, filename, since)
     print(f"to extract: {len(docs)} document(s)")
     if not docs:
         print("done — wrote 0, failed 0")
@@ -499,6 +516,10 @@ def main() -> int:
     ap.add_argument("--workers", type=int, default=DEFAULT_WORKERS,
                     help=f"documents extracted concurrently (default {DEFAULT_WORKERS}, "
                          "env LOAD_EXTRACTIONS_WORKERS)")
+    ap.add_argument("--since", default=None,
+                    help="only notices backing an auction starting on/after "
+                         "this date (YYYY-MM-DD) — the future half of the "
+                         "backlog, which is what the site serves today")
     ap.add_argument("--max-seconds", type=int, default=None,
                     help="stop starting new documents after this many seconds "
                          "(in-flight ones finish). For a scheduled runner: set "
@@ -506,7 +527,7 @@ def main() -> int:
                          "overlap. Untouched pages stay pending.")
     args = ap.parse_args()
     return run(args.limit, args.force, args.filename, args.workers,
-               args.max_seconds)
+               args.max_seconds, args.since)
 
 
 if __name__ == "__main__":

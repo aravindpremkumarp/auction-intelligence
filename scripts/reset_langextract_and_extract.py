@@ -69,7 +69,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 
 from api.neo4j_client import run_query, run_read_query
-from pipeline.extract_routing import select_extract_model
+from pipeline.extract_routing import passes_for, select_extract_model
 from pipeline.load_extractions import (
     ROSTER_CYPHER,
     _entities,
@@ -287,7 +287,8 @@ def _extract_one(d: dict, batch: int, route: bool):
         model_id, reasoning_off = None, False
     res = LX.extract(d["md"], model_id=model_id, reasoning_off=reasoning_off,
                      expected_lot_count=d.get("expected_lot_count"),
-                     roster=d.get("roster"))
+                     roster=d.get("roster"),
+                     passes=passes_for(d.get("notice_type")) if route else None)
     ents = _entities(res)
     # An empty result is a failed read, not a notice with nothing in it — the
     # model returned something LangExtract could not parse ("Content must
