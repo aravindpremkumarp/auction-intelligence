@@ -33,6 +33,12 @@ wall time.
 
 Run:  NEO4J_HTTP_API=1 LANGEXTRACT_PROVIDER=openrouter \
         python -m pipeline.load_extractions --limit 50 --workers 24
+
+Scheduled: render.yaml's `auction-extract` cron runs this every 6 hours with
+``--max-seconds`` set below that gap, so each firing takes whatever is still
+pending and ends before the next one starts. Nothing else is needed to drain a
+backlog — a page is selected while it has no extraction_json, and a page the
+model answers with nothing is left pending rather than recorded empty.
 """
 from __future__ import annotations
 
@@ -40,6 +46,7 @@ import argparse
 import json
 import os
 import threading
+import time
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -399,7 +406,7 @@ def _plan_groups(docs: list[dict], *, force: bool,
 
 
 def run(limit: int | None, force: bool, filename: str | None,
-        workers: int = DEFAULT_WORKERS) -> int:
+        workers: int = DEFAULT_WORKERS, max_seconds: int | None = None) -> int:
     from pipeline import langextract_examples as LX
     docs = _fetch(limit, force, filename)
     print(f"to extract: {len(docs)} document(s)")
@@ -428,26 +435,56 @@ def run(limit: int | None, force: bool, filename: str | None,
     # Serial, the full corpus is days of wall time; the ceiling here is the
     # provider's rate limit, not local CPU.
     lock = threading.Lock()
+    # A scheduled runner has to hand the machine back before its next firing.
+    # `deadline` stops NEW documents being started past it and lets the ones in
+    # flight finish, so a capped run ends the way an uncapped one does — every
+    # page either written or still pending — instead of being killed mid-call.
+    # Work is therefore fed in as workers free up rather than submitted all at
+    # once: a queue handed to the pool up front would all be "started" in the
+    # first millisecond and no deadline could apply to it.
+    deadline = time.monotonic() + max_seconds if max_seconds else None
+    queue = iter(docs)
+    started = 0
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = {pool.submit(_extract_one, d, batch, route, LX): d for d in docs}
-        for fut in as_completed(futures):
-            d = futures[fut]
-            try:
-                good, model_id, line = fut.result()
-            except Exception as e:  # a crash in the worker itself, not the model
-                good, model_id, line = False, None, f"[error] {d['filename']}: {e}"
-            with lock:
-                done += 1
-                if good:
-                    ok += 1
-                    covered += len(d.get("twins") or [d["filename"]])
-                else:
-                    fail += 1
-                model_counts[model_id or "default"] += 1
-                print(f"  [{done}/{len(docs)}] {line}", flush=True)
+        futures: dict = {}
+
+        def fill() -> None:
+            nonlocal started
+            while len(futures) < workers:
+                if deadline is not None and time.monotonic() >= deadline:
+                    return
+                d = next(queue, None)
+                if d is None:
+                    return
+                futures[pool.submit(_extract_one, d, batch, route, LX)] = d
+                started += 1
+
+        fill()
+        while futures:
+            for fut in as_completed(list(futures)):
+                d = futures.pop(fut)
+                try:
+                    good, model_id, line = fut.result()
+                except Exception as e:  # a crash in the worker, not the model
+                    good, model_id, line = False, None, f"[error] {d['filename']}: {e}"
+                with lock:
+                    done += 1
+                    if good:
+                        ok += 1
+                        covered += len(d.get("twins") or [d["filename"]])
+                    else:
+                        fail += 1
+                    model_counts[model_id or "default"] += 1
+                    print(f"  [{done}/{len(docs)}] {line}", flush=True)
+                break
+            fill()
     if route:
         routing = "  ".join(f"{m}={n}" for m, n in sorted(model_counts.items()))
         print(f"model routing: {routing}")
+    left = len(docs) - started
+    if left:
+        print(f"stopped at the {max_seconds}s cap with {left} page(s) not started "
+              f"— they stay pending, so the next run picks them up")
     print(f"done — extracted {ok} page(s), failed {fail}, "
           f"covering {covered} document(s), reused {reused} (batch B{batch})")
     return 0
@@ -462,8 +499,14 @@ def main() -> int:
     ap.add_argument("--workers", type=int, default=DEFAULT_WORKERS,
                     help=f"documents extracted concurrently (default {DEFAULT_WORKERS}, "
                          "env LOAD_EXTRACTIONS_WORKERS)")
+    ap.add_argument("--max-seconds", type=int, default=None,
+                    help="stop starting new documents after this many seconds "
+                         "(in-flight ones finish). For a scheduled runner: set "
+                         "it below the gap between firings so two runs never "
+                         "overlap. Untouched pages stay pending.")
     args = ap.parse_args()
-    return run(args.limit, args.force, args.filename, args.workers)
+    return run(args.limit, args.force, args.filename, args.workers,
+               args.max_seconds)
 
 
 if __name__ == "__main__":
