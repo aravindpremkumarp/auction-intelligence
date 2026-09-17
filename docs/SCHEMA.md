@@ -219,15 +219,72 @@ frontage remain unreconstructable for most lots.
 Promotion is gated on `extraction_json IS NOT NULL`, **not** on review status.
 The gate was written when every extracted document was still
 `extraction_review_status = 'pending'` and gating on `'verified'` would have
-promoted nothing; review has since caught up — 1,323 verified against 302
-pending on 2026-09-12 — so a verified-only gate is now a real option rather
-than an empty one. It remains ungated by choice: a pending document is
-promoted, and verification is recorded per node (`verified_at` /
-`verified_by`) so a trusted-subset query stays possible.
+promoted nothing. It briefly looked as though review had caught up (1,323
+verified on 2026-09-12), but all but two of those were two bulk sweeps rather
+than read documents, and have since been reset — 2 verified against 3,163
+pending on 2026-09-17. So a verified-only gate is once again close to empty,
+and it remains ungated by choice: a pending document is promoted, and
+verification is recorded per node (`verified_at` / `verified_by`) so a
+trusted-subset query stays possible.
 
 Geography edges carry `source` (`langextract` | `scraped`) and `resolved_at`,
 which makes re-resolution a query rather than a re-migration as extraction
 coverage grows.
+
+### `extraction_review_status` is a workflow flag, not an accuracy measure
+
+`'verified'` records that a reviewer clicked verify. It does **not** record
+that anyone read the extraction — `POST /review/extraction/bulk-confirm` marks
+a whole filtered set verified in one statement, and for most of the corpus that
+is what happened. Two consequences worth stating plainly:
+
+* A verified-only promotion gate would not be a quality gate.
+* `evals/export_review_gold.py` turns verified extractions into eval gold —
+  regression anchors that future prompt changes are measured against. Run on a
+  bulk-verified corpus it would freeze today's errors in as the definition of
+  correct, and every later "regression" would be measured against them.
+
+On 2026-09-17 the two sweeps behind that count (1,139 rows sharing
+`2026-08-20T17:44:04.639Z`, 182 sharing `2026-09-05T12:16:47.209Z`) were reset
+to `pending` by `scripts/reset_bulk_verifications.py`, leaving the 2
+individually-verified documents. A sweep is identified by timestamp identity —
+one Cypher statement stamps every row with the same millisecond, a human
+clicking verify N times leaves N distinct stamps — so the script stays usable
+next time rather than being a one-shot, and it never touches a document
+carrying reviewer corrections.
+
+The sweep itself stays queryable: the reset moves the old stamp to
+`extraction_bulk_verified_at` / `_by` and records
+`extraction_bulk_verify_reset_at`. Only the claim that a person verified the
+document is withdrawn, which also makes the reset reversible.
+
+Accuracy is measured separately, by `:SpotCheckSample` below.
+
+### `:SpotCheckSample` — the audit trail
+
+One node per audit round (`api/review/spotcheck.py`, `pipeline/spotcheck.py`).
+It holds a seeded random draw of individual extracted claims and the verdicts
+a reviewer gave them:
+
+| property | meaning |
+| --- | --- |
+| `id`, `created_at`, `created_by` | identity of the round |
+| `seed` | makes the draw reproducible — the same seed and scope redraw the identical sample |
+| `scope_json` | the population the sample describes (batch / notice type / date / score range) |
+| `items_json` | the **frozen** claim list; never re-drawn, or the sample could not be re-checked |
+| `verdicts_json` | `{claim key: {verdict, note, by, at}}` |
+| `pool_documents`, `excluded_stale` | provenance of the draw |
+
+Nothing here is written back onto `:Document`. That separation is deliberate:
+the review queue fixes documents and is biased toward suspicious ones on
+purpose, while this sample estimates corpus accuracy and only a random draw
+can do that. Letting audit verdicts flow into `extraction_corrections_json`
+would also route them into the eval gold set, so the measuring stick would
+start reporting whatever the last audit said.
+
+The sample measures **precision** of emitted values. It is structurally blind
+to recall — a field the model never emitted cannot be sampled — and the report
+says so rather than implying a completeness claim it cannot support.
 
 ### `IS_LOT` carries how the listing was matched
 

@@ -151,6 +151,8 @@
   .ov-line .ov-num { min-width: 120px; }
   .pill { display: inline-block; padding: 1px 6px; border: 1px solid var(--ink); font-size: 11px; font-family: 'IBM Plex Mono', monospace; }
   .pill.on { background: var(--accent); font-weight: 600; }
+  a.pill { text-decoration: none; color: inherit; cursor: pointer; }
+  a.pill:hover { background: var(--accent); }
   .pill.off { background: #eee; color: var(--muted); }
   .pill.good { background: #d8f0d8; }
   .pill.warn { background: #ffe1c2; }
@@ -715,6 +717,13 @@
              instead of rendering cards behind the filters below. -->
         <button class="pill" data-stage-link="stage/resolve_ok">resolution</button>
       </span>
+      <!-- The audit, not a stage: a seeded random sample used to MEASURE
+           extraction accuracy. Kept visually apart from the stage chips
+           because it is the one queue that must not be worked like a queue —
+           see web/spotcheck.html and docs/SCHEMA.md (:SpotCheckSample). -->
+      <span class="fsep">·</span>
+      <a class="pill" id="spotcheck-link" href="/spotcheck.html"
+         title="Measure extraction accuracy on a random sample">spot-check</a>
       <span class="fgroup" id="group-wrap">
         <span class="fsep">·</span>
         <span class="flabel" id="group-label">Group:</span>

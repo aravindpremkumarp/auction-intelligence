@@ -69,6 +69,16 @@ jobs:
       # retired prepare_tn_data beside the adapter-backed one on the same
       # input and holds every legacy key equal — the weekly run reads that
       # file, so a drift there loads the graph wrong. Needs only requests.
+      #
+      # test_spotcheck.py is the sampler and statistics behind the audit queue
+      # (pipeline/spotcheck.py). tests/api already covers the endpoints, but
+      # the properties that make the audit trustworthy live in the pure module:
+      # that a seed redraws the identical sample, that the draw stays
+      # stratified and order-independent, and that a rate is never reported
+      # below MIN_N or without its Wilson interval. A silent regression there
+      # does not break a page — it quietly produces a confident wrong number,
+      # which is worse. Pure stdlib, so it belongs here on the same grounds as
+      # tests/scripts above.
       - name: Run API tests
         env:
           SUPABASE_URL: https://fake.supabase.co
@@ -86,6 +96,7 @@ jobs:
           tests/pipeline/test_measures.py
           tests/pipeline/test_promote_extractions.py
           tests/pipeline/test_run_pipeline.py
+          tests/pipeline/test_spotcheck.py
           tests/sources -q
 
   # Live Razorpay test-mode E2E + real-Neo4j concurrency (design D4/D5).
