@@ -94,7 +94,11 @@
  .v.grey:hover,.v.grey.on{border-color:var(--muted);background:#f8fafc}
 
  /* original notice */
- #srcimg{max-width:100%;border:1px solid var(--line);border-radius:8px;display:block}
+ /* A notice is an image OR a PDF. PDFs do not render in an <img>, and
+    object-src is 'none' in the CSP, so an iframe is the only route — the same
+    lesson tests/test_vercel_config.py encodes for review.html. */
+ #srcimg,#srcpdf{max-width:100%;width:100%;border:1px solid var(--line);border-radius:8px;display:block}
+ #srcpdf{height:70vh}
  #srcwrap{display:none}
 
  /* report */
@@ -164,7 +168,10 @@
         <button id="btnImg">Show original notice</button>
         <span class="muted" id="fnLabel"></span>
       </div>
-      <div id="srcwrap" style="margin-top:10px"><img id="srcimg" alt="original notice"></div>
+      <div id="srcwrap" style="margin-top:10px">
+        <img id="srcimg" alt="original notice">
+        <iframe id="srcpdf" title="original notice" class="hide"></iframe>
+      </div>
     </div>
 
     <div class="card">
@@ -335,7 +342,14 @@ function render() {
   $("#srcwrap").style.display = "none";
   $("#btnImg").textContent = "Show original notice";
   $("#btnImg").disabled = !it.public_url;
-  $("#srcimg").src = it.public_url || "";
+  // Images go in <img>, PDFs in <iframe>: a PDF in an <img> is a broken frame,
+  // and object-src is 'none' so there is no <object> fallback. Only the chosen
+  // element gets a src, or the other one fetches the file a second time.
+  const isPdf = it.doc_type === "pdf";
+  $("#srcimg").classList.toggle("hide", isPdf);
+  $("#srcpdf").classList.toggle("hide", !isPdf);
+  $("#srcimg").src = (!isPdf && it.public_url) ? it.public_url : "";
+  $("#srcpdf").src = (isPdf && it.public_url) ? it.public_url : "";
 
   $("#note").value = it.note || "";
   document.querySelectorAll(".v").forEach(function (b) {
