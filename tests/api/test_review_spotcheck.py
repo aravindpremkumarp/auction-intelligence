@@ -141,6 +141,45 @@ def test_population_query_has_no_limit_that_would_bias_the_draw(monkeypatch):
     assert "ORDER BY" in body        # deterministic order for the seeded draw
 
 
+def test_field_focus_narrows_before_the_draw_not_after(monkeypatch):
+    """Every claim in a focused sample is about a requested field.
+
+    Filtering after the draw would spend the sample across all ~60 field types
+    and then discard most of it, leaving n=1 on what was asked for — the exact
+    problem focusing exists to solve. A sample of 6 that comes back entirely
+    `attr:village` can only happen if the narrowing ran first.
+    """
+    written = {}
+    monkeypatch.setattr(sc, "_fetch_population",
+                        lambda scope: [_doc_row("a.pdf"), _doc_row("b.pdf")])
+    monkeypatch.setattr(sc, "_fetch_extractions", lambda fns: _extractions(*fns))
+    monkeypatch.setattr(sc, "run_query",
+                        lambda cy, params: written.update(params) or [])
+
+    sc.create_sample(
+        sc.SpotCheckCreateBody(size=6, seed=3, fields=["village"]), "a@b.c")
+
+    items = json.loads(written["items"])
+    assert len(items) == 6
+    assert {i["stratum"] for i in items} == {"attr:village"}
+
+
+def test_the_focused_field_list_is_stored_in_the_scope(monkeypatch):
+    written = {}
+    monkeypatch.setattr(sc, "_fetch_population", lambda scope: [_doc_row("a.pdf")])
+    monkeypatch.setattr(sc, "_fetch_extractions", lambda fns: _extractions(*fns))
+    monkeypatch.setattr(sc, "run_query",
+                        lambda cy, params: written.update(params) or [])
+
+    out = sc.create_sample(
+        sc.SpotCheckCreateBody(size=3, seed=1, fields=["village"]), "a@b.c")
+
+    # Stored with the sample and echoed in the scope line, so the report can
+    # never present a two-field audit as a claim about the whole extraction.
+    assert json.loads(written["scope"])["fields"] == ["village"]
+    assert "village" in out["scope"]
+
+
 def test_scope_clause_does_not_filter_on_review_status():
     clause = sc._scope_clause(sc.SpotCheckScope(notice_type="multi"))
     # Auditing only unverified documents could never catch a bulk verify that

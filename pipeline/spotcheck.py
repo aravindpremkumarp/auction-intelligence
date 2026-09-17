@@ -186,6 +186,47 @@ def iter_claims(filename: str, entities: list[dict]) -> list[Claim]:
     return out
 
 
+# ── field focus ──────────────────────────────────────────────────────────────
+# The priority fields from pipeline/validators.py — the ones that decide whether
+# a lot is usable at all — plus `village`, which anchors a lot geographically and
+# is the field most often mis-slotted between village/taluk/district.
+#
+# This list exists because an unfocused audit cannot answer a per-field
+# question. An extraction carries ~60 distinct field types, so a 60-claim
+# stratified draw lands n=1 on every one of them: enough for a single corpus-
+# wide precision figure, and useless for "which field should I fix?". Focusing
+# the same 60 answers on 8 fields buys ~8 observations each, which is where a
+# Wilson interval starts to say something (see MIN_N).
+PRIORITY_FIELDS = (
+    "full_description", "property_type", "possession_type", "extent",
+    "undivided_share", "borrower", "reserve_price_num", "village",
+)
+
+
+def matches_field(claim: Claim, wanted: set[str]) -> bool:
+    """Is this claim about one of ``wanted``?
+
+    A bare name matches either sense of the field, because a reviewer asking
+    for "extent" means the concept, not a stratum key: `extent` selects both
+    the entity-class assertion (`cls:extent`) and any `extent` attribute
+    (`attr:extent`). An explicit ``cls:``/``attr:`` prefix narrows to one.
+    """
+    if not wanted:
+        return True
+    if claim.stratum in wanted:          # explicit "attr:village" / "cls:extent"
+        return True
+    name = claim.attr if claim.attr else claim.cls
+    return name in wanted
+
+
+def filter_claims(claims: list[Claim], fields) -> list[Claim]:
+    """Keep only claims about ``fields`` (empty/None keeps everything)."""
+    wanted = {f.strip() for f in (fields or []) if f and f.strip()}
+    if not wanted:
+        return list(claims)
+    return [c for c in claims if matches_field(c, wanted)]
+
+
 # ── sampling ─────────────────────────────────────────────────────────────────
 def draw_sample(claims: list[Claim], *, size: int, seed: int,
                 per_stratum_cap: int | None = None,
@@ -263,6 +304,12 @@ def describe_scope(scope: dict) -> str:
         v = scope.get(key)
         if v not in (None, ""):
             bits.append(f"{label}={v}")
+    # A focused sample says nothing about the fields it excluded, so the field
+    # list belongs in the one line that states what the number covers — without
+    # it, "92% accurate" reads as a claim about the whole extraction.
+    fields = [f for f in (scope.get("fields") or []) if f]
+    if fields:
+        bits.append("fields=" + "|".join(fields))
     return ", ".join(bits) if bits else "all extracted documents"
 
 

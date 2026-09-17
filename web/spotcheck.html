@@ -144,6 +144,22 @@
       <label class="muted">Seed <input id="fSeed" type="number" placeholder="random" style="width:110px"></label>
       <button class="primary" id="btnDraw">Draw sample</button>
     </div>
+    <!-- Field focus. Defaulted ON to the priority set, because the unfocused
+         draw is the trap: an extraction has ~60 field types, so 60 claims
+         spread evenly land n=1 on each — one corpus-wide number and nothing
+         per-field. Focusing the same effort buys ~8 per field, which is where
+         an interval starts to say something. -->
+    <div class="row" style="margin-top:10px">
+      <label class="muted grow">Fields
+        <input id="fFields" class="grow" style="width:100%"
+               placeholder="blank = every field (gives one overall number only)">
+      </label>
+    </div>
+    <div class="muted" style="margin-top:6px">
+      <button id="btnPriority" style="padding:3px 9px;font-size:12px">Priority fields</button>
+      <button id="btnAllFields" style="padding:3px 9px;font-size:12px">All fields</button>
+      <span id="fieldsHint"></span>
+    </div>
     <div id="drawMsg" class="muted" style="margin-top:10px"></div>
     <div id="samples" style="margin-top:16px"></div>
   </section>
@@ -242,12 +258,62 @@ async function loadSamples() {
   });
 }
 
+// Mirrors PRIORITY_FIELDS in pipeline/spotcheck.py — the fields that decide
+// whether a lot is usable, plus village.
+const PRIORITY_FIELDS = [
+  "full_description", "property_type", "possession_type", "extent",
+  "undivided_share", "borrower", "reserve_price_num", "village"
+];
+
+function setFields(list) {
+  $("#fFields").value = list.join(", ");
+  updateFieldsHint();
+}
+
+function readFields() {
+  return $("#fFields").value.split(",").map(s => s.trim()).filter(Boolean);
+}
+
+function updateFieldsHint() {
+  const n = readFields().length;
+  const size = parseInt($("#fSize").value || "0", 10) || 0;
+  if (!n) {
+    $("#fieldsHint").textContent =
+      " — every field: expect one overall number and \"not enough data\" per field";
+    return;
+  }
+  // The arithmetic that decides whether this sample can answer a per-field
+  // question at all, shown before the reviewer spends the time rather than
+  // after.
+  //
+  // The divisor is STRATA, not names: a bare name that is both an entity class
+  // and an attribute (`extent` -> cls:extent + attr:extent) splits into two
+  // buckets, so the true count is only known once the draw has seen the data.
+  // Estimating on names alone silently under-sizes the sample — dividing by
+  // names put 7 in each of 9 buckets when the hint promised 8 — so the hint
+  // ranges rather than claiming a number it cannot know.
+  const explicit = readFields().filter(f => f.includes(":")).length;
+  const bare = n - explicit;
+  const maxStrata = explicit + bare * 2;   // every bare name might split in two
+  const lo = Math.floor(size / maxStrata), hi = Math.floor(size / n);
+  $("#fieldsHint").textContent =
+    ` — ${n} field(s) → ${n}-${maxStrata} buckets, about ` +
+    (lo === hi ? `${hi}` : `${lo}-${hi}`) + " claim(s) each" +
+    (lo < 8 ? `; under 8 shows no rate — size ${maxStrata * 8} guarantees it` : "");
+}
+
+$("#btnPriority").onclick = function () { setFields(PRIORITY_FIELDS); };
+$("#btnAllFields").onclick = function () { setFields([]); };
+$("#fFields").oninput = updateFieldsHint;
+$("#fSize").oninput = updateFieldsHint;
+
 $("#btnDraw").onclick = async function () {
   const body = {
     size: parseInt($("#fSize").value || "60", 10),
     notice_type: $("#fType").value || null,
     batch: $("#fBatch").value ? parseInt($("#fBatch").value, 10) : null,
-    seed: $("#fSeed").value ? parseInt($("#fSeed").value, 10) : null
+    seed: $("#fSeed").value ? parseInt($("#fSeed").value, 10) : null,
+    fields: readFields()
   };
   $("#drawMsg").textContent = "Drawing…";
   $("#btnDraw").disabled = true;
@@ -487,5 +553,10 @@ $("#btnReport").onclick = function () { if (SAMPLE) showReport(); };
 $("#btnNew").onclick = home;
 $("#btnBack").onclick = function () { if (ITEM && ITEM.index > 1) stepBack(); };
 
+// Start focused: the unfocused draw is a valid choice but the wrong default,
+// since it cannot answer "which field should I fix?".
+setFields(PRIORITY_FIELDS);
+$("#fSize").value = PRIORITY_FIELDS.length * 8;
+updateFieldsHint();
 loadSamples();
 </script>
