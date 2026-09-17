@@ -229,6 +229,46 @@ Geography edges carry `source` (`langextract` | `scraped`) and `resolved_at`,
 which makes re-resolution a query rather than a re-migration as extraction
 coverage grows.
 
+### `extraction_review_status` is a workflow flag, not an accuracy measure
+
+`'verified'` records that a reviewer clicked verify. It does **not** record
+that anyone read the extraction, and much of the current verified count was
+set in bulk to clear the queue. Two consequences worth stating plainly:
+
+* A verified-only promotion gate would not be a quality gate.
+* `evals/export_review_gold.py` turns verified extractions into eval gold —
+  regression anchors that future prompt changes are measured against. Run on
+  a bulk-verified corpus it would freeze today's errors in as ground truth.
+  Reset the bulk-set statuses before exporting.
+
+Accuracy is measured separately, by `:SpotCheckSample` below.
+
+### `:SpotCheckSample` — the audit trail
+
+One node per audit round (`api/review/spotcheck.py`, `pipeline/spotcheck.py`).
+It holds a seeded random draw of individual extracted claims and the verdicts
+a reviewer gave them:
+
+| property | meaning |
+| --- | --- |
+| `id`, `created_at`, `created_by` | identity of the round |
+| `seed` | makes the draw reproducible — the same seed and scope redraw the identical sample |
+| `scope_json` | the population the sample describes (batch / notice type / date / score range) |
+| `items_json` | the **frozen** claim list; never re-drawn, or the sample could not be re-checked |
+| `verdicts_json` | `{claim key: {verdict, note, by, at}}` |
+| `pool_documents`, `excluded_stale` | provenance of the draw |
+
+Nothing here is written back onto `:Document`. That separation is deliberate:
+the review queue fixes documents and is biased toward suspicious ones on
+purpose, while this sample estimates corpus accuracy and only a random draw
+can do that. Letting audit verdicts flow into `extraction_corrections_json`
+would also route them into the eval gold set, so the measuring stick would
+start reporting whatever the last audit said.
+
+The sample measures **precision** of emitted values. It is structurally blind
+to recall — a field the model never emitted cannot be sampled — and the report
+says so rather than implying a completeness claim it cannot support.
+
 ### `IS_LOT` carries how the listing was matched
 
 The edge **is** the resolution — `AuctionProperty.resolved_lot_key` was

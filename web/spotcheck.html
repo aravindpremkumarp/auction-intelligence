@@ -1,0 +1,477 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Spot-check audit</title>
+<!--
+  The audit queue — a seeded RANDOM sample of extracted claims, judged one at a
+  time, used to MEASURE pipeline accuracy.
+
+  Deliberately NOT review.html / review_extraction.html. Those fix documents and
+  are biased toward suspicious ones on purpose; this one estimates how right the
+  pipeline is, which only a random sample can do. Verdicts here are written to
+  the sample node (api/review/spotcheck.py), never back onto the Document, so an
+  audit can never quietly become the eval gold set.
+
+  The design constraint that shapes everything below: a reviewer must be able to
+  judge one claim in a couple of seconds, or they bulk-approve and the numbers
+  become fiction. Hence one claim per screen, the question stated in full, the
+  evidence already highlighted, and number keys instead of mouse targets.
+
+  Auth mirrors review_extraction.html: Supabase bearer tokens via /auth.js and
+  window.Auth.fetchWithAuth. Served by api/main.py at /spotcheck.html (and by
+  Vercel straight from web/); the global CSP in vercel.json already allows the
+  jsDelivr SDK, the R2 image bucket and the API origin, so no extra rule.
+-->
+<script>
+  // Same rule as review.html: on Vercel the static page and the API live on
+  // different origins, so a same-origin default would 404 in production. The
+  // ?api= override stays for local testing against a remote API.
+  window.API_BASE = new URLSearchParams(location.search).get("api")
+    || ((location.hostname === 'localhost' || location.hostname === '127.0.0.1')
+        ? '' : 'https://auction-api-w68b.onrender.com');
+  window.SUPABASE_URL = window.SUPABASE_URL || 'https://yrcrxpwoqddfcengkryw.supabase.co';
+  window.SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY || 'sb_publishable_IT4CBVWS1a37sduWApOdFw_1UCR0kyJ';
+</script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="/auth.js"></script>
+<style>
+ :root{
+   --bg:#f1f5f9; --ink:#0f172a; --muted:#64748b; --line:#e2e8f0; --card:#fff;
+   --ok:#16a34a; --warn:#d97706; --bad:#dc2626; --cool:#2563eb; --dark:#0f172a;
+ }
+ *{box-sizing:border-box}
+ body{font-family:system-ui,Segoe UI,Arial;margin:0;color:var(--ink);background:var(--bg)}
+ button{cursor:pointer;font:inherit;border:1px solid #cbd5e1;background:#fff;border-radius:8px;padding:7px 13px}
+ button:hover{background:#f8fafc}
+ button.primary{background:var(--cool);color:#fff;border-color:var(--cool)}
+ button.primary:hover{filter:brightness(1.08)}
+ button[disabled]{opacity:.45;cursor:not-allowed}
+ input,select{font:inherit;padding:6px 9px;border:1px solid #cbd5e1;border-radius:7px;background:#fff}
+ code{background:#f1f5f9;border-radius:4px;padding:1px 5px;font-size:.92em}
+
+ /* top bar */
+ #bar{display:flex;align-items:center;gap:12px;padding:10px 16px;background:var(--dark);color:#e2e8f0;position:sticky;top:0;z-index:5}
+ #bar h1{font-size:14px;margin:0;font-weight:700;color:#fff}
+ #bar .sp{flex:1}
+ #bar button{background:#1e293b;color:#cbd5e1;border-color:#334155}
+ #bar button:hover{background:#334155;color:#fff}
+ #prog{font-size:12px;color:#94a3b8}
+ #progbar{height:4px;background:#1e293b;border-radius:3px;width:180px;overflow:hidden}
+ #progbar i{display:block;height:100%;background:var(--ok);width:0}
+
+ .wrap{max-width:1180px;margin:0 auto;padding:18px 16px 60px}
+ .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:14px}
+ .muted{color:var(--muted);font-size:12px}
+ h2{font-size:15px;margin:0 0 10px}
+
+ /* the claim */
+ #qwrap{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap}
+ #qbox{flex:1;min-width:320px}
+ #kind{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:6px}
+ #question{font-size:22px;font-weight:700;line-height:1.35;word-break:break-word}
+ #qmeta{margin-top:8px;font-size:12px;color:var(--muted);display:flex;gap:10px;flex-wrap:wrap}
+ .pill{border-radius:999px;padding:2px 9px;font-size:11px;font-weight:700;background:#e2e8f0;color:#334155}
+ .pill.warn{background:#fef3c7;color:#92400e}
+ .pill.bad{background:#fee2e2;color:#991b1b}
+
+ /* evidence */
+ #ctx{background:#fff;border:1px solid var(--line);border-radius:10px;padding:14px;
+      white-space:pre-wrap;line-height:1.75;font-size:13.5px;max-height:46vh;overflow:auto}
+ mark{background:#fde68a;border-radius:3px;padding:1px 2px;box-shadow:0 0 0 2px #fde68a}
+ #nospan{display:none;font-size:12px;color:#92400e;background:#fef3c7;border-radius:8px;padding:8px 10px;margin-bottom:8px}
+
+ /* verdict buttons */
+ #verdicts{display:grid;grid-template-columns:repeat(auto-fit,minmax(168px,1fr));gap:10px;margin-top:4px}
+ .v{display:flex;flex-direction:column;align-items:flex-start;gap:3px;padding:12px 14px;border-radius:10px;border:2px solid var(--line);background:#fff;text-align:left}
+ .v b{font-size:14px}
+ .v span{font-size:11px;color:var(--muted);font-weight:400;line-height:1.35}
+ .v kbd{position:absolute;right:10px;top:9px;font-size:10px;color:var(--muted);border:1px solid var(--line);border-radius:4px;padding:0 5px;background:#f8fafc}
+ .v{position:relative}
+ .v:hover{background:#f8fafc}
+ .v.ok:hover,.v.ok.on{border-color:var(--ok);background:#f0fdf4}
+ .v.bad:hover,.v.bad.on{border-color:var(--bad);background:#fef2f2}
+ .v.warn:hover,.v.warn.on{border-color:var(--warn);background:#fffbeb}
+ .v.grey:hover,.v.grey.on{border-color:var(--muted);background:#f8fafc}
+
+ /* original notice */
+ #srcimg{max-width:100%;border:1px solid var(--line);border-radius:8px;display:block}
+ #srcwrap{display:none}
+
+ /* report */
+ table{border-collapse:collapse;width:100%;font-size:13px}
+ th,td{text-align:left;padding:7px 9px;border-bottom:1px solid var(--line)}
+ th{font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted)}
+ td.num{text-align:right;font-variant-numeric:tabular-nums}
+ .bignum{font-size:34px;font-weight:800;line-height:1}
+ .ci{font-size:13px;color:var(--muted);margin-top:4px}
+ .note{background:#f8fafc;border-left:3px solid var(--cool);padding:10px 12px;border-radius:0 8px 8px 0;font-size:12.5px;line-height:1.55;color:#334155;margin-top:12px}
+ .hide{display:none!important}
+ .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+ .grow{flex:1}
+</style>
+
+<div id="bar">
+  <h1>Spot-check audit</h1>
+  <span id="prog" class="muted"></span>
+  <div id="progbar"><i></i></div>
+  <span class="sp"></span>
+  <button id="btnBack" title="Previous item (←)">← Back</button>
+  <button id="btnReport">Report</button>
+  <button id="btnNew">New sample</button>
+</div>
+
+<div class="wrap">
+  <!-- ── start / new sample ─────────────────────────────────────────────── -->
+  <section id="start" class="card">
+    <h2>Draw a sample</h2>
+    <p class="muted" style="margin:0 0 12px">
+      A seeded random draw of individual extracted claims. Judge each one against
+      the source; the report at the end is a real accuracy estimate with a
+      confidence interval, not a quality score.
+    </p>
+    <div class="row">
+      <label class="muted">Size <input id="fSize" type="number" value="60" min="1" max="1000" style="width:88px"></label>
+      <label class="muted">Notice type
+        <select id="fType">
+          <option value="">any</option><option value="single">single</option>
+          <option value="multi">multi</option><option value="unclassified">unclassified</option>
+        </select></label>
+      <label class="muted">Batch <input id="fBatch" type="number" placeholder="any" style="width:88px"></label>
+      <label class="muted">Seed <input id="fSeed" type="number" placeholder="random" style="width:110px"></label>
+      <button class="primary" id="btnDraw">Draw sample</button>
+    </div>
+    <div id="drawMsg" class="muted" style="margin-top:10px"></div>
+    <div id="samples" style="margin-top:16px"></div>
+  </section>
+
+  <!-- ── review one claim ───────────────────────────────────────────────── -->
+  <section id="review" class="hide">
+    <div class="card">
+      <div id="qwrap">
+        <div id="qbox">
+          <div id="kind"></div>
+          <div id="question"></div>
+          <div id="qmeta"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Evidence <span class="muted" style="font-weight:400">— the passage this came from</span></h2>
+      <div id="nospan"></div>
+      <div id="ctx"></div>
+      <div class="row" style="margin-top:10px">
+        <button id="btnImg">Show original notice</button>
+        <span class="muted" id="fnLabel"></span>
+      </div>
+      <div id="srcwrap" style="margin-top:10px"><img id="srcimg" alt="original notice"></div>
+    </div>
+
+    <div class="card">
+      <h2>Is this right?</h2>
+      <div id="verdicts">
+        <button class="v ok"   data-v="correct"><kbd>1</kbd><b>Correct</b><span>The value is right.</span></button>
+        <button class="v bad"  data-v="wrong"><kbd>2</kbd><b>Wrong</b><span>The document says something else.</span></button>
+        <button class="v bad"  data-v="not_in_source"><kbd>3</kbd><b>Invented</b><span>Nothing in the document supports it.</span></button>
+        <button class="v warn" data-v="unclear"><kbd>4</kbd><b>Can't tell</b><span>Source is illegible or ambiguous. Not counted against the model.</span></button>
+        <button class="v grey" data-v="missed"><kbd>5</kbd><b>Something's missing</b><span>This is fine, but the notice has data the model skipped.</span></button>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <input id="note" class="grow" placeholder="Optional note (what's wrong, what was missed)…" maxlength="2000">
+      </div>
+      <div class="muted" style="margin-top:8px">Keys 1–5 to answer · ← to go back · answers save immediately</div>
+    </div>
+  </section>
+
+  <!-- ── report ─────────────────────────────────────────────────────────── -->
+  <section id="report" class="hide"></section>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const api = p => (window.API_BASE || "") + p;
+let SAMPLE = null, ITEM = null, BUSY = false;
+// Keys in frozen-sample order, filled in as items are seen (render() records
+// each at its own index). Going back is then a single fetch by key rather than
+// re-walking the sample, and it cannot drift from the server's ordering
+// because every entry came from the server's own `index`.
+const ORDER = [];
+
+async function call(path, opts) {
+  const r = await window.Auth.fetchWithAuth(api(path), opts || {});
+  if (!r.ok) {
+    let d = "";
+    try { d = (await r.json()).detail || ""; } catch (e) {}
+    const err = new Error(d || (r.status + " " + r.statusText));
+    err.status = r.status;
+    throw err;
+  }
+  return r.json();
+}
+
+function esc(s) {
+  return String(s == null ? "" : s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+// ── sample list / drawing ────────────────────────────────────────────────
+async function loadSamples() {
+  let rows = [];
+  try { rows = await call("/review/spotcheck/samples?limit=20"); }
+  catch (e) { $("#samples").innerHTML = '<div class="muted">Could not load samples: ' + esc(e.message) + "</div>"; return; }
+  if (!rows.length) { $("#samples").innerHTML = '<div class="muted">No samples yet.</div>'; return; }
+  $("#samples").innerHTML =
+    "<h2>Earlier samples</h2><table><tr><th>Drawn</th><th>Scope</th><th>Seed</th>" +
+    '<th class="num">Done</th><th></th></tr>' +
+    rows.map(function (s) {
+      return "<tr><td>" + esc((s.created_at || "").slice(0, 16).replace("T", " ")) +
+        "</td><td>" + esc(s.scope) + "</td><td>" + esc(s.seed) +
+        '</td><td class="num">' + s.judged + " / " + s.size +
+        '</td><td><button data-open="' + esc(s.id) + '">' +
+        (s.pending ? "Continue" : "Report") + "</button></td></tr>";
+    }).join("") + "</table>";
+  $("#samples").querySelectorAll("[data-open]").forEach(function (b) {
+    b.onclick = function () { open_(b.getAttribute("data-open")); };
+  });
+}
+
+$("#btnDraw").onclick = async function () {
+  const body = {
+    size: parseInt($("#fSize").value || "60", 10),
+    notice_type: $("#fType").value || null,
+    batch: $("#fBatch").value ? parseInt($("#fBatch").value, 10) : null,
+    seed: $("#fSeed").value ? parseInt($("#fSeed").value, 10) : null
+  };
+  $("#drawMsg").textContent = "Drawing…";
+  $("#btnDraw").disabled = true;
+  try {
+    const out = await call("/review/spotcheck/samples", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+    // Stated up front, because these two numbers decide how much the result
+    // is worth: how many documents it actually covers, and how many were
+    // skipped as unjudgeable.
+    $("#drawMsg").innerHTML = "Drew <b>" + out.size + "</b> claims from <b>" +
+      out.documents_in_pool + "</b> documents (" + out.claims_available +
+      " available, seed " + out.seed + ")." +
+      (out.excluded_stale ? " <b>" + out.excluded_stale +
+        "</b> documents skipped — markdown changed since extraction, so their spans can't be judged." : "");
+    await open_(out.id);
+  } catch (e) {
+    $("#drawMsg").textContent = "Could not draw: " + e.message;
+  } finally { $("#btnDraw").disabled = false; }
+};
+
+// ── review loop ──────────────────────────────────────────────────────────
+async function open_(id) {
+  SAMPLE = id;
+  $("#start").classList.add("hide");
+  $("#report").classList.add("hide");
+  $("#review").classList.remove("hide");
+  await nextItem(null);
+}
+
+function setProgress(done, total) {
+  $("#prog").textContent = done + " of " + total + " judged";
+  $("#progbar").firstElementChild.style.width =
+    (total ? Math.round(100 * done / total) : 0) + "%";
+}
+
+async function nextItem(at) {
+  try {
+    const q = at ? "?at=" + encodeURIComponent(at) : "";
+    ITEM = await call("/review/spotcheck/samples/" + SAMPLE + "/next" + q);
+  } catch (e) {
+    if (e.status === 404) { return showReport(); }   // nothing left to judge
+    $("#question").textContent = "Error: " + e.message;
+    return;
+  }
+  render();
+}
+
+function render() {
+  const it = ITEM;
+  ORDER[it.index - 1] = it.key;      // remember position for ← (see stepBack)
+  $("#kind").textContent = it.attr
+    ? "Attribute of a " + it.cls + (it.lot_index ? " · lot " + it.lot_index : "")
+    : "Entity span" + (it.lot_index ? " · lot " + it.lot_index : "");
+  // The question is the whole job — stated in full so the reviewer never has
+  // to reconstruct what is being asked from a field name and a raw value.
+  $("#question").textContent = it.attr
+    ? it.attr + " = " + JSON.stringify(it.value)
+    : "Is this passage really a " + it.cls + "?";
+
+  const pills = [];
+  pills.push('<span class="pill">' + esc(it.stratum) + "</span>");
+  if (it.stale) pills.push('<span class="pill bad">markdown changed since extraction</span>');
+  if (it.anchor && it.anchor !== "stored")
+    pills.push('<span class="pill warn">anchor: ' + esc(it.anchor) + "</span>");
+  $("#qmeta").innerHTML = pills.join(" ") + '<span class="muted">' +
+    esc(it.filename) + "</span>";
+  $("#fnLabel").textContent = it.filename;
+
+  // Evidence with the span highlighted.
+  const c = it.context || "";
+  if (it.context_start != null && it.context_end != null) {
+    $("#ctx").innerHTML = esc(c.slice(0, it.context_start)) + "<mark>" +
+      esc(c.slice(it.context_start, it.context_end)) + "</mark>" +
+      esc(c.slice(it.context_end));
+    $("#nospan").style.display = "none";
+    const m = $("#ctx mark");
+    if (m) m.scrollIntoView({ block: "center" });
+  } else {
+    $("#ctx").textContent = c;
+    $("#nospan").style.display = "block";
+    // An ungrounded claim is itself a finding — the model produced a value it
+    // could not point at — so say so rather than showing an empty highlight.
+    $("#nospan").textContent =
+      "No span to highlight: this value isn't anchored anywhere in the text. " +
+      "If nothing here supports it, that's \"Invented\".";
+  }
+
+  // Original notice, collapsed by default (loading every image would slow the
+  // loop, and most claims are judgeable from the markdown alone).
+  $("#srcwrap").style.display = "none";
+  $("#btnImg").textContent = "Show original notice";
+  $("#btnImg").disabled = !it.public_url;
+  $("#srcimg").src = it.public_url || "";
+
+  $("#note").value = it.note || "";
+  document.querySelectorAll(".v").forEach(function (b) {
+    b.classList.toggle("on", b.getAttribute("data-v") === it.verdict);
+  });
+  setProgress(it.index - 1, it.total);
+  $("#btnBack").disabled = it.index <= 1;
+}
+
+$("#btnImg").onclick = function () {
+  const w = $("#srcwrap");
+  const open = w.style.display !== "none";
+  w.style.display = open ? "none" : "block";
+  $("#btnImg").textContent = open ? "Show original notice" : "Hide original notice";
+};
+
+async function answer(verdict) {
+  if (!ITEM || BUSY) return;
+  BUSY = true;
+  const key = ITEM.key;
+  try {
+    const s = await call("/review/spotcheck/samples/" + SAMPLE + "/verdict", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key: key, verdict: verdict, note: $("#note").value || null })
+    });
+    setProgress(s.judged, s.size);
+    if (!s.pending) return showReport();
+    await nextItem(null);
+  } catch (e) {
+    alert("Could not save: " + e.message);
+  } finally { BUSY = false; }
+}
+
+document.querySelectorAll(".v").forEach(function (b) {
+  b.onclick = function () { answer(b.getAttribute("data-v")); };
+});
+
+// Number keys are the whole point: a mouse trip per item is what turns an
+// audit into a bulk-approve. Ignored while typing a note.
+const KEYS = { "1": "correct", "2": "wrong", "3": "not_in_source",
+               "4": "unclear", "5": "missed" };
+document.addEventListener("keydown", function (e) {
+  if ($("#review").classList.contains("hide")) return;
+  if (e.target && (e.target.tagName === "INPUT" || e.target.tagName === "SELECT")) {
+    if (e.key === "Enter" && ITEM) $("#note").blur();
+    return;
+  }
+  if (KEYS[e.key]) { e.preventDefault(); answer(KEYS[e.key]); }
+  else if (e.key === "ArrowLeft" && ITEM && ITEM.index > 1) {
+    e.preventDefault(); stepBack();
+  }
+});
+
+async function stepBack() {
+  const prevKey = ORDER[ITEM.index - 2];   // ORDER is 0-based, index is 1-based
+  if (!prevKey) return;
+  try {
+    ITEM = await call("/review/spotcheck/samples/" + SAMPLE +
+                      "/next?at=" + encodeURIComponent(prevKey));
+  } catch (e) { return; }
+  render();
+}
+
+// ── report ───────────────────────────────────────────────────────────────
+function pct(x) { return x == null ? "—" : (100 * x).toFixed(1) + "%"; }
+
+async function showReport() {
+  let rep;
+  try { rep = await call("/review/spotcheck/samples/" + SAMPLE + "/report"); }
+  catch (e) { alert("Could not load report: " + e.message); return; }
+  $("#review").classList.add("hide");
+  $("#start").classList.add("hide");
+  const o = rep.overall;
+  const rows = Object.keys(rep.by_stratum).map(function (k) {
+    const b = rep.by_stratum[k];
+    return "<tr><td>" + esc(k) + '</td><td class="num">' + b.n +
+      '</td><td class="num">' + (b.enough ? pct(b.precision) : "—") +
+      '</td><td class="num muted">' +
+      (b.enough ? pct(b.ci_low) + " – " + pct(b.ci_high) : "need " + (8 - b.n) + " more") +
+      '</td><td class="num">' + b.wrong + '</td><td class="num">' + b.not_in_source +
+      '</td><td class="num muted">' + b.unclear + "</td></tr>";
+  }).join("");
+
+  $("#report").classList.remove("hide");
+  $("#report").innerHTML =
+    '<div class="card">' +
+      "<h2>Accuracy — " + esc(rep.scope) + "</h2>" +
+      '<div class="row" style="gap:36px;align-items:flex-start;margin-top:6px">' +
+        "<div><div class=\"muted\">Precision</div>" +
+          '<div class="bignum">' + (o.enough ? pct(o.precision) : "not enough data") + "</div>" +
+          '<div class="ci">' + (o.enough
+            ? "95% confidence: " + pct(o.ci_low) + " – " + pct(o.ci_high)
+            : "judge at least 8 items for a rate") + "</div></div>" +
+        '<div><div class="muted">Judged</div><div class="bignum">' + rep.judged +
+          '</div><div class="ci">of ' + rep.size + " drawn · " + rep.pending + " left</div></div>" +
+        '<div><div class="muted">Documents</div><div class="bignum">' +
+          rep.documents_sampled + '</div><div class="ci">seed ' + esc(rep.seed) + "</div></div>" +
+      "</div>" +
+      // The interval, not the point estimate, is the honest reading — and the
+      // blind spot is printed rather than left for the reader to infer.
+      '<div class="note"><b>What this number is.</b> ' + esc(rep.measures) +
+      ", over " + esc(rep.scope) + ". The range matters more than the headline: " +
+      "with this many items the true value is anywhere in it." +
+      "<br><b>What it is not.</b> " + esc(rep.does_not_measure) + "." +
+      (rep.missed_reported ? " Reviewers flagged <b>" + rep.missed_reported +
+        "</b> omission(s) in passing — a hint, not a measurement." : "") +
+      (rep.excluded_stale ? " <b>" + rep.excluded_stale +
+        "</b> document(s) were excluded as stale." : "") +
+      "</div>" +
+    "</div>" +
+    '<div class="card"><h2>By field</h2>' +
+      "<table><tr><th>Field</th><th class=\"num\">n</th><th class=\"num\">precision</th>" +
+      '<th class="num">95% CI</th><th class="num">wrong</th><th class="num">invented</th>' +
+      '<th class="num">unclear</th></tr>' + rows + "</table>" +
+      (o.unclear > 0 ? '<div class="note">' + pct(rep.unclear_rate) +
+        " of judged items were <b>unclear</b> — the source itself was too ambiguous " +
+        "or too badly scanned to grade. That is an ingest problem, not a prompt problem." +
+        "</div>" : "") +
+    "</div>" +
+    '<div class="row" style="margin-top:4px">' +
+      '<button id="btnResume">Back to queue</button>' +
+      '<button id="btnHome" class="primary">New sample</button></div>';
+  $("#btnResume").onclick = function () { open_(SAMPLE); };
+  $("#btnHome").onclick = home;
+}
+
+function home() {
+  $("#review").classList.add("hide");
+  $("#report").classList.add("hide");
+  $("#start").classList.remove("hide");
+  loadSamples();
+}
+
+$("#btnReport").onclick = function () { if (SAMPLE) showReport(); };
+$("#btnNew").onclick = home;
+$("#btnBack").onclick = function () { if (ITEM && ITEM.index > 1) stepBack(); };
+
+loadSamples();
+</script>

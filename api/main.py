@@ -37,6 +37,7 @@ from api.health import router as health_router
 from api.properties import router as properties_router
 from api.review import router as review_router
 from api.review.extraction import router as review_extraction_router
+from api.review.spotcheck import router as review_spotcheck_router
 from api.social import router as social_router
 from api.telemetry import configure_telemetry
 from api.watchlist import router as watchlist_router
@@ -215,6 +216,7 @@ if os.environ.get("AUTH_ENABLED", "true").lower() != "false":
     app.include_router(conversations_router)
     app.include_router(review_router)
     app.include_router(review_extraction_router)
+    app.include_router(review_spotcheck_router)
     app.include_router(social_router)
     # Dossier feature ships dark for the public release — only mount its routes
     # when explicitly enabled (DOSSIERS_ENABLED). The frontend hides its entry
@@ -350,6 +352,15 @@ if WEB_DIR.exists():
         )
         resp.headers["X-Frame-Options"] = "SAMEORIGIN"
         return resp
+
+    # The spot-check audit queue (web/spotcheck.html). Standalone rather than
+    # iframed — an audit is its own session, deliberately separate from the
+    # extraction review surface so the two queues never blur together.
+    @app.get("/spotcheck.html")
+    def spotcheck_page(request: Request) -> Response:
+        return (_canonical_spa_redirect(request)
+                or FileResponse(str(WEB_DIR / "spotcheck.html"),
+                                media_type="text/html"))
 
     # SPA deep-link fallbacks. The client router (web/index.html) pushes
     # `/chat` and `/property/{id}`; on a fresh load or refresh the browser
