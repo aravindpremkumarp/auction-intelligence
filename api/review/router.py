@@ -383,7 +383,8 @@ class BlocksDoc(BaseModel):
     crop_page: int | None = None
     # Multi-region crop list ``[{bbox, page}, ...]``; when saved it takes
     # precedence over crop_bbox at re-ingest (each region OCR'd separately,
-    # results merged).
+    # results merged). List order is reading order; each region also carries
+    # ``order`` (1..N) when the reviewer pinned that order by hand.
     crop_regions: list[dict] | None = None
     # Degrees clockwise the source should be rotated when displayed and
     # before MinerU sees it. One of 0, 90, 180, 270.
@@ -432,6 +433,11 @@ class CropRegion(BaseModel):
     bbox: list[float]
     # 1-indexed page; all regions must share one page (v1 constraint).
     page: int = 1
+    # Explicit 1-based reading position. Omit on every region to keep the
+    # default geometric order (top-to-bottom, left-to-right); send it on any
+    # region to pin the order manually — the server then renumbers the whole
+    # list 1..N and stops re-sorting it by geometry.
+    order: int | None = None
 
 
 class CropRegionsBody(BaseModel):
@@ -1499,6 +1505,12 @@ def review_notice_set_crop_regions(
     blocks are merged back into one document — how a bordered notice whose
     full-page OCR collapses into one giant Table gets decomposed. Pass
     ``regions: null`` (or ``[]``) to clear.
+
+    The stored list order is reading order. Send every region without an
+    ``order`` to keep the default geometric ordering (top-to-bottom,
+    left-to-right, re-sorted on every save); send ``order`` to pin the
+    order by hand — the list is then renumbered 1..N and geometry stops
+    re-sorting it, which is what a two-column notice needs.
     """
     raw = ([r.model_dump() for r in body.regions]
            if body.regions is not None else None)

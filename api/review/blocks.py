@@ -210,14 +210,47 @@ def _clean_crop_bbox(raw: Any) -> list[float] | None:
 MAX_CROP_REGIONS = 12
 
 
+def _clean_region_order(raw: Any) -> int | None:
+    """Validate one region's explicit ``order`` (1-based), or ``None``.
+
+    ``None``/absent means "no manual position for this region" — the list
+    then falls back to geometric order. Anything else must be a whole
+    number ≥ 1; bools are rejected outright (``isinstance(True, int)``).
+    """
+    if raw is None:
+        return None
+    if isinstance(raw, bool):
+        raise ValueError("crop region order must be a whole number ≥ 1")
+    if isinstance(raw, float) and raw.is_integer():
+        raw = int(raw)
+    if isinstance(raw, str) and raw.strip().isdigit():
+        raw = int(raw.strip())
+    if not isinstance(raw, int) or raw < 1:
+        raise ValueError("crop region order must be a whole number ≥ 1")
+    if raw > MAX_CROP_REGIONS:
+        raise ValueError(
+            f"crop region order must be ≤ {MAX_CROP_REGIONS}")
+    return raw
+
+
 def _clean_crop_regions(raw: Any) -> list[dict] | None:
-    """Validate a multi-region crop list: ``[{bbox: [x0,y0,x1,y1], page: int}]``.
+    """Validate a multi-region crop list: ``[{bbox, page, order?}]``.
 
     Returns ``None`` to clear (``None`` or ``[]`` input). Each bbox gets the
     same 2%-per-axis floor as the single crop. v1 constraint: every region
     must sit on the SAME page — re-ingest flattens the source to one page, so
-    cross-page regions would silently lose pages. Regions are returned sorted
-    top-to-bottom then left-to-right, which later defines document order.
+    cross-page regions would silently lose pages.
+
+    Ordering — the returned list order is what later defines document order:
+
+    * No region carries an ``order`` → sorted top-to-bottom then
+      left-to-right, and no ``order`` key is stored. Geometry keeps
+      renumbering the regions as the reviewer drags them, as it always has.
+    * At least one region carries an ``order`` → the list is MANUALLY
+      ordered: sorted by that number (ties and unnumbered regions fall back
+      to geometry, unnumbered last) and every region comes back stamped with
+      a fresh 1..N ``order``. Geometry no longer renumbers anything, so a
+      right-hand column can be read before a left-hand one.
     """
     if raw is None:
         return None
@@ -234,12 +267,23 @@ def _clean_crop_regions(raw: Any) -> list[dict] | None:
         bbox = _clean_crop_bbox(item.get("bbox"))
         if bbox is None:
             raise ValueError("each crop region needs a bbox")
-        out.append({"bbox": bbox, "page": _clean_crop_page(item.get("page"))})
+        out.append({"bbox": bbox,
+                    "page": _clean_crop_page(item.get("page")),
+                    "order": _clean_region_order(item.get("order"))})
     pages = {r["page"] for r in out}
     if len(pages) > 1:
         raise ValueError("all crop regions must be on the same page")
+    manual = any(r["order"] is not None for r in out)
+    if manual:
+        # Unnumbered regions (a box drawn after the order was set) sort after
+        # the numbered ones, in geometric order among themselves.
+        out.sort(key=lambda r: (r["order"] if r["order"] is not None
+                                else MAX_CROP_REGIONS + 1,
+                                r["bbox"][1], r["bbox"][0]))
+        return [{"bbox": r["bbox"], "page": r["page"], "order": i + 1}
+                for i, r in enumerate(out)]
     out.sort(key=lambda r: (r["bbox"][1], r["bbox"][0]))
-    return out
+    return [{"bbox": r["bbox"], "page": r["page"]} for r in out]
 
 
 def _merge_region_blocks(per_region: list[tuple[dict, list[dict]]],
@@ -251,8 +295,9 @@ def _merge_region_blocks(per_region: list[tuple[dict, list[dict]]],
     bboxes normalized WITHIN that region (0..1, as MinerU returned for the
     crop). Region-local bboxes are remapped into full-image coords and
     clamped to their region; ``reading_order`` is region-major
-    (``region_idx * 1000 + position``) so the reviewer's top-to-bottom
-    region order defines document order; every block lands on ``page``.
+    (``region_idx * 1000 + position``) so the reviewer's region order —
+    geometric by default, manual once they renumber a region — defines
+    document order; every block lands on ``page``.
     Pure — no DB access — so the remap math is unit-testable.
     """
     merged: list[dict] = []
@@ -1548,7 +1593,8 @@ def reingest_notice(filename: str, by_email: str,
                 # Same for every multi-crop region: crop + remap happen in
                 # the rotated frame; block bboxes are un-rotated back to
                 # raw coords after the merge. Region ORDER stays as saved
-                # (raw-frame top-to-bottom) so reading order is stable.
+                # (the list order set_crop_regions persisted) so reading
+                # order is stable.
                 if crop_regions:
                     crop_regions = [
                         {**r, "bbox": _rotate_bbox_forward(r["bbox"],
