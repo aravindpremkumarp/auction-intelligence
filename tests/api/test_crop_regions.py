@@ -63,6 +63,72 @@ def test_non_dict_and_missing_bbox_rejected():
         _clean_crop_regions("nope")
 
 
+# ── manual region order ─────────────────────────────────────────────────────
+
+def test_geometric_order_stores_no_order_key():
+    out = _clean_crop_regions([{"bbox": [0.0, 0.0, 1.0, 0.1], "page": 1}])
+    assert out == [{"bbox": [0.0, 0.0, 1.0, 0.1], "page": 1}]
+
+
+def test_explicit_order_beats_geometry():
+    # Right-hand column (drawn second, sits higher) must read AFTER the left
+    # one — exactly what geometry alone gets wrong on a two-column notice.
+    raw = [
+        {"bbox": [0.55, 0.10, 0.95, 0.90], "page": 1, "order": 2},  # right col
+        {"bbox": [0.05, 0.15, 0.50, 0.90], "page": 1, "order": 1},  # left col
+    ]
+    out = _clean_crop_regions(raw)
+    assert [r["bbox"][0] for r in out] == [0.05, 0.55]
+    assert [r["order"] for r in out] == [1, 2]
+
+
+def test_order_is_renumbered_sequentially():
+    raw = [
+        {"bbox": [0.0, 0.5, 1.0, 0.9], "page": 1, "order": 9},
+        {"bbox": [0.0, 0.0, 1.0, 0.1], "page": 1, "order": 4},
+    ]
+    out = _clean_crop_regions(raw)
+    assert [r["order"] for r in out] == [1, 2]
+    assert [r["bbox"][1] for r in out] == [0.0, 0.5]
+
+
+def test_partially_ordered_list_puts_unnumbered_last():
+    # A region drawn after the order was pinned carries no order yet; it reads
+    # last rather than silently jumping ahead on geometry.
+    raw = [
+        {"bbox": [0.0, 0.0, 1.0, 0.1], "page": 1},              # topmost
+        {"bbox": [0.0, 0.5, 1.0, 0.9], "page": 1, "order": 1},
+    ]
+    out = _clean_crop_regions(raw)
+    assert [r["bbox"][1] for r in out] == [0.5, 0.0]
+    assert [r["order"] for r in out] == [1, 2]
+
+
+def test_ties_fall_back_to_geometry():
+    raw = [
+        {"bbox": [0.0, 0.5, 1.0, 0.9], "page": 1, "order": 1},
+        {"bbox": [0.0, 0.0, 1.0, 0.1], "page": 1, "order": 1},
+    ]
+    out = _clean_crop_regions(raw)
+    assert [r["bbox"][1] for r in out] == [0.0, 0.5]
+
+
+@pytest.mark.parametrize("bad", [0, -1, 1.5, True, "two", MAX_CROP_REGIONS + 1])
+def test_bad_order_rejected(bad):
+    with pytest.raises(ValueError):
+        _clean_crop_regions([{"bbox": [0.0, 0.0, 1.0, 0.5], "page": 1,
+                              "order": bad}])
+
+
+def test_numeric_string_and_whole_float_order_accepted():
+    raw = [
+        {"bbox": [0.0, 0.0, 1.0, 0.1], "page": 1, "order": "2"},
+        {"bbox": [0.0, 0.5, 1.0, 0.9], "page": 1, "order": 1.0},
+    ]
+    out = _clean_crop_regions(raw)
+    assert [r["bbox"][1] for r in out] == [0.5, 0.0]
+
+
 # ── _merge_region_blocks ────────────────────────────────────────────────────
 
 def _blk(bbox, label="Text", text="x"):

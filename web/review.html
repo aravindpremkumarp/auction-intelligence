@@ -498,7 +498,16 @@
      so a marquee still starts, matching the old click-through behavior. */
   .ann-region { position: absolute; border: 2px dashed #7c3aed; background: rgba(124,58,237,0.06); pointer-events: auto; cursor: move; z-index: 3; }
   .ann-region.selected { border-style: solid; border-color: #5b21b6; background: rgba(124,58,237,0.14); box-shadow: 0 0 0 1px #5b21b6; }
-  .ann-region-n { position: absolute; top: -1px; left: -1px; background: #7c3aed; color: #fff; font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 600; padding: 0 4px; pointer-events: none; }
+  /* Header strip on each region: the R-number, plus (when selected and the
+     notice has more than one region) the reading-order controls. Flex so the
+     controls sit flush after the number without hand-tuned offsets. */
+  .ann-region-hdr { position: absolute; top: -1px; left: -1px; display: flex; align-items: stretch; gap: 2px; line-height: 14px; }
+  .ann-region-n { background: #7c3aed; color: #fff; font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 600; padding: 0 4px; pointer-events: none; }
+  .ann-region.selected .ann-region-n { pointer-events: auto; cursor: pointer; }
+  .ann-region.selected .ann-region-n:hover { background: #5b21b6; }
+  .ann-region-ord { display: flex; gap: 2px; }
+  .ann-region-ord span { background: #5b21b6; color: #fff; font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 700; min-width: 12px; padding: 0 3px; text-align: center; cursor: pointer; pointer-events: auto; user-select: none; }
+  .ann-region-ord span:hover { background: #7c3aed; }
   .ann-region-del { position: absolute; top: -1px; right: -1px; width: 16px; height: 16px; line-height: 14px; text-align: center; background: #5b21b6; color: #fff; font-family: 'IBM Plex Mono', monospace; font-size: 12px; font-weight: 700; cursor: pointer; display: none; }
   .ann-region.selected .ann-region-del { display: block; }
   .ann-sidebar { border: 2px solid var(--ink); background: #fff; box-shadow: 2px 3px 0 rgba(0,0,0,0.9); padding: 10px; max-height: 85vh; overflow: hidden; display: flex; flex-direction: column; }
@@ -988,7 +997,7 @@
       <button id="ann-undo" class="ghost" title="undo (Ctrl+Z)" disabled>↶ Undo</button>
       <button id="ann-redo" class="ghost" title="redo (Ctrl+Shift+Z)" disabled>↷ Redo</button>
       <button id="ann-crop" class="ghost" title="define the sales-notice region; only the cropped area is sent to OCR on re-ingest">+ Set crop</button>
-      <button id="ann-crop-regions" class="ghost" title="draw several regions (header / table / footer …); each is OCR'd separately on re-ingest and the blocks merged — use when full-page OCR swallows the notice into one giant table. Regions take precedence over a single crop.">+ Add regions</button>
+      <button id="ann-crop-regions" class="ghost" title="draw several regions (header / table / footer …); each is OCR'd separately on re-ingest and the blocks merged — use when full-page OCR swallows the notice into one giant table. Regions take precedence over a single crop. Regions are read in number order (R1, R2, …) — select one and use ▲ ▼ / Alt+↑ / Alt+↓ to change its number.">+ Add regions</button>
       <span class="zoom-group" title="rotate the notice — also applied to the source on re-ingest so OCR runs upright">
         <button id="ann-rotate-left" class="ghost zoom-btn" title="rotate 90° counter-clockwise">↺</button>
         <button id="ann-rotate-right" class="ghost zoom-btn" title="rotate 90° clockwise">↻</button>
@@ -4330,6 +4339,16 @@
 
     // Annotator-screen shortcuts (Delete selection, Undo/Redo)
     if (!$('screen-annotator').classList.contains('hidden') && !typing) {
+      // Alt+↑/↓ renumbers the selected crop region (reading order), leaving
+      // its box where it is. Plain arrows stay free for the browser.
+      if (e.altKey && !e.ctrlKey && !e.metaKey &&
+          (e.key === 'ArrowUp' || e.key === 'ArrowDown') &&
+          ann.selectedRegion != null) {
+        e.preventDefault();
+        setRegionOrder(ann.selectedRegion,
+                       ann.selectedRegion + 1 + (e.key === 'ArrowDown' ? 1 : -1));
+        return;
+      }
       if (e.key === 'Delete' || e.key === 'Backspace') {
         if (ann.selectedIds.size) { e.preventDefault(); deleteSelectedBlocks(); }
         else if (ann.selectedRegion != null) { e.preventDefault(); deleteRegion(ann.selectedRegion); }
@@ -4414,7 +4433,8 @@
     crop_bbox: null,   // [x0,y0,x1,y1] in [0,1] or null; FULL-image coords
     crop_page: null,   // 1-indexed PDF page the crop is drawn on; null if no crop
     crop_regions: [],  // [{bbox:[x0,y0,x1,y1], page}] multi-region crop; wins over crop_bbox at re-ingest
-    selectedRegion: null,  // index into crop_regions of the region being edited (move/resize), or null
+    regionOrderManual: false,  // true once the reviewer pinned the region order by hand (server stamps `order`)
+    selectedRegion: null,  // index into crop_regions of the region being edited (move/resize/reorder), or null
     boxesHidden: false,    // hide block boxes only (regions unaffected)
     regionsHidden: false,  // hide crop regions only — lets blocks under a region be clicked
     // Geometry lock. ON by default: a reviewer reads far more boxes than they
@@ -4530,6 +4550,7 @@
     ann.selectedIds = new Set();
     ann.anchorId = null;
     ann.selectedRegion = null;
+    ann.regionOrderManual = false;
     ann.mode = 'select';
     ann.boxesHidden = false;
     ann.regionsHidden = false;
@@ -4558,9 +4579,7 @@
         ? doc.crop_bbox.slice() : null;
       ann.crop_page = ann.crop_bbox && Number.isFinite(doc.crop_page)
         ? Math.max(1, Number(doc.crop_page)) : null;
-      ann.crop_regions = Array.isArray(doc.crop_regions)
-        ? doc.crop_regions.map(r => ({ bbox: r.bbox.slice(), page: r.page || 1 }))
-        : [];
+      adoptCropRegions(doc);
       ann.rotation = normalizeRotation(doc.rotation);
       ann.rev = doc.blocks_revision || 0;
       $('ann-rev').textContent = 'rev ' + ann.rev;
@@ -4644,9 +4663,22 @@
         ? ' (regions take precedence over the single crop)' : ''}.
       <button id="ann-reingest-regions" style="margin-left:8px">Re-ingest with ${n} region${n === 1 ? '' : 's'}</button>
       <button id="ann-clear-regions" class="ghost" style="margin-left:4px">✕ clear regions</button>
+      ${n > 1 ? `<div style="margin-top:4px; font-size:12px;">
+        reading order: <strong>R1 → R${n}</strong> —
+        ${ann.regionOrderManual
+          ? 'numbered by hand'
+          : 'by position on the page (top-to-bottom, left-to-right)'}.
+        Select a region, then use ▲ ▼, Alt+↑ / Alt+↓, or click its R-number to
+        type a position.
+        ${ann.regionOrderManual
+          ? '<button id="ann-renumber-regions" class="ghost" style="margin-left:4px">renumber by position</button>'
+          : ''}
+      </div>` : ''}
     `;
     wrap.appendChild(div);
     $('ann-reingest-regions').addEventListener('click', (e) => annReingest(e.currentTarget));
+    const renumberBtn = $('ann-renumber-regions');
+    if (renumberBtn) renumberBtn.addEventListener('click', clearManualRegionOrder);
     $('ann-clear-regions').addEventListener('click', async () => {
       await saveCropRegionsOnServer(null);
       paintAnnOverlay();
@@ -5128,7 +5160,8 @@
 
   // Render one saved crop region. When it is the selected region we hang the
   // same 8 resize handles blocks use, plus a delete ×, off it so the reviewer
-  // can fine-tune the box after drawing it.
+  // can fine-tune the box after drawing it — and the reading-order controls,
+  // which change the region's NUMBER without touching its geometry.
   function renderRegionDiv(r, i) {
     const [x0, y0, x1, y1] = r.bbox;
     const div = document.createElement('div');
@@ -5138,7 +5171,18 @@
     div.style.top    = (y0 * 100) + '%';
     div.style.width  = ((x1 - x0) * 100) + '%';
     div.style.height = ((y1 - y0) * 100) + '%';
-    div.innerHTML = `<span class="ann-region-n">R${i + 1}</span>`;
+    const n = ann.crop_regions.length;
+    const canOrder = ann.selectedRegion === i && n > 1;
+    div.innerHTML = `
+      <div class="ann-region-hdr">
+        <span class="ann-region-n"${canOrder
+          ? ' data-ord="set" title="reading order R' + (i + 1) + ' of ' + n +
+            ' — click to type a position"' : ''}>R${i + 1}</span>
+        ${canOrder ? `<span class="ann-region-ord">
+          <span data-ord="up" title="read this region earlier (Alt+↑)">▲</span>
+          <span data-ord="down" title="read this region later (Alt+↓)">▼</span>
+        </span>` : ''}
+      </div>`;
     if (ann.selectedRegion === i) {
       for (const pos of ['tl','tr','bl','br','t','b','l','r']) {
         const h = document.createElement('div');
@@ -5860,6 +5904,16 @@
         ev.preventDefault();
         return deleteRegion(ri);
       }
+      // Reading-order controls (▲ ▼ and the R-number itself). Checked off
+      // ev.target, since `target` already resolved up to the region div — and
+      // ahead of the lock check, because renumbering isn't a geometry edit.
+      const ordBtn = ev.target.closest('[data-ord]');
+      if (ordBtn) {
+        ev.preventDefault();
+        const act = ordBtn.dataset.ord;
+        if (act === 'set') return promptRegionOrder(ri);
+        return setRegionOrder(ri, ri + 1 + (act === 'down' ? 1 : -1));
+      }
       selectRegion(ri);
       if (ann.locked) {
         ev.preventDefault();
@@ -6004,6 +6058,89 @@
     window.addEventListener('pointerup', onUp);
   }
 
+  // ── Region reading order ─────────────────────────────────────────────────
+  // The saved LIST order is document order: _merge_region_blocks stamps
+  // reading_order region-major, so R1's blocks all precede R2's. By default
+  // the server sorts regions top-to-bottom, which is wrong for a two-column
+  // notice where the right-hand column must be read after the left one.
+  // Sending an explicit `order` on every region pins the list: the server
+  // then keeps the reviewer's numbering and geometry stops renumbering
+  // anything. A manually ordered list is the one the server returns with
+  // `order` stamped on every region — that is what `regionOrderManual`
+  // tracks, so a notice that was never reordered keeps its old behaviour.
+  function adoptCropRegions(doc) {
+    const list = Array.isArray(doc && doc.crop_regions) ? doc.crop_regions : [];
+    ann.crop_regions = list.map(r => ({ bbox: r.bbox.slice(), page: r.page || 1 }));
+    ann.regionOrderManual = list.some(r => Number.isFinite(r.order));
+  }
+
+  // Request body for /crop-regions. `order` rides along only in manual mode,
+  // so a plain move on a never-reordered notice behaves exactly as before.
+  function regionsPayload(list) {
+    return list.map((r, i) => (ann.regionOrderManual
+      ? { bbox: r.bbox, page: r.page, order: i + 1 }
+      : { bbox: r.bbox, page: r.page }));
+  }
+
+  // Move the region at index `i` to 1-based position `pos`, pinning the whole
+  // list to manual order. Optimistic: the local list is reordered and painted
+  // straight away, and rolled back if the save fails.
+  async function setRegionOrder(i, pos) {
+    const n = ann.crop_regions.length;
+    if (!ann.crop_regions[i] || n < 2) return;
+    const to = Math.min(Math.max(Math.round(pos), 1), n) - 1;
+    if (to === i) return;
+    const prevList = ann.crop_regions.map(r => ({ bbox: r.bbox.slice(), page: r.page }));
+    const prevManual = ann.regionOrderManual;
+    const next = ann.crop_regions.slice();
+    next.splice(to, 0, next.splice(i, 1)[0]);
+    ann.crop_regions = next;
+    ann.regionOrderManual = true;
+    ann.selectedRegion = to;
+    paintAnnOverlay();
+    const ok = await saveCropRegionsOnServer(regionsPayload(next));
+    if (!ok) {
+      ann.crop_regions = prevList;
+      ann.regionOrderManual = prevManual;
+      ann.selectedRegion = i;
+    } else {
+      ann.selectedRegion = to;
+      annToast(`region is now R${to + 1} — re-ingest to apply the new order`);
+    }
+    paintAnnOverlay();
+  }
+
+  function promptRegionOrder(i) {
+    const n = ann.crop_regions.length;
+    if (!ann.crop_regions[i] || n < 2) return;
+    const raw = window.prompt(
+      `read R${i + 1} at which position? (1–${n})`, String(i + 1));
+    if (raw == null) return;
+    const pos = parseInt(String(raw).trim(), 10);
+    if (!Number.isFinite(pos) || pos < 1 || pos > n) {
+      annToast(`position must be a whole number between 1 and ${n}`, 'err');
+      return;
+    }
+    setRegionOrder(i, pos);
+  }
+
+  // Drop the manual order and hand numbering back to geometry (top-to-bottom,
+  // left-to-right) — the way out of a numbering the reviewer no longer wants.
+  async function clearManualRegionOrder() {
+    if (!ann.regionOrderManual || !ann.crop_regions.length) return;
+    const prevList = ann.crop_regions.map(r => ({ bbox: r.bbox.slice(), page: r.page }));
+    ann.regionOrderManual = false;
+    ann.selectedRegion = null;
+    const ok = await saveCropRegionsOnServer(regionsPayload(prevList));
+    if (!ok) {
+      ann.crop_regions = prevList;
+      ann.regionOrderManual = true;
+    } else {
+      annToast('regions renumbered top-to-bottom by position');
+    }
+    paintAnnOverlay();
+  }
+
   // ── Region move / resize (mirrors the block versions above) ──────────────
   // Regions are a Document-level list (no per-region id), so on pointer-up we
   // persist the whole list via saveCropRegionsOnServer and roll back the moved
@@ -6068,13 +6205,13 @@
       paintAnnOverlay();  // click without a drag — nothing to save
       return;
     }
-    const ok = await saveCropRegionsOnServer(
-      ann.crop_regions.map(x => ({ bbox: x.bbox, page: x.page })));
+    const ok = await saveCropRegionsOnServer(regionsPayload(ann.crop_regions));
     if (!ok) {
       if (beforeBbox && ann.crop_regions[i]) ann.crop_regions[i].bbox = beforeBbox.slice();
     } else {
-      // The server re-sorts regions top-to-bottom, so this region's index may
-      // have shifted. Re-find it by bbox so the same one stays selected.
+      // On a geometrically ordered list the server re-sorts top-to-bottom, so
+      // this region's index may have shifted (in manual order it can't).
+      // Re-find it by bbox either way so the same one stays selected.
       const j = ann.crop_regions.findIndex(r =>
         r.bbox.every((v, k) => Math.abs(v - finalBox[k]) < 1e-4));
       ann.selectedRegion = j >= 0 ? j : null;
@@ -6091,7 +6228,7 @@
     ann.crop_regions = next;
     ann.selectedRegion = null;
     const ok = await saveCropRegionsOnServer(
-      next.length ? next.map(x => ({ bbox: x.bbox, page: x.page })) : null);
+      next.length ? regionsPayload(next) : null);
     if (!ok) {
       ann.crop_regions = prev;
     } else if (next.length) {
@@ -6155,7 +6292,9 @@
         const prev = ann.crop_regions;
         ann.crop_regions = next;              // optimistic; server reconciles
         ann.selectedRegion = null;
-        if (!(await saveCropRegionsOnServer(next.map(r => ({ bbox: r.bbox, page: r.page }))))) {
+        // Appended last, so in manual order the new region reads last until
+        // the reviewer renumbers it; geometry still places it in geometric mode.
+        if (!(await saveCropRegionsOnServer(regionsPayload(next)))) {
           ann.crop_regions = prev;
         }
         refreshRegionsButton();
@@ -6391,9 +6530,7 @@
         return false;
       }
       const doc = await r.json();
-      ann.crop_regions = Array.isArray(doc.crop_regions)
-        ? doc.crop_regions.map(x => ({ bbox: x.bbox.slice(), page: x.page || 1 }))
-        : [];
+      adoptCropRegions(doc);
       refreshRegionsButton();
       renderAnnBanners();
       if (!regions) annToast('crop regions cleared');
