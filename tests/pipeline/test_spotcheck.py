@@ -11,11 +11,13 @@ from pipeline.spotcheck import (
     MIN_N,
     MISSED,
     NOT_IN_SOURCE,
+    PRIORITY_FIELDS,
     UNCLEAR,
     WRONG,
     build_report,
     describe_scope,
     draw_sample,
+    filter_claims,
     iter_claims,
     wilson_interval,
 )
@@ -67,6 +69,83 @@ def test_entity_without_text_yields_no_span_claim():
         {"id": "0", "cls": "extent", "text": "   ", "attrs": {"total_area": "600"}},
     ])
     assert [c.attr for c in claims] == ["total_area"]
+
+
+# ── field focus ──────────────────────────────────────────────────────────────
+def _mixed_claims():
+    return iter_claims("a.pdf", [
+        {"id": "0", "cls": "location", "text": "X Village", "start": 0, "end": 9,
+         "attrs": {"village": "X", "taluk": "T", "district": "D"}},
+        {"id": "1", "cls": "borrower", "text": "Komala", "start": 20, "end": 26,
+         "attrs": {}},
+        {"id": "2", "cls": "extent", "text": "600 sq ft", "start": 30, "end": 39,
+         "attrs": {"extent": "600", "undivided_share": "120"}},
+        {"id": "3", "cls": "identifier", "text": "S.No 12", "start": 50, "end": 57,
+         "attrs": {"kind": "survey_old"}},
+    ])
+
+
+def test_a_bare_name_matches_both_the_class_and_the_attribute_sense():
+    # A reviewer asking for "extent" means the concept, not a stratum key.
+    kept = filter_claims(_mixed_claims(), ["extent"])
+    assert {c.stratum for c in kept} == {"cls:extent", "attr:extent"}
+
+
+def test_an_explicit_prefix_narrows_to_one_sense():
+    kept = filter_claims(_mixed_claims(), ["attr:extent"])
+    assert {c.stratum for c in kept} == {"attr:extent"}
+
+
+def test_filter_keeps_only_the_requested_fields():
+    kept = filter_claims(_mixed_claims(), ["village", "borrower"])
+    assert {c.stratum for c in kept} == {"attr:village", "cls:borrower"}
+    # taluk/district/identifier are siblings in the same entity and must go.
+    assert not any(c.attr in ("taluk", "district") for c in kept)
+
+
+def test_empty_or_none_field_list_keeps_everything():
+    all_claims = _mixed_claims()
+    assert len(filter_claims(all_claims, [])) == len(all_claims)
+    assert len(filter_claims(all_claims, None)) == len(all_claims)
+
+
+def test_blank_and_padded_names_are_tolerated():
+    kept = filter_claims(_mixed_claims(), ["  village ", "", "   "])
+    assert {c.stratum for c in kept} == {"attr:village"}
+
+
+def test_an_unknown_field_name_matches_nothing_rather_than_everything():
+    # A typo must not silently widen the sample back to the whole corpus.
+    assert filter_claims(_mixed_claims(), ["vilage"]) == []
+
+
+def test_priority_fields_covers_the_lot_deciding_set_plus_village():
+    assert "village" in PRIORITY_FIELDS
+    for f in ("full_description", "property_type", "possession_type", "extent",
+              "undivided_share", "borrower", "reserve_price_num"):
+        assert f in PRIORITY_FIELDS
+
+
+def test_focusing_lifts_per_field_depth_above_the_reporting_floor():
+    """The whole point: the same budget, spent on fewer fields."""
+    ents = []
+    for i in range(40):
+        ents.append({"id": str(i), "cls": "location", "text": f"V{i}",
+                     "start": i, "end": i + 2,
+                     "attrs": {"village": f"v{i}", "taluk": f"t{i}",
+                               "district": f"d{i}", "street": f"s{i}",
+                               "state": "TN", "latitude": "12.9"}})
+    claims = iter_claims("a.pdf", ents)
+
+    wide = draw_sample(claims, size=16, seed=5)
+    narrow = draw_sample(filter_claims(claims, ["village"]), size=16, seed=5)
+
+    from collections import Counter
+    wide_village = Counter(c.stratum for c in wide)["attr:village"]
+    narrow_village = Counter(c.stratum for c in narrow)["attr:village"]
+    assert narrow_village == 16            # every claim is the field asked about
+    assert wide_village < MIN_N            # spread thin across the sibling fields
+    assert narrow_village > wide_village
 
 
 # ── sampling ─────────────────────────────────────────────────────────────────
@@ -264,3 +343,12 @@ def test_weakest_strata_rank_worst_first_and_ignore_thin_buckets():
 def test_describe_scope_is_explicit_about_the_whole_corpus():
     assert describe_scope({}) == "all extracted documents"
     assert "notice_type=multi" in describe_scope({"notice_type": "multi"})
+
+
+def test_scope_names_the_fields_a_focused_sample_covered():
+    # Without this the report's headline reads as a claim about the whole
+    # extraction, when it only ever measured two fields.
+    s = describe_scope({"fields": ["village", "borrower"]})
+    assert "village" in s and "borrower" in s
+    # and an empty list must not fabricate a focus that wasn't applied
+    assert describe_scope({"fields": []}) == "all extracted documents"

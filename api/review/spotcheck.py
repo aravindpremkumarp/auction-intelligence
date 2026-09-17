@@ -54,6 +54,7 @@ from pipeline.spotcheck import (
     build_report,
     describe_scope,
     draw_sample,
+    filter_claims,
     iter_claims,
 )
 
@@ -87,6 +88,14 @@ class SpotCheckScope(BaseModel):
     score_min: float | None = Field(default=None, ge=0.0, le=100.0)
     score_max: float | None = Field(default=None, ge=0.0, le=100.0)
     batch: int | None = None
+    # Restrict the draw to these fields. Part of the SCOPE, not a draw option,
+    # because a focused sample says nothing about the fields it left out — the
+    # list has to travel with the report or "92% accurate" reads as a claim
+    # about the whole extraction. Empty/omitted audits every field.
+    #
+    # A bare name matches both senses ("extent" -> cls:extent and attr:extent);
+    # an explicit "attr:village" / "cls:borrower" narrows to one.
+    fields: list[str] = Field(default_factory=list, max_length=60)
 
 
 class SpotCheckCreateBody(SpotCheckScope):
@@ -259,6 +268,12 @@ def create_sample(body: SpotCheckCreateBody, by_email: str) -> dict:
         if isinstance(ents, list):
             claims.extend(iter_claims(r["filename"], ents))
 
+    # Narrow BEFORE the draw, so the stratified spread runs over the requested
+    # fields alone. Filtering afterwards would spend the sample on all ~60 field
+    # types and then throw most of it away, leaving n=1 on what was asked for —
+    # exactly the problem focusing is meant to solve.
+    claims = filter_claims(claims, body.fields)
+
     picked = draw_sample(claims, size=body.size, seed=seed,
                          max_per_document=body.max_per_document)
     items = [{
@@ -361,7 +376,9 @@ def spotcheck_create(
     if out["size"] == 0:
         raise HTTPException(
             status_code=400,
-            detail="no claims available in that scope (all stale, or no extractions)")
+            detail=("no claims available in that scope — check the field names "
+                    "(a typo matches nothing), or the scope is all stale / has "
+                    "no extractions"))
     return SpotCheckCreateOut(**out)
 
 
