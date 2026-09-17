@@ -137,12 +137,25 @@ OPENROUTER_MODEL_EXTRACT_MULTI = os.getenv(
 # with max_tokens=10 and it spends all ten reasoning and returns nothing
 # (finish_reason=length); at 100 it reasons for 48 and answers.
 #
-# The fix was then measured on the hardest evidence available — the 19 pages
-# that had just failed WITH reasoning. All 19 came back, none empty, scoring
-# 91 (single) and 78 (multi) against the same run's 93 and 82. So the feared
-# quality cost is not visible even on the documents the model found hardest,
-# while the failure rate went to zero and the bill drops, reasoning tokens
-# being billed as output.
+# WHAT THIS DOES AND DOES NOT BUY, measured on the 589-page run that followed
+# (batch B58), against the 453-page run before it (B56, reasoning on):
+#
+#   failures   2.7% here vs 3.5% there — NOT the fix it first looked like. The
+#              19 pages that failed with reasoning all came back when re-run
+#              without it, but re-running is itself most of that: the empty
+#              response moved rather than stopped, from "no message content"
+#              to a parsed result with no entities at all (7 of the 12 here;
+#              the other 5 were network drops). Both are caught and left
+#              pending, so neither loses a page.
+#   speed      real: 6/min at the start of B58 against 2.5/min in B56,
+#              settling near 3/min on the multi-lot tail.
+#   score      single 91 vs 93, multi 73 vs 82 — but B58 is the past-auction
+#              tail, older and dirtier scans, so how much of that gap is the
+#              setting and how much is the corpus is NOT established. The
+#              clean test is the same pages both ways; it has not been run.
+#
+# So: keep it for speed and cost, not for reliability, and do not let the
+# score gap above be quoted as settled either way.
 #
 # Comma-separated slug substrings; empty re-enables reasoning everywhere.
 LANGEXTRACT_REASONING_OFF_MODELS = os.getenv(
