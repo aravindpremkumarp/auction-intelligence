@@ -1,0 +1,35 @@
+{
+  "run_id": "20260917-183700",
+  "total_docs": 3162,
+  "batch_size": 30,
+  "mean_score": 81.5,
+  "issue_frequency": {
+    "full_description_incomplete": 1173,
+    "ungrounded": 1042,
+    "lot_under_recall": 947,
+    "lot_missing_borrower": 234,
+    "missing_extent": 130,
+    "missing_uds": 88,
+    "uds_parent_as_own_area": 81,
+    "missing_full_description": 79,
+    "extras_excess": 53,
+    "emd_ratio_off": 45,
+    "kind_invalid": 38,
+    "lot_missing_reserve": 37,
+    "missing_location": 25,
+    "null_value": 18,
+    "missing_reserve_price": 9,
+    "missing_borrower": 9,
+    "legal_basis_bad": 6,
+    "possession_type_invalid": 3,
+    "missing_property_type": 3,
+    "missing_secured_creditor": 1
+  },
+  "usage": {
+    "llm_calls": 0,
+    "input_tokens": 0,
+    "cached_tokens": 0,
+    "output_tokens": 0,
+    "est_cost_usd": 0.0
+  }
+}
