@@ -81,3 +81,42 @@ services:
         value: "30"
       - key: RAZORPAY_WEBHOOK_TTL_DAYS
         value: "90"
+
+  # The extraction backlog, run somewhere that stays awake.
+  #
+  # pipeline/load_extractions is resumable by construction: it selects
+  # Documents with no extraction_json, writes each page as it finishes, and a
+  # page a model answers with nothing stays pending rather than being recorded
+  # empty. So a schedule that simply runs it again is a complete strategy —
+  # each firing takes whatever is left, and once the backlog is gone the same
+  # job keeps up with newly scraped notices.
+  #
+  # --max-seconds is set below the 6-hour gap between firings so a long run
+  # ends on its own terms — in-flight pages finish, un-started ones stay
+  # pending — instead of two runs overlapping on the same queue.
+  #
+  # Worker count is a provider-concurrency choice, not a CPU one: each worker
+  # waits on one model call. 24 measured ~2 pages/minute end to end.
+  - type: cron
+    name: auction-extract
+    runtime: python
+    plan: starter
+    region: singapore
+    schedule: "0 */6 * * *"
+    buildCommand: pip install -r requirements.lock
+    startCommand: python -m pipeline.load_extractions --workers 24 --max-seconds 19800
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: LANGEXTRACT_PROVIDER
+        value: openrouter
+      - key: NEO4J_URI
+        sync: false
+      - key: NEO4J_USERNAME
+        sync: false
+      - key: NEO4J_PASSWORD
+        sync: false
+      - key: NEO4J_DATABASE
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false

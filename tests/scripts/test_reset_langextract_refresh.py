@@ -145,9 +145,9 @@ def _write_cypher(monkeypatch, entities=None) -> str:
     cap = _Capture(rows=[{"d.filename": "x.jpg"}])
     monkeypatch.setattr(R, "run_query", cap)
     monkeypatch.setattr(R, "_entities",
-                        lambda res: [{"id": "e1"}] if entities is None
-                        else entities)
-    monkeypatch.setattr(R, "validate", lambda *a, **k: {"score": 80})
+                        lambda res, source="": [{"id": "e1"}]
+                        if entities is None else entities)
+    monkeypatch.setattr(R, "validate_stored", lambda *a, **k: {"score": 80})
 
     class _Res:
         extractions = []

@@ -136,9 +136,15 @@ def test_fetch_reads_the_stitched_text_and_skips_followers(monkeypatch):
             "AS expected_lot_count") in cap.cypher
 
 
+def _donor_length_known(monkeypatch, *lengths):
+    """Let the lookup past its length prefilter, so the equality query runs."""
+    monkeypatch.setattr(M, "_DONOR_LENGTHS", set(lengths))
+
+
 def test_find_donor_never_copies_a_stale_followers_extraction(monkeypatch):
     cap = _Capture()
     monkeypatch.setattr(M, "run_read_query", cap)
+    _donor_length_known(monkeypatch, 3)
     M._find_donor("abc")
     assert "d.stitched_into IS NULL" in cap.cypher
 
@@ -149,8 +155,156 @@ def test_find_donor_matches_on_the_stitched_text(monkeypatch):
     to a plain page-1 twin whose offsets it does not fit."""
     cap = _Capture()
     monkeypatch.setattr(M, "run_read_query", cap)
+    _donor_length_known(monkeypatch, 3)
     M._find_donor("abc")
     assert "size(coalesce(d.stitched_markdown, d.markdown)) = $len" in cap.cypher
     assert "coalesce(d.stitched_markdown, d.markdown) = $md" in cap.cypher
     assert "d.markdown = $md" not in cap.cypher
     assert "size(d.markdown)" not in cap.cypher
+
+
+# ── the donor lookup never scans for a length nothing has ───────────────────
+
+class _Reads:
+    """Records every read the donor lookup sends."""
+
+    def __init__(self, lengths, donor=None):
+        self.lengths, self.donor = lengths, donor
+        self.calls = []
+
+    def __call__(self, cypher, params=None, **kw):
+        self.calls.append((cypher, params))
+        if cypher == M.DONOR_LENGTHS_CYPHER:
+            return [{"len": n} for n in self.lengths]
+        return [self.donor] if self.donor else []
+
+
+def _reads(monkeypatch, lengths, donor=None):
+    r = _Reads(lengths, donor)
+    monkeypatch.setattr(M, "run_read_query", r)
+    monkeypatch.setattr(M, "_DONOR_LENGTHS", None)
+    return r
+
+
+def test_a_length_no_extraction_has_costs_no_query(monkeypatch):
+    """The scan this skips is the one that cost 40 minutes on a full run."""
+    r = _reads(monkeypatch, lengths=[10, 999])
+    assert M._find_donor("x" * 50) is None
+    assert [c[0] for c in r.calls] == [M.DONOR_LENGTHS_CYPHER]
+
+
+def test_the_lengths_are_read_once_for_the_whole_run(monkeypatch):
+    r = _reads(monkeypatch, lengths=[10])
+    for _ in range(5):
+        M._find_donor("x" * 50)
+    assert sum(c[0] == M.DONOR_LENGTHS_CYPHER for c in r.calls) == 1
+
+
+def test_a_matching_length_still_compares_the_whole_text(monkeypatch):
+    donor = {"filename": "twin.jpg", "j": "[]", "score": 90, "model": "m"}
+    r = _reads(monkeypatch, lengths=[len(MD)], donor=donor)
+    assert M._find_donor(MD) == donor
+    equality = [c for c in r.calls if c[0] != M.DONOR_LENGTHS_CYPHER]
+    assert len(equality) == 1
+    assert equality[0][1] == {"md": MD, "len": len(MD)}
+    assert "coalesce(d.stitched_markdown, d.markdown) = $md" in equality[0][0]
+
+
+def test_the_length_query_carries_no_markdown(monkeypatch):
+    assert "markdown AS" not in M.DONOR_LENGTHS_CYPHER
+    assert "DISTINCT size(" in M.DONOR_LENGTHS_CYPHER
+
+
+# ── an empty result is a failure, not a done document ───────────────────────
+
+class _Res:
+    def __init__(self, extractions): self.extractions = extractions
+
+
+def _extract_returning(monkeypatch, extractions, writes):
+    class _LX:
+        @staticmethod
+        def extract(md, **kw): return _Res(extractions)
+    monkeypatch.setattr(M, "run_query", lambda *a, **k: writes.append(a) or [])
+    monkeypatch.setattr(M, "validate_stored", lambda *a, **k: {"score": 0})
+    monkeypatch.setattr(M, "_entities",
+                        lambda res, source="": list(res.extractions))
+    return _LX
+
+
+def test_a_model_that_returns_nothing_leaves_the_page_untouched(monkeypatch):
+    """The page must stay pending: skipping is keyed on extraction_json, so a
+    stored empty result is a page nothing ever looks at again."""
+    writes = []
+    LX = _extract_returning(monkeypatch, [], writes)
+    ok, _model, line = M._extract_one({"filename": "a.jpg", "md": "TEXT"},
+                                      batch=1, route=False, LX=LX)
+    assert ok is False
+    assert writes == []
+    assert "no entities" in line and line.startswith("[fail]")
+
+
+def test_a_page_with_entities_is_still_written(monkeypatch):
+    writes = []
+    LX = _extract_returning(monkeypatch, ["one"], writes)
+    ok, _model, line = M._extract_one({"filename": "a.jpg", "md": "TEXT"},
+                                      batch=1, route=False, LX=LX)
+    assert ok is True and len(writes) == 1
+    assert "1 fields" in line
+
+
+# ── the routed pass count reaches the model call ────────────────────────────
+
+def test_a_single_lot_page_is_read_once_and_a_multi_lot_page_twice(monkeypatch):
+    seen = {}
+
+    class _Ent:
+        extraction_class = "bank_name"
+        extraction_text = "Indian Bank"
+        attributes: dict = {}
+        char_interval = None
+
+    class _Res:
+        extractions = [_Ent()]
+
+    class _LX:
+        @staticmethod
+        def extract(md, **kw):
+            # keyed on the text, not the model: both notice types route to the
+            # same model today, so a model-keyed dict would collide
+            seen[md] = kw.get("passes")
+            return _Res()
+
+    monkeypatch.setattr(M, "run_query", lambda *a, **k: [])
+    monkeypatch.setattr(M, "validate_stored", lambda *a, **k: {"score": 90})
+    for ntype in ("single", "multi"):
+        ok, _model, _line = M._extract_one({"filename": f"{ntype}.jpg",
+                                            "md": f"TEXT {ntype}",
+                                            "notice_type": ntype},
+                                           batch=1, route=True, LX=_LX)
+        assert ok
+    assert seen["TEXT single"] == 1
+    assert seen["TEXT multi"] == 2
+
+
+def test_an_unrouted_call_leaves_the_pass_count_to_the_env(monkeypatch):
+    """The gemini-direct path does not route, so it must not be handed a count
+    routing chose — LX.extract falls back to LANGEXTRACT_PASSES there."""
+    seen = {}
+
+    class _Res:
+        extractions = ["one"]
+
+    class _LX:
+        @staticmethod
+        def extract(md, **kw):
+            seen["passes"] = kw.get("passes")
+            return _Res()
+
+    monkeypatch.setattr(M, "run_query", lambda *a, **k: [])
+    monkeypatch.setattr(M, "validate_stored", lambda *a, **k: {"score": 90})
+    monkeypatch.setattr(M, "_entities",
+                        lambda res, source="": list(res.extractions))
+    M._extract_one({"filename": "a.jpg", "md": "T", "notice_type": "multi"},
+                   batch=1, route=False, LX=_LX)
+    assert seen["passes"] is None

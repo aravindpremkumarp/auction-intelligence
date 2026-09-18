@@ -33,6 +33,12 @@ wall time.
 
 Run:  NEO4J_HTTP_API=1 LANGEXTRACT_PROVIDER=openrouter \
         python -m pipeline.load_extractions --limit 50 --workers 24
+
+Scheduled: render.yaml's `auction-extract` cron runs this every 6 hours with
+``--max-seconds`` set below that gap, so each firing takes whatever is still
+pending and ends before the next one starts. Nothing else is needed to drain a
+backlog — a page is selected while it has no extraction_json, and a page the
+model answers with nothing is left pending rather than recorded empty.
 """
 from __future__ import annotations
 
@@ -40,13 +46,16 @@ import argparse
 import json
 import os
 import threading
+import time
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from api.neo4j_client import run_query, run_read_query
-from pipeline.extract_routing import select_extract_model
+from api.review.grounding import ground_missing
+from pipeline.extract_routing import passes_for, select_extract_model
 from pipeline.notice_twins import group_twins, merge_rosters, text_key
-from pipeline.validators import SCORE_VERSION, normalize_identifier_kind, validate
+from pipeline.validators import (SCORE_VERSION, normalize_identifier_kind,
+                                 validate_stored)
 
 # Documents run concurrently (see run()). Sized for a provider rate limit, not
 # CPU — each worker spends its time waiting on one model call.
@@ -88,7 +97,8 @@ ROSTER_CYPHER = (
 )
 
 
-def _fetch(limit: int | None, force: bool, filename: str | None) -> list[dict]:
+def _fetch(limit: int | None, force: bool, filename: str | None,
+           since: str | None = None) -> list[dict]:
     # A follower (page 2 of a stitched notice, pipeline/notice_pages) is never
     # extracted on its own: its text rides in the leader's stitched_markdown.
     where = ("d.markdown IS NOT NULL AND d.markdown <> '' "
@@ -97,6 +107,18 @@ def _fetch(limit: int | None, force: bool, filename: str | None) -> list[dict]:
         where += " AND d.extraction_json IS NULL"
     if filename:
         where += " AND d.filename = $fn"
+    if since:
+        # Notices for auctions that have not happened yet, first. A past
+        # auction's notice is still worth extracting — re-auction chains and
+        # history read it — but it is not what the site is asked for today, so
+        # when the budget or the window is finite this is the half that pays.
+        where += (" AND EXISTS { MATCH (a:AuctionProperty)-[:HAS_DOCUMENT]->(d) "
+                  "WHERE a.auction_start_dt >= datetime($since) }")
+    params: dict = {}
+    if filename:
+        params["fn"] = filename
+    if since:
+        params["since"] = f"{since}T00:00:00Z" if len(since) == 10 else since
     return run_read_query(
         f"MATCH (d:Document) WHERE {where} "
         + ROSTER_CYPHER +
@@ -108,7 +130,7 @@ def _fetch(limit: int | None, force: bool, filename: str | None) -> list[dict]:
         "       roster AS roster "
         "ORDER BY d.filename"
         + (f" LIMIT {int(limit)}" if limit else ""),
-        {"fn": filename} if filename else None,
+        params or None,
         max_rows=20_000, timeout=120.0)
 
 
@@ -129,21 +151,58 @@ _CLASS_ALIASES = {
     "borower": "borrower",
 }
 
+#: Every length an extracted page currently has, read once per run. A group
+#: whose markdown is not one of these lengths cannot have a donor, so it never
+#: reaches the database at all — see _find_donor.
+_DONOR_LENGTHS: set[int] | None = None
+_DONOR_LENGTHS_LOCK = threading.Lock()
+
+DONOR_LENGTHS_CYPHER = (
+    "MATCH (d:Document) "
+    "WHERE d.extraction_json IS NOT NULL AND d.stitched_into IS NULL "
+    "RETURN DISTINCT size(coalesce(d.stitched_markdown, d.markdown)) AS len"
+)
+
+
+def _donor_lengths(refresh: bool = False) -> set[int]:
+    """The set of markdown lengths that already hold an extraction.
+
+    One cheap query (lengths only, no markdown) standing in for one query per
+    group. It is read before any extraction runs and the groups it filters hold
+    distinct texts, so a donor written during the same planning pass can never
+    be one another group is looking for.
+    """
+    global _DONOR_LENGTHS
+    with _DONOR_LENGTHS_LOCK:
+        if _DONOR_LENGTHS is None or refresh:
+            rows = run_read_query(DONOR_LENGTHS_CYPHER, None,
+                                  max_rows=100_000, timeout=120.0)
+            _DONOR_LENGTHS = {int(r["len"]) for r in rows if r["len"] is not None}
+        return _DONOR_LENGTHS
+
+
 def _find_donor(md: str) -> dict | None:
     """A Document already holding an extraction of exactly this markdown.
 
     Equality on the whole string, not a hash: the offsets in the extraction we
-    would copy are positions in it, so "close enough" has no meaning here. The
-    scan is over a corpus of a few thousand notices and buys a multi-minute
-    model call, so it pays for itself many times over.
+    would copy are positions in it, so "close enough" has no meaning here. A
+    donor buys a multi-minute model call, so the lookup pays for itself many
+    times over.
 
     Ordered by filename so repeated runs settle on the same donor.
 
-    The length test in front of the equality is what keeps this cheap: it throws
-    out all but the handful of notices that could possibly match before any
-    string is compared, so the scan costs milliseconds per group rather than a
-    full-corpus comparison.
+    Two length tests keep it cheap, and the first one is what makes a
+    full-corpus run bearable. Asking the database per group cost ~1.5s of
+    scanning EACH, so a 1,490-group run spent ~40 minutes before its first
+    model call. Almost every one of those scans could only ever return nothing:
+    the group's text is a length no extracted page has. `_donor_lengths` reads
+    those lengths once, and a group that misses the set never sends a query.
+    A group that hits it runs the same equality scan as before — the length
+    filter inside the query still throws out everything but the handful of
+    notices that could match before any string is compared.
     """
+    if len(md) not in _donor_lengths():
+        return None
     rows = run_read_query(
         "MATCH (d:Document) "
         "WHERE d.extraction_json IS NOT NULL "
@@ -202,7 +261,13 @@ def _copy_extraction(donor: dict, targets: list[str], batch: int) -> int:
     return (rows[0].get("n") or 0) if rows else 0
 
 
-def _entities(res) -> list[dict]:
+def _entities(res, source: str = "") -> list[dict]:
+    """Stored entity dicts for one result.
+
+    ``source`` is the text the model read. Passing it lets an entity the aligner
+    could not place get its span back when the page does hold that exact text —
+    see pipeline/reground.py for what is and is not recovered.
+    """
     out = []
     for i, e in enumerate(res.extractions):
         ci = getattr(e, "char_interval", None)
@@ -229,6 +294,7 @@ def _entities(res) -> list[dict]:
             "end": getattr(ci, "end_pos", None) if ci else None,
             "attrs": attrs,
         })
+    ground_missing(out, source)
     return out
 
 
@@ -286,19 +352,38 @@ def _extract_one(d: dict, batch: int, route: bool, LX) -> tuple[bool, str | None
         model_id, reasoning_off = select_extract_model(d.get("notice_type"))
     else:
         model_id, reasoning_off = None, False
+    # How many reads this notice gets is routed like the model is — a second
+    # pass earns its price on a long lot table and nothing on a short one.
+    passes = passes_for(d.get("notice_type")) if route else None
     effective_model = _effective_model(model_id, route)
     try:
         res = LX.extract(d["md"], model_id=model_id, reasoning_off=reasoning_off,
                          expected_lot_count=d.get("expected_lot_count"),
-                         roster=d.get("roster"))
+                         roster=d.get("roster"), passes=passes)
     except Exception as e:  # keep going; one bad doc shouldn't stop the load
         return False, model_id, f"[fail] {fn}: {e}"
-    ents = _entities(res)
+    ents = _entities(res, d["md"])
+    if not ents:
+        # An empty result is a failed call wearing a success's clothes. The
+        # provider answers some notices with no content at all (deepseek
+        # v4-pro-0813 did it to 15 of 68 multi-lot pages in one run, and the
+        # same page extracted cleanly on another model), and LangExtract
+        # reports that as zero extractions rather than raising. Writing it
+        # marks the page done forever: the next run skips it, because skipping
+        # is keyed on extraction_json existing, and nothing ever looks again.
+        # Leave the page untouched and let the run report it — a document that
+        # was never extracted is recoverable, one recorded as empty is not.
+        return False, model_id, f"[fail] {fn}: model returned no entities"
     # Label-free quality score (0-100, see pipeline/validators.py) — lets the
     # review queue surface low-quality extractions first via score_min/max.
     # The scale the score was computed on goes with it: penalties change, and a
     # bare number cannot say which validators.py produced it.
-    score = validate(res.extractions, source_text=d["md"])["score"]
+    #
+    # Scored from `ents`, not from res.extractions: those are the entities that
+    # get stored, spans and all, so the score describes what a reader of this
+    # document will actually find — and matches what scripts/backfill_extraction
+    # _scores.py recomputes from the same JSON.
+    score = validate_stored(ents, source_text=d["md"])["score"]
     run_query(
         """
         UNWIND $fns AS fn
@@ -351,9 +436,10 @@ def _plan_groups(docs: list[dict], *, force: bool,
 
 
 def run(limit: int | None, force: bool, filename: str | None,
-        workers: int = DEFAULT_WORKERS) -> int:
+        workers: int = DEFAULT_WORKERS, max_seconds: int | None = None,
+        since: str | None = None) -> int:
     from pipeline import langextract_examples as LX
-    docs = _fetch(limit, force, filename)
+    docs = _fetch(limit, force, filename, since)
     print(f"to extract: {len(docs)} document(s)")
     if not docs:
         print("done — wrote 0, failed 0")
@@ -380,26 +466,56 @@ def run(limit: int | None, force: bool, filename: str | None,
     # Serial, the full corpus is days of wall time; the ceiling here is the
     # provider's rate limit, not local CPU.
     lock = threading.Lock()
+    # A scheduled runner has to hand the machine back before its next firing.
+    # `deadline` stops NEW documents being started past it and lets the ones in
+    # flight finish, so a capped run ends the way an uncapped one does — every
+    # page either written or still pending — instead of being killed mid-call.
+    # Work is therefore fed in as workers free up rather than submitted all at
+    # once: a queue handed to the pool up front would all be "started" in the
+    # first millisecond and no deadline could apply to it.
+    deadline = time.monotonic() + max_seconds if max_seconds else None
+    queue = iter(docs)
+    started = 0
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = {pool.submit(_extract_one, d, batch, route, LX): d for d in docs}
-        for fut in as_completed(futures):
-            d = futures[fut]
-            try:
-                good, model_id, line = fut.result()
-            except Exception as e:  # a crash in the worker itself, not the model
-                good, model_id, line = False, None, f"[error] {d['filename']}: {e}"
-            with lock:
-                done += 1
-                if good:
-                    ok += 1
-                    covered += len(d.get("twins") or [d["filename"]])
-                else:
-                    fail += 1
-                model_counts[model_id or "default"] += 1
-                print(f"  [{done}/{len(docs)}] {line}", flush=True)
+        futures: dict = {}
+
+        def fill() -> None:
+            nonlocal started
+            while len(futures) < workers:
+                if deadline is not None and time.monotonic() >= deadline:
+                    return
+                d = next(queue, None)
+                if d is None:
+                    return
+                futures[pool.submit(_extract_one, d, batch, route, LX)] = d
+                started += 1
+
+        fill()
+        while futures:
+            for fut in as_completed(list(futures)):
+                d = futures.pop(fut)
+                try:
+                    good, model_id, line = fut.result()
+                except Exception as e:  # a crash in the worker, not the model
+                    good, model_id, line = False, None, f"[error] {d['filename']}: {e}"
+                with lock:
+                    done += 1
+                    if good:
+                        ok += 1
+                        covered += len(d.get("twins") or [d["filename"]])
+                    else:
+                        fail += 1
+                    model_counts[model_id or "default"] += 1
+                    print(f"  [{done}/{len(docs)}] {line}", flush=True)
+                break
+            fill()
     if route:
         routing = "  ".join(f"{m}={n}" for m, n in sorted(model_counts.items()))
         print(f"model routing: {routing}")
+    left = len(docs) - started
+    if left:
+        print(f"stopped at the {max_seconds}s cap with {left} page(s) not started "
+              f"— they stay pending, so the next run picks them up")
     print(f"done — extracted {ok} page(s), failed {fail}, "
           f"covering {covered} document(s), reused {reused} (batch B{batch})")
     return 0
@@ -414,8 +530,18 @@ def main() -> int:
     ap.add_argument("--workers", type=int, default=DEFAULT_WORKERS,
                     help=f"documents extracted concurrently (default {DEFAULT_WORKERS}, "
                          "env LOAD_EXTRACTIONS_WORKERS)")
+    ap.add_argument("--since", default=None,
+                    help="only notices backing an auction starting on/after "
+                         "this date (YYYY-MM-DD) — the future half of the "
+                         "backlog, which is what the site serves today")
+    ap.add_argument("--max-seconds", type=int, default=None,
+                    help="stop starting new documents after this many seconds "
+                         "(in-flight ones finish). For a scheduled runner: set "
+                         "it below the gap between firings so two runs never "
+                         "overlap. Untouched pages stay pending.")
     args = ap.parse_args()
-    return run(args.limit, args.force, args.filename, args.workers)
+    return run(args.limit, args.force, args.filename, args.workers,
+               args.max_seconds, args.since)
 
 
 if __name__ == "__main__":

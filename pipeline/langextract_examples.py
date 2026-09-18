@@ -1283,7 +1283,8 @@ def _openrouter_model(model_id: str | None = None, reasoning_off: bool = False):
 def extract(markdown: str, model_id: str | None = None,
             reasoning_off: bool = False,
             expected_lot_count: int | None = None,
-            roster: list[dict] | None = None):
+            roster: list[dict] | None = None,
+            passes: int | None = None):
     """Run LangExtract over one notice's MinerU markdown.
 
     ``expected_lot_count`` — the reviewer-confirmed lot count from the
@@ -1305,9 +1306,13 @@ def extract(markdown: str, model_id: str | None = None,
           key LANGEXTRACT_API_KEY.
     ``model_id`` lets the caller route per notice type (single vs multi — see
     pipeline/extract_routing); ``reasoning_off`` forces provider-side reasoning
-    off for hybrid-reasoning models (OpenRouter path only). passes
-    (LANGEXTRACT_PASSES, default 2) maximises multi-lot recall; results carry
-    char_interval source grounding either way.
+    off for hybrid-reasoning models (OpenRouter path only). ``passes`` is how
+    many times the document is read, merged for recall — routed per notice type
+    by extract_routing.passes_for (2 for multi-lot, where a long schedule can
+    hide a row from one read; 1 for single-lot, which has nothing for a second
+    read to find). None falls back to LANGEXTRACT_PASSES (default 2) for callers
+    that do not route, such as the evals. Results carry char_interval source
+    grounding either way.
 
     Both paths run WITHOUT schema constraints: on the gemini path langextract
     would otherwise derive a response schema from EXAMPLES and silently suppress
@@ -1319,7 +1324,9 @@ def extract(markdown: str, model_id: str | None = None,
     common = dict(
         text_or_documents=markdown,
         prompt_description=prompt_description_for(expected_lot_count, roster),
-        examples=EXAMPLES, extraction_passes=int(os.environ.get("LANGEXTRACT_PASSES", "2")),
+        examples=EXAMPLES,
+        extraction_passes=(passes if passes is not None
+                           else int(os.environ.get("LANGEXTRACT_PASSES", "2"))),
         max_char_buffer=char_buffer_for(markdown), max_workers=4,
     )
     if os.environ.get("LANGEXTRACT_PROVIDER", "openrouter").lower() == "openrouter":

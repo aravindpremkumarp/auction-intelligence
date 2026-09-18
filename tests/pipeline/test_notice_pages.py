@@ -5,7 +5,9 @@ liq-1…/liq-2… on ten). DB-free: every function under test is pure.
 """
 from __future__ import annotations
 
-from pipeline.notice_pages import SEPARATOR, page_groups, stitch_pages
+from pipeline.notice_pages import (
+    CUE_CONFLICT, SEPARATOR, order_pages_by_cues, page_groups, stitch_pages,
+)
 
 
 def _row(listing, filename, key, position):
@@ -141,3 +143,44 @@ def test_a_twin_on_exactly_the_group_listings_still_rides_along():
     groups, ambiguous = page_groups(rows)
     assert ambiguous == []
     assert groups == [{"pages": ["p1.jpg", "p2.jpg"], "twins": ["p1-copy.jpg"]}]
+
+
+# ── the pages' own continuation lines ───────────────────────────────────────
+
+CONT_HEAD = "... Previous page Continuation...\n\n5. Borrower (s): M/s. Foo"
+CONT_TAIL = "E-AUCTION SALE NOTICE\n1. Borrower\n...Continued to the next page..."
+
+
+def test_a_silent_pair_keeps_the_portal_order():
+    out = order_pages_by_cues(["p1.jpg", "p2.jpg"],
+                              {"p1.jpg": "SALE NOTICE", "p2.jpg": "more lots"})
+    assert out == {"pages": ["p1.jpg", "p2.jpg"], "changed": False, "conflict": None}
+
+
+def test_cues_that_agree_with_the_portal_order_leave_it_alone():
+    out = order_pages_by_cues(["p1.jpg", "p2.jpg"],
+                              {"p1.jpg": CONT_TAIL, "p2.jpg": CONT_HEAD})
+    assert out["pages"] == ["p1.jpg", "p2.jpg"]
+    assert out["changed"] is False and out["conflict"] is None
+
+
+def test_a_reversed_portal_order_is_corrected_by_the_pages_themselves():
+    """The live UBI pair: the listing attaches page 2 first, and page 1 says
+    the notice continues after it."""
+    out = order_pages_by_cues(["UB1783523508165.png", "UBI17835234803580.png"],
+                              {"UB1783523508165.png": CONT_HEAD,
+                               "UBI17835234803580.png": CONT_TAIL})
+    assert out["pages"] == ["UBI17835234803580.png", "UB1783523508165.png"]
+    assert out["changed"] is True and out["conflict"] is None
+
+
+def test_cues_no_order_satisfies_are_reported_not_guessed():
+    both = CONT_HEAD + "\n" + CONT_TAIL
+    out = order_pages_by_cues(["p1.jpg", "p2.jpg"], {"p1.jpg": both, "p2.jpg": both})
+    assert out["changed"] is False
+    assert out["conflict"].startswith(CUE_CONFLICT)
+
+
+def test_a_missing_text_is_read_as_a_page_that_says_nothing():
+    out = order_pages_by_cues(["p1.jpg", "p2.jpg"], {"p1.jpg": CONT_TAIL})
+    assert out["pages"] == ["p1.jpg", "p2.jpg"] and out["conflict"] is None

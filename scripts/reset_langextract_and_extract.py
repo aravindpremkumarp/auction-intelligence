@@ -69,14 +69,14 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 
 from api.neo4j_client import run_query, run_read_query
-from pipeline.extract_routing import select_extract_model
+from pipeline.extract_routing import passes_for, select_extract_model
 from pipeline.load_extractions import (
     ROSTER_CYPHER,
     _entities,
     _next_batch,
     _plan_groups,
 )
-from pipeline.validators import SCORE_VERSION, validate
+from pipeline.validators import SCORE_VERSION, validate_stored
 
 # Every LangExtract-owned field on :Document. Clearing these returns a notice to
 # the "never extracted" state the /review/extraction surface treats as empty.
@@ -287,8 +287,9 @@ def _extract_one(d: dict, batch: int, route: bool):
         model_id, reasoning_off = None, False
     res = LX.extract(d["md"], model_id=model_id, reasoning_off=reasoning_off,
                      expected_lot_count=d.get("expected_lot_count"),
-                     roster=d.get("roster"))
-    ents = _entities(res)
+                     roster=d.get("roster"),
+                     passes=passes_for(d.get("notice_type")) if route else None)
+    ents = _entities(res, d["md"])
     # An empty result is a failed read, not a notice with nothing in it — the
     # model returned something LangExtract could not parse ("Content must
     # contain an 'extractions' key"), and every chunk was skipped. Writing it
@@ -299,7 +300,9 @@ def _extract_one(d: dict, batch: int, route: bool):
     if not ents:
         raise ValueError("extraction returned no entities — keeping the "
                          "existing one")
-    score = validate(res.extractions, source_text=d["md"])["score"]
+    # Scored from the entities that get stored (spans regrounded), so the
+    # number describes the document a reader opens — see _extract_one.
+    score = validate_stored(ents, source_text=d["md"])["score"]
     run_query(
         """
         UNWIND $fns AS name

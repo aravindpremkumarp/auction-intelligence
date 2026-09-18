@@ -100,3 +100,36 @@ def test_char_buffer_default_ceiling_holds_a_stitched_pair(monkeypatch):
     monkeypatch.delenv("LANGEXTRACT_MAX_CHAR_BUFFER_CEILING", raising=False)
     assert er.char_buffer_for("x" * 39000) == 39000
     assert er.char_buffer_for("x" * 90000) == 64000
+
+
+# ── how many times a notice is read ─────────────────────────────────────────
+
+def test_a_single_lot_notice_is_read_once(monkeypatch):
+    """The second pass exists for a lot table; a one-property notice has
+    nothing for it to find, and it is ~60% of the corpus."""
+    monkeypatch.delenv("LANGEXTRACT_PASSES", raising=False)
+    monkeypatch.delenv("LANGEXTRACT_PASSES_SINGLE", raising=False)
+    assert er.passes_for("single") == 1
+    assert er.passes_for(None) == 1
+    assert er.passes_for("anything-else") == 1
+
+
+def test_a_multi_lot_notice_keeps_both_reads(monkeypatch):
+    monkeypatch.delenv("LANGEXTRACT_PASSES", raising=False)
+    monkeypatch.delenv("LANGEXTRACT_PASSES_MULTI", raising=False)
+    assert er.passes_for("multi") == 2
+
+
+def test_the_global_override_still_forces_one_count_for_every_notice(monkeypatch):
+    """The evals set it to hold single and multi comparable."""
+    monkeypatch.setenv("LANGEXTRACT_PASSES", "3")
+    assert er.passes_for("single") == 3
+    assert er.passes_for("multi") == 3
+
+
+def test_each_half_is_tunable_on_its_own(monkeypatch):
+    monkeypatch.delenv("LANGEXTRACT_PASSES", raising=False)
+    monkeypatch.setenv("LANGEXTRACT_PASSES_SINGLE", "2")
+    monkeypatch.setenv("LANGEXTRACT_PASSES_MULTI", "4")
+    assert er.passes_for("single") == 2
+    assert er.passes_for("multi") == 4

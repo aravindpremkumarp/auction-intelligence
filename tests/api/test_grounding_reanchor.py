@@ -15,7 +15,8 @@ import json
 from api.review.grounding import (ANCHOR_FUZZY, ANCHOR_LOST, ANCHOR_NONE,
                                   ANCHOR_RELOCATED, ANCHOR_STORED,
                                   ANCHOR_UNVERIFIED, FUZZY_MIN_CHARS,
-                                  anchor_entity, reanchor)
+                                  anchor_entity, ground_missing,
+                                  reanchor)
 
 # A notice fragment shaped like the real ones: a header the re-ingest will
 # lengthen, then the values an extraction grounds on.
@@ -295,3 +296,73 @@ def test_build_fields_without_markdown_keeps_todays_behaviour():
     grounded, ungrounded = _build_fields(ej, "{}")
     assert grounded.grounded is True and grounded.anchor == ANCHOR_STORED
     assert ungrounded.grounded is False and ungrounded.anchor == ANCHOR_NONE
+
+
+# ── placing an entity langextract never placed (ground_missing) ──────────────
+
+# A table cell: the page breaks it across lines, a model quoting it answers
+# with the same words joined by single spaces.
+CELL_MD = ("| 1 | Land at   Kottapattu   Village,\nTrichirapalli Taluk |\n"
+           "| 2 | Reserve Price Rs.5,00,000 |\n"
+           "| 3 | Reserve Price Rs.5,00,000 |\n")
+
+
+def _bare(text, cls="location"):
+    return {"id": "0", "cls": cls, "text": text, "start": None, "end": None,
+            "attrs": {}}
+
+
+def test_folded_match_places_a_requoted_table_cell():
+    start, end, status = anchor_entity(
+        CELL_MD, "Kottapattu Village, Trichirapalli Taluk", None, None)
+    assert status == ANCHOR_RELOCATED
+    assert " ".join(CELL_MD[start:end].split()) == \
+        "Kottapattu Village, Trichirapalli Taluk"
+
+
+def test_folded_match_ignores_case():
+    start, end, _ = anchor_entity(CELL_MD, "kottapattu village", None, None)
+    # The span is into the page, so it keeps the page's own spacing.
+    assert " ".join(CELL_MD[start:end].split()).lower() == "kottapattu village"
+
+
+def test_ground_missing_fills_only_the_unplaced_spans():
+    ents = [_bare("Kottapattu   Village"),
+            _bare("Rs.5,00,000", "auction_terms"),
+            _bare("Chennai"),                       # not on this page
+            {"id": "3", "cls": "bank_name", "text": "Land", "start": 7,
+             "end": 11, "attrs": {}}]
+    assert ground_missing(ents, CELL_MD) == 2
+    assert " ".join(CELL_MD[ents[0]["start"]:ents[0]["end"]].split()) == \
+        "Kottapattu Village"
+    assert CELL_MD[ents[1]["start"]:ents[1]["end"]] == "Rs.5,00,000"
+    assert ents[2]["start"] is None                 # never invented
+    # An entity the aligner already placed keeps its offsets: a stored span is
+    # an approximate alignment by design, not something to re-derive.
+    assert (ents[3]["start"], ents[3]["end"]) == (7, 11)
+
+
+def test_ground_missing_keeps_repeated_values_in_document_order():
+    """Two lots at the same reserve price must not collapse onto one span."""
+    ents = [_bare("Rs.5,00,000", "auction_terms"),
+            _bare("Rs.5,00,000", "auction_terms")]
+    assert ground_missing(ents, CELL_MD) == 2
+    assert ents[0]["start"] < ents[1]["start"]
+
+
+def test_ground_missing_never_guesses_at_a_composed_value():
+    """The live shape: a verbatim prefix with a clause from elsewhere on the
+    page glued to its end, and components reordered into reading order. Every
+    word is on the page; no stretch of it is."""
+    ents = [_bare("Trichirapalli Taluk, within the Sub Registration District"),
+            _bare("Trichirapalli Taluk, Kottapattu Village")]
+    assert ground_missing(ents, CELL_MD) == 0
+    assert all(e["start"] is None for e in ents)
+
+
+def test_ground_missing_is_idempotent_and_needs_a_source():
+    ents = [_bare("Kottapattu Village")]
+    assert ground_missing(ents, None) == 0
+    assert ents[0]["start"] is None
+    assert ground_missing(ents, CELL_MD) == 1
+    assert ground_missing(ents, CELL_MD) == 0

@@ -100,20 +100,66 @@ OPENROUTER_CHAT_PROVIDER_MAX_PRICE = os.getenv(
 # against $1.12/$3.36) and cheaper than hy3-preview as well, with 5x its
 # context; it holds this slot until its clean record is contradicted on a
 # larger sample than the 8 documents it has so far.
+#
+# Both slots now name what OpenRouter's "Latest" aliases resolve to today —
+# `~deepseek/deepseek-flash-latest` -> v4.1-flash, `~deepseek/deepseek-pro-latest`
+# -> v4-pro-0813 — written out dated rather than as the alias. An alias moves
+# under us on the provider's schedule, and `Document.extraction_model` stamps
+# the slug we asked for: a score change would then be unattributable, which is
+# the one thing that stamp exists to prevent.
+#
+# The multi slot in particular was NOT the model it was measured on. The
+# un-dated `deepseek/deepseek-v4-pro` is V4 Pro 0423, while the 87.9 average
+# above was pro-0813: the corpus's multi-lot extractions average 67 on 0423,
+# which is the older model at 2.8x the price ($1.60/$3.20 per M tokens against
+# $0.58/$1.74). Naming the date is what keeps the two apart.
 OPENROUTER_MODEL_EXTRACT_SINGLE = os.getenv(
-    "OPENROUTER_MODEL_EXTRACT_SINGLE", "deepseek/deepseek-v4-flash-0731",
+    "OPENROUTER_MODEL_EXTRACT_SINGLE", "deepseek/deepseek-v4.1-flash",
 )
+# Both slots are Flash. Pro held the multi slot for one run and answered 15 of
+# its 68 multi-lot pages with no content at all — sometimes as an API error,
+# more often as a silent zero-entity result that was written to the graph and
+# marked done. Reasoning off did not change it, and the same pages extracted
+# cleanly on Flash (one went from 0 entities to 101). A model that drops a
+# fifth of the hardest documents is not the stronger model for them, whatever
+# it scores on the ones it does answer.
 OPENROUTER_MODEL_EXTRACT_MULTI = os.getenv(
-    "OPENROUTER_MODEL_EXTRACT_MULTI", "deepseek/deepseek-v4-pro",
+    "OPENROUTER_MODEL_EXTRACT_MULTI", "deepseek/deepseek-v4.1-flash",
 )
-# Reasoning stays ON for extraction by default (empty list = suppress nothing):
-# multi-lot disentangling benefits from the model thinking through which fields
-# belong to which lot, and the cost is accepted. This is an OPT-IN cost lever —
-# set it to comma-separated slug substrings (e.g. "deepseek") to force a
-# hybrid-reasoning model's reasoning OFF ({"reasoning": {"enabled": false}}) on
-# the copy-the-spans task if cost ever needs trimming.
+# Reasoning is OFF for extraction. It was on, as a quality choice, until the
+# empty responses were traced to it: reasoning tokens are spent from the SAME
+# output budget as the answer, so a model that thinks too long returns no
+# content at all. That is the whole of "OpenAI response contained no message
+# content" — 3.5% of one 453-page run, ~22% of a pro-0813 run, always on the
+# documents with most to think about.
+#
+# A one-token probe shows the mechanism on its own: ask v4.1-flash to "say ok"
+# with max_tokens=10 and it spends all ten reasoning and returns nothing
+# (finish_reason=length); at 100 it reasons for 48 and answers.
+#
+# WHAT THIS DOES AND DOES NOT BUY, measured on the 589-page run that followed
+# (batch B58), against the 453-page run before it (B56, reasoning on):
+#
+#   failures   2.7% here vs 3.5% there — NOT the fix it first looked like. The
+#              19 pages that failed with reasoning all came back when re-run
+#              without it, but re-running is itself most of that: the empty
+#              response moved rather than stopped, from "no message content"
+#              to a parsed result with no entities at all (7 of the 12 here;
+#              the other 5 were network drops). Both are caught and left
+#              pending, so neither loses a page.
+#   speed      real: 6/min at the start of B58 against 2.5/min in B56,
+#              settling near 3/min on the multi-lot tail.
+#   score      single 91 vs 93, multi 73 vs 82 — but B58 is the past-auction
+#              tail, older and dirtier scans, so how much of that gap is the
+#              setting and how much is the corpus is NOT established. The
+#              clean test is the same pages both ways; it has not been run.
+#
+# So: keep it for speed and cost, not for reliability, and do not let the
+# score gap above be quoted as settled either way.
+#
+# Comma-separated slug substrings; empty re-enables reasoning everywhere.
 LANGEXTRACT_REASONING_OFF_MODELS = os.getenv(
-    "LANGEXTRACT_REASONING_OFF_MODELS", "",
+    "LANGEXTRACT_REASONING_OFF_MODELS", "deepseek",
 )
 # Doc-type classifier for the dossier locker — places an uploaded user document
 # into the 9-category / ~50-type taxonomy (api/dossier/taxonomy.py);

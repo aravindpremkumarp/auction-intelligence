@@ -15,9 +15,12 @@ The portal already knows the order: ``AuctionProperty.downloads_list`` lists
 the files as they appear on the listing page, page 1 first. That order, plus
 "the same files on the same listings", is the whole detection rule.
 
-Two functions, both pure:
+Three functions, all pure:
 
 ``page_groups(rows)``   — which files are pages of one notice, in what order.
+``order_pages_by_cues`` — that order re-checked against the pages' own
+                          continuation lines, because the portal's file order
+                          is reversed on at least one live listing.
 ``stitch_pages(pages)`` — the joined text and where each page starts in it.
 
 What this is not
@@ -32,6 +35,7 @@ Cypher; the decisions live here where a unit test can reach them.
 """
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 
 #: Pages are joined with this. Fixed, because extraction offsets are positions
@@ -42,6 +46,64 @@ SEPARATOR = "\n\n"
 #: listing set other than the leader's. Such an entry is a report, never a
 #: group ``--only`` may force: its two files hold the same text.
 TWIN_OUTSIDE_GROUP = "twin outside group"
+
+#: Reason prefix for a group whose pages carry continuation lines that no
+#: order satisfies. Reported, never guessed at.
+CUE_CONFLICT = "continuation lines contradict the file order"
+
+#: The notice's own words about where a page sits. Banks print one or both
+#: across a two-sheet notice ("...Continued to the next page...",
+#: "... Previous page Continuation..."). OCR keeps the line wherever it read
+#: it — head, tail or mid-table — so a cue is looked for anywhere in the text.
+CONTINUES_ON_NEXT = re.compile(
+    r"contin(?:ued|ues)?\s*(?:to|on)\s*(?:the\s*)?next\s*page"
+    r"|contd\.?\s*(?:to|on)\s*(?:the\s*)?next\s*page", re.I)
+CONTINUES_FROM_PREVIOUS = re.compile(
+    r"previous\s*page\s*continuation"
+    r"|contin(?:ued|ues|uation)?\s*(?:of|from)\s*(?:the\s*)?previous\s*page"
+    r"|contd\.?\s*from\s*(?:the\s*)?previous\s*page", re.I)
+
+
+def page_cues(text: str) -> tuple[bool, bool]:
+    """``(more follows this page, this page follows another)``, from its text."""
+    t = text or ""
+    return bool(CONTINUES_ON_NEXT.search(t)), bool(CONTINUES_FROM_PREVIOUS.search(t))
+
+
+def order_pages_by_cues(pages: list[str], texts: dict[str, str]) -> dict:
+    """Check a group's page order against the pages' own continuation lines.
+
+    The order the detector hands over comes from ``downloads_list`` — the
+    portal's file order, which is wrong on at least one live listing, where
+    page 2 is attached first. Joining the pages in that order puts the tail of
+    the lot table in front of the notice's own header, so the model reads the
+    lots before it knows the bank, and every stored offset points into a text
+    the notice never had.
+
+    A page saying more follows it cannot be last; a page saying it continues
+    another cannot be first. Returns ``{"pages", "changed", "conflict"}``:
+    the order to use, whether it differs from the given one, and — when no
+    order satisfies the cues — the reason to report instead of guessing.
+    Silent (``changed`` false, ``conflict`` None) when the pages say nothing,
+    which is most of them.
+    """
+    if len(pages) < 2:
+        return {"pages": list(pages), "changed": False, "conflict": None}
+    cues = {fn: page_cues(texts.get(fn, "")) for fn in pages}
+    if not any(any(c) for c in cues.values()):
+        return {"pages": list(pages), "changed": False, "conflict": None}
+
+    def satisfied(order: list[str]) -> bool:
+        return not cues[order[0]][1] and not cues[order[-1]][0]
+
+    if satisfied(list(pages)):
+        return {"pages": list(pages), "changed": False, "conflict": None}
+    if len(pages) == 2:
+        flipped = [pages[1], pages[0]]
+        if satisfied(flipped):
+            return {"pages": flipped, "changed": True, "conflict": None}
+    return {"pages": list(pages), "changed": False,
+            "conflict": f"{CUE_CONFLICT}: {', '.join(pages)}"}
 
 
 def page_groups(rows: list[dict]) -> tuple[list[dict], list[dict]]:

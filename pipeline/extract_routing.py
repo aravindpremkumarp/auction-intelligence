@@ -71,3 +71,31 @@ def select_extract_model(notice_type: str | None) -> tuple[str, bool]:
     model = (OPENROUTER_MODEL_EXTRACT_MULTI if label == "multi"
              else OPENROUTER_MODEL_EXTRACT_SINGLE)
     return model, reasoning_off_for(model)
+
+
+def passes_for(notice_type: str | None) -> int:
+    """How many times LangExtract reads this notice.
+
+    A pass is a complete extraction of the document; two passes are merged for
+    recall, so the second one costs the same as the first and earns its money
+    only where the first can miss something. That is a long lot table: a
+    50-row schedule where one row falls outside what a single read returns.
+
+    A single-lot notice has one property, one price, one borrower on a short
+    page, and scores in the nineties on the first read — the second pass is
+    re-reading a page with nothing left to find, at full price, for ~60% of
+    the corpus. The pass count was never chosen for it: it was one global
+    default whose own docstring justifies it as "maximises multi-lot recall",
+    applied to every notice because nothing routed it.
+
+    Same routing rule as the model — only 'multi' is multi, anything unknown
+    is treated as single. Env overrides keep both halves tunable without a
+    deploy (LANGEXTRACT_PASSES still forces one count for every notice, which
+    is what the evals use to hold the two comparable).
+    """
+    forced = os.environ.get("LANGEXTRACT_PASSES")
+    if forced:
+        return max(1, int(forced))
+    label = (notice_type or "single").strip().lower()
+    key = "LANGEXTRACT_PASSES_MULTI" if label == "multi" else "LANGEXTRACT_PASSES_SINGLE"
+    return max(1, int(os.environ.get(key, "2" if label == "multi" else "1")))

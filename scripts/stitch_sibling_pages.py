@@ -29,6 +29,18 @@ A leader that already holds an extraction gets ``extraction_stale_at`` stamped
 whenever its joined text or summed lot count changes (or on unstitch), so
 ``scripts/reset_langextract_and_extract.py --stale`` re-runs it.
 
+The page order is the listing's, then the notice's: ``downloads_list`` gives
+the order, and ``pipeline.notice_pages.order_pages_by_cues`` checks it against
+what the pages themselves say ("...Continued to the next page...",
+"... Previous page Continuation..."). One live listing attaches page 2 first,
+so the cue wins and the leader changes; a group whose cues no order satisfies
+is reported, never guessed at.
+
+A pairing a human rejected is remembered on the documents
+(``stitch_rejected_with`` / ``stitch_rejected_at``) and dropped from every
+later run — group and ambiguous report alike — without a ``--skip`` to
+remember.
+
 Usage:
     python -m scripts.stitch_sibling_pages                 # dry run (default)
     python -m scripts.stitch_sibling_pages --apply
@@ -36,11 +48,14 @@ Usage:
     python -m scripts.stitch_sibling_pages --apply --only AXIS-1….jpg
     python -m scripts.stitch_sibling_pages --apply --skip 03d7249a-….jpg
     python -m scripts.stitch_sibling_pages --unstitch AXIS-1….jpg
+    python -m scripts.stitch_sibling_pages --reject CB-1….jpg --reject can-2….pdf
+    python -m scripts.stitch_sibling_pages --unreject CB-1….jpg --unreject can-2….pdf
 
 ``--only`` names a leader; it also forces a group the detector marked
 ambiguous (never a "twin outside group" report). ``--skip`` names any member
-and drops that whole group. Re-runnable: a group whose joined text and lot
-count are unchanged is skipped.
+and drops that whole group for this run only; ``--reject`` names every member
+and drops it for good, unstitching the pairing first if it was written.
+Re-runnable: a group whose joined text and lot count are unchanged is skipped.
 """
 from __future__ import annotations
 
@@ -49,7 +64,8 @@ import sys
 
 from api.neo4j_client import run_query, run_read_query
 from pipeline.notice_pages import (
-    SEPARATOR, TWIN_OUTSIDE_GROUP, page_groups, stitch_pages,
+    SEPARATOR, TWIN_OUTSIDE_GROUP, order_pages_by_cues, page_groups,
+    stitch_pages,
 )
 from pipeline.notice_twins import text_key
 from pipeline.promote_extractions import rebuild_document_lots
@@ -112,7 +128,34 @@ MATCH (f:Document {filename: fn})
 SET f.stitched_into = $leader
 // nothing re-extracts a follower, so its stamp could never be cleared
 REMOVE f.extraction_stale_at
+// a follower that used to lead this group (the page order was corrected)
+// keeps no joined text of its own — nothing may read it back
+REMOVE f.stitched_markdown, f.stitched_pages, f.stitched_page_offsets,
+       f.stitched_at, f.stitched_expected_lot_count
 RETURN count(f) AS followers
+"""
+
+# A pairing a human looked at and rejected: the files are not pages of one
+# notice. Stored on every member so the detector can drop the group by its
+# member set, run after run, without anyone having to remember a --skip.
+REJECT_CYPHER = """
+UNWIND $members AS fn
+MATCH (d:Document {filename: fn})
+SET d.stitch_rejected_with = [x IN $members WHERE x <> fn],
+    d.stitch_rejected_at = datetime()
+RETURN count(d) AS n
+"""
+
+UNREJECT_CYPHER = """
+UNWIND $members AS fn
+MATCH (d:Document {filename: fn})
+REMOVE d.stitch_rejected_with, d.stitch_rejected_at
+RETURN count(d) AS n
+"""
+
+REJECTIONS_CYPHER = """
+MATCH (d:Document) WHERE d.stitch_rejected_with IS NOT NULL
+RETURN d.filename AS filename, d.stitch_rejected_with AS others
 """
 
 UNSTITCH_CYPHER = """
@@ -162,10 +205,25 @@ def fetch_rows() -> tuple[list[dict], dict[str, dict]]:
     return rows, docs_by_name
 
 
-def plan(rows: list[dict], only: set[str] | None,
-         skip: set[str]) -> tuple[list[dict], list[dict]]:
-    """Apply --only / --skip to the detector's output."""
+def fetch_rejections() -> set[frozenset]:
+    """Member sets a human has rejected as not being pages of one notice."""
+    rows = run_read_query(REJECTIONS_CYPHER, None, max_rows=10_000, timeout=60.0)
+    return {frozenset([r["filename"], *(r["others"] or [])]) for r in rows}
+
+
+def plan(rows: list[dict], only: set[str] | None, skip: set[str],
+         rejected: set[frozenset] | None = None,
+         texts: dict[str, str] | None = None) -> tuple[list[dict], list[dict]]:
+    """Apply the stored rejections, --only / --skip, and the page cues.
+
+    The cue check runs last so that a group ``--only`` forced out of the
+    ambiguous list is read the same way as one the detector found on its own.
+    """
     groups, ambiguous = page_groups(rows)
+    if rejected:
+        groups = [g for g in groups if frozenset(g["pages"]) not in rejected]
+        ambiguous = [a for a in ambiguous
+                     if frozenset(a["filenames"]) not in rejected]
     if only:
         forced: list[dict] = []
         remaining_ambiguous: list[dict] = []
@@ -192,6 +250,17 @@ def plan(rows: list[dict], only: set[str] | None,
     if skip:
         groups = [g for g in groups
                   if not (set(g["pages"]) | set(g["twins"])) & skip]
+    if texts is not None:
+        checked: list[dict] = []
+        for g in groups:
+            cue = order_pages_by_cues(g["pages"], texts)
+            if cue["conflict"]:
+                ambiguous.append({"filenames": list(g["pages"]),
+                                  "reason": cue["conflict"]})
+                continue
+            checked.append({**g, "pages": cue["pages"],
+                            "order_corrected": cue["changed"]})
+        groups = checked
     return groups, ambiguous
 
 
@@ -210,6 +279,7 @@ def build(group: dict, docs_by_name: dict[str, dict]) -> dict:
             "offsets": joined["offsets"],
             "pages": list(group["pages"]),
             "expected_lot_count": joined["expected_lot_count"],
+            "order_corrected": bool(group.get("order_corrected")),
             "changed": changed}
 
 
@@ -246,8 +316,9 @@ def _print_plan(builts: list[dict], ambiguous: list[dict]) -> None:
     for b in builts:
         state = "unchanged" if not b["changed"] else "write"
         elc = b["expected_lot_count"] if b["expected_lot_count"] is not None else "?"
+        fixed = "  [page order corrected]" if b["order_corrected"] else ""
         print(f"[{state}] {b['leader']} <- {', '.join(b['followers'])}  "
-              f"({len(b['markdown'])} chars, lots={elc})")
+              f"({len(b['markdown'])} chars, lots={elc}){fixed}")
     for amb in ambiguous:
         print(f"[ambiguous] {' | '.join(amb['filenames'])}: {amb['reason']}")
     print(f"{len(builts)} group(s), {len(ambiguous)} ambiguous")
@@ -266,6 +337,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--keep-follower-lots", action="store_true",
                     help="with --apply, leave each follower's old lots in place")
     ap.add_argument("--unstitch", help="leader filename whose stitch to remove")
+    ap.add_argument("--reject", action="append", default=[],
+                    help="member filename of a pairing a human rejected "
+                         "(repeatable; name every member, at least two)")
+    ap.add_argument("--unreject", action="append", default=[],
+                    help="member filename whose stored rejection to lift "
+                         "(repeatable; name every member)")
     args = ap.parse_args(argv)
 
     if args.unstitch:
@@ -273,8 +350,29 @@ def main(argv: list[str] | None = None) -> int:
         print(f"unstitched {args.unstitch}: {n} follower(s) released")
         return 0
 
+    if args.reject or args.unreject:
+        members = sorted(set(args.reject or args.unreject))
+        if len(members) < 2:
+            print("name every member of the pairing: --reject A --reject B")
+            return 2
+        cypher = REJECT_CYPHER if args.reject else UNREJECT_CYPHER
+        verb = "rejected" if args.reject else "un-rejected"
+        if args.reject:
+            # a pairing already written has to come apart before the record
+            # can keep it apart: unstitch whichever member leads it
+            for fn in members:
+                if unstitch(fn):
+                    print(f"unstitched {fn}")
+        n = run_query(cypher, {"members": members})
+        marked = int(n[0]["n"]) if n else 0
+        print(f"{verb} {' | '.join(members)} ({marked} document(s) marked)")
+        return 0
+
     rows, docs_by_name = fetch_rows()
-    groups, ambiguous = plan(rows, only=set(args.only) or None, skip=set(args.skip))
+    groups, ambiguous = plan(rows, only=set(args.only) or None,
+                             skip=set(args.skip), rejected=fetch_rejections(),
+                             texts={fn: d.get("markdown") or ""
+                                    for fn, d in docs_by_name.items()})
     builts = [build(g, docs_by_name) for g in groups]
     _print_plan(builts, ambiguous)
     to_write = [b for b in builts if b["changed"]]

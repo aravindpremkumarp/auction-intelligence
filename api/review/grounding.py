@@ -45,11 +45,14 @@ Per entity, cheapest first:
   1. **verify** — is ``markdown[start:end]`` still the same passage, allowing
      for the normalization above (similarity ≥ ``VERIFY_MIN_SCORE``)? On
      unchanged markdown this confirms nearly every span with one slice.
-  2. **exact** — find the text verbatim. The search starts at the previous
-     entity's end and wraps, so the repeated values a notice is full of
-     ("Rs.5,00,000" once per lot) re-anchor in document order instead of all
-     collapsing onto the first occurrence. Safe on unchanged markdown too: an
-     exact hit beats an approximate alignment.
+  2. **exact** — find the text verbatim, then verbatim up to whitespace runs
+     and case (:func:`fold`). A model that reads a table cell answers with its
+     contents rejoined by single spaces, and a re-OCR routinely changes only
+     case; both are the same passage of the page. The search starts at the previous entity's
+     end and wraps, so the repeated values a notice is full of ("Rs.5,00,000"
+     once per lot) re-anchor in document order instead of all collapsing onto
+     the first occurrence. Safe on unchanged markdown too: a verbatim hit beats
+     an approximate alignment.
   3. **fuzzy** — only worth risking once the stored span is known worthless.
      Aligns on similarity (the same rapidfuzz alignment
      ``api/review/markdown_match.py`` uses for property highlights) above
@@ -64,6 +67,7 @@ Pure and DB-free, the way ``api/review/markdown_match.py`` is.
 """
 from __future__ import annotations
 
+from bisect import bisect_left
 from collections import Counter
 
 from rapidfuzz import fuzz
@@ -123,6 +127,40 @@ def _verify(markdown: str, text: str, start, end) -> bool:
     return got == text or fuzz.ratio(got, text) >= VERIFY_MIN_SCORE
 
 
+def fold(markdown: str) -> tuple[str, list[int]]:
+    """``(comparable text, position in the original for each character)``.
+
+    Lowercased, every run of whitespace collapsed to one space. Those are the
+    two differences between a page and a model quoting it that stop an
+    otherwise verbatim answer from being found — a table cell rejoined with
+    single spaces, a name re-cased. The index list turns a hit back into a real
+    offset; a collapsed run maps to its first whitespace character.
+
+    Linear in the page, so a caller placing many entities in one document folds
+    once and passes the result to :func:`anchor_entity` rather than paying for
+    it per entity.
+    """
+    out: list[str] = []
+    index: list[int] = []
+    prev_ws = False
+    for i, ch in enumerate(markdown or ""):
+        if ch.isspace():
+            if prev_ws:
+                continue
+            out.append(" ")
+            index.append(i)
+            prev_ws = True
+        else:
+            out.append(ch.lower())
+            index.append(i)
+            prev_ws = False
+    return "".join(out), index
+
+
+def _fold_text(text: str) -> str:
+    return " ".join((text or "").split()).lower()
+
+
 def _exact(markdown: str, text: str, cursor: int) -> int | None:
     """Offset of ``text``, preferring the first occurrence at or after
     ``cursor`` and falling back to a search from the top.
@@ -136,6 +174,30 @@ def _exact(markdown: str, text: str, cursor: int) -> int | None:
         return i
     i = markdown.find(text)
     return i if i != -1 else None
+
+
+def _folded(markdown: str, text: str, cursor: int,
+            folded: tuple[str, list[int]] | None) -> tuple[int, int] | None:
+    """:func:`_exact` again, over the folded text — same passage, different
+    whitespace or case. Returns a span rather than an offset, because the
+    matched region is not the same length as the entity's own text.
+    """
+    tf = _fold_text(text)
+    if not tf:
+        return None
+    body, index = folded if folded is not None else fold(markdown)
+    if not body:
+        return None
+    # The cursor is an offset into the original, so carry it over by finding
+    # the first folded position that maps at or past it — keeping repeated
+    # values in document order here too.
+    lo = bisect_left(index, cursor) if cursor else 0
+    i = body.find(tf, lo)
+    if i == -1:
+        i = body.find(tf)
+    if i == -1:
+        return None
+    return index[i], index[i + len(tf) - 1] + 1
 
 
 def _fuzzy(markdown: str, text: str) -> tuple[int, int] | None:
@@ -163,12 +225,17 @@ def _fuzzy(markdown: str, text: str) -> tuple[int, int] | None:
 
 
 def anchor_entity(markdown: str, text: str, start, end, cursor: int = 0, *,
-                  markdown_changed: bool = False):
+                  markdown_changed: bool = False,
+                  folded: tuple[str, list[int]] | None = None):
     """Re-anchor one entity. Returns ``(start, end, status)``.
 
     ``markdown_changed`` says whether the text was rewritten since the
     extraction ran; it decides only what happens when the span cannot be
     confirmed (keep it, or drop it) — see the module docstring.
+
+    ``folded`` is one :func:`fold` of this markdown, reused across a document's
+    entities. Optional: a one-off caller can leave it out and pay for the fold
+    only if the step is reached.
     """
     if not text:
         return None, None, ANCHOR_NONE
@@ -177,6 +244,9 @@ def anchor_entity(markdown: str, text: str, start, end, cursor: int = 0, *,
     hit = _exact(markdown, text, cursor)
     if hit is not None:
         return hit, hit + len(text), ANCHOR_RELOCATED
+    span = _folded(markdown, text, cursor, folded)
+    if span is not None:
+        return span[0], span[1], ANCHOR_RELOCATED
     if not markdown_changed:
         # Unconfirmed, but the page under it has not moved: langextract's own
         # alignment is the best reading of it that exists. A fuzzy guess here
@@ -212,6 +282,7 @@ def reanchor(ents: list[dict], markdown: str | None, *,
     out: list[dict] = []
     cursor = 0
     moved = 0
+    folded = fold(markdown) if markdown else None
     for e in ents:
         if not isinstance(e, dict):
             continue
@@ -223,7 +294,7 @@ def reanchor(ents: list[dict], markdown: str | None, *,
         else:
             new_start, new_end, status = anchor_entity(
                 markdown, text, start, end, cursor,
-                markdown_changed=markdown_changed)
+                markdown_changed=markdown_changed, folded=folded)
             if isinstance(new_end, int):
                 cursor = new_end
         if (new_start, new_end) != (start, end):
@@ -234,3 +305,58 @@ def reanchor(ents: list[dict], markdown: str | None, *,
     summary["checked"] = len(out)
     summary["moved"] = moved
     return out, summary
+
+
+def ground_missing(ents: list[dict], markdown: str | None) -> int:
+    """Fill in the spans langextract never produced. Returns how many it placed.
+
+    The narrow counterpart to :func:`reanchor`, for the write path: an entity
+    that already carries a span is left exactly as it is — the aligner placed it
+    against this same text, and a stored span is an approximate alignment by
+    nature (see the module docstring), not something to re-derive. Only
+    ``start``/``end`` of None are ever written, and only from a verbatim hit.
+
+    Do not expect much of it. A sweep of the live corpus placed 90 of 5,689
+    unplaced entities — 1.6%. The other 98% are not on the page in any form: a
+    clause appended from elsewhere in the notice ("…Kanyakumari District" + ",
+    within the Sub Registration District of Thackalay"), or a village / taluk /
+    district reordered into reading order. The model composed them, and no
+    search finds text that was never there. What makes an unplaced entity
+    affordable is the scoring change beside this one — ``pipeline/validators.py``
+    no longer charges a missing span twice, once as ``ungrounded`` and again as
+    ``full_description_incomplete``.
+
+    There is no fuzzy step here on purpose: this runs against the markdown the
+    extraction just read, so a value that is not in it was composed, not moved,
+    and a similarity guess would anchor it to a passage it did not come from.
+    That is why the number above is small, and it should stay small.
+
+    Mutates in place, because the caller persists the same list it passes in.
+    """
+    if not markdown or not ents:
+        return 0
+    folded = None
+    cursor = 0
+    placed = 0
+    for e in ents:
+        if not isinstance(e, dict):
+            continue
+        if isinstance(e.get("start"), int):
+            end = e.get("end")
+            if isinstance(end, int):
+                cursor = end          # keep repeated values in document order
+            continue
+        text = e.get("text") or ""
+        if not text:
+            continue
+        if folded is None:
+            folded = fold(markdown)
+        hit = _exact(markdown, text, cursor)
+        span = (hit, hit + len(text)) if hit is not None else _folded(
+            markdown, text, cursor, folded)
+        if span is None:
+            continue
+        e["start"], e["end"] = span
+        cursor = span[1]
+        placed += 1
+    return placed
