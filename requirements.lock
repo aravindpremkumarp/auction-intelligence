@@ -28,7 +28,7 @@ aiosignal==1.4.0
 annotated-doc==0.0.4
 annotated-types==0.7.0
 anthropic==0.125.0
-anyio==4.14.1
+anyio==4.14.2
 argcomplete==3.7.0
 asgiref==3.11.1
 async-timeout==5.0.1
