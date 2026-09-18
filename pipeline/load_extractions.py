@@ -51,9 +51,11 @@ from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from api.neo4j_client import run_query, run_read_query
+from api.review.grounding import ground_missing
 from pipeline.extract_routing import passes_for, select_extract_model
 from pipeline.notice_twins import group_twins, merge_rosters, text_key
-from pipeline.validators import SCORE_VERSION, normalize_identifier_kind, validate
+from pipeline.validators import (SCORE_VERSION, normalize_identifier_kind,
+                                 validate_stored)
 
 # Documents run concurrently (see run()). Sized for a provider rate limit, not
 # CPU — each worker spends its time waiting on one model call.
@@ -259,7 +261,13 @@ def _copy_extraction(donor: dict, targets: list[str], batch: int) -> int:
     return (rows[0].get("n") or 0) if rows else 0
 
 
-def _entities(res) -> list[dict]:
+def _entities(res, source: str = "") -> list[dict]:
+    """Stored entity dicts for one result.
+
+    ``source`` is the text the model read. Passing it lets an entity the aligner
+    could not place get its span back when the page does hold that exact text —
+    see pipeline/reground.py for what is and is not recovered.
+    """
     out = []
     for i, e in enumerate(res.extractions):
         ci = getattr(e, "char_interval", None)
@@ -286,6 +294,7 @@ def _entities(res) -> list[dict]:
             "end": getattr(ci, "end_pos", None) if ci else None,
             "attrs": attrs,
         })
+    ground_missing(out, source)
     return out
 
 
@@ -353,7 +362,7 @@ def _extract_one(d: dict, batch: int, route: bool, LX) -> tuple[bool, str | None
                          roster=d.get("roster"), passes=passes)
     except Exception as e:  # keep going; one bad doc shouldn't stop the load
         return False, model_id, f"[fail] {fn}: {e}"
-    ents = _entities(res)
+    ents = _entities(res, d["md"])
     if not ents:
         # An empty result is a failed call wearing a success's clothes. The
         # provider answers some notices with no content at all (deepseek
@@ -369,7 +378,12 @@ def _extract_one(d: dict, batch: int, route: bool, LX) -> tuple[bool, str | None
     # review queue surface low-quality extractions first via score_min/max.
     # The scale the score was computed on goes with it: penalties change, and a
     # bare number cannot say which validators.py produced it.
-    score = validate(res.extractions, source_text=d["md"])["score"]
+    #
+    # Scored from `ents`, not from res.extractions: those are the entities that
+    # get stored, spans and all, so the score describes what a reader of this
+    # document will actually find — and matches what scripts/backfill_extraction
+    # _scores.py recomputes from the same JSON.
+    score = validate_stored(ents, source_text=d["md"])["score"]
     run_query(
         """
         UNWIND $fns AS fn

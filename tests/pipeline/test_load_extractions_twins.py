@@ -226,8 +226,9 @@ def _extract_returning(monkeypatch, extractions, writes):
         @staticmethod
         def extract(md, **kw): return _Res(extractions)
     monkeypatch.setattr(M, "run_query", lambda *a, **k: writes.append(a) or [])
-    monkeypatch.setattr(M, "validate", lambda *a, **k: {"score": 0})
-    monkeypatch.setattr(M, "_entities", lambda res: list(res.extractions))
+    monkeypatch.setattr(M, "validate_stored", lambda *a, **k: {"score": 0})
+    monkeypatch.setattr(M, "_entities",
+                        lambda res, source="": list(res.extractions))
     return _LX
 
 
@@ -275,7 +276,7 @@ def test_a_single_lot_page_is_read_once_and_a_multi_lot_page_twice(monkeypatch):
             return _Res()
 
     monkeypatch.setattr(M, "run_query", lambda *a, **k: [])
-    monkeypatch.setattr(M, "validate", lambda *a, **k: {"score": 90})
+    monkeypatch.setattr(M, "validate_stored", lambda *a, **k: {"score": 90})
     for ntype in ("single", "multi"):
         ok, _model, _line = M._extract_one({"filename": f"{ntype}.jpg",
                                             "md": f"TEXT {ntype}",
@@ -301,8 +302,9 @@ def test_an_unrouted_call_leaves_the_pass_count_to_the_env(monkeypatch):
             return _Res()
 
     monkeypatch.setattr(M, "run_query", lambda *a, **k: [])
-    monkeypatch.setattr(M, "validate", lambda *a, **k: {"score": 90})
-    monkeypatch.setattr(M, "_entities", lambda res: list(res.extractions))
+    monkeypatch.setattr(M, "validate_stored", lambda *a, **k: {"score": 90})
+    monkeypatch.setattr(M, "_entities",
+                        lambda res, source="": list(res.extractions))
     M._extract_one({"filename": "a.jpg", "md": "T", "notice_type": "multi"},
                    batch=1, route=False, LX=_LX)
     assert seen["passes"] is None

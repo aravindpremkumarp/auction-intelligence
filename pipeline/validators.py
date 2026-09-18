@@ -49,7 +49,7 @@ _PENALTY = {"critical": 30, "high": 20, "med": 10, "low": 4}
 # extracted. With it, a mixed corpus can be told apart and re-levelled —
 # `python -m scripts.backfill_extraction_scores` rescores everything behind the
 # current version, with no LLM call.
-SCORE_VERSION = 1
+SCORE_VERSION = 2
 # Valid committed possession values (Option A: penalise only present-but-invalid;
 # a blank possession is often correct — the "Constructive/Symbolic/Physical"
 # disjunction has no single answer — so absence is NOT penalised).
@@ -143,8 +143,19 @@ def full_description_coverage(extractions) -> dict:
     An entity covered by neither means full_description was truncated before that
     detail, so the field can no longer be derived from it.
 
+    Containment needs two spans. When either the entity or the lot's
+    full_description is ungrounded, "outside the block" is not a finding — it is
+    the absence of one, and charging it as truncation bills the missing span
+    twice: once as ``ungrounded``, again as ``full_description_incomplete``.
+    In a 150-document sample of multi-lot notices that was 52% of the entities
+    this check reported, and 14 of the 80 documents it flagged had no other
+    reason to be there — they were charged 20 points for a missing span. Such an
+    entity is reported separately as ``lots_unverifiable`` — visible for triage,
+    scored by the flag that owns it.
+
     Returns per-notice aggregates: lots that have descriptive spans but no
-    full_description, and lots with detail falling outside it (offending classes).
+    full_description, lots with detail falling outside it (offending classes),
+    and lots whose coverage could not be checked (same shape).
     Entities with neither a span nor text are skipped (nothing to check).
     """
     fd_by_lot: dict = {}          # lot -> {"span": (s,e)|None, "text": str}
@@ -169,24 +180,31 @@ def full_description_coverage(extractions) -> dict:
         elif c in _DESCRIPTION_CLASSES and (sp or txt):
             gran_by_lot.setdefault(li, []).append((sp, txt, c))
 
-    missing_fd, incomplete = [], {}
+    missing_fd, incomplete, unverifiable = [], {}, {}
     for li, spans in gran_by_lot.items():
         fd = fd_by_lot.get(li)
         if fd is None or (fd["span"] is None and not fd["text"]):
             missing_fd.append(li)
             continue
-        outside = set()
+        outside, unchecked = set(), set()
         for sp, txt, cls in spans:
             by_span = (sp and fd["span"] and fd["span"][0] <= sp[0] <= sp[1] <= fd["span"][1])
             by_text = (txt and fd["text"] and txt in fd["text"])
-            if not (by_span or by_text):
-                outside.add(cls)
+            if by_span or by_text:
+                continue
+            if sp and fd["span"]:
+                outside.add(cls)       # both placed, and it really is outside
+            else:
+                unchecked.add(cls)     # no span to place it by — see docstring
         if outside:
             incomplete[li] = sorted(outside)
+        if unchecked:
+            unverifiable[li] = sorted(unchecked)
     return {
         "lots_with_description": len(gran_by_lot),
         "lots_missing_full_description": sorted(missing_fd),
         "lots_incomplete": incomplete,
+        "lots_unverifiable": unverifiable,
     }
 
 
@@ -312,7 +330,18 @@ def validate(extractions, source_text: str = "") -> dict:
 
     # ── grounding / cleanliness ──────────────────────────────────────────────
     if ungrounded:
-        flag("ungrounded", "med", f"{ungrounded} extraction(s) not grounded to source")
+        # Severity tracks how much of the notice lost its anchor, because the
+        # defect is not binary: one paraphrased value among two hundred good
+        # ones is a blemish, while a fifth of the page unplaceable means the
+        # model stopped quoting and started composing. A flat penalty charged
+        # both the same — the corpus median is 4% of a document's entities, and
+        # that was costing a full med (see _PENALTY), which left the check no
+        # gradient for the loop this module exists to drive.
+        frac = ungrounded / max(1, sum(classes.values()))
+        sev = "low" if frac < 0.05 else ("med" if frac < 0.20 else "high")
+        flag("ungrounded", sev,
+             f"{ungrounded} of {sum(classes.values())} extraction(s) not "
+             f"grounded to source ({frac:.0%})")
     if nullvals:
         flag("null_value", "low", f"{nullvals} literal 'null'/empty attribute value(s)")
     if invalid_kinds:
@@ -383,6 +412,7 @@ def validate(extractions, source_text: str = "") -> dict:
             "ungrounded": ungrounded,
             "null_values": nullvals,
             "full_description_incomplete_lots": len(cov["lots_incomplete"]),
+            "full_description_unverifiable_lots": len(cov["lots_unverifiable"]),
             "lots_missing_full_description": len(cov["lots_missing_full_description"]),
         },
     }

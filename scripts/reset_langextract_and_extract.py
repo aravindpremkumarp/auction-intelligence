@@ -76,7 +76,7 @@ from pipeline.load_extractions import (
     _next_batch,
     _plan_groups,
 )
-from pipeline.validators import SCORE_VERSION, validate
+from pipeline.validators import SCORE_VERSION, validate_stored
 
 # Every LangExtract-owned field on :Document. Clearing these returns a notice to
 # the "never extracted" state the /review/extraction surface treats as empty.
@@ -289,7 +289,7 @@ def _extract_one(d: dict, batch: int, route: bool):
                      expected_lot_count=d.get("expected_lot_count"),
                      roster=d.get("roster"),
                      passes=passes_for(d.get("notice_type")) if route else None)
-    ents = _entities(res)
+    ents = _entities(res, d["md"])
     # An empty result is a failed read, not a notice with nothing in it — the
     # model returned something LangExtract could not parse ("Content must
     # contain an 'extractions' key"), and every chunk was skipped. Writing it
@@ -300,7 +300,9 @@ def _extract_one(d: dict, batch: int, route: bool):
     if not ents:
         raise ValueError("extraction returned no entities — keeping the "
                          "existing one")
-    score = validate(res.extractions, source_text=d["md"])["score"]
+    # Scored from the entities that get stored (spans regrounded), so the
+    # number describes the document a reader opens — see _extract_one.
+    score = validate_stored(ents, source_text=d["md"])["score"]
     run_query(
         """
         UNWIND $fns AS name
