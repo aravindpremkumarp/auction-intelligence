@@ -22,6 +22,9 @@ from api.neo4j_client import run_query
 from api.canonical import also_on, canonical_listing, has_photos, source
 from api.places import district_effective
 from api.tools.cypher_tools import get_auction_detail
+# The notice-entity reader, imported rather than re-queried: it is where the
+# single-lot / multi-lot scope discipline and the `gaps` list are defined.
+from api.agent3.get_property import get_property as get_property_detail
 # Imported, never re-implemented: a second copy of "which bucket is this" is
 # how the conflict flag and the lot matcher each grew a rival that disagreed
 # with the writer.
@@ -421,3 +424,28 @@ def auction_detail(request: Request, auction_id: str) -> dict:
     if detail is None:
         raise HTTPException(status_code=404, detail="Auction not found")
     return detail
+
+
+@router.get("/auction/{auction_id}/notice")
+@limiter.limit(PUBLIC_READ_LIMIT)
+def auction_notice(request: Request, auction_id: str) -> dict:
+    """The sale notice's own entities for one listing — what `/auction/{id}`
+    deliberately leaves out.
+
+    `/auction/{id}` returns the portal row plus the AuctionProperty node's
+    flat fields; the notice entities live on the Lot/Parcel/Document side of
+    the graph (identifiers, extents by kind, boundaries with road width and
+    access, possession, encumbrance, loan accounts, parties by role, EMD
+    account, signing officer, terms and legal framework). Rather than widen
+    `_DETAIL_CYPHER` — which the chat agent's `get_auction_details` also
+    reads, and where the extra payload would be re-sent every turn — this
+    reuses `api/agent3/get_property.py`, the one reader that already knows
+    the scope rules: on a multi-lot notice the lot facts come back under
+    `notice_lots` with `scope: "notice"`, never flattened into this
+    property's own, and `gaps` names what the notice does NOT say.
+    """
+    bundle = get_property_detail([auction_id], depth="full")
+    props = bundle.get("properties") or []
+    if not props:
+        raise HTTPException(status_code=404, detail="Auction not found")
+    return props[0]

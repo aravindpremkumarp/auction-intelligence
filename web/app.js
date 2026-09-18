@@ -1385,6 +1385,14 @@ async function apiAuctionDetail(auctionId) {
   if (!res.ok) throw new Error(`detail ${res.status}`);
   return res.json();
 }
+// The sale notice's own entities (identifiers, extents, boundaries,
+// possession, loans, EMD account, terms). Kept off `/auction/{id}` because
+// that payload is also what the chat agent re-sends every turn.
+async function apiAuctionNotice(auctionId) {
+  const res = await authFetch(`${API_BASE}/auction/${encodeURIComponent(auctionId)}/notice`);
+  if (!res.ok) throw new Error(`notice ${res.status}`);
+  return res.json();
+}
 async function apiFeedback(payload) {
   const res = await authFetch(`${API_BASE}/feedback`, {
     method: 'POST',
@@ -2398,8 +2406,15 @@ async function loadAndRenderDetail(id) {
   document.getElementById('detail-history-wrap').style.display = 'none';
   document.getElementById('detail-history').innerHTML = '';
   document.getElementById('detail-desc-wrap').style.display = 'none';
+  document.getElementById('detail-notice-wrap').style.display = 'none';
+  document.getElementById('detail-notice').innerHTML = '';
   document.getElementById('detail-chat-log').innerHTML = '';
   loadDetailChat(id);
+  // The notice entities are a second, slower read — fetched alongside so a
+  // slow (or failed) notice lookup never delays the price and dates.
+  apiAuctionNotice(id)
+    .then(bundle => { if (currentDetailId === id) renderNoticeEntities(bundle); })
+    .catch(e => console.warn('[notice] load failed', e));
   try {
     const detail = await apiAuctionDetail(id);
     renderDetail(detail);
@@ -2469,6 +2484,11 @@ const _LUCIDE = {
   pin:      '<path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/>',
   phone:    '<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.8 19.8 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92Z"/>',
   tag:      '<path d="M12.59 2.59A2 2 0 0 0 11.17 2H4a2 2 0 0 0-2 2v7.17a2 2 0 0 0 .59 1.41l8.7 8.7a2.43 2.43 0 0 0 3.42 0l6.58-6.58a2.43 2.43 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".75"/>',
+  ruler:    '<path d="M21.3 8.7 8.7 21.3a1 1 0 0 1-1.4 0L2.7 16.7a1 1 0 0 1 0-1.4L15.3 2.7a1 1 0 0 1 1.4 0l4.6 4.6a1 1 0 0 1 0 1.4Z"/><path d="m7.5 10.5 2 2"/><path d="m10.5 7.5 2 2"/><path d="m13.5 4.5 2 2"/><path d="m4.5 13.5 2 2"/>',
+  file:     '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v5h6"/><path d="M9 13h6M9 17h6"/>',
+  compass:  '<circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88"/>',
+  key:      '<circle cx="7.5" cy="15.5" r="3.5"/><path d="m10 13 9.5-9.5"/><path d="m16 7 2.5 2.5"/><path d="m13.5 9.5 2.5 2.5"/>',
+  alert:    '<path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/>',
 };
 function licon(name) {
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${_LUCIDE[name] || ''}</svg>`;
@@ -2647,6 +2667,268 @@ function renderDetail(detail) {
 
   updateDetailSaveButton();
 }
+/* ── "From the sale notice": the extracted entities ──────────────────────
+   `/auction/{id}` is the portal row. This section is the notice itself —
+   what a bidder would otherwise have to read the PDF for. The payload comes
+   from api/agent3/get_property.py, so the scope rules hold here too: on a
+   multi-lot notice that no resolver pinned, the lot facts render under
+   "the notice covers N lots", never as this property's own. */
+const NOTICE_ID_LABELS = {
+  survey_old: 'survey no (old)', survey_new: 'survey no (new)',
+  survey: 'survey no', patta: 'patta no', chitta: 'chitta no',
+  khata: 'khata no', plot: 'plot no', flat: 'flat no', block: 'block',
+  floor: 'floor', door_old: 'door no (old)', door_new: 'door no (new)',
+  assessment_old: 'assessment no (old)', assessment_new: 'assessment no (new)',
+  sale_deed: 'sale deed', approved_layout: 'approved layout',
+  property_id: 'property id', cersai: 'CERSAI id', ward: 'ward',
+  ward_no: 'ward', ward_old: 'ward (old)', ward_new: 'ward (new)',
+  registration_sub_district: 'sub-registrar office',
+};
+const NOTICE_EXTENT_LABELS = {
+  total: 'total extent', extent: 'extent', built_up: 'built-up',
+  super_built_up: 'super built-up', carpet: 'carpet',
+  uds: 'undivided share', uds_parent: 'UDS parent extent',
+};
+const NOTICE_EXTENT_ORDER = ['total', 'extent', 'built_up', 'super_built_up',
+                             'carpet', 'uds', 'uds_parent'];
+const NOTICE_SIDES = ['north', 'south', 'east', 'west'];
+
+// Notice dates are a mix of timestamps ("2026-05-08T11:00") and plain dates
+// ("2026-01-05"); formatAuctionDate would render the latter as "· 00:00".
+function fmtNoticeDate(v) {
+  if (v == null || v === '') return '';
+  const s = String(v);
+  const out = formatAuctionDate(s);
+  if (out === '—') return s;
+  return s.includes('T') ? out : out.split(' · ')[0];
+}
+function noticeItem(icon, label, valueHtml) {
+  if (!valueHtml) return '';
+  return `<div class="pb-item">${licon(icon)}<div><div class="lbl">${escapeHtml(label)}</div>` +
+         `<div class="val">${valueHtml}</div></div></div>`;
+}
+function noticePanel(icon, title, itemsHtml) {
+  const body = (itemsHtml || []).filter(Boolean).join('');
+  if (!body) return '';
+  return `<section class="pb-panel"><div class="pb-eyebrow">${licon(icon)}${escapeHtml(title)}</div>` +
+         `<div class="pb-kv">${body}</div></section>`;
+}
+
+function noticeExtentsPanel(lot) {
+  const byKind = new Map();
+  for (const e of lot.extents || []) {
+    if (!e || !e.kind || byKind.has(e.kind)) continue;
+    byKind.set(e.kind, e);
+  }
+  const items = NOTICE_EXTENT_ORDER.filter(k => byKind.has(k)).map(k => {
+    const e = byKind.get(k);
+    const raw = e.raw ? String(e.raw) : '';
+    const sqft = e.sqft != null ? `${Number(e.sqft).toLocaleString('en-IN')} sq.ft` : '';
+    // The notice's own wording leads; the normalised sq.ft is the gloss, and
+    // only where it says something the raw string doesn't — "570 Sq.ft
+    // (570 sq.ft)" is noise, "44 cents (19,166.4 sq.ft)" is the point.
+    // A raw with no unit in it ("570") reads as a bare number — use the
+    // normalised string, which carries one.
+    const rawHasUnit = /[a-z]/i.test(raw);
+    const val = raw && sqft && e.unit !== 'sq_ft'
+      ? `${escapeHtml(raw)} <span class="pb-note">(${escapeHtml(sqft)})</span>`
+      : escapeHtml((rawHasUnit ? raw : '') || sqft || raw);
+    return noticeItem('ruler', NOTICE_EXTENT_LABELS[k] || k, val);
+  });
+  return noticePanel('ruler', 'size, as the notice states it', items);
+}
+
+function noticeIdentifiersPanel(lot) {
+  const grouped = new Map();
+  for (const i of lot.identifiers || []) {
+    if (!i || !i.kind || !i.value) continue;
+    const vals = grouped.get(i.kind) || [];
+    if (!vals.includes(String(i.value))) vals.push(String(i.value));
+    grouped.set(i.kind, vals);
+  }
+  const items = [...grouped.entries()].map(([kind, vals]) =>
+    noticeItem('key', NOTICE_ID_LABELS[kind] || kind.replace(/_/g, ' '),
+               escapeHtml(vals.join(', '))));
+  return noticePanel('key', 'identifiers', items);
+}
+
+function noticeBoundariesPanel(lot) {
+  const bySide = new Map();
+  for (const b of lot.boundaries || []) {
+    if (b && b.side && !bySide.has(b.side)) bySide.set(b.side, b);
+  }
+  const items = NOTICE_SIDES.filter(s => bySide.has(s)).map(side => {
+    const b = bySide.get(side);
+    const bits = [];
+    if (b.adjacent) bits.push(escapeHtml(String(b.adjacent)));
+    // Adjacency and dimension are separate facts in the notice; keep them so.
+    if (b.length_ft != null) bits.push(`<span class="pb-note">${escapeHtml(String(b.length_ft))} ft</span>`);
+    if (b.road_width_ft != null) bits.push(`<span class="pb-note">road ${escapeHtml(String(b.road_width_ft))} ft</span>`);
+    return noticeItem('compass', side, bits.join(' · '));
+  });
+  return noticePanel('compass', 'boundaries', items);
+}
+
+function noticeSitePanel(lot) {
+  const poss = lot.possession || null;
+  const possVal = poss
+    ? escapeHtml(poss.type) + (poss.taken_on ? ` <span class="pb-note">taken ${escapeHtml(fmtNoticeDate(poss.taken_on))}</span>` : '')
+    : '';
+  return noticePanel('landmark', 'possession & condition', [
+    noticeItem('landmark', 'possession', possVal),
+    noticeItem('file', 'encumbrance', lot.encumbrance ? escapeHtml(String(lot.encumbrance)) : ''),
+    noticeItem('building', 'construction', lot.construction_type ? escapeHtml(String(lot.construction_type)) : ''),
+    noticeItem('user', 'occupancy', lot.occupancy_status ? escapeHtml(String(lot.occupancy_status)) : ''),
+    noticeItem('pin', 'road width', lot.road_width_ft != null ? `${escapeHtml(String(lot.road_width_ft))} ft` : ''),
+    noticeItem('ruler', 'frontage', lot.frontage_ft != null ? `${escapeHtml(String(lot.frontage_ft))} ft` : ''),
+    noticeItem('pin', 'landmark', lot.landmark ? escapeHtml(String(lot.landmark)) : ''),
+    noticeItem('pin', 'address', lot.address ? escapeHtml(String(lot.address)) : ''),
+  ]);
+}
+
+function noticePartiesPanel(lot) {
+  const parties = (lot.parties || []).filter(p => p && p.name);
+  const byRole = new Map();
+  for (const p of parties) {
+    const role = p.role || 'party';
+    const names = byRole.get(role) || [];
+    if (!names.includes(p.name)) names.push(p.name);
+    byRole.set(role, names);
+  }
+  const items = [...byRole.entries()].map(([role, names]) =>
+    noticeItem('user', role.replace(/_/g, ' '), escapeHtml(names.join(', '))));
+  const holders = (lot.title_holders || []).filter(Boolean);
+  if (holders.length) items.push(noticeItem('user', 'title held by', escapeHtml(holders.join(', '))));
+  for (const l of lot.loans || []) {
+    if (!l || !l.account_no) continue;
+    const bits = [];
+    if (l.outstanding != null) bits.push(escapeHtml(formatINR(Number(l.outstanding))));
+    if (l.as_on) bits.push(`<span class="pb-note">as on ${escapeHtml(fmtNoticeDate(l.as_on))}</span>`);
+    if (l.demand_notice_date) bits.push(`<span class="pb-note">demand notice ${escapeHtml(fmtNoticeDate(l.demand_notice_date))}</span>`);
+    items.push(noticeItem('wallet', `loan ${l.account_no}`, bits.join(' · ') || '—'));
+  }
+  return noticePanel('user', 'parties & secured debt', items);
+}
+
+function noticeSchedulesPanel(lot) {
+  const items = (lot.schedules || []).filter(s => s && (s.label || s.extent)).map(s => {
+    const bits = [s.type, s.extent].filter(Boolean).map(x => escapeHtml(String(x)));
+    return noticeItem('file', `schedule ${s.label || ''}`.trim(), bits.join(' · '));
+  });
+  return noticePanel('file', 'schedules', items);
+}
+
+function noticeTermsPanel(lot) {
+  // Per-attempt auction terms the briefing above doesn't already carry.
+  const a = (lot.auctions || [])[0];
+  if (!a) return '';
+  return noticePanel('gavel', 'auction terms', [
+    noticeItem('wallet', 'bid increment', a.bid_increment != null ? escapeHtml(formatINR(Number(a.bid_increment))) : ''),
+    noticeItem('clock', 'inspection', a.inspection ? escapeHtml(fmtNoticeDate(a.inspection)) : ''),
+    noticeItem('clock', 'auto-extension', a.auto_extension_minutes != null ? `${escapeHtml(String(a.auto_extension_minutes))} min` : ''),
+    noticeItem('gavel', 'attempt', a.attempt_no != null ? `#${escapeHtml(String(a.attempt_no))}` : ''),
+    noticeItem('gavel', 'SARFAESI stage', a.sarfaesi_stage ? escapeHtml(String(a.sarfaesi_stage)) : ''),
+  ]);
+}
+
+function noticeDocPanel(doc) {
+  const emd = (doc.emd_accounts || []).filter(e => e && (e.account_no || e.ifsc));
+  const emdItems = emd.map(e => {
+    const bits = [e.account_no, e.ifsc, e.mode_of_payment].filter(Boolean)
+      .map(x => escapeHtml(String(x)));
+    return noticeItem('wallet', e.account_name || 'EMD account', bits.join(' · '));
+  });
+  const phones = [...new Set((doc.contacts || []).map(c => c && c.phone).filter(Boolean))];
+  const emails = [...new Set((doc.contacts || []).map(c => c && c.email).filter(Boolean))];
+  const officers = [...new Set((doc.officers || []).map(o => o && o.name).filter(Boolean))];
+  const items = [
+    ...emdItems,
+    noticeItem('phone', 'notice contact', phones.length
+      ? phones.map(p => `<a href="tel:${escapeHtml(String(p).replace(/[^0-9+]/g, ''))}">${escapeHtml(p)}</a>`).join(', ') : ''),
+    noticeItem('phone', 'email', emails.length
+      ? emails.map(e => `<a href="mailto:${escapeHtml(e)}">${escapeHtml(e)}</a>`).join(', ') : ''),
+    noticeItem('user', 'authorised officer', officers.length ? escapeHtml(officers.join(', ')) : ''),
+    noticeItem('gavel', 'legal basis', doc.legal_framework ? escapeHtml(String(doc.legal_framework)) : ''),
+    noticeItem('landmark', 'issued by', doc.issuing_bank ? escapeHtml(String(doc.issuing_bank)) : ''),
+    noticeItem('building', 'platform', doc.platform ? escapeHtml(String(doc.platform)) : ''),
+    noticeItem('file', 'case reference', (doc.case_references || []).length
+      ? escapeHtml((doc.case_references || []).join(', ')) : ''),
+    noticeItem('landmark', 'trust', (doc.trusts || []).length
+      ? escapeHtml((doc.trusts || []).join(', ')) : ''),
+    noticeItem('file', 'notice document', doc.notice_url
+      ? `<a href="${escapeHtml(doc.notice_url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(doc.filename || 'open the notice')}</a>` : ''),
+  ];
+  const panel = noticePanel('file', 'notice, payment & parties on record', items);
+  const terms = doc.sale_terms ? `
+    <section class="pb-panel">
+      <div class="pb-eyebrow">${licon('gavel')}terms of sale</div>
+      <details class="notice-terms"><summary>read the notice's terms block</summary>
+        <div class="detail-desc-raw">${escapeHtml(String(doc.sale_terms))}</div>
+      </details>
+    </section>` : '';
+  return panel + terms;
+}
+
+function noticeLotsPanel(bundle) {
+  // Multi-lot notice with no resolved lot: summarise, then list. Never
+  // promote one lot's extent or survey number to this property's own.
+  const s = bundle.notice_summary || {};
+  const summary = noticePanel('file', `this notice covers ${bundle.notice_lot_count} lots`, [
+    noticeItem('ruler', 'size range', Array.isArray(s.sqft_range) && s.sqft_range.length === 2
+      ? `${escapeHtml(Number(s.sqft_range[0]).toLocaleString('en-IN'))} – ${escapeHtml(Number(s.sqft_range[1]).toLocaleString('en-IN'))} sq.ft` : ''),
+    noticeItem('tag', 'property types', (s.property_types || []).length
+      ? escapeHtml((s.property_types || []).join(', ')) : ''),
+    noticeItem('landmark', 'possession', (s.possession_types || []).length
+      ? escapeHtml((s.possession_types || []).join(', ')) : ''),
+    noticeItem('file', 'lots with an encumbrance note', s.lots_with_encumbrance_note
+      ? escapeHtml(String(s.lots_with_encumbrance_note)) : ''),
+  ]);
+  const lots = (bundle.notice_lots || []).slice(0, 12).map((lot, i) => {
+    const bits = [
+      lot.property_type,
+      lot.headline_sqft != null ? `${Number(lot.headline_sqft).toLocaleString('en-IN')} sq.ft` : null,
+      [lot.village, lot.taluk, lot.district].filter(Boolean).join(', ') || null,
+    ].filter(Boolean).map(x => escapeHtml(String(x)));
+    return noticeItem('tag', `lot ${lot.lot_index || i + 1}`, bits.join(' · '));
+  });
+  return summary + noticePanel('tag', 'lots on this notice', lots);
+}
+
+function renderNoticeEntities(bundle) {
+  const wrap = document.getElementById('detail-notice-wrap');
+  const host = document.getElementById('detail-notice');
+  if (!wrap || !host) return;
+  const doc = (bundle && bundle.notice) || {};
+  const lot = (bundle && bundle.property) || null;
+  const gaps = (bundle && Array.isArray(bundle.gaps)) ? bundle.gaps : [];
+  const parts = [];
+  if (bundle && bundle.scope_note) {
+    parts.push(`<section class="pb-panel notice-scope"><div class="pb-note">${escapeHtml(bundle.scope_note)}</div></section>`);
+  }
+  if (lot) {
+    parts.push(
+      noticeExtentsPanel(lot), noticeIdentifiersPanel(lot),
+      noticeBoundariesPanel(lot), noticeSitePanel(lot),
+      noticePartiesPanel(lot), noticeSchedulesPanel(lot), noticeTermsPanel(lot),
+    );
+  } else if (bundle && (bundle.notice_lots || []).length) {
+    parts.push(noticeLotsPanel(bundle));
+  }
+  parts.push(noticeDocPanel(doc));
+  if (gaps.length) {
+    // The gaps are the diligence product: an answer that lists only what is
+    // present makes an incomplete notice look clean.
+    parts.push(`<section class="pb-panel notice-gaps">
+      <div class="pb-eyebrow">${licon('alert')}what the notice does not say</div>
+      <ul class="notice-gap-list">${gaps.map(g => `<li>${escapeHtml(g)}</li>`).join('')}</ul>
+    </section>`);
+  }
+  const html = parts.filter(Boolean).join('');
+  if (!html) { wrap.style.display = 'none'; return; }
+  host.innerHTML = `<div class="pb">${html}</div>`;
+  wrap.style.display = '';
+}
+
 function updateDetailSaveButton() {
   const sb = document.getElementById('detail-save');
   if (!currentDetailId) return;

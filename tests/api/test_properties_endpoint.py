@@ -120,3 +120,25 @@ def test_auction_detail_found_and_missing(monkeypatch: pytest.MonkeyPatch) -> No
     client = _client()
     assert client.get("/auction/a-9").json() == detail
     assert client.get("/auction/nope").status_code == 404
+
+
+def test_auction_notice_unwraps_the_single_property(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`/auction/{id}/notice` serves ONE property, not the agent tool's
+    `{properties: [...]}` envelope, and asks for `depth="full"` so the UI gets
+    every lot rather than the "call again" hint."""
+    seen: dict = {}
+
+    def _fake(ids, depth="standard"):
+        seen["ids"], seen["depth"] = ids, depth
+        if ids == ["a-9"]:
+            return {"properties": [{"auction_id": "a-9", "scope": "lot",
+                                    "gaps": ["No patta number in the notice."]}]}
+        return {"properties": [], "not_found": ids}
+
+    monkeypatch.setattr(props, "get_property_detail", _fake)
+    client = _client()
+    body = client.get("/auction/a-9/notice").json()
+    assert body["auction_id"] == "a-9"
+    assert body["gaps"] == ["No patta number in the notice."]
+    assert seen == {"ids": ["a-9"], "depth": "full"}
+    assert client.get("/auction/nope/notice").status_code == 404
