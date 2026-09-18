@@ -381,7 +381,7 @@ const PULL = GH + '/pull/';
 
 const MARKETING_DATA = {
 meta: {
-  updated: '2026-09-07',
+  updated: '2026-09-18',
   situation: 'pre-traction: ~7 registered users. the whole marketing engine was built in one sprint (jul 9–16, 2026) and is <b>human-gated end-to-end</b> — agents draft and stage, the founder reviews, merges and publishes. nothing auto-posts. north star (proposed): <b>weekly activated users</b> — ≥1 grounded search plus a value action. <b>first real organic read (2026-08-19):</b> search console shows 684 pages indexed and 98 clicks / 3.4K impressions over 3 months at average position 18.5 — the guides earn the impressions, the property pages do not, and page 2 is where the clicks are being lost.',
 },
 
@@ -685,9 +685,18 @@ risks: [
   { t:'publishing bottleneck', d:'nothing auto-posts (by design) — the founder is the gate for 5 platforms + PR merges. staged batches going stale unpublished is the failure mode to watch.' },
   { t:'zero proof points', d:'no testimonials or case studies captured yet — plan.md calls this the "highest-value gap" for conversion.' },
   { t:'anonymous operator', d:'the trust/entity identity is undecided; it blocks the about page, PR, and directory submissions (E-E-A-T).' },
+  { t:'the paywall costs indexable text', d:'the notice description was the only long-form content on the 1,177 property pages, and it is now a paid field, so those pages ship the free facts plus an unlock line. the guides already earn the impressions and the property pages did not, so the bet is that little is lost — but it is a bet, and the next GSC readout is what settles it. the 1,177 pages already on disk still carry the old text until prerender is re-run.' },
+  { t:'the paywall is not closed on chat', d:'the chat agent reads the same graph through api/agent3/, so a free user can still ask it for a survey number or the authorised officer. the property page charges for what chat gives away.' },
 ],
 
 changelog: [
+  { d:'2026-09-18', items:[
+    { t:'The property page now has a free tier and a paid one, modelled on findauction.in. Free is what the browse card already promises plus the extent the notice states: property type, village/district, bank, reserve price, auction date, size, possession. Paid is everything the extraction pipeline produces — survey and patta numbers, boundaries with their side measurements, the full address and description, the parties and their secured debt, the authorised officer, the EMD account and IFSC, the terms block, the notice document, and the list of what the notice fails to say. EMD, the bid increment, the application deadline and the auction close moved to paid with them.' },
+    { t:'Withheld on the server, not hidden in the browser. api/entitlements.py is an allowlist — /auction/{id} returns properties(a), every field on the node, so a denylist would publish each new field the loader writes. A locked value never reaches the client, so the only way to read it is to buy it.' },
+    { t:'The locked panel names what it holds: "8 identifiers — survey no (old), patta no, sale deed", "all 4 boundaries, with their side measurements", "2 things this notice does NOT say". Counts and identifier kinds are the teaser; the values are the product. An empty locked panel reads as a broken page, which is the opposite of a reason to upgrade.' },
+    { t:'The public property pages were giving the same thing away to crawlers. Each prerendered /property/<id> published the full notice description — survey numbers, patta, boundaries, assessment and sale-deed numbers — in the static block AND 600 characters of it in the JSON-LD. Both now carry the free facts and say plainly that the rest is behind an unlock, which is also what stops the indexed page from differing from the page a visitor gets. EMD and the application deadline left the structured data for the same reason.' },
+    { t:'Not done: the 1,177 pages already on disk still carry the old text. Re-running prerender needs the live API, so it is an operational step, not a code one: python -m scripts.prerender_properties --refresh --force.' },
+  ]},
   { d:'2026-09-07', items:[
     { t:'Both render-blocking third parties are off the critical path. Named as a risk in the audit above and now fixed: the Google Fonts stylesheet and the jsdelivr Supabase UMD both sat in <head>, so first paint waited on someone else\'s CDN. The failure mode is not a slow page, it is a BLANK one — measured with the third parties unreachable, every page sat empty for 12.5s. Same measurement after the fix: 52-200ms, with 1,075-3,225 characters of real text on screen. That gap is the whole point; on a fast connection neither version looks broken, which is why this survived to launch.' },
     { t:'Fonts now preload, apply as media="print" so they never block, then flip to all on load, with a <noscript> fallback. display=swap was already in the URL, so text was always going to paint in the fallback face first. The risk this introduces is a swap shift — the exact thing just fixed on the property pages — so it was measured rather than assumed: fetched the real Inter/Bricolage/JetBrains woff2 files, served them locally, and loaded the page with the swap happening at 0ms and at 800ms. CLS 0.0053 both times, about a nineteenth of Google\'s 0.1 "good" threshold, because the fallback stack is metrically close. Applied to all 1,279 pages and to the three generators.' },

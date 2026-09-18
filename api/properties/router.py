@@ -13,9 +13,12 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
+from api.auth.dependencies import get_optional_user
 from api.auth.rate_limit import PUBLIC_READ_LIMIT, STATS_LIMIT, limiter
+from api.auth.schemas import UserOut
+from api.entitlements import is_paid, redact_detail, redact_notice
 from api.neo4j_client import run_query
 # Same rule as the property-type import below, for the same reason: the
 # notice-first place precedence is defined once and read here, never restated.
@@ -419,16 +422,26 @@ def stats(request: Request) -> dict:
 
 @router.get("/auction/{auction_id}")
 @limiter.limit(PUBLIC_READ_LIMIT)
-def auction_detail(request: Request, auction_id: str) -> dict:
+async def auction_detail(
+    request: Request,
+    auction_id: str,
+    user: UserOut | None = Depends(get_optional_user),
+) -> dict:
     detail = get_auction_detail(auction_id)
     if detail is None:
         raise HTTPException(status_code=404, detail="Auction not found")
-    return detail
+    # The free view is the browse card plus the notice's extent; the rest is
+    # withheld HERE, not hidden in the browser (api/entitlements.py).
+    return redact_detail(detail, is_paid(user))
 
 
 @router.get("/auction/{auction_id}/notice")
 @limiter.limit(PUBLIC_READ_LIMIT)
-def auction_notice(request: Request, auction_id: str) -> dict:
+async def auction_notice(
+    request: Request,
+    auction_id: str,
+    user: UserOut | None = Depends(get_optional_user),
+) -> dict:
     """The sale notice's own entities for one listing — what `/auction/{id}`
     deliberately leaves out.
 
@@ -448,4 +461,6 @@ def auction_notice(request: Request, auction_id: str) -> dict:
     props = bundle.get("properties") or []
     if not props:
         raise HTTPException(status_code=404, detail="Auction not found")
-    return props[0]
+    # These entities ARE the paid product: a free caller gets counts and the
+    # kinds of identifier on the notice, never a value.
+    return redact_notice(props[0], is_paid(user))

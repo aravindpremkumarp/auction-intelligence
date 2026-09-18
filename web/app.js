@@ -2489,6 +2489,7 @@ const _LUCIDE = {
   compass:  '<circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88"/>',
   key:      '<circle cx="7.5" cy="15.5" r="3.5"/><path d="m10 13 9.5-9.5"/><path d="m16 7 2.5 2.5"/><path d="m13.5 9.5 2.5 2.5"/>',
   alert:    '<path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/>',
+  lock:     '<rect x="3.5" y="10.5" width="17" height="10.5" rx="2"/><path d="M7.5 10.5V7a4.5 4.5 0 0 1 9 0v3.5"/>',
 };
 function licon(name) {
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${_LUCIDE[name] || ''}</svg>`;
@@ -2624,6 +2625,7 @@ function renderDetail(detail) {
     <div class="pb">
       ${topHtml}
       ${metaHtml ? `<section class="pb-panel"><div class="pb-eyebrow">${licon('tag')}Property &amp; parties</div><div class="pb-kv">${metaHtml}</div></section>` : ''}
+      ${lockedFactsHtml(detail.locked)}
       ${alsoHtml}
     </div>`;
 
@@ -2667,6 +2669,39 @@ function renderDetail(detail) {
 
   updateDetailSaveButton();
 }
+/* ── The paywall, as the page renders it ─────────────────────────────────
+   The server already withheld the values (api/entitlements.py) — nothing
+   locked is in the payload to un-hide. These panels only say what is behind
+   the lock, in the notice's own vocabulary, and open checkout. A locked
+   panel that names its contents is the reason to upgrade; an empty one
+   reads as a broken page. */
+function unlockBtnHtml(label) {
+  return `<button type="button" class="btn unlock-btn" onclick="openUnlock()">${escapeHtml(label)}</button>`;
+}
+function openUnlock() {
+  if (window.track) window.track('unlock_click', { source: 'detail' });
+  // Billing opens the login modal itself when nobody is signed in.
+  if (window.Billing && window.Billing.openCheckout) window.Billing.openCheckout();
+}
+function lockedFactsHtml(locked) {
+  if (!locked) return '';
+  const items = (locked.fields || []).map(f => `<li>${escapeHtml(f)}</li>`).join('');
+  const extras = [];
+  if (locked.document_count) {
+    extras.push(`${locked.document_count} document${locked.document_count === 1 ? '' : 's'}`);
+  }
+  if (locked.other_listing_count) {
+    extras.push(`${locked.other_listing_count} listing${locked.other_listing_count === 1 ? '' : 's'} on other portals`);
+  }
+  return `
+    <section class="pb-panel locked-panel">
+      <div class="pb-eyebrow">${licon('lock')}locked</div>
+      <div class="locked-lead">this part of the listing is not public. unlock it to see:</div>
+      <ul class="locked-list">${items}${extras.map(e => `<li>${escapeHtml(e)}</li>`).join('')}</ul>
+      ${unlockBtnHtml('unlock this property')}
+    </section>`;
+}
+
 /* ── "From the sale notice": the extracted entities ──────────────────────
    `/auction/{id}` is the portal row. This section is the notice itself —
    what a bidder would otherwise have to read the PDF for. The payload comes
@@ -2894,10 +2929,67 @@ function noticeLotsPanel(bundle) {
   return summary + noticePanel('tag', 'lots on this notice', lots);
 }
 
+// The free view of the notice section: the extent/type/village the listing
+// already promises, then a count of everything behind the lock. Counts and
+// identifier KINDS ("survey no", "patta no") are the teaser; the values are
+// the product, and the server never sent them.
+function lockedNoticeHtml(bundle) {
+  const l = bundle.locked || {};
+  const p = bundle.property_preview || {};
+  const c = l.counts || {};
+  const previewItems = [
+    noticeItem('tag', 'property type', p.property_type ? escapeHtml(String(p.property_type)) : ''),
+    noticeItem('ruler', 'extent', p.headline_sqft != null
+      ? `${escapeHtml(Number(p.headline_sqft).toLocaleString('en-IN'))} sq.ft` : ''),
+    noticeItem('landmark', 'possession', p.possession_type ? escapeHtml(String(p.possession_type)) : ''),
+    // Village and taluk carry the same name often enough that printing both
+    // reads as a bug ("Nilakottai, Nilakottai, Dindigul").
+    noticeItem('pin', 'village', [...new Set([p.village, p.taluk, p.district].filter(Boolean))]
+      .map(x => escapeHtml(String(x))).join(', ')),
+  ];
+  const kinds = (l.identifier_kinds || [])
+    .map(k => NOTICE_ID_LABELS[k] || String(k).replace(/_/g, ' '));
+  const behind = [];
+  if (c.identifiers) {
+    behind.push(`${c.identifiers} identifier${c.identifiers === 1 ? '' : 's'}` +
+                (kinds.length ? ` — ${kinds.slice(0, 6).join(', ')}` : ''));
+  }
+  if (c.boundaries) behind.push(`all ${c.boundaries} boundaries, with their side measurements`);
+  // No count here: the headline extent is already shown free above, so "5
+  // extents" would be counting one the visitor can see.
+  if (c.extents > 1) behind.push('the other extents the notice states — built-up, carpet, undivided share');
+  if (c.parties) behind.push(`${c.parties} part${c.parties === 1 ? 'y' : 'ies'} — borrowers, guarantors, title holders`);
+  if (c.loans) behind.push(`${c.loans} loan account${c.loans === 1 ? '' : 's'} and the outstanding secured on it`);
+  if (c.schedules) behind.push(`${c.schedules} schedule${c.schedules === 1 ? '' : 's'} of property`);
+  if (c.lots) behind.push(`every one of the ${c.lots} lots on this notice`);
+  behind.push('the full address and the notice\'s own description');
+  if (l.has_officer) behind.push('the authorised officer');
+  if (l.has_contacts) behind.push('the contact on the notice');
+  if (l.has_emd_account) behind.push('the EMD account and IFSC');
+  if (l.has_terms) behind.push('the terms of sale, verbatim');
+  if (l.has_notice_document) behind.push('the original notice document');
+  if (l.gap_count) {
+    behind.push(`${l.gap_count} thing${l.gap_count === 1 ? '' : 's'} this notice does NOT say`);
+  }
+  const preview = noticePanel('ruler', 'what the notice says about size', previewItems);
+  return preview + `
+    <section class="pb-panel locked-panel">
+      <div class="pb-eyebrow">${licon('lock')}the rest of this notice is locked</div>
+      <div class="locked-lead">we read the sale notice for this property. unlock it to see:</div>
+      <ul class="locked-list">${behind.map(b => `<li>${escapeHtml(b)}</li>`).join('')}</ul>
+      ${unlockBtnHtml('unlock this notice')}
+    </section>`;
+}
+
 function renderNoticeEntities(bundle) {
   const wrap = document.getElementById('detail-notice-wrap');
   const host = document.getElementById('detail-notice');
   if (!wrap || !host) return;
+  if (bundle && bundle.locked) {
+    host.innerHTML = `<div class="pb">${lockedNoticeHtml(bundle)}</div>`;
+    wrap.style.display = '';
+    return;
+  }
   const doc = (bundle && bundle.notice) || {};
   const lot = (bundle && bundle.property) || null;
   const gaps = (bundle && Array.isArray(bundle.gaps)) ? bundle.gaps : [];
