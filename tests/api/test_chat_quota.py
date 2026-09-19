@@ -40,6 +40,27 @@ def chat_client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     return TestClient(app)
 
 
+def test_the_tier_line_is_turns_not_fields() -> None:
+    """What paid buys, stated once in code.
+
+    Every tier sees the same graph and the same fields through agent3 — the
+    property page is where the free/paid split lives on DATA. In chat the
+    split is the allowance, so these two numbers are the product and a silent
+    edit to either is a pricing change.
+    """
+    from api.chat import gating
+
+    assert gating._CHAT_FREE_DAILY_LIMIT_DEFAULT == 10
+    assert gating._CHAT_PAID_DAILY_LIMIT_DEFAULT == 100
+    # Anonymous matches free per turn; its tighter MONTHLY cap stays, because
+    # its key is a salted IP and an IP is cheap to farm.
+    assert gating._CHAT_ANON_DAILY_LIMIT_DEFAULT == 10
+    # Free's monthly cap is a cost backstop, not a second product rule: at 30x
+    # the daily number, the daily cap is the only one a user ever meets.
+    assert (gating._CHAT_FREE_MONTHLY_LIMIT_DEFAULT
+            >= gating._CHAT_FREE_DAILY_LIMIT_DEFAULT * 30)
+
+
 def test_paid_tier_bypasses_free_cap(
     chat_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:

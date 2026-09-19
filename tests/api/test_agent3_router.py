@@ -210,7 +210,7 @@ def _client(monkeypatch, result):
     from fastapi.testclient import TestClient
 
     from api.agent3 import router as R
-    from api.auth import get_current_admin
+    from api.auth.dependencies import get_optional_user
     from api.main import app
 
     async def fake_run_turn(message, **kw):
@@ -220,11 +220,17 @@ def _client(monkeypatch, result):
     async def no_quota(*a, **k):
         return None
 
+    async def claims(thread_id, key):
+        return True
+
     import api.agent3.loop as L
     monkeypatch.setattr(L, "run_turn", fake_run_turn)
     monkeypatch.setattr(R, "enforce_chat_quota", no_quota)
     monkeypatch.setattr(R, "_saver", lambda: object())
-    app.dependency_overrides[get_current_admin] = lambda: None
+    # Ownership is a graph write; api/agent3/ownership.py owns its own tests.
+    monkeypatch.setattr(R.ownership, "claim", claims)
+    # Anonymous: the endpoint is open now, so no override is the real case.
+    app.dependency_overrides[get_optional_user] = lambda: None
     client = TestClient(app)
     client.fake = fake_run_turn
     return client

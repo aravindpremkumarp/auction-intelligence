@@ -817,50 +817,57 @@ document.querySelectorAll('#results-mobile-tabs button').forEach(b => {
 const IS_LAB = (() => {
   try { return /^\/lab\/?$/.test(location.pathname); } catch (_) { return false; }
 })();
-const CHAT_V2 = (() => {
-  // /lab IS the v2 surface, so the flag is implied there and cannot be turned
-  // off from the URL — otherwise the page would silently show v1 and the
-  // inspector would sit empty with nothing explaining why.
-  if (IS_LAB) return true;
-  try {
-    const q = new URLSearchParams(location.search).get('chatv2');
-    if (q === '1' || q === '0') { localStorage.setItem('chat_v2', q); return q === '1'; }
-    return localStorage.getItem('chat_v2') === '1';
-  } catch (_) { return false; }
-})();
-// Which loop answers a turn. Three exist and they differ in where the
-// conversation lives, which is the whole subject of the A/B:
-//   'v1'     /chat       pydantic-ai ReAct; client round-trips the transcript
-//   'tiered' /chat/v2    plan-execute-synthesize; client round-trips a summary
-//   'deep'   /chat/deep  Deep Agents ReAct; the server owns the transcript
-// `?loop=tiered` (or localStorage.chat_loop) switches back.
-//
-// The flagged surface DEFAULTS TO 'tiered', and it briefly did not. The deep
-// loop was made the default on the argument that a transcript answers
-// referring questions a summary cannot — which the A/B confirmed: it resolves
-// every one in the catalogue, including an off-topic aside and back again.
-// But it takes 149 s at the median against the tiered loop's 25 s, and the
-// idle guard below gives up at 75 s, so most of its correct answers never
-// reach the person who asked. A default that loses the measurement it was
-// set on has to move back; the picker is still there for anyone comparing.
-// See docs/chat-loop-ab-2026-08.md.
-//
-// Both endpoints are admin-only, so this only decides what an ADMIN sees on
-// /lab. A signed-in user gets 'v1' — CHAT_V2 above is false off /lab.
+// Was the v1/v2 A/B switch. **v1 is retired** (see CHAT_LOOP below), so every
+// loop the app can reach now speaks the v2-shaped request and response, and
+// this is a constant rather than a flag. Kept as a named constant instead of
+// being inlined at its five call sites: those sites are where the v1 shape
+// would have to come back if it ever did, and a `true` scattered through them
+// says nothing about why.
+const CHAT_V2 = true;
+// Which loop answers a turn. They differ in where the conversation lives,
+// which was the whole subject of the A/B:
 //   'agent3' /chat/agent3  the auction-specialised agent: six graph tools that
 //            reach into the sale notice, on-demand skills, and the answer /
-//            intent gates. Server owns the transcript, same as 'deep'.
+//            intent gates. Server owns the transcript.
 //            See docs/auction-deep-agent-2026-08.md.
-const CHAT_LOOPS = ['tiered', 'deep', 'agent3'];
+//   'tiered' /chat/v2    plan-execute-synthesize; client round-trips a summary
+//   'deep'   /chat/deep  Deep Agents ReAct; the server owns the transcript
+//
+// The deep loop was briefly the default, on the argument that a transcript
+// answers referring questions a summary cannot — which the A/B confirmed. But
+// it takes 149 s at the median against the tiered loop's 25 s, and the idle
+// guard below gives up at 75 s, so most of its correct answers never reached
+// the person who asked. agent3 is the loop that finally wins on both counts
+// (15.8 s median, and the notice questions the others cannot answer at all).
+// See docs/chat-loop-ab-2026-08.md for the first A/B.
+//
+// 2026-09-19: **agent3 is the default for everyone, and v1 is retired.** It
+// is not a fourth experiment any more — it is the chat. The evidence is in
+// docs/auction-deep-agent-2026-08.md §10 step 7: 15.8 s median turn at n=3
+// over 75 turns, 40/40 on the tool catalogue, 25/25 quality on two passes and
+// 24/25 on the third. That beats the tiered loop's 25 s on speed and answers
+// the notice questions no other loop can reach. The picker below still
+// switches to 'tiered' or 'deep' for anyone comparing; 'v1' is gone from the
+// list because nothing should route there any more.
+const CHAT_LOOPS = ['agent3', 'tiered', 'deep'];
 const CHAT_LOOP = (() => {
-  if (!CHAT_V2) return 'v1';
   try {
     const q = new URLSearchParams(location.search).get('loop');
-    if (CHAT_LOOPS.includes(q)) { localStorage.setItem('chat_loop', q); return q; }
+    if (CHAT_LOOPS.includes(q)) {
+      localStorage.setItem('chat_loop', q);
+      localStorage.setItem('chat_loop_explicit', '1');
+      return q;
+    }
     const saved = localStorage.getItem('chat_loop');
-    if (CHAT_LOOPS.includes(saved)) return saved;
+    // A visitor carrying `chat_loop='tiered'` from the old default kept it
+    // when agent3 became the default, which would have left every returning
+    // user on the loop this change is moving off. Only an EXPLICIT pick
+    // survives, and the query param above is the only thing that sets one.
+    if (CHAT_LOOPS.includes(saved) && localStorage.getItem('chat_loop_explicit') === '1') {
+      return saved;
+    }
   } catch (_) { /* private mode — fall through to the default */ }
-  return 'tiered';
+  return 'agent3';
 })();
 const CHAT_DEEP = CHAT_LOOP === 'deep';
 const CHAT_AGENT3 = CHAT_LOOP === 'agent3';
