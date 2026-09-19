@@ -309,3 +309,42 @@ def test_nothing_recognised_resolves_to_nothing(gaz):
     r = resolve_place(gaz, district="Pondicherry", taluk=None, village=None)
     assert r["district"] is None                # out of state, not forced in
     assert r["village_status"] == "absent"
+
+
+def test_a_harvested_taluk_spelling_reaches_its_gazetteer_name():
+    """63 listings write the taluk "Chengalpet". Similarity cannot reach
+    "Chengalpattu" from it, and the village beside it on those notices is a
+    real village of that taluk — which is what earns the alias its place."""
+    from pipeline.place_resolution import TALUK_ALIASES
+    assert TALUK_ALIASES["chengalpet"] == "Chengalpattu"
+    local = Gazetteer(
+        districts=["Chengalpattu"],
+        taluks=[("Chengalpattu", "Chengalpattu")],
+        villages=[("Chettipunniyam", "Chengalpattu", "Chengalpattu")],
+    )
+    r = resolve_place(local, district="Kancheepuram", taluk="Chengalpet",
+                      village="Chettipunniyam")
+    assert r["taluk"] == "Chengalpattu"
+    assert r["village"] == "Chettipunniyam"
+    assert r["village_status"] == "resolved"
+
+
+def test_no_alias_names_a_taluk_the_district_alone_can_settle():
+    """Tirupathur and Thiruppattur fold to one key, so a global alias naming
+    either would misfile every listing that meant the other. 14 listings spell
+    it one of these ways and they stay in the review queue on purpose."""
+    from pipeline.place_resolution import TALUK_ALIASES
+    folded = normalize_place("Tirupattur")
+    assert not [raw for raw in TALUK_ALIASES if normalize_place(raw) == folded]
+    assert not [t for t in TALUK_ALIASES.values() if normalize_place(t) == folded]
+
+
+def test_one_folded_spelling_never_names_two_taluks():
+    """Several raw spellings fold to the same key ("Sriperumpudur" and
+    "Sripurumbudur" both reach `sriperumbudur`). They must agree on the taluk,
+    or the table's answer depends on dict order."""
+    from pipeline.place_resolution import TALUK_ALIASES
+    seen: dict[str, str] = {}
+    for raw, official in TALUK_ALIASES.items():
+        key = normalize_place(raw)
+        assert seen.setdefault(key, official) == official, raw
