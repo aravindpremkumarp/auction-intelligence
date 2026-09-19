@@ -26,8 +26,19 @@ filters carried "for the matches panel only". This endpoint returns neither:
   apiChatScope`, and `scope` only under the v2 flag), so omitting them costs
   nothing and claiming them would cost the next reader an hour.
 
-**Admin only**, same as /chat/v2 and /chat/deep, for the same reason: every
-request spends real money on the prepaid OpenRouter key.
+**Open to everyone**, anonymous included, because this is now THE chat: the
+frontend routes every visitor here and `/chat` (v1, pydantic-ai) is retired.
+It was admin-only while it was a fourth experimental surface.
+
+Two things carry the weight that the admin gate used to:
+
+- **Cost** is bounded by `enforce_chat_quota`, which every turn passes
+  through — 10 questions a day free, 100 paid (`api/chat/gating.py`). That
+  quota IS the paid tier: every tier sees the same graph and the same fields,
+  and buys turns rather than data.
+- **Privacy** is bounded by `api/agent3/ownership.py`. The memory is keyed by
+  `thread_id` alone, so without an owner on the thread `/history` would hand
+  one visitor's conversation to anyone who types their id.
 
 **Lazy imports.** `langchain_openai` is ~28 MB of RSS against a 512 MB
 instance, so every import that reaches the loop lives inside a handler and an
@@ -44,7 +55,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from api.auth import get_current_admin
+from api.agent3 import ownership
+from api.auth.dependencies import get_optional_user
 from api.auth.schemas import UserOut
 from api.chat.gating import enforce_chat_quota, resolve_turn_model
 from api.chat.v2.schemas import PanelIn
@@ -155,9 +167,18 @@ async def _prepare(request: Request, req: ChatAgent3Request,
 
     from api.chat.v2.scope import sanitize_ids
 
+    # The thread has to be this caller's before a word of it is read back to
+    # them. A thread that is not theirs is replaced by a fresh one rather
+    # than refused — see api/agent3/ownership.py.
+    key = ownership.owner_key(request, user)
+    thread_id = _thread_id(req.thread_id)
+    if not await ownership.claim(thread_id, key):
+        thread_id = _thread_id(None)
+        await ownership.claim(thread_id, key)
+
     return {
         "message": message,
-        "thread_id": _thread_id(req.thread_id),
+        "thread_id": thread_id,
         "model_name": model_name,
         "reasoning_effort": effort,
         "panel": sanitize_ids((req.panel.matches if req.panel else []) or []),
@@ -242,7 +263,7 @@ async def _build_response(ctx: dict, result) -> ChatAgent3Response:
 
 @router.post("/chat/agent3", response_model=ChatAgent3Response)
 async def chat_agent3(request: Request, req: ChatAgent3Request,
-                      user: UserOut = Depends(get_current_admin)
+                      user: UserOut | None = Depends(get_optional_user)
                       ) -> ChatAgent3Response:
     ctx = await _prepare(request, req, user)
     from api.agent3.loop import run_turn
@@ -262,7 +283,7 @@ async def chat_agent3(request: Request, req: ChatAgent3Request,
 
 @router.post("/chat/agent3/stream")
 async def chat_agent3_stream(request: Request, req: ChatAgent3Request,
-                             user: UserOut = Depends(get_current_admin)):
+                             user: UserOut | None = Depends(get_optional_user)):
     ctx = await _prepare(request, req, user)
     from api.chat.router import _sse, _with_heartbeat
 
@@ -334,8 +355,8 @@ async def _thread_messages(thread_id: str) -> list:
 
 
 @router.get("/chat/agent3/{thread_id}/history")
-async def thread_history(thread_id: str,
-                         user: UserOut = Depends(get_current_admin)) -> dict:
+async def thread_history(request: Request, thread_id: str,
+                         user: UserOut | None = Depends(get_optional_user)) -> dict:
     """The thread's user questions and final answers, in order.
 
     The client keeps its own copy of the conversation for display, and #404
@@ -351,13 +372,16 @@ async def thread_history(thread_id: str,
     from api.agent3.manifest import history_from_messages
 
     key = _thread_id(thread_id)
+    if not await ownership.owns(key, ownership.owner_key(request, user)):
+        # 404, not 403: a 403 would confirm the thread exists.
+        raise HTTPException(status_code=404, detail="thread not found")
     return {"thread_id": key,
             "messages": history_from_messages(await _thread_messages(key))}
 
 
 @router.get("/chat/agent3/{thread_id}/manifests")
-async def thread_manifests(thread_id: str,
-                           user: UserOut = Depends(get_current_admin)) -> dict:
+async def thread_manifests(request: Request, thread_id: str,
+                           user: UserOut | None = Depends(get_optional_user)) -> dict:
     """Every turn's manifest for a thread, in turn order.
 
     The other half of reload: the frontend fetches this alongside `/history`
@@ -369,12 +393,15 @@ async def thread_manifests(thread_id: str,
     from api.agent3 import manifest_store
 
     key = _thread_id(thread_id)
+    if not await ownership.owns(key, ownership.owner_key(request, user)):
+        # 404, not 403: a 403 would confirm the thread exists.
+        raise HTTPException(status_code=404, detail="thread not found")
     return {"thread_id": key, "manifests": await manifest_store.load_thread(key)}
 
 
 @router.delete("/chat/agent3/{thread_id}")
-async def forget_thread(thread_id: str,
-                        user: UserOut = Depends(get_current_admin)) -> dict:
+async def forget_thread(request: Request, thread_id: str,
+                        user: UserOut | None = Depends(get_optional_user)) -> dict:
     """Drop a thread's checkpoints — the server-side twin of a new chat.
 
     The tiered loop needs the client to null its scope for this. Here the
@@ -384,6 +411,9 @@ async def forget_thread(thread_id: str,
     from api.agent3 import manifest_store
 
     key = _thread_id(thread_id)
+    if not await ownership.owns(key, ownership.owner_key(request, user)):
+        # 404, not 403: a 403 would confirm the thread exists.
+        raise HTTPException(status_code=404, detail="thread not found")
     await _saver().adelete_thread(key)
     # Manifests are part of the thread, so they go with it — retention is the
     # thread's lifetime and there is no separate story to tell. Kept here

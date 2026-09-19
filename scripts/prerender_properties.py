@@ -266,9 +266,8 @@ def build_ssr_block(fields: dict, rel: dict, ended: bool) -> str:
     bank = html.escape((rel.get("bank") or {}).get("name") or "")
     ptypes = ", ".join(rel.get("property_types") or [])
     reserve = fmt_money(fields.get("reserve_price_num"))
-    emd = fmt_money(fields.get("emd_num"))
     deadline = fmt_date(fields.get("application_deadline_dt") or fields.get("auction_start_dt"))
-    description = html.escape((fields.get("description") or "").strip())
+    extent = html.escape((fields.get("total_area") or "").strip())
 
     facts = []
     if ptypes:
@@ -277,13 +276,26 @@ def build_ssr_block(fields: dict, rel: dict, ended: bool) -> str:
         facts.append(f"bank: {bank}")
     if reserve:
         facts.append(("closing reserve: " if ended else "reserve price: ") + html.escape(reserve))
-    if emd:
-        facts.append(f"EMD: {html.escape(emd)}")
+    if extent:
+        facts.append(f"extent: {extent}")
     if deadline:
         facts.append((f"auction date: {html.escape(deadline)}") if ended else f"deadline: {html.escape(deadline)}")
     facts_line = " &middot; ".join(facts)
 
-    desc_html = f"<p>{description}</p>" if description else ""
+    # The notice's own description is the paid product (api/entitlements.py),
+    # so the crawlable block carries the same free facts an anonymous visitor
+    # sees and says plainly that the rest is behind an unlock. Publishing the
+    # full text here would be both a giveaway and a cloaking risk: the page
+    # Google indexes has to be the page a visitor gets. EMD moved out for
+    # the same reason — it is not in the free set.
+    desc_html = (
+        '<p style="font-size:14px;margin:0 0 16px;">'
+        "The sale notice for this property has been read and indexed: survey and "
+        "patta numbers, boundaries with their measurements, possession, the "
+        "parties, the EMD account and the notice document. Those details are "
+        "available to subscribers."
+        "</p>"
+    )
 
     status_line = (
         '<p style="background:var(--paper-2,#eef0f3);padding:8px 12px;border-radius:8px;'
@@ -360,13 +372,14 @@ def slugify(name: str) -> str:
 
 
 def jsonld_description(fields: dict, rel: dict, ended: bool, cap: int = 600) -> str:
-    """Prefer the real notice text (richer for AI/snippets) over the 158-char
-    meta description, collapsed to one line and capped. Falls back to the meta
-    description when there's no usable notice text."""
-    raw = " ".join((fields.get("description") or "").split())
-    if len(raw) >= MIN_DESCRIPTION_LEN:
-        return raw[:cap].rstrip()
-    return seo_description(fields, rel, ended)
+    """The free-facts summary, same as the meta description.
+
+    This used to prefer the notice text itself — richer for AI snippets, and
+    a straight giveaway of the paid product once the detail page started
+    charging for it (api/entitlements.py). Structured data is published to
+    the same crawlers as the page, so it has to stop where the page stops.
+    """
+    return seo_description(fields, rel, ended)[:cap]
 
 
 def postal_address(fields: dict, rel: dict) -> dict | None:
@@ -433,27 +446,21 @@ def property_jsonld(auction_id: str, fields: dict, rel: dict, ended: bool,
     bank = (rel.get("bank") or {}).get("name") or ""
     ptype = (rel.get("property_types") or [None])[0]
     reserve = fields.get("reserve_price_num")
-    emd = fields.get("emd_num")
     address = postal_address(fields, rel)
 
     # Honest extra facts that don't fit price/description — every value from the record.
     extra: list[dict] = [{"@type": "PropertyValue", "name": "Sale type", "value": "SARFAESI bank e-auction"}]
     if ptype:
         extra.append({"@type": "PropertyValue", "name": "Property type", "value": ptype})
-    if emd:
-        extra.append({"@type": "PropertyValue", "name": "EMD (earnest money deposit)",
-                      "value": int(emd), "unitText": "INR"})
+    # EMD and the application deadline used to be stated here. They left the
+    # free set when the detail page started charging for them, and structured
+    # data is published to the same crawlers as the page — so they go too.
+    extent = (fields.get("total_area") or "").strip()
+    if extent:
+        extra.append({"@type": "PropertyValue", "name": "Extent", "value": extent})
     auction_date = fmt_date(fields.get("auction_start_dt"))
     if auction_date:
         extra.append({"@type": "PropertyValue", "name": "Auction date", "value": auction_date})
-    # Kept as a stated fact now that it no longer (wrongly) bounds the Offer's
-    # availability window — it is the date a bidder must actually act by. Live
-    # auctions only: on a closed round the registration deadline is spent
-    # information, and the page already says the auction is over.
-    deadline_date = fmt_date(fields.get("application_deadline_dt"))
-    if deadline_date and not ended:
-        extra.append({"@type": "PropertyValue", "name": "Application deadline",
-                      "value": deadline_date})
 
     blocks: list[dict] = []
 

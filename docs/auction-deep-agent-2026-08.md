@@ -1088,5 +1088,52 @@ Gate to ship: no regression on the 68, ≥90% on `lot_facts`, **100% on
    computed and handed to the browser, and nothing kept it. The next turn
    through either endpoint is the first one that will be measurable.
 
+9. **Shipped to everyone; v1 retired.** (2026-09-19) The endpoints stop being
+   admin-only and the frontend stops defaulting to `/chat`. agent3 is now
+   THE chat surface: anonymous visitors included.
+
+   The decision rests on step 7's numbers, not on enthusiasm — 15.8 s median
+   turn at n=3 over 75 turns against the tiered loop's 25 s and the deep
+   loop's 149 s, 40/40 on the tool catalogue, 25/25 quality on two passes and
+   24/25 on the third. The deep loop's promotion failed on exactly this test
+   and was reverted; this one passes it.
+
+   Three things the un-gating required:
+
+   - **Thread ownership** (`api/agent3/ownership.py`, new). The memory is
+     `(:Conversation {id})-[:HAS_CHECKPOINT]->(:Checkpoint)` keyed by
+     `thread_id` **and nothing else**. Admin-only made that safe; open, the
+     thread id is the whole secret and `/history` would hand one visitor's
+     conversation to anyone who types their id. A thread is claimed on first
+     use and keyed to an account (`user:<supabase_id>`) or, for a logged-out
+     visitor, the same salted IP hash the anonymous quota already counts by —
+     `anon_quota_key`, promoted to public in `api/chat/gating.py` so there is
+     one salt rather than two. Claim and check both fail **closed**: an
+     unreachable graph reads as "not yours", which costs memory, never
+     privacy. An older thread with checkpoints and no owner is nobody's to
+     read — claiming it for whoever asks first is the theft the module exists
+     to stop.
+   - **The quota is the paid tier.** Every tier sees the same graph and the
+     same fields through agent3 — the free/paid split on DATA lives on the
+     property page (`api/entitlements.py`), and deliberately does not extend
+     into chat. What paid buys here is turns: 10 questions a day free, 100
+     paid. Anonymous matches free per day and keeps its tighter monthly cap,
+     because its key is an IP and an IP is cheap to farm.
+   - **A stale `chat_loop` cannot pin a returning visitor to the old
+     default.** Anyone who had ever loaded the app carried
+     `localStorage.chat_loop='tiered'`, which would have left every returning
+     user on the loop this change moves off. Only an explicit `?loop=` pick
+     survives now; the picker still works for anyone comparing.
+
+   Verified in a browser, not by reading: a fresh visitor, a visitor carrying
+   the stale `chat_loop`, and an explicit `?loop=tiered` all resolve
+   correctly, and a real send reaches `/chat/agent3/stream` and nothing else.
+
+   **Not done, and named rather than left implicit:** `/chat` (v1) is still
+   mounted and still answers if called directly. Nothing routes there, so it
+   can be deleted once agent3 has a few weeks of production behind it — and
+   the 68-case legacy catalogue, which scores v1/v2 via `EVAL_AGENT` and has
+   no agent3 path, retires with it.
+
 Steps 1–2 are worth building alone: they answer questions no current surface
 can, and they are testable without any agent at all.

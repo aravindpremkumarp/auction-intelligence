@@ -114,9 +114,39 @@ def test_properties_bad_date_400(captured: dict) -> None:
 
 
 def test_auction_detail_found_and_missing(monkeypatch: pytest.MonkeyPatch) -> None:
-    detail = {"auction_id": "a-9", "title": "Plot"}
+    """The record is served for an id the graph holds, 404 otherwise. What an
+    anonymous caller may see OF that record is api/entitlements.py's job —
+    pinned in tests/api/test_entitlements.py, not restated here."""
+    detail = {"auction_id": "a-9", "fields": {"title": "Plot"}}
     monkeypatch.setattr(props, "get_auction_detail",
                         lambda aid: detail if aid == "a-9" else None)
     client = _client()
-    assert client.get("/auction/a-9").json() == detail
+    body = client.get("/auction/a-9").json()
+    assert body["auction_id"] == "a-9"
+    assert body["locked"]["tier_required"] == "paid"
     assert client.get("/auction/nope").status_code == 404
+
+
+def test_auction_notice_unwraps_the_single_property(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`/auction/{id}/notice` serves ONE property, not the agent tool's
+    `{properties: [...]}` envelope, and asks for `depth="full"` so the UI gets
+    every lot rather than the "call again" hint."""
+    seen: dict = {}
+
+    def _fake(ids, depth="standard"):
+        seen["ids"], seen["depth"] = ids, depth
+        if ids == ["a-9"]:
+            return {"properties": [{"auction_id": "a-9", "scope": "lot",
+                                    "gaps": ["No patta number in the notice."]}]}
+        return {"properties": [], "not_found": ids}
+
+    monkeypatch.setattr(props, "get_property_detail", _fake)
+    client = _client()
+    body = client.get("/auction/a-9/notice").json()
+    assert body["auction_id"] == "a-9"
+    # Anonymous, so the gap SENTENCES are withheld and only their count rides
+    # along — the unwrap is what this test pins, the paywall is pinned in
+    # tests/api/test_entitlements.py.
+    assert body["locked"]["gap_count"] == 1
+    assert seen == {"ids": ["a-9"], "depth": "full"}
+    assert client.get("/auction/nope/notice").status_code == 404

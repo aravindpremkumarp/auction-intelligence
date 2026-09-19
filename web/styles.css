@@ -1333,6 +1333,34 @@ body {
   .pb-kv { grid-template-columns: 1fr; }
 }
 
+/* ── "From the sale notice" — the extracted entities ──────────────────────
+   Same panel language as the briefing above; only the three shapes the
+   briefing has no equivalent for are styled here. */
+.notice-scope { background: var(--accent-soft); }
+.notice-scope .pb-note { margin-top: 0; font-size: 12.5px; }
+.notice-terms summary {
+  cursor: pointer; font-family: var(--font-mono); font-size: 12px;
+  color: var(--accent);
+}
+.notice-terms[open] summary { margin-bottom: 10px; }
+.notice-terms .detail-desc-raw { max-height: 380px; overflow-y: auto; }
+/* ── The paywall panel ───────────────────────────────────────────────────
+   It sits in the same panel language as everything around it, one step
+   warmer, so it reads as a door rather than an error. */
+.locked-panel { background: linear-gradient(180deg, var(--accent-soft), transparent); }
+.locked-panel .pb-eyebrow { color: var(--accent); }
+.locked-lead { font-size: 14px; margin-bottom: 10px; }
+.locked-list { margin: 0 0 14px; padding-left: 18px; }
+.locked-list li { font-size: 13.5px; line-height: 1.5; margin-bottom: 5px; }
+.locked-list li:last-child { margin-bottom: 0; }
+.unlock-btn { max-width: 320px; }
+/* The gaps read as a caution, not as more data — a notice that says nothing
+   about possession must not look like one that says "none". */
+.notice-gaps { border-color: var(--accent); }
+.notice-gap-list { margin: 0; padding-left: 18px; }
+.notice-gap-list li { font-size: 13.5px; line-height: 1.5; margin-bottom: 6px; }
+.notice-gap-list li:last-child { margin-bottom: 0; }
+
 .detail-section-title {
   font-family: var(--font-hand); font-size: 24px; margin: 10px 0 6px;
 }

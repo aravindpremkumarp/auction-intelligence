@@ -28,11 +28,17 @@ from api.model_selection import resolve_chat_model, resolve_reasoning_effort
 
 logger = logging.getLogger(__name__)
 
+#: The tier line, now that agent3 answers for everyone and shows every tier
+#: the same data: **what you buy is turns, not fields.** Free is 10 questions
+#: a day, paid is 100. The monthly caps exist as a cost backstop, not as a
+#: second product rule — free's is 30x its daily so the daily number is the
+#: one a user ever meets, and paid has none at all. Anonymous keeps its own
+#: tighter monthly cap because its key is a salted IP, which is cheap to farm.
 _CHAT_ANON_DAILY_LIMIT_DEFAULT = 10
 _CHAT_ANON_MONTHLY_LIMIT_DEFAULT = 30
-_CHAT_FREE_DAILY_LIMIT_DEFAULT = 20
-_CHAT_FREE_MONTHLY_LIMIT_DEFAULT = 100
-_CHAT_PAID_DAILY_LIMIT_DEFAULT = 1000
+_CHAT_FREE_DAILY_LIMIT_DEFAULT = 10
+_CHAT_FREE_MONTHLY_LIMIT_DEFAULT = 300
+_CHAT_PAID_DAILY_LIMIT_DEFAULT = 100
 
 
 def _ratelimit_disabled() -> bool:
@@ -81,6 +87,19 @@ def _hash_ip(ip: str) -> str:
     return hashlib.sha256(f"{salt}:{ip}".encode()).hexdigest()
 
 
+def anon_quota_key(request: Request) -> str:
+    """The anonymous caller's key, for anything that needs to tell logged-out
+    visitors apart.
+
+    Public because `api/agent3/ownership.py` keys anonymous chat THREADS by
+    the same value the quota counts by. Two salted hashes of the same IP,
+    computed in two modules, is exactly the kind of second definition that
+    drifts the day someone rotates `QUOTA_IP_SALT` — and the drift would
+    silently orphan every anonymous conversation.
+    """
+    return _hash_ip(request.client.host if request.client else "unknown")
+
+
 async def _enforce_anon_chat_quota(request: Request) -> None:
     """Durable per-IP day + month cap for anonymous callers. One atomic Cypher
     bump per turn (correct under concurrency, survives restarts); the UTC
@@ -89,10 +108,9 @@ async def _enforce_anon_chat_quota(request: Request) -> None:
     backstop either way."""
     if _ratelimit_disabled():
         return
-    ip = request.client.host if request.client else "unknown"
     try:
         counts = await auth_repo.bump_anon_quota(
-            _hash_ip(ip), _today_bucket(), _month_bucket()
+            anon_quota_key(request), _today_bucket(), _month_bucket()
         )
     except Exception:  # noqa: BLE001 - availability over strict enforcement
         logger.exception("anon chat quota check failed — failing open")

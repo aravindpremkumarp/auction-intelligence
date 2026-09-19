@@ -155,13 +155,32 @@ def test_offer_end_falls_back_to_the_start_date_without_an_end_time():
     assert offer["availabilityEnds"] == "2099-06-10"
 
 
-def test_the_application_deadline_is_still_published_as_a_fact():
+def test_the_structured_data_stops_where_the_free_view_stops():
+    """Structured data is published to the same crawlers as the page, so it
+    carries only what an anonymous visitor may see (api/entitlements.py).
+    The auction date stays; EMD and the application deadline left with the
+    rest of the paid fields."""
     page = render_page(TEMPLATE, "900001", _live_fields(), {})
     props = [b for b in _jsonld(page) if "additionalProperty" in b]
     names = {p["name"]: p["value"] for b in props for p in b["additionalProperty"]}
 
-    assert "Application deadline" in names
     assert "Auction date" in names
+    assert "Application deadline" not in names
+    assert "EMD (earnest money deposit)" not in names
+
+
+def test_the_notice_text_is_never_published_to_crawlers():
+    """The description is the paid product. It used to ride in the static
+    block AND in 600 characters of JSON-LD — a straight giveaway of what the
+    detail page now charges for, and a page that differs from what a visitor
+    gets."""
+    secret = ("S.No.555/7, Patta 12414, bounded on the north by Plot No.10, "
+              "measuring 19 feet, assessment no 10929 " * 4)
+    page = render_page(TEMPLATE, "900001", _live_fields(description=secret), {})
+
+    assert "555/7" not in page
+    assert "12414" not in page
+    assert "subscribers" in page
 
 
 def test_an_end_before_its_own_start_falls_back_to_the_start():
