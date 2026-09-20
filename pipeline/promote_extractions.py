@@ -67,6 +67,9 @@ from pipeline.measures import (
 from pipeline.lot_windows import renumber_window_lots
 from pipeline.obs import get_logger
 from pipeline.place_resolution import Gazetteer, resolve_place
+from pipeline.property_taxonomy import (
+    AGRICULTURAL, FLAT, LAND, PLOT, classify_property_type,
+)
 from pipeline.resolve_places import norm_place
 from pipeline.validators import normalize_identifier_kind
 
@@ -127,6 +130,41 @@ EXTENT_KINDS = {
     "undivided_share":     "uds",
     "uds_parent_extent":   "uds_parent",
 }
+
+# Kinds whose values ADD when one lot sells several numbered parcels. A lot
+# advertised as "Item No.1: 2321 sq.ft, Item No.2: 1160.5 sq.ft" is 3481.5
+# sq.ft of land, not either half.
+#
+# `uds_parent` is deliberately absent: every item of an apartment schedule
+# restates the SAME parent plot, so summing it multiplies one plot by the
+# number of flats carved out of it.
+SUMMABLE_KINDS = frozenset({"total", "extent", "super_built_up", "built_up",
+                            "carpet", "uds"})
+
+#: The kinds that mean LAND — the parcel's own ground, and the denominator
+#: every type but a flat is priced on (`measures._LAND_LIKE`).
+_LAND_KINDS = frozenset({"total", "extent"})
+#: Buckets naming bare ground. A flat beside one of these is the single case
+#: where two items are measured in different things: the flat's area is the
+#: floor it occupies, the other item's is ground. Adding them is nonsense, so
+#: such a lot is reported rather than summed. House, commercial and industrial
+#: are absent on purpose — their schedules quote the land under the building,
+#: so "land" + "land and building" really is two parcels of ground.
+_BARE_GROUND_BUCKETS = frozenset({LAND, PLOT, AGRICULTURAL})
+
+#: A schedule label that numbers a separate parcel ("Item No.2", "2nd Item",
+#: "Lot 3"). "Schedule A/B" is NOT one: in this corpus A/B splits a single
+#: flat into its undivided share and the unit itself, so its parts describe
+#: one property and must never be added together.
+_ITEM_LABEL_RE = re.compile(r"\bitem\b|\blot\s*\d|^\s*\d+(?:st|nd|rd|th)?\b",
+                            re.IGNORECASE)
+
+#: Two extents within this much of each other are the same parcel written
+#: twice (a unit conversion, or the same figure re-quoted), not two parcels.
+_SAME_EXTENT_TOL = 0.01
+#: How close the sum of the parts must come to a stated total for that total
+#: to be believed as their sum rather than a further parcel.
+_SUM_MATCH_TOL = 0.02
 
 POSSESSION_VALUES = {"symbolic", "constructive", "physical"}
 
@@ -251,6 +289,124 @@ def value_norm(v: str | None) -> str | None:
     s = re.sub(r"\s*-\s*", "-", s)
     s = re.sub(r"[^\w/\-]", "", s)
     return s.lower() or None
+
+
+# ── pure: several extents of one kind -> one measurement ─────────────────────
+
+def item_part_count(schedules: list[dict]) -> int:
+    """How many numbered parcels ("Item No.1", "2nd Item") this lot sells."""
+    return sum(1 for s in schedules if _ITEM_LABEL_RE.search(s.get("label") or ""))
+
+
+def mixes_flat_with_ground(schedules: list[dict]) -> bool:
+    """Whether this lot's numbered parcels are a flat AND bare ground.
+
+    The two are measured in different things — floor area against land — so a
+    land-kind extent covering both cannot be added up.
+    """
+    buckets = {classify_property_type(s.get("type"))
+               for s in schedules if _ITEM_LABEL_RE.search(s.get("label") or "")}
+    return FLAT in buckets and bool(buckets & _BARE_GROUND_BUCKETS)
+
+
+def _dedupe_restatements(entries: list[dict]) -> list[dict]:
+    """Drop entries that re-state an extent already seen.
+
+    Identical raw text is the same clause quoted twice. A different raw that
+    converts to the same area is the same parcel in another unit — "0.25
+    hectare" beside "26,909 sq.ft".
+    """
+    kept: list[dict] = []
+    seen_raw: set[str] = set()
+    for e in entries:
+        raw_key = re.sub(r"\s+", " ", (e["raw"] or "").strip().lower())
+        if raw_key in seen_raw:
+            continue
+        sqft = e["sqft_norm"]
+        if any(abs(sqft - k["sqft_norm"]) <= _SAME_EXTENT_TOL * max(sqft, k["sqft_norm"])
+               for k in kept):
+            continue
+        seen_raw.add(raw_key)
+        kept.append(e)
+    return kept
+
+
+def _stated_total(entries: list[dict]) -> dict | None:
+    """The entry that is already the sum of the others, if one of them is.
+
+    A notice that lists its items AND their total gets both extracted. Adding
+    the total to its own parts would double the property.
+    """
+    for i, cand in enumerate(entries):
+        rest = [e["sqft_norm"] for j, e in enumerate(entries) if j != i]
+        if not rest:
+            continue
+        total = sum(rest)
+        if abs(cand["sqft_norm"] - total) <= _SUM_MATCH_TOL * max(cand["sqft_norm"], total):
+            return cand
+    return None
+
+
+def collapse_measurements(measurements: list[dict],
+                          schedules: list[dict]) -> tuple[list[dict], str | None]:
+    """One measurement per kind, adding the parts of a multi-parcel lot.
+
+    The graph keys :Measurement on (lot_key, kind), so several extents of one
+    kind used to collapse by LAST WRITE WINS — a lot selling two parcels kept
+    whichever the model happened to emit second and showed half its land. That
+    number is the price-per-sqft denominator, so the listing read at roughly
+    double its true rate.
+
+    Summing is allowed only where the notice's own structure says the parts
+    are separate parcels: as many distinct extents of that kind as the lot has
+    Item-numbered schedules. Anything else — a stated total quoted beside its
+    items, more extents than items, an extent that never converted, a land
+    extent on a lot whose items are a flat AND bare ground — keeps a single
+    value and is reported as `unreconciled` rather than guessed at.
+    Returns the collapsed list and that status, if any.
+    """
+    by_kind: dict[str, list[dict]] = {}
+    for m in measurements:
+        by_kind.setdefault(m["kind"], []).append(m)
+
+    n_items = item_part_count(schedules)
+    flat_and_ground = mixes_flat_with_ground(schedules)
+    out: list[dict] = []
+    status: str | None = None
+    for kind, entries in by_kind.items():
+        if len(entries) == 1:
+            out.append(entries[0])
+            continue
+
+        usable = _dedupe_restatements([e for e in entries if e["sqft_norm"]])
+        if len(usable) < 2:
+            out.append(usable[0] if usable else entries[0])
+            continue
+
+        stated = _stated_total(usable)
+        if stated is not None:
+            out.append(stated)
+            continue
+
+        summable = (kind in SUMMABLE_KINDS
+                    and not (kind in _LAND_KINDS and flat_and_ground))
+        if summable and n_items >= 2 and len(usable) == n_items:
+            total = sum(e["sqft_norm"] for e in usable)
+            out.append({
+                "kind": kind,
+                "raw": " + ".join(e["raw"] for e in usable),
+                "value": total,
+                "unit": "sq_ft",
+                "sqft_norm": total,
+                "norm_method": "summed",
+            })
+            status = status or "summed"
+        else:
+            # Honest under-report beats an invented area: keep the first
+            # extent and say the parts did not reconcile.
+            out.append(usable[0])
+            status = "unreconciled"
+    return out, status
 
 
 # ── pure: entities -> per-lot records ────────────────────────────────────────
@@ -491,6 +647,18 @@ def build_lots(entities: list[dict], filename: str) -> tuple[dict, list[dict]]:
         p = rec["props"]
         if rec["description_parts"]:
             p["full_description"] = "\n\n".join(rec["description_parts"])
+
+        # Collapse BEFORE the headline is picked: pick_headline reads one
+        # number per kind, so an un-collapsed multi-parcel lot would choose
+        # its denominator from whichever part came last.
+        rec["measurements"], extent_status = collapse_measurements(
+            rec["measurements"], rec["schedules"])
+        # Written even when empty: `SET l += $props` deletes a property given
+        # null, so a re-promotion that now reconciles clears the old flag
+        # instead of leaving a lot marked for a problem it no longer has.
+        n_items = item_part_count(rec["schedules"])
+        p["extent_part_count"] = n_items if n_items >= 2 else None
+        p["extent_parts_status"] = extent_status
 
         by_kind = {m["kind"]: m["sqft_norm"] for m in rec["measurements"]}
         rec["headline_kind"] = pick_headline(by_kind, p.get("property_type"))
@@ -857,7 +1025,13 @@ def promote_document(doc: dict, dry_run: bool,
         })
     places = [lot_place(rec) for rec in lots]
     write_places(places)
-    return len(lots), Counter(p["status"] for p in places)
+    stats = Counter(p["status"] for p in places)
+    # Namespaced so the run summary can report multi-parcel extents separately
+    # from place resolution without a second return value threading through
+    # place_document as well.
+    stats.update(f"extent:{rec['props']['extent_parts_status']}" for rec in lots
+                 if rec["props"].get("extent_parts_status"))
+    return len(lots), stats
 
 
 def place_document(doc: dict, dry_run: bool) -> tuple[int, Counter]:
@@ -1193,9 +1367,17 @@ def run(limit: int | None, filename: str | None,
 
     print(f"phase B done — {state['ok']} document(s), {state['lots']} lot(s), "
           f"{state['fail']} failed", flush=True)
-    if state["status"]:
+    place_stats = Counter({k: v for k, v in state["status"].items()
+                           if not k.startswith("extent:")})
+    extents = Counter({k.split(":", 1)[1]: v for k, v in state["status"].items()
+                       if k.startswith("extent:")})
+    if place_stats:
         print("  place resolution: "
-              + ", ".join(f"{k}={v}" for k, v in state["status"].most_common()),
+              + ", ".join(f"{k}={v}" for k, v in place_stats.most_common()),
+              flush=True)
+    if extents:
+        print("  multi-parcel extents: "
+              + ", ".join(f"{k}={v}" for k, v in extents.most_common()),
               flush=True)
 
     if not skip_parcels:

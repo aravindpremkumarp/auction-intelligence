@@ -492,3 +492,164 @@ def test_an_and_joined_sqft_does_not_become_the_extent():
     rather than taking the addend."""
     m = _extent("1 Ground and 728 Sq.Ft.")["total"]
     assert m["sqft_norm"] != 728.0
+
+
+# ── multi-parcel lots: several extents of one kind ───────────────────────────
+
+def _items(*labels):
+    return [ent("schedule", f"Item No.{i}", label=lab, type="land")
+            for i, lab in enumerate(labels, start=1)]
+
+
+def test_two_item_parcels_are_summed_not_overwritten():
+    """A lot selling Item 1 + Item 2 owns both. The graph keys :Measurement on
+    (lot_key, kind), so before this the second write simply replaced the first
+    and the lot showed half its land — at roughly double the true price/sqft."""
+    _, lots = build([
+        ent("schedule", "Item No.1", label="Item 1", type="land"),
+        ent("schedule", "Item No.2", label="Item 2", type="land"),
+        ent("extent", "2321 sq.ft", total_area="2321 sq.ft"),
+        ent("extent", "1160.5 sq.ft", total_area="1160.5 sq.ft"),
+    ])
+    m = {x["kind"]: x for x in lots[0]["measurements"]}["total"]
+    assert m["sqft_norm"] == 3481.5
+    assert m["norm_method"] == "summed"
+    assert m["unit"] == "sq_ft"
+    assert lots[0]["props"]["extent_parts_status"] == "summed"
+    assert lots[0]["props"]["extent_part_count"] == 2
+
+
+def test_parts_in_another_unit_are_summed_in_sqft():
+    _, lots = build(_items("1st Item", "2nd Item") + [
+        ent("extent", "150 sq.m", total_area="150 sq.m"),
+        ent("extent", "50 sq.m", total_area="50 sq.m"),
+    ])
+    m = {x["kind"]: x for x in lots[0]["measurements"]}["total"]
+    assert 2140 < m["sqft_norm"] < 2160          # 200 sq.m
+    assert m["norm_method"] == "summed"
+
+
+def test_a_stated_total_beside_its_items_is_not_double_counted():
+    """Notices routinely quote the items AND their total. Adding the total to
+    its own parts would double the property."""
+    _, lots = build(_items("Item 1", "Item 2") + [
+        ent("extent", "3945 Sq. ft", total_area="3945 Sq. ft"),
+        ent("extent", "2100 Sq. ft", total_area="2100 Sq. ft"),
+        ent("extent", "1845 Sq. ft", total_area="1845 Sq. ft"),
+    ])
+    m = {x["kind"]: x for x in lots[0]["measurements"]}["total"]
+    assert m["sqft_norm"] == 3945.0
+    assert lots[0]["props"]["extent_parts_status"] is None
+
+
+def test_schedule_a_b_is_not_summed():
+    """Schedule A/B splits ONE flat into its undivided share and the unit — the
+    parts describe a single property, so adding them invents area."""
+    _, lots = build([
+        ent("schedule", "Schedule A", label="A", type="land"),
+        ent("schedule", "Schedule B", label="B", type="flat"),
+        ent("extent", "1800 sq.ft", total_area="1800 sq.ft"),
+        ent("extent", "513 sq.ft", total_area="513 sq.ft"),
+    ])
+    m = {x["kind"]: x for x in lots[0]["measurements"]}["total"]
+    assert m["sqft_norm"] == 1800.0
+    assert m["norm_method"] != "summed"
+    assert lots[0]["props"]["extent_parts_status"] == "unreconciled"
+
+
+def test_uds_parent_is_never_summed():
+    """Every item of an apartment schedule restates the same parent plot."""
+    _, lots = build(_items("Item 1", "Item 2") + [
+        ent("extent", "x", uds_parent_extent="1800 sq.ft"),
+        ent("extent", "y", uds_parent_extent="1800 sq.ft"),
+    ])
+    m = {x["kind"]: x for x in lots[0]["measurements"]}["uds_parent"]
+    assert m["sqft_norm"] == 1800.0
+
+
+def test_one_extent_restated_in_two_units_is_not_summed():
+    _, lots = build(_items("Item 1", "Item 2") + [
+        ent("extent", "0.25 cent", total_area="0.25 cent"),
+        ent("extent", "108.9 sq.ft", total_area="108.9 sq.ft"),
+    ])
+    m = {x["kind"]: x for x in lots[0]["measurements"]}["total"]
+    assert m["sqft_norm"] == pytest.approx(108.9, rel=0.02)
+    assert m["norm_method"] != "summed"
+
+
+def test_more_extents_than_items_is_reported_not_guessed():
+    """Three extents against two numbered parcels: one of them is something
+    else. An honest under-report beats an invented area."""
+    _, lots = build(_items("Item 1", "Item 2") + [
+        ent("extent", "2180 sq.ft", total_area="2180 sq.ft"),
+        ent("extent", "326.7 sq.ft", total_area="326.7 sq.ft"),
+        ent("extent", "871.9 sq.ft", total_area="871.9 sq.ft"),
+    ])
+    m = {x["kind"]: x for x in lots[0]["measurements"]}["total"]
+    assert m["sqft_norm"] == 2180.0
+    assert lots[0]["props"]["extent_parts_status"] == "unreconciled"
+
+
+def test_headline_is_picked_after_the_parts_are_summed():
+    """pick_headline reads one number per kind, so an un-collapsed lot chose
+    its price-per-sqft denominator from whichever part came last."""
+    _, lots = build(_items("Item 1", "Item 2") + [
+        ent("property", "land", property_type="land"),
+        ent("extent", "2100 sq.ft", total_area="2100 sq.ft"),
+        ent("extent", "1845 sq.ft", total_area="1845 sq.ft"),
+    ])
+    rec = lots[0]
+    headline = {m["kind"]: m for m in rec["measurements"]}[rec["headline_kind"]]
+    assert headline["sqft_norm"] == 3945.0
+
+
+def test_a_single_extent_lot_is_untouched():
+    _, lots = build([ent("extent", "681 Sq.ft", total_area="681 Sq.ft")])
+    m = lots[0]["measurements"][0]
+    assert (m["sqft_norm"], m["norm_method"]) == (681.0, "stated")
+    assert lots[0]["props"]["extent_parts_status"] is None
+
+
+def test_a_flat_beside_bare_ground_is_not_summed_as_land():
+    """A flat's area is the floor it occupies; the other item's is ground.
+    Adding them reports a property that does not exist. Only the flat case is
+    blocked — "land" + "land and building" really is two parcels of ground."""
+    _, lots = build([
+        ent("property", "x", property_type="land"),
+        ent("schedule", "Item No.1", label="Item 1", type="land"),
+        ent("schedule", "Item No.2", label="Item 2", type="flat"),
+        ent("extent", "2000 sq.ft", total_area="2000 sq.ft"),
+        ent("extent", "1241 sq.ft", total_area="1241 sq.ft"),
+    ])
+    m = {x["kind"]: x for x in lots[0]["measurements"]}["total"]
+    assert m["sqft_norm"] == 2000.0
+    assert m["norm_method"] != "summed"
+    assert lots[0]["props"]["extent_parts_status"] == "unreconciled"
+
+
+def test_land_and_building_parcels_still_sum():
+    """The guard must not catch the common case: both items are ground, one
+    of them with a building on it."""
+    _, lots = build([
+        ent("schedule", "Item No.1", label="Item 1", type="land"),
+        ent("schedule", "Item No.2", label="Item 2", type="land and building"),
+        ent("extent", "520 sq ft", total_area="520 sq ft"),
+        ent("extent", "1545 sq ft", total_area="1545 sq ft"),
+    ])
+    m = {x["kind"]: x for x in lots[0]["measurements"]}["total"]
+    assert m["sqft_norm"] == 2065.0
+    assert m["norm_method"] == "summed"
+
+
+def test_a_flats_own_kinds_still_sum_beside_ground():
+    """The block is on LAND kinds only. Two undivided shares are both the same
+    measure and still add up — that is how a real two-flat lot reads."""
+    _, lots = build([
+        ent("schedule", "Item No.1", label="Item 1", type="uds"),
+        ent("schedule", "Item No.2", label="Item 2", type="flat"),
+        ent("extent", "311 sq.ft", undivided_share="311 sq.ft"),
+        ent("extent", "202 sq.ft", undivided_share="202 sq.ft"),
+    ])
+    m = {x["kind"]: x for x in lots[0]["measurements"]}["uds"]
+    assert m["sqft_norm"] == 513.0
+    assert m["norm_method"] == "summed"
