@@ -246,7 +246,13 @@ def lot_place(rec: dict) -> dict:
     r = resolve_place(gaz,
                       district=loc.get("district"),
                       taluk=loc.get("taluk"),
-                      village=loc.get("village"))
+                      village=loc.get("village"),
+                      # Two fields the notice states far more often than it
+                      # states the revenue taluk: the Sub-Registrar's Office
+                      # (which usually shares the taluk's name) and the state
+                      # (which says when there is no answer to look for).
+                      sub_registrar=loc.get("registration_sub_district"),
+                      state=loc.get("state"))
     status, source = r["village_status"], r["village_source"]
     district, taluk, village = r["district"], r["taluk"], r["village"]
 

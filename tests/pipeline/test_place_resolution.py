@@ -308,7 +308,11 @@ def test_two_taluks_sharing_a_folded_name_resolve_to_neither(gaz):
 def test_nothing_recognised_resolves_to_nothing(gaz):
     r = resolve_place(gaz, district="Pondicherry", taluk=None, village=None)
     assert r["district"] is None                # out of state, not forced in
-    assert r["village_status"] == "absent"
+    # Both things are true of this row — no village was named, and the
+    # property is in another state — and the second is the one a reviewer can
+    # act on: there is nothing to find, so nothing to queue. It is reported
+    # ahead of "absent" for that reason.
+    assert r["village_status"] == "outside-tamil-nadu"
 
 
 def test_a_harvested_taluk_spelling_reaches_its_gazetteer_name():
@@ -348,3 +352,191 @@ def test_one_folded_spelling_never_names_two_taluks():
     for raw, official in TALUK_ALIASES.items():
         key = normalize_place(raw)
         assert seen.setdefault(key, official) == official, raw
+
+
+# ── the three ways to earn a taluk the notice did not state ──────────────────
+#
+# Every string below came off a lot that sat in `no-parent-taluk`: a village
+# named, no taluk to place it in, and 1,411 of them in the corpus.
+
+
+@pytest.fixture
+def split_gaz() -> Gazetteer:
+    """A gazetteer holding the two shapes these rules turn on: a taluk the
+    state has split, and a district that keeps no revenue villages."""
+    return Gazetteer(
+        districts=["Tiruppur", "Coimbatore", "Chennai", "Cuddalore",
+                   "Villupuram"],
+        taluks=[
+            ("Tiruppur North", "Tiruppur"),
+            ("Tiruppur South", "Tiruppur"),
+            ("Coimbatore North", "Coimbatore"),
+            ("Coimbatore South", "Coimbatore"),
+            ("Chidambaram", "Cuddalore"),
+            ("Vanur", "Villupuram"),
+            # Chennai keeps both shapes: city taluks with no revenue villages,
+            # which the gazetteer does not hold at all, and outer ones that do.
+            ("Sholinganallur", "Chennai"),
+        ],
+        villages=[
+            ("Perumbakkam", "Sholinganallur", "Chennai"),
+            ("Kanakkampalayam", "Tiruppur North", "Tiruppur"),
+            ("Velampalayam", "Tiruppur North", "Tiruppur"),
+            ("Thiruppaninatham", "Chidambaram", "Cuddalore"),
+            ("Pulichapallam", "Vanur", "Villupuram"),
+            # One name, two taluks of one district — the tie the rules refuse.
+            ("Agaram", "Tiruppur North", "Tiruppur"),
+            ("Agaram", "Tiruppur South", "Tiruppur"),
+        ],
+    )
+
+
+def test_the_sub_registrars_office_names_the_taluk(split_gaz):
+    """"Villupuram R.D, Vanur SRD at Pulichapallam Village" — the notice states
+    the registration hierarchy and never the revenue one. 734 lots read this
+    way: no taluk string at all, a Sub-Registrar's Office right there."""
+    r = resolve_place(split_gaz, village="Pulichapallam",
+                      sub_registrar="Vanur")
+    assert r["taluk"] == "Vanur"
+    assert r["district"] == "Villupuram"
+    assert r["village"] == "Pulichapallam"
+    assert r["village_status"] == "resolved"
+    assert r["district_source"] == "sub-registrar"
+
+
+def test_the_office_bookkeeping_around_the_place_name_is_ignored(split_gaz):
+    """SROs are numbered where one town has several. "Chidambaram Joint -II"
+    is still the office at Chidambaram."""
+    r = resolve_place(split_gaz, village="Thirupaninatham",
+                      sub_registrar="Chidambaram Joint -II")
+    assert r["taluk"] == "Chidambaram"
+    assert r["village"] == "Thiruppaninatham"      # reached by the fuzzy floor
+
+
+def test_a_sub_registrar_without_its_village_is_refused(split_gaz):
+    """Registration and revenue are two hierarchies that merely share names.
+    The village is the evidence; without it the coincidence proves nothing."""
+    r = resolve_place(split_gaz, village="Nowhere At All",
+                      sub_registrar="Vanur")
+    assert r["taluk"] is None
+    assert r["village_status"] == "no-parent-taluk"
+
+
+def test_a_split_taluk_is_chosen_by_its_village(split_gaz):
+    """51 lots write "Coimbatore" where the gazetteer holds North and South.
+    The village says which half — and nothing else can."""
+    r = resolve_place(split_gaz, district="Coimbatore", taluk="Tirupur",
+                      village="Kanakkampalayam")
+    assert r["taluk"] == "Tiruppur North"
+    assert r["district"] == "Tiruppur"
+    assert r["village"] == "Kanakkampalayam"
+    assert r["village_status"] == "resolved"
+
+
+def test_a_split_taluk_whose_siblings_both_hold_the_village_is_refused(
+        split_gaz):
+    """Agaram sits in both halves of Tiruppur. Choosing between them is a coin
+    flip, so the lot stays in the queue."""
+    r = resolve_place(split_gaz, taluk="Tiruppur", village="Agaram")
+    assert r["taluk"] is None
+    assert r["village"] is None
+
+
+def test_a_village_carried_by_one_village_in_the_state_places_itself(
+        split_gaz):
+    """The last resort, for a notice naming no parent at all."""
+    r = resolve_place(split_gaz, village="Velampalayam")
+    assert r["village"] == "Velampalayam"
+    assert r["taluk"] == "Tiruppur North"
+    assert r["district"] == "Tiruppur"
+    assert r["village_source"] == "state"
+
+
+def test_a_shared_village_name_never_places_itself(split_gaz):
+    """Two Agarams, so the name alone says nothing. 1,150 village names are
+    shared this way — which is why this rule is exact and unique-or-nothing."""
+    r = resolve_place(split_gaz, village="Agaram")
+    assert r["village"] is None
+    assert r["village_status"] == "no-parent-taluk"
+
+
+def test_a_known_parent_outranks_the_bare_village_name(split_gaz):
+    """The state-wide rule must never overrule a district the notice states:
+    it is a last resort, not a shortcut."""
+    r = resolve_place(split_gaz, district="Cuddalore", village="Velampalayam")
+    assert r["village"] is None          # not the Tiruppur one
+    assert r["district"] == "Cuddalore"
+
+
+def test_a_chennai_city_taluk_has_no_village_to_find(split_gaz):
+    """"Mambalam-Guindy" is a registration taluk. The revenue record does not
+    hold it, and the city proper keeps no revenue villages, so 290 lots read
+    as extraction failures when the extraction was right and there is no
+    answer to find."""
+    for raw in ["Mambalam Guindy", "Mambalam-Gandy", "Egmore – Nungambakkam",
+                "Fort - Tondiarpet", "Perumbur – Purasaiwakkam", "Saidapet"]:
+        r = resolve_place(split_gaz, district="Chennai", taluk=raw,
+                          village="Kodambakkam")
+        assert r["district"] == "Chennai"
+        assert r["village_status"] == VILLAGE_NOT_APPLICABLE, raw
+
+
+def test_chennais_outer_taluks_keep_their_villages(split_gaz):
+    """Sholinganallur, Madhavaram, Maduravoyal, Thiruvottiyur and Alandur hold
+    48 revenue villages between them. A lot naming one has a real answer, so
+    it must stay in the queue rather than be written off as urban."""
+    from pipeline.place_resolution import names_a_chennai_city_taluk
+    for raw in ["Sholinganallur", "Madhavaram", "Maduravoyal",
+                "Thiruvottiyur", "Alandur"]:
+        assert not names_a_chennai_city_taluk(raw), raw
+    # "Andali" is a live corpus string that names nothing the gazetteer holds
+    # and nothing in the city table either, so it stays work.
+    r = resolve_place(split_gaz, district="Chennai", taluk="Andali",
+                      village="Kottur")
+    assert r["village_status"] == "no-parent-taluk"
+
+
+def test_a_property_in_another_state_is_refused_before_matching(split_gaz):
+    """167 lots name a Kerala district. A Tamil Nadu gazetteer has no answer,
+    and at the fuzzy floor it would invent one."""
+    from pipeline.place_resolution import OUTSIDE_STATE
+    r = resolve_place(split_gaz, district="Ernakulam", village="Kakkanad")
+    assert r["village_status"] == OUTSIDE_STATE
+    assert r["district"] is None and r["village"] is None
+    r = resolve_place(split_gaz, district="Tiruppur", state="Kerala",
+                      village="Velampalayam")
+    assert r["village_status"] == OUTSIDE_STATE
+
+
+# The 38 districts of Tamil Nadu, as the gazetteer in the graph names them.
+# Stated here rather than read from the database because the property below is
+# what makes the out-of-state table safe, and a test that needs a connection
+# to prove it would not run where it matters.
+TN_DISTRICTS = (
+    "Ariyalur", "Chengalpattu", "Chennai", "Coimbatore", "Cuddalore",
+    "Dharmapuri", "Dindigul", "Erode", "Kallakurichi", "Kancheepuram",
+    "Kanyakumari", "Karur", "Krishnagiri", "Madurai", "Mayiladuthurai",
+    "Nagapattinam", "Namakkal", "Nilgiris", "Perambalur", "Pudukkottai",
+    "Ramanathapuram", "Ranipet", "Salem", "Sivagangai", "Tenkasi",
+    "Thanjavur", "Theni", "Thiruchirappalli", "Thiruvarur", "Thoothukudi",
+    "Tirunelveli", "Tirupathur", "Tiruppur", "Tiruvallur", "Tiruvannamalai",
+    "Vellore", "Villupuram", "Virudhunagar",
+)
+
+
+def test_no_tamil_nadu_district_is_listed_as_foreign():
+    """The out-of-state table works by name alone and refuses before any
+    matching runs, so a Tamil Nadu district folding to one of its keys would
+    blank every property in that district."""
+    from pipeline.place_resolution import _NON_TN_DISTRICTS
+    for d in TN_DISTRICTS:
+        assert normalize_place(d) not in _NON_TN_DISTRICTS, d
+
+
+def test_a_tamil_nadu_district_spelled_loosely_is_not_read_as_foreign():
+    """The spellings the corpus actually carries, checked against the same
+    table — "Tuticorin" and "Trichy" must not look like another state."""
+    from pipeline.place_resolution import outside_tamil_nadu
+    for raw in ["Tuticorin", "Trichy", "Kanchipuram", "Chengalpet",
+                "Tiruchirapalli", "Virudunagar", "Nilgiri", "Madras"]:
+        assert not outside_tamil_nadu(district=raw), raw
