@@ -121,8 +121,87 @@ DISTRICT_ALIASES = {
 # kind of variant, but "Tiruppur"/"Thiruppattur" and "Tharamangalam"/
 # "Karimangalam" score in that band too and are different places, so the rest
 # belong in the human-decision queue rather than here.
+# The entries below were harvested the same way, from the 1,182 listings whose
+# taluk string resolved to nothing: a candidate was proposed only when exactly
+# one taluk in the notice's own district matched it, and kept only when a
+# village on that same notice is a real village of the proposed taluk. 67
+# spellings clear that bar and carry 371 listings; the 100 that do not stay
+# out. Most of those are one-off OCR damage, and OCR damage is the fuzzy
+# matcher's job, not a lookup table's.
+#
+# "Tirupattur" and its spellings are deliberately absent. Tirupathur (its own
+# district) and Thiruppattur (Sivaganga) fold to the same key, so no global
+# alias can name one without misfiling the other — the district decides, and
+# this table cannot see it.
 TALUK_ALIASES = {
-    "kodavasal": "Kudavasal",
+    "kodavasal":           "Kudavasal",
+    "andipatti":           "Aundipatti",
+    "animalai":            "Anaimalai",
+    "aravakurichi":        "Arvakurichi",
+    "arni":                "Arani",
+    "barugur":             "Bargur",
+    "chengalpet":          "Chengalpattu",
+    "chengpaltu":          "Chengalpattu",
+    "denkanikottai":       "Denkanikotta",
+    "ganangavalli":        "Gangavalli",
+    "gandharvakottai":     "Gandarvakottai",
+    "gopi chettipalyam":   "Gobichettipalayam",
+    "gopichettipalyam":    "Gobichettipalayam",
+    "gummidipondu":        "Gummidipoondi",
+    "gumudipoondi":        "Gummidipoondi",
+    "kaadaiyampatty":      "Kadayampatti",
+    "kaliukudi":           "Kalligudi",
+    "kangeyam":            "Kangayam",
+    "kantharvakottai":     "Gandarvakottai",
+    "killyoor":            "Killiyoor",
+    "kinathukadavu":       "Kinathukkdavu",
+    "kundathur":           "Kundrathur",
+    "kuninjipadi":         "Kurinjipadi",
+    "kunrathur":           "Kundrathur",
+    "madaravoyal":         "Maduravoyal",
+    "madathakulam":        "Madathukulam",
+    "madhukarai":          "Madukkarai",
+    "madukkari":           "Madukkarai",
+    "natrampalli":         "Natarampalli",
+    "oddanchathram":       "Oddenchatram",
+    "orathanadu":          "Orathanad",
+    "palladom":            "Palladam",
+    "paramathi vellore":   "Paramathivelur",
+    "poonamalle":          "Poonamallee",
+    "sangagiri":           "Sankari",
+    "sankagiri":           "Sankari",
+    "sherahmahadevi":      "Cheranmahadevi",
+    "shoinganallur":       "Sholinganallur",
+    "shoinganatur":        "Sholinganallur",
+    "sholingur":           "Sholinghur",
+    "siperumbudur":        "Sriperumbudur",
+    "sivagangai":          "Sivaganga",
+    "sriperumbadur":       "Sriperumbudur",
+    "sriperumbur":         "Sriperumbudur",
+    "sriperumpudur":       "Sriperumbudur",
+    "sripurumbudur":       "Sriperumbudur",
+    "srirangam":           "Srirengam",
+    "srivaikuntam":        "Srivaikundam",
+    "striperumbudur":      "Sriperumbudur",
+    "thandampattu":        "Thandarampattu",
+    "thirukazhkundram":    "Tirukalukundram",
+    "thirukazhukundram":   "Tirukalukundram",
+    "thirukkuvai":         "Thirukkuvalai",
+    "thirupparankundrum":  "Thirupparankundram",
+    "thirupurur":          "Thiruporur",
+    "thiruvaidaimaruthur": "Thiruvidaimarudur",
+    "thiruvidaimaruthur":  "Thiruvidaimarudur",
+    "thisaiyanvilai":      "Thisayanvilai",
+    "thovalal":            "Thovalai",
+    "ushilamppatti":       "Usilampatti",
+    "utnukkottai":         "Uthukottai",
+    "vedharanyam":         "Vedaranyam",
+    "vedsandur":           "Vedasandur",
+    "veerakeralamputhur":  "Veerakeralampudur",
+    "vilavancode":         "Vilavamcode",
+    "virdhachalam":        "Vridhachalam",
+    "walaja":              "Walajah",
+    "walajaa":             "Walajah",
 }
 
 # Chennai is fully urban and keeps no revenue villages, so 12 of its taluks

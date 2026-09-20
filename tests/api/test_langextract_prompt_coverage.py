@@ -29,8 +29,6 @@ _KINDS_JSON = _ROOT / "pipeline" / "lookups" / "identifier_kinds.json"
 EXEMPT: dict = {
     "liquidator":          "IBC-only; ~2 notices in corpus, neither example-worthy",
     "predecessor_entity":  "renamed/amalgamated lenders; very rare",
-    "latitude":            "printed in ~3 notices only",
-    "longitude":           "printed in ~3 notices only",
     "sarfaesi_stage":      "rarely stated as such",
     "landmark":            "no example source states a property landmark",
     "municipality_corporation": "no example source contains the phrase",

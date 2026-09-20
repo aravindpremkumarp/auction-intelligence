@@ -6,11 +6,12 @@ scheme) and wrapped with LangExtract-specific conventions. Edit the scheme in th
 one file and this prompt follows automatically; the examples below only have to
 keep *demonstrating* the fields.
 
-The seven ExampleData objects (single: 736547 / Bank of Baroda; multi: 738029 /
+The eight ExampleData objects (single: 736547 / Bank of Baroda; multi: 738029 /
 Equitas SFB; apartment: Canara Bank / flat + UDS; DRT: Indian Bank / DRT-III
 Chennai, 750600; ARC: Omkara ARC / IndusInd Bank, 747290; Karnataka leasehold:
 Karnataka Bank, 752691; Can Fin multi w/ disjunctive possession:
-CANFN17791720254760) are annotated to FULL PARITY (option A) with the scheme,
+CANFN17791720254760; Appendix IV-A table: bob-1 / Bank of Baroda ROSARB) are
+annotated to FULL PARITY (option A) with the scheme,
 across these grounded entity classes — chosen so LangExtract extracts spans
 (its strength) rather than long attribute lists (its weakness):
 
@@ -1193,8 +1194,133 @@ CANFIN_EXAMPLE = lx.data.ExampleData(
     ],
 )
 
+# --------------------------------------------------------------------------- #
+# Example 8 — APPENDIX IV-A TABLE notice. Source: bob-1 / Bank of Baroda ROSARB.
+#
+# Every other example is prose: the schedule runs as a sentence and the place
+# reads as its own clause ("Situated At Penia Chozhiyampakkam Village,
+# Gummidipoondi Taluk"). Half the corpus is not written that way. It is an
+# Appendix IV-A grid, one <td> per column, and the whole address — building,
+# locality, village, taluk, district — is crammed into the property cell
+# alongside the survey numbers, the boundaries and the extents.
+#
+# Shown only prose, the model copies such a cell out as one `property` span and
+# emits no `location` at all, so the village is lost even though the notice
+# names it. 27 notices in the corpus name a village their extraction does not
+# carry. This example is the table shape with the place carved back out of the
+# cell, and it is the only place latitude/longitude are demonstrated — this
+# notice is one of the ~3 that print them.
+# --------------------------------------------------------------------------- #
+TABLE_TEXT = (
+    "Branch - ROSARB [REGIONAL STRESSED ASSETS RECOVERY BRANCH] : 2nd Floor, "
+    "No.82, Bank Road, Coimbatore - 641 018. Telephone Nos - 0422 2302423, "
+    "2302324, e-mail id: sarcoi@bankofbaroda.bank.in. "
+    "Notice is hereby given that the below described immovable property "
+    "mortgaged/charged to the Secured Creditor, possession of which has been "
+    "taken by the Authorised Officer of Bank of Baroda, Secured Creditor, will "
+    "be sold on \"As is where is\", \"As is what is\" \"Whatever there is\" and "
+    "\"without recourse\" basis for recovery of dues in below mentioned "
+    "account/s. "
+    "<table><tr><td>S.No.</td><td>NAME &amp; ADDRESS OF THE BORROWER/S / "
+    "GUARANTOR/S</td><td>SHORT DESCRIPTION OF THE IMMOVABLE PROPERTY WITH "
+    "KNOWN ENCUMBRAHCE, IF ANY</td><td>Total Dues</td><td>Date &amp; Time of "
+    "E-auction</td><td>1. Reserve Price,2. EMD Amount,3. Bid Increase "
+    "Amount..</td><td>Status of Possession (Constructive / Physical)</td>"
+    "<td>Property Inspection date &amp; Time</td></tr>"
+    "<tr><td>1</td><td>M/s. KANSHIKA INDUSTRIES (Borrower) Represented by its "
+    "Proprietor Mr.B.Santhosh, S/o.C.Bhojan. Registered Office at No.7/211, "
+    "T. Manhattv Village, Kattabettu, The Nilgiri - 643 214 Mr.B.SANTHOSH "
+    "(Mortgagor), S/o.Mr.C.Bhojan</td>"
+    "<td>In Nilgiri Registration District, Kotagiri Sub Registration District, "
+    "Kaguchi Panchayat Board, Udhagamandalam Taluk and Kaguchi Village, Old "
+    "S.F.No.511/5, New S.F.No.1029, T.Manhattv,Bounded by - South : "
+    "Halamuthan's portion, North : Stream, West : T. Mathan's portion, East : "
+    "Stream. In the Midst measuring: -Totally measuring an extent of 1.00 acre "
+    "land and Industrial Building constructed thereon. Industrial Building "
+    "Ground Floor: 3690 sq. ft. Industrial Building First Floor: 2790 sq. ft. "
+    "Total: 7744.50 Sq. ft. The above property is standing in the name of "
+    "Mr. B.Santhosh, S/o C. Bhojan. Latitude: 11.423187, Longitude: "
+    "76.790243</td>"
+    "<td>Balance outstanding including charges as on 25-02-2026 is "
+    "Rs.1.88,62.42%- (Rupees One Crore Eighty Eight Lakhss Sixty Two Thousand "
+    "Four Hundred Twenty Nine Only) and further costs, charges.</td>"
+    "<td>07-07-20262.00 PMto6.00 PM</td>"
+    "<td>Rs.77.10,000/- (Value of Land and Building) Rs.57.90,000/- (Plant and "
+    "Machineries) Total Rs.1.35,00,000/-1. Rs.1.35,00,000/-2. Rs.13,50,000/-3. "
+    "Rs.50,000/-</td>"
+    "<td>Physical Possession</td><td>06-07-202610.00 AM to4:00 PM</td></tr>"
+    "</table>"
+)
+
+TABLE_EXAMPLE = lx.data.ExampleData(
+    text=TABLE_TEXT,
+    extractions=[
+        E("secured_creditor", "Bank of Baroda", legal_basis="SARFAESI",
+          bank_name="Bank of Baroda",
+          branch="ROSARB [REGIONAL STRESSED ASSETS RECOVERY BRANCH]",
+          sale_terms="As is where is, As is what is, Whatever there is, "
+                     "without recourse"),
+        E("contact", "Telephone Nos - 0422 2302423, 2302324, e-mail id: "
+          "sarcoi@bankofbaroda.bank.in",
+          phones="0422 2302423, 0422 2302324",
+          email="sarcoi@bankofbaroda.bank.in"),
+        E("borrower", "M/s. KANSHIKA INDUSTRIES", role="borrower", lot_index="1",
+          address="No.7/211, T. Manhattv Village, Kattabettu, The Nilgiri - "
+                  "643 214"),
+        E("borrower", "Mr.B.SANTHOSH", role="mortgagor", lot_index="1"),
+        # The cell is one <td>, so `property` takes the description and
+        # `location` is carved out of the same cell rather than skipped.
+        E("property", "1.00 acre land and Industrial Building constructed "
+          "thereon", lot_index="1", property_type="land and building",
+          asset_category="immovable"),
+        E("full_description", "In Nilgiri Registration District, Kotagiri Sub "
+          "Registration District, Kaguchi Panchayat Board, Udhagamandalam "
+          "Taluk and Kaguchi Village, Old S.F.No.511/5, New S.F.No.1029, "
+          "T.Manhattv", lot_index="1"),
+        # No revenue district is stated anywhere in the cell — the taluk names
+        # its own, so leaving it unset is right and beats guessing from the
+        # borrower's postal address.
+        E("location", "Kotagiri Sub Registration District, Kaguchi Panchayat "
+          "Board, Udhagamandalam Taluk and Kaguchi Village", lot_index="1",
+          village="Kaguchi", taluk="Udhagamandalam", panchayat="Kaguchi",
+          registration_district="Nilgiri",
+          registration_sub_district="Kotagiri"),
+        E("location", "Latitude: 11.423187, Longitude: 76.790243", lot_index="1",
+          latitude="11.423187", longitude="76.790243"),
+        E("identifier", "Old S.F.No.511/5", kind="survey_old", value="511/5",
+          lot_index="1"),
+        E("identifier", "New S.F.No.1029", kind="survey_new", value="1029",
+          lot_index="1"),
+        E("extent", "Total: 7744.50 Sq. ft.", lot_index="1",
+          extent_sqft="7744.5", built_up_area="7744.50 sq. ft"),
+        E("extent", "an extent of 1.00 acre", lot_index="1",
+          total_area="1.00 acre"),
+        E("boundary", "North : Stream", side="north", adjacent="Stream",
+          lot_index="1"),
+        E("boundary", "South : Halamuthan's portion", side="south",
+          adjacent="Halamuthan's portion", lot_index="1"),
+        E("boundary", "East : Stream", side="east", adjacent="Stream",
+          lot_index="1"),
+        E("boundary", "West : T. Mathan's portion", side="west",
+          adjacent="T. Mathan's portion", lot_index="1"),
+        E("auction_terms", "Total Rs.1.35,00,000/-1. Rs.1.35,00,000/-2. "
+          "Rs.13,50,000/-3. Rs.50,000/-", lot_index="1",
+          reserve_price_num="13500000", emd_num="1350000",
+          bid_increment_num="50000",
+          auction_start_dt="2026-07-07T14:00", auction_end_dt="2026-07-07T18:00",
+          inspection_dt="2026-07-06T10:00", possession="physical"),
+        # The digits are OCR-damaged ("Rs.1.88,62.42%-"); the words beside them
+        # are not, and they are what the amount is read from.
+        E("outstanding", "Balance outstanding including charges as on "
+          "25-02-2026 is Rs.1.88,62.42%- (Rupees One Crore Eighty Eight Lakhss "
+          "Sixty Two Thousand Four Hundred Twenty Nine Only)", lot_index="1",
+          amount_num="18862429", as_on="2026-02-25"),
+    ],
+)
+
+
 EXAMPLES = [SINGLE_EXAMPLE, MULTI_EXAMPLE, APARTMENT_EXAMPLE, DRT_EXAMPLE,
-            ARC_EXAMPLE, KARNATAKA_EXAMPLE, CANFIN_EXAMPLE]
+            ARC_EXAMPLE, KARNATAKA_EXAMPLE, CANFIN_EXAMPLE, TABLE_EXAMPLE]
 
 
 _MODEL_CACHE: dict = {}
