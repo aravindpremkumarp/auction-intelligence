@@ -15,7 +15,11 @@ single place would be wrong for a third of the corpus.
 Writes, all additive — no existing property or relationship is touched::
 
     p.revenue_district / _taluk / _village   the official names
-    p.place_district_source                  'taluk' or 'district'
+    p.place_district_source                  'taluk', 'district', or one of the
+                                             two weaker fallbacks — the taluk
+                                             field naming a district, or the
+                                             registration (SRO) district (see
+                                             pipeline/place_resolution.py)
     p.place_village_status                   resolved / unmatched / absent /
                                              no-parent-taluk /
                                              taluk-has-no-villages
@@ -81,11 +85,11 @@ def load_properties() -> list[dict]:
         OPTIONAL MATCH (p)-[:HAS_DOCUMENT]->(d:Document)
         OPTIONAL MATCH (p)-[:LOCATED_IN_CITY]->(c:City)
         RETURN p.auction_id, p.village, p.taluk, p.district, c.name,
-               d.file_path
+               d.file_path, p.registration_district
     """)
     return [{"auction_id": aid, "village": v, "taluk": t, "district": d,
-             "city": c, "file_path": fp}
-            for aid, v, t, d, c, fp in rows if aid]
+             "city": c, "file_path": fp, "registration_district": rd}
+            for aid, v, t, d, c, fp, rd in rows if aid]
 
 
 def notice_fallback() -> dict[str, dict]:
@@ -236,7 +240,8 @@ def run(*, dry_run: bool = False) -> dict:
             if fb:
                 district, taluk, village = fb["district"], fb["taluk"], fb["village"]
                 stats["filled from notice"] += 1
-        res = resolve_place(gaz, district=district, taluk=taluk, village=village)
+        res = resolve_place(gaz, district=district, taluk=taluk, village=village,
+                            registration_district=p["registration_district"])
 
         # A human alias outranks "unmatched" — but only into a village the
         # gazetteer actually holds under that taluk, so a typo in a decision

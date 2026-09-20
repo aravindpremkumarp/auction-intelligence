@@ -246,7 +246,8 @@ def lot_place(rec: dict) -> dict:
     r = resolve_place(gaz,
                       district=loc.get("district"),
                       taluk=loc.get("taluk"),
-                      village=loc.get("village"))
+                      village=loc.get("village"),
+                      registration_district=loc.get("registration_district"))
     status, source = r["village_status"], r["village_source"]
     district, taluk, village = r["district"], r["taluk"], r["village"]
 
@@ -271,6 +272,10 @@ def lot_place(rec: dict) -> dict:
         "village": village,
         "status": status,
         "source": source,
+        # Which field the district came from. Stored because the weakest of
+        # them — the registration (SRO) district — must stay tellable from a
+        # district the notice stated outright; see resolve_place.
+        "district_source": r["district_source"],
         "conflict": r["conflict"],
     }
 
@@ -846,6 +851,7 @@ UNWIND $rows AS row
 MATCH (l:Lot {lot_key: row.lot_key})
 SET l.place_status = row.status,
     l.place_source = row.source,
+    l.place_district_source = row.district_source,
     l.place_conflict = row.conflict,
     l.village = row.village,
     l.taluk = row.taluk,

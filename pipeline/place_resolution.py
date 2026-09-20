@@ -428,12 +428,18 @@ class Gazetteer:
 
 def resolve_place(gaz: Gazetteer, *, district: str | None = None,
                   taluk: str | None = None,
-                  village: str | None = None) -> dict:
+                  village: str | None = None,
+                  registration_district: str | None = None) -> dict:
     """Resolve one notice's place fields against the gazetteer.
 
     Bottom-up: the taluk is tried first because it carries its district, so a
     misspelt or outdated district string is corrected rather than believed.
     The village is then looked up only within that taluk.
+
+    ``registration_district`` is the SRO division the notice quotes for the
+    sale deed, and it is consulted ONLY when the revenue fields resolve to
+    nothing — see the block below for why it is a last resort and why it
+    never supplies a taluk.
 
     Returns the resolved names, what each was derived from, and — when the
     village cannot be placed — why, so the review queue can tell a bad read
@@ -442,7 +448,8 @@ def resolve_place(gaz: Gazetteer, *, district: str | None = None,
     out = {
         "district": None, "taluk": None, "village": None,
         "district_source": None, "village_source": None, "village_status": None,
-        "raw": {"district": district, "taluk": taluk, "village": village},
+        "raw": {"district": district, "taluk": taluk, "village": village,
+                "registration_district": registration_district},
         "conflict": False,
     }
     t = gaz.taluk(taluk) if taluk else None
@@ -466,6 +473,32 @@ def resolve_place(gaz: Gazetteer, *, district: str | None = None,
         if from_taluk_field:
             out["district"] = from_taluk_field
             out["district_source"] = "taluk-field-names-a-district"
+
+    # Last resort: the registration (SRO) district. Hundreds of notices quote
+    # only "SRO Chidambaram" and leave the revenue hierarchy unwritten, which
+    # used to leave the lot with no district at all — unsearchable, unfilterable
+    # and unpriceable. Registration and revenue are different divisions, so this
+    # is deliberately the weakest source and gives the DISTRICT ONLY:
+    #
+    #   * An SRO district usually names a TALUK ("Chidambaram", "Tindivanam",
+    #     "Palani"), not a revenue district, so the taluk lookup is tried after
+    #     the district one — a taluk carries its district for free.
+    #   * The taluk it names is NOT recorded. SRO boundaries do not follow
+    #     taluk boundaries, so the office named Chidambaram serves land outside
+    #     Chidambaram taluk. Its district is reliable; its taluk is not.
+    #
+    # The source is stamped so a district derived this way is never mistaken
+    # for one the notice actually stated (see :attr:`district_source`).
+    if not out["district"] and registration_district:
+        from_reg = gaz.district(registration_district)
+        if from_reg:
+            out["district"] = from_reg
+            out["district_source"] = "registration-district"
+        else:
+            names_taluk = gaz.taluk(registration_district)
+            if names_taluk:
+                out["district"] = names_taluk[1]
+                out["district_source"] = "registration-district-names-a-taluk"
 
     if not village:
         out["village_status"] = "absent"
