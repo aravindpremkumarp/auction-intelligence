@@ -588,13 +588,29 @@ class Gazetteer:
         The last resort, for a notice that names no parent at all. Exact only
         and unique-or-nothing: 1,150 village names are shared, and at state
         scope a fuzzy match would have 17,164 chances to be wrong.
+
+        A name that also belongs to a TALUK somewhere else is refused, because
+        a notice writing it bare almost certainly means the town everyone has
+        heard of rather than a small village of the same name elsewhere. Two
+        live lots proved it: "Arani" is a village of Ponneri and the taluk town
+        in Tiruvannamalai, "Mamballam" a village of Uthukottai and Chennai's
+        Mambalam. Both were filed in Tiruvallur, both wrong.
+
+        The same-district case survives, because it is not a collision: a taluk
+        is usually named after its own headquarters village, so Manmangalam the
+        village and Manmangalam the taluk of Karur are one place.
         """
-        found = self._v_global.get(normalize_place(value or "")) or set()
+        key = normalize_place(value or "")
+        found = self._v_global.get(key) or set()
         if len(found) != 1:
             return None
         village, taluk, district = next(iter(found))
-        return (village, taluk, district) if (
-            taluk, normalize_place(value)) not in self._v_ambiguous else None
+        if (taluk, key) in self._v_ambiguous:
+            return None
+        names_taluk = self._t.get(key)
+        if names_taluk and names_taluk[1] != district:
+            return None
+        return village, taluk, district
 
 
 def resolve_place(gaz: Gazetteer, *, district: str | None = None,

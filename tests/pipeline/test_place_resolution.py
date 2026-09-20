@@ -452,6 +452,39 @@ def test_a_village_carried_by_one_village_in_the_state_places_itself(
     assert r["village_source"] == "state"
 
 
+def test_a_village_name_that_is_a_taluk_elsewhere_is_refused():
+    """Both of these reached the graph as wrong places before the guard:
+    "Arani" is a village of Ponneri and the taluk town in Tiruvannamalai;
+    "Mamballam" is a village of Uthukottai and Chennai's Mambalam. A notice
+    writing either bare means the town, not the village."""
+    local = Gazetteer(
+        districts=["Tiruvallur", "Tiruvannamalai", "Karur"],
+        taluks=[("Ponneri", "Tiruvallur"), ("Arani", "Tiruvannamalai"),
+                ("Manmangalam", "Karur")],
+        villages=[("Arani", "Ponneri", "Tiruvallur"),
+                  ("Manmangalam", "Manmangalam", "Karur")],
+    )
+    assert local.village_anywhere("Arani") is None
+    r = resolve_place(local, village="Arani")
+    assert r["village"] is None
+    assert r["village_status"] == "no-parent-taluk"
+
+
+def test_a_taluk_named_after_its_own_village_still_places(split_gaz):
+    """Not a collision: a taluk is usually named for its headquarters village,
+    so Manmangalam the village and Manmangalam the taluk of Karur are one
+    place. Four live lots depend on this staying resolvable."""
+    local = Gazetteer(
+        districts=["Karur"],
+        taluks=[("Manmangalam", "Karur")],
+        villages=[("Manmangalam", "Manmangalam", "Karur")],
+    )
+    r = resolve_place(local, village="Manmangalam")
+    assert (r["village"], r["taluk"], r["district"]) == \
+        ("Manmangalam", "Manmangalam", "Karur")
+    assert r["village_status"] == "resolved"
+
+
 def test_a_shared_village_name_never_places_itself(split_gaz):
     """Two Agarams, so the name alone says nothing. 1,150 village names are
     shared this way — which is why this rule is exact and unique-or-nothing."""
