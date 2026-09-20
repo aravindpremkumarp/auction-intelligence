@@ -93,20 +93,43 @@ def test_full_description_absence_costs_thirty_points():
 
 # ── lot anchors: borrower + reserve confirm a lot ─────────────────────────────
 def test_multi_lot_missing_anchors_flagged():
-    # two property lots, but only one reserve and one borrower
+    # two property lots, but only one reserve, borrower and location
     ex = [E("property", property_type="flat", lot="1"),
           E("property", property_type="flat", lot="2"),
           E("auction_terms", reserve_price_num="1000000", lot="1"),
+          E("location", village="X", lot="1"),
           E("borrower", role="borrower", lot="1")]
     c = _codes(ex)
     assert "lot_missing_reserve" in c
     assert "lot_missing_borrower" in c
+    assert "lot_missing_location" in c
 
 
 def test_single_lot_does_not_trigger_anchor_deficit():
     ex = [E("property", property_type="flat", lot="1"),
           E("auction_terms", reserve_price_num="1000000", lot="1"),
+          E("location", village="X", lot="1"),
           E("borrower", role="borrower", lot="1")]
     c = _codes(ex)
     assert "lot_missing_reserve" not in c
     assert "lot_missing_borrower" not in c
+    assert "lot_missing_location" not in c
+
+
+# ── location: the notice-level check is blind to a per-lot gap ────────────────
+def test_a_long_notice_that_places_only_its_first_lots_is_flagged():
+    """The failure this exists for: 188 lots across 56 notices carry no
+    location while the notice around them has one, so `missing_location`
+    (notice-level) never fires. The worst is a 40-lot notice with four."""
+    ex = ([E("property", property_type="land", lot=str(i)) for i in range(1, 11)]
+          + [E("location", village="X", lot=str(i)) for i in (1, 2)])
+    c = _codes(ex)
+    assert "lot_missing_location" in c
+    assert "missing_location" not in c          # the notice does have locations
+    assert _sev(ex, "lot_missing_location") == "high"
+
+
+def test_every_lot_located_does_not_flag():
+    ex = ([E("property", property_type="land", lot=str(i)) for i in (1, 2, 3)]
+          + [E("location", village="X", lot=str(i)) for i in (1, 2, 3)])
+    assert "lot_missing_location" not in _codes(ex)

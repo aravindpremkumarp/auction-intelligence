@@ -540,3 +540,71 @@ def test_a_tamil_nadu_district_spelled_loosely_is_not_read_as_foreign():
     for raw in ["Tuticorin", "Trichy", "Kanchipuram", "Chengalpet",
                 "Tiruchirapalli", "Virudunagar", "Nilgiri", "Madras"]:
         assert not outside_tamil_nadu(district=raw), raw
+
+
+def test_the_registration_district_places_a_lot_the_revenue_fields_cannot(gaz):
+    """216 lots quote only the SRO district and leave the revenue hierarchy
+    unwritten. Believing that field at district level is the difference
+    between a lot that can be searched and one that cannot."""
+    r = resolve_place(gaz, registration_district="Coimbatore",
+                      village="Kavundampalayam")
+    assert r["district"] == "Coimbatore"
+    assert r["district_source"] == "registration-district"
+
+
+def test_an_sro_district_the_alias_table_already_knows(gaz):
+    """Most of these values name a taluk rather than a district, and the
+    commonest of them are already in DISTRICT_ALIASES for the revenue side —
+    "Chidambaram", "Tindivanam", "Palani", "Karaikudi". Reading the field at
+    all is the whole change; the alias table does the rest."""
+    r = resolve_place(gaz, registration_district="Chidambaram")
+    assert r["district"] == "Cuddalore"
+    assert r["district_source"] == "registration-district"
+
+
+def test_an_sro_district_that_names_a_taluk_no_alias_covers():
+    """"Cheranmahadevi" and "Salem West" are SRO districts on live notices
+    with no district alias. They are taluks, and a taluk carries its district,
+    so the taluk lookup catches what the alias table does not."""
+    local = Gazetteer(
+        districts=["Tirunelveli"],
+        taluks=[("Cheranmahadevi", "Tirunelveli")],
+        villages=[],
+    )
+    r = resolve_place(local, registration_district="Cheranmahadevi")
+    assert r["district"] == "Tirunelveli"
+    assert r["district_source"] == "registration-district-names-a-taluk"
+
+
+def test_the_sro_taluk_itself_is_never_recorded(gaz):
+    """Registration and revenue divisions do not share boundaries: the office
+    named Vridhachalam serves land outside Vridhachalam taluk. Its district is
+    reliable, its taluk is a guess — so the village stays unplaced rather than
+    being looked up under a taluk nobody stated."""
+    r = resolve_place(gaz, registration_district="Vridhachalam",
+                      village="Manavalanallur")
+    assert r["district"] == "Cuddalore"
+    assert r["taluk"] is None
+    assert r["village"] is None
+    assert r["village_status"] == "no-parent-taluk"
+
+
+def test_the_revenue_fields_always_outrank_the_registration_one(gaz):
+    """The SRO district is the weakest source in the resolver. It is consulted
+    only when the revenue fields reach nothing — never to overrule a taluk
+    that resolved, even when the two name different districts."""
+    r = resolve_place(gaz, taluk="Katpadi", village="Dharapadavedu",
+                      registration_district="Coimbatore")
+    assert r["district"] == "Vellore"
+    assert r["district_source"] == "taluk"
+    assert r["village"] == "Dharapadavedu"
+
+
+def test_an_out_of_state_sro_district_is_still_refused(gaz):
+    """"Puducherry" is a registration district on live notices and is not in
+    Tamil Nadu. A weaker source is not a looser one — an unknown name resolves
+    to nothing, exactly as it does on the revenue side."""
+    r = resolve_place(gaz, registration_district="Puducherry",
+                      village="Thirubhuvanai")
+    assert r["district"] is None
+    assert r["district_source"] is None

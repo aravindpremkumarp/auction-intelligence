@@ -247,10 +247,12 @@ def lot_place(rec: dict) -> dict:
                       district=loc.get("district"),
                       taluk=loc.get("taluk"),
                       village=loc.get("village"),
-                      # Two fields the notice states far more often than it
-                      # states the revenue taluk: the Sub-Registrar's Office
-                      # (which usually shares the taluk's name) and the state
-                      # (which says when there is no answer to look for).
+                      registration_district=loc.get("registration_district"),
+                      # Two more fields the notice states far more often than
+                      # it states the revenue taluk: the Sub-Registrar's Office
+                      # itself (which usually shares the taluk's name, and is
+                      # believed only when the village confirms it) and the
+                      # state (which says when there is no answer to look for).
                       sub_registrar=loc.get("registration_sub_district"),
                       state=loc.get("state"))
     status, source = r["village_status"], r["village_source"]
@@ -277,6 +279,10 @@ def lot_place(rec: dict) -> dict:
         "village": village,
         "status": status,
         "source": source,
+        # Which field the district came from. Stored because the weakest of
+        # them — the registration (SRO) district — must stay tellable from a
+        # district the notice stated outright; see resolve_place.
+        "district_source": r["district_source"],
         "conflict": r["conflict"],
     }
 
@@ -852,6 +858,7 @@ UNWIND $rows AS row
 MATCH (l:Lot {lot_key: row.lot_key})
 SET l.place_status = row.status,
     l.place_source = row.source,
+    l.place_district_source = row.district_source,
     l.place_conflict = row.conflict,
     l.village = row.village,
     l.taluk = row.taluk,

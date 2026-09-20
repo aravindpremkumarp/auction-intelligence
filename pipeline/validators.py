@@ -49,7 +49,7 @@ _PENALTY = {"critical": 30, "high": 20, "med": 10, "low": 4}
 # extracted. With it, a mixed corpus can be told apart and re-levelled —
 # `python -m scripts.backfill_extraction_scores` rescores everything behind the
 # current version, with no LLM call.
-SCORE_VERSION = 2
+SCORE_VERSION = 3
 # Valid committed possession values (Option A: penalise only present-but-invalid;
 # a blank possession is often correct — the "Constructive/Symbolic/Physical"
 # disjunction has no single answer — so absence is NOT penalised).
@@ -230,6 +230,7 @@ def validate(extractions, source_text: str = "") -> dict:
     extent_lots: set = set()        # lots with any extent entity
     uds_lots: set = set()           # lots whose extent carries an undivided_share
     borrower_lots: set = set()      # lots with a borrower
+    location_lots: set = set()      # lots with a location entity
 
     for e in extractions:
         a = e.attributes or {}
@@ -283,6 +284,8 @@ def validate(extractions, source_text: str = "") -> dict:
                 possession[li] = a["possession_type"]
         elif c == "borrower":
             borrower_lots.add(li)
+        elif c == "location":
+            location_lots.add(li)
 
     # ── core completeness ────────────────────────────────────────────────────
     if not classes.get("secured_creditor"):
@@ -316,9 +319,18 @@ def validate(extractions, source_text: str = "") -> dict:
     if flat_no_uds:
         flag("missing_uds", "high",
              f"flat lot(s) {flat_no_uds} have no undivided_share (UDS) extent")
-    # Lot anchors on a MULTI notice: every property lot needs its own reserve +
-    # borrower, else a lot isn't fully captured. Count-based (robust to lot_index
-    # mis-tagging): fewer anchors than property lots -> a lot is missing one.
+    # Lot anchors on a MULTI notice: every property lot needs its own reserve,
+    # borrower and location, else a lot isn't fully captured. Count-based
+    # (robust to lot_index mis-tagging): fewer anchors than property lots ->
+    # a lot is missing one.
+    #
+    # `location` is here as well as in core completeness above because the
+    # notice-level check only fires when a notice has NO location at all, and
+    # that is not how this fails on a long notice: the model places the first
+    # few lots and then stops. 188 lots across 56 notices carry no location of
+    # their own while the notice around them scored clean — one is a 40-lot
+    # notice with four locations. A lot with no location cannot be placed, so
+    # it cannot be searched, filtered or priced, which is the whole product.
     n_prop_lots = len(prop_lots)
     if n_prop_lots > 1:
         if len(reserves) < n_prop_lots:
@@ -327,6 +339,15 @@ def validate(extractions, source_text: str = "") -> dict:
         if len(borrower_lots) < n_prop_lots:
             flag("lot_missing_borrower", "high",
                  f"{n_prop_lots} property lots but only {len(borrower_lots)} with a borrower")
+        # `location_lots` must be non-empty: a notice with no location at all
+        # is already charged once by the notice-level check above, and charging
+        # it again here would both double-penalise one defect and make the
+        # score a function of lot count — the invariant tests/api/
+        # test_score_lot_normalization.py exists to hold.
+        if location_lots and len(location_lots) < n_prop_lots:
+            flag("lot_missing_location", "high",
+                 f"{n_prop_lots} property lots but only {len(location_lots)} "
+                 f"with a location")
 
     # ── grounding / cleanliness ──────────────────────────────────────────────
     if ungrounded:
