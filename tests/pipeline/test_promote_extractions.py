@@ -608,3 +608,48 @@ def test_a_single_extent_lot_is_untouched():
     m = lots[0]["measurements"][0]
     assert (m["sqft_norm"], m["norm_method"]) == (681.0, "stated")
     assert lots[0]["props"]["extent_parts_status"] is None
+
+
+def test_a_flat_beside_bare_ground_is_not_summed_as_land():
+    """A flat's area is the floor it occupies; the other item's is ground.
+    Adding them reports a property that does not exist. Only the flat case is
+    blocked — "land" + "land and building" really is two parcels of ground."""
+    _, lots = build([
+        ent("property", "x", property_type="land"),
+        ent("schedule", "Item No.1", label="Item 1", type="land"),
+        ent("schedule", "Item No.2", label="Item 2", type="flat"),
+        ent("extent", "2000 sq.ft", total_area="2000 sq.ft"),
+        ent("extent", "1241 sq.ft", total_area="1241 sq.ft"),
+    ])
+    m = {x["kind"]: x for x in lots[0]["measurements"]}["total"]
+    assert m["sqft_norm"] == 2000.0
+    assert m["norm_method"] != "summed"
+    assert lots[0]["props"]["extent_parts_status"] == "unreconciled"
+
+
+def test_land_and_building_parcels_still_sum():
+    """The guard must not catch the common case: both items are ground, one
+    of them with a building on it."""
+    _, lots = build([
+        ent("schedule", "Item No.1", label="Item 1", type="land"),
+        ent("schedule", "Item No.2", label="Item 2", type="land and building"),
+        ent("extent", "520 sq ft", total_area="520 sq ft"),
+        ent("extent", "1545 sq ft", total_area="1545 sq ft"),
+    ])
+    m = {x["kind"]: x for x in lots[0]["measurements"]}["total"]
+    assert m["sqft_norm"] == 2065.0
+    assert m["norm_method"] == "summed"
+
+
+def test_a_flats_own_kinds_still_sum_beside_ground():
+    """The block is on LAND kinds only. Two undivided shares are both the same
+    measure and still add up — that is how a real two-flat lot reads."""
+    _, lots = build([
+        ent("schedule", "Item No.1", label="Item 1", type="uds"),
+        ent("schedule", "Item No.2", label="Item 2", type="flat"),
+        ent("extent", "311 sq.ft", undivided_share="311 sq.ft"),
+        ent("extent", "202 sq.ft", undivided_share="202 sq.ft"),
+    ])
+    m = {x["kind"]: x for x in lots[0]["measurements"]}["uds"]
+    assert m["sqft_norm"] == 513.0
+    assert m["norm_method"] == "summed"

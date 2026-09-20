@@ -67,6 +67,9 @@ from pipeline.measures import (
 from pipeline.lot_windows import renumber_window_lots
 from pipeline.obs import get_logger
 from pipeline.place_resolution import Gazetteer, resolve_place
+from pipeline.property_taxonomy import (
+    AGRICULTURAL, FLAT, LAND, PLOT, classify_property_type,
+)
 from pipeline.resolve_places import norm_place
 from pipeline.validators import normalize_identifier_kind
 
@@ -137,6 +140,17 @@ EXTENT_KINDS = {
 # number of flats carved out of it.
 SUMMABLE_KINDS = frozenset({"total", "extent", "super_built_up", "built_up",
                             "carpet", "uds"})
+
+#: The kinds that mean LAND — the parcel's own ground, and the denominator
+#: every type but a flat is priced on (`measures._LAND_LIKE`).
+_LAND_KINDS = frozenset({"total", "extent"})
+#: Buckets naming bare ground. A flat beside one of these is the single case
+#: where two items are measured in different things: the flat's area is the
+#: floor it occupies, the other item's is ground. Adding them is nonsense, so
+#: such a lot is reported rather than summed. House, commercial and industrial
+#: are absent on purpose — their schedules quote the land under the building,
+#: so "land" + "land and building" really is two parcels of ground.
+_BARE_GROUND_BUCKETS = frozenset({LAND, PLOT, AGRICULTURAL})
 
 #: A schedule label that numbers a separate parcel ("Item No.2", "2nd Item",
 #: "Lot 3"). "Schedule A/B" is NOT one: in this corpus A/B splits a single
@@ -284,6 +298,17 @@ def item_part_count(schedules: list[dict]) -> int:
     return sum(1 for s in schedules if _ITEM_LABEL_RE.search(s.get("label") or ""))
 
 
+def mixes_flat_with_ground(schedules: list[dict]) -> bool:
+    """Whether this lot's numbered parcels are a flat AND bare ground.
+
+    The two are measured in different things — floor area against land — so a
+    land-kind extent covering both cannot be added up.
+    """
+    buckets = {classify_property_type(s.get("type"))
+               for s in schedules if _ITEM_LABEL_RE.search(s.get("label") or "")}
+    return FLAT in buckets and bool(buckets & _BARE_GROUND_BUCKETS)
+
+
 def _dedupe_restatements(entries: list[dict]) -> list[dict]:
     """Drop entries that re-state an extent already seen.
 
@@ -335,8 +360,9 @@ def collapse_measurements(measurements: list[dict],
     Summing is allowed only where the notice's own structure says the parts
     are separate parcels: as many distinct extents of that kind as the lot has
     Item-numbered schedules. Anything else — a stated total quoted beside its
-    items, more extents than items, an extent that never converted — keeps a
-    single value and is reported as `unreconciled` rather than guessed at.
+    items, more extents than items, an extent that never converted, a land
+    extent on a lot whose items are a flat AND bare ground — keeps a single
+    value and is reported as `unreconciled` rather than guessed at.
     Returns the collapsed list and that status, if any.
     """
     by_kind: dict[str, list[dict]] = {}
@@ -344,6 +370,7 @@ def collapse_measurements(measurements: list[dict],
         by_kind.setdefault(m["kind"], []).append(m)
 
     n_items = item_part_count(schedules)
+    flat_and_ground = mixes_flat_with_ground(schedules)
     out: list[dict] = []
     status: str | None = None
     for kind, entries in by_kind.items():
@@ -361,7 +388,9 @@ def collapse_measurements(measurements: list[dict],
             out.append(stated)
             continue
 
-        if kind in SUMMABLE_KINDS and n_items >= 2 and len(usable) == n_items:
+        summable = (kind in SUMMABLE_KINDS
+                    and not (kind in _LAND_KINDS and flat_and_ground))
+        if summable and n_items >= 2 and len(usable) == n_items:
             total = sum(e["sqft_norm"] for e in usable)
             out.append({
                 "kind": kind,
