@@ -135,6 +135,10 @@
   .lot-desc { border: 1px solid var(--muted); background: #fff; padding: 7px 9px;
               font-size: 12.5px; line-height: 1.5; max-height: 160px;
               overflow-y: auto; white-space: pre-wrap; word-break: break-word; }
+  /* The reserve price and borrower name the resolver compared, on the LISTING
+     side. Same grey run-on as a candidate lot's, so the reviewer reads the two
+     as one comparison rather than hunting for the portal's figures in prose. */
+  .lot-evidence { font-size: 12px; color: var(--muted); margin: 0 0 4px; }
   .ov-bar.drop { background: #e8b4ae; }
   .ov-planned { opacity: .55; }
   .ov-planned .ov-track { border: 1px dashed var(--muted); background: transparent; }
@@ -1673,6 +1677,10 @@
         ${rivalBlock}
         ${dbCount > 1 ? `<div style="margin-top:8px"><b style="font-size:12px">other properties on this notice</b>${siblingRows}</div>` : ''}
         <div class="lot-lbl">what the portal says this property is — compare it against the lots below</div>
+        <p class="lot-evidence">${[
+            currency(m.reserve) || 'no reserve price on the listing',
+            m.borrower ? escapeHtml(m.borrower) : 'no borrower name on the listing',
+          ].join(' · ')}</p>
         <div class="lot-desc">${m.listing_description
             ? escapeHtml(m.listing_description)
             : '<i style="color:var(--muted)">the portal gave no description for this listing</i>'}</div>
