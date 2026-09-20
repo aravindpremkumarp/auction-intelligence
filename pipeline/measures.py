@@ -62,7 +62,12 @@ UNIT_ALIASES: dict[str, str] = {
     "square yards": "sq_yard", "square yard": "sq_yard",
     "sq.yds": "sq_yard", "sq.yd": "sq_yard", "sq yard": "sq_yard",
     # land units
+    # "hec" is how half the corpus abbreviates it ("0.11.0 Hec", "Hec.0.03.0").
+    # Without it the alias search skips past and takes whatever unit the string
+    # names NEXT — "Hec. 3,06.0 (7.56 acres)" was read as 306 ACRES, 13.3
+    # million sq.ft for a 3-hectare field.
     "hectares": "hectare", "hectare": "hectare", "hect": "hectare",
+    "hec": "hectare",
     "acres": "acre", "acre": "acre",
     "cents": "cent", "cent": "cent",
     "ares": "are", "are": "are",
@@ -178,6 +183,19 @@ def to_sqft(value: float | None, unit: str | None) -> float | None:
     return round(value * factor, 2) if factor is not None else None
 
 
+# Hectare-are-centiare, the revenue record's own notation: "0.49.5 Hectares" is
+# 0 hectares 49 ares 5 centiares, not the decimal 0.495. The corpus writes the
+# separator as a full stop, a comma or a hyphen ("3-89-0 Hectares", "Hec. 3,06.0")
+# and cross-checks itself often enough to be sure of the reading: "Hectare 2.84.5
+# Ares (Acre 7.03 cents)" is 2.845 ha, and 7.03 acres IS 2.845 ha.
+#
+# Read as a plain decimal the error is usually small — 0.49 vs 0.4905 — because
+# the are part is two digits and lands where the decimal would. It is the
+# comma form that explodes: `parse_quantity` strips the thousands separator out
+# of "3,06.0" and reads 306.
+_HECTARE_TRIPLE_RE = re.compile(r"(\d+)\s*[.,-]\s*(\d{1,2})\s*[.,-]\s*(\d{1,2})\b")
+
+
 def parse_area(raw: str) -> tuple[float | None, str | None, float | None]:
     """(value, canonical_unit, sqft) for an area string.
 
@@ -185,9 +203,30 @@ def parse_area(raw: str) -> tuple[float | None, str | None, float | None]:
     (6.0, 'cent', 2613.6)
     >>> parse_area("2180 Sq. ft")
     (2180.0, 'sq_ft', 2180.0)
+    >>> parse_area("0.49.5 Hectares")          # 0 ha 49 are 5 ca
+    (0.4905, 'hectare', 52800.86)
     """
     value = parse_quantity(raw)
     unit = detect_unit(raw)
+
+    # The triple only speaks for the string when it IS the leading quantity.
+    # "9.621 Acres (3-89-0 Hectares)" states acres first and parenthesises the
+    # hectares; taking the triple there would answer with the wrong witness,
+    # and `parse_quantity`'s "first number wins" rule already has it right.
+    if unit == "hectare" and raw:
+        s = str(raw).replace("⁄", "/").replace("∕", "/")
+        first = re.search(r"\d", s)
+        triple = _HECTARE_TRIPLE_RE.search(s)
+        if first and triple and triple.start() == first.start():
+            # The third group is the ARE's decimals, so it pads right, not
+            # left: "2.84.5" is 84.5 ares, not 84 ares 5 centiares. The corpus
+            # settles it — "Hectare 2.84.5 Ares (Acre 7.03 cents)" is 7.03
+            # acres, which is 2.845 ha; reading the 5 as centiares gives
+            # 2.8405 ha and 7.019 acres, and the notice says otherwise.
+            ha, ares, fraction = triple.groups()
+            value = round(int(ha)
+                          + (int(ares) + int(fraction) / 10 ** len(fraction)) / 100.0, 6)
+
     return value, unit, to_sqft(value, unit)
 
 

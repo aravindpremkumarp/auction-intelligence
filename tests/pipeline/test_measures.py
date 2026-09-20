@@ -262,3 +262,55 @@ def test_the_existing_forms_are_untouched():
     assert M.parse_quantity("½ acre") == 0.5
     assert M.parse_quantity("0.03") == 0.03
     assert M.parse_quantity("no digits here") is None
+
+
+# ── hectare-are-centiare ─────────────────────────────────────────────────────
+#
+# The revenue record writes "0 hectares 49 ares 5 ares-tenths" as "0.49.5", and
+# the corpus separates the parts with a full stop, a comma or a hyphen. Read as
+# a plain decimal the answer is usually close, which is exactly why it survived
+# — until the comma form, where `parse_quantity` strips the separator as a
+# thousands mark and "Hec. 3,06.0" becomes 306.
+
+def test_a_hectare_triple_is_not_a_decimal():
+    assert M.parse_area("0.49.5 Hectares")[0] == pytest.approx(0.495)
+    assert M.parse_area("3-89-0 Hectares")[0] == pytest.approx(3.89)
+    assert M.parse_area("1.56.50 hectares or 3.86 acres")[0] == pytest.approx(1.565)
+
+
+def test_the_comma_form_no_longer_reads_as_three_hundred():
+    """"Hec. 3,06.0 (7.56 acres)" was 306 ACRES — 13.3 million sq.ft, because
+    "hec" was no alias so the unit came from the parenthesis, and the comma
+    was stripped as a thousands separator. The notice states its own answer."""
+    value, unit, sqft = M.parse_area("Hec. 3,06.0 (7.56 acres)")
+    assert unit == "hectare"
+    assert value == pytest.approx(3.06)
+    assert sqft / M.UNITS["acre"] == pytest.approx(7.56, rel=0.01)
+
+
+def test_hec_is_the_abbreviation_half_the_corpus_uses():
+    assert M.detect_unit("0.11.0 Hec") == "hectare"
+    assert M.detect_unit("Hec.0.03.0") == "hectare"
+    assert M.detect_unit("1.16.0 Hect (2.87 Acre)") == "hectare"
+
+
+def test_the_trailing_digit_is_tenths_of_an_are():
+    """"Hectare 2.84.5 Ares (Acre 7.03 cents)" is 7.03 acres, which is 2.845
+    ha. Reading the 5 as centiares gives 2.8405 and 7.019 acres instead."""
+    value, _, sqft = M.parse_area("Hectare 2.84.5 Ares (Acre 7.03 cents)")
+    assert value == pytest.approx(2.845)
+    assert sqft / M.UNITS["acre"] == pytest.approx(7.03, rel=0.01)
+
+
+def test_a_parenthesised_hectare_never_overrides_the_leading_unit():
+    """"9.621 Acres (3-89-0 Hectares)" states acres first; the hectares are the
+    cross-check, not the answer. Taking the triple there would answer with the
+    wrong witness."""
+    value, unit, _ = M.parse_area("9.621 Acres (3-89-0 Hectares)")
+    assert (value, unit) == (pytest.approx(9.621), "acre")
+    assert M.parse_area("90 cents (0.36.5 hectares)")[:2] == (pytest.approx(90.0), "cent")
+
+
+def test_a_plain_decimal_hectare_stays_decimal():
+    assert M.parse_area("1.45 Hect or 3.58 acres")[0] == pytest.approx(1.45)
+    assert M.parse_area("1.25 Hectares")[0] == pytest.approx(1.25)
