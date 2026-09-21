@@ -105,6 +105,14 @@ DISTRICT_ALIASES = {
     "pattukottai": "Thanjavur",
     "tindivanam": "Villupuram",
     "udumalaipet": "Tiruppur",
+    # LGD's own spelling of the district, which the fold cannot reach: the
+    # doubled "n" survives it, so "kaniyakumari" never meets "kanyakumari".
+    # This recovers no place by itself — Kanyakumari's taluks resolve on their
+    # own names — but without it the district is simply unknown for every
+    # Kanyakumari row of an official state export (1,086 of them), which means
+    # any caller cross-checking a taluk against the district it was filed under
+    # has nothing to check against, and silently skips the check.
+    "kanniyakumari": "Kanyakumari",
 }
 
 # Taluk spellings the fuzzy floor cannot reach. Stated for the same reason as
@@ -133,7 +141,47 @@ DISTRICT_ALIASES = {
 # district) and Thiruppattur (Sivaganga) fold to the same key, so no global
 # alias can name one without misfiling the other — the district decides, and
 # this table cannot see it.
+#
+# The eleven below were harvested differently, and to a higher bar, from the
+# Local Government Directory's village-to-gram-panchayat export for Tamil Nadu
+# (20,277 rows, 2026-09-21) — see scripts/lgd_village_mapping_to_csv.py. These
+# are not OCR damage or a notice's guess; they are how the state register itself
+# spells eleven taluks this graph holds under another name, and they are the
+# eleven the fuzzy floor cannot reach: of the 38 spellings in that export that a
+# strict fold rejects, similarity finds 27 on its own and these eleven score
+# 57-88, below FUZZY_MIN. They carry 618 rows of the export.
+#
+# Each earned its place on evidence stronger than the rule above asks for: the
+# export states its own district, so candidates were drawn only from the taluks
+# of that district, and every entry has exactly one candidate whose villages
+# overlap the incoming ones — 67 of Virudhachalam's 127 villages are already
+# Vridhachalam's in the graph, 46 of Palakkodu's 71 are Palacode's, 39 of
+# Vazhapadi's 72 are Valapady's. The runner-up in every case sits more than 20
+# similarity points behind with an overlap of 0-2, so none of these is a
+# near-twin of the kind this table refuses.
+#
+# Two are worth naming. "Udhagamandalam" -> "Udhagai" scores only 57 and is kept
+# anyway: 13 of its 19 villages are Udhagai's, which is the evidence, and the
+# graph simply holds Ooty under its short name. "Purasawalkam" is the one entry
+# no village confirms — Chennai keeps no revenue villages, so there were none to
+# check — and it is kept on the name alone, 83 against a runner-up at 50.
+#
+# Deliberately left out: "Kolathur [Chennai]" (3 rows). LGD lists it as a
+# Chennai taluk and the graph has no taluk it resembles, so it is a hole in the
+# hierarchy, not a spelling — a finding, per this module's own rule, rather than
+# a row to invent.
 TALUK_ALIASES = {
+    "mathavaram":          "Madhavaram",
+    "palakkodu":           "Palacode",
+    "pallipattu":          "Pallipet",
+    "panthalur":           "Pandalur",
+    "purasawalkam":        "Purasaivakkam",
+    "shenkottai":          "Shencottai",
+    "sirkali":             "Sirkazhi",
+    "thandrampet":         "Thandarampattu",
+    "udhagamandalam":      "Udhagai",
+    "vazhapadi":           "Valapady",
+    "virudhachalam":       "Vridhachalam",
     "kodavasal":           "Kudavasal",
     "andipatti":           "Aundipatti",
     "animalai":            "Anaimalai",
@@ -286,6 +334,21 @@ def _fuzzy_match(needle: str, pool: dict[str, str]) -> tuple[str, float] | None:
     if _digits(needle) != _digits(top_key):
         return None
     return pool[top_key], float(top_score)
+
+
+def already_held_as(value: str, pool: dict[str, str]) -> tuple[str, float] | None:
+    """The name in ``pool`` this resolver would read as ``value``, and its score.
+
+    ``pool`` is ``{folded key: official name}`` — one taluk's villages, as
+    ``Gazetteer`` indexes them. The question is the inverse of the usual one: not
+    "which village does this notice mean" but "is this incoming name a place the
+    reference already holds, spelled differently". Same matcher, same guards, so
+    a caller loading an official list can decide not to add a near-twin of a
+    village that is already there — which would leave the two scoring within
+    ``FUZZY_MARGIN`` of each other and cost the resolver a village it places
+    correctly today (see scripts/refresh_village_gazetteer.py).
+    """
+    return _fuzzy_match(normalize_place(value), pool)
 
 
 @dataclass

@@ -34,6 +34,17 @@ WHAT IT WILL NOT DO
 Additive only. Nothing is deleted, renamed, or re-parented — a village present
 in the graph but absent from the incoming list is REPORTED, never removed,
 because a short input file must not be able to quietly empty the gazetteer.
+
+And not every absent-looking village is an addition. A name the fold does not
+match may be a village the taluk already holds, spelled differently, and those
+are reported as `same, respelled` rather than written. This is not tidiness:
+two near-identical names in one taluk score within `FUZZY_MARGIN` of each other,
+so the resolver can no longer choose between them and refuses a village it
+places correctly today. Adding them would make resolution worse, not better.
+On LGD's Tamil Nadu export that bucket holds 3,081 of 8,260 apparent additions,
+so it is the difference between the file improving the gazetteer and degrading
+it.
+
 Taluks are matched, never created: a taluk the graph does not hold means the
 input names places this pipeline has no hierarchy for, which is a finding to
 look at rather than a row to invent (same rule as promote_extractions' place
@@ -77,7 +88,8 @@ import json
 import sys
 from collections import defaultdict
 
-from pipeline.place_resolution import normalize_place
+from pipeline.place_resolution import (Gazetteer, already_held_as,
+                                      normalize_place)
 from scripts.score_ink_coverage import nq
 
 BATCH = 500
@@ -142,6 +154,11 @@ def load_graph_villages() -> dict[tuple[str, str], dict[str, str]]:
     question the resolver asks — "could this name be looked up here?" — rather
     than a stricter one that would report a spelling variant as missing and add
     a duplicate beside the village that is already there.
+
+    The fold is necessary but not sufficient for that: it collapses doubled
+    consonants and the Th/T axis, so it catches Morrai against Morai, and misses
+    Authukurichi against Athukurichi. ``diff`` puts the names it misses through
+    ``already_held_as`` before calling any of them new.
     """
     rows = nq("""
         MATCH (v:RevenueVillage)-[:IN_TALUK]->(t:Taluk)-[:IN_DISTRICT]->(d:District)
@@ -153,36 +170,91 @@ def load_graph_villages() -> dict[tuple[str, str], dict[str, str]]:
     return out
 
 
-def load_graph_taluks() -> dict[str, tuple[str, str]]:
-    """{normalized taluk key: (official district, official taluk)}.
+def load_graph_taluks() -> Gazetteer:
+    """The graph's taluk hierarchy, as the resolver's own index.
 
-    Folded, because an input file spells "Tiruchirapalli" where the graph holds
-    "Thiruchirappalli" and neither is wrong.
+    A ``Gazetteer`` rather than a folded dict, because the fold alone is too
+    strict for an official export. Measured on LGD's Tamil Nadu
+    village-to-gram-panchayat file (20,277 rows), a folded-exact lookup rejects
+    2,277 of them — 11% — naming 38 taluks the graph does in fact hold under
+    another spelling: Ulundurpettai/Ulundurpet, Virudhachalam/Vridhachalam,
+    Sirkali/Sirkazhi, Orathanadu/Orathanad, Mathavaram/Madhavaram. Every one is
+    the same taluk. ``Gazetteer.taluk`` is what the rest of the pipeline resolves
+    notices with — aliases, then the fold, then similarity behind FUZZY_MIN and
+    FUZZY_MARGIN — so using it here asks the input the same question the
+    resolver will later ask of the corpus, instead of a stricter one no source
+    passes. With ``resolve_taluk``'s district scoping and the eleven aliases
+    that export earned, the 2,277 become 3.
     """
     rows = nq("MATCH (t:Taluk)-[:IN_DISTRICT]->(d:District) RETURN d.name, t.name")
-    return {normalize_place(taluk): (district, taluk) for district, taluk in rows}
+    return Gazetteer(districts=sorted({district for district, _ in rows}),
+                     taluks=[(taluk, district) for district, taluk in rows])
+
+
+def resolve_taluk(gaz: Gazetteer, rec: dict) -> tuple[str, str] | None:
+    """``(official district, official taluk)`` for one input row, or None.
+
+    An official export names its district, and that is worth more here than
+    anywhere else in the pipeline. ``Gazetteer.taluk`` deliberately answers on
+    the taluk name alone, because a notice's district is often not worth
+    trusting — which costs it two things this caller can have back:
+
+    * A name that folds onto two taluks is refused outright (``_t_dupes``).
+      Tirupathur (its own district) and Thiruppattur (Sivagangai) are the
+      documented pair, and LGD lists both — 204 rows that no global alias can
+      rescue, because, as ``TALUK_ALIASES`` puts it, "the district decides, and
+      this table cannot see it". Here the row states the district, so look the
+      taluk up *inside* it first and the ambiguity never arises.
+    * A similarity hit is free to land in another district than the row claims,
+      which is the failure the script's taluk rule exists to prevent — a
+      property filed into the wrong district entirely. So the claimed district
+      is resolved too ("The Nilgiris" and "Sivaganga" are the graph's
+      "Nilgiris" and "Sivagangai") and a disagreement is reported, not written.
+    """
+    claimed = gaz.district(rec["district"])
+
+    # Inside the stated district, on the resolver's own fold: unambiguous by
+    # construction, so this runs before anything global.
+    if claimed:
+        taluk = gaz.names_a_taluk(rec["taluk"], claimed)
+        if taluk:
+            return claimed, taluk
+
+    hit = gaz.taluk(rec["taluk"])
+    if not hit:
+        return None
+    taluk, district = hit
+    if claimed and normalize_place(claimed) != normalize_place(district):
+        return None
+    return district, taluk
 
 
 def diff(source_rows: list[dict],
          graph: dict[tuple[str, str], dict[str, str]],
-         taluks: dict[str, tuple[str, str]],
+         taluks: Gazetteer,
          districts: set[str] | None = None,
          only_taluks: set[str] | None = None) -> dict:
-    """Split the incoming rows into what is new, known, and unplaceable.
+    """Split the incoming rows into what is new, known, variant, and unplaceable.
 
     ``districts`` / ``only_taluks`` are official names, folded here, so a run
     can be pointed at the thin taluks without editing the input file.
+
+    A name the fold does not match may still be a village this taluk already
+    holds, spelled differently. Those come back under ``variants`` and are never
+    written: adding one would be worse than doing nothing, for the reason the
+    module docstring gives.
     """
     want_d = {normalize_place(x) for x in districts} if districts else None
     want_t = {normalize_place(x) for x in only_taluks} if only_taluks else None
 
     missing: list[dict] = []
+    variants: list[dict] = []
     present = 0
     unknown_taluk: dict[str, int] = defaultdict(int)
     seen: set[tuple[str, str, str]] = set()
 
     for rec in source_rows:
-        hit = taluks.get(normalize_place(rec["taluk"]))
+        hit = resolve_taluk(taluks, rec)
         if not hit:
             unknown_taluk[f'{rec["taluk"]} [{rec["district"]}]'] += 1
             continue
@@ -200,20 +272,43 @@ def diff(source_rows: list[dict],
         if dedupe in seen:
             continue
         seen.add(dedupe)
-        if key in graph.get((district, taluk), {}):
+        pool = graph.get((district, taluk), {})
+        if key in pool:
             present += 1
-        else:
-            missing.append({"district": district, "taluk": taluk,
-                            "village": rec["village"],
-                            "village_code": rec.get("village_code"),
-                            "name_ta": rec.get("name_ta")})
+            continue
+        # The fold missed, so ask the resolver's own question before calling it
+        # new: does this taluk already hold a village the resolver would read as
+        # this one? On LGD's Tamil Nadu export 3,081 of 8,260 apparent additions
+        # answer yes — Authukurichi against the held Athukurichi, Devanur
+        # against Dhevanur, Periakrishnapuram against Periyakrishnapuram.
+        # Writing those is worse than skipping them: the two names land in one
+        # taluk scoring within FUZZY_MARGIN of each other, so the resolver stops
+        # being able to choose and refuses a village it resolves correctly
+        # today. The fold alone cannot see this, which is why it is not enough.
+        near = already_held_as(rec["village"], pool)
+        if near:
+            variants.append({"district": district, "taluk": taluk,
+                             "village": rec["village"],
+                             "held": near[0],
+                             "score": round(near[1], 1),
+                             "village_code": rec.get("village_code")})
+            continue
+        missing.append({"district": district, "taluk": taluk,
+                        "village": rec["village"],
+                        "village_code": rec.get("village_code"),
+                        "name_ta": rec.get("name_ta")})
 
     # Reported, never acted on: the input being short of the graph is normal
     # (a district-scoped export), and deleting on that basis would be a way to
     # lose the gazetteer to a truncated download.
+    # A village matched as a variant IS listed by the source, under its other
+    # spelling, so it is accounted for — counting it graph-only would report the
+    # export as short of the graph by 3,081 villages it in fact names.
     in_source: set[tuple[str, str, str]] = {
         (m["district"], m["taluk"], normalize_place(m["village"])) for m in missing
-    } | {k for k in seen}
+    } | {k for k in seen} | {
+        (v["district"], v["taluk"], normalize_place(v["held"])) for v in variants
+    }
     only_in_graph = sum(
         1 for (district, taluk), names in graph.items()
         for key in names
@@ -221,7 +316,7 @@ def diff(source_rows: list[dict],
         and (not want_t or normalize_place(taluk) in want_t)
         and (district, taluk, key) not in in_source)
 
-    return {"missing": missing, "present": present,
+    return {"missing": missing, "variants": variants, "present": present,
             "unknown_taluk": dict(unknown_taluk), "only_in_graph": only_in_graph}
 
 
@@ -259,7 +354,7 @@ def run(*, csv_path: str, apply: bool, source: str,
     graph = load_graph_villages()
     taluks = load_graph_taluks()
     print(f"graph holds {sum(len(v) for v in graph.values())} village(s) "
-          f"across {len(taluks)} taluk(s)")
+          f"across {len(taluks.taluks)} taluk(s)")
 
     result = diff(source_rows, graph, taluks, districts, only_taluks)
     missing = result["missing"]
@@ -268,7 +363,11 @@ def run(*, csv_path: str, apply: bool, source: str,
     for m in missing:
         by_taluk[(m["district"], m["taluk"])] += 1
 
+    variants = result["variants"]
+
     print(f"\nalready present : {result['present']}")
+    print(f"same, respelled : {len(variants)}  (a village this taluk already "
+          f"holds under another spelling — reported, never added)")
     print(f"missing         : {len(missing)}  across {len(by_taluk)} taluk(s)")
     print(f"only in graph   : {result['only_in_graph']}  (reported, never removed)")
     if result["unknown_taluk"]:
@@ -285,9 +384,17 @@ def run(*, csv_path: str, apply: bool, source: str,
             have = len(graph.get((district, taluk), {}))
             print(f"  {n:5d}  {district} / {taluk}   (has {have})")
 
+    if variants:
+        print("\nheld under another spelling, closest first "
+              "(source name ~ name already held):")
+        for v in sorted(variants, key=lambda v: -v["score"])[:10]:
+            print(f"  {v['score']:5.1f}  {v['village']} ~ {v['held']}"
+                  f"   [{v['district']}/{v['taluk']}]")
+
     if report_path:
         with open(report_path, "w", encoding="utf-8") as fh:
             json.dump({"missing": missing,
+                       "variants": variants,
                        "present": result["present"],
                        "only_in_graph": result["only_in_graph"],
                        "unknown_taluk": result["unknown_taluk"]},
@@ -295,6 +402,7 @@ def run(*, csv_path: str, apply: bool, source: str,
         print(f"\nwrote {report_path}")
 
     summary = {"read": len(source_rows), "present": result["present"],
+               "variants": len(variants),
                "missing": len(missing), "taluks": len(by_taluk),
                "only_in_graph": result["only_in_graph"],
                "unknown_taluk_rows": sum(result["unknown_taluk"].values())}
