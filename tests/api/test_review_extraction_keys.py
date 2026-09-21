@@ -40,7 +40,7 @@ def test_detail_carries_checklist_and_expected_lots(monkeypatch):
     out = ex.extraction_detail("n.jpg", None)
     assert out.expected_lot_count == 2
     k = out.keys
-    assert [l.lot_index for l in k.lots] == ["1", "2"]
+    assert [lot.lot_index for lot in k.lots] == ["1", "2"]
     assert k.lots[1].extracted is False
     c = k.lots[0].cells
     assert c["property_type"].status == "filled" and c["property_type"].field_id == "0"

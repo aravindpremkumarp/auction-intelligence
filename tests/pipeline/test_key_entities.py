@@ -33,7 +33,7 @@ def full_lot(li="1"):
 
 
 def cells(out, li="1"):
-    return next(l for l in out["lots"] if l["lot_index"] == li)["cells"]
+    return next(lot for lot in out["lots"] if lot["lot_index"] == li)["cells"]
 
 
 # ── checklist ────────────────────────────────────────────────────────────────
@@ -114,8 +114,8 @@ def test_expected_lot_count_adds_unextracted_lots():
     """The reviewer counted 3 lots at classification; the model emitted 1. The
     two dropped lots show as all-missing rows — the biggest miss there is."""
     out = key_checklist(full_lot("1"), expected_lot_count=3)
-    assert [l["lot_index"] for l in out["lots"]] == ["1", "2", "3"]
-    assert [l["extracted"] for l in out["lots"]] == [True, False, False]
+    assert [lot["lot_index"] for lot in out["lots"]] == ["1", "2", "3"]
+    assert [lot["extracted"] for lot in out["lots"]] == [True, False, False]
     assert out["total"] == 21 and out["filled"] == 7 and out["missing"] == 14
     assert out["score"] == round(100 * 7 / 21)
     assert "lot 2: reserve price" in out["missing_labels"]
@@ -124,7 +124,7 @@ def test_expected_lot_count_adds_unextracted_lots():
 def test_expected_lot_count_does_not_remove_extra_lots():
     ents = full_lot("1") + full_lot("2")
     out = key_checklist(ents, expected_lot_count=1)
-    assert [l["lot_index"] for l in out["lots"]] == ["1", "2"]
+    assert [lot["lot_index"] for lot in out["lots"]] == ["1", "2"]
 
 
 def test_empty_extraction_is_one_missing_lot():
@@ -143,7 +143,7 @@ def test_notice_level_classes_do_not_make_a_lot():
 def test_lots_sort_numerically():
     ents = full_lot("10") + full_lot("2") + full_lot("1")
     out = key_checklist(ents)
-    assert [l["lot_index"] for l in out["lots"]] == ["1", "2", "10"]
+    assert [lot["lot_index"] for lot in out["lots"]] == ["1", "2", "10"]
 
 
 def test_extent_falls_back_to_text_and_location_to_text():
