@@ -191,6 +191,76 @@ def test_health_unchanged_when_region_is_absent_or_clean():
                                         "uncovered_ratio": 0.01})["flags"] == []
 
 
+def _screened_page(text_boxes: list[tuple[float, float, float, float]],
+                   banner: tuple[float, float, float, float],
+                   *, fill: float = 0.85) -> bytes:
+    """Lines of "words", plus a banner of SCREENED fill — dark but dithered.
+
+    A printed colour banner does not render as solid ink: enough of its pixels
+    land the light side of DARK_THRESHOLD to riddle it with speckle, so no
+    square anywhere inside it survives erosion and the shape test keeps the
+    whole band. ``fill`` is the share of pixels left dark; 0.85 is what the
+    notices that motivated the density test actually measured.
+    """
+    import random
+    from PIL import Image, ImageDraw
+    img = Image.open(io.BytesIO(_page(text_boxes))).convert("RGB")
+    d = ImageDraw.Draw(img)
+    x0, y0, x1, y1 = (banner[0] * W, banner[1] * H, banner[2] * W, banner[3] * H)
+    d.rectangle([x0, y0, x1, y1], fill="black")
+    rnd = random.Random(7)
+    for _ in range(int((x1 - x0) * (y1 - y0) * (1 - fill))):
+        d.point((rnd.uniform(x0, x1), rnd.uniform(y0, y1)), fill="white")
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def test_a_screened_banner_is_graphics_not_a_dropped_region():
+    """The regression: two notices carried the flag forever on their footer
+    banner. It is 83% ink, but its dither leaves no solid square for erosion to
+    find, so the shape test alone keeps the whole band and reads it as a dense
+    run of glyphs no block covers."""
+    page = _screened_page([(0.05, 0.05, 0.95, 0.55)], (0.05, 0.70, 0.95, 0.92))
+    r = score_ink_coverage(page, [_block(0.03, 0.03, 0.97, 0.57)])
+    assert r["flag"] is False
+    assert r["uncovered_ratio"] < MISSING_REGION_MIN_RATIO
+
+
+def test_unread_text_below_the_fold_still_flags():
+    """The guard on the test above: the density reading must buy the banner's
+    silence without buying it for real text in the same place."""
+    page = _page([(0.05, 0.05, 0.95, 0.55), (0.05, 0.70, 0.95, 0.92)])
+    r = score_ink_coverage(page, [_block(0.03, 0.03, 0.97, 0.57)])
+    assert r["flag"] is True
+    assert r["details"]["worst_band"]["where"] == "bottom"
+
+
+def test_text_beside_a_banner_is_still_measured():
+    """Proximity is not the test, and this is what rules it out. Growing the
+    banner and dropping the ink it then covers would clear the false positive
+    just as well, at the price of the footer line every one of these notices
+    prints directly above its banner — so the measured patch has to come out
+    the same with the banner there and with it gone."""
+    boxes = [(0.05, 0.05, 0.95, 0.55),      # read
+             (0.05, 0.60, 0.95, 0.69)]      # unread, butts against the banner
+    blocks = [_block(0.03, 0.03, 0.97, 0.57)]
+    r = score_ink_coverage(_screened_page(boxes, (0.05, 0.70, 0.95, 0.92)), blocks)
+    control = score_ink_coverage(_page(boxes), blocks)
+
+    assert r["flag"] is True
+    assert r["patch_ratio"] == pytest.approx(control["patch_ratio"], abs=0.01)
+
+
+def test_dense_small_type_is_not_mistaken_for_fill():
+    """Tightly set body type is the population this must never touch: a notice
+    is mostly small print, and calling it graphics would blind the measure."""
+    page = _page([(0.05, 0.05, 0.95, 0.95)])
+    r = score_ink_coverage(page, [_block(0.02, 0.02, 0.50, 0.98)])
+    assert r["flag"] is True
+    assert r["details"]["worst_column"]["where"] == "right"
+
+
 def _ruled_page(cells: list[tuple[float, float, float, float]],
                 rules_h: list[float], rules_v: list[float], *,
                 thickness: int = 2) -> bytes:

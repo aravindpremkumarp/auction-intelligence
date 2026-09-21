@@ -653,3 +653,36 @@ def test_a_flats_own_kinds_still_sum_beside_ground():
     m = {x["kind"]: x for x in lots[0]["measurements"]}["uds"]
     assert m["sqft_norm"] == 513.0
     assert m["norm_method"] == "summed"
+
+
+# ── re-linking geography ─────────────────────────────────────────────────────
+
+def test_a_relink_clears_the_old_edges_before_writing_the_new_ones(monkeypatch):
+    """Geography is derived, so a re-link replaces it rather than adding to it.
+
+    Both writers only MERGE, which is idempotent while a lot resolves the same
+    way twice and wrong the moment it does not: the lot's `village` goes null
+    and the old `IN_REVENUE_VILLAGE` edge survives, so the node says unplaced
+    while the edge still names a village. The first corpus-wide re-link after
+    the LGD gazetteer load left 208 lots in exactly that state (254 with a
+    stale taluk, 258 a stale district), which is what the clear prevents.
+    """
+    calls: list[str] = []
+    monkeypatch.setattr(P, "write",
+                        lambda q, params: calls.append(q))
+
+    P.write_places([{"lot_key": "k1", "village": None,
+                     "taluk": None, "district": None}])
+
+    assert calls[0] is P._CLEAR_LOT_PLACE, "the clear must come first"
+    assert calls[1:] == [P._WRITE_LOT_PLACE, P._WRITE_LOT_DISTRICT]
+
+
+def test_nothing_is_cleared_when_there_is_nothing_to_write(monkeypatch):
+    """An empty batch must not reach the clear — it matches on the rows it is
+    given, but a writer that fires on nothing is one refactor away from firing
+    on everything."""
+    calls: list[str] = []
+    monkeypatch.setattr(P, "write", lambda q, params: calls.append(q))
+    P.write_places([])
+    assert calls == []
