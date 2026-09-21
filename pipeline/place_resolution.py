@@ -105,6 +105,14 @@ DISTRICT_ALIASES = {
     "pattukottai": "Thanjavur",
     "tindivanam": "Villupuram",
     "udumalaipet": "Tiruppur",
+    # LGD's own spelling of the district, which the fold cannot reach: the
+    # doubled "n" survives it, so "kaniyakumari" never meets "kanyakumari".
+    # This recovers no place by itself — Kanyakumari's taluks resolve on their
+    # own names — but without it the district is simply unknown for every
+    # Kanyakumari row of an official state export (1,086 of them), which means
+    # any caller cross-checking a taluk against the district it was filed under
+    # has nothing to check against, and silently skips the check.
+    "kanniyakumari": "Kanyakumari",
 }
 
 # Taluk spellings the fuzzy floor cannot reach. Stated for the same reason as
@@ -133,7 +141,47 @@ DISTRICT_ALIASES = {
 # district) and Thiruppattur (Sivaganga) fold to the same key, so no global
 # alias can name one without misfiling the other — the district decides, and
 # this table cannot see it.
+#
+# The eleven below were harvested differently, and to a higher bar, from the
+# Local Government Directory's village-to-gram-panchayat export for Tamil Nadu
+# (20,277 rows, 2026-09-21) — see scripts/lgd_village_mapping_to_csv.py. These
+# are not OCR damage or a notice's guess; they are how the state register itself
+# spells eleven taluks this graph holds under another name, and they are the
+# eleven the fuzzy floor cannot reach: of the 38 spellings in that export that a
+# strict fold rejects, similarity finds 27 on its own and these eleven score
+# 57-88, below FUZZY_MIN. They carry 618 rows of the export.
+#
+# Each earned its place on evidence stronger than the rule above asks for: the
+# export states its own district, so candidates were drawn only from the taluks
+# of that district, and every entry has exactly one candidate whose villages
+# overlap the incoming ones — 67 of Virudhachalam's 127 villages are already
+# Vridhachalam's in the graph, 46 of Palakkodu's 71 are Palacode's, 39 of
+# Vazhapadi's 72 are Valapady's. The runner-up in every case sits more than 20
+# similarity points behind with an overlap of 0-2, so none of these is a
+# near-twin of the kind this table refuses.
+#
+# Two are worth naming. "Udhagamandalam" -> "Udhagai" scores only 57 and is kept
+# anyway: 13 of its 19 villages are Udhagai's, which is the evidence, and the
+# graph simply holds Ooty under its short name. "Purasawalkam" is the one entry
+# no village confirms — Chennai keeps no revenue villages, so there were none to
+# check — and it is kept on the name alone, 83 against a runner-up at 50.
+#
+# Deliberately left out: "Kolathur [Chennai]" (3 rows). LGD lists it as a
+# Chennai taluk and the graph has no taluk it resembles, so it is a hole in the
+# hierarchy, not a spelling — a finding, per this module's own rule, rather than
+# a row to invent.
 TALUK_ALIASES = {
+    "mathavaram":          "Madhavaram",
+    "palakkodu":           "Palacode",
+    "pallipattu":          "Pallipet",
+    "panthalur":           "Pandalur",
+    "purasawalkam":        "Purasaivakkam",
+    "shenkottai":          "Shencottai",
+    "sirkali":             "Sirkazhi",
+    "thandrampet":         "Thandarampattu",
+    "udhagamandalam":      "Udhagai",
+    "vazhapadi":           "Valapady",
+    "virudhachalam":       "Vridhachalam",
     "kodavasal":           "Kudavasal",
     "andipatti":           "Aundipatti",
     "animalai":            "Anaimalai",
@@ -209,6 +257,74 @@ TALUK_ALIASES = {
 # the reference data, not a bad read of the notice, and must be reported as
 # such rather than counted as a failure.
 VILLAGE_NOT_APPLICABLE = "taluk-has-no-villages"
+
+#: A property this gazetteer will never place because it is not in Tamil Nadu.
+#: Distinct from every other failure here: those say "the reference data or the
+#: read let us down", this says "there is nothing to look up". Without it, 167
+#: out-of-state lots sat in `no-parent-taluk` looking like 15% of a bucket
+#: someone might try to fix.
+OUTSIDE_TAMIL_NADU = "outside-tamil-nadu"
+
+#: States and union territories other than Tamil Nadu, matched against the
+#: notice's own `state` field — the one unambiguous signal, since a notice that
+#: says "Kerala" is not describing Tamil Nadu whatever else it says. 46 lots.
+NON_TN_STATES = {
+    "kerala", "karnataka", "andhra pradesh", "telangana", "maharashtra",
+    "puducherry", "pondicherry", "goa", "odisha", "orissa", "gujarat",
+    "chhattisgarh", "madhya pradesh", "rajasthan", "delhi", "new delhi",
+    "west bengal", "bihar", "jharkhand", "uttar pradesh", "haryana", "punjab",
+    "assam", "uttarakhand", "himachal pradesh", "jammu and kashmir",
+}
+
+#: Districts of other states, consulted ONLY when the Tamil Nadu gazetteer
+#: cannot place the district string itself.
+#:
+#: This list is enumerated rather than inferred, because "the gazetteer cannot
+#: map it" is NOT evidence of another state: of the 242 unmappable district
+#: strings in the corpus, "Thiruvurur" is Thiruvarur and "Trichirapalli" is
+#: Tiruchirappalli — Tamil Nadu districts misspelt past the fold. Treating
+#: unmappable as foreign would file those abroad, which is worse than leaving
+#: them unresolved. So only names verified as another state's district are here,
+#: and every one of them appears in the corpus.
+#:
+#: Kerala dominates (115 lots) because it borders three Tamil Nadu districts and
+#: the same banks auction on both sides. "Palakkad" is Kerala's; Tamil Nadu's
+#: similar-looking Palakkodu (Dharmapuri) is a TALUK and resolves as one, so the
+#: two never meet here.
+NON_TN_DISTRICTS = {
+    # Kerala
+    "thiruvananthapuram", "trivandrum", "kollam", "quilon", "pathanamthitta",
+    "puthanmathitta", "alappuzha", "alleppey", "kottayam", "idukki",
+    "ernakulam", "kochi", "cochin", "thrissur", "trichur", "palakkad",
+    "malappuram", "kozhikode", "calicut", "wayanad", "kannur", "cannanore",
+    "kasaragod",
+    # Andhra Pradesh
+    "chittoor", "guntur", "nellore", "anantapur", "kurnool", "prakasam",
+    # Karnataka
+    "bangalore", "bengaluru", "bangalore urban", "bangalore rural", "mysore",
+    "mysuru", "kolar", "tumkur", "hassan", "mandya", "chamarajanagar",
+    # Maharashtra
+    "sindhudurg", "kolhapur", "ratnagiri", "palghar", "thane", "pune",
+    # elsewhere, each seen in the corpus
+    "ratlam", "ganjam", "nawada", "puducherry", "pondicherry", "karaikal",
+}
+
+
+def outside_tamil_nadu(gaz: Gazetteer, *, district: str | None,
+                       state: str | None) -> bool:
+    """Does the notice place this property outside Tamil Nadu?
+
+    The state field decides on its own. The district field only speaks when the
+    Tamil Nadu gazetteer cannot place it — a district that resolves here is a
+    Tamil Nadu district, whatever a stale alias elsewhere might suggest.
+    """
+    folded_state = " ".join(str(state or "").strip().lower().split())
+    if folded_state and folded_state in NON_TN_STATES:
+        return True
+    raw = " ".join(str(district or "").strip().lower().split())
+    if raw and not gaz.district(district) and raw in NON_TN_DISTRICTS:
+        return True
+    return False
 
 
 def normalize_place(value: str) -> str:
@@ -288,6 +404,21 @@ def _fuzzy_match(needle: str, pool: dict[str, str]) -> tuple[str, float] | None:
     return pool[top_key], float(top_score)
 
 
+def already_held_as(value: str, pool: dict[str, str]) -> tuple[str, float] | None:
+    """The name in ``pool`` this resolver would read as ``value``, and its score.
+
+    ``pool`` is ``{folded key: official name}`` — one taluk's villages, as
+    ``Gazetteer`` indexes them. The question is the inverse of the usual one: not
+    "which village does this notice mean" but "is this incoming name a place the
+    reference already holds, spelled differently". Same matcher, same guards, so
+    a caller loading an official list can decide not to add a near-twin of a
+    village that is already there — which would leave the two scoring within
+    ``FUZZY_MARGIN`` of each other and cost the resolver a village it places
+    correctly today (see scripts/refresh_village_gazetteer.py).
+    """
+    return _fuzzy_match(normalize_place(value), pool)
+
+
 @dataclass
 class Gazetteer:
     """The official hierarchy, indexed for lookup.
@@ -327,6 +458,10 @@ class Gazetteer:
         # taluk — "Kundrathur" and "Madhavaram" were villages before they were
         # promoted, and notices still write them in the village field.
         self._t_by_district: dict[str, dict[str, str]] = defaultdict(dict)
+        # Every village keyed by name alone, for the state-wide last resort.
+        self._v_by_name: dict[str, set[tuple[str, str, str]]] = defaultdict(set)
+        #: Memo for `village_in_state`, whose near-twin sweep is O(all names).
+        self._state_unique: dict[str, tuple[str, str, str] | None] = {}
         # A taluk can hold several distinct villages under one name — Tiruvallur
         # has three called Karanai, each with its own village code. The name
         # alone cannot say which, so it is refused rather than guessed.
@@ -337,6 +472,7 @@ class Gazetteer:
                 self._v_ambiguous.add((taluk, key))
             self._v_by_taluk[taluk].setdefault(key, village)
             self._v_by_district[district][key].add((village, taluk))
+            self._v_by_name[key].add((village, taluk, district))
         for taluk, district in self.taluks:
             self._t_by_district[district].setdefault(normalize_place(taluk), taluk)
 
@@ -425,11 +561,118 @@ class Gazetteer:
         return (self._t_by_district.get(district) or {}).get(
             normalize_place(value))
 
+    def village_in_state(self, value: str) -> tuple[str, str, str] | None:
+        """``(village, taluk, district)`` for a name borne by ONE village in
+        Tamil Nadu — the last resort, when the notice gives no usable taluk.
+
+        This is the widest search here and therefore the most guarded. Two
+        conditions, and the second is what makes it safe:
+
+        1. Exactly one village carries the name, on the resolver's own fold.
+        2. No OTHER name in the state comes within ``FUZZY_MIN`` of it from a
+           different district.
+
+        The second exists because the first is not enough, and the corpus says
+        so. `Varadharajapuram` looks unique — one exact hit, in Poonamallee —
+        while the notices that name it mean Kundrathur's `Varadarajapuram`, one
+        letter away in another district. Uniqueness measured on exact spelling
+        alone got those wrong every time. Checking for a near-twin takes the
+        rule from 97.0% to 99.9% agreement with the taluk-scoped answer on the
+        2,069 resolved lots whose village name qualifies, and the single
+        remaining miss (`Otterpalayam`, Sulur for Annur) still lands in the
+        right district.
+
+        Deliberately NOT fuzzy on the way in: the incoming name must match
+        exactly once. Fuzzy matching at this scope would widen the search and
+        the collision risk together, which is the reason
+        ``village_in_district`` refuses it at the narrower scope already.
+        """
+        key = normalize_place(value)
+        if not key:
+            return None
+        if key in self._state_unique:
+            return self._state_unique[key]
+
+        answer: tuple[str, str, str] | None = None
+        hits = self._v_by_name.get(key)
+        if hits and len(hits) == 1:
+            village, taluk, district = next(iter(hits))
+            if not self._near_twin_elsewhere(key, district):
+                answer = (village, taluk, district)
+        self._state_unique[key] = answer
+        return answer
+
+    def _near_twin_elsewhere(self, key: str, district: str) -> bool:
+        """Does another district hold a village this name could be read as?"""
+        try:
+            from rapidfuzz import fuzz, process
+        except ImportError:
+            # No fuzzy backend means the guard cannot run, and an unguarded
+            # state-wide match is exactly what this refuses to do.
+            return True
+        for other, _score, _ in process.extract(
+                key, self._v_by_name.keys(), scorer=fuzz.ratio,
+                limit=8, score_cutoff=FUZZY_MIN):
+            if other == key:
+                continue
+            if any(d != district for _, _, d in self._v_by_name[other]):
+                return True
+        return False
+
+    def compound_taluk(self, value: str) -> tuple[tuple[str, str] | None,
+                                                  str | None]:
+        """Pull a taluk, or at least a district, out of a two-named string.
+
+        Notices write a taluk as a pair: the old Chennai composites
+        ("Egmore-Nungambakkam", "Mylapore-Triplicane", "Fort - Tondaiarpet")
+        and the 2019 renamings ("Sriperumbudur Taluk, Now Kundrathur Taluk").
+        Neither half is the whole string, so ``taluk`` finds nothing and 27 lots
+        lose their geography to punctuation.
+
+        Returns ``(taluk_hit, district)``, either of which may be None:
+
+        * A half marked as the current name — "now X", "new X" — wins outright.
+          The gazetteer holds today's register, so when a notice says a taluk is
+          *now* Kundrathur, Kundrathur is the answer and Sriperumbudur is
+          history.
+        * Otherwise a single resolving half is taken.
+        * Several halves naming DIFFERENT taluks is refused — "Perambur-
+          Purasawalkam" is two real Chennai taluks and picking one is a
+          coin flip. But when they agree on a district, that district is
+          returned on its own: it is the truth they share, and it lets the
+          village be searched district-wide instead of not at all.
+        """
+        parts = [p.strip() for p in re.split(r"[-/,&]| and ", value or "")
+                 if p.strip()]
+        if len(parts) < 2:
+            return None, None
+
+        # "Now Kundrathur" / "New Kundrathur": the marker is the notice telling
+        # us which name is current, so it is read before anything else.
+        for part in parts:
+            m = re.match(r"^(?:now|new)\s+(.*)$", part, flags=re.I)
+            if m:
+                hit = self.taluk(m.group(1))
+                if hit:
+                    return hit, hit[1]
+
+        hits = {self.taluk(p) for p in parts}
+        hits.discard(None)
+        if len(hits) == 1:
+            hit = next(iter(hits))
+            return hit, hit[1]
+        if hits:
+            districts = {d for _, d in hits}
+            if len(districts) == 1:
+                return None, next(iter(districts))
+        return None, None
+
 
 def resolve_place(gaz: Gazetteer, *, district: str | None = None,
                   taluk: str | None = None,
                   village: str | None = None,
-                  registration_district: str | None = None) -> dict:
+                  registration_district: str | None = None,
+                  state: str | None = None) -> dict:
     """Resolve one notice's place fields against the gazetteer.
 
     Bottom-up: the taluk is tried first because it carries its district, so a
@@ -449,11 +692,25 @@ def resolve_place(gaz: Gazetteer, *, district: str | None = None,
         "district": None, "taluk": None, "village": None,
         "district_source": None, "village_source": None, "village_status": None,
         "raw": {"district": district, "taluk": taluk, "village": village,
-                "registration_district": registration_district},
+                "registration_district": registration_district,
+                "state": state},
         "conflict": False,
     }
+
+    # Asked and answered before anything else: a property in Kerala is not a
+    # failure of this gazetteer, and saying so is the only honest status for it.
+    if outside_tamil_nadu(gaz, district=district, state=state):
+        out["village_status"] = OUTSIDE_TAMIL_NADU
+        return out
+
     t = gaz.taluk(taluk) if taluk else None
     d_direct = gaz.district(district) if district else None
+
+    # The taluk written as a pair — an old Chennai composite, or a 2019
+    # renaming — resolves to neither half on its own.
+    compound_district = None
+    if not t and taluk:
+        t, compound_district = gaz.compound_taluk(taluk)
 
     if t:
         out["taluk"], out["district"] = t
@@ -464,6 +721,11 @@ def resolve_place(gaz: Gazetteer, *, district: str | None = None,
     elif d_direct:
         out["district"] = d_direct
         out["district_source"] = "district"
+    elif compound_district:
+        # Both halves named a real taluk and disagreed, but agreed on the
+        # district. That much is not a coin flip.
+        out["district"] = compound_district
+        out["district_source"] = "compound-taluk-field"
     elif taluk:
         # The taluk field sometimes holds a district: "Coimbatore" is a
         # district whose taluks are Coimbatore North and South, and notices
@@ -504,6 +766,30 @@ def resolve_place(gaz: Gazetteer, *, district: str | None = None,
         out["village_status"] = "absent"
         return out
     if not out["taluk"]:
+        # Last resort. No taluk means the village cannot be looked up anywhere
+        # — every index here is taluk- or district-scoped — so 920 lots end
+        # here holding a village name nobody uses. A name only one village in
+        # Tamil Nadu bears is enough on its own: it names its own taluk and
+        # district, the same way a taluk names its district.
+        # ONLY when no district is known either. With a district in hand the
+        # caller has a narrower, safer search available — `village_in_district`,
+        # exact and unique-within-district — and firing first would pre-empt it:
+        # 299 lots resolved under this state-wide rule that the district-scoped
+        # one would have placed anyway, stamping the riskiest provenance on lots
+        # that never needed it. Nothing is lost by waiting, because a village
+        # unique across the state and inside the known district is exactly what
+        # that narrower rule already finds, and one in a DIFFERENT district than
+        # the notice states is refused here regardless.
+        if not out["district"]:
+            wide = gaz.village_in_state(village)
+            if wide:
+                out["village"], out["taluk"], out["district"] = wide
+                out["district_source"] = "village"
+                out["village_status"] = "resolved"
+                # Its own source, so these are separable from every other
+                # resolution afterwards — auditable, and undoable on their own.
+                out["village_source"] = "state"
+                return out
         out["village_status"] = "no-parent-taluk"
         return out
 

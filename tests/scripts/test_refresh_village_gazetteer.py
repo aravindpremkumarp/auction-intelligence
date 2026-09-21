@@ -6,18 +6,28 @@ from __future__ import annotations
 
 import pytest
 
-from pipeline.place_resolution import normalize_place
+from pipeline.place_resolution import Gazetteer, normalize_place
 from scripts.refresh_village_gazetteer import _header_key, diff, read_source_csv
 
-TALUKS = {normalize_place(t): (d, t) for d, t in [
-    ("Tiruvallur", "Avadi"),
-    ("Tiruvallur", "Poonamallee"),
-    ("Chengalpattu", "Tambaram"),
-]}
+#: The graph side of the taluk lookup, as the resolver's own index. The diff
+#: resolves the input's taluk through ``Gazetteer.taluk`` — aliases, the fold,
+#: then similarity — because a folded-exact lookup rejects 11% of LGD's own
+#: export for spelling a taluk the graph holds under another name.
+TALUKS = Gazetteer(
+    districts=["Tiruvallur", "Chengalpattu", "Cuddalore", "Nilgiris", "Ariyalur"],
+    taluks=[
+        ("Avadi", "Tiruvallur"),
+        ("Poonamallee", "Tiruvallur"),
+        ("Tambaram", "Chengalpattu"),
+        ("Vridhachalam", "Cuddalore"),
+        ("Pandalur", "Nilgiris"),
+        ("Andimadam", "Ariyalur"),
+    ])
 
 GRAPH = {
     ("Tiruvallur", "Avadi"): {normalize_place("Morai"): "Morai"},
     ("Chengalpattu", "Tambaram"): {normalize_place("Sembakkam"): "Sembakkam"},
+    ("Ariyalur", "Andimadam"): {normalize_place("Athukurichi"): "Athukurichi"},
 }
 
 
@@ -57,12 +67,68 @@ def test_a_taluk_the_graph_does_not_hold_is_reported_not_invented():
     assert r["unknown_taluk"] == {"Ottappalam [Kerala]": 1}
 
 
+def test_an_official_exports_taluk_spelling_still_lands_on_the_graphs():
+    """LGD writes "Virudhachalam" where the graph holds "Vridhachalam", and
+    "Panthalur" where it holds "Pandalur". Both are the same taluk. On a strict
+    fold these read as taluks the graph has no hierarchy for, and 2,277 rows of
+    LGD's Tamil Nadu export — 11% of it, across 38 taluks — were dropped that
+    way. Resolving through the pipeline's own matcher is what recovers them."""
+    rows = [_row("Cuddalore", "Virudhachalam", "Pennadam"),
+            _row("The Nilgiris", "Panthalur", "Cherambadi")]
+    r = diff(rows, GRAPH, TALUKS)
+    assert r["unknown_taluk"] == {}
+    assert [(m["district"], m["taluk"]) for m in r["missing"]] == [
+        ("Cuddalore", "Vridhachalam"), ("Nilgiris", "Pandalur")]
+
+
+def test_a_similar_taluk_in_another_district_than_the_row_states_is_refused():
+    """The looser match is only safe because the export names its district too.
+    A hit landing somewhere the row does not claim is the failure the taluk rule
+    exists to prevent — a property filed into the wrong district — so it is
+    reported like any other unplaceable row rather than written."""
+    r = diff([_row("Chengalpattu", "Avadi", "Thirumullaivoyal")], GRAPH, TALUKS)
+    assert r["missing"] == []
+    assert r["unknown_taluk"] == {"Avadi [Chengalpattu]": 1}
+
+
+def test_a_village_held_under_another_spelling_is_reported_not_added():
+    """The fold catches "Morrai" against "Morai" — doubled consonants collapse.
+    It does not catch "Authukurichi" against the held "Athukurichi", which is
+    the same village of Andimadam and one of 3,081 such pairs in LGD's Tamil
+    Nadu export. Writing it would put two names scoring 95 against each other
+    inside one taluk, at which point FUZZY_MARGIN leaves the resolver unable to
+    choose and it refuses a village it places correctly today. So it is
+    reported, with the name it matched."""
+    r = diff([_row("Ariyalur", "Andimadam", "Authukurichi")], GRAPH, TALUKS)
+    assert r["missing"] == []
+    assert [(v["village"], v["held"]) for v in r["variants"]] == [
+        ("Authukurichi", "Athukurichi")]
+
+
+def test_a_village_the_taluk_really_lacks_is_still_an_addition():
+    """The variant check must not swallow the thing this script exists to find:
+    Selaiyur resembles nothing in Tambaram, so it is added."""
+    r = diff([_row("Chengalpattu", "Tambaram", "Selaiyur")], GRAPH, TALUKS)
+    assert [m["village"] for m in r["missing"]] == ["Selaiyur"]
+    assert r["variants"] == []
+
+
+def test_the_village_a_variant_matched_is_not_also_reported_as_graph_only():
+    """The source does list Sembakkam — under another spelling. Counting it
+    graph-only would report the export as short of the graph by villages it
+    names."""
+    r = diff([_row("Ariyalur", "Andimadam", "Authukurichi")], GRAPH, TALUKS)
+    # Morai and Sembakkam, which this one-row input genuinely does not name.
+    # Athukurichi is not among them: the variant accounts for it.
+    assert r["only_in_graph"] == 2
+
+
 def test_a_village_only_the_graph_has_is_counted_never_deleted():
     """A district-scoped export is shorter than the graph by design. Reporting
     the difference is useful; acting on it would empty the gazetteer from a
     truncated download."""
     r = diff([_row("Tiruvallur", "Avadi", "Morai")], GRAPH, TALUKS)
-    assert r["only_in_graph"] == 1          # Tambaram's Sembakkam
+    assert r["only_in_graph"] == 2         # Tambaram's Sembakkam, Andimadam's Athukurichi
     assert r["missing"] == []
 
 
@@ -92,6 +158,13 @@ def test_a_district_filter_narrows_both_sides_of_the_diff():
     ("Village Name", "village"),
     ("Taluk", "taluk"),
     ("State Name", None),
+    # Two different numbers, two different columns. `village_code` is the
+    # graph's within-taluk revenue serial ("008"); LGD's is a six-digit national
+    # identifier on an unrelated scheme. A source code landing in the wrong one
+    # leaves a property that means two things depending on the row.
+    ("Village Code", "village_code"),
+    ("LGD Code", "lgd_village_code"),
+    ("Village LGD Code", "lgd_village_code"),
 ])
 def test_export_headers_are_recognised_without_configuration(header, expected):
     assert _header_key(header) == expected

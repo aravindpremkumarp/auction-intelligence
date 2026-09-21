@@ -306,8 +306,22 @@ def test_two_taluks_sharing_a_folded_name_resolve_to_neither(gaz):
 
 
 def test_nothing_recognised_resolves_to_nothing(gaz):
+    """Pondicherry is not forced into a Tamil Nadu district, and now says why.
+
+    This asserted "absent" before there was a status for being out of state,
+    which read the same as a notice that simply named no village. They are not
+    the same finding: one is a gap worth chasing, the other is a property this
+    gazetteer will never hold.
+    """
     r = resolve_place(gaz, district="Pondicherry", taluk=None, village=None)
     assert r["district"] is None                # out of state, not forced in
+    assert r["village_status"] == "outside-tamil-nadu"
+
+
+def test_a_village_with_no_name_is_absent_not_out_of_state(gaz):
+    """The status that test used to assert, on a case that really is absent —
+    so the distinction stays covered from both sides."""
+    r = resolve_place(gaz, district="Kancheepuram", taluk=None, village=None)
     assert r["village_status"] == "absent"
 
 
@@ -416,3 +430,183 @@ def test_an_out_of_state_sro_district_is_still_refused(gaz):
                       village="Thirubhuvanai")
     assert r["district"] is None
     assert r["district_source"] is None
+
+
+# ── out of state, and compound taluk strings ─────────────────────────────────
+
+def test_the_state_field_alone_rules_a_property_out(gaz):
+    """A notice that says Kerala is not describing Tamil Nadu, whatever its
+    other fields say. 46 lots state a non-TN state outright."""
+    r = resolve_place(gaz, district="Ernakulam", village="Kottuvally",
+                      state="Kerala")
+    assert r["village_status"] == "outside-tamil-nadu"
+    assert r["district"] is None
+
+
+def test_a_kerala_district_is_recognised_without_a_state_field(gaz):
+    """Kerala borders three Tamil Nadu districts and the same banks auction on
+    both sides, so most out-of-state notices name only the district — 115 lots
+    of them."""
+    r = resolve_place(gaz, district="Thiruvananthapuram", village="Kazhakuttam")
+    assert r["village_status"] == "outside-tamil-nadu"
+
+
+def test_a_misspelt_tamil_nadu_district_is_never_sent_out_of_state(gaz):
+    """The guard is a list, not "the gazetteer could not map it". Of the 242
+    unmappable district strings in the corpus, "Trichirapalli" is
+    Tiruchirappalli and "Thiruvurur" is Thiruvarur — filing those abroad would
+    be worse than leaving them unresolved."""
+    for spelling in ("Trichirapalli", "Thiruvurur", "Tiuchirapalli"):
+        r = resolve_place(gaz, district=spelling)
+        assert r["village_status"] != "outside-tamil-nadu", spelling
+
+
+def test_a_tamil_nadu_district_that_resolves_is_never_sent_out_of_state(gaz):
+    """Belt and braces: a district the gazetteer places is a Tamil Nadu
+    district, so the list is not even consulted for it."""
+    r = resolve_place(gaz, district="Kancheepuram", state="Tamil Nadu")
+    assert r["village_status"] != "outside-tamil-nadu"
+    assert r["district"] == "Kancheepuram"
+
+
+def _chennai() -> Gazetteer:
+    return Gazetteer(
+        districts=["Chennai", "Kancheepuram"],
+        taluks=[("Egmore", "Chennai"), ("Mylapore", "Chennai"),
+                ("Perambur", "Chennai"), ("Purasaivakkam", "Chennai"),
+                ("Mambalam", "Chennai"), ("Guindy", "Chennai"),
+                ("Sriperumbudur", "Kancheepuram"),
+                ("Kundrathur", "Kancheepuram")],
+        villages=[])
+
+
+def test_an_old_composite_taluk_name_resolves_to_its_surviving_half():
+    """"Egmore-Nungambakkam" is how notices still write the old Chennai
+    composite. Neither half is the whole string, so the plain lookup finds
+    nothing and the lot loses its geography to a hyphen."""
+    r = resolve_place(_chennai(), taluk="Egmore-Nungambakkam")
+    assert (r["taluk"], r["district"]) == ("Egmore", "Chennai")
+
+
+def test_a_renamed_taluk_resolves_to_the_name_that_is_current():
+    """"Sriperumbudur Taluk, Now Kundrathur Taluk" names both, and the
+    gazetteer holds today's register — so the taluk is Kundrathur. Taking the
+    first half would file the land under the name it no longer has."""
+    r = resolve_place(_chennai(), taluk="Sriperumbudur Taluk, Now Kundrathur Taluk")
+    assert r["taluk"] == "Kundrathur"
+    r2 = resolve_place(_chennai(), taluk="Sriperumbudur / New Kundrathur")
+    assert r2["taluk"] == "Kundrathur"
+
+
+def test_two_real_taluks_in_one_string_keep_the_district_and_refuse_the_taluk():
+    """"Perambur-Purasawalkam" is two real Chennai taluks. Picking one is a coin
+    flip, so neither is taken — but they agree on Chennai, and that much lets
+    the village be searched district-wide instead of not at all."""
+    r = resolve_place(_chennai(), taluk="Perambur-Purasawalkam")
+    assert r["taluk"] is None
+    assert r["district"] == "Chennai"
+    assert r["district_source"] == "compound-taluk-field"
+
+
+def test_a_compound_naming_taluks_in_two_districts_yields_nothing():
+    """Without a shared district there is nothing the two halves agree on."""
+    r = resolve_place(_chennai(), taluk="Egmore-Sriperumbudur")
+    assert r["taluk"] is None
+    assert r["district"] is None
+
+
+def test_an_ordinary_hyphenated_taluk_is_not_split_into_nonsense():
+    """The split only runs after the whole string fails, so a real name
+    containing a separator is never taken apart."""
+    gaz = Gazetteer(districts=["Tiruvallur"], taluks=[("R.K. Pet", "Tiruvallur")])
+    assert resolve_place(gaz, taluk="R.K. Pet")["taluk"] == "R.K. Pet"
+
+
+# ── the state-wide last resort ───────────────────────────────────────────────
+
+def _state() -> Gazetteer:
+    return Gazetteer(
+        districts=["Tiruvallur", "Kancheepuram", "Chengalpattu"],
+        taluks=[("Poonamallee", "Tiruvallur"), ("Kundrathur", "Kancheepuram"),
+                ("Tambaram", "Chengalpattu")],
+        villages=[
+            ("Mookkanur", "Poonamallee", "Tiruvallur"),        # unique
+            ("Madurapakam", "Tambaram", "Chengalpattu"),       # unique
+            # The near-twin pair: one letter apart, two districts.
+            ("Varadharajapuram", "Poonamallee", "Tiruvallur"),
+            ("Varadarajapuram", "Kundrathur", "Kancheepuram"),
+        ])
+
+
+def test_a_village_only_one_place_in_the_state_bears_names_its_own_taluk():
+    """With no taluk there is nowhere to look a village up, and 920 lots end
+    there. A name borne by exactly one village carries its taluk and district
+    the same way a taluk carries its district."""
+    r = resolve_place(_state(), village="Mookkanur")
+    assert (r["village"], r["taluk"], r["district"]) == \
+        ("Mookkanur", "Poonamallee", "Tiruvallur")
+    assert r["village_status"] == "resolved"
+    assert r["village_source"] == "state"      # separable from every other path
+
+
+def test_a_name_with_a_near_twin_in_another_district_is_refused():
+    """Varadharajapuram has exactly one exact-fold hit, in Poonamallee — and the
+    notices naming it mean Kundrathur's Varadarajapuram, one letter away in
+    another district. Exact uniqueness alone got these wrong every time; the
+    near-twin check is what took the rule from 97.0% to 99.9%."""
+    r = resolve_place(_state(), village="Varadharajapuram")
+    assert r["village_status"] == "no-parent-taluk"
+    assert r["taluk"] is None
+
+
+def test_a_known_district_holds_the_state_wide_rule_back_entirely():
+    """It fires only when the district is unknown too.
+
+    With a district in hand the caller has a narrower, safer search —
+    `village_in_district`, which `lot_place` runs next — and firing first would
+    pre-empt it: 299 lots came out stamped `state` that the district-scoped rule
+    would have placed anyway. Nothing is lost by waiting, because a village both
+    unique state-wide AND inside the known district is exactly what that rule
+    finds; one in a different district is refused here either way.
+    """
+    r = resolve_place(_state(), district="Chengalpattu", village="Mookkanur")
+    assert r["village_status"] == "no-parent-taluk"
+    assert r["district"] == "Chengalpattu"     # kept, not overwritten
+    assert r["taluk"] is None                 # never guessed from the village
+
+    # Same even when the unique village agrees with the stated district — this
+    # is the district-scoped rule's job, and its provenance.
+    r2 = resolve_place(_state(), district="Chengalpattu", village="Madurapakam")
+    assert r2["village_source"] != "state"
+
+
+def test_the_state_wide_search_never_runs_when_a_taluk_is_known():
+    """It is the LAST resort. With a taluk the ordinary scoped lookup answers,
+    and a village absent from that taluk stays unmatched rather than being
+    rehomed across the state."""
+    r = resolve_place(_state(), taluk="Tambaram", village="Mookkanur")
+    assert r["village_status"] == "unmatched"
+    assert r["taluk"] == "Tambaram"
+
+
+def test_the_incoming_name_is_matched_exactly_not_fuzzily():
+    """Fuzzy at this scope would widen the search and the collision risk
+    together — the reason village_in_district refuses it at a narrower scope.
+
+    "Exactly" means on the fold, which is the resolver's idea of the same name:
+    `Mookkanurr` is the same key and still matches, while `Mookkanpur` is a
+    different name that similarity could otherwise have reached.
+    """
+    assert _state().village_in_state("Mookkanpur") is None
+    assert _state().village_in_state("Mookanoor") is None
+    assert _state().village_in_state("Mookkanurr") is not None   # same fold
+    assert _state().village_in_state("Mookkanur") is not None
+
+
+def test_the_state_wide_rule_still_answers_when_no_district_is_known():
+    gaz = Gazetteer(
+        districts=["Tiruvallur"],
+        taluks=[("Poonamallee", "Tiruvallur")],
+        villages=[("Mookkanur", "Poonamallee", "Tiruvallur")])
+    r = resolve_place(gaz, village="Mookkanur")
+    assert r["village_source"] == "state"
