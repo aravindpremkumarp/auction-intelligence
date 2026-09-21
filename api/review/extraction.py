@@ -11,9 +11,18 @@ flags so corrections are auditable and can grow the eval gold set.
 
 Data model (on :Document, populated by pipeline/load_extractions.py):
   extraction_json              JSON [{id, cls, text, start, end, attrs}]
-  extraction_corrections_json  JSON {field_id: {value, by, at, notes}}
+  extraction_corrections_json  JSON {field_id: {value, by, at, notes},
+                                     "add:<id>": {cls, text, start, end, attrs, by, at},
+                                     "absent:<lot>:<key>": {by, at}}
+                               — text fixes, reviewer-added entities, and
+                               "not in the notice" marks (pipeline/key_entities.py)
   extraction_review_status     'pending' | 'edited' | 'verified'
   extraction_verified_by / _at
+  extraction_review_notes      free text left at verify time
+  extraction_key_score         0-100: share of per-lot key entities filled or
+                               marked absent (pipeline/key_entities.py); the
+                               queue's "missing keys first" sort
+  extraction_key_missing       count of key cells still missing
 
 This module is intentionally self-contained (its own APIRouter) so it can be
 mounted alongside the main review router without touching the large queries.py.
@@ -22,6 +31,7 @@ from __future__ import annotations
 
 import json
 import threading
+import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -32,6 +42,18 @@ from api.auth.schemas import UserOut
 from api.neo4j_client import run_query, run_read_query
 from api.review.grounding import ANCHOR_STORED, reanchor
 from api.review.queries import _date_exists_clause, _notice_type_clause
+from pipeline.apply_extractions import ADDED_PREFIX, added_entities
+from pipeline.key_entities import (KEYS, absent_key, key_checklist_from_stored,
+                                   stamp_key_scores)
+
+# The extraction classes a reviewer may add by hand — the prompt's own list
+# (pipeline/langextract_examples.py), so an added entity is shaped like a
+# model one and flows through promotion unchanged.
+ENTITY_CLASSES = frozenset({
+    "secured_creditor", "contact", "borrower", "property", "full_description",
+    "location", "identifier", "extent", "boundary", "schedule", "auction_terms",
+    "outstanding", "emd_account", "full_terms", "extras",
+})
 
 router = APIRouter(prefix="/review/extraction", tags=["review-extraction"])
 
@@ -57,6 +79,33 @@ class ExtractionField(BaseModel):
     corrected_value: str | None = None
     corrected_by: str | None = None
     corrected_at: str | None = None
+    # The reviewer added this entity by hand (an "add:*" correction): the model
+    # never emitted it, so it can be deleted outright rather than corrected.
+    added: bool = False
+
+
+class KeyCell(BaseModel):
+    status: str                      # 'filled' | 'missing' | 'absent'
+    value: str | None = None
+    field_id: str | None = None      # the entity to jump to when filled
+    inherited: bool = False          # filled from the notice-level value
+
+
+class KeyLot(BaseModel):
+    lot_index: str
+    extracted: bool = True           # False: counted at classification, never emitted
+    cells: dict[str, KeyCell]
+
+
+class KeyChecklist(BaseModel):
+    """Per-lot presence of the seven key entities (pipeline/key_entities.py)."""
+    lots: list[KeyLot] = []
+    total: int = 0
+    filled: int = 0
+    absent: int = 0
+    missing: int = 0
+    score: int = 0
+    missing_labels: list[str] = []
 
 
 class ExtractionReviewOut(BaseModel):
@@ -68,6 +117,12 @@ class ExtractionReviewOut(BaseModel):
     score: int | None = None
     verified_by: str | None = None
     verified_at: str | None = None
+    review_notes: str | None = None
+    # The reviewer's lot count from the classification gate; drives the
+    # un-extracted rows in `keys`.
+    expected_lot_count: int | None = None
+    # The lot × key checklist this stage is about. None for a stitched follower.
+    keys: KeyChecklist | None = None
     # Source-notice location so the review UI can show the original document
     # next to the markdown (Document props set by scripts/upload_downloads_to_r2).
     public_url: str | None = None
@@ -121,6 +176,12 @@ class ExtractionQueueRow(BaseModel):
     # How many source files this row's text was stitched from (1 = a plain
     # single-file notice).
     stitched_pages: int = 1
+    # Key-entity checklist summary (pipeline/key_entities.py): share of per-lot
+    # key cells filled or marked absent, how many are still missing, and their
+    # labels ("lot 2: extent") so the card can say what to fix before opening.
+    key_score: int | None = None
+    key_missing: int | None = None
+    key_missing_labels: list[str] = []
 
 
 class ExtractionQueueOut(BaseModel):
@@ -136,6 +197,24 @@ class FieldEditBody(BaseModel):
 
 class ExtractionVerifyBody(BaseModel):
     notes: str | None = Field(default=None, max_length=2000)
+
+
+class AddFieldBody(BaseModel):
+    """A field the model missed, added by the reviewer. start/end are char
+    offsets into the document's current markdown when the reviewer selected
+    the text there (grounded); omitted when typed by hand (ungrounded)."""
+    cls: str = Field(min_length=1, max_length=40)
+    text: str = Field(min_length=1, max_length=20000)
+    start: int | None = Field(default=None, ge=0)
+    end: int | None = Field(default=None, ge=0)
+    lot_index: str | None = Field(default=None, max_length=20)
+    attrs: dict[str, str | int | float | None] = {}
+
+
+class KeyAbsentBody(BaseModel):
+    lot_index: str = Field(min_length=1, max_length=20)
+    key: str = Field(min_length=1, max_length=40)
+    absent: bool = True
 
 
 def _now() -> str:
@@ -177,6 +256,9 @@ def get_extraction(filename: str) -> dict | None:
                d.extraction_score                           AS score,
                d.extraction_verified_by                     AS verified_by,
                toString(d.extraction_verified_at)           AS verified_at,
+               d.extraction_review_notes                    AS review_notes,
+               coalesce(d.stitched_expected_lot_count, d.expected_lot_count)
+                                                            AS expected_lot_count,
                d.public_url                                 AS public_url,
                d.doc_type                                   AS doc_type,
                d.content_type                               AS content_type,
@@ -210,6 +292,7 @@ def _extraction_filter_clause(
     date_from: str | None,
     date_to: str | None,
     q: str | None,
+    missing_keys: bool = False,
 ) -> str:
     """Shared WHERE tail for the extraction queue and its stats.
 
@@ -228,6 +311,10 @@ def _extraction_filter_clause(
         clause += " AND d.extraction_score >= $score_min"
     if score_max is not None:
         clause += " AND d.extraction_score <= $score_max"
+    # Rows never stamped with a key count (pre-checklist extractions) are
+    # kept: unknown is not "complete", and the backfill closes the gap.
+    if missing_keys:
+        clause += " AND coalesce(d.extraction_key_missing, 1) > 0"
     nt = _notice_type_clause(notice_type, alias="d")
     if nt:
         clause += f" AND {nt}"
@@ -254,18 +341,25 @@ def list_extraction_queue(status: str | None, limit: int, sort: str = "recent",
                           notice_type: str | None = None,
                           date_from: str | None = None,
                           date_to: str | None = None,
-                          q: str | None = None) -> list[dict]:
+                          q: str | None = None,
+                          missing_keys: bool = False) -> list[dict]:
     clause = _extraction_filter_clause(status, score_min, score_max,
-                                       notice_type, date_from, date_to, q)
+                                       notice_type, date_from, date_to, q,
+                                       missing_keys=missing_keys)
     # "recent" (default): latest batch first (then newest extraction within it) so
     # a just-run batch groups at the top; docs missing extraction data (extracted
     # before it was tracked) fall to the bottom. "name": alphabetical by filename.
-    order = (
-        "d.filename"
-        if sort == "name"
-        else ("d.extraction_at IS NULL, coalesce(d.extraction_batch,-1) DESC, "
-              "d.extraction_at DESC, d.filename")
-    )
+    # "keys": most key entities missing first (lowest key score), the order a
+    # reviewer works the checklist in; unstamped rows sort as worst-case.
+    if sort == "name":
+        order = "d.filename"
+    elif sort == "keys":
+        order = ("coalesce(d.extraction_key_score, -1) ASC, "
+                 "coalesce(d.extraction_key_missing, 999) DESC, "
+                 "d.extraction_at DESC, d.filename")
+    else:
+        order = ("d.extraction_at IS NULL, coalesce(d.extraction_batch,-1) DESC, "
+                 "d.extraction_at DESC, d.filename")
     return run_read_query(
         f"""
         MATCH (d:Document)
@@ -280,7 +374,8 @@ def list_extraction_queue(status: str | None, limit: int, sort: str = "recent",
                toString(d.extraction_stale_at) AS extraction_stale_at,
                coalesce(d.stitched_expected_lot_count, d.expected_lot_count) AS expected_lot_count,
                coalesce(d.stitched_pages, [d.filename]) AS stitched_pages,
-               d.extraction_json AS extraction_json
+               d.extraction_json AS extraction_json,
+               coalesce(d.extraction_corrections_json, '{{}}') AS corrections_json
         ORDER BY {order}
         LIMIT $limit
         """,
@@ -297,10 +392,12 @@ def count_extraction_queue(status: str | None,
                            notice_type: str | None = None,
                            date_from: str | None = None,
                            date_to: str | None = None,
-                           q: str | None = None) -> int:
+                           q: str | None = None,
+                           missing_keys: bool = False) -> int:
     """How many documents match the queue filters, ignoring the row limit."""
     clause = _extraction_filter_clause(status, score_min, score_max,
-                                       notice_type, date_from, date_to, q)
+                                       notice_type, date_from, date_to, q,
+                                       missing_keys=missing_keys)
     rows = run_read_query(
         f"MATCH (d:Document) WHERE d.extraction_json IS NOT NULL {clause} "
         "RETURN count(d) AS n",
@@ -368,11 +465,13 @@ def extraction_stats(score_min: float | None = None,
         f"""
         MATCH (d:Document)
         WHERE d.extraction_json IS NOT NULL {clause}
-        WITH coalesce(d.extraction_review_status,'pending') AS st
+        WITH coalesce(d.extraction_review_status,'pending') AS st,
+             coalesce(d.extraction_key_missing, 1) AS km
         RETURN count(*) AS total,
                sum(CASE WHEN st = 'pending'  THEN 1 ELSE 0 END) AS pending,
                sum(CASE WHEN st = 'verified' THEN 1 ELSE 0 END) AS verified,
-               sum(CASE WHEN st = 'edited'   THEN 1 ELSE 0 END) AS edited
+               sum(CASE WHEN st = 'edited'   THEN 1 ELSE 0 END) AS edited,
+               sum(CASE WHEN km > 0          THEN 1 ELSE 0 END) AS missing_keys
         """,
         {"score_min": score_min, "score_max": score_max,
          "date_from": date_from, "date_to": date_to, "q": q},
@@ -384,31 +483,103 @@ def extraction_stats(score_min: float | None = None,
         "pending":  int(r.get("pending") or 0),
         "verified": int(r.get("verified") or 0),
         "edited":   int(r.get("edited") or 0),
+        # Documents with at least one key cell still missing (unstamped rows
+        # count: unknown is not complete) — see pipeline/key_entities.py.
+        "missing_keys": int(r.get("missing_keys") or 0),
     }
 
 
-def save_field_correction(filename: str, field_id: str, value: str,
-                          by_email: str, notes: str | None) -> bool:
+def _load_corrections(filename: str) -> dict | None:
+    """The document's corrections dict, or None when it has no extraction."""
     cur = run_read_query(
         "MATCH (d:Document {filename:$fn}) WHERE d.extraction_json IS NOT NULL "
         "RETURN coalesce(d.extraction_corrections_json,'{}') AS c LIMIT 1",
         {"fn": filename})
     if not cur:
-        return False
+        return None
     try:
         corr = json.loads(cur[0]["c"] or "{}")
     except json.JSONDecodeError:
         corr = {}
-    corr[field_id] = {"value": value, "by": by_email, "at": _now(), "notes": notes}
+    return corr if isinstance(corr, dict) else {}
+
+
+def _write_corrections(filename: str, corr: dict) -> bool:
+    """Persist the corrections dict, mark the document edited, and restamp the
+    key score — every reviewer write changes what the checklist counts, and
+    the queue sorts on the stored number, so the two must move together."""
     rows = run_query(
         """
         MATCH (d:Document {filename:$fn})
+        WHERE d.extraction_json IS NOT NULL
         SET d.extraction_corrections_json = $c,
             d.extraction_review_status    = 'edited'
         RETURN d.filename AS filename
         """,
         {"fn": filename, "c": json.dumps(corr, ensure_ascii=False)})
-    return bool(rows)
+    if not rows:
+        return False
+    stamp_key_scores([filename])
+    return True
+
+
+def save_field_correction(filename: str, field_id: str, value: str,
+                          by_email: str, notes: str | None) -> bool:
+    corr = _load_corrections(filename)
+    if corr is None:
+        return False
+    if field_id.startswith(ADDED_PREFIX):
+        # Correcting a reviewer-added entity edits it in place — it has no
+        # model text to keep a correction beside.
+        cur = corr.get(field_id)
+        if not isinstance(cur, dict):
+            return False
+        cur.update(text=value, by=by_email, at=_now())
+        # The typed text no longer matches the selected span.
+        cur["start"] = cur["end"] = None
+    else:
+        corr[field_id] = {"value": value, "by": by_email, "at": _now(), "notes": notes}
+    return _write_corrections(filename, corr)
+
+
+def add_field(filename: str, cls: str, text: str, start: int | None,
+              end: int | None, lot_index: str | None, attrs: dict,
+              by_email: str) -> str | None:
+    """Store a reviewer-added entity; returns its field id (``add:<id>``)."""
+    corr = _load_corrections(filename)
+    if corr is None:
+        return None
+    fid = ADDED_PREFIX + uuid.uuid4().hex[:8]
+    a = {k: v for k, v in (attrs or {}).items() if v not in (None, "")}
+    if lot_index:
+        a["lot_index"] = str(lot_index)
+    grounded = isinstance(start, int) and isinstance(end, int) and start < end
+    corr[fid] = {"cls": cls, "text": text.strip(),
+                 "start": start if grounded else None,
+                 "end": end if grounded else None,
+                 "attrs": a, "by": by_email, "at": _now()}
+    return fid if _write_corrections(filename, corr) else None
+
+
+def remove_added_field(filename: str, field_id: str) -> bool:
+    corr = _load_corrections(filename)
+    if corr is None or field_id not in corr:
+        return False
+    del corr[field_id]
+    return _write_corrections(filename, corr)
+
+
+def set_key_absent(filename: str, lot_index: str, key: str, absent: bool,
+                   by_email: str) -> bool:
+    corr = _load_corrections(filename)
+    if corr is None:
+        return False
+    k = absent_key(lot_index, key)
+    if absent:
+        corr[k] = {"by": by_email, "at": _now()}
+    else:
+        corr.pop(k, None)
+    return _write_corrections(filename, corr)
 
 
 def verify_extraction(filename: str, by_email: str, notes: str | None) -> bool:
@@ -417,7 +588,11 @@ def verify_extraction(filename: str, by_email: str, notes: str | None) -> bool:
         MATCH (d:Document {filename:$fn})
         SET d.extraction_review_status = 'verified',
             d.extraction_verified_by   = $by,
-            d.extraction_verified_at   = datetime()
+            d.extraction_verified_at   = datetime(),
+            d.extraction_review_notes  = CASE
+                WHEN $notes IS NULL OR $notes = ''
+                THEN d.extraction_review_notes
+                ELSE $notes END
         RETURN d.filename AS filename
         """,
         {"fn": filename, "by": by_email, "notes": notes})
@@ -484,11 +659,14 @@ def _build_fields(extraction_json: str, corrections_json: str,
         corr = {}
     if not isinstance(ents, list):
         ents = []
+    # Reviewer-added entities ride along after the model's own, and are
+    # re-anchored with them: their offsets point into the same markdown.
+    ents = ents + added_entities(corr)
     ents, _ = reanchor(ents, markdown, markdown_changed=markdown_changed)
     out: list[ExtractionField] = []
     for i, e in enumerate(ents):
         fid = e.get("id") or str(i)
-        c = corr.get(fid) or {}
+        c = {} if e.get("added") else (corr.get(fid) or {})
         attrs = e.get("attrs") or {}
         out.append(ExtractionField(
             id=fid, cls=e.get("cls", ""), text=e.get("text", ""),
@@ -503,6 +681,7 @@ def _build_fields(extraction_json: str, corrections_json: str,
             attrs={k: v for k, v in attrs.items() if k != "lot_index"},
             corrected_value=c.get("value"), corrected_by=c.get("by"),
             corrected_at=c.get("at"),
+            added=bool(e.get("added")),
         ))
     return out
 
@@ -574,6 +753,7 @@ class ExtractionStats(BaseModel):
     pending: int
     verified: int
     edited: int
+    missing_keys: int = 0
 
 
 # NOTE: declared before the `/{filename:path}` catch-all below, or that route
@@ -629,21 +809,24 @@ def extraction_bulk_confirm(
 def extraction_queue(
     status: str | None = Query(default=None),
     limit: int = Query(default=200, le=2000),
-    sort: str = Query(default="recent", pattern="^(recent|name)$"),
+    sort: str = Query(default="recent", pattern="^(recent|name|keys)$"),
     score_min: float | None = Query(default=None, ge=0.0, le=100.0),
     score_max: float | None = Query(default=None, ge=0.0, le=100.0),
     notice_type: str | None = Query(default=None),
     date_from: str | None = Query(default=None, max_length=20),
     date_to: str | None = Query(default=None, max_length=20),
     q: str | None = Query(default=None, max_length=200),
+    missing_keys: bool = Query(default=False),
     _admin: UserOut = Depends(get_current_admin),
 ) -> ExtractionQueueOut:
     status, notice_type = _no_all(status), _no_all(notice_type)
     date_from, date_to, q = _no_all(date_from), _no_all(date_to), _no_all(q)
+    missing_keys = missing_keys is True
     rows = list_extraction_queue(status, limit, sort,
                                  score_min=score_min, score_max=score_max,
                                  notice_type=notice_type,
-                                 date_from=date_from, date_to=date_to, q=q)
+                                 date_from=date_from, date_to=date_to, q=q,
+                                 missing_keys=missing_keys)
     out = []
     for r in rows:
         try:
@@ -655,6 +838,11 @@ def extraction_queue(
         elc = r.get("expected_lot_count")
         expected = int(elc) if elc is not None else None
         extracted = count_extracted_lots(ents)
+        # Computed live rather than read from the stored stamp: the stamp
+        # exists for ORDER BY, the labels for the reviewer, and the two must
+        # not disagree on a row the reviewer just edited.
+        keys = key_checklist_from_stored(r.get("extraction_json"),
+                                         r.get("corrections_json"), expected)
         out.append(ExtractionQueueRow(
             filename=r["filename"], status=r["status"], n_fields=len(ents),
             # As-extracted, deliberately NOT re-anchored: this is a list query,
@@ -675,14 +863,17 @@ def extraction_queue(
             lot_count_mismatch=(expected is not None
                                 and extracted is not None
                                 and expected != extracted),
-            stitched_pages=len(r.get("stitched_pages") or [r["filename"]])))
+            stitched_pages=len(r.get("stitched_pages") or [r["filename"]]),
+            key_score=keys["score"], key_missing=keys["missing"],
+            key_missing_labels=keys["missing_labels"]))
     # A genuine count, not len(out): the row list is capped by $limit, and the
     # "Confirm all N in range" button acts on the whole matching set — so a
     # capped total would understate what the button is about to verify.
     total = count_extraction_queue(status, score_min=score_min,
                                    score_max=score_max,
                                    notice_type=notice_type,
-                                   date_from=date_from, date_to=date_to, q=q)
+                                   date_from=date_from, date_to=date_to, q=q,
+                                   missing_keys=missing_keys)
     return ExtractionQueueOut(rows=out, total=total)
 
 
@@ -704,10 +895,17 @@ def extraction_detail(
                              row.get("markdown_loaded_at"),
                              row.get("extraction_at"),
                              row.get("extraction_stale_at"))
+    elc = row.get("expected_lot_count")
+    expected = int(elc) if elc is not None else None
+    keys = key_checklist_from_stored(row.get("extraction_json"),
+                                     row.get("corrections_json"), expected)
     return ExtractionReviewOut(
         filename=row["filename"], markdown=row.get("markdown"),
         status=row.get("status", "pending"), score=row.get("score"),
         verified_by=row.get("verified_by"), verified_at=row.get("verified_at"),
+        review_notes=row.get("review_notes"),
+        expected_lot_count=expected,
+        keys=KeyChecklist(**keys),
         public_url=row.get("public_url"), doc_type=row.get("doc_type"),
         content_type=row.get("content_type"),
         stale=stale,
@@ -730,6 +928,77 @@ def extraction_edit_field(
                             detail="this page is stitched into another document; review that one")
     if not save_field_correction(filename, body.field_id, body.value,
                                  admin.email, body.notes):
+        raise HTTPException(status_code=404, detail="extraction not found")
+    return extraction_detail(filename, admin)
+
+
+@router.post("/{filename:path}/add-field", response_model=ExtractionReviewOut)
+def extraction_add_field(
+    filename: str,
+    body: AddFieldBody,
+    admin: UserOut = Depends(get_current_admin),
+) -> ExtractionReviewOut:
+    """Add an entity the model missed — the reviewer's answer to a missing key
+    cell. Grounded when start/end are given (the reviewer selected the text in
+    the markdown pane); the text must then be exactly what those offsets
+    cover, or the highlight would point at the wrong passage."""
+    if get_stitch_pointer(filename):
+        raise HTTPException(status_code=409,
+                            detail="this page is stitched into another document; review that one")
+    if body.cls not in ENTITY_CLASSES:
+        raise HTTPException(status_code=422, detail=f"unknown extraction class {body.cls!r}")
+    start, end = body.start, body.end
+    if (start is None) != (end is None):
+        raise HTTPException(status_code=422, detail="start and end go together")
+    if start is not None:
+        if end <= start:
+            raise HTTPException(status_code=422, detail="end must be after start")
+        row = get_extraction(filename)
+        if row is None:
+            raise HTTPException(status_code=404, detail="extraction not found")
+        md = row.get("markdown") or ""
+        if md[start:end] != body.text:
+            raise HTTPException(status_code=422,
+                                detail="text does not match the markdown at start:end")
+    fid = add_field(filename, body.cls, body.text, start, end, body.lot_index,
+                    dict(body.attrs), admin.email)
+    if not fid:
+        raise HTTPException(status_code=404, detail="extraction not found")
+    return extraction_detail(filename, admin)
+
+
+@router.delete("/{filename:path}/field/{field_id}", response_model=ExtractionReviewOut)
+def extraction_delete_added_field(
+    filename: str,
+    field_id: str,
+    admin: UserOut = Depends(get_current_admin),
+) -> ExtractionReviewOut:
+    """Remove a reviewer-added entity. Model entities cannot be deleted here —
+    they are corrected, and the model's output stays on record."""
+    if not field_id.startswith(ADDED_PREFIX):
+        raise HTTPException(status_code=422, detail="only reviewer-added fields can be deleted")
+    if get_stitch_pointer(filename):
+        raise HTTPException(status_code=409,
+                            detail="this page is stitched into another document; review that one")
+    if not remove_added_field(filename, field_id):
+        raise HTTPException(status_code=404, detail="added field not found")
+    return extraction_detail(filename, admin)
+
+
+@router.post("/{filename:path}/key-absent", response_model=ExtractionReviewOut)
+def extraction_key_absent(
+    filename: str,
+    body: KeyAbsentBody,
+    admin: UserOut = Depends(get_current_admin),
+) -> ExtractionReviewOut:
+    """Mark one lot's key entity as not stated in the notice (or clear that
+    mark). Counted as done by the checklist without inventing a value."""
+    if body.key not in KEYS:
+        raise HTTPException(status_code=422, detail=f"unknown key {body.key!r}")
+    if get_stitch_pointer(filename):
+        raise HTTPException(status_code=409,
+                            detail="this page is stitched into another document; review that one")
+    if not set_key_absent(filename, body.lot_index, body.key, body.absent, admin.email):
         raise HTTPException(status_code=404, detail="extraction not found")
     return extraction_detail(filename, admin)
 

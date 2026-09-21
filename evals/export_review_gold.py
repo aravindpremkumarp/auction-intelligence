@@ -41,21 +41,14 @@ def _safe(aid: str) -> str:
 
 
 def _records_from_stored(extraction_json: str, corrections_json: str) -> list[dict]:
-    """Stored entities with the reviewer's text corrections applied."""
-    try:
-        ents = json.loads(extraction_json or "[]")
-    except json.JSONDecodeError:
-        ents = []
-    try:
-        corr = json.loads(corrections_json or "{}")
-    except json.JSONDecodeError:
-        corr = {}
-    out = []
-    for i, e in enumerate(ents):
-        fid = e.get("id") or str(i)
-        text = (corr.get(fid) or {}).get("value", e.get("text", ""))
-        out.append({"cls": e.get("cls"), "text": text, "attrs": e.get("attrs") or {}})
-    return out
+    """Stored entities with the reviewer's corrections applied — text fixes
+    and the entities the reviewer added (``add:*`` keys), via the same overlay
+    promotion uses, so the gold set and the graph agree on what a document
+    says."""
+    from pipeline.apply_extractions import entities_with_corrections
+    return [{"cls": e.get("cls"), "text": e.get("text", ""),
+             "attrs": e.get("attrs") or {}}
+            for e in entities_with_corrections(extraction_json, corrections_json)]
 
 
 def _gold_fields(flat: dict) -> tuple[dict, dict]:

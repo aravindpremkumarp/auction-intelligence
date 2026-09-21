@@ -114,9 +114,43 @@ def parse_money(v) -> int | None:
         return None
 
 
+ADDED_PREFIX = "add:"
+
+
+def added_entities(corrections: dict) -> list[dict]:
+    """Entities the reviewer added by hand (pipeline/key_entities.py).
+
+    Stored under ``"add:<id>"`` keys in ``extraction_corrections_json`` with the
+    same shape as a model entity plus ``by``/``at``. Returned in the stored
+    entity shape, ``id`` = the full key, ``added`` = True, so every consumer of
+    ``entities_with_corrections`` (promotion, the gold export, the review UI)
+    treats them exactly like model output. Malformed entries are skipped: a
+    correction blob must never take the whole document down with it.
+    """
+    out: list[dict] = []
+    if not isinstance(corrections, dict):
+        return out
+    for k, v in corrections.items():
+        if not str(k).startswith(ADDED_PREFIX) or not isinstance(v, dict):
+            continue
+        cls, text = v.get("cls"), v.get("text")
+        if not isinstance(cls, str) or not cls or not isinstance(text, str) or not text.strip():
+            continue
+        start, end = v.get("start"), v.get("end")
+        grounded = isinstance(start, int) and isinstance(end, int) and 0 <= start < end
+        attrs = v.get("attrs") if isinstance(v.get("attrs"), dict) else {}
+        out.append({"id": str(k), "cls": cls, "text": text.strip(),
+                    "start": start if grounded else None,
+                    "end": end if grounded else None,
+                    "attrs": dict(attrs), "added": True})
+    return out
+
+
 def entities_with_corrections(extraction_json: str,
                               corrections_json: str | None) -> list[dict]:
-    """Parse the stored entity list; a reviewer correction replaces text."""
+    """Parse the stored entity list; a reviewer correction replaces text, and
+    reviewer-added entities (``add:*`` keys, see ``added_entities``) are
+    appended after the model's own."""
     try:
         ents = json.loads(extraction_json or "[]")
     except json.JSONDecodeError:
@@ -138,6 +172,7 @@ def entities_with_corrections(extraction_json: str,
             e["text"] = c["value"].strip()
             e["corrected"] = True
         out.append(e)
+    out.extend(added_entities(corr))
     return out
 
 

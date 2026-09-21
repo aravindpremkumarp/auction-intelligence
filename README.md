@@ -316,7 +316,7 @@ everything downstream depends on.
 | 3 | OCR the notice into markdown (Datalab or MinerU) | machine | `scripts/ocr_with_mineru.py` |
 | 4 | **Gate 2** — check OCR quality, re-OCR or annotate blocks if poor | human | review UI, *markdown* stage |
 | 5 | Extract entities from the markdown with LangExtract | machine | `pipeline/load_extractions.py` |
-| 6 | **Gate 3** — review the extraction; a lot-count mismatch is flagged | human | review UI, *extraction* stage |
+| 6 | **Gate 3** — clear the per-lot key-entity checklist (reserve price, auction date, property type, location, extent, full description, possession); a lot-count mismatch is flagged | human | review UI, *extraction* stage |
 | 7 | Resolve entities into the `:Lot` / `:Parcel` spine | machine | `pipeline/promote_extractions.py` |
 | 8 | Apply grounded fields + descriptions to `:AuctionProperty` | machine | `pipeline/apply_extractions.py` |
 
@@ -340,6 +340,16 @@ cost no extra clicks). That number then does two jobs:
   caught instead of quietly reaching the graph.
 
 Notices without a confirmed count are never flagged: no count means no claim.
+
+**Gate 3 is a checklist, not a read-through.** `pipeline/key_entities.py`
+turns each extraction into a lot × key table — seven cells per lot — and the
+extraction stage shows that table first. A filled cell jumps to its highlight;
+a missing one is filled by selecting the text in the markdown (stored as a
+grounded, reviewer-added entity that promotion picks up) or marked *not in
+notice* when the document never states it. The share of cells done is
+`Document.extraction_key_score`, and the queue's "missing keys first" order
+puts the notices with the most gaps on top. A lot the reviewer counted at
+gate 1 but the model never emitted shows as a row with every cell missing.
 
 The graph model these steps write into — `:Document` → `:Lot` → `:Parcel`,
 and where each extracted field lands — is documented in

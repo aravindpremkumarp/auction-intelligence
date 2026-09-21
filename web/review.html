@@ -791,6 +791,18 @@
         <button id="score-clear" class="ghost" title="reset to 0–100">clear</button>
         <span class="meta fhint" id="score-hint"></span>
       </span>
+      <!-- Extraction only: the key-entity checklist (pipeline/key_entities.py).
+           "missing keys first" orders the queue by how many of the seven key
+           entities each lot lacks; "only missing" hides complete notices. -->
+      <span class="fgroup hidden" id="keys-bar">
+        <span class="fsep">·</span>
+        <span class="flabel">Keys:</span>
+        <span class="group-toggle">
+          <button class="pill" data-xsort="recent" title="newest extraction first">newest</button>
+          <button class="pill" data-xsort="keys" title="notices missing the most key entities first">missing keys first</button>
+        </span>
+        <button class="pill" id="keys-only" title="show only notices with at least one key entity missing">only missing</button>
+      </span>
       <!-- Datalab's own 0–5 verdict on the parse. Separate from OCR health
            because it catches the failure health cannot see: content the engine
            silently dropped. Blank inputs = no filter (docs with no score stay
@@ -2053,10 +2065,14 @@
     const r = await authFetch(url);
     if (!r.ok) { $('stats').textContent = ''; return; }
     const s = await r.json();
+    const keys = (queueState.stage === 'extraction' && s.missing_keys != null)
+      ? `<span class="pill danger" title="notices with at least one key entity missing on some lot">${s.missing_keys} missing keys</span>`
+      : '';
     $('stats').innerHTML = `
       <span class="pill warn">${s.pending} pending</span>
       <span class="pill good">${s.verified} verified</span>
       <span class="pill good">${s.edited} edited</span>
+      ${keys}
       <span class="pill off">${s.total} total</span>
     `;
   }
@@ -2174,6 +2190,11 @@
     // Parse quality and the OCR failure flags are markdown-stage signals.
     $('pq-bar').classList.toggle('hidden', !isMd);
     $('flag-bar').classList.toggle('hidden', !isMd);
+    $('keys-bar').classList.toggle('hidden', !isExtract);
+    $$('button.pill[data-xsort]').forEach(b => {
+      b.classList.toggle('on', b.getAttribute('data-xsort') === xrSort());
+    });
+    $('keys-only').classList.toggle('on', xrOnlyMissing());
     // Expand/collapse-all only makes sense where the cards are collapsible —
     // the markdown stage's sales-notice list.
     $('expand-all-bar').classList.toggle('hidden', !(isMd && isNotice));
@@ -2249,10 +2270,39 @@
     return '<span class="pill warn">pending</span>';
   }
 
+  // Extraction queue order + "only missing keys" filter, remembered per reviewer.
+  function xrSort() {
+    try { return localStorage.getItem('xrSort') === 'keys' ? 'keys' : 'recent'; } catch { return 'recent'; }
+  }
+  function xrOnlyMissing() {
+    try { return localStorage.getItem('xrOnlyMissing') === '1'; } catch { return false; }
+  }
+  $$('button.pill[data-xsort]').forEach(b => b.addEventListener('click', () => {
+    try { localStorage.setItem('xrSort', b.getAttribute('data-xsort')); } catch {}
+    syncStatusButtons();
+    loadQueue();
+  }));
+  $('keys-only').addEventListener('click', () => {
+    try { localStorage.setItem('xrOnlyMissing', xrOnlyMissing() ? '0' : '1'); } catch {}
+    syncStatusButtons();
+    loadQueue();
+  });
+
+  function keysPill(row) {
+    if (row.key_score == null) return '';
+    const miss = row.key_missing || 0;
+    const labels = row.key_missing_labels || [];
+    const title = miss
+      ? labels.slice(0, 10).join('\n') + (labels.length > 10 ? '\n…' : '')
+      : 'every lot has its key entities';
+    return `<span class="pill ${miss ? 'danger' : 'good'}" title="${escapeHtml(title)}">keys ${row.key_score}%${miss ? ' · ' + miss + ' missing' : ''}</span>`;
+  }
+
   async function loadExtractionQueue() {
     const list = $('queue-by-extraction');
     list.innerHTML = '<div class="empty">loading…</div>';
-    const params = new URLSearchParams({ limit: '500', sort: 'recent' });
+    const params = new URLSearchParams({ limit: '500', sort: xrSort() });
+    if (xrOnlyMissing()) params.set('missing_keys', 'true');
     if (queueState.status && queueState.status !== 'all') params.set('status', queueState.status);
     if (queueState.q) params.set('q', queueState.q);
     appendCommonParams(params);
@@ -2303,10 +2353,15 @@
       ? `<span class="meta" style="color:var(--muted)">extracted ${escapeHtml(fmtWhen(row.extraction_at))}</span>`
       : '';
     const href = '#extraction/' + encodeURIComponent(row.filename || '');
+    // The first missing key labels inline, so the reviewer knows what the
+    // notice needs before opening it.
+    const missLabels = (row.key_missing || 0) && (row.key_missing_labels || []).length
+      ? `<span class="meta" style="color:#991b1b">${escapeHtml((row.key_missing_labels || []).slice(0, 4).join(' · '))}${(row.key_missing_labels || []).length > 4 ? ' · …' : ''}</span>`
+      : '';
     const summary = document.createElement('summary');
     summary.innerHTML = `
       <span class="nfile">${escapeHtml(filename)}</span>
-      ${batch} ${extractionScorePill(row)} ${extractionStatusPill(row)} ${lots} ${ungrounded} ${stale} ${fields}
+      ${batch} ${keysPill(row)} ${extractionScorePill(row)} ${extractionStatusPill(row)} ${lots} ${ungrounded} ${stale} ${fields} ${missLabels}
       <span class="nspacer"></span>
       <span class="nlinks">
         <a class="link" href="${href}">review extraction ↗</a>

@@ -53,6 +53,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from api.neo4j_client import run_query, run_read_query
 from api.review.grounding import ground_missing
 from pipeline.extract_routing import passes_for, select_extract_model
+from pipeline.key_entities import stamp_key_scores
 from pipeline.notice_twins import group_twins, merge_rosters, text_key
 from pipeline.validators import (SCORE_VERSION, normalize_identifier_kind,
                                  validate_stored)
@@ -258,7 +259,12 @@ def _copy_extraction(donor: dict, targets: list[str], batch: int) -> int:
          "score_version": donor.get("score_version"),
          "batch": batch, "model": donor.get("model"),
          "donor": donor["filename"]})
-    return (rows[0].get("n") or 0) if rows else 0
+    n = (rows[0].get("n") or 0) if rows else 0
+    if n:
+        # The key checklist depends on each copy's own lot count and
+        # corrections, so it is computed per document, not copied.
+        stamp_key_scores(targets)
+    return n
 
 
 def _entities(res, source: str = "") -> list[dict]:
@@ -402,6 +408,10 @@ def _extract_one(d: dict, batch: int, route: bool, LX) -> tuple[bool, str | None
         {"fn": fn, "fns": targets, "j": json.dumps(ents, ensure_ascii=False),
          "score": score, "score_version": SCORE_VERSION,
          "batch": batch, "model": effective_model})
+    # Per-lot key-entity completeness (pipeline/key_entities.py) — the review
+    # queue's "missing keys first" order. Stamped after the write so it reads
+    # the corrections this write preserved.
+    stamp_key_scores(targets)
     shared = "" if len(targets) == 1 else f", shared with {len(targets) - 1} copy/ies"
     return True, model_id, (f"{fn}: {len(ents)} fields, score={score}, "
                             f"model={effective_model}{shared}")

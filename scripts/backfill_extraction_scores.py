@@ -33,6 +33,7 @@ import argparse
 import json
 
 from api.neo4j_client import run_query, run_read_query
+from pipeline.key_entities import stamp_key_scores
 from pipeline.validators import SCORE_VERSION, validate_stored
 
 WRITE_CHUNK = 200
@@ -56,8 +57,12 @@ def load_unscored(force: bool) -> list[dict]:
     """
     where = "d.extraction_json IS NOT NULL AND d.stitched_into IS NULL"
     if not force:
+        # extraction_key_score (pipeline/key_entities.py) is stamped alongside:
+        # a document never given one is picked up here too, so one backfill
+        # levels both numbers.
         where += (" AND (d.extraction_score IS NULL"
-                  "      OR coalesce(d.extraction_score_version, 0) < $version)")
+                  "      OR coalesce(d.extraction_score_version, 0) < $version"
+                  "      OR d.extraction_key_score IS NULL)")
     return run_read_query(
         f"MATCH (d:Document) WHERE {where} "
         "RETURN d.filename AS filename, "
@@ -122,7 +127,9 @@ def main() -> int:
         written += len(batch)
         print(f"  wrote {written:,}/{len(rows):,}", end="\r")
 
-    print(f"\nDone. Backfilled extraction_score on {written:,} document(s).")
+    keyed = stamp_key_scores([r["filename"] for r in rows], chunk=WRITE_CHUNK)
+    print(f"\nDone. Backfilled extraction_score on {written:,} document(s), "
+          f"extraction_key_score on {keyed:,}.")
     return 0
 
 
