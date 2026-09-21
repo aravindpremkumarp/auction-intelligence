@@ -247,7 +247,10 @@ def lot_place(rec: dict) -> dict:
                       district=loc.get("district"),
                       taluk=loc.get("taluk"),
                       village=loc.get("village"),
-                      registration_district=loc.get("registration_district"))
+                      registration_district=loc.get("registration_district"),
+                      # Only used to rule the property out of Tamil Nadu
+                      # entirely, which no other field can say on its own.
+                      state=loc.get("state"))
     status, source = r["village_status"], r["village_source"]
     district, taluk, village = r["district"], r["taluk"], r["village"]
 
