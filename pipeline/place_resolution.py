@@ -771,18 +771,20 @@ def resolve_place(gaz: Gazetteer, *, district: str | None = None,
         # here holding a village name nobody uses. A name only one village in
         # Tamil Nadu bears is enough on its own: it names its own taluk and
         # district, the same way a taluk names its district.
-        wide = gaz.village_in_state(village)
-        if wide:
-            found_v, found_t, found_d = wide
-            # A district already resolved is evidence, and it wins. Disagreeing
-            # with it would be the wrong-district failure this module guards
-            # against everywhere else, and a lone unique name does not outrank
-            # a district the notice actually stated.
-            if not out["district"] or \
-                    normalize_place(out["district"]) == normalize_place(found_d):
-                out["village"], out["taluk"] = found_v, found_t
-                out["district"] = found_d
-                out["district_source"] = out["district_source"] or "village"
+        # ONLY when no district is known either. With a district in hand the
+        # caller has a narrower, safer search available — `village_in_district`,
+        # exact and unique-within-district — and firing first would pre-empt it:
+        # 299 lots resolved under this state-wide rule that the district-scoped
+        # one would have placed anyway, stamping the riskiest provenance on lots
+        # that never needed it. Nothing is lost by waiting, because a village
+        # unique across the state and inside the known district is exactly what
+        # that narrower rule already finds, and one in a DIFFERENT district than
+        # the notice states is refused here regardless.
+        if not out["district"]:
+            wide = gaz.village_in_state(village)
+            if wide:
+                out["village"], out["taluk"], out["district"] = wide
+                out["district_source"] = "village"
                 out["village_status"] = "resolved"
                 # Its own source, so these are separable from every other
                 # resolution afterwards — auditable, and undoable on their own.

@@ -559,18 +559,25 @@ def test_a_name_with_a_near_twin_in_another_district_is_refused():
     assert r["taluk"] is None
 
 
-def test_a_district_the_notice_stated_outranks_a_unique_name():
-    """A lone unique name does not get to overrule a district the notice gave:
-    that would be the wrong-district failure guarded against everywhere else."""
+def test_a_known_district_holds_the_state_wide_rule_back_entirely():
+    """It fires only when the district is unknown too.
+
+    With a district in hand the caller has a narrower, safer search —
+    `village_in_district`, which `lot_place` runs next — and firing first would
+    pre-empt it: 299 lots came out stamped `state` that the district-scoped rule
+    would have placed anyway. Nothing is lost by waiting, because a village both
+    unique state-wide AND inside the known district is exactly what that rule
+    finds; one in a different district is refused here either way.
+    """
     r = resolve_place(_state(), district="Chengalpattu", village="Mookkanur")
-    assert r["village_status"] != "resolved"
+    assert r["village_status"] == "no-parent-taluk"
     assert r["district"] == "Chengalpattu"     # kept, not overwritten
+    assert r["taluk"] is None                 # never guessed from the village
 
-
-def test_a_unique_name_agreeing_with_the_stated_district_is_taken():
-    r = resolve_place(_state(), district="Chengalpattu", village="Madurapakam")
-    assert (r["village"], r["taluk"]) == ("Madurapakam", "Tambaram")
-    assert r["village_status"] == "resolved"
+    # Same even when the unique village agrees with the stated district — this
+    # is the district-scoped rule's job, and its provenance.
+    r2 = resolve_place(_state(), district="Chengalpattu", village="Madurapakam")
+    assert r2["village_source"] != "state"
 
 
 def test_the_state_wide_search_never_runs_when_a_taluk_is_known():
@@ -594,3 +601,12 @@ def test_the_incoming_name_is_matched_exactly_not_fuzzily():
     assert _state().village_in_state("Mookanoor") is None
     assert _state().village_in_state("Mookkanurr") is not None   # same fold
     assert _state().village_in_state("Mookkanur") is not None
+
+
+def test_the_state_wide_rule_still_answers_when_no_district_is_known():
+    gaz = Gazetteer(
+        districts=["Tiruvallur"],
+        taluks=[("Poonamallee", "Tiruvallur")],
+        villages=[("Mookkanur", "Poonamallee", "Tiruvallur")])
+    r = resolve_place(gaz, village="Mookkanur")
+    assert r["village_source"] == "state"
