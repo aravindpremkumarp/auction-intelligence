@@ -8,8 +8,11 @@ Recover the content behind a ``missing-region`` flag by re-OCRing just the gap.
 exactly the crop the parser needs a second look at, so this script:
 
   1. recomputes coverage (blocks and image are already stored, no API call) to
-     locate the patch;
-  2. crops it out of the source image with a small margin;
+     locate the patch on **every** page that trips the flag — the document's
+     verdict is its worst page (``score_document_ink``), so a multi-page PDF
+     whose dropped region sits on page 4 measures clean on page 1;
+  2. crops each patch out of that page with a small margin — through PyMuPDF
+     for a PDF, Pillow for a raster;
   3. sends only that crop to Datalab — a small region on its own is a far
      easier parse than the full dense page, the same principle
      ``scripts/auto_region_reingest.py`` uses for its band splits;
@@ -45,7 +48,6 @@ from __future__ import annotations
 
 import argparse
 import datetime as _dt
-import io
 import json
 import os
 import secrets
@@ -61,10 +63,15 @@ from api.review.blocks import _merge_region_blocks
 from pipeline import datalab_api
 from pipeline.config import datalab_mode_for
 from pipeline.datalab import parse_datalab_blocks
-from pipeline.ink_coverage import score_ink_coverage
+from pipeline.ink_coverage import (
+    _is_pdf,
+    _pages_with_blocks,
+    score_document_ink,
+    score_ink_coverage,
+)
 from pipeline.mineru import assemble_markdown
 from pipeline.ocr_health import score_ocr_health
-from pipeline.reextract import _image_crop_to_png
+from pipeline.reextract import _image_crop_to_png, _pdf_crop_to_png
 from scripts.score_ink_coverage import nq
 
 
@@ -129,45 +136,91 @@ def _expand(bbox: list[float], margin: float) -> list[float]:
             min(1.0, x1 + margin), min(1.0, y1 + margin)]
 
 
+def flagged_pages(img: bytes, blocks: list[dict]) -> list[tuple[int, dict]]:
+    """Every page that trips the flag on its own, worst first.
+
+    The document's ``missing-region`` verdict is its WORST page
+    (``score_document_ink``), so measuring page 1 alone — what this script did
+    until the multi-page notices exposed it — answers "clean" for every PDF
+    whose dropped region sits further in, and the fix silently never runs.
+
+    All flagged pages are returned, not just the worst, because each carries
+    its own patch: recovering one page at a time would leave the flag standing
+    after the write, and the next run would clear the human sign-off again for
+    the same notice.
+    """
+    pages = _pages_with_blocks(blocks) if _is_pdf(img) else [1]
+    found: list[tuple[int, dict]] = []
+    for page in pages or [1]:
+        m = score_ink_coverage(img, blocks, page=page)
+        if m.get("flag") and (m.get("details") or {}).get("patch_bbox"):
+            found.append((page, m))
+    found.sort(key=lambda pm: pm[1]["uncovered_ratio"], reverse=True)
+    return found
+
+
+def _crop_png(img: bytes, page: int, bbox: list[float]) -> bytes:
+    """The patch as a PNG. Pillow cannot open a PDF, so route those to fitz."""
+    if _is_pdf(img):
+        return _pdf_crop_to_png(img, page, bbox)
+    return _image_crop_to_png(img, bbox)
+
+
+def _ocr_crop(crop: bytes, *, mode: str) -> list[dict]:
+    """Send one crop to Datalab and return its non-empty blocks."""
+    fd, name = tempfile.mkstemp(suffix=".png", prefix="patchfix_")
+    with os.fdopen(fd, "wb") as f:
+        f.write(crop)
+    src = Path(name)
+    try:
+        result = datalab_api.run_file(src, output_format="json", mode=mode,
+                                      timeout_s=900)
+        _md, doc, _imgs = datalab_api.extract_payload(result)
+        return [b for b in parse_datalab_blocks(doc)
+                if (b.get("text") or "").strip()]
+    finally:
+        try:
+            src.unlink()
+        except FileNotFoundError:
+            pass
+
+
 def fix_one(t: dict, *, margin: float) -> dict:
-    """Re-OCR one notice's missing patch. Never raises."""
+    """Re-OCR one notice's missing patches. Never raises."""
     mode = datalab_mode_for(t["notice_type"])
     out = {**t, "mode": mode, "new_ratio": None, "new_chars": None,
            "recovered_blocks": 0, "note": "", "ok_to_write": False}
     for k in ("blocks_json", "markdown"):
         out.pop(k, None)
-    src: Path | None = None
     try:
         blocks = json.loads(t["blocks_json"])
         blocks = blocks.get("blocks") if isinstance(blocks, dict) else blocks
         img = requests.get(t["public_url"], timeout=120).content
 
-        before = score_ink_coverage(img, blocks)
-        patch = (before.get("details") or {}).get("patch_bbox")
-        if not patch or not before.get("flag"):
+        flagged = flagged_pages(img, blocks)
+        if not flagged:
             out["note"] = "no patch to fix (re-measured clean)"
             return out
-        region = {"bbox": _expand(patch, margin)}
+        # The stored ratio can predate a rules change; measuring the baseline
+        # here keeps the gain below a like-for-like comparison with `after`.
+        before = score_document_ink(img, blocks)
+        out["old_ratio"] = before["uncovered_ratio"] or t["old_ratio"]
+        out["pages"] = [p for p, _ in flagged]
 
-        crop = _image_crop_to_png(img, region["bbox"])
-        fd, name = tempfile.mkstemp(suffix=".png", prefix="patchfix_")
-        with os.fdopen(fd, "wb") as f:
-            f.write(crop)
-        src = Path(name)
-
-        result = datalab_api.run_file(src, output_format="json", mode=mode,
-                                      timeout_s=900)
-        _md, doc, _imgs = datalab_api.extract_payload(result)
-        recovered = parse_datalab_blocks(doc)
-        recovered = [b for b in recovered if (b.get("text") or "").strip()]
+        recovered: list[dict] = []
+        for page, meas in flagged:
+            region = {"bbox": _expand(meas["details"]["patch_bbox"], margin)}
+            found = _ocr_crop(_crop_png(img, page, region["bbox"]), mode=mode)
+            if not found:
+                continue
+            found = _merge_region_blocks([(region, found)], page=page)
+            for b in found:
+                b["id"] = _bid()
+                b["source"] = "datalab-patchfix"
+            recovered.extend(found)
         if not recovered:
-            out["note"] = "crop returned no text"
+            out["note"] = "crops returned no text"
             return out
-        page = int(blocks[0].get("page") or 1) if blocks else 1
-        recovered = _merge_region_blocks([(region, recovered)], page=page)
-        for b in recovered:
-            b["id"] = _bid()
-            b["source"] = "datalab-patchfix"
 
         combined = list(blocks) + recovered
         combined.sort(key=lambda b: (int(b.get("page") or 1),
@@ -178,7 +231,7 @@ def fix_one(t: dict, *, margin: float) -> dict:
                 b["id"] = _bid()
 
         markdown = assemble_markdown(combined)
-        after = score_ink_coverage(img, combined)
+        after = score_document_ink(img, combined)
         health = score_ocr_health(markdown, region=after)
         old_len = len(t["markdown"] or "")
 
@@ -187,7 +240,7 @@ def fix_one(t: dict, *, margin: float) -> dict:
                    markdown=markdown, new_score=health["score"],
                    new_flags=health["flags"], old_chars=old_len)
 
-        gain = (t["old_ratio"] or 0) - (after["uncovered_ratio"] or 0)
+        gain = (out["old_ratio"] or 0) - (after["uncovered_ratio"] or 0)
         if gain < MIN_GAIN:
             out["note"] = f"no coverage gain ({gain:+.1%}) — left alone"
         elif len(markdown) < old_len * MIN_KEEP_RATIO:
@@ -197,12 +250,6 @@ def fix_one(t: dict, *, margin: float) -> dict:
             out["ok_to_write"] = True
     except Exception as e:
         out["note"] = f"{type(e).__name__}: {e}"
-    finally:
-        if src is not None:
-            try:
-                src.unlink()
-            except FileNotFoundError:
-                pass
     return out
 
 
@@ -278,9 +325,10 @@ def main() -> int:
             r = fut.result()
             results.append(r)
             if r["ok_to_write"]:
+                pages = ",".join(str(p) for p in r.get("pages") or [])
                 print(f"  [{i}/{len(targets)}] FIX   unread "
                       f"{r['old_ratio']:5.1%}->{r['new_ratio']:5.1%}  "
-                      f"+{r['recovered_blocks']} blocks  chars "
+                      f"p{pages}  +{r['recovered_blocks']} blocks  chars "
                       f"{r['old_chars']}->{r['new_chars']}  {r['filename'][:34]}")
             else:
                 print(f"  [{i}/{len(targets)}] skip  {r['note'][:52]}  "
