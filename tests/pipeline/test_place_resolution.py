@@ -520,3 +520,77 @@ def test_an_ordinary_hyphenated_taluk_is_not_split_into_nonsense():
     containing a separator is never taken apart."""
     gaz = Gazetteer(districts=["Tiruvallur"], taluks=[("R.K. Pet", "Tiruvallur")])
     assert resolve_place(gaz, taluk="R.K. Pet")["taluk"] == "R.K. Pet"
+
+
+# ── the state-wide last resort ───────────────────────────────────────────────
+
+def _state() -> Gazetteer:
+    return Gazetteer(
+        districts=["Tiruvallur", "Kancheepuram", "Chengalpattu"],
+        taluks=[("Poonamallee", "Tiruvallur"), ("Kundrathur", "Kancheepuram"),
+                ("Tambaram", "Chengalpattu")],
+        villages=[
+            ("Mookkanur", "Poonamallee", "Tiruvallur"),        # unique
+            ("Madurapakam", "Tambaram", "Chengalpattu"),       # unique
+            # The near-twin pair: one letter apart, two districts.
+            ("Varadharajapuram", "Poonamallee", "Tiruvallur"),
+            ("Varadarajapuram", "Kundrathur", "Kancheepuram"),
+        ])
+
+
+def test_a_village_only_one_place_in_the_state_bears_names_its_own_taluk():
+    """With no taluk there is nowhere to look a village up, and 920 lots end
+    there. A name borne by exactly one village carries its taluk and district
+    the same way a taluk carries its district."""
+    r = resolve_place(_state(), village="Mookkanur")
+    assert (r["village"], r["taluk"], r["district"]) == \
+        ("Mookkanur", "Poonamallee", "Tiruvallur")
+    assert r["village_status"] == "resolved"
+    assert r["village_source"] == "state"      # separable from every other path
+
+
+def test_a_name_with_a_near_twin_in_another_district_is_refused():
+    """Varadharajapuram has exactly one exact-fold hit, in Poonamallee — and the
+    notices naming it mean Kundrathur's Varadarajapuram, one letter away in
+    another district. Exact uniqueness alone got these wrong every time; the
+    near-twin check is what took the rule from 97.0% to 99.9%."""
+    r = resolve_place(_state(), village="Varadharajapuram")
+    assert r["village_status"] == "no-parent-taluk"
+    assert r["taluk"] is None
+
+
+def test_a_district_the_notice_stated_outranks_a_unique_name():
+    """A lone unique name does not get to overrule a district the notice gave:
+    that would be the wrong-district failure guarded against everywhere else."""
+    r = resolve_place(_state(), district="Chengalpattu", village="Mookkanur")
+    assert r["village_status"] != "resolved"
+    assert r["district"] == "Chengalpattu"     # kept, not overwritten
+
+
+def test_a_unique_name_agreeing_with_the_stated_district_is_taken():
+    r = resolve_place(_state(), district="Chengalpattu", village="Madurapakam")
+    assert (r["village"], r["taluk"]) == ("Madurapakam", "Tambaram")
+    assert r["village_status"] == "resolved"
+
+
+def test_the_state_wide_search_never_runs_when_a_taluk_is_known():
+    """It is the LAST resort. With a taluk the ordinary scoped lookup answers,
+    and a village absent from that taluk stays unmatched rather than being
+    rehomed across the state."""
+    r = resolve_place(_state(), taluk="Tambaram", village="Mookkanur")
+    assert r["village_status"] == "unmatched"
+    assert r["taluk"] == "Tambaram"
+
+
+def test_the_incoming_name_is_matched_exactly_not_fuzzily():
+    """Fuzzy at this scope would widen the search and the collision risk
+    together — the reason village_in_district refuses it at a narrower scope.
+
+    "Exactly" means on the fold, which is the resolver's idea of the same name:
+    `Mookkanurr` is the same key and still matches, while `Mookkanpur` is a
+    different name that similarity could otherwise have reached.
+    """
+    assert _state().village_in_state("Mookkanpur") is None
+    assert _state().village_in_state("Mookanoor") is None
+    assert _state().village_in_state("Mookkanurr") is not None   # same fold
+    assert _state().village_in_state("Mookkanur") is not None

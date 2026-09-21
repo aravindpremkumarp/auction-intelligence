@@ -458,6 +458,10 @@ class Gazetteer:
         # taluk — "Kundrathur" and "Madhavaram" were villages before they were
         # promoted, and notices still write them in the village field.
         self._t_by_district: dict[str, dict[str, str]] = defaultdict(dict)
+        # Every village keyed by name alone, for the state-wide last resort.
+        self._v_by_name: dict[str, set[tuple[str, str, str]]] = defaultdict(set)
+        #: Memo for `village_in_state`, whose near-twin sweep is O(all names).
+        self._state_unique: dict[str, tuple[str, str, str] | None] = {}
         # A taluk can hold several distinct villages under one name — Tiruvallur
         # has three called Karanai, each with its own village code. The name
         # alone cannot say which, so it is refused rather than guessed.
@@ -468,6 +472,7 @@ class Gazetteer:
                 self._v_ambiguous.add((taluk, key))
             self._v_by_taluk[taluk].setdefault(key, village)
             self._v_by_district[district][key].add((village, taluk))
+            self._v_by_name[key].add((village, taluk, district))
         for taluk, district in self.taluks:
             self._t_by_district[district].setdefault(normalize_place(taluk), taluk)
 
@@ -555,6 +560,64 @@ class Gazetteer:
         """The taluk this string names, if it names one rather than a village."""
         return (self._t_by_district.get(district) or {}).get(
             normalize_place(value))
+
+    def village_in_state(self, value: str) -> tuple[str, str, str] | None:
+        """``(village, taluk, district)`` for a name borne by ONE village in
+        Tamil Nadu — the last resort, when the notice gives no usable taluk.
+
+        This is the widest search here and therefore the most guarded. Two
+        conditions, and the second is what makes it safe:
+
+        1. Exactly one village carries the name, on the resolver's own fold.
+        2. No OTHER name in the state comes within ``FUZZY_MIN`` of it from a
+           different district.
+
+        The second exists because the first is not enough, and the corpus says
+        so. `Varadharajapuram` looks unique — one exact hit, in Poonamallee —
+        while the notices that name it mean Kundrathur's `Varadarajapuram`, one
+        letter away in another district. Uniqueness measured on exact spelling
+        alone got those wrong every time. Checking for a near-twin takes the
+        rule from 97.0% to 99.9% agreement with the taluk-scoped answer on the
+        2,069 resolved lots whose village name qualifies, and the single
+        remaining miss (`Otterpalayam`, Sulur for Annur) still lands in the
+        right district.
+
+        Deliberately NOT fuzzy on the way in: the incoming name must match
+        exactly once. Fuzzy matching at this scope would widen the search and
+        the collision risk together, which is the reason
+        ``village_in_district`` refuses it at the narrower scope already.
+        """
+        key = normalize_place(value)
+        if not key:
+            return None
+        if key in self._state_unique:
+            return self._state_unique[key]
+
+        answer: tuple[str, str, str] | None = None
+        hits = self._v_by_name.get(key)
+        if hits and len(hits) == 1:
+            village, taluk, district = next(iter(hits))
+            if not self._near_twin_elsewhere(key, district):
+                answer = (village, taluk, district)
+        self._state_unique[key] = answer
+        return answer
+
+    def _near_twin_elsewhere(self, key: str, district: str) -> bool:
+        """Does another district hold a village this name could be read as?"""
+        try:
+            from rapidfuzz import fuzz, process
+        except ImportError:
+            # No fuzzy backend means the guard cannot run, and an unguarded
+            # state-wide match is exactly what this refuses to do.
+            return True
+        for other, _score, _ in process.extract(
+                key, self._v_by_name.keys(), scorer=fuzz.ratio,
+                limit=8, score_cutoff=FUZZY_MIN):
+            if other == key:
+                continue
+            if any(d != district for _, _, d in self._v_by_name[other]):
+                return True
+        return False
 
     def compound_taluk(self, value: str) -> tuple[tuple[str, str] | None,
                                                   str | None]:
@@ -703,6 +766,28 @@ def resolve_place(gaz: Gazetteer, *, district: str | None = None,
         out["village_status"] = "absent"
         return out
     if not out["taluk"]:
+        # Last resort. No taluk means the village cannot be looked up anywhere
+        # — every index here is taluk- or district-scoped — so 920 lots end
+        # here holding a village name nobody uses. A name only one village in
+        # Tamil Nadu bears is enough on its own: it names its own taluk and
+        # district, the same way a taluk names its district.
+        wide = gaz.village_in_state(village)
+        if wide:
+            found_v, found_t, found_d = wide
+            # A district already resolved is evidence, and it wins. Disagreeing
+            # with it would be the wrong-district failure this module guards
+            # against everywhere else, and a lone unique name does not outrank
+            # a district the notice actually stated.
+            if not out["district"] or \
+                    normalize_place(out["district"]) == normalize_place(found_d):
+                out["village"], out["taluk"] = found_v, found_t
+                out["district"] = found_d
+                out["district_source"] = out["district_source"] or "village"
+                out["village_status"] = "resolved"
+                # Its own source, so these are separable from every other
+                # resolution afterwards — auditable, and undoable on their own.
+                out["village_source"] = "state"
+                return out
         out["village_status"] = "no-parent-taluk"
         return out
 
