@@ -60,7 +60,7 @@ network that can reach them, and a scraper written against an endpoint nobody
 has probed is a scraper that breaks on first contact. So this takes a CSV and
 does not care who produced it:
 
-    district,taluk,village[,village_code,name_ta]
+    district,taluk,village[,village_code,lgd_village_code,name_ta]
 
 Common export headers are recognised without configuration — LGD's
 "District Name" / "Sub-District Name" / "Village Name" included.
@@ -103,8 +103,18 @@ _HEADER_ALIASES = {
               "sub-district", "sub district name", "subdistrict name",
               "sub-district name", "block"),
     "village": ("village", "village name", "villagename", "revenue village"),
-    "village_code": ("village code", "villagecode", "village_code", "lgd code",
-                     "village lgd code"),
+    # `village_code` is the within-taluk revenue serial the graph already holds
+    # on 17,164 nodes — three digits, "008", "060", restarting in every taluk.
+    # LGD's code is a different thing: a six-digit national identifier from its
+    # own register, on a scheme that shares nothing with this one (LGD calls
+    # Ariyalur 610 where the graph calls it 17). They are kept in separate
+    # properties, because one column holding two numbering schemes is a column
+    # no consumer can read — a source's code must never land in `village_code`
+    # unless it IS that serial.
+    "village_code": ("village code", "villagecode", "village_code",
+                     "revenue village code", "village serial"),
+    "lgd_village_code": ("lgd code", "village lgd code", "lgd village code",
+                         "lgd_village_code"),
     "name_ta": ("name_ta", "tamil name", "village name tamil", "name (tamil)"),
 }
 
@@ -119,7 +129,8 @@ def _header_key(raw: str) -> str | None:
 
 
 def read_source_csv(path: str) -> list[dict]:
-    """Rows of {district, taluk, village, village_code?, name_ta?}.
+    """Rows of {district, taluk, village, village_code?, lgd_village_code?,
+    name_ta?}.
 
     A row missing any of the three required names is skipped rather than
     guessed at — half a hierarchy cannot be diffed against a hierarchy.
@@ -291,11 +302,14 @@ def diff(source_rows: list[dict],
                              "village": rec["village"],
                              "held": near[0],
                              "score": round(near[1], 1),
-                             "village_code": rec.get("village_code")})
+                             "village_code": rec.get("village_code"),
+                             "lgd_village_code":
+                                 rec.get("lgd_village_code")})
             continue
         missing.append({"district": district, "taluk": taluk,
                         "village": rec["village"],
                         "village_code": rec.get("village_code"),
+                        "lgd_village_code": rec.get("lgd_village_code"),
                         "name_ta": rec.get("name_ta")})
 
     # Reported, never acted on: the input being short of the graph is normal
@@ -328,9 +342,10 @@ MATCH (t:Taluk {name: row.taluk})-[:IN_DISTRICT]->(d:District {name: row.distric
 MERGE (v:RevenueVillage {name: row.village,
                          taluk_code: t.taluk_code,
                          district_code: t.district_code})
-ON CREATE SET v.village_code = row.village_code,
-              v.name_ta      = row.name_ta,
-              v.source       = $source,
+ON CREATE SET v.village_code     = row.village_code,
+              v.lgd_village_code = row.lgd_village_code,
+              v.name_ta          = row.name_ta,
+              v.source           = $source,
               v.loaded_at    = datetime()
 MERGE (v)-[:IN_TALUK]->(t)
 RETURN count(*) AS written
@@ -421,7 +436,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--from-csv", required=True, metavar="PATH",
-                    help="district,taluk,village[,village_code,name_ta]")
+                    help="district,taluk,village[,village_code,lgd_village_code,name_ta]")
     ap.add_argument("--district", action="append", default=None,
                     help="limit to this district (repeatable)")
     ap.add_argument("--taluk", action="append", default=None,

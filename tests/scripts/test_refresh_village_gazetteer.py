@@ -158,6 +158,13 @@ def test_a_district_filter_narrows_both_sides_of_the_diff():
     ("Village Name", "village"),
     ("Taluk", "taluk"),
     ("State Name", None),
+    # Two different numbers, two different columns. `village_code` is the
+    # graph's within-taluk revenue serial ("008"); LGD's is a six-digit national
+    # identifier on an unrelated scheme. A source code landing in the wrong one
+    # leaves a property that means two things depending on the row.
+    ("Village Code", "village_code"),
+    ("LGD Code", "lgd_village_code"),
+    ("Village LGD Code", "lgd_village_code"),
 ])
 def test_export_headers_are_recognised_without_configuration(header, expected):
     assert _header_key(header) == expected

@@ -84,11 +84,15 @@ def _rows(path):
 
 
 def test_the_loaders_four_columns_come_out_of_the_fifteen(book, tmp_path):
+    """LGD's Village Code lands in ``lgd_village_code``, never
+    ``village_code``: that property is the graph's within-taluk revenue
+    serial, on an unrelated scheme, and mixing the two makes the column
+    unreadable."""
     out = tmp_path / "v.csv"
     convert(str(book), str(out))
     assert _rows(out)[0] == {
         "district": "Ariyalur", "taluk": "Andimadam", "village": "Alagapuram",
-        "village_code": "636338",
+        "lgd_village_code": "636338",
         "gram_panchayat": "Alagapuram", "gram_panchayat_code": "226332"}
 
 
@@ -101,7 +105,7 @@ def test_a_cell_without_an_index_takes_the_next_column(book, tmp_path):
     second = _rows(out)[1]
     assert second["village"] == "Andimadam"
     assert second["taluk"] == "Andimadam"
-    assert second["village_code"] == "636343"
+    assert second["lgd_village_code"] == "636343"
 
 
 def test_the_banner_and_the_in_english_line_are_not_villages(book, tmp_path):

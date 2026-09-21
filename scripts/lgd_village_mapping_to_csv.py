@@ -6,7 +6,8 @@ Flatten an LGD "Village To Gram Panchayat Mapping" export into the CSV that
 
 WHY THIS EXISTS
 ---------------
-The gazetteer loader takes ``district,taluk,village[,village_code,name_ta]``
+The gazetteer loader takes
+``district,taluk,village[,village_code,lgd_village_code,name_ta]``
 and deliberately does not fetch anything itself (see its module docstring).
 The one authoritative file that is actually downloadable — the Local Government
 Directory's village-to-gram-panchayat mapping for a state, from
@@ -26,9 +27,20 @@ and Census 2001 codes — plus the local body (the gram panchayat) each village
 maps to. The loader wants four of them:
 
     District Name      -> district
-    Subdistrict Name   -> taluk      (LGD's name for the revenue taluk)
+    Subdistrict Name   -> taluk             (LGD's name for the revenue taluk)
     Village Name       -> village
-    Village Code       -> village_code   (the LGD code, not Census)
+    Village Code       -> lgd_village_code  (LGD's code, not Census)
+
+The code goes to ``lgd_village_code``, NOT ``village_code``. The gazetteer's
+``village_code`` is a within-taluk revenue serial — three digits, restarting
+in every taluk — and LGD's is a six-digit national identifier on an unrelated
+scheme (LGD numbers Ariyalur 610 where the graph numbers it 17). Writing one
+into the other's property leaves a column that means two things depending on
+the row, which no consumer can read.
+
+The subdistrict, Census 2011 and Census 2001 codes are dropped. Nothing here
+can be joined to the graph on a code: the two registers share no scheme, so
+names are the only bridge, which is what the loader's matching is for.
 
 ``Local Body Name`` / ``Local Body Code`` are carried through as
 ``gram_panchayat`` / ``gram_panchayat_code``. The loader ignores unknown
@@ -81,14 +93,14 @@ COLUMNS = {
     "district name": "district",
     "subdistrict name": "taluk",
     "village name": "village",
-    "village code": "village_code",
+    "village code": "lgd_village_code",
     "local body name": "gram_panchayat",
     "local body code": "gram_panchayat_code",
 }
 
 #: Order written out. district/taluk/village first because that is what the
 #: loader requires; the rest are extra it passes over.
-FIELDS = ["district", "taluk", "village", "village_code",
+FIELDS = ["district", "taluk", "village", "lgd_village_code",
           "gram_panchayat", "gram_panchayat_code"]
 
 REQUIRED = {"district", "taluk", "village"}
@@ -168,7 +180,7 @@ def convert(path: str, out_path: str) -> dict:
             # that row carries none, so the code is what separates them —
             # rather than skipping a fixed number of rows, which breaks the
             # moment LGD adds a line to the banner.
-            if not rec.get("village_code", "").isdigit():
+            if not rec.get("lgd_village_code", "").isdigit():
                 no_code += 1
                 continue
             writer.writerow(rec)
