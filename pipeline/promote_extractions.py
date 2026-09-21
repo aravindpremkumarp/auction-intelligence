@@ -895,10 +895,39 @@ RETURN count(*) AS linked
 """
 
 
+#: Geography is derived state — a pure function of the extraction and the
+#: gazetteer — so a re-link REPLACES it rather than adding to it.
+#:
+#: Without this the two writers below only ever MERGE, which is idempotent when
+#: a lot resolves the same way twice and wrong the moment it does not. A lot
+#: that resolved to Pulichapallam before and resolves to nothing now keeps the
+#: edge while `l.village` goes null: the node says unplaced, the edge still
+#: names a village, and a reader joining on the edge gets a number the status
+#: column contradicts. The first corpus-wide re-link after the LGD load left
+#: 208 lots with a stale village edge, 254 a stale taluk and 258 a stale
+#: district — invisible until something re-resolved.
+#:
+#: Only these three edges are cleared, and only for the lots being rewritten:
+#: everything else hanging off a lot is owned by another phase.
+_CLEAR_LOT_PLACE = """
+UNWIND $rows AS row
+MATCH (l:Lot {lot_key: row.lot_key})
+OPTIONAL MATCH (l)-[r:IN_REVENUE_VILLAGE|IN_TALUK|IN_DISTRICT]->()
+DELETE r
+RETURN count(*) AS cleared
+"""
+
+
 def write_places(rows: list[dict]) -> None:
-    """Link a document's lots to the canonical geography. Idempotent."""
+    """Link a document's lots to the canonical geography.
+
+    Idempotent, and safe to re-run after the gazetteer changes: the lot's three
+    geography edges are cleared first, so what is left afterwards is exactly
+    what today's resolver stands behind.
+    """
     if not rows:
         return
+    write(_CLEAR_LOT_PLACE, {"rows": rows})
     write(_WRITE_LOT_PLACE, {"rows": rows})
     write(_WRITE_LOT_DISTRICT, {"rows": rows})
 
