@@ -74,6 +74,24 @@ RULE_MAX_THICK_PX = 6
 # begin with — only the bar behind them ever was.
 BLOB_MIN_PX = 10
 BLOB_MIN_FRAC = 0.012       # of the page's short edge
+# That test demands ink be SOLID, and a printed graphic usually is not. A
+# screened colour fill — the orange footer banner on the REPCO notices, which
+# sent two of them round the missing-region queue unfixably — comes off the
+# render riddled with single pixels that land the light side of
+# DARK_THRESHOLD. Measured over one such band: 83% ink, and almost no 14x14
+# square anywhere in it completely free of a speckle. Erosion therefore finds
+# nothing to keep, the whole band survives as ink, and what is left of it
+# scores like a dense run of glyphs.
+#
+# Density is the second reading and it ignores shape: ink dense over a wide
+# area is a graphic, because type keeps paper between its strokes at every
+# size. Averaging into small cells first is what makes the speckle irrelevant —
+# a screened fill is near-solid at any scale coarser than its own dither, a
+# line of type is not. The two readings run together and their union is
+# dropped, so ink has to look like text BOTH ways to be measured.
+GRAPHIC_CELL_PX = 4         # ~a stroke width: fine enough to keep type sparse
+GRAPHIC_MIN_FILL = 0.5      # a cell this dark is filled, not stroked
+GRAPHIC_MIN_CELLS = 2       # floor on the mass, in cells, for a small scan
 # Newspaper chrome: these scans are clippings, so the page often carries the
 # masthead, edition date and epaper URL of the paper it was cut from. That is
 # not notice content and no block will ever cover it, so it lands in the unread
@@ -169,6 +187,37 @@ def _solid_blobs(mask, size: int):
                       size, horizontal=False)
 
 
+def _dense_graphics(mask, w: int, h: int, size: int):
+    """Ink dense enough over a wide enough area to be a graphic, not type.
+
+    ``mask`` is averaged into ``GRAPHIC_CELL_PX`` cells, each cell kept only if
+    it is at least ``GRAPHIC_MIN_FILL`` dark, and the same erode-dilate blob
+    test is then run on those cells. Averaging first is the whole point: it
+    puts a screened fill and a line of type — both of them broken up at full
+    resolution, one by its dither and the other by the paper between its
+    strokes — on opposite sides of the fill threshold, because only one of them
+    is broken up at a scale finer than a stroke is wide.
+
+    The mass is ``size`` (the pixel blob width) rounded UP to whole cells, so
+    both readings grow with the page and this one is never the smaller of the
+    two: a cell that is merely clipped by a glyph still counts as filled, so a
+    mass below ``size`` here would condemn ink that ``_solid_blobs`` — reading
+    the same page at full resolution — judges to be type. Returns a full-size
+    mask; the <1 cell strip at the right and bottom edges is never claimed,
+    which errs toward measuring ink, not dropping it.
+    """
+    from PIL import Image
+    cw, ch = max(1, w // GRAPHIC_CELL_PX), max(1, h // GRAPHIC_CELL_PX)
+    cells = mask.resize((cw, ch), Image.BOX).point(
+        lambda p: 255 if p >= GRAPHIC_MIN_FILL * 255 else 0)
+    solid = _solid_blobs(cells, max(GRAPHIC_MIN_CELLS,
+                                    -(-size // GRAPHIC_CELL_PX)))
+    out = Image.new("L", (w, h), 0)
+    out.paste(solid.resize((cw * GRAPHIC_CELL_PX, ch * GRAPHIC_CELL_PX),
+                           Image.NEAREST), (0, 0))
+    return out
+
+
 def _strip_rules(mask, w: int, h: int):
     """``mask`` minus its horizontal and vertical ruling lines."""
     from PIL import ImageChops
@@ -260,9 +309,10 @@ def _tile_ink(image_bytes: bytes) -> tuple[list[float], int, int]:
         # dark → 255 so the BOX mean IS the dark fraction (×255).
         mask = _strip_rules(g.point(lambda p: 255 if p < DARK_THRESHOLD else 0),
                             w, h)
+        size = max(BLOB_MIN_PX, int(min(w, h) * BLOB_MIN_FRAC))
         mask = ImageChops.subtract(
-            mask, _solid_blobs(mask, max(BLOB_MIN_PX,
-                                         int(min(w, h) * BLOB_MIN_FRAC))))
+            mask, ImageChops.lighter(_solid_blobs(mask, size),
+                                     _dense_graphics(mask, w, h, size)))
         small = mask.resize((tw, th), Image.BOX)
         return [v / 255.0 for v in small.getdata()], tw, th
 
