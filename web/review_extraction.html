@@ -143,8 +143,13 @@
  #keys .khead{display:flex;align-items:center;gap:10px;font-size:12px;color:#334155;margin-bottom:6px}
  #keys .khead b{font-size:13px;color:#0f172a}
  #keys .kscore{border-radius:9px;padding:1px 8px;font-size:11px;font-weight:700;color:#fff}
+ /* a 30-lot notice must not push the panes off screen: the table scrolls
+    inside a capped box, with the header pinned. */
+ #keys .kwrap{max-height:38vh;overflow:auto}
  #keys table{width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed}
- #keys th{font-size:10px;text-transform:uppercase;letter-spacing:.4px;color:#64748b;text-align:left;padding:3px 6px;border-bottom:1px solid #e2e8f0;font-weight:600}
+ #keys th{font-size:10px;text-transform:uppercase;letter-spacing:.4px;color:#64748b;text-align:left;padding:3px 6px;border-bottom:1px solid #e2e8f0;font-weight:600;position:sticky;top:0;background:#fff;z-index:1}
+ #keys tr.nxrow td{background:#fff1f2;color:#881337}
+ #keys td.nxmsg{font-size:12px;line-height:1.5}
  #keys th:first-child,#keys td:first-child{width:78px;white-space:nowrap}
  #keys td{padding:4px 6px;border-bottom:1px solid #f1f5f9;vertical-align:top;overflow-wrap:anywhere}
  #keys td.lot{font-weight:700;color:#0f172a}
@@ -842,12 +847,20 @@ function renderKeys(d){
   if(!k||!k.lots||!k.lots.length){el.style.display="none";el.innerHTML="";return;}
   el.style.display="";
   const done=k.filled+k.absent;
+  const nx=k.lots.filter(l=>!l.extracted),ex=k.lots.filter(l=>l.extracted);
+  // Un-extracted lots collapse into one summary row once there are more than
+  // two: "lots 5–28 · 24 not extracted" is the finding, and 24 rows of red
+  // cells would bury the lots that DO exist. Filling 7 cells × 24 lots by hand
+  // is the wrong fix anyway — the model dropped them, so re-run after fixing
+  // the markdown; expand only to hand-fill the odd one.
+  const collapse=nx.length>2&&!SHOW_NX;
   let h=`<div class="khead"><b>Key entities</b>`+
     `<span class="kscore" style="background:${keyScoreColor(k.score)}" title="${done} of ${k.total} key cells filled or marked not-in-notice">${k.score}% · ${done}/${k.total}</span>`+
     (k.missing?`<span style="color:#991b1b;font-weight:600">${k.missing} missing</span>`:`<span style="color:#16a34a;font-weight:600">complete</span>`)+
     (d.expected_lot_count!=null?`<span style="color:#64748b">reviewer counted ${d.expected_lot_count} lot${d.expected_lot_count===1?"":"s"}</span>`:"")+
-    `</div><table><thead><tr><th>lot</th>${KEY_DEFS.map(x=>`<th>${x.label}</th>`).join("")}</tr></thead><tbody>`;
-  for(const lot of k.lots){
+    (nx.length?`<span style="color:#991b1b" title="lots the reviewer counted at classification that the extraction has no lot_index for">· ${ex.length} extracted, <b style="color:#991b1b">${nx.length} not extracted</b></span>`:"")+
+    `</div><div class="kwrap"><table><thead><tr><th>lot</th>${KEY_DEFS.map(x=>`<th>${x.label}</th>`).join("")}</tr></thead><tbody>`;
+  for(const lot of (collapse?ex:k.lots)){
     h+=`<tr><td class="lot">lot ${esc(lot.lot_index)}${lot.extracted?"":`<span class="nx" title="counted at classification, but the extraction has no lot with this index">not extracted</span>`}</td>`;
     for(const def of KEY_DEFS){
       const c=lot.cells[def.key]||{status:"missing"};
@@ -864,8 +877,20 @@ function renderKeys(d){
     }
     h+="</tr>";
   }
-  el.innerHTML=h+"</tbody></table>";
+  if(collapse){
+    const ids=nx.map(l=>l.lot_index);
+    const span=ids.length>1?`lots ${esc(ids[0])}–${esc(ids[ids.length-1])}`:`lot ${esc(ids[0])}`;
+    h+=`<tr class="nxrow"><td class="lot">${span}<span class="nx">${nx.length} not extracted</span></td>`+
+      `<td class="nxmsg" colspan="${KEY_DEFS.length}">The model emitted no entities for these lots — ${nx.length*KEY_DEFS.length} key cells missing. `+
+      `Fix the markdown or the lot count, then <b>▶ Re-run LangExtract</b>; `+
+      `<button class="kbtn" onclick="toggleNx()">expand to fill by hand</button></td></tr>`;
+  }else if(nx.length>2){
+    h+=`<tr class="nxrow"><td colspan="${KEY_DEFS.length+1}" class="nxmsg"><button class="kbtn" onclick="toggleNx()">collapse the ${nx.length} un-extracted lots</button></td></tr>`;
+  }
+  el.innerHTML=h+"</tbody></table></div>";
 }
+let SHOW_NX=false;
+function toggleNx(){SHOW_NX=!SHOW_NX;if(CUR)renderKeys(CUR);}
 document.addEventListener("click",e=>{
   const td=e.target.closest("#keys td.filled[data-fid]");
   if(td&&td.dataset.fid)setCur(td.dataset.fid,{mark:true,card:true});
