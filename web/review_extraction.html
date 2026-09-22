@@ -134,6 +134,43 @@
  .bbx.cur{border-color:#2563eb;background:rgba(37,99,235,.18);box-shadow:0 0 0 2px rgba(37,99,235,.35)}
  .bbl{position:absolute;top:-13px;left:0;font-size:9px;line-height:1.3;color:#1e40af;background:#fff;padding:0 3px;border-radius:2px;white-space:nowrap;pointer-events:none}
  .pgbrk{display:block;margin:14px 0;padding:4px 8px;border-top:2px dashed #6366f1;color:#6366f1;font-size:12px;font-family:'IBM Plex Mono',monospace}
+ /* ── key-entity checklist (pipeline/key_entities.py) ─────────────────────
+    One row per lot, one column per key entity. This is the stage's unit of
+    work: a reviewer clears the red cells and verifies, without reading every
+    span. Filled cells jump to their highlight; missing cells offer "fill"
+    (select the text in the markdown) or "not in notice". */
+ #keys{background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:10px 12px;margin-bottom:10px}
+ #keys .khead{display:flex;align-items:center;gap:10px;font-size:12px;color:#334155;margin-bottom:6px}
+ #keys .khead b{font-size:13px;color:#0f172a}
+ #keys .kscore{border-radius:9px;padding:1px 8px;font-size:11px;font-weight:700;color:#fff}
+ /* a 30-lot notice must not push the panes off screen: the table scrolls
+    inside a capped box, with the header pinned. */
+ #keys .kwrap{max-height:38vh;overflow:auto}
+ #keys table{width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed}
+ #keys th{font-size:10px;text-transform:uppercase;letter-spacing:.4px;color:#64748b;text-align:left;padding:3px 6px;border-bottom:1px solid #e2e8f0;font-weight:600;position:sticky;top:0;background:#fff;z-index:1}
+ #keys tr.nxrow td{background:#fff1f2;color:#881337}
+ #keys td.nxmsg{font-size:12px;line-height:1.5}
+ #keys th:first-child,#keys td:first-child{width:78px;white-space:nowrap}
+ #keys td{padding:4px 6px;border-bottom:1px solid #f1f5f9;vertical-align:top;overflow-wrap:anywhere}
+ #keys td.lot{font-weight:700;color:#0f172a}
+ #keys td.lot .nx{display:block;font-weight:400;font-size:10px;color:#dc2626}
+ #keys td.filled{cursor:pointer}
+ #keys td.filled:hover{background:#eff6ff}
+ #keys td.filled.cur{outline:2px solid #2563eb;outline-offset:-2px}
+ #keys td.filled .inh{color:#92400e;font-size:10px;display:block}
+ #keys td.missing{background:#fee2e2;color:#991b1b}
+ #keys td.absent{background:#f1f5f9;color:#64748b;font-style:italic}
+ #keys td .kbtn{display:inline-block;margin:2px 4px 0 0;padding:1px 7px;font-size:11px;border-radius:6px;border:1px solid #cbd5e1;background:#fff;color:#0f172a;cursor:pointer}
+ #keys td .kbtn:hover{background:#f8fafc}
+ #keys td.missing .kbtn.fill{border-color:#dc2626;color:#991b1b;font-weight:700}
+ #keys td.filling{outline:2px dashed #2563eb;outline-offset:-2px;background:#dbeafe}
+ #fillbar{display:none;align-items:center;gap:10px;background:#1e3a8a;color:#fff;border-radius:8px;padding:8px 12px;margin-bottom:8px;font-size:13px}
+ #fillbar.on{display:flex}
+ #fillbar b{color:#bfdbfe}
+ #fillbar button{font-size:12px;padding:4px 10px}
+ #fillbar .sel{flex:1;color:#dbeafe;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+ .fld .addd{background:#dbeafe;color:#1e40af;border-radius:8px;padding:0 6px;font-size:10px;font-weight:700}
+ .fld .del{margin-top:5px;margin-left:6px;font-size:12px;padding:3px 9px;color:#991b1b;border-color:#fecaca}
 </style>
 <div id="wrap">
   <div id="side">
@@ -172,6 +209,14 @@
       <span id="msg"></span>
     </div>
     <div id="legend" style="margin-bottom:8px"></div>
+    <div id="keys" style="display:none"></div>
+    <div id="fillbar">
+      <span>Filling <b id="fillWhat"></b> — select its text in the markdown pane</span>
+      <span class="sel" id="fillSel">no selection yet</span>
+      <button class="primary" id="fillUse" onclick="fillUseSelection()" disabled>Use selection</button>
+      <button onclick="fillTypeValue()" title="no such text in the notice — type the value (stored without a highlight)">Type it</button>
+      <button onclick="fillCancel()">Cancel</button>
+    </div>
     <div id="doc"><div id="notice" style="display:none"></div><div id="src"></div><div id="fields"></div></div>
   </div>
 </div>
@@ -212,14 +257,25 @@ function mainNotice(html){
   document.getElementById("title").textContent="Extraction review";
   document.getElementById("status").innerHTML="";
   document.getElementById("legend").innerHTML="";
+  const k=document.getElementById("keys");if(k){k.style.display="none";k.innerHTML="";}
   document.getElementById("doc").innerHTML=
     '<div style="padding:22px 4px;color:#475569;font-size:13px;max-width:580px;line-height:1.65">'+html+'</div>';
 }
 // Queue sort: "recent" (newest extraction first — a just-run batch clusters at
-// the top) or "name" (A–Z). Persisted per reviewer; drives the ?sort= param.
-const queueSort=()=>localStorage.getItem("xr_sort")==="name"?"name":"recent";
-function refreshSortBtn(){const b=document.getElementById("sortBtn");if(b)b.textContent=queueSort()==="name"?"A–Z":"newest";}
-function toggleQueueSort(){localStorage.setItem("xr_sort",queueSort()==="name"?"recent":"name");refreshSortBtn();loadQueue();}
+// the top), "keys" (most key entities missing first — the checklist order) or
+// "name" (A–Z). Persisted per reviewer; drives the ?sort= param.
+const SORTS=["recent","keys","name"],SORT_LABEL={recent:"newest",keys:"missing keys",name:"A–Z"};
+const queueSort=()=>{const v=localStorage.getItem("xr_sort");return SORTS.includes(v)?v:"recent";};
+function refreshSortBtn(){const b=document.getElementById("sortBtn");if(b)b.textContent=SORT_LABEL[queueSort()];}
+function toggleQueueSort(){localStorage.setItem("xr_sort",SORTS[(SORTS.indexOf(queueSort())+1)%SORTS.length]);refreshSortBtn();loadQueue();}
+// "keys 5/7 · lot 2: extent" chip for a queue row: green when nothing is
+// missing, red otherwise, with the first missing labels in the title.
+function keysChip(row){
+  if(row.key_score==null)return "";
+  const miss=row.key_missing||0,labels=(row.key_missing_labels||[]);
+  const title=miss?labels.slice(0,10).join("\n")+(labels.length>10?"\n…":""):"every lot has its key entities";
+  return ` <span class="badge" style="background:${miss?"#dc2626":"#16a34a"};color:#fff" title="${esc(title)}">keys ${row.key_score}%${miss?" · "+miss+" missing":""}</span>`;
+}
 // Score filter (pipeline/validators.py score, 0-100): persisted per reviewer,
 // drives score_min/score_max on the queue fetch. Empty = unbounded.
 function scoreMin(){const v=localStorage.getItem("xr_score_min");return v===null?null:Number(v);}
@@ -338,7 +394,7 @@ async function loadQueue(){
       :(row.expected_lot_count!=null&&row.extracted_lot_count!=null
         ?` · <span class="badge" style="background:#16a34a;color:#fff" title="Extracted lot count matches the reviewer's count">✓ ${row.extracted_lot_count} lot${row.extracted_lot_count===1?"":"s"}</span>`
         :"");
-    e.innerHTML=`<div>${tag}${esc(row.filename)}</div><div class=meta>${row.n_fields} fields · ${row.n_ungrounded} ungrounded · <span class="badge b-${row.status}">${row.status}</span>${scoreBadge(row.score)}${staleTag}${pagesTag}${lotTag}</div>`+
+    e.innerHTML=`<div>${tag}${esc(row.filename)}</div><div class=meta>${row.n_fields} fields · ${row.n_ungrounded} ungrounded · <span class="badge b-${row.status}">${row.status}</span>${scoreBadge(row.score)}${keysChip(row)}${staleTag}${pagesTag}${lotTag}</div>`+
       (when?`<div class=when>extracted ${when}</div>`:"");
     e.onclick=()=>loadDoc(row.filename,e);nav.appendChild(e);});
 }
@@ -346,7 +402,9 @@ async function loadDoc(fn,el){
   [...document.querySelectorAll(".nav")].forEach(n=>n.classList.remove("active"));if(el)el.classList.add("active");
   const r=await api("/review/extraction/"+encodeURIComponent(fn));
   if(!r.ok){setMsg("load failed "+r.status);return;}
-  CUR=await r.json();curFid=null;EDITING.clear();render();
+  CUR=await r.json();curFid=null;EDITING.clear();
+  if(FILL)fillCancel();          // a fill in progress belongs to the old doc
+  render();
   document.getElementById("src").scrollTop=0;document.getElementById("fields").scrollTop=0;
 }
 function render(){
@@ -358,6 +416,7 @@ function render(){
     srcEl.innerHTML=`<div style="padding:16px;color:#334155">This file is a later page of <b>${esc(d.stitched_into)}</b>. Its text and lots are reviewed there.<br><br><a href="#" id="stitchLeaderLink">Open ${esc(d.stitched_into)} →</a></div>`;
     document.getElementById("stitchLeaderLink").onclick=(ev)=>{ev.preventDefault();loadDoc(d.stitched_into);};
     fldEl.innerHTML="";
+    renderKeys(d);   // no checklist on a follower page — hides the table
     const rb=document.getElementById("rerunBtn");if(rb)rb.disabled=true;
     return;
   }
@@ -385,6 +444,7 @@ function render(){
   }
   const cls=[...new Set(d.fields.map(f=>f.cls))];
   document.getElementById("legend").innerHTML=cls.map(c=>`<span class=badge style="background:${COLORS[c]||'#e2e8f0'};color:#0f172a">${c}</span>`).join(" ");
+  renderKeys(d);
   // keep pane scroll across save/verify re-renders (loadDoc zeroes it for new docs)
   const st=[srcEl.scrollTop,fldEl.scrollTop];
   // highlighted source (container classes excluded so they don't swallow inner
@@ -424,13 +484,16 @@ function render(){
     // String(): fids ride through the onclick attribute as strings, so the set is
     // keyed on strings too (an id can come back from the API as a number).
     const rich=isRich(raw),editing=!rich||EDITING.has(String(fl.id));
-    f+=`<div class="fld" id="fld_${fl.id}" data-fid="${fl.id}"><div class="c">${fl.cls}${fl.lot_index?(" · lot "+fl.lot_index):""}${ung}${anch}${
+    // A reviewer-added entity: the model never emitted it, so it carries a
+    // delete button instead of a correction trail.
+    const addd=fl.added?` <span class=addd title="added by a reviewer, not extracted by the model">ADDED</span>`:"";
+    f+=`<div class="fld" id="fld_${fl.id}" data-fid="${fl.id}"><div class="c">${fl.cls}${fl.lot_index?(" · lot "+fl.lot_index):""}${addd}${ung}${anch}${
         rich?`<button class="modebtn" onclick="toggleFieldMode('${fl.id}')" title="${editing?"show the value as a rendered table":"edit the raw value"}">${editing?"⊞ table":"✎ edit"}</button>`:""}</div>
       <div class="snip" style="background:${COLORS[fl.cls]||'#f1f5f9'}">${esc(snippet(fl.text))}</div>
       ${attrs?`<div style="color:#334155;font-size:12px;margin-bottom:4px">${attrs}</div>`:""}
       ${editing
         ?`<textarea id="in_${fl.id}" rows="1">${esc(raw)}</textarea>
-      <button class="save" onclick="saveField('${fl.id}')">Save correction</button>`
+      <button class="save" onclick="saveField('${fl.id}')">${fl.added?"Save":"Save correction"}</button>${fl.added?`<button class="del" onclick="deleteAdded('${fl.id}')">Delete</button>`:""}`
         :`<div class="prev" id="pv_${fl.id}">${richHtml(raw)}</div>`}
       ${fl.corrected_value!=null?`<div class=corr>✓ corrected by ${esc(fl.corrected_by||"")}</div>`:""}
     </div>`;
@@ -556,6 +619,7 @@ function setCur(fid,scroll){
   marks.forEach(m=>m.classList.add("cur"));
   const fl=document.getElementById("fld_"+fid);
   if(fl)fl.classList.add("cur");
+  document.querySelectorAll('#keys td.filled[data-fid="'+fid+'"]').forEach(td=>td.classList.add("cur"));
   const bx=BLINK[fid]?document.getElementById("bx_"+BLINK[fid]):null;  // mapped notice box, if any
   if(bx)bx.classList.add("cur");
   if(scroll.mark&&marks[0])marks[0].scrollIntoView({block:"center",behavior:"smooth"});
@@ -743,9 +807,199 @@ async function saveField(id){
   if(r.ok){CUR=await r.json();EDITING.delete(String(id));render();setMsg("saved");}else setMsg("save failed "+r.status);
 }
 async function doVerify(){
+  // The checklist is what "verified" is supposed to mean here, so a verify
+  // with red cells is asked about — not blocked: a reviewer may know better.
+  const k=CUR&&CUR.keys;
+  if(k&&k.missing>0){
+    const list=k.missing_labels.slice(0,8).join("\n  ")+(k.missing_labels.length>8?"\n  …":"");
+    if(!confirm(`${k.missing} key entit${k.missing===1?"y is":"ies are"} still missing:\n  ${list}\n\nFill them (or mark "not in notice") before verifying?\n\nOK = verify anyway · Cancel = go back`))return;
+  }
   const r=await api(`/review/extraction/${encodeURIComponent(CUR.filename)}/verify`,
     {method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({})});
   if(r.ok){CUR=await r.json();render();loadQueue();setMsg("verified");}else setMsg("verify failed "+r.status);
+}
+// ── key-entity checklist ─────────────────────────────────────────────────────
+// Column order and labels mirror pipeline/key_entities.KEY_ENTITIES. Each key
+// says which extraction class an added entity takes and which attribute (if
+// any) carries the value — that attribute is what promotion reads, so the
+// fill flow asks for it explicitly rather than guessing from the span.
+const KEY_DEFS=[
+  {key:"reserve_price",   label:"Reserve price", cls:"auction_terms",    attr:"reserve_price_num", ask:"Reserve price in rupees (digits only):",
+   guess:t=>{const m=String(t).replace(/,/g,"").match(/\d{4,}(?:\.\d+)?/);return m?m[0].split(".")[0]:"";}},
+  {key:"auction_date",    label:"Auction date",  cls:"auction_terms",    attr:"auction_start_dt",  ask:"Auction start as YYYY-MM-DDTHH:MM (or as written):",
+   guess:t=>String(t).trim()},
+  {key:"property_type",   label:"Property type", cls:"property",         attr:"property_type",     ask:"Property type (e.g. flat, vacant land, land and building):",
+   guess:t=>String(t).trim().toLowerCase()},
+  {key:"location",        label:"Location",      cls:"location",         attr:"village",           ask:"Village / town (optional — leave blank to keep just the text):",
+   guess:()=>"", optional:true},
+  {key:"extent",          label:"Extent",        cls:"extent",           attr:"extent_sqft",       ask:"Extent in sq.ft (optional — leave blank if not in sq.ft):",
+   guess:t=>{const m=String(t).replace(/,/g,"").match(/(\d+(?:\.\d+)?)\s*sq/i);return m?m[1]:"";}, optional:true},
+  {key:"full_description",label:"Full description",cls:"full_description",attr:null},
+  {key:"possession_type", label:"Possession",    cls:"property",         attr:"possession_type",   ask:"Possession type — physical, symbolic or constructive:",
+   guess:t=>{const m=String(t).toLowerCase().match(/physical|symbolic|constructive/);return m?m[0]:"";},
+   valid:v=>["physical","symbolic","constructive"].includes(v)},
+];
+const KEY_BY=Object.fromEntries(KEY_DEFS.map(k=>[k.key,k]));
+function keyScoreColor(s){return s>=100?"#16a34a":s>=70?"#d97706":"#dc2626";}
+function renderKeys(d){
+  const el=document.getElementById("keys");if(!el)return;
+  const k=d.keys;
+  if(!k||!k.lots||!k.lots.length){el.style.display="none";el.innerHTML="";return;}
+  el.style.display="";
+  const done=k.filled+k.absent;
+  const nx=k.lots.filter(l=>!l.extracted),ex=k.lots.filter(l=>l.extracted);
+  // Un-extracted lots collapse into one summary row once there are more than
+  // two: "lots 5–28 · 24 not extracted" is the finding, and 24 rows of red
+  // cells would bury the lots that DO exist. Filling 7 cells × 24 lots by hand
+  // is the wrong fix anyway — the model dropped them, so re-run after fixing
+  // the markdown; expand only to hand-fill the odd one.
+  const collapse=nx.length>2&&!SHOW_NX;
+  let h=`<div class="khead"><b>Key entities</b>`+
+    `<span class="kscore" style="background:${keyScoreColor(k.score)}" title="${done} of ${k.total} key cells filled or marked not-in-notice">${k.score}% · ${done}/${k.total}</span>`+
+    (k.missing?`<span style="color:#991b1b;font-weight:600">${k.missing} missing</span>`:`<span style="color:#16a34a;font-weight:600">complete</span>`)+
+    (d.expected_lot_count!=null?`<span style="color:#64748b">reviewer counted ${d.expected_lot_count} lot${d.expected_lot_count===1?"":"s"}</span>`:"")+
+    (nx.length?`<span style="color:#991b1b" title="lots the reviewer counted at classification that the extraction has no lot_index for">· ${ex.length} extracted, <b style="color:#991b1b">${nx.length} not extracted</b></span>`:"")+
+    `</div><div class="kwrap"><table><thead><tr><th>lot</th>${KEY_DEFS.map(x=>`<th>${x.label}</th>`).join("")}</tr></thead><tbody>`;
+  for(const lot of (collapse?ex:k.lots)){
+    h+=`<tr><td class="lot">lot ${esc(lot.lot_index)}${lot.extracted?"":`<span class="nx" title="counted at classification, but the extraction has no lot with this index">not extracted</span>`}</td>`;
+    for(const def of KEY_DEFS){
+      const c=lot.cells[def.key]||{status:"missing"};
+      const filling=FILL&&FILL.lot===lot.lot_index&&FILL.key===def.key;
+      if(c.status==="filled"){
+        h+=`<td class="filled${c.field_id===curFid?" cur":""}" data-fid="${esc(c.field_id||"")}" title="${esc(c.value||"")}\n(click to jump to it)">${esc(c.value||"")}${c.inherited?`<span class="inh" title="one date for the notice, stated on another lot">↑ from notice</span>`:""}</td>`;
+      }else if(c.status==="absent"){
+        h+=`<td class="absent">not in notice <button class="kbtn" onclick="setAbsent('${esc(lot.lot_index)}','${def.key}',false)" title="clear the mark">undo</button></td>`;
+      }else{
+        h+=`<td class="missing${filling?" filling":""}">missing<br>`+
+          `<button class="kbtn fill" onclick="fillStart('${esc(lot.lot_index)}','${def.key}')" title="select the text in the markdown pane">＋ fill</button>`+
+          `<button class="kbtn" onclick="setAbsent('${esc(lot.lot_index)}','${def.key}',true)" title="the notice never states this">∅ not in notice</button></td>`;
+      }
+    }
+    h+="</tr>";
+  }
+  if(collapse){
+    const ids=nx.map(l=>l.lot_index);
+    const span=ids.length>1?`lots ${esc(ids[0])}–${esc(ids[ids.length-1])}`:`lot ${esc(ids[0])}`;
+    h+=`<tr class="nxrow"><td class="lot">${span}<span class="nx">${nx.length} not extracted</span></td>`+
+      `<td class="nxmsg" colspan="${KEY_DEFS.length}">The model emitted no entities for these lots — ${nx.length*KEY_DEFS.length} key cells missing. `+
+      `Fix the markdown or the lot count, then <b>▶ Re-run LangExtract</b>; `+
+      `<button class="kbtn" onclick="toggleNx()">expand to fill by hand</button></td></tr>`;
+  }else if(nx.length>2){
+    h+=`<tr class="nxrow"><td colspan="${KEY_DEFS.length+1}" class="nxmsg"><button class="kbtn" onclick="toggleNx()">collapse the ${nx.length} un-extracted lots</button></td></tr>`;
+  }
+  el.innerHTML=h+"</tbody></table></div>";
+}
+let SHOW_NX=false;
+function toggleNx(){SHOW_NX=!SHOW_NX;if(CUR)renderKeys(CUR);}
+document.addEventListener("click",e=>{
+  const td=e.target.closest("#keys td.filled[data-fid]");
+  if(td&&td.dataset.fid)setCur(td.dataset.fid,{mark:true,card:true});
+});
+async function setAbsent(lot,key,absent){
+  const r=await api(`/review/extraction/${encodeURIComponent(CUR.filename)}/key-absent`,
+    {method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({lot_index:lot,key,absent})});
+  if(r.ok){CUR=await r.json();render();loadQueue();setMsg(absent?"marked not in notice":"mark cleared");}
+  else setMsg("failed "+r.status);
+}
+async function deleteAdded(fid){
+  if(!confirm("Delete this reviewer-added field?"))return;
+  const r=await api(`/review/extraction/${encodeURIComponent(CUR.filename)}/field/${encodeURIComponent(fid)}`,{method:"DELETE"});
+  if(r.ok){CUR=await r.json();render();loadQueue();setMsg("deleted");}else setMsg("delete failed "+r.status);
+}
+// ── fill flow: missing cell → select text → grounded added entity ───────────
+// Offsets are taken against the RAW markdown, so entering fill mode switches
+// the source pane to raw (rendered text drops markdown syntax and would not
+// map back). The selection is converted to char offsets by counting text
+// before it, skipping the page-divider spans, which are not part of the text.
+let FILL=null,FILL_SEL=null;
+function fillStart(lot,key){
+  FILL={lot,key};FILL_SEL=null;
+  if(mdMode()!=="raw"){localStorage.setItem("xr_md","raw");refreshMdBtn();}
+  const def=KEY_BY[key];
+  document.getElementById("fillWhat").textContent=`${def.label} · lot ${lot}`;
+  document.getElementById("fillbar").classList.add("on");
+  updateFillSel();
+  render();
+}
+function fillCancel(){FILL=null;FILL_SEL=null;document.getElementById("fillbar").classList.remove("on");if(CUR)renderKeys(CUR);}
+function updateFillSel(){
+  const s=document.getElementById("fillSel"),b=document.getElementById("fillUse");
+  if(FILL_SEL){s.textContent=`"${FILL_SEL.text.length>90?FILL_SEL.text.slice(0,90)+"…":FILL_SEL.text}" (${FILL_SEL.start}–${FILL_SEL.end})`;b.disabled=false;}
+  else{s.textContent="no selection yet";b.disabled=true;}
+}
+// Text length of a DOM fragment, ignoring the page-divider spans.
+function textLenNoBreaks(node){
+  let n=0;
+  const w=document.createTreeWalker(node,NodeFilter.SHOW_TEXT,{acceptNode:t=>{
+    for(let p=t.parentNode;p&&p!==node;p=p.parentNode){if(p.classList&&p.classList.contains("pgbrk"))return NodeFilter.FILTER_REJECT;}
+    return NodeFilter.FILTER_ACCEPT;}});
+  while(w.nextNode())n+=w.currentNode.nodeValue.length;
+  return n;
+}
+function selectionOffsets(){
+  const src=document.getElementById("src");
+  const sel=window.getSelection();
+  if(!sel||sel.rangeCount===0||sel.isCollapsed)return null;
+  const rng=sel.getRangeAt(0);
+  if(!src.contains(rng.startContainer)||!src.contains(rng.endContainer))return null;
+  const pre=document.createRange();pre.selectNodeContents(src);pre.setEnd(rng.startContainer,rng.startOffset);
+  let start=textLenNoBreaks(pre.cloneContents());
+  let end=start+textLenNoBreaks(rng.cloneContents());
+  const md=CUR.markdown||"";
+  // trim surrounding whitespace so the span is the words, not the selection
+  while(start<end&&/\s/.test(md[start]))start++;
+  while(end>start&&/\s/.test(md[end-1]))end--;
+  if(end<=start)return null;
+  return {start,end,text:md.slice(start,end)};
+}
+document.addEventListener("mouseup",()=>{
+  if(!FILL)return;
+  setTimeout(()=>{
+    if(mdMode()!=="raw")return;
+    const o=selectionOffsets();
+    if(o){FILL_SEL=o;updateFillSel();}
+  },0);
+});
+document.addEventListener("keyup",e=>{
+  if(!FILL||!e.shiftKey)return;
+  const o=selectionOffsets();if(o){FILL_SEL=o;updateFillSel();}
+});
+// Ask for the attribute value promotion reads (see KEY_DEFS); null = cancelled.
+function askAttr(def,text){
+  if(!def.attr)return {};
+  let v=prompt(def.ask,def.guess?def.guess(text):"");
+  if(v===null)return null;
+  v=v.trim();
+  if(!v){if(def.optional)return {};alert("A value is needed for "+def.label+".");return null;}
+  if(def.valid&&!def.valid(v)){alert("Not a valid "+def.label.toLowerCase()+": "+v);return null;}
+  return {[def.attr]:v};
+}
+async function postAdd(body){
+  const r=await api(`/review/extraction/${encodeURIComponent(CUR.filename)}/add-field`,
+    {method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)});
+  if(r.ok){
+    CUR=await r.json();fillCancel();render();loadQueue();setMsg("field added");
+    // the new field is the last one — align on it
+    const last=CUR.fields.filter(f=>f.added).slice(-1)[0];
+    if(last)setCur(String(last.id),{mark:true,card:true});
+  }else{
+    let why="";try{why=(await r.json()).detail||"";}catch(_){}
+    setMsg("add failed "+r.status+(why?" — "+why:""));
+  }
+}
+async function fillUseSelection(){
+  if(!FILL||!FILL_SEL)return;
+  const def=KEY_BY[FILL.key];
+  const attrs=askAttr(def,FILL_SEL.text);if(attrs===null)return;
+  await postAdd({cls:def.cls,text:FILL_SEL.text,start:FILL_SEL.start,end:FILL_SEL.end,lot_index:FILL.lot,attrs});
+}
+async function fillTypeValue(){
+  if(!FILL)return;
+  const def=KEY_BY[FILL.key];
+  const text=prompt(`${def.label} (lot ${FILL.lot}) — type the value as it should read:`,"");
+  if(text===null||!text.trim())return;
+  const attrs=askAttr(def,text);if(attrs===null)return;
+  await postAdd({cls:def.cls,text:text.trim(),lot_index:FILL.lot,attrs});
 }
 async function doUnverify(){
   const r=await api(`/review/extraction/${encodeURIComponent(CUR.filename)}/unverify`,{method:"POST"});

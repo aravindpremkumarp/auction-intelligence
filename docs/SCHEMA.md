@@ -260,6 +260,37 @@ document is withdrawn, which also makes the reset reversible.
 
 Accuracy is measured separately, by `:SpotCheckSample` below.
 
+### Key-entity checklist: `extraction_key_score` / `extraction_key_missing`
+
+What the extraction stage asks a reviewer to clear (`pipeline/key_entities.py`):
+for every lot, seven cells — reserve price, auction date, property type,
+location, extent, full description, possession. Each is *filled* (an entity or
+attribute carries it), *missing*, or *absent* (the reviewer marked it as not
+stated in the notice). Un-extracted lots count too: when
+`expected_lot_count` exceeds the lots in `extraction_json`, the difference
+appears as all-missing rows.
+
+| property | meaning |
+| --- | --- |
+| `extraction_key_score` | 0–100, (filled + absent) / cells; the queue's "missing keys first" order |
+| `extraction_key_missing` | cells still missing; `0` is what "complete" means |
+
+Both are stamped by every writer of `extraction_json` (the loader, the
+single-document rerun, `scripts/reset_langextract_and_extract.py`,
+`scripts/backfill_extraction_scores.py`) and by every reviewer edit, through
+one function, `stamp_key_scores`. They are derived — a document can always be
+re-scored from its stored JSON — so they carry no version.
+
+Reviewer input lives in `extraction_corrections_json` beside the per-field
+text corrections, under prefixed keys:
+
+| key | value | consumers |
+| --- | --- | --- |
+| `"add:<id>"` | `{cls, text, start, end, attrs, by, at}` — an entity the model missed, grounded when selected in the markdown | `pipeline.apply_extractions.entities_with_corrections` appends it, so promotion, `apply_extractions` and `evals/export_review_gold.py` all see it |
+| `"absent:<lot>:<key>"` | `{by, at}` — not in the notice | the checklist only |
+
+Model entities are never deleted through review; a reviewer-added one is.
+
 ### `:SpotCheckSample` — the audit trail
 
 One node per audit round (`api/review/spotcheck.py`, `pipeline/spotcheck.py`).

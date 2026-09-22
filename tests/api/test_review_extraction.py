@@ -493,6 +493,7 @@ def test_queue_total_is_a_real_count_not_the_row_cap():
                 for i in range(3)]          # 3 rows returned...
 
     orig_count = ex.count_extraction_queue
+    orig_list = ex.list_extraction_queue
     try:
         ex.list_extraction_queue = fake_list
         ex.count_extraction_queue = lambda *a, **kw: 1530   # ...of 1530 matching
@@ -503,7 +504,10 @@ def test_queue_total_is_a_real_count_not_the_row_cap():
         assert len(out.rows) == 3
         assert out.total == 1530
     finally:
+        # Both restored: the fake list used to leak to every later test that
+        # reads the real function's source or Cypher.
         ex.count_extraction_queue = orig_count
+        ex.list_extraction_queue = orig_list
 
 
 def test_bulk_confirm_route_registered_before_catchall():

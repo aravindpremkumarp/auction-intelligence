@@ -331,6 +331,9 @@ def _extract_one(d: dict, batch: int, route: bool):
         """,
         {"fn": fn, "fns": targets, "j": json.dumps(ents, ensure_ascii=False),
          "score": score, "score_version": SCORE_VERSION, "batch": batch})
+    # New entities, new key-entity checklist (pipeline/key_entities.py).
+    from pipeline.key_entities import stamp_key_scores
+    stamp_key_scores(targets)
     return fn, len(ents), model_id or "default"
 
 
