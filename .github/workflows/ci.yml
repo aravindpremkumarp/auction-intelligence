@@ -79,6 +79,16 @@ jobs:
       # does not break a page — it quietly produces a confident wrong number,
       # which is worse. Pure stdlib, so it belongs here on the same grounds as
       # tests/scripts above.
+      #
+      # test_place_resolution.py is the matcher behind every district, taluk
+      # and village in the graph, and it is pure — a gazetteer built from plain
+      # rows, no database. Its failure mode is the one this repository treats
+      # as worst: not a missing place but a confidently wrong one, written to a
+      # Lot and then read back as fact by search, filters, pricing and the
+      # parcel merge. The cases are the corpus's own near-misses (Murukampattu
+      # vs Erukkampattu, Tirupathur vs Thiruppattur, a village name carried by
+      # 22 villages), so a regression in the guards is exactly what they catch.
+      # Needs only RapidFuzz, already in requirements.lock.
       - name: Run API tests
         env:
           SUPABASE_URL: https://fake.supabase.co
@@ -95,6 +105,7 @@ jobs:
           tests/pipeline/test_property_taxonomy.py
           tests/pipeline/test_measures.py
           tests/pipeline/test_promote_extractions.py
+          tests/pipeline/test_place_resolution.py
           tests/pipeline/test_run_pipeline.py
           tests/pipeline/test_spotcheck.py
           tests/sources -q

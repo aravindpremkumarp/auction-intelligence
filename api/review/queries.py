@@ -1719,6 +1719,7 @@ def _place_panels() -> list[dict]:
         "absent": "no village named in the notice",
         "no-parent-taluk": "village named but no taluk to place it in",
         "taluk-has-no-villages": "taluk keeps no revenue villages (urban)",
+        "outside-tamil-nadu": "property is in another state",
         "names-a-taluk": "village field repeats the taluk name",
     }
     # The portal disagreement is one number hiding three populations, and only
