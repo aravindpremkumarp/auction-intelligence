@@ -17,6 +17,15 @@ Writes (only when a document is actually scored):
     d.ocr_health_score      re-scored, including the missing-region penalty
     d.ocr_health_flags      existing text flags + missing-region
 
+``--shadow`` covers the documents the default pass skips: Datalab blocks laid
+over MinerU markdown (``blocks_source = 'datalab-backfill'``). Their ink reading
+measures the Datalab parse, so it is paired with ``shadow_char_gain`` through
+``pipeline.ocr_health.shadow_region`` to reach a verdict on the stored text:
+clean, ``missing-region``, or ``region-unverified`` when Datalab missed a region
+too. Writes the shadow reading plus that verdict into health, and
+``d.shadow_region_verdict`` / ``d.shadow_region_at`` so the notice counts as
+checked.
+
 Health is recomputed from the stored markdown rather than patched, so a document
 that no longer trips a text flag loses it here too — the score always reflects
 one pass of the current rules, never an accumulation of old verdicts.
@@ -28,6 +37,7 @@ Usage:
     python -m scripts.score_ink_coverage --dry-run            # select + preview
     python -m scripts.score_ink_coverage --limit 20           # score 20, write
     python -m scripts.score_ink_coverage --all                # every doc with blocks
+    python -m scripts.score_ink_coverage --shadow --all       # the backfilled cohort
 Options: --since 2026-08-01  --concurrency 6  --only-unscored
 
 Auth: NEO4J_URI/USERNAME/PASSWORD(/DATABASE) in the environment.
@@ -46,7 +56,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 
 from pipeline.ink_coverage import MISSING_REGION_MIN_RATIO, score_document_ink
-from pipeline.ocr_health import score_ocr_health
+from pipeline.ocr_health import score_ocr_health, shadow_region
 
 
 # Blocks are stored as a JSON blob on the Document; pulling markdown too keeps
@@ -101,21 +111,26 @@ def select_shadow_targets(limit: int | None) -> list[dict]:
           AND d.blocks IS NOT NULL AND d.blocks <> ''
           AND d.public_url IS NOT NULL AND d.public_url <> ''
         RETURN d.file_path, d.filename, d.public_url, d.blocks, d.markdown,
-               d.ocr_health_score
+               d.ocr_health_score, d.shadow_char_gain,
+               coalesce(d.ocr_health_flags, [])
         ORDER BY d.filename
         {'LIMIT $lim' if limit else ''}
         """,
         {"lim": limit} if limit else {},
     )
     return [{"file_path": r[0], "filename": r[1], "public_url": r[2],
-             "blocks_json": r[3], "markdown": r[4], "old_score": r[5]}
+             "blocks_json": r[3], "markdown": r[4], "old_score": r[5],
+             "char_gain": r[6], "prior_flags": r[7], "shadow": True}
             for r in rows]
 
 
 def write_shadow(results: list[dict]) -> int:
-    """Persist re-measured coverage for backfilled docs. Health is untouched —
-    the blocks and the markdown come from different engines."""
-    rows = [{"file_path": r["file_path"], "ratio": r["ratio"]}
+    """Persist the re-measured Datalab reading for backfilled docs, and — where
+    ``shadow_region`` reached a verdict — the health it implies for the stored
+    text. A document with no verdict (no char gain) keeps its health as is."""
+    rows = [{"file_path": r["file_path"], "ratio": r["ratio"],
+             "verdict": r.get("verdict"), "score": r["new_score"],
+             "flags": r["flags"]}
             for r in results if r.get("ratio") is not None]
     if not rows:
         return 0
@@ -125,6 +140,12 @@ def write_shadow(results: list[dict]) -> int:
         MATCH (d:Document {file_path: row.file_path})
         SET d.shadow_ink_uncovered_ratio = row.ratio,
             d.shadow_at                  = datetime()
+        FOREACH (_ IN CASE WHEN row.verdict IS NOT NULL THEN [1] ELSE [] END |
+            SET d.shadow_region_verdict = row.verdict,
+                d.shadow_region_at      = datetime(),
+                d.ocr_health_score      = row.score,
+                d.ocr_health_flags      = row.flags,
+                d.ocr_health_at         = datetime())
         """,
         {"rows": rows},
     )
@@ -190,6 +211,22 @@ def score_one(t: dict) -> dict:
         if region["uncovered_ratio"] is None:
             out["note"] = str(region["details"].get("skipped") or "unscorable")
             return out
+        if t.get("shadow"):
+            out["ratio"] = region["uncovered_ratio"]
+            verdict = shadow_region(
+                region, t.get("char_gain"),
+                is_pdf=t["public_url"].lower().endswith(".pdf"))
+            if verdict is None:
+                out["note"] = "no char gain — shadow ratio only"
+                return out
+            health = score_ocr_health(t.get("markdown"), region=verdict,
+                                      prior_flags=t.get("prior_flags"))
+            out["verdict"] = ("unverified" if verdict.get("unverified")
+                              else "missing" if verdict.get("flag") else "clean")
+            out["flags"] = health["flags"]
+            out["new_score"] = health["score"]
+            out["worst"] = region["details"].get("worst_column", {})
+            return out
         health = score_ocr_health(t.get("markdown"), region=region)
         out["ratio"] = region["uncovered_ratio"]
         out["flags"] = health["flags"]
@@ -238,8 +275,8 @@ def main() -> int:
                     help="measure and print, write nothing")
     ap.add_argument("--shadow", action="store_true",
                     help="re-measure backfilled docs (Datalab blocks over MinerU "
-                         "markdown) into shadow_ink_uncovered_ratio; never touches "
-                         "ocr_health")
+                         "markdown) into shadow_ink_uncovered_ratio, and fold the "
+                         "shadow_region verdict into ocr_health")
     ap.add_argument("--concurrency", type=int, default=6)
     args = ap.parse_args()
 
@@ -247,7 +284,7 @@ def main() -> int:
     if args.shadow:
         targets = select_shadow_targets(limit)
         print(f"Selected {len(targets)} backfilled Document(s) to re-measure "
-              f"(shadow only — ocr_health untouched)")
+              f"(verdict on the stored text via shadow_region)")
     else:
         since_iso = f"{args.since}T00:00:00Z" if args.since else None
         targets = select_targets(since_iso=since_iso, limit=limit,
@@ -270,14 +307,23 @@ def main() -> int:
             hit = "missing-region" in r["flags"]
             flagged += hit
             worst = r.get("worst") or {}
+            tag = ("FLAG" if hit else "UNVR" if "region-unverified" in r["flags"]
+                   else "  ok")
             print(f"  [{i}/{len(targets)}] unread {r['ratio']:6.1%}  "
                   f"health {str(r['old_score']):>3}->{str(r['new_score']):>4}  "
-                  f"{'FLAG' if hit else '  ok'}  "
+                  f"{tag}  "
                   f"{(worst.get('where') or '') if hit else '':<6} "
                   f"{r['filename'][:44]}")
 
     scored = [r for r in results if r["ratio"] is not None]
     print(f"\nScored {len(scored)}/{len(targets)}   flagged {flagged}")
+    if args.shadow:
+        verdicts = {}
+        for r in scored:
+            verdicts[r.get("verdict")] = verdicts.get(r.get("verdict"), 0) + 1
+        print("shadow verdicts: " + "  ".join(
+            f"{k or 'none'}={v}" for k, v in sorted(verdicts.items(),
+                                                     key=lambda kv: str(kv[0]))))
     if scored:
         ratios = sorted(r["ratio"] for r in scored)
         print(f"unread ink — min {ratios[0]:.1%}  median "
@@ -287,7 +333,7 @@ def main() -> int:
         return 0
     wrote = write_shadow(results) if args.shadow else write_back(results)
     print(f"Wrote {wrote} Document(s)"
-          + (" (shadow ratio only)" if args.shadow else ""))
+          + (" (shadow reading + verdict)" if args.shadow else ""))
     return 0
 
 
