@@ -16,17 +16,17 @@
 -->
 <script>
   // Dark mode: the reviewer's choice from review.html's ☾ button (same-origin
-  // localStorage 'xrTheme'), applied before first paint so nothing flashes.
+  // localStorage 'reviewTheme'), applied before first paint so nothing flashes.
   // The parent also repaints this frame directly on a toggle; the storage
   // listener covers a toggle made in another tab.
   (function () {
     const apply = () => {
       let dark = false;
-      try { dark = localStorage.getItem('xrTheme') === 'dark'; } catch (_) {}
+      try { dark = localStorage.getItem('reviewTheme') === 'dark'; } catch (_) {}
       document.documentElement.classList.toggle('dark', dark);
     };
     apply();
-    window.addEventListener('storage', e => { if (e.key === 'xrTheme') apply(); });
+    window.addEventListener('storage', e => { if (e.key === 'reviewTheme') apply(); });
   })();
   // API base arrives via ?api= when review.html embeds us; fall back to same-origin.
   // Supabase env mirrors review.html so /auth.js can read the shared session.

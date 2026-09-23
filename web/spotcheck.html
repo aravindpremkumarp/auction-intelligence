@@ -112,6 +112,19 @@
  .hide{display:none!important}
  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
  .grow{flex:1}
+ /* ── dark mode: the review page's ☾ toggle (localStorage 'reviewTheme') ── */
+ html.rv-dark{--bg:#0b1120;--ink:#e2e8f0;--muted:#94a3b8;--line:#1f2937;--card:#111827;color-scheme:dark}
+ html.rv-dark button,html.rv-dark input,html.rv-dark select,html.rv-dark .v,html.rv-dark #ctx{background:#111827;color:#e2e8f0;border-color:#334155}
+ html.rv-dark button:hover,html.rv-dark .v:hover,html.rv-dark .v.grey.on{background:#1e293b}
+ html.rv-dark button.primary{background:var(--cool);color:#fff;border-color:var(--cool)}
+ html.rv-dark code,html.rv-dark .v kbd,html.rv-dark .note{background:#1e293b;color:#cbd5e1}
+ html.rv-dark .pill{background:#1e293b;color:#cbd5e1}
+ html.rv-dark .pill.warn,html.rv-dark #nospan{background:#422006;color:#fcd34d}
+ html.rv-dark .pill.bad{background:#450a0a;color:#fca5a5}
+ html.rv-dark mark{color:#0f172a}
+ html.rv-dark .v.ok:hover,html.rv-dark .v.ok.on{background:#052e16}
+ html.rv-dark .v.bad:hover,html.rv-dark .v.bad.on{background:#3b0a0a}
+ html.rv-dark .v.warn:hover,html.rv-dark .v.warn.on{background:#3a2606}
 </style>
 
 <div id="bar">
@@ -122,7 +135,25 @@
   <button id="btnBack" title="Previous item (←)">← Back</button>
   <button id="btnReport">Report</button>
   <button id="btnNew">New sample</button>
+  <button id="btnTheme" title="switch between light and dark (shared with the review page)">☾ dark</button>
 </div>
+<script>
+  // Same preference as review.html's ☾ button, so the whole review flow agrees.
+  (function () {
+    const dark = () => { try { return localStorage.getItem('reviewTheme') === 'dark'; } catch (_) { return false; } };
+    const apply = () => {
+      document.documentElement.classList.toggle('rv-dark', dark());
+      const b = document.getElementById('btnTheme');
+      if (b) b.textContent = dark() ? '☀ light' : '☾ dark';
+    };
+    apply();
+    document.getElementById('btnTheme').addEventListener('click', () => {
+      try { localStorage.setItem('reviewTheme', dark() ? 'light' : 'dark'); } catch (_) {}
+      apply();
+    });
+    window.addEventListener('storage', e => { if (e.key === 'reviewTheme') apply(); });
+  })();
+</script>
 
 <div class="wrap">
   <!-- ── start / new sample ─────────────────────────────────────────────── -->
