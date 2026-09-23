@@ -1584,8 +1584,10 @@ def write_price_findings(rows: list[dict]) -> int:
     return written
 
 
-def run(limit: int | None = None, dry_run: bool = False) -> int:
-    work = fetch_work(limit)
+def run(limit: int | None = None, dry_run: bool = False,
+        filenames: list[str] | None = None) -> int:
+    work = (fetch_work(limit) if filenames is None
+            else fetch_work(limit, filenames=filenames))
     print(f"Documents with grounded extraction: {len(work)}")
 
     human_decided = human_decided_lot_matches()
@@ -1863,8 +1865,10 @@ def main() -> int:
                     help="cap to first N Documents")
     ap.add_argument("--dry-run", action="store_true",
                     help="report matches/fields without writing to Neo4j")
+    ap.add_argument("--filename", action="append", default=None,
+                    help="only this Document (repeatable)")
     args = ap.parse_args()
-    return run(limit=args.limit, dry_run=args.dry_run)
+    return run(limit=args.limit, dry_run=args.dry_run, filenames=args.filename)
 
 
 if __name__ == "__main__":
