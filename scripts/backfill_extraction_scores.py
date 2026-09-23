@@ -57,12 +57,14 @@ def load_unscored(force: bool) -> list[dict]:
     """
     where = "d.extraction_json IS NOT NULL AND d.stitched_into IS NULL"
     if not force:
-        # extraction_key_score (pipeline/key_entities.py) is stamped alongside:
-        # a document never given one is picked up here too, so one backfill
-        # levels both numbers.
+        # extraction_key_score and the failure-filter inputs
+        # (extraction_issue_codes / extraction_lot_count, all stamped by
+        # pipeline/key_entities.stamp_key_scores) ride alongside: a document
+        # never given them is picked up here too, so one backfill levels all.
         where += (" AND (d.extraction_score IS NULL"
                   "      OR coalesce(d.extraction_score_version, 0) < $version"
-                  "      OR d.extraction_key_score IS NULL)")
+                  "      OR d.extraction_key_score IS NULL"
+                  "      OR d.extraction_issue_codes IS NULL)")
     return run_read_query(
         f"MATCH (d:Document) WHERE {where} "
         "RETURN d.filename AS filename, "

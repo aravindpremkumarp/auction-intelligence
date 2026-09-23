@@ -21,8 +21,12 @@ Data model (on :Document, populated by pipeline/load_extractions.py):
   extraction_review_notes      free text left at verify time
   extraction_key_score         0-100: share of per-lot key entities filled or
                                marked absent (pipeline/key_entities.py); the
-                               queue's "missing keys first" sort
+                               queue's sort=keys order
   extraction_key_missing       count of key cells still missing
+  extraction_issue_codes       pipeline/validators.py issue codes (corrections
+                               applied) — the queue's failure filters
+  extraction_lot_count         lots the model emitted — the "missing lots" /
+                               "extra lots" filters, against expected_lot_count
 
 This module is intentionally self-contained (its own APIRouter) so it can be
 mounted alongside the main review router without touching the large queries.py.
@@ -182,6 +186,9 @@ class ExtractionQueueRow(BaseModel):
     key_score: int | None = None
     key_missing: int | None = None
     key_missing_labels: list[str] = []
+    # Failure-filter keys this row carries (EXTRACTION_FAILURES, bar order), so
+    # the card names what is wrong before the reviewer opens it.
+    failures: list[str] = []
 
 
 class ExtractionQueueOut(BaseModel):
@@ -284,6 +291,82 @@ def get_stitch_pointer(filename: str) -> str | None:
     return (rows[0].get("leader") if rows else None) or None
 
 
+# ── failure filters ───────────────────────────────────────────────────────────
+# The extraction stage's answer to the markdown stage's OCR-failure pills: one
+# pill per kind of miss, so a reviewer can work a single failure across the
+# corpus ("every notice that lost lots") instead of reading notices top to
+# bottom. Selected pills OR together, like the markdown flags.
+#
+# ``codes`` are pipeline/validators.py issue codes, stamped per document as
+# ``extraction_issue_codes`` by pipeline/key_entities.stamp_key_scores (with
+# reviewer corrections applied, so a gap the reviewer filled drops out).
+# ``cypher`` is a live predicate for failures that depend on state the
+# validator never sees — the reviewer's lot count, re-ingest timestamps — and
+# so must be read at query time rather than stamped.
+_EXPECTED_LOTS = "coalesce(d.stitched_expected_lot_count, d.expected_lot_count)"
+_STALE_CYPHER = (
+    "(d.extraction_at IS NOT NULL AND ("
+    "coalesce(d.markdown_reextracted_at > d.extraction_at, false)"
+    " OR coalesce(d.markdown_loaded_at > d.extraction_at, false)"
+    " OR coalesce(d.extraction_stale_at > d.extraction_at, false)))")
+EXTRACTION_FAILURES: dict[str, dict] = {
+    "missing-lots":  {"codes": ("lot_under_recall",),
+                      "cypher": f"coalesce(d.extraction_lot_count < {_EXPECTED_LOTS}, false)"},
+    "extra-lots":    {"codes": (),
+                      "cypher": f"coalesce(d.extraction_lot_count > {_EXPECTED_LOTS}, false)"},
+    "rerun":         {"codes": (), "cypher": _STALE_CYPHER},
+    "description":   {"codes": ("missing_full_description", "full_description_incomplete")},
+    "reserve":       {"codes": ("missing_reserve_price", "lot_missing_reserve")},
+    "borrower":      {"codes": ("missing_borrower", "lot_missing_borrower")},
+    "location":      {"codes": ("missing_location", "lot_missing_location")},
+    "extent":        {"codes": ("missing_extent",)},
+    "property-type": {"codes": ("missing_property_type",)},
+    "uds":           {"codes": ("missing_uds", "uds_parent_as_own_area")},
+    "creditor":      {"codes": ("missing_secured_creditor",)},
+    "ungrounded":    {"codes": ("ungrounded",)},
+    "odd-values":    {"codes": ("reserve_out_of_range", "emd_ratio_off",
+                                "possession_type_invalid", "kind_invalid")},
+}
+
+
+def _failure_codes(failures: list[str] | None) -> list[str]:
+    """The validator codes the selected failure pills match on."""
+    return sorted({c for f in (failures or [])
+                   for c in EXTRACTION_FAILURES.get(f, {}).get("codes", ())})
+
+
+def _failures_clause(failures: list[str] | None) -> str:
+    """One OR'd predicate over the selected failures ('' when none)."""
+    if not failures:
+        return ""
+    preds = [EXTRACTION_FAILURES[f]["cypher"] for f in failures
+             if EXTRACTION_FAILURES.get(f, {}).get("cypher")]
+    if _failure_codes(failures):
+        preds.append("any(c IN coalesce(d.extraction_issue_codes, []) "
+                     "WHERE c IN $fail_codes)")
+    return "(" + " OR ".join(preds) + ")" if preds else ""
+
+
+def row_failures(issue_codes, extracted_lots: int | None,
+                 expected_lots: int | None, stale: bool) -> list[str]:
+    """The failure keys one queue row carries, in filter-bar order — the same
+    tests ``_failures_clause`` runs in Cypher, so a card always shows the pill
+    that brought it into the filtered list."""
+    codes = set(issue_codes or [])
+    out = []
+    for key, spec in EXTRACTION_FAILURES.items():
+        hit = bool(codes & set(spec.get("codes", ())))
+        if key == "missing-lots" and extracted_lots is not None and expected_lots is not None:
+            hit = hit or extracted_lots < expected_lots
+        elif key == "extra-lots" and extracted_lots is not None and expected_lots is not None:
+            hit = extracted_lots > expected_lots
+        elif key == "rerun":
+            hit = stale
+        if hit:
+            out.append(key)
+    return out
+
+
 def _extraction_filter_clause(
     status: str | None,
     score_min: float | None,
@@ -293,6 +376,7 @@ def _extraction_filter_clause(
     date_to: str | None,
     q: str | None,
     missing_keys: bool = False,
+    failures: list[str] | None = None,
 ) -> str:
     """Shared WHERE tail for the extraction queue and its stats.
 
@@ -315,6 +399,9 @@ def _extraction_filter_clause(
     # kept: unknown is not "complete", and the backfill closes the gap.
     if missing_keys:
         clause += " AND coalesce(d.extraction_key_missing, 1) > 0"
+    fc = _failures_clause(failures)
+    if fc:
+        clause += f" AND {fc}"
     nt = _notice_type_clause(notice_type, alias="d")
     if nt:
         clause += f" AND {nt}"
@@ -342,10 +429,12 @@ def list_extraction_queue(status: str | None, limit: int, sort: str = "recent",
                           date_from: str | None = None,
                           date_to: str | None = None,
                           q: str | None = None,
-                          missing_keys: bool = False) -> list[dict]:
+                          missing_keys: bool = False,
+                          failures: list[str] | None = None) -> list[dict]:
     clause = _extraction_filter_clause(status, score_min, score_max,
                                        notice_type, date_from, date_to, q,
-                                       missing_keys=missing_keys)
+                                       missing_keys=missing_keys,
+                                       failures=failures)
     # "recent" (default): latest batch first (then newest extraction within it) so
     # a just-run batch groups at the top; docs missing extraction data (extracted
     # before it was tracked) fall to the bottom. "name": alphabetical by filename.
@@ -375,13 +464,15 @@ def list_extraction_queue(status: str | None, limit: int, sort: str = "recent",
                coalesce(d.stitched_expected_lot_count, d.expected_lot_count) AS expected_lot_count,
                coalesce(d.stitched_pages, [d.filename]) AS stitched_pages,
                d.extraction_json AS extraction_json,
-               coalesce(d.extraction_corrections_json, '{{}}') AS corrections_json
+               coalesce(d.extraction_corrections_json, '{{}}') AS corrections_json,
+               d.extraction_issue_codes AS issue_codes
         ORDER BY {order}
         LIMIT $limit
         """,
         {"status": status, "limit": limit,
          "score_min": score_min, "score_max": score_max,
-         "date_from": date_from, "date_to": date_to, "q": q},
+         "date_from": date_from, "date_to": date_to, "q": q,
+         "fail_codes": _failure_codes(failures)},
         max_rows=5000,
     )
 
@@ -393,16 +484,19 @@ def count_extraction_queue(status: str | None,
                            date_from: str | None = None,
                            date_to: str | None = None,
                            q: str | None = None,
-                           missing_keys: bool = False) -> int:
+                           missing_keys: bool = False,
+                           failures: list[str] | None = None) -> int:
     """How many documents match the queue filters, ignoring the row limit."""
     clause = _extraction_filter_clause(status, score_min, score_max,
                                        notice_type, date_from, date_to, q,
-                                       missing_keys=missing_keys)
+                                       missing_keys=missing_keys,
+                                       failures=failures)
     rows = run_read_query(
         f"MATCH (d:Document) WHERE d.extraction_json IS NOT NULL {clause} "
         "RETURN count(d) AS n",
         {"status": status, "score_min": score_min, "score_max": score_max,
-         "date_from": date_from, "date_to": date_to, "q": q},
+         "date_from": date_from, "date_to": date_to, "q": q,
+         "fail_codes": _failure_codes(failures)},
         max_rows=1, timeout=30.0)
     return int(rows[0]["n"]) if rows else 0
 
@@ -414,7 +508,8 @@ def bulk_verify_extractions(by_email: str,
                             date_from: str | None = None,
                             date_to: str | None = None,
                             q: str | None = None,
-                            dry_run: bool = False) -> dict:
+                            dry_run: bool = False,
+                            failures: list[str] | None = None) -> dict:
     """Mark every PENDING extraction matching the reviewer's current filters as
     verified.
 
@@ -428,9 +523,11 @@ def bulk_verify_extractions(by_email: str,
     one action and spend review time on the low scores.
     """
     clause = _extraction_filter_clause("pending", score_min, score_max,
-                                       notice_type, date_from, date_to, q)
+                                       notice_type, date_from, date_to, q,
+                                       failures=failures)
     params = {"status": "pending", "score_min": score_min, "score_max": score_max,
-              "date_from": date_from, "date_to": date_to, "q": q, "by": by_email}
+              "date_from": date_from, "date_to": date_to, "q": q, "by": by_email,
+              "fail_codes": _failure_codes(failures)}
     if dry_run:
         rows = run_read_query(
             f"MATCH (d:Document) WHERE d.extraction_json IS NOT NULL {clause} "
@@ -455,12 +552,14 @@ def extraction_stats(score_min: float | None = None,
                      notice_type: str | None = None,
                      date_from: str | None = None,
                      date_to: str | None = None,
-                     q: str | None = None) -> dict:
+                     q: str | None = None,
+                     failures: list[str] | None = None) -> dict:
     """Header pill counts for the extraction stage, under the reviewer's
     current filters (status is deliberately NOT applied — the pills ARE the
     status breakdown)."""
     clause = _extraction_filter_clause(None, score_min, score_max,
-                                       notice_type, date_from, date_to, q)
+                                       notice_type, date_from, date_to, q,
+                                       failures=failures)
     rows = run_read_query(
         f"""
         MATCH (d:Document)
@@ -474,7 +573,8 @@ def extraction_stats(score_min: float | None = None,
                sum(CASE WHEN km > 0          THEN 1 ELSE 0 END) AS missing_keys
         """,
         {"score_min": score_min, "score_max": score_max,
-         "date_from": date_from, "date_to": date_to, "q": q},
+         "date_from": date_from, "date_to": date_to, "q": q,
+         "fail_codes": _failure_codes(failures)},
         max_rows=1, timeout=30.0,
     )
     r = rows[0] if rows else {}
@@ -748,6 +848,19 @@ def _no_all(v) -> str | None:
     return None if v in ("", "all") else v
 
 
+def _clean_failures(failures) -> list[str] | None:
+    """Keep only failure keys the filter bar knows, in its order. An unknown
+    key is a 422 rather than silently ignored — ignoring it would widen the
+    list to everything, the opposite of what the reviewer asked for."""
+    if not isinstance(failures, list) or not failures:
+        return None
+    unknown = sorted({f for f in failures if f not in EXTRACTION_FAILURES})
+    if unknown:
+        raise HTTPException(status_code=422,
+                            detail=f"unknown extraction failure(s): {unknown}")
+    return [f for f in EXTRACTION_FAILURES if f in set(failures)]
+
+
 class ExtractionStats(BaseModel):
     total: int
     pending: int
@@ -766,12 +879,15 @@ def extraction_stats_endpoint(
     date_from: str | None = Query(default=None, max_length=20),
     date_to: str | None = Query(default=None, max_length=20),
     q: str | None = Query(default=None, max_length=200),
+    # Repeatable: ?failures=missing-lots&failures=rerun (OR), as on /queue.
+    failures: list[str] | None = Query(default=None),
     _admin: UserOut = Depends(get_current_admin),
 ) -> ExtractionStats:
     return ExtractionStats(**extraction_stats(
         score_min=score_min, score_max=score_max,
         notice_type=_no_all(notice_type),
         date_from=_no_all(date_from), date_to=_no_all(date_to), q=_no_all(q),
+        failures=_clean_failures(failures),
     ))
 
 
@@ -782,6 +898,9 @@ class ExtractionBulkConfirmBody(BaseModel):
     date_from: str | None = Field(default=None, max_length=20)
     date_to: str | None = Field(default=None, max_length=20)
     q: str | None = Field(default=None, max_length=200)
+    # The failure pills the reviewer has on: "Confirm all N" must act on the
+    # same filtered set the N was counted over.
+    failures: list[str] | None = None
     dry_run: bool = False
 
 
@@ -801,7 +920,7 @@ def extraction_bulk_confirm(
         score_min=body.score_min, score_max=body.score_max,
         notice_type=_no_all(body.notice_type),
         date_from=body.date_from, date_to=body.date_to, q=body.q,
-        dry_run=body.dry_run,
+        dry_run=body.dry_run, failures=_clean_failures(body.failures),
     ))
 
 
@@ -817,16 +936,19 @@ def extraction_queue(
     date_to: str | None = Query(default=None, max_length=20),
     q: str | None = Query(default=None, max_length=200),
     missing_keys: bool = Query(default=False),
+    # Repeatable: ?failures=missing-lots&failures=rerun — rows carrying ANY.
+    failures: list[str] | None = Query(default=None),
     _admin: UserOut = Depends(get_current_admin),
 ) -> ExtractionQueueOut:
     status, notice_type = _no_all(status), _no_all(notice_type)
     date_from, date_to, q = _no_all(date_from), _no_all(date_to), _no_all(q)
     missing_keys = missing_keys is True
+    failures = _clean_failures(failures)
     rows = list_extraction_queue(status, limit, sort,
                                  score_min=score_min, score_max=score_max,
                                  notice_type=notice_type,
                                  date_from=date_from, date_to=date_to, q=q,
-                                 missing_keys=missing_keys)
+                                 missing_keys=missing_keys, failures=failures)
     out = []
     for r in rows:
         try:
@@ -843,6 +965,10 @@ def extraction_queue(
         # not disagree on a row the reviewer just edited.
         keys = key_checklist_from_stored(r.get("extraction_json"),
                                          r.get("corrections_json"), expected)
+        stale = extraction_stale(r.get("markdown_reextracted_at"),
+                                 r.get("markdown_loaded_at"),
+                                 r.get("extraction_at"),
+                                 r.get("extraction_stale_at"))
         out.append(ExtractionQueueRow(
             filename=r["filename"], status=r["status"], n_fields=len(ents),
             # As-extracted, deliberately NOT re-anchored: this is a list query,
@@ -854,10 +980,7 @@ def extraction_queue(
             score=int(s) if s is not None else None,
             extraction_at=r.get("extraction_at"),
             extraction_batch=int(b) if b is not None else None,
-            stale=extraction_stale(r.get("markdown_reextracted_at"),
-                                   r.get("markdown_loaded_at"),
-                                   r.get("extraction_at"),
-                                   r.get("extraction_stale_at")),
+            stale=stale,
             expected_lot_count=expected,
             extracted_lot_count=extracted,
             lot_count_mismatch=(expected is not None
@@ -865,7 +988,8 @@ def extraction_queue(
                                 and expected != extracted),
             stitched_pages=len(r.get("stitched_pages") or [r["filename"]]),
             key_score=keys["score"], key_missing=keys["missing"],
-            key_missing_labels=keys["missing_labels"]))
+            key_missing_labels=keys["missing_labels"],
+            failures=row_failures(r.get("issue_codes"), extracted, expected, stale)))
     # A genuine count, not len(out): the row list is capped by $limit, and the
     # "Confirm all N in range" button acts on the whole matching set — so a
     # capped total would understate what the button is about to verify.
@@ -873,7 +997,7 @@ def extraction_queue(
                                    score_max=score_max,
                                    notice_type=notice_type,
                                    date_from=date_from, date_to=date_to, q=q,
-                                   missing_keys=missing_keys)
+                                   missing_keys=missing_keys, failures=failures)
     return ExtractionQueueOut(rows=out, total=total)
 
 

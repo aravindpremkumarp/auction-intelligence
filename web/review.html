@@ -633,6 +633,38 @@
   .ann-toast.ok  { background: var(--good); color: #fff; }
   .ann-toast.warn { background: var(--accent); color: var(--ink); }
   .ann-link { color: var(--ink); text-decoration: underline; cursor: pointer; font-family: 'IBM Plex Mono', monospace; font-size: 11px; }
+  /* ── Extraction-stage dark mode ─────────────────────────────────────
+     Scoped: <html> carries .xr-scope only while the extraction queue or
+     workspace is on screen (applyXrTheme), and .xr-dark when the reviewer
+     picked dark (the ☾ button, remembered in localStorage 'xrTheme'). Other
+     stages keep the paper look — they are full of hard-coded light surfaces
+     (tables, gallery, annotator) that were never designed for a dark page. */
+  .xr-theme-btn { display: none; }
+  html.xr-scope .xr-theme-btn { display: inline-block; }
+  .xr-miss { color: #991b1b; }
+  html.xr-scope.xr-dark {
+    --ink: #e8e4d8; --paper: #16161b; --danger: #ff7a5c; --good: #5cc98a; --muted: #9a978f;
+    --card: #1f1f26;
+    color-scheme: dark;
+  }
+  html.xr-scope.xr-dark body { background: var(--paper); color: var(--ink); }
+  html.xr-scope.xr-dark h1 em { color: #1a1a1a; }
+  html.xr-scope.xr-dark button,
+  html.xr-scope.xr-dark .actions input[type="search"],
+  html.xr-scope.xr-dark .actions.filters input[type="date"],
+  html.xr-scope.xr-dark .actions.filters input[type="number"] { background: var(--card); color: var(--ink); }
+  html.xr-scope.xr-dark button.ghost { background: transparent; }
+  html.xr-scope.xr-dark button.primary,
+  html.xr-scope.xr-dark .pill.on,
+  html.xr-scope.xr-dark a.pill:hover { background: var(--accent); color: #1a1a1a; }
+  html.xr-scope.xr-dark .pill.off    { background: #2b2b33; color: var(--muted); }
+  html.xr-scope.xr-dark .pill.good   { background: #1e3b2a; }
+  html.xr-scope.xr-dark .pill.warn   { background: #4a3417; }
+  html.xr-scope.xr-dark .pill.bad,
+  html.xr-scope.xr-dark .pill.danger { background: #4d2420; }
+  html.xr-scope.xr-dark .notice-card { background: var(--card); box-shadow: 2px 3px 0 rgba(0,0,0,0.6); }
+  html.xr-scope.xr-dark .xr-miss { color: #ff9d8a; }
+  html.xr-scope.xr-dark #screen-extraction iframe { background: #0b1120; box-shadow: 2px 3px 0 rgba(0,0,0,0.6); }
 </style>
 </head>
 <body>
@@ -645,6 +677,7 @@
       <a class="link" href="/admin">Admin</a>
       <a class="link" href="/social">Social</a>
       <span style="flex:1"></span>
+      <button class="ghost xr-theme-btn" data-xr-theme title="switch the extraction stage between light and dark">☾ dark</button>
       <span class="stats" id="stats"></span>
     </div>
   </div>
@@ -791,18 +824,6 @@
         <button id="score-clear" class="ghost" title="reset to 0–100">clear</button>
         <span class="meta fhint" id="score-hint"></span>
       </span>
-      <!-- Extraction only: the key-entity checklist (pipeline/key_entities.py).
-           "missing keys first" orders the queue by how many of the seven key
-           entities each lot lacks; "only missing" hides complete notices. -->
-      <span class="fgroup hidden" id="keys-bar">
-        <span class="fsep">·</span>
-        <span class="flabel">Keys:</span>
-        <span class="group-toggle">
-          <button class="pill" data-xsort="recent" title="newest extraction first">newest</button>
-          <button class="pill" data-xsort="keys" title="notices missing the most key entities first">missing keys first</button>
-        </span>
-        <button class="pill" id="keys-only" title="show only notices with at least one key entity missing">only missing</button>
-      </span>
       <!-- Datalab's own 0–5 verdict on the parse. Separate from OCR health
            because it catches the failure health cannot see: content the engine
            silently dropped. Blank inputs = no filter (docs with no score stay
@@ -844,6 +865,42 @@
                   title="a date that cannot be one under any reading — month 00 or over 12, day 00 or over 31 (30.06.2026 misread as 30.00.2026). The only check here that reads a value rather than a shape.">impossible date</button>
         </span>
         <button id="flag-clear" class="ghost" title="show all notices again">clear</button>
+      </span>
+      <!-- Extraction's failure modes, worked one at a time like the markdown
+           flags above (OR, not AND). Keys and order match
+           api/review/extraction.EXTRACTION_FAILURES. -->
+      <span class="fgroup hidden" id="xflag-bar">
+        <span class="fsep">·</span>
+        <span class="flabel">Failures:</span>
+        <span class="group-toggle" id="xflag-tabs">
+          <button class="pill" data-xflag="missing-lots"
+                  title="fewer lots extracted than the reviewer counted at classification — or many lot markers in the text but few lots extracted">missing lots</button>
+          <button class="pill" data-xflag="extra-lots"
+                  title="more lots extracted than the reviewer counted at classification">extra lots</button>
+          <button class="pill" data-xflag="rerun"
+                  title="the markdown or classification changed after this extraction ran — re-run LangExtract">needs re-run</button>
+          <button class="pill" data-xflag="description"
+                  title="a lot with no full description block, or a description that stops before details the lot has (survey no., extent, boundaries)">description gaps</button>
+          <button class="pill" data-xflag="reserve"
+                  title="no reserve price, or fewer reserve prices than lots">no reserve price</button>
+          <button class="pill" data-xflag="borrower"
+                  title="no borrower, or fewer borrowers than lots">no borrower</button>
+          <button class="pill" data-xflag="location"
+                  title="no location, or some lots have none">no location</button>
+          <button class="pill" data-xflag="extent"
+                  title="no extent (area) anywhere in the notice">no extent</button>
+          <button class="pill" data-xflag="property-type"
+                  title="a property lot with no property type">no property type</button>
+          <button class="pill" data-xflag="uds"
+                  title="a flat with no undivided share (UDS), or the parent plot's area recorded as the flat's own">UDS problem</button>
+          <button class="pill" data-xflag="creditor"
+                  title="no secured creditor (bank) found">no bank</button>
+          <button class="pill" data-xflag="ungrounded"
+                  title="extracted values with no matching text in the notice — the model may have made them up">ungrounded</button>
+          <button class="pill" data-xflag="odd-values"
+                  title="a value that cannot be right: reserve price out of range, EMD not ~10% of reserve, bad possession type or identifier kind">odd values</button>
+        </span>
+        <button id="xflag-clear" class="ghost" title="show all notices again">clear</button>
       </span>
     </div>
     </div>
@@ -1082,6 +1139,7 @@
       <span class="ann-badges" id="xr-badges"></span>
       <span style="flex:1"></span>
       <a class="link" id="xr-annotate" title="edit this notice's OCR blocks">annotate blocks ↗</a>
+      <button class="ghost xr-theme-btn" data-xr-theme title="switch the extraction stage between light and dark">☾ dark</button>
     </div>
     <iframe id="extraction-frame" title="Extraction review"></iframe>
   </section>
@@ -1145,6 +1203,9 @@
       // Repeated key, one per flag — FastAPI reads these as a list.
       for (const f of (queueState.flags || [])) params.append('flags', f);
     }
+    if (queueState.stage === 'extraction') {
+      for (const f of (queueState.xflags || [])) params.append('failures', f);
+    }
   }
 
   // ─── Routing ────────────────────────────────────────────────────────────
@@ -1193,6 +1254,7 @@
       queueState.pqFrom = isNaN(pf) ? null : pf;
       queueState.pqTo   = isNaN(pt) ? null : pt;
       queueState.flags = (p.get('flags') || '').split(',').filter(Boolean);
+      queueState.xflags = (p.get('fails') || '').split(',').filter(Boolean);
     }
     return { screen: 'queue' };
   }
@@ -1225,6 +1287,7 @@
     if (queueState.pqTo   != null) p.set('pq_to',   String(queueState.pqTo));
     // Comma-joined in the hash (one readable key) but repeated on the wire.
     if ((queueState.flags || []).length) p.set('flags', queueState.flags.join(','));
+    if ((queueState.xflags || []).length) p.set('fails', queueState.xflags.join(','));
     return p.toString();
   }
 
@@ -1237,8 +1300,34 @@
     $('screen-extraction').classList.toggle('hidden', screen !== 'extraction');
     document.body.classList.toggle('annotator-active', screen === 'annotator');
     document.body.classList.toggle('extraction-active', screen === 'extraction');
+    applyXrTheme();
     syncStickyHeads();
   }
+
+  // Extraction-stage dark mode (see the .xr-scope CSS). Scope follows what is
+  // on screen; the preference is the reviewer's and survives reloads. The
+  // embedded workspace (review_extraction.html) reads the same key on load
+  // and is repainted here directly so a toggle lands in both at once.
+  function xrDark() {
+    try { return localStorage.getItem('xrTheme') === 'dark'; } catch { return false; }
+  }
+  function applyXrTheme() {
+    const scope = !$('screen-extraction').classList.contains('hidden')
+      || (!$('screen-queue').classList.contains('hidden') && queueState.stage === 'extraction');
+    const dark = xrDark();
+    const root = document.documentElement;
+    root.classList.toggle('xr-scope', scope);
+    root.classList.toggle('xr-dark', dark);
+    $$('[data-xr-theme]').forEach(b => { b.textContent = dark ? '☀ light' : '☾ dark'; });
+    try {
+      const doc = $('extraction-frame').contentDocument;
+      if (doc) doc.documentElement.classList.toggle('dark', dark);
+    } catch {}
+  }
+  $$('[data-xr-theme]').forEach(b => b.addEventListener('click', () => {
+    try { localStorage.setItem('xrTheme', xrDark() ? 'light' : 'dark'); } catch {}
+    applyXrTheme();
+  }));
 
   // Measure the pinned chrome so the pieces below it know where it ends:
   // the filter block sticks under the masthead (--topbar-h) and the gallery
@@ -2065,14 +2154,10 @@
     const r = await authFetch(url);
     if (!r.ok) { $('stats').textContent = ''; return; }
     const s = await r.json();
-    const keys = (queueState.stage === 'extraction' && s.missing_keys != null)
-      ? `<span class="pill danger" title="notices with at least one key entity missing on some lot">${s.missing_keys} missing keys</span>`
-      : '';
     $('stats').innerHTML = `
       <span class="pill warn">${s.pending} pending</span>
       <span class="pill good">${s.verified} verified</span>
       <span class="pill good">${s.edited} edited</span>
-      ${keys}
       <span class="pill off">${s.total} total</span>
     `;
   }
@@ -2123,6 +2208,9 @@
     pqFrom: null, pqTo: null,
     // Selected ocr_health failure flags; empty = no filter, multiple = OR.
     flags: [],
+    // Selected extraction failures (api/review/extraction.EXTRACTION_FAILURES);
+    // same semantics as `flags`, for the extraction stage.
+    xflags: [],
     page: 1,
   };
   // Per-stage default sub-group (remembers reviewer's last choice in localStorage).
@@ -2158,6 +2246,9 @@
     $$('button.pill[data-flag]').forEach(b => {
       b.classList.toggle('on', queueState.flags.includes(b.getAttribute('data-flag')));
     });
+    $$('button.pill[data-xflag]').forEach(b => {
+      b.classList.toggle('on', queueState.xflags.includes(b.getAttribute('data-xflag')));
+    });
 
     const isClass = queueState.stage === 'classification';
     const isMd = queueState.stage === 'markdown';
@@ -2190,11 +2281,7 @@
     // Parse quality and the OCR failure flags are markdown-stage signals.
     $('pq-bar').classList.toggle('hidden', !isMd);
     $('flag-bar').classList.toggle('hidden', !isMd);
-    $('keys-bar').classList.toggle('hidden', !isExtract);
-    $$('button.pill[data-xsort]').forEach(b => {
-      b.classList.toggle('on', b.getAttribute('data-xsort') === xrSort());
-    });
-    $('keys-only').classList.toggle('on', xrOnlyMissing());
+    $('xflag-bar').classList.toggle('hidden', !isExtract);
     // Expand/collapse-all only makes sense where the cards are collapsible —
     // the markdown stage's sales-notice list.
     $('expand-all-bar').classList.toggle('hidden', !(isMd && isNotice));
@@ -2207,6 +2294,7 @@
       scoreLabel.textContent =
         isMd ? 'OCR health:' : (isExtract ? 'Extraction score:' : 'Score:');
     }
+    applyXrTheme();
   }
 
   function syncDateInputs() {
@@ -2270,23 +2358,18 @@
     return '<span class="pill warn">pending</span>';
   }
 
-  // Extraction queue order + "only missing keys" filter, remembered per reviewer.
-  function xrSort() {
-    try { return localStorage.getItem('xrSort') === 'keys' ? 'keys' : 'recent'; } catch { return 'recent'; }
+  // Failure-pill labels for the card, read off the filter bar so the two
+  // can never name the same failure differently.
+  function xflagLabel(key) {
+    const b = document.querySelector(`button.pill[data-xflag="${key}"]`);
+    return b ? { text: b.textContent, title: b.title } : { text: key, title: '' };
   }
-  function xrOnlyMissing() {
-    try { return localStorage.getItem('xrOnlyMissing') === '1'; } catch { return false; }
+  function failurePills(row) {
+    return (row.failures || []).map(f => {
+      const l = xflagLabel(f);
+      return `<span class="pill danger" title="${escapeHtml(l.title)}">${escapeHtml(l.text)}</span>`;
+    }).join(' ');
   }
-  $$('button.pill[data-xsort]').forEach(b => b.addEventListener('click', () => {
-    try { localStorage.setItem('xrSort', b.getAttribute('data-xsort')); } catch {}
-    syncStatusButtons();
-    loadQueue();
-  }));
-  $('keys-only').addEventListener('click', () => {
-    try { localStorage.setItem('xrOnlyMissing', xrOnlyMissing() ? '0' : '1'); } catch {}
-    syncStatusButtons();
-    loadQueue();
-  });
 
   function keysPill(row) {
     if (row.key_score == null) return '';
@@ -2301,8 +2384,7 @@
   async function loadExtractionQueue() {
     const list = $('queue-by-extraction');
     list.innerHTML = '<div class="empty">loading…</div>';
-    const params = new URLSearchParams({ limit: '500', sort: xrSort() });
-    if (xrOnlyMissing()) params.set('missing_keys', 'true');
+    const params = new URLSearchParams({ limit: '500' });
     if (queueState.status && queueState.status !== 'all') params.set('status', queueState.status);
     if (queueState.q) params.set('q', queueState.q);
     appendCommonParams(params);
@@ -2356,12 +2438,12 @@
     // The first missing key labels inline, so the reviewer knows what the
     // notice needs before opening it.
     const missLabels = (row.key_missing || 0) && (row.key_missing_labels || []).length
-      ? `<span class="meta" style="color:#991b1b">${escapeHtml((row.key_missing_labels || []).slice(0, 4).join(' · '))}${(row.key_missing_labels || []).length > 4 ? ' · …' : ''}</span>`
+      ? `<span class="meta xr-miss">${escapeHtml((row.key_missing_labels || []).slice(0, 4).join(' · '))}${(row.key_missing_labels || []).length > 4 ? ' · …' : ''}</span>`
       : '';
     const summary = document.createElement('summary');
     summary.innerHTML = `
       <span class="nfile">${escapeHtml(filename)}</span>
-      ${batch} ${keysPill(row)} ${extractionScorePill(row)} ${extractionStatusPill(row)} ${lots} ${ungrounded} ${stale} ${fields} ${missLabels}
+      ${batch} ${keysPill(row)} ${extractionScorePill(row)} ${extractionStatusPill(row)} ${lots} ${ungrounded} ${stale} ${fields} ${failurePills(row)} ${missLabels}
       <span class="nspacer"></span>
       <span class="nlinks">
         <a class="link" href="${href}">review extraction ↗</a>
@@ -3535,6 +3617,22 @@
     writeHash();
     loadStats(); loadQueue();
   });
+  $$('button.pill[data-xflag]').forEach(b => {
+    b.addEventListener('click', () => {
+      const f = b.getAttribute('data-xflag');
+      queueState.xflags = queueState.xflags.includes(f)
+        ? queueState.xflags.filter(x => x !== f)
+        : [...queueState.xflags, f];
+      writeHash();
+      loadStats(); loadQueue();
+    });
+  });
+  $('xflag-clear').addEventListener('click', () => {
+    if (!queueState.xflags.length) return;
+    queueState.xflags = [];
+    writeHash();
+    loadStats(); loadQueue();
+  });
 
   $$('button.pill[data-cview]').forEach(b => {
     b.addEventListener('click', () => {
@@ -3577,6 +3675,9 @@
             pq_min: queueState.pqFrom,
             pq_max: queueState.pqTo,
             flags: queueState.flags.length ? queueState.flags : null,
+          } : {}),
+          ...(stage === 'extraction' ? {
+            failures: queueState.xflags.length ? queueState.xflags : null,
           } : {}),
           ...commonFilters,
         };
