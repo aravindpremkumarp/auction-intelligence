@@ -256,7 +256,10 @@ PENALTY = {"repetition": 0, "token-leak": 40, "truncated": 30,
            # Lost content is the worst outcome for downstream extraction: the
            # properties in an unread column simply do not exist for us. Priced
            # above table-collapse, which at least keeps the text.
-           "missing-region": 45}  # repetition scaled
+           "missing-region": 45,
+           # Not a defect — the absence of a verdict, recorded so the notice
+           # counts as checked and stays findable. See shadow_region.
+           "region-unverified": 0}  # repetition scaled
 
 # The canonical failure vocabulary, in severity order. The review API validates
 # its flag filter against this, so a renamed or added flag reaches the UI by
@@ -264,6 +267,7 @@ PENALTY = {"repetition": 0, "token-leak": 40, "truncated": 30,
 HEALTH_FLAGS: tuple[str, ...] = (
     "near-empty", "missing-region", "table-collapse", "degenerate-sequence", "truncated",
     "repetition", "token-leak", "foreign-script", "impossible-date",
+    "region-unverified",
 )
 
 
@@ -487,6 +491,18 @@ def score_ocr_health(markdown: str | None, *, region: dict | None = None,
         details["missing_region"] = {"carried_forward": True}
         penalty += PENALTY["missing-region"]
 
+    if "missing-region" not in flags and (
+            (region and region.get("unverified"))
+            or (not _ink_was_judged(region)
+                and "region-unverified" in (prior_flags or ()))):
+        # Looked at, but nothing could say whether the stored text is whole.
+        # Carried forward like missing-region above; any real ink reading,
+        # clean or not, replaces it.
+        flags.append("region-unverified")
+        if region and region.get("details"):
+            details["region_unverified"] = region["details"]
+        penalty += PENALTY["region-unverified"]
+
     return {"score": max(0, 100 - penalty), "flags": flags, "details": details}
 
 
@@ -641,6 +657,45 @@ INK_SOURCE_TIMEOUT_S = 60
 # engine's miss to the other's output — the same exclusion the corpus scorer
 # applies; their reading lives in shadow_ink_uncovered_ratio instead.
 INK_SKIP_BLOCK_SOURCES = ("datalab-backfill",)
+
+# Datalab's text length over the stored markdown's, on that same cohort.
+# Measured across all 398 backfilled notices: median 1.01, p95 1.14, and only
+# 8 at or above this. Datalab reading 20% more of a page it fully covered is
+# content the stored text does not have.
+SHADOW_TEXT_GAP_MIN_GAIN = 1.2
+# PDFs sit higher: all 24 backfilled PDFs fall in 1.09–1.21 (median 1.16) with
+# no outlier — the two engines read a PDF's text layer differently, not one of
+# them dropping content. Same margin over that median as above.
+SHADOW_TEXT_GAP_MIN_GAIN_PDF = 1.35
+
+
+def shadow_region(region: dict | None, char_gain: float | None, *,
+                  is_pdf: bool = False) -> dict | None:
+    """A ``region`` verdict on stored text whose blocks came from another engine.
+
+    The ink reading ``region`` measures the Datalab blocks, not the stored
+    markdown, so it cannot flag that markdown on its own (see
+    ``INK_SKIP_BLOCK_SOURCES``). Paired with ``char_gain`` it can:
+
+    * Datalab missed a region too → nothing proves the stored text whole or
+      short: ``unverified`` (flag ``region-unverified``, no penalty).
+    * Datalab read the whole page and found ``SHADOW_TEXT_GAP_MIN_GAIN``× the
+      text (``_PDF`` for a PDF) → the stored text is missing content:
+      ``missing-region``.
+    * Datalab read the whole page and found about the same text → clean.
+
+    ``None`` when either reading is absent — no verdict, same as unmeasured.
+    """
+    if region is None or region.get("uncovered_ratio") is None or char_gain is None:
+        return None
+    details = {"source": "shadow",
+               "shadow_uncovered_ratio": region["uncovered_ratio"],
+               "shadow_char_gain": char_gain}
+    if region.get("flag"):
+        return {"unverified": True, "uncovered_ratio": None, "details": details}
+    line = SHADOW_TEXT_GAP_MIN_GAIN_PDF if is_pdf else SHADOW_TEXT_GAP_MIN_GAIN
+    return {"flag": char_gain >= line,
+            "uncovered_ratio": region["uncovered_ratio"], "details": details}
 
 
 def _blocks_from_json(raw: str | None) -> list[dict]:

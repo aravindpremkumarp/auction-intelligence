@@ -24,6 +24,17 @@ Two operations, gated independently so either can run alone:
              extraction_batch / extraction_review_status='pending'), all under one
              shared batch number.
 
+  --only F   Re-extract exactly these notices (repeatable), whatever their
+             date, OCR score or extraction state. For targeted repairs.
+
+  --keep-more-lots
+             Refuse a re-extraction that finds fewer lots than the stored one.
+             A long notice's recall varies run to run, so without this a
+             weaker run silently replaces a stronger one.
+
+A multi-lot notice whose price lines match its confirmed lot count is read a
+few lots at a time (pipeline/lot_chunks) — see that module for why.
+
   --refresh  Re-extract notices whose stored extraction no longer reflects its
              own inputs — the markdown was rewritten after the extraction ran,
              or it scored below --min-score. Add --single-lot to restrict to
@@ -69,7 +80,12 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 
 from api.neo4j_client import run_query, run_read_query
-from pipeline.extract_routing import passes_for, select_extract_model
+from pipeline.extract_routing import (
+    passes_for,
+    select_extract_model,
+    select_retry_model,
+)
+from pipeline.lot_chunks import extract_chunked, plan_chunks
 from pipeline.load_extractions import (
     ROSTER_CYPHER,
     _entities,
@@ -136,6 +152,44 @@ def select_docs(since: str, min_ocr: int, resume: bool,
         q,
         {"since": f"{since}T00:00:00Z", "min_ocr": int(min_ocr)},
         max_rows=20_000, timeout=120.0)
+
+
+def select_only_docs(filenames: list[str]) -> list[dict]:
+    """Exactly the named Documents, in the same shape as the other selectors.
+    No date, OCR or resume filter: naming a notice is the decision."""
+    q = (
+        "MATCH (d:Document) "
+        "WHERE d.filename IN $fns "
+        "  AND d.markdown IS NOT NULL AND d.markdown <> '' "
+        "  AND d.stitched_into IS NULL "
+        + ROSTER_CYPHER +
+        "RETURN d.filename AS filename, "
+        "       coalesce(d.stitched_markdown, d.markdown) AS md, "
+        "       d.notice_type AS notice_type, "
+        "       coalesce(d.stitched_expected_lot_count, d.expected_lot_count) "
+        "AS expected_lot_count, "
+        "       roster AS roster "
+        "ORDER BY d.filename"
+    )
+    return run_read_query(q, {"fns": list(filenames)},
+                          max_rows=20_000, timeout=120.0)
+
+
+def _lot_count(ents: list[dict]) -> int:
+    return len({str((e.get("attrs") or {}).get("lot_index"))
+                for e in ents
+                if (e.get("attrs") or {}).get("lot_index") not in (None, "")})
+
+
+def _stored_lot_count(filename: str) -> int:
+    rows = run_read_query(
+        "MATCH (d:Document {filename: $fn}) RETURN d.extraction_json AS j",
+        {"fn": filename})
+    raw = rows[0]["j"] if rows else None
+    try:
+        return _lot_count(json.loads(raw)) if raw else 0
+    except (TypeError, ValueError):
+        return 0
 
 
 def select_stale_docs(min_ocr: int, limit: int | None) -> list[dict]:
@@ -269,7 +323,36 @@ def select_refresh_docs(min_ocr: int, min_score: int, single_lot: bool,
     return run_read_query(q, params, max_rows=20_000, timeout=120.0)
 
 
-def _extract_one(d: dict, batch: int, route: bool):
+def read_notice(d: dict, route: bool) -> tuple[list[dict], str | None]:
+    """Extract one page's entities without writing anything.
+
+    Returns ``(entities, model_id)``. A multi-lot notice whose lots
+    pipeline/lot_chunks can locate is read a few lots at a time; everything
+    else is read whole. Shared by the writer below and by
+    scripts/eval_lot_recall, so what the eval measures is what gets written."""
+    from pipeline import langextract_examples as LX  # heavy import, defer
+    if route:
+        model_id, reasoning_off = select_extract_model(d.get("notice_type"))
+    else:
+        model_id, reasoning_off = None, False
+    passes = passes_for(d.get("notice_type")) if route else None
+
+    def read(text: str, lots, extra: str | None = None,
+             strong: bool = False) -> list[dict]:
+        mid, roff = ((select_retry_model() if route else (None, False))
+                     if strong else (model_id, reasoning_off))
+        res = LX.extract(text, model_id=mid, reasoning_off=roff,
+                         expected_lot_count=lots, roster=d.get("roster"),
+                         passes=passes, extra=extra)
+        return _entities(res, text)
+
+    plan = plan_chunks(d["md"], d.get("expected_lot_count"))
+    if plan is not None:
+        return extract_chunked(d["md"], plan, read), model_id
+    return read(d["md"], d.get("expected_lot_count")), model_id
+
+
+def _extract_one(d: dict, batch: int, route: bool, keep_more_lots: bool = False):
     """Extract + write one page. Returns (filename, n_entities, model_id) on
     success or raises. Safe to call from a worker thread: LX.extract builds its
     own provider client per call and each write is an independent HTTP request.
@@ -278,18 +361,9 @@ def _extract_one(d: dict, batch: int, route: bool):
     several file names — in which case ``twins`` lists every Document the result
     is written to. They hold the same markdown, so the offsets in the entities
     are valid in each."""
-    from pipeline import langextract_examples as LX  # heavy import, defer
     fn = d["filename"]
     targets = d.get("twins") or [fn]
-    if route:
-        model_id, reasoning_off = select_extract_model(d.get("notice_type"))
-    else:
-        model_id, reasoning_off = None, False
-    res = LX.extract(d["md"], model_id=model_id, reasoning_off=reasoning_off,
-                     expected_lot_count=d.get("expected_lot_count"),
-                     roster=d.get("roster"),
-                     passes=passes_for(d.get("notice_type")) if route else None)
-    ents = _entities(res, d["md"])
+    ents, model_id = read_notice(d, route)
     # An empty result is a failed read, not a notice with nothing in it — the
     # model returned something LangExtract could not parse ("Content must
     # contain an 'extractions' key"), and every chunk was skipped. Writing it
@@ -300,6 +374,11 @@ def _extract_one(d: dict, batch: int, route: bool):
     if not ents:
         raise ValueError("extraction returned no entities — keeping the "
                          "existing one")
+    if keep_more_lots:
+        new, old = _lot_count(ents), _stored_lot_count(fn)
+        if new < old:
+            raise ValueError(f"found {new} lot(s), stored extraction has "
+                             f"{old} — keeping the existing one")
     # Scored from the entities that get stored (spans regrounded), so the
     # number describes the document a reader opens — see _extract_one.
     score = validate_stored(ents, source_text=d["md"])["score"]
@@ -338,7 +417,7 @@ def _extract_one(d: dict, batch: int, route: bool):
 
 
 def extract_docs(docs: list[dict], concurrency: int = 1,
-                 reuse: bool = True) -> int:
+                 reuse: bool = True, keep_more_lots: bool = False) -> int:
     """Extract each page and write it as soon as it returns. Mirrors the write in
     pipeline.load_extractions.run so the review surface reads it unchanged.
 
@@ -372,7 +451,8 @@ def extract_docs(docs: list[dict], concurrency: int = 1,
     ok = fail = 0
     t0 = time.time()
     with ThreadPoolExecutor(max_workers=concurrency) as ex:
-        futs = {ex.submit(_extract_one, d, batch, route): d for d in docs}
+        futs = {ex.submit(_extract_one, d, batch, route, keep_more_lots): d
+                for d in docs}
         done = 0
         for fut in as_completed(futs):
             d = futs[fut]
@@ -450,6 +530,12 @@ def main() -> int:
                          "text on a leader) is at least this many characters "
                          "— e.g. 30000 to redo just the notices the old "
                          "window cut")
+    ap.add_argument("--only", action="append", default=None, metavar="FILENAME",
+                    help="re-extract exactly this Document (repeatable); "
+                         "ignores every other selector")
+    ap.add_argument("--keep-more-lots", action="store_true",
+                    help="keep the stored extraction when a re-run finds "
+                         "fewer lots than it")
     ap.add_argument("--count-only", action="store_true",
                     help="print how many documents match and exit")
     args = ap.parse_args()
@@ -461,7 +547,10 @@ def main() -> int:
         if args.clear_only:
             return 0
 
-    if args.refresh:
+    if args.only:
+        docs = select_only_docs(args.only)
+        print(f"matched {len(docs)} of {len(args.only)} named document(s)")
+    elif args.refresh:
         docs = select_refresh_docs(args.min_ocr, args.min_score,
                                    args.single_lot, limit=args.limit,
                                    multi_lot=args.multi_lot,
@@ -492,7 +581,8 @@ def main() -> int:
     # served a copy of an earlier extraction — but both still extract each page
     # once rather than once per file name.
     return extract_docs(docs, concurrency=max(1, args.concurrency),
-                        reuse=not (args.stale or args.no_resume))
+                        reuse=not (args.stale or args.no_resume or args.only),
+                        keep_more_lots=args.keep_more_lots)
 
 
 if __name__ == "__main__":

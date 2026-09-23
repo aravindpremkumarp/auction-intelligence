@@ -18,6 +18,7 @@ import os
 from pipeline.config import (
     LANGEXTRACT_REASONING_OFF_MODELS,
     OPENROUTER_MODEL_EXTRACT_MULTI,
+    OPENROUTER_MODEL_EXTRACT_RETRY,
     OPENROUTER_MODEL_EXTRACT_SINGLE,
 )
 
@@ -71,6 +72,11 @@ def select_extract_model(notice_type: str | None) -> tuple[str, bool]:
     model = (OPENROUTER_MODEL_EXTRACT_MULTI if label == "multi"
              else OPENROUTER_MODEL_EXTRACT_SINGLE)
     return model, reasoning_off_for(model)
+
+
+def select_retry_model() -> tuple[str, bool]:
+    """The model for re-reading lots a first read missed (pipeline/lot_chunks)."""
+    return OPENROUTER_MODEL_EXTRACT_RETRY, reasoning_off_for(OPENROUTER_MODEL_EXTRACT_RETRY)
 
 
 def passes_for(notice_type: str | None) -> int:

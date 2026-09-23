@@ -1,0 +1,273 @@
+"""Chunked extraction for long multi-lot notices (pipeline/lot_chunks.py)."""
+from __future__ import annotations
+
+import re
+
+import pytest
+
+from pipeline import lot_chunks as LC
+from pipeline.lot_chunks import extract_chunked, find_lots, plan_chunks
+
+
+# ── fixtures: the three layouts ──────────────────────────────────────────────
+
+def _price_notice(n: int) -> str:
+    lots = [f"No.{i} Borrower B{i}. Property at Sy No {i}/1.\n"
+            f"Reserve price: Rs.{i},00,000/- | EMD: Rs.{i}0,000/-\n"
+            for i in range(1, n + 1)]
+    return ("# SALE NOTICE\nCanara Bank\n\n" + "\n".join(lots)
+            + "\nAuction date 24.06.2026. Bids not below the reserve price.\n")
+
+
+def _serial_notice(order) -> str:
+    """Tata-style rows: serial row, EMD row, possession row, description."""
+    rows = "".join(
+        f'<tr>\n<td rowspan="3">{i}</td>\n<td>MR. B{i}</td>\n'
+        f'<td>Rs. {i},00,000/-</td>\n</tr>\n<tr>\n<td>Earnest Money Deposit '
+        f'(EMD): - Rs.{i}0,000/-</td>\n</tr>\n<tr>\n<td>Type of possession: - '
+        f'Physical</td>\n</tr>\n<tr>\n<td colspan="3">Description: Sy No {i}/1, '
+        f'village V{i}.</td>\n</tr>\n'
+        for i in order)
+    return ("# TATA CAPITAL\n\n<table>\n<tr><th>Sr. No</th><th>Borrower</th>"
+            "<th>Reserve Price</th></tr>\n" + rows + "</table>\n\n"
+            "The E-auction will take place on 11-08-2026.\n")
+
+
+def _numbered_notice(n: int, clauses: int = 0) -> str:
+    lots = [f"{i}. Name and Details of the Borrower : Mr B{i}\n\n"
+            f"Details of the property : Plot {i}, Sy No {i}/2.\n\n"
+            f"Amount due Rs.{i},00,000 as on 05.06.2026.\n"
+            for i in range(1, n + 1)]
+    terms = "".join(f"{i}. The bidder shall comply with clause {i}.\n"
+                    for i in range(1, clauses + 1))
+    return "# DCB Bank\n\nSale notice.\n\n" + "\n".join(lots) + "\nTerms:\n" + terms
+
+
+# ── finding the lots ─────────────────────────────────────────────────────────
+
+def test_price_layout_cuts_after_every_k_price_lines():
+    md = _price_notice(12)
+    plan = plan_chunks(md, 12, lots_per_chunk=5)
+    assert plan.strategy == "price"
+    assert [c.lots for c in plan.chunks] == [5, 5, 2]
+    assert plan.chunks[0].start == 0
+    for a, b in zip(plan.chunks, plan.chunks[1:]):
+        assert a.end == b.start
+    assert plan.chunks[-1].end == plan.tail_start
+    assert md[plan.tail_start:].lstrip().startswith("Auction date")
+
+
+def test_price_lot_ends_at_its_table_row_when_the_table_is_one_line():
+    # HTML schedules often sit on one line: the line end would swallow every
+    # later lot and collapse the rest into empty lots.
+    cells = "".join(f"<tr><td>Lot {i} Sy No {i}/1</td></tr><tr><td>Reserve "
+                    f"Price: Rs.{i},00,000/-</td><td>EMD Rs.{i}0,000</td></tr>"
+                    for i in range(1, 8))
+    md = "Header\n<table>" + cells + "</table>\nTerms\n"
+    strategy, lots, _, _ = find_lots(md, 7)
+    assert strategy == "price" and len(lots) == 7
+    assert all(md[lot.start:lot.end].endswith("</tr>") for lot in lots)
+    assert all(lot.end > lot.start for lot in lots)
+
+
+def test_prose_mentions_of_reserve_price_are_not_lots():
+    # "not below the reserve price" in the tail has no amount → not a lot
+    assert plan_chunks(_price_notice(12), 12) is not None
+
+
+def test_serial_layout_keeps_continuation_rows_with_their_lot():
+    md = _serial_notice(range(1, 9))
+    plan = plan_chunks(md, 8, lots_per_chunk=5)
+    assert plan.strategy == "serial"
+    assert [lot.label for lot in plan.lots] == [str(i) for i in range(1, 9)]
+    lot3 = md[plan.lots[2].start:plan.lots[2].end]
+    assert "Rs.30,000" in lot3 and "Sy No 3/1" in lot3 and "Sy No 4/1" not in lot3
+    assert plan.head_end == plan.lots[0].start
+
+
+def test_serial_layout_accepts_pages_joined_out_of_order():
+    # tata-5: the second page was stitched ahead of the first
+    md = _serial_notice(list(range(5, 9)) + list(range(1, 5)))
+    strategy, lots, _, _ = find_lots(md, 8)
+    assert strategy == "serial"
+    assert [lot.label for lot in lots] == ["5", "6", "7", "8", "1", "2", "3", "4"]
+
+
+def test_numbered_layout_ignores_the_numbered_terms():
+    md = _numbered_notice(7, clauses=7)
+    strategy, lots, _, _ = find_lots(md, 7)
+    assert strategy == "numbered"
+    assert all("Name and Details" in md[lot.start:lot.end] for lot in lots)
+
+
+def test_a_numbered_run_without_money_is_not_lots():
+    md = "Intro\n" + "".join(f"{i}. The bidder shall comply with clause {i}.\n"
+                             for i in range(1, 8))
+    assert find_lots(md, 7) is None
+
+
+@pytest.mark.parametrize("expected", [11, 13, None])
+def test_no_cut_unless_the_count_matches_exactly(expected):
+    assert plan_chunks(_price_notice(12), expected) is None
+
+
+def test_short_notices_are_read_whole():
+    assert plan_chunks(_price_notice(4), 4, lots_per_chunk=5) is None
+
+
+def test_chunks_are_capped_in_characters(monkeypatch):
+    monkeypatch.setattr(LC, "CHUNK_CHAR_CAP", 120)
+    plan = plan_chunks(_price_notice(12), 12, lots_per_chunk=5)
+    assert all(c.lots < 5 for c in plan.chunks)
+    assert sum(c.lots for c in plan.chunks) == 12
+
+
+# ── a fake model ─────────────────────────────────────────────────────────────
+
+_BLOCK = re.compile(r"(?:No\.|<td rowspan=\"3\">)(\d+)")
+
+
+def _reader(drop=None, fail=None, log=None):
+    """Stands in for the model. Tags each lot block it sees with a LOCAL index
+    1..k (as the prompt asks), plus one notice-level date from the tail.
+    ``drop(call_no, real_lot)`` returns True to leave a lot out of that read;
+    ``fail(call_no)`` returns True to raise."""
+    calls = {"n": 0}
+
+    def read(text, lots, extra=None, strong=False):
+        calls["n"] += 1
+        n = calls["n"]
+        if log is not None:
+            log.append({"lots": lots, "extra": extra, "strong": strong})
+        if fail and fail(n):
+            raise RuntimeError("provider error")
+        out, local = [], 0
+        for m in _BLOCK.finditer(text):
+            real = int(m.group(1))
+            if drop and drop(n, real):
+                continue
+            local += 1
+            out.append({"id": "x", "cls": "borrower", "text": m.group(0),
+                        "start": m.start(), "end": m.end(),
+                        "attrs": {"lot_index": str(local), "real": str(real)}})
+        d = text.find("24.06.2026")
+        if d >= 0:
+            out.append({"id": "x", "cls": "auction_date", "text": "24.06.2026",
+                        "start": d, "end": d + 10, "attrs": {}})
+        return out
+    return read
+
+
+# ── stitching ────────────────────────────────────────────────────────────────
+
+def test_lots_are_numbered_by_position_not_by_the_models_index():
+    md = _price_notice(12)
+    ents = extract_chunked(md, plan_chunks(md, 12, lots_per_chunk=5), _reader())
+    lots = [e for e in ents if e["cls"] == "borrower"]
+    assert [e["attrs"]["lot_index"] for e in lots] == [str(i) for i in range(1, 13)]
+    assert all(e["attrs"]["lot_index"] == e["attrs"]["real"] for e in lots)
+    assert all(md[e["start"]:e["end"]] == e["text"] for e in ents)
+
+
+def test_a_model_that_misnumbers_is_corrected_by_position():
+    md = _price_notice(10)
+
+    def read(text, lots, extra=None, strong=False):
+        ents = _reader()(text, lots)
+        for e in ents:                       # every lot claims to be lot 1
+            if e["attrs"].get("lot_index"):
+                e["attrs"]["lot_index"] = "1"
+        return ents
+    ents = extract_chunked(md, plan_chunks(md, 10, lots_per_chunk=5), read)
+    lots = [e for e in ents if e["cls"] == "borrower"]
+    assert [e["attrs"]["lot_index"] for e in lots] == [str(i) for i in range(1, 11)]
+
+
+def test_notice_level_entities_are_kept_once():
+    md = _price_notice(12)
+    ents = extract_chunked(md, plan_chunks(md, 12, lots_per_chunk=5), _reader())
+    dates = [e for e in ents if e["cls"] == "auction_date"]
+    assert len(dates) == 1
+    assert md[dates[0]["start"]:dates[0]["end"]] == "24.06.2026"
+    assert [e["id"] for e in ents] == [str(i) for i in range(len(ents))]
+
+
+def test_an_ungrounded_lot_entity_follows_its_lots_grounded_ones():
+    md = _price_notice(10)
+
+    def read(text, lots, extra=None, strong=False):
+        ents = _reader()(text, lots)
+        ents.append({"id": "x", "cls": "outstanding", "text": "?", "start": None,
+                     "end": None, "attrs": {"lot_index": "2"}})
+        return ents
+    ents = extract_chunked(md, plan_chunks(md, 10, lots_per_chunk=5), read)
+    ungrounded = [e["attrs"]["lot_index"] for e in ents if e["cls"] == "outstanding"]
+    assert ungrounded == ["2", "7"]     # local lot 2 of each chunk
+
+
+def test_serial_chunks_repeat_the_table_header_and_name_the_serials():
+    md = _serial_notice(range(1, 9))
+    log = []
+    extract_chunked(md, plan_chunks(md, 8, lots_per_chunk=5), _reader(log=log))
+    assert log[1]["lots"] == 3
+    assert "numbered 6–8 in the notice" in log[1]["extra"]
+    assert "lots 6–8" in log[1]["extra"]
+
+
+def test_serial_chunk_text_carries_the_table_header():
+    md = _serial_notice(range(1, 9))
+    plan = plan_chunks(md, 8, lots_per_chunk=5)
+    t = LC._compose(md, plan, list(range(5, 8)))
+    assert "<th>Sr. No</th>" in t.text and "The E-auction" in t.text
+
+
+# ── the retry ladder ─────────────────────────────────────────────────────────
+
+def test_a_missed_lot_is_reread_on_its_own():
+    md = _price_notice(10)
+    log = []
+    read = _reader(drop=lambda n, real: n == 1 and real in (2, 4), log=log)
+    ents = extract_chunked(md, plan_chunks(md, 10, lots_per_chunk=5), read)
+    lots = sorted({e["attrs"]["lot_index"] for e in ents if e["cls"] == "borrower"},
+                  key=int)
+    assert lots == [str(i) for i in range(1, 11)]
+    assert log[1]["lots"] == 2 and not log[1]["strong"]   # focused, lots 2 and 4
+    assert len(log) == 3                                   # chunk1, retry, chunk2
+
+
+def test_the_ladder_escalates_then_stops():
+    md = _price_notice(10)
+    log = []
+    # lot 3 is never read, whatever the attempt
+    read = _reader(drop=lambda n, real: real == 3, log=log)
+    ents = extract_chunked(md, plan_chunks(md, 10, lots_per_chunk=5), read)
+    assert "3" not in {e["attrs"]["lot_index"] for e in ents if e["cls"] == "borrower"}
+    first_chunk = log[:4]
+    assert [r["strong"] for r in first_chunk] == [False, False, True, True]
+    assert first_chunk[1]["lots"] == 1 and first_chunk[3]["lots"] == 5
+    assert "an earlier read found only 4" in first_chunk[3]["extra"]
+
+
+def test_a_failed_retry_keeps_what_was_read():
+    md = _price_notice(10)
+    read = _reader(drop=lambda n, real: n == 1 and real == 2,
+                   fail=lambda n: n in (2, 3, 4))
+    ents = extract_chunked(md, plan_chunks(md, 10, lots_per_chunk=5), read)
+    lots = {e["attrs"]["lot_index"] for e in ents if e["cls"] == "borrower"}
+    assert lots == {str(i) for i in range(1, 11)} - {"2"}
+
+
+def test_retries_zero_keeps_the_first_read():
+    md = _price_notice(10)
+    read = _reader(drop=lambda n, real: real != 1 and real != 6)
+    ents = extract_chunked(md, plan_chunks(md, 10, lots_per_chunk=5), read,
+                           retries=0)
+    assert len([e for e in ents if e["cls"] == "borrower"]) == 2
+
+
+def test_lots_read_counts_distinct_lots_with_evidence():
+    ents = [{"cls": "borrower", "attrs": {"lot_index": "1"}},
+            {"cls": "extent", "attrs": {"lot_index": "1"}},
+            {"cls": "borrower", "attrs": {"lot_index": "2"}},
+            {"cls": "contact", "attrs": {}}]
+    assert LC.lots_read(ents) == 2

@@ -157,6 +157,14 @@ def _write_cypher(monkeypatch, entities=None) -> str:
     stub = types.ModuleType("pipeline.langextract_examples")
     stub.extract = lambda *a, **k: _Res()
     monkeypatch.setitem(sys.modules, "pipeline.langextract_examples", stub)
+    # The key-entity stamp is its own Neo4j write; without this the test talks
+    # to whatever database a local .env points at.
+    import pipeline
+    ke = types.ModuleType("pipeline.key_entities")
+    ke.stamp_key_scores = lambda fns: None
+    monkeypatch.setitem(sys.modules, "pipeline.key_entities", ke)
+    monkeypatch.setattr(pipeline, "key_entities", ke, raising=False)
+    monkeypatch.setattr(pipeline, "langextract_examples", stub, raising=False)
 
     R._extract_one({"filename": "x.jpg", "md": "text"}, batch=1, route=False)
     return cap.cypher

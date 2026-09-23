@@ -81,7 +81,7 @@ import requests
 from pipeline import datalab_api
 from pipeline.config import datalab_mode_for
 from pipeline.datalab import parse_datalab_blocks
-from pipeline.ink_coverage import score_ink_coverage
+from pipeline.ink_coverage import score_document_ink
 from pipeline.mineru import assemble_markdown
 from scripts.score_ink_coverage import nq
 
@@ -94,7 +94,10 @@ LEGACY_CUTOFF = "2026-07-22"
 def select_targets(notice_type: str, limit: int | None, *,
                    cohort: str = "blockless",
                    before: str = LEGACY_CUTOFF) -> list[dict]:
-    """Documents with text and a raster source, narrowed by ``cohort``.
+    """Documents with text and a raster or PDF source, narrowed by ``cohort``.
+
+    PDFs are measured on their worst page (``score_document_ink``), the same
+    verdict the corpus ink pass uses.
 
     ``blockless``     — no block layer yet (the original target set).
     ``legacy-mineru`` — still on MinerU markdown loaded before ``before``, and
@@ -104,7 +107,7 @@ def select_targets(notice_type: str, limit: int | None, *,
     """
     where = ["d.markdown IS NOT NULL", "d.markdown <> ''",
              "d.public_url IS NOT NULL",
-             "toLower(d.public_url) =~ '.*\\\\.(png|jpg|jpeg|webp)$'"]
+             "toLower(d.public_url) =~ '.*\\\\.(png|jpg|jpeg|webp|pdf)$'"]
     params: dict = {}
     if cohort == "legacy-mineru":
         where += ["d.markdown_source = 'mineru'",
@@ -174,7 +177,7 @@ def backfill_one(t: dict) -> dict:
             b["id"] = _bid()
 
         text = result.get("markdown") or assemble_markdown(blocks)
-        region = score_ink_coverage(img, blocks)
+        region = score_document_ink(img, blocks)
         out["blocks"] = blocks
         out["pq"] = datalab_api.parse_quality(result)
         out["ratio"] = region["uncovered_ratio"]

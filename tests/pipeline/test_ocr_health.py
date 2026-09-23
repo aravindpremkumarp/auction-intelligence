@@ -732,3 +732,74 @@ def test_text_flags_and_the_ink_flag_stack(live):
     row = written[0]
     assert set(row["flags"]) == {"token-leak", "missing-region"}
     assert row["score"] == 100 - OH.PENALTY["token-leak"] - OH.PENALTY["missing-region"]
+
+
+# ── shadow_region: a verdict on text whose blocks came from another engine ──
+# 398 notices carry Datalab blocks over MinerU markdown, so the ink reading
+# measures Datalab, not the stored text, and the default pass skips them — they
+# were never checked for missing-region at all. Paired with Datalab's text
+# length over ours, that reading can still say something about the stored text.
+
+def _datalab(flag: bool, ratio: float = 0.05) -> dict:
+    return {"uncovered_ratio": ratio, "flag": flag, "details": {}}
+
+
+def test_shadow_whole_page_and_same_text_is_clean():
+    v = OH.shadow_region(_datalab(False), 1.01)
+    h = score_ocr_health(CLEAN_MD, region=v)
+    assert h["flags"] == [] and h["score"] == 100
+
+
+def test_shadow_whole_page_and_more_text_is_missing_region():
+    v = OH.shadow_region(_datalab(False), OH.SHADOW_TEXT_GAP_MIN_GAIN)
+    h = score_ocr_health(CLEAN_MD, region=v)
+    assert h["flags"] == ["missing-region"]
+    assert h["score"] == 100 - OH.PENALTY["missing-region"]
+    assert h["details"]["missing_region"]["source"] == "shadow"
+
+
+def test_shadow_pdf_uses_its_own_baseline():
+    # Every backfilled PDF reads ~1.16x under Datalab — engine difference, not
+    # lost content — so the ordinary line would flag them all.
+    gain = OH.SHADOW_TEXT_GAP_MIN_GAIN + 0.01
+    assert OH.shadow_region(_datalab(False), gain, is_pdf=True)["flag"] is False
+    assert OH.shadow_region(_datalab(False), OH.SHADOW_TEXT_GAP_MIN_GAIN_PDF,
+                            is_pdf=True)["flag"] is True
+
+
+def test_shadow_datalab_missed_too_is_unverified_not_a_defect():
+    # Datalab's own miss says nothing about the MinerU text, so no penalty —
+    # but the notice is marked, so it counts as checked and stays findable.
+    v = OH.shadow_region(_datalab(True, 0.3), 3.0)
+    h = score_ocr_health(CLEAN_MD, region=v)
+    assert h["flags"] == ["region-unverified"]
+    assert h["score"] == 100
+
+
+def test_shadow_without_both_readings_is_no_verdict():
+    assert OH.shadow_region(None, 1.0) is None
+    assert OH.shadow_region(_datalab(False), None) is None
+    assert OH.shadow_region({"uncovered_ratio": None, "flag": False}, 1.0) is None
+
+
+def test_unverified_does_not_clear_a_standing_missing_region():
+    v = OH.shadow_region(_datalab(True, 0.3), 1.0)
+    h = score_ocr_health(CLEAN_MD, region=v, prior_flags=["missing-region"])
+    assert h["flags"] == ["missing-region"]
+
+
+def test_region_unverified_survives_a_text_only_rescore():
+    h = score_ocr_health(CLEAN_MD, prior_flags=["region-unverified"])
+    assert h["flags"] == ["region-unverified"]
+    assert h["score"] == 100
+
+
+def test_a_real_ink_reading_replaces_region_unverified():
+    h = score_ocr_health(CLEAN_MD, region=_datalab(False),
+                         prior_flags=["region-unverified"])
+    assert h["flags"] == []
+
+
+def test_region_unverified_is_in_the_canonical_vocabulary():
+    assert "region-unverified" in OH.HEALTH_FLAGS
+    assert OH.PENALTY["region-unverified"] == 0
