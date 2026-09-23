@@ -19,8 +19,13 @@
 <script src="https://cdn.jsdelivr.net/npm/katex@0.16.10/dist/katex.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/katex@0.16.10/dist/contrib/auto-render.min.js"></script>
 <script src="/auth.js"></script>
+<script>
+  // Dark mode before first paint, so a dark reviewer never sees a white flash.
+  try { if (localStorage.getItem('reviewTheme') === 'dark') document.documentElement.classList.add('rv-dark'); } catch (_) {}
+</script>
 <style>
-  :root { --ink: #1a1a1a; --paper: #faf7f0; --accent: #ffd84d; --danger: #d64a2e; --good: #2e8b57; --muted: #8a8a8a; }
+  :root { --ink: #1a1a1a; --paper: #faf7f0; --accent: #ffd84d; --danger: #d64a2e; --good: #2e8b57; --muted: #8a8a8a;
+          --card: #fff; --card-2: #f3f0e7; }
   body { margin: 0; background: var(--paper); color: var(--ink); font-family: 'Kalam', cursive; padding: 18px; }
   h1 { font-family: 'Caveat', cursive; font-size: 32px; margin: 0 0 12px; }
   h1 em { background: var(--accent); padding: 0 6px; font-style: normal; }
@@ -29,7 +34,7 @@
   a, button, select, input, textarea { font-family: 'IBM Plex Mono', monospace; font-size: 13px; }
   .link { color: var(--ink); text-decoration: underline; }
   .actions { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
-  .actions input[type="search"] { padding: 6px 10px; border: 1.5px solid var(--ink); background: #fff; min-width: 220px; }
+  .actions input[type="search"] { padding: 6px 10px; border: 1.5px solid var(--ink); background: var(--card); min-width: 220px; }
   /* Dense filter rows. The queue previously spent six stacked rows — over half
      a laptop viewport — on controls, pushing the actual work below the fold.
      Same controls, three rows, tighter metrics. */
@@ -41,7 +46,7 @@
   .actions.filters .fhint { color: var(--muted); font-size: 11px; }
   .actions.filters button { padding: 3px 9px; min-height: 26px; }
   .actions.filters input[type="date"],
-  .actions.filters input[type="number"] { padding: 3px 6px; border: 1.5px solid var(--ink); background: #fff; }
+  .actions.filters input[type="number"] { padding: 3px 6px; border: 1.5px solid var(--ink); background: var(--card); }
   .actions.filters input[type="number"] { width: 52px; }
   .actions.filters input[type="search"] { padding: 3px 8px; min-width: 190px; }
   /* The masthead is fixed chrome on every screen — trim it too, since the
@@ -69,7 +74,7 @@
      baseline (the widest stage) and carries its own count — no colour coding
      beyond "this stage is where work stops". */
   .ov-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
-  .ov-panel { border: 1.5px solid var(--ink); background: #fff; padding: 12px 14px; }
+  .ov-panel { border: 1.5px solid var(--ink); background: var(--card); padding: 12px 14px; }
   .ov-head { display: flex; justify-content: space-between; align-items: baseline;
              gap: 10px; font-weight: 600; font-size: 13px; text-transform: uppercase;
              letter-spacing: .06em; border-bottom: 1px solid var(--ink);
@@ -132,7 +137,7 @@
                         white-space: normal; word-break: break-word; }
   .lot-lbl { font-size: 11px; text-transform: uppercase; letter-spacing: .06em;
              color: var(--muted); font-weight: 600; margin: 10px 0 4px; }
-  .lot-desc { border: 1px solid var(--muted); background: #fff; padding: 7px 9px;
+  .lot-desc { border: 1px solid var(--muted); background: var(--card); padding: 7px 9px;
               font-size: 12.5px; line-height: 1.5; max-height: 160px;
               overflow-y: auto; white-space: pre-wrap; word-break: break-word; }
   .ov-bar.drop { background: #e8b4ae; }
@@ -141,7 +146,7 @@
   .ov-num { font-family: 'IBM Plex Mono', monospace; font-size: 12px; text-align: right;
             font-variant-numeric: tabular-nums; }
   .ov-num small { color: var(--muted); }
-  .ov-callout { border: 1.5px solid var(--ink); border-left-width: 6px; background: #fff;
+  .ov-callout { border: 1.5px solid var(--ink); border-left-width: 6px; background: var(--card);
                 padding: 10px 14px; margin-bottom: 16px; font-size: 14px; }
   .ov-callout b { font-family: 'IBM Plex Mono', monospace; }
   .ov-line { display: flex; justify-content: space-between; align-items: center;
@@ -159,7 +164,7 @@
   .pill.bad { background: #f5c6c6; }
   .muted { color: #999; }
   .pill.danger { background: #ffd4cc; }
-  button { padding: 6px 12px; border: 1.5px solid var(--ink); background: #fff; cursor: pointer; min-height: 32px; }
+  button { padding: 6px 12px; border: 1.5px solid var(--ink); background: var(--card); cursor: pointer; min-height: 32px; }
   button.primary { background: var(--accent); font-weight: 600; }
   button.danger { background: var(--danger); color: #fff; }
   button.ghost { background: transparent; }
@@ -168,21 +173,21 @@
   .err { color: var(--danger); font-weight: 600; }
   .ok { color: var(--good); font-weight: 600; }
   /* Queue */
-  .table-scroll { overflow-x: auto; border: 2px solid var(--ink); box-shadow: 2px 3px 0 rgba(0,0,0,0.9); background: #fff; }
-  table { width: 100%; border-collapse: collapse; background: #fff; font-family: 'IBM Plex Mono', monospace; font-size: 13px; min-width: 900px; }
+  .table-scroll { overflow-x: auto; border: 2px solid var(--ink); box-shadow: 2px 3px 0 rgba(0,0,0,0.9); background: var(--card); }
+  table { width: 100%; border-collapse: collapse; background: var(--card); font-family: 'IBM Plex Mono', monospace; font-size: 13px; min-width: 900px; }
   th, td { border-bottom: 1px dashed rgba(0,0,0,0.15); padding: 8px 10px; text-align: left; vertical-align: top; }
   th { background: var(--accent); font-weight: 600; }
   td.row-actions { white-space: nowrap; }
-  tr.pending td { background: #fff; }
+  tr.pending td { background: var(--card); }
   tr.verified td { background: #f6fbf6; }
   tr.edited td { background: #fffbf0; }
   /* Detail */
   /* Sibling switcher — step through the lots of a multi-property notice
      without leaving the description/notice review view. */
-  .sibling-nav { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; padding: 8px 10px; border: 2px solid var(--ink); background: #fff; box-shadow: 2px 3px 0 rgba(0,0,0,0.9); }
+  .sibling-nav { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; padding: 8px 10px; border: 2px solid var(--ink); background: var(--card); box-shadow: 2px 3px 0 rgba(0,0,0,0.9); }
   .sibling-nav .sib-label { font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--muted); white-space: nowrap; }
   .sib-list { display: flex; gap: 6px; overflow-x: auto; flex: 1; padding-bottom: 2px; }
-  .sib-item { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border: 1.5px solid var(--ink); background: #fff; cursor: pointer; font-family: 'IBM Plex Mono', monospace; font-size: 12px; white-space: nowrap; text-decoration: none; color: var(--ink); }
+  .sib-item { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border: 1.5px solid var(--ink); background: var(--card); cursor: pointer; font-family: 'IBM Plex Mono', monospace; font-size: 12px; white-space: nowrap; text-decoration: none; color: var(--ink); }
   .sib-item:hover { background: var(--paper); }
   .sib-item.current { background: var(--accent); font-weight: 600; cursor: default; }
   .sib-num { color: var(--muted); }
@@ -191,12 +196,12 @@
   .sib-dot { width: 8px; height: 8px; border-radius: 50%; border: 1px solid var(--ink); flex: none; }
   .sib-dot.pending { background: #ffb066; }
   .sib-dot.verified, .sib-dot.edited { background: #5ec25e; }
-  .sib-arrow { flex: none; padding: 2px 9px; border: 1.5px solid var(--ink); background: #fff; cursor: pointer; font-family: 'IBM Plex Mono', monospace; font-size: 15px; line-height: 1.2; color: var(--ink); }
+  .sib-arrow { flex: none; padding: 2px 9px; border: 1.5px solid var(--ink); background: var(--card); cursor: pointer; font-family: 'IBM Plex Mono', monospace; font-size: 15px; line-height: 1.2; color: var(--ink); }
   .sib-arrow:hover:not(:disabled) { background: var(--accent); }
   .sib-arrow:disabled { opacity: 0.35; cursor: default; }
   .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
   @media (max-width: 1100px) { .detail-grid { grid-template-columns: 1fr; } }
-  .pane { border: 2px solid var(--ink); background: #fff; box-shadow: 2px 3px 0 rgba(0,0,0,0.9); padding: 12px; }
+  .pane { border: 2px solid var(--ink); background: var(--card); box-shadow: 2px 3px 0 rgba(0,0,0,0.9); padding: 12px; }
   .pane h2 { margin-top: 0; }
   .pane.left { padding: 0; overflow: hidden; min-height: 70vh; display: flex; flex-direction: column; }
   .pane.left .pane-header { padding: 10px 12px; border-bottom: 2px solid var(--ink); display: flex; gap: 10px; align-items: center; flex-wrap: wrap; background: var(--paper); }
@@ -214,20 +219,20 @@
   .iz-surface img { user-select: none; -webkit-user-select: none; -webkit-user-drag: none; }
   .iz-controls { position: absolute; top: 0; right: 8px; z-index: 6; display: inline-flex; gap: 3px; align-items: center; padding: 3px 5px; background: rgba(20,20,20,0.72); border: 1px solid rgba(255,255,255,0.28); border-radius: 4px; opacity: 0.4; transition: opacity 0.12s; will-change: transform; }
   .iz-surface:hover .iz-controls, .iz-controls:hover { opacity: 1; }
-  .iz-controls .iz-btn { min-height: 0; padding: 1px 7px; font-family: 'IBM Plex Mono', monospace; font-size: 14px; line-height: 1.4; background: #fff; color: var(--ink); border: 1px solid var(--ink); border-radius: 3px; cursor: pointer; }
+  .iz-controls .iz-btn { min-height: 0; padding: 1px 7px; font-family: 'IBM Plex Mono', monospace; font-size: 14px; line-height: 1.4; background: var(--card); color: var(--ink); border: 1px solid var(--ink); border-radius: 3px; cursor: pointer; }
   .iz-controls .iz-btn:hover { background: var(--accent); }
   .iz-controls .iz-pct { min-width: 34px; text-align: center; font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #fff; user-select: none; }
   .meta { font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--ink); }
   .meta dt { color: var(--muted); font-weight: 400; display: inline-block; min-width: 100px; }
   .meta dd { margin: 0 0 4px 0; display: inline; }
   .meta .row { margin-bottom: 4px; }
-  .desc-textarea { width: 100%; box-sizing: border-box; min-height: 360px; padding: 10px; border: 1.5px solid var(--ink); font-family: 'IBM Plex Mono', monospace; font-size: 13px; line-height: 1.45; resize: vertical; background: #fff; color: var(--ink); }
-  .desc-textarea[readonly] { background: #f3f0e7; color: var(--ink); }
+  .desc-textarea { width: 100%; box-sizing: border-box; min-height: 360px; padding: 10px; border: 1.5px solid var(--ink); font-family: 'IBM Plex Mono', monospace; font-size: 13px; line-height: 1.45; resize: vertical; background: var(--card); color: var(--ink); }
+  .desc-textarea[readonly] { background: var(--card-2); color: var(--ink); }
   .desc-head { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
   .desc-head h2 { margin: 0; flex: 1; }
   .desc-head .md-toggle { display: inline-flex; gap: 4px; }
   .desc-head .md-toggle button { padding: 1px 8px; font-size: 11px; min-height: 0; }
-  .desc-preview { box-sizing: border-box; width: 100%; min-height: 360px; max-height: 60vh; padding: 10px; border: 1.5px solid var(--ink); background: #fff; overflow: auto; }
+  .desc-preview { box-sizing: border-box; width: 100%; min-height: 360px; max-height: 60vh; padding: 10px; border: 1.5px solid var(--ink); background: var(--card); overflow: auto; }
   .md-section { margin-bottom: 14px; border: 1.5px solid var(--ink); background: var(--paper); }
   .md-section .md-header { padding: 6px 10px; border-bottom: 1.5px solid var(--ink); font-family: 'Caveat', cursive; font-size: 20px; display: flex; align-items: center; gap: 8px; }
   .md-section .md-header .md-title { flex: 1; }
@@ -235,14 +240,14 @@
   .md-section .md-header .md-toggle button { padding: 1px 8px; font-size: 11px; min-height: 0; }
   .md-section .markdown-body { max-height: 40vh; }
   .markdown-body.rendered { white-space: normal; font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; line-height: 1.5; }
-  .markdown-body.rendered table { width: 100%; min-width: 0; border-collapse: collapse; margin: 8px 0; background: #fff; font-size: 12px; }
+  .markdown-body.rendered table { width: 100%; min-width: 0; border-collapse: collapse; margin: 8px 0; background: var(--card); font-size: 12px; }
   .markdown-body.rendered th, .markdown-body.rendered td { border: 1px solid var(--ink); padding: 6px 8px; vertical-align: top; text-align: left; }
   .markdown-body.rendered th { background: var(--accent); font-weight: 600; }
   .markdown-body.rendered p { margin: 6px 0; }
   .markdown-body.rendered h1, .markdown-body.rendered h2, .markdown-body.rendered h3 { font-family: 'Caveat', cursive; margin: 10px 0 4px; }
   .markdown-body.rendered ul, .markdown-body.rendered ol { margin: 6px 0 6px 20px; padding: 0; }
-  .markdown-body.rendered code { background: #f3f0e7; padding: 1px 4px; }
-  .markdown-body.rendered pre { background: #f3f0e7; padding: 8px; overflow-x: auto; }
+  .markdown-body.rendered code { background: var(--card-2); padding: 1px 4px; }
+  .markdown-body.rendered pre { background: var(--card-2); padding: 8px; overflow-x: auto; }
   .markdown-body.rendered blockquote { border-left: 3px solid var(--muted); margin: 6px 0; padding: 2px 10px; color: #555; }
   .markdown-body.rendered img { max-width: 100%; height: auto; }
   /* Highlight the OCR block(s) matching a tracked property (review panels). */
@@ -261,7 +266,7 @@
   .md-find { display: inline-flex; gap: 4px; align-items: center; }
   .md-find input[type="search"] {
     padding: 2px 8px; font-size: 11px; min-height: 0;
-    border: 1.5px solid var(--ink); background: #fff; min-width: 130px;
+    border: 1.5px solid var(--ink); background: var(--card); min-width: 130px;
   }
   .md-find .md-find-count { font-size: 11px; color: var(--muted); min-width: 30px; text-align: center; }
   .md-find button { padding: 1px 7px; font-size: 11px; min-height: 0; }
@@ -273,16 +278,16 @@
   .button-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
   .button-row .spacer { flex: 1; }
   .audit { margin-top: 14px; font-size: 11px; color: var(--muted); font-family: 'IBM Plex Mono', monospace; }
-  .audit code { background: #f3f0e7; padding: 1px 4px; }
+  .audit code { background: var(--card-2); padding: 1px 4px; }
   details.diff { margin-top: 8px; font-size: 12px; }
-  details.diff pre { background: #f3f0e7; padding: 8px; overflow: auto; max-height: 200px; }
+  details.diff pre { background: var(--card-2); padding: 8px; overflow: auto; max-height: 200px; }
   .hidden { display: none !important; }
   .stats { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-family: 'IBM Plex Mono', monospace; font-size: 12px; }
   .empty { padding: 16px; color: var(--muted); font-family: 'Kalam', cursive; text-align: center; }
   /* Notice grouping */
   .group-toggle { display: inline-flex; gap: 4px; }
   .notice-list { display: flex; flex-direction: column; gap: 12px; }
-  .notice-card { border: 2px solid var(--ink); background: #fff; box-shadow: 2px 3px 0 rgba(0,0,0,0.9); }
+  .notice-card { border: 2px solid var(--ink); background: var(--card); box-shadow: 2px 3px 0 rgba(0,0,0,0.9); }
   .notice-card > summary { list-style: none; padding: 10px 14px; cursor: pointer; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; background: var(--paper); border-bottom: 2px solid var(--ink); }
   .notice-card > summary::-webkit-details-marker { display: none; }
   .notice-card > summary::before { content: '▸'; font-family: 'IBM Plex Mono', monospace; font-size: 11px; width: 12px; display: inline-block; transition: transform 0.15s; }
@@ -296,8 +301,8 @@
   .notice-card > summary .nlinks { display: inline-flex; gap: 10px; }
   .notice-card .ntable { width: 100%; border-collapse: collapse; }
   .notice-card .ntable th, .notice-card .ntable td { border-bottom: 1px dashed rgba(0,0,0,0.15); padding: 6px 12px; text-align: left; vertical-align: top; font-family: 'IBM Plex Mono', monospace; font-size: 12px; }
-  .notice-card .ntable th { background: #f3f0e7; font-weight: 600; }
-  .notice-card .ntable tr.pending td { background: #fff; }
+  .notice-card .ntable th { background: var(--card-2); font-weight: 600; }
+  .notice-card .ntable tr.pending td { background: var(--card); }
   .notice-card .ntable tr.verified td { background: #f6fbf6; }
   .notice-card .ntable tr.edited td { background: #fffbf0; }
   /* Markdown review card: side-by-side source + markdown */
@@ -317,19 +322,19 @@
   .mdcard-md-header button.pill { padding: 1px 8px; font-size: 11px; min-height: 0; }
   .mdcard-md-body { flex: 1; overflow: auto; padding: 10px; white-space: pre-wrap; font-family: 'IBM Plex Mono', monospace; font-size: 12px; line-height: 1.45; }
   .mdcard-md-body.rendered { white-space: normal; font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; line-height: 1.5; }
-  .mdcard-md-body.rendered table { width: 100%; border-collapse: collapse; margin: 8px 0; background: #fff; font-size: 12px; }
+  .mdcard-md-body.rendered table { width: 100%; border-collapse: collapse; margin: 8px 0; background: var(--card); font-size: 12px; }
   .mdcard-md-body.rendered th, .mdcard-md-body.rendered td { border: 1px solid var(--ink); padding: 6px 8px; vertical-align: top; text-align: left; }
   .mdcard-md-body.rendered th { background: var(--accent); font-weight: 600; }
   .mdcard-md-body.rendered p { margin: 6px 0; }
   .mdcard-md-body.rendered h1, .mdcard-md-body.rendered h2, .mdcard-md-body.rendered h3 { font-family: 'Caveat', cursive; margin: 10px 0 4px; }
   .mdcard-md-body.rendered ul, .mdcard-md-body.rendered ol { margin: 6px 0 6px 20px; padding: 0; }
-  .mdcard-md-body.rendered code { background: #f3f0e7; padding: 1px 4px; }
-  .mdcard-md-body.rendered pre { background: #f3f0e7; padding: 8px; overflow-x: auto; }
+  .mdcard-md-body.rendered code { background: var(--card-2); padding: 1px 4px; }
+  .mdcard-md-body.rendered pre { background: var(--card-2); padding: 8px; overflow-x: auto; }
   .mdcard-md-body.rendered img { max-width: 100%; height: auto; }
   .mdcard-actions { display: flex; gap: 8px; align-items: center; padding: 10px 12px; border-top: 1px dashed rgba(0,0,0,0.15); }
   .mdcard-notes { display: block; box-sizing: border-box; width: calc(100% - 24px); margin: 0 12px; padding: 6px 8px; border: 1.5px solid var(--ink); font-family: 'IBM Plex Mono', monospace; font-size: 12px; }
   /* Classification cards */
-  .class-card { border: 2px solid var(--ink); background: #fff; box-shadow: 2px 3px 0 rgba(0,0,0,0.9); padding: 12px 14px; display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .class-card { border: 2px solid var(--ink); background: var(--card); box-shadow: 2px 3px 0 rgba(0,0,0,0.9); padding: 12px 14px; display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
   @media (max-width: 1100px) { .class-card { grid-template-columns: 1fr; } }
   .class-card .cfile { font-family: 'IBM Plex Mono', monospace; font-size: 13px; font-weight: 600; margin-bottom: 6px; word-break: break-all; }
   .class-card .crow { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 6px; }
@@ -343,7 +348,7 @@
   @media (max-width: 1100px) { .gallery-grid { grid-template-columns: 1fr; } }
   .gallery-left { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; align-content: start; }
   /* Preview pane sticks below the sticky head, not under it. */
-  .gallery-right { position: sticky; top: calc(var(--head-h, 0px) + 8px); border: 2px solid var(--ink); background: #fff; box-shadow: 2px 3px 0 rgba(0,0,0,0.9); display: flex; flex-direction: column; max-height: calc(100vh - var(--head-h, 0px) - 20px); overflow: hidden; }
+  .gallery-right { position: sticky; top: calc(var(--head-h, 0px) + 8px); border: 2px solid var(--ink); background: var(--card); box-shadow: 2px 3px 0 rgba(0,0,0,0.9); display: flex; flex-direction: column; max-height: calc(100vh - var(--head-h, 0px) - 20px); overflow: hidden; }
   .gallery-right .gr-header { padding: 10px 12px; border-bottom: 2px solid var(--ink); background: var(--paper); flex-shrink: 0; }
   .gallery-right .gr-title { font-family: 'IBM Plex Mono', monospace; font-size: 13px; font-weight: 600; word-break: break-all; margin-bottom: 6px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
   .gallery-right .gr-title .gr-fname { flex: 1; min-width: 0; }
@@ -355,13 +360,13 @@
   .gallery-right .gr-body .image-body { flex: 1; display: flex; justify-content: center; align-items: flex-start; overflow: auto; padding: 8px; background: #2a2a2a; }
   .gallery-right .gr-body .image-body img { max-width: 100%; height: auto; background: #fff; }
   .gallery-right .gr-empty { padding: 16px; color: var(--muted); font-family: 'Kalam', cursive; text-align: center; flex: 1; display: flex; align-items: center; justify-content: center; }
-  .gallery-right .kbd { font-family: 'IBM Plex Mono', monospace; font-size: 10px; padding: 1px 4px; border: 1px solid var(--ink); background: #fff; color: var(--ink); margin-left: 4px; }
+  .gallery-right .kbd { font-family: 'IBM Plex Mono', monospace; font-size: 10px; padding: 1px 4px; border: 1px solid var(--ink); background: var(--card); color: var(--ink); margin-left: 4px; }
   .gallery-right .gr-audit { font-size: 11px; color: var(--muted); font-family: 'IBM Plex Mono', monospace; margin-top: 6px; }
-  .gallery-right .gr-audit code { background: #f3f0e7; padding: 1px 4px; }
-  .thumb { border: 2px solid var(--ink); background: #fff; box-shadow: 2px 3px 0 rgba(0,0,0,0.9); cursor: pointer; display: flex; flex-direction: column; height: 220px; overflow: hidden; position: relative; }
+  .gallery-right .gr-audit code { background: var(--card-2); padding: 1px 4px; }
+  .thumb { border: 2px solid var(--ink); background: var(--card); box-shadow: 2px 3px 0 rgba(0,0,0,0.9); cursor: pointer; display: flex; flex-direction: column; height: 220px; overflow: hidden; position: relative; }
   .thumb:hover { transform: translate(-1px, -1px); box-shadow: 3px 4px 0 rgba(0,0,0,0.9); }
   .thumb.selected { border-color: var(--accent); border-width: 3px; height: 218px; }
-  .thumb-body { flex: 1; display: flex; justify-content: center; align-items: center; overflow: hidden; background: #f3f0e7; position: relative; }
+  .thumb-body { flex: 1; display: flex; justify-content: center; align-items: center; overflow: hidden; background: var(--card-2); position: relative; }
   .thumb-body img { width: 100%; height: 100%; object-fit: cover; }
   .thumb-body .pdf-icon { font-family: 'Caveat', cursive; font-size: 42px; color: var(--muted); font-weight: 700; }
   .thumb-body .missing { font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 700; color: var(--danger); text-align: center; padding: 8px; line-height: 1.3; background: repeating-linear-gradient(45deg, #fff, #fff 6px, #fde2e2 6px, #fde2e2 12px); width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 4px; }
@@ -380,7 +385,7 @@
   /* ── Annotator screen ────────────────────────────────────────── */
   .ann-toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
   .ann-toolbar .filename { font-family: 'IBM Plex Mono', monospace; font-weight: 600; font-size: 13px; }
-  .ann-toolbar .page-select { padding: 4px 8px; border: 1.5px solid var(--ink); background: #fff; }
+  .ann-toolbar .page-select { padding: 4px 8px; border: 1.5px solid var(--ink); background: var(--card); }
   .ann-toolbar .mode-on { background: var(--accent); font-weight: 600; }
   .ann-toolbar .zoom-group { display: inline-flex; gap: 4px; align-items: center; padding: 0 6px; border-left: 1px solid var(--muted); border-right: 1px solid var(--muted); }
   .ann-toolbar .zoom-btn { padding: 2px 8px; min-height: 0; font-size: 13px; }
@@ -468,7 +473,7 @@
   .ann-block.lab-Header      { border-color: #888; }
   .ann-block.lab-Footer      { border-color: #888; }
   .ann-block .ann-lbl { position: absolute; top: -18px; left: -2px; font-family: 'IBM Plex Mono', monospace; font-size: 10px; background: var(--ink); color: var(--paper); padding: 1px 6px; white-space: nowrap; pointer-events: none; }
-  .resizer { position: absolute; width: 9px; height: 9px; background: #fff; border: 1.5px solid var(--ink); box-sizing: border-box; display: none; }
+  .resizer { position: absolute; width: 9px; height: 9px; background: var(--card); border: 1.5px solid var(--ink); box-sizing: border-box; display: none; }
   .ann-block.selected .resizer, .ann-region.selected .resizer { display: block; }
   .resizer.tl { left: -5px;  top: -5px;    cursor: nwse-resize; }
   .resizer.tr { right: -5px; top: -5px;    cursor: nesw-resize; }
@@ -512,14 +517,14 @@
   .ann-region-ord span:hover { background: #7c3aed; }
   .ann-region-del { position: absolute; top: -1px; right: -1px; width: 16px; height: 16px; line-height: 14px; text-align: center; background: #5b21b6; color: #fff; font-family: 'IBM Plex Mono', monospace; font-size: 12px; font-weight: 700; cursor: pointer; display: none; }
   .ann-region.selected .ann-region-del { display: block; }
-  .ann-sidebar { border: 2px solid var(--ink); background: #fff; box-shadow: 2px 3px 0 rgba(0,0,0,0.9); padding: 10px; max-height: 85vh; overflow: hidden; display: flex; flex-direction: column; }
+  .ann-sidebar { border: 2px solid var(--ink); background: var(--card); box-shadow: 2px 3px 0 rgba(0,0,0,0.9); padding: 10px; max-height: 85vh; overflow: hidden; display: flex; flex-direction: column; }
   .ann-sidebar h2 { margin: 0 0 8px; }
   /* Blocks / Markdown tabs — the sidebar shows one pane at a time so the
      reviewer can flip between the block list and the regenerated markdown
      without scrolling to the bottom of the blocks. */
   .ann-tabs { flex: none; display: flex; align-items: center; gap: 6px; border-bottom: 2px solid var(--ink); margin: -10px -10px 8px; padding: 6px 10px; background: var(--paper); }
-  .ann-tab { font-family: 'Caveat', cursive; font-size: 20px; line-height: 1; padding: 4px 12px; min-height: 0; border: 1.5px solid var(--ink); background: #fff; color: var(--ink); cursor: pointer; }
-  .ann-tab:hover { background: #f3f0e7; }
+  .ann-tab { font-family: 'Caveat', cursive; font-size: 20px; line-height: 1; padding: 4px 12px; min-height: 0; border: 1.5px solid var(--ink); background: var(--card); color: var(--ink); cursor: pointer; }
+  .ann-tab:hover { background: var(--card-2); }
   .ann-tab.on { background: var(--accent); font-weight: 600; box-shadow: 1px 2px 0 rgba(0,0,0,0.9); }
   .ann-tabs .md-toggle { display: inline-flex; gap: 4px; margin-left: auto; }
   .ann-tabs .md-toggle[hidden] { display: none; }
@@ -563,10 +568,10 @@
   .ann-row { border: 1.5px solid var(--ink); background: var(--paper); padding: 8px; margin-bottom: 8px; }
   .ann-row.selected { background: #fff8d4; box-shadow: inset 0 0 0 2px var(--danger); }
   .ann-row .ann-row-top { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; flex-wrap: wrap; }
-  .ann-row .order-input { width: 56px; padding: 3px 4px; border: 1.5px solid var(--ink); background: #fff; font-family: 'IBM Plex Mono', monospace; font-size: 12px; }
-  .ann-row .label-select { padding: 3px 4px; border: 1.5px solid var(--ink); background: #fff; font-family: 'IBM Plex Mono', monospace; font-size: 12px; }
-  .ann-row .ann-text { width: 100%; box-sizing: border-box; min-height: 60px; padding: 6px; border: 1.5px solid var(--ink); background: #fff; font-family: 'IBM Plex Mono', monospace; font-size: 12px; line-height: 1.4; resize: vertical; }
-  .ann-row .ann-text.html-mode { font-size: 11px; background: #f3f0e7; }
+  .ann-row .order-input { width: 56px; padding: 3px 4px; border: 1.5px solid var(--ink); background: var(--card); font-family: 'IBM Plex Mono', monospace; font-size: 12px; }
+  .ann-row .label-select { padding: 3px 4px; border: 1.5px solid var(--ink); background: var(--card); font-family: 'IBM Plex Mono', monospace; font-size: 12px; }
+  .ann-row .ann-text { width: 100%; box-sizing: border-box; min-height: 60px; padding: 6px; border: 1.5px solid var(--ink); background: var(--card); font-family: 'IBM Plex Mono', monospace; font-size: 12px; line-height: 1.4; resize: vertical; }
+  .ann-row .ann-text.html-mode { font-size: 11px; background: var(--card-2); }
   .ann-row .row-actions { display: flex; gap: 6px; align-items: center; margin-top: 6px; flex-wrap: wrap; }
   .ann-row .row-actions button { padding: 3px 8px; font-size: 11px; min-height: 0; }
   .ann-row .row-meta { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--muted); margin-left: auto; }
@@ -578,9 +583,9 @@
   /* Floating Table Hints popup — anchored to the selected Table bbox on the
      annotator canvas. The reviewer bumps Cols/Rows to seed evenly-spaced
      red guide lines on the bbox, drags them into place, then re-extracts. */
-  .ann-table-hints { position: absolute; left: calc(100% + 10px); top: 0; width: 132px; background: #fff; border: 1.5px solid var(--ink); box-shadow: 2px 3px 0 rgba(0,0,0,0.6); padding: 6px 7px 7px; display: flex; flex-direction: column; gap: 6px; z-index: 60; pointer-events: auto; font-family: 'IBM Plex Mono', monospace; cursor: default; }
+  .ann-table-hints { position: absolute; left: calc(100% + 10px); top: 0; width: 132px; background: var(--card); border: 1.5px solid var(--ink); box-shadow: 2px 3px 0 rgba(0,0,0,0.6); padding: 6px 7px 7px; display: flex; flex-direction: column; gap: 6px; z-index: 60; pointer-events: auto; font-family: 'IBM Plex Mono', monospace; cursor: default; }
   .ann-table-hints .th-head { display: flex; align-items: center; justify-content: space-between; font-size: 10px; font-weight: 700; letter-spacing: 0.06em; color: var(--muted); text-transform: uppercase; }
-  .ann-table-hints .th-x { width: 14px; height: 14px; padding: 0; min-height: 0; line-height: 1; border: 1px solid var(--ink); background: #fff; font-size: 11px; cursor: pointer; }
+  .ann-table-hints .th-x { width: 14px; height: 14px; padding: 0; min-height: 0; line-height: 1; border: 1px solid var(--ink); background: var(--card); font-size: 11px; cursor: pointer; }
   .ann-table-hints .th-row { display: flex; align-items: center; justify-content: space-between; gap: 4px; }
   .ann-table-hints .th-row > .th-lbl { font-size: 11px; font-weight: 600; color: var(--ink); }
   .ann-table-hints .th-step { display: flex; align-items: center; background: #faf7f0; border: 1px solid var(--ink); }
@@ -591,14 +596,14 @@
   .ann-table-hints .th-rex:disabled { background: #eee; color: var(--muted); cursor: progress; }
   .ann-block.lab-Table .show-hints-btn { position: absolute; top: -18px; right: -2px; font-family: 'IBM Plex Mono', monospace; font-size: 9px; background: var(--ink); color: var(--paper); padding: 1px 5px; border: none; cursor: pointer; display: none; }
   .ann-block.lab-Table.selected .show-hints-btn.show { display: block; }
-  .tbled-toolbar { display: flex; align-items: center; gap: 4px; padding: 8px 16px; background: #fff; border-bottom: 1.5px solid var(--ink); flex-wrap: wrap; }
+  .tbled-toolbar { display: flex; align-items: center; gap: 4px; padding: 8px 16px; background: var(--card); border-bottom: 1.5px solid var(--ink); flex-wrap: wrap; }
   .tbled-toolbar .sep { width: 1px; height: 22px; background: rgba(0,0,0,0.2); margin: 0 4px; }
-  .tbled-toolbar button { padding: 4px 9px; min-height: 0; font-size: 13px; background: #fff; border: 1.5px solid var(--ink); cursor: pointer; min-width: 30px; line-height: 1.1; }
+  .tbled-toolbar button { padding: 4px 9px; min-height: 0; font-size: 13px; background: var(--card); border: 1.5px solid var(--ink); cursor: pointer; min-width: 30px; line-height: 1.1; }
   .tbled-toolbar button:hover:not(:disabled) { background: var(--accent); }
   .tbled-toolbar button:disabled { opacity: 0.45; cursor: not-allowed; }
   .tbled-toolbar button.active { background: var(--accent); font-weight: 700; }
   .tbled-toolbar .tex-btn { margin-left: auto; font-family: 'Times New Roman', serif; font-style: italic; }
-  .tbled-grid-wrap { background: #fff; border: 2px solid var(--ink); box-shadow: 2px 3px 0 rgba(0,0,0,0.6); padding: 12px; overflow: auto; align-self: flex-start; max-width: 100%; }
+  .tbled-grid-wrap { background: var(--card); border: 2px solid var(--ink); box-shadow: 2px 3px 0 rgba(0,0,0,0.6); padding: 12px; overflow: auto; align-self: flex-start; max-width: 100%; }
   .tbled-grid { border-collapse: collapse; table-layout: auto; }
   .tbled-grid td { border: 1px solid var(--ink); padding: 6px 9px; vertical-align: top; font-family: 'IBM Plex Mono', monospace; font-size: 12px; min-width: 60px; position: relative; cursor: text; }
   .tbled-grid td.selected { background: rgba(255,216,77,0.45); outline: 2px solid var(--danger); outline-offset: -2px; }
@@ -615,7 +620,7 @@
   .tbled-status { font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--muted); }
   /* Inline table editor — lives in the selected Table block's sidebar row.
      Reuses .tbled-toolbar / .tbled-grid / .tbled-tex / .tbled-status. */
-  .tbled-inline { margin-top: 6px; border: 1.5px solid var(--ink); background: #fff; }
+  .tbled-inline { margin-top: 6px; border: 1.5px solid var(--ink); background: var(--card); }
   .tbled-inline .tbled-toolbar { padding: 5px 6px; gap: 3px; border-bottom: 1.5px solid var(--ink); }
   .tbled-inline .tbled-toolbar button { padding: 2px 6px; font-size: 12px; min-width: 26px; }
   .tbled-inline .tbled-grid-wrap { padding: 8px; overflow: auto; max-height: 360px; }
@@ -623,16 +628,78 @@
   .tbled-inline .tbled-status { padding: 4px 7px; border-top: 1px solid rgba(0,0,0,0.15); }
   .tbled-inline .tbled-tex-panel { padding: 0 8px 8px; }
   /* Read-only preview for unselected Table rows. */
-  .tbled-inline-readonly { margin-top: 6px; overflow: auto; max-height: 320px; border: 1.5px solid var(--ink); background: #fff; padding: 8px; }
+  .tbled-inline-readonly { margin-top: 6px; overflow: auto; max-height: 320px; border: 1.5px solid var(--ink); background: var(--card); padding: 8px; }
   .tbled-inline-readonly .tbled-grid.readonly td,
   .tbled-inline-readonly .tbled-grid.readonly th { border: 1px solid var(--ink); padding: 3px 6px; font-size: 11px; font-family: 'IBM Plex Mono', monospace; vertical-align: top; }
-  .tbled-inline-readonly .tbled-grid.readonly th { background: #f3f0e7; font-weight: 700; }
+  .tbled-inline-readonly .tbled-grid.readonly th { background: var(--card-2); font-weight: 700; }
   @keyframes ann-spin { to { transform: rotate(360deg); } }
   .ann-toast { position: fixed; bottom: 18px; right: 18px; background: var(--ink); color: var(--paper); padding: 8px 14px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; z-index: 1000; box-shadow: 2px 3px 0 rgba(0,0,0,0.5); }
   .ann-toast.err { background: var(--danger); }
   .ann-toast.ok  { background: var(--good); color: #fff; }
   .ann-toast.warn { background: var(--accent); color: var(--ink); }
   .ann-link { color: var(--ink); text-decoration: underline; cursor: pointer; font-family: 'IBM Plex Mono', monospace; font-size: 11px; }
+  /* ── Dark mode ─────────────────────────────────────────────────────
+     Whole review page, every stage and screen. <html> carries .rv-dark when
+     the reviewer picked it (the ☾ button, localStorage 'reviewTheme'); the
+     embedded extraction workspace and /spotcheck.html read the same key.
+     Surfaces run on --card / --card-2, so most of it is the variable swap
+     below; the rest are one-off tints. Scanned notices (img, PDF frame,
+     annotator page) keep their white backing on purpose — they are paper. */
+  .xr-miss { color: #991b1b; }
+  html.rv-dark {
+    --ink: #e8e4d8; --paper: #16161b; --danger: #ff7a5c; --good: #5cc98a; --muted: #9a978f;
+    --card: #1f1f26; --card-2: #2a2a32;
+    color-scheme: dark;
+  }
+  html.rv-dark body { background: var(--paper); color: var(--ink); }
+  html.rv-dark button.ghost { background: transparent; }
+  /* Text on the yellow accent stays dark — --ink is light now. */
+  html.rv-dark h1 em, html.rv-dark .pill.on, html.rv-dark a.pill:hover,
+  html.rv-dark button.primary, html.rv-dark th, html.rv-dark .sib-item.current,
+  html.rv-dark .sib-item.current .sib-num, html.rv-dark .sib-arrow:hover:not(:disabled),
+  html.rv-dark .iz-controls .iz-btn:hover, html.rv-dark .ann-toolbar .mode-on,
+  html.rv-dark .ann-tab.on, html.rv-dark .ann-banner, html.rv-dark .ann-banner.warn,
+  html.rv-dark .ann-table-hints .th-rex, html.rv-dark .tbled-toolbar button.active,
+  html.rv-dark .tbled-toolbar button:hover:not(:disabled), html.rv-dark .tbled-tex .copy-tex,
+  html.rv-dark .ann-toast.warn { color: #1a1a1a; }
+  html.rv-dark .ann-banner.warn { background: #fdeceb; }
+  html.rv-dark .pill.off    { background: #2b2b33; color: var(--muted); }
+  html.rv-dark .pill.good   { background: #1e3b2a; }
+  html.rv-dark .pill.warn   { background: #4a3417; }
+  html.rv-dark .pill.bad,
+  html.rv-dark .pill.danger { background: #4d2420; }
+  html.rv-dark .muted { color: #8f8c85; }
+  html.rv-dark .xr-miss { color: #ff9d8a; }
+  html.rv-dark [style*="color:#c0392b"], html.rv-dark [style*="color:#b3261e"] { color: #ff8a7a !important; }
+  html.rv-dark [style*="color:#137333"] { color: #6ee7a0 !important; }
+  /* Shadows and hairlines drawn in black vanish on a dark page. */
+  html.rv-dark .notice-card, html.rv-dark .pane, html.rv-dark .class-card,
+  html.rv-dark .thumb, html.rv-dark .gallery-right, html.rv-dark .table-scroll,
+  html.rv-dark .sibling-nav, html.rv-dark .ann-stage, html.rv-dark .ann-sidebar,
+  html.rv-dark #screen-extraction iframe { box-shadow: 2px 3px 0 rgba(0,0,0,0.6); }
+  html.rv-dark th, html.rv-dark td,
+  html.rv-dark .notice-card .ntable th, html.rv-dark .notice-card .ntable td,
+  html.rv-dark .mdcard-actions { border-color: rgba(255,255,255,0.12); }
+  html.rv-dark .pc-row { border-top-color: #34343c; }
+  html.rv-dark .ov-line { border-bottom-color: #34343c; }
+  html.rv-dark .ov-track, html.rv-dark .ink-meter-bar,
+  html.rv-dark .tbled-grid td.tbled-handle-cell { background: #2e2e36; }
+  html.rv-dark .ov-bar.drop { background: #8a4a42; }
+  html.rv-dark tr.verified td, html.rv-dark .notice-card .ntable tr.verified td { background: #1b2a20; }
+  html.rv-dark tr.edited td, html.rv-dark .notice-card .ntable tr.edited td { background: #2c2618; }
+  html.rv-dark .ann-row.selected, html.rv-dark .tbled-grid td.editing { background: #3a3318; }
+  html.rv-dark .ann-md-stale { background: #3b1f1c; }
+  html.rv-dark .ink-verdict.bad { background: #3b1f1c; color: #fca5a5; }
+  html.rv-dark .ink-verdict.ok  { background: #1b2a20; color: #86efac; }
+  html.rv-dark .ink-skip, html.rv-dark .ink-stats span, html.rv-dark .ink-note,
+  html.rv-dark .ink-meter-lbl, html.rv-dark .markdown-body.rendered blockquote { color: #a8a59d; }
+  html.rv-dark .ink-stats > div { border-bottom-color: #3a3a42; }
+  html.rv-dark .ann-table-hints .th-step { background: var(--card-2); }
+  html.rv-dark .thumb-body .missing {
+    background: repeating-linear-gradient(45deg, #2a1f22, #2a1f22 6px, #3b2226 6px, #3b2226 12px); }
+  html.rv-dark .markdown-body mark.hl, html.rv-dark .mdcard-md-body mark.hl,
+  html.rv-dark .markdown-body mark.find, html.rv-dark .mdcard-md-body mark.find { color: #1a1a1a; }
+  html.rv-dark #screen-extraction iframe { background: #0b1120; }
 </style>
 </head>
 <body>
@@ -645,6 +712,7 @@
       <a class="link" href="/admin">Admin</a>
       <a class="link" href="/social">Social</a>
       <span style="flex:1"></span>
+      <button class="ghost" data-rv-theme title="switch the review page between light and dark">☾ dark</button>
       <span class="stats" id="stats"></span>
     </div>
   </div>
@@ -791,18 +859,6 @@
         <button id="score-clear" class="ghost" title="reset to 0–100">clear</button>
         <span class="meta fhint" id="score-hint"></span>
       </span>
-      <!-- Extraction only: the key-entity checklist (pipeline/key_entities.py).
-           "missing keys first" orders the queue by how many of the seven key
-           entities each lot lacks; "only missing" hides complete notices. -->
-      <span class="fgroup hidden" id="keys-bar">
-        <span class="fsep">·</span>
-        <span class="flabel">Keys:</span>
-        <span class="group-toggle">
-          <button class="pill" data-xsort="recent" title="newest extraction first">newest</button>
-          <button class="pill" data-xsort="keys" title="notices missing the most key entities first">missing keys first</button>
-        </span>
-        <button class="pill" id="keys-only" title="show only notices with at least one key entity missing">only missing</button>
-      </span>
       <!-- Datalab's own 0–5 verdict on the parse. Separate from OCR health
            because it catches the failure health cannot see: content the engine
            silently dropped. Blank inputs = no filter (docs with no score stay
@@ -844,6 +900,42 @@
                   title="a date that cannot be one under any reading — month 00 or over 12, day 00 or over 31 (30.06.2026 misread as 30.00.2026). The only check here that reads a value rather than a shape.">impossible date</button>
         </span>
         <button id="flag-clear" class="ghost" title="show all notices again">clear</button>
+      </span>
+      <!-- Extraction's failure modes, worked one at a time like the markdown
+           flags above (OR, not AND). Keys and order match
+           api/review/extraction.EXTRACTION_FAILURES. -->
+      <span class="fgroup hidden" id="xflag-bar">
+        <span class="fsep">·</span>
+        <span class="flabel">Failures:</span>
+        <span class="group-toggle" id="xflag-tabs">
+          <button class="pill" data-xflag="missing-lots"
+                  title="fewer lots extracted than the reviewer counted at classification — or many lot markers in the text but few lots extracted">missing lots</button>
+          <button class="pill" data-xflag="extra-lots"
+                  title="more lots extracted than the reviewer counted at classification">extra lots</button>
+          <button class="pill" data-xflag="rerun"
+                  title="the markdown or classification changed after this extraction ran — re-run LangExtract">needs re-run</button>
+          <button class="pill" data-xflag="description"
+                  title="a lot with no full description block, or a description that stops before details the lot has (survey no., extent, boundaries)">description gaps</button>
+          <button class="pill" data-xflag="reserve"
+                  title="no reserve price, or fewer reserve prices than lots">no reserve price</button>
+          <button class="pill" data-xflag="borrower"
+                  title="no borrower, or fewer borrowers than lots">no borrower</button>
+          <button class="pill" data-xflag="location"
+                  title="no location, or some lots have none">no location</button>
+          <button class="pill" data-xflag="extent"
+                  title="no extent (area) anywhere in the notice">no extent</button>
+          <button class="pill" data-xflag="property-type"
+                  title="a property lot with no property type">no property type</button>
+          <button class="pill" data-xflag="uds"
+                  title="a flat with no undivided share (UDS), or the parent plot's area recorded as the flat's own">UDS problem</button>
+          <button class="pill" data-xflag="creditor"
+                  title="no secured creditor (bank) found">no bank</button>
+          <button class="pill" data-xflag="ungrounded"
+                  title="extracted values with no matching text in the notice — the model may have made them up">ungrounded</button>
+          <button class="pill" data-xflag="odd-values"
+                  title="a value that cannot be right: reserve price out of range, EMD not ~10% of reserve, bad possession type or identifier kind">odd values</button>
+        </span>
+        <button id="xflag-clear" class="ghost" title="show all notices again">clear</button>
       </span>
     </div>
     </div>
@@ -1082,6 +1174,7 @@
       <span class="ann-badges" id="xr-badges"></span>
       <span style="flex:1"></span>
       <a class="link" id="xr-annotate" title="edit this notice's OCR blocks">annotate blocks ↗</a>
+      <button class="ghost" data-rv-theme title="switch the review page between light and dark">☾ dark</button>
     </div>
     <iframe id="extraction-frame" title="Extraction review"></iframe>
   </section>
@@ -1145,6 +1238,9 @@
       // Repeated key, one per flag — FastAPI reads these as a list.
       for (const f of (queueState.flags || [])) params.append('flags', f);
     }
+    if (queueState.stage === 'extraction') {
+      for (const f of (queueState.xflags || [])) params.append('failures', f);
+    }
   }
 
   // ─── Routing ────────────────────────────────────────────────────────────
@@ -1193,6 +1289,7 @@
       queueState.pqFrom = isNaN(pf) ? null : pf;
       queueState.pqTo   = isNaN(pt) ? null : pt;
       queueState.flags = (p.get('flags') || '').split(',').filter(Boolean);
+      queueState.xflags = (p.get('fails') || '').split(',').filter(Boolean);
     }
     return { screen: 'queue' };
   }
@@ -1225,6 +1322,7 @@
     if (queueState.pqTo   != null) p.set('pq_to',   String(queueState.pqTo));
     // Comma-joined in the hash (one readable key) but repeated on the wire.
     if ((queueState.flags || []).length) p.set('flags', queueState.flags.join(','));
+    if ((queueState.xflags || []).length) p.set('fails', queueState.xflags.join(','));
     return p.toString();
   }
 
@@ -1239,6 +1337,28 @@
     document.body.classList.toggle('extraction-active', screen === 'extraction');
     syncStickyHeads();
   }
+
+  // Dark mode (see the .rv-dark CSS): one preference for the whole review
+  // page, remembered across reloads. The embedded extraction workspace
+  // (review_extraction.html) and /spotcheck.html read the same key on load;
+  // the iframe is also repainted here directly so a toggle lands at once.
+  function rvDark() {
+    try { return localStorage.getItem('reviewTheme') === 'dark'; } catch { return false; }
+  }
+  function applyTheme() {
+    const dark = rvDark();
+    document.documentElement.classList.toggle('rv-dark', dark);
+    $$('[data-rv-theme]').forEach(b => { b.textContent = dark ? '☀ light' : '☾ dark'; });
+    try {
+      const doc = $('extraction-frame').contentDocument;
+      if (doc) doc.documentElement.classList.toggle('dark', dark);
+    } catch {}
+  }
+  $$('[data-rv-theme]').forEach(b => b.addEventListener('click', () => {
+    try { localStorage.setItem('reviewTheme', rvDark() ? 'light' : 'dark'); } catch {}
+    applyTheme();
+  }));
+  applyTheme();
 
   // Measure the pinned chrome so the pieces below it know where it ends:
   // the filter block sticks under the masthead (--topbar-h) and the gallery
@@ -2065,14 +2185,10 @@
     const r = await authFetch(url);
     if (!r.ok) { $('stats').textContent = ''; return; }
     const s = await r.json();
-    const keys = (queueState.stage === 'extraction' && s.missing_keys != null)
-      ? `<span class="pill danger" title="notices with at least one key entity missing on some lot">${s.missing_keys} missing keys</span>`
-      : '';
     $('stats').innerHTML = `
       <span class="pill warn">${s.pending} pending</span>
       <span class="pill good">${s.verified} verified</span>
       <span class="pill good">${s.edited} edited</span>
-      ${keys}
       <span class="pill off">${s.total} total</span>
     `;
   }
@@ -2123,6 +2239,9 @@
     pqFrom: null, pqTo: null,
     // Selected ocr_health failure flags; empty = no filter, multiple = OR.
     flags: [],
+    // Selected extraction failures (api/review/extraction.EXTRACTION_FAILURES);
+    // same semantics as `flags`, for the extraction stage.
+    xflags: [],
     page: 1,
   };
   // Per-stage default sub-group (remembers reviewer's last choice in localStorage).
@@ -2158,6 +2277,9 @@
     $$('button.pill[data-flag]').forEach(b => {
       b.classList.toggle('on', queueState.flags.includes(b.getAttribute('data-flag')));
     });
+    $$('button.pill[data-xflag]').forEach(b => {
+      b.classList.toggle('on', queueState.xflags.includes(b.getAttribute('data-xflag')));
+    });
 
     const isClass = queueState.stage === 'classification';
     const isMd = queueState.stage === 'markdown';
@@ -2190,11 +2312,7 @@
     // Parse quality and the OCR failure flags are markdown-stage signals.
     $('pq-bar').classList.toggle('hidden', !isMd);
     $('flag-bar').classList.toggle('hidden', !isMd);
-    $('keys-bar').classList.toggle('hidden', !isExtract);
-    $$('button.pill[data-xsort]').forEach(b => {
-      b.classList.toggle('on', b.getAttribute('data-xsort') === xrSort());
-    });
-    $('keys-only').classList.toggle('on', xrOnlyMissing());
+    $('xflag-bar').classList.toggle('hidden', !isExtract);
     // Expand/collapse-all only makes sense where the cards are collapsible —
     // the markdown stage's sales-notice list.
     $('expand-all-bar').classList.toggle('hidden', !(isMd && isNotice));
@@ -2270,23 +2388,18 @@
     return '<span class="pill warn">pending</span>';
   }
 
-  // Extraction queue order + "only missing keys" filter, remembered per reviewer.
-  function xrSort() {
-    try { return localStorage.getItem('xrSort') === 'keys' ? 'keys' : 'recent'; } catch { return 'recent'; }
+  // Failure-pill labels for the card, read off the filter bar so the two
+  // can never name the same failure differently.
+  function xflagLabel(key) {
+    const b = document.querySelector(`button.pill[data-xflag="${key}"]`);
+    return b ? { text: b.textContent, title: b.title } : { text: key, title: '' };
   }
-  function xrOnlyMissing() {
-    try { return localStorage.getItem('xrOnlyMissing') === '1'; } catch { return false; }
+  function failurePills(row) {
+    return (row.failures || []).map(f => {
+      const l = xflagLabel(f);
+      return `<span class="pill danger" title="${escapeHtml(l.title)}">${escapeHtml(l.text)}</span>`;
+    }).join(' ');
   }
-  $$('button.pill[data-xsort]').forEach(b => b.addEventListener('click', () => {
-    try { localStorage.setItem('xrSort', b.getAttribute('data-xsort')); } catch {}
-    syncStatusButtons();
-    loadQueue();
-  }));
-  $('keys-only').addEventListener('click', () => {
-    try { localStorage.setItem('xrOnlyMissing', xrOnlyMissing() ? '0' : '1'); } catch {}
-    syncStatusButtons();
-    loadQueue();
-  });
 
   function keysPill(row) {
     if (row.key_score == null) return '';
@@ -2301,8 +2414,7 @@
   async function loadExtractionQueue() {
     const list = $('queue-by-extraction');
     list.innerHTML = '<div class="empty">loading…</div>';
-    const params = new URLSearchParams({ limit: '500', sort: xrSort() });
-    if (xrOnlyMissing()) params.set('missing_keys', 'true');
+    const params = new URLSearchParams({ limit: '500' });
     if (queueState.status && queueState.status !== 'all') params.set('status', queueState.status);
     if (queueState.q) params.set('q', queueState.q);
     appendCommonParams(params);
@@ -2356,12 +2468,12 @@
     // The first missing key labels inline, so the reviewer knows what the
     // notice needs before opening it.
     const missLabels = (row.key_missing || 0) && (row.key_missing_labels || []).length
-      ? `<span class="meta" style="color:#991b1b">${escapeHtml((row.key_missing_labels || []).slice(0, 4).join(' · '))}${(row.key_missing_labels || []).length > 4 ? ' · …' : ''}</span>`
+      ? `<span class="meta xr-miss">${escapeHtml((row.key_missing_labels || []).slice(0, 4).join(' · '))}${(row.key_missing_labels || []).length > 4 ? ' · …' : ''}</span>`
       : '';
     const summary = document.createElement('summary');
     summary.innerHTML = `
       <span class="nfile">${escapeHtml(filename)}</span>
-      ${batch} ${keysPill(row)} ${extractionScorePill(row)} ${extractionStatusPill(row)} ${lots} ${ungrounded} ${stale} ${fields} ${missLabels}
+      ${batch} ${keysPill(row)} ${extractionScorePill(row)} ${extractionStatusPill(row)} ${lots} ${ungrounded} ${stale} ${fields} ${failurePills(row)} ${missLabels}
       <span class="nspacer"></span>
       <span class="nlinks">
         <a class="link" href="${href}">review extraction ↗</a>
@@ -3535,6 +3647,22 @@
     writeHash();
     loadStats(); loadQueue();
   });
+  $$('button.pill[data-xflag]').forEach(b => {
+    b.addEventListener('click', () => {
+      const f = b.getAttribute('data-xflag');
+      queueState.xflags = queueState.xflags.includes(f)
+        ? queueState.xflags.filter(x => x !== f)
+        : [...queueState.xflags, f];
+      writeHash();
+      loadStats(); loadQueue();
+    });
+  });
+  $('xflag-clear').addEventListener('click', () => {
+    if (!queueState.xflags.length) return;
+    queueState.xflags = [];
+    writeHash();
+    loadStats(); loadQueue();
+  });
 
   $$('button.pill[data-cview]').forEach(b => {
     b.addEventListener('click', () => {
@@ -3577,6 +3705,9 @@
             pq_min: queueState.pqFrom,
             pq_max: queueState.pqTo,
             flags: queueState.flags.length ? queueState.flags : null,
+          } : {}),
+          ...(stage === 'extraction' ? {
+            failures: queueState.xflags.length ? queueState.xflags : null,
           } : {}),
           ...commonFilters,
         };

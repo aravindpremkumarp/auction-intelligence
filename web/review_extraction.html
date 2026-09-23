@@ -15,6 +15,19 @@
   is already present; no separate login needed.
 -->
 <script>
+  // Dark mode: the reviewer's choice from review.html's ☾ button (same-origin
+  // localStorage 'reviewTheme'), applied before first paint so nothing flashes.
+  // The parent also repaints this frame directly on a toggle; the storage
+  // listener covers a toggle made in another tab.
+  (function () {
+    const apply = () => {
+      let dark = false;
+      try { dark = localStorage.getItem('reviewTheme') === 'dark'; } catch (_) {}
+      document.documentElement.classList.toggle('dark', dark);
+    };
+    apply();
+    window.addEventListener('storage', e => { if (e.key === 'reviewTheme') apply(); });
+  })();
   // API base arrives via ?api= when review.html embeds us; fall back to same-origin.
   // Supabase env mirrors review.html so /auth.js can read the shared session.
   window.API_BASE = new URLSearchParams(location.search).get("api") || "";
@@ -171,6 +184,60 @@
  #fillbar .sel{flex:1;color:#dbeafe;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
  .fld .addd{background:#dbeafe;color:#1e40af;border-radius:8px;padding:0 6px;font-size:10px;font-weight:700}
  .fld .del{margin-top:5px;margin-left:6px;font-size:12px;padding:3px 9px;color:#991b1b;border-color:#fecaca}
+ .fld .attrs{color:#334155;font-size:12px;margin-bottom:4px}
+ #keys .kmiss{color:#991b1b;font-weight:600}
+ #keys .kok{color:#16a34a;font-weight:600}
+ #keys .kdim{color:#64748b}
+ #keys .khead .kred{color:#991b1b}
+ .nerr{color:#991b1b;font-size:12px;padding:8px}
+ .mnotice{padding:22px 4px;color:#475569;font-size:13px;max-width:580px;line-height:1.65}
+ /* ── dark mode (html.dark, see the bootstrap at the top) ──────────────────
+    Highlight colours stay pastel — they are the class legend — so text on
+    them is pinned dark; every surface around them goes slate. */
+ html.dark{color-scheme:dark}
+ html.dark body{background:#0b1120;color:#e2e8f0}
+ html.dark button{background:#1e293b;color:#e2e8f0;border-color:#334155}
+ html.dark button:hover:not(:disabled){background:#273449}
+ html.dark button.primary{background:#2563eb;color:#fff;border-color:#2563eb}
+ html.dark button:disabled{opacity:.5}
+ html.dark #msg,html.dark #pos{color:#94a3b8}
+ html.dark #src,html.dark #notice,html.dark .fld,html.dark #keys{background:#111827;border-color:#1f2937}
+ html.dark .fld .c{color:#94a3b8}
+ html.dark .fld .attrs{color:#cbd5e1}
+ html.dark .fld .modebtn{color:#cbd5e1}
+ html.dark .fld textarea,html.dark .fld .prev{background:#0f172a;color:#e2e8f0;border-color:#334155}
+ html.dark .fld .prev th,html.dark .fld .prev td,
+ html.dark #src.rendered th,html.dark #src.rendered td{border-color:#334155}
+ html.dark .fld .prev th,html.dark #src.rendered th{background:#1e293b}
+ html.dark #src.rendered table{background:transparent}
+ html.dark #src.rendered code,html.dark #src.rendered pre{background:#1e293b}
+ html.dark mark,html.dark .fld .snip{color:#0f172a}
+ html.dark .corr{color:#4ade80}
+ html.dark .ung{background:#450a0a;color:#fca5a5}
+ html.dark .anch{background:#422006;color:#fcd34d}
+ html.dark .fld .addd{background:#1e3a8a;color:#bfdbfe}
+ html.dark .fld .del{color:#fca5a5;border-color:#7f1d1d}
+ html.dark .bbl{background:#0f172a;color:#93c5fd}
+ html.dark .pgbrk{color:#a5b4fc;border-top-color:#6366f1}
+ html.dark .mnotice{color:#94a3b8}
+ html.dark .nerr{color:#fca5a5}
+ html.dark #keys .khead{color:#cbd5e1}
+ html.dark #keys .khead b,html.dark #keys td.lot{color:#e2e8f0}
+ html.dark #keys th{background:#111827;color:#94a3b8;border-bottom-color:#1f2937}
+ html.dark #keys td{border-bottom-color:#1f2937}
+ html.dark #keys td.filled:hover{background:#1e3a5f}
+ html.dark #keys td.missing{background:#3b1414;color:#fca5a5}
+ html.dark #keys td.absent{background:#1e293b;color:#94a3b8}
+ html.dark #keys td.filling{background:#1e3a8a}
+ html.dark #keys tr.nxrow td{background:#3b1426;color:#fda4af}
+ html.dark #keys td .kbtn{background:#1e293b;color:#e2e8f0;border-color:#334155}
+ html.dark #keys td .kbtn:hover{background:#273449}
+ html.dark #keys td.missing .kbtn.fill{border-color:#f87171;color:#fca5a5}
+ html.dark #keys .kmiss,html.dark #keys .khead .kred{color:#fca5a5}
+ html.dark #keys .kok{color:#4ade80}
+ html.dark #keys .kdim{color:#94a3b8}
+ html.dark #keys td.lot .nx{color:#f87171}
+ html.dark #keys td.filled .inh{color:#fcd34d}
 </style>
 <div id="wrap">
   <div id="side">
@@ -259,7 +326,7 @@ function mainNotice(html){
   document.getElementById("legend").innerHTML="";
   const k=document.getElementById("keys");if(k){k.style.display="none";k.innerHTML="";}
   document.getElementById("doc").innerHTML=
-    '<div style="padding:22px 4px;color:#475569;font-size:13px;max-width:580px;line-height:1.65">'+html+'</div>';
+    '<div class="mnotice">'+html+'</div>';
 }
 // Queue sort: "recent" (newest extraction first — a just-run batch clusters at
 // the top), "keys" (most key entities missing first — the checklist order) or
@@ -490,7 +557,7 @@ function render(){
     f+=`<div class="fld" id="fld_${fl.id}" data-fid="${fl.id}"><div class="c">${fl.cls}${fl.lot_index?(" · lot "+fl.lot_index):""}${addd}${ung}${anch}${
         rich?`<button class="modebtn" onclick="toggleFieldMode('${fl.id}')" title="${editing?"show the value as a rendered table":"edit the raw value"}">${editing?"⊞ table":"✎ edit"}</button>`:""}</div>
       <div class="snip" style="background:${COLORS[fl.cls]||'#f1f5f9'}">${esc(snippet(fl.text))}</div>
-      ${attrs?`<div style="color:#334155;font-size:12px;margin-bottom:4px">${attrs}</div>`:""}
+      ${attrs?`<div class="attrs">${attrs}</div>`:""}
       ${editing
         ?`<textarea id="in_${fl.id}" rows="1">${esc(raw)}</textarea>
       <button class="save" onclick="saveField('${fl.id}')">${fl.added?"Save":"Save correction"}</button>${fl.added?`<button class="del" onclick="deleteAdded('${fl.id}')">Delete</button>`:""}`
@@ -702,7 +769,7 @@ function loadNotice(){
     if(noticeFor!==fn)return;
     if(!img.dataset.p){img.dataset.p="1";img.src=proxyUrl(fn);return;}
     wrap.remove();
-    n.insertAdjacentHTML("beforeend",'<div style="color:#991b1b;font-size:12px;padding:8px">no source image (missing on R2 and via proxy)</div>');};
+    n.insertAdjacentHTML("beforeend",'<div class="nerr">no source image (missing on R2 and via proxy)</div>');};
   img.onclick=()=>wrap.classList.toggle("zoom");
   const ovl=document.createElement("div");ovl.className="ovl"+(boxesHidden()?" boxes-hidden":"");ovl.dataset.page="1";
   wrap.appendChild(img);wrap.appendChild(ovl);n.appendChild(wrap);
@@ -856,9 +923,9 @@ function renderKeys(d){
   const collapse=nx.length>2&&!SHOW_NX;
   let h=`<div class="khead"><b>Key entities</b>`+
     `<span class="kscore" style="background:${keyScoreColor(k.score)}" title="${done} of ${k.total} key cells filled or marked not-in-notice">${k.score}% · ${done}/${k.total}</span>`+
-    (k.missing?`<span style="color:#991b1b;font-weight:600">${k.missing} missing</span>`:`<span style="color:#16a34a;font-weight:600">complete</span>`)+
-    (d.expected_lot_count!=null?`<span style="color:#64748b">reviewer counted ${d.expected_lot_count} lot${d.expected_lot_count===1?"":"s"}</span>`:"")+
-    (nx.length?`<span style="color:#991b1b" title="lots the reviewer counted at classification that the extraction has no lot_index for">· ${ex.length} extracted, <b style="color:#991b1b">${nx.length} not extracted</b></span>`:"")+
+    (k.missing?`<span class="kmiss">${k.missing} missing</span>`:`<span class="kok">complete</span>`)+
+    (d.expected_lot_count!=null?`<span class="kdim">reviewer counted ${d.expected_lot_count} lot${d.expected_lot_count===1?"":"s"}</span>`:"")+
+    (nx.length?`<span class="kred" title="lots the reviewer counted at classification that the extraction has no lot_index for">· ${ex.length} extracted, <b class="kred">${nx.length} not extracted</b></span>`:"")+
     `</div><div class="kwrap"><table><thead><tr><th>lot</th>${KEY_DEFS.map(x=>`<th>${x.label}</th>`).join("")}</tr></thead><tbody>`;
   for(const lot of (collapse?ex:k.lots)){
     h+=`<tr><td class="lot">lot ${esc(lot.lot_index)}${lot.extracted?"":`<span class="nx" title="counted at classification, but the extraction has no lot with this index">not extracted</span>`}</td>`;

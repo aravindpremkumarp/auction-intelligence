@@ -272,8 +272,10 @@ appears as all-missing rows.
 
 | property | meaning |
 | --- | --- |
-| `extraction_key_score` | 0–100, (filled + absent) / cells; the queue's "missing keys first" order |
+| `extraction_key_score` | 0–100, (filled + absent) / cells; the API's `sort=keys` order |
 | `extraction_key_missing` | cells still missing; `0` is what "complete" means |
+| `extraction_issue_codes` | `pipeline/validators.py` issue codes with reviewer corrections and added entities applied — what the queue's **Failures** pills filter on |
+| `extraction_lot_count` | lots the model emitted (distinct `lot_index`, or 1); the "missing lots" / "extra lots" pills compare it to `expected_lot_count` at query time |
 
 Both are stamped by every writer of `extraction_json` (the loader, the
 single-document rerun, `scripts/reset_langextract_and_extract.py`,

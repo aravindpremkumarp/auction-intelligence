@@ -267,14 +267,45 @@ def key_checklist_from_stored(extraction_json: str | None,
     return key_checklist(ents, corr, expected_lot_count)
 
 
+def extracted_lot_count(entities: list[dict]) -> int | None:
+    """Distinct lots the MODEL emitted, from entity ``lot_index``.
+
+    Entities without one count as a single lot; an empty extraction is None
+    ("no claim", not "zero lots"). Same rule as the queue card's lot badge
+    (api/review/extraction.count_extracted_lots), so the "missing lots" filter
+    and the ⚠ lots badge can never disagree on a row."""
+    ents = [e for e in entities if isinstance(e, dict)]
+    if not ents:
+        return None
+    idxs = {str(li) for e in ents
+            if (li := (e.get("attrs") or {}).get("lot_index")) not in (None, "")}
+    return len(idxs) if idxs else 1
+
+
+def issue_codes_from_stored(extraction_json: str | None,
+                            corrections_json: str | None,
+                            markdown: str | None = None) -> list[str]:
+    """The pipeline/validators.py issue codes for this document as it stands
+    now — the model's entities with the reviewer's corrections and added
+    entities applied, so a filled gap drops out of its failure filter."""
+    from pipeline.apply_extractions import entities_with_corrections
+    from pipeline.validators import validate_stored
+    ents = entities_with_corrections(extraction_json or "[]", corrections_json)
+    report = validate_stored(ents, source_text=markdown or "")
+    return sorted({i["code"] for i in report["issues"]})
+
+
 def stamp_key_scores(filenames: list[str], chunk: int = 200) -> int:
     """Recompute and store ``extraction_key_score`` / ``extraction_key_missing``
-    for these documents. One function for every writer — the loader, the
-    single-document rerun, the reset script, the backfill and each reviewer
-    edit — so the stored number the queue sorts on can only ever mean one
-    thing. Reads the three inputs back from the graph rather than taking them
-    as arguments, because no writer holds all three (the loader has the
-    entities but not the corrections it preserved). Returns rows written."""
+    for these documents, plus the two inputs of the queue's failure filters:
+    ``extraction_issue_codes`` (validators.py codes) and
+    ``extraction_lot_count`` (lots the model emitted). One function for every
+    writer — the loader, the single-document rerun, the reset script, the
+    backfill and each reviewer edit — so the stored numbers the queue sorts
+    and filters on can only ever mean one thing. Reads the inputs back from
+    the graph rather than taking them as arguments, because no writer holds
+    all of them (the loader has the entities but not the corrections it
+    preserved). Returns rows written."""
     from api.neo4j_client import run_query, run_read_query
     written = 0
     for i in range(0, len(filenames), chunk):
@@ -287,6 +318,7 @@ def stamp_key_scores(filenames: list[str], chunk: int = 200) -> int:
             RETURN d.filename AS filename,
                    d.extraction_json AS ej,
                    coalesce(d.extraction_corrections_json, '{}') AS cj,
+                   coalesce(d.stitched_markdown, d.markdown) AS md,
                    coalesce(d.stitched_expected_lot_count, d.expected_lot_count) AS elc
             """,
             {"fns": names}, max_rows=chunk)
@@ -296,7 +328,10 @@ def stamp_key_scores(filenames: list[str], chunk: int = 200) -> int:
             k = key_checklist_from_stored(r.get("ej"), r.get("cj"),
                                           int(elc) if elc is not None else None)
             out.append({"filename": r["filename"], "score": k["score"],
-                        "missing": k["missing"]})
+                        "missing": k["missing"],
+                        "codes": issue_codes_from_stored(r.get("ej"), r.get("cj"),
+                                                         r.get("md")),
+                        "lots": extracted_lot_count(_loads(r.get("ej"), []))})
         if not out:
             continue
         run_query(
@@ -304,7 +339,9 @@ def stamp_key_scores(filenames: list[str], chunk: int = 200) -> int:
             UNWIND $rows AS row
             MATCH (d:Document {filename: row.filename})
             SET d.extraction_key_score   = row.score,
-                d.extraction_key_missing = row.missing
+                d.extraction_key_missing = row.missing,
+                d.extraction_issue_codes = row.codes,
+                d.extraction_lot_count   = row.lots
             """,
             {"rows": out})
         written += len(out)
@@ -313,4 +350,5 @@ def stamp_key_scores(filenames: list[str], chunk: int = 200) -> int:
 
 __all__ = ["KEY_ENTITIES", "KEYS", "KEY_LABELS", "KEY_CLASS", "KEY_ATTR",
            "absent_key", "absent_marks", "added_entities",
+           "extracted_lot_count", "issue_codes_from_stored",
            "key_checklist", "key_checklist_from_stored", "stamp_key_scores"]

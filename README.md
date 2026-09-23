@@ -347,8 +347,9 @@ extraction stage shows that table first. A filled cell jumps to its highlight;
 a missing one is filled by selecting the text in the markdown (stored as a
 grounded, reviewer-added entity that promotion picks up) or marked *not in
 notice* when the document never states it. The share of cells done is
-`Document.extraction_key_score`, and the queue's "missing keys first" order
-puts the notices with the most gaps on top. A lot the reviewer counted at
+`Document.extraction_key_score`. The queue's **Failures** pills (missing
+lots, needs re-run, no borrower, description gaps, …) narrow it to one kind of
+miss at a time, the way the markdown stage's OCR-failure pills do. A lot the reviewer counted at
 gate 1 but the model never emitted shows as a row with every cell missing.
 
 The graph model these steps write into — `:Document` → `:Lot` → `:Parcel`,
