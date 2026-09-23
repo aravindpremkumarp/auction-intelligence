@@ -126,6 +126,13 @@ OPENROUTER_MODEL_EXTRACT_SINGLE = os.getenv(
 OPENROUTER_MODEL_EXTRACT_MULTI = os.getenv(
     "OPENROUTER_MODEL_EXTRACT_MULTI", "deepseek/deepseek-v4.1-flash",
 )
+# The "stronger model" rung of pipeline/lot_chunks' retry ladder: it only ever
+# re-reads the few lots a Flash read of a small excerpt left out. Pro's failure
+# mode above (an empty answer on a long page) costs one call there and nothing
+# else — a retry that finds nothing adds nothing and replaces nothing.
+OPENROUTER_MODEL_EXTRACT_RETRY = os.getenv(
+    "OPENROUTER_MODEL_EXTRACT_RETRY", "deepseek/deepseek-v4-pro",
+)
 # Reasoning is OFF for extraction. It was on, as a quality choice, until the
 # empty responses were traced to it: reasoning tokens are spent from the SAME
 # output budget as the answer, so a model that thinks too long returns no

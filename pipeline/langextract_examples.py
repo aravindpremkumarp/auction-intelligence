@@ -165,6 +165,12 @@ CONVENTIONS:
 - For EVERY lot emit (when present) property, full_description, location, extent,
   its identifiers, its boundaries, auction_terms and outstanding — do not stop at
   property_type.
+- LOTS IN TABLES: a lot starts at the row whose first cell is its serial number
+  (Sr. No / S.No. 1, 2, 3 …). The rows under it that carry no serial number (an
+  "Earnest Money Deposit" row, a "Type of possession" row) and the "Description
+  of the Immovable Property" that follows belong to that SAME lot, until the next
+  serial number. Every serial number is one lot — extract every one of them to
+  the last row, however long the table is.
 
 SLOTTING RULES (avoid these common mistakes):
 - REGISTRATION DISTRICTS — nearly every Tamil Nadu / Andhra notice closes with
@@ -393,17 +399,22 @@ def portal_roster_block(roster: list[dict] | None) -> str:
 
 
 def prompt_description_for(expected_lot_count: int | None,
-                           roster: list[dict] | None = None) -> str:
+                           roster: list[dict] | None = None,
+                           extra: str | None = None) -> str:
     """The per-notice prompt: the shared guide + scheme, plus the reviewer's
     lot count when one exists (Document.expected_lot_count, stamped at the
     classification review gate) and this notice's portal listings when it has
     any. Priming the model with the confirmed count is the recall lever for
     multi-lot notices — it knows when it has found them all and when it has
     invented extras; the roster then tells it what those lots look like.
-    Neither present -> unchanged prompt."""
+    Neither present -> unchanged prompt.
+
+    ``extra`` is appended last: a caller-specific instruction for this one read
+    (pipeline/lot_chunks uses it for an excerpt's context and its retries)."""
     roster_block = portal_roster_block(roster)
+    tail = f"\n\n{extra.strip()}" if extra and extra.strip() else ""
     if expected_lot_count is None:
-        return PROMPT_DESCRIPTION + roster_block
+        return PROMPT_DESCRIPTION + roster_block + tail
     n = int(expected_lot_count)
     if n <= 1:
         hint = (
@@ -419,7 +430,7 @@ def prompt_description_for(expected_lot_count: int | None,
             f"through {n} — do not merge distinct lots and do not invent "
             "extras beyond the confirmed count."
         )
-    return PROMPT_DESCRIPTION + hint + roster_block
+    return PROMPT_DESCRIPTION + hint + roster_block + tail
 
 
 def E(cls, text, **attrs):
@@ -1319,8 +1330,147 @@ TABLE_EXAMPLE = lx.data.ExampleData(
 )
 
 
+# --------------------------------------------------------------------------- #
+# Example 9 — SERIAL-ROW TABLE, two lots. Source: tata17833345691778 / Tata
+# Capital Housing Finance (trimmed). The long TATA schedules (27–50 lots) lose
+# lots because each lot is spread over several rows: the serial-number row, then
+# rows holding only the EMD or the possession type, then a description block
+# outside the table. Lot 2 here has exactly that shape; lot 1 is the compact
+# one-row form of the same table. Kept out of the eval set it would leak into.
+# --------------------------------------------------------------------------- #
+SERIAL_ROWS_TEXT = (
+    "# TATA CAPITAL HOUSING FINANCE LIMITED\n\n"
+    "(Under Rule 8(6) read with Rule 9(1) of the Security Interest (Enforcement) "
+    "Rules 2002)\n\n"
+    "<table><tr><td>Sr. No</td><td>LoanA/c. No</td><td>Name of Borrower(s) "
+    "/Co-borrower(s)</td><td>Amountas per DemandNotice</td><td>Reserve Price</td>"
+    "<td>Outstanding as on</td></tr><tr><td>1</td><td>TCHHF0806000100229003</td>"
+    "<td>MR. GOKULNATH.JMRS.ANANTHI SELVARAJ,</td><td>Rs. 19,48,722/-&amp;"
+    "05-02-2026</td><td>Rs.26,83,000/-Earnest Money Deposit (EMD): - "
+    "Rs.2,68,300/-Type of possession: - Physical</td><td>Rs. 2072586/-&amp;"
+    "25-06-2026</td></tr></table>\n\n"
+    "Description of the Immovable Property: All that piece and parcel of the "
+    "Erode District, Erode RD, Surampatti SRO, Modakurichi Taluk, punjai "
+    "kalamangalam village, resurvey no.12/4A1B, patta No.2089, House site no.14 "
+    "for an extent of 1987.50 sq.feet house site, within the following "
+    "boundaries:- House site No's 10,11 on the north, 10.0 meter breadth "
+    "east-west road on the south, House site no.15 on the west, House site "
+    "no.13, other lands on the east.\n\n"
+    "<table><tr><td rowspan=\"3\">2</td><td rowspan=\"3\">TCHHL0991000100279718"
+    "</td><td rowspan=\"3\">MRS. REGINA R. THIRUNAVUKARASU</td><td rowspan=\"3\">"
+    "Rs. 9,68,756/- &amp; 05-02-2025</td><td>Rs.9,85,000/-</td><td rowspan=\"3\">"
+    "Rs. 1291781/- &amp; 25-06-2026</td></tr><tr><td>Earnest Money Deposit "
+    "(EMD): - Rs.98,500/-</td></tr><tr><td>Type of possession: - Physical</td>"
+    "</tr></table>\n\n"
+    "Description of the Immovable Property: All that piece and parcel of the "
+    "New Natham S.No.281/26, Door.No.3/50, Total Extent 1065 Sq.Ft., "
+    "Vadivilliputhiryenthal village, Manamadurai Taluk, Virudhunagar Regd.Dist, "
+    "Veerachozhan SRO. Boundaries: North by- Natham S.No.281/28 Santhu, South by- "
+    "S.No.281/25 Muthuramu wife Sagunthala vacant land, East by- Natham "
+    "S.No.281/27 Natham Road, West by- S.No.281/24 Sundaram vacant land.\n\n"
+    "The E-auction of the properties will take place through portal "
+    "https://auctionbazaar.com on 11-08-2026 between 2.00 PM to 3.00 PM."
+)
+
+SERIAL_ROWS_EXAMPLE = lx.data.ExampleData(
+    text=SERIAL_ROWS_TEXT,
+    extractions=[
+        E("secured_creditor", "TATA CAPITAL HOUSING FINANCE LIMITED",
+          legal_basis="SARFAESI",
+          bank_name="Tata Capital Housing Finance Ltd.",
+          auction_platform_url="https://auctionbazaar.com"),
+        # ---- Lot 1: serial 1, everything in one row ----
+        # OCR fused the two names; each is still its own contiguous span.
+        E("borrower", "MR. GOKULNATH.J", role="borrower", lot_index="1"),
+        E("borrower", "MRS.ANANTHI SELVARAJ", role="co-borrower", lot_index="1"),
+        E("auction_terms", "Rs.26,83,000/-Earnest Money Deposit (EMD): - "
+          "Rs.2,68,300/-", lot_index="1", reserve_price_num="2683000",
+          emd_num="268300", auction_start_dt="2026-08-11T14:00",
+          auction_end_dt="2026-08-11T15:00"),
+        E("outstanding", "Rs. 2072586/-&amp;25-06-2026", lot_index="1",
+          amount_num="2072586", as_on="2026-06-25",
+          loan_account_no="TCHHF0806000100229003"),
+        E("property", "House site no.14 for an extent of 1987.50 sq.feet house "
+          "site", lot_index="1", property_type="house site",
+          asset_category="immovable", possession_type="physical"),
+        E("full_description", "All that piece and parcel of the Erode District, "
+          "Erode RD, Surampatti SRO, Modakurichi Taluk, punjai kalamangalam "
+          "village, resurvey no.12/4A1B, patta No.2089, House site no.14 for an "
+          "extent of 1987.50 sq.feet house site, within the following "
+          "boundaries:- House site No's 10,11 on the north, 10.0 meter breadth "
+          "east-west road on the south, House site no.15 on the west, House site "
+          "no.13, other lands on the east.", lot_index="1"),
+        E("location", "Erode District, Erode RD, Surampatti SRO, Modakurichi "
+          "Taluk, punjai kalamangalam village", lot_index="1",
+          village="Punjai Kalamangalam", taluk="Modakurichi", district="Erode",
+          registration_district="Erode",
+          registration_sub_district="Surampatti"),
+        E("identifier", "resurvey no.12/4A1B", kind="survey_new",
+          value="12/4A1B", lot_index="1"),
+        E("identifier", "patta No.2089", kind="patta", value="2089",
+          lot_index="1"),
+        E("identifier", "House site no.14", kind="plot", value="14",
+          lot_index="1"),
+        E("extent", "1987.50 sq.feet", lot_index="1", extent_sqft="1987.5",
+          total_area="1987.50 sq.ft"),
+        E("boundary", "House site No's 10,11 on the north", side="north",
+          adjacency="House site Nos 10, 11", lot_index="1"),
+        E("boundary", "10.0 meter breadth east-west road on the south",
+          side="south", adjacency="10.0 meter east-west road", lot_index="1"),
+        E("boundary", "House site no.15 on the west", side="west",
+          adjacency="House site no.15", lot_index="1"),
+        E("boundary", "House site no.13, other lands on the east", side="east",
+          adjacency="House site no.13, other lands", lot_index="1"),
+        # ---- Lot 2: serial 2 spans THREE rows. The EMD row and the
+        # possession row carry no serial number — they are still lot 2, and so
+        # is the description block after the table. ----
+        E("borrower", "MRS. REGINA R. THIRUNAVUKARASU", role="borrower",
+          lot_index="2"),
+        E("auction_terms", "Rs.9,85,000/-", lot_index="2",
+          reserve_price_num="985000", emd_num="98500",
+          auction_start_dt="2026-08-11T14:00",
+          auction_end_dt="2026-08-11T15:00"),
+        E("outstanding", "Rs. 1291781/- &amp; 25-06-2026", lot_index="2",
+          amount_num="1291781", as_on="2026-06-25",
+          loan_account_no="TCHHL0991000100279718"),
+        E("property", "New Natham S.No.281/26, Door.No.3/50, Total Extent 1065 "
+          "Sq.Ft.", lot_index="2", property_type="land",
+          asset_category="immovable", possession_type="physical"),
+        E("full_description", "All that piece and parcel of the New Natham "
+          "S.No.281/26, Door.No.3/50, Total Extent 1065 Sq.Ft., "
+          "Vadivilliputhiryenthal village, Manamadurai Taluk, Virudhunagar "
+          "Regd.Dist, Veerachozhan SRO. Boundaries: North by- Natham S.No.281/28 "
+          "Santhu, South by- S.No.281/25 Muthuramu wife Sagunthala vacant land, "
+          "East by- Natham S.No.281/27 Natham Road, West by- S.No.281/24 "
+          "Sundaram vacant land.", lot_index="2"),
+        E("location", "Vadivilliputhiryenthal village, Manamadurai Taluk, "
+          "Virudhunagar Regd.Dist, Veerachozhan SRO", lot_index="2",
+          village="Vadivilliputhiryenthal", taluk="Manamadurai",
+          registration_district="Virudhunagar",
+          registration_sub_district="Veerachozhan"),
+        E("identifier", "New Natham S.No.281/26", kind="survey_new",
+          value="281/26", lot_index="2"),
+        E("identifier", "Door.No.3/50", kind="door_new", value="3/50",
+          lot_index="2"),
+        E("extent", "Total Extent 1065 Sq.Ft.", lot_index="2",
+          extent_sqft="1065", total_area="1065 sq.ft"),
+        E("boundary", "North by- Natham S.No.281/28 Santhu", side="north",
+          adjacency="Natham S.No.281/28 Santhu", lot_index="2"),
+        E("boundary", "South by- S.No.281/25 Muthuramu wife Sagunthala vacant "
+          "land", side="south",
+          adjacency="S.No.281/25 Muthuramu wife Sagunthala vacant land",
+          lot_index="2"),
+        E("boundary", "East by- Natham S.No.281/27 Natham Road", side="east",
+          adjacency="Natham S.No.281/27 Natham Road", lot_index="2"),
+        E("boundary", "West by- S.No.281/24 Sundaram vacant land", side="west",
+          adjacency="S.No.281/24 Sundaram vacant land", lot_index="2"),
+    ],
+)
+
+
 EXAMPLES = [SINGLE_EXAMPLE, MULTI_EXAMPLE, APARTMENT_EXAMPLE, DRT_EXAMPLE,
-            ARC_EXAMPLE, KARNATAKA_EXAMPLE, CANFIN_EXAMPLE, TABLE_EXAMPLE]
+            ARC_EXAMPLE, KARNATAKA_EXAMPLE, CANFIN_EXAMPLE, TABLE_EXAMPLE,
+            SERIAL_ROWS_EXAMPLE]
 
 
 _MODEL_CACHE: dict = {}
@@ -1410,7 +1560,8 @@ def extract(markdown: str, model_id: str | None = None,
             reasoning_off: bool = False,
             expected_lot_count: int | None = None,
             roster: list[dict] | None = None,
-            passes: int | None = None):
+            passes: int | None = None,
+            extra: str | None = None):
     """Run LangExtract over one notice's MinerU markdown.
 
     ``expected_lot_count`` — the reviewer-confirmed lot count from the
@@ -1449,7 +1600,8 @@ def extract(markdown: str, model_id: str | None = None,
     from pipeline.extract_routing import char_buffer_for
     common = dict(
         text_or_documents=markdown,
-        prompt_description=prompt_description_for(expected_lot_count, roster),
+        prompt_description=prompt_description_for(expected_lot_count, roster,
+                                                  extra),
         examples=EXAMPLES,
         extraction_passes=(passes if passes is not None
                            else int(os.environ.get("LANGEXTRACT_PASSES", "2"))),

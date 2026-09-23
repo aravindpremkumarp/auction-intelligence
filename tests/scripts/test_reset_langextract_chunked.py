@@ -1,6 +1,7 @@
 """reset_langextract_and_extract: chunked reads and the --keep-more-lots guard."""
 from __future__ import annotations
 
+import re
 import sys
 import types
 
@@ -22,18 +23,29 @@ def fake(monkeypatch):
 
     def extract(text, **kw):
         calls["extract"].append(kw.get("expected_lot_count"))
-        n = kw.get("expected_lot_count") or 1
-        return types.SimpleNamespace(n=n)
+        calls.setdefault("kw", []).append(kw)
+        return types.SimpleNamespace(text=text, n=kw.get("expected_lot_count") or 1)
     lx.extract = extract
     monkeypatch.setitem(sys.modules, "pipeline.langextract_examples", lx)
-    monkeypatch.setattr(R, "_entities",
-                        lambda res, text: [_ent(i, i) for i in range(1, res.n + 1)])
+    # `from pipeline import X` reads the package attribute first, which is the
+    # real module once any earlier test imported it.
+    import pipeline
+    monkeypatch.setattr(pipeline, "langextract_examples", lx, raising=False)
+    def entities(res, text):
+        # one borrower per "No.N" block, numbered locally like the model does;
+        # plain text (no blocks) gets n lots at the top
+        found = [(m.start(), k) for k, m in
+                 enumerate(re.finditer(r"No\.\d+", text), 1)]
+        return ([_ent(k, pos) for pos, k in found] if found
+                else [_ent(i, i) for i in range(1, res.n + 1)])
+    monkeypatch.setattr(R, "_entities", entities)
     monkeypatch.setattr(R, "validate_stored", lambda ents, **kw: {"score": 50})
     monkeypatch.setattr(R, "run_query",
                         lambda q, p=None, **kw: calls["writes"].append(p) or [])
     ke = types.ModuleType("pipeline.key_entities")
     ke.stamp_key_scores = lambda fns: None
     monkeypatch.setitem(sys.modules, "pipeline.key_entities", ke)
+    monkeypatch.setattr(pipeline, "key_entities", ke, raising=False)
     return calls
 
 
@@ -46,6 +58,7 @@ def test_a_matching_multi_lot_notice_is_read_in_chunks(fake):
          "expected_lot_count": 12, "roster": []}
     R._extract_one(d, batch=1, route=False)
     assert fake["extract"] == [5, 5, 2]
+    assert "It holds lots 6–10" in fake["kw"][1]["extra"]
 
 
 def test_an_unmatched_notice_is_read_whole(fake):
@@ -53,6 +66,7 @@ def test_an_unmatched_notice_is_read_whole(fake):
          "expected_lot_count": 13, "roster": []}
     R._extract_one(d, batch=1, route=False)
     assert fake["extract"] == [13]
+    assert fake["kw"][0]["extra"] is None
 
 
 def test_keep_more_lots_refuses_a_weaker_run(fake, monkeypatch):

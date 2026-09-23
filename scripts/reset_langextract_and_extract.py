@@ -80,7 +80,11 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 
 from api.neo4j_client import run_query, run_read_query
-from pipeline.extract_routing import passes_for, select_extract_model
+from pipeline.extract_routing import (
+    passes_for,
+    select_extract_model,
+    select_retry_model,
+)
 from pipeline.lot_chunks import extract_chunked, plan_chunks
 from pipeline.load_extractions import (
     ROSTER_CYPHER,
@@ -337,10 +341,13 @@ def _extract_one(d: dict, batch: int, route: bool, keep_more_lots: bool = False)
         model_id, reasoning_off = None, False
     passes = passes_for(d.get("notice_type")) if route else None
 
-    def read(text: str, lots) -> list[dict]:
-        res = LX.extract(text, model_id=model_id, reasoning_off=reasoning_off,
+    def read(text: str, lots, extra: str | None = None,
+             strong: bool = False) -> list[dict]:
+        mid, roff = ((select_retry_model() if route else (None, False))
+                     if strong else (model_id, reasoning_off))
+        res = LX.extract(text, model_id=mid, reasoning_off=roff,
                          expected_lot_count=lots, roster=d.get("roster"),
-                         passes=passes)
+                         passes=passes, extra=extra)
         return _entities(res, text)
 
     plan = plan_chunks(d["md"], d.get("expected_lot_count"))
