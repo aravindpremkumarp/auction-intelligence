@@ -323,18 +323,14 @@ def select_refresh_docs(min_ocr: int, min_score: int, single_lot: bool,
     return run_read_query(q, params, max_rows=20_000, timeout=120.0)
 
 
-def _extract_one(d: dict, batch: int, route: bool, keep_more_lots: bool = False):
-    """Extract + write one page. Returns (filename, n_entities, model_id) on
-    success or raises. Safe to call from a worker thread: LX.extract builds its
-    own provider client per call and each write is an independent HTTP request.
+def read_notice(d: dict, route: bool) -> tuple[list[dict], str | None]:
+    """Extract one page's entities without writing anything.
 
-    ``d`` may be a group leader from ``_plan_groups`` — one notice stored under
-    several file names — in which case ``twins`` lists every Document the result
-    is written to. They hold the same markdown, so the offsets in the entities
-    are valid in each."""
+    Returns ``(entities, model_id)``. A multi-lot notice whose lots
+    pipeline/lot_chunks can locate is read a few lots at a time; everything
+    else is read whole. Shared by the writer below and by
+    scripts/eval_lot_recall, so what the eval measures is what gets written."""
     from pipeline import langextract_examples as LX  # heavy import, defer
-    fn = d["filename"]
-    targets = d.get("twins") or [fn]
     if route:
         model_id, reasoning_off = select_extract_model(d.get("notice_type"))
     else:
@@ -352,9 +348,22 @@ def _extract_one(d: dict, batch: int, route: bool, keep_more_lots: bool = False)
 
     plan = plan_chunks(d["md"], d.get("expected_lot_count"))
     if plan is not None:
-        ents = extract_chunked(d["md"], plan, read)
-    else:
-        ents = read(d["md"], d.get("expected_lot_count"))
+        return extract_chunked(d["md"], plan, read), model_id
+    return read(d["md"], d.get("expected_lot_count")), model_id
+
+
+def _extract_one(d: dict, batch: int, route: bool, keep_more_lots: bool = False):
+    """Extract + write one page. Returns (filename, n_entities, model_id) on
+    success or raises. Safe to call from a worker thread: LX.extract builds its
+    own provider client per call and each write is an independent HTTP request.
+
+    ``d`` may be a group leader from ``_plan_groups`` — one notice stored under
+    several file names — in which case ``twins`` lists every Document the result
+    is written to. They hold the same markdown, so the offsets in the entities
+    are valid in each."""
+    fn = d["filename"]
+    targets = d.get("twins") or [fn]
+    ents, model_id = read_notice(d, route)
     # An empty result is a failed read, not a notice with nothing in it — the
     # model returned something LangExtract could not parse ("Content must
     # contain an 'extractions' key"), and every chunk was skipped. Writing it
