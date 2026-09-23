@@ -71,3 +71,33 @@ def test_stitch_keeps_tail_entities_once():
     assert len(dates) == 1
     assert md[dates[0]["start"]:dates[0]["end"]] == "24.06.2026"
     assert [e["id"] for e in ents] == [str(i) for i in range(len(ents))]
+
+
+def test_a_short_chunk_is_read_again_and_the_fuller_read_kept():
+    md = _notice(10)
+    plan = plan_chunks(md, 10, lots_per_chunk=5)
+    calls = {"n": 0}
+
+    def flaky(text, lots):
+        calls["n"] += 1
+        ents = _fake_read(text, lots)
+        if calls["n"] == 1:          # first read of chunk 1 drops 3 lots
+            ents = [e for e in ents if e["attrs"].get("lot_index") in (None, "1", "2")]
+        return ents
+
+    ents = extract_chunked(md, plan, flaky)
+    lots = {e["attrs"]["lot_index"] for e in ents if e["cls"] == "borrower"}
+    assert lots == {str(i) for i in range(1, 11)}
+    assert calls["n"] == 3           # chunk 1 twice, chunk 2 once
+
+
+def test_retries_zero_keeps_the_first_read():
+    md = _notice(10)
+    plan = plan_chunks(md, 10, lots_per_chunk=5)
+
+    def short(text, lots):
+        return [e for e in _fake_read(text, lots)
+                if e["attrs"].get("lot_index") in (None, "1")]
+
+    ents = extract_chunked(md, plan, short, retries=0)
+    assert len([e for e in ents if e["cls"] == "borrower"]) == 2

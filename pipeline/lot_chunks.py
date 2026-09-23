@@ -87,13 +87,24 @@ def _local_rank(ents: list[dict]) -> dict:
     return {li: r for r, li in enumerate(sorted(first, key=first.get), 1)}
 
 
+def _lots_found(ents: list[dict], body_len: int) -> int:
+    return len(_local_rank([e for e in ents
+                            if e.get("start") is None or e["start"] < body_len]))
+
+
 def extract_chunked(markdown: str, plan: Plan,
-                    read: Callable[[str, int], list[dict]]) -> list[dict]:
+                    read: Callable[[str, int], list[dict]],
+                    retries: int = 1) -> list[dict]:
     """Run ``read(chunk_text, lots_in_chunk)`` per chunk and stitch the results.
 
     ``read`` returns stored-shape entity dicts (``_entities``) with offsets into
     the text it was given. The result has offsets into ``markdown`` and a
     global ``lot_index`` per lot.
+
+    A chunk that comes back with fewer lots than it holds is read again, up to
+    ``retries`` times, keeping the read that found the most. Even at five lots
+    a read occasionally drops some (2 of 5 on one L842 chunk), and re-reading
+    one chunk is an eighth of re-reading the notice.
     """
     tail = markdown[plan.tail_start:]
     out: list[dict] = []
@@ -104,6 +115,12 @@ def extract_chunked(markdown: str, plan: Plan,
         text = body + ("\n\n" + tail if tail else "")
         tail_at = len(body) + (2 if tail else 0)
         ents = read(text, c.lots)
+        for _ in range(retries):
+            if _lots_found(ents, len(body)) >= c.lots:
+                break
+            again = read(text, c.lots)
+            if _lots_found(again, len(body)) > _lots_found(ents, len(body)):
+                ents = again
         rank = _local_rank([e for e in ents
                             if e.get("start") is None or e["start"] < len(body)])
         for e in ents:
