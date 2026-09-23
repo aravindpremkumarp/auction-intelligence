@@ -310,7 +310,10 @@ _STALE_CYPHER = (
     " OR coalesce(d.markdown_loaded_at > d.extraction_at, false)"
     " OR coalesce(d.extraction_stale_at > d.extraction_at, false)))")
 EXTRACTION_FAILURES: dict[str, dict] = {
-    "missing-lots":  {"codes": ("lot_under_recall",),
+    # Only the reviewer's own lot count, never validators.py lot_under_recall:
+    # that heuristic counts "S.No" markers, which survey numbers also carry,
+    # and fired on ~30% of the corpus — nearly all notices with every lot.
+    "missing-lots":  {"codes": (),
                       "cypher": f"coalesce(d.extraction_lot_count < {_EXPECTED_LOTS}, false)"},
     "extra-lots":    {"codes": (),
                       "cypher": f"coalesce(d.extraction_lot_count > {_EXPECTED_LOTS}, false)"},
@@ -357,7 +360,7 @@ def row_failures(issue_codes, extracted_lots: int | None,
     for key, spec in EXTRACTION_FAILURES.items():
         hit = bool(codes & set(spec.get("codes", ())))
         if key == "missing-lots" and extracted_lots is not None and expected_lots is not None:
-            hit = hit or extracted_lots < expected_lots
+            hit = extracted_lots < expected_lots
         elif key == "extra-lots" and extracted_lots is not None and expected_lots is not None:
             hit = extracted_lots > expected_lots
         elif key == "rerun":

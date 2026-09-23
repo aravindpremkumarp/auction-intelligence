@@ -35,13 +35,15 @@ def test_no_failures_adds_no_clause(monkeypatch):
     assert seen[0][1]["fail_codes"] == []
 
 
-def test_missing_lots_matches_lot_count_or_under_recall(monkeypatch):
+def test_missing_lots_is_the_reviewer_lot_count_only(monkeypatch):
+    """Not validators.py lot_under_recall: its "S.No" marker count matches
+    survey numbers and flagged notices that had every lot."""
     seen = _capture(monkeypatch)
     ex.list_extraction_queue(None, 200, failures=["missing-lots"])
     cypher, params = seen[0]
     assert "d.extraction_lot_count < coalesce(d.stitched_expected_lot_count, d.expected_lot_count)" in cypher
-    assert "c IN $fail_codes" in cypher
-    assert params["fail_codes"] == ["lot_under_recall"]
+    assert "$fail_codes" not in cypher
+    assert params["fail_codes"] == []
 
 
 def test_selected_failures_or_together(monkeypatch):
@@ -105,7 +107,9 @@ def test_queue_endpoint_forwards_failures_and_rows_carry_them(monkeypatch):
 def test_row_failures_extra_lots_and_clean_row():
     assert ex.row_failures([], 4, 2, False) == ["extra-lots"]
     assert ex.row_failures(None, 2, 2, False) == []
-    assert ex.row_failures(["lot_under_recall"], None, None, False) == ["missing-lots"]
+    assert ex.row_failures(["lot_under_recall"], None, None, False) == []
+    assert ex.row_failures(["lot_under_recall"], 3, 3, False) == []
+    assert ex.row_failures([], 2, 3, False) == ["missing-lots"]
 
 
 # ── stamping ─────────────────────────────────────────────────────────────────
