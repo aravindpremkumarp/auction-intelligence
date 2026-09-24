@@ -36,8 +36,10 @@ def fake(monkeypatch):
         # plain text (no blocks) gets n lots at the top
         found = [(m.start(), k) for k, m in
                  enumerate(re.finditer(r"No\.\d+", text), 1)]
-        return ([_ent(k, pos) for pos, k in found] if found
-                else [_ent(i, i) for i in range(1, res.n + 1)])
+        # each lot read in full: a borrower and its full_description
+        return ([e for pos, k in found
+                 for e in (_ent(k, pos), {**_ent(k, pos), "cls": "full_description"})]
+                if found else [_ent(i, i) for i in range(1, res.n + 1)])
     monkeypatch.setattr(R, "_entities", entities)
     monkeypatch.setattr(R, "validate_stored", lambda ents, **kw: {"score": 50})
     monkeypatch.setattr(R, "run_query",
