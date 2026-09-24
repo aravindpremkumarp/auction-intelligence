@@ -85,7 +85,7 @@ from pipeline.extract_routing import (
     select_extract_model,
     select_retry_model,
 )
-from pipeline.lot_chunks import extract_chunked, plan_chunks
+from pipeline.lot_chunks import extract_chunked, lots_read, plan_chunks
 from pipeline.stitch_refresh import refresh_stitches
 from pipeline.load_extractions import (
     ROSTER_CYPHER,
@@ -94,6 +94,10 @@ from pipeline.load_extractions import (
     _plan_groups,
 )
 from pipeline.validators import SCORE_VERSION, validate_stored
+
+# A notice with at least this many lots is read in chunks from the start;
+# a smaller one is read whole first (see read_notice).
+CHUNK_FIRST_AT = int(os.getenv("LOT_CHUNK_FIRST_AT", "20"))
 
 # Every LangExtract-owned field on :Document. Clearing these returns a notice to
 # the "never extracted" state the /review/extraction surface treats as empty.
@@ -347,10 +351,24 @@ def read_notice(d: dict, route: bool) -> tuple[list[dict], str | None]:
                          passes=passes, extra=extra)
         return _entities(res, text)
 
-    plan = plan_chunks(d["md"], d.get("expected_lot_count"))
-    if plan is not None:
+    # Chunked reading finds lots a whole read misses, but it is one model call
+    # per chunk plus retries — several times the cost and 20–45 minutes on a
+    # big notice. So: big notices go straight to chunks (a whole read of 25+
+    # lots came back short every time it was tried — boi 18/25, tata 35/47,
+    # L842); smaller ones are read whole and fall back to chunks only when
+    # that read comes back short.
+    expected = d.get("expected_lot_count")
+    plan = plan_chunks(d["md"], expected)
+    if plan is not None and int(expected) >= CHUNK_FIRST_AT:
         return extract_chunked(d["md"], plan, read), model_id
-    return read(d["md"], d.get("expected_lot_count")), model_id
+    ents = read(d["md"], expected)
+    if plan is not None and lots_read(ents) < int(expected):
+        print(f"  {d['filename']}: whole read found {lots_read(ents)} of "
+              f"{expected} lot(s) — re-reading in chunks", flush=True)
+        chunked = extract_chunked(d["md"], plan, read)
+        if lots_read(chunked) >= lots_read(ents):
+            return chunked, model_id
+    return ents, model_id
 
 
 def _extract_one(d: dict, batch: int, route: bool, keep_more_lots: bool = False):

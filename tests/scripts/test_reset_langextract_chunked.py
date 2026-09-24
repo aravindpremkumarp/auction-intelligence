@@ -55,12 +55,41 @@ def _notice(n):
     return "".join(f"No.{i}\nReserve price: Rs.{i},00,000/-\n" for i in range(1, n + 1))
 
 
-def test_a_matching_multi_lot_notice_is_read_in_chunks(fake):
+def test_a_big_notice_is_read_in_chunks_from_the_start(fake, monkeypatch):
+    monkeypatch.setattr(R, "CHUNK_FIRST_AT", 12)
     d = {"filename": "f", "md": _notice(12), "notice_type": "multi",
          "expected_lot_count": 12, "roster": []}
     R._extract_one(d, batch=1, route=False)
     assert fake["extract"] == [5, 5, 2]
     assert "It holds lots 6–10" in fake["kw"][1]["extra"]
+
+
+def test_a_smaller_notice_read_in_full_stays_one_read(fake):
+    d = {"filename": "f", "md": _notice(12), "notice_type": "multi",
+         "expected_lot_count": 12, "roster": []}
+    R._extract_one(d, batch=1, route=False)
+    assert fake["extract"] == [12]
+
+
+def test_a_short_whole_read_falls_back_to_chunks(fake, monkeypatch):
+    whole = R._entities
+
+    def short_when_whole(res, text):
+        ents = whole(res, text)
+        if res.n == 12:     # the whole read: drop the last two lots
+            ents = [e for e in ents if int(e["attrs"]["lot_index"]) <= 10]
+        return ents
+    monkeypatch.setattr(R, "_entities", short_when_whole)
+    d = {"filename": "f", "md": _notice(12), "notice_type": "multi",
+         "expected_lot_count": 12, "roster": []}
+    R._extract_one(d, batch=1, route=False)
+    assert fake["extract"] == [12, 5, 5, 2]
+    assert R._lot_count(json_written(fake)) == 12
+
+
+def json_written(fake):
+    import json
+    return json.loads(next(p["j"] for p in fake["writes"] if p and "j" in p))
 
 
 def test_an_unmatched_notice_is_read_whole(fake):
