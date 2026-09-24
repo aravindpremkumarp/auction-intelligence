@@ -9,6 +9,7 @@ from typing import Literal
 
 from api.neo4j_client import run_query, run_read_query
 from api.review.markdown_match import match_span, property_offset_in_notice
+from pipeline.stitch_refresh import refresh_stitches
 from pipeline.place_lineage import NOT_COMPARABLE as PLACE_LINEAGE_NOT_COMPARABLE
 from pipeline.place_lineage import SAID as PLACE_LINEAGE_SAID
 
@@ -625,6 +626,9 @@ def verify_classification(
                d.notice_type_review_notes          AS review_notes,
                size(to_invalidate)                 AS invalidated_count
     """, params)
+    # A page of a joined notice: the leader's summed lot count includes this one.
+    if rows:
+        refresh_stitches(filenames=[filename])
     return rows[0] if rows else None
 
 

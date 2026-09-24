@@ -127,11 +127,13 @@ def test_chunks_are_capped_in_characters(monkeypatch):
 _BLOCK = re.compile(r"(?:No\.|<td rowspan=\"3\">)(\d+)")
 
 
-def _reader(drop=None, fail=None, log=None):
+def _reader(drop=None, fail=None, log=None, partial=None):
     """Stands in for the model. Tags each lot block it sees with a LOCAL index
-    1..k (as the prompt asks), plus one notice-level date from the tail.
-    ``drop(call_no, real_lot)`` returns True to leave a lot out of that read;
-    ``fail(call_no)`` returns True to raise."""
+    1..k (as the prompt asks) — a borrower and a full_description — plus one
+    notice-level date from the tail. ``drop(call_no, real_lot)`` returns True to
+    leave a lot out of that read; ``partial(call_no, real_lot)`` returns True to
+    read it without its full_description; ``fail(call_no)`` returns True to
+    raise."""
     calls = {"n": 0}
 
     def read(text, lots, extra=None, strong=False):
@@ -149,7 +151,14 @@ def _reader(drop=None, fail=None, log=None):
             local += 1
             out.append({"id": "x", "cls": "borrower", "text": m.group(0),
                         "start": m.start(), "end": m.end(),
-                        "attrs": {"lot_index": str(local), "real": str(real)}})
+                        "attrs": {"lot_index": str(local), "real": str(real),
+                                  "call": n}})
+            if not (partial and partial(n, real)):
+                out.append({"id": "x", "cls": "full_description",
+                            "text": m.group(0), "start": m.start(),
+                            "end": m.end(),
+                            "attrs": {"lot_index": str(local), "real": str(real),
+                                      "call": n}})
         d = text.find("24.06.2026")
         if d >= 0:
             out.append({"id": "x", "cls": "auction_date", "text": "24.06.2026",
@@ -271,3 +280,92 @@ def test_lots_read_counts_distinct_lots_with_evidence():
             {"cls": "borrower", "attrs": {"lot_index": "2"}},
             {"cls": "contact", "attrs": {}}]
     assert LC.lots_read(ents) == 2
+
+
+# ── fix: a half-read lot is retried, and only a full read replaces it ────────
+
+def test_a_lot_without_its_full_description_is_retried_and_replaced():
+    md = _price_notice(10)
+    log = []
+    read = _reader(partial=lambda n, real: n == 1 and real == 3, log=log)
+    ents = extract_chunked(md, plan_chunks(md, 10, lots_per_chunk=5), read)
+    lot3 = [e for e in ents if e["attrs"].get("lot_index") == "3"]
+    assert {e["cls"] for e in lot3} == {"borrower", "full_description"}
+    assert {e["attrs"]["call"] for e in lot3} == {2}      # the retry's read, whole
+    assert log[1]["lots"] == 1
+
+
+def test_a_partial_retry_does_not_replace_a_partial_read():
+    md = _price_notice(10)
+    # lot 3 never comes back with its full_description
+    read = _reader(partial=lambda n, real: real == 3)
+    ents = extract_chunked(md, plan_chunks(md, 10, lots_per_chunk=5), read)
+    lot3 = [e for e in ents if e["attrs"].get("lot_index") == "3"]
+    assert [e["cls"] for e in lot3] == ["borrower"]
+    assert {e["attrs"]["call"] for e in lot3} == {1}      # the first read kept
+
+
+def test_a_partial_retry_fills_a_lot_that_had_nothing():
+    md = _price_notice(10)
+    read = _reader(drop=lambda n, real: n == 1 and real == 3,
+                   partial=lambda n, real: real == 3)
+    ents = extract_chunked(md, plan_chunks(md, 10, lots_per_chunk=5), read)
+    assert [e["cls"] for e in ents if e["attrs"].get("lot_index") == "3"] == ["borrower"]
+
+
+# ── fix: a continuation lot inherits the borrower before it ──────────────────
+
+def _continuation_notice() -> str:
+    lots = []
+    for i in range(1, 9):
+        who = ("" if i in (2, 5) else
+               f"Name of the Borrower : Mr B{i}\n")
+        lots.append(f"{who}No.{i} Property {i}: land at Sy No {i}/1.\n"
+                    f"Reserve price: Rs.{i},00,000/-\n")
+    return "# SALE NOTICE\n\n" + "\n".join(lots) + "\nTerms.\n"
+
+
+def _borrowers_by_name(md):
+    """A reader that reads the borrower's NAME when the lot states one."""
+    def read(text, lots, extra=None, strong=False):
+        out, local = [], 0
+        for m in re.finditer(r"(Mr B\d+\n)?No\.(\d+) Property", text):
+            local += 1
+            span = (m.start(2), m.end(2))
+            out.append({"cls": "full_description", "text": "x", "start": span[0],
+                        "end": span[1], "attrs": {"lot_index": str(local)}})
+            if m.group(1):
+                out.append({"cls": "borrower", "text": m.group(1).strip(),
+                            "start": m.start(1), "end": m.start(1) + 5,
+                            "attrs": {"lot_index": str(local)}})
+        return out
+    return read
+
+
+def test_a_lot_that_names_no_borrower_inherits_the_one_before():
+    md = _continuation_notice()
+    plan = plan_chunks(md, 8, lots_per_chunk=5)
+    ents = extract_chunked(md, plan, _borrowers_by_name(md))
+    by_lot = {}
+    for e in ents:
+        if e["cls"] == "borrower":
+            by_lot.setdefault(e["attrs"]["lot_index"], []).append(e)
+    assert set(by_lot) == {str(i) for i in range(1, 9)}
+    assert by_lot["2"][0]["text"] == "Mr B1"
+    assert by_lot["2"][0]["attrs"]["inherited_from_lot"] == "1"
+    assert by_lot["5"][0]["text"] == "Mr B4"
+    assert "inherited_from_lot" not in by_lot["3"][0]["attrs"]
+
+
+def test_a_lot_that_names_a_borrower_the_model_missed_inherits_nothing():
+    md = _continuation_notice()
+    plan = plan_chunks(md, 8, lots_per_chunk=5)
+
+    def read(text, lots, extra=None, strong=False):
+        ents = _borrowers_by_name(md)(text, lots, extra, strong)
+        return [e for e in ents if not (e["cls"] == "borrower"
+                                        and e["text"] == "Mr B3")]
+    ents = extract_chunked(md, plan, read, retries=0)
+    lot3 = [e for e in ents if e["cls"] == "borrower"
+            and e["attrs"]["lot_index"] == "3"]
+    assert lot3 == []            # its text says "Borrower": a gap, not a continuation

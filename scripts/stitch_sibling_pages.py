@@ -48,6 +48,7 @@ Usage:
     python -m scripts.stitch_sibling_pages --apply --only AXIS-1….jpg
     python -m scripts.stitch_sibling_pages --apply --skip 03d7249a-….jpg
     python -m scripts.stitch_sibling_pages --unstitch AXIS-1….jpg
+    python -m scripts.stitch_sibling_pages --refresh    # re-join from current page text
     python -m scripts.stitch_sibling_pages --reject CB-1….jpg --reject can-2….pdf
     python -m scripts.stitch_sibling_pages --unreject CB-1….jpg --unreject can-2….pdf
 
@@ -69,6 +70,7 @@ from pipeline.notice_pages import (
 )
 from pipeline.notice_twins import text_key
 from pipeline.promote_extractions import rebuild_document_lots
+from pipeline.stitch_refresh import refresh_stitches
 
 # (a) Candidate documents: every document with markdown that sits on at least
 # one listing carrying two or more such documents. Each document once — the
@@ -337,6 +339,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--keep-follower-lots", action="store_true",
                     help="with --apply, leave each follower's old lots in place")
     ap.add_argument("--unstitch", help="leader filename whose stitch to remove")
+    ap.add_argument("--refresh", action="store_true",
+                    help="only rebuild the joined text of groups already written, "
+                         "from their pages' current text (no new groups)")
     ap.add_argument("--reject", action="append", default=[],
                     help="member filename of a pairing a human rejected "
                          "(repeatable; name every member, at least two)")
@@ -344,6 +349,12 @@ def main(argv: list[str] | None = None) -> int:
                     help="member filename whose stored rejection to lift "
                          "(repeatable; name every member)")
     args = ap.parse_args(argv)
+
+    if args.refresh:
+        rebuilt = refresh_stitches()
+        print(f"rebuilt {len(rebuilt)} joined notice(s)"
+              + (f": {', '.join(rebuilt)}" if rebuilt else ""))
+        return 0
 
     if args.unstitch:
         n = unstitch(args.unstitch)

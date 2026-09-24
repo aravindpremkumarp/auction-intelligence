@@ -39,6 +39,7 @@ from pipeline.mineru_api import (
 )
 from pipeline.ocr_health import score_ocr_health
 from pipeline.region_detect import detect_regions
+from pipeline.stitch_refresh import refresh_stitches
 
 SOURCE_PROXY = os.environ.get(
     "NOTICE_SOURCE_PROXY",
@@ -220,6 +221,7 @@ def process_doc(doc: dict, *, dry_run: bool) -> dict:
         "health_score": health["score"],
         "health_flags": health["flags"],
     })
+    refresh_stitches(filenames=[fn])
     _rescore_coverage(fp, new_md)
     out["status"] = "persisted"
     out["blocks"] = len(blocks)

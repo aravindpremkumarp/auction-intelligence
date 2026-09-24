@@ -75,6 +75,7 @@ from pipeline.load_markdowns_to_neo4j import (
 from pipeline.mineru import MINERU_SUPPORTED_EXTS, assemble_markdown
 from pipeline.notice_twins import plan_reuse, source_key
 from pipeline.ocr_health import score_ocr_health
+from pipeline.stitch_refresh import refresh_stitches
 from scripts.ocr_with_mineru import MINERU_KEY, stage1_mineru
 
 
@@ -252,6 +253,7 @@ def copy_markdown(copies: list[dict]) -> int:
             {"rows": rows[i:i + 200]},
         )
         written += (res[0].get("n") or 0) if res else 0
+    refresh_stitches(file_paths=[r["file_path"] for r in rows])
     return written
 
 
@@ -381,6 +383,7 @@ def write_datalab(results: list[dict]) -> int:
             """,
             {"rows": rows[i:i + 200]},
         )
+    refresh_stitches(file_paths=[r["file_path"] for r in rows])
     return len(rows)
 
 
