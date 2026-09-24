@@ -26,6 +26,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from api.neo4j_client import run_query, run_read_query
+from pipeline.stitch_refresh import refresh_stitches
 from pipeline.mineru import (
     DEFAULT_LABEL,
     MINERU_LABEL_VALUES,
@@ -597,6 +598,8 @@ def _save_doc(filename: str, doc: dict, expected_rev: int) -> int:
     )
     if not rows:
         raise BlocksConflict("blocks_revision changed; reload required")
+    # A page of a joined notice: its leader's joined text holds the old words.
+    refresh_stitches(filenames=[filename])
     return int(rows[0]["rev"])
 
 
@@ -1210,6 +1213,7 @@ def _persist_reingest_result(filename: str, *, markdown: str, blocks_json: str,
          "markdown_source": markdown_source, "markdown_model": markdown_model,
          "parse_quality": parse_quality},
     )
+    refresh_stitches(filenames=[filename])
 
 
 def _reingest_multi_region(*, filename: str, fp: str, src_filename: str,

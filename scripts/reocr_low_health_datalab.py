@@ -51,6 +51,7 @@ from pipeline.config import datalab_mode_for
 from pipeline.datalab import parse_datalab_blocks
 from pipeline.mineru import assemble_markdown
 from pipeline.ocr_health import score_ocr_health
+from pipeline.stitch_refresh import refresh_stitches
 
 
 # ── Neo4j over HTTPS (Query API v2) ─────────────────────────────────────────
@@ -233,6 +234,7 @@ def write_back(results: list[dict]) -> int:
         """,
         {"rows": rows},
     )
+    refresh_stitches(file_paths=[r["file_path"] for r in rows])
     return len(rows)
 
 

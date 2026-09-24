@@ -72,6 +72,7 @@ from pipeline.ink_coverage import (
 from pipeline.mineru import assemble_markdown
 from pipeline.ocr_health import score_ocr_health
 from pipeline.reextract import _image_crop_to_png, _pdf_crop_to_png
+from pipeline.stitch_refresh import refresh_stitches
 from scripts.score_ink_coverage import nq
 
 
@@ -286,6 +287,7 @@ def write_back(results: list[dict]) -> int:
         """,
         {"rows": rows},
     )
+    refresh_stitches(file_paths=[r["file_path"] for r in rows])
     return len(rows)
 
 

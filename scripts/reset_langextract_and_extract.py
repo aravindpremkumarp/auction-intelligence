@@ -86,6 +86,7 @@ from pipeline.extract_routing import (
     select_retry_model,
 )
 from pipeline.lot_chunks import extract_chunked, plan_chunks
+from pipeline.stitch_refresh import refresh_stitches
 from pipeline.load_extractions import (
     ROSTER_CYPHER,
     _entities,
@@ -546,6 +547,12 @@ def main() -> int:
         clear_all()
         if args.clear_only:
             return 0
+
+    # Read joined notices from their pages' current text, whatever rewrote a
+    # page since the join. A rebuilt leader is stamped stale, so --stale takes it.
+    rebuilt = refresh_stitches()
+    if rebuilt:
+        print(f"rebuilt joined text of {len(rebuilt)} notice(s): {', '.join(rebuilt)}")
 
     if args.only:
         docs = select_only_docs(args.only)

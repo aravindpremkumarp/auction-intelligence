@@ -35,6 +35,7 @@ import time
 from pathlib import Path
 
 from api.neo4j_client import run_query, run_read_query
+from pipeline.stitch_refresh import refresh_stitches
 from pipeline.mineru import (
     MINERU_BLOCKS_DIR,
     PRECLEAN_MODEL_TAG,
@@ -213,6 +214,7 @@ def write_markdowns(rows: list[dict], source: str, model: str) -> None:
                 ELSE coalesce(d.blocks_revision, 0) END
     """
     run_query(cypher, {"rows": rows, "source": source, "model": model})
+    refresh_stitches(file_paths=[r["file_path"] for r in rows])
 
 
 def backfill_provenance(source: str, model: str) -> int:
