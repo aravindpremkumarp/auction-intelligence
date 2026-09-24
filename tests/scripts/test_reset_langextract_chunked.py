@@ -15,6 +15,11 @@ def _ent(li, start=0):
             "attrs": {"lot_index": str(li)}}
 
 
+def _terms(li, start=0):
+    return {"cls": "auction_terms", "text": "x", "start": start, "end": start + 1,
+            "attrs": {"lot_index": str(li), "reserve_price_num": "100000"}}
+
+
 @pytest.fixture
 def fake(monkeypatch):
     """Stub the model, the writes and the key-score stamp."""
@@ -36,9 +41,10 @@ def fake(monkeypatch):
         # plain text (no blocks) gets n lots at the top
         found = [(m.start(), k) for k, m in
                  enumerate(re.finditer(r"No\.\d+", text), 1)]
-        # each lot read in full: a borrower and its full_description
+        # each lot read in full: a borrower, its full_description and reserve
         return ([e for pos, k in found
-                 for e in (_ent(k, pos), {**_ent(k, pos), "cls": "full_description"})]
+                 for e in (_ent(k, pos), {**_ent(k, pos), "cls": "full_description"},
+                           _terms(k, pos))]
                 if found else [_ent(i, i) for i in range(1, res.n + 1)])
     monkeypatch.setattr(R, "_entities", entities)
     monkeypatch.setattr(R, "validate_stored", lambda ents, **kw: {"score": 50})
