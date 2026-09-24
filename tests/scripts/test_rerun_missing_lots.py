@@ -1,46 +1,98 @@
-"""scripts/rerun_missing_lots.py: the merge only ever adds lots, and reviewer
-input rides along. Pure logic — no graph, no model."""
+"""scripts/rerun_missing_lots.py: the merge only ever adds lots the new run
+does not already have — matched by content, never by lot number — and
+reviewer input rides along. Pure logic — no graph, no model."""
 from __future__ import annotations
 
 from scripts.rerun_missing_lots import carry_corrections, merge_lots
 
-MD = "Lot 1 flat A. Lot 2 flat B. Lot 3 flat C. Bank: SBI."
+DESCS = {
+    "A": "All that part of 5 cents of land in Sy.No.67/8 of Sreenarayanapuram village",
+    "B": "Residential flat No 4B on the second floor of Green Towers, Palamel village",
+    "C": "Vacant house site measuring 2400 sq.ft in Survey No 220/5, Block 19 Mavelikkara",
+    "D": "Commercial building with 3 shops in TS No 12/4 of Kodungallur town ward 7",
+}
+RESERVES = {"A": "3273000", "B": "2626000", "C": "1160000", "D": "4550000"}
+MD = " ".join(DESCS.values()) + " Bank: Indian Overseas Bank."
 
 
-def _e(i, cls, text, lot=None):
+def _lot(prop: str, lot: str, id0: int) -> list[dict]:
+    text = DESCS[prop]
     s = MD.find(text)
-    attrs = {"lot_index": lot} if lot else {}
-    return {"id": str(i), "cls": cls, "text": text,
-            "start": s if s >= 0 else None, "end": s + len(text) if s >= 0 else None,
-            "attrs": attrs}
+    return [
+        {"id": str(id0), "cls": "full_description", "text": text,
+         "start": s, "end": s + len(text), "attrs": {"lot_index": lot}},
+        {"id": str(id0 + 1), "cls": "auction_terms", "text": "Reserve",
+         "start": None, "end": None,
+         "attrs": {"lot_index": lot, "reserve_price_num": RESERVES[prop]}},
+    ]
 
 
-def test_keeps_new_lots_and_carries_only_missing_ones():
-    old = [_e(0, "property", "flat A", "1"), _e(1, "property", "flat B", "2"),
-           _e(2, "secured_creditor", "SBI")]
-    new = [_e(0, "property", "flat A", "1"), _e(1, "property", "flat C", "3"),
-           _e(2, "secured_creditor", "SBI")]
+def _lots(ents):
+    return sorted({e["attrs"].get("lot_index") for e in ents
+                   if e["cls"] == "full_description"}, key=int)
+
+
+def test_carries_a_lot_the_new_run_missed():
+    old = _lot("A", "1", 0) + _lot("B", "2", 2)
+    new = _lot("A", "1", 0)
     merged, id_map = merge_lots(old, new, MD)
-    lots = sorted({(e["attrs"] or {}).get("lot_index") for e in merged if e["cls"] == "property"})
-    assert lots == ["1", "2", "3"]
-    assert id_map == {"1": "p1"}                    # only old lot 2 carried
-    carried = [e for e in merged if e["id"] == "p1"][0]
-    assert MD[carried["start"]:carried["end"]] == "flat B"
-    assert sum(e["cls"] == "secured_creditor" for e in merged) == 1
+    assert _lots(merged) == ["1", "2"]
+    assert set(id_map) == {"2", "3"}
+    carried = [e for e in merged if e["id"] == "p2"][0]
+    assert MD[carried["start"]:carried["end"]] == DESCS["B"]
 
 
-def test_notice_level_class_carried_when_new_run_lacks_it():
-    old = [_e(0, "secured_creditor", "SBI")]
-    new = [_e(0, "property", "flat A", "1")]
+def test_renumbered_properties_are_not_duplicated():
+    """The notice that broke the first version: the old run gave each
+    property its own lot, the new run grouped several under one branch
+    number. Old lots 2 and 3 are properties B and C, which the new run holds
+    under lot 1 — carrying them by number would list them twice."""
+    old = _lot("A", "1", 0) + _lot("B", "2", 2) + _lot("C", "3", 4)
+    new = _lot("A", "1", 0) + _lot("B", "1", 2) + _lot("C", "1", 4)
     merged, id_map = merge_lots(old, new, MD)
-    assert id_map == {"0": "p0"} and len(merged) == 2
+    assert id_map == {}
+    assert len(merged) == len(new)
+
+
+def test_description_match_catches_a_changed_reserve():
+    old = _lot("B", "2", 0)
+    new = _lot("B", "5", 0)
+    new[1]["attrs"]["reserve_price_num"] = "2500000"   # re-read differently
+    merged, id_map = merge_lots(old, new, MD)
+    assert id_map == {}
+
+
+def test_carried_lot_colliding_with_a_new_number_is_renumbered():
+    old = _lot("D", "1", 0)
+    new = _lot("A", "1", 0) + _lot("B", "2", 2)
+    merged, _ = merge_lots(old, new, MD)
+    assert _lots(merged) == ["1", "2", "3"]
+    d = [e for e in merged if e["text"] == DESCS["D"]][0]
+    assert d["attrs"]["lot_index"] == "3"
+
+
+def test_lot_with_nothing_to_compare_is_not_carried():
+    old = [{"id": "0", "cls": "extent", "text": "2 acres", "start": None,
+            "end": None, "attrs": {"lot_index": "9"}}]
+    merged, id_map = merge_lots(old, _lot("A", "1", 0), MD)
+    assert id_map == {}
+
+
+def test_notice_level_class_carried_only_when_new_run_lacks_it():
+    bank = {"id": "9", "cls": "secured_creditor", "text": "Indian Overseas Bank",
+            "start": None, "end": None, "attrs": {}}
+    merged, id_map = merge_lots([bank], _lot("A", "1", 0), MD)
+    assert id_map == {"9": "p9"}
+    merged, id_map = merge_lots([bank], _lot("A", "1", 0) + [dict(bank, id="7")], MD)
+    assert id_map == {}
 
 
 def test_span_that_no_longer_lands_is_dropped_not_misplaced():
-    old = [{"id": "5", "cls": "property", "text": "flat Z", "start": 0, "end": 6,
-            "attrs": {"lot_index": "9"}}]
-    merged, _ = merge_lots(old, [], MD, markdown_changed=True)
-    assert merged[0]["start"] is None and merged[0]["text"] == "flat Z"
+    old = _lot("D", "4", 0)
+    old[0]["text"] = "A description that is nowhere in this markdown at all"
+    merged, _ = merge_lots(old, _lot("A", "1", 0), MD, markdown_changed=True)
+    carried = [e for e in merged if e["id"] == "p0"][0]
+    assert carried["start"] is None
 
 
 def test_corrections_follow_carried_entities_and_keep_lot_keyed_marks():

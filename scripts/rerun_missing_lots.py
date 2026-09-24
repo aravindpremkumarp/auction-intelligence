@@ -39,11 +39,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from api.neo4j_client import run_query, run_read_query
 from api.review.extraction import extraction_stale
 from api.review.grounding import reanchor
+from rapidfuzz import fuzz
+
+from pipeline.apply_extractions import parse_money
 from pipeline.extract_routing import passes_for, select_extract_model
 from pipeline.key_entities import extracted_lot_count, stamp_key_scores
 from pipeline.load_extractions import ROSTER_CYPHER, _entities, _next_batch
@@ -53,30 +57,80 @@ from pipeline.validators import SCORE_VERSION, validate_stored
 NOTICE_LEVEL = frozenset({"secured_creditor", "contact", "emd_account",
                           "full_terms", "extras"})
 CARRIED_PREFIX = "p"
+# Description match for "the new run already has this property": the first
+# DESC_PROBE characters of an old description found in a new one at
+# DESC_MATCH similarity. Descriptions shorter than DESC_MIN_CHARS ("Flat")
+# identify nothing and are ignored.
+DESC_MIN_CHARS = 30
+DESC_PROBE = 120
+DESC_MATCH = 90
 
 
 def _lot(e: dict) -> str:
     return str((e.get("attrs") or {}).get("lot_index") or "1")
 
 
+def _norm(t) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", re.sub(r"<[^>]*>", " ", str(t or "")).lower()).strip()
+
+
+def _lot_keys(ents: list[dict]) -> tuple[set, list[str]]:
+    """What identifies a lot regardless of its number: its reserve prices and
+    its description text (full_description, else property)."""
+    reserves = {n for e in ents if e.get("cls") == "auction_terms"
+                if (n := parse_money((e.get("attrs") or {}).get("reserve_price_num")))}
+    descs = [_norm(e.get("text")) for e in ents
+             if e.get("cls") in ("full_description", "property")]
+    return reserves, [d for d in descs if len(d) >= DESC_MIN_CHARS]
+
+
+def _already_in(old_lot: list[dict], new_reserves: set, new_descs: list[str]) -> bool:
+    """True when the new run already has this lot's property, under any
+    number. Two runs can number the same notice differently — one lot per
+    property vs one per branch/S.No. holding several — so a lot number is not
+    an identity; the reserve price and the description are."""
+    reserves, descs = _lot_keys(old_lot)
+    if reserves & new_reserves:
+        return True
+    return any(fuzz.partial_ratio(d[:DESC_PROBE], nd) >= DESC_MATCH
+               for d in descs for nd in new_descs)
+
+
 def merge_lots(old: list[dict], new: list[dict], markdown: str | None = None,
                markdown_changed: bool = False) -> tuple[list[dict], dict]:
-    """New entities, plus the old run's lots the new run does not have.
+    """New entities, plus the old run's lots whose property the new run does
+    not have (matched by content, not lot number — see ``_already_in``).
 
-    Returns ``(merged, id_map)`` where ``id_map`` maps each carried entity's
-    old id to its new one, for moving reviewer corrections along."""
-    new_lots = {_lot(e) for e in new if e.get("cls") not in NOTICE_LEVEL}
+    A carried lot whose number the new run already uses is renumbered past
+    the new run's highest, so it cannot merge into an unrelated lot. An old
+    lot with neither a reserve price nor a description cannot be checked for
+    duplication, so it is not carried. Returns ``(merged, id_map)`` where
+    ``id_map`` maps each carried entity's old id to its new one, for moving
+    reviewer corrections along."""
+    new_lot_ents = [e for e in new if e.get("cls") not in NOTICE_LEVEL]
+    new_lots = {_lot(e) for e in new_lot_ents}
+    new_reserves, new_descs = _lot_keys(new_lot_ents)
     new_classes = {e.get("cls") for e in new}
-    carried = []
+    old_by_lot: dict[str, list[dict]] = {}
+    carried_notice = []
     for e in old:
         if not isinstance(e, dict):
             continue
         if e.get("cls") in NOTICE_LEVEL:
-            keep = e.get("cls") not in new_classes
+            if e.get("cls") not in new_classes:
+                carried_notice.append(e)
         else:
-            keep = _lot(e) not in new_lots
-        if keep:
-            carried.append(e)
+            old_by_lot.setdefault(_lot(e), []).append(e)
+    next_idx = max([int(li) for li in new_lots if li.isdigit()] or [0]) + 1
+    carried, relabel = list(carried_notice), {}
+    for li, ents in old_by_lot.items():
+        reserves, descs = _lot_keys(ents)
+        if not (reserves or descs) or _already_in(ents, new_reserves, new_descs):
+            continue
+        if li in new_lots:
+            relabel[li] = str(next_idx)
+            next_idx += 1
+        carried.extend(ents)
     # If the markdown was rewritten since the old run, re-find each span and
     # drop one that no longer lands rather than point it at the wrong text
     # (api/review/grounding.py — on unchanged text the model's span stands).
@@ -86,9 +140,11 @@ def merge_lots(old: list[dict], new: list[dict], markdown: str | None = None,
         old_id = str(src.get("id"))
         new_id = CARRIED_PREFIX + old_id
         id_map[old_id] = new_id
+        attrs = dict(src.get("attrs") or {})
+        if src.get("cls") not in NOTICE_LEVEL and _lot(src) in relabel:
+            attrs["lot_index"] = relabel[_lot(src)]
         out.append({"id": new_id, "cls": src.get("cls"), "text": src.get("text"),
-                    "start": a.get("start"), "end": a.get("end"),
-                    "attrs": dict(src.get("attrs") or {})})
+                    "start": a.get("start"), "end": a.get("end"), "attrs": attrs})
     return out, id_map
 
 
