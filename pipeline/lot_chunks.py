@@ -20,8 +20,9 @@ The flow
         text = head + table header + chunk's lots + tail
         read(text, k, hint "these are lots i–j of N")
         each lot-tagged entity ─► the lot whose span holds it (by position)
-        lots with no evidence ─► retry: focused re-read → stronger model →
+        lots not read in full ─► retry: focused re-read → stronger model →
                                  re-read with the gap named   (≤ retries)
+    continuation lots ("Property 2") ─► borrower of the lot before
 
 How a notice is cut
 -------------------
@@ -330,13 +331,56 @@ def _place(markdown: str, plan: Plan, t: _Text, lot_ids: list[int],
 
 
 def _read_lots(placed: list[tuple[dict, int | None]]) -> set[int]:
+    """Lots with any evidence at all."""
     return {lot for e, lot in placed
             if lot is not None and e.get("cls") in _LOT_EVIDENCE}
 
 
-_FOCUS_HINT = ("This excerpt holds {k} lot(s) that an earlier read missed. "
-               "Each one is a separate lot: extract every one of them, with "
-               "all of its entities.")
+def _complete_lots(placed: list[tuple[dict, int | None]]) -> set[int]:
+    """Lots read in full: they carry a full_description, the one entity every
+    descriptive field of a lot must be derivable from. A lot with a property and
+    four boundaries but no full_description was only half read — the validator
+    marks it critical — so it is retried like a lot that was not read at all."""
+    return {lot for e, lot in placed
+            if lot is not None and e.get("cls") == "full_description"}
+
+
+#: A lot's own text names who owes the money when it has a borrower.
+_PARTY_WORD = re.compile(r"borrower|guarantor|mortgagor|co-?obligant", re.I)
+
+
+def _inherit_borrowers(markdown: str, plan: Plan,
+                       per_lot: dict[int, list[dict]]) -> None:
+    """Give a continuation lot the borrowers of the lot before it.
+
+    One borrower often sells several properties: "Property 1 … Property 2 …"
+    under a single "Name of the Borrower". Each property is its own lot, but only
+    the first carries the name, so the others read with no borrower at all. A
+    lot whose text never mentions a borrower/guarantor/mortgagor inherits the
+    borrowers of the nearest earlier lot that has them; the copies keep that
+    lot's spans (the name really is written there) and say where they came from.
+    """
+    last: list[dict] = []
+    for i in range(len(plan.lots)):
+        ents = per_lot.get(i, [])
+        own = [e for e in ents if e.get("cls") == "borrower"]
+        if own:
+            last = own
+            continue
+        lot = plan.lots[i]
+        if (not last or not ents
+                or _PARTY_WORD.search(markdown, lot.start, lot.end)):
+            continue
+        for b in last:
+            copy = {**b, "attrs": {**b["attrs"], "lot_index": str(i + 1),
+                                   "inherited_from_lot": b["attrs"]["lot_index"]}}
+            ents.append(copy)
+
+
+_FOCUS_HINT = ("This excerpt holds {k} lot(s) that an earlier read missed or "
+               "read only in part. Each one is a separate lot: extract every one "
+               "of them with ALL of its entities — above all its complete "
+               "full_description block.")
 _GAP_HINT = ("This excerpt holds {k} lots; an earlier read found only {got}. "
              "Go through it lot by lot, from the first to the last, and extract "
              "every lot — including the ones starting: {starts}.")
@@ -365,35 +409,43 @@ def extract_chunked(markdown: str, plan: Plan,
     the prompt; ``strong`` asks for the stronger model. The result has offsets
     into ``markdown`` and a global ``lot_index`` in reading order.
 
-    A lot with no evidence after its chunk's read is retried, at most
-    ``retries`` times, each time differently: its missing lots alone, then the
-    same with the stronger model, then the whole chunk with the gap named.
+    A lot not read in full (no full_description) is retried, at most
+    ``retries`` times, each time differently: those lots alone, then the same
+    with the stronger model, then the whole chunk with the gap named. A retry
+    replaces a lot's entities only when it read that lot in full, or when the
+    earlier reads found nothing for it — never a partial read with another
+    partial one.
     """
-    out: list[dict] = []
+    per_lot: dict[int, list[dict]] = {}
+    notice: list[dict] = []
     seen_notice: set = set()
 
-    def keep(placed, lots_wanted: set[int] | None):
+    def keep_notice(placed):
         for e, lot in placed:
-            if lot is None:
-                if e["attrs"].get("lot_index") not in (None, ""):
-                    continue
-                key = (e.get("cls"), e.get("start"), e.get("end"), e.get("text"))
-                if lots_wanted is not None or key in seen_notice:
-                    continue
-                seen_notice.add(key)
-            elif lots_wanted is not None and lot not in lots_wanted:
+            if lot is not None or e["attrs"].get("lot_index") not in (None, ""):
                 continue
-            else:
+            key = (e.get("cls"), e.get("start"), e.get("end"), e.get("text"))
+            if key not in seen_notice:
+                seen_notice.add(key)
+                notice.append(e)
+
+    def take(placed, lots: set[int]):
+        fresh: dict[int, list[dict]] = {}
+        for e, lot in placed:
+            if lot in lots:
                 e["attrs"]["lot_index"] = str(lot + 1)
-            out.append(e)
+                fresh.setdefault(lot, []).append(e)
+        per_lot.update(fresh)
 
     for c in plan.chunks:
         ids = list(range(c.first, c.first + c.lots))
         t = _compose(markdown, plan, ids)
         placed = _place(markdown, plan, t, ids,
                         read(t.text, c.lots, extra=_position_hint(plan, ids)))
-        keep(placed, None)
-        missing = [i for i in ids if i not in _read_lots(placed)]
+        keep_notice(placed)
+        take(placed, set(ids))
+        done = _complete_lots(placed)
+        missing = [i for i in ids if i not in done]
         for attempt in range(retries):
             if not missing:
                 break
@@ -415,9 +467,13 @@ def extract_chunked(markdown: str, plan: Plan,
                                      starts=starts), strong=True))
             except Exception:  # a failed retry must not cost the lots already read
                 continue
-            found = _read_lots(got) & set(missing)
-            keep(got, found)
-            missing = [i for i in missing if i not in found]
+            complete = _complete_lots(got) & set(missing)
+            empty_before = {i for i in missing if not any(
+                e.get("cls") in _LOT_EVIDENCE for e in per_lot.get(i, []))}
+            take(got, complete | (_read_lots(got) & empty_before))
+            missing = [i for i in missing if i not in complete]
+    _inherit_borrowers(markdown, plan, per_lot)
+    out = notice + [e for i in sorted(per_lot) for e in per_lot[i]]
     for i, e in enumerate(out):
         e["id"] = str(i)
     return out
