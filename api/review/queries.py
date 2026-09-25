@@ -1251,6 +1251,35 @@ def auto_confirm_markdown(
 # Block layer and ink coverage are deliberately absent: they are measurements
 # taken alongside the workflow, not steps in it, and they surface under
 # "attention" instead.
+#
+# Extraction is the one step whose gate is machine-judged. Its human flag,
+# extraction_review_status = 'verified', records that a reviewer clicked verify
+# and nothing more (docs/SCHEMA.md, Provenance): the only time the count ever
+# moved it was two bulk sweeps, since reset, and individually-verified notices
+# number in single digits. A funnel gated on it reports every extracted notice
+# as stuck and hides that resolution has already run over the corpus. So the
+# stage after "extracted" is "clean" — the same checks the extraction queue's
+# failure pills run, all passing — and the human verify stays what it is: a
+# gold-set marker, counted under "attention" as extractions awaiting review.
+_EXPECTED_LOTS = "coalesce(d.stitched_expected_lot_count, d.expected_lot_count)"
+EXTRACTION_CLEAN_CHECKS: list[tuple[str, str, str]] = [
+    # (key, label, predicate that FAILS the check) — the stage clears when none
+    # holds. Kept as a list so the stage page can say which check is holding
+    # the most notices back, in the same words.
+    ("keys", "key cells still missing",
+     # Unstamped rows count as incomplete: unknown is not "all filled".
+     "(d.extraction_key_score IS NULL OR d.extraction_key_score < 100"
+     " OR coalesce(d.extraction_key_missing, 1) > 0)"),
+    ("issues", "validator issues",
+     "size(coalesce(d.extraction_issue_codes, [])) > 0"),
+    ("stale", "markdown changed since extraction",
+     "d.extraction_stale_at IS NOT NULL"),
+    ("lots", "lot count differs from the reviewer's",
+     # No confirmed count means no claim, so NULL on either side passes.
+     f"coalesce(d.extraction_lot_count <> {_EXPECTED_LOTS}, false)"),
+]
+EXTRACTION_CLEAN = " AND ".join(f"NOT ({p})" for _k, _l, p in EXTRACTION_CLEAN_CHECKS)
+
 PIPELINE_STAGES: list[tuple[str, str, str]] = [
     ("scraped",       "Scraped",              "true"),
     ("classified",    "Classified single/multi",
@@ -1263,8 +1292,7 @@ PIPELINE_STAGES: list[tuple[str, str, str]] = [
      "d.markdown_verified_at IS NOT NULL"),
     ("extracted",     "Entities extracted",
      "d.extraction_json IS NOT NULL"),
-    ("extract_ok",    "Extraction reviewed",
-     "coalesce(d.extraction_review_status,'pending') = 'verified'"),
+    ("extract_clean", "Extraction clean", EXTRACTION_CLEAN),
     # Resolved means both resolvers have been over the notice: its lender
     # (document-level) and its properties' places. Documents with no linked
     # property have no places to resolve, so they clear on the lender alone.
@@ -1466,6 +1494,22 @@ def _entity_coverage_panels(sample: int) -> list[dict]:
     return panels
 
 
+def _failure_pill_predicate(spec: dict) -> str:
+    """Cypher for one extraction failure pill (api.review.extraction
+    EXTRACTION_FAILURES): its live predicate when it has one, else a match on
+    the stamped validator codes. The codes are inlined as literals — they are
+    identifiers from pipeline/validators.py, not user input — so the stage
+    page can count every pill in one statement without a parameter per pill."""
+    preds = []
+    if spec.get("cypher"):
+        preds.append(spec["cypher"])
+    if spec.get("codes"):
+        codes = ", ".join(f"'{c}'" for c in spec["codes"])
+        preds.append(
+            f"any(c IN coalesce(d.extraction_issue_codes, []) WHERE c IN [{codes}])")
+    return "(" + " OR ".join(preds) + ")" if preds else "false"
+
+
 def pipeline_stage_detail(key: str, sample: int = ENTITY_COVERAGE_SAMPLE) -> dict:
     """Panels describing one pipeline stage in depth."""
     labels = {k: label for k, label, _p in PIPELINE_STAGES}
@@ -1605,10 +1649,36 @@ def pipeline_stage_detail(key: str, sample: int = ENTITY_COVERAGE_SAMPLE) -> dic
             ], total), ""),
         ]
 
-    elif key in ("extracted", "extract_ok"):
+    elif key in ("extracted", "extract_clean"):
+        # Imported here: extraction.py imports this module's filter helpers at
+        # load time, so a top-level import would be circular.
+        from api.review.extraction import EXTRACTION_FAILURES
+
         total = int(_count_query(
             "MATCH (d:Document) WHERE d.extraction_json IS NOT NULL "
             "RETURN count(d) AS n").get("n") or 0)
+        # Why the rest are not clean, in the funnel's own terms (one row per
+        # check in EXTRACTION_CLEAN_CHECKS) and then by the queue's failure
+        # pill, so every row is a worklist and not just a number. A notice can
+        # fail several checks, so rows overlap and do not sum to the gap.
+        check_sums = ", ".join(
+            f"sum(CASE WHEN {p} THEN 1 ELSE 0 END) AS chk_{k}"
+            for k, _l, p in EXTRACTION_CLEAN_CHECKS)
+        pill_sums = ", ".join(
+            f"sum(CASE WHEN {_failure_pill_predicate(spec)} THEN 1 ELSE 0 END) "
+            f"AS pill_{k.replace('-', '_')}"
+            for k, spec in EXTRACTION_FAILURES.items())
+        blocked = _count_query(f"""
+            MATCH (d:Document) WHERE d.extraction_json IS NOT NULL
+            RETURN sum(CASE WHEN {EXTRACTION_CLEAN} THEN 1 ELSE 0 END) AS clean,
+                   {check_sums}, {pill_sums}
+        """)
+        clean = int(blocked.get("clean") or 0)
+        queue = "#stage=extraction&group=notice&status=all"
+        pill_rows = sorted(
+            [(k, blocked.get(f"pill_{k.replace('-', '_')}"))
+             for k in EXTRACTION_FAILURES],
+            key=lambda kv: -int(kv[1] or 0))
         status = run_read_query(
             "MATCH (d:Document) WHERE d.extraction_json IS NOT NULL "
             "RETURN coalesce(d.extraction_review_status,'pending') AS t, "
@@ -1623,18 +1693,31 @@ def pipeline_stage_detail(key: str, sample: int = ENTITY_COVERAGE_SAMPLE) -> dic
                        AS stale
         """)
         out["panels"] = [
+            _panel("Clean", _rows([
+                ("every check passing", clean),
+                ("held back by at least one", total - clean),
+            ], total),
+                   "clean = all key cells filled or marked absent, no validator "
+                   "issue, extracted from the current markdown, lot count "
+                   "matching the reviewer's — the stage gate"),
+            _panel("Held back by", _rows(
+                [(label, blocked.get(f"chk_{k}"))
+                 for k, label, _p in EXTRACTION_CLEAN_CHECKS], total),
+                   "one notice can fail several checks, so these overlap"),
+            _panel("By failure", _rows(
+                pill_rows, total,
+                href=lambda k: f"{queue}&fails={k}"),
+                "the queue's failure pills — click one to work that list"),
             _panel("Extraction score", _rows([
                 ("90 or above", score.get("top")),
                 ("70–89", score.get("mid")),
                 ("below 70 — worth a look", score.get("low")),
             ], total), "validators.py score over the stored entities"),
-            _panel("Review", _rows(
+            _panel("Human review", _rows(
                 [(r["t"], r["n"]) for r in status], total,
                 href=lambda s: f"#stage=extraction&group=notice&status={s}"),
-                "click a status to open that queue"),
-            _panel("Rerun needed", _rows([
-                ("markdown changed since extraction", score.get("stale")),
-            ], total), "their entities were read off text that has been replaced"),
+                "verified marks a notice for the eval gold set; it is not the "
+                "funnel gate — click a status to open that queue"),
         ] + _entity_coverage_panels(sample)
 
     elif key == "resolved":

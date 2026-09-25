@@ -260,6 +260,20 @@ document is withdrawn, which also makes the reset reversible.
 
 Accuracy is measured separately, by `:SpotCheckSample` below.
 
+For the same reason the review dashboard's pipeline funnel
+(`api/review/queries.py`, `PIPELINE_STAGES`) does **not** gate on `'verified'`.
+It did until 2026-09-25, and with 2 individually-verified notices against
+3,118 extracted it reported every extracted notice as stuck while resolution
+had in fact run over the whole corpus. The stage after "Entities extracted" is
+now **"Extraction clean"** — machine-judged, the same four checks the
+extraction queue's failure pills run, all passing: every key cell filled or
+marked absent (`extraction_key_score = 100`, `extraction_key_missing = 0`), no
+`extraction_issue_codes`, no `extraction_stale_at`, and `extraction_lot_count`
+equal to the reviewer's `expected_lot_count` where both are known. The
+verified count stays visible under "attention" as extractions awaiting review,
+and on the stage page as "Human review", labelled as a gold-set marker rather
+than the gate.
+
 ### Key-entity checklist: `extraction_key_score` / `extraction_key_missing`
 
 What the extraction stage asks a reviewer to clear (`pipeline/key_entities.py`):
