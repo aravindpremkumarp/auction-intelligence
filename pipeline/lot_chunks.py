@@ -336,13 +336,40 @@ def _read_lots(placed: list[tuple[dict, int | None]]) -> set[int]:
             if lot is not None and e.get("cls") in _LOT_EVIDENCE}
 
 
-def _complete_lots(placed: list[tuple[dict, int | None]]) -> set[int]:
-    """Lots read in full: they carry a full_description, the one entity every
-    descriptive field of a lot must be derivable from. A lot with a property and
-    four boundaries but no full_description was only half read — the validator
-    marks it critical — so it is retried like a lot that was not read at all."""
-    return {lot for e, lot in placed
-            if lot is not None and e.get("cls") == "full_description"}
+#: A lot's own text states its price terms: the reserve (or upset) price, or
+#: the earnest money deposit that is quoted beside it. Table rows often carry
+#: the amount with no "reserve price" label of their own (the label is in the
+#: header), but the EMD next to it still names itself.
+_PRICE_WORD = re.compile(r"reserve|upset|earnest|\bEMD\b", re.I)
+
+
+def _has_reserve(e: dict) -> bool:
+    return (e.get("cls") == "auction_terms"
+            and str((e.get("attrs") or {}).get("reserve_price_num") or "").strip()
+            not in ("", "0", "None", "null"))
+
+
+def _complete_lots(placed: list[tuple[dict, int | None]],
+                   markdown: str | None = None,
+                   plan: Plan | None = None) -> set[int]:
+    """Lots read in full.
+
+    A lot is complete when it carries a full_description — the one entity
+    every descriptive field of a lot must be derivable from — and, when its own
+    text states price terms, an auction_terms with a reserve_price_num. Either
+    gap is what the validator marks high (full_description_incomplete,
+    lot_missing_reserve), so a lot missing one is retried like a lot that was
+    not read at all. A lot whose text quotes no price (the prices sit in a
+    table elsewhere) is not held to the reserve: no retry can find it there.
+    """
+    described = {lot for e, lot in placed
+                 if lot is not None and e.get("cls") == "full_description"}
+    if markdown is None or plan is None:
+        return described
+    priced = {lot for e, lot in placed if lot is not None and _has_reserve(e)}
+    return {lot for lot in described
+            if lot in priced or not _PRICE_WORD.search(
+                markdown, plan.lots[lot].start, plan.lots[lot].end)}
 
 
 #: A lot's own text names who owes the money when it has a borrower.
@@ -380,7 +407,9 @@ def _inherit_borrowers(markdown: str, plan: Plan,
 _FOCUS_HINT = ("This excerpt holds {k} lot(s) that an earlier read missed or "
                "read only in part. Each one is a separate lot: extract every one "
                "of them with ALL of its entities — above all its complete "
-               "full_description block.")
+               "full_description block and its auction_terms with the reserve "
+               "price (in a table, the amount in the reserve price column of "
+               "that lot's row).")
 _GAP_HINT = ("This excerpt holds {k} lots; an earlier read found only {got}. "
              "Go through it lot by lot, from the first to the last, and extract "
              "every lot — including the ones starting: {starts}.")
@@ -409,7 +438,8 @@ def extract_chunked(markdown: str, plan: Plan,
     the prompt; ``strong`` asks for the stronger model. The result has offsets
     into ``markdown`` and a global ``lot_index`` in reading order.
 
-    A lot not read in full (no full_description) is retried, at most
+    A lot not read in full (no full_description, or no reserve price although
+    its text quotes one) is retried, at most
     ``retries`` times, each time differently: those lots alone, then the same
     with the stronger model, then the whole chunk with the gap named. A retry
     replaces a lot's entities only when it read that lot in full, or when the
@@ -444,7 +474,7 @@ def extract_chunked(markdown: str, plan: Plan,
                         read(t.text, c.lots, extra=_position_hint(plan, ids)))
         keep_notice(placed)
         take(placed, set(ids))
-        done = _complete_lots(placed)
+        done = _complete_lots(placed, markdown, plan)
         missing = [i for i in ids if i not in done]
         for attempt in range(retries):
             if not missing:
@@ -467,7 +497,7 @@ def extract_chunked(markdown: str, plan: Plan,
                                      starts=starts), strong=True))
             except Exception:  # a failed retry must not cost the lots already read
                 continue
-            complete = _complete_lots(got) & set(missing)
+            complete = _complete_lots(got, markdown, plan) & set(missing)
             empty_before = {i for i in missing if not any(
                 e.get("cls") in _LOT_EVIDENCE for e in per_lot.get(i, []))}
             take(got, complete | (_read_lots(got) & empty_before))

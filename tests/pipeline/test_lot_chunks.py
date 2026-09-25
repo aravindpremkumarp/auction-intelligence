@@ -127,13 +127,14 @@ def test_chunks_are_capped_in_characters(monkeypatch):
 _BLOCK = re.compile(r"(?:No\.|<td rowspan=\"3\">)(\d+)")
 
 
-def _reader(drop=None, fail=None, log=None, partial=None):
+def _reader(drop=None, fail=None, log=None, partial=None, no_reserve=None):
     """Stands in for the model. Tags each lot block it sees with a LOCAL index
-    1..k (as the prompt asks) — a borrower and a full_description — plus one
-    notice-level date from the tail. ``drop(call_no, real_lot)`` returns True to
-    leave a lot out of that read; ``partial(call_no, real_lot)`` returns True to
-    read it without its full_description; ``fail(call_no)`` returns True to
-    raise."""
+    1..k (as the prompt asks) — a borrower, a full_description and an
+    auction_terms with its reserve — plus one notice-level date from the tail.
+    ``drop(call_no, real_lot)`` returns True to leave a lot out of that read;
+    ``partial(call_no, real_lot)`` returns True to read it without its
+    full_description; ``no_reserve(call_no, real_lot)`` returns True to read it
+    without its reserve price; ``fail(call_no)`` returns True to raise."""
     calls = {"n": 0}
 
     def read(text, lots, extra=None, strong=False):
@@ -159,6 +160,13 @@ def _reader(drop=None, fail=None, log=None, partial=None):
                             "end": m.end(),
                             "attrs": {"lot_index": str(local), "real": str(real),
                                       "call": n}})
+            if not (no_reserve and no_reserve(n, real)):
+                out.append({"id": "x", "cls": "auction_terms",
+                            "text": m.group(0), "start": m.start(),
+                            "end": m.end(),
+                            "attrs": {"lot_index": str(local), "real": str(real),
+                                      "call": n,
+                                      "reserve_price_num": f"{real}00000"}})
         d = text.find("24.06.2026")
         if d >= 0:
             out.append({"id": "x", "cls": "auction_date", "text": "24.06.2026",
@@ -290,7 +298,8 @@ def test_a_lot_without_its_full_description_is_retried_and_replaced():
     read = _reader(partial=lambda n, real: n == 1 and real == 3, log=log)
     ents = extract_chunked(md, plan_chunks(md, 10, lots_per_chunk=5), read)
     lot3 = [e for e in ents if e["attrs"].get("lot_index") == "3"]
-    assert {e["cls"] for e in lot3} == {"borrower", "full_description"}
+    assert {e["cls"] for e in lot3} == {"borrower", "full_description",
+                                        "auction_terms"}
     assert {e["attrs"]["call"] for e in lot3} == {2}      # the retry's read, whole
     assert log[1]["lots"] == 1
 
@@ -301,7 +310,7 @@ def test_a_partial_retry_does_not_replace_a_partial_read():
     read = _reader(partial=lambda n, real: real == 3)
     ents = extract_chunked(md, plan_chunks(md, 10, lots_per_chunk=5), read)
     lot3 = [e for e in ents if e["attrs"].get("lot_index") == "3"]
-    assert [e["cls"] for e in lot3] == ["borrower"]
+    assert [e["cls"] for e in lot3] == ["borrower", "auction_terms"]
     assert {e["attrs"]["call"] for e in lot3} == {1}      # the first read kept
 
 
@@ -310,7 +319,8 @@ def test_a_partial_retry_fills_a_lot_that_had_nothing():
     read = _reader(drop=lambda n, real: n == 1 and real == 3,
                    partial=lambda n, real: real == 3)
     ents = extract_chunked(md, plan_chunks(md, 10, lots_per_chunk=5), read)
-    assert [e["cls"] for e in ents if e["attrs"].get("lot_index") == "3"] == ["borrower"]
+    assert [e["cls"] for e in ents
+            if e["attrs"].get("lot_index") == "3"] == ["borrower", "auction_terms"]
 
 
 # ── fix: a continuation lot inherits the borrower before it ──────────────────
@@ -369,3 +379,39 @@ def test_a_lot_that_names_a_borrower_the_model_missed_inherits_nothing():
     lot3 = [e for e in ents if e["cls"] == "borrower"
             and e["attrs"]["lot_index"] == "3"]
     assert lot3 == []            # its text says "Borrower": a gap, not a continuation
+
+
+# ── fix: a lot whose text quotes a price is not done without its reserve ─────
+
+def test_a_lot_read_without_its_reserve_is_retried_and_replaced():
+    md = _price_notice(10)
+    log = []
+    read = _reader(no_reserve=lambda n, real: n == 1 and real == 4, log=log)
+    ents = extract_chunked(md, plan_chunks(md, 10, lots_per_chunk=5), read)
+    lot4 = [e for e in ents if e["attrs"].get("lot_index") == "4"]
+    assert {e["cls"] for e in lot4} == {"borrower", "full_description",
+                                        "auction_terms"}
+    assert {e["attrs"]["call"] for e in lot4} == {2}      # the retry's read, whole
+    assert log[1]["lots"] == 1 and "reserve price" in log[1]["extra"]
+
+
+def test_a_table_row_priced_only_beside_its_emd_needs_a_reserve():
+    # Tata rows: the amount has no "reserve" label of its own, only the EMD
+    md = _serial_notice(range(1, 9))
+    log = []
+    read = _reader(no_reserve=lambda n, real: n == 1 and real == 2, log=log)
+    extract_chunked(md, plan_chunks(md, 8, lots_per_chunk=5), read)
+    assert log[1]["lots"] == 1
+
+
+def test_a_lot_whose_text_quotes_no_price_is_not_held_to_a_reserve():
+    # prices listed apart from the lots: nothing in a lot's own text to find
+    lots = [f"No.{i} Borrower B{i}. Property at Sy No {i}/1, Rs.{i},00,000/- due.\n"
+            for i in range(1, 11)]
+    md = "# SALE NOTICE\n\n" + "\n".join(lots) + "\nTerms.\n"
+    log = []
+    read = _reader(no_reserve=lambda n, real: True, log=log)
+    plan = plan_chunks(md, 10, lots_per_chunk=5)
+    assert plan is not None
+    extract_chunked(md, plan, read)
+    assert len(log) == 2                  # one read per chunk, no retries

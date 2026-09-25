@@ -72,6 +72,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import threading
 import time
@@ -85,6 +86,7 @@ from pipeline.extract_routing import (
     select_extract_model,
     select_retry_model,
 )
+from pipeline.keep_better import best
 from pipeline.lot_chunks import extract_chunked, lots_read, plan_chunks
 from pipeline.stitch_refresh import refresh_stitches
 from pipeline.load_extractions import (
@@ -186,15 +188,42 @@ def _lot_count(ents: list[dict]) -> int:
                 if (e.get("attrs") or {}).get("lot_index") not in (None, "")})
 
 
-def _stored_lot_count(filename: str) -> int:
-    rows = run_read_query(
-        "MATCH (d:Document {filename: $fn}) RETURN d.extraction_json AS j",
-        {"fn": filename})
-    raw = rows[0]["j"] if rows else None
+class KeptExisting(Exception):
+    """The new read is not better than the stored one, which stays."""
+
+
+def _when(ts) -> datetime | None:
+    """A Neo4j timestamp as a comparable datetime, or None."""
+    if not ts:
+        return None
+    s = str(ts).split("[")[0].replace("Z", "+00:00")
+    s = re.sub(r"(\.\d{6})\d+", r"\1", s)       # nanoseconds -> micro
     try:
-        return _lot_count(json.loads(raw)) if raw else 0
+        dt = datetime.fromisoformat(s)
+    except ValueError:
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def _stored(filename: str) -> dict:
+    """The stored extraction, and whether the notice's text changed since it
+    was read (its spans then point into a text that is gone)."""
+    rows = run_read_query(
+        "MATCH (d:Document {filename: $fn}) "
+        "RETURN d.extraction_json AS j, toString(d.extraction_at) AS xa, "
+        "       toString(d.markdown_loaded_at) AS ma, "
+        "       toString(d.stitched_at) AS sa",
+        {"fn": filename})
+    r = rows[0] if rows else {}
+    try:
+        ents = json.loads(r["j"]) if r.get("j") else []
     except (TypeError, ValueError):
-        return 0
+        ents = []
+    read_at = _when(r.get("xa"))
+    text_at = max((t for t in (_when(r.get("ma")), _when(r.get("sa"))) if t),
+                  default=None)
+    return {"entities": ents,
+            "text_changed": bool(read_at and text_at and text_at > read_at)}
 
 
 def select_stale_docs(min_ocr: int, limit: int | None) -> list[dict]:
@@ -371,33 +400,27 @@ def read_notice(d: dict, route: bool) -> tuple[list[dict], str | None]:
     return ents, model_id
 
 
-def _extract_one(d: dict, batch: int, route: bool, keep_more_lots: bool = False):
-    """Extract + write one page. Returns (filename, n_entities, model_id) on
-    success or raises. Safe to call from a worker thread: LX.extract builds its
-    own provider client per call and each write is an independent HTTP request.
-
-    ``d`` may be a group leader from ``_plan_groups`` — one notice stored under
-    several file names — in which case ``twins`` lists every Document the result
-    is written to. They hold the same markdown, so the offsets in the entities
-    are valid in each."""
+def write_extraction(d: dict, ents: list[dict], batch: int,
+                     keep_better: bool = False) -> None:
+    """Store ``ents`` as ``d``'s extraction (and its twins'), or raise
+    ``KeptExisting`` when ``keep_better`` and the stored read is at least as
+    good. Split from ``_extract_one`` so a read made elsewhere — an eval run's
+    entities — is saved through the same gate and the same write."""
     fn = d["filename"]
     targets = d.get("twins") or [fn]
-    ents, model_id = read_notice(d, route)
-    # An empty result is a failed read, not a notice with nothing in it — the
-    # model returned something LangExtract could not parse ("Content must
-    # contain an 'extractions' key"), and every chunk was skipped. Writing it
-    # would replace a notice's entities with nothing, and on a re-extraction
-    # that means DESTROYING the ones already there. Raise instead: the caller
-    # counts a failure, the document keeps what it had, and the next run picks
-    # it up again.
-    if not ents:
-        raise ValueError("extraction returned no entities — keeping the "
-                         "existing one")
-    if keep_more_lots:
-        new, old = _lot_count(ents), _stored_lot_count(fn)
-        if new < old:
-            raise ValueError(f"found {new} lot(s), stored extraction has "
-                             f"{old} — keeping the existing one")
+    if keep_better:
+        stored = _stored(fn)
+        if stored["entities"] and not stored["text_changed"]:
+            chosen, how, gains, losses = best(stored["entities"], ents, d["md"],
+                                              d.get("expected_lot_count"))
+            if chosen is None:
+                why = ("lost " + ", ".join(losses[:5])) if losses else "no gain"
+                raise KeptExisting(f"not better ({why}) — keeping the "
+                                   f"existing one")
+            ents = chosen
+            label = "better" if how == "new" else "merged with the stored read"
+            print(f"    {fn}: {label} — {', '.join(gains[:6])}"
+                  + (" …" if len(gains) > 6 else ""), flush=True)
     # Scored from the entities that get stored (spans regrounded), so the
     # number describes the document a reader opens — see _extract_one.
     score = validate_stored(ents, source_text=d["md"])["score"]
@@ -432,11 +455,43 @@ def _extract_one(d: dict, batch: int, route: bool, keep_more_lots: bool = False)
     # New entities, new key-entity checklist (pipeline/key_entities.py).
     from pipeline.key_entities import stamp_key_scores
     stamp_key_scores(targets)
+
+
+def _extract_one(d: dict, batch: int, route: bool, keep_better: bool = False):
+    """Extract + write one page. Returns (filename, n_entities, model_id) on
+    success or raises. Safe to call from a worker thread: LX.extract builds its
+    own provider client per call and each write is an independent HTTP request.
+
+    ``d`` may be a group leader from ``_plan_groups`` — one notice stored under
+    several file names — in which case ``twins`` lists every Document the result
+    is written to. They hold the same markdown, so the offsets in the entities
+    are valid in each.
+
+    With ``keep_better`` the new read replaces the stored one only when it is
+    better (pipeline/keep_better.judge: closer to the reviewer's lot count, or
+    no key fact lost and something gained). When each read has facts the other
+    lacks, the two are merged lot by lot and the merge is stored if it is
+    better (pipeline/keep_better.best); otherwise ``KeptExisting`` is raised
+    and the stored read stays. A notice whose text changed since the
+    stored read is not compared — the old read no longer describes it."""
+    fn = d["filename"]
+    ents, model_id = read_notice(d, route)
+    # An empty result is a failed read, not a notice with nothing in it — the
+    # model returned something LangExtract could not parse ("Content must
+    # contain an 'extractions' key"), and every chunk was skipped. Writing it
+    # would replace a notice's entities with nothing, and on a re-extraction
+    # that means DESTROYING the ones already there. Raise instead: the caller
+    # counts a failure, the document keeps what it had, and the next run picks
+    # it up again.
+    if not ents:
+        raise ValueError("extraction returned no entities — keeping the "
+                         "existing one")
+    write_extraction(d, ents, batch, keep_better=keep_better)
     return fn, len(ents), model_id or "default"
 
 
 def extract_docs(docs: list[dict], concurrency: int = 1,
-                 reuse: bool = True, keep_more_lots: bool = False) -> int:
+                 reuse: bool = True, keep_better: bool = False) -> int:
     """Extract each page and write it as soon as it returns. Mirrors the write in
     pipeline.load_extractions.run so the review surface reads it unchanged.
 
@@ -467,10 +522,10 @@ def extract_docs(docs: list[dict], concurrency: int = 1,
           f"document(s), concurrency={concurrency}")
     model_counts: Counter = Counter()
     lock = threading.Lock()
-    ok = fail = 0
+    ok = fail = kept = 0
     t0 = time.time()
     with ThreadPoolExecutor(max_workers=concurrency) as ex:
-        futs = {ex.submit(_extract_one, d, batch, route, keep_more_lots): d
+        futs = {ex.submit(_extract_one, d, batch, route, keep_better): d
                 for d in docs}
         done = 0
         for fut in as_completed(futs):
@@ -478,6 +533,11 @@ def extract_docs(docs: list[dict], concurrency: int = 1,
             done += 1
             try:
                 fn, n_ents, model_id = fut.result()
+            except KeptExisting as e:
+                with lock:
+                    kept += 1
+                print(f"  [{done}/{total}] [kept] {d['filename']}: {e}", flush=True)
+                continue
             except Exception as e:  # one bad doc must not stop the batch
                 with lock:
                     fail += 1
@@ -492,7 +552,7 @@ def extract_docs(docs: list[dict], concurrency: int = 1,
                   f"(eta {eta/60:.0f}m)", flush=True)
     routing = "  ".join(f"{m}={n}" for m, n in sorted(model_counts.items()))
     print(f"model routing: {routing}")
-    print(f"done — wrote {ok}, failed {fail} (batch B{batch}) "
+    print(f"done — wrote {ok}, kept {kept} existing, failed {fail} (batch B{batch}) "
           f"in {(time.time()-t0)/60:.1f}m")
     return 0 if fail == 0 else 1
 
@@ -552,9 +612,13 @@ def main() -> int:
     ap.add_argument("--only", action="append", default=None, metavar="FILENAME",
                     help="re-extract exactly this Document (repeatable); "
                          "ignores every other selector")
+    ap.add_argument("--allow-worse", action="store_true",
+                    help="save every new read, even one worse than the stored "
+                         "extraction (by default a re-run replaces it only "
+                         "when better: pipeline/keep_better)")
     ap.add_argument("--keep-more-lots", action="store_true",
-                    help="keep the stored extraction when a re-run finds "
-                         "fewer lots than it")
+                    help="no longer needed: a re-run is kept only when better "
+                         "(lot count is the first thing compared)")
     ap.add_argument("--count-only", action="store_true",
                     help="print how many documents match and exit")
     args = ap.parse_args()
@@ -607,7 +671,7 @@ def main() -> int:
     # once rather than once per file name.
     return extract_docs(docs, concurrency=max(1, args.concurrency),
                         reuse=not (args.stale or args.no_resume or args.only),
-                        keep_more_lots=args.keep_more_lots)
+                        keep_better=not args.allow_worse)
 
 
 if __name__ == "__main__":

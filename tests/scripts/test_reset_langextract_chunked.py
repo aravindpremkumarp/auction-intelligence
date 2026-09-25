@@ -15,6 +15,11 @@ def _ent(li, start=0):
             "attrs": {"lot_index": str(li)}}
 
 
+def _terms(li, start=0):
+    return {"cls": "auction_terms", "text": "x", "start": start, "end": start + 1,
+            "attrs": {"lot_index": str(li), "reserve_price_num": "100000"}}
+
+
 @pytest.fixture
 def fake(monkeypatch):
     """Stub the model, the writes and the key-score stamp."""
@@ -36,9 +41,10 @@ def fake(monkeypatch):
         # plain text (no blocks) gets n lots at the top
         found = [(m.start(), k) for k, m in
                  enumerate(re.finditer(r"No\.\d+", text), 1)]
-        # each lot read in full: a borrower and its full_description
+        # each lot read in full: a borrower, its full_description and reserve
         return ([e for pos, k in found
-                 for e in (_ent(k, pos), {**_ent(k, pos), "cls": "full_description"})]
+                 for e in (_ent(k, pos), {**_ent(k, pos), "cls": "full_description"},
+                           _terms(k, pos))]
                 if found else [_ent(i, i) for i in range(1, res.n + 1)])
     monkeypatch.setattr(R, "_entities", entities)
     monkeypatch.setattr(R, "validate_stored", lambda ents, **kw: {"score": 50})
@@ -100,21 +106,45 @@ def test_an_unmatched_notice_is_read_whole(fake):
     assert fake["kw"][0]["extra"] is None
 
 
-def test_keep_more_lots_refuses_a_weaker_run(fake, monkeypatch):
-    monkeypatch.setattr(R, "_stored_lot_count", lambda fn: 20)
+def _stored(monkeypatch, ents, text_changed=False):
+    monkeypatch.setattr(R, "_stored", lambda fn: {"entities": ents,
+                                                  "text_changed": text_changed})
+
+
+def test_keep_better_refuses_a_weaker_run(fake, monkeypatch):
+    _stored(monkeypatch, [_ent(i) for i in range(1, 21)])
     d = {"filename": "f", "md": "text", "notice_type": "multi",
-         "expected_lot_count": 3, "roster": []}
-    with pytest.raises(ValueError, match="keeping the existing one"):
-        R._extract_one(d, batch=1, route=False, keep_more_lots=True)
+         "expected_lot_count": 20, "roster": []}
+    with pytest.raises(R.KeptExisting, match="keeping the existing one"):
+        R._extract_one(d, batch=1, route=False, keep_better=True)
     assert fake["writes"] == []
 
 
-def test_keep_more_lots_lets_a_stronger_run_through(fake, monkeypatch):
-    monkeypatch.setattr(R, "_stored_lot_count", lambda fn: 2)
+def test_keep_better_lets_a_stronger_run_through(fake, monkeypatch):
+    _stored(monkeypatch, [_ent(1), _ent(2)])
     d = {"filename": "f", "md": "text", "notice_type": "multi",
          "expected_lot_count": 3, "roster": []}
-    R._extract_one(d, batch=1, route=False, keep_more_lots=True)
+    R._extract_one(d, batch=1, route=False, keep_better=True)
     assert len(fake["writes"]) == 1
+
+
+def test_keep_better_skips_the_comparison_when_the_text_changed(fake, monkeypatch):
+    _stored(monkeypatch, [_ent(i) for i in range(1, 21)], text_changed=True)
+    d = {"filename": "f", "md": "text", "notice_type": "multi",
+         "expected_lot_count": 20, "roster": []}
+    R._extract_one(d, batch=1, route=False, keep_better=True)
+    assert len(fake["writes"]) == 1
+
+
+def test_a_kept_notice_is_not_counted_as_a_failure(fake, monkeypatch, capsys):
+    _stored(monkeypatch, [_ent(i) for i in range(1, 21)])
+    monkeypatch.setattr(R, "_next_batch", lambda: 1)
+    monkeypatch.setattr(R, "_plan_groups", lambda docs, **kw: (docs, 0))
+    d = {"filename": "f", "md": "text", "notice_type": "multi",
+         "expected_lot_count": 20, "roster": []}
+    assert R.extract_docs([d], keep_better=True) == 0
+    out = capsys.readouterr().out
+    assert "[kept] f" in out and "kept 1 existing, failed 0" in out
 
 
 def test_lot_count_ignores_entities_without_a_lot():
