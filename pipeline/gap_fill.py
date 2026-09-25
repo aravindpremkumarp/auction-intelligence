@@ -226,12 +226,39 @@ def excerpt(md: str, ents: list[dict], lot: str, n_lots: int,
 SHARED_KEYS = ("possession_type",)
 
 
-def inherit_shared(ents: list[dict]) -> list[dict]:
+#: A possession type named next to "possession" — "the physical possession of
+#: which has been taken", or a title "Sale Notice - Symbolic Fresh Sale" over
+#: "Pursuant to taking possession …" (so a line break may sit between them).
+_POSSESSION_TYPE = re.compile(
+    r"\b(physical|symbolic|constructive)\b(?=[^.<]{0,60}\bpossession)"
+    r"|\bpossession\b[^.\n<]{0,20}?\b(physical|symbolic|constructive)\b", re.I)
+
+
+def _header_possession(md: str, before: int) -> dict | None:
+    """A property entity for the one possession type the notice's header
+    names, or None when it names none — or several ("Symbolic / Constructive
+    possession"): a notice that lists types without choosing states none."""
+    hits = [m for m in _POSSESSION_TYPE.finditer(md, 0, before)]
+    kinds = {(m.group(1) or m.group(2)).lower() for m in hits}
+    if len(kinds) != 1:
+        return None
+    m = hits[0]
+    return {"cls": "property", "text": md[m.start():m.end()],
+            "start": m.start(), "end": m.end(),
+            "attrs": {"possession_type": kinds.pop()}}
+
+
+def inherit_shared(ents: list[dict], md: str | None = None) -> list[dict]:
     """``ents`` with a fact stated in the notice's header copied to every lot
     that lacks it. "In the header" means its span starts before any lot's
     description does. A read that applied the sentence to some lots and not
     others would otherwise leave the rest looking as if the notice never said
-    it."""
+    it.
+
+    With ``md``, the header is also read directly for a possession type, so
+    the fact does not hang on whether a model happened to extract it: a trial
+    over the 35 lowest-scoring notices found reads that applied "the physical
+    possession of which has been taken" to one lot, or to none."""
     starts = [e["start"] for e in ents if e.get("cls") == "full_description"
               and e.get("start") is not None]
     if not starts:
@@ -244,6 +271,8 @@ def inherit_shared(ents: list[dict]) -> list[dict]:
         src = next((e for e in ents if e.get("cls") == cls
                     and e.get("start") is not None and e["start"] < first
                     and (e.get("attrs") or {}).get(attr)), None)
+        if src is None and key == "possession_type" and md:
+            src = _header_possession(md, first)
         if src is None:
             continue
         for lot in lots:

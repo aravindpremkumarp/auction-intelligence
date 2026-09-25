@@ -104,7 +104,7 @@ def fill_one(d: dict, keys: set[str], batch: int, dry_run: bool,
         return "text changed since the stored read — needs a full re-read"
     ents, md, exp = stored["entities"], d["md"], d.get("expected_lot_count")
     # Free first: a fact the notice states once above its lots is every lot's.
-    base = inherit_shared(ents)
+    base = inherit_shared(ents, md)
     todo, marks = plan(md, base, skip(_corrections(fn)), exp)
     todo = {li: [k for k in ks if k in keys] for li, ks in todo.items()}
     todo = {li: ks for li, ks in todo.items() if ks}
@@ -127,7 +127,7 @@ def fill_one(d: dict, keys: set[str], batch: int, dry_run: bool,
             reads, failed = reads + rep["reads"], failed + rep["failed"]
             left = _left(filled, left, rep["read_lots"])
         # A fact the notice states once above its lots belongs to all of them.
-        filled = inherit_shared(filled)
+        filled = inherit_shared(filled, md)
         left = _left(filled, left, list(left))
         n_lots = max(len({str((e.get("attrs") or {}).get("lot_index") or "1")
                           for e in filled}), 1)
