@@ -86,7 +86,7 @@ from pipeline.extract_routing import (
     select_extract_model,
     select_retry_model,
 )
-from pipeline.keep_better import judge
+from pipeline.keep_better import best
 from pipeline.lot_chunks import extract_chunked, lots_read, plan_chunks
 from pipeline.stitch_refresh import refresh_stitches
 from pipeline.load_extractions import (
@@ -411,13 +411,15 @@ def write_extraction(d: dict, ents: list[dict], batch: int,
     if keep_better:
         stored = _stored(fn)
         if stored["entities"] and not stored["text_changed"]:
-            save, gains, losses = judge(stored["entities"], ents, d["md"],
-                                        d.get("expected_lot_count"))
-            if not save:
+            chosen, how, gains, losses = best(stored["entities"], ents, d["md"],
+                                              d.get("expected_lot_count"))
+            if chosen is None:
                 why = ("lost " + ", ".join(losses[:5])) if losses else "no gain"
                 raise KeptExisting(f"not better ({why}) — keeping the "
                                    f"existing one")
-            print(f"    {fn}: better — {', '.join(gains[:6])}"
+            ents = chosen
+            label = "better" if how == "new" else "merged with the stored read"
+            print(f"    {fn}: {label} — {', '.join(gains[:6])}"
                   + (" …" if len(gains) > 6 else ""), flush=True)
     # Scored from the entities that get stored (spans regrounded), so the
     # number describes the document a reader opens — see _extract_one.
@@ -467,8 +469,10 @@ def _extract_one(d: dict, batch: int, route: bool, keep_better: bool = False):
 
     With ``keep_better`` the new read replaces the stored one only when it is
     better (pipeline/keep_better.judge: closer to the reviewer's lot count, or
-    no key fact lost and something gained); otherwise ``KeptExisting`` is
-    raised and the stored read stays. A notice whose text changed since the
+    no key fact lost and something gained). When each read has facts the other
+    lacks, the two are merged lot by lot and the merge is stored if it is
+    better (pipeline/keep_better.best); otherwise ``KeptExisting`` is raised
+    and the stored read stays. A notice whose text changed since the
     stored read is not compared — the old read no longer describes it."""
     fn = d["filename"]
     ents, model_id = read_notice(d, route)

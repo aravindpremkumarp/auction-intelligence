@@ -21,13 +21,23 @@ The new read is saved only with at least one gain and no loss. A read that is
 merely as good is not saved either: saving resets the review status, and
 churn with nothing to show for it is a cost.
 
+When neither read is better as a whole — each has facts the other lacks —
+``merge`` builds a third: one read with the other's missing key facts filled
+in, lot by lot, and ``best`` picks it when it is better than the stored read.
+Both reads point into the same notice text, so their spans combine; a run can
+then only add facts, never trade one for another.
+
 The caller decides when the comparison applies. It does not when the notice's
 text changed since the stored read — the old spans point into a text that is
 gone, so the new read wins by default.
 """
 from __future__ import annotations
 
-from pipeline.key_entities import KEY_LABELS, key_checklist
+import copy
+
+from pipeline.key_entities import (
+    KEY_ATTR, KEY_CLASS, KEY_ENTITIES, KEY_LABELS, key_checklist,
+)
 from pipeline.validators import validate_stored
 
 
@@ -92,3 +102,89 @@ def judge(old: list[dict], new: list[dict], text: str,
         gains.append(f"score {s_old} → {s_new}")
 
     return (bool(gains) and not losses), gains, losses
+
+
+def _lot(e: dict) -> str:
+    return str((e.get("attrs") or {}).get("lot_index") or "1")
+
+
+def _has(v) -> bool:
+    return v is not None and str(v).strip() not in ("", "None", "null")
+
+
+def merge(base: list[dict], donor: list[dict]) -> list[dict]:
+    """``base`` with every key fact it lacks, lot by lot, taken from ``donor``.
+
+    Only lots both reads hold are filled, so lot numbering must agree — the
+    caller merges only reads with the same lot count. A fact carried by an
+    attribute (reserve price, auction date, property type, possession) is set
+    on ``base``'s own entity of that class when it has one, so a lot never
+    ends up with two auction_terms or two properties; otherwise the donor's
+    entity is added. ``base`` is not modified.
+    """
+    out = copy.deepcopy(base)
+    had = _filled(base)
+    gave = _filled(donor)
+    used = {str(e.get("id")) for e in out if e.get("id") is not None}
+    nxt = [0]
+
+    def fresh_id() -> str:
+        while str(nxt[0]) in used or f"m{nxt[0]}" in used:
+            nxt[0] += 1
+        used.add(f"m{nxt[0]}")
+        return f"m{nxt[0]}"
+
+    for li in sorted(set(had) & set(gave)):
+        for key in (k for k, *_ in KEY_ENTITIES):
+            if key in had[li] or key not in gave[li]:
+                continue
+            cls, attr = KEY_CLASS[key], KEY_ATTR[key]
+            source = next((e for e in donor if e.get("cls") == cls
+                           and _lot(e) == li
+                           and (_has((e.get("attrs") or {}).get(attr))
+                                if attr else _has(e.get("text")))), None)
+            if source is None:
+                continue
+            target = next((e for e in out if e.get("cls") == cls
+                           and _lot(e) == li), None) if attr else None
+            if target is not None:
+                attrs = target.setdefault("attrs", {})
+                attrs[attr] = source["attrs"][attr]
+                # which attributes came from the other read, for a reviewer
+                attrs["merged_attrs"] = ",".join(sorted(
+                    {*filter(None, str(attrs.get("merged_attrs") or "").split(",")),
+                     attr}))
+            else:
+                e = copy.deepcopy(source)
+                e["id"] = fresh_id()
+                e.setdefault("attrs", {})["merged"] = "true"
+                out.append(e)
+    return out
+
+
+def best(old: list[dict], new: list[dict], text: str,
+         expected_lot_count: int | None = None
+         ) -> tuple[list[dict] | None, str, list[str], list[str]]:
+    """The read to store, if any beats ``old``: ``(entities, how, gains,
+    losses)`` with ``how`` one of "new", "merged" or "" (keep ``old``).
+
+    The new read as it stands is tried first. When it loses something, the two
+    merges are tried — the stored read filled from the new one, and the new
+    read filled from the stored one — and the higher-scoring one that beats
+    the stored read is taken.
+    """
+    save, gains, losses = judge(old, new, text, expected_lot_count)
+    if save:
+        return new, "new", gains, losses
+    if not old or not new or lot_count(old) != lot_count(new):
+        return None, "", gains, losses
+    candidates = []
+    for merged in (merge(old, new), merge(new, old)):
+        ok, g, l = judge(old, merged, text, expected_lot_count)
+        if ok:
+            score = validate_stored(merged, source_text=text)["score"]
+            candidates.append((score, len(g), merged, g, l))
+    if not candidates:
+        return None, "", gains, losses
+    _, _, merged, g, l = max(candidates, key=lambda c: (c[0], c[1]))
+    return merged, "merged", g, l

@@ -83,3 +83,62 @@ def test_without_a_count_fewer_lots_loses():
     old = [e for i in range(1, 4) for e in lot(i, "desc")]
     new = [e for i in range(1, 3) for e in lot(i, "desc", "reserve")]
     assert not KB.judge(old, new, "t")[0]
+
+
+# ── step 2: merge lot by lot when each read has what the other lacks ─────────
+
+def possession(i, value="Physical"):
+    return {"cls": "property", "text": "house", "attrs": {
+        "lot_index": str(i), "possession_type": value}}
+
+
+def test_merge_fills_the_missing_fact_and_keeps_the_rest():
+    old = lot(1, "desc") + [possession(1)]
+    new = lot(1, "desc", "reserve")
+    merged = KB.merge(old, new)
+    classes = [e["cls"] for e in merged]
+    assert classes.count("auction_terms") == 1 and classes.count("property") == 1
+    assert KB._filled(merged)["1"] >= {"reserve_price", "possession_type",
+                                       "full_description"}
+    assert merged[-1]["attrs"]["merged"] == "true"
+    assert old == lot(1, "desc") + [possession(1)]        # base untouched
+
+
+def test_merge_sets_an_attribute_on_the_bases_own_entity():
+    old = lot(1, "desc") + [{"cls": "property", "text": "house",
+                             "attrs": {"lot_index": "1"}}]
+    new = lot(1, "desc") + [possession(1, "Symbolic")]
+    merged = KB.merge(old, new)
+    props = [e for e in merged if e["cls"] == "property"]
+    assert len(props) == 1
+    assert props[0]["attrs"]["possession_type"] == "Symbolic"
+    assert props[0]["attrs"]["merged_attrs"] == "possession_type"
+
+
+def test_merge_never_overwrites_a_fact_the_base_has():
+    old = lot(1, "desc") + [possession(1, "Physical")]
+    new = lot(1, "desc") + [possession(1, "Symbolic")]
+    merged = KB.merge(old, new)
+    assert [e["attrs"]["possession_type"] for e in merged
+            if e["cls"] == "property"] == ["Physical"]
+
+
+def test_best_takes_the_merge_when_each_read_lacks_something():
+    old = lot(1, "desc") + [possession(1)] + lot(2, "desc")
+    new = lot(1, "desc", "reserve") + lot(2, "desc", "reserve")
+    ents, how, gains, losses = KB.best(old, new, "t")
+    assert how == "merged" and not losses
+    assert {"lot 1: reserve price", "lot 2: reserve price"} <= set(gains)
+    assert KB._filled(ents)["1"] >= {"reserve_price", "possession_type"}
+
+
+def test_best_prefers_the_new_read_when_it_is_simply_better():
+    ents, how, *_ = KB.best(lot(1, "desc"), lot(1, "desc", "reserve"), "t")
+    assert how == "new"
+
+
+def test_best_does_not_merge_reads_with_different_lot_counts():
+    old = lot(1, "desc") + [possession(1)] + lot(2, "desc")
+    new = lot(1, "desc", "reserve") + lot(2, "desc") + lot(3, "desc")
+    ents, how, *_ = KB.best(old, new, "t")
+    assert ents is None and how == ""
