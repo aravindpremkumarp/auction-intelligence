@@ -116,6 +116,24 @@ def select_targets(*, upcoming: bool, limit: int | None) -> list[dict]:
              "old_ratio": r[6], "was_verified": r[7]} for r in rows]
 
 
+def select_named(filenames: list[str]) -> list[dict]:
+    """The named Documents, flagged or not — scripts/resolve_unfound sends a
+    notice here because a fact every notice states is missing from its text,
+    and ``fix_one`` re-measures the page itself (a clean page is left alone)."""
+    rows = nq(
+        """
+        MATCH (d:Document) WHERE d.filename IN $fns
+          AND d.public_url IS NOT NULL AND d.public_url <> ''
+          AND d.blocks IS NOT NULL
+        RETURN d.file_path, d.filename, coalesce(d.notice_type,'unknown'),
+               d.public_url, d.blocks, d.markdown, d.ink_uncovered_ratio,
+               (d.markdown_verified_at IS NOT NULL)
+        """, {"fns": list(filenames)})
+    return [{"file_path": r[0], "filename": r[1], "notice_type": r[2],
+             "public_url": r[3], "blocks_json": r[4], "markdown": r[5],
+             "old_ratio": r[6], "was_verified": r[7]} for r in rows]
+
+
 def _bid() -> str:
     return f"blk_{secrets.token_hex(6)}"
 

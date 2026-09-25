@@ -415,3 +415,20 @@ def test_a_lot_whose_text_quotes_no_price_is_not_held_to_a_reserve():
     assert plan is not None
     extract_chunked(md, plan, read)
     assert len(log) == 2                  # one read per chunk, no retries
+
+
+def test_si_no_is_read_as_sl_no():
+    # OCR reads "Sl.No." as "SI.No."; a lot whose outstanding amount and
+    # possession follow its price must be cut at its number, not after its price.
+    from pipeline.lot_chunks import find_lots
+    body = ("SI.No.{n} : BO : Branch {n}, Mr. Borrower {n}. Description of the "
+            "property {n}.\nRESERVE PRICE : Rs.{n}0,00,000/- EMD : Rs.{n},00,000/-\n"
+            "Outstanding Amount : Rs.{n}5,00,000/- as on 30.06.2026 with further "
+            "interest.\nPossession Status : Symbolic Date of Notice under Section "
+            "13(2) : 03.08.2017\n\n")
+    md = "PUNJAB NATIONAL BANK sale notice.\n\n" + "".join(
+        body.format(n=n) for n in range(1, 8))
+    strategy, lots, _, _ = find_lots(md, 7)
+    assert strategy == "numbered"
+    assert all(md[lot.start:lot.end].count("Possession Status") == 1 for lot in lots)
+    assert "Symbolic" in md[lots[0].start:lots[0].end]

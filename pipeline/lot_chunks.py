@@ -26,8 +26,7 @@ The flow
 
 How a notice is cut
 -------------------
-Code, not the model, finds where each lot is. Three layouts cover the corpus,
-tried in this order:
+Code, not the model, finds where each lot is. Three layouts cover the corpus:
 
 * ``price``    — every lot closes with its own price line ("Reserve price:
   Rs.21,50,000/-"), as the Canara prose lists do.
@@ -39,8 +38,12 @@ tried in this order:
 
 A layout counts only if it yields EXACTLY the reviewer-confirmed lot count
 (serial and numbered anchors must also run consecutively), and every lot it
-yields mentions an amount of money. Anything else returns ``None``. A wrong
-cut would split one lot across two chunks, which is worse than a missed one.
+yields mentions an amount of money. When a serial or numbered layout fits as
+well and the price cut would hand each lot's closing lines (possession, dates)
+to the next lot, the notice's own numbers win (``_price_spills``) — provided
+each numbered lot still holds exactly one price line. Anything else returns
+``None``. A wrong cut would split one lot across two chunks, which is worse
+than a missed one.
 
 Numbering by position
 ---------------------
@@ -70,10 +73,11 @@ _SERIAL_ROW = re.compile(
     re.I)
 
 #: A paragraph that opens with a lot number: "No.1 Name…", "Sl. No. 4 …",
-#: "Lot 2:", and the bare "3. Name and Details…".
+#: "Lot 2:", and the bare "3. Name and Details…". "SI.No." is "Sl.No." with
+#: the l read as a capital I — common in OCR'd PNB schedules.
 _NUMBERED_PREFIXED = re.compile(
     r"(?im)^[ \t]*(?:#+[ \t]*)?(?:\*\*|<b>)?[ \t]*"
-    r"(?:(?:sl|s|sr|lot|item|property)\.?[ \t]*no\.?|no\.?|lot)[ \t]*[:\-]?[ \t]*"
+    r"(?:(?:sl|si|s|sr|lot|item|property)\.?[ \t]*no\.?|no\.?|lot)[ \t]*[:\-]?[ \t]*"
     r"(\d{1,3})\b")
 _NUMBERED_BARE = re.compile(
     r"(?m)^[ \t]*(?:#+[ \t]*)?(?:\*\*|<b>)?[ \t]*(\d{1,3})[ \t]*[.)][ \t]+(?=[A-Za-z(])")
@@ -209,11 +213,49 @@ def find_lots(markdown: str, expected_lot_count: int | None
     if not markdown or not expected_lot_count:
         return None
     n = int(expected_lot_count)
-    for name, (lots, head_end, tail_start) in _layouts(markdown, n):
-        if len(lots) == n and all(_MONEY.search(markdown, lot.start, lot.end)
-                                  for lot in lots):
-            return name, lots, head_end, tail_start
-    return None
+    fits = [(name, lots, head_end, tail_start)
+            for name, (lots, head_end, tail_start) in _layouts(markdown, n)
+            if len(lots) == n and all(_MONEY.search(markdown, lot.start, lot.end)
+                                      for lot in lots)]
+    if not fits:
+        return None
+    price = next((f for f in fits if f[0] == "price"), None)
+    anchored = next((f for f in fits if f[0] != "price"), None)
+    if (price and anchored and _one_price_each(markdown, anchored[1])
+            and _price_spills(markdown, price[1], anchored[1])):
+        return anchored
+    return fits[0]
+
+
+#: More than this much text between a price cut and the next lot's own number
+#: is that lot's tail, not the next lot's head.
+SPILL_CHARS = 80
+
+
+def _one_price_each(markdown: str, lots: list[Lot]) -> bool:
+    """Every lot holds exactly one price line — the numbers agree with the
+    prices about how the notice divides, so switching to them moves only the
+    boundaries, never which price belongs to which lot."""
+    return all(len(_PRICE_LINE.findall(markdown, lot.start, lot.end)) == 1
+               for lot in lots)
+
+
+def _price_spills(markdown: str, price: list[Lot], anchored: list[Lot]) -> bool:
+    """Whether a price cut hands each lot's closing lines to the next lot.
+
+    A price line says where a lot's price is, not where the lot ends: PNB
+    schedules put "Possession Status" and the 13(2) dates after it. When the
+    notice also numbers its lots, the text between a lot's price cut and the
+    next lot's number is the first lot's own; if that is substantial for most
+    lots, the numbers are the right boundary. Canara prose ends each lot at
+    its price line, the next number follows at once, and the price cut stays.
+    """
+    spills = 0
+    for p, nxt in zip(price, anchored[1:]):
+        between = re.sub(r"<[^>]+>|\s", "", markdown[p.end:nxt.start])
+        if len(between) > SPILL_CHARS:
+            spills += 1
+    return spills * 2 > len(anchored) - 1
 
 
 def plan_chunks(markdown: str, expected_lot_count: int | None,
