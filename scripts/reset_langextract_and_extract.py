@@ -401,11 +401,17 @@ def read_notice(d: dict, route: bool) -> tuple[list[dict], str | None]:
 
 
 def write_extraction(d: dict, ents: list[dict], batch: int,
-                     keep_better: bool = False) -> None:
+                     keep_better: bool = False,
+                     keep_auto_marks: bool = False) -> None:
     """Store ``ents`` as ``d``'s extraction (and its twins'), or raise
     ``KeptExisting`` when ``keep_better`` and the stored read is at least as
     good. Split from ``_extract_one`` so a read made elsewhere — an eval run's
-    entities — is saved through the same gate and the same write."""
+    entities — is saved through the same gate and the same write.
+
+    A fresh read may number its lots differently, so it drops the automatic
+    "not in the notice" marks made against the old one (pipeline/absence);
+    ``keep_auto_marks`` is for a save that only added facts to the stored read
+    (scripts/fill_gaps), whose lots are the same."""
     fn = d["filename"]
     targets = d.get("twins") or [fn]
     if keep_better:
@@ -452,6 +458,9 @@ def write_extraction(d: dict, ents: list[dict], batch: int,
         """,
         {"fn": fn, "fns": targets, "j": json.dumps(ents, ensure_ascii=False),
          "score": score, "score_version": SCORE_VERSION, "batch": batch})
+    if not keep_auto_marks:
+        from pipeline.absence import clear_auto_marks
+        clear_auto_marks(targets)
     # New entities, new key-entity checklist (pipeline/key_entities.py).
     from pipeline.key_entities import stamp_key_scores
     stamp_key_scores(targets)

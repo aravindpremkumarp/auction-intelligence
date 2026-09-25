@@ -26,7 +26,17 @@ per-field text corrections, under two prefixed keys:
                         pipeline.apply_extractions.entities_with_corrections
                         appends it so promotion and the gold export see it.
     "absent:<lot>:<key>" {by, at}
-                        "not in the notice" for one lot's key.
+                        "not in the notice" for one lot's key. ``by: "auto"``
+                        (with a ``rule``) when scripts/fill_gaps decided it,
+                        not a person — see pipeline/absence.py.
+    "unfound:<lot>:<key>" {by, at, rule}
+                        looked for and not found, but the fact is one a
+                        notice should state (a reserve price, say), so it is
+                        more likely lost from the text than absent. The cell
+                        stays missing — a person checks the image — but the
+                        gap-filler stops paying to look again. Also left when
+                        a reviewer undoes an automatic "not in the notice", so
+                        the gap-filler does not simply mark it again.
 
 Lots come from ``lot_index`` like everywhere else (an entity without one is
 lot "1"). When the classification gate recorded ``expected_lot_count`` and the
@@ -63,10 +73,35 @@ _NOTICE_LEVEL = frozenset({"secured_creditor", "contact", "emd_account",
                            "full_terms", "extras"})
 
 _ABSENT_RE = re.compile(r"^absent:(?P<lot>[^:]+):(?P<key>[a-z_]+)$")
+_MARK_RE = re.compile(r"^(?P<kind>absent|unfound):(?P<lot>[^:]+):(?P<key>[a-z_]+)$")
+
+#: ``by`` on a mark the pipeline made rather than a person.
+AUTO = "auto"
 
 
 def absent_key(lot_index: str, key: str) -> str:
     return f"absent:{lot_index}:{key}"
+
+
+def unfound_key(lot_index: str, key: str) -> str:
+    return f"unfound:{lot_index}:{key}"
+
+
+def key_marks(corrections: dict) -> dict[tuple[str, str], dict]:
+    """{(lot_index, key): {"kind": "absent"|"unfound", **mark}} — every mark,
+    by a person or automatic. An absent mark wins over an unfound one."""
+    out: dict[tuple[str, str], dict] = {}
+    if not isinstance(corrections, dict):
+        return out
+    for k, v in corrections.items():
+        m = _MARK_RE.match(str(k))
+        if not (m and isinstance(v, dict) and m.group("key") in KEYS):
+            continue
+        at = (m.group("lot"), m.group("key"))
+        if at in out and out[at]["kind"] == "absent":
+            continue
+        out[at] = {**v, "kind": m.group("kind")}
+    return out
 
 
 def absent_marks(corrections: dict) -> set[tuple[str, str]]:
@@ -162,6 +197,7 @@ def key_checklist(entities: list[dict], corrections: dict | None = None,
     rather than vanishing from the queue.
     """
     absent = absent_marks(corrections or {})
+    marks = key_marks(corrections or {})
     by_lot: dict[str, list[dict]] = {}
     for e in entities:
         if not isinstance(e, dict) or e.get("cls") in _NOTICE_LEVEL:
@@ -234,6 +270,14 @@ def key_checklist(entities: list[dict], corrections: dict | None = None,
                             field_id=doc_date[1] or None, inherited=True)
             if cell["status"] != "filled" and (li, key) in absent:
                 cell["status"] = "absent"
+            mark = marks.get((li, key))
+            if cell["status"] != "filled" and mark:
+                # Who decided, so the review page can tell an automatic
+                # "not in the notice" (or "looked, not found") from a person's.
+                if mark.get("by") == AUTO:
+                    cell["auto"] = str(mark.get("rule") or "auto")
+                if mark["kind"] == "unfound":
+                    cell["unfound"] = True
             if cell["status"] == "filled":
                 filled += 1
             elif cell["status"] == "absent":
@@ -349,6 +393,7 @@ def stamp_key_scores(filenames: list[str], chunk: int = 200) -> int:
 
 
 __all__ = ["KEY_ENTITIES", "KEYS", "KEY_LABELS", "KEY_CLASS", "KEY_ATTR",
-           "absent_key", "absent_marks", "added_entities",
+           "AUTO", "absent_key", "absent_marks", "added_entities", "key_marks",
+           "unfound_key",
            "extracted_lot_count", "issue_codes_from_stored",
            "key_checklist", "key_checklist_from_stored", "stamp_key_scores"]

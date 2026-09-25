@@ -908,6 +908,7 @@ const KEY_DEFS=[
 ];
 const KEY_BY=Object.fromEntries(KEY_DEFS.map(k=>[k.key,k]));
 function keyScoreColor(s){return s>=100?"#16a34a":s>=70?"#d97706":"#dc2626";}
+const AUTO_WHY={no_clue:"the lot's text has no word that could state it",not_found:"two reads of the lot's text found nothing"};
 function renderKeys(d){
   const el=document.getElementById("keys");if(!el)return;
   const k=d.keys;
@@ -935,9 +936,11 @@ function renderKeys(d){
       if(c.status==="filled"){
         h+=`<td class="filled${c.field_id===curFid?" cur":""}" data-fid="${esc(c.field_id||"")}" title="${esc(c.value||"")}\n(click to jump to it)">${esc(c.value||"")}${c.inherited?`<span class="inh" title="one date for the notice, stated on another lot">↑ from notice</span>`:""}</td>`;
       }else if(c.status==="absent"){
-        h+=`<td class="absent">not in notice <button class="kbtn" onclick="setAbsent('${esc(lot.lot_index)}','${def.key}',false)" title="clear the mark">undo</button></td>`;
+        const why=c.auto?(AUTO_WHY[c.auto]||c.auto):"";
+        h+=`<td class="absent">not in notice${c.auto?`<span class="inh" title="marked automatically: ${esc(why)}">auto</span>`:""} <button class="kbtn" onclick="setAbsent('${esc(lot.lot_index)}','${def.key}',false)" title="${c.auto?"it IS in the notice — clear the mark; it will not be marked again":"clear the mark"}">undo</button></td>`;
       }else{
-        h+=`<td class="missing${filling?" filling":""}">missing<br>`+
+        h+=`<td class="missing${filling?" filling":""}">missing`+
+          (c.unfound?`<span class="inh" title="${c.auto?"two reads found nothing, but every notice states this — it was probably lost from the text: check the image, fix the markdown or fill it":"a reviewer says it is in the notice — fill it by hand"}">${c.auto?"not found · check image":"fill by hand"}</span>`:"")+`<br>`+
           `<button class="kbtn fill" onclick="fillStart('${esc(lot.lot_index)}','${def.key}')" title="select the text in the markdown pane">＋ fill</button>`+
           `<button class="kbtn" onclick="setAbsent('${esc(lot.lot_index)}','${def.key}',true)" title="the notice never states this">∅ not in notice</button></td>`;
       }
