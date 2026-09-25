@@ -25,8 +25,10 @@ import re
 from typing import Callable
 
 from pipeline.keep_better import merge
-from pipeline.key_entities import KEY_CLASS, KEY_LABELS, key_checklist
-from pipeline.lot_chunks import _compose, _to_notice, plan_chunks
+from pipeline.key_entities import KEY_ATTR, KEY_CLASS, KEY_LABELS, key_checklist
+from pipeline.lot_chunks import (
+    HEAD_CAP, TAIL_CAP, _compose, _Text, _to_notice, plan_chunks,
+)
 
 #: A multi-lot notice the splitter cannot cut: this much text either side of
 #: the lot's stored spans, enough to reach a price line or a boundary clause.
@@ -154,19 +156,52 @@ def lean_example(classes: set[str]):
 
 # ── the lot's own text ───────────────────────────────────────────────────────
 
+def _cut(md: str, ranges: list[tuple[int, int]]):
+    """The text of ``ranges`` of ``md`` (merged, in order), and a map back."""
+    merged: list[list[int]] = []
+    for s, e in sorted(r for r in ranges if r[1] > r[0]):
+        if merged and s <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], e)
+        else:
+            merged.append([s, e])
+    parts, segments, off = [], [], 0
+    for s, e in merged:
+        if parts:
+            parts.append("\n\n")
+            off += 2
+        parts.append(md[s:e])
+        segments.append((off, s, e - s))
+        off += e - s
+    t = _Text("".join(parts), segments, [], len(md))
+    return t.text, (lambda s, e: _to_notice(t, s, e))
+
+
+def _frame(md: str, body: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    """``body`` with the notice's head and tail around it. A notice often
+    states a fact once for every lot — "the physical possession of which has
+    been taken", the auction date under the schedule — and a lot's own text
+    alone would then look as if it never states it."""
+    lo = min(s for s, _ in body)
+    hi = max(e for _, e in body)
+    return [(0, min(HEAD_CAP, lo)), *body, (max(hi, len(md) - TAIL_CAP), len(md))]
+
+
 def excerpt(md: str, ents: list[dict], lot: str, n_lots: int,
             expected_lot_count: int | None = None):
     """``(text, back, hint)`` for one lot, or None when it cannot be found.
 
-    ``back(start, end)`` maps offsets in ``text`` to offsets in ``md``;
-    ``hint`` names the lot when the text may hold its neighbours too.
+    The lot's own text framed by the notice's head and tail. ``back(start,
+    end)`` maps offsets in ``text`` to offsets in ``md``; ``hint`` names the
+    lot when the text may hold its neighbours too.
     """
     if n_lots <= 1:
         return md, (lambda s, e: (s, e)), None
     plan = plan_chunks(md, expected_lot_count)
     if plan is not None and lot.isdigit() and 1 <= int(lot) <= len(plan.lots):
         t = _compose(md, plan, [int(lot) - 1])
-        return t.text, (lambda s, e: _to_notice(t, s, e)), None
+        body = [(orig, orig + n) for _, orig, n in t.segments]
+        text, back = _cut(md, _frame(md, body))
+        return text, back, None
     mine = [e for e in ents if _lot(e) == lot and e.get("start") is not None
             and e.get("end") is not None]
     if not mine:
@@ -177,31 +212,93 @@ def excerpt(md: str, ents: list[dict], lot: str, n_lots: int,
                    ("full_description", "property", "borrower")), mine[0])
     start = " ".join(str(anchor.get("text") or "").split())[:100]
     hint = (f"This excerpt may show neighbouring lots too. Extract only for the "
-            f"lot that contains: \"{start}\".")
+            f"lot that contains: \"{start}\". A fact stated once for every lot "
+            f"(in the notice's opening or closing text) applies to this lot too.")
+    text, back = _cut(md, _frame(md, [(lo, hi)]))
+    return text, back, hint
 
-    def back(s, e):
-        return (s + lo if s is not None else None,
-                e + lo if e is not None else None)
-    return md[lo:hi], back, hint
+
+# ── facts stated once for every lot ──────────────────────────────────────────
+
+#: Keys a notice may state once, above its lots, for all of them ("the
+#: physical possession of which has been taken"). The auction date is
+#: inherited by pipeline/key_entities.key_checklist already.
+SHARED_KEYS = ("possession_type",)
+
+
+def inherit_shared(ents: list[dict]) -> list[dict]:
+    """``ents`` with a fact stated in the notice's header copied to every lot
+    that lacks it. "In the header" means its span starts before any lot's
+    description does. A read that applied the sentence to some lots and not
+    others would otherwise leave the rest looking as if the notice never said
+    it."""
+    starts = [e["start"] for e in ents if e.get("cls") == "full_description"
+              and e.get("start") is not None]
+    if not starts:
+        return ents
+    first = min(starts)
+    lots = {_lot(e) for e in ents}
+    donor: list[dict] = []
+    for key in SHARED_KEYS:
+        cls, attr = KEY_CLASS[key], KEY_ATTR[key]
+        src = next((e for e in ents if e.get("cls") == cls
+                    and e.get("start") is not None and e["start"] < first
+                    and (e.get("attrs") or {}).get(attr)), None)
+        if src is None:
+            continue
+        for lot in lots:
+            donor.append({**src, "attrs": {**src["attrs"], "lot_index": lot,
+                                           "from_notice_header": "true"}})
+    return merge(ents, donor) if donor else ents
 
 
 # ── filling ──────────────────────────────────────────────────────────────────
 
+def plan(md: str, stored: list[dict], skip: set[tuple[str, str]] = frozenset(),
+         expected_lot_count: int | None = None
+         ) -> tuple[dict[str, list[str]], dict[tuple[str, str], str]]:
+    """``(todo, marks)``: the gaps worth a read, and the ones that are not.
+
+    ``skip`` holds (lot, key) already marked — by a person or an earlier run —
+    and is left out. A gap whose lot text has no word that could state it
+    (pipeline/absence.no_clue) goes to ``marks`` as absent with no read.
+    """
+    from pipeline.absence import RULE_NO_CLUE, no_clue
+    n_lots = max(len({_lot(e) for e in stored}), 1)
+    todo: dict[str, list[str]] = {}
+    marks: dict[tuple[str, str], str] = {}
+    for lot, keys in gaps(stored).items():
+        keys = [k for k in keys if (lot, k) not in skip]
+        if not keys:
+            continue
+        cut = excerpt(md, stored, lot, n_lots, expected_lot_count)
+        text = cut[0] if cut else md
+        for k in keys:
+            if no_clue(text, k):
+                marks[(lot, k)] = RULE_NO_CLUE
+            else:
+                todo.setdefault(lot, []).append(k)
+    return todo, marks
+
+
 def fill(md: str, stored: list[dict], read: Callable[..., list[dict]],
          expected_lot_count: int | None = None,
-         max_lots: int | None = None) -> tuple[list[dict], dict]:
+         max_lots: int | None = None,
+         todo: dict[str, list[str]] | None = None) -> tuple[list[dict], dict]:
     """``stored`` with its gaps filled from short reads, and a report.
 
     ``read(text, keys, hint)`` returns stored-shape entities with offsets into
-    ``text``. One read per lot with gaps, at most ``max_lots`` of them. The
-    result is ``keep_better.merge(stored, donor)``: nothing ``stored`` has is
-    touched.
+    ``text``. One read per lot with gaps (``todo``, default every gap), at most
+    ``max_lots`` of them. The result is ``keep_better.merge(stored, donor)``:
+    nothing ``stored`` has is touched. ``report["read_lots"]`` lists the lots
+    whose read came back, so a caller never takes a failed read as "not found".
     """
-    todo = gaps(stored)
+    todo = gaps(stored) if todo is None else todo
     lots = sorted(todo, key=lambda s: (len(s), s))[:max_lots]
     n_lots = max(len({_lot(e) for e in stored}), 1)
     donor: list[dict] = []
-    report = {"lots_with_gaps": len(todo), "reads": 0, "failed": 0}
+    report = {"lots_with_gaps": len(todo), "reads": 0, "failed": 0,
+              "read_lots": []}
     for lot in lots:
         keys = todo[lot]
         cut = excerpt(md, stored, lot, n_lots, expected_lot_count)
@@ -214,6 +311,7 @@ def fill(md: str, stored: list[dict], read: Callable[..., list[dict]],
         except Exception:  # one failed read must not cost the others
             report["failed"] += 1
             continue
+        report["read_lots"].append(lot)
         classes = {KEY_CLASS[k] for k in keys}
         for e in got:
             if e.get("cls") not in classes:

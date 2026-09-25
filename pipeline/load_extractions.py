@@ -53,6 +53,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from api.neo4j_client import run_query, run_read_query
 from api.review.grounding import ground_missing
 from pipeline.extract_routing import passes_for, select_extract_model
+from pipeline.absence import clear_auto_marks
 from pipeline.key_entities import stamp_key_scores
 from pipeline.notice_twins import group_twins, merge_rosters, text_key
 from pipeline.validators import (SCORE_VERSION, normalize_identifier_kind,
@@ -261,6 +262,7 @@ def _copy_extraction(donor: dict, targets: list[str], batch: int) -> int:
          "donor": donor["filename"]})
     n = (rows[0].get("n") or 0) if rows else 0
     if n:
+        clear_auto_marks(targets)
         # The key checklist depends on each copy's own lot count and
         # corrections, so it is computed per document, not copied.
         stamp_key_scores(targets)
@@ -408,6 +410,9 @@ def _extract_one(d: dict, batch: int, route: bool, LX) -> tuple[bool, str | None
         {"fn": fn, "fns": targets, "j": json.dumps(ents, ensure_ascii=False),
          "score": score, "score_version": SCORE_VERSION,
          "batch": batch, "model": effective_model})
+    # A fresh read: automatic "not in the notice" marks were made against the
+    # old lots (pipeline/absence). A person's marks stay.
+    clear_auto_marks(targets)
     # Per-lot key-entity completeness (pipeline/key_entities.py) — the review
     # queue's "missing keys first" order. Stamped after the write so it reads
     # the corrections this write preserved.

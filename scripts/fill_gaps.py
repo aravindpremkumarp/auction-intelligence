@@ -7,6 +7,13 @@ read just that lot's text with a lean prompt asking only for those facts
 a lot lacks — and save through the keep-better gate, so a notice is written
 only when it gained something and lost nothing.
 
+A gap that cannot be filled is marked, so no later run pays for it again
+(pipeline/absence): absent at once when the lot's text has no word that could
+state it; absent after a lean read and a stronger-model read both find nothing;
+"unfound" instead — left for a person to check against the image — when it is
+a fact every notice states (reserve price, auction date, description). Marks
+carry ``by: "auto"`` and show as automatic on the review page.
+
 A notice whose text changed since its stored read is skipped: its old spans no
 longer point into the text, so it needs a full re-read
 (reset_langextract_and_extract --stale), not a fill.
@@ -23,14 +30,16 @@ Run:
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from api.neo4j_client import run_read_query
-from pipeline.extract_routing import select_extract_model
-from pipeline.gap_fill import fill, gaps
+from pipeline.absence import RULE_NOT_FOUND, new_marks, skip, write_marks
+from pipeline.extract_routing import select_extract_model, select_retry_model
+from pipeline.gap_fill import fill, gaps, inherit_shared, plan
 from pipeline.keep_better import judge
 from pipeline.key_entities import KEYS
 from scripts.reset_langextract_and_extract import (
@@ -48,11 +57,23 @@ def select_low(below: int, limit: int | None) -> list[str]:
     return names[:limit] if limit else names
 
 
-def make_reader(notice_type: str | None):
+def _corrections(filename: str) -> dict:
+    rows = run_read_query(
+        "MATCH (d:Document {filename:$fn}) "
+        "RETURN coalesce(d.extraction_corrections_json,'{}') AS c", {"fn": filename})
+    try:
+        c = json.loads(rows[0]["c"]) if rows else {}
+    except (TypeError, ValueError):
+        c = {}
+    return c if isinstance(c, dict) else {}
+
+
+def make_reader(notice_type: str | None, strong: bool = False):
     from pipeline import langextract_examples as LX
     from pipeline.gap_fill import KEY_CLASS, lean_example, lean_prompt
     from pipeline.load_extractions import _entities
-    model_id, reasoning_off = select_extract_model(notice_type)
+    model_id, reasoning_off = (select_retry_model() if strong
+                               else select_extract_model(notice_type))
 
     def read(text: str, keys: list[str], hint: str | None) -> list[dict]:
         res = LX.extract(text, model_id=model_id, reasoning_off=reasoning_off,
@@ -60,6 +81,15 @@ def make_reader(notice_type: str | None):
                          examples=[lean_example({KEY_CLASS[k] for k in keys})])
         return _entities(res, text)
     return read
+
+
+def _left(ents: list[dict], asked: dict[str, list[str]],
+          read_lots: list[str]) -> dict[str, list[str]]:
+    """Of the facts ``asked`` for, those still missing on lots actually read."""
+    g = gaps(ents)
+    out = {lot: [k for k in asked[lot] if k in g.get(lot, [])]
+           for lot in read_lots if lot in asked}
+    return {lot: ks for lot, ks in out.items() if ks}
 
 
 def fill_one(d: dict, keys: set[str], batch: int, dry_run: bool,
@@ -70,25 +100,59 @@ def fill_one(d: dict, keys: set[str], batch: int, dry_run: bool,
         return "no stored extraction"
     if stored["text_changed"]:
         return "text changed since the stored read — needs a full re-read"
-    todo = {li: [k for k in ks if k in keys]
-            for li, ks in gaps(stored["entities"]).items()}
-    if not any(todo.values()):
+    ents, md, exp = stored["entities"], d["md"], d.get("expected_lot_count")
+    # Free first: a fact the notice states once above its lots is every lot's.
+    base = inherit_shared(ents)
+    todo, marks = plan(md, base, skip(_corrections(fn)), exp)
+    todo = {li: [k for k in ks if k in keys] for li, ks in todo.items()}
+    todo = {li: ks for li, ks in todo.items() if ks}
+    marks = {at: r for at, r in marks.items() if at[1] in keys}
+    if not todo and not marks and base is ents:
         return "no gaps"
-    read = make_reader(d.get("notice_type"))
 
-    def read_wanted(text, lot_keys, hint):
-        return read(text, [k for k in lot_keys if k in keys] or lot_keys, hint)
-    filled, report = fill(d["md"], stored["entities"], read_wanted,
-                          d.get("expected_lot_count"), max_lots=max_lots)
-    ok, gains, losses = judge(stored["entities"], filled, d["md"],
-                              d.get("expected_lot_count"))
-    head = f"{report['reads']} read(s), {report['failed']} failed"
-    if not ok:
-        return f"{head}; nothing gained" + (f" (lost {losses[:3]})" if losses else "")
+    filled, reads, failed = base, 0, 0
+    if todo:
+        # A lean read, then the stronger model on whatever it left: only a
+        # fact both miss is taken as not in the notice.
+        filled, rep = fill(md, base, make_reader(d.get("notice_type")), exp,
+                           max_lots=max_lots, todo=todo)
+        reads, failed = rep["reads"], rep["failed"]
+        left = _left(filled, todo, rep["read_lots"])
+        if left:
+            filled, rep = fill(md, filled,
+                               make_reader(d.get("notice_type"), strong=True),
+                               exp, max_lots=max_lots, todo=left)
+            reads, failed = reads + rep["reads"], failed + rep["failed"]
+            left = _left(filled, left, rep["read_lots"])
+        # A fact the notice states once above its lots belongs to all of them.
+        filled = inherit_shared(filled)
+        left = _left(filled, left, list(left))
+        for lot, ks in left.items():
+            for k in ks:
+                marks[(lot, k)] = RULE_NOT_FOUND
+
+    entries = new_marks(marks)
+    n_abs = sum(k.startswith("absent:") for k in entries)
+    n_unf = len(entries) - n_abs
+    ok, gains, losses = judge(ents, filled, md, exp)
+    head = f"{reads} read(s), {failed} failed"
+    tail = (f"; {n_abs} marked not in notice, {n_unf} left for a person"
+            if entries else "")
+    if entries and dry_run:
+        tail += " (" + ", ".join(sorted(entries)[:12]) + (" …" if len(entries) > 12 else "") + ")"
     if dry_run:
-        return f"{head}; would gain {', '.join(gains[:6])}"
-    write_extraction(d, filled, batch, keep_better=True)
-    return f"{head}; saved"
+        gained = f"would gain {', '.join(gains[:6])}" if ok else "nothing gained"
+        return f"{head}; {gained}{tail.replace('marked', 'would mark')}"
+    saved = False
+    if ok:
+        try:
+            write_extraction(d, filled, batch, keep_better=True,
+                             keep_auto_marks=True)
+            saved = True
+        except KeptExisting:
+            pass
+    write_marks(fn, entries)
+    return f"{head}; {'saved' if saved else 'nothing gained'}{tail}"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -134,7 +198,7 @@ def main(argv: list[str] | None = None) -> int:
                 msg = f"kept ({e})"
             except Exception as e:  # one notice must not stop the run
                 msg = f"error: {type(e).__name__}: {e}"
-            if msg.endswith("saved"):
+            if "; saved" in msg:
                 with lock:
                     saved.append(fn)
             print(f"  [{i}/{len(docs)}] {fn}: {msg}", flush=True)

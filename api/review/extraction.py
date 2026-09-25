@@ -47,8 +47,8 @@ from api.neo4j_client import run_query, run_read_query
 from api.review.grounding import ANCHOR_STORED, reanchor
 from api.review.queries import _date_exists_clause, _notice_type_clause
 from pipeline.apply_extractions import ADDED_PREFIX, added_entities
-from pipeline.key_entities import (KEYS, absent_key, key_checklist_from_stored,
-                                   stamp_key_scores)
+from pipeline.key_entities import (AUTO, KEYS, absent_key, key_checklist_from_stored,
+                                   stamp_key_scores, unfound_key)
 
 # The extraction classes a reviewer may add by hand — the prompt's own list
 # (pipeline/langextract_examples.py), so an added entity is shaped like a
@@ -93,6 +93,8 @@ class KeyCell(BaseModel):
     value: str | None = None
     field_id: str | None = None      # the entity to jump to when filled
     inherited: bool = False          # filled from the notice-level value
+    auto: str | None = None          # the rule, when the pipeline marked it
+    unfound: bool = False            # looked for, not found: check the image
 
 
 class KeyLot(BaseModel):
@@ -678,10 +680,17 @@ def set_key_absent(filename: str, lot_index: str, key: str, absent: bool,
     if corr is None:
         return False
     k = absent_key(lot_index, key)
+    u = unfound_key(lot_index, key)
     if absent:
         corr[k] = {"by": by_email, "at": _now()}
+        corr.pop(u, None)
     else:
-        corr.pop(k, None)
+        was = corr.pop(k, None)
+        # Undoing an automatic "not in the notice" is a person saying it is
+        # there: leave a mark so the gap-filler does not mark it absent again
+        # (pipeline/absence), and the cell stays missing for them to fill.
+        if isinstance(was, dict) and was.get("by") == AUTO:
+            corr[u] = {"by": by_email, "at": _now(), "rule": "reviewer_undo"}
     return _write_corrections(filename, corr)
 
 

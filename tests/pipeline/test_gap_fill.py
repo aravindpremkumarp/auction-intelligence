@@ -51,7 +51,8 @@ def test_fill_adds_what_the_read_found_and_touches_nothing_else():
                 _e("location", "Village V", text, village="WRONG")]
     stored = _stored()
     filled, report = G.fill(MD, stored, read)
-    assert report == {"lots_with_gaps": 1, "reads": 1, "failed": 0}
+    assert report == {"lots_with_gaps": 1, "reads": 1, "failed": 0,
+                      "read_lots": ["1"]}
     assert calls == [["auction_date", "possession_type", "reserve_price"]]
     assert "reserve_price" in _filled(filled)["1"]
     # the location the lot already had is untouched; the stray one is dropped
@@ -79,3 +80,24 @@ def test_a_failed_read_keeps_the_stored_extraction():
     filled, report = G.fill(MD, _stored(), read)
     assert report["failed"] == 1
     assert _filled(filled) == _filled(_stored())
+
+
+def test_possession_stated_in_the_header_is_every_lots():
+    md = ("The physical possession of the properties has been taken. "
+          "Lot 1: land at Sy No 1. Lot 2: land at Sy No 2.")
+
+    def e(cls, text, lot, **a):
+        s = md.index(text)
+        return {"cls": cls, "text": text, "start": s, "end": s + len(text),
+                "attrs": {"lot_index": lot, **a}}
+    ents = [e("property", "physical possession", "1", possession_type="physical"),
+            e("full_description", "land at Sy No 1", "1"),
+            e("full_description", "land at Sy No 2", "2"),
+            e("property", "land at Sy No 2", "2", property_type="land")]
+    out = G.inherit_shared(ents)
+    assert "possession_type" in _filled(out)["2"]
+    lot2 = [x for x in out if x["cls"] == "property" and x["attrs"]["lot_index"] == "2"]
+    assert len(lot2) == 1 and lot2[0]["attrs"]["possession_type"] == "physical"
+    # a possession stated inside a lot's own text is not spread
+    ents[0] = e("property", "land at Sy No 1", "1", possession_type="physical")
+    assert "possession_type" not in _filled(G.inherit_shared(ents))["2"]
