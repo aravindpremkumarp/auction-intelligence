@@ -1561,7 +1561,9 @@ def extract(markdown: str, model_id: str | None = None,
             expected_lot_count: int | None = None,
             roster: list[dict] | None = None,
             passes: int | None = None,
-            extra: str | None = None):
+            extra: str | None = None,
+            prompt: str | None = None,
+            examples: list | None = None):
     """Run LangExtract over one notice's MinerU markdown.
 
     ``expected_lot_count`` — the reviewer-confirmed lot count from the
@@ -1596,13 +1598,19 @@ def extract(markdown: str, model_id: str | None = None,
     any attr key not demonstrated there, while the OpenRouter path never
     constrains — so evals would test different behaviour than production. Set
     LANGEXTRACT_USE_SCHEMA=1 to restore constrained generation on gemini.
+
+    ``prompt`` and ``examples`` replace the full guide and the nine worked
+    examples outright — for a short, single-purpose read such as
+    pipeline/gap_fill's, which asks for two facts and would otherwise pay for
+    ~18k tokens of instructions it does not need.
     """
     from pipeline.extract_routing import char_buffer_for
     common = dict(
         text_or_documents=markdown,
-        prompt_description=prompt_description_for(expected_lot_count, roster,
-                                                  extra),
-        examples=EXAMPLES,
+        prompt_description=(prompt if prompt is not None else
+                            prompt_description_for(expected_lot_count, roster,
+                                                   extra)),
+        examples=examples if examples is not None else EXAMPLES,
         extraction_passes=(passes if passes is not None
                            else int(os.environ.get("LANGEXTRACT_PASSES", "2"))),
         max_char_buffer=char_buffer_for(markdown), max_workers=4,
