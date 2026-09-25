@@ -30,6 +30,9 @@ def test_no_clue_only_for_optional_facts():
     assert A.no_clue("land at Sy No 12/1", "extent")
     assert not A.no_clue("1200 sq.ft. land", "extent")
     assert not A.no_clue("symbolic <b>possession</b>", "possession_type")
+    # the generic sentence names no type, so there is nothing to read
+    assert A.no_clue("the possession of which had been taken by the officer",
+                     "possession_type")
     # a fact every notice states is never "no clue" — it goes to a read
     assert not A.no_clue("nothing here", "reserve_price")
     assert not A.no_clue("nothing here", "full_description")

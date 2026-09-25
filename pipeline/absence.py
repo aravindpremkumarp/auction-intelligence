@@ -43,7 +43,10 @@ MUST_HAVE = frozenset({"reserve_price", "auction_date", "full_description"})
 #: Words without which the lot's text cannot state the fact. Deliberately
 #: broad: a false clue costs one cheap read, a missed one a wrong "absent".
 CLUES = {
-    "possession_type": re.compile(r"possess|symbolic|physical|constructive", re.I),
+    # A type can only be stated with its word. "The possession of which has
+    # been taken" alone says possession was taken, not which kind — no clue.
+    "possession_type": re.compile(
+        r"symbolic|physical|constructive|possession\s*(?:status|type)", re.I),
     "extent": re.compile(
         r"\bsq|square|\bsft\b|\bcents?\b|acre|hect|\bares?\b|guntha|\bgrounds?\b"
         r"|extent|\barea\b|admeasur|measuring|\bkanal|marla|bigha|\bsq\.?\s*(?:ft|m|yd)",
