@@ -101,3 +101,22 @@ def test_possession_stated_in_the_header_is_every_lots():
     # a possession stated inside a lot's own text is not spread
     ents[0] = e("property", "land at Sy No 1", "1", possession_type="physical")
     assert "possession_type" not in _filled(G.inherit_shared(ents))["2"]
+
+
+def test_a_header_naming_one_possession_type_fills_every_lot_without_a_read():
+    md = ("Whereas the physical possession of the properties has been taken. "
+          "Lot 1: land at Sy No 1. Lot 2: land at Sy No 2.")
+
+    def e(cls, text, lot, **a):
+        s = md.index(text)
+        return {"cls": cls, "text": text, "start": s, "end": s + len(text),
+                "attrs": {"lot_index": lot, **a}}
+    ents = [e("full_description", "land at Sy No 1", "1"),
+            e("full_description", "land at Sy No 2", "2")]
+    out = G.inherit_shared(ents, md)
+    assert {"1", "2"} <= {k for k, v in _filled(out).items() if "possession_type" in v}
+    # a header that lists types without choosing states none
+    md2 = md.replace("physical possession", "symbolic / constructive possession")
+    ents2 = [dict(x, start=md2.index(x["text"]), end=md2.index(x["text"]) + len(x["text"]))
+             for x in ents]
+    assert not any("possession_type" in v for v in _filled(G.inherit_shared(ents2, md2)).values())
