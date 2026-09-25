@@ -111,3 +111,18 @@ def test_a_fact_stated_once_in_the_header_is_not_no_clue():
     todo, marks = G.plan(md, ents)
     assert ("2", "possession_type") not in marks
     assert "possession_type" in todo["2"]
+
+
+def test_a_missing_must_have_is_split_by_what_the_text_shows():
+    assert A.must_have_rule("Reserve Price : Rs.9,50,000/-", "reserve_price") == A.RULE_READ_MISSED
+    assert A.must_have_rule("Plot No 4, Village V", "reserve_price") == A.RULE_LOST_FROM_TEXT
+    assert A.must_have_rule("E-auction on 24.06.2026 at 11 AM", "auction_date") == A.RULE_READ_MISSED
+    assert A.must_have_rule("Reserve Price : Rs.9,50,000/-", "auction_date") == A.RULE_LOST_FROM_TEXT
+    assert A.must_have_rule("All that piece and parcel of land", "full_description") == A.RULE_READ_MISSED
+    # both are unfound marks — never absent — and the gap-filler skips them
+    m = A.new_marks({("1", "reserve_price"): A.RULE_LOST_FROM_TEXT,
+                     ("1", "auction_date"): A.RULE_READ_MISSED,
+                     ("2", "reserve_price"): A.RULE_NEEDS_PERSON})
+    assert set(m) == {"unfound:1:reserve_price", "unfound:1:auction_date",
+                      "unfound:2:reserve_price"}
+    assert A.skip(m) == {("1", "reserve_price"), ("1", "auction_date"), ("2", "reserve_price")}

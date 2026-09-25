@@ -37,9 +37,11 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from api.neo4j_client import run_read_query
-from pipeline.absence import RULE_NOT_FOUND, new_marks, skip, write_marks
+from pipeline.absence import (
+    MUST_HAVE, RULE_NOT_FOUND, must_have_rule, new_marks, skip, write_marks,
+)
 from pipeline.extract_routing import select_extract_model, select_retry_model
-from pipeline.gap_fill import fill, gaps, inherit_shared, plan
+from pipeline.gap_fill import excerpt, fill, gaps, inherit_shared, plan
 from pipeline.keep_better import judge
 from pipeline.key_entities import KEYS
 from scripts.reset_langextract_and_extract import (
@@ -127,9 +129,16 @@ def fill_one(d: dict, keys: set[str], batch: int, dry_run: bool,
         # A fact the notice states once above its lots belongs to all of them.
         filled = inherit_shared(filled)
         left = _left(filled, left, list(left))
+        n_lots = max(len({str((e.get("attrs") or {}).get("lot_index") or "1")
+                          for e in filled}), 1)
         for lot, ks in left.items():
+            cut = excerpt(md, filled, lot, n_lots, exp)
             for k in ks:
-                marks[(lot, k)] = RULE_NOT_FOUND
+                # A must-have fact is never absent: say whether the text has
+                # it (the reads missed it) or lost it (OCR) — resolve_unfound
+                # works each case without a person.
+                marks[(lot, k)] = (must_have_rule(cut[0] if cut else md, k)
+                                   if k in MUST_HAVE else RULE_NOT_FOUND)
 
     entries = new_marks(marks)
     n_abs = sum(k.startswith("absent:") for k in entries)

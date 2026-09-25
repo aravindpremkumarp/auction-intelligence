@@ -908,7 +908,11 @@ const KEY_DEFS=[
 ];
 const KEY_BY=Object.fromEntries(KEY_DEFS.map(k=>[k.key,k]));
 function keyScoreColor(s){return s>=100?"#16a34a":s>=70?"#d97706":"#dc2626";}
-const AUTO_WHY={no_clue:"the lot's text has no word that could state it",not_found:"two reads of the lot's text found nothing"};
+const AUTO_WHY={no_clue:"the lot's text has no word that could state it",not_found:"two reads of the lot's text found nothing",
+  read_missed:"the text states it but two reads missed it — a full re-read is queued",
+  lost_from_text:"the text has no trace of it — OCR likely dropped it; an image check is queued",
+  needs_person:"image checked and notice re-read, still not found — needs you"};
+const UNFOUND_LABEL={read_missed:"re-read queued",lost_from_text:"image check queued",needs_person:"needs you · check image"};
 function renderKeys(d){
   const el=document.getElementById("keys");if(!el)return;
   const k=d.keys;
@@ -940,7 +944,7 @@ function renderKeys(d){
         h+=`<td class="absent">not in notice${c.auto?`<span class="inh" title="marked automatically: ${esc(why)}">auto</span>`:""} <button class="kbtn" onclick="setAbsent('${esc(lot.lot_index)}','${def.key}',false)" title="${c.auto?"it IS in the notice — clear the mark; it will not be marked again":"clear the mark"}">undo</button></td>`;
       }else{
         h+=`<td class="missing${filling?" filling":""}">missing`+
-          (c.unfound?`<span class="inh" title="${c.auto?"two reads found nothing, but every notice states this — it was probably lost from the text: check the image, fix the markdown or fill it":"a reviewer says it is in the notice — fill it by hand"}">${c.auto?"not found · check image":"fill by hand"}</span>`:"")+`<br>`+
+          (c.unfound?`<span class="inh" title="${c.auto?esc(AUTO_WHY[c.auto]||"two reads found nothing"):"a reviewer says it is in the notice — fill it by hand"}">${c.auto?(UNFOUND_LABEL[c.auto]||"not found · check image"):"fill by hand"}</span>`:"")+`<br>`+
           `<button class="kbtn fill" onclick="fillStart('${esc(lot.lot_index)}','${def.key}')" title="select the text in the markdown pane">＋ fill</button>`+
           `<button class="kbtn" onclick="setAbsent('${esc(lot.lot_index)}','${def.key}',true)" title="the notice never states this">∅ not in notice</button></td>`;
       }

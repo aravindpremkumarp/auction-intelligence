@@ -12,11 +12,14 @@ hand is the bottleneck this module removes. Three rules, per lot and key:
 2. **Read twice, found nothing.** The text has clues, but a lean read and then
    a read on the stronger model both came back without the fact. Marked absent.
 3. **A fact every notice states** (reserve price, auction date, the property
-   description — ``MUST_HAVE``) is never marked absent automatically. A notice
-   without one has almost always lost it between the image and the text (a
-   dropped table cell, a truncated page). It is marked *unfound* instead: the
-   cell stays missing and goes to a person, who fixes the text or marks it,
-   but the gap-filler stops looking.
+   description — ``MUST_HAVE``) is never marked absent automatically. It is
+   marked *unfound*, and the lot's text decides why (``must_have_rule``):
+   ``read_missed`` when the text carries an amount, a date, description
+   words — the reading went wrong — else ``lost_from_text``: the fact was
+   lost between the image and the text (a dropped table cell, a truncated
+   page). scripts/resolve_unfound then works both without a person: an image
+   check that re-OCRs any unread patch, a full re-read, the gap-filler again.
+   Only what survives all of that is marked ``needs_person``.
 
 Every automatic mark carries ``by: "auto"`` and the ``rule`` that made it, so
 the review page shows it as automatic and a reviewer can undo it. Undoing one
@@ -56,6 +59,26 @@ CLUES = {
 
 RULE_NO_CLUE = "no_clue"
 RULE_NOT_FOUND = "not_found"
+#: Must-have facts two reads missed, split by what the lot's text shows:
+RULE_READ_MISSED = "read_missed"      # the text states it; the reads missed it
+RULE_LOST_FROM_TEXT = "lost_from_text"  # the text does not; OCR likely lost it
+#: What scripts/resolve_unfound leaves once image and re-read are exhausted.
+RULE_NEEDS_PERSON = "needs_person"
+
+#: Words without which a lot's text cannot state a must-have fact. Found →
+#: the text has it and the reads missed it; not found → the text lost it.
+MUST_HAVE_CLUES = {
+    "reserve_price": re.compile(
+        r"(?:rs\.?|₹|inr)\s*\.?\s*\d|(?:reserve|upset)\s*price[^\n]{0,40}\d",
+        re.I),
+    "auction_date": re.compile(
+        r"\b\d{1,2}\s*[./-]\s*\d{1,2}\s*[./-]\s*\d{2,4}\b"
+        r"|\b\d{1,2}(?:st|nd|rd|th)?\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)",
+        re.I),
+    "full_description": re.compile(
+        r"piece\s+and\s+parcel|survey|\bs\.?\s*no\b|door\s*no|plot\s*no|flat\s*no|"
+        r"situated|bounded|boundar|\bsq\.?\s*f|acre|cents?\b", re.I),
+}
 
 
 def no_clue(text: str, key: str) -> bool:
@@ -65,6 +88,14 @@ def no_clue(text: str, key: str) -> bool:
     if key in MUST_HAVE or rx is None:
         return False
     return rx.search(re.sub(r"<[^>]+>", " ", text or "")) is None
+
+
+def must_have_rule(text: str, key: str) -> str:
+    """For a must-have fact two reads missed: ``read_missed`` when the lot's
+    text carries words that could state it, else ``lost_from_text``."""
+    rx = MUST_HAVE_CLUES.get(key)
+    clean = re.sub(r"<[^>]+>", " ", text or "")
+    return RULE_READ_MISSED if rx and rx.search(clean) else RULE_LOST_FROM_TEXT
 
 
 def verdict(key: str) -> str:
@@ -83,7 +114,9 @@ def new_marks(found: dict[tuple[str, str], str]) -> dict[str, dict]:
     at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     out = {}
     for (lot, key), rule in found.items():
-        kind = verdict(key) if rule == RULE_NOT_FOUND else "absent"
+        kind = ("unfound" if rule in (RULE_READ_MISSED, RULE_LOST_FROM_TEXT,
+                                      RULE_NEEDS_PERSON)
+                else verdict(key) if rule == RULE_NOT_FOUND else "absent")
         k = unfound_key(lot, key) if kind == "unfound" else absent_key(lot, key)
         out[k] = {"by": AUTO, "rule": rule, "at": at}
     return out
