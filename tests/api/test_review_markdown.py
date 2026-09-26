@@ -379,6 +379,67 @@ def test_planned_stage_detail_says_so(client) -> None:
     assert "planned" in body["panels"][0]["note"]
 
 
+def test_extraction_clean_is_the_gate_after_extraction() -> None:
+    # The human verify flag is a gold-set marker, not a pipeline gate: gating
+    # the funnel on it reported every extracted notice as stuck (3,116 on
+    # 2026-09-25) while resolution had already run over the corpus. The stage
+    # after "extracted" is machine-judged cleanliness, and the verify status
+    # takes no part in the funnel.
+    from api.review import queries as q
+
+    keys = [k for k, _l, _p in q.PIPELINE_STAGES]
+    assert "extract_ok" not in keys
+    assert keys.index("extract_clean") == keys.index("extracted") + 1
+    pred = dict((k, p) for k, _l, p in q.PIPELINE_STAGES)["extract_clean"]
+    assert "extraction_review_status" not in pred
+    # The four checks the extraction queue's failure pills run.
+    for needle in ("extraction_key_score", "extraction_key_missing",
+                   "extraction_issue_codes", "extraction_stale_at",
+                   "extraction_lot_count", "expected_lot_count"):
+        assert needle in pred, needle
+    assert {k for k, _l, _p in q.EXTRACTION_CLEAN_CHECKS} == {
+        "keys", "issues", "stale", "lots"}
+    # An unstamped key score is not "complete".
+    assert "coalesce(d.extraction_key_missing, 1)" in pred
+
+
+def test_extraction_clean_stage_detail_hands_over_the_worklists(client) -> None:
+    # Every "held back by" reason must be a way into the extraction queue with
+    # the matching failure pill preselected — the dashboard is a way in, not a
+    # dead end — and the human verify status must be shown but not as the gate.
+    from api.review.extraction import EXTRACTION_FAILURES
+
+    _ensure_admin_user()
+    r = client.get("/review/pipeline/extract_clean", headers=_admin_header())
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["key"] == "extract_clean" and body["label"] == "Extraction clean"
+    titles = [p["title"] for p in body["panels"]]
+    assert titles[:3] == ["Clean", "Held back by", "By failure"]
+    by_failure = body["panels"][2]
+    hrefs = {row["label"]: row["href"] for row in by_failure["rows"]}
+    assert set(hrefs) == set(EXTRACTION_FAILURES)
+    for key, href in hrefs.items():
+        assert href.startswith("#stage=extraction&group=notice&status=all&fails=")
+        assert href.endswith(f"fails={key}")
+    human = next(p for p in body["panels"] if p["title"] == "Human review")
+    assert "not the funnel gate" in human["note"]
+
+
+def test_failure_pill_predicate_matches_the_queue() -> None:
+    # One statement counts every pill, so the codes are inlined; the live
+    # predicates are used verbatim so the stage page and the queue agree.
+    from api.review import queries as q
+    from api.review.extraction import EXTRACTION_FAILURES
+
+    assert q._failure_pill_predicate(EXTRACTION_FAILURES["rerun"]) == \
+        "(" + EXTRACTION_FAILURES["rerun"]["cypher"] + ")"
+    p = q._failure_pill_predicate(EXTRACTION_FAILURES["description"])
+    assert "'missing_full_description'" in p and "'full_description_incomplete'" in p
+    assert "extraction_issue_codes" in p
+    assert q._failure_pill_predicate({}) == "false"
+
+
 def test_resolved_stage_is_built_not_planned() -> None:
     # Entity resolution graduated from planned to a real stage; a leftover
     # entry in PIPELINE_PLANNED would make the funnel draw it dashed and

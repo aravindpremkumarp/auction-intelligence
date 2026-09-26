@@ -260,6 +260,20 @@ document is withdrawn, which also makes the reset reversible.
 
 Accuracy is measured separately, by `:SpotCheckSample` below.
 
+For the same reason the review dashboard's pipeline funnel
+(`api/review/queries.py`, `PIPELINE_STAGES`) does **not** gate on `'verified'`.
+It did until 2026-09-25, and with 2 individually-verified notices against
+3,118 extracted it reported every extracted notice as stuck while resolution
+had in fact run over the whole corpus. The stage after "Entities extracted" is
+now **"Extraction clean"** — machine-judged, the same four checks the
+extraction queue's failure pills run, all passing: every key cell filled or
+marked absent (`extraction_key_score = 100`, `extraction_key_missing = 0`), no
+`extraction_issue_codes`, no `extraction_stale_at`, and `extraction_lot_count`
+equal to the reviewer's `expected_lot_count` where both are known. The
+verified count stays visible under "attention" as extractions awaiting review,
+and on the stage page as "Human review", labelled as a gold-set marker rather
+than the gate.
+
 ### Key-entity checklist: `extraction_key_score` / `extraction_key_missing`
 
 What the extraction stage asks a reviewer to clear (`pipeline/key_entities.py`):
@@ -292,6 +306,29 @@ text corrections, under prefixed keys:
 | `"absent:<lot>:<key>"` | `{by, at}` — not in the notice | the checklist only |
 
 Model entities are never deleted through review; a reviewer-added one is.
+
+### Possession read off boilerplate: `possession_cleared_json`
+
+Canara Bank prints "For the properties which are in symbolic possession of the
+bank, the Auction purchaser has to comply with …" near the end of its notices
+whatever the possession is — of 103 notices carrying it (all but one Canara),
+two state "the Physical Possession of which has been taken" and print it
+anyway. It is a condition, not a statement about any lot, but every lot's
+gap-fill excerpt carries the notice's tail, so reads took "symbolic" from it
+for some lots of a notice and not for others.
+
+`pipeline/gap_fill` now blanks the block out of every excerpt before reading
+(`mask_possession_boilerplate`, length-preserving so offsets hold), which also
+lets a lot whose only possession wording was the block be marked "not in the
+notice" without a model call. `scripts/clear_boilerplate_possession.py` removed
+the values already read off it: a possession type the notice commits to
+nowhere else is dropped from its entity, the drop is recorded on the Document
+as `possession_cleared_json` (`[{id, lot, value, cls, rule, at}]`, enough to
+restore it), the lot gets an automatic `absent` mark with rule
+`boilerplate_only`, and its `POSSESSION_IS` edge is removed
+(`Lot.possession_stated = false`, `Lot.possession_cleared_rule`). First run,
+2026-09-26: 54 lots in 26 notices; one notice with reviewer corrections was
+skipped.
 
 ### `:SpotCheckSample` — the audit trail
 
