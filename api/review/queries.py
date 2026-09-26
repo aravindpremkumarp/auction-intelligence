@@ -1807,6 +1807,8 @@ def _place_panels() -> list[dict]:
         "no-parent-taluk": "village named but no taluk to place it in",
         "taluk-has-no-villages": "taluk keeps no revenue villages (urban)",
         "names-a-taluk": "village field repeats the taluk name",
+        "not-a-revenue-village": "a town area or locality, not a revenue village",
+        "outside-tamil-nadu": "the property is outside Tamil Nadu",
     }
     # The portal disagreement is one number hiding three populations, and only
     # the third is work: the 2019 district splits and the Chennai metro are the
