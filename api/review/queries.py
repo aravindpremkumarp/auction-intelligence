@@ -1861,6 +1861,12 @@ def _place_panels() -> list[dict]:
 # row immediately rather than after the next resolution run.
 
 
+#: Every stored verdict is read — run_read_query trims to max_rows without a
+#: word, and at 5,000 it had quietly dropped 1,373 of 6,373 verdicts, so a row
+#: decided among them could come back to its queue.
+_DECISIONS_MAX = 500_000
+
+
 def _load_decisions() -> list[dict]:
     import json as _json
     rows = run_read_query(
@@ -1868,7 +1874,7 @@ def _load_decisions() -> list[dict]:
         MATCH (r:ResolutionDecision)
         RETURN r.key AS key, r.kind AS kind, r.verdict AS verdict,
                r.payload_json AS payload_json
-        """, max_rows=5000, timeout=30.0)
+        """, max_rows=_DECISIONS_MAX, timeout=60.0)
     out = []
     for r in rows:
         try:
@@ -1880,15 +1886,286 @@ def _load_decisions() -> list[dict]:
     return out
 
 
-def _village_candidates(taluks: list[str]) -> dict[str, list[str]]:
-    """Official village names per taluk, for suggesting alias targets."""
-    rows = run_read_query(
-        """
-        MATCH (v:RevenueVillage)-[:IN_TALUK]->(t:Taluk)
-        WHERE t.name IN $taluks
-        RETURN t.name AS taluk, collect(v.name) AS villages
-        """, {"taluks": taluks}, max_rows=len(taluks) or 1, timeout=30.0)
-    return {r["taluk"]: r["villages"] for r in rows}
+# ── Village review queue ────────────────────────────────────────────────────
+#
+# One row per (spelling, taluk) the gazetteer could not place, counting the
+# listings AND the lots that carry it: that pair is the key a village-alias
+# verdict is stored under (pipeline/resolution_review.village_alias_key), and
+# both place writers apply it (settle_village), so one click settles every
+# listing and lot naming that spelling in that taluk. Ranked by how much a
+# verdict fixes.
+
+_UNMATCHED_VILLAGE_LISTINGS = """
+MATCH (p:AuctionProperty)
+WHERE p.place_village_status = 'unmatched'
+  AND p.village IS NOT NULL AND p.revenue_taluk IS NOT NULL
+OPTIONAL MATCH (p)-[:HAS_DOCUMENT]->(d:Document)
+WITH p, d ORDER BY (CASE WHEN d.public_url IS NULL THEN 1 ELSE 0 END), d.filename
+WITH p, head(collect(d)) AS d
+RETURN p.village AS raw, p.revenue_taluk AS taluk,
+       p.revenue_district AS district, p.auction_id AS auction_id,
+       d.filename AS filename, d.public_url AS public_url
+"""
+
+_UNMATCHED_VILLAGE_LOTS = """
+MATCH (d:Document)-[:HAS_LOT]->(l:Lot)
+WHERE l.place_status = 'unmatched'
+  AND l.village_raw IS NOT NULL AND l.taluk IS NOT NULL
+RETURN l.village_raw AS raw, l.taluk AS taluk, l.district AS district,
+       l.lot_key AS lot_key, d.filename AS filename, d.public_url AS public_url
+"""
+
+#: A candidate below this is noise, not a suggestion.
+VILLAGE_CANDIDATE_MIN = 55.0
+
+
+def _village_groups(decisions: list[dict]) -> list[dict]:
+    """Open (spelling, taluk) groups, biggest first. A spelling a verdict
+    already covers — an approved alias in that taluk, or "not a village"
+    anywhere — is left out at read time, before any resolver re-runs."""
+    from collections import Counter
+
+    from pipeline.place_resolution import normalize_place
+    from pipeline.resolution_review import (
+        skipped_villages, village_alias_key, village_aliases,
+    )
+
+    aliased = set(village_aliases(decisions))
+    skipped = skipped_villages(decisions)
+    groups: dict[str, dict] = {}
+
+    def add(r: dict, auction_id: str | None, lot_key: str | None) -> None:
+        raw, taluk = (r.get("raw") or "").strip(), r.get("taluk")
+        if not raw or not taluk:
+            return
+        key = village_alias_key(raw, taluk)
+        if key in aliased or normalize_place(raw) in skipped:
+            return
+        g = groups.setdefault(key, {
+            "key": key, "taluk": taluk, "district": None,
+            "spellings": Counter(), "auction_ids": set(), "lot_keys": set(),
+            "notices": {}})
+        g["spellings"][raw] += 1
+        g["district"] = g["district"] or r.get("district")
+        if auction_id:
+            g["auction_ids"].add(auction_id)
+        if lot_key:
+            g["lot_keys"].add(lot_key)
+        if r.get("filename"):
+            g["notices"].setdefault(r["filename"], r.get("public_url"))
+
+    for r in run_read_query(_UNMATCHED_VILLAGE_LISTINGS, max_rows=50_000,
+                            timeout=60.0):
+        add(r, r.get("auction_id"), None)
+    for r in run_read_query(_UNMATCHED_VILLAGE_LOTS, max_rows=50_000,
+                            timeout=60.0):
+        add(r, None, r.get("lot_key"))
+
+    out = []
+    for g in groups.values():
+        spellings = [s for s, _n in g["spellings"].most_common()]
+        # Notices with an image first: the reviewer's evidence is the page.
+        notices = sorted(g["notices"].items(), key=lambda kv: (kv[1] is None, kv[0]))
+        out.append({
+            "key": g["key"], "village": spellings[0], "spellings": spellings[:4],
+            "taluk": g["taluk"], "district": g["district"],
+            "listings": len(g["auction_ids"]), "lots": len(g["lot_keys"]),
+            "notices": len(notices),
+            "auction_ids": sorted(g["auction_ids"])[:5],
+            "examples": [{"filename": fn, "public_url": url}
+                         for fn, url in notices[:3]],
+        })
+    out.sort(key=lambda g: (-(g["listings"] + g["lots"]), g["village"].lower(),
+                            g["taluk"]))
+    return out
+
+
+def _village_pool(taluks: list[str]) -> dict[str, list[dict]]:
+    """``{taluk: [{name, name_ta, taluk}]}`` — every register village of each
+    taluk, one entry per name (an LGD-added copy with no Tamil name folds into
+    the original that has one)."""
+    pool: dict[str, dict[str, dict]] = {}
+    if not taluks:
+        return {}
+    for r in run_read_query(
+            """
+            MATCH (v:RevenueVillage)-[:IN_TALUK]->(t:Taluk)
+            WHERE t.name IN $taluks
+            RETURN t.name AS taluk, v.name AS name, v.name_ta AS name_ta
+            """, {"taluks": taluks}, max_rows=200_000, timeout=60.0):
+        seen = pool.setdefault(r["taluk"], {})
+        entry = seen.setdefault(r["name"], {"name": r["name"], "name_ta": None,
+                                            "taluk": r["taluk"]})
+        entry["name_ta"] = entry["name_ta"] or r.get("name_ta")
+    return {t: sorted(v.values(), key=lambda e: e["name"]) for t, v in pool.items()}
+
+
+def _district_taluks() -> tuple[dict[str, str], dict[str, list[str]]]:
+    """``(taluk -> district, district -> [taluks])`` from the register."""
+    of: dict[str, str] = {}
+    for r in run_read_query(
+            "MATCH (t:Taluk)-[:IN_DISTRICT]->(d:District) "
+            "RETURN t.name AS taluk, d.name AS district",
+            max_rows=5_000, timeout=30.0):
+        of[r["taluk"]] = r["district"]
+    within: dict[str, list[str]] = {}
+    for t, d in sorted(of.items()):
+        within.setdefault(d, []).append(t)
+    return of, within
+
+
+def _scored(raw: str, pool: list[dict]) -> list[tuple[float, bool, dict]]:
+    """``(score, by_spelling, village)`` for every village in ``pool``
+    scoring at least VILLAGE_CANDIDATE_MIN, best first."""
+    try:
+        from rapidfuzz import fuzz
+    except ImportError:
+        return []
+    from pipeline.place_resolution import normalize_place, sound_key, tamil_latin
+
+    folded, key = normalize_place(raw), sound_key(raw)
+    out = []
+    for v in pool:
+        # Keys are cached on the pool entry: a district's pool is scored once
+        # per row, and reading the Tamil name is the slow part.
+        if "_fold" not in v:
+            v["_fold"] = normalize_place(v["name"])
+            v["_keys"] = [sound_key(v["name"])] + (
+                [sound_key(tamil_latin(v["name_ta"]))] if v.get("name_ta") else [])
+        spelled = fuzz.ratio(folded, v["_fold"])
+        sound = max((fuzz.ratio(key, k) for k in v["_keys"]), default=0.0) if key else 0.0
+        best = max(spelled, sound)
+        if best >= VILLAGE_CANDIDATE_MIN:
+            out.append((best, spelled >= sound, v))
+    out.sort(key=lambda t: (-t[0], t[2]["name"]))
+    return out
+
+
+def _candidate(score: float, by_spelling: bool, v: dict) -> dict:
+    return {"name": v["name"], "name_ta": v.get("name_ta"), "taluk": v.get("taluk"),
+            "score": round(float(score), 1),
+            "how": "spelling" if by_spelling else "sound"}
+
+
+def village_candidates(raw: str, pool: list[dict], n: int = 5) -> list[dict]:
+    """The closest official villages to ``raw`` in ``pool``, best first.
+
+    Scored two ways, keeping the better: spelling (fuzzy ratio of the folded
+    names) and sound (the same coarse key ``Gazetteer.village_by_sound`` uses,
+    against the English name and the Tamil name read into Latin) — so
+    "Chetti Punniyam" still offers Chettipunniyam when the letters drift.
+    These are suggestions for a person, not answers: nothing here is applied
+    without a click."""
+    return [_candidate(*t) for t in _scored(raw, pool)[:n]]
+
+
+#: A village elsewhere in the district is offered only when it is this close:
+#: across a whole district, weaker scores are mostly unrelated names.
+VILLAGE_ELSEWHERE_MIN = 85.0
+
+
+def _village_snippet(text: str | None, spellings: list[str],
+                     width: int = 150) -> str | None:
+    """The notice's own words around a spelling — the evidence a reviewer
+    reads before choosing — or None when no spelling is in the text as-is.
+
+    A notice names a place first in the borrower's address and again in the
+    property schedule, and only the schedule is about the land: an occurrence
+    with "village" beside it wins, then one after the schedule heading, then
+    the first."""
+    import re as _re
+    if not text:
+        return None
+    low = text.lower()
+    heading = _re.search(r"schedule|description of|secured asset", low)
+    best = None
+    for raw in spellings:
+        needle = (raw or "").lower().strip()
+        if not needle:
+            continue
+        for m in _re.finditer(_re.escape(needle), low):
+            near = low[max(0, m.start() - 40):m.end() + 40]
+            rank = (0 if "villa" in near else
+                    1 if heading and m.start() > heading.start() else 2)
+            if best is None or (rank, m.start()) < (best[0], best[1]):
+                best = (rank, m.start(), m.end())
+    if best is None:
+        return None
+    start, end = max(0, best[1] - width), min(len(text), best[2] + width)
+    return (("…" if start else "") + " ".join(text[start:end].split())
+            + ("…" if end < len(text) else ""))
+
+
+def village_queue(*, district: str | None = None, search: str | None = None,
+                  offset: int = 0, limit: int = 25) -> dict:
+    """One page of the village queue, with evidence and candidates on every
+    row. Totals are over the whole open queue; `matching` is after the
+    district / search filter."""
+    from collections import Counter
+
+    from pipeline.place_resolution import normalize_place
+
+    groups = _village_groups(_load_decisions())
+    by_district = Counter(g["district"] or "" for g in groups)
+    rows = groups
+    if district:
+        rows = [g for g in rows if (g["district"] or "") == district]
+    if search and normalize_place(search):
+        needle = normalize_place(search)
+        rows = [g for g in rows
+                if any(needle in normalize_place(s) for s in g["spellings"])]
+    page = [dict(g) for g in rows[offset:offset + limit]]
+
+    # Candidates come from the notice's taluk and, when close enough, from
+    # the rest of its district: notices still name pre-2019 taluks.
+    taluk_district, district_taluks = _district_taluks() if page else ({}, {})
+    sisters = {g["taluk"]: [t for t in district_taluks.get(
+                   taluk_district.get(g["taluk"]), []) if t != g["taluk"]]
+               for g in page}
+    pools = _village_pool(sorted({g["taluk"] for g in page}
+                                 | {t for ts in sisters.values() for t in ts}))
+    files = sorted({e["filename"] for g in page for e in g["examples"][:2]})
+    texts = {r["filename"]: r.get("text") for r in run_read_query(
+        "MATCH (d:Document) WHERE d.filename IN $files "
+        "RETURN d.filename AS filename, d.markdown AS text",
+        {"files": files}, max_rows=len(files) or 1, timeout=30.0)} if files else {}
+    for g in page:
+        elsewhere = [v for t in sisters[g["taluk"]] for v in pools.get(t, [])]
+        both = (village_candidates(g["village"], pools.get(g["taluk"], []))
+                + [_candidate(*t) for t in _scored(g["village"], elsewhere)[:3]
+                   if t[0] >= VILLAGE_ELSEWHERE_MIN])
+        # Best first wherever it sits; the notice's own taluk wins a tie.
+        g["candidates"] = sorted(both, key=lambda c: (-c["score"],
+                                                      c["taluk"] != g["taluk"]))[:6]
+        g["snippet"] = g["snippet_file"] = None
+        for e in g["examples"][:2]:
+            snip = _village_snippet(texts.get(e["filename"]), g["spellings"])
+            if snip:
+                g["snippet"], g["snippet_file"] = snip, e["filename"]
+                break
+
+    return {
+        "open": len(groups),
+        "listings": sum(g["listings"] for g in groups),
+        "lots": sum(g["lots"] for g in groups),
+        "matching": len(rows),
+        "offset": offset, "limit": limit,
+        "districts": [{"name": d, "open": n}
+                      for d, n in sorted(by_district.items(), key=lambda kv: (-kv[1], kv[0]))
+                      if d],
+        "rows": page,
+    }
+
+
+def village_options(taluk: str) -> list[dict]:
+    """Every register village of the taluk's district, the taluk's own
+    first — for the reviewer's own search when no suggestion is right."""
+    taluk_district, district_taluks = _district_taluks()
+    order = [taluk] + [t for t in district_taluks.get(taluk_district.get(taluk), [])
+                       if t != taluk]
+    pools = _village_pool(order)
+    return [{"name": v["name"], "name_ta": v.get("name_ta"), "taluk": v["taluk"]}
+            for t in order for v in pools.get(t, [])]
 
 
 #: Which side a reviewer found at fault. 'neither' rides with the `rejected`
@@ -2047,17 +2324,13 @@ def resolution_review() -> dict:
     """
     import json as _json
 
-    from pipeline.place_resolution import normalize_place
     from pipeline.resolution_review import (
         bank_pair_key, district_conflict_key, settled_conflicts,
-        skipped_villages, village_alias_key, village_aliases,
     )
 
     decisions = _load_decisions()
     ruled_pairs = {d["key"] for d in decisions if d["kind"] == "bank-merge"}
     settled = settled_conflicts(decisions)
-    aliased = set(village_aliases(decisions))
-    skipped = skipped_villages(decisions)
 
     # Bank lookalike pairs — stored by the resolver, already excluding pairs
     # decided before its last run; the key filter catches ones decided since.
@@ -2122,42 +2395,9 @@ def resolution_review() -> dict:
             g["auction_ids"].append(c.get("auction_id"))
     district_conflicts = sorted(grouped.values(), key=lambda g: -g["count"])
 
-    # Unmatched villages — grouped by (string, taluk), with the taluk's
-    # closest official names as candidate alias targets so the reviewer picks
-    # rather than types.
-    rows = run_read_query(
-        """
-        MATCH (p:AuctionProperty)
-        WHERE p.place_village_status = 'unmatched'
-          AND p.village IS NOT NULL AND p.revenue_taluk IS NOT NULL
-        RETURN p.village AS village, p.revenue_taluk AS taluk,
-               p.revenue_district AS district,
-               count(*) AS n, collect(p.auction_id)[0..3] AS auction_ids
-        ORDER BY n DESC
-        """, max_rows=2000, timeout=60.0)
-    open_rows = [r for r in rows
-                 if village_alias_key(r["village"], r["taluk"]) not in aliased
-                 and normalize_place(r["village"]) not in skipped]
-    open_rows = open_rows[:60]
-    pools = _village_candidates(sorted({r["taluk"] for r in open_rows}))
-    try:
-        from rapidfuzz import fuzz
-        def top3(raw: str, taluk: str) -> list[dict]:
-            nv = normalize_place(raw)
-            scored = sorted(
-                ((fuzz.ratio(nv, normalize_place(v)), v)
-                 for v in pools.get(taluk, [])), reverse=True)[:3]
-            return [{"name": v, "score": round(float(s), 1)}
-                    for s, v in scored if s >= 55]
-    except ImportError:
-        def top3(raw: str, taluk: str) -> list[dict]:
-            return []
-    unmatched_villages = [{
-        "village": r["village"], "taluk": r["taluk"],
-        "district": r["district"], "count": r["n"],
-        "auction_ids": r["auction_ids"],
-        "candidates": top3(r["village"], r["taluk"]),
-    } for r in open_rows]
+    # Unmatched villages have their own paged queue (village_queue); here
+    # only the count, so the overview and `open` cover every open spelling.
+    unmatched_villages = len(_village_groups(decisions))
 
     lot_matches = _lot_match_candidates(decisions)
     price_checks = _price_checks(decisions)
@@ -2175,7 +2415,7 @@ def resolution_review() -> dict:
         "portal_matches": portal_matches,
         "decided": len(decisions),
         "open": (len(bank_pairs) + len(branch_pairs)
-                 + len(district_conflicts) + len(unmatched_villages)
+                 + len(district_conflicts) + unmatched_villages
                  + len(lot_matches) + len(price_checks)
                  + len(area_checks) + len(portal_matches)),
     }
@@ -2482,17 +2722,19 @@ def record_resolution_decision(kind: str, payload: dict, verdict: str,
             auction_start_dt=subject.get("auction_start_dt"), borrower=subject.get("borrower") or ""))}
 
     if kind == "village-alias" and verdict == APPROVED:
+        # The answer may sit in another taluk than the notice named (the 2019
+        # splits); `target_taluk` says which, and it is checked like the rest.
+        where = payload.get("target_taluk") or payload.get("taluk")
         hit = _count_query(
             """
             MATCH (v:RevenueVillage {name: $target})-[:IN_TALUK]->
                   (t:Taluk {name: $taluk})
             RETURN count(v) AS n
-            """, {"target": payload.get("target"),
-                  "taluk": payload.get("taluk")})
+            """, {"target": payload.get("target"), "taluk": where})
         if not int(hit.get("n") or 0):
             raise ValueError(
                 f"{payload.get('target')!r} is not a revenue village of "
-                f"{payload.get('taluk')!r} — the alias would point nowhere")
+                f"{where!r} — the alias would point nowhere")
 
     if kind in ("price-check", "area-check"):
         # The queue only ever offers listings that carry a flag, but the
@@ -2599,7 +2841,7 @@ def _resolution_review_panels() -> list[dict]:
             ("lender lookalike pairs", len(queues["bank_pairs"])),
             ("branch lookalike pairs", len(queues["branch_pairs"])),
             ("district conflict patterns", len(queues["district_conflicts"])),
-            ("unmatched village strings", len(queues["unmatched_villages"])),
+            ("unmatched village spellings", queues["unmatched_villages"]),
             ("lot matches to review", len(queues["lot_matches"])),
             # Both of these already count toward `open`, so leaving them off
             # the list made every bar above read against a denominator with
@@ -2669,6 +2911,7 @@ def run_resolution_apply() -> None:
     import json as _json
     import time as _time
     try:
+        from pipeline.promote_extractions import relink_settled_lots, resolve_parcels
         from scripts.resolve_bank_names import run as run_banks
         from scripts.resolve_branches import run as run_branches
         from scripts.resolve_lots import run as run_lots
@@ -2676,8 +2919,15 @@ def run_resolution_apply() -> None:
         # Branches after banks: their scope is d.bank_canonical, which the
         # lender pass may have just rewritten. Lots is independent of both —
         # order doesn't matter, it only reads reserve price and borrower name.
+        # Village verdicts reach listings through the place resolver and the
+        # notices' lots through the targeted re-link; parcels group lots by
+        # village, so a lot that moved regroups them — before lot matching,
+        # the order the pipeline itself runs them in.
         summary = {"banks": run_banks(), "branches": run_branches(),
-                   "places": run_places(), "lots": run_lots()}
+                   "places": run_places(), "lot_places": relink_settled_lots()}
+        if summary["lot_places"]["moved"]:
+            resolve_parcels(False)
+        summary["lots"] = run_lots()
         run_query(
             """
             MERGE (s:PipelineState {key:'resolution_apply'})

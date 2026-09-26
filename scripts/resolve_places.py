@@ -55,7 +55,7 @@ from pipeline.place_lineage import classify, needs_review
 from pipeline.place_resolution import Gazetteer, resolve_place
 from pipeline.resolution_review import (
     district_conflict_key, load_osm_aliases, settle_village, settled_conflicts,
-    skipped_villages, village_aliases,
+    skipped_villages, village_alias_taluks, village_aliases,
 )
 from scripts.resolution_decisions import load_decisions
 from scripts.score_ink_coverage import nq
@@ -252,6 +252,7 @@ def run(*, dry_run: bool = False) -> dict:
     # patterns leave the queue.
     decisions = load_decisions()
     aliases = village_aliases(decisions)
+    alias_taluks = village_alias_taluks(decisions)
     skips = skipped_villages(decisions)
     osm_aliases = load_osm_aliases()
     settled = settled_conflicts(decisions)
@@ -285,7 +286,7 @@ def run(*, dry_run: bool = False) -> dict:
         # confirms — the same step lot_place takes for every :Lot.
         was = res["village_status"]
         res = settle_village(gaz, res, village, aliases=aliases, skips=skips,
-                             osm=osm_aliases)
+                             osm=osm_aliases, alias_taluks=alias_taluks)
         if res["village_status"] != was \
                 and (res["village_source"] or "").startswith("osm-"):
             stats[f"settled by OSM ({res['village_source']})"] += 1

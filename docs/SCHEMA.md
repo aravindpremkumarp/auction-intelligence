@@ -157,6 +157,29 @@ The stored district is always **derived upward** from whatever resolved.
 scoped candidate sets `ambiguous = true` rather than guessing — a visible
 backlog instead of a silent wrong answer.
 
+### The village review queue: one verdict per spelling in a taluk
+
+What the rules cannot place stays `unmatched` on the listing
+(`place_village_status`) and on the lot (`place_status`), each keeping the
+notice's own spelling — `AuctionProperty.village`, `Lot.village_raw`. The
+review page's *Villages the register couldn't place* queue
+(`GET /review/resolution/villages`) groups both by `(spelling, taluk)`, the key
+a `village-alias` or `village-skip` `:ResolutionDecision` is stored under, and
+ranks the groups by how many listings and lots one click settles. Each row
+carries the notice's words around the spelling (the schedule's mention before
+the borrower's address) and the closest register villages by spelling and by
+sound, with their Tamil names.
+
+Notices still name taluks from before the 2019 splits ("Varadharajapuram,
+Sriperumbudur Taluk" — the register holds Varatharajapuram in Kundrathur), so
+close names from the rest of the district are offered too, flagged with their
+taluk, and an alias may carry `target_taluk`; the answer then moves the taluk
+and district with it. Both place writers apply the same verdicts
+(`pipeline/resolution_review.settle_village`), and *Apply my decisions*
+re-runs the listing resolver and re-links only the notices whose lots a verdict
+touches (`promote_extractions.relink_settled_lots`), rebuilding parcels when a
+lot's village moved.
+
 ---
 
 ## Measurement

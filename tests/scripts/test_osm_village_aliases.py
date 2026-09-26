@@ -144,7 +144,7 @@ def test_a_lot_takes_the_same_decided_spellings_as_its_listing(monkeypatch):
            village_alias_key("Semmancheri", "Sholinganallur"):
            {"target": None, "rule": "osm-urban"}}
     monkeypatch.setattr(P, "gazetteer", _gaz)
-    monkeypatch.setattr(P, "decided_spellings", lambda: ({}, set(), osm))
+    monkeypatch.setattr(P, "decided_spellings", lambda: ({}, set(), osm, {}))
 
     def lot(village):
         return P.lot_place({"lot_key": "n#1", "location": {
@@ -156,3 +156,33 @@ def test_a_lot_takes_the_same_decided_spellings_as_its_listing(monkeypatch):
     urban = lot("Semmancheri")
     assert (urban["village"], urban["status"]) == (None, "not-a-revenue-village")
     assert lot("Enchambakkam")["source"] == "taluk"      # a plain match is untouched
+
+
+def test_a_cross_taluk_alias_moves_the_taluk_and_district_with_it():
+    """"Varadharajapuram, Sriperumbudur Taluk" — the register holds it in
+    Kundrathur since the 2019 split; the verdict says so, and the answer
+    carries its own taluk."""
+    from pipeline.resolution_review import decision_key, village_alias_taluks, village_aliases
+
+    gaz = Gazetteer(districts=["Kancheepuram"],
+                    taluks=[("Sriperumbudur", "Kancheepuram"), ("Kundrathur", "Kancheepuram")],
+                    villages=[("Mambakkam", "Sriperumbudur", "Kancheepuram"),
+                              ("Varatharajapuram", "Kundrathur", "Kancheepuram")])
+    res = resolve_place(gaz, district="Kancheepuram", taluk="Sriperumbudur",
+                        village="Varadharajapuram")
+    assert res["village"] is None
+    payload = {"raw": "Varadharajapuram", "taluk": "Sriperumbudur",
+               "target": "Varatharajapuram", "target_taluk": "Kundrathur"}
+
+    def verdict(v):
+        return [{"kind": "village-alias", "key": decision_key("village-alias", payload),
+                 "payload": payload, "verdict": v}]
+
+    out = settle_village(gaz, res, "Varadharajapuram", aliases=village_aliases(verdict("approved")),
+                         skips=set(), osm={}, alias_taluks=village_alias_taluks(verdict("approved")))
+    assert (out["village"], out["taluk"], out["district"], out["village_source"]) == \
+        ("Varatharajapuram", "Kundrathur", "Kancheepuram", "human-alias")
+    # without the taluk the same target points nowhere, and nothing is invented
+    assert settle_village(gaz, res, "Varadharajapuram", aliases=village_aliases(verdict("approved")),
+                          skips=set(), osm={})["village"] is None
+    assert village_alias_taluks(verdict("rejected")) == {}

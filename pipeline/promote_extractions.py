@@ -71,7 +71,8 @@ from pipeline.property_taxonomy import (
     AGRICULTURAL, FLAT, LAND, PLOT, classify_property_type,
 )
 from pipeline.resolution_review import (
-    load_osm_aliases, settle_village, skipped_villages, village_aliases,
+    load_osm_aliases, settle_village, skipped_villages, village_alias_taluks,
+    village_aliases,
 )
 from pipeline.resolve_places import norm_place
 from pipeline.validators import normalize_identifier_kind
@@ -245,15 +246,21 @@ def gazetteer() -> Gazetteer:
 # listing resolver (scripts/resolve_places) applies. Without them here a lot
 # stayed unmatched on a spelling its own listing was placed by. Read once per
 # process, like the gazetteer.
-_SPELLINGS: tuple[dict[str, str], set[str], dict[str, dict]] | None = None
+_SPELLINGS: tuple[dict[str, str], set[str], dict[str, dict],
+                 dict[str, str]] | None = None
 _SPELLINGS_LOCK = threading.Lock()
 
 
-def decided_spellings() -> tuple[dict[str, str], set[str], dict[str, dict]]:
-    """``(aliases, skips, osm)`` for :func:`settle_village`."""
+def decided_spellings(reload: bool = False
+                      ) -> tuple[dict[str, str], set[str], dict[str, dict],
+                                 dict[str, str]]:
+    """``(aliases, skips, osm, alias_taluks)`` for :func:`settle_village`.
+    ``reload`` re-reads
+    them — the API process lives across review sessions, so its apply step
+    must see verdicts made since it started."""
     global _SPELLINGS
     with _SPELLINGS_LOCK:
-        if _SPELLINGS is None:
+        if _SPELLINGS is None or reload:
             decisions = []
             for r in run_read_query(
                     "MATCH (r:ResolutionDecision) "
@@ -268,7 +275,7 @@ def decided_spellings() -> tuple[dict[str, str], set[str], dict[str, dict]]:
                 decisions.append({"key": r["key"], "kind": r["kind"],
                                   "verdict": r["verdict"], "payload": payload})
             _SPELLINGS = (village_aliases(decisions), skipped_villages(decisions),
-                          load_osm_aliases())
+                          load_osm_aliases(), village_alias_taluks(decisions))
     return _SPELLINGS
 
 
@@ -314,19 +321,25 @@ def lot_place(rec: dict) -> dict:
 
     # Then the spellings a person or OpenStreetMap has already settled — the
     # listing resolver's own step, so a lot and its listing agree.
-    aliases, skips, osm = decided_spellings()
+    aliases, skips, osm, alias_taluks = decided_spellings()
     settled = settle_village(
         gaz, {"district": district, "taluk": taluk, "village": village,
               "village_status": status, "village_source": source},
-        loc.get("village"), aliases=aliases, skips=skips, osm=osm)
-    village, status, source = (settled["village"], settled["village_status"],
-                               settled["village_source"])
+        loc.get("village"), aliases=aliases, skips=skips, osm=osm,
+        alias_taluks=alias_taluks)
+    district, taluk, village, status, source = (
+        settled["district"], settled["taluk"], settled["village"],
+        settled["village_status"], settled["village_source"])
 
     return {
         "lot_key": rec["lot_key"],
         "district": district,
         "taluk": taluk,
         "village": village,
+        # The notice's own spelling, kept beside the answer so the village
+        # review queue can group an unmatched lot with the listings that
+        # share its (spelling, taluk) — the key a verdict is stored under.
+        "village_raw": (loc.get("village") or "").strip() or None,
         "status": status,
         "source": source,
         # Which field the district came from. Stored because the weakest of
@@ -911,6 +924,7 @@ SET l.place_status = row.status,
     l.place_district_source = row.district_source,
     l.place_conflict = row.conflict,
     l.village = row.village,
+    l.village_raw = row.village_raw,
     l.taluk = row.taluk,
     l.district = row.district
 
@@ -1145,6 +1159,60 @@ def place_document(doc: dict, dry_run: bool) -> tuple[int, Counter]:
         return len(lots), Counter(p["status"] for p in places)
     write_places(places)
     return len(lots), Counter(p["status"] for p in places)
+
+
+def relink_settled_lots(dry_run: bool = False) -> dict:
+    """Re-link the notices whose lots a stored village verdict now settles —
+    or settled, before an undo.
+
+    The village review queue's apply step. A verdict is keyed by the notice's
+    own spelling and the lot's taluk, which the lot keeps as
+    ``l.village_raw`` / ``l.taluk``, so the notices to touch are found without
+    rebuilding every lot in the corpus. Also taken: every lot a human verdict
+    already placed or ruled out, so a verdict that was undone lets go.
+    """
+    from pipeline.place_resolution import normalize_place
+    from pipeline.resolution_review import village_alias_key
+
+    aliases, skips, _osm, _where = decided_spellings(reload=True)
+    rows = run_read_query(
+        """
+        MATCH (d:Document)-[:HAS_LOT]->(l:Lot)
+        WHERE l.village_raw IS NOT NULL
+          AND (l.place_status IN ['unmatched', 'no-parent-taluk',
+                                  'not-a-revenue-village']
+               OR l.place_source = 'human-alias')
+        RETURN d.filename AS filename, l.village_raw AS raw, l.taluk AS taluk,
+               l.place_status AS status, l.place_source AS source
+        """, max_rows=100_000, timeout=120.0)
+    files = sorted({
+        r["filename"] for r in rows
+        if r["source"] == "human-alias"
+        or (r["status"] == "not-a-revenue-village" and r["source"] != "osm-urban")
+        or (r["taluk"] and village_alias_key(r["raw"], r["taluk"]) in aliases)
+        or normalize_place(r["raw"]) in skips})
+    if not files:
+        return {"notices": 0, "lots": 0, "moved": 0}
+
+    def villages() -> dict[str, str | None]:
+        return {r["lot_key"]: r["village"] for r in run_read_query(
+            "MATCH (d:Document)-[:HAS_LOT]->(l:Lot) WHERE d.filename IN $files "
+            "RETURN l.lot_key AS lot_key, l.village AS village",
+            {"files": files}, max_rows=100_000, timeout=120.0)}
+
+    before = villages()
+    docs = run_read_query(
+        "MATCH (d:Document) WHERE d.filename IN $files "
+        "RETURN d.filename AS filename, d.extraction_json AS extraction_json, "
+        "       d.corrections_json AS corrections_json",
+        {"files": files}, max_rows=len(files), timeout=120.0)
+    lots = sum(place_document(doc, dry_run)[0] for doc in docs)
+    # Lots whose village changed — the only change parcels depend on.
+    moved = 0 if dry_run else sum(
+        1 for k, v in villages().items() if before.get(k) != v)
+    log.info("village verdicts: %d notice(s), %d lot(s) re-linked, %d moved",
+             len(docs), lots, moved)
+    return {"notices": len(docs), "lots": lots, "moved": moved}
 
 
 def platform_name_of(url: str | None) -> str | None:

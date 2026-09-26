@@ -117,6 +117,28 @@
                     font: inherit; font-size: 12px; color: var(--muted);
                     text-decoration: underline; }
   .pc-row.pc-noting .pc-note-toggle { color: var(--ink); }
+  /* Village queue: one spelling in one taluk per row, the notice's own words
+     under it, the taluk's closest official names as one-click answers. */
+  .vq-bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 6px 0 8px; }
+  .vq-bar select, .vq-bar input { padding: 5px 8px; border: 1.5px solid var(--ink);
+                                  background: var(--card); font: inherit; font-size: 13px; }
+  .vq-bar input { min-width: 180px; }
+  .vq-row { padding: 9px 0; border-top: 1px solid #eceae2; font-size: 13px; }
+  .vq-head { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+  .vq-head b { font-size: 14px; }
+  .vq-snip { margin: 6px 0; padding: 6px 9px; background: var(--card-2);
+             border-left: 3px solid var(--muted); font-size: 12.5px; line-height: 1.45;
+             overflow-wrap: anywhere; }
+  .vq-snip mark { background: var(--accent); padding: 0 2px; }
+  .vq-btns { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+  .vq-btns button { min-height: 30px; padding: 4px 10px; font-size: 13px; }
+  .vq-btns button.vq-pick { background: #fffbe6; }
+  .vq-btns small { color: var(--muted); }
+  .vq-other { display: none; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
+  .vq-row.vq-searching .vq-other { display: flex; }
+  .vq-other input { padding: 5px 8px; border: 1.5px solid var(--ink); min-width: 220px; font: inherit; }
+  .vq-done { padding: 7px 0; border-top: 1px solid #eceae2; font-size: 13px; color: var(--good); }
+  .vq-pager { display: flex; gap: 8px; align-items: center; justify-content: flex-end; margin-top: 8px; }
   .lot-row:first-child { border-top: none; }
   .lot-row-head { display: flex; gap: 10px; align-items: baseline; }
   .lot-row-body { padding: 10px 0 4px; }
@@ -681,6 +703,9 @@
   html.rv-dark .notice-card .ntable th, html.rv-dark .notice-card .ntable td,
   html.rv-dark .mdcard-actions { border-color: rgba(255,255,255,0.12); }
   html.rv-dark .pc-row { border-top-color: #34343c; }
+  html.rv-dark .vq-row, html.rv-dark .vq-done { border-top-color: #34343c; }
+  html.rv-dark .vq-btns button.vq-pick { background: var(--card-2); }
+  html.rv-dark .vq-snip mark { color: #1a1a1a; }
   html.rv-dark .ov-line { border-bottom-color: #34343c; }
   html.rv-dark .ov-track, html.rv-dark .ink-meter-bar,
   html.rv-dark .tbled-grid td.tbled-handle-cell { background: #2e2e36; }
@@ -1976,6 +2001,256 @@
     });
   }
 
+  // ── Village queue ─────────────────────────────────────────────────────────
+  // One row per spelling in one taluk. A verdict is stored under that
+  // spelling and taluk, so one click settles every listing and lot carrying
+  // it; "Apply my decisions" then places them. Paged, because the backlog is
+  // hundreds of rows and each carries evidence.
+  const vqState = { loaded: false, offset: 0, limit: 25, district: '',
+                    search: '', open: 0, rows: [], options: {} };
+
+  function vqMark(text, spellings) {
+    // Escape first, then highlight: the notice text is data, never markup.
+    // Longest spelling first so "Palani Town" wins over "Palani".
+    const parts = spellings.map(s => escapeHtml(s))
+      .filter(Boolean)
+      .sort((a, b) => b.length - a.length)
+      .map(s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    const html = escapeHtml(text || '');
+    return parts.length
+      ? html.replace(new RegExp(parts.join('|'), 'gi'), m => `<mark>${m}</mark>`)
+      : html;
+  }
+
+  function vqPlural(n, word) { return `${n} ${word}${n === 1 ? '' : 's'}`; }
+
+  // Register names carry stray spacing ("Madipakam   - 1"); shown tidy, sent exact.
+  function vqName(s) { return String(s || '').replace(/\s+/g, ' ').trim(); }
+
+  // The "Other village…" list: the taluk's own villages by name, the rest of
+  // the district as "name — taluk", so one box covers both.
+  function vqOptionLabel(o, taluk) {
+    return o.taluk === taluk ? vqName(o.name) : `${vqName(o.name)} — ${o.taluk}`;
+  }
+
+  function vqAliasPayload(v, name, taluk) {
+    const p = { raw: v.village, taluk: v.taluk, target: name };
+    if (taluk && taluk !== v.taluk) p.target_taluk = taluk;
+    return p;
+  }
+
+  function vqRow(v, i) {
+    const counts = [v.listings ? vqPlural(v.listings, 'listing') : '',
+                    v.lots ? vqPlural(v.lots, 'lot') : '',
+                    vqPlural(v.notices, 'notice')].filter(Boolean).join(' · ');
+    const also = v.spellings.length > 1
+      ? ' · also written ' + v.spellings.slice(1).map(s => `<i>${escapeHtml(s)}</i>`).join(', ')
+      : '';
+    const ex = v.examples.find(e => e.filename === v.snippet_file) || v.examples[0];
+    const link = ex && ex.public_url
+      ? ` · <a href="${escapeHtml(ex.public_url)}" target="_blank" rel="noopener">open notice ↗</a>`
+      : '';
+    const snip = v.snippet
+      ? `<div class="vq-snip">${vqMark(v.snippet, v.spellings)}</div>`
+      : `<div class="vq-snip" style="color:var(--muted)">this spelling isn't in the
+           notice text as written — open the notice to read it</div>`;
+    // A candidate from another taluk of the district is flagged: notices
+    // still name the taluk before the 2019 splits, but a look-alike village
+    // next door is also possible, so it deserves a second look.
+    const picks = v.candidates.map(c => {
+      const away = c.taluk && c.taluk !== v.taluk;
+      return `<button type="button" class="ghost vq-pick" data-i="${i}"
+        data-target="${escapeHtml(c.name)}" data-taluk="${escapeHtml(c.taluk || v.taluk)}"
+        title="${c.how === 'sound' ? 'sounds alike' : 'spelled alike'}${
+          away ? ' — in another taluk: check the notice' : ''}">→ ${
+        escapeHtml(vqName(c.name))}${c.name_ta ? ' <small>' + escapeHtml(c.name_ta) + '</small>' : ''}${
+        away ? ' <span class="pill warn">in ' + escapeHtml(c.taluk) + '</span>' : ''}
+        <small>${Math.round(c.score)}${c.how === 'sound' ? ' · sound' : ''}</small></button>`;
+    }).join('');
+    return `<div class="vq-row" data-i="${i}">
+      <div class="vq-head"><span><b>${escapeHtml(v.village)}</b> in ${escapeHtml(v.taluk)}${
+        v.district ? ', ' + escapeHtml(v.district) : ''}</span>
+        <small style="color:var(--muted)">${counts}${also}${link}</small></div>
+      ${snip}
+      <div class="vq-btns">${picks || '<small>no close official name in this taluk</small>'}
+        <button type="button" class="ghost vq-other-btn" data-i="${i}">Other village…</button>
+        <button type="button" class="ghost vq-skipv" data-i="${i}"
+          title="a town area, street or layout — not a revenue village">Not a village</button>
+        <button type="button" class="ghost vq-later" data-i="${i}">Skip for now</button></div>
+      <div class="vq-other"><input class="vq-other-in" list="vq-opts-${i}"
+          placeholder="type to search ${escapeHtml(v.district || v.taluk)}'s villages"><datalist id="vq-opts-${i}"></datalist>
+        <button type="button" class="ghost vq-other-use" data-i="${i}">Use this</button></div>
+    </div>`;
+  }
+
+  function vqSetCount(n) {
+    vqState.open = n;
+    const c = $('vq-count');
+    if (c) c.textContent = n;
+    const b = $('vq-open');
+    if (b) b.textContent = n;
+  }
+
+  async function vqPost(path, kind, payload) {
+    const r = await authFetch(API + '/review/resolution/' + path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kind, payload, verdict: 'approved' }),
+    });
+    if (!r.ok) {
+      const detail = await r.json().catch(() => ({}));
+      alert('not saved: ' + (detail.detail || r.status));
+    }
+    return r.ok;
+  }
+
+  async function vqDecide(i, kind, payload, label) {
+    const v = vqState.rows[i];
+    const row = document.querySelector(`#vq-rows .vq-row[data-i="${i}"]`);
+    if (!v || !row) return;
+    row.querySelectorAll('button').forEach(b => { b.disabled = true; });
+    if (!await vqPost('decide', kind, payload)) {
+      row.querySelectorAll('button').forEach(b => { b.disabled = false; });
+      return;
+    }
+    vqSetCount(vqState.open - 1);
+    row.outerHTML = `<div class="vq-done" data-i="${i}">✓ saved — <b>${
+      escapeHtml(v.village)}</b> ${label}
+      <button type="button" class="ghost vq-undo" data-i="${i}"
+        data-kind="${kind}" data-payload='${escapeHtml(JSON.stringify(payload))}'>Undo</button></div>`;
+  }
+
+  async function vqOptions(taluk) {
+    if (!vqState.options[taluk]) {
+      const r = await authFetch(API + '/review/resolution/villages/options?taluk='
+                                + encodeURIComponent(taluk));
+      vqState.options[taluk] = r.ok ? await r.json() : [];
+    }
+    return vqState.options[taluk];
+  }
+
+  function vqReload(resetOffset) {
+    if (resetOffset) vqState.offset = 0;
+    loadVillageQueue();
+  }
+
+  async function vqClick(e) {
+    const b = e.target.closest('button');
+    if (!b || b.disabled) return;
+    const i = Number(b.dataset.i);
+    const v = vqState.rows[i];
+    if (!v) return;
+    const row = b.closest('.vq-row');
+    if (b.classList.contains('vq-pick')) {
+      const where = b.dataset.taluk;
+      vqDecide(i, 'village-alias', vqAliasPayload(v, b.dataset.target, where),
+               '→ ' + escapeHtml(vqName(b.dataset.target))
+               + (where !== v.taluk ? ' in ' + escapeHtml(where) : ''));
+    } else if (b.classList.contains('vq-skipv')) {
+      vqDecide(i, 'village-skip', { raw: v.village }, 'is not a village');
+    } else if (b.classList.contains('vq-later')) {
+      row.remove();
+    } else if (b.classList.contains('vq-other-btn')) {
+      row.classList.toggle('vq-searching');
+      if (!row.classList.contains('vq-searching')) return;
+      const opts = await vqOptions(v.taluk);
+      row.querySelector('datalist').innerHTML = opts.map(o =>
+        `<option value="${escapeHtml(vqOptionLabel(o, v.taluk))}">${
+          escapeHtml(o.name_ta || '')}</option>`).join('');
+      row.querySelector('.vq-other-in').focus();
+    } else if (b.classList.contains('vq-other-use')) {
+      const typed = vqName(row.querySelector('.vq-other-in').value).toLowerCase();
+      const hit = (await vqOptions(v.taluk)).find(o =>
+        vqOptionLabel(o, v.taluk).toLowerCase() === typed);
+      if (!hit) {
+        alert(`pick a name from the list — it has to be an official village of ${
+          v.district || v.taluk}`);
+        return;
+      }
+      vqDecide(i, 'village-alias', vqAliasPayload(v, hit.name, hit.taluk),
+               '→ ' + escapeHtml(vqOptionLabel(hit, v.taluk)));
+    } else if (b.classList.contains('vq-undo')) {
+      b.disabled = true;
+      if (!await vqPost('undo', b.dataset.kind, JSON.parse(b.dataset.payload))) {
+        b.disabled = false;
+        return;
+      }
+      vqSetCount(vqState.open + 1);
+      b.closest('.vq-done').outerHTML = vqRow(v, i);
+    }
+  }
+
+  async function loadVillageQueue() {
+    const body = $('vq-body');
+    if (!body) return;
+    vqState.loaded = true;
+    body.innerHTML = '<p class="meta" style="color:var(--muted)">loading…</p>';
+    const p = new URLSearchParams({ offset: vqState.offset, limit: vqState.limit });
+    if (vqState.district) p.set('district', vqState.district);
+    if (vqState.search) p.set('search', vqState.search);
+    const r = await authFetch(API + '/review/resolution/villages?' + p);
+    if (!r.ok) {
+      body.innerHTML = `<p class="meta">error ${r.status}</p>`;
+      vqState.loaded = false;
+      return;
+    }
+    const d = await r.json();
+    vqState.rows = d.rows;
+    vqSetCount(d.open);
+    const opts = ['<option value="">all districts</option>'].concat(d.districts.map(x =>
+      `<option value="${escapeHtml(x.name)}"${x.name === vqState.district ? ' selected' : ''}>${
+        escapeHtml(x.name)} (${x.open})</option>`)).join('');
+    const from = d.rows.length ? d.offset + 1 : 0;
+    const to = d.offset + d.rows.length;
+    body.innerHTML = `<p class="meta" style="color:var(--muted)">each row is one way
+        notices spelled a village, inside one taluk. Pick the official village it
+        means, or say it is not a village (a town area, street or layout). One
+        click fixes every listing and lot with that spelling. Choices save at
+        once; press <b>Apply my decisions</b> above to place them.</p>
+      <div class="vq-bar"><span><b id="vq-open">${d.open}</b> spellings open ·
+          ${vqPlural(d.listings, 'listing')} · ${vqPlural(d.lots, 'lot')}</span>
+        <select id="vq-district" aria-label="district">${opts}</select>
+        <input id="vq-search" type="search" placeholder="find a spelling"
+          aria-label="find a spelling" value="${escapeHtml(vqState.search)}"></div>
+      <div id="vq-rows">${d.rows.map(vqRow).join('')
+        || '<p class="meta">nothing open here — every spelling in this view is settled</p>'}</div>
+      <div class="vq-pager"><small style="color:var(--muted)">${from}–${to} of ${d.matching}</small>
+        <button type="button" class="ghost" id="vq-prev" ${d.offset ? '' : 'disabled'}>← Previous</button>
+        <button type="button" class="ghost" id="vq-next" ${to < d.matching ? '' : 'disabled'}>Next →</button></div>`;
+    $('vq-rows').addEventListener('click', vqClick);
+    $('vq-district').addEventListener('change', e => {
+      vqState.district = e.target.value;
+      vqReload(true);
+    });
+    let t = null;
+    $('vq-search').addEventListener('input', e => {
+      clearTimeout(t);
+      t = setTimeout(() => {
+        vqState.search = e.target.value.trim();
+        vqState.focusSearch = true;
+        vqReload(true);
+      }, 450);
+    });
+    // The whole body re-renders on a search; put the typist back where they were.
+    if (vqState.focusSearch) {
+      vqState.focusSearch = false;
+      const box = $('vq-search');
+      box.focus();
+      box.setSelectionRange(box.value.length, box.value.length);
+    }
+    $('vq-prev').addEventListener('click', () => {
+      vqState.offset = Math.max(0, vqState.offset - vqState.limit);
+      vqReload(false);
+    });
+    // Decided rows have already left the open set, so the next page starts
+    // that many rows earlier than the old offset + limit.
+    $('vq-next').addEventListener('click', () => {
+      const decided = document.querySelectorAll('#vq-rows .vq-done').length;
+      vqState.offset = Math.max(0, vqState.offset + vqState.limit - decided);
+      vqReload(false);
+    });
+  }
+
   async function loadResolutionQueues() {
     const host = $('stg-queues');
     host.innerHTML = '<div class="ov-panel">loading queues…</div>';
@@ -2048,23 +2323,14 @@
         )).join('')));
     }
 
-    if (d.unmatched_villages.length) {
-      blocks.push(rrPanel(`Villages the gazetteer couldn't place`, `
-        <p class="meta" style="color:var(--muted)">pick the official name it
-        stands for, or rule it out — an urban locality is not a revenue
-        village, and saying so is also an answer</p>` +
-        d.unmatched_villages.map(v => rrRow(
-          `<b>${escapeHtml(v.village)}</b> in ${escapeHtml(v.taluk)}${
-             v.district ? ', ' + escapeHtml(v.district) : ''}
-           <small style="color:var(--muted)"> · ${v.count} propert${
-             v.count === 1 ? 'y' : 'ies'}</small>`,
-          v.candidates.map(cd =>
-            rrBtn(`→ ${cd.name} (${cd.score})`, { kind: 'village-alias',
-                payload: { raw: v.village, taluk: v.taluk, target: cd.name },
-                verdict: 'approved' })).join('') +
-          rrBtn('Not a village', { kind: 'village-skip',
-              payload: { raw: v.village }, verdict: 'approved' })
-        )).join('')));
+    if (d.unmatched_villages) {
+      // Its own paged queue (hundreds of rows, each with evidence), loaded
+      // the first time the section is opened rather than with the page.
+      blocks.push(`<details class="ov-panel rr-sec" id="vq-sec">
+        <summary class="ov-head rr-sum">Villages the register couldn't place<span
+          class="rr-count" id="vq-count">${d.unmatched_villages}</span></summary>
+        <div id="vq-body"><p class="meta" style="color:var(--muted)">loading…</p></div>
+      </details>`);
     }
 
     if (d.lot_matches.length) {
@@ -2106,6 +2372,11 @@
       blocks.push('<div class="ov-panel">nothing waiting — every question is settled</div>');
     }
     host.innerHTML = blocks.join('');
+    const vqSec = host.querySelector('#vq-sec');
+    vqState.loaded = false;
+    if (vqSec) vqSec.addEventListener('toggle', () => {
+      if (vqSec.open && !vqState.loaded) loadVillageQueue();
+    });
     const secs = () => host.querySelectorAll('.rr-sec');
     const ex = host.querySelector('#rr-expand');
     const co = host.querySelector('#rr-collapse');
