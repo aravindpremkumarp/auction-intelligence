@@ -67,6 +67,10 @@ RULE_READ_MISSED = "read_missed"      # the text states it; the reads missed it
 RULE_LOST_FROM_TEXT = "lost_from_text"  # the text does not; OCR likely lost it
 #: What scripts/resolve_unfound leaves once image and re-read are exhausted.
 RULE_NEEDS_PERSON = "needs_person"
+#: A possession value read off the conditional Canara boilerplate (or the
+#: unchosen "Symbolic / Constructive / Physical" menu) in a notice that states
+#: no type anywhere — scripts/clear_boilerplate_possession.
+RULE_BOILERPLATE_ONLY = "boilerplate_only"
 
 #: Words without which a lot's text cannot state a must-have fact. Found →
 #: the text has it and the reads missed it; not found → the text lost it.
