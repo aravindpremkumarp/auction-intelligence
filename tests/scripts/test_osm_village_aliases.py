@@ -89,3 +89,28 @@ def test_the_resolver_marks_urban_without_placing_and_leaves_other_statuses():
     assert out["village_source"] == "osm-urban"
     done = {**res, "village_status": "resolved", "village": "Enchambakkam"}
     assert apply_osm_alias(gaz, done, "Semmancheri", osm) is done
+
+
+def test_the_tamil_fold_drops_the_register_code_brackets_and_sandhi():
+    from scripts.harvest_osm_village_aliases import fold_ta
+    assert fold_ta("071  புஞ்சை புளியம்பட்டி") == fold_ta("புஞ்சைப் புளியம்பட்டி")
+    assert fold_ta("ஆத்தூர் (சேலம்)") == fold_ta("ஆத்தூர்")
+    # different names stay different
+    assert fold_ta("வீரபாண்டி") != fold_ta("வீரபாண்டிபுதூர்")
+
+
+def test_a_numbered_sub_village_is_never_aliased_onto_the_plain_name():
+    reg = [{"name": "Elavur", "name_ta": "எளாவூர்"}]
+    item = {"village": "Elavur II", "taluk": "Gummidipoondi"}
+    hit = _hit("Elavur", "எளாவூர்", county="Gummidipoondi")
+    assert judge(item, [hit], reg) is None
+    # the same village with no number is fine
+    item2 = {"village": "Elavoor", "taluk": "Gummidipoondi"}
+    assert judge(item2, [hit], reg)["target"] == "Elavur"
+
+
+def test_a_place_the_register_holds_under_another_name_is_never_urban():
+    item = {"village": "Mahabalipuram", "taluk": "Tirukalukundram"}
+    reg = [{"name": "Mamallapuram", "name_ta": "மாமல்லபுரம்"}]
+    hit = _hit("Mahabalipuram", "மகாபலிபுரம்", county="Tirukalukundram", kind="town")
+    assert judge(item, [hit], reg) is None

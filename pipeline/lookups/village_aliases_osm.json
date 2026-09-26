@@ -1,0 +1,303 @@
+{
+ "village-alias:amapet@salem": {
+  "target": null,
+  "rule": "osm-urban",
+  "osm": "node/358783880",
+  "osm_name": "Ammapet",
+  "osm_name_ta": "அம்மாபேட்டை",
+  "osm_type": "suburb",
+  "raw": "Ammapet",
+  "taluk": "Salem",
+  "listings": 1
+ },
+ "village-alias:anaiyur2@madurainort": {
+  "target": null,
+  "rule": "osm-urban",
+  "osm": "node/13784338440",
+  "osm_name": "Anaiyur",
+  "osm_name_ta": "ஆனையூர்",
+  "osm_type": "suburb",
+  "raw": "Anaiyur II",
+  "taluk": "Madurai North",
+  "listings": 1
+ },
+ "village-alias:anatanapati@salemsout": {
+  "target": null,
+  "rule": "osm-urban",
+  "osm": "node/11393640309",
+  "osm_name": "Annathanapatti",
+  "osm_name_ta": null,
+  "osm_type": "suburb",
+  "raw": "Annathanapatti",
+  "taluk": "Salem South",
+  "listings": 1
+ },
+ "village-alias:aturtown@atur": {
+  "target": null,
+  "rule": "osm-urban",
+  "osm": "way/84737501",
+  "osm_name": "Attur",
+  "osm_name_ta": "ஆத்தூர் (சேலம்)",
+  "osm_type": "town",
+  "raw": "Attur Town",
+  "taluk": "Attur",
+  "listings": 1
+ },
+ "village-alias:ayapakam@ambatur": {
+  "target": null,
+  "rule": "osm-urban",
+  "osm": "node/402506416",
+  "osm_name": "Ayapakkam",
+  "osm_name_ta": "அயப்பாக்கம்",
+  "osm_type": "suburb",
+  "raw": "Ayapakkam",
+  "taluk": "Ambattur",
+  "listings": 4
+ },
+ "village-alias:kanapati@coimbatorenort": {
+  "target": null,
+  "rule": "osm-urban",
+  "osm": "node/802528038",
+  "osm_name": "Ganapathy",
+  "osm_name_ta": "கணபதி",
+  "osm_type": "suburb",
+  "raw": "Ganapathy",
+  "taluk": "Coimbatore North",
+  "listings": 4
+ },
+ "village-alias:kilkatalai@palavaram": {
+  "target": null,
+  "rule": "osm-urban",
+  "osm": "node/310360632",
+  "osm_name": "Keelkattalai",
+  "osm_name_ta": "கீழ்க்கட்டள்ளை",
+  "osm_type": "suburb",
+  "raw": "Keelkattalai",
+  "taluk": "Pallavaram",
+  "listings": 2
+ },
+ "village-alias:kotanalur@kalkulam": {
+  "target": "Kothanalloor",
+  "rule": "osm-tamil",
+  "osm": "node/13613777117",
+  "osm_name": "Kothanallur",
+  "osm_name_ta": "கோதநல்லூர்",
+  "raw": "Kothanallur",
+  "taluk": "Kalkulam",
+  "listings": 7
+ },
+ "village-alias:kovilambakam@sholinkanalur": {
+  "target": null,
+  "rule": "osm-urban",
+  "osm": "node/14041638035",
+  "osm_name": "Kovilambakkam",
+  "osm_name_ta": "கோவிலம்பாக்கம்",
+  "osm_type": "suburb",
+  "raw": "Kovilambakkam",
+  "taluk": "Sholinganallur",
+  "listings": 2
+ },
+ "village-alias:ksambakulam@vadipati": {
+  "target": "Sambakkulam",
+  "rule": "osm-english",
+  "osm": "node/5167007183",
+  "osm_name": "Sambakulam",
+  "osm_name_ta": null,
+  "raw": "K.Sambakulam",
+  "taluk": "Vadipatti",
+  "listings": 1
+ },
+ "village-alias:mankadu@palavaram": {
+  "target": null,
+  "rule": "osm-urban",
+  "osm": "node/294073692",
+  "osm_name": "Mangadu",
+  "osm_name_ta": "மாங்காடு",
+  "osm_type": "suburb",
+  "raw": "Mangadu",
+  "taluk": "Pallavaram",
+  "listings": 2
+ },
+ "village-alias:melvisharam@walajah": {
+  "target": null,
+  "rule": "osm-urban",
+  "osm": "node/10831353714",
+  "osm_name": "Melvisharam",
+  "osm_name_ta": "மேல்விஷாரம்",
+  "osm_type": "town",
+  "raw": "Melvisharam",
+  "taluk": "Walajah",
+  "listings": 7
+ },
+ "village-alias:naravarikupam@madhavaram": {
+  "target": null,
+  "rule": "osm-urban",
+  "osm": "node/344731820",
+  "osm_name": "Red Hills",
+  "osm_name_ta": "செங்குன்றம்",
+  "osm_type": "town",
+  "raw": "Naravarikuppam",
+  "taluk": "Madhavaram",
+  "listings": 1
+ },
+ "village-alias:nedunkundram@chenkalpatu": {
+  "target": null,
+  "rule": "osm-urban",
+  "osm": "node/313281569",
+  "osm_name": "Nedungundram",
+  "osm_name_ta": "நெடுங்குன்றம்",
+  "osm_type": "suburb",
+  "raw": "Nedungundram",
+  "taluk": "Chengalpattu",
+  "listings": 2
+ },
+ "village-alias:nombal@ambatur": {
+  "target": null,
+  "rule": "osm-urban",
+  "osm": "node/14052117841",
+  "osm_name": "Noombal",
+  "osm_name_ta": "நூம்பல்",
+  "osm_type": "suburb",
+  "raw": "NOOMBAL",
+  "taluk": "Ambattur",
+  "listings": 1
+ },
+ "village-alias:polurtown@polur": {
+  "target": "Polur",
+  "rule": "osm-tamil",
+  "osm": "node/1888420645",
+  "osm_name": "Polur",
+  "osm_name_ta": "போளூர்",
+  "raw": "Polur Town",
+  "taluk": "Polur",
+  "listings": 1
+ },
+ "village-alias:pozhichalur@alandur": {
+  "target": null,
+  "rule": "osm-urban",
+  "osm": "node/1780106324",
+  "osm_name": "Pozhichalur",
+  "osm_name_ta": "பொழிச்சலூர்",
+  "osm_type": "suburb",
+  "raw": "Pozhichalur",
+  "taluk": "Alandur",
+  "listings": 2
+ },
+ "village-alias:puliampati@satyamankalam": {
+  "target": "Punjai Puliampatti",
+  "rule": "osm-tamil",
+  "osm": "node/11277486070",
+  "osm_name": "Punjai Puliampatti",
+  "osm_name_ta": "புஞ்சைப் புளியம்பட்டி",
+  "raw": "Puliampatti",
+  "taluk": "Sathyamangalam",
+  "listings": 3
+ },
+ "village-alias:ramanatapuramtown@ramanatapuram": {
+  "target": null,
+  "rule": "osm-urban",
+  "osm": "way/90779286",
+  "osm_name": "Ramanathapuram",
+  "osm_name_ta": "இராமநாதபுரம்",
+  "osm_type": "town",
+  "raw": "Ramanathapuram Town",
+  "taluk": "Ramanathapuram",
+  "listings": 2
+ },
+ "village-alias:rasipuramtown@rasipuram": {
+  "target": "Rasipuram",
+  "rule": "osm-tamil",
+  "osm": "way/84652843",
+  "osm_name": "Rasipuram",
+  "osm_name_ta": "இராசிபுரம்",
+  "raw": "Rasipuram Town",
+  "taluk": "Rasipuram",
+  "listings": 3
+ },
+ "village-alias:sekadu@ponamali": {
+  "target": null,
+  "rule": "osm-urban",
+  "osm": "node/5227554919",
+  "osm_name": "Sekkadu",
+  "osm_name_ta": null,
+  "osm_type": "suburb",
+  "raw": "Sekkadu",
+  "taluk": "Poonamallee",
+  "listings": 4
+ },
+ "village-alias:sitalapakam@sholinkanalur": {
+  "target": null,
+  "rule": "osm-urban",
+  "osm": "node/256197956",
+  "osm_name": "Sithalapakkam",
+  "osm_name_ta": "சித்தாலப்பாக்கம்",
+  "osm_type": "suburb",
+  "raw": "Sithalapakkam",
+  "taluk": "Sholinganallur",
+  "listings": 5
+ },
+ "village-alias:srinivasapuram@alandur": {
+  "target": null,
+  "rule": "osm-urban",
+  "osm": "node/294073676",
+  "osm_name": "Srinivasapuram",
+  "osm_name_ta": "சீனிவாசபுரம்",
+  "osm_type": "neighbourhood",
+  "raw": "Srinivasapuram",
+  "taluk": "Alandur",
+  "listings": 2
+ },
+ "village-alias:suleswaranpati@polachi": {
+  "target": "Sooleeswaranpatty",
+  "rule": "osm-tamil",
+  "osm": "node/13611074628",
+  "osm_name": "Suleswaranpatti",
+  "osm_name_ta": "சூளேஸ்வரன்பட்டி",
+  "raw": "Suleswaranpatti",
+  "taluk": "Pollachi",
+  "listings": 2
+ },
+ "village-alias:tirumulaivoyal@ambatur": {
+  "target": null,
+  "rule": "osm-urban",
+  "osm": "node/402708197",
+  "osm_name": "Thirumullaivoyal",
+  "osm_name_ta": "திருமுல்லைவாயல்",
+  "osm_type": "suburb",
+  "raw": "Thirumullaivoyal",
+  "taluk": "Ambattur",
+  "listings": 6
+ },
+ "village-alias:udumalpet@udumalaipetai": {
+  "target": "Udumalaipettai",
+  "rule": "osm-tamil",
+  "osm": "node/245586959",
+  "osm_name": "Udumalapettai",
+  "osm_name_ta": "உடுமலைப்பேட்டை",
+  "raw": "Udumalpet",
+  "taluk": "Udumalaipettai",
+  "listings": 2
+ },
+ "village-alias:vanakaram@ambatur": {
+  "target": null,
+  "rule": "osm-urban",
+  "osm": "node/978454542",
+  "osm_name": "Vanagaram",
+  "osm_name_ta": "வானகரம்",
+  "osm_type": "suburb",
+  "raw": "Vanagaram",
+  "taluk": "Ambattur",
+  "listings": 1
+ },
+ "village-alias:varadarajapuram@tambaram": {
+  "target": null,
+  "rule": "osm-urban",
+  "osm": "node/306118071",
+  "osm_name": "Varadarajapuram",
+  "osm_name_ta": "வரதராஜபுரம்",
+  "osm_type": "suburb",
+  "raw": "Varadarajapuram",
+  "taluk": "Tambaram",
+  "listings": 1
+ }
+}

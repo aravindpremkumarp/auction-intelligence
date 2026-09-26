@@ -86,12 +86,39 @@ URBAN = {"suburb", "neighbourhood", "quarter", "town", "city_district", "city",
 #: A register village this close to the notice's spelling means the name may
 #: yet be a village, so it is never declared urban.
 URBAN_NEAR_REGISTER = 85
+#: Names the register holds under a different name altogether, which neither
+#: spelling nor the Tamil script can connect — so they are never declared
+#: urban. Mahabalipuram is the register's Mamallapuram (Tirukalukundram).
+NEVER_URBAN = {"mahabalipuram"}
 
 
 def fold_ta(s: str | None) -> str:
-    """A Tamil name compared as written: NFC, no spacing or joiners."""
+    """A Tamil name compared as written: NFC, no spacing or joiners.
+
+    Also without the register's own village code — 1,897 of its Tamil names
+    carry one ("071  புஞ்சை புளியம்பட்டி") — and without a bracketed
+    disambiguator OSM adds ("ஆத்தூர் (சேலம்)"), neither of which is the name."""
     s = unicodedata.normalize("NFC", s or "")
+    s = re.sub(r"^\s*\d+\s*", "", s)
+    s = re.sub(r"\([^)]*\)", "", s)
+    # Sandhi: Tamil doubles a hard consonant where two words join — OSM writes
+    # "புஞ்சைப் புளியம்பட்டி", the register "புஞ்சை புளியம்பட்டி". The same
+    # name either way, so the joining consonant is dropped before comparing.
+    s = re.sub(r"([கசடதபற])்\s+(?=\1)", "", s)
     return re.sub(r"[\s​-‍﻿.-]+", "", s)
+
+
+_ROMAN = re.compile(r"(?<![a-z])(i{1,3}|iv|v|vi{1,3}|ix|x)(?![a-z])")
+
+
+def sub_number(name: str) -> tuple[str, ...]:
+    """The numbers a name carries, arabic or roman ("Elavur II", "Vichoor-2").
+
+    Numbered sub-villages are distinct places — the resolver's own fuzzy guard
+    refuses a match whose digits differ (pipeline/place_resolution._digits) —
+    so an alias may not map "Elavur II" onto plain "Elavur"."""
+    low = (name or "").lower()
+    return tuple(sorted(re.findall(r"\d+", low) + _ROMAN.findall(low)))
 
 
 def is_tamil(s: str | None) -> bool:
@@ -197,6 +224,8 @@ def judge(item: dict, results: list[dict], register: list[dict]) -> dict | None:
                         break
         if target and twins and target not in twins:
             target = None                 # the one close register name is another village
+        if target and sub_number(item["village"]) != sub_number(target):
+            target = None                 # "Elavur II" is not "Elavur"
         if target:
             prev = found.get(target)
             if not prev or (prev["rule"] == "osm-english" and rule == "osm-tamil"):
@@ -223,8 +252,15 @@ def _urban(item: dict, results: list[dict], register: list[dict]) -> dict | None
     if not here or any(x.get("addresstype") not in URBAN for x in here):
         return None
     key = normalize_place(item["village"])
+    if key in {normalize_place(n) for n in NEVER_URBAN}:
+        return None
     if any(fuzz.ratio(key, normalize_place(v["name"])) >= URBAN_NEAR_REGISTER
            for v in register):
+        return None
+    # Nor when OSM's Tamil name is a register village's — that is the village,
+    # and the English spellings merely failed to meet.
+    tas = {fold_ta((x.get("namedetails") or {}).get("name:ta")) for x in here} - {""}
+    if tas & {fold_ta(v.get("name_ta")) for v in register if v.get("name_ta")}:
         return None
     x = here[0]
     nd = x.get("namedetails") or {}
