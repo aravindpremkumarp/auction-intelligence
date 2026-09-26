@@ -70,6 +70,9 @@ from pipeline.place_resolution import Gazetteer, resolve_place
 from pipeline.property_taxonomy import (
     AGRICULTURAL, FLAT, LAND, PLOT, classify_property_type,
 )
+from pipeline.resolution_review import (
+    load_osm_aliases, settle_village, skipped_villages, village_aliases,
+)
 from pipeline.resolve_places import norm_place
 from pipeline.validators import normalize_identifier_kind
 
@@ -237,6 +240,38 @@ def gazetteer() -> Gazetteer:
     return _GAZ
 
 
+# ── decided village spellings ────────────────────────────────────────────────
+# The human alias / skip verdicts and the OpenStreetMap-confirmed spellings the
+# listing resolver (scripts/resolve_places) applies. Without them here a lot
+# stayed unmatched on a spelling its own listing was placed by. Read once per
+# process, like the gazetteer.
+_SPELLINGS: tuple[dict[str, str], set[str], dict[str, dict]] | None = None
+_SPELLINGS_LOCK = threading.Lock()
+
+
+def decided_spellings() -> tuple[dict[str, str], set[str], dict[str, dict]]:
+    """``(aliases, skips, osm)`` for :func:`settle_village`."""
+    global _SPELLINGS
+    with _SPELLINGS_LOCK:
+        if _SPELLINGS is None:
+            decisions = []
+            for r in run_read_query(
+                    "MATCH (r:ResolutionDecision) "
+                    "WHERE r.kind IN ['village-alias', 'village-skip'] "
+                    "RETURN r.key AS key, r.kind AS kind, r.verdict AS verdict, "
+                    "       r.payload_json AS payload_json",
+                    max_rows=50_000):
+                try:
+                    payload = json.loads(r["payload_json"] or "{}")
+                except (TypeError, ValueError):
+                    payload = {}
+                decisions.append({"key": r["key"], "kind": r["kind"],
+                                  "verdict": r["verdict"], "payload": payload})
+            _SPELLINGS = (village_aliases(decisions), skipped_villages(decisions),
+                          load_osm_aliases())
+    return _SPELLINGS
+
+
 def lot_place(rec: dict) -> dict:
     """Resolve one lot's extracted village/taluk/district onto the gazetteer.
 
@@ -276,6 +311,16 @@ def lot_place(rec: dict) -> dict:
         if wider:
             village, taluk = wider
             status, source = "resolved", "district"
+
+    # Then the spellings a person or OpenStreetMap has already settled — the
+    # listing resolver's own step, so a lot and its listing agree.
+    aliases, skips, osm = decided_spellings()
+    settled = settle_village(
+        gaz, {"district": district, "taluk": taluk, "village": village,
+              "village_status": status, "village_source": source},
+        loc.get("village"), aliases=aliases, skips=skips, osm=osm)
+    village, status, source = (settled["village"], settled["village_status"],
+                               settled["village_source"])
 
     return {
         "lot_key": rec["lot_key"],

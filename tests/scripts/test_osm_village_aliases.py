@@ -1,13 +1,15 @@
 """scripts/harvest_osm_village_aliases (what OSM evidence counts) and the
-resolver hook that applies it (scripts/resolve_places.apply_osm_alias).
+step that applies it (pipeline/resolution_review.settle_village), which both
+place writers take: listings (scripts/resolve_places) and lots
+(pipeline/promote_extractions.lot_place).
 
 Result shapes are the Nominatim jsonv2 rows the pilot run returned."""
 from __future__ import annotations
 
-from pipeline.place_resolution import Gazetteer, resolve_place
-from pipeline.resolution_review import village_alias_key
+import pipeline.promote_extractions as P
+from pipeline.place_resolution import Gazetteer, normalize_place, resolve_place
+from pipeline.resolution_review import apply_osm_alias, settle_village, village_alias_key
 from scripts.harvest_osm_village_aliases import judge
-from scripts.resolve_places import apply_osm_alias
 
 
 def _hit(name, ta=None, county="Sholinganallur", kind="village", osm_id=1):
@@ -114,3 +116,43 @@ def test_a_place_the_register_holds_under_another_name_is_never_urban():
     reg = [{"name": "Mamallapuram", "name_ta": "மாமல்லபுரம்"}]
     hit = _hit("Mahabalipuram", "மகாபலிபுரம்", county="Tirukalukundram", kind="town")
     assert judge(item, [hit], reg) is None
+
+
+def test_a_human_verdict_outranks_openstreetmap():
+    gaz = Gazetteer(districts=["Chennai"], taluks=[("Sholinganallur", "Chennai")],
+                    villages=[("Enchambakkam", "Sholinganallur", "Chennai"),
+                              ("Kottivakkam", "Sholinganallur", "Chennai")])
+    res = resolve_place(gaz, district="Chennai", taluk="Sholinganallur",
+                        village="Injambakkam")
+    key = village_alias_key("Injambakkam", "Sholinganallur")
+    osm = {key: {"target": "Enchambakkam", "rule": "osm-tamil"}}
+    out = settle_village(gaz, res, "Injambakkam", aliases={key: "Kottivakkam"},
+                         skips=set(), osm=osm)
+    assert (out["village"], out["village_source"]) == ("Kottivakkam", "human-alias")
+    skipped = settle_village(gaz, res, "Injambakkam", aliases={},
+                             skips={normalize_place("Injambakkam")}, osm=osm)
+    assert (skipped["village"], skipped["village_status"]) == \
+        (None, "not-a-revenue-village")
+    # no verdict at all: OSM decides
+    assert settle_village(gaz, res, "Injambakkam", aliases={}, skips=set(),
+                          osm=osm)["village_source"] == "osm-tamil"
+
+
+def test_a_lot_takes_the_same_decided_spellings_as_its_listing(monkeypatch):
+    osm = {village_alias_key("Injambakkam", "Sholinganallur"):
+           {"target": "Enchambakkam", "rule": "osm-tamil"},
+           village_alias_key("Semmancheri", "Sholinganallur"):
+           {"target": None, "rule": "osm-urban"}}
+    monkeypatch.setattr(P, "gazetteer", _gaz)
+    monkeypatch.setattr(P, "decided_spellings", lambda: ({}, set(), osm))
+
+    def lot(village):
+        return P.lot_place({"lot_key": "n#1", "location": {
+            "district": "Chennai", "taluk": "Sholinganallur", "village": village}})
+
+    placed = lot("Injambakkam")
+    assert (placed["village"], placed["taluk"], placed["status"], placed["source"]) == \
+        ("Enchambakkam", "Sholinganallur", "resolved", "osm-tamil")
+    urban = lot("Semmancheri")
+    assert (urban["village"], urban["status"]) == (None, "not-a-revenue-village")
+    assert lot("Enchambakkam")["source"] == "taluk"      # a plain match is untouched

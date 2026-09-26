@@ -21,7 +21,8 @@ consult the stored facts before doing anything else:
 
 This module is pure — keys and application logic only, exercised by tests
 without a database. Reading and writing the nodes belongs to the scripts and
-the API.
+the API. (The one file it reads is the OSM spelling lookup, applied after
+every human verdict by :func:`settle_village`.)
 
 Decision kinds and their payloads::
 
@@ -40,9 +41,12 @@ Decision kinds and their payloads::
 """
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 from pipeline.entity_resolution import branch_key, canonical_label, org_key
 from pipeline.lot_resolution import lot_match_key
-from pipeline.place_resolution import normalize_place
+from pipeline.place_resolution import Gazetteer, normalize_place
 
 APPROVED = "approved"
 REJECTED = "rejected"
@@ -267,6 +271,69 @@ def skipped_villages(decisions: list[dict]) -> set[str]:
     return {normalize_place((d.get("payload") or {}).get("raw") or "")
             for d in _decided(decisions, "village-skip").values()
             if d.get("verdict") == APPROVED}
+
+
+#: Village spellings confirmed against OpenStreetMap by
+#: scripts/harvest_osm_village_aliases — a lookup file, not human decisions,
+#: so they carry their own source and never outrank a person's verdict.
+OSM_ALIASES = Path(__file__).resolve().parent / "lookups" / "village_aliases_osm.json"
+
+
+def load_osm_aliases(path: Path = OSM_ALIASES) -> dict[str, dict]:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {}
+
+
+def apply_osm_alias(gaz: Gazetteer, res: dict, village: str | None,
+                    osm: dict[str, dict]) -> dict:
+    """``res`` with an OSM-confirmed answer for a still-unmatched village.
+
+    Only ``unmatched`` is touched — every other status either resolved, was
+    settled by a person, or has no taluk to scope the lookup. An alias applies
+    only into a village the gazetteer really holds under that taluk (so a stale
+    entry cannot invent a place); an ``osm-urban`` entry places nothing and
+    only marks the name ``not-a-revenue-village``."""
+    if not (village and res.get("taluk") and not res.get("village")
+            and res.get("village_status") == "unmatched"):
+        return res
+    hit = osm.get(village_alias_key(village, res["taluk"]))
+    if not hit:
+        return res
+    if hit.get("rule") == "osm-urban":
+        return {**res, "village_status": "not-a-revenue-village",
+                "village_source": "osm-urban"}
+    official = gaz.village(hit.get("target") or "", res["taluk"], fuzzy=False)
+    if not official:
+        return res
+    return {**res, "village": official, "village_status": "resolved",
+            "village_source": hit["rule"]}
+
+
+def settle_village(gaz: Gazetteer, res: dict, village: str | None, *,
+                   aliases: dict[str, str], skips: set[str],
+                   osm: dict[str, dict]) -> dict:
+    """``res`` with every decided spelling applied, strongest first: a human
+    alias, a human skip, then a spelling OpenStreetMap confirms.
+
+    Shared by both place writers — listings (scripts/resolve_places) and lots
+    (pipeline/promote_extractions) — so one verdict settles a village the same
+    way on both ends of a listing-lot link. A human alias applies only into a
+    village the gazetteer holds under that taluk, so a typo in a decision
+    cannot invent a place."""
+    if village and not res.get("village"):
+        taluk = res.get("taluk")
+        target = aliases.get(village_alias_key(village, taluk)) if taluk else None
+        official = gaz.village(target, taluk, fuzzy=False) if target else None
+        if official:
+            return {**res, "village": official, "village_status": "resolved",
+                    "village_source": "human-alias"}
+        if normalize_place(village) in skips:
+            # Ruled "not a revenue village" (an urban locality) — true in
+            # every taluk, so it needs no parent to apply.
+            return {**res, "village_status": "not-a-revenue-village"}
+    return apply_osm_alias(gaz, res, village, osm)
 
 
 def settled_conflicts(decisions: list[dict]) -> set[str]:

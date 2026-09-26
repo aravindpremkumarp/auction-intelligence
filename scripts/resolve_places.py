@@ -50,13 +50,12 @@ import argparse
 import json
 import sys
 from collections import Counter, defaultdict
-from pathlib import Path
 
 from pipeline.place_lineage import classify, needs_review
-from pipeline.place_resolution import Gazetteer, normalize_place, resolve_place
+from pipeline.place_resolution import Gazetteer, resolve_place
 from pipeline.resolution_review import (
-    district_conflict_key, settled_conflicts, skipped_villages,
-    village_alias_key, village_aliases,
+    district_conflict_key, load_osm_aliases, settle_village, settled_conflicts,
+    skipped_villages, village_aliases,
 )
 from scripts.resolution_decisions import load_decisions
 from scripts.score_ink_coverage import nq
@@ -152,45 +151,6 @@ def district_second_chance(gaz: Gazetteer, res: dict, village: str | None) -> di
         return res
     return {**res, "village": wider[0], "taluk": wider[1],
             "village_status": "resolved", "village_source": "district"}
-
-
-#: Village spellings confirmed against OpenStreetMap by
-#: scripts/harvest_osm_village_aliases — a lookup file, not human decisions,
-#: so they carry their own source and never outrank a person's verdict.
-OSM_ALIASES = (Path(__file__).resolve().parents[1]
-               / "pipeline" / "lookups" / "village_aliases_osm.json")
-
-
-def load_osm_aliases(path=OSM_ALIASES) -> dict[str, dict]:
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        return {}
-
-
-def apply_osm_alias(gaz: Gazetteer, res: dict, village: str | None,
-                    osm: dict[str, dict]) -> dict:
-    """``res`` with an OSM-confirmed answer for a still-unmatched village.
-
-    Only ``unmatched`` is touched — every other status either resolved, was
-    settled by a person, or has no taluk to scope the lookup. An alias applies
-    only into a village the gazetteer really holds under that taluk (so a stale
-    entry cannot invent a place); an ``osm-urban`` entry places nothing and
-    only marks the name ``not-a-revenue-village``."""
-    if not (village and res.get("taluk") and not res.get("village")
-            and res.get("village_status") == "unmatched"):
-        return res
-    hit = osm.get(village_alias_key(village, res["taluk"]))
-    if not hit:
-        return res
-    if hit.get("rule") == "osm-urban":
-        return {**res, "village_status": "not-a-revenue-village",
-                "village_source": "osm-urban"}
-    official = gaz.village(hit.get("target") or "", res["taluk"], fuzzy=False)
-    if not official:
-        return res
-    return {**res, "village": official, "village_status": "resolved",
-            "village_source": hit["rule"]}
 
 
 def write_back(rows: list[dict]) -> None:
@@ -320,26 +280,14 @@ def run(*, dry_run: bool = False) -> dict:
         if res["village"] and not placed_before:
             stats["village placed across its district (no usable taluk)"] += 1
 
-        # A human alias outranks "unmatched" — but only into a village the
-        # gazetteer actually holds under that taluk, so a typo in a decision
-        # cannot invent a place.
-        if village and not res["village"]:
-            target = aliases.get(village_alias_key(village, res["taluk"])) \
-                if res["taluk"] else None
-            official = gaz.village(target, res["taluk"], fuzzy=False) \
-                if target else None
-            if official:
-                res["village"] = official
-                res["village_status"] = "resolved"
-                res["village_source"] = "human-alias"
-            elif normalize_place(village) in skips:
-                # Ruled "not a revenue village" (an urban locality) — true in
-                # every taluk, so it needs no parent to apply.
-                res["village_status"] = "not-a-revenue-village"
-        # After every human verdict: a spelling OpenStreetMap confirms.
+        # Decided spellings: a human alias outranks "unmatched", a human skip
+        # stops blaming an urban locality, then a spelling OpenStreetMap
+        # confirms — the same step lot_place takes for every :Lot.
         was = res["village_status"]
-        res = apply_osm_alias(gaz, res, village, osm_aliases)
-        if res["village_status"] != was:
+        res = settle_village(gaz, res, village, aliases=aliases, skips=skips,
+                             osm=osm_aliases)
+        if res["village_status"] != was \
+                and (res["village_source"] or "").startswith("osm-"):
             stats[f"settled by OSM ({res['village_source']})"] += 1
 
         # The portal is only ever a witness: its disagreement is recorded, and
