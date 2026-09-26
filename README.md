@@ -341,6 +341,16 @@ cost no extra clicks). That number then does two jobs:
 
 Notices without a confirmed count are never flagged: no count means no claim.
 
+**Gate 3 is machine-judged in the funnel.** The overview's pipeline funnel
+advances a notice past extraction when it is *clean* — every key cell filled
+or marked absent, no validator issue, extracted from the current markdown, lot
+count matching the reviewer's — not when someone clicks verify. The verify
+flag records that a reviewer read the notice and marks it for the eval gold
+set; gating the funnel on it reported every extracted notice as stuck (see
+`docs/SCHEMA.md`, Provenance). The "Extraction clean" stage page breaks the
+held-back notices down by check and by failure pill, each row opening the
+extraction queue filtered to that worklist.
+
 **Gate 3 is a checklist, not a read-through.** `pipeline/key_entities.py`
 turns each extraction into a lot × key table — seven cells per lot — and the
 extraction stage shows that table first. A filled cell jumps to its highlight;

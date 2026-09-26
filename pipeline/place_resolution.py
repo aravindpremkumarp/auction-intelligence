@@ -250,6 +250,61 @@ TALUK_ALIASES = {
     "virdhachalam":        "Vridhachalam",
     "walaja":              "Walajah",
     "walajaa":             "Walajah",
+    # Harvested 2026-09-26 by the rule at the top of this table, from the
+    # 407 listings whose taluk string resolved to nothing: a spelling is kept
+    # only when exactly one taluk in the listing's own resolved district scores
+    # 70+ against it, every listing carrying that spelling points at the same
+    # taluk, and at least one of them names a village the gazetteer holds in
+    # it. 51 spellings cleared that; the seven composites among them
+    # ("Mambalam - Guindy", "Fort - Tondiarpet", "Natham Pernambut" and their
+    # variants) name two taluks, so picking one half would be a guess —
+    # compound_taluk settles those to the district on purpose. 44 remain,
+    # carrying 76 listings. The 194 with no single close taluk in their
+    # district, the 77 no village confirms and the 35 with no district stay out.
+    "agasteevaram":        "Agasteeswaram",
+    "ayanaaram":           "Ayanavaram",
+    "bodinayanakur":       "Bodinayakkanur",
+    "gandharavkottai":     "Gandarvakottai",
+    "ginge":               "Gingee",
+    "idappadi":            "Edappady",
+    "kankeyam":            "Kangayam",
+    "kivilur":             "Kilvelur",
+    "kumarasangam":        "Kumarapalayam",
+    "kurunchipadi":        "Kurinjipadi",
+    "madukkaral":          "Madukkarai",
+    "maduthalam":          "Madathukulam",
+    "musini":              "Musiri",
+    "omalar":              "Omalur",
+    "pethanayakanpalayam": "Pethanaickenpalayam",
+    "pethanayakenpalayam": "Pethanaickenpalayam",
+    "ponnen":              "Ponneri",
+    "ponneti":             "Ponneri",
+    "poonthamalle":        "Poonamallee",
+    "sankargiri":          "Sankari",
+    "shoogari":            "Shoolagiri",
+    "solingar":            "Sholinghur",
+    "srangam":             "Srirengam",
+    "srengam":             "Srirengam",
+    "srinangam":           "Srirengam",
+    "srinengam":           "Srirengam",
+    "sriperumpudar":       "Sriperumbudur",
+    "sulagiri":            "Shoolagiri",
+    "suler":               "Sulur",
+    "tanbaram":            "Tambaram",
+    "thirupanur":          "Thiruporur",
+    "thirupour taruk":     "Thiruporur",
+    "thiruppurur":         "Thiruporur",
+    "thiruvananur":        "Thiruvarur",
+    "thiruvarampur":       "Thiruverumbur",
+    "udumalpet":           "Udumalaipettai",
+    "uthamalapayam":       "Uthamapalayam",
+    "vazhapdi":            "Valapady",
+    "vazhappadi":          "Valapady",
+    "vazhappady":          "Valapady",
+    "viralmatal":          "Viralimalai",
+    "viruthunagar":        "Virudhunagar",
+    "wailabad":            "Walajabad",
+    "walajapet":           "Walajah",
 }
 
 # Chennai is fully urban and keeps no revenue villages, so 12 of its taluks
@@ -370,6 +425,90 @@ def _digits(value: str) -> str:
     return "".join(sorted(re.findall(r"\d", value or "")))
 
 
+# ── matching by sound, against the register's own Tamil ──────────────────────
+#
+# A notice writes a village the way its drafter heard it — "Karmuthampatti",
+# "Chettipunniyam", "Alampadi" — and the register writes the same Tamil name
+# another way ("Karumathampatty", "Chettypunniyam", "Alambadi"). No English
+# spelling is the reference; the Tamil one is, and the original register holds
+# it for 17,164 of its villages (`RevenueVillage.name_ta`). So both sides are
+# reduced to one coarse sound key — Tamil read letter by letter into Latin, and
+# every Latin spelling folded the same way (voiced = unvoiced, th = t, zh = l,
+# vowel runs to one class, doubles collapsed) — and compared.
+#
+# The bar was set on the live corpus, against 544 listings already resolved
+# under a spelling different from the register's: at SOUND_MIN 95 and
+# SOUND_MARGIN 12 it picked the right village (or a same-village copy of it)
+# for 290 and a wrong one for none. At margin 8 it made six mistakes — all
+# "Madambakkam" read as Madapakkam, two real villages a sound apart — which is
+# what the margin is for.
+SOUND_MIN = 95.0
+SOUND_MARGIN = 12.0
+
+_TA_VOWEL = {"அ": "a", "ஆ": "aa", "இ": "i", "ஈ": "ii", "உ": "u", "ஊ": "uu",
+             "எ": "e", "ஏ": "ee", "ஐ": "ai", "ஒ": "o", "ஓ": "oo", "ஔ": "au"}
+_TA_CONS = {"க": "k", "ங": "ng", "ச": "s", "ஞ": "nj", "ட": "t", "ண": "n",
+            "த": "t", "ந": "n", "ப": "p", "ம": "m", "ய": "y", "ர": "r",
+            "ல": "l", "வ": "v", "ழ": "l", "ள": "l", "ற": "r", "ன": "n",
+            "ஜ": "s", "ஷ": "s", "ஸ": "s", "ஹ": "h", "ஶ": "s"}
+_TA_SIGN = {"ா": "aa", "ி": "i", "ீ": "ii", "ு": "u", "ூ": "uu", "ெ": "e",
+            "ே": "ee", "ை": "ai", "ொ": "o", "ோ": "oo", "ௌ": "au"}
+_PULLI = "்"
+
+
+def tamil_latin(value: str | None) -> str:
+    """A Tamil name read letter by letter into Latin — not a transliteration
+    anyone would print, only enough for :func:`sound_key` to compare. The
+    register's village code ("071  புஞ்சை …") and any bracket are dropped."""
+    s = unicodedata.normalize("NFC", value or "")
+    s = re.sub(r"^\s*\d+\s*", "", s)
+    s = re.sub(r"\([^)]*\)", "", s)
+    out, i = [], 0
+    while i < len(s):
+        ch = s[i]
+        if ch in _TA_CONS:
+            base, nxt = _TA_CONS[ch], s[i + 1] if i + 1 < len(s) else ""
+            if nxt == _PULLI:
+                out.append(base)
+                i += 2
+                continue
+            if nxt in _TA_SIGN:
+                out.append(base + _TA_SIGN[nxt])
+                i += 2
+                continue
+            out.append(base + "a")
+        elif ch in _TA_VOWEL:
+            out.append(_TA_VOWEL[ch])
+        elif ch.isspace() or ch in "-.":
+            out.append(" ")
+        i += 1
+    return "".join(out)
+
+
+def sound_key(value: str | None) -> str:
+    """One coarse key for every Latin spelling of a Tamil place name."""
+    s = re.sub(r"[^a-z]", "", (value or "").lower())
+    for a, b in (("zh", "l"), ("th", "t"), ("dh", "t"), ("ch", "s"), ("sh", "s"),
+                 ("ph", "p"), ("bh", "p"), ("gh", "k"), ("kh", "k"), ("jh", "s"),
+                 ("ng", "n"), ("nj", "n")):
+        s = s.replace(a, b)
+    s = s.translate(str.maketrans("gdbjzwcqxfy", "ktpssvkkkpi")).replace("h", "")
+    s = re.sub(r"[aeiou]+",
+               lambda m: "a" if m.group(0)[0] == "a"
+               else ("i" if m.group(0)[0] in "ei" else "u"), s)
+    return re.sub(r"(.)\1+", r"\1", s)
+
+
+_ROMAN = re.compile(r"(?<![a-z])(i{1,3}|iv|v|vi{1,3}|ix|x)(?![a-z])")
+
+
+def _sub_numbers(value: str | None) -> tuple[str, ...]:
+    """Numbers a name carries, arabic or roman — "Elavur II", "Vichoor-2".
+    Numbered sub-villages are distinct places, as `_digits` says for fuzzy."""
+    low = (value or "").lower()
+    return tuple(sorted(re.findall(r"\d+", low) + _ROMAN.findall(low)))
+
+
 def _fuzzy_match(needle: str, pool: dict[str, str]) -> tuple[str, float] | None:
     """Best guarded fuzzy match of ``needle`` among ``{key: display}``.
 
@@ -430,6 +569,9 @@ class Gazetteer:
     districts: list[str] = field(default_factory=list)
     taluks: list[tuple[str, str]] = field(default_factory=list)
     villages: list[tuple[str, str, str]] = field(default_factory=list)
+    #: ``(village, taluk, name_ta)`` — the register's Tamil names, for
+    #: :meth:`village_by_sound`. Optional: without them that rule is off.
+    village_names_ta: list[tuple[str, str, str]] = field(default_factory=list)
 
     def __post_init__(self):
         self._d: dict[str, str] = {}
@@ -475,6 +617,51 @@ class Gazetteer:
             self._v_by_name[key].add((village, taluk, district))
         for taluk, district in self.taluks:
             self._t_by_district[district].setdefault(normalize_place(taluk), taluk)
+        # Sound keys: every village by its English name (the runner-up pool),
+        # and the ones with a Tamil name by that (the candidates).
+        self._sound_en: dict[str, list[tuple[str, str]]] = defaultdict(list)
+        for village, taluk, _district in self.villages:
+            self._sound_en[taluk].append((village, sound_key(village)))
+        self._sound_ta: dict[str, list[tuple[str, str]]] = defaultdict(list)
+        for village, taluk, name_ta in self.village_names_ta:
+            if name_ta:
+                self._sound_ta[taluk].append((village, sound_key(tamil_latin(name_ta))))
+
+    def village_by_sound(self, value: str, taluk: str) -> str | None:
+        """The register village whose Tamil name sounds like ``value``.
+
+        Last resort, after every spelling rule: exact, fuzzy and the district
+        search. The best Tamil-name match must score :data:`SOUND_MIN` and beat
+        every other village in the taluk — by English name too, so a copy the
+        register holds under a second spelling is not what makes it look
+        unique — by :data:`SOUND_MARGIN`, share the first sound, and carry the
+        same sub-village number."""
+        pool = self._sound_ta.get(taluk)
+        if not (value or "").strip() or not pool:
+            return None
+        try:
+            from rapidfuzz import fuzz
+        except ImportError:
+            return None
+        k = sound_key(value)
+        if not k:
+            return None
+        s1, best = max((fuzz.ratio(k, kt), name) for name, kt in pool)
+        if s1 < SOUND_MIN:
+            return None
+        best_key = sound_key(best)
+        runner = max((fuzz.ratio(k, ke) for name, ke in self._sound_en.get(taluk, [])
+                      if name != best and fuzz.ratio(ke, best_key) < 90), default=0.0)
+        others_ta = max((fuzz.ratio(k, kt) for name, kt in pool
+                         if name != best and fuzz.ratio(sound_key(name), best_key) < 90),
+                        default=0.0)
+        if s1 - max(runner, others_ta) < SOUND_MARGIN:
+            return None
+        if k[:1] != best_key[:1] or _sub_numbers(value) != _sub_numbers(best):
+            return None
+        if (taluk, normalize_place(best)) in self._v_ambiguous:
+            return None
+        return best
 
     def district(self, value: str) -> str | None:
         """Official district for a raw string: alias, then exact, then fuzzy."""
@@ -826,6 +1013,14 @@ def resolve_place(gaz: Gazetteer, *, district: str | None = None,
     # Not a village at all — the field holds the name of a taluk.
     if gaz.names_a_taluk(village, out["district"]):
         out["village_status"] = "names-a-taluk"
+        return out
+
+    # Last resort: the same Tamil name, spelled another way (village_by_sound).
+    heard = gaz.village_by_sound(village, out["taluk"])
+    if heard:
+        out["village"] = heard
+        out["village_status"] = "resolved"
+        out["village_source"] = "tamil-sound"
         return out
 
     # Nothing found, so say *why*: a taluk holding no villages at all is a gap

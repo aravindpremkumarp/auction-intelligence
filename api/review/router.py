@@ -834,16 +834,59 @@ class ResolutionConflict(BaseModel):
 
 class VillageCandidate(BaseModel):
     name: str
+    #: The register's Tamil name, shown so a reader of Tamil can confirm.
+    name_ta: str | None = None
+    #: The taluk the village sits in — another than the row's when the
+    #: notice names a taluk from before the 2019 splits.
+    taluk: str | None = None
     score: float
+    #: Which comparison scored it: 'spelling' or 'sound'.
+    how: str = "spelling"
 
 
-class ResolutionVillage(BaseModel):
+class VillageNotice(BaseModel):
+    filename: str
+    public_url: str | None = None
+
+
+class VillageQueueRow(BaseModel):
+    """One spelling in one taluk. A verdict is stored under ``key``'s parts
+    (the spelling and the taluk) and settles every listing and lot here."""
+    key: str
     village: str
+    spellings: list[str] = []
     taluk: str
     district: str | None = None
-    count: int
+    listings: int = 0
+    lots: int = 0
+    notices: int = 0
     auction_ids: list[str] = []
+    examples: list[VillageNotice] = []
+    snippet: str | None = None
+    snippet_file: str | None = None
     candidates: list[VillageCandidate] = []
+
+
+class VillageQueueDistrict(BaseModel):
+    name: str
+    open: int
+
+
+class VillageQueueOut(BaseModel):
+    open: int = 0
+    listings: int = 0
+    lots: int = 0
+    matching: int = 0
+    offset: int = 0
+    limit: int = 25
+    districts: list[VillageQueueDistrict] = []
+    rows: list[VillageQueueRow] = []
+
+
+class VillageOption(BaseModel):
+    name: str
+    name_ta: str | None = None
+    taluk: str
 
 
 class LotMatchCandidate(BaseModel):
@@ -992,7 +1035,8 @@ class ResolutionReviewOut(BaseModel):
     bank_pairs: list[ResolutionBankPair] = []
     branch_pairs: list[ResolutionBranchPair] = []
     district_conflicts: list[ResolutionConflict] = []
-    unmatched_villages: list[ResolutionVillage] = []
+    #: Open (spelling, taluk) groups; the rows live in GET /resolution/villages.
+    unmatched_villages: int = 0
     lot_matches: list[ResolutionLotMatch] = []
     price_checks: list[PriceCheck] = []
     area_checks: list[AreaCheck] = []
@@ -1029,6 +1073,31 @@ def review_resolution_queues(
 ) -> ResolutionReviewOut:
     """Open resolution questions, with evidence beside every row."""
     return ResolutionReviewOut(**q.resolution_review())
+
+
+@router.get("/resolution/villages", response_model=VillageQueueOut)
+def review_resolution_villages(
+    district: str | None = Query(default=None, max_length=80),
+    search: str | None = Query(default=None, max_length=80),
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=25, ge=1, le=100),
+    _admin: UserOut = Depends(get_current_admin),
+) -> VillageQueueOut:
+    """Villages the gazetteer could not place, one row per spelling in its
+    taluk, biggest first, with the notice's own words and the taluk's closest
+    official names beside each."""
+    return VillageQueueOut(**q.village_queue(
+        district=district, search=search, offset=offset, limit=limit))
+
+
+@router.get("/resolution/villages/options", response_model=list[VillageOption])
+def review_resolution_village_options(
+    taluk: str = Query(..., min_length=1, max_length=80),
+    _admin: UserOut = Depends(get_current_admin),
+) -> list[VillageOption]:
+    """Every official village of the taluk's district, its own first — for
+    when no suggestion fits."""
+    return [VillageOption(**o) for o in q.village_options(taluk)]
 
 
 @router.post("/resolution/decide", response_model=ResolutionDecisionOut)

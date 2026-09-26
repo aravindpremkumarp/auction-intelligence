@@ -686,3 +686,61 @@ def test_nothing_is_cleared_when_there_is_nothing_to_write(monkeypatch):
     monkeypatch.setattr(P, "write", lambda q, params: calls.append(q))
     P.write_places([])
     assert calls == []
+
+
+# ── village verdicts reaching lots (the review queue's apply step) ──────────
+
+def test_relink_settled_lots_touches_only_the_notices_a_verdict_settles(monkeypatch):
+    from collections import Counter
+
+    from pipeline.place_resolution import normalize_place
+    from pipeline.resolution_review import village_alias_key
+
+    aliases = {village_alias_key("Injambakkam", "Sholinganallur"): "Enchambakkam"}
+    monkeypatch.setattr(P, "decided_spellings", lambda reload=False: (
+        aliases, {normalize_place("Semmancheri")}, {}, {}))
+    lots = [
+        # a new alias covers it
+        {"filename": "n1", "raw": "Injambakkam", "taluk": "Sholinganallur",
+         "status": "unmatched", "source": None},
+        # no verdict: left alone
+        {"filename": "n2", "raw": "Karapakkam", "taluk": "Sholinganallur",
+         "status": "unmatched", "source": None},
+        # placed by a verdict that may since have been undone: re-linked
+        {"filename": "n3", "raw": "Okkiyam", "taluk": "Sholinganallur",
+         "status": "resolved", "source": "human-alias"},
+        # an OSM verdict, not a person's: left alone
+        {"filename": "n4", "raw": "Pammal", "taluk": "Pallavaram",
+         "status": "not-a-revenue-village", "source": "osm-urban"},
+        # ruled "not a village" — needs no taluk to apply
+        {"filename": "n5", "raw": "Semmancheri", "taluk": None,
+         "status": "no-parent-taluk", "source": None},
+    ]
+    village_reads = iter([{"n1#1": None, "n3#1": "Okkiyam"},
+                          {"n1#1": "Enchambakkam", "n3#1": "Okkiyam"}])
+
+    def fake_read(cypher, params=None, **kw):
+        if "l.village_raw IS NOT NULL" in cypher:
+            return lots
+        if "l.village AS village" in cypher:
+            return [{"lot_key": k, "village": v} for k, v in next(village_reads).items()]
+        if "d.extraction_json" in cypher:
+            return [{"filename": f, "extraction_json": "[]", "corrections_json": None}
+                    for f in params["files"]]
+        raise AssertionError(cypher[:60])
+
+    touched = []
+    monkeypatch.setattr(P, "run_read_query", fake_read)
+    monkeypatch.setattr(P, "place_document",
+                        lambda doc, dry_run: touched.append(doc["filename"]) or (1, Counter()))
+    out = P.relink_settled_lots()
+    assert touched == ["n1", "n3", "n5"]
+    assert out == {"notices": 3, "lots": 3, "moved": 1}
+
+
+def test_relink_settled_lots_is_a_no_op_with_nothing_decided(monkeypatch):
+    monkeypatch.setattr(P, "decided_spellings", lambda reload=False: ({}, set(), {}, {}))
+    monkeypatch.setattr(P, "run_read_query", lambda cypher, params=None, **kw: [
+        {"filename": "n1", "raw": "Karapakkam", "taluk": "Sholinganallur",
+         "status": "unmatched", "source": None}])
+    assert P.relink_settled_lots() == {"notices": 0, "lots": 0, "moved": 0}

@@ -343,6 +343,32 @@ def test_a_harvested_taluk_spelling_reaches_its_gazetteer_name():
     assert r["village_status"] == "resolved"
 
 
+def test_udumalpet_reaches_udumalaipettai_and_its_village():
+    """21 listings write the taluk "Udumalpet"; it scores 82 against
+    Udumalaipettai, below the fuzzy floor, and 15 of them name a village of
+    that taluk — the evidence that earned the alias."""
+    from pipeline.place_resolution import TALUK_ALIASES
+    assert TALUK_ALIASES["udumalpet"] == "Udumalaipettai"
+    local = Gazetteer(
+        districts=["Tiruppur"],
+        taluks=[("Udumalaipettai", "Tiruppur"), ("Madathukulam", "Tiruppur")],
+        villages=[("Kurichikottai", "Udumalaipettai", "Tiruppur")],
+    )
+    r = resolve_place(local, district="Tiruppur", taluk="Udumalpet",
+                      village="Kurichikottai")
+    assert (r["taluk"], r["village"], r["village_status"]) == \
+        ("Udumalaipettai", "Kurichikottai", "resolved")
+
+
+def test_no_alias_turns_a_two_taluk_composite_into_one_half():
+    """"Mambalam - Guindy" and "Fort - Tondiarpet" name two taluks each;
+    compound_taluk settles them to the district, and an alias must not pick."""
+    from pipeline.place_resolution import TALUK_ALIASES
+    for raw in ("mambalam - guindy", "mambalam guindy", "fort - tondiarpet",
+                "fort tondiarpet", "natham pernambut"):
+        assert raw not in TALUK_ALIASES
+
+
 def test_no_alias_names_a_taluk_the_district_alone_can_settle():
     """Tirupathur and Thiruppattur fold to one key, so a global alias naming
     either would misfile every listing that meant the other. 14 listings spell
@@ -610,3 +636,54 @@ def test_the_state_wide_rule_still_answers_when_no_district_is_known():
         villages=[("Mookkanur", "Poonamallee", "Tiruvallur")])
     r = resolve_place(gaz, village="Mookkanur")
     assert r["village_source"] == "state"
+
+
+# ── matching by sound, against the register's Tamil ─────────────────────────
+
+def _sound_gaz(villages, names_ta):
+    from pipeline.place_resolution import Gazetteer
+    return Gazetteer(districts=["Chengalpattu"], taluks=[("Chengalpattu", "Chengalpattu")],
+                     villages=[(v, "Chengalpattu", "Chengalpattu") for v in villages],
+                     village_names_ta=[(v, "Chengalpattu", ta) for v, ta in names_ta])
+
+
+def test_tamil_read_into_latin_shares_a_sound_key_with_english_spellings():
+    from pipeline.place_resolution import sound_key, tamil_latin
+    ta = sound_key(tamil_latin("071  செட்டிபுண்ணியம்"))       # register code dropped
+    assert ta == sound_key("Chettipunniyam") == sound_key("Chettypunniyam")
+    assert sound_key("Alampadi") == sound_key("Alambadi")        # voiced = unvoiced
+    assert sound_key("Rajakilpakkam") == sound_key("Rajakizhpakkam")   # zh = l
+
+
+def test_a_village_is_heard_through_its_tamil_name():
+    """19 listings write "Chettipunniyam"; the register holds it as
+    Chettypunniyam (செட்டிபுண்ணியம்) beside an LGD copy "Chettipunyam", and the
+    two near-twins made every spelling rule refuse."""
+    gaz = _sound_gaz(["Chettypunniyam", "Chettipunyam", "Kolavai"],
+                     [("Chettypunniyam", "செட்டிபுண்ணியம்"), ("Kolavai", "கொளவாய்")])
+    r = resolve_place(gaz, district="Chengalpattu", taluk="Chengalpattu",
+                      village="Chettipunniyam")
+    assert (r["village"], r["village_status"], r["village_source"]) == \
+        ("Chettypunniyam", "resolved", "tamil-sound")
+
+
+def test_two_villages_a_sound_apart_are_not_guessed_between():
+    """Madambakkam and Madapakkam are two real villages; at a narrow margin the
+    sound rule read one as the other six times on the live corpus."""
+    gaz = _sound_gaz(["Madapakkam", "Madambakkam"],
+                     [("Madapakkam", "மாடப்பாக்கம்"), ("Madambakkam", "மாடம்பாக்கம்")])
+    assert gaz.village_by_sound("Madambakam", "Chengalpattu") in (None, "Madambakkam")
+    assert gaz.village_by_sound("Madapakam", "Chengalpattu") in (None, "Madapakkam")
+
+
+def test_sound_never_maps_a_numbered_sub_village_onto_the_plain_one():
+    gaz = _sound_gaz(["Elavur"], [("Elavur", "எளாவூர்")])
+    assert gaz.village_by_sound("Elavur II", "Chengalpattu") is None
+    assert gaz.village_by_sound("Elavoor", "Chengalpattu") == "Elavur"
+
+
+def test_without_tamil_names_the_sound_rule_is_off():
+    from pipeline.place_resolution import Gazetteer
+    gaz = Gazetteer(districts=["Chengalpattu"], taluks=[("Chengalpattu", "Chengalpattu")],
+                    villages=[("Chettypunniyam", "Chengalpattu", "Chengalpattu")])
+    assert gaz.village_by_sound("Chettipuniam", "Chengalpattu") is None

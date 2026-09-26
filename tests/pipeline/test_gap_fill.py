@@ -120,3 +120,95 @@ def test_a_header_naming_one_possession_type_fills_every_lot_without_a_read():
     ents2 = [dict(x, start=md2.index(x["text"]), end=md2.index(x["text"]) + len(x["text"]))
              for x in ents]
     assert not any("possession_type" in v for v in _filled(G.inherit_shared(ents2, md2)).values())
+
+
+# ── the conditional possession boilerplate (Canara Bank) ────────────────────
+
+_CANARA_TAIL = (
+    "For the properties which are in symbolic possession of the bank, the "
+    "Auction purchaser has to comply with the following terms and conditions "
+    "in addition to the standard terms and condition of the sale.\n\n"
+    "1. The bidder is purchasing the property in Symbolic Possession at his "
+    "own risk and responsibility. 2. Bank will not be responsible or duly "
+    "bound for handing over of physical possession. 3. Successful Auction "
+    "Purchaser will not be entitled to claim any interest. 5. Subsequent to "
+    "sale if successful bidder fails to submit Declaration cum Undertaking, "
+    "the bid EMD amount will be forfeited.\n\nPortal of E-Auction: https://baanknet.com")
+
+_CANARA = (
+    "the Symbolic / Constructive / Physical Possession of which has been taken "
+    "by the Authorized Officer. DETAILS OF PROPERTY: Property No.1 land at "
+    "Sy No 176/2A, Kavanoor Village. RESERVE PRICE 35,25,000/\n\n"
+    "Property No.2 land and building at Door no.419, Kavanoor Village. "
+    "RESERVE PRICE 44,00,000/\n\n" + _CANARA_TAIL)
+
+
+def test_the_boilerplate_is_blanked_without_moving_any_offset():
+    out = G.mask_possession_boilerplate(_CANARA)
+    assert len(out) == len(_CANARA)
+    assert [i for i, c in enumerate(_CANARA) if c == "\n"] == \
+           [i for i, c in enumerate(out) if c == "\n"]
+    tail = out[_CANARA.index("For the properties"):]
+    assert "symbolic" not in tail.lower() and "physical" not in tail.lower()
+    # what follows the block survives, and so does the rest of the notice
+    assert "Portal of E-Auction: https://baanknet.com" in out
+    assert out.startswith("the Symbolic / Constructive / Physical Possession")
+    assert G.mask_possession_boilerplate("no block here") == "no block here"
+
+
+def test_a_block_without_its_closing_words_loses_only_its_type_words():
+    cut = _CANARA_TAIL.split("5. Subsequent")[0] + "Lot 3: vacant land, Sy No 9."
+    out = G.mask_possession_boilerplate(cut)
+    assert len(out) == len(cut)
+    assert "symbolic" not in out.lower() and "physical" not in out.lower()
+    assert "Lot 3: vacant land, Sy No 9." in out and "bidder is purchasing" in out
+
+
+def test_boilerplate_and_an_unchosen_menu_state_no_possession():
+    assert G.stated_possession_kinds(_CANARA) == set()
+    # a notice that commits to one type still states it, boilerplate or not
+    md = _CANARA.replace("Symbolic / Constructive / Physical Possession",
+                         "Physical Possession")
+    assert G.stated_possession_kinds(md) == {"physical"}
+
+
+def test_a_lot_whose_only_possession_is_the_boilerplate_is_marked_without_a_read():
+    from pipeline.absence import RULE_NO_CLUE
+    # The menu is still read (the guide tells the model to emit nothing for
+    # it); here the boilerplate is the notice's only possession wording.
+    md = _CANARA.replace("the Symbolic / Constructive / Physical Possession",
+                         "the possession")
+    ents = [_e("full_description", "land at Sy No 176/2A, Kavanoor Village", md, "1"),
+            _e("full_description", "land and building at Door no.419, Kavanoor Village",
+               md, "2")]
+    todo, marks = G.plan(md, ents, expected_lot_count=2)
+    # both lots get the same answer: nothing to read, not in the notice
+    assert marks.get(("1", "possession_type")) == RULE_NO_CLUE
+    assert marks.get(("2", "possession_type")) == RULE_NO_CLUE
+    assert all("possession_type" not in ks for ks in todo.values())
+
+
+def test_a_possession_taken_from_the_boilerplate_is_cleared_and_recorded():
+    ents = [_e("property", "land at Sy No 176/2A", _CANARA, "1", property_type="land"),
+            dict(_e("property", "land and building at Door no.419", _CANARA, "2",
+                    property_type="house", possession_type="symbolic"), id="p2")]
+    kept, cleared, absent = G.unsupported_possession(ents, _CANARA)
+    assert cleared == [{"id": "p2", "lot": "2", "value": "symbolic", "cls": "property"}]
+    assert all("possession_type" not in (e["attrs"]) for e in kept)
+    assert kept[1]["attrs"]["property_type"] == "house"       # nothing else touched
+    assert absent == {"2"}
+    # a value the notice does state is kept
+    md = _CANARA.replace("Symbolic / Constructive / Physical Possession",
+                         "Symbolic Possession")
+    ents2 = [dict(x, start=md.index(x["text"]), end=md.index(x["text"]) + len(x["text"]))
+             for x in ents]
+    kept2, cleared2, absent2 = G.unsupported_possession(ents2, md)
+    assert cleared2 == [] and kept2[1]["attrs"]["possession_type"] == "symbolic"
+    # a notice stating another type: the wrong value goes, but the lot is left
+    # missing for a read, not declared absent
+    md3 = _CANARA.replace("Symbolic / Constructive / Physical Possession",
+                          "Physical Possession")
+    ents3 = [dict(x, start=md3.index(x["text"]), end=md3.index(x["text"]) + len(x["text"]))
+             for x in ents]
+    _, cleared3, absent3 = G.unsupported_possession(ents3, md3)
+    assert [c["value"] for c in cleared3] == ["symbolic"] and absent3 == set()

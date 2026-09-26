@@ -6,6 +6,7 @@ extraction tests do — no DB, real payload shapes.
 from __future__ import annotations
 
 import json
+import re
 
 import pytest
 
@@ -581,3 +582,171 @@ def test_portal_match_rows_fit_the_response_model():
     row = PortalMatchRow(**_stored_row("bn-1", snap))
     assert row.subject.auction_id == "bn-1" and row.candidates[0].borrower == "M/s ARR Tex"
     assert row.snapshot == snap and row.reason == "price_only"
+
+
+# ── Village queue ────────────────────────────────────────────────────────────
+
+_POOL = [{"taluk": "Sholinganallur", "name": "Enchambakkam", "name_ta": "ஈஞ்சம்பாக்கம்"},
+         {"taluk": "Sholinganallur", "name": "Kottivakkam", "name_ta": "கொட்டிவாக்கம்"},
+         # an LGD-added copy with no Tamil name folds into the original
+         {"taluk": "Sholinganallur", "name": "Enchambakkam", "name_ta": None},
+         # a sister taluk of the same district
+         {"taluk": "Guindy", "name": "Semmanjeri", "name_ta": "செம்மஞ்சேரி"},
+         {"taluk": "Guindy", "name": "Adyar", "name_ta": "அடையாறு"}]
+_TALUKS = [{"taluk": "Sholinganallur", "district": "Chennai"},
+           {"taluk": "Guindy", "district": "Chennai"}]
+
+
+def _village_reads(listings, lots, decisions=(), texts=None):
+    def fake_read(cypher, params=None, **kw):
+        if "ResolutionDecision" in cypher:
+            return list(decisions)
+        if "place_village_status" in cypher:
+            return listings
+        if "l.village_raw" in cypher:
+            return lots
+        if "IN_DISTRICT" in cypher:
+            return _TALUKS
+        if "RevenueVillage" in cypher:
+            return [r for r in _POOL if r["taluk"] in (params or {}).get("taluks", [])]
+        if "d.markdown" in cypher:
+            return [{"filename": f, "text": (texts or {}).get(f)}
+                    for f in (params or {}).get("files", [])]
+        raise AssertionError(f"unexpected read: {cypher[:60]}")
+    return fake_read
+
+
+def test_village_queue_puts_listings_and_lots_of_one_spelling_in_one_row(monkeypatch):
+    listings = [
+        {"raw": "Injambakkam", "taluk": "Sholinganallur", "district": "Chennai",
+         "auction_id": "a1", "filename": "n1.jpg", "public_url": "https://x/n1.jpg"},
+        {"raw": "INJAMBAKKAM", "taluk": "Sholinganallur", "district": "Chennai",
+         "auction_id": "a2", "filename": "n2.jpg", "public_url": None},
+        {"raw": "Semmancheri", "taluk": "Sholinganallur", "district": "Chennai",
+         "auction_id": "a3", "filename": "n3.jpg", "public_url": None},
+    ]
+    lots = [{"raw": "Injambakkam", "taluk": "Sholinganallur", "district": "Chennai",
+             "lot_key": "n1.jpg#1", "filename": "n1.jpg", "public_url": "https://x/n1.jpg"}]
+    texts = {"n1.jpg": "Schedule: plot 4, Injambakkam Village, Sholinganallur Taluk."}
+    monkeypatch.setattr(q, "run_read_query", _village_reads(listings, lots, texts=texts))
+
+    out = q.village_queue()
+    assert (out["open"], out["listings"], out["lots"], out["matching"]) == (2, 3, 1, 2)
+    top = out["rows"][0]
+    # one row for both spellings (the key folds case), biggest first
+    assert top["village"] == "Injambakkam" and set(top["spellings"]) == {"Injambakkam", "INJAMBAKKAM"}
+    assert (top["listings"], top["lots"], top["notices"]) == (2, 1, 2)
+    assert top["examples"][0] == {"filename": "n1.jpg", "public_url": "https://x/n1.jpg"}
+    assert "Injambakkam Village, Sholinganallur" in top["snippet"]
+    assert top["snippet_file"] == "n1.jpg"
+    # the register's own name, found by sound, with its Tamil name — once
+    assert [c["name"] for c in top["candidates"]][0] == "Enchambakkam"
+    assert top["candidates"][0]["name_ta"] == "ஈஞ்சம்பாக்கம்"
+    assert [c["name"] for c in top["candidates"]].count("Enchambakkam") == 1
+    assert out["districts"] == [{"name": "Chennai", "open": 2}]
+
+    only = q.village_queue(search="semman")
+    assert [r["village"] for r in only["rows"]] == ["Semmancheri"] and only["open"] == 2
+
+
+def test_village_queue_leaves_out_spellings_a_verdict_already_covers(monkeypatch):
+    from pipeline.resolution_review import decision_key
+    alias = {"raw": "Injambakkam", "taluk": "Sholinganallur", "target": "Enchambakkam"}
+    skip = {"raw": "Semmancheri"}
+    decisions = [
+        {"key": decision_key("village-alias", alias), "kind": "village-alias",
+         "verdict": "approved", "payload_json": json.dumps(alias)},
+        {"key": decision_key("village-skip", skip), "kind": "village-skip",
+         "verdict": "approved", "payload_json": json.dumps(skip)},
+    ]
+    listings = [{"raw": r, "taluk": "Sholinganallur", "district": "Chennai",
+                 "auction_id": r, "filename": None, "public_url": None}
+                for r in ("Injambakkam", "Semmancheri", "Karapakkam")]
+    monkeypatch.setattr(q, "run_read_query", _village_reads(listings, [], decisions))
+    out = q.village_queue()
+    assert [r["village"] for r in out["rows"]] == ["Karapakkam"]
+    assert out["rows"][0]["snippet"] is None          # no notice on file: no guess
+
+
+def test_village_candidates_score_by_sound_through_the_tamil_name():
+    pool = [{"name": "Chettipunniyam", "name_ta": "செட்டிபுண்ணியம்"},
+            {"name": "Kottivakkam", "name_ta": "கொட்டிவாக்கம்"}]
+    best = q.village_candidates("Chetty Punniam", pool)[0]
+    assert (best["name"], best["how"]) == ("Chettipunniyam", "sound")
+    assert q.village_candidates("Xyz", pool) == []
+
+
+def test_the_overview_counts_every_open_village_spelling(monkeypatch):
+    """The review page's count covers the whole queue — the old inline list
+    stopped at 60 rows, so the count stopped there too."""
+    # (the place fold collapses doubled letters, so "Nagar11" would be "Nagar1")
+    names = [n for n in (f"Nagar{i}" for i in range(100))
+             if not re.search(r"(.)\1", n)][:75]
+    listings = [{"raw": n, "taluk": "Sholinganallur", "district": "Chennai",
+                 "auction_id": n, "filename": None, "public_url": None}
+                for n in names]
+    village_read = _village_reads(listings, [])
+
+    def fake_read(cypher, params=None, **kw):
+        if "place_village_status" in cypher or "l.village_raw" in cypher \
+                or "ResolutionDecision" in cypher:
+            return village_read(cypher, params)
+        return []
+
+    monkeypatch.setattr(q, "run_read_query", fake_read)
+    monkeypatch.setattr(q, "_count_query", lambda cypher, params=None: {})
+    out = q.resolution_review()
+    assert out["unmatched_villages"] == 75 and out["open"] == 75
+
+
+def test_village_queue_response_fits_the_model(monkeypatch):
+    from api.review.router import VillageQueueOut
+    listings = [{"raw": "Injambakkam", "taluk": "Sholinganallur", "district": "Chennai",
+                 "auction_id": "a1", "filename": "n1.jpg", "public_url": None}]
+    monkeypatch.setattr(q, "run_read_query", _village_reads(listings, []))
+    VillageQueueOut(**q.village_queue())
+
+
+def test_village_queue_offers_a_close_name_from_a_sister_taluk(monkeypatch):
+    """Notices still name pre-2019 taluks, so a strong match elsewhere in the
+    district is offered too — labelled with its own taluk."""
+    listings = [{"raw": "Semmancheri", "taluk": "Sholinganallur", "district": "Chennai",
+                 "auction_id": "a1", "filename": None, "public_url": None}]
+    monkeypatch.setattr(q, "run_read_query", _village_reads(listings, []))
+    cands = q.village_queue()["rows"][0]["candidates"]
+    elsewhere = [c for c in cands if c["taluk"] == "Guindy"]
+    assert [c["name"] for c in elsewhere] == ["Semmanjeri"]
+    assert all(c["score"] >= q.VILLAGE_ELSEWHERE_MIN for c in elsewhere)
+    assert "Adyar" not in [c["name"] for c in cands]
+
+
+def test_village_snippet_prefers_the_property_schedule_to_the_borrower_address():
+    text = ("Borrower: Mr. X, 5th street, Madipakkam, Chennai 600091. "
+            + "filler " * 40
+            + "SCHEDULE OF PROPERTY: plot 7, Madipakkam Village, Sholinganallur Taluk.")
+    snip = q._village_snippet(text, ["Madipakkam"], width=30)
+    assert "Madipakkam Village" in snip and "Borrower" not in snip
+    assert q._village_snippet(text, ["Nowhere"]) is None
+
+
+def test_a_cross_taluk_alias_is_checked_against_the_taluk_it_names(monkeypatch):
+    seen = {}
+
+    def fake_count(cypher, params=None):
+        seen.update(params or {})
+        return {"n": 1}
+
+    monkeypatch.setattr(q, "_count_query", fake_count)
+    monkeypatch.setattr(q, "run_query", lambda *a, **k: [{"n": 1}])
+    q.record_resolution_decision(
+        "village-alias", {"raw": "Varadharajapuram", "taluk": "Sriperumbudur",
+                          "target": "Varatharajapuram", "target_taluk": "Kundrathur"},
+        "approved", by_email="x")
+    assert seen == {"target": "Varatharajapuram", "taluk": "Kundrathur"}
+
+
+def test_village_options_list_the_whole_district_own_taluk_first(monkeypatch):
+    monkeypatch.setattr(q, "run_read_query", _village_reads([], []))
+    opts = q.village_options("Guindy")
+    assert [o["taluk"] for o in opts] == ["Guindy", "Guindy", "Sholinganallur", "Sholinganallur"]
+    assert set(opts[0]) == {"name", "name_ta", "taluk"}

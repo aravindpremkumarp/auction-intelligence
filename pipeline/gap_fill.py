@@ -192,8 +192,19 @@ def excerpt(md: str, ents: list[dict], lot: str, n_lots: int,
 
     The lot's own text framed by the notice's head and tail. ``back(start,
     end)`` maps offsets in ``text`` to offsets in ``md``; ``hint`` names the
-    lot when the text may hold its neighbours too.
+    lot when the text may hold its neighbours too. The conditional possession
+    boilerplate is blanked out of ``text`` (``mask_possession_boilerplate``,
+    length-preserving, so ``back`` is unaffected).
     """
+    cut = _excerpt(md, ents, lot, n_lots, expected_lot_count)
+    if cut is None:
+        return None
+    text, back, hint = cut
+    return mask_possession_boilerplate(text), back, hint
+
+
+def _excerpt(md: str, ents: list[dict], lot: str, n_lots: int,
+             expected_lot_count: int | None = None):
     if n_lots <= 1:
         return md, (lambda s, e: (s, e)), None
     plan = plan_chunks(md, expected_lot_count)
@@ -234,10 +245,112 @@ _POSSESSION_TYPE = re.compile(
     r"|\bpossession\b[^.\n<]{0,20}?\b(physical|symbolic|constructive)\b", re.I)
 
 
+#: Canara Bank prints this block near the end of its notices whatever the
+#: possession actually is: "For the properties which are in symbolic
+#: possession of the bank, the Auction purchaser has to comply with … 1. The
+#: bidder is purchasing the property in Symbolic Possession … 2. Bank will not
+#: be responsible … for handing over of physical possession … 5. … the bid EMD
+#: amount will be forfeited." Of 103 notices carrying it (all but one Canara),
+#: two state "the Physical Possession of which has been taken" and print it
+#: anyway, so it is a condition, not a statement about any lot. It still
+#: names "Symbolic Possession" and "physical possession", and every lot's
+#: excerpt carries the notice's tail, so a lean read took it as the answer
+#: for some lots of a notice and not for others.
+_BOILERPLATE_START = re.compile(
+    r"for\s+the\s+properties\s+which\s+are\s+in\s+symbolic\s+possession\s+of\s+the\s+bank",
+    re.I)
+_BOILERPLATE_END = re.compile(r"forfeited\.?", re.I)
+#: The block runs ~800 characters; a start without its closing words within
+#: this span is masked word by word instead (see mask_possession_boilerplate).
+BOILERPLATE_SPAN = 1500
+_TYPE_WORD = re.compile(r"\b(?:symbolic|physical|constructive)\b", re.I)
+
+#: "Symbolic / Constructive / Physical Possession" — every type named, none
+#: chosen. The guide already tells the extractor to emit nothing for it.
+_POSSESSION_MENU = re.compile(
+    r"\b(?:symbolic|constructive|physical)\b"
+    r"(?:\s*(?:/|,|\bor\b|\band\b|&)\s*\b(?:symbolic|constructive|physical)\b)+",
+    re.I)
+
+
+def _blank(chars: list[str], start: int, end: int) -> None:
+    for i in range(start, end):
+        if chars[i] != "\n":
+            chars[i] = " "
+
+
+def mask_possession_boilerplate(text: str) -> str:
+    """``text`` with the conditional possession block blanked out.
+
+    Length-preserving — every masked character becomes a space, newlines
+    stay — so offsets a read reports into the masked text are offsets into
+    the original too, and an excerpt's map back to the notice still holds.
+    When the block's closing words are not found (an OCR cut, a variant
+    wording) only the possession-type words inside the span are blanked:
+    enough that nothing can read a type off it, without risking the loss of
+    whatever text follows."""
+    if not text:
+        return text
+    chars: list[str] | None = None
+    for m in _BOILERPLATE_START.finditer(text):
+        chars = chars if chars is not None else list(text)
+        limit = min(len(text), m.end() + BOILERPLATE_SPAN)
+        end = _BOILERPLATE_END.search(text, m.end(), limit)
+        if end:
+            _blank(chars, m.start(), end.end())
+            continue
+        _blank(chars, m.start(), m.end())
+        for w in _TYPE_WORD.finditer(text, m.end(), limit):
+            _blank(chars, w.start(), w.end())
+    return "".join(chars) if chars is not None else text
+
+
+def stated_possession_kinds(md: str) -> set[str]:
+    """The possession types the notice itself commits to anywhere — with the
+    conditional boilerplate and the unchosen "Symbolic / Constructive /
+    Physical" menu taken out, since neither states a lot's possession."""
+    text = mask_possession_boilerplate(md or "")
+    chars = list(text)
+    for m in _POSSESSION_MENU.finditer(text):
+        _blank(chars, m.start(), m.end())
+    text = "".join(chars)
+    return {(m.group(1) or m.group(2)).lower()
+            for m in _POSSESSION_TYPE.finditer(text)}
+
+
+def unsupported_possession(ents: list[dict], md: str
+                           ) -> tuple[list[dict], list[dict], set[str]]:
+    """``(kept, cleared, no_statement_lots)`` for a stored extraction.
+
+    A possession type the notice never commits to (``stated_possession_kinds``)
+    can only have come from the boilerplate or the menu, so it is dropped from
+    the entity that carries it; ``cleared`` records what was dropped (entity
+    id, lot, value) so the change can be undone. ``no_statement_lots`` are the
+    lots left with no possession at all in a notice that states none — those
+    are "not in the notice". A lot whose value was dropped in a notice that
+    does state another type is left missing, for a read to settle."""
+    stated = stated_possession_kinds(md)
+    kept, cleared = [], []
+    for e in ents:
+        a = e.get("attrs") or {}
+        v = str(a.get("possession_type") or "").strip().lower()
+        if v in ("symbolic", "physical", "constructive") and v not in stated:
+            cleared.append({"id": e.get("id"), "lot": _lot(e), "value": v,
+                            "cls": e.get("cls")})
+            a = {k: x for k, x in a.items() if k != "possession_type"}
+            e = {**e, "attrs": a}
+        kept.append(e)
+    if not cleared or stated:
+        return kept, cleared, set()
+    still = {_lot(e) for e in kept if (e.get("attrs") or {}).get("possession_type")}
+    return kept, cleared, {c["lot"] for c in cleared} - still
+
+
 def _header_possession(md: str, before: int) -> dict | None:
     """A property entity for the one possession type the notice's header
     names, or None when it names none — or several ("Symbolic / Constructive
     possession"): a notice that lists types without choosing states none."""
+    md = mask_possession_boilerplate(md)
     hits = [m for m in _POSSESSION_TYPE.finditer(md, 0, before)]
     kinds = {(m.group(1) or m.group(2)).lower() for m in hits}
     if len(kinds) != 1:
@@ -301,7 +414,7 @@ def plan(md: str, stored: list[dict], skip: set[tuple[str, str]] = frozenset(),
         if not keys:
             continue
         cut = excerpt(md, stored, lot, n_lots, expected_lot_count)
-        text = cut[0] if cut else md
+        text = cut[0] if cut else mask_possession_boilerplate(md)
         for k in keys:
             if no_clue(text, k):
                 marks[(lot, k)] = RULE_NO_CLUE
