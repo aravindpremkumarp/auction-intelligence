@@ -222,6 +222,15 @@ def gazetteer() -> Gazetteer:
                     "RETURN v.name AS village, t.name AS taluk, "
                     "       d.name AS district",
                     max_rows=50_000, timeout=120.0)],
+                # Tamil names, for the last-resort match by sound
+                # (Gazetteer.village_by_sound).
+                village_names_ta=[(r["village"], r["taluk"], r["name_ta"])
+                                  for r in run_read_query(
+                    "MATCH (v:RevenueVillage)-[:IN_TALUK]->(t:Taluk) "
+                    "WHERE v.name_ta IS NOT NULL "
+                    "RETURN v.name AS village, t.name AS taluk, "
+                    "       v.name_ta AS name_ta",
+                    max_rows=50_000, timeout=120.0)],
             )
             log.info("gazetteer loaded: %d districts, %d taluks, %d villages",
                      len(_GAZ.districts), len(_GAZ.taluks), len(_GAZ.villages))

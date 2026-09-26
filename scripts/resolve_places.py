@@ -72,6 +72,11 @@ def load_gazetteer() -> Gazetteer:
         villages=nq("""MATCH (v:RevenueVillage)-[:IN_TALUK]->(t:Taluk)
                              -[:IN_DISTRICT]->(d:District)
                        RETURN v.name, t.name, d.name"""),
+        # Tamil names, for the last-resort match by sound
+        # (Gazetteer.village_by_sound).
+        village_names_ta=nq("""MATCH (v:RevenueVillage)-[:IN_TALUK]->(t:Taluk)
+                               WHERE v.name_ta IS NOT NULL
+                               RETURN v.name, t.name, v.name_ta"""),
     )
 
 

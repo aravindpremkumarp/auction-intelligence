@@ -636,3 +636,54 @@ def test_the_state_wide_rule_still_answers_when_no_district_is_known():
         villages=[("Mookkanur", "Poonamallee", "Tiruvallur")])
     r = resolve_place(gaz, village="Mookkanur")
     assert r["village_source"] == "state"
+
+
+# ── matching by sound, against the register's Tamil ─────────────────────────
+
+def _sound_gaz(villages, names_ta):
+    from pipeline.place_resolution import Gazetteer
+    return Gazetteer(districts=["Chengalpattu"], taluks=[("Chengalpattu", "Chengalpattu")],
+                     villages=[(v, "Chengalpattu", "Chengalpattu") for v in villages],
+                     village_names_ta=[(v, "Chengalpattu", ta) for v, ta in names_ta])
+
+
+def test_tamil_read_into_latin_shares_a_sound_key_with_english_spellings():
+    from pipeline.place_resolution import sound_key, tamil_latin
+    ta = sound_key(tamil_latin("071  செட்டிபுண்ணியம்"))       # register code dropped
+    assert ta == sound_key("Chettipunniyam") == sound_key("Chettypunniyam")
+    assert sound_key("Alampadi") == sound_key("Alambadi")        # voiced = unvoiced
+    assert sound_key("Rajakilpakkam") == sound_key("Rajakizhpakkam")   # zh = l
+
+
+def test_a_village_is_heard_through_its_tamil_name():
+    """19 listings write "Chettipunniyam"; the register holds it as
+    Chettypunniyam (செட்டிபுண்ணியம்) beside an LGD copy "Chettipunyam", and the
+    two near-twins made every spelling rule refuse."""
+    gaz = _sound_gaz(["Chettypunniyam", "Chettipunyam", "Kolavai"],
+                     [("Chettypunniyam", "செட்டிபுண்ணியம்"), ("Kolavai", "கொளவாய்")])
+    r = resolve_place(gaz, district="Chengalpattu", taluk="Chengalpattu",
+                      village="Chettipunniyam")
+    assert (r["village"], r["village_status"], r["village_source"]) == \
+        ("Chettypunniyam", "resolved", "tamil-sound")
+
+
+def test_two_villages_a_sound_apart_are_not_guessed_between():
+    """Madambakkam and Madapakkam are two real villages; at a narrow margin the
+    sound rule read one as the other six times on the live corpus."""
+    gaz = _sound_gaz(["Madapakkam", "Madambakkam"],
+                     [("Madapakkam", "மாடப்பாக்கம்"), ("Madambakkam", "மாடம்பாக்கம்")])
+    assert gaz.village_by_sound("Madambakam", "Chengalpattu") in (None, "Madambakkam")
+    assert gaz.village_by_sound("Madapakam", "Chengalpattu") in (None, "Madapakkam")
+
+
+def test_sound_never_maps_a_numbered_sub_village_onto_the_plain_one():
+    gaz = _sound_gaz(["Elavur"], [("Elavur", "எளாவூர்")])
+    assert gaz.village_by_sound("Elavur II", "Chengalpattu") is None
+    assert gaz.village_by_sound("Elavoor", "Chengalpattu") == "Elavur"
+
+
+def test_without_tamil_names_the_sound_rule_is_off():
+    from pipeline.place_resolution import Gazetteer
+    gaz = Gazetteer(districts=["Chengalpattu"], taluks=[("Chengalpattu", "Chengalpattu")],
+                    villages=[("Chettypunniyam", "Chengalpattu", "Chengalpattu")])
+    assert gaz.village_by_sound("Chettipuniam", "Chengalpattu") is None
