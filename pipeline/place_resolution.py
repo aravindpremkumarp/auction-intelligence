@@ -250,6 +250,61 @@ TALUK_ALIASES = {
     "virdhachalam":        "Vridhachalam",
     "walaja":              "Walajah",
     "walajaa":             "Walajah",
+    # Harvested 2026-09-26 by the rule at the top of this table, from the
+    # 407 listings whose taluk string resolved to nothing: a spelling is kept
+    # only when exactly one taluk in the listing's own resolved district scores
+    # 70+ against it, every listing carrying that spelling points at the same
+    # taluk, and at least one of them names a village the gazetteer holds in
+    # it. 51 spellings cleared that; the seven composites among them
+    # ("Mambalam - Guindy", "Fort - Tondiarpet", "Natham Pernambut" and their
+    # variants) name two taluks, so picking one half would be a guess —
+    # compound_taluk settles those to the district on purpose. 44 remain,
+    # carrying 76 listings. The 194 with no single close taluk in their
+    # district, the 77 no village confirms and the 35 with no district stay out.
+    "agasteevaram":        "Agasteeswaram",
+    "ayanaaram":           "Ayanavaram",
+    "bodinayanakur":       "Bodinayakkanur",
+    "gandharavkottai":     "Gandarvakottai",
+    "ginge":               "Gingee",
+    "idappadi":            "Edappady",
+    "kankeyam":            "Kangayam",
+    "kivilur":             "Kilvelur",
+    "kumarasangam":        "Kumarapalayam",
+    "kurunchipadi":        "Kurinjipadi",
+    "madukkaral":          "Madukkarai",
+    "maduthalam":          "Madathukulam",
+    "musini":              "Musiri",
+    "omalar":              "Omalur",
+    "pethanayakanpalayam": "Pethanaickenpalayam",
+    "pethanayakenpalayam": "Pethanaickenpalayam",
+    "ponnen":              "Ponneri",
+    "ponneti":             "Ponneri",
+    "poonthamalle":        "Poonamallee",
+    "sankargiri":          "Sankari",
+    "shoogari":            "Shoolagiri",
+    "solingar":            "Sholinghur",
+    "srangam":             "Srirengam",
+    "srengam":             "Srirengam",
+    "srinangam":           "Srirengam",
+    "srinengam":           "Srirengam",
+    "sriperumpudar":       "Sriperumbudur",
+    "sulagiri":            "Shoolagiri",
+    "suler":               "Sulur",
+    "tanbaram":            "Tambaram",
+    "thirupanur":          "Thiruporur",
+    "thirupour taruk":     "Thiruporur",
+    "thiruppurur":         "Thiruporur",
+    "thiruvananur":        "Thiruvarur",
+    "thiruvarampur":       "Thiruverumbur",
+    "udumalpet":           "Udumalaipettai",
+    "uthamalapayam":       "Uthamapalayam",
+    "vazhapdi":            "Valapady",
+    "vazhappadi":          "Valapady",
+    "vazhappady":          "Valapady",
+    "viralmatal":          "Viralimalai",
+    "viruthunagar":        "Virudhunagar",
+    "wailabad":            "Walajabad",
+    "walajapet":           "Walajah",
 }
 
 # Chennai is fully urban and keeps no revenue villages, so 12 of its taluks

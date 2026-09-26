@@ -343,6 +343,32 @@ def test_a_harvested_taluk_spelling_reaches_its_gazetteer_name():
     assert r["village_status"] == "resolved"
 
 
+def test_udumalpet_reaches_udumalaipettai_and_its_village():
+    """21 listings write the taluk "Udumalpet"; it scores 82 against
+    Udumalaipettai, below the fuzzy floor, and 15 of them name a village of
+    that taluk — the evidence that earned the alias."""
+    from pipeline.place_resolution import TALUK_ALIASES
+    assert TALUK_ALIASES["udumalpet"] == "Udumalaipettai"
+    local = Gazetteer(
+        districts=["Tiruppur"],
+        taluks=[("Udumalaipettai", "Tiruppur"), ("Madathukulam", "Tiruppur")],
+        villages=[("Kurichikottai", "Udumalaipettai", "Tiruppur")],
+    )
+    r = resolve_place(local, district="Tiruppur", taluk="Udumalpet",
+                      village="Kurichikottai")
+    assert (r["taluk"], r["village"], r["village_status"]) == \
+        ("Udumalaipettai", "Kurichikottai", "resolved")
+
+
+def test_no_alias_turns_a_two_taluk_composite_into_one_half():
+    """"Mambalam - Guindy" and "Fort - Tondiarpet" name two taluks each;
+    compound_taluk settles them to the district, and an alias must not pick."""
+    from pipeline.place_resolution import TALUK_ALIASES
+    for raw in ("mambalam - guindy", "mambalam guindy", "fort - tondiarpet",
+                "fort tondiarpet", "natham pernambut"):
+        assert raw not in TALUK_ALIASES
+
+
 def test_no_alias_names_a_taluk_the_district_alone_can_settle():
     """Tirupathur and Thiruppattur fold to one key, so a global alias naming
     either would misfile every listing that meant the other. 14 listings spell
