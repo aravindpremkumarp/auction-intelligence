@@ -19,7 +19,7 @@ def _e(cls, text, lot="1", **attrs):
 
 def _stored():
     return [_e("full_description", "land at Sy No 12/1, Village V"),
-            _e("location", "Village V"),
+            _e("location", "Village V", village="V", taluk="T"),
             _e("property", "land", property_type="land"),
             _e("auction_terms", "Reserve price Rs.9,50,000/-",
                reserve_price_num="950000", auction_start_dt="2026-10-01")]

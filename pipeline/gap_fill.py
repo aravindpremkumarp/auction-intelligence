@@ -25,7 +25,9 @@ import re
 from typing import Callable
 
 from pipeline.keep_better import merge
-from pipeline.key_entities import KEY_ATTR, KEY_CLASS, KEY_LABELS, key_checklist
+from pipeline.key_entities import (
+    KEY_ATTR, KEY_CLASS, KEY_LABELS, key_checklist, location_parts,
+)
 from pipeline.lot_chunks import (
     HEAD_CAP, TAIL_CAP, _compose, _Text, _to_notice, plan_chunks,
 )
@@ -47,18 +49,40 @@ def _lot(e: dict) -> str:
     return str((e.get("attrs") or {}).get("lot_index") or "1")
 
 
+#: A location without these cannot be placed on the register, so it is a gap
+#: even though it names a place. The SRO rides along when asked, not alone.
+LOCATION_NEEDS = ("village", "taluk")
+
+#: The word the lot's text needs before a missing part is worth a read.
+_PART_CLUES = {
+    "village": re.compile(r"\bvill(?:age)?\b|\bgrama", re.I),
+    "taluk": re.compile(r"\btaluk|\btaluq|\btk\b|\btehsil", re.I),
+}
+
+
 def gaps(ents: list[dict]) -> dict[str, list[str]]:
     """lot_index -> the key facts the extraction lacks for that lot. Only lots
     the extraction holds: a lot missing entirely is a missing-lot problem, not a
-    gap to fill."""
+    gap to fill. A location naming no village or no taluk is a gap too
+    (:data:`LOCATION_NEEDS`): it names a place the register cannot find."""
     out: dict[str, list[str]] = {}
+    parts = location_parts(ents)
     for lot in key_checklist(ents)["lots"]:
         if not lot.get("extracted"):
             continue
+        li = str(lot["lot_index"])
         miss = [k for k, c in lot["cells"].items() if c["status"] == "missing"]
+        if ("location" not in miss and lot["cells"]["location"]["status"] == "filled"
+                and missing_parts(parts, li)):
+            miss.append("location")
         if miss:
-            out[str(lot["lot_index"])] = miss
+            out[li] = miss
     return out
+
+
+def missing_parts(parts: dict[str, set[str]], lot: str) -> list[str]:
+    """The :data:`LOCATION_NEEDS` lot ``lot``'s location spans lack."""
+    return [k for k in LOCATION_NEEDS if k not in parts.get(lot, set())]
 
 
 # ── the lean prompt ──────────────────────────────────────────────────────────
@@ -407,6 +431,7 @@ def plan(md: str, stored: list[dict], skip: set[tuple[str, str]] = frozenset(),
     """
     from pipeline.absence import RULE_NO_CLUE, no_clue
     n_lots = max(len({_lot(e) for e in stored}), 1)
+    parts = location_parts(stored)
     todo: dict[str, list[str]] = {}
     marks: dict[tuple[str, str], str] = {}
     for lot, keys in gaps(stored).items():
@@ -416,11 +441,24 @@ def plan(md: str, stored: list[dict], skip: set[tuple[str, str]] = frozenset(),
         cut = excerpt(md, stored, lot, n_lots, expected_lot_count)
         text = cut[0] if cut else mask_possession_boilerplate(md)
         for k in keys:
-            if no_clue(text, k):
+            if no_clue(text, k) or (k == "location" and _no_part_clue(
+                    text, stored, lot, parts)):
                 marks[(lot, k)] = RULE_NO_CLUE
             else:
                 todo.setdefault(lot, []).append(k)
     return todo, marks
+
+
+def _no_part_clue(text: str, stored: list[dict], lot: str,
+                  parts: dict[str, set[str]]) -> bool:
+    """A location that names a place but lacks its village or taluk is worth a
+    read only when the lot's text has the word for a missing part — most
+    urban flats name a street and a city and no village at all."""
+    has_location = any(e.get("cls") == "location" and _lot(e) == lot for e in stored)
+    if not has_location:
+        return False
+    clean = re.sub(r"<[^>]+>", " ", text or "")
+    return not any(_PART_CLUES[k].search(clean) for k in missing_parts(parts, lot))
 
 
 def fill(md: str, stored: list[dict], read: Callable[..., list[dict]],

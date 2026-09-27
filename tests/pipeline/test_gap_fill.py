@@ -17,7 +17,8 @@ MD = ("SALE NOTICE. Lot 1: land at Sy No 12/1, Village V, 1200 sq.ft. "
 
 def _stored():
     return [_e("full_description", "land at Sy No 12/1, Village V, 1200 sq.ft.", MD),
-            _e("location", "Village V", MD), _e("extent", "1200 sq.ft.", MD),
+            _e("location", "Village V", MD, village="V", taluk="T"),
+            _e("extent", "1200 sq.ft.", MD),
             _e("property", "land", MD, property_type="land")]
 
 
@@ -56,7 +57,7 @@ def test_fill_adds_what_the_read_found_and_touches_nothing_else():
     assert calls == [["auction_date", "possession_type", "reserve_price"]]
     assert "reserve_price" in _filled(filled)["1"]
     # the location the lot already had is untouched; the stray one is dropped
-    assert [e["attrs"].get("village") for e in filled if e["cls"] == "location"] == [None]
+    assert [e["attrs"].get("village") for e in filled if e["cls"] == "location"] == ["V"]
     terms = [e for e in filled if e["cls"] == "auction_terms"][0]
     assert MD[terms["start"]:terms["end"]] == terms["text"]
     assert terms["attrs"]["gap_fill"] == "true"
@@ -212,3 +213,71 @@ def test_a_possession_taken_from_the_boilerplate_is_cleared_and_recorded():
              for x in ents]
     _, cleared3, absent3 = G.unsupported_possession(ents3, md3)
     assert [c["value"] for c in cleared3] == ["symbolic"] and absent3 == set()
+
+
+# ── a location that names a place but not its village or taluk ──────────────
+
+LOC_MD = ("SALE NOTICE. Lot 1: land at Sy No 12/1, Adhanur Village, Kundrathur "
+          "Taluk, Chengalpet Joint-II SRO. Reserve price Rs.9,50,000/-. "
+          "Auction on 01-10-2026. 1200 sq.ft. Possession: Physical.\n")
+
+
+def _loc_stored(**loc):
+    return [_e("full_description", "land at Sy No 12/1, Adhanur Village", LOC_MD),
+            _e("location", "Adhanur Village, Kundrathur Taluk", LOC_MD, **loc),
+            _e("extent", "1200 sq.ft.", LOC_MD),
+            _e("property", "land", LOC_MD, property_type="land",
+               possession_type="physical"),
+            _e("auction_terms", "Reserve price Rs.9,50,000/-", LOC_MD,
+               reserve_price_num="950000", auction_start_dt="2026-10-01")]
+
+
+def test_a_location_without_its_village_or_taluk_is_a_gap():
+    assert G.gaps(_loc_stored()) == {"1": ["location"]}
+    assert G.gaps(_loc_stored(village="Adhanur")) == {"1": ["location"]}
+    # the SRO alone is never a reason to read
+    assert G.gaps(_loc_stored(village="Adhanur", taluk="Kundrathur")) == {}
+    # the checklist is unchanged: the place is named
+    from pipeline.key_entities import key_checklist
+    cell = key_checklist(_loc_stored())["lots"][0]["cells"]["location"]
+    assert cell["status"] == "filled"
+
+
+def test_a_missing_part_needs_its_word_in_the_lot_text():
+    from pipeline.absence import RULE_NO_CLUE
+    todo, marks = G.plan(LOC_MD, _loc_stored(village="Adhanur"))
+    assert todo == {"1": ["location"]} and marks == {}
+    flat = LOC_MD.replace("Kundrathur Taluk", "Chennai")
+    stored = [dict(e, text=e["text"].replace("Kundrathur Taluk", "Chennai"))
+              for e in _loc_stored(village="Adhanur")]
+    for e in stored:
+        e["start"] = flat.index(e["text"])
+        e["end"] = e["start"] + len(e["text"])
+    todo, marks = G.plan(flat, stored)
+    assert todo == {} and marks == {("1", "location"): RULE_NO_CLUE}
+
+
+def test_fill_adds_the_parts_written_in_the_span_and_nothing_made_up():
+    def read(text, keys, hint):
+        assert keys == ["location"]
+        return [_e("location", "Adhanur Village, Kundrathur Taluk, Chengalpet "
+                   "Joint-II SRO", text, village="Adhanur", taluk="Kundrathur",
+                   registration_sub_district="Chengalpet Joint-II",
+                   district="Chengalpattu")]
+    stored = _loc_stored(village="Adhanur")
+    filled, _ = G.fill(LOC_MD, stored, read)
+    added = [e for e in filled if e["cls"] == "location" and e["attrs"].get("merged")]
+    assert len(added) == 1
+    a = added[0]["attrs"]
+    # only what the lot lacked, and only what the span spells out: the
+    # district is the model's, not the text's
+    assert (a.get("village"), a["taluk"], a["registration_sub_district"]) == \
+        (None, "Kundrathur", "Chengalpet Joint-II")
+    assert "district" not in a and a["gap_fill"] == "true"
+    assert LOC_MD[added[0]["start"]:added[0]["end"]] == added[0]["text"]
+
+    def made_up(text, keys, hint):
+        return [_e("location", "Adhanur Village, Kundrathur Taluk", text,
+                   village="Adhanur", taluk="Sriperumbudur")]
+    filled, _ = G.fill(LOC_MD, stored, made_up)
+    assert filled == stored

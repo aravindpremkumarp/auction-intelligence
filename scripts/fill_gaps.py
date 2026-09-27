@@ -1,7 +1,8 @@
 """Fill the key facts stored extractions are missing, with short reads.
 
 For each selected notice: list the lots missing a key fact (reserve price,
-auction date, property type, location, extent, full description, possession),
+auction date, property type, location, extent, full description, possession;
+a location naming no village or taluk counts as missing — pipeline/gap_fill),
 read just that lot's text with a lean prompt asking only for those facts
 (pipeline/gap_fill), fold the answers into the stored read — adding only what
 a lot lacks — and save through the keep-better gate, so a notice is written
@@ -26,6 +27,7 @@ Run:
     python -m scripts.fill_gaps --only NOTICE.jpg --dry-run
     python -m scripts.fill_gaps --below-score 60 --limit 50 --concurrency 4
     python -m scripts.fill_gaps --keys reserve_price --below-score 100
+    python -m scripts.fill_gaps --keys location --unplaced --concurrency 4
 """
 from __future__ import annotations
 
@@ -47,6 +49,23 @@ from pipeline.key_entities import KEYS
 from scripts.reset_langextract_and_extract import (
     KeptExisting, _next_batch, _stored, select_only_docs, write_extraction,
 )
+
+
+#: A lot the register could not place: no village, no usable taluk, or a
+#: village its taluk does not hold (pipeline/place_resolution).
+UNPLACED = ("absent", "no-parent-taluk", "unmatched")
+
+
+def select_unplaced(limit: int | None) -> list[str]:
+    """Every notice holding a lot the register could not place — where a
+    village or taluk the first read skipped is worth a lean read."""
+    rows = run_read_query(
+        "MATCH (d:Document)-[:HAS_LOT]->(l:Lot) WHERE d.stitched_into IS NULL "
+        "  AND d.extraction_json IS NOT NULL AND l.place_status IN $s "
+        "RETURN DISTINCT d.filename AS f ORDER BY f",
+        {"s": list(UNPLACED)}, max_rows=20_000, timeout=120.0)
+    names = [r["f"] for r in rows]
+    return names[:limit] if limit else names
 
 
 def select_low(below: int, limit: int | None) -> list[str]:
@@ -170,6 +189,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--only", action="append", default=[], metavar="FILENAME")
     ap.add_argument("--below-score", type=int, default=None,
                     help="every notice whose extraction scores below this")
+    ap.add_argument("--unplaced", action="store_true",
+                    help="every notice with a lot the register could not place")
     ap.add_argument("--keys", default=",".join(KEYS),
                     help=f"key facts to fill (default all: {','.join(KEYS)})")
     ap.add_argument("--limit", type=int, default=None)
@@ -188,8 +209,10 @@ def main(argv: list[str] | None = None) -> int:
     names = list(args.only)
     if args.below_score is not None:
         names += select_low(args.below_score, args.limit)
+    if args.unplaced:
+        names += select_unplaced(args.limit)
     if not names:
-        print("name notices with --only or pick them with --below-score")
+        print("name notices with --only or pick them with --below-score / --unplaced")
         return 2
     docs = select_only_docs(sorted(set(names)))
     batch = 0 if args.dry_run else _next_batch()
