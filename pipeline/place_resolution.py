@@ -575,7 +575,10 @@ def _fuzzy_match(needle: str, pool: dict[str, str]) -> tuple[str, float] | None:
     scored = sorted(((fuzz.ratio(needle, key), key) for key in pool),
                     reverse=True)
     top_score, top_key = scored[0]
-    runner_up = scored[1][0] if len(scored) > 1 else 0.0
+    # The runner-up is the best key naming ANOTHER village: a register copy's
+    # spelling points at its original, and must not tie against it.
+    runner_up = next((score for score, key in scored[1:]
+                      if pool[key] != pool[top_key]), 0.0)
     if top_score < FUZZY_MIN:
         return None
     if needle[:1] != top_key[:1]:
@@ -616,6 +619,12 @@ class Gazetteer:
     #: ``(village, taluk, name_ta)`` — the register's Tamil names, for
     #: :meth:`village_by_sound`. Optional: without them that rule is off.
     village_names_ta: list[tuple[str, str, str]] = field(default_factory=list)
+    #: ``(copy, taluk, original)`` — a second register row for a village the
+    #: original register already holds (scripts/link_register_copies). Its
+    #: spelling finds the original; it is never a village of its own, so the
+    #: two can no longer tie against each other or split one village's lots.
+    #: Callers leave copies out of ``villages``.
+    village_copies: list[tuple[str, str, str]] = field(default_factory=list)
 
     def __post_init__(self):
         self._d: dict[str, str] = {}
@@ -661,11 +670,25 @@ class Gazetteer:
             self._v_by_name[key].add((village, taluk, district))
         for taluk, district in self.taluks:
             self._t_by_district[district].setdefault(normalize_place(taluk), taluk)
+        # A copy's spelling, filed under its original. A link naming an
+        # original this gazetteer does not hold is stale and ignored.
+        district_of = {(v, t): d for v, t, d in self.villages}
+        self._copies: list[tuple[str, str, str]] = []
+        for copy, taluk, original in self.village_copies:
+            key, district = normalize_place(copy), district_of.get((original, taluk))
+            if not key or district is None:
+                continue
+            self._copies.append((copy, taluk, original))
+            self._v_by_taluk[taluk].setdefault(key, original)
+            self._v_by_district[district][key].add((original, taluk))
+            self._v_by_name[key].add((original, taluk, district))
         # Sound keys: every village by its English name (the runner-up pool),
         # and the ones with a Tamil name by that (the candidates).
         self._sound_en: dict[str, list[tuple[str, str]]] = defaultdict(list)
         for village, taluk, _district in self.villages:
             self._sound_en[taluk].append((village, sound_key(village)))
+        for copy, taluk, original in self._copies:
+            self._sound_en[taluk].append((original, sound_key(copy)))
         self._sound_ta: dict[str, list[tuple[str, str]]] = defaultdict(list)
         for village, taluk, name_ta in self.village_names_ta:
             if name_ta:

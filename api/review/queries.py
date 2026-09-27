@@ -1985,15 +1985,16 @@ def _village_groups(decisions: list[dict]) -> list[dict]:
 
 def _village_pool(taluks: list[str]) -> dict[str, list[dict]]:
     """``{taluk: [{name, name_ta, taluk}]}`` — every register village of each
-    taluk, one entry per name (an LGD-added copy with no Tamil name folds into
-    the original that has one)."""
+    taluk, one entry per name. A row linked as a copy of an original
+    (scripts/link_register_copies) is left out: offering it would offer one
+    place twice."""
     pool: dict[str, dict[str, dict]] = {}
     if not taluks:
         return {}
     for r in run_read_query(
             """
             MATCH (v:RevenueVillage)-[:IN_TALUK]->(t:Taluk)
-            WHERE t.name IN $taluks
+            WHERE t.name IN $taluks AND NOT (v)-[:COPY_OF]->()
             RETURN t.name AS taluk, v.name AS name, v.name_ta AS name_ta
             """, {"taluks": taluks}, max_rows=200_000, timeout=60.0):
         seen = pool.setdefault(r["taluk"], {})

@@ -157,6 +157,24 @@ The stored district is always **derived upward** from whatever resolved.
 scoped candidate sets `ambiguous = true` rather than guessing — a visible
 backlog instead of a silent wrong answer.
 
+### Register copies: `COPY_OF`
+
+The register was loaded twice: the original (17,119 villages, each with a
+Tamil name and a village code) and the LGD village-to-gram-panchayat list,
+which added 5,179 rows the first did not hold under that spelling. Most are
+villages the first lacked; 1,785 are the same village spelled another way
+("Arasur" for Arasoor, "Sevur" for Cheyur — சேவூர்). Each of those carries
+`(copy)-[:COPY_OF {rule, score, margin}]->(original)` and `copy.copy_of`
+(`scripts/link_register_copies.py`), linked only on the original's Tamil
+name: the copy's sound key must match it (≥ 95, or ≥ 90 when the English
+spellings already share a sound key) and lead every other village of the
+taluk by 8, with the same part, numbers, initials and qualifier (a forest
+"R.F.", "(Ct)", "(North)"). Nothing is deleted — a spelling only the copy
+holds still finds the village: the gazetteer loads copies as
+`village_copies`, so a notice spelled like the copy lands on the original,
+and the two no longer tie against each other in the fuzzy match. The review
+queue offers originals only.
+
 ### Villages kept in parts: `MAYBE_IN_REVENUE_VILLAGE`
 
 The register splits some villages into parts — "Pammal - I" / "Pammal - II",

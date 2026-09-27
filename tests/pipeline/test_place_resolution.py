@@ -747,3 +747,41 @@ def test_a_village_split_too_many_ways_is_not_linked():
                              for i in range(1, MAX_VILLAGE_PARTS + 2)])
     assert resolve_place(many, district="Chengalpattu", taluk="Pallavaram",
                          village="Vedaranyam")["village_parts"] == []
+
+
+# ── Register rows that copy an original ──────────────────────────────────────
+
+def _copy_gaz(linked=True):
+    from pipeline.place_resolution import Gazetteer
+    villages = [("Arasoor", "Vandavasi", "Tiruvannamalai"),
+                ("Kilkodungalur", "Vandavasi", "Tiruvannamalai")]
+    copy = [("Arasur", "Vandavasi", "Tiruvannamalai")]
+    return Gazetteer(districts=["Tiruvannamalai"], taluks=[("Vandavasi", "Tiruvannamalai")],
+                     villages=villages if linked else villages + copy,
+                     village_copies=[("Arasur", "Vandavasi", "Arasoor"),
+                                     ("Ghost", "Vandavasi", "Nowhere")] if linked else [])
+
+
+def test_a_copy_spelling_lands_on_the_original():
+    from pipeline.place_resolution import resolve_place
+    res = resolve_place(_copy_gaz(), district="Tiruvannamalai", taluk="Vandavasi",
+                        village="Arasur")
+    assert (res["village"], res["village_source"]) == ("Arasoor", "taluk")
+    assert _copy_gaz().village_in_district("Arasur", "Tiruvannamalai") == ("Arasoor", "Vandavasi")
+    assert _copy_gaz().village_in_state("Arasur") == ("Arasoor", "Vandavasi", "Tiruvannamalai")
+
+
+def test_a_copy_no_longer_ties_against_its_original():
+    """Two spellings of one village used to score within the fuzzy margin of
+    each other, and the resolver refused a spelling between them."""
+    from pipeline.place_resolution import resolve_place
+    kw = dict(district="Tiruvannamalai", taluk="Vandavasi", village="Arasour")
+    assert resolve_place(_copy_gaz(linked=False), **kw)["village"] is None
+    assert resolve_place(_copy_gaz(), **kw)["village"] == "Arasoor"
+
+
+def test_a_stale_copy_link_is_ignored():
+    from pipeline.place_resolution import resolve_place
+    res = resolve_place(_copy_gaz(), district="Tiruvannamalai", taluk="Vandavasi",
+                        village="Ghost")
+    assert res["village"] is None and res["village_status"] == "unmatched"

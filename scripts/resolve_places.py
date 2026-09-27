@@ -70,7 +70,13 @@ def load_gazetteer() -> Gazetteer:
                      RETURN t.name, d.name"""),
         villages=nq("""MATCH (v:RevenueVillage)-[:IN_TALUK]->(t:Taluk)
                              -[:IN_DISTRICT]->(d:District)
+                       WHERE NOT (v)-[:COPY_OF]->()
                        RETURN v.name, t.name, d.name"""),
+        # Register rows that copy an original (scripts/link_register_copies):
+        # their spelling finds the original.
+        village_copies=nq("""MATCH (c:RevenueVillage)-[:COPY_OF]->(o:RevenueVillage)
+                                   -[:IN_TALUK]->(t:Taluk)
+                             RETURN c.name, t.name, o.name"""),
         # Tamil names, for the last-resort match by sound
         # (Gazetteer.village_by_sound).
         village_names_ta=nq("""MATCH (v:RevenueVillage)-[:IN_TALUK]->(t:Taluk)

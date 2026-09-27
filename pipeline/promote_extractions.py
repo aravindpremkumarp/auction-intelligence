@@ -223,8 +223,17 @@ def gazetteer() -> Gazetteer:
                           for r in run_read_query(
                     "MATCH (v:RevenueVillage)-[:IN_TALUK]->(t:Taluk)"
                     "-[:IN_DISTRICT]->(d:District) "
+                    "WHERE NOT (v)-[:COPY_OF]->() "
                     "RETURN v.name AS village, t.name AS taluk, "
                     "       d.name AS district",
+                    max_rows=50_000, timeout=120.0)],
+                # Register rows that copy an original
+                # (scripts/link_register_copies): their spelling finds it.
+                village_copies=[(r["copy"], r["taluk"], r["original"])
+                                for r in run_read_query(
+                    "MATCH (c:RevenueVillage)-[:COPY_OF]->(o:RevenueVillage)"
+                    "-[:IN_TALUK]->(t:Taluk) "
+                    "RETURN c.name AS copy, t.name AS taluk, o.name AS original",
                     max_rows=50_000, timeout=120.0)],
                 # Tamil names, for the last-resort match by sound
                 # (Gazetteer.village_by_sound).
