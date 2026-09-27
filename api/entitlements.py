@@ -58,7 +58,7 @@ FREE_FIELDS: frozenset[str] = frozenset({
     # the extent, as the notice states it
     "total_area", "extent_sqft",
     # where it is
-    "village", "revenue_village", "district", "revenue_district",
+    "village", "revenue_village", "revenue_village_parts", "district", "revenue_district",
     "taluk", "revenue_taluk", "pincode",
     # what it is
     "property_type_effective", "property_type_norm", "property_type_raw",

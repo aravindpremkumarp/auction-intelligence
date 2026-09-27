@@ -95,6 +95,7 @@ jobs:
           tests/pipeline/test_property_taxonomy.py
           tests/pipeline/test_measures.py
           tests/pipeline/test_promote_extractions.py
+          tests/pipeline/test_place_resolution.py
           tests/pipeline/test_run_pipeline.py
           tests/pipeline/test_spotcheck.py
           tests/sources -q

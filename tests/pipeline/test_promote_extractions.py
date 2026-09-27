@@ -675,7 +675,10 @@ def test_a_relink_clears_the_old_edges_before_writing_the_new_ones(monkeypatch):
                      "taluk": None, "district": None}])
 
     assert calls[0] is P._CLEAR_LOT_PLACE, "the clear must come first"
-    assert calls[1:] == [P._WRITE_LOT_PLACE, P._WRITE_LOT_DISTRICT]
+    assert calls[1:] == [P._WRITE_LOT_PLACE, P._WRITE_LOT_DISTRICT, P._WRITE_LOT_PARTS]
+    # the clear takes the "one of these parts" edges too, or an answer that
+    # became a single village would keep both part links beside it
+    assert "MAYBE_IN_REVENUE_VILLAGE" in P._CLEAR_LOT_PLACE
 
 
 def test_nothing_is_cleared_when_there_is_nothing_to_write(monkeypatch):
@@ -744,3 +747,29 @@ def test_relink_settled_lots_is_a_no_op_with_nothing_decided(monkeypatch):
         {"filename": "n1", "raw": "Karapakkam", "taluk": "Sholinganallur",
          "status": "unmatched", "source": None}])
     assert P.relink_settled_lots() == {"notices": 0, "lots": 0, "moved": 0}
+
+
+def test_parcels_never_group_through_a_one_of_parts_link():
+    """A lot that is "Pammal - I or - II" must not merge with a real Pammal - II
+    lot on a shared plot number: parcel grouping reads the definite village
+    edge only, and the parts ride on an edge type of their own."""
+    assert "IN_REVENUE_VILLAGE]" in P._PARCEL_EDGES
+    assert "MAYBE_IN_REVENUE_VILLAGE" not in P._PARCEL_EDGES
+    assert ":MAYBE_IN_REVENUE_VILLAGE]" in P._WRITE_LOT_PARTS
+
+
+def test_a_lot_naming_a_split_village_carries_every_part(monkeypatch):
+    from pipeline.place_resolution import Gazetteer
+    gaz = Gazetteer(districts=["Chengalpattu"], taluks=[("Pallavaram", "Chengalpattu")],
+                    villages=[("Pammal - I", "Pallavaram", "Chengalpattu"),
+                              ("Pammal - II", "Pallavaram", "Chengalpattu")])
+    monkeypatch.setattr(P, "gazetteer", lambda: gaz)
+    monkeypatch.setattr(P, "decided_spellings", lambda: ({}, set(), {}, {}))
+    row = P.lot_place({"lot_key": "n#1", "location": {
+        "district": "Chengalpattu", "taluk": "Pallavaram", "village": "Pammal"}})
+    assert (row["village"], row["village_parts"], row["status"]) == \
+        (None, ["Pammal - I", "Pammal - II"], "one-of-parts")
+    assert row["taluk"] == "Pallavaram"            # the taluk is still placed
+    named = P.lot_place({"lot_key": "n#2", "location": {
+        "district": "Chengalpattu", "taluk": "Pallavaram", "village": "Pammal-II"}})
+    assert (named["village"], named["village_parts"]) == ("Pammal - II", [])
