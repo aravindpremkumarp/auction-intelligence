@@ -52,7 +52,9 @@ import sys
 from collections import Counter, defaultdict
 
 from pipeline.place_lineage import classify, needs_review
-from pipeline.place_resolution import Gazetteer, resolve_place
+from pipeline.place_resolution import (
+    Gazetteer, load_sro_taluks, resolve_place, taluk_hint_place,
+)
 from pipeline.resolution_review import (
     district_conflict_key, load_osm_aliases, settle_village, settled_conflicts,
     skipped_villages, village_alias_taluks, village_aliases,
@@ -96,11 +98,12 @@ def load_properties() -> list[dict]:
         OPTIONAL MATCH (p)-[:HAS_DOCUMENT]->(d:Document)
         OPTIONAL MATCH (p)-[:LOCATED_IN_CITY]->(c:City)
         RETURN p.auction_id, p.village, p.taluk, p.district, c.name,
-               d.file_path, p.registration_district
+               d.file_path, p.registration_district, p.registration_sub_district
     """)
     return [{"auction_id": aid, "village": v, "taluk": t, "district": d,
-             "city": c, "file_path": fp, "registration_district": rd}
-            for aid, v, t, d, c, fp, rd in rows if aid]
+             "city": c, "file_path": fp, "registration_district": rd,
+             "registration_sub_district": sro}
+            for aid, v, t, d, c, fp, rd, sro in rows if aid]
 
 
 def notice_fallback() -> dict[str, dict]:
@@ -277,6 +280,7 @@ def run(*, dry_run: bool = False) -> dict:
     alias_taluks = village_alias_taluks(decisions)
     skips = skipped_villages(decisions)
     osm_aliases = load_osm_aliases()
+    sro_taluks = load_sro_taluks()
     settled = settled_conflicts(decisions)
     print(f"{len(props)} propert(ies); gazetteer has "
           f"{len(gaz.districts)} districts, {len(gaz.taluks)} taluks, "
@@ -312,6 +316,16 @@ def run(*, dry_run: bool = False) -> dict:
         if res["village_status"] != was \
                 and (res["village_source"] or "").startswith("osm-"):
             stats[f"settled by OSM ({res['village_source']})"] += 1
+
+        # Then the taluk the sub-registrar office names — after the verdicts,
+        # which outrank it. SRO only: the portal city is a witness, never an
+        # answer (lots also read the notice's own town).
+        was = res["village_source"]
+        res = taluk_hint_place(gaz, res, village,
+                               sro=p["registration_sub_district"],
+                               sro_taluks=sro_taluks)
+        if res["village_source"] != was:
+            stats[f"placed by its SRO's taluk ({res['village_status']})"] += 1
 
         # The portal is only ever a witness: its disagreement is recorded, and
         # never allowed to change the answer.

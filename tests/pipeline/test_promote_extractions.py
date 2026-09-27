@@ -773,3 +773,28 @@ def test_a_lot_naming_a_split_village_carries_every_part(monkeypatch):
     named = P.lot_place({"lot_key": "n#2", "location": {
         "district": "Chengalpattu", "taluk": "Pallavaram", "village": "Pammal-II"}})
     assert (named["village"], named["village_parts"]) == ("Pammal - II", [])
+
+
+def test_a_lot_with_no_taluk_is_placed_through_its_sro_or_town(monkeypatch):
+    from pipeline.place_resolution import Gazetteer, sro_key
+    gaz = Gazetteer(districts=["Chengalpattu"],
+                    taluks=[("Chengalpattu", "Chengalpattu"), ("Tambaram", "Chengalpattu")],
+                    villages=[("Kattankulathur", "Chengalpattu", "Chengalpattu"),
+                              ("Madambakkam", "Tambaram", "Chengalpattu"),
+                              # a second one, so the name alone places neither
+                              ("Madambakkam", "Chengalpattu", "Chengalpattu")])
+    monkeypatch.setattr(P, "gazetteer", lambda: gaz)
+    monkeypatch.setattr(P, "decided_spellings", lambda: ({}, set(), {}, {}))
+    monkeypatch.setattr(P, "sro_taluks", lambda: {sro_key("Chengalpet"): "Chengalpattu"})
+    row = P.lot_place({"lot_key": "n#1", "location": {
+        "district": "Chengalpattu", "village": "Kattankalathur",
+        "registration_sub_district": "Chengalpet Joint-II SRO"}})
+    assert (row["village"], row["taluk"], row["status"], row["source"]) == \
+        ("Kattankulathur", "Chengalpattu", "resolved", "sro-taluk")
+    assert row["district_source"] == "district"     # the notice stated it
+    # a notice's own town names the taluk too — no district needed
+    town = P.lot_place({"lot_key": "n#2", "location": {
+        "village": "Madambakam", "city": "Tambaram Town"}})
+    assert (town["village"], town["taluk"], town["district"], town["source"],
+            town["district_source"]) == \
+        ("Madambakkam", "Tambaram", "Chengalpattu", "city-taluk", "city-taluk")

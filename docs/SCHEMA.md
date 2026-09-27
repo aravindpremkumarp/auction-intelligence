@@ -192,6 +192,24 @@ names the part (that is looked up as the part), a taluk that also holds the
 whole under its own name, a lone part, more than four parts, and a part name
 two villages share. A human alias to one part replaces the links.
 
+### Taluk hints: the registration office and the town
+
+A notice that gives no usable taluk (`no-parent-taluk`), or names a taluk
+its village is not in (`unmatched`), usually still names the sub-registrar
+office the land registers at — 74% of lots do. `scripts/learn_sro_taluks.py`
+learns from lots already placed which taluk each office points to, and
+writes `pipeline/lookups/sro_taluks.json`: an office names a taluk only when
+≥ 3 placed lots quote it and ≥ 90% of them sit in that one taluk (155 of 631
+offices). A lot's own town ("Mettupalayam Town") names a taluk when it is the
+taluk's name. `taluk_hint_place` then looks the village up **inside** the
+hinted taluk by the ordinary rules; the hinted taluk must be in the known
+district, an answer found in any other taluk is refused, and two hints naming
+different places cancel out. Source `sro-taluk` / `city-taluk`; human verdicts
+run first and outrank it. Lots use both hints; listings the SRO only (the
+portal city stays a witness). Checked on placed lots with the taluk hidden:
+1,029 right, 10 wrong. Re-learn after new notices; the table never learns
+from its own answers.
+
 ### The village review queue: one verdict per spelling in a taluk
 
 What the rules cannot place stays `unmatched` on the listing

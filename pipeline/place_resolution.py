@@ -38,10 +38,12 @@ worse than a missing one, because a missing one is visible.
 """
 from __future__ import annotations
 
+import json
 import re
 import unicodedata
 from collections import defaultdict
 from dataclasses import dataclass, field
+from pathlib import Path
 
 # Words that describe the *kind* of place rather than naming it. A notice
 # writes "Sriperumbudur Taluk" and the gazetteer says "Sriperumbudur".
@@ -1145,4 +1147,105 @@ def resolve_place(gaz: Gazetteer, *, district: str | None = None,
     # in the reference data, and blaming the notice for it would be wrong.
     out["village_status"] = ("unmatched" if gaz.taluk_has_villages(out["taluk"])
                              else VILLAGE_NOT_APPLICABLE)
+    return out
+
+
+# ── Taluk hints: the registration office and the city ────────────────────────
+#
+# A notice that gives no usable taluk, or names a taluk its village is not in,
+# usually still names the sub-registrar office (SRO) the land registers at —
+# 74% of lots do — and sometimes the town. Each SRO serves a known set of
+# villages, so the taluk it points to is learned from lots already placed
+# (scripts/learn_sro_taluks.py → lookups/sro_taluks.json); a city names a
+# taluk when it is the taluk's headquarters town. Either is only a hint: the
+# village must then be found inside that taluk by the ordinary rules. Checked
+# on lots whose place is known, with the taluk hidden: 1,029 right, 10 wrong.
+
+#: The learned {sro_key: {"taluk", "lots", "share", "spellings"}} table.
+SRO_TALUKS = Path(__file__).resolve().parent / "lookups" / "sro_taluks.json"
+
+_SRO_NOISE = re.compile(
+    r"\b(?:sub[\s-]*registr\w*|s\.?\s*r\.?\s*o\.?|office|registration|district"
+    r"|joint[\s-]*(?:[ivx]+|\d+)?|no\.?\s*\d+|[ivx]+)\b", re.I)
+_CITY_NOISE = re.compile(r"\b(?:town|city|taluk|tk|district|dist)\b\.?", re.I)
+
+
+def sro_key(value: str | None) -> str:
+    """One key for the spellings of one sub-registrar office — "Chengalpet
+    Joint-II SRO", "Chengalpet" — its town, by sound. 1,192 spellings in the
+    notices fold to 889 keys."""
+    folded = normalize_place(_SRO_NOISE.sub(" ", str(value or "")))
+    return sound_key(folded) if folded else ""
+
+
+def load_sro_taluks(path: Path = SRO_TALUKS) -> dict[str, str]:
+    """``{sro_key: taluk}`` from the learned table, or {} before it exists."""
+    try:
+        table = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {}
+    return {key: row["taluk"] for key, row in table.items()}
+
+
+def city_taluk(gaz: "Gazetteer", city: str | None,
+               district: str | None = None) -> str | None:
+    """The taluk a notice's city names — "Villupuram Town" → Villupuram —
+    inside ``district`` when one is known."""
+    for piece in re.split(r"[,/;]", str(city or "")):
+        piece = _CITY_NOISE.sub("", piece).strip(" .-")
+        if len(piece) < 4:
+            continue
+        hit = gaz.taluk(piece)
+        if hit and (not district or hit[1] == district):
+            return hit[0]
+    return None
+
+
+def taluk_hint_place(gaz: "Gazetteer", res: dict, village: str | None, *,
+                     sro: str | None = None, city: str | None = None,
+                     sro_taluks: dict[str, str] | None = None) -> dict:
+    """``res`` placed through the taluk the SRO or the city names, when the
+    notice gave no usable taluk (``no-parent-taluk``) or its village is not in
+    the taluk it named (``unmatched``, often a taluk from before the 2019
+    splits).
+
+    The hinted taluk must sit in the known district, and the village must be
+    found inside it by :func:`resolve_place`'s own rules — exact, parts, the
+    guarded fuzzy and sound matches; an answer the district-wide search finds
+    in another taluk is not this hint's. Two hints naming different villages
+    cancel out. The source says which hint placed it (``sro-taluk`` /
+    ``city-taluk``), so every one of these stays auditable and undoable."""
+    if (res.get("village") or res.get("village_parts") or not village
+            or res.get("village_status") not in ("no-parent-taluk", "unmatched")):
+        return res
+    hints = []
+    if sro and sro_taluks:
+        hinted = sro_taluks.get(sro_key(sro))
+        if hinted:
+            hints.append((hinted, "sro-taluk"))
+    if city:
+        hinted = city_taluk(gaz, city, res.get("district"))
+        if hinted:
+            hints.append((hinted, "city-taluk"))
+    answers: dict[tuple, tuple] = {}
+    for hinted, source in hints:
+        hit = gaz.taluk(hinted)
+        if (not hit or hit[0] == res.get("taluk")
+                or (res.get("district") and hit[1] != res["district"])):
+            continue
+        tried = resolve_place(gaz, district=hit[1], taluk=hit[0], village=village)
+        if tried["taluk"] != hit[0]:
+            continue
+        # Keyed by taluk too: "Nallur" in two taluks is two answers.
+        found = (tried["village"],) if tried["village"] else tuple(tried["village_parts"])
+        if found:
+            answers.setdefault((hit[0], found), (hit, source, tried))
+    if len(answers) != 1:
+        return res
+    (hit, source, tried), = answers.values()
+    out = {**res, "taluk": hit[0], "district": hit[1], "village": tried["village"],
+           "village_parts": tried["village_parts"],
+           "village_status": tried["village_status"], "village_source": source}
+    if not res.get("district"):
+        out["district_source"] = source
     return out
