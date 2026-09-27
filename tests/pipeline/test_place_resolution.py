@@ -687,3 +687,63 @@ def test_without_tamil_names_the_sound_rule_is_off():
     gaz = Gazetteer(districts=["Chengalpattu"], taluks=[("Chengalpattu", "Chengalpattu")],
                     villages=[("Chettypunniyam", "Chengalpattu", "Chengalpattu")])
     assert gaz.village_by_sound("Chettipuniam", "Chengalpattu") is None
+
+
+# ── Villages the register keeps in parts ─────────────────────────────────────
+
+def _split_gaz(extra=()):
+    from pipeline.place_resolution import Gazetteer
+    villages = [("Pammal - I", "Pallavaram", "Chengalpattu"),
+                ("Pammal - II", "Pallavaram", "Chengalpattu"),
+                # an LGD-added copy of part II under another spelling
+                ("Pammal-II", "Pallavaram", "Chengalpattu"),
+                ("Sevilimedu A", "Pallavaram", "Chengalpattu"),
+                ("Sevilimedu - B", "Pallavaram", "Chengalpattu"),
+                ("Konerikuppam - A", "Pallavaram", "Chengalpattu"),
+                ("Badur R.F.", "Pallavaram", "Chengalpattu"),
+                ("Badur", "Pallavaram", "Chengalpattu"), *extra]
+    return Gazetteer(districts=["Chengalpattu"], taluks=[("Pallavaram", "Chengalpattu")],
+                     villages=villages,
+                     village_names_ta=[("Pammal - II", "Pallavaram", "பம்மல் 2")])
+
+
+def test_the_whole_of_a_split_village_is_linked_to_every_part():
+    from pipeline.place_resolution import VILLAGE_ONE_OF_PARTS, resolve_place
+    res = resolve_place(_split_gaz(), district="Chengalpattu", taluk="Pallavaram",
+                        village="PAMMAL")
+    assert res["village"] is None and res["taluk"] == "Pallavaram"
+    # one entry per part; the copy with the Tamil name speaks for part II
+    assert res["village_parts"] == ["Pammal - I", "Pammal - II"]
+    assert (res["village_status"], res["village_source"]) == (VILLAGE_ONE_OF_PARTS, "split-village")
+    ab = resolve_place(_split_gaz(), district="Chengalpattu", taluk="Pallavaram",
+                       village="Sevilimedu")
+    assert ab["village_parts"] == ["Sevilimedu A", "Sevilimedu - B"]
+
+
+def test_a_notice_naming_the_part_gets_that_part():
+    from pipeline.place_resolution import resolve_place
+    res = resolve_place(_split_gaz(), district="Chengalpattu", taluk="Pallavaram",
+                        village="Pammal-I")
+    assert (res["village"], res["village_parts"]) == ("Pammal - I", [])
+
+
+def test_no_parts_when_the_whole_exists_one_part_exists_or_it_is_no_part():
+    from pipeline.place_resolution import resolve_place
+    whole = _split_gaz(extra=[("Pammal", "Pallavaram", "Chengalpattu")])
+    assert resolve_place(whole, district="Chengalpattu", taluk="Pallavaram",
+                         village="Pammal")["village"] == "Pammal"
+    lone = resolve_place(_split_gaz(), district="Chengalpattu", taluk="Pallavaram",
+                         village="Konnerikuppam")
+    assert lone["village_parts"] == []                   # a spelling question, not a split
+    # a reserve forest and a village code are not parts
+    from pipeline.place_resolution import village_part
+    assert village_part("Badur R.F.") is None and village_part("Nelli    (013)") is None
+    assert village_part("Maduranthakam Part 1") == ("Maduranthakam", "1")
+
+
+def test_a_village_split_too_many_ways_is_not_linked():
+    from pipeline.place_resolution import MAX_VILLAGE_PARTS, resolve_place
+    many = _split_gaz(extra=[(f"Vedaranyam Part - {i}", "Pallavaram", "Chengalpattu")
+                             for i in range(1, MAX_VILLAGE_PARTS + 2)])
+    assert resolve_place(many, district="Chengalpattu", taluk="Pallavaram",
+                         village="Vedaranyam")["village_parts"] == []

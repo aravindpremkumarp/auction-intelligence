@@ -65,6 +65,9 @@ RETURN a.auction_id AS auction_id, a.title AS title, a.url AS url,
        a.registration_sub_district AS sro,
        bank.name AS bank, br.name AS branch, city.name AS city, ar.name AS area,
        dist.name AS district, tal.name AS taluk, rv.name AS revenue_village,
+       // a village the register keeps in parts, named only as the whole: the
+       // listing is in one of these, and which one is its survey number's say
+       [(a)-[:MAYBE_IN_REVENUE_VILLAGE]->(_pv:RevenueVillage) | _pv.name] AS revenue_village_parts,
        ac.name AS asset_category, at.name AS auction_type,
        [(a)-[:HAS_PROPERTY_TYPE]->(pt:PropertyType) | pt.name] AS property_types,
        [(a)-[:HAS_BORROWER]->(b:Borrower) | b.name] AS borrowers,

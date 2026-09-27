@@ -340,6 +340,9 @@ def lot_place(rec: dict) -> dict:
         # review queue can group an unmatched lot with the listings that
         # share its (spelling, taluk) — the key a verdict is stored under.
         "village_raw": (loc.get("village") or "").strip() or None,
+        # Every part of a village the register splits ("Pammal - I", "- II"),
+        # when the notice named only the whole and nothing settled it.
+        "village_parts": [] if village else (r.get("village_parts") or []),
         "status": status,
         "source": source,
         # Which field the district came from. Stored because the weakest of
@@ -925,6 +928,8 @@ SET l.place_status = row.status,
     l.place_conflict = row.conflict,
     l.village = row.village,
     l.village_raw = row.village_raw,
+    l.village_parts = CASE WHEN size(coalesce(row.village_parts, [])) > 0
+                           THEN row.village_parts END,
     l.taluk = row.taluk,
     l.district = row.district
 
@@ -983,16 +988,33 @@ RETURN count(*) AS linked
 _CLEAR_LOT_PLACE = """
 UNWIND $rows AS row
 MATCH (l:Lot {lot_key: row.lot_key})
-OPTIONAL MATCH (l)-[r:IN_REVENUE_VILLAGE|IN_TALUK|IN_DISTRICT]->()
+OPTIONAL MATCH (l)-[r:IN_REVENUE_VILLAGE|MAYBE_IN_REVENUE_VILLAGE|IN_TALUK|IN_DISTRICT]->()
 DELETE r
 RETURN count(*) AS cleared
+"""
+
+
+# "One of these" parts of a split village. Its own edge type, so parcel
+# grouping (_PARCEL_EDGES, IN_REVENUE_VILLAGE only) never merges a lot that
+# may be in Pammal - I with a real Pammal - II lot through a shared plot
+# number, and nothing reading "the village of this lot" sees two.
+_WRITE_LOT_PARTS = """
+UNWIND $rows AS row
+WITH row WHERE size(coalesce(row.village_parts, [])) > 0
+MATCH (l:Lot {lot_key: row.lot_key})
+UNWIND row.village_parts AS part
+MATCH (v:RevenueVillage {name: part})-[:IN_TALUK]->(:Taluk {name: row.taluk})
+WITH l, part, v ORDER BY v.name_ta IS NULL
+WITH l, part, head(collect(v)) AS v
+MERGE (l)-[:MAYBE_IN_REVENUE_VILLAGE]->(v)
+RETURN count(*) AS linked
 """
 
 
 def write_places(rows: list[dict]) -> None:
     """Link a document's lots to the canonical geography.
 
-    Idempotent, and safe to re-run after the gazetteer changes: the lot's three
+    Idempotent, and safe to re-run after the gazetteer changes: the lot's
     geography edges are cleared first, so what is left afterwards is exactly
     what today's resolver stands behind.
     """
@@ -1001,6 +1023,7 @@ def write_places(rows: list[dict]) -> None:
     write(_CLEAR_LOT_PLACE, {"rows": rows})
     write(_WRITE_LOT_PLACE, {"rows": rows})
     write(_WRITE_LOT_DISTRICT, {"rows": rows})
+    write(_WRITE_LOT_PARTS, {"rows": rows})
 
 
 def fetch_documents(limit: int | None, filename: str | None) -> list[dict]:

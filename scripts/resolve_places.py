@@ -161,7 +161,8 @@ def write_back(rows: list[dict]) -> None:
         nq("""
             UNWIND $rows AS row
             MATCH (p:AuctionProperty {auction_id: row.auction_id})
-                  -[r:LOCATED_IN_DISTRICT|LOCATED_IN_TALUK|LOCATED_IN_REVENUE_VILLAGE]->()
+                  -[r:LOCATED_IN_DISTRICT|LOCATED_IN_TALUK|LOCATED_IN_REVENUE_VILLAGE
+                     |MAYBE_IN_REVENUE_VILLAGE]->()
             DELETE r
         """, {"rows": rows[i:i + BATCH]})
         nq("""
@@ -170,6 +171,8 @@ def write_back(rows: list[dict]) -> None:
             SET p.revenue_district       = row.district,
                 p.revenue_taluk          = row.taluk,
                 p.revenue_village        = row.village,
+                p.revenue_village_parts  = CASE WHEN size(row.village_parts) > 0
+                                                THEN row.village_parts END,
                 p.place_district_source  = row.district_source,
                 p.place_village_status   = row.village_status,
                 p.place_village_source   = row.village_source,
@@ -205,6 +208,19 @@ def write_back(rows: list[dict]) -> None:
             MATCH (vv:RevenueVillage {name: row.village})
                   -[:IN_TALUK]->(:Taluk {name: row.taluk})
             MERGE (p)-[:LOCATED_IN_REVENUE_VILLAGE]->(vv)
+        """, {"rows": rows[i:i + BATCH]})
+        # A village the register keeps in parts: an edge to each, of its own
+        # type, so nothing that reads the one village a listing is in (the
+        # property detail, the village filter, parcels) mistakes it for two.
+        nq("""
+            UNWIND $rows AS row
+            WITH row WHERE size(row.village_parts) > 0
+            MATCH (p:AuctionProperty {auction_id: row.auction_id})
+            UNWIND row.village_parts AS part
+            MATCH (vv:RevenueVillage {name: part})-[:IN_TALUK]->(:Taluk {name: row.taluk})
+            WITH p, part, vv ORDER BY vv.name_ta IS NULL
+            WITH p, part, head(collect(vv)) AS vv
+            MERGE (p)-[:MAYBE_IN_REVENUE_VILLAGE]->(vv)
         """, {"rows": rows[i:i + BATCH]})
     # Roll the per-property outcome up to the Document, where the funnel
     # lives. place_resolved_at says the resolver has been over this notice;
@@ -345,6 +361,9 @@ def run(*, dry_run: bool = False) -> dict:
             "auction_id": p["auction_id"],
             "district": res["district"], "taluk": res["taluk"],
             "village": res["village"],
+            # "One of these" parts, only while no single village is known —
+            # a human alias to one part replaces them.
+            "village_parts": [] if res["village"] else (res.get("village_parts") or []),
             "district_source": res["district_source"],
             "village_status": res["village_status"],
             "village_source": res["village_source"],

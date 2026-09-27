@@ -157,6 +157,23 @@ The stored district is always **derived upward** from whatever resolved.
 scoped candidate sets `ambiguous = true` rather than guessing — a visible
 backlog instead of a silent wrong answer.
 
+### Villages kept in parts: `MAYBE_IN_REVENUE_VILLAGE`
+
+The register splits some villages into parts — "Pammal - I" / "Pammal - II",
+"Sevilimedu A" / "Sevilimedu - B", "Madipakam - 1" / "Madipakkam- 2" (930
+villages from 642 wholes). A notice naming only the whole ("Pammal") cannot
+say which part holds the land; its survey number would. So `resolve_place`
+(`Gazetteer.village_parts`) links the property to **every** part as "one of
+these": status `one-of-parts`, source `split-village`, the names in
+`AuctionProperty.revenue_village_parts` / `Lot.village_parts`, and one
+`MAYBE_IN_REVENUE_VILLAGE` edge per part. It has no `LOCATED_IN_REVENUE_VILLAGE`
+/ `IN_REVENUE_VILLAGE` edge, so the property detail, the village filter and
+parcel grouping (which reads the definite edge only) never treat it as two
+villages. The taluk and district are placed as usual. Refused: a notice that
+names the part (that is looked up as the part), a taluk that also holds the
+whole under its own name, a lone part, more than four parts, and a part name
+two villages share. A human alias to one part replaces the links.
+
 ### The village review queue: one verdict per spelling in a taluk
 
 What the rules cannot place stays `unmatched` on the listing

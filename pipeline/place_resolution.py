@@ -313,6 +313,37 @@ TALUK_ALIASES = {
 # such rather than counted as a failure.
 VILLAGE_NOT_APPLICABLE = "taluk-has-no-villages"
 
+#: A village the register keeps in parts — "Pammal - I" / "Pammal - II",
+#: "Sevilimedu A" / "Sevilimedu - B", "Madipakam - 1" / "Madipakkam- 2" — named
+#: by the notice only as the whole. Which part holds the land is a question of
+#: its survey number, which the name cannot answer, so the property is linked
+#: to every part as "one of these" (`village_parts`) and to none as its village.
+VILLAGE_ONE_OF_PARTS = "one-of-parts"
+
+#: A trailing part marker: roman I-X, a letter A-E or a one- or two-digit
+#: number, after a space, hyphen, bracket or dot, optionally as "Part 2".
+_PART = re.compile(r"(?:\s*[-(.]\s*|\s+)(?:(?i:part)\s*-?\s*)?"
+                   r"(I{1,3}|IV|VI{0,3}|IX|X|[A-E]|\d{1,2})\)?\.?\s*$")
+#: Suffixes that look like parts and are not: a reserve forest ("Badur R.F.")
+#: and the register's own village code ("Nelli (013)").
+_NOT_PART = re.compile(r"R\.?\s*F\.?\s*$|\(\s*\d{3}\s*\)\s*$", re.I)
+#: A whole split into more parts than this says too little about where the
+#: land is to be worth linking ("Vedaranyam Part 1" … "Part 9").
+MAX_VILLAGE_PARTS = 4
+
+
+def village_part(name: str) -> tuple[str, str] | None:
+    """``(whole, part)`` for a register name carrying a part marker —
+    ``("Pammal", "II")`` for "Pammal - II" — else None."""
+    name = re.sub(r"\s+", " ", name or "").strip()
+    if _NOT_PART.search(name):
+        return None
+    m = _PART.search(name)
+    if not m or not name[:m.start()].strip(" -(."):
+        return None
+    return name[:m.start()].strip(" -(."), m.group(1).upper()
+
+
 #: A property this gazetteer will never place because it is not in Tamil Nadu.
 #: Distinct from every other failure here: those say "the reference data or the
 #: read let us down", this says "there is nothing to look up". Without it, 167
@@ -509,6 +540,19 @@ def _sub_numbers(value: str | None) -> tuple[str, ...]:
     return tuple(sorted(re.findall(r"\d+", low) + _ROMAN.findall(low)))
 
 
+_ROMAN_VALUE = {"I": 1, "II": 2, "III": 3, "IV": 4, "V": 5, "VI": 6,
+                "VII": 7, "VIII": 8, "IX": 9, "X": 10}
+
+
+def _part_order(part: str) -> tuple[int, str]:
+    """I before II, A before B, 2 before 10."""
+    if part in _ROMAN_VALUE:
+        return _ROMAN_VALUE[part], ""
+    if part.isdigit():
+        return int(part), ""
+    return 0, part
+
+
 def _fuzzy_match(needle: str, pool: dict[str, str]) -> tuple[str, float] | None:
     """Best guarded fuzzy match of ``needle`` among ``{key: display}``.
 
@@ -626,6 +670,45 @@ class Gazetteer:
         for village, taluk, name_ta in self.village_names_ta:
             if name_ta:
                 self._sound_ta[taluk].append((village, sound_key(tamil_latin(name_ta))))
+        # Villages kept in parts, by taluk and the folded name of the whole:
+        # {part: register name}. Where the register holds one part under two
+        # spellings (an LGD-added copy), the one with a Tamil name — the
+        # original row — speaks for it.
+        with_ta = {(v, t) for v, t, ta in self.village_names_ta if ta}
+        self._v_parts: dict[str, dict[str, dict[str, str]]] = defaultdict(
+            lambda: defaultdict(dict))
+        for village, taluk, _district in self.villages:
+            split = village_part(village)
+            if not split:
+                continue
+            parts = self._v_parts[taluk][normalize_place(split[0])]
+            held = parts.get(split[1])
+            if held is None or ((village, taluk) in with_ta
+                                and (held, taluk) not in with_ta):
+                parts[split[1]] = village
+
+    def village_parts(self, value: str, taluk: str) -> list[str] | None:
+        """The register names of the parts ``value`` is split into inside
+        ``taluk`` — ``["Pammal - I", "Pammal - II"]`` for "Pammal" — or None.
+
+        Only when the notice names the whole: a spelling that carries its own
+        part ("Pammal-II") is that part and is looked up as one. Refused when
+        the taluk also holds the whole under its own name (that exact match
+        answers first), when there is only one part (a lone "Konerikuppam - A"
+        is a spelling question, not a split), past :data:`MAX_VILLAGE_PARTS`,
+        or when a part's name is itself shared by two villages of the taluk."""
+        if not (value or "").strip() or village_part(value) or _sub_numbers(value):
+            return None
+        key = normalize_place(value)
+        parts = (self._v_parts.get(taluk) or {}).get(key)
+        if not parts or not 2 <= len(parts) <= MAX_VILLAGE_PARTS:
+            return None
+        if key in (self._v_by_taluk.get(taluk) or {}):
+            return None
+        names = [parts[p] for p in sorted(parts, key=_part_order)]
+        if any((taluk, normalize_place(n)) in self._v_ambiguous for n in names):
+            return None
+        return names
 
     def village_by_sound(self, value: str, taluk: str) -> str | None:
         """The register village whose Tamil name sounds like ``value``.
@@ -876,7 +959,7 @@ def resolve_place(gaz: Gazetteer, *, district: str | None = None,
     from a gap in the reference data.
     """
     out = {
-        "district": None, "taluk": None, "village": None,
+        "district": None, "taluk": None, "village": None, "village_parts": [],
         "district_source": None, "village_source": None, "village_status": None,
         "raw": {"district": district, "taluk": taluk, "village": village,
                 "registration_district": registration_district,
@@ -992,6 +1075,18 @@ def resolve_place(gaz: Gazetteer, *, district: str | None = None,
     # nearest suffixed variant — "Kundrathur" became "Kundrathur B" at 95.
     if normalize_place(village) == normalize_place(out["taluk"]):
         out["village_status"] = "names-a-taluk"
+        return out
+
+    # The whole of a village the register keeps in parts ("Pammal" for
+    # "Pammal - I" / "- II"). Before fuzzy, which would otherwise reach for one
+    # part or refuse on the tie: the notice named every part at once, and only
+    # the survey number says which, so it is linked to all of them as "one of
+    # these" and to none as its village.
+    parts = gaz.village_parts(village, out["taluk"])
+    if parts:
+        out["village_parts"] = parts
+        out["village_status"] = VILLAGE_ONE_OF_PARTS
+        out["village_source"] = "split-village"
         return out
 
     found = gaz.village(village, out["taluk"])

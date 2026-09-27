@@ -195,9 +195,13 @@ def _build(  # noqa: PLR0912, PLR0913, PLR0915 - one filter, one branch
             where="toLower(_tal.name) CONTAINS toLower($taluk)",
             taluk=str(taluk).strip())
     if revenue_village:
+        # EXISTS, not a join: a listing in one of a split village's parts
+        # ("Pammal - I or - II") links to both, and a join would return it
+        # once per matching part.
         add("revenue_village", f"revenue village = {revenue_village}",
-            join="(a)-[:LOCATED_IN_REVENUE_VILLAGE]->(_rv:RevenueVillage)",
-            where="toLower(_rv.name) CONTAINS toLower($revenue_village)",
+            where="EXISTS { (a)-[:LOCATED_IN_REVENUE_VILLAGE|MAYBE_IN_REVENUE_VILLAGE]"
+                  "->(_rv:RevenueVillage) "
+                  "WHERE toLower(_rv.name) CONTAINS toLower($revenue_village) }",
             revenue_village=str(revenue_village).strip())
 
     # ── what ─────────────────────────────────────────────────────────────

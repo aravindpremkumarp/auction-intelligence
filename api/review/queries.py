@@ -1808,6 +1808,7 @@ def _place_panels() -> list[dict]:
         "taluk-has-no-villages": "taluk keeps no revenue villages (urban)",
         "names-a-taluk": "village field repeats the taluk name",
         "not-a-revenue-village": "a town area or locality, not a revenue village",
+        "one-of-parts": "village kept in parts (I/II, A/B); linked to all of them",
         "outside-tamil-nadu": "the property is outside Tamil Nadu",
     }
     # The portal disagreement is one number hiding three populations, and only
