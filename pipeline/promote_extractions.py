@@ -74,8 +74,8 @@ from pipeline.property_taxonomy import (
     AGRICULTURAL, FLAT, LAND, PLOT, classify_property_type,
 )
 from pipeline.resolution_review import (
-    load_osm_aliases, settle_village, skipped_villages, village_alias_taluks,
-    village_aliases,
+    load_osm_aliases, settle_village, skipped_villages, village_alias_codes,
+    village_alias_taluks, village_aliases,
 )
 from pipeline.resolve_places import norm_place
 from pipeline.validators import normalize_identifier_kind
@@ -247,6 +247,15 @@ def gazetteer() -> Gazetteer:
                     "RETURN v.name AS village, t.name AS taluk, "
                     "       v.name_ta AS name_ta",
                     max_rows=50_000, timeout=120.0)],
+                # Village codes, for a verdict that picks one of two villages
+                # of one name in a taluk (Gazetteer.village_by_code).
+                village_codes=[(r["village"], r["taluk"], r["code"])
+                               for r in run_read_query(
+                    "MATCH (v:RevenueVillage)-[:IN_TALUK]->(t:Taluk) "
+                    "WHERE v.village_code IS NOT NULL "
+                    "RETURN v.name AS village, t.name AS taluk, "
+                    "       v.village_code AS code",
+                    max_rows=50_000, timeout=120.0)],
             )
             log.info("gazetteer loaded: %d districts, %d taluks, %d villages",
                      len(_GAZ.districts), len(_GAZ.taluks), len(_GAZ.villages))
@@ -259,15 +268,15 @@ def gazetteer() -> Gazetteer:
 # stayed unmatched on a spelling its own listing was placed by. Read once per
 # process, like the gazetteer.
 _SPELLINGS: tuple[dict[str, str], set[str], dict[str, dict],
-                 dict[str, str]] | None = None
+                 dict[str, str], dict[str, str]] | None = None
 _SPELLINGS_LOCK = threading.Lock()
 
 
 def decided_spellings(reload: bool = False
                       ) -> tuple[dict[str, str], set[str], dict[str, dict],
-                                 dict[str, str]]:
-    """``(aliases, skips, osm, alias_taluks)`` for :func:`settle_village`.
-    ``reload`` re-reads
+                                 dict[str, str], dict[str, str]]:
+    """``(aliases, skips, osm, alias_taluks, alias_codes)`` for
+    :func:`settle_village`. ``reload`` re-reads
     them — the API process lives across review sessions, so its apply step
     must see verdicts made since it started."""
     global _SPELLINGS
@@ -287,7 +296,8 @@ def decided_spellings(reload: bool = False
                 decisions.append({"key": r["key"], "kind": r["kind"],
                                   "verdict": r["verdict"], "payload": payload})
             _SPELLINGS = (village_aliases(decisions), skipped_villages(decisions),
-                          load_osm_aliases(), village_alias_taluks(decisions))
+                          load_osm_aliases(), village_alias_taluks(decisions),
+                          village_alias_codes(decisions))
     return _SPELLINGS
 
 
@@ -360,12 +370,12 @@ def lot_place(rec: dict) -> dict:
 
     # Then the spellings a person or OpenStreetMap has already settled — the
     # listing resolver's own step, so a lot and its listing agree.
-    aliases, skips, osm, alias_taluks = decided_spellings()
+    aliases, skips, osm, alias_taluks, alias_codes = decided_spellings()
     settled = settle_village(
         gaz, {"district": district, "taluk": taluk, "village": village,
               "village_status": status, "village_source": source},
         loc.get("village"), aliases=aliases, skips=skips, osm=osm,
-        alias_taluks=alias_taluks)
+        alias_taluks=alias_taluks, alias_codes=alias_codes)
     district, taluk, village, status, source = (
         settled["district"], settled["taluk"], settled["village"],
         settled["village_status"], settled["village_source"])
@@ -393,6 +403,10 @@ def lot_place(rec: dict) -> dict:
         "lot_key": rec["lot_key"],
         "district": district,
         "taluk": taluk,
+        # Which of two same-named villages of the taluk, when a verdict said
+        # (settle_village); None everywhere else. _WRITE_LOT_PLACE links only
+        # the row carrying it.
+        "village_code": settled.get("village_code"),
         "village": village,
         # The notice's own spelling, kept beside the answer so the village
         # review queue can group an unmatched lot with the listings that
@@ -985,6 +999,7 @@ SET l.place_status = row.status,
     l.place_district_source = row.district_source,
     l.place_conflict = row.conflict,
     l.village = row.village,
+    l.village_code = row.village_code,
     l.village_raw = row.village_raw,
     l.village_parts = CASE WHEN size(coalesce(row.village_parts, [])) > 0
                            THEN row.village_parts END,
@@ -998,6 +1013,9 @@ WITH l, row
 OPTIONAL MATCH (v:RevenueVillage {name: row.village})
                -[:IN_TALUK]->(t:Taluk {name: row.taluk})
                -[:IN_DISTRICT]->(d:District {name: row.district})
+// A verdict that named the village code (two villages of one name in the
+// taluk) links that row alone.
+WHERE row.village_code IS NULL OR v.village_code = row.village_code
 WITH l, collect({v: v, t: t, d: d}) AS hits
 // 21 taluks hold two villages of one name. resolve_place already refuses
 // those, but a second guard here costs nothing and a wrong parcel merge is
@@ -1255,7 +1273,7 @@ def relink_settled_lots(dry_run: bool = False) -> dict:
     from pipeline.place_resolution import normalize_place
     from pipeline.resolution_review import village_alias_key
 
-    aliases, skips, _osm, _where = decided_spellings(reload=True)
+    aliases, skips, _osm, _where, _codes = decided_spellings(reload=True)
     rows = run_read_query(
         """
         MATCH (d:Document)-[:HAS_LOT]->(l:Lot)

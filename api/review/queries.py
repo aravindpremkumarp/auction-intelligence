@@ -1984,24 +1984,48 @@ def _village_groups(decisions: list[dict]) -> list[dict]:
 
 
 def _village_pool(taluks: list[str]) -> dict[str, list[dict]]:
-    """``{taluk: [{name, name_ta, taluk}]}`` — every register village of each
-    taluk, one entry per name. A row linked as a copy of an original
+    """``{taluk: [{name, name_ta, taluk, village_code, ambiguous}]}`` — every
+    register village of each taluk. A row linked as a copy of an original
     (scripts/link_register_copies) is left out: offering it would offer one
-    place twice."""
-    pool: dict[str, dict[str, dict]] = {}
+    place twice.
+
+    One entry per name, except where the taluk really holds two villages of
+    that name, each with its own village code (Coimbatore North's two
+    "Veerapandi.", 004 and 024): those stay one entry per code, marked
+    ``ambiguous``, because a reviewer choosing by name alone would be choosing
+    at random and the gazetteer refuses the name (``Gazetteer.village``) —
+    only a verdict naming the code applies. A same-named row with no code (an
+    LGD-added second spelling) folds into the coded one as before."""
+    pool: dict[str, dict[str, list[dict]]] = {}
     if not taluks:
         return {}
     for r in run_read_query(
             """
             MATCH (v:RevenueVillage)-[:IN_TALUK]->(t:Taluk)
             WHERE t.name IN $taluks AND NOT (v)-[:COPY_OF]->()
-            RETURN t.name AS taluk, v.name AS name, v.name_ta AS name_ta
+            RETURN t.name AS taluk, v.name AS name, v.name_ta AS name_ta,
+                   v.village_code AS village_code
             """, {"taluks": taluks}, max_rows=200_000, timeout=60.0):
-        seen = pool.setdefault(r["taluk"], {})
-        entry = seen.setdefault(r["name"], {"name": r["name"], "name_ta": None,
-                                            "taluk": r["taluk"]})
-        entry["name_ta"] = entry["name_ta"] or r.get("name_ta")
-    return {t: sorted(v.values(), key=lambda e: e["name"]) for t, v in pool.items()}
+        pool.setdefault(r["taluk"], {}).setdefault(r["name"], []).append(r)
+    out: dict[str, list[dict]] = {}
+    for taluk, by_name in pool.items():
+        entries = []
+        for name, rows in by_name.items():
+            coded = {}
+            for r in rows:
+                if r.get("village_code") is not None:
+                    coded.setdefault(str(r["village_code"]), r)
+            if len(coded) > 1:
+                entries += [{"name": name, "name_ta": r.get("name_ta"), "taluk": taluk,
+                             "village_code": code, "ambiguous": True}
+                            for code, r in sorted(coded.items())]
+                continue
+            name_ta = next((r["name_ta"] for r in rows if r.get("name_ta")), None)
+            code = next(iter(coded), None)
+            entries.append({"name": name, "name_ta": name_ta, "taluk": taluk,
+                            "village_code": code, "ambiguous": False})
+        out[taluk] = sorted(entries, key=lambda e: (e["name"], e["village_code"] or ""))
+    return out
 
 
 def _district_taluks() -> tuple[dict[str, str], dict[str, list[str]]]:
@@ -2047,6 +2071,8 @@ def _scored(raw: str, pool: list[dict]) -> list[tuple[float, bool, dict]]:
 
 def _candidate(score: float, by_spelling: bool, v: dict) -> dict:
     return {"name": v["name"], "name_ta": v.get("name_ta"), "taluk": v.get("taluk"),
+            "village_code": v.get("village_code"),
+            "ambiguous": bool(v.get("ambiguous")),
             "score": round(float(score), 1),
             "how": "spelling" if by_spelling else "sound"}
 
@@ -2168,7 +2194,8 @@ def village_options(taluk: str) -> list[dict]:
     order = [taluk] + [t for t in district_taluks.get(taluk_district.get(taluk), [])
                        if t != taluk]
     pools = _village_pool(order)
-    return [{"name": v["name"], "name_ta": v.get("name_ta"), "taluk": v["taluk"]}
+    return [{"name": v["name"], "name_ta": v.get("name_ta"), "taluk": v["taluk"],
+             "village_code": v.get("village_code"), "ambiguous": bool(v.get("ambiguous"))}
             for t in order for v in pools.get(t, [])]
 
 
@@ -2729,16 +2756,32 @@ def record_resolution_decision(kind: str, payload: dict, verdict: str,
         # The answer may sit in another taluk than the notice named (the 2019
         # splits); `target_taluk` says which, and it is checked like the rest.
         where = payload.get("target_taluk") or payload.get("taluk")
+        code = payload.get("target_code")
+        code = str(code) if code not in (None, "") else None
+        # With a code, exactly that row must exist. Without one, the name must
+        # answer to exactly one village of the taluk: a name two rows share
+        # (Coimbatore North's two "Veerapandi.") would be stored and then
+        # silently never applied — the gazetteer refuses it — so it is
+        # refused here, where the reviewer can still pick the code.
         hit = _count_query(
             """
             MATCH (v:RevenueVillage {name: $target})-[:IN_TALUK]->
                   (t:Taluk {name: $taluk})
+            WHERE $code IS NULL OR v.village_code = $code
             RETURN count(v) AS n
-            """, {"target": payload.get("target"), "taluk": where})
-        if not int(hit.get("n") or 0):
+            """, {"target": payload.get("target"), "taluk": where, "code": code})
+        n = int(hit.get("n") or 0)
+        if not n:
             raise ValueError(
-                f"{payload.get('target')!r} is not a revenue village of "
-                f"{where!r} — the alias would point nowhere")
+                f"{payload.get('target')!r}"
+                + (f" (village code {code})" if code else "")
+                + f" is not a revenue village of {where!r} — the alias would point nowhere")
+        if n > 1 and not code:
+            raise ValueError(
+                f"{where!r} holds {n} villages named {payload.get('target')!r} — "
+                "pick one by its village code")
+        if code:
+            payload = {**payload, "target_code": code}
 
     if kind in ("price-check", "area-check"):
         # The queue only ever offers listings that carry a flag, but the

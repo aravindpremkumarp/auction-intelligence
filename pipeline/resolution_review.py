@@ -30,8 +30,12 @@ Decision kinds and their payloads::
     district-conflict {"raw": str, "taluk": str}    approve = taluk was right
     village-alias     {"raw": str, "taluk": str,    approve maps raw -> target
                        "target": str,                inside that taluk, or inside
-                       "target_taluk": str           target_taluk when given
-                       (optional)}
+                       "target_taluk": str           target_taluk when given;
+                       (optional),                   target_code (the register's
+                       "target_code": str            within-taluk village code)
+                       (optional)}                   says which, when the taluk
+                                                     holds two villages of that
+                                                     name
     village-skip      {"raw": str}                  approve = not a revenue
                                                     village (urban locality);
                                                     drop it from the queue
@@ -285,6 +289,21 @@ def village_alias_taluks(decisions: list[dict]) -> dict[str, str]:
     return out
 
 
+def village_alias_codes(decisions: list[dict]) -> dict[str, str]:
+    """``{alias key -> the target's village code}`` for the approved aliases
+    that name one. Needed only where a taluk holds two villages of one name
+    (Coimbatore North's two "Veerapandi.", 004 and 024): the name alone is
+    refused by the gazetteer, so the verdict carries the code that settles
+    it."""
+    out = {}
+    for d in _decided(decisions, "village-alias").values():
+        payload = d.get("payload") or {}
+        code = payload.get("target_code")
+        if d.get("verdict") == APPROVED and code:
+            out[d["key"]] = str(code)
+    return out
+
+
 def skipped_villages(decisions: list[dict]) -> set[str]:
     """Normalized village strings a human ruled out of the revenue system."""
     return {normalize_place((d.get("payload") or {}).get("raw") or "")
@@ -333,7 +352,8 @@ def apply_osm_alias(gaz: Gazetteer, res: dict, village: str | None,
 def settle_village(gaz: Gazetteer, res: dict, village: str | None, *,
                    aliases: dict[str, str], skips: set[str],
                    osm: dict[str, dict],
-                   alias_taluks: dict[str, str] | None = None) -> dict:
+                   alias_taluks: dict[str, str] | None = None,
+                   alias_codes: dict[str, str] | None = None) -> dict:
     """``res`` with every decided spelling applied, strongest first: a human
     alias, a human skip, then a spelling OpenStreetMap confirms.
 
@@ -343,16 +363,23 @@ def settle_village(gaz: Gazetteer, res: dict, village: str | None, *,
     village the gazetteer holds under its taluk (the notice's, or the one the
     verdict names — :func:`village_alias_taluks`), so a typo in a decision
     cannot invent a place; an answer in another taluk moves the taluk and
-    district with it."""
+    district with it. Where the taluk holds two villages of the target's name,
+    the verdict's village code (:func:`village_alias_codes`) picks one, and the
+    result carries it as ``village_code`` so the writers link that row and
+    not both."""
     if village and not res.get("village"):
         taluk = res.get("taluk")
         key = village_alias_key(village, taluk) if taluk else None
         target = aliases.get(key) if key else None
         where = (alias_taluks or {}).get(key) or taluk
+        code = (alias_codes or {}).get(key) if key else None
         official = gaz.village(target, where, fuzzy=False) if target else None
+        by_code = gaz.village_by_code(target, where, code) if target and code else None
+        official = official or by_code
         if official:
             out = {**res, "village": official, "village_status": "resolved",
-                   "village_source": "human-alias"}
+                   "village_source": "human-alias",
+                   "village_code": code if by_code else None}
             if where != taluk:
                 hit = gaz.taluk(where)
                 out["taluk"] = hit[0] if hit else where

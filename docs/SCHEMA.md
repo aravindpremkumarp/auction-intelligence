@@ -236,7 +236,16 @@ a `village-alias` or `village-skip` `:ResolutionDecision` is stored under, and
 ranks the groups by how many listings and lots one click settles. Each row
 carries the notice's words around the spelling (the schedule's mention before
 the borrower's address) and the closest register villages by spelling and by
-sound, with their Tamil names.
+sound, with their Tamil names, each with its taluk and district spelled out.
+
+Twenty-one taluks hold two villages of one name (Coimbatore North has two
+"Veerapandi.", village codes 004 and 024). The name alone is refused
+everywhere — `Gazetteer.village`, both writers — so the queue offers such a
+pair as two options carrying their `village_code`, the alias stores it as
+`target_code` (the API refuses a bare name two rows answer to), and
+`settle_village` resolves it through `Gazetteer.village_by_code`, passing the
+code on as `village_code` so `_WRITE_LOT_PLACE` / `resolve_places.write_back`
+link that row alone (`Lot.village_code`, `AuctionProperty.revenue_village_code`).
 
 Notices still name taluks from before the 2019 splits ("Varadharajapuram,
 Sriperumbudur Taluk" — the register holds Varatharajapuram in Kundrathur), so
