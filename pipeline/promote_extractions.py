@@ -363,7 +363,9 @@ def lot_place(rec: dict) -> dict:
     district, taluk, village, status, source = (
         settled["district"], settled["taluk"], settled["village"],
         settled["village_status"], settled["village_source"])
-    parts = [] if village else (r.get("village_parts") or [])
+    # A "one of these" verdict answers with parts of its own (settle_village).
+    parts = [] if village else (settled.get("village_parts")
+                                or r.get("village_parts") or [])
     district_source = r["district_source"]
 
     # Still no village: try the taluk the sub-registrar office or the town
