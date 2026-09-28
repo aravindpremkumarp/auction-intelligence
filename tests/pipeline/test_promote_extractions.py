@@ -784,7 +784,7 @@ def test_a_lot_with_no_taluk_is_placed_through_its_sro_or_town(monkeypatch):
                               # a second one, so the name alone places neither
                               ("Madambakkam", "Chengalpattu", "Chengalpattu")])
     monkeypatch.setattr(P, "gazetteer", lambda: gaz)
-    monkeypatch.setattr(P, "decided_spellings", lambda: ({}, set(), {}, {}))
+    monkeypatch.setattr(P, "decided_spellings", lambda: ({}, set(), {}, {}, {}))
     monkeypatch.setattr(P, "sro_taluks", lambda: {sro_key("Chengalpet"): "Chengalpattu"})
     row = P.lot_place({"lot_key": "n#1", "location": {
         "district": "Chengalpattu", "village": "Kattankalathur",
