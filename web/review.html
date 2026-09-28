@@ -134,6 +134,14 @@
   .vq-btns button { min-height: 30px; padding: 4px 10px; font-size: 13px; }
   .vq-btns button.vq-pick { background: #fffbe6; }
   .vq-btns .vq-where { color: var(--muted); font-size: 11px; font-family: 'IBM Plex Mono', monospace; }
+  /* "Pick several": suggestions become tick boxes, saved together */
+  .vq-btns .vq-multi-save { display: none; }
+  .vq-row.vq-multi .vq-btns .vq-multi-save { display: inline-block; }
+  .vq-row.vq-multi .vq-skipv, .vq-row.vq-multi .vq-later { display: none; }
+  .vq-row.vq-multi .vq-tick::before { content: '☐ '; }
+  .vq-row.vq-multi .vq-pick.vq-ticked .vq-tick::before { content: '☑ '; }
+  .vq-row.vq-multi .vq-btns button.vq-pick.vq-ticked { outline: 2px solid var(--ink); background: var(--accent); color: #111; }
+  .vq-row.vq-multi .vq-pick:disabled { opacity: .45; }
   .vq-btns small { color: var(--muted); }
   .vq-other { display: none; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
   .vq-row.vq-searching .vq-other { display: flex; }
@@ -2051,6 +2059,15 @@
     return [c.taluk || v.taluk, v.district].filter(Boolean).join(' · ');
   }
 
+  // One suggestion. A click saves it as the village — or, while the row is in
+  // "Pick several" mode, ticks it (the ☐ / ☑ glyph shows only in that mode).
+  function vqPickButton(i, v, name, taluk, code, extra, title) {
+    return `<button type="button" class="ghost vq-pick" data-i="${i}"
+        data-target="${escapeHtml(name)}" data-taluk="${escapeHtml(taluk)}"
+        data-code="${escapeHtml(code || '')}" title="${escapeHtml(title || '')}"><span
+        class="vq-tick"></span>→ ${escapeHtml(vqName(name))}${extra || ''}</button>`;
+  }
+
   function vqRow(v, i) {
     const counts = [v.listings ? vqPlural(v.listings, 'listing') : '',
                     v.lots ? vqPlural(v.lots, 'lot') : '',
@@ -2075,24 +2092,25 @@
     const picks = v.candidates.map(c => {
       const away = c.taluk && c.taluk !== v.taluk;
       const code = c.ambiguous && c.village_code ? c.village_code : '';
-      return `<button type="button" class="ghost vq-pick" data-i="${i}"
-        data-target="${escapeHtml(c.name)}" data-taluk="${escapeHtml(c.taluk || v.taluk)}"
-        data-code="${escapeHtml(code)}"
-        title="${c.how === 'sound' ? 'sounds alike' : 'spelled alike'}${
-          away ? ' — in another taluk: check the notice' : ''}${
-          code ? ' — the taluk has two villages of this name; this is village code ' + escapeHtml(code) : ''}">→ ${
-        escapeHtml(vqName(c.name))}${c.name_ta ? ' <small>' + escapeHtml(c.name_ta) + '</small>' : ''}${
+      return vqPickButton(i, v, c.name, c.taluk || v.taluk, code, `${
+        c.name_ta ? ' <small>' + escapeHtml(c.name_ta) + '</small>' : ''}${
         code ? ' <span class="pill">#' + escapeHtml(code) + '</span>' : ''}
         <span class="${away ? 'pill warn' : 'vq-where'}">in ${escapeHtml(vqWhere(c, v))}</span>
-        <small>${Math.round(c.score)}${c.how === 'sound' ? ' · sound' : ''}</small></button>`;
+        <small>${Math.round(c.score)}${c.how === 'sound' ? ' · sound' : ''}</small>`,
+        `${c.how === 'sound' ? 'sounds alike' : 'spelled alike'}${
+          away ? ' — in another taluk: check the notice' : ''}${
+          code ? ' — the taluk has two villages of this name; this is village code ' + code : ''}`);
     }).join('');
     return `<div class="vq-row" data-i="${i}">
       <div class="vq-head"><span><b>${escapeHtml(v.village)}</b> in ${escapeHtml(v.taluk)}${
         v.district ? ', ' + escapeHtml(v.district) : ''}</span>
         <small style="color:var(--muted)">${counts}${also}${link}</small></div>
       ${snip}
-      <div class="vq-btns">${picks || '<small>no close official name in this taluk</small>'}
+      <div class="vq-btns">${picks || '<small class="vq-none">no close official name in this taluk</small>'}
         <button type="button" class="ghost vq-other-btn" data-i="${i}">Other village…</button>
+        <button type="button" class="ghost vq-multi-btn" data-i="${i}"
+          title="the notice names a village the register keeps in parts (I / II, A / B): tick every part">Pick several…</button>
+        <button type="button" class="vq-multi-save" data-i="${i}" disabled>Save as one of these</button>
         <button type="button" class="ghost vq-skipv" data-i="${i}"
           title="a town area, street or layout — not a revenue village">Not a village</button>
         <button type="button" class="ghost vq-later" data-i="${i}">Skip for now</button></div>
@@ -2100,6 +2118,14 @@
           placeholder="type to search ${escapeHtml(v.district || v.taluk)}'s villages"><datalist id="vq-opts-${i}"></datalist>
         <button type="button" class="ghost vq-other-use" data-i="${i}">Use this</button></div>
     </div>`;
+  }
+
+  // "Save as one of these" says how many are ticked, and waits for two.
+  function vqMultiCount(row) {
+    const n = row.querySelectorAll('.vq-pick.vq-ticked').length;
+    const save = row.querySelector('.vq-multi-save');
+    save.disabled = n < 2;
+    save.textContent = n ? `Save ${n} as one of these` : 'Save as one of these';
   }
 
   function vqSetCount(n) {
@@ -2160,7 +2186,36 @@
     const v = vqState.rows[i];
     if (!v) return;
     const row = b.closest('.vq-row');
-    if (b.classList.contains('vq-pick')) {
+    if (b.classList.contains('vq-pick') && row && row.classList.contains('vq-multi')) {
+      b.classList.toggle('vq-ticked');
+      b.setAttribute('aria-pressed', b.classList.contains('vq-ticked'));
+      vqMultiCount(row);
+    } else if (b.classList.contains('vq-multi-btn')) {
+      const on = row.classList.toggle('vq-multi');
+      b.textContent = on ? 'Cancel picking' : 'Pick several…';
+      // A village the taluk holds twice cannot be a part: the verdict names
+      // parts by name, and that name answers to two villages.
+      row.querySelectorAll('.vq-pick').forEach(p => {
+        if (p.dataset.code) p.disabled = on;
+        if (!on) { p.classList.remove('vq-ticked'); p.removeAttribute('aria-pressed'); }
+      });
+      vqMultiCount(row);
+    } else if (b.classList.contains('vq-multi-save')) {
+      const ticked = [...row.querySelectorAll('.vq-pick.vq-ticked')];
+      const names = [...new Set(ticked.map(p => p.dataset.target))];
+      const taluks = [...new Set(ticked.map(p => p.dataset.taluk))];
+      if (names.length < 2) return;
+      if (taluks.length > 1) {
+        alert('tick villages of one taluk — the parts of one village always sit together');
+        return;
+      }
+      const where = taluks[0];
+      const payload = { raw: v.village, taluk: v.taluk, target_parts: names };
+      if (where !== v.taluk) payload.target_taluk = where;
+      vqDecide(i, 'village-alias', payload,
+               '→ one of ' + names.map(n => escapeHtml(vqName(n))).join(' / ')
+               + (where !== v.taluk ? ' in ' + escapeHtml(where) : ''));
+    } else if (b.classList.contains('vq-pick')) {
       const where = b.dataset.taluk;
       const code = b.dataset.code || null;
       vqDecide(i, 'village-alias', vqAliasPayload(v, b.dataset.target, where, code),
@@ -2186,6 +2241,33 @@
       if (!hit) {
         alert(`pick a name from the list — it has to be an official village of ${
           v.district || v.taluk}`);
+        return;
+      }
+      if (row.classList.contains('vq-multi')) {
+        // Picking several: the searched village joins the suggestions, ticked.
+        if (hit.ambiguous) {
+          alert('this name belongs to two villages of the taluk, so it cannot be one of several parts');
+          return;
+        }
+        const have = [...row.querySelectorAll('.vq-pick')].find(p =>
+          p.dataset.target === hit.name && p.dataset.taluk === hit.taluk);
+        if (have) {
+          have.classList.add('vq-ticked');
+          have.setAttribute('aria-pressed', 'true');
+        } else {
+          const none = row.querySelector('.vq-none');
+          if (none) none.remove();
+          row.querySelector('.vq-other-btn').insertAdjacentHTML('beforebegin',
+            vqPickButton(i, v, hit.name, hit.taluk, '', `${
+              hit.name_ta ? ' <small>' + escapeHtml(hit.name_ta) + '</small>' : ''}
+              <span class="${hit.taluk !== v.taluk ? 'pill warn' : 'vq-where'}">in ${
+              escapeHtml(vqWhere(hit, v))}</span>`, 'picked from the full list'));
+          const added = row.querySelector('.vq-other-btn').previousElementSibling;
+          added.classList.add('vq-ticked');
+          added.setAttribute('aria-pressed', 'true');
+        }
+        row.querySelector('.vq-other-in').value = '';
+        vqMultiCount(row);
         return;
       }
       vqDecide(i, 'village-alias',

@@ -2752,7 +2752,34 @@ def record_resolution_decision(kind: str, payload: dict, verdict: str,
             reserve_price_num=subject.get("reserve_price_num"),
             auction_start_dt=subject.get("auction_start_dt"), borrower=subject.get("borrower") or ""))}
 
-    if kind == "village-alias" and verdict == APPROVED:
+    if kind == "village-alias" and verdict == APPROVED and "target_parts" in payload:
+        # "One of these": a village the register keeps in parts. Every part
+        # must be a village of the taluk under exactly that name, once — the
+        # resolver applies all or nothing, so a bad part would silently void
+        # the whole verdict.
+        from pipeline.place_resolution import MAX_VILLAGE_PARTS
+        where = payload.get("target_taluk") or payload.get("taluk")
+        raw_parts = payload.get("target_parts")
+        if not isinstance(raw_parts, list) or payload.get("target"):
+            raise ValueError("target_parts is a list of villages, given instead of target")
+        parts = list(dict.fromkeys(str(p).strip() for p in raw_parts if str(p or "").strip()))
+        if not 2 <= len(parts) <= MAX_VILLAGE_PARTS:
+            raise ValueError(f"pick between 2 and {MAX_VILLAGE_PARTS} villages for "
+                             "\"one of these\"")
+        hit = _count_query(
+            """
+            UNWIND $parts AS part
+            OPTIONAL MATCH (v:RevenueVillage {name: part})-[:IN_TALUK]->
+                           (:Taluk {name: $taluk})
+            WITH part, count(v) AS n
+            RETURN min(n) AS lo, max(n) AS hi
+            """, {"parts": parts, "taluk": where})
+        if int(hit.get("lo") or 0) != 1 or int(hit.get("hi") or 0) != 1:
+            raise ValueError(
+                f"every village picked must be one revenue village of {where!r} — "
+                "pick villages of one taluk, none shared by two villages")
+        payload = {**payload, "target_parts": parts}
+    elif kind == "village-alias" and verdict == APPROVED:
         # The answer may sit in another taluk than the notice named (the 2019
         # splits); `target_taluk` says which, and it is checked like the rest.
         where = payload.get("target_taluk") or payload.get("taluk")
