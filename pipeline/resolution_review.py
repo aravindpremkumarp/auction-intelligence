@@ -36,6 +36,14 @@ Decision kinds and their payloads::
                        (optional)}                   says which, when the taluk
                                                      holds two villages of that
                                                      name
+                      or, in place of "target":
+                      {"target_parts": [str, ...]}  approve = raw is ONE OF these
+                                                     villages (a village the
+                                                     register keeps in parts,
+                                                     "Pammal - I" / "- II");
+                                                     linked to every one as
+                                                     "one of these", to none as
+                                                     its village
     village-skip      {"raw": str}                  approve = not a revenue
                                                     village (urban locality);
                                                     drop it from the queue
@@ -52,7 +60,7 @@ from pathlib import Path
 
 from pipeline.entity_resolution import branch_key, canonical_label, org_key
 from pipeline.lot_resolution import lot_match_key
-from pipeline.place_resolution import Gazetteer, normalize_place
+from pipeline.place_resolution import VILLAGE_ONE_OF_PARTS, Gazetteer, normalize_place
 
 APPROVED = "approved"
 REJECTED = "rejected"
@@ -261,15 +269,27 @@ def filter_branch_proposals(proposals: list[dict],
             if branch_pair_key(p["bank"], p["a"], p["b"]) not in ruled]
 
 
-def village_aliases(decisions: list[dict]) -> dict[str, str]:
-    """``{alias key -> official village name}`` from approved alias verdicts.
+def village_aliases(decisions: list[dict]) -> dict[str, str | list[str]]:
+    """``{alias key -> the answer}`` from approved alias verdicts: an official
+    village name, or — for a "one of these" verdict (``target_parts``) — the
+    list of villages the spelling may be.
 
     Keyed exactly as :func:`village_alias_key` builds them, so the resolver
-    looks up ``(raw, taluk)`` and gets the official name a human vouched for.
+    looks up ``(raw, taluk)`` and gets the answer a human vouched for, and
+    anything asking only "is this spelling decided?" (the review queue, the
+    lot re-link) sees both kinds.
     """
-    return {d["key"]: d["payload"]["target"]
-            for d in _decided(decisions, "village-alias").values()
-            if d.get("verdict") == APPROVED and (d.get("payload") or {}).get("target")}
+    out: dict[str, str | list[str]] = {}
+    for d in _decided(decisions, "village-alias").values():
+        payload = d.get("payload") or {}
+        if d.get("verdict") != APPROVED:
+            continue
+        parts = [p for p in (payload.get("target_parts") or []) if p]
+        if payload.get("target"):
+            out[d["key"]] = payload["target"]
+        elif len(parts) >= 2:
+            out[d["key"]] = parts
+    return out
 
 
 def village_alias_taluks(decisions: list[dict]) -> dict[str, str]:
@@ -349,8 +369,35 @@ def apply_osm_alias(gaz: Gazetteer, res: dict, village: str | None,
             "village_source": hit["rule"]}
 
 
+def _settle_parts(gaz: Gazetteer, res: dict, parts: list[str],
+                  taluk: str | None, where: str | None) -> dict | None:
+    """``res`` placed as "one of" ``parts`` inside ``where``, or None.
+
+    Every part must be a village the gazetteer holds under that name, once,
+    in that taluk — a stale or mistyped name, or one two villages share,
+    applies nothing rather than a partial answer."""
+    if not where:
+        return None
+    found = []
+    for part in parts:
+        official = gaz.village(part, where, fuzzy=False)
+        if not official or official in found:
+            return None
+        found.append(official)
+    if len(found) < 2:
+        return None
+    out = {**res, "village": None, "village_parts": found,
+           "village_status": VILLAGE_ONE_OF_PARTS, "village_source": "human-alias",
+           "village_code": None}
+    if where != taluk:
+        hit = gaz.taluk(where)
+        out["taluk"] = hit[0] if hit else where
+        out["district"] = hit[1] if hit else res.get("district")
+    return out
+
+
 def settle_village(gaz: Gazetteer, res: dict, village: str | None, *,
-                   aliases: dict[str, str], skips: set[str],
+                   aliases: dict[str, str | list[str]], skips: set[str],
                    osm: dict[str, dict],
                    alias_taluks: dict[str, str] | None = None,
                    alias_codes: dict[str, str] | None = None) -> dict:
@@ -366,12 +413,20 @@ def settle_village(gaz: Gazetteer, res: dict, village: str | None, *,
     district with it. Where the taluk holds two villages of the target's name,
     the verdict's village code (:func:`village_alias_codes`) picks one, and the
     result carries it as ``village_code`` so the writers link that row and
-    not both."""
+    not both. A "one of these" verdict (a list of villages, for a village the
+    register keeps in parts) places the spelling on every one as
+    ``village_parts`` — status ``one-of-parts``, the same answer
+    ``resolve_place`` gives when it recognises the split itself."""
     if village and not res.get("village"):
         taluk = res.get("taluk")
         key = village_alias_key(village, taluk) if taluk else None
         target = aliases.get(key) if key else None
         where = (alias_taluks or {}).get(key) or taluk
+        if isinstance(target, list):
+            placed = _settle_parts(gaz, res, target, taluk, where)
+            if placed:
+                return placed
+            target = None
         code = (alias_codes or {}).get(key) if key else None
         official = gaz.village(target, where, fuzzy=False) if target else None
         by_code = gaz.village_by_code(target, where, code) if target and code else None

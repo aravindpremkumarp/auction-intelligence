@@ -806,6 +806,56 @@ def test_two_villages_of_one_name_are_offered_apart_by_village_code(monkeypatch)
     assert [o["village_code"] for o in opts if o["name"] == "Veerapandi."] == ["004", "024"]
 
 
+def test_a_one_of_these_verdict_is_checked_part_by_part(monkeypatch):
+    """Every ticked village must be one revenue village of the taluk: the
+    resolver applies the verdict all or nothing, so a bad part is refused
+    here, where the reviewer can still fix it."""
+    counts = {}
+
+    def fake_count(cypher, params=None):
+        counts["params"] = params
+        return counts["reply"]
+
+    monkeypatch.setattr(q, "_count_query", fake_count)
+    written = {}
+    monkeypatch.setattr(q, "run_query",
+                        lambda cypher, params=None, **k: written.update(params or {}) or [{"n": 1}])
+    base = {"raw": "Zamin Pallavaram", "taluk": "Tambaram", "target_taluk": "Pallavaram",
+            "target_parts": ["Zamin Pallavaram - I", "Zamin Pallavaram - II",
+                             "Zamin Pallavaram - I"]}
+
+    counts["reply"] = {"lo": 1, "hi": 1}
+    q.record_resolution_decision("village-alias", base, "approved", by_email="x")
+    assert counts["params"] == {"parts": ["Zamin Pallavaram - I", "Zamin Pallavaram - II"],
+                                "taluk": "Pallavaram"}
+    assert json.loads(written["payload"])["target_parts"] == \
+        ["Zamin Pallavaram - I", "Zamin Pallavaram - II"]      # duplicates dropped
+
+    for reply in ({"lo": 0, "hi": 1}, {"lo": 1, "hi": 2}):     # missing / shared name
+        counts["reply"] = reply
+        with pytest.raises(ValueError, match="one revenue village"):
+            q.record_resolution_decision("village-alias", base, "approved", by_email="x")
+    with pytest.raises(ValueError, match="between 2 and"):
+        q.record_resolution_decision("village-alias", {**base, "target_parts": ["Zamin Pallavaram - I"]},
+                                     "approved", by_email="x")
+    with pytest.raises(ValueError, match="instead of target"):
+        q.record_resolution_decision("village-alias", {**base, "target": "Zamin Pallavaram - I"},
+                                     "approved", by_email="x")
+
+
+def test_a_one_of_these_verdict_takes_its_spelling_out_of_the_queue(monkeypatch):
+    from pipeline.resolution_review import decision_key
+    parts = {"raw": "Injambakkam", "taluk": "Sholinganallur",
+             "target_parts": ["Enchambakkam", "Kottivakkam"]}
+    decisions = [{"key": decision_key("village-alias", parts), "kind": "village-alias",
+                  "verdict": "approved", "payload_json": json.dumps(parts)}]
+    listings = [{"raw": r, "taluk": "Sholinganallur", "district": "Chennai",
+                 "auction_id": r, "filename": None, "public_url": None}
+                for r in ("Injambakkam", "Karapakkam")]
+    monkeypatch.setattr(q, "run_read_query", _village_reads(listings, [], decisions))
+    assert [r["village"] for r in q.village_queue()["rows"]] == ["Karapakkam"]
+
+
 def test_an_alias_to_a_name_two_villages_share_needs_the_village_code(monkeypatch):
     """Stored by name alone, such a verdict would never apply (the gazetteer
     refuses the name), so the API refuses it and takes the code instead."""

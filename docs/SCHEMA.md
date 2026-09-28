@@ -247,6 +247,15 @@ pair as two options carrying their `village_code`, the alias stores it as
 code on as `village_code` so `_WRITE_LOT_PLACE` / `resolve_places.write_back`
 link that row alone (`Lot.village_code`, `AuctionProperty.revenue_village_code`).
 
+A notice can name the whole of a village the register keeps in parts under a
+spelling the resolver does not recognise ("Zamin Pallavaram, Tambaram taluk"
+for Pallavaram's "Zamin Pallavaram - I" / "- II"). The queue's *Pick several…*
+ticks every part, and the alias stores them as `target_parts` in place of
+`target` (the API checks each is one village of the taluk). `settle_village`
+places the spelling on all of them as `village_parts`, status `one-of-parts`,
+source `human-alias` — the same `MAYBE_IN_REVENUE_VILLAGE` edges the resolver
+writes when it recognises the split itself, all or nothing.
+
 Notices still name taluks from before the 2019 splits ("Varadharajapuram,
 Sriperumbudur Taluk" — the register holds Varatharajapuram in Kundrathur), so
 close names from the rest of the district are offered too, flagged with their

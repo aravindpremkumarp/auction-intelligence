@@ -188,6 +188,64 @@ def test_a_cross_taluk_alias_moves_the_taluk_and_district_with_it():
     assert village_alias_taluks(verdict("rejected")) == {}
 
 
+def test_a_one_of_these_verdict_links_every_part_and_moves_the_taluk():
+    """"Zamin Pallavaram, Tambaram taluk" — the register keeps it in Pallavaram
+    as "- I" and "- II", and only the survey number says which. A reviewer
+    ticks both; the notice is placed on each as "one of these", never on one
+    as its village."""
+    from pipeline.place_resolution import VILLAGE_ONE_OF_PARTS
+    from pipeline.resolution_review import decision_key, village_alias_taluks, village_aliases
+
+    gaz = Gazetteer(districts=["Chengalpattu"],
+                    taluks=[("Tambaram", "Chengalpattu"), ("Pallavaram", "Chengalpattu")],
+                    villages=[("Zamin Pallavaram - I", "Pallavaram", "Chengalpattu"),
+                              ("Zamin Pallavaram - II", "Pallavaram", "Chengalpattu"),
+                              ("Meedavakkam", "Tambaram", "Chengalpattu")])
+    res = resolve_place(gaz, district="Chengalpattu", taluk="Tambaram",
+                        village="Zamin Pallavaram")
+    assert res["village"] is None and not res["village_parts"]
+
+    def settle(payload):
+        d = [{"kind": "village-alias", "key": decision_key("village-alias", payload),
+              "payload": payload, "verdict": "approved"}]
+        return settle_village(gaz, res, "Zamin Pallavaram", skips=set(), osm={},
+                              aliases=village_aliases(d), alias_taluks=village_alias_taluks(d))
+
+    both = {"raw": "Zamin Pallavaram", "taluk": "Tambaram", "target_taluk": "Pallavaram",
+            "target_parts": ["Zamin Pallavaram - I", "Zamin Pallavaram - II"]}
+    out = settle(both)
+    assert (out["village"], out["village_parts"], out["village_status"], out["village_source"]) == \
+        (None, ["Zamin Pallavaram - I", "Zamin Pallavaram - II"], VILLAGE_ONE_OF_PARTS, "human-alias")
+    assert (out["taluk"], out["district"]) == ("Pallavaram", "Chengalpattu")
+    # all or nothing: one name the register does not hold voids the verdict
+    assert settle({**both, "target_parts": ["Zamin Pallavaram - I", "Zamin Pallavaram - III"]}
+                  )["village_parts"] in (None, [])
+    # a part named in the wrong taluk is not found either
+    assert settle({**both, "target_taluk": "Tambaram"})["village"] is None
+    # a single-village alias is unchanged
+    assert village_aliases([{"kind": "village-alias", "key": "k", "verdict": "approved",
+                             "payload": {"target": "Meedavakkam"}}]) == {"k": "Meedavakkam"}
+
+
+def test_a_lot_takes_a_one_of_these_verdict_too(monkeypatch):
+    from pipeline.resolution_review import village_alias_key
+    gaz = Gazetteer(districts=["Chengalpattu"],
+                    taluks=[("Tambaram", "Chengalpattu"), ("Pallavaram", "Chengalpattu")],
+                    villages=[("Zamin Pallavaram - I", "Pallavaram", "Chengalpattu"),
+                              ("Zamin Pallavaram - II", "Pallavaram", "Chengalpattu")])
+    key = village_alias_key("Zamin Pallavaram", "Tambaram")
+    monkeypatch.setattr(P, "gazetteer", lambda: gaz)
+    monkeypatch.setattr(P, "sro_taluks", lambda: {})
+    monkeypatch.setattr(P, "decided_spellings", lambda: (
+        {key: ["Zamin Pallavaram - I", "Zamin Pallavaram - II"]}, set(), {},
+        {key: "Pallavaram"}, {}))
+    row = P.lot_place({"lot_key": "n#1", "location": {
+        "district": "Chengalpattu", "taluk": "Tambaram", "village": "Zamin Pallavaram"}})
+    assert (row["village"], row["village_parts"], row["taluk"], row["status"], row["source"]) == \
+        (None, ["Zamin Pallavaram - I", "Zamin Pallavaram - II"], "Pallavaram",
+         "one-of-parts", "human-alias")
+
+
 def test_an_alias_naming_the_village_code_picks_one_of_two_same_named_villages():
     """Coimbatore North holds two "Veerapandi." (004 and 024). The name alone
     is refused — by the resolver and by settle_village — so the verdict
