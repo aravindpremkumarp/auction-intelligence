@@ -133,6 +133,7 @@
   .vq-btns { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
   .vq-btns button { min-height: 30px; padding: 4px 10px; font-size: 13px; }
   .vq-btns button.vq-pick { background: #fffbe6; }
+  .vq-btns .vq-where { color: var(--muted); font-size: 11px; font-family: 'IBM Plex Mono', monospace; }
   .vq-btns small { color: var(--muted); }
   .vq-other { display: none; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
   .vq-row.vq-searching .vq-other { display: flex; }
@@ -2029,14 +2030,25 @@
 
   // The "Other village…" list: the taluk's own villages by name, the rest of
   // the district as "name — taluk", so one box covers both.
+  // A name two villages of the taluk share carries its village code ("#004"),
+  // so the two are two entries and the pick is exact.
   function vqOptionLabel(o, taluk) {
-    return o.taluk === taluk ? vqName(o.name) : `${vqName(o.name)} — ${o.taluk}`;
+    const name = vqName(o.name) + (o.ambiguous && o.village_code ? ` #${o.village_code}` : '');
+    return o.taluk === taluk ? name : `${name} — ${o.taluk}`;
   }
 
-  function vqAliasPayload(v, name, taluk) {
+  function vqAliasPayload(v, name, taluk, code) {
     const p = { raw: v.village, taluk: v.taluk, target: name };
     if (taluk && taluk !== v.taluk) p.target_taluk = taluk;
+    if (code) p.target_code = code;
     return p;
+  }
+
+  // Where a suggestion sits, spelled out on every option — "Coimbatore North ·
+  // Coimbatore" — so a reviewer sees the whole chain (village, taluk,
+  // district) before choosing, not only when the taluk differs.
+  function vqWhere(c, v) {
+    return [c.taluk || v.taluk, v.district].filter(Boolean).join(' · ');
   }
 
   function vqRow(v, i) {
@@ -2057,14 +2069,21 @@
     // A candidate from another taluk of the district is flagged: notices
     // still name the taluk before the 2019 splits, but a look-alike village
     // next door is also possible, so it deserves a second look.
+    // A name the taluk holds twice (two village codes) is two options, each
+    // with its code: picking by name alone would pick at random, and the
+    // resolver refuses such a name without the code.
     const picks = v.candidates.map(c => {
       const away = c.taluk && c.taluk !== v.taluk;
+      const code = c.ambiguous && c.village_code ? c.village_code : '';
       return `<button type="button" class="ghost vq-pick" data-i="${i}"
         data-target="${escapeHtml(c.name)}" data-taluk="${escapeHtml(c.taluk || v.taluk)}"
+        data-code="${escapeHtml(code)}"
         title="${c.how === 'sound' ? 'sounds alike' : 'spelled alike'}${
-          away ? ' — in another taluk: check the notice' : ''}">→ ${
+          away ? ' — in another taluk: check the notice' : ''}${
+          code ? ' — the taluk has two villages of this name; this is village code ' + escapeHtml(code) : ''}">→ ${
         escapeHtml(vqName(c.name))}${c.name_ta ? ' <small>' + escapeHtml(c.name_ta) + '</small>' : ''}${
-        away ? ' <span class="pill warn">in ' + escapeHtml(c.taluk) + '</span>' : ''}
+        code ? ' <span class="pill">#' + escapeHtml(code) + '</span>' : ''}
+        <span class="${away ? 'pill warn' : 'vq-where'}">in ${escapeHtml(vqWhere(c, v))}</span>
         <small>${Math.round(c.score)}${c.how === 'sound' ? ' · sound' : ''}</small></button>`;
     }).join('');
     return `<div class="vq-row" data-i="${i}">
@@ -2143,8 +2162,10 @@
     const row = b.closest('.vq-row');
     if (b.classList.contains('vq-pick')) {
       const where = b.dataset.taluk;
-      vqDecide(i, 'village-alias', vqAliasPayload(v, b.dataset.target, where),
+      const code = b.dataset.code || null;
+      vqDecide(i, 'village-alias', vqAliasPayload(v, b.dataset.target, where, code),
                '→ ' + escapeHtml(vqName(b.dataset.target))
+               + (code ? ' #' + escapeHtml(code) : '')
                + (where !== v.taluk ? ' in ' + escapeHtml(where) : ''));
     } else if (b.classList.contains('vq-skipv')) {
       vqDecide(i, 'village-skip', { raw: v.village }, 'is not a village');
@@ -2167,7 +2188,8 @@
           v.district || v.taluk}`);
         return;
       }
-      vqDecide(i, 'village-alias', vqAliasPayload(v, hit.name, hit.taluk),
+      vqDecide(i, 'village-alias',
+               vqAliasPayload(v, hit.name, hit.taluk, hit.ambiguous ? hit.village_code : null),
                '→ ' + escapeHtml(vqOptionLabel(hit, v.taluk)));
     } else if (b.classList.contains('vq-undo')) {
       b.disabled = true;

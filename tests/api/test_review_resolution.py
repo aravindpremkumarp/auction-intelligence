@@ -742,11 +742,86 @@ def test_a_cross_taluk_alias_is_checked_against_the_taluk_it_names(monkeypatch):
         "village-alias", {"raw": "Varadharajapuram", "taluk": "Sriperumbudur",
                           "target": "Varatharajapuram", "target_taluk": "Kundrathur"},
         "approved", by_email="x")
-    assert seen == {"target": "Varatharajapuram", "taluk": "Kundrathur"}
+    assert seen == {"target": "Varatharajapuram", "taluk": "Kundrathur", "code": None}
 
 
 def test_village_options_list_the_whole_district_own_taluk_first(monkeypatch):
     monkeypatch.setattr(q, "run_read_query", _village_reads([], []))
     opts = q.village_options("Guindy")
     assert [o["taluk"] for o in opts] == ["Guindy", "Guindy", "Sholinganallur", "Sholinganallur"]
-    assert set(opts[0]) == {"name", "name_ta", "taluk"}
+    assert set(opts[0]) == {"name", "name_ta", "taluk", "village_code", "ambiguous"}
+    assert not any(o["ambiguous"] for o in opts)
+
+
+# Coimbatore North really holds two revenue villages named "Veerapandi." —
+# village codes 004 and 024 — plus an LGD-added "Veerapandi 24" for the second.
+_TWINS = [{"taluk": "Coimbatore North", "name": "Veerapandi.", "name_ta": "வீரபாண்டி",
+           "village_code": "004"},
+          {"taluk": "Coimbatore North", "name": "Veerapandi.", "name_ta": "வீரபாண்டி(24)",
+           "village_code": "024"},
+          {"taluk": "Coimbatore North", "name": "Veerapandi 24", "name_ta": None,
+           "village_code": None},
+          # the usual case: one coded row and an LGD respelling folding into it
+          {"taluk": "Coimbatore North", "name": "Thudiyalur.", "name_ta": "துடியலூர்",
+           "village_code": "011"},
+          {"taluk": "Coimbatore North", "name": "Thudiyalur.", "name_ta": None,
+           "village_code": None}]
+
+
+def _twin_reads(listings):
+    def fake_read(cypher, params=None, **kw):
+        if "ResolutionDecision" in cypher:
+            return []
+        if "place_village_status" in cypher:
+            return listings
+        if "l.village_raw" in cypher:
+            return []
+        if "IN_DISTRICT" in cypher:
+            return [{"taluk": "Coimbatore North", "district": "Coimbatore"}]
+        if "RevenueVillage" in cypher:
+            return [r for r in _TWINS if r["taluk"] in (params or {}).get("taluks", [])]
+        if "d.markdown" in cypher:
+            return []
+        raise AssertionError(f"unexpected read: {cypher[:60]}")
+    return fake_read
+
+
+def test_two_villages_of_one_name_are_offered_apart_by_village_code(monkeypatch):
+    """One button per village, each carrying the code that tells them apart —
+    never one button for both, which would land on whichever came first."""
+    listings = [{"raw": "Veerapandi", "taluk": "Coimbatore North", "district": "Coimbatore",
+                 "auction_id": "a1", "filename": None, "public_url": None}]
+    monkeypatch.setattr(q, "run_read_query", _twin_reads(listings))
+    cands = q.village_queue()["rows"][0]["candidates"]
+    twins = [(c["village_code"], c["name_ta"], c["ambiguous"])
+             for c in cands if c["name"] == "Veerapandi."]
+    assert twins == [("004", "வீரபாண்டி", True), ("024", "வீரபாண்டி(24)", True)]
+    # the LGD respelling is its own, unambiguous, name
+    assert [(c["village_code"], c["ambiguous"]) for c in cands if c["name"] == "Veerapandi 24"] \
+        == [(None, False)]
+    # a single coded row still folds its code-less respelling in
+    opts = q.village_options("Coimbatore North")
+    assert [(o["name"], o["village_code"], o["ambiguous"]) for o in opts
+            if o["name"] == "Thudiyalur."] == [("Thudiyalur.", "011", False)]
+    assert [o["village_code"] for o in opts if o["name"] == "Veerapandi."] == ["004", "024"]
+
+
+def test_an_alias_to_a_name_two_villages_share_needs_the_village_code(monkeypatch):
+    """Stored by name alone, such a verdict would never apply (the gazetteer
+    refuses the name), so the API refuses it and takes the code instead."""
+    seen = {}
+
+    def fake_count(cypher, params=None):
+        seen.update(params or {})
+        return {"n": 1 if params.get("code") else 2}
+
+    monkeypatch.setattr(q, "_count_query", fake_count)
+    written = {}
+    monkeypatch.setattr(q, "run_query", lambda cypher, params=None, **k: written.update(params or {}) or [{"n": 1}])
+    base = {"raw": "Veerapandi", "taluk": "Coimbatore North", "target": "Veerapandi."}
+    with pytest.raises(ValueError, match="2 villages named"):
+        q.record_resolution_decision("village-alias", base, "approved", by_email="x")
+    q.record_resolution_decision("village-alias", {**base, "target_code": "024"},
+                                 "approved", by_email="x")
+    assert seen == {"target": "Veerapandi.", "taluk": "Coimbatore North", "code": "024"}
+    assert json.loads(written["payload"])["target_code"] == "024"

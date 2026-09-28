@@ -627,6 +627,12 @@ class Gazetteer:
     #: two can no longer tie against each other or split one village's lots.
     #: Callers leave copies out of ``villages``.
     village_copies: list[tuple[str, str, str]] = field(default_factory=list)
+    #: ``(village, taluk, village_code)`` — the register's within-taluk
+    #: serial, the one thing that tells apart two villages of one name in one
+    #: taluk (Coimbatore North holds two "Veerapandi.", 004 and 024). Only
+    #: :meth:`village_by_code` reads it: a human verdict naming the code picks
+    #: the one the name alone cannot. Optional.
+    village_codes: list[tuple[str, str, str]] = field(default_factory=list)
 
     def __post_init__(self):
         self._d: dict[str, str] = {}
@@ -684,6 +690,14 @@ class Gazetteer:
             self._v_by_taluk[taluk].setdefault(key, original)
             self._v_by_district[district][key].add((original, taluk))
             self._v_by_name[key].add((original, taluk, district))
+        # Village codes, per taluk and folded name: {code: register name}.
+        # Only rows this gazetteer holds as villages count, so a stale code
+        # cannot name a place the register no longer has.
+        held = {(v, t) for v, t, _d in self.villages}
+        self._v_codes: dict[tuple[str, str], dict[str, str]] = defaultdict(dict)
+        for village, taluk, code in self.village_codes:
+            if code and (village, taluk) in held:
+                self._v_codes[(taluk, normalize_place(village))].setdefault(str(code), village)
         # Sound keys: every village by its English name (the runner-up pool),
         # and the ones with a Tamil name by that (the candidates).
         self._sound_en: dict[str, list[tuple[str, str]]] = defaultdict(list)
@@ -828,6 +842,23 @@ class Gazetteer:
             return None
         hit = _fuzzy_match(key, pool)
         return hit[0] if hit else None
+
+    def village_by_code(self, value: str, taluk: str,
+                        code: str | None) -> str | None:
+        """The register village ``value`` names in ``taluk`` when ``code`` (the
+        within-taluk village code) says which — the way past a name two
+        villages of one taluk share, which :meth:`village` refuses.
+
+        Exact folded name and exact code, both: a code alone names nothing
+        (codes restart in every taluk), and a name alone is what this exists
+        to disambiguate. None when the gazetteer holds no such row."""
+        if not (value or "").strip() or code is None:
+            return None
+        return (self._v_codes.get((taluk, normalize_place(value))) or {}).get(str(code))
+
+    def village_is_ambiguous(self, value: str, taluk: str) -> bool:
+        """True when ``taluk`` holds more than one village folding to ``value``."""
+        return (taluk, normalize_place(value or "")) in self._v_ambiguous
 
     def taluk_has_villages(self, taluk: str) -> bool:
         return bool(self._v_by_taluk.get(taluk))

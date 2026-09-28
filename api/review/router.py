@@ -839,6 +839,11 @@ class VillageCandidate(BaseModel):
     #: The taluk the village sits in — another than the row's when the
     #: notice names a taluk from before the 2019 splits.
     taluk: str | None = None
+    #: The register's within-taluk village code. Shown, and sent back as the
+    #: verdict's ``target_code``, when ``ambiguous``: the taluk holds another
+    #: village of this name and only the code tells them apart.
+    village_code: str | None = None
+    ambiguous: bool = False
     score: float
     #: Which comparison scored it: 'spelling' or 'sound'.
     how: str = "spelling"
@@ -887,6 +892,8 @@ class VillageOption(BaseModel):
     name: str
     name_ta: str | None = None
     taluk: str
+    village_code: str | None = None
+    ambiguous: bool = False
 
 
 class LotMatchCandidate(BaseModel):

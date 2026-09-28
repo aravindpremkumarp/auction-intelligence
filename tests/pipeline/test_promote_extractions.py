@@ -701,7 +701,7 @@ def test_relink_settled_lots_touches_only_the_notices_a_verdict_settles(monkeypa
 
     aliases = {village_alias_key("Injambakkam", "Sholinganallur"): "Enchambakkam"}
     monkeypatch.setattr(P, "decided_spellings", lambda reload=False: (
-        aliases, {normalize_place("Semmancheri")}, {}, {}))
+        aliases, {normalize_place("Semmancheri")}, {}, {}, {}))
     lots = [
         # a new alias covers it
         {"filename": "n1", "raw": "Injambakkam", "taluk": "Sholinganallur",
@@ -742,7 +742,7 @@ def test_relink_settled_lots_touches_only_the_notices_a_verdict_settles(monkeypa
 
 
 def test_relink_settled_lots_is_a_no_op_with_nothing_decided(monkeypatch):
-    monkeypatch.setattr(P, "decided_spellings", lambda reload=False: ({}, set(), {}, {}))
+    monkeypatch.setattr(P, "decided_spellings", lambda reload=False: ({}, set(), {}, {}, {}))
     monkeypatch.setattr(P, "run_read_query", lambda cypher, params=None, **kw: [
         {"filename": "n1", "raw": "Karapakkam", "taluk": "Sholinganallur",
          "status": "unmatched", "source": None}])
@@ -764,7 +764,7 @@ def test_a_lot_naming_a_split_village_carries_every_part(monkeypatch):
                     villages=[("Pammal - I", "Pallavaram", "Chengalpattu"),
                               ("Pammal - II", "Pallavaram", "Chengalpattu")])
     monkeypatch.setattr(P, "gazetteer", lambda: gaz)
-    monkeypatch.setattr(P, "decided_spellings", lambda: ({}, set(), {}, {}))
+    monkeypatch.setattr(P, "decided_spellings", lambda: ({}, set(), {}, {}, {}))
     row = P.lot_place({"lot_key": "n#1", "location": {
         "district": "Chengalpattu", "taluk": "Pallavaram", "village": "Pammal"}})
     assert (row["village"], row["village_parts"], row["status"]) == \
