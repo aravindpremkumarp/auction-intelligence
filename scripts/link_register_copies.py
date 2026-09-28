@@ -43,9 +43,7 @@ import re
 import sys
 from collections import Counter, defaultdict
 
-from pipeline.place_resolution import (
-    _sub_numbers, normalize_place, sound_key, tamil_latin, village_part,
-)
+from pipeline.place_resolution import sound_key, tamil_latin, village_shape
 
 #: Tamil-name sound match needed on its own, and when the English spellings
 #: already share a sound key (then the Tamil name only has to agree).
@@ -53,26 +51,6 @@ TAMIL_MIN = 95.0
 TAMIL_WITH_ENGLISH = 90.0
 #: Lead over the next-best original of the taluk, by any key.
 MARGIN = 8.0
-
-_INITIALS = re.compile(r"^\s*((?:[A-Za-z]{1,3}\s*\.\s*)+)")
-_QUALIFIER = re.compile(
-    r"\((?!\s*\d{3}\s*\))[^)]*\)|\br\.?\s*f\b\.?|\b(?:north|south|east|west|then|vada|ct)\b",
-    re.I)
-
-
-def _initials(name: str) -> str:
-    m = _INITIALS.match(name or "")
-    return re.sub(r"[^a-z]", "", m.group(1).lower()) if m else ""
-
-
-def _qualifiers(name: str) -> frozenset[str]:
-    return frozenset(re.sub(r"[^a-z]", "", q.lower()) for q in _QUALIFIER.findall(name or ""))
-
-
-def _shape(name: str) -> tuple:
-    part = village_part(name)
-    return (part[1] if part else None, _sub_numbers(name), _initials(name), _qualifiers(name))
-
 
 def find_copies(rows: list[dict]) -> list[dict]:
     """``rows``: ``{name, taluk, source, name_ta}`` for every register village
@@ -98,7 +76,7 @@ def find_copies(rows: list[dict]) -> list[dict]:
     for r in rows:
         if not r.get("source"):
             continue
-        key, shape = sound_key(r["name"]), _shape(r["name"])
+        key, shape = sound_key(r["name"]), village_shape(r["name"])
         if not key:
             continue
         scored = []
@@ -114,7 +92,7 @@ def find_copies(rows: list[dict]) -> list[dict]:
         need = TAMIL_WITH_ENGLISH if same_en else TAMIL_MIN
         runner = max((t[1] for t in scored[1:]), default=0.0)
         if (ta_score < need or ta_score - runner < MARGIN
-                or _shape(o["name"]) != shape
+                or village_shape(o["name"]) != shape
                 or held[(r["taluk"], o["name"])] != 1
                 or keys[(r["taluk"], o["name"])][1][:1] != key[:1]):
             continue

@@ -542,6 +542,26 @@ def _sub_numbers(value: str | None) -> tuple[str, ...]:
     return tuple(sorted(re.findall(r"\d+", low) + _ROMAN.findall(low)))
 
 
+# What makes two similar names two places: "Kengarai 1" is not "Kengarai 2",
+# "V. Pudur" not "Pudur", a forest "Badur R.F." not the village "Badur", and
+# "Padappai (Ct)" or "Kolathur (North)" not the plain name.
+_V_INITIALS = re.compile(r"^\s*((?:[A-Za-z]{1,3}\s*\.\s*)+)")
+_V_QUALIFIER = re.compile(
+    r"\((?!\s*\d{3}\s*\))[^)]*\)|\br\.?\s*f\b\.?|\b(?:north|south|east|west|then|vada|ct)\b",
+    re.I)
+
+
+def village_shape(name: str | None) -> tuple:
+    """``(part, numbers, initials, qualifiers)`` — two names that sound alike
+    are one village only when these agree."""
+    part = village_part(name or "")
+    m = _V_INITIALS.match(name or "")
+    initials = re.sub(r"[^a-z]", "", m.group(1).lower()) if m else ""
+    qualifiers = frozenset(re.sub(r"[^a-z]", "", q.lower())
+                           for q in _V_QUALIFIER.findall(name or ""))
+    return (part[1] if part else None, _sub_numbers(name), initials, qualifiers)
+
+
 _ROMAN_VALUE = {"I": 1, "II": 2, "III": 3, "IV": 4, "V": 5, "VI": 6,
                 "VII": 7, "VIII": 8, "IX": 9, "X": 10}
 
@@ -695,6 +715,9 @@ class Gazetteer:
         for village, taluk, name_ta in self.village_names_ta:
             if name_ta:
                 self._sound_ta[taluk].append((village, sound_key(tamil_latin(name_ta))))
+        # Every village of a district by sound, built on first use
+        # (village_by_district_sound).
+        self._sound_district: dict[str, dict[str, set]] | None = None
         # Villages kept in parts, by taluk and the folded name of the whole:
         # {part: register name}. Where the register holds one part under two
         # spellings (an LGD-added copy), the one with a Tamil name — the
@@ -850,6 +873,44 @@ class Gazetteer:
             if (taluk, key) not in self._v_ambiguous:
                 return village, taluk
         return None
+
+    def village_by_district_sound(self, value: str,
+                                  district: str) -> tuple[str, str] | None:
+        """``(village, taluk)`` for a name that sounds like exactly one village
+        of ``district`` — "Meykudipatti" for Meikudipatti — when the notice
+        gives no usable taluk to look it up in.
+
+        Its own :func:`sound_key`, and the same part, number, initials and
+        qualifier (:func:`village_shape`), so "Kengarai-2" never lands on
+        "Kengarai 1" nor "Badur" on the forest "Badur R.F.". A name the
+        district holds exactly is not this rule's: the exact district search
+        already had it. Checked on placed lots with the taluk hidden: 424
+        right, 14 wrong."""
+        if not (value or "").strip() or not district:
+            return None
+        if normalize_place(value) in (self._v_by_district.get(district) or {}):
+            return None
+        key = sound_key(value)
+        if not key:
+            return None
+        if self._sound_district is None:
+            index: dict[str, dict[str, set]] = defaultdict(lambda: defaultdict(set))
+            district_of = {(v, t): d for v, t, d in self.villages}
+            for village, taluk, d in self.villages:
+                index[d][sound_key(village)].add((village, taluk, village_shape(village)))
+            for copy, taluk, original in self._copies:
+                index[district_of[(original, taluk)]][sound_key(copy)].add(
+                    (original, taluk, village_shape(copy)))
+            self._sound_district = index
+        shape = village_shape(value)
+        hits = {(v, t) for v, t, s in self._sound_district.get(district, {}).get(key, ())
+                if s == shape}
+        if len(hits) != 1:
+            return None
+        village, taluk = next(iter(hits))
+        if (taluk, normalize_place(village)) in self._v_ambiguous:
+            return None
+        return village, taluk
 
     def names_a_taluk(self, value: str, district: str) -> str | None:
         """The taluk this string names, if it names one rather than a village."""
@@ -1157,12 +1218,18 @@ def resolve_place(gaz: Gazetteer, *, district: str | None = None,
 # 74% of lots do — and sometimes the town. Each SRO serves a known set of
 # villages, so the taluk it points to is learned from lots already placed
 # (scripts/learn_sro_taluks.py → lookups/sro_taluks.json); a city names a
-# taluk when it is the taluk's headquarters town. Either is only a hint: the
-# village must then be found inside that taluk by the ordinary rules. Checked
-# on lots whose place is known, with the taluk hidden: 1,029 right, 10 wrong.
+# taluk when it is the taluk's headquarters town; a PIN code names one when
+# the lots placed under it sit in one taluk (lookups/pin_taluks.json). Each is
+# only a hint: the village must then be found inside that taluk by the
+# ordinary rules. Checked on lots whose place is known, with the taluk hidden:
+# SRO and town 1,029 right, 10 wrong; PIN 253 right, 0 wrong.
 
 #: The learned {sro_key: {"taluk", "lots", "share", "spellings"}} table.
 SRO_TALUKS = Path(__file__).resolve().parent / "lookups" / "sro_taluks.json"
+#: The learned {pin: {"taluk", "lots", "share"}} table.
+PIN_TALUKS = Path(__file__).resolve().parent / "lookups" / "pin_taluks.json"
+#: A Tamil Nadu PIN code: 600 000–649 999, "603 203" or "603203".
+_PIN = re.compile(r"\b(6[0-4]\d)\s?(\d{3})\b")
 
 _SRO_NOISE = re.compile(
     r"\b(?:sub[\s-]*registr\w*|s\.?\s*r\.?\s*o\.?|office|registration|district"
@@ -1187,6 +1254,18 @@ def load_sro_taluks(path: Path = SRO_TALUKS) -> dict[str, str]:
     return {key: row["taluk"] for key, row in table.items()}
 
 
+def load_pin_taluks(path: Path = PIN_TALUKS) -> dict[str, str]:
+    """``{pin: taluk}`` from the learned table, or {} before it exists."""
+    return load_sro_taluks(path)
+
+
+def property_pin(*texts: str | None) -> str | None:
+    """The one PIN code the property's own text gives, or None when it gives
+    none or several (a lot's text can carry a neighbour's or an office's)."""
+    pins = {a + b for text in texts for a, b in _PIN.findall(str(text or ""))}
+    return next(iter(pins)) if len(pins) == 1 else None
+
+
 def city_taluk(gaz: "Gazetteer", city: str | None,
                district: str | None = None) -> str | None:
     """The taluk a notice's city names — "Villupuram Town" → Villupuram —
@@ -1203,18 +1282,21 @@ def city_taluk(gaz: "Gazetteer", city: str | None,
 
 def taluk_hint_place(gaz: "Gazetteer", res: dict, village: str | None, *,
                      sro: str | None = None, city: str | None = None,
-                     sro_taluks: dict[str, str] | None = None) -> dict:
+                     sro_taluks: dict[str, str] | None = None,
+                     pin: str | None = None,
+                     pin_taluks: dict[str, str] | None = None) -> dict:
     """``res`` placed through the taluk the SRO or the city names, when the
     notice gave no usable taluk (``no-parent-taluk``) or its village is not in
     the taluk it named (``unmatched``, often a taluk from before the 2019
-    splits).
+    splits) — or its PIN code names.
 
     The hinted taluk must sit in the known district, and the village must be
     found inside it by :func:`resolve_place`'s own rules — exact, parts, the
     guarded fuzzy and sound matches; an answer the district-wide search finds
     in another taluk is not this hint's. Two hints naming different villages
     cancel out. The source says which hint placed it (``sro-taluk`` /
-    ``city-taluk``), so every one of these stays auditable and undoable."""
+    ``city-taluk`` / ``pin-taluk``), so every one of these stays auditable and
+    undoable."""
     if (res.get("village") or res.get("village_parts") or not village
             or res.get("village_status") not in ("no-parent-taluk", "unmatched")):
         return res
@@ -1227,6 +1309,8 @@ def taluk_hint_place(gaz: "Gazetteer", res: dict, village: str | None, *,
         hinted = city_taluk(gaz, city, res.get("district"))
         if hinted:
             hints.append((hinted, "city-taluk"))
+    if pin and pin_taluks and pin_taluks.get(pin):
+        hints.append((pin_taluks[pin], "pin-taluk"))
     answers: dict[tuple, tuple] = {}
     for hinted, source in hints:
         hit = gaz.taluk(hinted)
@@ -1249,3 +1333,18 @@ def taluk_hint_place(gaz: "Gazetteer", res: dict, village: str | None, *,
     if not res.get("district"):
         out["district_source"] = source
     return out
+
+
+def district_sound_place(gaz: "Gazetteer", res: dict, village: str | None) -> dict:
+    """``res`` placed by the one village of its district that sounds like
+    ``village`` (:meth:`Gazetteer.village_by_district_sound`), when the notice
+    gave a district but no usable taluk and every other rule has passed.
+    Source ``district-sound``."""
+    if (res.get("village") or res.get("village_parts") or not village
+            or res.get("village_status") != "no-parent-taluk" or not res.get("district")):
+        return res
+    hit = gaz.village_by_district_sound(village, res["district"])
+    if not hit:
+        return res
+    return {**res, "village": hit[0], "taluk": hit[1],
+            "village_status": "resolved", "village_source": "district-sound"}

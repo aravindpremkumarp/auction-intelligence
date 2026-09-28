@@ -3,7 +3,7 @@ and the SRO hint reaching the listing resolver."""
 from __future__ import annotations
 
 from pipeline.place_resolution import Gazetteer, sro_key
-from scripts.learn_sro_taluks import LEARN_FROM, MIN_LOTS, learn
+from scripts.learn_sro_taluks import LEARN_FROM, MIN_LOTS, learn, learn_pins
 
 
 def test_an_office_names_the_taluk_nearly_all_its_lots_sit_in():
@@ -28,7 +28,14 @@ def test_too_few_lots_teach_nothing():
 
 
 def test_the_table_never_learns_from_its_own_answers():
-    assert not LEARN_FROM & {"sro-taluk", "city-taluk"}
+    assert not LEARN_FROM & {"sro-taluk", "city-taluk", "pin-taluk", "district-sound"}
+
+
+def test_a_pin_names_the_taluk_nearly_all_its_lots_sit_in():
+    pairs = [("600017", "Guindy")] * 11 + [("600017", "Mambalam")]
+    assert learn_pins(pairs) == {"600017": {"taluk": "Guindy", "lots": 12, "share": 0.917}}
+    # a PIN that spans taluks names none
+    assert learn_pins([("603103", "Thiruporur")] * 4 + [("603103", "Chengalpattu")] * 2) == {}
 
 
 def test_the_listing_resolver_places_through_the_sro_but_never_the_portal_city(monkeypatch):
@@ -43,6 +50,10 @@ def test_the_listing_resolver_places_through_the_sro_but_never_the_portal_city(m
     props = [
         {**base, "auction_id": "a1", "village": "Kattankalathur", "city": None,
          "registration_sub_district": "Chengalpet Joint-II SRO"},
+        # the notice's own text gives the PIN
+        {**base, "auction_id": "a3", "village": "Kattankalathur", "city": None,
+         "registration_sub_district": None,
+         "description": "Plot 4, Kattankalathur, Chengalpattu District - 603203"},
         # the portal city names a taluk, but it is only a witness
         {**base, "auction_id": "a2", "village": "Nallur", "city": "Tambaram",
          "registration_sub_district": None},
@@ -54,6 +65,7 @@ def test_the_listing_resolver_places_through_the_sro_but_never_the_portal_city(m
     monkeypatch.setattr(rp, "load_osm_aliases", lambda: {})
     monkeypatch.setattr(rp, "load_sro_taluks",
                         lambda: {sro_key("Chengalpet"): "Chengalpattu"})
+    monkeypatch.setattr(rp, "load_pin_taluks", lambda: {"603203": "Chengalpattu"})
     written = []
     monkeypatch.setattr(rp, "write_back", lambda rows: written.extend(rows))
     monkeypatch.setattr(rp, "write_state", lambda *a: None)
@@ -63,3 +75,5 @@ def test_the_listing_resolver_places_through_the_sro_but_never_the_portal_city(m
         == ("Kattankulathur", "Chengalpattu", "sro-taluk")
     assert by_id["a2"]["village"] is None
     assert by_id["a2"]["village_status"] == "no-parent-taluk"
+    assert (by_id["a3"]["village"], by_id["a3"]["village_source"]) == \
+        ("Kattankulathur", "pin-taluk")

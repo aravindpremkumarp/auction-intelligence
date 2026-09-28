@@ -893,3 +893,95 @@ def test_no_table_no_sro_hint(tmp_path):
     res = resolve_place(gaz, district="Chengalpattu", village="Kattankalathur")
     assert taluk_hint_place(gaz, res, "Kattankalathur", sro="Chengalpet",
                             sro_taluks={}) == res
+
+
+# ── One village of the district by sound; the PIN code's taluk ───────────────
+
+def _sound_district_gaz():
+    from pipeline.place_resolution import Gazetteer
+    return Gazetteer(
+        districts=["Pudukkottai"],
+        taluks=[("Gandarvakottai", "Pudukkottai"), ("Alangudi", "Pudukkottai")],
+        villages=[("Meikudipatti", "Gandarvakottai", "Pudukkottai"),
+                  ("Kengarai 1", "Gandarvakottai", "Pudukkottai"),
+                  ("Badur R.F.", "Alangudi", "Pudukkottai"),
+                  ("Nallur", "Gandarvakottai", "Pudukkottai"),
+                  ("Nalloor", "Alangudi", "Pudukkottai"),
+                  ("Arasoor", "Alangudi", "Pudukkottai")],
+        village_copies=[("Arasur", "Alangudi", "Arasoor")])
+
+
+def test_a_village_the_district_holds_once_by_sound_is_found():
+    gaz = _sound_district_gaz()
+    assert gaz.village_by_district_sound("Meykudipatti", "Pudukkottai") == \
+        ("Meikudipatti", "Gandarvakottai")
+    # a copy's spelling sounds for its original
+    assert gaz.village_by_district_sound("Arazur", "Pudukkottai") == ("Arasoor", "Alangudi")
+
+
+def test_the_sound_rule_refuses_twins_numbers_forests_and_exact_names():
+    gaz = _sound_district_gaz()
+    # "Nallur" / "Nalloor" sound alike in two taluks: no guess
+    assert gaz.village_by_district_sound("Nalur", "Pudukkottai") is None
+    # another number is another village
+    assert gaz.village_by_district_sound("Kengarai-2", "Pudukkottai") is None
+    # the village is not its forest
+    assert gaz.village_by_district_sound("Baddur", "Pudukkottai") is None
+    # an exact name belongs to the exact district search
+    assert gaz.village_by_district_sound("Meikudipatti", "Pudukkottai") is None
+    assert gaz.village_by_district_sound("Meykudipatti", None) is None
+
+
+def test_the_sound_rule_only_places_a_notice_that_gave_no_taluk():
+    from pipeline.place_resolution import district_sound_place, resolve_place
+    gaz = _sound_district_gaz()
+    res = resolve_place(gaz, district="Pudukkottai", village="Meykudipatti")
+    assert res["village_status"] == "no-parent-taluk"
+    out = district_sound_place(gaz, res, "Meykudipatti")
+    assert (out["village"], out["taluk"], out["village_status"], out["village_source"]) == \
+        ("Meikudipatti", "Gandarvakottai", "resolved", "district-sound")
+    # a stated taluk that does not hold it is a different question
+    named = resolve_place(gaz, district="Pudukkottai", taluk="Alangudi", village="Meykudipatti")
+    assert district_sound_place(gaz, named, "Meykudipatti") == named
+    # no district, nowhere to look
+    bare = resolve_place(gaz, village="Meykudipatti")
+    assert district_sound_place(gaz, bare, "Meykudipatti") == bare
+
+
+def test_the_property_pin_is_the_one_its_text_gives():
+    from pipeline.place_resolution import property_pin
+    assert property_pin("Plot 12, Ashok Nagar, Chennai-600083") == "600083"
+    assert property_pin("Madambakkam, Chennai 600 126", None) == "600126"
+    assert property_pin("near bus stand", "Tambaram") is None
+    # two PINs: a neighbour's or an office's is in there; neither is trusted
+    assert property_pin("Chennai-600083", "office at Chennai-600001") is None
+    # not a Tamil Nadu PIN, and not a survey or phone number
+    assert property_pin("Bengaluru 560001, S.No. 612/345, ph 9600012345") is None
+
+
+def test_the_pin_names_the_taluk_to_look_in():
+    res, out = _hinted("Kattankalathur", sro=None)
+    from pipeline.place_resolution import taluk_hint_place
+    out = taluk_hint_place(_hint_gaz(), res, "Kattankalathur", pin="603203",
+                           pin_taluks={"603203": "Chengalpattu"})
+    assert (out["village"], out["taluk"], out["village_source"]) == \
+        ("Kattankulathur", "Chengalpattu", "pin-taluk")
+    # a PIN and an SRO that disagree cancel out
+    both = taluk_hint_place(_hint_gaz(), *_nallur_no_taluk(), sro="Chengalpet",
+                            sro_taluks=_sros(), pin="600073",
+                            pin_taluks={"600073": "Tambaram"})
+    assert both["village"] is None
+
+
+def _nallur_no_taluk():
+    from pipeline.place_resolution import resolve_place
+    return resolve_place(_hint_gaz(), district="Chengalpattu", village="Nallur"), "Nallur"
+
+
+def test_a_village_shape_names_what_makes_two_names_two_places():
+    from pipeline.place_resolution import village_shape
+    assert village_shape("Kengarai 1") != village_shape("Kengarai-2")
+    assert village_shape("Badur R.F.") != village_shape("Badur")
+    assert village_shape("V. Pudur") != village_shape("Pudur")
+    assert village_shape("Padappai (Ct)") != village_shape("Padappai")
+    assert village_shape("Meykudipatti") == village_shape("Meikudipatti")

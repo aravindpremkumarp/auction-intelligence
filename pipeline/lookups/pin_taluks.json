@@ -1,0 +1,307 @@
+{
+ "600004": {
+  "lots": 4,
+  "share": 1.0,
+  "taluk": "Mylapore"
+ },
+ "600005": {
+  "lots": 3,
+  "share": 1.0,
+  "taluk": "Mylapore"
+ },
+ "600016": {
+  "lots": 6,
+  "share": 1.0,
+  "taluk": "Alandur"
+ },
+ "600017": {
+  "lots": 12,
+  "share": 0.917,
+  "taluk": "Guindy"
+ },
+ "600023": {
+  "lots": 5,
+  "share": 1.0,
+  "taluk": "Ayanavaram"
+ },
+ "600024": {
+  "lots": 3,
+  "share": 1.0,
+  "taluk": "Egmore"
+ },
+ "600028": {
+  "lots": 4,
+  "share": 1.0,
+  "taluk": "Mylapore"
+ },
+ "600037": {
+  "lots": 3,
+  "share": 1.0,
+  "taluk": "Ambattur"
+ },
+ "600040": {
+  "lots": 3,
+  "share": 1.0,
+  "taluk": "Aminjikarai"
+ },
+ "600042": {
+  "lots": 18,
+  "share": 1.0,
+  "taluk": "Velacheri"
+ },
+ "600050": {
+  "lots": 7,
+  "share": 1.0,
+  "taluk": "Ambattur"
+ },
+ "600053": {
+  "lots": 21,
+  "share": 0.952,
+  "taluk": "Ambattur"
+ },
+ "600056": {
+  "lots": 11,
+  "share": 0.909,
+  "taluk": "Poonamallee"
+ },
+ "600058": {
+  "lots": 4,
+  "share": 1.0,
+  "taluk": "Ambattur"
+ },
+ "600059": {
+  "lots": 5,
+  "share": 1.0,
+  "taluk": "Tambaram"
+ },
+ "600062": {
+  "lots": 6,
+  "share": 1.0,
+  "taluk": "Avadi"
+ },
+ "600066": {
+  "lots": 4,
+  "share": 1.0,
+  "taluk": "Madhavaram"
+ },
+ "600069": {
+  "lots": 7,
+  "share": 1.0,
+  "taluk": "Kundrathur"
+ },
+ "600070": {
+  "lots": 3,
+  "share": 1.0,
+  "taluk": "Pallavaram"
+ },
+ "600077": {
+  "lots": 3,
+  "share": 1.0,
+  "taluk": "Poonamallee"
+ },
+ "600078": {
+  "lots": 4,
+  "share": 1.0,
+  "taluk": "Mambalam"
+ },
+ "600080": {
+  "lots": 18,
+  "share": 1.0,
+  "taluk": "Ambattur"
+ },
+ "600081": {
+  "lots": 5,
+  "share": 1.0,
+  "taluk": "Tondiarpet"
+ },
+ "600087": {
+  "lots": 7,
+  "share": 1.0,
+  "taluk": "Maduravoyal"
+ },
+ "600090": {
+  "lots": 10,
+  "share": 1.0,
+  "taluk": "Velacheri"
+ },
+ "600094": {
+  "lots": 10,
+  "share": 1.0,
+  "taluk": "Egmore"
+ },
+ "600115": {
+  "lots": 13,
+  "share": 1.0,
+  "taluk": "Sholinganallur"
+ },
+ "600116": {
+  "lots": 3,
+  "share": 1.0,
+  "taluk": "Maduravoyal"
+ },
+ "600118": {
+  "lots": 3,
+  "share": 1.0,
+  "taluk": "Perambur"
+ },
+ "600120": {
+  "lots": 5,
+  "share": 1.0,
+  "taluk": "Ponneri"
+ },
+ "600122": {
+  "lots": 3,
+  "share": 1.0,
+  "taluk": "Kundrathur"
+ },
+ "601204": {
+  "lots": 4,
+  "share": 1.0,
+  "taluk": "Ponneri"
+ },
+ "602025": {
+  "lots": 15,
+  "share": 1.0,
+  "taluk": "Sriperumbudur"
+ },
+ "602105": {
+  "lots": 7,
+  "share": 1.0,
+  "taluk": "Sriperumbudur"
+ },
+ "603103": {
+  "lots": 13,
+  "share": 0.923,
+  "taluk": "Thiruporur"
+ },
+ "603108": {
+  "lots": 30,
+  "share": 1.0,
+  "taluk": "Thiruporur"
+ },
+ "603110": {
+  "lots": 17,
+  "share": 1.0,
+  "taluk": "Thiruporur"
+ },
+ "603111": {
+  "lots": 4,
+  "share": 1.0,
+  "taluk": "Maduranthagam"
+ },
+ "603204": {
+  "lots": 8,
+  "share": 1.0,
+  "taluk": "Chengalpattu"
+ },
+ "603210": {
+  "lots": 3,
+  "share": 1.0,
+  "taluk": "Vandalur"
+ },
+ "606106": {
+  "lots": 4,
+  "share": 1.0,
+  "taluk": "Titagudi"
+ },
+ "606808": {
+  "lots": 4,
+  "share": 1.0,
+  "taluk": "Tiruvannamalai"
+ },
+ "608301": {
+  "lots": 3,
+  "share": 1.0,
+  "taluk": "Kattumannarkoil"
+ },
+ "608601": {
+  "lots": 4,
+  "share": 1.0,
+  "taluk": "Bhuvanagiri"
+ },
+ "620005": {
+  "lots": 4,
+  "share": 1.0,
+  "taluk": "Srirengam"
+ },
+ "620020": {
+  "lots": 4,
+  "share": 1.0,
+  "taluk": "Thiruchirapalli - West"
+ },
+ "624219": {
+  "lots": 4,
+  "share": 1.0,
+  "taluk": "Athoor"
+ },
+ "626131": {
+  "lots": 4,
+  "share": 1.0,
+  "taluk": "Vembakkottai"
+ },
+ "628615": {
+  "lots": 3,
+  "share": 1.0,
+  "taluk": "Srivaikundam"
+ },
+ "631151": {
+  "lots": 4,
+  "share": 1.0,
+  "taluk": "Arakkonam"
+ },
+ "632501": {
+  "lots": 3,
+  "share": 1.0,
+  "taluk": "Sholinghur"
+ },
+ "635109": {
+  "lots": 3,
+  "share": 1.0,
+  "taluk": "Hosur"
+ },
+ "635113": {
+  "lots": 3,
+  "share": 1.0,
+  "taluk": "Denkanikotta"
+ },
+ "637303": {
+  "lots": 3,
+  "share": 1.0,
+  "taluk": "Sankari"
+ },
+ "638008": {
+  "lots": 3,
+  "share": 1.0,
+  "taluk": "Kumarapalayam"
+ },
+ "638052": {
+  "lots": 4,
+  "share": 1.0,
+  "taluk": "Perundurai"
+ },
+ "638054": {
+  "lots": 10,
+  "share": 1.0,
+  "taluk": "Gobichettipalayam"
+ },
+ "639108": {
+  "lots": 4,
+  "share": 1.0,
+  "taluk": "Krishnarayapuram"
+ },
+ "641107": {
+  "lots": 3,
+  "share": 1.0,
+  "taluk": "Annur"
+ },
+ "641605": {
+  "lots": 3,
+  "share": 1.0,
+  "taluk": "Palladam"
+ },
+ "642002": {
+  "lots": 3,
+  "share": 1.0,
+  "taluk": "Pollachi"
+ }
+}

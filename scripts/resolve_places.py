@@ -53,7 +53,8 @@ from collections import Counter, defaultdict
 
 from pipeline.place_lineage import classify, needs_review
 from pipeline.place_resolution import (
-    Gazetteer, load_sro_taluks, resolve_place, taluk_hint_place,
+    Gazetteer, district_sound_place, load_pin_taluks, load_sro_taluks,
+    property_pin, resolve_place, taluk_hint_place,
 )
 from pipeline.resolution_review import (
     district_conflict_key, load_osm_aliases, settle_village, settled_conflicts,
@@ -87,6 +88,11 @@ def load_gazetteer() -> Gazetteer:
     )
 
 
+#: Description sources that are the notice's own text (or a reviewer's), the
+#: only text a PIN code is read from — the portal's stays a witness.
+NOTICE_TEXT = ("notice", "reviewer", "langextract")
+
+
 def load_properties() -> list[dict]:
     """Every property with the place strings it will be resolved from.
 
@@ -98,12 +104,13 @@ def load_properties() -> list[dict]:
         OPTIONAL MATCH (p)-[:HAS_DOCUMENT]->(d:Document)
         OPTIONAL MATCH (p)-[:LOCATED_IN_CITY]->(c:City)
         RETURN p.auction_id, p.village, p.taluk, p.district, c.name,
-               d.file_path, p.registration_district, p.registration_sub_district
-    """)
+               d.file_path, p.registration_district, p.registration_sub_district,
+               CASE WHEN p.description_source IN $notice_text THEN p.description END
+    """, {"notice_text": list(NOTICE_TEXT)})
     return [{"auction_id": aid, "village": v, "taluk": t, "district": d,
              "city": c, "file_path": fp, "registration_district": rd,
-             "registration_sub_district": sro}
-            for aid, v, t, d, c, fp, rd, sro in rows if aid]
+             "registration_sub_district": sro, "description": desc}
+            for aid, v, t, d, c, fp, rd, sro, desc in rows if aid]
 
 
 def notice_fallback() -> dict[str, dict]:
@@ -281,6 +288,7 @@ def run(*, dry_run: bool = False) -> dict:
     skips = skipped_villages(decisions)
     osm_aliases = load_osm_aliases()
     sro_taluks = load_sro_taluks()
+    pin_taluks = load_pin_taluks()
     settled = settled_conflicts(decisions)
     print(f"{len(props)} propert(ies); gazetteer has "
           f"{len(gaz.districts)} districts, {len(gaz.taluks)} taluks, "
@@ -317,15 +325,19 @@ def run(*, dry_run: bool = False) -> dict:
                 and (res["village_source"] or "").startswith("osm-"):
             stats[f"settled by OSM ({res['village_source']})"] += 1
 
-        # Then the taluk the sub-registrar office names — after the verdicts,
-        # which outrank it. SRO only: the portal city is a witness, never an
-        # answer (lots also read the notice's own town).
+        # Then the taluk the sub-registrar office or the notice's PIN code
+        # names, then the one village of the district that sounds like it —
+        # after the verdicts, which outrank both. Not the portal city: it is a
+        # witness, never an answer (lots also read the notice's own town).
         was = res["village_source"]
         res = taluk_hint_place(gaz, res, village,
                                sro=p["registration_sub_district"],
-                               sro_taluks=sro_taluks)
+                               sro_taluks=sro_taluks,
+                               pin=property_pin(p.get("description")),
+                               pin_taluks=pin_taluks)
+        res = district_sound_place(gaz, res, village)
         if res["village_source"] != was:
-            stats[f"placed by its SRO's taluk ({res['village_status']})"] += 1
+            stats[f"placed by rule {res['village_source']} ({res['village_status']})"] += 1
 
         # The portal is only ever a witness: its disagreement is recorded, and
         # never allowed to change the answer.

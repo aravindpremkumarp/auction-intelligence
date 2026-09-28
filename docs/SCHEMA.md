@@ -210,6 +210,21 @@ portal city stays a witness). Checked on placed lots with the taluk hidden:
 1,029 right, 10 wrong. Re-learn after new notices; the table never learns
 from its own answers.
 
+A **PIN code** is a third hint (`pin-taluk`). The same script learns
+`pipeline/lookups/pin_taluks.json` — a PIN names a taluk when ≥ 3 placed lots
+give it and ≥ 90% of them sit in that taluk (61 PINs). A lot's PIN is the one
+its own property text gives (`promote_extractions.lot_pin`); a listing's, the
+one its notice description gives (never the portal's); two PINs give none.
+Checked the same way: 253 right, 0 wrong.
+
+Last, a notice with a district but no usable taluk is placed by the **one
+village of the district that sounds like it** (`district-sound`,
+`Gazetteer.village_by_district_sound`): the same `sound_key`, and the same
+part, number, initials and qualifier (`village_shape`), so "Kengarai-2" never
+lands on "Kengarai 1" nor "Badur" on "Badur R.F."; two that sound alike
+cancel out. Checked on placed lots with the taluk hidden: 424 right, 14
+wrong. Both run after the human verdicts and the SRO/town hints.
+
 ### The village review queue: one verdict per spelling in a taluk
 
 What the rules cannot place stays `unmatched` on the listing
