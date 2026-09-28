@@ -807,7 +807,7 @@ def test_a_lot_is_placed_through_its_pin_or_the_one_village_that_sounds_like_it(
                     villages=[("Kattankulathur", "Chengalpattu", "Chengalpattu"),
                               ("Keezhperumpakkam", "Tambaram", "Chengalpattu")])
     monkeypatch.setattr(P, "gazetteer", lambda: gaz)
-    monkeypatch.setattr(P, "decided_spellings", lambda: ({}, set(), {}, {}))
+    monkeypatch.setattr(P, "decided_spellings", lambda: ({}, set(), {}, {}, {}))
     monkeypatch.setattr(P, "sro_taluks", lambda: {})
     monkeypatch.setattr(P, "pin_taluks", lambda: {"603203": "Chengalpattu"})
     pin = P.lot_place({"lot_key": "n#1", "props": {
