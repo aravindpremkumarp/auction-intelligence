@@ -142,3 +142,19 @@ def test_best_does_not_merge_reads_with_different_lot_counts():
     new = lot(1, "desc", "reserve") + lot(2, "desc") + lot(3, "desc")
     ents, how, *_ = KB.best(old, new, "t")
     assert ents is None and how == ""
+
+
+def test_a_location_part_counts_as_a_fact():
+    def loc(**parts):
+        return [{"cls": "location", "text": "Adhanur Village",
+                 "attrs": {"lot_index": "1", **parts}}]
+    save, gains, losses = KB.judge(loc(), loc(village="Adhanur"), "")
+    assert save and gains == ["lot 1: village"] and not losses
+    save, gains, losses = KB.judge(loc(village="Adhanur"), loc(taluk="Kundrathur"), "")
+    assert not save and losses == ["lot 1: village"]
+    # best merges the two, keeping both parts
+    merged, how, _, _ = KB.best(loc(village="Adhanur"),
+                                [{"cls": "location", "text": "Kundrathur Taluk",
+                                  "attrs": {"lot_index": "1", "taluk": "Kundrathur"}}], "")
+    assert how == "merged"
+    assert {k for e in merged for k in e["attrs"]} >= {"village", "taluk"}

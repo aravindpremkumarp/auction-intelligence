@@ -66,7 +66,9 @@ from pipeline.measures import (
 )
 from pipeline.lot_windows import renumber_window_lots
 from pipeline.obs import get_logger
-from pipeline.place_resolution import Gazetteer, resolve_place
+from pipeline.place_resolution import (
+    Gazetteer, load_sro_taluks, resolve_place, taluk_hint_place,
+)
 from pipeline.property_taxonomy import (
     AGRICULTURAL, FLAT, LAND, PLOT, classify_property_type,
 )
@@ -288,6 +290,18 @@ def decided_spellings(reload: bool = False
     return _SPELLINGS
 
 
+# ── learned SRO → taluk table ────────────────────────────────────────────────
+# A file in the repo (scripts/learn_sro_taluks), so it is read once per process.
+_SRO_TALUKS: dict[str, str] | None = None
+
+
+def sro_taluks() -> dict[str, str]:
+    global _SRO_TALUKS
+    if _SRO_TALUKS is None:
+        _SRO_TALUKS = load_sro_taluks()
+    return _SRO_TALUKS
+
+
 def lot_place(rec: dict) -> dict:
     """Resolve one lot's extracted village/taluk/district onto the gazetteer.
 
@@ -339,6 +353,22 @@ def lot_place(rec: dict) -> dict:
     district, taluk, village, status, source = (
         settled["district"], settled["taluk"], settled["village"],
         settled["village_status"], settled["village_source"])
+    parts = [] if village else (r.get("village_parts") or [])
+    district_source = r["district_source"]
+
+    # Still no village: try the taluk the sub-registrar office or the town
+    # names (place_resolution.taluk_hint_place). After the verdicts, which
+    # outrank it.
+    hinted = taluk_hint_place(
+        gaz, {"district": district, "taluk": taluk, "village": village,
+              "village_parts": parts, "village_status": status,
+              "village_source": source, "district_source": district_source},
+        loc.get("village"), sro=loc.get("registration_sub_district"),
+        city=loc.get("city"), sro_taluks=sro_taluks())
+    district, taluk, village, parts, status, source, district_source = (
+        hinted["district"], hinted["taluk"], hinted["village"],
+        hinted["village_parts"], hinted["village_status"],
+        hinted["village_source"], hinted["district_source"])
 
     return {
         "lot_key": rec["lot_key"],
@@ -351,13 +381,13 @@ def lot_place(rec: dict) -> dict:
         "village_raw": (loc.get("village") or "").strip() or None,
         # Every part of a village the register splits ("Pammal - I", "- II"),
         # when the notice named only the whole and nothing settled it.
-        "village_parts": [] if village else (r.get("village_parts") or []),
+        "village_parts": parts,
         "status": status,
         "source": source,
         # Which field the district came from. Stored because the weakest of
         # them — the registration (SRO) district — must stay tellable from a
         # district the notice stated outright; see resolve_place.
-        "district_source": r["district_source"],
+        "district_source": district_source,
         "conflict": r["conflict"],
     }
 
@@ -1236,7 +1266,7 @@ def relink_settled_lots(dry_run: bool = False) -> dict:
     docs = run_read_query(
         "MATCH (d:Document) WHERE d.filename IN $files "
         "RETURN d.filename AS filename, d.extraction_json AS extraction_json, "
-        "       d.corrections_json AS corrections_json",
+        "       d.extraction_corrections_json AS corrections_json",
         {"files": files}, max_rows=len(files), timeout=120.0)
     lots = sum(place_document(doc, dry_run)[0] for doc in docs)
     # Lots whose village changed — the only change parcels depend on.

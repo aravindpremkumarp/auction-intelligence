@@ -785,3 +785,111 @@ def test_a_stale_copy_link_is_ignored():
     res = resolve_place(_copy_gaz(), district="Tiruvannamalai", taluk="Vandavasi",
                         village="Ghost")
     assert res["village"] is None and res["village_status"] == "unmatched"
+
+
+# ── Taluk hints: the registration office and the city ────────────────────────
+
+def _hint_gaz():
+    from pipeline.place_resolution import Gazetteer
+    return Gazetteer(
+        districts=["Chengalpattu", "Coimbatore"],
+        taluks=[("Chengalpattu", "Chengalpattu"), ("Tambaram", "Chengalpattu"),
+                ("Mettupalayam", "Coimbatore")],
+        villages=[("Kattankulathur", "Chengalpattu", "Chengalpattu"),
+                  ("Nallur", "Chengalpattu", "Chengalpattu"),
+                  ("Nallur", "Tambaram", "Chengalpattu"),
+                  ("Madambakkam", "Tambaram", "Chengalpattu"),
+                  ("Sikkadasampalayam", "Mettupalayam", "Coimbatore")])
+
+
+
+def _sros():
+    from pipeline.place_resolution import sro_key
+    return {sro_key("Chengalpet"): "Chengalpattu", sro_key("Tambaram"): "Tambaram",
+            sro_key("Mettupalayam"): "Mettupalayam"}
+
+
+def _hinted(village, *, district="Chengalpattu", taluk=None, sro=None, city=None):
+    from pipeline.place_resolution import resolve_place, taluk_hint_place
+    gaz = _hint_gaz()
+    res = resolve_place(gaz, district=district, taluk=taluk, village=village)
+    return res, taluk_hint_place(gaz, res, village, sro=sro, city=city,
+                                 sro_taluks=_sros())
+
+
+def test_one_office_one_key_whatever_the_suffix():
+    from pipeline.place_resolution import sro_key
+    assert sro_key("Chengalpet Joint-II SRO") == sro_key("Chengalpet") \
+        == sro_key("S.R.O. Chengalpet") == sro_key("Sub Registrar Office, Chengalpet")
+    assert sro_key("Joint II") == sro_key(None) == ""
+
+
+def test_the_sro_names_the_taluk_a_notice_left_out():
+    res, out = _hinted("Kattankalathur", sro="Chengalpet Joint-II SRO")
+    assert res["village_status"] == "no-parent-taluk"
+    assert (out["village"], out["taluk"], out["district"]) == \
+        ("Kattankulathur", "Chengalpattu", "Chengalpattu")
+    assert (out["village_status"], out["village_source"]) == ("resolved", "sro-taluk")
+
+
+def test_the_sro_rescues_a_village_the_named_taluk_does_not_hold():
+    res, out = _hinted("Kattankalathur", taluk="Tambaram", sro="Chengalpet")
+    assert res["village_status"] == "unmatched"
+    assert (out["village"], out["taluk"], out["village_source"]) == \
+        ("Kattankulathur", "Chengalpattu", "sro-taluk")
+
+
+def test_the_city_names_the_taluk_when_it_is_the_taluk_town():
+    res, out = _hinted("Sikkadasampalaiyam", district="Coimbatore",
+                       city="Mettupalayam Town")
+    assert (out["village"], out["taluk"], out["village_source"]) == \
+        ("Sikkadasampalayam", "Mettupalayam", "city-taluk")
+
+
+def test_a_hint_outside_the_known_district_is_ignored():
+    res, out = _hinted("Sikkadasampalaiyam", sro="Mettupalayam")
+    assert res["village_status"] == "no-parent-taluk" and out == res
+
+
+def test_the_village_must_be_in_the_hinted_taluk_itself():
+    """The district-wide search inside resolve_place may find the village in a
+    third taluk; that answer is not the hint's."""
+    from pipeline.place_resolution import taluk_hint_place
+    res = {"district": "Chengalpattu", "taluk": None, "village": None,
+           "village_parts": [], "village_status": "no-parent-taluk",
+           "village_source": None, "district_source": "district"}
+    out = taluk_hint_place(_hint_gaz(), res, "Kattankulathur", sro="Tambaram",
+                           sro_taluks=_sros())
+    assert out == res
+
+
+def test_two_hints_naming_different_places_cancel_out():
+    # "Nallur" is in both taluks: the SRO says one, the city the other
+    res, out = _hinted("Nallur", sro="Chengalpet", city="Tambaram")
+    assert res["village_status"] == "no-parent-taluk" and out == res
+    # agreeing hints are one answer
+    _, agree = _hinted("Nallur", sro="Tambaram", city="Tambaram")
+    assert (agree["village"], agree["taluk"]) == ("Nallur", "Tambaram")
+
+
+def test_a_placed_or_ruled_village_is_never_re_hinted():
+    from pipeline.place_resolution import taluk_hint_place
+    res, out = _hinted("Madambakkam", taluk="Tambaram", sro="Chengalpet")
+    assert res["village"] == "Madambakkam" and out == res
+    ruled = {"district": "Chengalpattu", "taluk": None, "village": None,
+             "village_parts": [], "village_status": "not-a-revenue-village",
+             "village_source": "human-skip"}
+    assert taluk_hint_place(_hint_gaz(), ruled, "Kattankalathur", sro="Chengalpet",
+                            sro_taluks=_sros()) == ruled
+
+
+def test_no_table_no_sro_hint(tmp_path):
+    from pipeline.place_resolution import load_sro_taluks
+    assert load_sro_taluks(tmp_path / "missing.json") == {}
+    (tmp_path / "t.json").write_text('{"kenkalpet": {"taluk": "Chengalpattu", "lots": 9}}')
+    assert load_sro_taluks(tmp_path / "t.json") == {"kenkalpet": "Chengalpattu"}
+    from pipeline.place_resolution import resolve_place, taluk_hint_place
+    gaz = _hint_gaz()
+    res = resolve_place(gaz, district="Chengalpattu", village="Kattankalathur")
+    assert taluk_hint_place(gaz, res, "Kattankalathur", sro="Chengalpet",
+                            sro_taluks={}) == res

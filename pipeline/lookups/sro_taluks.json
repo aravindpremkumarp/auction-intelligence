@@ -1,0 +1,1333 @@
+{
+ "alankanalur": {
+  "lots": 8,
+  "share": 1.0,
+  "spellings": [
+   "Alanganallur"
+  ],
+  "taluk": "Vadipatti"
+ },
+ "alankulam": {
+  "lots": 4,
+  "share": 1.0,
+  "spellings": [
+   "Alangulam"
+  ],
+  "taluk": "Alangulam"
+ },
+ "alankuti": {
+  "lots": 3,
+  "share": 1.0,
+  "spellings": [
+   "Alangudi"
+  ],
+  "taluk": "Alangudi"
+ },
+ "alantur": {
+  "lots": 7,
+  "share": 1.0,
+  "spellings": [
+   "Alandur"
+  ],
+  "taluk": "Alandur"
+ },
+ "ampur": {
+  "lots": 8,
+  "share": 1.0,
+  "spellings": [
+   "Ambur",
+   "Ambur Sub District"
+  ],
+  "taluk": "Ambur"
+ },
+ "anamala": {
+  "lots": 9,
+  "share": 1.0,
+  "spellings": [
+   "Anaimalai",
+   "ANAIMALAI"
+  ],
+  "taluk": "Anaimalai"
+ },
+ "antir": {
+  "lots": 7,
+  "share": 1.0,
+  "spellings": [
+   "Anthiyur"
+  ],
+  "taluk": "Anthiyur"
+ },
+ "arakunam": {
+  "lots": 4,
+  "share": 1.0,
+  "spellings": [
+   "Arakkonam",
+   "Arakonam"
+  ],
+  "taluk": "Arakkonam"
+ },
+ "aravakurisi": {
+  "lots": 5,
+  "share": 1.0,
+  "spellings": [
+   "Aravakurichi"
+  ],
+  "taluk": "Arvakurichi"
+ },
+ "arni": {
+  "lots": 3,
+  "share": 1.0,
+  "spellings": [
+   "Arni"
+  ],
+  "taluk": "Arani"
+ },
+ "arupukuta": {
+  "lots": 3,
+  "share": 1.0,
+  "spellings": [
+   "Aruppukottai"
+  ],
+  "taluk": "Aruppukkottai"
+ },
+ "asuknakar": {
+  "lots": 7,
+  "share": 1.0,
+  "spellings": [
+   "Ashok Nagar"
+  ],
+  "taluk": "Mambalam"
+ },
+ "atar": {
+  "lots": 3,
+  "share": 1.0,
+  "spellings": [
+   "Adayar"
+  ],
+  "taluk": "Guindy"
+ },
+ "avinasi": {
+  "lots": 43,
+  "share": 0.907,
+  "spellings": [
+   "Avinashi",
+   "Avinachi"
+  ],
+  "taluk": "Avinashi"
+ },
+ "iruti": {
+  "lots": 9,
+  "share": 1.0,
+  "spellings": [
+   "Erode"
+  ],
+  "taluk": "Erode"
+ },
+ "kanir": {
+  "lots": 3,
+  "share": 1.0,
+  "spellings": [
+   "Kaniyur"
+  ],
+  "taluk": "Madathukulam"
+ },
+ "kankavali": {
+  "lots": 5,
+  "share": 1.0,
+  "spellings": [
+   "Gangavalli"
+  ],
+  "taluk": "Gangavalli"
+ },
+ "kankim": {
+  "lots": 13,
+  "share": 1.0,
+  "spellings": [
+   "Kangeyam",
+   "Kankeyam"
+  ],
+  "taluk": "Kangayam"
+ },
+ "kantipuram": {
+  "lots": 11,
+  "share": 1.0,
+  "spellings": [
+   "Gandhipuram"
+  ],
+  "taluk": "Coimbatore North"
+ },
+ "karimankalam": {
+  "lots": 4,
+  "share": 1.0,
+  "spellings": [
+   "Karimangalam"
+  ],
+  "taluk": "Karimangalam"
+ },
+ "karipati": {
+  "lots": 4,
+  "share": 1.0,
+  "spellings": [
+   "Kariappati"
+  ],
+  "taluk": "Kariyapatti"
+ },
+ "katalati": {
+  "lots": 3,
+  "share": 1.0,
+  "spellings": [
+   "Kadaladi"
+  ],
+  "taluk": "Chengam"
+ },
+ "katam": {
+  "lots": 3,
+  "share": 1.0,
+  "spellings": [
+   "Kadayam"
+  ],
+  "taluk": "Alangulam"
+ },
+ "katamalakuntu": {
+  "lots": 6,
+  "share": 1.0,
+  "spellings": [
+   "Kadamalaikundu",
+   "Kadamalaigundu"
+  ],
+  "taluk": "Aundipatti"
+ },
+ "katampulir": {
+  "lots": 15,
+  "share": 1.0,
+  "spellings": [
+   "Kadampuliyur",
+   "Kadampulyur"
+  ],
+  "taluk": "Panruti"
+ },
+ "kaviripatinam": {
+  "lots": 4,
+  "share": 1.0,
+  "spellings": [
+   "Kaveripattinam",
+   "Kaveripatinam"
+  ],
+  "taluk": "Krishnagiri"
+ },
+ "kilanila": {
+  "lots": 5,
+  "share": 1.0,
+  "spellings": [
+   "Keelanilai"
+  ],
+  "taluk": "Thirumayam"
+ },
+ "krisnakiri": {
+  "lots": 12,
+  "share": 0.917,
+  "spellings": [
+   "Krishnagiri Joint-2",
+   "Joint 1 Krishnagiri",
+   "Krishnagiri Joint-1",
+   "Joint - 1 Krishnagiri",
+   "Krishnagiri joint-1"
+  ],
+  "taluk": "Krishnagiri"
+ },
+ "krisnarapuram": {
+  "lots": 4,
+  "share": 1.0,
+  "spellings": [
+   "Krishnarayapuram"
+  ],
+  "taluk": "Krishnarayapuram"
+ },
+ "kulankuti": {
+  "lots": 4,
+  "share": 1.0,
+  "spellings": [
+   "Kollancode"
+  ],
+  "taluk": "Killiyoor"
+ },
+ "kulilimpara": {
+  "lots": 4,
+  "share": 1.0,
+  "spellings": [
+   "Kuliliamparai",
+   "kuliliamparai"
+  ],
+  "taluk": "Gujiliamparai"
+ },
+ "kulitala": {
+  "lots": 3,
+  "share": 1.0,
+  "spellings": [
+   "Kulithalai"
+  ],
+  "taluk": "Kulithalai"
+ },
+ "kumitipunti": {
+  "lots": 12,
+  "share": 1.0,
+  "spellings": [
+   "Gummidipoondi"
+  ],
+  "taluk": "Gummidipoondi"
+ },
+ "kumpaturirasastrit": {
+  "lots": 5,
+  "share": 1.0,
+  "spellings": [
+   "Coimbatore Raja Street Joint-2",
+   "Coimbatore Raja Street Joint II"
+  ],
+  "taluk": "Perur"
+ },
+ "kumpum": {
+  "lots": 3,
+  "share": 1.0,
+  "spellings": [
+   "Cumbum"
+  ],
+  "taluk": "Uthamapalayam"
+ },
+ "kunatur": {
+  "lots": 10,
+  "share": 1.0,
+  "spellings": [
+   "Kunnathur",
+   "Kunathur"
+  ],
+  "taluk": "Uthukkuli"
+ },
+ "kupisitipalam": {
+  "lots": 5,
+  "share": 1.0,
+  "spellings": [
+   "Gopichettipalayam Joint-2",
+   "Gobichettipalayam Registration Joint II"
+  ],
+  "taluk": "Gobichettipalayam"
+ },
+ "kutakiri": {
+  "lots": 4,
+  "share": 1.0,
+  "spellings": [
+   "Kotagiri"
+  ],
+  "taluk": "Kotagiri"
+ },
+ "kutalam": {
+  "lots": 4,
+  "share": 1.0,
+  "spellings": [
+   "Kuthalam"
+  ],
+  "taluk": "Kuthalam"
+ },
+ "kutaluri": {
+  "lots": 14,
+  "share": 1.0,
+  "spellings": [
+   "Cuddalore Joint II",
+   "Cuddalore Joint I"
+  ],
+  "taluk": "Cuddalore"
+ },
+ "kutavasal": {
+  "lots": 3,
+  "share": 1.0,
+  "spellings": [
+   "Kudavasal"
+  ],
+  "taluk": "Kudavasal"
+ },
+ "kutitam": {
+  "lots": 6,
+  "share": 1.0,
+  "spellings": [
+   "Gudiyatham",
+   "Gudiyattam Sub-District",
+   "Gudiyattam"
+  ],
+  "taluk": "Gudiyatham"
+ },
+ "lalkuti": {
+  "lots": 3,
+  "share": 1.0,
+  "spellings": [
+   "Lalgudi"
+  ],
+  "taluk": "Lalgudi"
+ },
+ "makutansavati": {
+  "lots": 7,
+  "share": 1.0,
+  "spellings": [
+   "Magudanchavadi"
+  ],
+  "taluk": "Sankari"
+ },
+ "malatutura": {
+  "lots": 4,
+  "share": 1.0,
+  "spellings": [
+   "Mayiladuthurai Joint I",
+   "Mayiladuthurai No 1",
+   "Mayiladuthurai No.1"
+  ],
+  "taluk": "Mayiladuthurai"
+ },
+ "manavalanakar": {
+  "lots": 16,
+  "share": 1.0,
+  "spellings": [
+   "Manavalanagar",
+   "Manavala Nagar"
+  ],
+  "taluk": "Tiruvallur"
+ },
+ "marakanam": {
+  "lots": 3,
+  "share": 1.0,
+  "spellings": [
+   "Marakkanam"
+  ],
+  "taluk": "Marakkanam"
+ },
+ "marantali": {
+  "lots": 3,
+  "share": 1.0,
+  "spellings": [
+   "Marandahalli"
+  ],
+  "taluk": "Palacode"
+ },
+ "martantam": {
+  "lots": 4,
+  "share": 1.0,
+  "spellings": [
+   "Marthandam Joint II Sub Registrar",
+   "Marthandam Joint II",
+   "Marthandam Joint 2",
+   "Marthandam Joint 1"
+  ],
+  "taluk": "Vilavamcode"
+ },
+ "matavaram": {
+  "lots": 14,
+  "share": 0.929,
+  "spellings": [
+   "Madhavaram",
+   "Madavaram"
+  ],
+  "taluk": "Madhavaram"
+ },
+ "matukara": {
+  "lots": 13,
+  "share": 1.0,
+  "spellings": [
+   "Madukkarai",
+   "Madhukarai"
+  ],
+  "taluk": "Madukkarai"
+ },
+ "maturantakam": {
+  "lots": 13,
+  "share": 1.0,
+  "spellings": [
+   "Madurantakam",
+   "Maduranthagam",
+   "Madhuranthagham",
+   "Madurantakkam",
+   "Madhuranthagam"
+  ],
+  "taluk": "Maduranthagam"
+ },
+ "milapuri": {
+  "lots": 7,
+  "share": 1.0,
+  "spellings": [
+   "Mylapore"
+  ],
+  "taluk": "Mylapore"
+ },
+ "milur": {
+  "lots": 11,
+  "share": 0.909,
+  "spellings": [
+   "Melur"
+  ],
+  "taluk": "Melur"
+ },
+ "milurvist": {
+  "lots": 3,
+  "share": 1.0,
+  "spellings": [
+   "Melur (West)"
+  ],
+  "taluk": "Melur"
+ },
+ "mitupalam": {
+  "lots": 18,
+  "share": 1.0,
+  "spellings": [
+   "Mettupalayam"
+  ],
+  "taluk": "Mettupalayam"
+ },
+ "mitur": {
+  "lots": 8,
+  "share": 1.0,
+  "spellings": [
+   "Mettur"
+  ],
+  "taluk": "Mettur"
+ },
+ "munur": {
+  "lots": 5,
+  "share": 1.0,
+  "spellings": [
+   "Mohanur"
+  ],
+  "taluk": "Mohanur"
+ },
+ "nalur": {
+  "lots": 19,
+  "share": 1.0,
+  "spellings": [
+   "Nallur"
+  ],
+  "taluk": "Tiruppur South"
+ },
+ "namakal": {
+  "lots": 4,
+  "share": 1.0,
+  "spellings": [
+   "Namakkal Joint II",
+   "Namakkal"
+  ],
+  "taluk": "Namakkal"
+ },
+ "nanilam": {
+  "lots": 3,
+  "share": 1.0,
+  "spellings": [
+   "Nannilam"
+  ],
+  "taluk": "Nannilam"
+ },
+ "natrampali": {
+  "lots": 6,
+  "share": 1.0,
+  "spellings": [
+   "Natrampalli"
+  ],
+  "taluk": "Natarampalli"
+ },
+ "nilakuta": {
+  "lots": 6,
+  "share": 1.0,
+  "spellings": [
+   "Nilakottai"
+  ],
+  "taluk": "Nilakottai"
+ },
+ "nilankara": {
+  "lots": 37,
+  "share": 1.0,
+  "spellings": [
+   "Neelangarai",
+   "Neelankarai"
+  ],
+  "taluk": "Sholinganallur"
+ },
+ "palani": {
+  "lots": 7,
+  "share": 1.0,
+  "spellings": [
+   "Palani Joint II",
+   "Palani Joint - II",
+   "Palani I"
+  ],
+  "taluk": "Palani"
+ },
+ "palatam": {
+  "lots": 37,
+  "share": 0.919,
+  "spellings": [
+   "Palladam"
+  ],
+  "taluk": "Palladam"
+ },
+ "palipatu": {
+  "lots": 8,
+  "share": 1.0,
+  "spellings": [
+   "Pallipattu"
+  ],
+  "taluk": "Pallipet"
+ },
+ "parkur": {
+  "lots": 19,
+  "share": 0.947,
+  "spellings": [
+   "Bargur"
+  ],
+  "taluk": "Bargur"
+ },
+ "patlakuntu": {
+  "lots": 6,
+  "share": 1.0,
+  "spellings": [
+   "Batlagundu"
+  ],
+  "taluk": "Nilakottai"
+ },
+ "pilamitu": {
+  "lots": 19,
+  "share": 0.947,
+  "spellings": [
+   "Peelamedu"
+  ],
+  "taluk": "Coimbatore south"
+ },
+ "pirampakam": {
+  "lots": 6,
+  "share": 1.0,
+  "spellings": [
+   "Perambakkam"
+  ],
+  "taluk": "Tiruvallur"
+ },
+ "pirampalur": {
+  "lots": 3,
+  "share": 1.0,
+  "spellings": [
+   "Perambalur",
+   "No.1 Joint Sub Registrar, Perambalur"
+  ],
+  "taluk": "Perambalur"
+ },
+ "pirikulam": {
+  "lots": 11,
+  "share": 0.909,
+  "spellings": [
+   "Periyakulam No.1",
+   "Periyakulam",
+   "Periyakulam Joint II",
+   "periyakulam Joint-1",
+   "Periyakulam joint -1"
+  ],
+  "taluk": "Periyakulam"
+ },
+ "pirimit": {
+  "lots": 6,
+  "share": 1.0,
+  "spellings": [
+   "Periamet"
+  ],
+  "taluk": "Egmore"
+ },
+ "piruntura": {
+  "lots": 19,
+  "share": 1.0,
+  "spellings": [
+   "Perundurai"
+  ],
+  "taluk": "Perundurai"
+ },
+ "pitanakinpalim": {
+  "lots": 3,
+  "share": 1.0,
+  "spellings": [
+   "Pethanaicken Palyam",
+   "PETHANAICKEN PALYAM"
+  ],
+  "taluk": "Attur"
+ },
+ "pulasi": {
+  "lots": 18,
+  "share": 0.944,
+  "spellings": [
+   "Pollachi",
+   "Pollachi SRO"
+  ],
+  "taluk": "Pollachi"
+ },
+ "punamaravati": {
+  "lots": 4,
+  "share": 1.0,
+  "spellings": [
+   "Ponnamaravathi"
+  ],
+  "taluk": "Ponnamaravathi"
+ },
+ "puniri": {
+  "lots": 10,
+  "share": 1.0,
+  "spellings": [
+   "Ponneri"
+  ],
+  "taluk": "Ponneri"
+ },
+ "ranipit": {
+  "lots": 4,
+  "share": 1.0,
+  "spellings": [
+   "Ranipet",
+   "Ranipet Joint 1",
+   "Ranipet Joint-1"
+  ],
+  "taluk": "Walajah"
+ },
+ "rasapalam": {
+  "lots": 9,
+  "share": 1.0,
+  "spellings": [
+   "Rajapalayam"
+  ],
+  "taluk": "Rajapalayam"
+ },
+ "rasipuram": {
+  "lots": 5,
+  "share": 1.0,
+  "spellings": [
+   "Rasipuram"
+  ],
+  "taluk": "Rasipuram"
+ },
+ "rupuram": {
+  "lots": 11,
+  "share": 1.0,
+  "spellings": [
+   "Royapuram"
+  ],
+  "taluk": "Tondiarpet"
+ },
+ "salimvist": {
+  "lots": 7,
+  "share": 1.0,
+  "spellings": [
+   "Salem West Joint No.1",
+   "Salem West Joint No. 1"
+  ],
+  "taluk": "Salem"
+ },
+ "sanarpati": {
+  "lots": 5,
+  "share": 1.0,
+  "spellings": [
+   "Sanarpatti",
+   "Sanarpatty"
+  ],
+  "taluk": "Dindigul East"
+ },
+ "sankari": {
+  "lots": 13,
+  "share": 1.0,
+  "spellings": [
+   "Sankari"
+  ],
+  "taluk": "Sankari"
+ },
+ "silampati": {
+  "lots": 3,
+  "share": 1.0,
+  "spellings": [
+   "Chellampatti"
+  ],
+  "taluk": "Usilampatti"
+ },
+ "silar": {
+  "lots": 31,
+  "share": 1.0,
+  "spellings": [
+   "Selaiyur",
+   "Selayur"
+  ],
+  "taluk": "Tambaram"
+ },
+ "sinalapati": {
+  "lots": 3,
+  "share": 1.0,
+  "spellings": [
+   "Chinnalappatti",
+   "Chinnalapatti"
+  ],
+  "taluk": "Athoor"
+ },
+ "sinkalpit": {
+  "lots": 30,
+  "share": 0.9,
+  "spellings": [
+   "Chengalpet Joint II",
+   "Chengalpet Joint - II",
+   "Joint II, Chengalpet",
+   "Chengalpet Joint – II",
+   "Chengalpet"
+  ],
+  "taluk": "Chengalpattu"
+ },
+ "sinkam": {
+  "lots": 4,
+  "share": 1.0,
+  "spellings": [
+   "Chengam"
+  ],
+  "taluk": "Chengam"
+ },
+ "sintamankalam": {
+  "lots": 3,
+  "share": 1.0,
+  "spellings": [
+   "Sendamangalam"
+  ],
+  "taluk": "Sendamangalam"
+ },
+ "sitamparam": {
+  "lots": 4,
+  "share": 1.0,
+  "spellings": [
+   "Chidambaram"
+  ],
+  "taluk": "Chidambaram"
+ },
+ "sivakanka": {
+  "lots": 5,
+  "share": 1.0,
+  "spellings": [
+   "Sivagangai Joint-I",
+   "Sivaganga No.1 Joint",
+   "Sivagangai Joint-1"
+  ],
+  "taluk": "Sivaganga"
+ },
+ "sivakasi": {
+  "lots": 8,
+  "share": 1.0,
+  "spellings": [
+   "Sivakasi",
+   "Sivakasi Sub Registrar Office"
+  ],
+  "taluk": "Sivakasi"
+ },
+ "srupatukuta": {
+  "lots": 3,
+  "share": 1.0,
+  "spellings": [
+   "JSRO II, Pattukottai"
+  ],
+  "taluk": "Pattukottai"
+ },
+ "srurakunam": {
+  "lots": 3,
+  "share": 1.0,
+  "spellings": [
+   "JSRO-1, Arakkonam"
+  ],
+  "taluk": "Arakkonam"
+ },
+ "sukikulam": {
+  "lots": 7,
+  "share": 1.0,
+  "spellings": [
+   "Chokkikulam"
+  ],
+  "taluk": "Madurai North"
+ },
+ "sulakiri": {
+  "lots": 4,
+  "share": 1.0,
+  "spellings": [
+   "Shoolagiri",
+   "Sulagiri"
+  ],
+  "taluk": "Shoolagiri"
+ },
+ "sulinkur": {
+  "lots": 6,
+  "share": 1.0,
+  "spellings": [
+   "Sholinghur"
+  ],
+  "taluk": "Sholinghur"
+ },
+ "sunkvasatiram": {
+  "lots": 6,
+  "share": 1.0,
+  "spellings": [
+   "Sungvachathiram"
+  ],
+  "taluk": "Sriperumbudur"
+ },
+ "suramankalam": {
+  "lots": 5,
+  "share": 1.0,
+  "spellings": [
+   "Suramangalam"
+  ],
+  "taluk": "Salem West"
+ },
+ "sutsina": {
+  "lots": 7,
+  "share": 1.0,
+  "spellings": [
+   "South Chennai"
+  ],
+  "taluk": "Kundrathur"
+ },
+ "takala": {
+  "lots": 9,
+  "share": 1.0,
+  "spellings": [
+   "Thackalai",
+   "Thackala",
+   "Thakkalai"
+  ],
+  "taluk": "Kalkulam"
+ },
+ "talakulam": {
+  "lots": 3,
+  "share": 1.0,
+  "spellings": [
+   "Tallakulam",
+   "Tallakulam Sub District"
+  ],
+  "taluk": "Madurai North"
+ },
+ "tanavur": {
+  "lots": 3,
+  "share": 1.0,
+  "spellings": [
+   "Thanjavur",
+   "Thanjavur Joint"
+  ],
+  "taluk": "Thanjavur"
+ },
+ "tanipati": {
+  "lots": 3,
+  "share": 1.0,
+  "spellings": [
+   "Thanipadi"
+  ],
+  "taluk": "Thandarampattu"
+ },
+ "tankatur": {
+  "lots": 3,
+  "share": 1.0,
+  "spellings": [
+   "Thangattur"
+  ],
+  "taluk": "Muthpettai"
+ },
+ "taramankalam": {
+  "lots": 18,
+  "share": 1.0,
+  "spellings": [
+   "Tharamangalam"
+  ],
+  "taluk": "Omalur"
+ },
+ "tarapuram": {
+  "lots": 4,
+  "share": 1.0,
+  "spellings": [
+   "Dharapuram"
+  ],
+  "taluk": "Dharapuram"
+ },
+ "tatakapati": {
+  "lots": 5,
+  "share": 1.0,
+  "spellings": [
+   "Dadagapatti",
+   "Dadagapathy"
+  ],
+  "taluk": "Salem"
+ },
+ "tinkanikuta": {
+  "lots": 6,
+  "share": 1.0,
+  "spellings": [
+   "Denkanikottai",
+   "DENKANIKOTTA"
+  ],
+  "taluk": "Denkanikotta"
+ },
+ "tintivanam": {
+  "lots": 4,
+  "share": 1.0,
+  "spellings": [
+   "Joint 1 Tindivanam",
+   "Tindivanam Joint II"
+  ],
+  "taluk": "Tindivanamm"
+ },
+ "tirumankalam": {
+  "lots": 3,
+  "share": 1.0,
+  "spellings": [
+   "Thirumangalam"
+  ],
+  "taluk": "Tirumangalam"
+ },
+ "tirunilvili": {
+  "lots": 3,
+  "share": 1.0,
+  "spellings": [
+   "Tirunelveli Joint 2",
+   "Tirunelveli Joint No.1",
+   "Tirunelveli Joint I"
+  ],
+  "taluk": "Tirunelveli"
+ },
+ "tirupurnu": {
+  "lots": 4,
+  "share": 1.0,
+  "spellings": [
+   "Tiruppur Joint No.-1"
+  ],
+  "taluk": "Tiruppur North"
+ },
+ "tirusinkuti": {
+  "lots": 8,
+  "share": 1.0,
+  "spellings": [
+   "Tiruchengode",
+   "Thiruchengode"
+  ],
+  "taluk": "Tiruchengode"
+ },
+ "tirutani": {
+  "lots": 9,
+  "share": 1.0,
+  "spellings": [
+   "Tiruttani",
+   "Tiruthani",
+   "Thiruthani"
+  ],
+  "taluk": "Tiruttani"
+ },
+ "tirutankal": {
+  "lots": 7,
+  "share": 1.0,
+  "spellings": [
+   "Thiruthangal"
+  ],
+  "taluk": "Sivakasi"
+ },
+ "tiruvalankatu": {
+  "lots": 3,
+  "share": 1.0,
+  "spellings": [
+   "Thiruvalangadu",
+   "Thiruvallangadu"
+  ],
+  "taluk": "Tiruttani"
+ },
+ "tiruvalur": {
+  "lots": 23,
+  "share": 1.0,
+  "spellings": [
+   "Thiruvallur",
+   "Tiruvallur",
+   "Thiruvallur Joint-1",
+   "Thiruvallur Joint 1",
+   "Joint 1 Tiruvallur"
+  ],
+  "taluk": "Tiruvallur"
+ },
+ "tiruvirumpur": {
+  "lots": 10,
+  "share": 1.0,
+  "spellings": [
+   "Thiruverumbur"
+  ],
+  "taluk": "Thiruverumbur"
+ },
+ "tiruvunam": {
+  "lots": 3,
+  "share": 1.0,
+  "spellings": [
+   "Thiruvonam"
+  ],
+  "taluk": "Thiruvonam"
+ },
+ "tisanvila": {
+  "lots": 3,
+  "share": 1.0,
+  "spellings": [
+   "Thisayanvilai",
+   "Thisayanvillai"
+  ],
+  "taluk": "Thisayanvilai"
+ },
+ "titakuti": {
+  "lots": 4,
+  "share": 1.0,
+  "spellings": [
+   "Tittakudi",
+   "Thittakudi"
+  ],
+  "taluk": "Titagudi"
+ },
+ "tivaram": {
+  "lots": 4,
+  "share": 1.0,
+  "spellings": [
+   "Thevaram"
+  ],
+  "taluk": "Uthamapalayam"
+ },
+ "triplikani": {
+  "lots": 10,
+  "share": 1.0,
+  "spellings": [
+   "Triplicane"
+  ],
+  "taluk": "Mylapore"
+ },
+ "trisint": {
+  "lots": 4,
+  "share": 1.0,
+  "spellings": [
+   "Trichy Joint I and II"
+  ],
+  "taluk": "Thiruchirapalli - West"
+ },
+ "trisisrirankam": {
+  "lots": 3,
+  "share": 1.0,
+  "spellings": [
+   "Trichy Srirangam"
+  ],
+  "taluk": "Srirengam"
+ },
+ "tukala": {
+  "lots": 4,
+  "share": 1.0,
+  "spellings": [
+   "Thuckalay"
+  ],
+  "taluk": "Kalkulam"
+ },
+ "tuntamutur": {
+  "lots": 4,
+  "share": 1.0,
+  "spellings": [
+   "Thondamuthur"
+  ],
+  "taluk": "Perur"
+ },
+ "turar": {
+  "lots": 6,
+  "share": 1.0,
+  "spellings": [
+   "Thuraiyur"
+  ],
+  "taluk": "Thuraiyur"
+ },
+ "tusi": {
+  "lots": 5,
+  "share": 1.0,
+  "spellings": [
+   "Dusi"
+  ],
+  "taluk": "Vembakkam"
+ },
+ "usilampati": {
+  "lots": 10,
+  "share": 0.9,
+  "spellings": [
+   "Usilampatti",
+   "Ushilamppatti"
+  ],
+  "taluk": "Usilampatti"
+ },
+ "usur": {
+  "lots": 26,
+  "share": 1.0,
+  "spellings": [
+   "Hosur",
+   "HOSUR"
+  ],
+  "taluk": "Hosur"
+ },
+ "utankara": {
+  "lots": 7,
+  "share": 1.0,
+  "spellings": [
+   "Uthangarai"
+  ],
+  "taluk": "Uthangarai"
+ },
+ "utansatram": {
+  "lots": 3,
+  "share": 1.0,
+  "spellings": [
+   "Oddanchatram",
+   "Oddanchathram"
+  ],
+  "taluk": "Oddenchatram"
+ },
+ "utukuli": {
+  "lots": 8,
+  "share": 1.0,
+  "spellings": [
+   "Uthukuli",
+   "Uthukkuli"
+  ],
+  "taluk": "Uthukkuli"
+ },
+ "utumalapita": {
+  "lots": 6,
+  "share": 1.0,
+  "spellings": [
+   "Udumalaipettai",
+   "Udumalaipetai"
+  ],
+  "taluk": "Udumalaipettai"
+ },
+ "utumalpit": {
+  "lots": 18,
+  "share": 1.0,
+  "spellings": [
+   "Udumalpet"
+  ],
+  "taluk": "Udumalaipettai"
+ },
+ "valasa": {
+  "lots": 18,
+  "share": 0.944,
+  "spellings": [
+   "Walajah",
+   "Walaja"
+  ],
+  "taluk": "Walajah"
+ },
+ "valasanakar": {
+  "lots": 5,
+  "share": 1.0,
+  "spellings": [
+   "Walajah Nagar",
+   "Walaja Nagar"
+  ],
+  "taluk": "Walajah"
+ },
+ "vatalakuntu": {
+  "lots": 5,
+  "share": 1.0,
+  "spellings": [
+   "Vathalagundu"
+  ],
+  "taluk": "Nilakottai"
+ },
+ "vatalur": {
+  "lots": 3,
+  "share": 1.0,
+  "spellings": [
+   "Vadalur"
+  ],
+  "taluk": "Kurinjipadi"
+ },
+ "vatipati": {
+  "lots": 3,
+  "share": 1.0,
+  "spellings": [
+   "Vadipatti"
+  ],
+  "taluk": "Vadipatti"
+ },
+ "vilakuvil": {
+  "lots": 3,
+  "share": 1.0,
+  "spellings": [
+   "Vellakovil"
+  ],
+  "taluk": "Kangayam"
+ },
+ "vilasiri": {
+  "lots": 21,
+  "share": 0.952,
+  "spellings": [
+   "Velachery",
+   "Velacherry"
+  ],
+  "taluk": "Velacheri"
+ },
+ "vilina": {
+  "lots": 4,
+  "share": 1.0,
+  "spellings": [
+   "Velliyanai",
+   "Velliyanaai",
+   "Velliyana"
+  ],
+  "taluk": "Karur"
+ },
+ "vilivakam": {
+  "lots": 25,
+  "share": 0.92,
+  "spellings": [
+   "Villivakkam",
+   "Vellivakkam"
+  ],
+  "taluk": "Ambattur"
+ },
+ "vilupuramnu": {
+  "lots": 3,
+  "share": 1.0,
+  "spellings": [
+   "Villupuram No.II"
+  ],
+  "taluk": "Villupuram"
+ },
+ "vimpakam": {
+  "lots": 3,
+  "share": 1.0,
+  "spellings": [
+   "Vembakkam"
+  ],
+  "taluk": "Vembakkam"
+ },
+ "virapanti": {
+  "lots": 9,
+  "share": 1.0,
+  "spellings": [
+   "Veerapandi",
+   "Weerapandi"
+  ],
+  "taluk": "Salem South"
+ },
+ "virkilampi": {
+  "lots": 4,
+  "share": 1.0,
+  "spellings": [
+   "Verkilambi"
+  ],
+  "taluk": "Thiruvattar"
+ },
+ "virutunakar": {
+  "lots": 13,
+  "share": 1.0,
+  "spellings": [
+   "Virudhunagar Joint 1",
+   "Virudhunagar joint 1",
+   "Virudhunagar Joint II",
+   "Virudhunagar-2",
+   "Virudhunagar Joint I"
+  ],
+  "taluk": "Virudhunagar"
+ },
+ "vitasantur": {
+  "lots": 27,
+  "share": 0.926,
+  "spellings": [
+   "Vedasandur"
+  ],
+  "taluk": "Vedasandur"
+ }
+}

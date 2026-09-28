@@ -13,7 +13,8 @@ is worth, and says whether the new one may replace it:
 2. **Key facts per lot** (pipeline/key_entities: reserve price, auction date,
    property type, location, extent, full description, possession). A fact the
    stored read had for a lot and the new one lacks is a loss; the reverse is a
-   gain.
+   gain. So is each part of a location that places it on the register — its
+   village, taluk and sub-registrar office (key_entities.LOCATION_PARTS).
 3. **Validator score** (pipeline/validators). Catches what the checklist does
    not: wrong values, ungrounded spans, over-split extras.
 
@@ -34,11 +35,18 @@ gone, so the new read wins by default.
 from __future__ import annotations
 
 import copy
+import re
 
 from pipeline.key_entities import (
-    KEY_ATTR, KEY_CLASS, KEY_ENTITIES, KEY_LABELS, key_checklist,
+    KEY_ATTR, KEY_CLASS, KEY_ENTITIES, KEY_LABELS, LOCATION_PARTS, key_checklist,
+    location_parts,
 )
 from pipeline.validators import validate_stored
+
+_PART_LABELS = {"village": "village", "taluk": "taluk",
+                "registration_sub_district": "sub-registrar office"}
+#: Carried with a merged location part when the stored lot lacks them too.
+_PART_PASSENGERS = ("district", "registration_district")
 
 
 def lot_count(ents: list[dict]) -> int:
@@ -93,6 +101,11 @@ def judge(old: list[dict], new: list[dict], text: str,
                    for k in sorted(before - after)]
         gains += [f"lot {li}: {KEY_LABELS[k].lower()}"
                   for k in sorted(after - before)]
+    had_p, has_p = location_parts(old), location_parts(new)
+    for li in sorted(set(had_p) | set(has_p), key=lambda s: (len(s), s)):
+        before, after = had_p.get(li, set()), has_p.get(li, set())
+        losses += [f"lot {li}: {_PART_LABELS[k]}" for k in sorted(before - after)]
+        gains += [f"lot {li}: {_PART_LABELS[k]}" for k in sorted(after - before)]
 
     s_old = validate_stored(old, source_text=text)["score"]
     s_new = validate_stored(new, source_text=text)["score"]
@@ -110,6 +123,21 @@ def _lot(e: dict) -> str:
 
 def _has(v) -> bool:
     return v is not None and str(v).strip() not in ("", "None", "null")
+
+
+def _fold(v) -> str:
+    return re.sub(r"[^a-z0-9]", "", str(v or "").lower())
+
+
+def _in_span(value, text) -> bool:
+    """The value is written in the span that carries it — "Adhanur" in
+    "Adhanur Village, Kundrathur Taluk" — not a spelling the model made up."""
+    return bool(_fold(value)) and _fold(value) in _fold(text)
+
+
+def _location_attrs(ents: list[dict], lot: str) -> set[str]:
+    return {k for e in ents if e.get("cls") == "location" and _lot(e) == lot
+            for k, v in (e.get("attrs") or {}).items() if _has(v)}
 
 
 def merge(base: list[dict], donor: list[dict]) -> list[dict]:
@@ -159,6 +187,28 @@ def merge(base: list[dict], donor: list[dict]) -> list[dict]:
                 e["id"] = fresh_id()
                 e.setdefault("attrs", {})["merged"] = "true"
                 out.append(e)
+        # A location both reads hold, but without the parts that place it:
+        # the other read's span for them is added beside it, carrying only
+        # what this lot lacks, so no value the stored read holds is replaced.
+        if "location" not in had[li]:
+            continue
+        lacks = [k for k in LOCATION_PARTS if k not in _location_attrs(out, li)]
+        for source in (e for e in donor if e.get("cls") == "location"
+                       and _lot(e) == li and lacks):
+            a, text = source.get("attrs") or {}, source.get("text")
+            got = {k: a[k] for k in lacks if _has(a.get(k)) and _in_span(a[k], text)}
+            if not got:
+                continue
+            have = _location_attrs(out, li)
+            got.update({k: a[k] for k in _PART_PASSENGERS
+                        if k not in have and _has(a.get(k)) and _in_span(a[k], text)})
+            e = copy.deepcopy(source)
+            e["id"] = fresh_id()
+            e["attrs"] = {"lot_index": li, **got, "merged": "true",
+                          "merged_attrs": ",".join(sorted(got)),
+                          **({"gap_fill": a["gap_fill"]} if a.get("gap_fill") else {})}
+            out.append(e)
+            lacks = [k for k in lacks if k not in got]
     return out
 
 

@@ -15,7 +15,8 @@ def _e(cls, text, md=MD, lot="1", **attrs):
 
 def _setup(monkeypatch, corrections=None, finds=()):
     stored = [_e("full_description", "land at Sy No 12/1, Village V, 1200 sq.ft."),
-              _e("location", "Village V"), _e("extent", "1200 sq.ft."),
+              _e("location", "Village V", village="V", taluk="T"),
+              _e("extent", "1200 sq.ft."),
               _e("property", "land", property_type="land")]
     calls, out = [], {}
     monkeypatch.setattr(F, "_stored", lambda fn: {"entities": stored,
@@ -79,3 +80,39 @@ def test_a_failed_read_marks_nothing(monkeypatch):
     monkeypatch.setattr(F, "make_reader", make_reader)
     F.fill_one(D, set(F.KEYS), 1, dry_run=False, max_lots=5)
     assert out["marks"] == {}
+
+
+def test_a_location_missing_its_taluk_is_read_and_saved(monkeypatch):
+    md = ("SALE NOTICE. Lot 1: land at Sy No 12/1, Adhanur Village, Kundrathur "
+          "Taluk. Reserve price Rs.9,50,000/-. Auction on 01.10.2026. 1200 sq.ft. "
+          "Possession: symbolic.\n")
+    stored = [_e("full_description", "land at Sy No 12/1, Adhanur Village", md),
+              _e("location", "Adhanur Village", md, village="Adhanur"),
+              _e("extent", "1200 sq.ft.", md),
+              _e("property", "land", md, property_type="land",
+                 possession_type="symbolic"),
+              _e("auction_terms", "Reserve price Rs.9,50,000/-", md,
+                 reserve_price_num="950000", auction_start_dt="2026-10-01")]
+    finds = [lambda t: _e("location", "Adhanur Village, Kundrathur Taluk", t,
+                          village="Adhanur", taluk="Kundrathur")]
+    calls, out = _setup(monkeypatch, finds=finds)
+    monkeypatch.setattr(F, "_stored", lambda fn: {"entities": stored,
+                                                  "text_changed": False})
+    msg = F.fill_one({"filename": "f", "md": md, "expected_lot_count": 1},
+                     {"location"}, 1, dry_run=False, max_lots=5)
+    assert calls == [("lean", ["location"])]
+    assert "saved" in msg
+    assert [e["attrs"].get("taluk") for e in out["ents"] if e["cls"] == "location"] \
+        == [None, "Kundrathur"]
+
+
+def test_unplaced_picks_the_notices_with_a_lot_the_register_could_not_place(monkeypatch):
+    seen = {}
+
+    def fake(cypher, params=None, **kw):
+        seen["s"] = params["s"]
+        return [{"f": "a.jpg"}, {"f": "b.jpg"}]
+    monkeypatch.setattr(F, "run_read_query", fake)
+    assert F.select_unplaced(None) == ["a.jpg", "b.jpg"]
+    assert F.select_unplaced(1) == ["a.jpg"]
+    assert set(seen["s"]) == {"absent", "no-parent-taluk", "unmatched"}

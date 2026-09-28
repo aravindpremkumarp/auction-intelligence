@@ -67,6 +67,26 @@ KEY_LABELS = {k: label for k, label, _, _ in KEY_ENTITIES}
 KEY_CLASS = {k: cls for k, _, cls, _ in KEY_ENTITIES}
 KEY_ATTR = {k: attr for k, _, _, attr in KEY_ENTITIES}
 
+#: What places a lot on the revenue register (pipeline/place_resolution): the
+#: village, the taluk it is looked up in, and the sub-registrar office whose
+#: taluk stands in when the notice names none. A location span without them
+#: still names a place, so its cell reads filled; the gap filler asks for them
+#: again (pipeline/gap_fill.gaps) and keep_better counts each one as a fact.
+LOCATION_PARTS = ("village", "taluk", "registration_sub_district")
+
+
+def location_parts(entities: list[dict]) -> dict[str, set[str]]:
+    """lot_index -> the :data:`LOCATION_PARTS` its location spans carry."""
+    out: dict[str, set[str]] = {}
+    for e in entities:
+        if e.get("cls") != "location":
+            continue
+        a = e.get("attrs") or {}
+        lot = out.setdefault(str(a.get("lot_index") or "1"), set())
+        lot.update(k for k in LOCATION_PARTS if _has(a.get(k)))
+    return out
+
+
 # Notice-level classes: never a lot's own, so they neither create a lot nor
 # fill a cell.
 _NOTICE_LEVEL = frozenset({"secured_creditor", "contact", "emd_account",
