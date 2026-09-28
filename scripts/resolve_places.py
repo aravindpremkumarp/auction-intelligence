@@ -57,7 +57,7 @@ from pipeline.place_resolution import (
 )
 from pipeline.resolution_review import (
     district_conflict_key, load_osm_aliases, settle_village, settled_conflicts,
-    skipped_villages, village_alias_taluks, village_aliases,
+    skipped_villages, village_alias_codes, village_alias_taluks, village_aliases,
 )
 from scripts.resolution_decisions import load_decisions
 from scripts.score_ink_coverage import nq
@@ -84,6 +84,11 @@ def load_gazetteer() -> Gazetteer:
         village_names_ta=nq("""MATCH (v:RevenueVillage)-[:IN_TALUK]->(t:Taluk)
                                WHERE v.name_ta IS NOT NULL
                                RETURN v.name, t.name, v.name_ta"""),
+        # Village codes, for a verdict that picks one of two villages of one
+        # name in a taluk (Gazetteer.village_by_code).
+        village_codes=nq("""MATCH (v:RevenueVillage)-[:IN_TALUK]->(t:Taluk)
+                            WHERE v.village_code IS NOT NULL
+                            RETURN v.name, t.name, v.village_code"""),
     )
 
 
@@ -180,6 +185,7 @@ def write_back(rows: list[dict]) -> None:
             SET p.revenue_district       = row.district,
                 p.revenue_taluk          = row.taluk,
                 p.revenue_village        = row.village,
+                p.revenue_village_code   = row.village_code,
                 p.revenue_village_parts  = CASE WHEN size(row.village_parts) > 0
                                                 THEN row.village_parts END,
                 p.place_district_source  = row.district_source,
@@ -216,6 +222,13 @@ def write_back(rows: list[dict]) -> None:
             MATCH (p:AuctionProperty {auction_id: row.auction_id})
             MATCH (vv:RevenueVillage {name: row.village})
                   -[:IN_TALUK]->(:Taluk {name: row.taluk})
+            // A verdict that named the village code (two villages of one
+            // name in the taluk) links that row alone; and a name two rows
+            // still answer to links neither — one listing in two villages is
+            // worse than one in none (the lot writer keeps the same guard).
+            WHERE row.village_code IS NULL OR vv.village_code = row.village_code
+            WITH p, collect(vv) AS vs WHERE size(vs) = 1
+            WITH p, vs[0] AS vv
             MERGE (p)-[:LOCATED_IN_REVENUE_VILLAGE]->(vv)
         """, {"rows": rows[i:i + BATCH]})
         # A village the register keeps in parts: an edge to each, of its own
@@ -278,6 +291,7 @@ def run(*, dry_run: bool = False) -> dict:
     decisions = load_decisions()
     aliases = village_aliases(decisions)
     alias_taluks = village_alias_taluks(decisions)
+    alias_codes = village_alias_codes(decisions)
     skips = skipped_villages(decisions)
     osm_aliases = load_osm_aliases()
     sro_taluks = load_sro_taluks()
@@ -312,7 +326,8 @@ def run(*, dry_run: bool = False) -> dict:
         # confirms — the same step lot_place takes for every :Lot.
         was = res["village_status"]
         res = settle_village(gaz, res, village, aliases=aliases, skips=skips,
-                             osm=osm_aliases, alias_taluks=alias_taluks)
+                             osm=osm_aliases, alias_taluks=alias_taluks,
+                             alias_codes=alias_codes)
         if res["village_status"] != was \
                 and (res["village_source"] or "").startswith("osm-"):
             stats[f"settled by OSM ({res['village_source']})"] += 1
@@ -381,6 +396,9 @@ def run(*, dry_run: bool = False) -> dict:
             "auction_id": p["auction_id"],
             "district": res["district"], "taluk": res["taluk"],
             "village": res["village"],
+            # Which of two same-named villages of the taluk, when a verdict
+            # said (settle_village); None everywhere else.
+            "village_code": res.get("village_code"),
             # "One of these" parts, only while no single village is known —
             # a human alias to one part replaces them.
             "village_parts": [] if res["village"] else (res.get("village_parts") or []),

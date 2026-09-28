@@ -144,7 +144,7 @@ def test_a_lot_takes_the_same_decided_spellings_as_its_listing(monkeypatch):
            village_alias_key("Semmancheri", "Sholinganallur"):
            {"target": None, "rule": "osm-urban"}}
     monkeypatch.setattr(P, "gazetteer", _gaz)
-    monkeypatch.setattr(P, "decided_spellings", lambda: ({}, set(), osm, {}))
+    monkeypatch.setattr(P, "decided_spellings", lambda: ({}, set(), osm, {}, {}))
 
     def lot(village):
         return P.lot_place({"lot_key": "n#1", "location": {
@@ -186,3 +186,52 @@ def test_a_cross_taluk_alias_moves_the_taluk_and_district_with_it():
     assert settle_village(gaz, res, "Varadharajapuram", aliases=village_aliases(verdict("approved")),
                           skips=set(), osm={})["village"] is None
     assert village_alias_taluks(verdict("rejected")) == {}
+
+
+def test_an_alias_naming_the_village_code_picks_one_of_two_same_named_villages():
+    """Coimbatore North holds two "Veerapandi." (004 and 024). The name alone
+    is refused — by the resolver and by settle_village — so the verdict
+    carries the code, and the answer carries it on for the writers."""
+    from pipeline.resolution_review import (
+        decision_key, village_alias_codes, village_aliases,
+    )
+
+    gaz = Gazetteer(districts=["Coimbatore"],
+                    taluks=[("Coimbatore North", "Coimbatore")],
+                    villages=[("Veerapandi.", "Coimbatore North", "Coimbatore"),
+                              ("Veerapandi.", "Coimbatore North", "Coimbatore"),
+                              ("Thudiyalur.", "Coimbatore North", "Coimbatore")],
+                    village_codes=[("Veerapandi.", "Coimbatore North", "004"),
+                                   ("Veerapandi.", "Coimbatore North", "024"),
+                                   ("Thudiyalur.", "Coimbatore North", "011")])
+    assert gaz.village("Veerapandi.", "Coimbatore North", fuzzy=False) is None
+    assert gaz.village_is_ambiguous("Veerapandi.", "Coimbatore North")
+    assert gaz.village_by_code("Veerapandi.", "Coimbatore North", "024") == "Veerapandi."
+    assert gaz.village_by_code("Veerapandi.", "Coimbatore North", "999") is None
+    assert gaz.village_by_code("Veerapandi.", "Coimbatore North", None) is None
+
+    res = resolve_place(gaz, district="Coimbatore", taluk="Coimbatore North",
+                        village="Veerapandi")
+    assert res["village"] is None
+
+    def verdict(payload):
+        d = [{"kind": "village-alias", "key": decision_key("village-alias", payload),
+              "payload": payload, "verdict": "approved"}]
+        return dict(aliases=village_aliases(d), alias_codes=village_alias_codes(d))
+
+    by_name = {"raw": "Veerapandi", "taluk": "Coimbatore North", "target": "Veerapandi."}
+    # name alone: nothing applies, nothing is invented
+    out = settle_village(gaz, res, "Veerapandi", skips=set(), osm={}, **verdict(by_name))
+    assert out["village"] is None
+    # with the code: that village, and the code rides along for the writers
+    out = settle_village(gaz, res, "Veerapandi", skips=set(), osm={},
+                         **verdict({**by_name, "target_code": "024"}))
+    assert (out["village"], out["village_code"], out["village_source"]) == \
+        ("Veerapandi.", "024", "human-alias")
+    # a code the register does not hold applies nothing either
+    assert settle_village(gaz, res, "Veerapandi", skips=set(), osm={},
+                          **verdict({**by_name, "target_code": "999"}))["village"] is None
+    # an unambiguous target needs no code and carries none
+    plain = settle_village(gaz, res, "Veerapandi", skips=set(), osm={},
+                           **verdict({**by_name, "target": "Thudiyalur."}))
+    assert (plain["village"], plain["village_code"]) == ("Thudiyalur.", None)
