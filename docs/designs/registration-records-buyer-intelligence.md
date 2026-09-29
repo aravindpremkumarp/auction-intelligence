@@ -11,6 +11,11 @@ forcing questions below are answered with my positions and the evidence that
 would change them, not with the founder's words. Treat every "Position" as a
 claim to be knocked down in the next conversation.
 
+Figures in this doc: numbers marked **[web, 2026-09-29]** come from a web
+search on that date and are unverified against the primary portal; numbers
+marked **[repo]** come from this repository's own docs or code. Anything
+unmarked is an estimate.
+
 ## Problem Statement
 
 The founder's words: "download all the encumbrance certificates ... I would
@@ -40,12 +45,14 @@ How the signal is obtained today, badly:
   Cost is opaque, coverage is one SRO at a time, and it is word of mouth.
 - Brokers pull ECs one survey number at a time on TNREGINET, by hand, with a
   captcha per pull.
-- Paid data vendors already sell registration corpora: Zapkey / Propstack
-  claim 30 lakh+ registration records (Mumbai first); TEAL links records from
-  900+ agencies across 24 cities; Landeed (YC, Series A) sells per-document
-  lookups in 24 states; Verified.RealEstate / LandLens already wraps TNREGINET
-  for Chennai. None of them is a Tamil Nadu-first "developer accumulation"
-  product that I could find, but the corpus itself is not scarce.
+- Paid data vendors already sell registration corpora **[web, 2026-09-29]**:
+  Zapkey (Propstack founders) claims 30 lakh+ registration records, Mumbai
+  first (yourstory.com, 2022); TEAL claims records linked from 900+ agencies
+  across 24 cities (yourstory.com, 2021); Landeed (YC, Series A) sells
+  per-document lookups in 24 states (tracxn.com); Verified.RealEstate /
+  LandLens already wraps TNREGINET for Chennai (community.verified.realestate).
+  None of them is a Tamil Nadu-first "developer accumulation" product that I
+  could find, but the corpus itself is not scarce.
 
 ## Target User & Narrowest Wedge
 
@@ -59,55 +66,81 @@ the auction bidder asking "is this locality heating up, and what did the
 neighbours actually pay?"
 
 Narrowest wedge, in the existing product: **registered comparables on the
-auction page.** For each live auction property, pull the EC for its survey
-number and neighbouring survey numbers for the last three years and show the
+auction page.** For each live auction lot that carries a survey number, pull
+the EC for that exact survey number for the last three years and show the
 real registered sale prices next to the reserve price. This uses the same
-primitive the big idea needs (an EC pull), on a bounded set (~2,200 enriched
-properties, ~600 live), with a buyer who already pays ₹499 for Pro.
+primitive the big idea needs (an EC pull), on a bounded set (~600 live
+auctions **[repo]**), with a buyer who already pays ₹499 for Pro.
 
-Bonus push ("what if the user did nothing?"): a weekly email, "12 registered
-sales within 500 m of the properties on your watchlist, median ₹X/sq ft".
+The "weekly digest of registered sales near your watchlist" idea is **out of
+scope for A**: an EC yields a survey number, not coordinates, so "within
+500 m" needs parcel geometry the repo does not hold. It returns as a B
+feature keyed on "same village", not distance.
 
 ## Constraints
 
 - **The EC is the wrong unit for bulk.** An EC is per survey number (or per
   document), needs an SRO, a date range and a captcha, and is served as a
-  PDF. Chennai registration zone alone has 74 SROs, 1,123 villages and
-  399,590 survey numbers. "Download all ECs" means hundreds of thousands of
-  captcha'd PDF pulls per zone, most returning nothing new.
+  PDF (`docs/landeed_tn_records.md` **[repo]**). Chennai registration zone
+  alone has 74 SROs, 1,123 villages and 399,590 survey numbers
+  (verified.realestate guideline-value pages **[web, 2026-09-29]**).
+  "Download all ECs" means hundreds of thousands of captcha'd PDF pulls per
+  zone, most returning nothing new.
 - **The enumerable index is the document register.** TNREGINET's Document
-  Search takes SRO + year + document number. Document numbers are sequential
-  per SRO per year, so SRO × year × 1..N is a crawlable index. Statewide
-  volume is about 35 lakh documents a year across 576 SROs. Not yet probed
-  from this repo; this is the first thing to verify.
+  Search takes SRO + year + document number (kanakkupillai.com, sobha.com
+  guides **[web, 2026-09-29]**). Document numbers are sequential per SRO per
+  year, so SRO × year × 1..N is a crawlable index. Statewide volume is about
+  35 lakh documents a year across 576 SROs (dtnext.in on STAR 3.0; TN
+  Department of Economics and Statistics registration tables
+  **[web, 2026-09-29]**). Nobody in this repo has probed the search yet;
+  which fields the result carries (party names, nature, survey number,
+  consideration) is unknown.
 - **Legal footing is mixed.** The records are public by statute: Registration
   Act 1908 §57 makes Book 1 and its indexes open to inspection by any person,
   and DPDP Act 2023 §3(c)(ii) exempts personal data made public under a legal
   obligation. But automated bulk access to a captcha'd government portal
   carries IT Act §43/§66 exposure and Indian courts have not ruled on whether
-  ToS / robots restrictions bind scrapers. The data is public; the method of
-  taking it is the risk.
+  ToS / robots restrictions bind scrapers (law.asia, ssrana.in
+  **[web, 2026-09-29]**). The data is public; the method of taking it is the
+  risk.
+- **EC pull mechanics are unverified.** Whether the free "View EC" (no fee)
+  or the fee-bearing EC application is the right path, whether a TNREGINET
+  login is required, whether the PDF is in Tamil or English, and which fields
+  it carries all decide effort and legal exposure. A is designed on the
+  assumption: free View EC, login required, English/Tamil mixed PDF with
+  document number, date, nature, parties, survey number, extent and
+  consideration. The Assignment measures this.
 - **Entity resolution is the actual work.** Developers buy through LLPs,
   SPVs, directors, relatives and power-of-attorney holders. "Where developers
   are buying" only exists after names are resolved across documents. The repo
   already does this for borrowers, banks and villages
   (`pipeline/entity_resolution.py`, `pipeline/place_resolution.py`,
-  `pipeline/lookups/sro_taluks.json`); it is the reusable asset.
-- **Places are already mapped.** 74% of extracted lots name their SRO, and
-  the village queue has learned split villages and village codes. That is the
-  join key registration records need.
+  `pipeline/lookups/sro_taluks.json` **[repo]**); it is the reusable asset.
+- **Places are already mapped.** 74% of extracted lots name their SRO
+  (`pipeline/place_resolution.py` **[repo]**), and the village queue has
+  learned split villages and village codes. That is the join key
+  registration records need.
+- **Survey-number coverage is unmeasured.** Survey numbers live on lots as
+  identifiers of kind `survey_old` / `survey_new`
+  (`pipeline/lookups/identifier_kinds.json` **[repo]**), village-scoped
+  because numbers repeat across the state. The README's "measurement 40%,
+  possession 61%" figures are about plot extent and possession type, not
+  survey numbers; the share of live lots with a survey number is not known
+  and is the first count in The Assignment. A keys on `survey_old` /
+  `survey_new` plus revenue village.
 - **Scraping today is a human-in-the-loop local job** (Selenium, captcha wait
-  in `scrapers/phase1_harvest_urls.py`). Any registration crawler inherits
-  that shape unless the portal exposes JSON the way BAANKNET did
-  (`docs/source-recon-2026-09.md`).
+  in `scrapers/phase1_harvest_urls.py` **[repo]**). Any registration crawler
+  inherits that shape unless the portal exposes JSON the way BAANKNET did
+  (`docs/source-recon-2026-09.md` **[repo]**).
 
 ## Premises
 
 1. The bulk mechanism is the document register (SRO × year × doc number), not
    the EC. Verify with a 50-request probe before designing anything else.
 2. The public-record status of the data is solid; the scraping method is the
-   legal exposure. Get a one-hour opinion from a Chennai advocate before any
-   run over a few hundred requests, and keep rates polite and logged.
+   legal exposure. A one-hour opinion from a Chennai advocate is a gate
+   before any run over a few hundred requests, including A's first bulk
+   pass.
 3. Value lives in the derived signal (buyer entity resolved, per village, per
    month), not in the corpus. Anyone can buy the corpus.
 4. The narrowest paying wedge already exists inside auctionscope
@@ -118,22 +151,71 @@ sales within 500 m of the properties on your watchlist, median ₹X/sq ft".
 
 ### Approach A: Registered comps on the auction page (minimal viable)
 
-Summary: for each live auction property with a resolved village + survey
-number, pull the EC for that survey number and its neighbours for the last
-three years; store as `:Registration` rows linked to the `:Parcel`; show
-"registered sales nearby" on the property page and in the agent's
-`get_auction_detail`.
+Summary: for each live auction lot with a resolved revenue village and a
+survey number, pull the EC for that exact survey number (no neighbours in
+v1; survey numbers are not spatially sequential and the repo holds no
+cadastral adjacency) for the window auction date minus three years to pull
+date; store the rows in Neo4j; show "registered sales on this survey number"
+on the property page and return them from `get_auction_detail`.
 
-- Effort: M (human: 3-4 weeks / CC: 2-3 days)
-- Risk: Low-Med (captcha throughput; survey-number coverage is 40% on
-  measurement today, so many properties will have no key)
-- Pros: bounded request volume (thousands, not millions); paying users exist;
-  reuses place resolution, Neo4j, review UI; every pull is a real probe of
-  the big idea's core primitive
+Data model (new label, existing neighbours):
+
+- `(:Registration {doc_no, sro, year, reg_date, nature, consideration,
+  extent_raw, extent_sqft, guideline_value, parties_json, source_pdf_r2,
+  pulled_at})` is new.
+- `(:Lot)-[:HAS_REGISTRATION {survey_key, village_key}]->(:Registration)`
+  links to the existing `:Lot` node (the `:Parcel` label is retiring per
+  `docs/SCHEMA.md` and must not be extended). One EC pull is cached per
+  (village, survey number, window) so several lots on one survey number
+  cost one pull.
+- Party names are **stored** (needed for B's entity resolution and for
+  dedupe) but **not displayed and not returned by the agent tool** in A. The
+  page and the tool expose date, nature of document, consideration, extent,
+  and derived ₹/sq ft only. Showing private individuals' names next to
+  prices is a separate product decision, deferred to B.
+
+Empty states, which will be the majority case until survey-number coverage
+is measured:
+
+- Lot has no survey number: the section is hidden on the page; the tool
+  returns `registrations: null, reason: "no survey number on record"`.
+- Survey number pulled, no sale in window: the page shows "No registered
+  sales on this survey number since <date>"; the tool returns an empty list
+  with `pulled_at`.
+- Not yet pulled: section hidden; tool returns `reason: "not pulled"`.
+
+Pull cadence and the human hours nobody automates away:
+
+- One pull per (village, survey number) at enrichment time, never re-pulled
+  in A. New live auctions trigger a pull for their new survey numbers only.
+- Captchas are cleared by the same person who runs the weekly scrape today
+  (`scripts/run_weekly_pipeline.py` pauses for a human already). Weekly load
+  = new survey numbers that week × minutes per pull, measured in The
+  Assignment. Working estimate until measured: 50 new survey numbers a week
+  at 2 minutes each is under two hours a week; if the measured time is over
+  5 minutes a pull, A is not viable as designed and C's Landeed route is
+  the fallback.
+
+Sequencing with the legal gate:
+
+1. 20 hand pulls (The Assignment).
+2. One-hour advocate read on automated View EC pulls under a personal login
+   at this volume.
+3. Bulk pass over live lots with survey numbers, rate-limited and logged.
+
+- Effort: M (human: 3-4 weeks / CC: 2-3 days of build, plus the captcha
+  hours above)
+- Risk: Low-Med (captcha throughput; unmeasured survey-number coverage;
+  EC PDF parsing is a new extraction target for the OCR + LangExtract chain,
+  and if the PDF is Tamil-only the chain needs a Tamil OCR pass first)
+- Pros: bounded request volume (one per live survey number, hundreds not
+  thousands); paying users exist; reuses place resolution, Neo4j, review UI;
+  every pull is a real probe of the big idea's core primitive
 - Cons: proves nothing about "developer accumulation"; survey-number
-  coverage caps reach; PDF-to-rows parsing is a new extraction target
-- Reuses: `pipeline/place_resolution.py`, `sro_taluks.json`, OCR + LangExtract
-  chain, `scrapers/` Selenium-with-human-captcha pattern, R2 storage
+  coverage caps reach; a recurring manual captcha job
+- Reuses: `pipeline/place_resolution.py`, `sro_taluks.json`,
+  `identifier_kinds.json`, OCR + LangExtract chain, `scrapers/`
+  Selenium-with-human-captcha pattern, R2 storage
 
 ### Approach B: SRO document-register crawler and buyer heatmap (ideal architecture)
 
@@ -154,20 +236,24 @@ alerts as a paid report.
   tooling is a real head start
 - Cons: no customer yet; legal exposure scales with volume; well-funded
   incumbents (Zapkey/Propstack, TEAL, Landeed) already hold the corpus and
-  could ship the signal faster
+  could ship the signal faster; displaying party names becomes unavoidable
+  and needs its own policy
 - Reuses: everything in A plus `pipeline/entity_resolution.py`, the review
   queues, Lucene indexes
 
 ### Approach C: Don't scrape, source (lateral)
 
 Summary: get the signal without a crawler. Three routes, cheapest first:
-(1) an RTI / formal data request to the TN Registration Department for
-SRO-level monthly document counts and aggregate consideration (the department
-already publishes zone-level annual figures); (2) license a registration feed
-from an existing vendor (Propstack/Zapkey, TEAL) for Tamil Nadu; (3) a Landeed
-partnership for per-document pulls at API price rather than captcha price.
+(1) an RTI request to the TN Registration Department for SRO-level monthly
+document counts and aggregate consideration (the department publishes
+zone-level annual figures in the Economics and Statistics handbook
+**[web, 2026-09-29]**; whether it will release SRO-month detail is an open
+question); (2) license a registration feed from an existing vendor
+(Propstack/Zapkey, TEAL) for Tamil Nadu; (3) a Landeed partnership for
+per-document pulls at API price rather than captcha price.
 
-- Effort: S-M (human: 2-6 weeks of letters and calls / CC: days)
+- Effort: S-M (an afternoon to file the RTI, then the statutory ~30 days to
+  hear back; 2-6 weeks of calls for a vendor / CC: days)
 - Risk: Low legally; medium on whether anyone says yes
 - Pros: zero scraping exposure; fastest path to a real dataset to test the
   hypothesis; RTI counts alone answer "where are people buying most"
@@ -179,61 +265,85 @@ partnership for per-document pulls at API price rather than captcha price.
 
 ## Recommended Approach
 
-**A, with premise 1 probed in the first week.** A ships value to people who
-already pay, uses the exact primitive the big idea rests on, keeps request
-volume small enough that the legal question stays a conversation rather than
-a notice, and produces the throughput number (pulls per hour, captcha rate)
-that decides whether B is a crawler problem or a partnership problem. If the
+**A, with the premise 1 probe and the legal read in the first two weeks.**
+A ships value to people who already pay, uses the exact primitive the big
+idea rests on, keeps request volume to one pull per live survey number, and
+produces the throughput number (minutes per pull, captchas per pull) that
+decides whether B is a crawler problem or a partnership problem. If the
 document-register probe shows sequential enumeration works, B becomes a
-scale decision with data behind it. Run C's RTI letter in parallel because it
-costs an afternoon and returns the "where are people buying most" answer at
-SRO resolution for free.
+scale decision with data behind it. File C's RTI in the same week because
+filing costs an afternoon; the answer arrives in about a month and gives
+"where are people buying most" at SRO resolution without a single scrape.
 
 Effort scale: human team about 4 weeks for A; with Claude Code about 3 days
-of build plus the captcha hours no tool removes.
+of build plus the captcha hours sized above.
 
 ## Open Questions
 
 - Does TNREGINET Document Search enumerate by SRO + year + doc number, and
   what fields does the result page carry (party names, nature, survey no.,
-  consideration)? Nobody in this repo has probed it.
-- Captcha rate and throughput on a residential IP: pulls per hour with one
-  human clearing captchas.
+  consideration)?
+- What share of live lots carry a `survey_old` / `survey_new` identifier?
+  (One Cypher count; not yet run.)
+- Free View EC vs fee-bearing application: login required? fee per pull?
+  PDF language and field set?
+- Captcha rate and minutes per pull on a residential IP with one human
+  clearing captchas.
 - Who is the first buyer of the derived signal, by name? Not "developers".
 - Does the Registration Department object to automated access in writing
   anywhere (portal ToS, a notice, a prior case)?
+- Will the department release SRO-level monthly counts and aggregate
+  consideration under RTI?
 - Would a vendor (Propstack/Zapkey, TEAL, Landeed) license Tamil Nadu
   registration data, and at what price per record?
 
 ## Success Criteria
 
-- A: 20 hand-pulled ECs resolve to at least 10 usable comparable sales;
-  then, in product, ≥ 40% of live auction properties show at least one
-  registered comp, and Pro users click it (measure with the existing
-  feedback loop).
+Definitions: a **usable comparable** is a sale deed (nature = sale /
+conveyance) inside the window whose consideration and extent are both
+present so ₹/sq ft can be computed.
+
+- Hand pulls: 20 ECs for live lots in one SRO yield ≥ 10 usable comparables,
+  at ≤ 5 minutes per pull.
 - Premise 1 probe: 50 sequential document-number lookups in one SRO return
   structured party + survey + consideration fields for ≥ 45.
+- In product, 30 days after the bulk pass: at least 60% of live lots that
+  have a survey number show ≥ 1 usable comparable (the 10-of-20 hand-pull
+  rate with margin); ≥ 15% of Pro users who open a property page with the
+  section expand it or ask the agent about it, measured by the existing
+  feedback / chatlog instrumentation over those 30 days.
 - Demand: one named person agrees to pay (any amount) for a monthly
   buyer-resolved registration digest for their target SROs.
 
 ## Dependencies
 
-- Survey-number coverage of the lot spine (40% measurement, 61% possession
-  on 2026-09-12); registered comps need a survey number or a document
-  number to key on.
-- The local Selenium + human-captcha runner, or a JSON endpoint if one
-  exists.
-- A short legal read before anything above a few hundred requests.
+- The survey-number coverage count on live lots; A's reach is capped by it.
+- The local Selenium + human-captcha runner and the person who runs it, or a
+  JSON endpoint if one exists.
+- The advocate's read before step 3 of A's sequencing.
+- EC PDF parsing: the OCR + LangExtract chain applies only if the PDF is
+  text-bearing or Latin-script; a Tamil-only scan adds a Tamil OCR step.
 
 ## The Assignment
 
-Before writing any code: pick one SRO where auctionscope has many live
-lots (Sriperumbudur or Tambaram), pull the EC by hand on TNREGINET for 20 of
-those properties, and time each pull. Write down three numbers: how many
-survey numbers resolved, how many ECs showed a sale in the last three years,
-and captchas per pull. Then phone one person who buys land for a developer
-and ask what they would pay for "every registration in your target SROs last
-month, with buyers resolved to companies". Bring both to the next session.
+Owner: the founder, before writing any code, in this order.
+
+1. Run one Cypher count: live lots with a `survey_old` or `survey_new`
+   identifier, over all live lots. That number caps A.
+2. Pick one SRO where auctionscope has many live lots (Sriperumbudur or
+   Tambaram). Pull the EC by hand on TNREGINET for 20 of those lots. For
+   each, record: minutes taken, captchas seen, login needed, fee charged,
+   PDF language, which fields were present, and whether a usable comparable
+   (as defined above) appeared in the last three years.
+3. In the same SRO, run 50 Document Search lookups by hand for sequential
+   document numbers of 2026 (say 1 to 50). Record which fields each result
+   shows and how many of the 50 return a registered document. This is the
+   premise 1 probe.
+4. Phone one person who buys land for a developer and ask what they would
+   pay for "every registration in your target SROs last month, with buyers
+   resolved to companies". Write down their words.
+
+Bring all four to the next session.
 
 ## What I noticed about how you think
 
