@@ -818,3 +818,24 @@ def test_a_lot_is_placed_through_its_pin_or_the_one_village_that_sounds_like_it(
         "district": "Chengalpattu", "village": "Keelperumpakkam"}})
     assert (sound["village"], sound["taluk"], sound["source"]) == \
         ("Keezhperumpakkam", "Tambaram", "district-sound")
+
+
+def test_a_lot_is_placed_by_its_field_s_pieces_or_the_taluk_it_was_split_into(monkeypatch):
+    from pipeline.place_resolution import Gazetteer
+    gaz = Gazetteer(districts=["Kancheepuram"],
+                    taluks=[("Sriperumbudur", "Kancheepuram"), ("Kundrathur", "Kancheepuram")],
+                    villages=[("Irungattukottai", "Sriperumbudur", "Kancheepuram"),
+                              ("Varatharajapuram", "Kundrathur", "Kancheepuram")])
+    monkeypatch.setattr(P, "gazetteer", lambda: gaz)
+    monkeypatch.setattr(P, "decided_spellings", lambda: ({}, set(), {}, {}, {}))
+    monkeypatch.setattr(P, "sro_taluks", lambda: {})
+    monkeypatch.setattr(P, "pin_taluks", lambda: {})
+    monkeypatch.setattr(P, "taluk_neighbours", lambda: {"Sriperumbudur": ("Kundrathur",)})
+    pieces = P.lot_place({"lot_key": "n#1", "props": {}, "location": {
+        "taluk": "Sriperumbudur", "village": "Irungattukottai Village Natham"}})
+    assert (pieces["village"], pieces["taluk"], pieces["source"]) == \
+        ("Irungattukottai", "Sriperumbudur", "village-pieces")
+    split = P.lot_place({"lot_key": "n#2", "props": {}, "location": {
+        "taluk": "Sriperumbudur", "village": "Varadarajapuram"}})
+    assert (split["village"], split["taluk"], split["status"], split["source"]) == \
+        ("Varatharajapuram", "Kundrathur", "resolved", "neighbour-taluk")

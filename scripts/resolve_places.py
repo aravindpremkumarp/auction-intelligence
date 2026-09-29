@@ -54,7 +54,8 @@ from collections import Counter, defaultdict
 from pipeline.place_lineage import classify, needs_review
 from pipeline.place_resolution import (
     Gazetteer, district_sound_place, load_pin_taluks, load_sro_taluks,
-    property_pin, resolve_place, taluk_hint_place,
+    load_taluk_neighbours, neighbour_taluk_place, property_pin, resolve_place,
+    taluk_hint_place, village_pieces_place,
 )
 from pipeline.resolution_review import (
     district_conflict_key, load_osm_aliases, settle_village, settled_conflicts,
@@ -303,6 +304,7 @@ def run(*, dry_run: bool = False) -> dict:
     osm_aliases = load_osm_aliases()
     sro_taluks = load_sro_taluks()
     pin_taluks = load_pin_taluks()
+    neighbours = load_taluk_neighbours()
     settled = settled_conflicts(decisions)
     print(f"{len(props)} propert(ies); gazetteer has "
           f"{len(gaz.districts)} districts, {len(gaz.taluks)} taluks, "
@@ -340,17 +342,21 @@ def run(*, dry_run: bool = False) -> dict:
                 and (res["village_source"] or "").startswith("osm-"):
             stats[f"settled by OSM ({res['village_source']})"] += 1
 
-        # Then the taluk the sub-registrar office or the notice's PIN code
-        # names, then the one village of the district that sounds like it —
-        # after the verdicts, which outrank both. Not the portal city: it is a
-        # witness, never an answer (lots also read the notice's own town).
+        # Then the pieces of a village field holding more than a name, the
+        # taluk the sub-registrar office or the notice's PIN code names, the
+        # one village of the district that sounds like it, and the taluks the
+        # named one was split from or into — after the verdicts, which outrank
+        # them all. Not the portal city: it is a witness, never an answer
+        # (lots also read the notice's own town).
         was = res["village_source"]
+        res = village_pieces_place(gaz, res, village)
         res = taluk_hint_place(gaz, res, village,
                                sro=p["registration_sub_district"],
                                sro_taluks=sro_taluks,
                                pin=property_pin(p.get("description")),
                                pin_taluks=pin_taluks)
         res = district_sound_place(gaz, res, village)
+        res = neighbour_taluk_place(gaz, res, village, neighbours)
         if res["village_source"] != was:
             stats[f"placed by rule {res['village_source']} ({res['village_status']})"] += 1
 

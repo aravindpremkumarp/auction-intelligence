@@ -1,9 +1,12 @@
-"""scripts/learn_sro_taluks: which taluk each sub-registrar office points to,
-and the SRO hint reaching the listing resolver."""
+"""scripts/learn_sro_taluks: which taluk each sub-registrar office and PIN
+points to, which taluks trade villages, and the hints reaching the listing
+resolver."""
 from __future__ import annotations
 
 from pipeline.place_resolution import Gazetteer, sro_key
-from scripts.learn_sro_taluks import LEARN_FROM, MIN_LOTS, learn, learn_pins
+from scripts.learn_sro_taluks import (
+    LEARN_FROM, MIN_LOTS, learn, learn_neighbours, learn_pins,
+)
 
 
 def test_an_office_names_the_taluk_nearly_all_its_lots_sit_in():
@@ -28,7 +31,8 @@ def test_too_few_lots_teach_nothing():
 
 
 def test_the_table_never_learns_from_its_own_answers():
-    assert not LEARN_FROM & {"sro-taluk", "city-taluk", "pin-taluk", "district-sound"}
+    assert not LEARN_FROM & {"sro-taluk", "city-taluk", "pin-taluk", "district-sound",
+                             "neighbour-taluk"}
 
 
 def test_a_pin_names_the_taluk_nearly_all_its_lots_sit_in():
@@ -36,6 +40,15 @@ def test_a_pin_names_the_taluk_nearly_all_its_lots_sit_in():
     assert learn_pins(pairs) == {"600017": {"taluk": "Guindy", "lots": 12, "share": 0.917}}
     # a PIN that spans taluks names none
     assert learn_pins([("603103", "Thiruporur")] * 4 + [("603103", "Chengalpattu")] * 2) == {}
+
+
+def test_two_taluks_trade_villages_when_enough_lots_name_one_and_sit_in_the_other():
+    pairs = ([("Sriperumbudur", "Kundrathur")] * 80 + [("Kundrathur", "Sriperumbudur")] * 3
+             + [("Chengalpattu", "Chengalpattu")] * 50
+             + [("Hosur", "Krishnagiri")] * (MIN_LOTS - 1))
+    assert learn_neighbours(pairs) == {"Kundrathur": {"Sriperumbudur": 83},
+                                       "Sriperumbudur": {"Kundrathur": 83}}
+    assert learn_neighbours([]) == {}
 
 
 def test_the_listing_resolver_places_through_the_sro_but_never_the_portal_city(monkeypatch):
@@ -66,6 +79,7 @@ def test_the_listing_resolver_places_through_the_sro_but_never_the_portal_city(m
     monkeypatch.setattr(rp, "load_sro_taluks",
                         lambda: {sro_key("Chengalpet"): "Chengalpattu"})
     monkeypatch.setattr(rp, "load_pin_taluks", lambda: {"603203": "Chengalpattu"})
+    monkeypatch.setattr(rp, "load_taluk_neighbours", lambda: {})
     written = []
     monkeypatch.setattr(rp, "write_back", lambda rows: written.extend(rows))
     monkeypatch.setattr(rp, "write_state", lambda *a: None)
@@ -77,3 +91,35 @@ def test_the_listing_resolver_places_through_the_sro_but_never_the_portal_city(m
     assert by_id["a2"]["village_status"] == "no-parent-taluk"
     assert (by_id["a3"]["village"], by_id["a3"]["village_source"]) == \
         ("Kattankulathur", "pin-taluk")
+
+
+def test_the_listing_resolver_reads_a_field_s_pieces_and_the_neighbouring_taluks(monkeypatch):
+    import scripts.resolve_places as rp
+    gaz = Gazetteer(districts=["Kancheepuram"],
+                    taluks=[("Sriperumbudur", "Kancheepuram"), ("Kundrathur", "Kancheepuram")],
+                    villages=[("Irungattukottai", "Sriperumbudur", "Kancheepuram"),
+                              ("Varatharajapuram", "Kundrathur", "Kancheepuram")])
+    base = {"district": "Kancheepuram", "taluk": "Sriperumbudur", "file_path": None,
+            "registration_district": None, "registration_sub_district": None,
+            "city": None}
+    props = [{**base, "auction_id": "a1", "village": "Irungattukottai Village Natham"},
+             {**base, "auction_id": "a2", "village": "Varadarajapuram"}]
+    monkeypatch.setattr(rp, "load_gazetteer", lambda: gaz)
+    monkeypatch.setattr(rp, "load_properties", lambda: props)
+    monkeypatch.setattr(rp, "notice_fallback", lambda: {})
+    monkeypatch.setattr(rp, "load_decisions", lambda: [])
+    monkeypatch.setattr(rp, "load_osm_aliases", lambda: {})
+    monkeypatch.setattr(rp, "load_sro_taluks", lambda: {})
+    monkeypatch.setattr(rp, "load_pin_taluks", lambda: {})
+    monkeypatch.setattr(rp, "load_taluk_neighbours",
+                        lambda: {"Sriperumbudur": ("Kundrathur",),
+                                 "Kundrathur": ("Sriperumbudur",)})
+    written = []
+    monkeypatch.setattr(rp, "write_back", lambda rows: written.extend(rows))
+    monkeypatch.setattr(rp, "write_state", lambda *a: None)
+    rp.run()
+    by_id = {r["auction_id"]: r for r in written}
+    assert (by_id["a1"]["village"], by_id["a1"]["village_source"]) == \
+        ("Irungattukottai", "village-pieces")
+    assert (by_id["a2"]["village"], by_id["a2"]["taluk"], by_id["a2"]["village_source"]) == \
+        ("Varatharajapuram", "Kundrathur", "neighbour-taluk")

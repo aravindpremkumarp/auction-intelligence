@@ -546,6 +546,7 @@ def _sub_numbers(value: str | None) -> tuple[str, ...]:
 # "V. Pudur" not "Pudur", a forest "Badur R.F." not the village "Badur", and
 # "Padappai (Ct)" or "Kolathur (North)" not the plain name.
 _V_INITIALS = re.compile(r"^\s*((?:[A-Za-z]{1,3}\s*\.\s*)+)")
+_CENSUS_TOWN = re.compile(r"\(\s*ct\s*\)", re.I)
 _V_QUALIFIER = re.compile(
     r"\((?!\s*\d{3}\s*\))[^)]*\)|\br\.?\s*f\b\.?|\b(?:north|south|east|west|then|vada|ct)\b",
     re.I)
@@ -732,6 +733,15 @@ class Gazetteer:
         # Every village of a district by sound, built on first use
         # (village_by_district_sound).
         self._sound_district: dict[str, dict[str, set]] | None = None
+        # Census-town rows per taluk, by the folded name without "(Ct)": the
+        # register holds "Padappai (Ct)" beside the revenue village of the same
+        # place ("Patapai"), and which of the two a notice means is not a
+        # spelling question (census_town_twin).
+        self._census_towns: dict[str, set[str]] = defaultdict(set)
+        for village, taluk, _district in self.villages:
+            if _CENSUS_TOWN.search(village):
+                self._census_towns[taluk].add(
+                    normalize_place(_CENSUS_TOWN.sub(" ", village)))
         # Villages kept in parts, by taluk and the folded name of the whole:
         # {part: register name}. Where the register holds one part under two
         # spellings (an LGD-added copy), the one with a Tamil name — the
@@ -885,6 +895,12 @@ class Gazetteer:
 
     def taluk_has_villages(self, taluk: str) -> bool:
         return bool(self._v_by_taluk.get(taluk))
+
+    def census_town_twin(self, value: str, taluk: str) -> bool:
+        """True when ``value`` is, or names, a census-town row of ``taluk`` —
+        "Padappai (Ct)", or "Padappai" where the taluk holds one."""
+        key = normalize_place(_CENSUS_TOWN.sub(" ", value or ""))
+        return bool(key) and key in self._census_towns.get(taluk, ())
 
     def village_in_district(self, value: str,
                             district: str) -> tuple[str, str] | None:
@@ -1379,3 +1395,130 @@ def district_sound_place(gaz: "Gazetteer", res: dict, village: str | None) -> di
         return res
     return {**res, "village": hit[0], "taluk": hit[1],
             "village_status": "resolved", "village_source": "district-sound"}
+
+
+# ── A village field holding more than one name ───────────────────────────────
+#
+# "Kanthalur and Pulipakkam", "Ambur Municipal Town", "Colachel Revenue Village
+# (Now Simon Colony)": the field names the village among other words, so the
+# whole string matches nothing. Split into pieces, drop the words that say what
+# kind of place it is and the streets, wards and colonies that sit inside a
+# village, and look each piece up in the notice's own taluk.
+
+_PIECE_SPLIT = re.compile(r"[,;/&@()]|\band\b", re.I)
+_PIECE_NOISE = re.compile(
+    r"\b(?:group|town|municipal(?:ity)?|natham|limits?|now)\b\.?", re.I)
+_LOCALITY = re.compile(
+    r"\b(?:ward|street|road|nagar|colony|layout|extension)\b", re.I)
+_HAMLET_OF = re.compile(r"^.*\bhamlet\s+of\b", re.I)
+
+
+def village_pieces(value: str | None) -> list[str]:
+    """The names a village field holds, or [] when it is one plain name —
+    which :func:`resolve_place` has already tried as it stands. "A hamlet of
+    B" is B."""
+    text = _HAMLET_OF.sub(" ", str(value or ""))
+    pieces = []
+    for piece in _PIECE_SPLIT.split(text):
+        if _LOCALITY.search(piece):
+            continue
+        piece = " ".join(_PIECE_NOISE.sub(" ", piece).split()).strip(" .-'\"‘’“”")
+        if len(normalize_place(piece)) >= 3:
+            pieces.append(piece)
+    if len(pieces) == 1 and normalize_place(pieces[0]) == normalize_place(value or ""):
+        return []
+    return pieces
+
+
+def village_pieces_place(gaz: "Gazetteer", res: dict, village: str | None) -> dict:
+    """``res`` placed by the pieces of a village field that holds more than a
+    name (:func:`village_pieces`), when the whole of it is ``unmatched`` in the
+    notice's taluk.
+
+    Every piece must be found inside that taluk by :func:`resolve_place`'s own
+    rules, and all of them must name the same one village: a piece that
+    matches nothing may be the real village misspelt ("Pulikulam (Anupampattu
+    I), Alladu"), and two villages are two answers. On the live corpus it
+    places 15 lots and 15 listings, each checked by hand; "X Town" lands on
+    the revenue village named X. Source ``village-pieces``."""
+    if (res.get("village") or res.get("village_parts") or not village
+            or res.get("village_status") != "unmatched" or not res.get("taluk")):
+        return res
+    pieces = village_pieces(village)
+    if not pieces:
+        return res
+    found = set()
+    for piece in pieces:
+        tried = resolve_place(gaz, district=res.get("district"), taluk=res["taluk"],
+                              village=piece)
+        if tried["taluk"] != res["taluk"] or not tried["village"]:
+            return res
+        found.add(tried["village"])
+    if len(found) != 1:
+        return res
+    return {**res, "village": found.pop(), "village_status": "resolved",
+            "village_source": "village-pieces"}
+
+
+# ── Neighbouring taluks ──────────────────────────────────────────────────────
+#
+# Taluks were split in 2019–2021 — Kundrathur out of Sriperumbudur, Vandalur
+# and Thiruporur out of Chengalpattu, Maduravoyal out of Ambattur — and notices
+# still file a village under the taluk it used to sit in, spelt so that the
+# exact district search cannot find it. Which taluks trade villages this way is
+# learned, never assumed: two taluks are neighbours when at least three placed
+# lots name one and sit in the other (scripts/learn_sro_taluks.py →
+# lookups/taluk_neighbours.json).
+
+#: The learned {taluk: {neighbour: lots}} table, both ways round.
+TALUK_NEIGHBOURS = Path(__file__).resolve().parent / "lookups" / "taluk_neighbours.json"
+
+
+def load_taluk_neighbours(path: Path = TALUK_NEIGHBOURS) -> dict[str, tuple[str, ...]]:
+    """``{taluk: (neighbour, ...)}`` from the learned table, or {} before it
+    exists."""
+    try:
+        table = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {}
+    return {taluk: tuple(sorted(row)) for taluk, row in table.items()}
+
+
+def neighbour_taluk_place(gaz: "Gazetteer", res: dict, village: str | None,
+                          neighbours: dict[str, tuple[str, ...]] | None) -> dict:
+    """``res`` placed in a neighbouring taluk (:data:`TALUK_NEIGHBOURS`) of the
+    one the notice names, when its village is not there (``unmatched``).
+
+    The village must be found inside exactly one neighbour of the same
+    district by :func:`resolve_place`'s own rules — exact, parts, the guarded
+    fuzzy and sound matches. A census-town row on either side
+    (:meth:`Gazetteer.census_town_twin`) refuses it: the register holds
+    "Padappai (Ct)" beside the revenue village "Patapai", and which a notice
+    means is a person's call. Checked on placed lots, each named under a
+    neighbour instead of its own taluk: of the 537 the rule applies to, 423
+    placed right, 0 wrong, the rest refused. Source ``neighbour-taluk``."""
+    if (res.get("village") or res.get("village_parts") or not village or not neighbours
+            or res.get("village_status") != "unmatched" or not res.get("taluk")):
+        return res
+    answers: dict[tuple, tuple] = {}
+    for name in neighbours.get(res["taluk"], ()):
+        hit = gaz.taluk(name)
+        if not hit or hit[0] == res["taluk"] or hit[1] != res.get("district"):
+            continue
+        tried = resolve_place(gaz, district=hit[1], taluk=hit[0], village=village)
+        if tried["taluk"] != hit[0]:
+            continue
+        found = (tried["village"],) if tried["village"] else tuple(tried["village_parts"])
+        if not found:
+            continue
+        if gaz.census_town_twin(village, hit[0]) or any(
+                gaz.census_town_twin(name, hit[0]) for name in found):
+            return res
+        answers.setdefault((hit[0], found), (hit, tried))
+    if len(answers) != 1:
+        return res
+    (hit, tried), = answers.values()
+    return {**res, "taluk": hit[0], "district": hit[1], "village": tried["village"],
+            "village_parts": tried["village_parts"],
+            "village_status": tried["village_status"],
+            "village_source": "neighbour-taluk"}

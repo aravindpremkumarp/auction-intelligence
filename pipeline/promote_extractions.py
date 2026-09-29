@@ -68,7 +68,8 @@ from pipeline.lot_windows import renumber_window_lots
 from pipeline.obs import get_logger
 from pipeline.place_resolution import (
     Gazetteer, district_sound_place, load_pin_taluks, load_sro_taluks,
-    property_pin, resolve_place, taluk_hint_place,
+    load_taluk_neighbours, neighbour_taluk_place, property_pin, resolve_place,
+    taluk_hint_place, village_pieces_place,
 )
 from pipeline.property_taxonomy import (
     AGRICULTURAL, FLAT, LAND, PLOT, classify_property_type,
@@ -301,10 +302,11 @@ def decided_spellings(reload: bool = False
     return _SPELLINGS
 
 
-# ── learned SRO → taluk and PIN → taluk tables ───────────────────────────────
+# ── learned SRO → taluk, PIN → taluk and neighbouring-taluk tables ───────────
 # Files in the repo (scripts/learn_sro_taluks), so read once per process.
 _SRO_TALUKS: dict[str, str] | None = None
 _PIN_TALUKS: dict[str, str] | None = None
+_TALUK_NEIGHBOURS: dict[str, tuple[str, ...]] | None = None
 
 
 def sro_taluks() -> dict[str, str]:
@@ -319,6 +321,13 @@ def pin_taluks() -> dict[str, str]:
     if _PIN_TALUKS is None:
         _PIN_TALUKS = load_pin_taluks()
     return _PIN_TALUKS
+
+
+def taluk_neighbours() -> dict[str, tuple[str, ...]]:
+    global _TALUK_NEIGHBOURS
+    if _TALUK_NEIGHBOURS is None:
+        _TALUK_NEIGHBOURS = load_taluk_neighbours()
+    return _TALUK_NEIGHBOURS
 
 
 def lot_pin(rec: dict) -> str | None:
@@ -384,18 +393,23 @@ def lot_place(rec: dict) -> dict:
                                 or r.get("village_parts") or [])
     district_source = r["district_source"]
 
-    # Still no village: try the taluk the sub-registrar office, the town or
-    # the PIN code names (place_resolution.taluk_hint_place), then the one
-    # village of the district that sounds like it (district_sound_place).
-    # After the verdicts, which outrank both.
-    hinted = taluk_hint_place(
+    # Still no village: the pieces of a field holding more than a name
+    # (place_resolution.village_pieces_place), then the taluk the
+    # sub-registrar office, the town or the PIN code names (taluk_hint_place),
+    # then the one village of the district that sounds like it
+    # (district_sound_place), then the taluks the named one was split from or
+    # into (neighbour_taluk_place). After the verdicts, which outrank them all.
+    hinted = village_pieces_place(
         gaz, {"district": district, "taluk": taluk, "village": village,
               "village_parts": parts, "village_status": status,
               "village_source": source, "district_source": district_source},
-        loc.get("village"), sro=loc.get("registration_sub_district"),
+        loc.get("village"))
+    hinted = taluk_hint_place(
+        gaz, hinted, loc.get("village"), sro=loc.get("registration_sub_district"),
         city=loc.get("city"), sro_taluks=sro_taluks(),
         pin=lot_pin(rec), pin_taluks=pin_taluks())
     hinted = district_sound_place(gaz, hinted, loc.get("village"))
+    hinted = neighbour_taluk_place(gaz, hinted, loc.get("village"), taluk_neighbours())
     district, taluk, village, parts, status, source, district_source = (
         hinted["district"], hinted["taluk"], hinted["village"],
         hinted["village_parts"], hinted["village_status"],
