@@ -30,7 +30,7 @@
     ]
   },
   "749433": {
-    "expected_lot_count": 2,
+    "expected_lot_count": 1,
     "filename": "CANR-2-1776667965182.jpg",
     "roster": [
       {
@@ -54,7 +54,7 @@
     ]
   },
   "750348": {
-    "expected_lot_count": 5,
+    "expected_lot_count": 6,
     "filename": "CB17767669373793.jpg",
     "roster": [
       {
@@ -195,7 +195,7 @@
     ]
   },
   "755527": {
-    "expected_lot_count": 2,
+    "expected_lot_count": 1,
     "filename": "dcb-2rrrrr17774473711776.jpg",
     "roster": [
       {
