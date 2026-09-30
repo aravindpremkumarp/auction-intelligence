@@ -535,6 +535,13 @@ function render(){
   // full_description) renders as a table; ✎ edit swaps in the <textarea>
   // (not <input>) so long values wrap and autosize.
   let f="";
+  // Corrections a re-read could not place (pipeline/extraction_ids): the old
+  // entity's class and text are shown so the reviewer can find the new one
+  // and re-enter the value there. Nothing here was applied anywhere.
+  if(d.orphaned&&d.orphaned.length){
+    f+=`<div class="fld orphans"><div class="c">⚠ ${d.orphaned.length} correction(s) from before the last re-read need re-placing</div>`+
+      d.orphaned.map(o=>{const of=o.orphaned_from||{};return `<div class="snip" style="background:#fef3c7">${esc(of.cls||o.key)}${of.lot_index?(" · lot "+of.lot_index):""}: <i>${esc(snippet(of.text||""))}</i>${o.value!=null?` → <b>${esc(String(o.value))}</b>`:""}${o.by?` <span class=corr>by ${esc(o.by)}</span>`:""}</div>`;}).join("")+`</div>`;
+  }
   d.fields.forEach(fl=>{
     const ung=fl.grounded?"":" <span class=ung>UNGROUNDED</span>";
     // 'stored' = the extraction's own offsets still land on this text, which

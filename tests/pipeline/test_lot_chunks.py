@@ -206,7 +206,9 @@ def test_notice_level_entities_are_kept_once():
     dates = [e for e in ents if e["cls"] == "auction_date"]
     assert len(dates) == 1
     assert md[dates[0]["start"]:dates[0]["end"]] == "24.06.2026"
-    assert [e["id"] for e in ents] == [str(i) for i in range(len(ents))]
+    # ids are content-derived now (pipeline/extraction_ids): unique, not positional
+    ids = [e["id"] for e in ents]
+    assert len(set(ids)) == len(ids) and all(len(i) >= 12 for i in ids)
 
 
 def test_an_ungrounded_lot_entity_follows_its_lots_grounded_ones():

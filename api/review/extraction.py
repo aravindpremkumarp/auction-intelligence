@@ -144,6 +144,10 @@ class ExtractionReviewOut(BaseModel):
     # failure so the reviewer sees why nothing changed.
     rerun_running: bool = False
     rerun_error: str | None = None
+    # Reviewer corrections a re-read could not place on any new entity
+    # (pipeline/extraction_ids): shown so a person can re-place them, never
+    # applied to a stranger and never deleted.
+    orphaned: list[dict] = []
     # Stitched notices (pipeline/notice_pages). A follower — page 2 of a
     # two-file notice — carries only stitched_into and no fields: its text and
     # lots are reviewed on the leader. A leader lists its pages and where each
@@ -1050,7 +1054,16 @@ def extraction_detail(
         stitched_page_offsets=[int(o) for o in (row.get("stitched_page_offsets") or [])],
         fields=_build_fields(row["extraction_json"], row["corrections_json"],
                              row.get("markdown"), stale),
+        orphaned=_orphaned(row.get("corrections_json")),
     )
+
+
+def _orphaned(corrections_json: str | None) -> list[dict]:
+    from pipeline.extraction_ids import orphans
+    try:
+        return orphans(json.loads(corrections_json or "{}"))
+    except (TypeError, ValueError):
+        return []
 
 
 @router.post("/{filename:path}/field", response_model=ExtractionReviewOut)

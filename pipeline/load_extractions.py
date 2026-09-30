@@ -53,6 +53,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from api.neo4j_client import run_query, run_read_query
 from api.review.grounding import ground_missing
 from pipeline.extract_routing import passes_for, select_extract_model
+from pipeline.extraction_ids import assign_ids
+from pipeline.extraction_store import carry_rows
 from pipeline.absence import clear_auto_marks
 from pipeline.key_entities import stamp_key_scores
 from pipeline.notice_twins import group_twins, merge_rosters, text_key
@@ -303,7 +305,10 @@ def _entities(res, source: str = "") -> list[dict]:
             "attrs": attrs,
         })
     ground_missing(out, source)
-    return out
+    # Content-derived ids: identical re-reads give identical ids, and a
+    # reviewer's correction can be carried to the entity it belongs to
+    # (pipeline/extraction_ids) instead of to whatever is now at its index.
+    return assign_ids(out)
 
 
 def _next_batch() -> int:
@@ -392,24 +397,36 @@ def _extract_one(d: dict, batch: int, route: bool, LX) -> tuple[bool, str | None
     # document will actually find — and matches what scripts/backfill_extraction
     # _scores.py recomputes from the same JSON.
     score = validate_stored(ents, source_text=d["md"])["score"]
+    # The read being replaced (if any) is kept one level back, and the
+    # reviewer's corrections are moved onto the new entities or orphaned —
+    # never left keyed to ids that now name other entities.
+    rows, carried = carry_rows(targets, ents)
     run_query(
         """
-        UNWIND $fns AS fn
-        MATCH (d:Document {filename: fn})
-        SET d.extraction_json = $j,
+        UNWIND $rows AS r
+        MATCH (d:Document {filename: r.fn})
+        SET d.extraction_prev_json = r.prev_j,
+            d.extraction_prev_reader = r.prev_reader,
+            d.extraction_prev_at = r.prev_at,
+            d.extraction_json = $j,
+            d.extraction_corrections_json = r.cj,
+            d.extraction_reader = 'langextract',
             d.extraction_score = $score,
             d.extraction_score_version = $score_version,
             d.extraction_at    = datetime(),
             d.extraction_batch = $batch,
             d.extraction_model = $model,
-            d.extraction_reused_from = CASE WHEN fn = $fn THEN NULL ELSE $fn END,
+            d.extraction_reused_from = CASE WHEN r.fn = $fn THEN NULL ELSE $fn END,
             d.extraction_review_status =
                 coalesce(d.extraction_review_status, 'pending')
         RETURN d.filename
         """,
-        {"fn": fn, "fns": targets, "j": json.dumps(ents, ensure_ascii=False),
+        {"fn": fn, "rows": rows, "j": json.dumps(ents, ensure_ascii=False),
          "score": score, "score_version": SCORE_VERSION,
          "batch": batch, "model": effective_model})
+    if carried.get("orphaned"):
+        print(f"  {fn}: {carried['orphaned']} reviewer correction(s) orphaned by the "
+              f"re-read — listed on the review page", flush=True)
     # A fresh read: automatic "not in the notice" marks were made against the
     # old lots (pipeline/absence). A person's marks stay.
     clear_auto_marks(targets)

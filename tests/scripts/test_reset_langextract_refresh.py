@@ -148,6 +148,8 @@ def _write_cypher(monkeypatch, entities=None) -> str:
                         lambda res, source="": [{"id": "e1"}]
                         if entities is None else entities)
     monkeypatch.setattr(R, "validate_stored", lambda *a, **k: {"score": 80})
+    import pipeline.extraction_store as ES
+    monkeypatch.setattr(ES, "previous", lambda fns: {})
 
     class _Res:
         extractions = []

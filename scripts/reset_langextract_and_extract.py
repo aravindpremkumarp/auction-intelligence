@@ -81,6 +81,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 
 from api.neo4j_client import run_query, run_read_query
+from pipeline.extraction_store import carry_rows
 from pipeline.extract_routing import (
     passes_for,
     select_extract_model,
@@ -430,11 +431,23 @@ def write_extraction(d: dict, ents: list[dict], batch: int,
     # Scored from the entities that get stored (spans regrounded), so the
     # number describes the document a reader opens — see _extract_one.
     score = validate_stored(ents, source_text=d["md"])["score"]
+    # Keep the read being replaced, and carry the reviewer's corrections onto
+    # the new entities (pipeline/extraction_ids) — what matches nothing is
+    # orphaned for the review page, never applied to a stranger.
+    rows, carried = carry_rows(targets, ents)
+    if carried.get("orphaned"):
+        print(f"    {fn}: {carried['orphaned']} reviewer correction(s) orphaned "
+              f"by this re-read", flush=True)
     run_query(
         """
-        UNWIND $fns AS name
-        MATCH (d:Document {filename: name})
-        SET d.extraction_json = $j,
+        UNWIND $rows AS r
+        MATCH (d:Document {filename: r.fn})
+        SET d.extraction_prev_json = r.prev_j,
+            d.extraction_prev_reader = r.prev_reader,
+            d.extraction_prev_at = r.prev_at,
+            d.extraction_corrections_json = r.cj,
+            d.extraction_reader = coalesce($reader, 'langextract'),
+            d.extraction_json = $j,
             d.extraction_score = $score,
             d.extraction_score_version = $score_version,
             d.extraction_at    = datetime(),
@@ -448,7 +461,7 @@ def write_extraction(d: dict, ents: list[dict], batch: int,
             // longer, and it is true.
             d.extraction_review_status = 'pending',
             d.extraction_reused_from =
-                CASE WHEN name = $fn THEN NULL ELSE $fn END,
+                CASE WHEN r.fn = $fn THEN NULL ELSE $fn END,
             // Fresh entities now reflect the current markdown, so the staleness
             // marker fix_missing_regions left behind is cleared here — the flag
             // must not outlive the condition it describes.
@@ -456,8 +469,9 @@ def write_extraction(d: dict, ents: list[dict], batch: int,
         REMOVE d.extraction_verified_by, d.extraction_verified_at
         RETURN d.filename
         """,
-        {"fn": fn, "fns": targets, "j": json.dumps(ents, ensure_ascii=False),
-         "score": score, "score_version": SCORE_VERSION, "batch": batch})
+        {"fn": fn, "rows": rows, "j": json.dumps(ents, ensure_ascii=False),
+         "score": score, "score_version": SCORE_VERSION, "batch": batch,
+         "reader": d.get("reader")})
     if not keep_auto_marks:
         from pipeline.absence import clear_auto_marks
         clear_auto_marks(targets)
