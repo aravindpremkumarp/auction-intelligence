@@ -154,25 +154,47 @@ feature keyed on "same village", not distance.
 Summary: for each live auction lot with a resolved revenue village and a
 survey number, pull the EC for that exact survey number (no neighbours in
 v1; survey numbers are not spatially sequential and the repo holds no
-cadastral adjacency) for the window auction date minus three years to pull
-date; store the rows in Neo4j; show "registered sales on this survey number"
-on the property page and return them from `get_auction_detail`.
+cadastral adjacency) for one fixed window, pull date minus three years to
+pull date; store the rows in Neo4j; show "registered sales on this survey
+number" on the property page and return them from `get_auction_detail`.
+
+Scope of lots in v1: **land and plot lots only** (the taxonomy in
+`pipeline/property_taxonomy.py` **[repo]** already separates land, plot,
+house and flat). Flats are excluded because an apartment's survey number
+returns every flat sale on it with an undivided-share extent, and
+consideration divided by that extent is not a rate a bidder can use.
 
 Data model (new label, existing neighbours):
 
-- `(:Registration {doc_no, sro, year, reg_date, nature, consideration,
+- `(:Registration {sro, year, doc_no, reg_date, nature, consideration,
   extent_raw, extent_sqft, guideline_value, parties_json, source_pdf_r2,
-  pulled_at})` is new.
+  pulled_at})` is new. Uniqueness key is `(sro, year, doc_no)`; every EC
+  row is `MERGE`d onto it, so one deed that covers several survey numbers
+  is one node reached from several lots.
 - `(:Lot)-[:HAS_REGISTRATION {survey_key, village_key}]->(:Registration)`
   links to the existing `:Lot` node (the `:Parcel` label is retiring per
   `docs/SCHEMA.md` and must not be extended). One EC pull is cached per
-  (village, survey number, window) so several lots on one survey number
-  cost one pull.
-- Party names are **stored** (needed for B's entity resolution and for
-  dedupe) but **not displayed and not returned by the agent tool** in A. The
-  page and the tool expose date, nature of document, consideration, extent,
-  and derived ₹/sq ft only. Showing private individuals' names next to
-  prices is a separate product decision, deferred to B.
+  (village, survey number) with the fixed window above, so several lots on
+  one survey number cost one pull; the empty-state date is that pull's
+  window start.
+- Party names are **stored** (needed only for B's entity resolution) but
+  **not displayed and not returned by the agent tool** in A. The page and
+  the tool expose date, nature of document, consideration, extent, and
+  derived ₹/sq ft only. Showing private individuals' names next to prices
+  is a separate product decision, deferred to B.
+
+Rate rules, so a paying user never sees a wrong number next to the reserve
+price:
+
+- ₹/sq ft is computed only when the row's nature is sale/conveyance and
+  both consideration and extent are present, with extent converted through
+  the unit table in `pipeline/measures.py` **[repo]** (cents, acres,
+  grounds, sq m, sq ft; any unit it does not know leaves the rate blank).
+- A deed whose EC row extent is smaller than the deed's stated total extent
+  (a multi-survey sale) shows consideration and extent without a rate,
+  flagged "part of a larger sale".
+- A row whose extent is an undivided share (UDS wording) is excluded from
+  the section.
 
 Empty states, which will be the majority case until survey-number coverage
 is measured:
@@ -180,8 +202,10 @@ is measured:
 - Lot has no survey number: the section is hidden on the page; the tool
   returns `registrations: null, reason: "no survey number on record"`.
 - Survey number pulled, no sale in window: the page shows "No registered
-  sales on this survey number since <date>"; the tool returns an empty list
-  with `pulled_at`.
+  sales on this survey number since <pull date minus three years>"; the
+  tool returns an empty list with `pulled_at`.
+- Lot is a flat or house: section hidden; tool returns `reason: "land and
+  plot lots only in v1"`.
 - Not yet pulled: section hidden; tool returns `reason: "not pulled"`.
 
 Pull cadence and the human hours nobody automates away:
@@ -189,22 +213,45 @@ Pull cadence and the human hours nobody automates away:
 - One pull per (village, survey number) at enrichment time, never re-pulled
   in A. New live auctions trigger a pull for their new survey numbers only.
 - Captchas are cleared by the same person who runs the weekly scrape today
-  (`scripts/run_weekly_pipeline.py` pauses for a human already). Weekly load
-  = new survey numbers that week × minutes per pull, measured in The
-  Assignment. Working estimate until measured: 50 new survey numbers a week
-  at 2 minutes each is under two hours a week; if the measured time is over
-  5 minutes a pull, A is not viable as designed and C's Landeed route is
-  the fallback.
+  (`scripts/run_weekly_pipeline.py` pauses for a human already).
+- Initial pass = live lots × survey-number coverage share × minutes per
+  pull. Working estimate until measured: 600 × 40% × 3 minutes = 12
+  person-hours, spread over four weeks at about three hours a week, on top
+  of the weekly scrape. Both inputs are measured in The Assignment.
+- Steady state = new survey numbers that week × minutes per pull. Working
+  estimate: 50 a week at 3 minutes is under three hours a week.
+- Viability threshold: if the measured time is over 5 minutes a pull, A
+  shrinks to **manual pulls for watchlisted lots only** (a Pro user saving
+  a land lot queues one pull; cap 20 a week) rather than a pass over every
+  live lot. Landeed is not the fallback: its EC lookup is the same
+  TNREGINET form behind a friendlier UI with no public API
+  (`docs/landeed_tn_records.md` **[repo]**).
+
+Engagement instrumentation is part of A's build: the section is open by
+default on the property page; the page emits a `registrations_viewed`
+event (new, alongside the existing feedback endpoint) when the section
+renders with at least one row, and agent questions about registrations are
+already captured by the `agent3.chatlog` lines. Both feed the success
+criterion below.
 
 Sequencing with the legal gate:
 
 1. 20 hand pulls (The Assignment).
 2. One-hour advocate read on automated View EC pulls under a personal login
-   at this volume.
-3. Bulk pass over live lots with survey numbers, rate-limited and logged.
+   at this volume. The founder decides on the outcome:
+   - clear: step 3 as written;
+   - conditional (volume cap, no personal login, rate limits): step 3 runs
+     inside those limits, or under a dedicated account, or shrinks to the
+     watchlist-only mode above;
+   - negative: no automated pulls. A becomes manual hand pulls for
+     watchlisted lots at the measured rate, and the RTI route in C becomes
+     the only bulk source until a vendor licence exists.
+3. Bulk pass over live land and plot lots with survey numbers, rate-limited
+   and logged.
 
-- Effort: M (human: 3-4 weeks / CC: 2-3 days of build, plus the captcha
-  hours above)
+- Effort: M (human: 3-4 weeks / CC: 2-3 days of build, plus about 12
+  person-hours of captcha clearing for the initial pass and under three
+  hours a week after)
 - Risk: Low-Med (captcha throughput; unmeasured survey-number coverage;
   EC PDF parsing is a new extraction target for the OCR + LangExtract chain,
   and if the PDF is Tamil-only the chain needs a Tamil OCR pass first)
@@ -214,8 +261,9 @@ Sequencing with the legal gate:
 - Cons: proves nothing about "developer accumulation"; survey-number
   coverage caps reach; a recurring manual captcha job
 - Reuses: `pipeline/place_resolution.py`, `sro_taluks.json`,
-  `identifier_kinds.json`, OCR + LangExtract chain, `scrapers/`
-  Selenium-with-human-captcha pattern, R2 storage
+  `identifier_kinds.json`, `pipeline/property_taxonomy.py`,
+  `pipeline/measures.py`, OCR + LangExtract chain, `scrapers/`
+  Selenium-with-human-captcha pattern, R2 storage, `agent3.chatlog`
 
 ### Approach B: SRO document-register crawler and buyer heatmap (ideal architecture)
 
@@ -303,15 +351,18 @@ Definitions: a **usable comparable** is a sale deed (nature = sale /
 conveyance) inside the window whose consideration and extent are both
 present so ₹/sq ft can be computed.
 
-- Hand pulls: 20 ECs for live lots in one SRO yield ≥ 10 usable comparables,
-  at ≤ 5 minutes per pull.
+- Hand pulls: at least 10 of 20 ECs for live land/plot lots in one SRO each
+  contain ≥ 1 usable comparable (a per-EC rate of 50%), at ≤ 5 minutes per
+  pull.
 - Premise 1 probe: 50 sequential document-number lookups in one SRO return
   structured party + survey + consideration fields for ≥ 45.
-- In product, 30 days after the bulk pass: at least 60% of live lots that
-  have a survey number show ≥ 1 usable comparable (the 10-of-20 hand-pull
-  rate with margin); ≥ 15% of Pro users who open a property page with the
-  section expand it or ask the agent about it, measured by the existing
-  feedback / chatlog instrumentation over those 30 days.
+- In product, 30 days after the bulk pass: at least 40% of live land/plot
+  lots that have a survey number show ≥ 1 usable comparable (below the 50%
+  hand-pull rate, so a hand pull that just passes still clears it); and
+  among Pro users who open a property page where the section rendered with
+  rows, ≥ 15% either trigger a `registrations_viewed` event on two or more
+  distinct properties or ask the agent about registrations, measured over
+  those 30 days.
 - Demand: one named person agrees to pay (any amount) for a monthly
   buyer-resolved registration digest for their target SROs.
 
@@ -357,3 +408,97 @@ Bring all four to the next session.
 - "Which developer projects are going to come" is the question with a buyer
   attached. The other two are descriptive; that one is predictive, and
   prediction is what people pay for.
+
+<!-- gstack:office-hours:concerns:start -->
+## Reviewer Concerns
+
+Disposition: CONCERNS_RECORDED
+
+Stop: CONVERGENCE
+
+### R2-1 — consistency
+
+**Problem**
+
+> The in-product target is still not derivable from the document's own numbers. Success Criteria sets 'at least 60% of live lots that have a survey number show >= 1 usable comparable (the 10-of-20 hand-pull rate with margin)', but 10 of 20 is 50%, so 60% is above the hand-pull rate, not below it with margin; if the hand pull passes at exactly 10 of 20, the product criterion fails under the plan as written. The hand-pull criterion is also ambiguous: '20 ECs ... yield >= 10 usable comparables' can mean 10 comparables in total (possibly from three ECs) rather than 10 ECs each carrying at least one, which is the per-lot rate the product target needs.
+
+**Remedy**
+
+> Define the hand-pull metric as 'at least N of 20 ECs contain >= 1 usable comparable' and set the product target at or below that share (for example 40% when N = 10, or raise N if 60% is the real bar), so the target follows from the measured rate in the stated direction.
+
+### R2-2 — consistency
+
+**Problem**
+
+> The cache key and the pull cadence disagree. The data model says one EC pull is cached per '(village, survey number, window)', while Pull cadence says 'one pull per (village, survey number) at enrichment time, never re-pulled'. The window is per lot ('auction date minus three years to pull date'), so two lots on the same survey number with different auction dates have different windows: under the first rule they cost two pulls (contradicting 'several lots on one survey number cost one pull'); under the second rule the second lot may need dates the first pull did not cover.
+
+**Remedy**
+
+> Pick one rule: pull a survey number once with a fixed window (for example pull date minus three years) and key the cache on (village, survey number), or keep per-lot windows and drop the 'one pull per survey number' claim. State which window the empty-state 'since <date>' text shows.
+
+### R2-3 — completeness
+
+**Problem**
+
+> The advocate's read is a gate (Premise 2, Sequencing step 2, Dependencies) but only its pass branch is described. The document does not say what A does if the opinion is negative or conditional (for example: no automated pulls under a personal login, or a lower volume cap). The only named fallback ('C's Landeed route') is tied to the minutes-per-pull threshold, not to the legal outcome.
+
+**Remedy**
+
+> State the fail branch of the legal gate: fall back to Landeed/API pulls, restrict A to fully manual hand pulls at the measured rate, or stop A; and say who decides.
+
+### R2-4 — feasibility
+
+**Problem**
+
+> Only the steady-state captcha load is sized ('50 new survey numbers a week at 2 minutes each is under two hours a week'). The one-off bulk pass in Sequencing step 3 over ~600 live lots is not sized: at the document's own numbers it is (600 x survey-number coverage share) pulls at 2-5 minutes each, which is roughly 8-25 person-hours for a 40% coverage share, and it lands on the same person who runs the weekly scrape. The effort line's 'plus the captcha hours above' therefore covers only the weekly load.
+
+**Remedy**
+
+> Add a formula and working estimate for the initial pass (live lots x coverage share x minutes per pull), say over how many weeks it is spread, and fold it into A's effort and the weekly-runner dependency.
+
+### R2-5 — feasibility
+
+**Problem**
+
+> 'C's Landeed route' is named as A's fallback if pulls exceed 5 minutes, but nothing establishes that it can serve A. Approach C describes Landeed as 'per-document lookups' and the Constraints note the EC is keyed per survey number; whether Landeed returns a survey-number EC for Tamil Nadu, what it costs per pull relative to the Rs 499 Pro price, and whether the returned fields match the assumed field set are not stated, and the repo's own `docs/landeed_tn_records.md` is cited only for the PDF format.
+
+**Remedy**
+
+> Either confirm from `docs/landeed_tn_records.md` (or an Open Question) that Landeed serves survey-number EC lookups for TN with a stated price and field set, or name a different fallback for the throughput failure case.
+
+### R2-6 — completeness
+
+**Problem**
+
+> The derived Rs/sq ft that A displays has undefined behavior for two common cases. (1) Auction lots that are flats: the survey number of an apartment complex yields many flat sales whose 'extent' is an undivided share of land, so consideration / extent gives a rate unrelated to the lot's reserve price. (2) Sale deeds covering several survey numbers: the consideration is for the whole deed while the EC row on one survey number carries only part of the extent, inflating the rate. Both produce a wrong number shown next to the reserve price to a paying user.
+
+**Remedy**
+
+> Say how A handles flats (exclude built-up/UDS entries, show consideration without a rate, or restrict A to land/plot lots) and multi-survey deeds (flag or exclude when the deed's extent differs from the row's extent), and add the extent-unit conversion (cents, acres, sq m, grounds) to the parsing effort.
+
+### R2-7 — clarity
+
+**Problem**
+
+> The `:Registration` node has no stated uniqueness key. Document numbers are sequential per SRO per year, so the natural key is (sro, year, doc_no), and the same document appears on several survey numbers' ECs when one deed covers multiple survey numbers. The document instead says party names are stored 'for dedupe', which is not a reliable dedupe basis and leaves the MERGE key open for the next engineering review.
+
+**Remedy**
+
+> State the uniqueness key for `:Registration` (sro, year, doc_no), that repeated ECs MERGE onto it, and drop or clarify the 'party names for dedupe' rationale.
+
+### R2-8 — clarity
+
+**Problem**
+
+> The engagement criterion assumes UI behavior and instrumentation the document never specifies. '>= 15% of Pro users who open a property page with the section expand it' implies the section is collapsed by default, but Approach A only says the page will 'show registered sales'. It also says the expand event is 'measured by the existing feedback / chatlog instrumentation', which records feedback and agent chats, not a section-expand click; that click likely needs new tracking that is not in A's effort or reuse list.
+
+**Remedy**
+
+> State whether the section is collapsed or open by default, name the event that counts as engagement (expand click and/or agent question), and either cite where that event is already logged or add the tracking to A's build.
+
+### Prior finding evidence
+
+**R1-3 → R2-1 (persisting)**
+
+> The target was recomputed to be conditional on lots with a survey number, but it is set at 60% and labelled 'the 10-of-20 hand-pull rate with margin' while 10 of 20 is 50%; the margin runs the wrong way, so the criterion still cannot be met under the document's own hit-rate assumption, and the hand-pull metric is not stated per EC.
+<!-- gstack:office-hours:concerns:end -->
