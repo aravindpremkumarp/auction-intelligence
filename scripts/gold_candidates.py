@@ -28,7 +28,7 @@ import json
 import sys
 from pathlib import Path
 
-from scripts.score_ink_coverage import nq
+from api.neo4j_client import run_read_query
 
 OUT = Path(__file__).resolve().parents[1] / "evals" / "gold_candidates.json"
 MANIFEST = Path(__file__).resolve().parents[1] / "evals" / "gold_manifest.json"
@@ -97,7 +97,7 @@ def main(argv: list[str] | None = None) -> int:
     have = collections.Counter(st for n in manifest.get("notices", {}).values()
                                for st in n.get("strata", []))
     cands = []
-    for r in nq(QUERY, {}):
+    for r in run_read_query(QUERY, {}, timeout=120.0, max_rows=100_000):
         if r["aid"] in manifest.get("notices", {}) or r.get("status") == "verified":
             continue
         reasons, strata = reasons_of(r), strata_of(r)
@@ -105,6 +105,7 @@ def main(argv: list[str] | None = None) -> int:
         if not reasons and not rare:
             continue
         cands.append({"aid": r["aid"], "filename": r["filename"], "score": r["score"],
+                      "lots": r.get("lots"), "ocr": r.get("ocr"),
                       "reasons": reasons, "strata": strata,
                       "priority": len(reasons) * 2 + len(rare)})
     cands.sort(key=lambda c: (-c["priority"], c["score"] or 0))
