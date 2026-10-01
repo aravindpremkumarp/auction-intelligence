@@ -129,12 +129,23 @@ def _has_anchors(md: str) -> bool:
                 or _NUMBERED_BARE.search(md))
 
 
+#: A row is a lot's WHOLE segment only when the lot's description is in the
+#: row. Tata-style notices put each lot's description in a paragraph after
+#: its table; there the row holds the money and the serial layout (row start
+#: to next row start) is the right cut, so these rows are left to it.
+_DESCRIPTION_CLUE = re.compile(
+    r"piece\s+and\s+parcel|survey|\bs\.?\s*(?:f\.?\s*)?no\b|door\s*no|plot\s*no|flat\s*no|"
+    r"situated|bounded|boundar|\bsq\.?\s*f|acre|cents?\b|village|taluk", re.I)
+
+
 def _table_segments(md: str, tables: list[Table]) -> tuple[list[Segment], int, int] | None:
     segs: list[Segment] = []
     for ti, t in enumerate(tables):
         rows = lot_rows(t)
         if not rows:
             continue
+        if not all(_DESCRIPTION_CLUE.search(md, r.start, r.end) for r in rows):
+            return None
         for r in rows:
             segs.append(Segment(r.start, r.end, len(segs), None, (ti, r.index)))
     if len(segs) < 1:
