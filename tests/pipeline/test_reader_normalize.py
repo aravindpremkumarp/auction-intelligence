@@ -67,3 +67,16 @@ def test_possession_commits_only_to_one_kind():
     assert N.possession("the physical possession of which has been taken") == ("physical", "ok")
     assert N.possession("Constructive / Symbolic / Physical Possession").state == "none"
     assert N.possession("").state == "none"
+
+
+@pytest.mark.parametrize("quote,unit,expect", [
+    ("Rs. 2889000/- (Rupees Twenty Eight Lakhs Eighty Nine Thousand Only)", None, 2889000),
+    ("Rs. 2889000/- (Rupees Twenty Eight Lakhs Eighty Nine Thousand Only)", "lakh", 2889000),
+    ("Rs.28.89 Lakhs (Rupees Twenty Eight Lakhs Eighty Nine Thousand)", None, 2889000),
+    ("Rs.1.25 Cr", None, 12500000),
+    ("1,25,00,000", "crore", 12500000),
+])
+def test_unit_word_counts_only_beside_the_figure(quote, unit, expect):
+    """Gold 752245: the amount in words named lakhs and scaled a full-rupee
+    figure by 1,00,000."""
+    assert N.money(quote, unit) == (expect, "ok")

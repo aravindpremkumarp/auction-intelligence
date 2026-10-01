@@ -60,12 +60,48 @@ NEO4J_HTTP_API=1 python -m scripts.revert_extraction --reader v2 --dry-run
 
 ## Results
 
-| run | date | notes |
+Live runs, 2026-10-01, the 9 seed gold notices × 3 repeats (`evals/results/`).
+Cost is priced at OpenRouter's DeepSeek v4.1 Flash rates ($0.027 / $0.60 per 1M
+tokens in / out) for both readers, from each run's own token counts.
+
+| | v1 LangExtract (`baseline-v1.json`) | v2 reader (`v2-verify-fixed.json` + `v2-verify-fix4-752245.json`) |
 | --- | --- | --- |
-| structured-output tiers | — | not yet run (`scripts/probe_structured_outputs.py`) |
-| `baseline-v1.json` | — | not yet run; needs `OPENROUTER_API_KEY` |
-| `v2-verify.json` | — | not yet run |
-| shadow cycle | — | not yet run; `render.yaml` is set to `shadow` for the next cron cycle |
+| accuracy (mean of notices) | 99.7% | 99.7% |
+| key-fact recall | 100% | 100% |
+| lot count exact, every repeat | yes | yes |
+| notices with spread ≤ 5 points | 9 / 9 | 9 / 9 |
+| ungrounded stored entities | 10 | **0** |
+| invented values (EXPECT_NULL) | 1 | **0** |
+| tokens in / out | 1.09M / 165k | **0.87M / 104k** |
+| cost, 27 reads | $0.13 | **$0.09** |
+| p95 seconds per notice | 104 | **89** |
+
+The one miss both readers share is 750348 lot 2's flat: the description
+prints "Flat No.5-3", the gold (from the borrower's address) says "S-3".
+`wrong-lot bindings = 3` on 750348 for both readers is the metric, not a
+misbinding: two flats of one serial share their survey, patta and plot
+numbers.
+
+How v2 got there — the first live run scored 89.5%; every loss was code:
+
+| fix | notice | before → after |
+| --- | --- | --- |
+| a one-lot notice is never cut to its table row | 752245 | 6/11 → 10/11 |
+| price cuts keep the bid increment / property id / EMD printed after the price | 753006 | 25/30 → 30/30 |
+| "35.15,000" read as Indian grouping with a misread comma (marked `_ocr_repaired`) | 750348 | lot found |
+| a key-facts vote may replace a value it can locate, never delete one | 750348 | 26/33 → 32/33 |
+| OA No. preferred over TRC No. for `court_reference` | 750600 | 8/9 → 9/9 |
+| a unit word counts only beside the figure, never in the amount in words | 752245 | 10/11 → 11/11 (reserve was 2,88,900 crore) |
+
+Structured-output tiers (`scripts/probe_structured_outputs.py`): strict
+`json_schema` works on both deepseek/deepseek-v4.1-flash and
+deepseek/deepseek-v4-pro; `json_object` works with one repair; plain text
+does not.
+
+**What these 9 notices cannot show.** None has 20+ lots, a long HTML table,
+Tamil text or a poor scan — exactly where v1's documented failures
+(lot under-recall, ungrounded spans, wrong lot numbers) live. Parity here
+says v2 is safe to shadow; the 40-notice gold sprint decides the cutover.
 
 ## Gold set
 
@@ -78,9 +114,9 @@ EXPECT_NULL, description spans).
 
 ## Still to do (needs an API key and the gold sprint)
 
-1. Run the probe, the v1 baseline and the v2 eval; fill the Results table; tune
-   only schema descriptions, RULES, few-shots, segment caps and consistency
-   thresholds (`PR7`).
+1. Done on the 9 seed notices (Results above). Repeat on the ~40-notice gold
+   set once it is verified; tune only schema descriptions, RULES, few-shots,
+   segment caps and consistency thresholds (`PR7`).
 2. Run one shadow cycle; read `reader_shadow_report`; flip `EXTRACT_READER=v2`;
    run `reread_failing` (`PR8`).
 3. Once every re-read document carries `extraction_reader='v2'`, delete the

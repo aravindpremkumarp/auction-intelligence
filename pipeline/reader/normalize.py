@@ -70,13 +70,22 @@ def money(quote: str | None, unit: str | None = None) -> Norm:
         val = float(tok)
     except ValueError:
         return ILLEGIBLE
-    uw = _UNIT_WORD.search(s)
+    # A unit word counts only right after the figure ("Rs.70.00 Lakhs"). The
+    # amount in words that follows many figures ("Rs. 2889000/- (Rupees Twenty
+    # Eight Lakhs ...)", gold 752245) names lakhs too, and multiplying by it
+    # read a 28.89 lakh reserve as 2,88,900 crore.
+    tail = s[m.end():m.end() + 14]
+    near = _UNIT_WORD.search(tail)
     u = None
-    if uw:
-        w = uw.group(1).lower()
+    if near and not re.match(r"\s*/?-?\s*\(", tail):
+        w = near.group(1).lower()
         u = "crore" if w.startswith("cr") else "lakh"
     elif unit in _MULT:
         u = unit
+    # A figure already written in full rupees is never scaled again: a lakh
+    # column holds figures like 28.89, a crore column figures like 1.25.
+    if (u == "lakh" and val >= 100_000) or (u == "crore" and val >= 10_000_000):
+        u = "rupees"
     val *= _MULT.get(u or "rupees", 1)
     if val <= 0:
         return ILLEGIBLE
