@@ -54,7 +54,7 @@ MATCH (d:Document)
 WHERE d.extraction_json IS NOT NULL AND d.stitched_into IS NULL
   AND d.markdown IS NOT NULL AND d.markdown <> ''
   AND (d.ocr_health_score IS NULL OR d.ocr_health_score >= $min_ocr)
-  AND ({predicate})
+  AND (__PREDICATE__)
 """ + ROSTER_CYPHER + """
 RETURN d.filename AS filename,
        coalesce(d.stitched_markdown, d.markdown) AS md,
@@ -62,11 +62,11 @@ RETURN d.filename AS filename,
        coalesce(d.stitched_expected_lot_count, d.expected_lot_count) AS expected_lot_count,
        d.blocks AS blocks, roster AS roster,
        d.extraction_score AS score_before, d.extraction_key_missing AS key_missing_before,
-       d.extraction_corrections_json IS NOT NULL AND d.extraction_corrections_json <> '{{}}' AS has_corrections,
-       CASE {reason_case} END AS reason,
+       d.extraction_corrections_json IS NOT NULL AND d.extraction_corrections_json <> '{}' AS has_corrections,
+       CASE __REASONS__ END AS reason,
        d.extraction_reader AS reader_before
 ORDER BY coalesce(d.extraction_score, 0) ASC, d.filename
-{limit}
+__LIMIT__
 """
 
 AFTER = """
@@ -86,8 +86,9 @@ def select(limit: int | None, only: list[str] | None, min_ocr: int) -> list[dict
     reason_case = " ".join(f"WHEN {p} THEN '{name}'" for name, p in REASONS) + " ELSE 'none'"
     if only:
         predicate = "d.filename IN $only"
-    q = SELECT.format(predicate=predicate, reason_case=reason_case,
-                      limit=f"LIMIT {int(limit)}" if limit else "")
+    # plain replacement, not str.format: the roster fragment holds Cypher maps
+    q = (SELECT.replace("__PREDICATE__", predicate).replace("__REASONS__", reason_case)
+         .replace("__LIMIT__", f"LIMIT {int(limit)}" if limit else ""))
     return run_read_query(q, {"codes": list(FAILING_CODES), "min_ocr": int(min_ocr),
                               "only": only or []}, max_rows=50_000, timeout=300.0)
 
