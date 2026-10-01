@@ -43,7 +43,8 @@ def test_uds_and_extent_rules():
            "attrs": {"lot_index": "1", "total_area": "2400 sq.ft", "extent_sqft": "2400"}}
     assert {x.rule for x in check([fd, ext])} == {"extent_contradicts_description"}
     ext["attrs"]["extent_sqft"] = "1210"
-    ext["attrs"].pop("evidence", None); ext["attrs"].pop("rule", None)
+    ext["attrs"].pop("evidence", None)
+    ext["attrs"].pop("rule", None)
     assert check([fd, ext]) == []
 
 

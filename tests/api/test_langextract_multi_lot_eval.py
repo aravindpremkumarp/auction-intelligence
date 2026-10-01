@@ -262,7 +262,7 @@ def test_export_emits_lots_expect_null_and_spans():
          "attrs": {"reserve_price_num": "2817600", "lot_index": "2"}},
     ]
     lots = _gold_lots(recs)
-    assert [l["reserve_price_num"] for l in lots] == [3515000, 2817600]
+    assert [lot["reserve_price_num"] for lot in lots] == [3515000, 2817600]
     assert lots[0]["emd_num"] == 351500 and lots[0]["village"] == "Varadharajapuram"
     assert lots[0]["identifiers"] == {"flat": "G-2"}
     assert _description_spans(recs) == {"1": [100, 400], "2": [500, 900]}

@@ -43,7 +43,8 @@ def test_uncertain_names_missing_keys_with_a_clue_and_contested_fields():
     # lot 2's property type is missing and its text has type words -> re-read
     assert "property_type" in u.get("2", [])
     t1 = next(e for e in ents if e["cls"] == "auction_terms" and e["attrs"]["lot_index"] == "1")
-    t1["attrs"]["evidence"] = "CONTESTED"; t1["attrs"]["rule"] = "emd_num:emd_ratio_off"
+    t1["attrs"]["evidence"] = "CONTESTED"
+    t1["attrs"]["rule"] = "emd_num:emd_ratio_off"
     u = ST.uncertain(ents, seg, MD, ns)
     assert {"reserve_price", "emd"} <= set(u["1"])
 
