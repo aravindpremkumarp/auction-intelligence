@@ -203,12 +203,19 @@ def segment(md: str, expected_lot_count: int | None = None,
     if not md.strip():
         return _whole(md, expected, "empty", tables)
 
+    # A one-lot notice is never cut: its lot is the whole notice. Cutting it
+    # to its table row (gold 752245) put the property description that
+    # follows the table outside the lot's window, and every quote from it
+    # was dropped as not on the page.
+    if expected == 1:
+        return _whole(md, expected, "single", tables)
+
     # 1. table rows
     ts = _table_segments(md, tables)
     if ts:
         segs, head_end, tail_start = ts
-        if ((expected is None and len(segs) >= 2 and _reserve_count_agrees(md, len(segs)))
-                or (expected and len(segs) == expected)):
+        if len(segs) >= 2 and ((expected is None and _reserve_count_agrees(md, len(segs)))
+                               or expected == len(segs)):
             return Segmentation("table_row", segs, head_end, tail_start, tables, expected,
                                 f"{len(segs)} rows under a price column")
 

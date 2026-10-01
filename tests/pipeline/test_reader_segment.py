@@ -158,6 +158,15 @@ def test_whole_is_one_chunk_of_the_notice():
 
 # ── the gold fixtures: right count or whole, never a wrong cut ────────────────
 @pytest.mark.parametrize("g", GOLD, ids=[g["aid"] for g in GOLD])
+def test_a_one_lot_notice_is_always_read_whole(g):
+    """With a count of 1 the lot IS the notice. A one-row table cut (752245)
+    lost the description below the table and every quote in it."""
+    md = (FIX / f"{g['aid']}.txt").read_text(encoding="utf-8")
+    s = SG.segment(md, 1)
+    assert s.whole and s.segments[0].start == 0 and s.segments[0].end == len(md)
+
+
+@pytest.mark.parametrize("g", GOLD, ids=[g["aid"] for g in GOLD])
 def test_fixtures_are_cut_right_or_read_whole(g):
     md = (FIX / f"{g['aid']}.txt").read_text(encoding="utf-8")
     n = len(g["lots"]) if g.get("lots") else 1
