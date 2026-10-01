@@ -108,6 +108,13 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.9
+      # Which reader writes extraction_json (pipeline/extract_entry):
+      # langextract | v2 | shadow. "shadow" writes v1 and stores the v2 read
+      # beside it (extraction_shadow_*) for scripts/reader_shadow_report.py;
+      # flip to v2 once the report and the gold eval clear the bar, back to
+      # langextract to roll back — no deploy either way.
+      - key: EXTRACT_READER
+        value: shadow
       - key: LANGEXTRACT_PROVIDER
         value: openrouter
       - key: NEO4J_URI

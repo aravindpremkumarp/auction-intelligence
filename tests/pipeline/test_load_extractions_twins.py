@@ -10,6 +10,8 @@ the planner and are monkeypatched.
 """
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pipeline.load_extractions as M
 
 
@@ -244,11 +246,35 @@ def test_a_model_that_returns_nothing_leaves_the_page_untouched(monkeypatch):
     assert "no entities" in line and line.startswith("[fail]")
 
 
-def test_a_page_with_entities_is_still_written(monkeypatch):
+def _v1_stub(monkeypatch, extract):
+    """Stub the LangExtract module the v1 reader imports, and quiet the store."""
+    import sys
+    import types
+
+    import pipeline
+    import pipeline.extraction_store as ES
+    import scripts.reset_langextract_and_extract as R
+    lx = types.ModuleType("pipeline.langextract_examples")
+    lx.extract = extract
+    monkeypatch.setitem(sys.modules, "pipeline.langextract_examples", lx)
+    monkeypatch.setattr(pipeline, "langextract_examples", lx, raising=False)
+    monkeypatch.setattr(R, "_entities", lambda res, source="": list(res.extractions))
     writes = []
-    LX = _extract_returning(monkeypatch, ["one"], writes)
+    monkeypatch.setattr(ES, "run_query", lambda q, p=None, **k: (writes.append(p)
+                                                                 if "d.extraction_json = $j" in q else None) or [])
+    monkeypatch.setattr(ES, "previous", lambda fns: {})
+    monkeypatch.setattr(ES, "clear_auto_marks", lambda fns: None)
+    monkeypatch.setattr(ES, "stamp_key_scores", lambda fns: None)
+    monkeypatch.setattr(ES, "write_marks", lambda fn, m: 0)
+    monkeypatch.setattr(ES, "validate_stored", lambda *a, **k: {"score": 90})
+    monkeypatch.delenv("EXTRACT_READER", raising=False)
+    return writes
+
+
+def test_a_page_with_entities_is_still_written(monkeypatch):
+    writes = _v1_stub(monkeypatch, lambda md, **kw: SimpleNamespace(extractions=["one"]))
     ok, _model, line = M._extract_one({"filename": "a.jpg", "md": "TEXT"},
-                                      batch=1, route=False, LX=LX)
+                                      batch=1, route=False, LX=None)
     assert ok is True and len(writes) == 1
     assert "1 fields" in line
 
@@ -258,30 +284,17 @@ def test_a_page_with_entities_is_still_written(monkeypatch):
 def test_a_single_lot_page_is_read_once_and_a_multi_lot_page_twice(monkeypatch):
     seen = {}
 
-    class _Ent:
-        extraction_class = "bank_name"
-        extraction_text = "Indian Bank"
-        attributes: dict = {}
-        char_interval = None
-
-    class _Res:
-        extractions = [_Ent()]
-
-    class _LX:
-        @staticmethod
-        def extract(md, **kw):
-            # keyed on the text, not the model: both notice types route to the
-            # same model today, so a model-keyed dict would collide
-            seen[md] = kw.get("passes")
-            return _Res()
-
-    monkeypatch.setattr(M, "run_query", lambda *a, **k: [])
-    monkeypatch.setattr(M, "validate_stored", lambda *a, **k: {"score": 90})
+    def extract(md, **kw):
+        # keyed on the text, not the model: both notice types route to the
+        # same model today, so a model-keyed dict would collide
+        seen[md] = kw.get("passes")
+        return SimpleNamespace(extractions=["one"])
+    _v1_stub(monkeypatch, extract)
     for ntype in ("single", "multi"):
         ok, _model, _line = M._extract_one({"filename": f"{ntype}.jpg",
                                             "md": f"TEXT {ntype}",
                                             "notice_type": ntype},
-                                           batch=1, route=True, LX=_LX)
+                                           batch=1, route=True, LX=None)
         assert ok
     assert seen["TEXT single"] == 1
     assert seen["TEXT multi"] == 2
@@ -292,19 +305,30 @@ def test_an_unrouted_call_leaves_the_pass_count_to_the_env(monkeypatch):
     routing chose — LX.extract falls back to LANGEXTRACT_PASSES there."""
     seen = {}
 
-    class _Res:
-        extractions = ["one"]
-
-    class _LX:
-        @staticmethod
-        def extract(md, **kw):
-            seen["passes"] = kw.get("passes")
-            return _Res()
-
-    monkeypatch.setattr(M, "run_query", lambda *a, **k: [])
-    monkeypatch.setattr(M, "validate_stored", lambda *a, **k: {"score": 90})
-    monkeypatch.setattr(M, "_entities",
-                        lambda res, source="": list(res.extractions))
+    def extract(md, **kw):
+        seen["passes"] = kw.get("passes")
+        return SimpleNamespace(extractions=["one"])
+    _v1_stub(monkeypatch, extract)
     M._extract_one({"filename": "a.jpg", "md": "T", "notice_type": "multi"},
-                   batch=1, route=False, LX=_LX)
+                   batch=1, route=False, LX=None)
     assert seen["passes"] is None
+
+
+# ── the OCR gate and the stale selection (PR6) ────────────────────────────────
+def test_fetch_applies_the_ocr_gate_and_stale_selection(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(M, "run_read_query", lambda cypher, params=None, **k: seen.update(c=cypher, p=params) or [])
+    M._fetch(None, False, None, None, min_ocr=90, stale=True)
+    assert "d.ocr_health_score IS NULL OR d.ocr_health_score >= $min_ocr" in seen["c"]
+    assert seen["p"]["min_ocr"] == 90
+    assert "d.extraction_json IS NULL OR d.extraction_stale_at IS NOT NULL" in seen["c"]
+    assert "d.extraction_json IS NOT NULL AS keep_better" in seen["c"]
+    M._fetch(None, False, None, None)
+    assert "ocr_health_score" not in seen["c"] and "extraction_stale_at IS NOT NULL" not in seen["c"]
+
+
+def test_mark_gated_stamps_the_reason(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(M, "run_query", lambda cypher, params=None, **k: seen.update(c=cypher, p=params) or [{"n": 3}])
+    assert M.mark_gated(90) == 3
+    assert "extraction_skipped_reason = 'ocr_health'" in seen["c"] and seen["p"]["min_ocr"] == 90

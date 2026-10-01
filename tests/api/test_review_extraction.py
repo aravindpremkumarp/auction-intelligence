@@ -516,3 +516,24 @@ def test_bulk_confirm_route_registered_before_catchall():
     assert "/review/extraction/bulk-confirm" in paths
     assert (paths.index("/review/extraction/bulk-confirm")
             < paths.index("/review/extraction/{filename:path}"))
+
+
+# ── evidence on the detail response (PR6) ─────────────────────────────────────
+def test_build_fields_exposes_evidence_and_keeps_values_editable():
+    ej = json.dumps([{"id": "a1", "cls": "auction_terms", "text": "Rs.1,00,000/-", "start": 0, "end": 13,
+                      "attrs": {"lot_index": "1", "reserve_price_num": "100000", "evidence": "VERIFIED",
+                                "page": 2, "source": "table:r1:c3", "method": "verify_vote",
+                                "verified": "reserve_price_num", "anchor": "exact", "reader": "v2",
+                                "prompt_hash": "v2-s1-x", "schema_version": 1}}])
+    (f,) = _build_fields(ej, "{}", "Rs.1,00,000/- rest", False)
+    assert f.evidence == "VERIFIED" and f.page == 2 and f.source == "table:r1:c3"
+    assert f.method == "verify_vote" and f.verified == "reserve_price_num"
+    assert f.attrs == {"reserve_price_num": "100000"}         # evidence attrs are not editable values
+    assert f.lot_index == "1"
+
+
+def test_row_failures_reads_evidence_pills():
+    from api.review.extraction import row_failures
+    assert "contested" in row_failures([], 1, 1, False, {"contested": 2})
+    assert "dropped" in row_failures([], 1, 1, False, {"dropped": 1})
+    assert not {"contested", "fuzzy", "illegible", "dropped"} & set(row_failures([], 1, 1, False, {}))

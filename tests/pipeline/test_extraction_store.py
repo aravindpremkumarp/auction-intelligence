@@ -52,22 +52,69 @@ def test_loader_entities_carry_stable_ids(monkeypatch):
     assert a[1]["attrs"]["kind"] == "survey_old"       # normalisation still applies
 
 
-def test_loader_write_carries_rows(monkeypatch):
-    captured = {}
-    monkeypatch.setattr(M, "run_query", lambda cypher, params=None, **k: captured.update(cypher=cypher, params=params) or [])
-    monkeypatch.setattr(M, "carry_rows", lambda targets, ents: (
+def _quiet_store(monkeypatch, captured: list):
+    monkeypatch.setattr(ES, "run_query", lambda cypher, params=None, **k: captured.append((cypher, params)) or [])
+    monkeypatch.setattr(ES, "carry_rows", lambda targets, ents: (
         [{"fn": t, "cj": "{}", "prev_j": None, "prev_reader": None, "prev_at": None} for t in targets],
         {"orphaned": 0}))
-    monkeypatch.setattr(M, "clear_auto_marks", lambda fns: None)
-    monkeypatch.setattr(M, "stamp_key_scores", lambda fns: None)
-    monkeypatch.setattr(M, "validate_stored", lambda ents, source_text="": {"score": 90})
-    monkeypatch.setattr(M, "_entities", lambda res, src="": [{"id": "abc", "cls": "borrower", "text": "x",
-                                                              "start": 0, "end": 1, "attrs": {}}])
-    LX = SimpleNamespace(extract=lambda *a, **k: SimpleNamespace(extractions=[1]))
+    monkeypatch.setattr(ES, "clear_auto_marks", lambda fns: None)
+    monkeypatch.setattr(ES, "stamp_key_scores", lambda fns: None)
+    monkeypatch.setattr(ES, "write_marks", lambda fn, marks: 0)
+    monkeypatch.setattr(ES, "validate_stored", lambda ents, source_text="": {"score": 90})
+
+
+def test_loader_write_goes_through_the_switch_and_the_store(monkeypatch):
+    captured: list = []
+    _quiet_store(monkeypatch, captured)
+    ents = [{"id": "abc", "cls": "borrower", "text": "x", "start": 0, "end": 1,
+             "attrs": {"evidence": "CONTESTED"}}]
+    monkeypatch.setattr(M, "read_document", lambda d, route: (ents, "m", {"reader": "langextract"}))
     ok, model, line = M._extract_one({"filename": "a.jpg", "md": "x", "twins": ["a.jpg", "b.jpg"]},
-                                     batch=3, route=False, LX=LX)
-    assert ok
-    assert "UNWIND $rows AS r" in captured["cypher"]
-    assert "d.extraction_prev_json = r.prev_j" in captured["cypher"]
-    assert "d.extraction_corrections_json = r.cj" in captured["cypher"]
-    assert [r["fn"] for r in captured["params"]["rows"]] == ["a.jpg", "b.jpg"]
+                                     batch=3, route=False, LX=None)
+    assert ok and "reader=langextract" in line
+    cypher, params = captured[0]
+    assert "UNWIND $rows AS r" in cypher
+    assert "d.extraction_prev_json = r.prev_j" in cypher
+    assert "d.extraction_corrections_json = r.cj" in cypher
+    assert "d.extraction_reader = $reader" in cypher and params["reader"] == "langextract"
+    assert "d.extraction_review_status = 'pending'" in cypher
+    assert "REMOVE d.extraction_verified_by, d.extraction_verified_at" in cypher
+    assert "d.extraction_stale_at = NULL" in cypher
+    assert [r["fn"] for r in params["rows"]] == ["a.jpg", "b.jpg"]
+    assert params["counts"] == {"contested": 1, "fuzzy": 0, "illegible": 0, "dropped": 0}
+    assert params["text_hash"] and len(params["text_hash"]) == 64
+    assert any("ExtractionRun" in c for c, _ in captured)
+
+
+def test_store_writes_shadow_events_and_marks(monkeypatch):
+    captured: list = []
+    _quiet_store(monkeypatch, captured)
+    marks: list = []
+    monkeypatch.setattr(ES, "write_marks", lambda fn, m: marks.append((fn, m)) or len(m))
+    ents = [{"cls": "auction_terms", "text": "Rs.1", "start": 0, "end": 4, "attrs": {"lot_index": "1"}}]
+    meta = {"reader": "v2", "prompt_hash": "v2-s1-abc", "schema_version": 1,
+            "timeline": [{"event": "auction_start", "date": "2026-10-15", "lot_index": "1"}],
+            "marks": [("1", "possession_type"), ("1", "reserve_price")],
+            "dropped": [{"cls": "extent"}],
+            "shadow": {"entities": ents, "score": 70, "model": "m2", "judge": {"v2_better": True}}}
+    res = ES.write_extraction({"filename": "a.jpg", "md": "Rs.1"}, ents, 5, reader="v2", model="m", meta=meta)
+    cyphers = [c for c, _ in captured]
+    assert any("AuctionEvent" in c for c in cyphers) and any("extraction_shadow_json" in c for c in cyphers)
+    assert res["counts"]["dropped"] == 1
+    (fn, m), = marks
+    assert "absent:1:possession_type" in m and "unfound:1:reserve_price" in m
+    assert all(v["rule"] == "reader_not_stated" and v["by"] == "auto" for v in m.values())
+
+
+def test_keep_better_raises_when_stored_is_at_least_as_good(monkeypatch):
+    captured: list = []
+    _quiet_store(monkeypatch, captured)
+    stored = [{"cls": "auction_terms", "text": "Rs.1", "start": 0, "end": 4,
+               "attrs": {"lot_index": "1", "reserve_price_num": "100000"}}]
+    monkeypatch.setattr(ES, "stored", lambda fn: {"entities": stored, "text_changed": False})
+    import pytest
+    with pytest.raises(ES.KeptExisting):
+        ES.write_extraction({"filename": "a.jpg", "md": "Rs.1"},
+                            [{"cls": "auction_terms", "text": "Rs.1", "start": 0, "end": 4, "attrs": {"lot_index": "1"}}],
+                            5, keep_better=True)
+    assert captured == []

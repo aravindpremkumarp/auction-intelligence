@@ -970,6 +970,14 @@
                   title="extracted values with no matching text in the notice — the model may have made them up">ungrounded</button>
           <button class="pill" data-xflag="odd-values"
                   title="a value that cannot be right: reserve price out of range, EMD not ~10% of reserve, bad possession type or identifier kind">odd values</button>
+          <button class="pill" data-xflag="contested"
+                  title="a value two reads disagreed on, or that failed a cross-field rule (EMD vs reserve, dates, UDS, extent) — check it first">contested</button>
+          <button class="pill" data-xflag="fuzzy"
+                  title="a value found only by similarity — the OCR changed these characters">fuzzy</button>
+          <button class="pill" data-xflag="illegible"
+                  title="a figure the OCR garbled (a letter inside a number); the reader kept the garbled quote and no number">illegible</button>
+          <button class="pill" data-xflag="dropped"
+                  title="the model quoted text that is not on the page; the quote was thrown away rather than stored">dropped quotes</button>
         </span>
         <button id="xflag-clear" class="ghost" title="show all notices again">clear</button>
       </span>
