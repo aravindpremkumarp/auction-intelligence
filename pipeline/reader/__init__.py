@@ -68,9 +68,13 @@ class EmptyRead(RuntimeError):
 def _default_call(model_id: str, usage: dict, counter: dict):
     from pipeline.reader.llm import call_structured
 
+    from pipeline.reader.llm import call_cost
+
     def call(system: str, user: str, schema: type, *, model: str | None = None):
-        r = call_structured(model or model_id, system, user, schema)
+        m = model or model_id
+        r = call_structured(m, system, user, schema)
         counter["calls"] = counter.get("calls", 0) + 1
+        counter["cost"] = counter.get("cost", 0.0) + call_cost(m, r.usage)
         for k, v in r.usage.items():
             usage[k] = usage.get(k, 0) + v
         return r.parsed
@@ -181,6 +185,7 @@ def read_notice(md: str, *, expected_lot_count: int | None = None,
                                                max_reads=3 if stability == "double" else 2))
     entities = assign_ids(entities)
     tel = telemetry.summarise(entities, conv.dropped, usage=usage, calls=counter.get("calls", 0),
+                              cost_usd=round(counter["cost"], 6) if "cost" in counter else None,
                               seconds=round(time.monotonic() - t0, 1),
                               segmentation=describe(seg), not_stated=conv.not_stated)
     return ReadResult(entities=entities, timeline=conv.timeline, segmentation=describe(seg),
@@ -188,15 +193,3 @@ def read_notice(md: str, *, expected_lot_count: int | None = None,
                       prompt_hash=PROMPT_HASH, marks=conv.not_stated, findings=findings,
                       reports=reports)
 
-
-if __name__ == "__main__":  # python -m pipeline.reader <markdown.txt> [expected_lot_count]
-    import json
-    import sys
-    text = open(sys.argv[1], encoding="utf-8").read()
-    exp = int(sys.argv[2]) if len(sys.argv) > 2 else None
-    r = read_notice(text, expected_lot_count=exp)
-    lots = {(e["attrs"] or {}).get("lot_index") for e in r.entities} - {None}
-    ung = sum(1 for e in r.entities if e.get("start") is None)
-    print(f"{len(lots)} lot(s), {len(r.entities)} entities, {ung} ungrounded, "
-          f"{len(r.dropped)} dropped, strategy={r.segmentation.get('strategy')}")
-    print(json.dumps(r.telemetry, indent=1)[:2000])

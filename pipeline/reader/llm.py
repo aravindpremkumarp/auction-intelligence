@@ -81,13 +81,25 @@ def _usage_dict(usage) -> dict:
     }
 
 
-def _record_usage(usage) -> None:
+def _record_usage(usage, model: str | None = None) -> None:
+    """Into the shared counter — unless the OpenAI client is already patched
+    by pipeline.langextract_run.install_usage_tracking, which records every
+    call itself (counting here too would bill each call twice)."""
     try:
         from pipeline.langextract_run import USAGE
-        if usage is not None:
-            USAGE.add_openai(usage)
+        if usage is not None and not USAGE._patched:
+            USAGE.add_openai(usage, model)
     except Exception:  # pragma: no cover - accounting must never break a read
         pass
+
+
+def call_cost(model: str, usage: dict) -> float:
+    """$ for one call's usage dict, at the model's own price."""
+    from pipeline.langextract_run import _prices
+    pin, pout, pcache = _prices(model)
+    cached = usage.get("cached_tokens", 0)
+    billed = max(usage.get("prompt_tokens", 0) - cached, 0)
+    return billed / 1e6 * pin + cached / 1e6 * pcache + usage.get("completion_tokens", 0) / 1e6 * pout
 
 
 def default_client(timeout: float | None = None):
@@ -173,7 +185,7 @@ def call_structured(model_id: str, system: str, user: str,
                 last_err = e
                 continue
             raise
-        _record_usage(getattr(resp, "usage", None))
+        _record_usage(getattr(resp, "usage", None), model_id)
         choice = resp.choices[0]
         finish = getattr(choice, "finish_reason", None)
         text = (choice.message.content or "") if choice.message else ""
@@ -195,7 +207,7 @@ def call_structured(model_id: str, system: str, user: str,
             except Exception as e2:  # noqa: BLE001
                 last_err = e2
                 continue
-            _record_usage(getattr(resp2, "usage", None))
+            _record_usage(getattr(resp2, "usage", None), model_id)
             c2 = resp2.choices[0]
             text2 = (c2.message.content or "") if c2.message else ""
             if getattr(c2, "finish_reason", None) == "length":

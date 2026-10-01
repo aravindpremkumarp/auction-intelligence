@@ -91,3 +91,17 @@ def test_unparseable_after_every_tier():
 def test_strip_fences():
     assert L.strip_fences('```json\n{"a":1}\n```') == '{"a":1}'
     assert L.strip_fences('Sure: {"a":1} done') == '{"a":1}'
+
+
+def test_usage_is_priced_by_the_model_that_served_it():
+    from pipeline.langextract_run import Usage
+    from types import SimpleNamespace as NS
+    u = Usage()
+    u.add_openai(NS(prompt_tokens=1_000_000, completion_tokens=1_000_000, prompt_tokens_details=None),
+                 "deepseek/deepseek-v4.1-flash")
+    assert abs(u.est_cost - (0.027 + 0.60)) < 1e-9
+    u.add_openai(NS(prompt_tokens=1_000_000, completion_tokens=0, prompt_tokens_details=None), "unknown/model")
+    assert abs(u.est_cost - (0.027 + 0.60 + 0.30)) < 1e-9          # falls back to the old default
+    assert abs(L.call_cost("deepseek/deepseek-v4.1-flash",
+                           {"prompt_tokens": 2_000_000, "completion_tokens": 0, "cached_tokens": 1_000_000})
+               - 0.054) < 1e-9
