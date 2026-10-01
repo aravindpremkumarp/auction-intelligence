@@ -4,7 +4,7 @@ from __future__ import annotations
 from pipeline.reader import stability as ST
 from pipeline.reader.convert import to_entities
 from pipeline.reader.examples import SERIAL_ROWS_NOTICE, SERIAL_ROWS_SEGMENT, SERIAL_ROWS_TEXT
-from pipeline.reader.schema import KeyFacts, KeyFactsRead, LotRead, NoticeRead, SegmentRead
+from pipeline.reader.schema import KeyFacts, KeyFactsRead, LotRead, NoticeRead, SegmentRead  # noqa: F401
 from pipeline.reader.segment import chunks, segment
 from pipeline.reader.tables import parse_tables
 
@@ -112,3 +112,23 @@ def test_verify_no_majority_is_contested():
     t1 = next(e for e in ents if e["cls"] == "auction_terms" and e["attrs"]["lot_index"] == "1")
     assert t1["attrs"]["evidence"] == "CONTESTED" and "emd_num:vote_disagreed" in t1["attrs"]["rule"]
     assert t1["attrs"]["emd_num"] == "268300"              # first read kept
+
+
+def test_a_vote_never_deletes_a_value():
+    """Gold 750348: both check reads said 'not stated' for a reserve the first
+    read had right. The majority must not erase it; it is contested instead."""
+    seg, ents, _ = _base()
+    ch = chunks(seg, MD)[0]
+    nothing = _kf(1, reserve_price={"status": "not_stated"})
+
+    def call(system, user, schema, model=None):
+        return KeyFactsRead.model_validate({"lots": [nothing, _kf(2)]})
+    ST.verify(ents, seg, ch, MD, call)
+    t1 = next(e for e in ents if e["cls"] == "auction_terms" and e["attrs"]["lot_index"] == "1")
+    assert t1["attrs"]["reserve_price_num"] == "2683000"
+    assert t1["attrs"]["evidence"] == "CONTESTED"
+
+
+def test_a_check_read_called_illegible_still_goes_through_the_repair():
+    k = KeyFacts.model_validate({"reserve_price": {"status": "illegible", "quote": "RESERVE PRICE 35.15,000/-"}})
+    assert ST._facts_of_read(k)["reserve_price_num"] == "3515000"

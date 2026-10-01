@@ -112,3 +112,12 @@ def test_whole_read_windows_are_fenced_by_descriptions():
     assert [t["attrs"]["reserve_price_num"] for t in terms] == ["2683000", "985000"]
     b2 = [e for e in conv.entities if e["cls"] == "borrower" and e["attrs"]["lot_index"] == "2"]
     assert b2 and b2[0]["start"] > md.index("Description of the Immovable Property: All that piece and parcel of the Erode")
+
+
+def test_a_figure_the_model_called_illegible_is_still_repaired_by_code():
+    lot = {**SINGLE_SEGMENT["lots"][0],
+           "reserve_price": {"status": "illegible", "quote": "Rs.9,50,000/-"}}
+    seg, conv = _convert(SINGLE_TEXT, {"lots": [lot]}, SINGLE_NOTICE, expected=1)
+    t = next(e for e in conv.entities if e["cls"] == "auction_terms")
+    assert t["attrs"]["reserve_price_num"] == "950000"
+    assert "reserve_price_state" not in t["attrs"] and t["attrs"]["evidence"] != "ILLEGIBLE"

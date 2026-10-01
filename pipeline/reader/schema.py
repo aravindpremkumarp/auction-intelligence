@@ -297,7 +297,8 @@ class NoticeRead(_Model):
     assignor_bank: str | None = Field(None, description="The lender the debt was assigned FROM (ARC notices).")
     trust_name: str | None = Field(None, description="The ARC trust, e.g. 'ACRE 166 Trust'.")
     court_reference: str | None = Field(None, description=(
-        "OA / RC / RP / TRC No. (DRT) or CP(IB) / IA / NCLT order (IBC). Never a loan account."))
+        "OA / RC / RP / TRC No. (DRT) or CP(IB) / IA / NCLT order (IBC). Never a loan "
+        "account. With both an OA No. and a TRC / RC No., the OA No."))
     liquidator: str | None = None
     predecessor_entity: str | None = None
     sale_terms_quote: str | None = Field(None, description="'As is where is, as is what is ...'")

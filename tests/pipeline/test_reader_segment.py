@@ -176,3 +176,20 @@ def test_fixtures_are_cut_right_or_read_whole(g):
     if not s.whole:
         for sg in s.segments:
             assert SG._MONEY.search(md, sg.start, sg.end)
+
+
+def test_price_cut_keeps_the_terms_printed_after_the_price_with_their_lot():
+    """Gold 753006: bid increment, property id and EMD follow each reserve
+    price. They belong to that lot, not to the next."""
+    import re
+    md = (FIX / "753006.txt").read_text(encoding="utf-8")
+    s = SG.segment(md, 5)
+    assert s.strategy == "price" and len(s.segments) == 5
+    ids = [m.start() for m in re.finditer(r"IDIB\d+", md)]
+    assert len(ids) == 5
+    for i, pos in enumerate(ids):
+        seg = s.at(pos)
+        assert seg is not None and seg.index == i, (i, pos, seg)
+    emds = [m.start() for m in re.finditer(r"EMD\s*:\s*Rs", md)]
+    for i, pos in enumerate(emds):
+        assert s.at(pos).index == i

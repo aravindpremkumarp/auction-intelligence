@@ -155,9 +155,16 @@ def _facts_of(entities: list[dict], lot: str) -> dict[str, str | None]:
             "extent": (x or {}).get("text"), "village": la.get("village"), "taluk": la.get("taluk")}
 
 
+def _money_of(fact) -> "N.Norm":
+    # "illegible" is the model's hint; code still tries the narrow repairs.
+    if fact.quote and fact.status in ("found", "illegible"):
+        return N.money(fact.quote, fact.unit)
+    return N.NONE
+
+
 def _facts_of_read(k: KeyFacts) -> dict[str, str | None]:
-    rp = N.money(k.reserve_price.quote, k.reserve_price.unit) if k.reserve_price.status == "found" else N.NONE
-    em = N.money(k.emd.quote, k.emd.unit) if k.emd.status == "found" else N.NONE
+    rp = _money_of(k.reserve_price)
+    em = _money_of(k.emd)
     dt = N.date(k.auction_start.quote, k.auction_start.iso) if k.auction_start and k.auction_start.status == "found" else N.NONE
     poss = N.possession(k.possession.quote) if k.possession.status == "found" else N.NONE
     return {"reserve_price_num": str(rp.value) if rp.state == "ok" else None,
@@ -190,12 +197,12 @@ def _apply_value(entities: list[dict], lot: str, key: str, value, quote: str | N
         e = next((x for x in entities if x["cls"] == "location" and _lot(x) == lot), None)
     else:
         return False
-    if e is None or (quote and locate(win, quote) is None):
+    # A vote may REPLACE a value with one it can point to on the page; it may
+    # never DELETE one. Two check reads agreeing on "nothing" outvoted a
+    # correct reserve price on gold 750348 and erased it.
+    if e is None or value in (None, "") or not quote or locate(win, quote) is None:
         return False
-    if value in (None, ""):
-        e["attrs"].pop(key, None)
-    else:
-        e["attrs"][key] = value
+    e["attrs"][key] = value
     e["attrs"]["method"] = "verify_vote"
     return True
 

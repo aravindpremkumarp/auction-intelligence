@@ -155,8 +155,48 @@ def _table_segments(md: str, tables: list[Table]) -> tuple[list[Segment], int, i
     return segs, first_table, last_table
 
 
+#: A paragraph that still belongs to the lot whose price line came just
+#: before it: the terms a notice prints after the reserve price (bid
+#: increment, EMD, the property id, the auction website, an image link) and
+#: a bare id token. Gold 753006 prints "Bid increment", "PROPERTY ID NO." and
+#: "EMD" after every reserve price; cutting at the price line handed each
+#: lot's id and EMD to the next lot's window, where grounding refused them.
+_TRAILING_TERMS = re.compile(
+    r"^\s*(?:\*\*)?(?:bid\s*increment|property\s*id|emd\b|earnest|e-?auction\s*(?:web\s*site|portal)"
+    r"|property\s*location|website|!\[|https?://|www\.|[A-Z]{2,}\d{6,}|cersai)", re.I)
+TRAILING_TERMS_CAP = 1200
+
+
+def _extend_price_tails(md: str, lots: list[Lot], tail_start: int) -> tuple[list[Lot], int]:
+    """Move each price-cut boundary past the terms paragraphs that follow
+    the price line. The next lot starts where the previous now ends."""
+    out: list[Lot] = []
+    for i, lot in enumerate(lots):
+        end = lot.end
+        limit = min(len(md), lot.end + TRAILING_TERMS_CAP)
+        if i + 1 < len(lots):
+            limit = min(limit, lots[i + 1].end - 1)
+        pos = end
+        while pos < limit:
+            while pos < limit and md[pos] in "\n \t":
+                pos += 1
+            nxt = md.find("\n\n", pos)
+            nxt = limit if nxt == -1 or nxt > limit else nxt
+            para = md[pos:nxt]
+            if not para or not _TRAILING_TERMS.match(para):
+                break
+            end = nxt
+            pos = nxt
+        start = out[-1].end if out else lot.start
+        out.append(Lot(start, max(end, start), lot.label))
+    last_end = out[-1].end if out else tail_start
+    return out, max(tail_start, last_end)
+
+
 def _from_lots(strategy: str, lots: list[Lot], head_end: int, tail_start: int,
                md: str, expected: int | None, note: str = "") -> Segmentation:
+    if strategy == "price":
+        lots, tail_start = _extend_price_tails(md, lots, tail_start)
     segs = [Segment(l.start, l.end, i, l.label) for i, l in enumerate(lots)]
     return Segmentation(strategy, segs, head_end, tail_start, parse_tables(md), expected, note)
 

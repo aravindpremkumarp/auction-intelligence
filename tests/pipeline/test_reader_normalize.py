@@ -17,7 +17,14 @@ def test_money_ok(quote, unit, expect):
     assert N.money(quote, unit) == (expect, "ok")
 
 
-@pytest.mark.parametrize("quote", ["35.15,000", "Rs.5O,000", "12.50.000", "Rs. 3,1O,000"])
+@pytest.mark.parametrize("quote,expect", [("RESERVE PRICE 35.15,000/-", 3515000), ("EMD 3.51,500/-", 351500)])
+def test_money_repairs_a_dot_in_an_indian_grouping_slot(quote, expect):
+    assert N.money(quote) == (expect, "ok") and N.grouping_repaired(quote)
+    assert not N.grouping_repaired("Rs.7.00 Lakhs") and N.money("Rs.7.00 Lakhs") == (700000, "ok")
+    assert not N.grouping_repaired("Rs.12.50")
+
+
+@pytest.mark.parametrize("quote", ["Rs.5O,000", "12.50.000", "Rs. 3,1O,000", "35.15.000"])
 def test_money_broken_digits_are_illegible_not_a_number(quote):
     assert N.money(quote).state == "illegible"
     assert N.money(quote).value is None

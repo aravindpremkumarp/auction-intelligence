@@ -279,11 +279,17 @@ class _Ctx:
                                 ("bid_increment", lot.bid_increment, "bid_increment_num")):
             if fact is None:
                 continue
-            if fact.status == "found" and fact.quote:
+            # The model's own "illegible" is a hint, not a verdict: a figure it
+            # could not read may still be one the narrow OCR repairs recover
+            # (gold 750348, "35.15,000"). Code decides, and marks the repair.
+            if fact.status in ("found", "illegible") and fact.quote and N.money(
+                    fact.quote, fact.unit).state == "ok" or (fact.status == "found" and fact.quote):
                 unit = fact.unit or (money_unit if key in ("reserve_price", "emd") else None)
                 m = N.money(fact.quote, unit)
                 if m.state == "ok":
                     tattrs[attr] = str(m.value)
+                    if N.grouping_repaired(fact.quote):
+                        tattrs[f"{key}_ocr_repaired"] = "true"
                     money_quote = money_quote or fact.quote
                 else:
                     tstates[key] = m.state if m.state == "illegible" else "not_stated"

@@ -55,7 +55,10 @@ RULES: tuple[str, ...] = (
     "'X Hobli' is hobli (Karnataka), not a taluk. 'X Grama Panchayath' is "
     "panchayat. 'within the limits of X Corporation' is municipality_corporation.",
     "DRT case refs ('OA No', 'RC No', 'RP No', 'TRC No') and IBC refs ('CP(IB)', "
-    "'IA', an NCLT order) are the notice's court_reference — never a loan account.",
+    "'IA', an NCLT order) are the notice's court_reference — never a loan account. "
+    "When the notice names both the original application (OA No.) and the "
+    "recovery certificate it led to (TRC / RC / DRC No.), court_reference is the "
+    "OA No.",
     "ARC notices: the ARC is the seller (bank_name_quote); the bank the debt was "
     "assigned FROM is assignor_bank; the '... Trust' is trust_name; legal_basis "
     "stays SARFAESI.",

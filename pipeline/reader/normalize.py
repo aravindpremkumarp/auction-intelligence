@@ -38,12 +38,25 @@ _LETTER_IN_DIGITS = re.compile(r"\d[OoIl|]\d|\d[OoIl|],|,[OoIl|]\d")
 _DOUBLE_DECIMAL = re.compile(r"\d+\.\d+\.\d")
 
 
+#: Indian digit grouping (1,00,00,000) with a full stop read in a comma
+#: slot: "35.15,000" is 35,15,000 and "3.51,500" is 3,51,500 (gold 750348).
+#: The repair is narrow — a dot followed by exactly two digits and then a
+#: comma with three — so a real decimal ("Rs.7.00 Lakhs", "12.50") never
+#: matches. Callers learn of it through :func:`grouping_repaired` and mark
+#: the value, so the receipt says the figure was read through an OCR fault.
+_GROUPING_DOT = re.compile(r"(?<![\d.])(\d{1,2})\.(\d{2}),(\d{3})(?![\d.])")
+
+
+def grouping_repaired(quote: str | None) -> bool:
+    return bool(quote and _GROUPING_DOT.search(str(quote)))
+
+
 def money(quote: str | None, unit: str | None = None) -> Norm:
     """Integer rupees from a quote and a unit (from the figure or its column
     header). A unit word inside the quote wins over ``unit``."""
     if not quote or not str(quote).strip():
         return NONE
-    s = str(quote)
+    s = _GROUPING_DOT.sub(r"\1,\2,\3", str(quote))
     if _LETTER_IN_DIGITS.search(s) or _BROKEN_DECIMAL.search(s) or _DOUBLE_DECIMAL.search(s):
         return ILLEGIBLE
     m = _NUM.search(s)
