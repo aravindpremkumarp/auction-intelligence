@@ -401,6 +401,30 @@ text corrections, under prefixed keys:
 
 Model entities are never deleted through review; a reviewer-added one is.
 
+| `"unfound:<lot>:<key>"` | `{by, at, rule}` — looked for and not found; `by: "auto"` with `rule: "reader_not_stated"` when the v2 reader said the lot does not state a fact every notice states | the checklist; the gap-filler stops looking |
+| `"orphaned:<old id or key>"` | the correction as it was, plus `orphaned_from {cls, text, start, end, lot_index}` — a re-read matched it to no entity (`pipeline/extraction_ids`) | the review page lists it for re-placing; never applied, never deleted |
+
+### Reader v2: evidence, history and runs (`pipeline/reader`, `pipeline/extraction_store`)
+
+Every writer of `extraction_json` goes through `pipeline.extraction_store.write_extraction`, which stamps:
+
+| property | meaning |
+| --- | --- |
+| `extraction_reader` | `langextract` or `v2` — which reader wrote the entities |
+| `extraction_prompt_hash` / `extraction_schema_version` | the v2 prompt and schema that produced them (`pipeline/reader/prompt.PROMPT_HASH`, `schema.SCHEMA_VERSION`); `pipeline/reader/migrate.py` brings old blobs forward |
+| `extraction_text_hash` | sha256 of the markdown read, so a re-read of unchanged text is recognisable |
+| `extraction_prev_json` / `_prev_reader` / `_prev_at` | the read this write replaced — one level of history; `scripts/revert_extraction.py` swaps it back and carries the corrections with it |
+| `extraction_contested` / `_fuzzy` / `_illegible` / `_dropped` | counts of entities in those evidence states (dropped = quotes not on the page, never stored); the queue's **contested / fuzzy / illegible / dropped quotes** pills |
+| `extraction_telemetry_json` | compact field-level telemetry: key facts filled / verified, calls, cost |
+| `extraction_timeline_json` | every dated event `{event, date, quote, lot_index, evidence, source}`; also written as `(:Document)-[:HAS_EVENT]->(:AuctionEvent {filename, event, lot_index, date, evidence, source})` |
+| `extraction_segmentation` | how the lots were cut: `table_row` / `serial` / `numbered` / `price` / `anchors` / `whole` |
+| `extraction_skipped_reason` | `ocr_health` when the OCR gate (`EXTRACT_MIN_OCR_HEALTH`) held the page back; cleared by a write |
+| `extraction_shadow_json` / `_score` / `_judge` / `_telemetry_json` / `_error` / `_seconds` | with `EXTRACT_READER=shadow`: the v2 read kept beside the v1 one, with `keep_better.judge`'s verdict; `scripts/reader_shadow_report.py` aggregates them |
+
+Each v2 entity's `attrs` carry its receipt: `evidence` (`EXPLICIT` / `INHERITED` / `FUZZY_GROUNDED` / `CONTESTED` / `NOT_STATED` / `ILLEGIBLE` / `VERIFIED` — a word, never a number), `anchor` (`exact` / `fold` / `fuzzy`), `page`, `block_id`, `source` (`table:r{row}:c{col}` / `prose` / `header` / `tail`), `method` (`structured_reader` / `field_reread` / `verify_vote`), `inherited_from`, `rule` (the consistency rule that contested it), `verified` (the key facts two reads agreed on). `text` is always `markdown[start:end]`.
+
+`(:Document)-[:EXTRACTED_BY]->(:ExtractionRun {run_id, batch, reader, prompt_hash, schema_version, model, at})` records each write. `:Lot.provenance_json` (`pipeline/promote_extractions.lot_provenance`) carries, per promoted value, the entity id, span, page, block, source, evidence state and method.
+
 ### Possession read off boilerplate: `possession_cleared_json`
 
 Canara Bank prints "For the properties which are in symbolic possession of the
